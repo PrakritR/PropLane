@@ -256,7 +256,7 @@ export function ManagerSignupPanel({
               disabled={locked || paidBlocked}
             />
           </div>
-          <AuthDivider label="or enter your details" />
+          <AuthDivider label="or" />
           <Input
             placeholder="Full name"
             autoComplete="name"

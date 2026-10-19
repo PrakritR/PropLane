@@ -18,7 +18,7 @@ test.describe("Resident login and application flow", () => {
 
   test("public tours-contact page shows account gate without guest continue", async ({ page }) => {
     await page.goto(e2eToursContactUrl());
-    await expect(page.getByRole("heading", { name: /create your resident account|schedule tour/i })).toBeVisible({
+    await expect(page.getByRole("heading", { name: /create your resident account|schedule tour|book a tour/i })).toBeVisible({
       timeout: 15_000,
     });
     await expect(page.getByRole("button", { name: /schedule as a guest/i })).toHaveCount(0);

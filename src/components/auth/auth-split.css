@@ -1,12 +1,15 @@
 /*
- * Auth split screen, style B (captain 2026-10-07; Mobbin refs Lovable, Base44, Lindy).
+ * Auth split screen in the homepage's look (concept A, Oct 18 2026).
  *
- * Wide web windows get a ~45 / 55 split: the form on a white left column, an
- * INSET rounded card on the right in the home page's wavy atmosphere with a
- * floating "Ask PropLane" bar that types. Below `lg`, in the native shells and
- * on the wide plan chooser the card is hidden and the screens keep the
- * single-column look they already had. Layout and visuals only; no control,
- * label, link or route lives here.
+ * The shell root carries `.ps` (public-site.css), so the whole page is one face
+ * (Inter Tight) and the app palette is already re-pointed at the homepage's ink,
+ * hairline and single blue. This file only lays out the two columns and flattens
+ * the shared auth components (card, inputs, buttons, divider) to that look.
+ *
+ * Wide web windows: the form on a paper column at left, the blue panel flush to
+ * the top, right and bottom edges at right (no inset, no radius, no gap). Below
+ * `lg`, in the native shells and on the wide plan chooser the panel is hidden.
+ * Layout and visuals only; no control, label, link or route lives here.
  */
 
 .auth-split-form {
@@ -22,365 +25,508 @@
   display: none;
 }
 
+html:not([data-native]) .auth-layout.ps {
+  background: var(--ps-paper);
+}
+
+/* The logo is the homepage bar's: mark + wordmark, top-left. */
+html:not([data-native]) .auth-layout.ps .auth-layout-home-mark {
+  padding: 20px var(--ps-gut) 0;
+}
+
 /* Below lg the logo sits on top of the full-width form, so the form starts under it. */
 @media (max-width: 1023px) {
   html:not([data-native]) .auth-split-form .auth-layout-main {
-    padding-top: 4.5rem;
+    padding-top: 5.5rem;
+  }
+
+  /* On a phone the form starts under the logo rather than floating mid-screen. */
+  html:not([data-native]) .auth-layout.ps .auth-layout-panel {
+    margin-block: 0 auto;
   }
 }
+
+/* ------------------------------ the columns ------------------------------ */
 
 @media (min-width: 1024px) {
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) {
+  html:not([data-native]) .auth-layout.ps:not(:has(.auth-plan-picker-wide)) {
     display: grid;
-    grid-template-columns: minmax(0, 45fr) minmax(0, 55fr);
-    background: #fff;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    padding-top: 0;
+    padding-bottom: 0;
   }
 
-  /* The frame-level atmosphere and substrate give way to the card's own. */
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) > .rlp-atmosphere,
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) > [class*="chrome-substrate"] {
-    display: none !important;
-  }
-
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-split-form {
+  html:not([data-native]) .auth-layout.ps:not(:has(.auth-plan-picker-wide)) .auth-split-form {
     height: 100%;
-    background: #fff;
   }
 
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-brand-panel {
+  /* The panel: full height, flush to the top, right and bottom edges. */
+  html:not([data-native]) .auth-layout.ps:not(:has(.auth-plan-picker-wide)) .auth-brand-panel {
+    position: relative;
     display: block;
     min-height: 0;
-    padding: 16px;
+    height: 100dvh;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border-radius: 0;
+    background: var(--ps-blue);
+    color: #fff;
   }
 
-  /* Logo top-left; the form sits centred in a narrow column below it. */
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-home-mark {
-    left: 0;
-    top: 0;
-    padding: 28px 0 0 40px;
+  html:not([data-native]) .auth-layout.ps:not(:has(.auth-plan-picker-wide)) .auth-layout-main {
+    padding: 5.5rem var(--ps-gut) 2rem;
   }
 
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-main {
-    padding: 5.5rem 2rem 2rem;
-  }
-
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel {
+  html:not([data-native]) .auth-layout.ps:not(:has(.auth-plan-picker-wide)) .auth-layout-panel {
     max-width: 400px;
-    --btn-primary: #132b47;
-  }
-
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel > * {
-    max-width: 100%;
-  }
-
-  /* The frosted card and its blue edge ring drop out: the white column is the surface. */
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-card-shell {
-    max-width: none;
-  }
-
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-card-shell > div:first-child:not(.auth-card) {
-    display: none;
-  }
-
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-card:not(.auth-card-blend) {
-    padding: 0 !important;
-    border: 0 !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-  }
-
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-card:not(.auth-card-blend) > div:first-child:empty {
-    display: none;
-  }
-
-  /* Big bold title and a short subtitle, left aligned. */
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel h1 {
-    text-align: left;
-    font-size: 2.35rem;
-    font-weight: 740;
-    line-height: 1.06;
-    letter-spacing: -0.035em;
-    color: var(--site-ink, #132b47);
-    background: none;
-    -webkit-text-fill-color: currentColor;
-  }
-
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel :is(h1 + p, .auth-page-header, .auth-brand-header) {
-    text-align: left;
-  }
-
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel h1 + p {
-    margin-left: 0;
-    margin-right: 0;
-    max-width: none;
-    font-size: 15px;
-    line-height: 1.45;
-  }
-
-  /* Fields: soft, rounded, generous. */
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel
-    :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea) {
-    min-height: 50px;
-    border-radius: 12px;
-    font-size: 15.5px;
-    background-color: #fff;
-  }
-
-  /* A phone field is a country picker joined to a number input: keep them one 50px control. */
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel input[type="tel"] {
-    border-top-left-radius: 0;
-    border-bottom-left-radius: 0;
-  }
-
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel :is([data-attr="phone-country"], [data-attr$="-country"]) {
-    min-height: 50px;
-    border-radius: 12px 0 0 12px;
-  }
-
-  /* Pill primaries that are not .btn-cobalt (reset password, setup steps) follow the same 12px shape. */
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel button.w-full.rounded-full:not(.auth-oauth-google):not(.auth-oauth-apple) {
-    min-height: 50px;
-    border-radius: 12px;
-    box-shadow: none;
-  }
-
-  /* OAuth: full-width outlined buttons (Apple stays the filled one it already is). */
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel :is(.auth-oauth-apple, .auth-oauth-google) {
-    min-height: 48px;
-    border-radius: 12px;
-    font-size: 15px;
-  }
-
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel .auth-oauth-google {
-    background: #fff;
-    border-color: #d5deea;
-    box-shadow: none;
-  }
-
-  /* One dark, full-width primary. */
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel .btn-cobalt {
-    min-height: 50px;
-    border-radius: 12px;
-    box-shadow: none;
-  }
-
-  html:not([data-native]) .auth-layout:not(:has(.auth-plan-picker-wide)) .auth-layout-panel .btn-cobalt:hover:not(:disabled) {
-    filter: brightness(1.25);
   }
 }
 
-/* --------------------------------- the card --------------------------------- */
+/* ------------------------------ the form column ------------------------------ */
 
-.auth-brand-card {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  height: 100%;
-  border-radius: 24px;
-  background: #e9f2fa;
-  box-shadow: 0 0 0 1px rgba(19, 43, 71, 0.05);
+html:not([data-native]) .auth-layout.ps:not(:has(.auth-plan-picker-wide)) {
+  --btn-primary: var(--ps-blue);
 }
 
-/* The home hero's own atmosphere, filling the card. */
-.auth-brand-card .rlp-atmosphere {
+html:not([data-native]) .auth-layout.ps:not(:has(.auth-plan-picker-wide)) .auth-layout-panel > * {
+  max-width: 100%;
+}
+
+/* The frosted card, its blue edge ring and the glass drop out: the paper column is the surface. */
+html:not([data-native]) .auth-layout.ps:not(:has(.auth-plan-picker-wide)) .auth-card-shell {
+  max-width: none;
+}
+
+html:not([data-native]) .auth-layout.ps:not(:has(.auth-plan-picker-wide)) .auth-card-shell > div:first-child:not(.auth-card) {
+  display: none;
+}
+
+html:not([data-native]) .auth-layout.ps:not(:has(.auth-plan-picker-wide)) .auth-card:not(.auth-card-blend) {
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html:not([data-native]) .auth-layout.ps:not(:has(.auth-plan-picker-wide)) .auth-card:not(.auth-card-blend) > div:first-child:empty {
+  display: none;
+}
+
+/* The title: the homepage's section size, tight, left aligned, plain ink (no gradient text). */
+html:not([data-native]) .auth-layout.ps .auth-layout-panel :is(h1, h2) {
+  font-family: inherit;
+  text-align: left;
+  font-weight: 600;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+  color: var(--ps-ink);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel h1 {
+  font-size: clamp(30px, 3.4vw, 52px);
+  margin-bottom: 28px;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel :is(.auth-page-header, .auth-brand-header) {
+  align-items: flex-start;
+  text-align: left;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel :is(.auth-hub-title, h1 + p, .auth-page-subtitle, .auth-brand-subtitle) {
+  text-align: left;
+  margin-left: 0;
+  margin-right: 0;
+  max-width: none;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel :is(h1 + p, .auth-page-subtitle, .auth-brand-subtitle) {
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--ps-mute);
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel :is(.auth-page-eyebrow) {
+  margin-bottom: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ps-blue);
+}
+
+/* Labels: the same face and weight as the homepage's fields. */
+html:not([data-native]) .auth-layout.ps .auth-layout-panel label {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  text-transform: none;
+  color: var(--ps-ink);
+}
+
+/* Fields: squared, hairline, 16px so iOS never zooms. */
+html:not([data-native]) .auth-layout.ps .auth-layout-panel
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea, select) {
+  min-height: 48px;
+  border: 1px solid var(--ps-rule-d);
+  border-radius: 3px;
+  background-color: var(--ps-white);
+  box-shadow: none;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ps-ink);
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea, select):is(:hover, :focus) {
+  border-color: var(--ps-rule-d);
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel
+  :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea, select):focus {
+  outline: none;
+  border-color: var(--ps-blue);
+  box-shadow: 0 0 0 1px var(--ps-blue);
+}
+
+/* Grouped sections and pick controls drawn with soft rounded utilities are squared to the same 3px. */
+html:not([data-native]) .auth-layout.ps:not(:has(.auth-plan-picker-wide)) .auth-layout-panel
+  :is([class*="rounded-2xl"], [class*="rounded-3xl"], [class*="rounded-xl"], [class*="rounded-[1"], [class*="rounded-[2"]):not(.auth-oauth-apple):not(.auth-oauth-google):not(.auth-choice-button) {
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+/* A phone field is a country picker joined to a number input: keep them one 48px control. */
+html:not([data-native]) .auth-layout.ps .auth-layout-panel input[type="tel"] {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel :is([data-attr="phone-country"], [data-attr$="-country"]) {
+  min-height: 48px;
+  border-radius: 3px 0 0 3px;
+  border-color: var(--ps-rule-d);
+  font-family: inherit;
+}
+
+/* Every primary is the one blue, squared: .btn-cobalt and the pill primaries the setup steps still draw. */
+html:not([data-native]) .auth-layout.ps .auth-layout-panel
+  :is(.btn-cobalt, button.w-full.rounded-full:not(.auth-oauth-google):not(.auth-oauth-apple)) {
+  min-height: 48px;
+  border-radius: 3px;
+  box-shadow: none;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .btn-cobalt {
+  background: var(--ps-blue);
+  color: #fff;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .btn-cobalt:hover:not(:disabled) {
+  background: var(--ps-blue-d);
+  filter: none;
+}
+
+/* OAuth keeps the brand rules (Apple black, Google white with an outline), squared and in the page's face. */
+html:not([data-native]) .auth-layout.ps .auth-layout-panel :is(.auth-oauth-apple, .auth-oauth-google) {
+  min-height: 48px;
+  border-radius: 3px;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .auth-oauth-apple {
+  background: #000;
+  border-color: #000;
+  color: #fff;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .auth-oauth-google {
+  background: #fff;
+  border: 1px solid var(--ps-rule-d);
+  color: var(--ps-ink);
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .auth-oauth-google:hover:not(:disabled) {
+  background: var(--ps-paper);
+}
+
+/* The "or" divider is a plain hairline with one word. */
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .auth-divider {
+  gap: 14px;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .auth-divider > div {
+  background: var(--ps-rule);
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .auth-divider > span {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ps-mute);
+}
+
+/* Role choices (create account, get started): flat hairline rows, no gradient tiles. */
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .auth-choice-button {
+  border: 1px solid var(--ps-rule-d);
+  border-radius: 3px;
+  background: var(--ps-white);
+  box-shadow: none;
+  transform: none;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .auth-choice-button:hover:not(:disabled) {
+  border-color: var(--ps-ink);
+  background: var(--ps-white);
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .auth-choice-button > div {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .auth-choice-button > div > div {
+  border-radius: 0;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .auth-choice-button :is(span[aria-hidden="true"], span[aria-hidden]):first-child {
+  border-radius: 3px;
+  background: var(--ps-blue-t);
+  color: var(--ps-blue);
+  box-shadow: none;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .auth-choice-button :is(span, p)[aria-hidden]:last-child {
+  color: var(--ps-ink);
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .auth-choice-button.auth-choice-button-blend {
+  padding-inline: 14px;
+}
+
+/* Small print and links. */
+html:not([data-native]) .auth-layout.ps .auth-layout-panel .auth-legal-consent {
+  padding-inline: 0;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.45;
+  letter-spacing: 0;
+  color: var(--ps-mute);
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel :is(.native-auth-hub-footer, .auth-footer-link) {
+  text-align: left;
+  font-size: 14px;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel :is(.native-auth-hub-footer, .auth-footer-link) > p {
+  color: var(--ps-mute);
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel :is(a, .auth-back-link) {
+  text-underline-offset: 3px;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-panel a:not(.auth-choice-button) {
+  color: var(--ps-blue);
+  font-weight: 600;
+}
+
+/* The footer is the homepage's plain hairline row. */
+html:not([data-native]) .auth-layout.ps .auth-layout-footer footer[data-site-footer] {
+  background: transparent;
+  border-top: 1px solid var(--ps-rule);
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-footer footer[data-site-footer] > div {
+  padding-inline: var(--ps-gut);
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-footer footer[data-site-footer] > div > div {
+  color: var(--ps-mute);
+  font-size: 13px;
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-footer footer[data-site-footer] a {
+  color: var(--ps-mute);
+}
+
+html:not([data-native]) .auth-layout.ps .auth-layout-footer footer[data-site-footer] a:hover {
+  color: var(--ps-ink);
+}
+
+/* --------------------------------- the panel --------------------------------- */
+
+/* The home hero's own wavy-line atmosphere, drawn white on the slab's blue. */
+.auth-brand-panel .rlp-atmosphere {
   position: absolute;
   inset: 0;
   z-index: 0;
+  background: var(--ps-blue);
 }
 
-/* A deeper blue wash from below and a pale bloom behind the bar, so the card reads as one soft sky. */
-.auth-brand-glow {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse 80% 46% at 50% 108%, rgba(58, 125, 214, 0.55), transparent 72%),
-    radial-gradient(ellipse 60% 38% at 50% 52%, rgba(255, 255, 255, 0.55), transparent 78%),
-    radial-gradient(ellipse 52% 40% at 8% 6%, rgba(255, 255, 255, 0.6), transparent 74%);
+.auth-brand-panel .rlp-atmosphere::before,
+.auth-brand-panel .rlp-atmosphere::after {
+  display: none;
+}
+
+.auth-brand-panel .rlp-atmosphere canvas {
+  filter: brightness(0) invert(1);
+  opacity: 1;
 }
 
 .auth-brand-stage {
   position: absolute;
   z-index: 1;
   inset: 0;
-  display: grid;
-  place-items: center;
-}
-
-/* ------------------------------ the prompt bar ------------------------------ */
-
-.auth-prompt-bar {
-  position: relative;
   display: flex;
-  width: min(480px, 74%);
-  min-height: 64px;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 10px 10px 18px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.96);
-  color: #132b47;
-  box-shadow:
-    0 1px 2px rgba(19, 43, 71, 0.06),
-    0 24px 48px -20px rgba(23, 80, 160, 0.45);
+  flex-direction: column;
+  justify-content: space-between;
 }
 
-.auth-prompt-spark {
-  display: grid;
-  flex: none;
-  place-items: center;
-  color: #1769bd;
+.auth-brand-head {
+  padding: clamp(96px, 12vh, 140px) clamp(32px, 3.4vw, 56px) 0;
 }
 
-.auth-prompt-text {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 15.5px;
-  font-weight: 560;
-  line-height: 1.35;
-  letter-spacing: -0.005em;
-  overflow-wrap: anywhere;
+.auth-brand-lead {
+  margin: 0;
+  font-size: clamp(32px, 3.2vw, 56px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.045em;
 }
 
-.auth-prompt-caret {
-  display: inline-block;
-  width: 2px;
-  height: 1.05em;
-  margin-left: 2px;
-  vertical-align: -0.17em;
-  background: #1769bd;
-  animation: auth-caret-blink 1.05s steps(1) infinite;
+/* Without a configured number the line stands alone, as the figure. */
+.auth-brand-lead:only-child {
+  font-size: clamp(56px, 7vw, 120px);
+  letter-spacing: -0.055em;
 }
 
-.auth-prompt-bar[data-animated="false"] .auth-prompt-caret {
-  animation: none;
-  opacity: 0;
+.auth-brand-number {
+  margin: 8px 0 0;
+  font-size: clamp(40px, 5.4vw, 88px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.055em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
-.auth-prompt-send {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 999px;
-  background: #132b47;
+/* The thread: two squared bubbles, the way the line reads on a phone. */
+.auth-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(100%, 520px);
+  padding: 0 clamp(32px, 3.4vw, 56px);
+}
+
+.auth-bubble {
+  margin: 0;
+  max-width: 92%;
+  padding: 12px 16px 14px;
+  border-radius: 3px;
+  font-size: clamp(16px, 1.35vw, 20px);
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+}
+
+.auth-bubble-who {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.auth-bubble-in {
+  align-self: flex-start;
+  background: #fff;
+  color: var(--ps-ink);
+}
+
+.auth-bubble-out {
+  align-self: flex-end;
+  background: var(--ps-ink);
   color: #fff;
 }
 
-@keyframes auth-caret-blink {
-  0%,
-  49% {
-    opacity: 1;
-  }
-  50%,
-  100% {
-    opacity: 0;
-  }
-}
-
-/* ------------------------------ role hints ------------------------------ */
-
-.auth-hint {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 16px 9px 10px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.82);
-  color: #132b47;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow:
-    0 1px 2px rgba(19, 43, 71, 0.05),
-    0 16px 32px -18px rgba(23, 80, 160, 0.4);
-  animation: auth-hint-float 7s ease-in-out infinite;
-}
-
-.auth-hint-icon {
+/* Who texts the line: four columns between hairlines, as on the homepage cover. */
+.auth-who {
   display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: #eaf2fc;
-  color: #1769bd;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.4);
 }
 
-.auth-hint-text {
+.auth-who > li {
   display: flex;
   flex-direction: column;
-  line-height: 1.2;
+  gap: 2px;
+  padding: 18px clamp(12px, 1.4vw, 20px) 26px;
+  border-left: 1px solid rgba(255, 255, 255, 0.4);
 }
 
-.auth-hint-text strong {
-  font-size: 13px;
-  font-weight: 700;
+/* The assistant's floating button sits over the panel's bottom-right corner; keep the last column clear of it. */
+.auth-who > li:last-child {
+  padding-right: 72px;
 }
 
-.auth-hint-text small {
+.auth-who > li:first-child {
+  border-left: 0;
+  padding-left: clamp(32px, 3.4vw, 56px);
+}
+
+.auth-who-n {
+  margin-bottom: 18px;
   font-size: 12px;
-  color: #5b6f89;
+  opacity: 0.75;
 }
 
-.auth-hint-a {
-  left: 50%;
-  top: calc(50% - 118px);
-  transform: translateX(-62%);
+.auth-who > li > strong {
+  font-size: clamp(16px, 1.5vw, 22px);
+  font-weight: 600;
+  letter-spacing: -0.035em;
 }
 
-.auth-hint-b {
-  left: 50%;
-  top: calc(50% + 70px);
-  transform: translateX(-8%);
-  animation-delay: -2.4s;
+.auth-who-line {
+  font-size: 13px;
+  line-height: 1.3;
+  opacity: 0.8;
 }
 
-.auth-hint-c {
-  left: 50%;
-  top: calc(50% + 70px);
-  transform: translateX(-118%);
-  animation-delay: -4.6s;
-}
-
-@keyframes auth-hint-float {
-  0%,
-  100% {
-    margin-top: 0;
+@media (min-width: 1024px) and (max-height: 700px) {
+  .auth-brand-head {
+    padding-top: 88px;
   }
-  50% {
-    margin-top: -6px;
-  }
-}
-
-@media (min-width: 1024px) and (max-height: 760px) {
-  .auth-hint-a {
-    top: calc(50% - 104px);
-  }
-  .auth-hint-b,
-  .auth-hint-c {
-    top: calc(50% + 56px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .auth-hint {
-    animation: none;
-  }
-  .auth-prompt-caret {
-    animation: none;
-  }
-}
-
-/* Narrow desktops wrap the longest request onto a second line; keep the bar's height fixed so typing never makes it jump. */
-@media (min-width: 1024px) and (max-width: 1279px) {
-  .auth-prompt-bar {
-    min-height: 84px;
-    width: min(480px, 84%);
+  .auth-who-n {
+    margin-bottom: 8px;
   }
 }

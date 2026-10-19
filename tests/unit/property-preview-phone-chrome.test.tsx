@@ -97,20 +97,20 @@ describe("manager preview — slim phone sticky bar", () => {
     expect(bar.querySelector('[data-attr="listing-web-tour"]')?.textContent).toContain("Tour");
     // the full names stay for a screen reader
     expect(bar.querySelector('[data-attr="listing-web-apply"] .sr-only')?.textContent).toBe("Apply");
-    expect(bar.querySelector('[data-attr="listing-web-tour"] .sr-only')?.textContent).toBe("Schedule tour");
+    expect(bar.querySelector('[data-attr="listing-web-tour"] .sr-only')?.textContent).toBe("Book a tour");
     // Email moved into the record header menu
     expect(bar.querySelector('[data-attr="listing-sticky-contact"]')).toBeNull();
     expect(bar.querySelector('[data-attr="listing-sticky-email"]')).toBeNull();
   });
 
-  it("keeps the public listing page's own two-row bar: price, then one primary and Schedule tour", () => {
+  it("keeps the public listing page's own two-row bar: price, then one primary and Book a tour", () => {
     render(<ListingDetailSections property={property} rich={rich} />);
     const bar = document.querySelector('[data-attr="listing-sticky-bar"]') as HTMLElement;
     expect(bar.hasAttribute("data-slim")).toBe(false);
     expect(bar.querySelector('[data-attr="listing-sticky-email"]')).toBeNull();
     expect(bar.textContent).toContain("Apply");
     expect(bar.textContent).not.toContain("Apply long term");
-    expect(bar.textContent).toContain("Schedule tour");
+    expect(bar.textContent).toContain("Book a tour");
   });
 });
 

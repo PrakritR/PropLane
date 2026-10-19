@@ -4,11 +4,11 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
+import "@/components/public-site/listing-gallery.css";
 import { ListedWithProPlaneBand } from "@/components/marketing/listed-with-proplane-band";
 import { getListingRichContent } from "@/data/listing-rich-content";
 import { loadPublicPropertyLeadFromServer, PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
 import { getPropertyForPublicLink } from "@/lib/rental-application/data";
-import { useProspectListingHrefs } from "@/hooks/use-prospect-listing-hrefs";
 
 export function PublicListingPageClient() {
   const params = useParams();
@@ -57,39 +57,42 @@ export function PublicListingPageClient() {
   }, [listingId, tick]);
 
   const rich = useMemo(() => (property ? getListingRichContent(property) : null), [property]);
-  const { applyHref } = useProspectListingHrefs(listingId);
 
   if (loading) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center px-4">
-        <p className="text-sm text-muted">Loading listing…</p>
+      <div className="ps ps-ld @container" aria-busy="true" aria-label="Loading listing" data-attr="listing-loading">
+        <div className="ps-wrap ps-ld-in">
+          <div className="ps-sk" style={{ aspectRatio: "16 / 10", maxHeight: 520, width: "100%" }} />
+          <div className="ps-sk" style={{ height: 44, width: "min(520px, 80%)", marginTop: 28 }} />
+          <div className="ps-sk" style={{ height: 18, width: "min(280px, 50%)", marginTop: 14 }} />
+          <div className="ps-sk" style={{ height: 40, width: 180, marginTop: 24 }} />
+          <div className="grid gap-10 @min-[900px]:grid-cols-[minmax(0,1fr)_320px]" style={{ marginTop: 40 }}>
+            <div className="grid gap-4">
+              <div className="ps-sk" style={{ height: 72 }} />
+              <div className="ps-sk" style={{ height: 72 }} />
+              <div className="ps-sk" style={{ height: 72 }} />
+            </div>
+            <div className="ps-sk hidden @min-[900px]:block" style={{ height: 280 }} />
+          </div>
+        </div>
       </div>
     );
   }
 
   if (!property || !rich || loadFailed) {
     return (
-      <div className="mx-auto flex min-h-[50vh] max-w-lg flex-col items-center justify-center px-4 py-16 text-center">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Listing not found</h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted">
-          This property may be unlisted or the link may be outdated. Ask your property manager for an updated link, or
-          browse available homes on PropLane.
-        </p>
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-          <Link
-            href="/"
-            className="rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground hover:bg-accent/30"
-          >
-            Go home
-          </Link>
-          {listingId ? (
-            <Link
-              href={applyHref}
-              className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
-            >
-              Try apply link
+      <div className="ps ps-ld">
+        <div className="ps-wrap ps-nf" data-attr="listing-not-found">
+          <h1 className="ps-h2">Listing not found</h1>
+          <p className="m-0 max-w-[46ch]">This home may be unlisted, or the link is out of date.</p>
+          <div className="ps-nf-acts">
+            <Link href="/rent/browse" className="ps-btn ps-btn-blue">
+              Find a home
             </Link>
-          ) : null}
+            <Link href="/" className="ps-btn ps-btn-line">
+              Home
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -97,7 +100,7 @@ export function PublicListingPageClient() {
 
   return (
     <>
-      <ListingDetailSections property={property} rich={rich} expandSectionsOnMobile />
+      <ListingDetailSections property={property} rich={rich} expandSectionsOnMobile phoneDock />
       {property.showProPlaneAttribution ? <ListedWithProPlaneBand propertyId={property.id} /> : null}
     </>
   );

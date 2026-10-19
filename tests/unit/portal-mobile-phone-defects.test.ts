@@ -28,7 +28,9 @@ describe("phone tap targets (B-G)", () => {
   it("listing sticky bar buttons are at least 44px", () => {
     const src = read("src/components/marketing/listing-detail-sections.tsx");
     expect(src).not.toContain("!min-h-[40px]");
-    expect(src).toContain("!min-h-[44px] !w-auto");
+    // `ps-btn` carries min-height 44px (public-site.css), so the bar's buttons are the shared 44px target.
+    expect(src).toContain("ps-btn ps-btn-blue");
+    expect(src).toContain("!w-auto");
   });
 });
 

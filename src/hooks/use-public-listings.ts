@@ -25,6 +25,12 @@ export function usePublicListings() {
   const [listings, setListings] = useState<MockProperty[]>([]);
   const [loading, setLoading] = useState(true);
   const [occupancyReady, setOccupancyReady] = useState(false);
+  const [error, setError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => {
+    setLoading(true);
+    setAttempt((n) => n + 1);
+  }, []);
 
   const refreshFromCache = useCallback(() => {
     setListings(readActivePublicListings());
@@ -37,6 +43,7 @@ export function usePublicListings() {
       if (cancelled) return;
       refreshFromCache();
       setLoading(readActivePublicListings().length === 0);
+      setError(false);
     });
 
     void Promise.all([
@@ -49,6 +56,9 @@ export function usePublicListings() {
         setListings(filterSandboxFromPublicCatalog(active, { production: isProductionPublicSite() }));
         setOccupancyReady(true);
       })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
@@ -59,7 +69,7 @@ export function usePublicListings() {
       cancelled = true;
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
     };
-  }, [refreshFromCache]);
+  }, [refreshFromCache, attempt]);
 
-  return { listings, loading, occupancyReady };
+  return { listings, loading, occupancyReady, error, retry };
 }

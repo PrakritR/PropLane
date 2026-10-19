@@ -1,58 +1,138 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { usePublicTexting } from "@/components/marketing/public-texting-context";
+import { renterSmsHref } from "@/components/public-site/journey-paths";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import { formatUsPhoneDisplay } from "@/lib/phone-e164";
+import "./phone-bound-link-ui.css";
 
 /**
  * The public pages behind a phone-bound link (`/l/<token>`) and the public phone-bind doors
- * (`/apply/<code>`, `/tour/<code>`). A card with a heading and its control; none of it says what
+ * (`/apply/<code>`, `/tour/<code>`). A heading and one card with its control; none of it says what
  * the link is for before the code is entered.
  */
 
-function Shell({ title, children, dataAttr }: { title: string; children: ReactNode; dataAttr: string }) {
+/** The centered column every door sits in. `size` picks the heading: the big one for a door's name, the small one for a gate. */
+export function DoorShell({
+  title,
+  children,
+  dataAttr,
+  size = "h2",
+}: {
+  title: string;
+  children: ReactNode;
+  dataAttr: string;
+  size?: "h1" | "h2";
+}) {
   return (
-    <div className="mx-auto flex min-h-[55vh] w-full max-w-[460px] flex-col justify-center px-4 py-12" data-attr={dataAttr}>
-      <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
-        <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-        <div className="mt-5 flex flex-col gap-4">{children}</div>
+    <div className="ps ps-narrow ps-page ps-door" data-attr={dataAttr}>
+      <h1 className={`${size === "h1" ? "ps-h1" : "ps-h2"} ps-door-title`}>{title}</h1>
+      <div className="ps-card ps-door-card">{children}</div>
+    </div>
+  );
+}
+
+/** A button that stays disabled while its (async) action runs, so a double tap never sends two codes. */
+export function DoorButton({
+  children,
+  onClick,
+  disabled = false,
+  dataAttr,
+  tone = "blue",
+}: {
+  children: ReactNode;
+  onClick: () => void | Promise<void>;
+  disabled?: boolean;
+  dataAttr: string;
+  tone?: "blue" | "text";
+}) {
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await onClick();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      className={tone === "blue" ? "ps-btn ps-btn-blue" : "ps-text-btn"}
+      disabled={disabled || busy}
+      data-attr={dataAttr}
+      onClick={run}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** One view for a dead, unknown, used or mismatched link. It says nothing about why. */
+export function LinkExpiredView() {
+  const { phone } = usePublicTexting();
+  const smsHref = renterSmsHref(phone);
+  return (
+    <div className="ps ps-narrow ps-page ps-door" data-attr="phone-link-expired">
+      <h1 className="ps-h2 ps-door-title-sm ps-door-title">This link has expired</h1>
+      <p className="ps-door-line">
+        {smsHref ? (
+          <>
+            Text{" "}
+            <a className="ps-link" href={smsHref} data-attr="phone-link-expired-text">
+              {formatUsPhoneDisplay(phone)}
+            </a>{" "}
+            for a new one.
+          </>
+        ) : (
+          "Ask for a new link."
+        )}
+      </p>
+      <div className="ps-door-actions">
+        <Link href="/rent/browse" className="ps-btn ps-btn-line" data-attr="phone-link-expired-browse">
+          Find a home
+        </Link>
       </div>
     </div>
   );
 }
 
-/** One view for a dead, unknown, used or mismatched link. It says nothing else. */
-export function LinkExpiredView() {
+export function LinkMessageView({ title, line }: { title: string; line?: string }) {
   return (
-    <div className="mx-auto flex min-h-[50vh] max-w-lg flex-col justify-center px-6 py-16 text-center" data-attr="phone-link-expired">
-      <h1 className="text-xl font-semibold text-foreground">This link has expired</h1>
-    </div>
-  );
-}
-
-export function LinkMessageView({ title }: { title: string }) {
-  return (
-    <div className="mx-auto flex min-h-[50vh] max-w-lg flex-col justify-center px-6 py-16 text-center" data-attr="phone-link-message">
-      <h1 className="text-xl font-semibold text-foreground">{title}</h1>
+    <div className="ps ps-narrow ps-page ps-door" data-attr="phone-link-message">
+      <h1 className="ps-h2 ps-door-title">{title}</h1>
+      {line ? <p className="ps-door-line">{line}</p> : null}
     </div>
   );
 }
 
 type Step = "ask" | "code";
 
-function CodeInput({ value, onChange, onEnter }: { value: string; onChange: (value: string) => void; onEnter: () => void }) {
+export function CodeInput({
+  value,
+  onChange,
+  onEnter,
+  dataAttr = "phone-link-code-input",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onEnter: () => void;
+  dataAttr?: string;
+}) {
   return (
-    <Input
+    <input
+      className="ps-input ps-code"
       inputMode="numeric"
       autoComplete="one-time-code"
       maxLength={6}
       value={value}
       placeholder="6-digit code"
       aria-label="Code"
-      data-attr="phone-link-code-input"
-      className="text-center text-lg tracking-[0.35em]"
+      data-attr={dataAttr}
       onChange={(event) => onChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
       onKeyDown={(event) => {
         if (event.key === "Enter") onEnter();
@@ -100,37 +180,54 @@ export function LinkCodeGate({ token }: { token: string }) {
   };
 
   return (
-    <Shell title="Confirm it is you" dataAttr="phone-link-gate">
+    <DoorShell title="Confirm it's you" dataAttr="phone-link-gate">
       {step === "ask" ? (
-        <Button type="button" className="w-full rounded-full" data-attr="phone-link-send-code" onClick={send}>
+        <DoorButton dataAttr="phone-link-send-code" onClick={send}>
           Text me a code
-        </Button>
+        </DoorButton>
       ) : (
         <>
           <CodeInput value={code} onChange={setCode} onEnter={verify} />
-          <Button type="button" className="w-full rounded-full" disabled={code.length !== 6} data-attr="phone-link-verify" onClick={verify}>
-            Continue
-          </Button>
-          <Button type="button" variant="ghost" className="w-full rounded-full" data-attr="phone-link-resend" onClick={send}>
-            Text a new code
-          </Button>
+          <DoorButton disabled={code.length !== 6} dataAttr="phone-link-verify" onClick={verify}>
+            Verify
+          </DoorButton>
+          <DoorButton tone="text" dataAttr="phone-link-resend" onClick={send}>
+            Send a new code
+          </DoorButton>
         </>
       )}
       {error ? (
-        <p className="text-sm text-danger" role="alert" data-attr="phone-link-error">
+        <p className="ps-error" role="alert" data-attr="phone-link-error">
           {error}
         </p>
       ) : null}
-    </Shell>
+    </DoorShell>
   );
 }
 
 export type RentLinkCharge = { id: string; title: string; amountLabel: string; propertyLabel: string };
 
+/** "$1,200.00" -> 120000 cents, or null when a label is not a plain dollar amount. */
+function labelCents(label: string): number | null {
+  const match = /^\$\s*([\d,]+(?:\.\d{1,2})?)$/.exec(label.trim());
+  if (!match) return null;
+  const value = Number(match[1]!.replace(/,/g, ""));
+  return Number.isFinite(value) ? Math.round(value * 100) : null;
+}
+
+/** The sum of the charges' own labels, shown only when every label is a plain dollar amount. Display only: checkout re-reads the live rows. */
+function totalLabel(charges: RentLinkCharge[]): string | null {
+  const cents = charges.map((charge) => labelCents(charge.amountLabel));
+  if (cents.length === 0 || cents.some((value) => value === null)) return null;
+  const sum = cents.reduce<number>((acc, value) => acc + (value ?? 0), 0);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(sum / 100);
+}
+
 /** Pay the charge(s) a rent link names, by card. The amount comes from the live charge, never the page. */
 export function RentLinkCard({ token, charges }: { token: string; charges: RentLinkCharge[] }) {
   const [error, setError] = useState("");
   const [signInHref, setSignInHref] = useState("");
+  const total = totalLabel(charges);
 
   const pay = async () => {
     setError("");
@@ -149,32 +246,38 @@ export function RentLinkCard({ token, charges }: { token: string; charges: RentL
   };
 
   return (
-    <Shell title="Pay rent" dataAttr="phone-link-rent">
-      <ul className="flex flex-col divide-y divide-border" data-attr="phone-link-rent-charges">
+    <DoorShell title="Pay rent" dataAttr="phone-link-rent">
+      <ul className="ps-facts" data-attr="phone-link-rent-charges">
         {charges.map((charge) => (
-          <li key={charge.id} className="flex items-baseline justify-between gap-4 py-2.5">
-            <span className="min-w-0">
-              <span className="block truncate text-[15px] font-medium text-foreground">{charge.title}</span>
-              {charge.propertyLabel ? <span className="block truncate text-sm text-muted">{charge.propertyLabel}</span> : null}
+          <li key={charge.id}>
+            <span className="ps-facts-title">
+              {charge.title}
+              {charge.propertyLabel ? <span className="ps-mute"> · {charge.propertyLabel}</span> : null}
             </span>
-            <span className="shrink-0 text-[15px] font-semibold text-foreground">{charge.amountLabel}</span>
+            <span>{charge.amountLabel}</span>
           </li>
         ))}
       </ul>
-      <Button type="button" className="w-full rounded-full" data-attr="phone-link-pay" onClick={pay}>
-        Pay
-      </Button>
+      {total ? (
+        <div className="ps-door-total" data-attr="phone-link-rent-total">
+          <span>Total</span>
+          <span className="ps-figure">{total}</span>
+        </div>
+      ) : null}
+      <DoorButton dataAttr="phone-link-pay" onClick={pay}>
+        {total ? `Pay ${total}` : "Pay"}
+      </DoorButton>
       {error ? (
-        <p className="text-sm text-danger" role="alert" data-attr="phone-link-error">
+        <p className="ps-error" role="alert" data-attr="phone-link-error">
           {error}
         </p>
       ) : null}
       {signInHref ? (
-        <Button asChild variant="outline" className="w-full rounded-full">
-          <a href={signInHref}>Sign in to PropLane</a>
-        </Button>
+        <a className="ps-btn ps-btn-line" href={signInHref}>
+          Sign in to PropLane
+        </a>
       ) : null}
-    </Shell>
+    </DoorShell>
   );
 }
 
@@ -203,7 +306,7 @@ export function PublicPhoneBindForm({ code, kind, heading }: { code: string; kin
   };
 
   return (
-    <Shell title={heading} dataAttr={`phone-bind-${kind}`}>
+    <DoorShell title={heading} dataAttr={`phone-bind-${kind}`} size="h1">
       {step === "ask" ? (
         <>
           <PhoneNumberField
@@ -213,26 +316,26 @@ export function PublicPhoneBindForm({ code, kind, heading }: { code: string; kin
             placeholder="Mobile number"
             dataAttr="phone-bind-phone"
           />
-          <Button type="button" className="w-full rounded-full" disabled={!phone} data-attr="phone-bind-send" onClick={send}>
+          <DoorButton disabled={!phone} dataAttr="phone-bind-send" onClick={send}>
             Text me a code
-          </Button>
+          </DoorButton>
         </>
       ) : (
         <>
-          <CodeInput value={otp} onChange={setOtp} onEnter={verify} />
-          <Button type="button" className="w-full rounded-full" disabled={otp.length !== 6} data-attr="phone-bind-verify" onClick={verify}>
-            Continue
-          </Button>
-          <Button type="button" variant="ghost" className="w-full rounded-full" data-attr="phone-bind-resend" onClick={send}>
-            Text a new code
-          </Button>
+          <CodeInput value={otp} onChange={setOtp} onEnter={verify} dataAttr="phone-bind-code-input" />
+          <DoorButton disabled={otp.length !== 6} dataAttr="phone-bind-verify" onClick={verify}>
+            Verify
+          </DoorButton>
+          <DoorButton tone="text" dataAttr="phone-bind-resend" onClick={send}>
+            Send a new code
+          </DoorButton>
         </>
       )}
       {error ? (
-        <p className="text-sm text-danger" role="alert" data-attr="phone-bind-error">
+        <p className="ps-error" role="alert" data-attr="phone-bind-error">
           {error}
         </p>
       ) : null}
-    </Shell>
+    </DoorShell>
   );
 }

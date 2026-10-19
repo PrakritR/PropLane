@@ -9,7 +9,7 @@ test.describe("Tour scheduling", () => {
 
   test("tours-contact page loads with account gate (no guest path)", async ({ page }) => {
     await page.goto(e2eToursContactUrl());
-    await expect(page.getByRole("heading", { name: /create your resident account|schedule tour/i })).toBeVisible({
+    await expect(page.getByRole("heading", { name: /create your resident account|schedule tour|book a tour/i })).toBeVisible({
       timeout: 15_000,
     });
     await expect(page.getByRole("button", { name: /schedule as a guest/i })).toHaveCount(0);

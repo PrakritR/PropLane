@@ -9,7 +9,9 @@ import { getPropertyForPublicLink } from "@/lib/rental-application/data";
 import { ManagerLinkGate } from "@/components/marketing/manager-link-gate";
 import { SmsConsentCheckbox } from "@/components/marketing/sms-consent-checkbox";
 import Link from "next/link";
-import { SegmentedTwo } from "@/components/ui/segmented-control";
+import "@/components/public-site/journey-forms.css";
+import { JourneyHouseCard } from "@/components/public-site/journey-house-card";
+import { JourneyPicker, type JourneyPickerOption } from "@/components/public-site/journey-picker";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
 import {
@@ -21,11 +23,6 @@ import {
   buildTourContactHref,
   parseBrowseIdsParam,
 } from "@/lib/manager-property-links";
-import {
-  PropertySearchPicker,
-  type PropertySearchOption,
-} from "@/components/marketing/property-search-picker";
-import { Select } from "@/components/ui/input";
 import {
   TourScheduleFlow,
   isTourRoomUndecided,
@@ -45,7 +42,7 @@ import {
   ProspectAccountHandoff,
   ProspectPublicSuccessBanner,
   ProspectViewInPortalAction,
-  PUBLIC_PROSPECT_CANVAS_CLASS,
+  PS_PROSPECT_CANVAS_CLASS,
 } from "@/components/marketing/prospect-public-handoff";
 import { prospectPortalReturnPath } from "@/lib/prospect-public-gate";
 import { useProspectActionGate } from "@/hooks/use-prospect-action-gate";
@@ -119,104 +116,124 @@ export function ToursContactPageClient({ signedInNonResident = false }: { signed
   const contactAutofill = useProspectContactAutofill();
   const tourGate = useProspectActionGate("tour", linkedPropertyId, signedInNonResident, contactAutofill);
 
-  return (
-    <div className="min-h-screen px-4 py-12 sm:py-16">
-      <div className="mx-auto max-w-2xl">
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">
-          {tab === "tour" ? "Schedule tour" : "Message PropLane"}
-        </h1>
+  // The house the page is about: a linked home, once it has loaded. Drawn beside the flow on desktop.
+  const showHouse = Boolean(linkedProperty) && portfolioPropertyIds.length === 0;
 
-        <div className="mt-6">
-          <SegmentedTwo
-            value={tab}
-            onChange={(id) => setTab(id)}
-            left={{ id: "tour", label: "Set up tour" }}
-            right={{ id: "message", label: "Send message" }}
-          />
+  return (
+    <div className="ps ps-j-page">
+      <div className="ps-j-col">
+        <div className="ps-j-title">
+          <h1 className="ps-h1">{tab === "tour" ? "Book a tour" : "Message PropLane"}</h1>
         </div>
 
-        <div key={tab} className="animate-fade-in">
-          {tab === "tour" ? (
-            portfolioPropertyIds.length > 0 && portfolioProperties.length === 0 ? (
-              <div className="mt-8">
+        <div className={showHouse ? "ps-j-grid" : undefined}>
+          {showHouse && linkedProperty ? (
+            <aside>
+              <JourneyHouseCard property={linkedProperty} />
+            </aside>
+          ) : null}
+
+          <div className="ps-j-stack" style={{ minWidth: 0 }}>
+            <div className="ps-j-tabs" role="tablist" aria-label="Tour or message">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "tour"}
+                className="ps-j-tab"
+                data-attr="tours-contact-tab-tour"
+                onClick={() => setTab("tour")}
+              >
+                Tour
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "message"}
+                className="ps-j-tab"
+                data-attr="tours-contact-tab-message"
+                onClick={() => setTab("message")}
+              >
+                Message
+              </button>
+            </div>
+
+            <div key={tab}>
+              {tab === "tour" ? (
+                portfolioPropertyIds.length > 0 && portfolioProperties.length === 0 ? (
+                  <ManagerLinkGate
+                    ps
+                    title="Open your manager’s tour link"
+                    body="This tour link is invalid or no longer active. Ask your property manager for a new tour link."
+                  />
+                ) : portfolioProperties.length > 0 ? (
+                  <TourPropertyPicker
+                    properties={portfolioProperties}
+                    onSelectProperty={(propertyId) => {
+                      router.push(buildTourContactHref(propertyId));
+                    }}
+                  />
+                ) : !linkedPropertyId || !linkedProperty ? (
+                  <ManagerLinkGate
+                    ps
+                    title="Open your manager’s tour link"
+                    body={
+                      linkedPropertyId && !linkedProperty
+                        ? "This property link is invalid or no longer active. Ask your property manager for a new tour link."
+                        : "Tours start from a link your property manager shares after you find a unit on Zillow, Redfin, or elsewhere."
+                    }
+                  />
+                ) : !tourGate.ready ? (
+                  <div className="ps-mute" aria-busy="true">
+                    Loading…
+                  </div>
+                ) : tourGate.gateView === "resident-portal" ? (
+                  <ProspectResidentPortalTourPrompt
+                    propertyId={linkedProperty.id}
+                    propertyTitle={linkedProperty.title}
+                  />
+                ) : tourGate.gateView !== "action" ? (
+                  tourGate.gateView === "signed-in-create-resident" ? (
+                    <ProspectSignedInResidentGate
+                      action="tour"
+                      returnPath={tourGate.portalReturn}
+                      propertyTitle={linkedProperty.title}
+                    />
+                  ) : (
+                    <ProspectGuestAccountGate
+                      action="tour"
+                      gateKey={tourGate.gateKey}
+                      returnPath={tourGate.portalReturn}
+                      propertyTitle={linkedProperty.title}
+                    />
+                  )
+                ) : (
+                  <TourScheduleFlow
+                    property={linkedProperty}
+                    returnAfterAuth={returnAfterAuth}
+                    onSuccess={() => showToast("Tour requested.")}
+                  />
+                )
+              ) : !linkedPropertyId || !linkedProperty ? (
                 <ManagerLinkGate
-                  title="Open your manager’s tour link"
-                  body="This tour link is invalid or no longer active. Ask your property manager for a new tour link."
-                />
-              </div>
-            ) : portfolioProperties.length > 0 ? (
-              <TourPropertyPicker
-                properties={portfolioProperties}
-                onSelectProperty={(propertyId) => {
-                  router.push(buildTourContactHref(propertyId));
-                }}
-              />
-            ) : !linkedPropertyId || !linkedProperty ? (
-              <div className="mt-8">
-                <ManagerLinkGate
-                  title="Open your manager’s tour link"
+                  ps
+                  title="Open your manager’s property link"
                   body={
                     linkedPropertyId && !linkedProperty
-                      ? "This property link is invalid or no longer active. Ask your property manager for a new tour link."
-                      : "Tours start from a link your property manager shares after you find a unit on Zillow, Redfin, or elsewhere."
+                      ? "This property link is invalid or no longer active. Ask your property manager for a new link."
+                      : "Messages about a listing start from a link your property manager shares with the property ID."
                   }
                 />
-              </div>
-            ) : !tourGate.ready ? (
-              <div className={`${PUBLIC_PROSPECT_CANVAS_CLASS} mt-8 text-sm text-muted`} aria-busy="true">
-                Loading…
-              </div>
-            ) : tourGate.gateView === "resident-portal" ? (
-              <div className="mt-8">
-                <ProspectResidentPortalTourPrompt
+              ) : (
+                <MessageFlow
                   propertyId={linkedProperty.id}
                   propertyTitle={linkedProperty.title}
+                  propertyAddress={linkedProperty.address}
+                  signedInNonResident={signedInNonResident}
+                  contactAutofill={contactAutofill}
                 />
-              </div>
-            ) : tourGate.gateView !== "action" ? (
-              <div className="mt-8">
-                {tourGate.gateView === "signed-in-create-resident" ? (
-                  <ProspectSignedInResidentGate
-                    action="tour"
-                    returnPath={tourGate.portalReturn}
-                    propertyTitle={linkedProperty.title}
-                  />
-                ) : (
-                  <ProspectGuestAccountGate
-                    action="tour"
-                    gateKey={tourGate.gateKey}
-                    returnPath={tourGate.portalReturn}
-                    propertyTitle={linkedProperty.title}
-                  />
-                )}
-              </div>
-            ) : (
-              <TourScheduleFlow
-                property={linkedProperty}
-                returnAfterAuth={returnAfterAuth}
-                onSuccess={() => showToast("Tour booked.")}
-              />
-            )
-          ) : !linkedPropertyId || !linkedProperty ? (
-            <div className="mt-8">
-              <ManagerLinkGate
-                title="Open your manager’s property link"
-                body={
-                  linkedPropertyId && !linkedProperty
-                    ? "This property link is invalid or no longer active. Ask your property manager for a new link."
-                    : "Messages about a listing start from a link your property manager shares with the property ID."
-                }
-              />
+              )}
             </div>
-          ) : (
-            <MessageFlow
-              propertyId={linkedProperty.id}
-              propertyTitle={linkedProperty.title}
-              propertyAddress={linkedProperty.address}
-              signedInNonResident={signedInNonResident}
-              contactAutofill={contactAutofill}
-            />
-          )}
+          </div>
         </div>
       </div>
     </div>
@@ -230,37 +247,31 @@ function TourPropertyPicker({
   properties: MockProperty[];
   onSelectProperty: (propertyId: string) => void;
 }) {
-  const options: PropertySearchOption[] = useMemo(
+  const options: JourneyPickerOption[] = useMemo(
     () =>
       properties.map((property) => ({
         id: property.id,
         title: property.title,
-        subtitle: property.address || property.neighborhood,
-        tags: [property.neighborhood, property.rentLabel, property.available ? `Available ${property.available}` : ""].filter(Boolean),
-        searchText: `${property.title} ${property.address} ${property.neighborhood} ${property.buildingName} ${property.unitLabel}`,
+        place: property.address || property.neighborhood,
+        figure: property.rentLabel,
+        searchText: `${property.neighborhood} ${property.buildingName} ${property.unitLabel}`,
       })),
     [properties],
   );
 
   return (
-    <div className={PUBLIC_PROSPECT_CANVAS_CLASS}>
-      <p className="text-sm font-semibold text-foreground">Choose a property to tour</p>
-      <p className="mt-1 text-sm leading-relaxed text-muted">
-        Your property manager shared several homes. Pick the one you would like to visit and we will show available tour times.
-      </p>
-      <div className="mt-5">
-        <PropertySearchPicker
-          options={options}
-          value={null}
-          onChange={(propertyId) => {
-            if (propertyId) onSelectProperty(propertyId);
-          }}
-          placeholder="Search by address, neighborhood, or property name…"
-          emptyMessage="No properties match your search."
-          listEmptyMessage="No properties are available from this link."
-          ariaLabel="Search properties to tour"
-        />
-      </div>
+    <div className={PS_PROSPECT_CANVAS_CLASS} style={{ gap: 18 }}>
+      <h2 className="ps-h3">Choose a home to tour</h2>
+      <JourneyPicker
+        options={options}
+        value={null}
+        onChange={onSelectProperty}
+        placeholder="Search by address, neighborhood, or property name"
+        emptyMessage="No properties match your search."
+        listEmptyMessage="No properties are available from this link."
+        ariaLabel="Search properties to tour"
+        searchAbove={5}
+      />
     </div>
   );
 }
@@ -268,7 +279,6 @@ function TourPropertyPicker({
 function MessageFlow({
   propertyId,
   propertyTitle,
-  propertyAddress,
   signedInNonResident = false,
   contactAutofill,
 }: {
@@ -419,32 +429,33 @@ function MessageFlow({
 
     if (signedInUserId) {
       return (
-        <div className={PUBLIC_PROSPECT_CANVAS_CLASS}>
-          <ProspectPublicSuccessBanner eyebrow="Message sent" title="Your message is in">
+        <div className={PS_PROSPECT_CANVAS_CLASS}>
+          <ProspectPublicSuccessBanner ps eyebrow="Message sent" title="Your message is in">
             <p>
               We sent your message to the property manager{propertyTitle ? ` about ${propertyTitle}` : ""}. Opening
               Communication…
             </p>
-            <p className="font-medium">Topic: {submittedContact.topic}</p>
+            <p style={{ margin: 0, fontWeight: 600 }}>Topic: {submittedContact.topic}</p>
           </ProspectPublicSuccessBanner>
         </div>
       );
     }
 
     return (
-      <div className={PUBLIC_PROSPECT_CANVAS_CLASS}>
-        <ProspectPublicSuccessBanner eyebrow="Message sent" title="Your message is in">
+      <div className={PS_PROSPECT_CANVAS_CLASS}>
+        <ProspectPublicSuccessBanner ps eyebrow="Message sent" title="Your message is in">
           <p>
             We sent your message to the property manager{propertyTitle ? ` about ${propertyTitle}` : ""}.
             {signedInUserId
               ? " You can read manager replies in PropLane Communication."
               : " You will get replies by email, and you can read them in PropLane Communication once you have a resident account."}
           </p>
-          <p className="font-medium">Topic: {submittedContact.topic}</p>
+          <p style={{ margin: 0, fontWeight: 600 }}>Topic: {submittedContact.topic}</p>
         </ProspectPublicSuccessBanner>
 
         {!signedInUserId ? (
           <ProspectAccountHandoff
+            ps
             title="Create an account to read replies in PropLane"
             description="Your message was sent. Create a free resident account to read manager replies in Communication and keep the conversation in one place."
             createAccountHref={createAccountHref}
@@ -454,6 +465,7 @@ function MessageFlow({
           />
         ) : hasResidentRole ? (
           <ProspectViewInPortalAction
+            ps
             signedIn
             hasResidentRole
             portalPath={communicationReturn}
@@ -461,6 +473,7 @@ function MessageFlow({
           />
         ) : (
           <ProspectAccountHandoff
+            ps
             title="Add a resident account to read replies in PropLane"
             description="Your message was sent. Add a resident account on your login to read manager replies in Communication."
             createAccountHref={createAccountHref}
@@ -476,7 +489,7 @@ function MessageFlow({
 
   if (!messageGate.ready) {
     return (
-      <div className={`${PUBLIC_PROSPECT_CANVAS_CLASS} mt-8 text-sm text-muted`} aria-busy="true">
+      <div className="ps-mute" aria-busy="true">
         Loading…
       </div>
     );
@@ -484,108 +497,85 @@ function MessageFlow({
 
   if (messageGate.gateView === "resident-portal") {
     return (
-      <div className="mt-8">
-        <ProspectResidentPortalMessagePrompt propertyId={propertyId} propertyTitle={propertyTitle} />
-      </div>
+      <ProspectResidentPortalMessagePrompt propertyId={propertyId} propertyTitle={propertyTitle} />
     );
   }
 
   if (messageGate.gateView !== "action") {
-    return (
-      <div className="mt-8">
-        {messageGate.gateView === "signed-in-create-resident" ? (
-          <ProspectSignedInResidentGate
-            action="message"
-            returnPath={messageGate.portalReturn}
-            propertyTitle={propertyTitle}
-          />
-        ) : (
-          <ProspectGuestAccountGate
-            action="message"
-            gateKey={messageGate.gateKey}
-            returnPath={messageGate.portalReturn}
-            propertyTitle={propertyTitle}
-          />
-        )}
-      </div>
+    return messageGate.gateView === "signed-in-create-resident" ? (
+      <ProspectSignedInResidentGate
+        action="message"
+        returnPath={messageGate.portalReturn}
+        propertyTitle={propertyTitle}
+      />
+    ) : (
+      <ProspectGuestAccountGate
+        action="message"
+        gateKey={messageGate.gateKey}
+        returnPath={messageGate.portalReturn}
+        propertyTitle={propertyTitle}
+      />
     );
   }
 
   return (
-    <div className={PUBLIC_PROSPECT_CANVAS_CLASS}>
-      {propertyTitle ? (
-        <div className="text-sm">
-          <p className="font-semibold text-foreground">{propertyTitle}</p>
-          {propertyAddress ? <p className="mt-1 text-muted">{propertyAddress}</p> : null}
-        </div>
-      ) : null}
+    <div className={PS_PROSPECT_CANVAS_CLASS}>
+      <div className="ps-j-stack" style={{ gap: 20 }}>
+        <Field label="What do you need help with? *">
+          <select
+            value={topic}
+            onChange={(e) => {
+              const v = e.target.value;
+              setTopic(v);
+              if (v !== "Other") setOtherTopicDetail("");
+            }}
+            className="ps-select"
+            data-attr="tours-contact-topic"
+          >
+            <option value="">Select a topic</option>
+            {TOPICS.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {isOther ? (
+          <Field label="Describe your topic *">
+            <input
+              type="text"
+              value={otherTopicDetail}
+              onChange={(e) => setOtherTopicDetail(e.target.value)}
+              placeholder="Type what you need help with"
+              className={inputCls}
+            />
+          </Field>
+        ) : null}
+        <p style={{ margin: 0, fontSize: 14 }}>
+          Rent, payments, maintenance or login issues go through the{" "}
+          <Link href="/resident/dashboard" className="ps-link">
+            resident portal
+          </Link>
+          .
+        </p>
+      </div>
 
-      <div className="space-y-4">
-        <div>
-          <h2 className="text-base font-bold text-foreground">Topic</h2>
-          <p className="mt-1 text-sm leading-relaxed text-muted">
-            For rent, payments, maintenance, or portal login issues, use the{" "}
-            <Link href="/resident/dashboard" className="font-semibold text-primary hover:underline">
-              resident portal
-            </Link>
-            . These topics are for leasing questions, the area around our homes, and availability.
-          </p>
-          <p className="mt-4 text-xs font-semibold text-muted">What do you need help with? *</p>
-          <div className="mt-2">
-            <Select
-              value={topic}
-              onChange={(e) => {
-                const v = e.target.value;
-                setTopic(v);
-                if (v !== "Other") setOtherTopicDetail("");
-              }}
-            >
-              <option value="">Select a topic</option>
-              {TOPICS.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </Select>
-          </div>
-          {isOther ? (
-            <div className="mt-4">
-              <Field label="Describe your topic *">
-                <input
-                  type="text"
-                  value={otherTopicDetail}
-                  onChange={(e) => setOtherTopicDetail(e.target.value)}
-                  placeholder="Type what you need help with"
-                  className={inputCls}
-                />
-              </Field>
-            </div>
-          ) : null}
+      <div className="ps-j-stack" style={{ gap: 18 }}>
+        <div className="ps-j-grid2">
+          <Field label="Name *">
+            <input type="text" placeholder="Jane Smith" className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label="Email *">
+            <input type="email" placeholder="jane@email.com" className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} />
+          </Field>
         </div>
-
-        <div>
-          <h2 className="text-base font-bold text-foreground">Your contact & message</h2>
-          <p className="mt-1 text-sm text-muted">
-            We will reply to the email you provide{propertyTitle ? ` about ${propertyTitle}` : ""}.
-          </p>
-          <div className="mt-5 space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Name *">
-                <input type="text" placeholder="Jane Smith" className={inputCls} value={name} onChange={(e) => setName(e.target.value)} />
-              </Field>
-              <Field label="Email *">
-                <input type="email" placeholder="jane@email.com" className={inputCls} value={email} onChange={(e) => setEmail(e.target.value)} />
-              </Field>
-            </div>
-            <Field label="Phone">
-              <PhoneNumberField value={phone} onChange={setPhone} dataAttr="tours-contact-phone" />
-            </Field>
-            <Field label="Message *">
-              <textarea rows={4} placeholder="Tell us more so we can help…" className={`${inputCls} resize-none`} value={message} onChange={(e) => setMessage(e.target.value)} />
-            </Field>
-            <SmsConsentCheckbox checked={smsConsent} onChange={setSmsConsent} inputId="message-sms-consent" />
-          </div>
-        </div>
+        <Field label="Phone">
+          <PhoneNumberField value={phone} onChange={setPhone} dataAttr="tours-contact-phone" />
+        </Field>
+        <Field label="Message *">
+          <textarea rows={4} placeholder="Tell us more so we can help…" className={`${inputCls} resize-none`} style={{ paddingBlock: 10 }} value={message} onChange={(e) => setMessage(e.target.value)} />
+        </Field>
+        <SmsConsentCheckbox checked={smsConsent} onChange={setSmsConsent} inputId="message-sms-consent" ps />
       </div>
 
       <button
@@ -593,8 +583,7 @@ function MessageFlow({
         onClick={handleSend}
         disabled={submitting}
         data-attr="property-lead-message-send"
-        className="w-full rounded-2xl py-3.5 text-sm font-semibold text-white shadow-[0_0_20px_rgba(0,122,255,0.28)] transition-all hover:brightness-105 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-        style={{ background: "linear-gradient(135deg, var(--primary), var(--primary-alt))" }}
+        className="ps-btn ps-btn-blue ps-btn-block"
       >
         {submitting ? "Sending…" : "Send message"}
       </button>
@@ -614,35 +603,12 @@ function Field({
   error?: string;
 }) {
   return (
-    <div data-wizard-field={fieldKey}>
-      <p className="mb-1.5 text-xs font-semibold text-muted">{label}</p>
+    <div className="ps-field" data-wizard-field={fieldKey}>
+      <span>{label}</span>
       {children}
-      {error ? <p className="mt-1 text-xs font-medium text-red-600">{error}</p> : null}
+      {error ? <span className="ps-error">{error}</span> : null}
     </div>
   );
 }
 
-const inputCls =
-  "w-full rounded-xl border border-border bg-accent/30 px-3.5 py-2.5 text-sm text-foreground outline-none transition-all duration-150 placeholder:text-muted/70 focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/15 hover:border-border";
-
-function CheckSmIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
-function ChevronLeftIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M15 18l-6-6 6-6" />
-    </svg>
-  );
-}
-function ChevronRightIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 18l6-6-6-6" />
-    </svg>
-  );
-}
+const inputCls = "ps-input";

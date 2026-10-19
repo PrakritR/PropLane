@@ -8,6 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
+import { PublicTextingProvider } from "@/components/marketing/public-texting-context";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
 import type { MockProperty } from "@/data/types";
 import type { ListingRichContent } from "@/data/listing-rich-content";
@@ -121,7 +122,8 @@ describe("listing sticky bar", () => {
     occupancy.state = { rooms: full, loading: false };
     render(<ListingDetailSections property={property({})} rich={rich} />);
     expect(bar().textContent).toContain("9 rooms · 0 available");
-    expect(document.body.textContent).toContain("0 available now");
+    // Nothing is open: the page never claims rooms are available now.
+    expect(document.body.textContent).not.toContain("available now");
   });
 
   it("carries the work number as the card's text link and prints no email door anywhere", () => {
@@ -129,7 +131,7 @@ describe("listing sticky bar", () => {
     const text = document.querySelector('[data-attr="listing-price-card"] [data-attr="listing-text-tour"]') as HTMLAnchorElement | null;
     expect(text).not.toBeNull();
     expect(text!.getAttribute("href")?.startsWith("sms:")).toBe(true);
-    expect(text!.textContent).toMatch(/^Text .*\(206\)/);
+    expect(text!.textContent).toBe("Text us");
     expect(document.body.textContent).not.toContain("Email the manager");
     expect(document.querySelector('[data-attr="listing-email-tour"]')).toBeNull();
     expect(document.querySelector('[data-attr="listing-sticky-email"]')).toBeNull();
@@ -142,5 +144,41 @@ describe("listing sticky bar", () => {
     render(<ListingDetailSections property={property({ email: WORK_EMAIL })} rich={rich} />);
     expect(document.querySelector('[data-attr="listing-text-tour"]')).toBeNull();
     expect(bar().querySelector('[data-attr="listing-sticky-contact"]')).toBeNull();
+  });
+});
+
+describe("public page dock", () => {
+  it("draws the fixed dock only when the public page asks for it, never inside the portal", () => {
+    render(<ListingDetailSections property={property({})} rich={rich} phoneDock />);
+    const dock = document.querySelector('[data-attr="listing-sticky-bar"][data-dock]') as HTMLElement;
+    expect(dock).not.toBeNull();
+    expect(dock.className).toContain("ps-dock");
+    expect(dock.textContent).toContain("Book a tour");
+    expect(dock.querySelector('[data-attr="listing-web-apply"]')).not.toBeNull();
+    expect(document.documentElement.hasAttribute("data-ps-dock")).toBe(true);
+    cleanup();
+    expect(document.documentElement.hasAttribute("data-ps-dock")).toBe(false);
+
+    render(<ListingDetailSections property={property({})} rich={rich} />);
+    expect(document.querySelector("[data-dock]")).toBeNull();
+    cleanup();
+    render(<ListingDetailSections property={property({})} rich={rich} phoneDock portalEmbedded managerPreviewChrome />);
+    expect(document.querySelector("[data-dock]")).toBeNull();
+    expect(document.querySelector(".ps-dock")).toBeNull();
+  });
+
+  it("adds Text us from the PropLane line when the listing has no work number, and nothing when no line is set", () => {
+    render(
+      <PublicTextingProvider value={{ phone: "+12065550100", smsHref: null }}>
+        <ListingDetailSections property={property({})} rich={rich} phoneDock />
+      </PublicTextingProvider>,
+    );
+    const text = document.querySelector('[data-dock] [data-attr="listing-text-tour-dock"]') as HTMLAnchorElement;
+    expect(text.textContent).toBe("Text us");
+    expect(text.getAttribute("href")).toContain("sms:+12065550100");
+    expect(decodeURIComponent(text.getAttribute("href")!)).toContain("I'm interested in 5257 Brooklyn Avenue Northeast");
+    cleanup();
+    render(<ListingDetailSections property={property({})} rich={rich} phoneDock />);
+    expect(document.querySelector('[data-attr="listing-text-tour-dock"]')).toBeNull();
   });
 });

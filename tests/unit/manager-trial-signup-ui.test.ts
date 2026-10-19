@@ -10,7 +10,7 @@ const source = readFileSync(
 describe("manager trial signup UI (pricing / create-account)", () => {
   it("keeps the standard OAuth + fields form when the user already has manager access", () => {
     expect(source).toContain("PricingAppleContinueButton");
-    expect(source).toContain('AuthDivider label="or enter your details"');
+    expect(source).toContain('AuthDivider label="or"');
     expect(source).toContain("Set up property manager");
     expect(source).not.toContain("AuthAlreadyHaveRolePanel");
     expect(source).not.toContain("AuthSignedInRoleBanner");
