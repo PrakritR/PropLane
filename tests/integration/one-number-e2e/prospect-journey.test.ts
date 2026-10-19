@@ -18,7 +18,7 @@ const sim = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
-vi.mock("@/lib/seo/public-catalog.server", () => ({ getCrawlPublicListings: vi.fn(async () => sim.listings) }));
+vi.mock("@/lib/service/service-catalog.server", () => ({ getServicePublicListings: vi.fn(async () => sim.listings) }));
 vi.mock("@/lib/one-number/lead-extract.server", () => ({ extractLeadFieldsWithModel: vi.fn(async () => null) }));
 vi.mock("@/lib/one-number/send.server", () => ({
   sendSharedLineMessage: vi.fn(async (_db: unknown, send: SharedLineSend) => {
