@@ -17,6 +17,9 @@ describe("resident texting prompt", () => {
     expect(text).not.toMatch(/which house|room are you|text your name/i);
     expect(text).toMatch(/911/);
   });
+  it("files a lockout as a service instead of offering to message the manager", () => {
+    expect(AGENT_SYSTEM_PROMPTS.residentSms).toMatch(/lockout[\s\S]*report_maintenance_issue[\s\S]*Access \/ Locks/);
+  });
   it("asks one question per text and never which house", () => {
     const guidance = triageGuidanceForPrompt();
     expect(guidance).toMatch(/exactly ONE question in each text/);
