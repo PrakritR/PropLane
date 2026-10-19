@@ -15,10 +15,13 @@ export type LookupLike = {
   houseDetails: { house: string; section: string; rows: { label: string; value: string }[] }[];
 };
 
-const SECRET_LABEL = /(pass(word|code|phrase)?|pin\b|\bcode\b|lock ?box|combination|\bkey\b|keys|gate|alarm|garage|entry|access)/i;
+const SECRET_LABEL = /(pass(word|code|phrase)|pin\b|\bcode\b|lock ?box|combination|\bkey\b|keys|\bgate\b|\balarm\b|garage|entry|\baccess\b)/i;
 const SECRET_SECTION = /(access|entry|door|lock|key|security)/i;
 const MONEY_LABEL = /(rent|deposit|fee|price|cost|amount|charge|fine|late)/i;
 const AMOUNT_VALUE = /(\$\s?\d|\d\s?(usd|dollars)\b)/i;
+
+/** Free text that carries a secret: door/lock/gate/alarm codes, passwords, Wi-Fi, keys. Never posted to a group. */
+const SECRET_TEXT = /(pass(word|code|phrase)|\bpin\b|\bcodes?\b|lock ?box|combination|combo\b|wi-?fi|\bwifi\b|network key|\balarm\b|keypad|\bgate\b|garage door|door ?code|\bkeys?\b|security code|\baccess\b)/i;
 
 const MAX_GROUP_CHARS = 280;
 
@@ -49,7 +52,14 @@ export function composeFactReply(result: LookupLike, firstName: string): FactRep
 
   // Approved Q&A entries win: a manager wrote them for exactly this question.
   const entry = result.answers.find((a) => !AMOUNT_VALUE.test(a.answer));
-  if (entry) return { kind: "group", text: answerText(firstName, clip(entry.answer)) };
+  if (entry) {
+    // A manager wrote the answer for one asker's question, not for the whole house: run the same
+    // secret test as a house-detail row. A match goes to the asker alone; the group gets only the note.
+    if (SECRET_TEXT.test(entry.answer) || SECRET_TEXT.test(entry.question)) {
+      return { kind: "private", groupText: answerText(firstName, PRIVATE_FACT_NOTE), privateText: toGsm7(clip(entry.answer)) };
+    }
+    return { kind: "group", text: answerText(firstName, clip(entry.answer)) };
+  }
 
   const shown: string[] = [];
   const secret: string[] = [];

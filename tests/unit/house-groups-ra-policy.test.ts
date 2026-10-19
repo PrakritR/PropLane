@@ -201,6 +201,24 @@ describe("composeFactReply", () => {
     if (door.kind === "private") expect(door.groupText).not.toContain("4821");
   });
 
+  it("never posts an approved Q&A answer that holds a secret in the group: the asker gets it privately", () => {
+    for (const [q, a] of [
+      ["How do I get in?", "The front door code is 4821."],
+      ["Wi-Fi?", "Network Lakeview, password hunter2."],
+      ["Alarm?", "Alarm panel PIN is 1357, garage keypad 9999."],
+      ["Lockbox?", "Lockbox combination 0426 on the side gate."],
+    ] as const) {
+      const r = composeFactReply(lookup({ answers: [{ question: q, answer: a }] }), "Maya");
+      expect(r.kind).toBe("private");
+      if (r.kind === "private") {
+        expect(r.groupText).not.toMatch(/4821|hunter2|1357|9999|0426/);
+        expect(r.privateText).toBe(a);
+      }
+    }
+    const plain = composeFactReply(lookup({ answers: [{ question: "Trash day?", answer: "Trash goes out Tuesday night." }] }), "Sam");
+    expect(plain.kind).toBe("group");
+  });
+
   it("never states an amount", () => {
     const r = composeFactReply(
       lookup({ houseDetails: [{ house: "H", section: "Parking", rows: [{ label: "Spot", value: "Driveway" }, { label: "Monthly fee", value: "$75" }] }] }),

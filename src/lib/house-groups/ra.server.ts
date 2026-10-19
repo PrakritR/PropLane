@@ -51,7 +51,7 @@ export type RaDeps = {
   alert?: typeof alertWorkspaceTeam;
   sendDirect?: SyncDeps["sendDirect"];
   /** House-fact lookup for this house, as a resident would be answered (W6's `lookupPropertyKnowledge`). */
-  lookup?: (input: { workspaceId: string; ownerUserId: string; propertyId: string; question: string }) => Promise<LookupLike>;
+  lookup?: (input: { workspaceId: string; ownerUserId: string; propertyId: string; question: string; askerUserId?: string | null }) => Promise<LookupLike>;
   post?: PostDeps;
   sync?: SyncDeps;
 };
@@ -71,7 +71,7 @@ export type GroupHandleResult =
 
 async function defaultLookup(
   db: SupabaseClient,
-  input: { workspaceId: string; ownerUserId: string; propertyId: string; question: string },
+  input: { workspaceId: string; ownerUserId: string; propertyId: string; question: string; askerUserId?: string | null },
 ): Promise<LookupLike> {
   const { lookupPropertyKnowledge } = await import("@/lib/one-number/knowledge/lookup.server");
   return lookupPropertyKnowledge(
@@ -83,10 +83,27 @@ async function defaultLookup(
       allowedPropertyIds: [input.propertyId],
       focusPropertyId: input.propertyId,
       audiences: ["all", "residents"],
-      includeHouseInfo: true,
+      // House details (door code, Wi-Fi) only on the resident assistant's own terms: the asker's
+      // move-in details must be open. An unknown asker, or a lock read that fails, stays locked.
+      includeHouseInfo: await askerMoveInDetailsOpen(db, input.askerUserId ?? null),
     },
     input.question,
   );
+}
+
+/** The move-in lock the resident assistant honours (`loadMoveInDetailsLock`), for one group member. Fails closed. */
+async function askerMoveInDetailsOpen(db: SupabaseClient, userId: string | null): Promise<boolean> {
+  if (!userId) return false;
+  try {
+    const { data } = await db.from("profiles").select("email").eq("id", userId).maybeSingle();
+    const email = String((data as { email?: unknown } | null)?.email ?? "").trim().toLowerCase();
+    if (!email) return false;
+    const { loadMoveInDetailsLock } = await import("@/lib/tools/resident-context");
+    const lock = await loadMoveInDetailsLock(db, { email, userId });
+    return lock.moveInDetailsLocked === false;
+  } catch {
+    return false;
+  }
 }
 
 function excerpt(text: string, max = 140): string {
@@ -207,7 +224,7 @@ async function answerQuestion(c: Ctx, member: MemberRow, question: string, key: 
     ((input) => defaultLookup(c.db, input));
   let result: LookupLike;
   try {
-    result = await lookup({ workspaceId: c.group.workspaceId, ownerUserId: c.ownerUserId, propertyId: c.group.propertyId, question });
+    result = await lookup({ workspaceId: c.group.workspaceId, ownerUserId: c.ownerUserId, propertyId: c.group.propertyId, question, askerUserId: member.userId });
   } catch {
     return "lookup_failed";
   }
