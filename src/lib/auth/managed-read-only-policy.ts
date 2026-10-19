@@ -56,7 +56,11 @@ export const MANAGED_READ_ONLY_ALLOWED_PATHS: readonly string[] = [
   "/api/internal",
 ];
 
-/** Collapse what the router collapses: repeated slashes, trailing slash, percent-encoding. */
+/**
+ * Collapse what the router collapses: repeated slashes, trailing slash, percent-encoding and dot
+ * segments. A `..` never pops the leading `api` segment, so a path that starts under /api cannot
+ * climb out of it (callers also refuse a path whose first segment changed).
+ */
 export function normalizeApiPath(pathname: string): string {
   let decoded = pathname;
   for (let i = 0; i < 3; i += 1) {
@@ -72,7 +76,8 @@ export function normalizeApiPath(pathname: string): string {
   for (const segment of decoded.replace(/\/{2,}/g, "/").split("/")) {
     if (segment === ".") continue;
     if (segment === "..") {
-      if (segments.length > 1) segments.pop();
+      // segments[0] is the empty root segment, segments[1] the first real one (`api`): never pop those.
+      if (segments.length > 2) segments.pop();
       continue;
     }
     segments.push(segment);
@@ -88,24 +93,39 @@ export function isManagedReadOnlyAllowedPath(pathname: string): boolean {
   return MANAGED_READ_ONLY_ALLOWED_PATHS.some((allowed) => p === allowed || p.startsWith(`${allowed}/`));
 }
 
-/** True for a write to /api/* that is not on the allowlist: the only requests the lock has to look at. */
+const RAW_API_PATH = /^\/api(\/|$)/i;
+
+/**
+ * True for a write to /api/* that is not on the allowlist: the only requests the lock has to look at.
+ * Whether it is an /api write is decided from the RAW pathname first; a path that starts under /api
+ * but normalizes to somewhere else (an encoded `..` climbing out) is refused, never waved through.
+ */
 export function managedReadOnlyCandidate(method: string, pathname: string): boolean {
   if (SAFE_METHODS.has(method.toUpperCase())) return false;
+  const rawApi = RAW_API_PATH.test(pathname);
   const p = normalizeApiPath(pathname);
-  if (p !== "/api" && !p.startsWith("/api/")) return false;
+  const normalizedApi = p === "/api" || p.startsWith("/api/");
+  if (!rawApi && !normalizedApi) return false;
+  if (rawApi !== normalizedApi) return true;
   return !isManagedReadOnlyAllowedPath(p);
 }
 
 /**
- * Block or let through a candidate write for a user whose locked workspaces are `lockedIds`.
- * The `proplane-workspace` cookie decides which workspace the request is acting in; a cookie
- * naming an unlocked workspace passes, a locked one or no cookie (the default workspace) does not.
+ * Block or let through a candidate write. The lock is ACCOUNT-WIDE for an owner of a locked service
+ * workspace (`managed_read_only_owner_locked()`): the `proplane-workspace` cookie is request input
+ * and never decides it, so a forged or other-workspace cookie changes nothing.
  */
-export function managedReadOnlyBlocks(lockedIds: readonly string[], cookieWorkspaceId: string | null | undefined): boolean {
-  if (lockedIds.length === 0) return false;
-  const cookie = cookieWorkspaceId?.trim();
-  if (!cookie) return true;
-  return lockedIds.includes(cookie);
+export function managedReadOnlyBlocks(ownerLocked: boolean): boolean {
+  return ownerLocked === true;
+}
+
+/**
+ * Whether the inbox POST lock must run. Every action except a resident / vendor scoped write, which
+ * is her other portal: deletes carry no scope at all and an unscoped request is not exempt.
+ */
+export function managedReadOnlyInboxLockApplies(action: string | undefined, scopeKey: string, managerScope: string): boolean {
+  if (action === "delete" || action === "deleteIds") return true;
+  return scopeKey === "" || scopeKey === managerScope;
 }
 
 const TEAM_THREAD_PREFIX = "team-thread:";

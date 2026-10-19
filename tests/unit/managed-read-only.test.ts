@@ -6,14 +6,17 @@ vi.mock("server-only", () => ({}));
 import {
   hasSelfPaidPlan,
   isManagedReadOnly,
+  managedReadOnlyOwnerLocked,
   managedReadOnlyWorkspaceIds,
 } from "@/lib/auth/managed-read-only.server";
 import {
   MANAGED_READ_ONLY_ALLOWED_PATHS,
   managedReadOnlyBlocks,
   managedReadOnlyCandidate,
+  managedReadOnlyInboxLockApplies,
   managedReadOnlyInboxThreadAllowed,
   managedReadOnlyInboxWrites,
+  normalizeApiPath,
 } from "@/lib/auth/managed-read-only-policy";
 
 type Row = Record<string, unknown>;
@@ -58,20 +61,24 @@ function world(over: { purchases?: Row[]; profile?: Row; roles?: Row[]; settings
 }
 
 describe("hasSelfPaidPlan", () => {
-  it("admin grant, trial, waiver and promo are not self-paid", () => {
-    expect(hasSelfPaidPlan([{ billing: "admin" }])).toBe(false);
-    expect(hasSelfPaidPlan([{ billing: "trial" }])).toBe(false);
-    expect(hasSelfPaidPlan([{ billing: "waiver", stripe_subscription_id: "  " }])).toBe(false);
-    expect(hasSelfPaidPlan([{ billing: null }])).toBe(false);
+  it("admin grant, trial, waiver, promo and an abandoned free checkout row are not self-paid", () => {
+    expect(hasSelfPaidPlan([{ tier: "business", billing: "admin" } as never])).toBe(false);
+    expect(hasSelfPaidPlan([{ tier: "pro", billing: "trial" } as never])).toBe(false);
+    expect(hasSelfPaidPlan([{ tier: "pro", stripe_subscription_id: "  " }])).toBe(false);
+    expect(hasSelfPaidPlan([{ tier: null }])).toBe(false);
+    expect(hasSelfPaidPlan([{ tier: "free", billing: "monthly" } as never])).toBe(false);
     expect(hasSelfPaidPlan([])).toBe(false);
     expect(hasSelfPaidPlan(null)).toBe(false);
   });
-  it("a stripe subscription, monthly, annual or an apple anchor is self-paid", () => {
-    expect(hasSelfPaidPlan([{ stripe_subscription_id: "sub_1" }])).toBe(true);
-    expect(hasSelfPaidPlan([{ billing: "monthly" }])).toBe(true);
-    expect(hasSelfPaidPlan([{ billing: "Annual" }])).toBe(true);
-    expect(hasSelfPaidPlan([{ apple_original_transaction_id: "2000001" }])).toBe(true);
-    expect(hasSelfPaidPlan([{ billing: "trial" }, { billing: "monthly" }])).toBe(true);
+  it("a free-tier row never counts, even with a subscription id or an apple anchor", () => {
+    expect(hasSelfPaidPlan([{ tier: "free", stripe_subscription_id: "sub_1" }])).toBe(false);
+    expect(hasSelfPaidPlan([{ tier: "free", apple_original_transaction_id: "2000001" }])).toBe(false);
+    expect(hasSelfPaidPlan([{ tier: null, stripe_subscription_id: "sub_1" }])).toBe(false);
+  });
+  it("a pro or business row with a stripe subscription or an apple anchor is self-paid", () => {
+    expect(hasSelfPaidPlan([{ tier: "pro", stripe_subscription_id: "sub_1" }])).toBe(true);
+    expect(hasSelfPaidPlan([{ tier: "Business", apple_original_transaction_id: "2000001" }])).toBe(true);
+    expect(hasSelfPaidPlan([{ tier: "free" }, { tier: "pro", stripe_subscription_id: "sub_2" }])).toBe(true);
   });
 });
 
@@ -83,12 +90,19 @@ describe("managedReadOnlyWorkspaceIds (mirror of the SQL rule)", () => {
     expect(await managedReadOnlyWorkspaceIds(world({ purchases: purchasesFor({ tier: "pro", billing: "trial" }) }), "client")).toEqual([WS]);
     expect(await managedReadOnlyWorkspaceIds(world({}), "client")).toEqual([WS]);
   });
-  it("matches a purchase by email when user_id was never linked", async () => {
-    const db = world({ purchases: [{ user_id: null, email: "AMBIKA@example.com", billing: "annual" }] });
-    expect(await managedReadOnlyWorkspaceIds(db, "client")).toEqual([]);
+  it("an abandoned checkout row (tier free, billing monthly, no payment) stays locked", async () => {
+    expect(await managedReadOnlyWorkspaceIds(world({ purchases: purchasesFor({ tier: "free", billing: "monthly" }) }), "client")).toEqual([WS]);
+    expect(await managedReadOnlyWorkspaceIds(world({ purchases: purchasesFor({ tier: "pro", billing: "annual" }) }), "client")).toEqual([WS]);
   });
-  it("a self-paid plan unlocks", async () => {
-    expect(await managedReadOnlyWorkspaceIds(world({ purchases: purchasesFor({ stripe_subscription_id: "sub_9" }) }), "client")).toEqual([]);
+  it("never matches a purchase by email: an unauthenticated insert cannot unlock", async () => {
+    const db = world({ purchases: [{ user_id: null, email: "AMBIKA@example.com", tier: "pro", stripe_subscription_id: "sub_x" }] });
+    expect(await managedReadOnlyWorkspaceIds(db, "client")).toEqual([WS]);
+    const wild = world({ profile: { id: "client", email: "%@example.com", role: "manager" }, purchases: [{ user_id: "other", email: "x@example.com", tier: "pro", stripe_subscription_id: "sub_x" }] });
+    expect(await managedReadOnlyWorkspaceIds(wild, "client")).toEqual([WS]);
+  });
+  it("a stripe subscription on a pro row, or an apple anchor on a business row, unlocks", async () => {
+    expect(await managedReadOnlyWorkspaceIds(world({ purchases: purchasesFor({ tier: "pro", stripe_subscription_id: "sub_9" }) }), "client")).toEqual([]);
+    expect(await managedReadOnlyWorkspaceIds(world({ purchases: purchasesFor({ tier: "business", apple_original_transaction_id: "2000009" }) }), "client")).toEqual([]);
   });
   it("platform admin and the platform service owner are never locked", async () => {
     expect(await managedReadOnlyWorkspaceIds(world({ roles: [{ user_id: "client", role: "admin" }] }), "client")).toEqual([]);
@@ -178,11 +192,33 @@ describe("managed read-only policy", () => {
     expect(managedReadOnlyCandidate("POST", "/api//stripe/checkout")).toBe(false);
     expect(managedReadOnlyCandidate("POST", "/portal/dashboard")).toBe(false);
   });
-  it("blocks on a locked cookie or no cookie, passes on an unlocked workspace cookie", () => {
-    expect(managedReadOnlyBlocks([], undefined)).toBe(false);
-    expect(managedReadOnlyBlocks([WS], undefined)).toBe(true);
-    expect(managedReadOnlyBlocks([WS], WS)).toBe(true);
-    expect(managedReadOnlyBlocks([WS], WS2)).toBe(false);
+  it("the block is account-wide: it depends on ownership alone, never on a workspace cookie", () => {
+    expect(managedReadOnlyBlocks(false)).toBe(false);
+    expect(managedReadOnlyBlocks(true)).toBe(true);
+  });
+  it("an encoded dot-dot cannot climb out of /api and skip the check", () => {
+    for (const p of [
+      "/api/x/abc%2F..%2F..%2F..%2Fy",
+      "/api/x/%2e%2e/%2e%2e/%2e%2e/y",
+      "/API/property-records",
+      "/api/../property-records",
+      "/api/auth/..%2F..%2F..%2Fproperty-records",
+    ]) {
+      expect(managedReadOnlyCandidate("POST", p), p).toBe(true);
+    }
+    expect(normalizeApiPath("/api/x/abc%2F..%2F..%2F..%2Fy").startsWith("/api/")).toBe(true);
+    expect(managedReadOnlyCandidate("POST", "/api/auth/sign-out")).toBe(false);
+    expect(managedReadOnlyCandidate("POST", "/API/Auth/sign-out")).toBe(false);
+    expect(managedReadOnlyCandidate("POST", "/portal/dashboard")).toBe(false);
+  });
+  it("the inbox lock runs for delete / deleteIds (no scope) and an unscoped request, not for her other portals", () => {
+    const M = "axis_portal_inbox_manager_v1";
+    expect(managedReadOnlyInboxLockApplies("delete", "", M)).toBe(true);
+    expect(managedReadOnlyInboxLockApplies("deleteIds", "", M)).toBe(true);
+    expect(managedReadOnlyInboxLockApplies("delete", "axis_portal_inbox_resident_v1", M)).toBe(true);
+    expect(managedReadOnlyInboxLockApplies("upsert", M, M)).toBe(true);
+    expect(managedReadOnlyInboxLockApplies("changeFolder", "", M)).toBe(true);
+    expect(managedReadOnlyInboxLockApplies("upsert", "axis_portal_inbox_resident_v1", M)).toBe(false);
   });
   it("inbox: only the workspace Team chat and her Assistant thread", () => {
     expect(managedReadOnlyInboxThreadAllowed(`team-thread:client:ws:${WS}`, WS, "client")).toBe(true);
@@ -194,5 +230,20 @@ describe("managed read-only policy", () => {
     expect(managedReadOnlyInboxWrites({ action: "upsert", row: { id: "r1" } })).toEqual(["r1"]);
     expect(managedReadOnlyInboxWrites({ action: "replace", rows: [{ id: "a" }, {}] })).toEqual(["a", ""]);
     expect(managedReadOnlyInboxWrites({ action: "dismissContacts" })).toBeNull();
+  });
+});
+
+describe("managedReadOnlyOwnerLocked (mirror of managed_read_only_owner_locked)", () => {
+  it("true for the owner of a locked service workspace, false once she pays, is admin or owns none", async () => {
+    expect(await managedReadOnlyOwnerLocked(world({}), "client")).toBe(true);
+    expect(await managedReadOnlyOwnerLocked(world({ purchases: [{ user_id: "client", tier: "pro", stripe_subscription_id: "sub_1" }] }), "client")).toBe(false);
+    expect(await managedReadOnlyOwnerLocked(world({ roles: [{ user_id: "client", role: "admin" }] }), "client")).toBe(false);
+    expect(await managedReadOnlyOwnerLocked(world({ workspaces: [{ id: WS, owner_user_id: "client", is_service: false }] }), "client")).toBe(false);
+  });
+  it("a property_owner seat does not fire the account-wide lock (it only locks its own workspace)", async () => {
+    const invites = [{ invitee_user_id: "owner-1", inviter_user_id: "mgr", workspace_id: WS2, team_role: "property_owner", status: "accepted" }];
+    const db = world({ invites });
+    expect(await managedReadOnlyOwnerLocked(db, "owner-1")).toBe(false);
+    expect(await managedReadOnlyWorkspaceIds(db, "owner-1")).toEqual([WS2]);
   });
 });

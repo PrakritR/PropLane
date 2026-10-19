@@ -1,15 +1,14 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
-import { isStripeManagedBilling } from "@/lib/manager-access";
 
 /**
- * TS mirror of `public.managed_read_only_workspace_ids()` (migration 20261019100000), for code
- * that holds a service-role client. Keep the two rules identical.
+ * TS mirror of `public.managed_read_only_workspace_ids()` / `managed_read_only_owner_locked()`
+ * (migration 20261019120000), for code that holds a service-role client. Keep the rules identical.
  */
 export type PurchaseRowForPlan = {
+  tier?: string | null;
   stripe_subscription_id?: string | null;
-  billing?: string | null;
   apple_original_transaction_id?: string | null;
 };
 
@@ -18,16 +17,17 @@ function text(value: unknown): string {
 }
 
 /**
- * A plan the client paid for herself: a Stripe subscription, monthly / annual billing, or an Apple
- * anchor. Admin grants, trials and waivers / promo codes are NOT self-paid (allowlist).
+ * A plan the client paid for herself: a pro / business row carrying a Stripe subscription id or an
+ * Apple anchor. The `billing` column is NOT evidence (checkout intents write monthly / annual for
+ * tier free before any payment), and admin grants, trials and waivers carry no subscription id.
+ * manager_purchases has no subscription-status column, so a canceled subscription still counts.
  */
 export function hasSelfPaidPlan(rows: readonly PurchaseRowForPlan[] | null | undefined): boolean {
-  return (rows ?? []).some(
-    (row) =>
-      text(row.stripe_subscription_id) !== "" ||
-      isStripeManagedBilling(text(row.billing)) ||
-      text(row.apple_original_transaction_id) !== "",
-  );
+  return (rows ?? []).some((row) => {
+    const tier = text(row.tier).toLowerCase();
+    if (tier !== "pro" && tier !== "business") return false;
+    return text(row.stripe_subscription_id) !== "" || text(row.apple_original_transaction_id) !== "";
+  });
 }
 
 /**
@@ -57,14 +57,30 @@ export async function lockedOwnedServiceWorkspaceIds(
     text(profile?.role).toLowerCase() === "admin" ||
     email === PRIMARY_ADMIN_EMAIL.toLowerCase();
   if (isAdmin || (serviceRes.data ?? []).length > 0) return [];
-  const select = "stripe_subscription_id, billing, apple_original_transaction_id";
-  const [byUser, byEmail] = await Promise.all([
-    db.from("manager_purchases").select(select).eq("user_id", uid),
-    email ? db.from("manager_purchases").select(select).ilike("email", email) : Promise.resolve({ data: [] as PurchaseRowForPlan[], error: null }),
-  ]);
-  if (byUser.error || byEmail.error) throw new Error("managed read-only plan lookup failed");
-  if (hasSelfPaidPlan([...(byUser.data ?? []), ...(byEmail.data ?? [])])) return [];
+  // Matched by user_id only: an email match is satisfied by unauthenticated inserts.
+  const purchases = await db
+    .from("manager_purchases")
+    .select("tier, stripe_subscription_id, apple_original_transaction_id")
+    .eq("user_id", uid);
+  if (purchases.error) throw new Error("managed read-only plan lookup failed");
+  if (hasSelfPaidPlan((purchases.data ?? []) as PurchaseRowForPlan[])) return [];
   return [...ownedServiceIds];
+}
+
+/**
+ * True when the user OWNS a locked service workspace: the account-wide lock the middleware applies
+ * (mirror of `managed_read_only_owner_locked()`). A property_owner seat never counts. Throws on a
+ * read error (callers fail closed).
+ */
+export async function managedReadOnlyOwnerLocked(db: SupabaseClient, userId: string): Promise<boolean> {
+  const uid = userId.trim();
+  if (!uid) return false;
+  const { data, error } = await db.from("portal_workspaces").select("id, is_service").eq("owner_user_id", uid);
+  if (error) throw new Error("managed read-only lookup failed");
+  const ownedService = ((data ?? []) as { id: string; is_service?: boolean | null }[])
+    .filter((w) => w.is_service === true)
+    .map((w) => String(w.id));
+  return (await lockedOwnedServiceWorkspaceIds(db, uid, ownedService)).length > 0;
 }
 
 /** The workspaces this user sees view-only. Throws on any read error (callers fail closed). */
