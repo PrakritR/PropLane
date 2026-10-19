@@ -190,9 +190,10 @@
   .home-swiss .home-compare-sub { margin-top: 3px; font-size: 10px; line-height: 1.2; }
   .home-swiss .home-compare-actions > div { padding: 10px 3px 8px; }
   .home-swiss .home-compare-cta { min-height: 44px; font-size: 11px; line-height: 1.15; padding: 6px 3px; border-radius: 12px; }
-  .home-swiss .home-compare-row { min-height: 0; padding-bottom: 6px; }
-  .home-swiss .home-compare-row .home-compare-label { grid-column: 1 / -1; padding: 10px 4px 2px; font-size: 13px; }
-  .home-swiss .home-compare-row [role="cell"] { min-height: 28px; padding-inline: 4px; }
+  /* Phone: label line + value line kept tight so the whole table fits one 390x844 screen. */
+  .home-swiss .home-compare-row { min-height: 0; padding-bottom: 3px; }
+  .home-swiss .home-compare-row .home-compare-label { grid-column: 1 / -1; padding: 7px 4px 0; font-size: 13px; line-height: 1.25; }
+  .home-swiss .home-compare-row [role="cell"] { min-height: 22px; padding-inline: 4px; }
   .home-swiss .home-compare-value { font-size: 12px; }
   .home-swiss .home-compare-note { padding-left: 4px; font-size: 10.5px; }
   .home-swiss .home-billing label { padding-inline: 12px; font-size: 13px; }
