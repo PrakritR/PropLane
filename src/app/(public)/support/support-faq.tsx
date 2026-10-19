@@ -79,7 +79,7 @@ const MANAGER_FAQS: FaqItem[] = [
     a: (
       <>
         Create an account, add your properties, and invite residents. Applications, screening, leases, and rent
-        collection all run from the manager portal. For a guided walkthrough,{" "}
+        collection all run from the Property portal. For a guided walkthrough,{" "}
         <Link href="/partner/contact?tab=schedule" className="font-medium text-primary hover:opacity-90">
           schedule a meeting
         </Link>{" "}

@@ -234,15 +234,42 @@ export function homeDemoStartPhone(): HomeDemoPhone {
   return { label: phone.label, items: phone.items.slice(0, phone.initial ?? 0) };
 }
 
-/** The phone on screen once the journey has run: the last one it spoke on, with everything it showed. */
-export function homeDemoEndPhone(): HomeDemoPhone {
+/** The phone on screen after the first `count` steps have run (default: all of them, the journey's end). */
+export function homeDemoPhoneAfter(count: number = HOME_DEMO_JOURNEY.steps.length): HomeDemoPhone {
   let index = 0;
   const shown = HOME_DEMO_JOURNEY.phones.map((phone) => phone.initial ?? 0);
-  for (const step of HOME_DEMO_JOURNEY.steps) {
+  for (const step of HOME_DEMO_JOURNEY.steps.slice(0, count)) {
     if (step.do !== "say") continue;
     index = step.phone ?? index;
     shown[index] = Math.min(HOME_DEMO_JOURNEY.phones[index]!.items.length, shown[index]! + (step.count ?? 1));
   }
   const phone = HOME_DEMO_JOURNEY.phones[index]!;
   return { label: phone.label, items: phone.items.slice(0, shown[index]) };
+}
+
+/** The phone on screen once the journey has run: the last one it spoke on, with everything it showed. */
+export function homeDemoEndPhone(): HomeDemoPhone {
+  return homeDemoPhoneAfter();
+}
+
+/**
+ * Where the portal switcher takes the visitor, as step indexes of the journey. `resumeAt` is the portal's FIRST
+ * step (the `portal` step that opens it; 0 for the portal the journey opens in): everything before it has been
+ * written to the stores by then, so what it opens is never empty. `until` is where that portal's last stretch ends
+ * (the next `portal` step into another portal, or the journey's end): reduced motion draws that frame.
+ */
+export type HomeDemoJumpPlan = { resumeAt: number; until: number };
+
+export function homeDemoJumpPlan(role: HomeDemoPortal): HomeDemoJumpPlan {
+  const steps = HOME_DEMO_JOURNEY.steps;
+  const switches = steps.flatMap((step, index) => (step.do === "portal" ? [{ index, role: step.role }] : []));
+  const first = role === HOME_DEMO_JOURNEY.portal ? 0 : (switches.find((s) => s.role === role)?.index ?? 0);
+  // The last stretch in this portal: from its final entry (or the journey's start) to the next switch elsewhere.
+  const lastEntry = [...switches].reverse().find((s) => s.role === role);
+  const from = lastEntry?.index ?? 0;
+  const leave = switches.find((s) => s.index > from && s.role !== role);
+  let until = leave ? leave.index : steps.length;
+  // A text that only announces the next portal's work (the offer to the vendor) belongs to that portal's part.
+  for (let step = steps[until - 1]; until > from + 1 && step?.do === "say" && step.phone !== undefined && step.effect !== undefined; step = steps[until - 1]) until -= 1;
+  return { resumeAt: first, until };
 }

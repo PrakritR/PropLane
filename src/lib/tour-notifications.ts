@@ -115,7 +115,7 @@ export function buildTourRequestManagerBody(ctx: TourNotificationContext): strin
   }
   lines.push(
     "",
-    "Open your PropLane manager portal calendar to approve or decline this tour request.",
+    "Open your PropLane Property portal calendar to approve or decline this tour request.",
     "",
     "— PropLane",
   );

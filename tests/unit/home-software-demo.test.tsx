@@ -35,7 +35,11 @@ function fromEmbed(frame: HTMLIFrameElement, data: unknown) {
   act(() => { window.dispatchEvent(new MessageEvent("message", { data, origin: window.location.origin, source: frame.contentWindow })); });
 }
 
-const portalLabel = (view: ReturnType<typeof render>) => view.container.querySelector('[data-attr="home-software-demo-portal"]')!.textContent;
+/** The last jump the player posted (it may be followed by a play/pause once the hold lifts). */
+const lastJump = (spy: { mock: { calls: unknown[][] } }) => [...spy.mock.calls].reverse().map((call) => call[0] as { action?: string }).find((message) => message.action === "jump");
+
+/** The switcher's active segment (the portal on screen). */
+const portalLabel = (_view: ReturnType<typeof render>) => screen.getAllByRole("tab").find((tab) => tab.getAttribute("aria-selected") === "true")!.textContent;
 const event = (portal: string, extra: Record<string, unknown> = {}) => ({ type: HOME_DEMO_EVENT, step: 1, done: false, typing: null, portal, phone: { label: "Jordan’s phone", items: [] }, ...extra });
 
 describe("homepage Software demo", () => {
@@ -43,9 +47,9 @@ describe("homepage Software demo", () => {
     const view = render(<HomeSoftwareDemoPlayer />);
     expect(view.container.querySelector("section#dashboard")).not.toBeNull();
     expect(screen.getByRole("heading", { name: "Software" })).toBeInTheDocument();
-    // The one flow plays by itself: nothing to pick, nothing to pause.
-    expect(screen.queryByRole("tablist")).toBeNull();
-    expect(screen.queryByRole("tab")).toBeNull();
+    // The one flow plays by itself: no chapter bar, nothing to pause. The only tabs are the three portals.
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Resident", "Property", "Vendor"]);
     expect(screen.queryByRole("button", { name: /(Play|Pause) demo/ })).toBeNull();
     expect(view.container.querySelector("iframe")).toBeNull();
     preload().emit();
@@ -74,20 +78,86 @@ describe("homepage Software demo", () => {
     expect(screen.queryByText("Forged")).toBeNull();
   });
 
-  it("names the portal on screen beside Sample data, from what the embed reports", () => {
+  it("the switcher marks the portal on screen, from what the embed reports", () => {
     const view = render(<HomeSoftwareDemoPlayer />);
     preload().emit(); viewport().emit();
     const { frame } = frameOf(view);
     // The journey opens in the prospect's own (resident) portal.
-    expect(portalLabel(view)).toBe("Resident portal · Sample data");
+    expect(portalLabel(view)).toBe("Resident");
     fromEmbed(frame, event("manager"));
-    expect(portalLabel(view)).toBe("Manager portal · Sample data");
+    expect(portalLabel(view)).toBe("Property");
     fromEmbed(frame, event("vendor", { phone: { label: "Vendor’s phone", items: [] } }));
-    expect(portalLabel(view)).toBe("Vendor portal · Sample data");
+    expect(portalLabel(view)).toBe("Vendor");
     expect(screen.getAllByText("Vendor’s phone").length).toBeGreaterThan(0);
     // An event with a forged portal leaves the label alone.
     fromEmbed(frame, event("owner"));
-    expect(portalLabel(view)).toBe("Vendor portal · Sample data");
+    expect(portalLabel(view)).toBe("Vendor");
+  });
+
+  it("keeps Sample data as quiet text beside the switcher", () => {
+    render(<HomeSoftwareDemoPlayer />);
+    expect(screen.getByText("Sample data")).toBeInTheDocument();
+    expect(screen.queryByText(/portal · Sample data/)).toBeNull();
+  });
+
+  it("choosing a portal jumps the run to that portal's first step, switches the phone view to Portal, and the phone follows", () => {
+    const view = render(<HomeSoftwareDemoPlayer />);
+    preload().emit(); viewport().emit();
+    const { frame, spy } = frameOf(view);
+    fromEmbed(frame, { type: HOME_DEMO_READY });
+    fireEvent.mouseEnter(view.container.querySelector("section")!);
+    fireEvent.click(screen.getByRole("tab", { name: "Vendor" }));
+    // Hovering the section held the run; choosing a portal lets it go on, so the jump is not paused.
+    expect(lastJump(spy)).toEqual({ type: HOME_DEMO_CONTROL, action: "jump", portal: "vendor", paused: false });
+    expect(spy).toHaveBeenLastCalledWith({ type: HOME_DEMO_CONTROL, action: "play" }, window.location.origin);
+    expect(screen.getByRole("tab", { name: "Vendor" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Portal" })).toHaveAttribute("aria-pressed", "true");
+    expect(view.container.querySelector("section")).toHaveAttribute("data-playing", "true");
+    expect(screen.getAllByText("Vendor’s phone").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("tab", { name: "Property" }));
+    expect(lastJump(spy)).toEqual({ type: HOME_DEMO_CONTROL, action: "jump", portal: "manager", paused: false });
+    expect(screen.getByRole("tab", { name: "Property" })).toHaveAttribute("data-attr", "home-demo-portal-property");
+  });
+
+  it("a portal chosen before the embed's listener is up is sent when it says it is ready", () => {
+    const view = render(<HomeSoftwareDemoPlayer />);
+    preload().emit(); viewport().emit();
+    const { frame, spy } = frameOf(view);
+    fireEvent.click(screen.getByRole("tab", { name: "Vendor" }));
+    expect(lastJump(spy)).toBeUndefined();
+    fromEmbed(frame, { type: HOME_DEMO_READY });
+    expect(lastJump(spy)).toEqual({ type: HOME_DEMO_CONTROL, action: "jump", portal: "vendor", paused: false });
+  });
+
+  it("the switcher is a tablist with roving focus and arrow keys", () => {
+    const view = render(<HomeSoftwareDemoPlayer />);
+    preload().emit(); viewport().emit();
+    const { frame, spy } = frameOf(view);
+    fromEmbed(frame, { type: HOME_DEMO_READY });
+    expect(screen.getByRole("tab", { name: "Resident" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getByRole("tab", { name: "Vendor" })).toHaveAttribute("tabindex", "-1");
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Resident" }), { key: "ArrowRight" });
+    expect(lastJump(spy)).toMatchObject({ portal: "manager" });
+    expect(screen.getByRole("tab", { name: "Property" })).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Property" }), { key: "ArrowLeft" });
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Resident" }), { key: "ArrowLeft" });
+    expect(lastJump(spy)).toMatchObject({ portal: "vendor" });
+    // Focus inside the switcher does not hold the run.
+    expect(view.container.querySelector("section")).toHaveAttribute("data-playing", "true");
+    fromEmbed(frame, event("resident"));
+    expect(screen.getByRole("tab", { name: "Resident" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("reduced motion: choosing a portal draws the end of that portal's part (no autoplay), and the phone follows", () => {
+    motion = true;
+    const view = render(<HomeSoftwareDemoPlayer />);
+    preload().emit(); viewport().emit();
+    const { frame, spy } = frameOf(view);
+    fromEmbed(frame, { type: HOME_DEMO_READY });
+    fireEvent.click(screen.getByRole("tab", { name: "Resident" }));
+    expect(lastJump(spy)).toEqual({ type: HOME_DEMO_CONTROL, action: "jump", portal: "resident", paused: true });
+    expect(screen.getByRole("tab", { name: "Resident" })).toHaveAttribute("aria-selected", "true");
+    expect(view.container.querySelector("section")).toHaveAttribute("data-playing", "false");
   });
 
   it("starts the embed and holds it on hover and when it leaves the screen, and resumes", () => {
@@ -137,6 +207,6 @@ describe("homepage Software demo", () => {
     expect(view.container.querySelector("section")).toHaveAttribute("data-playing", "false");
     // Before the embed reports, the phone already shows the finished journey: the vendor's YES and the reply.
     expect(screen.getByText("It’s yours. We’ll send you the details.")).toBeInTheDocument();
-    expect(portalLabel(view)).toBe("Manager portal · Sample data");
+    expect(portalLabel(view)).toBe("Property");
   });
 });

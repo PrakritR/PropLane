@@ -14,7 +14,7 @@ import {
 } from "@/lib/auth/view-as-token";
 
 const PORTAL_LABEL: Record<ViewAsPortal, string> = {
-  manager: "Manager portal",
+  manager: "Property portal",
   resident: "Resident portal",
   vendor: "Vendor portal",
 };

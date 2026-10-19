@@ -34,7 +34,7 @@ export const PORTAL_META: Record<
   }
 > = {
   manager: {
-    label: "Manager portal",
+    label: "Property portal",
     product: "Property",
     workspace: "Seattle Homes",
     profile: { name: "Manager", email: "manager@seattlehomes.example", initials: "M" },

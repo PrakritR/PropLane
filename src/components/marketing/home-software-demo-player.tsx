@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { homeDemoEndPhone, homeDemoEndPortal, homeDemoStartPhone, homeDemoStartPortal } from "@/components/demo/home-demo-script";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { homeDemoEndPhone, homeDemoEndPortal, homeDemoJumpPlan, homeDemoPhoneAfter, homeDemoStartPhone, homeDemoStartPortal } from "@/components/demo/home-demo-script";
 import {
   HOME_DEMO_CONTROL,
   HOME_DEMO_EMBED_PATH,
@@ -22,6 +22,13 @@ import { HomeSectionHeader } from "./home-section-header";
 /** The portal is drawn at this logical size and scaled to fit, so it always looks exactly as /portal does. */
 const LOGICAL_WIDTH = 1280;
 const LOGICAL_HEIGHT = 800;
+/** The switcher's segments, in the order the visitor reads the product: the renter, the property team, the vendor. */
+const SWITCHER: readonly { portal: HomeDemoPortal; slug: string }[] = [
+  { portal: "resident", slug: "resident" },
+  { portal: "manager", slug: "property" },
+  { portal: "vendor", slug: "vendor" },
+];
+
 /** After the journey finishes, how long its last frame holds before it starts over. */
 const LOOP_HOLD_MS = 3200;
 
@@ -36,6 +43,9 @@ export function HomeSoftwareDemoPlayer() {
   const stage = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   const loaded = useRef(false);
+  /** The embed's listener is attached (its READY message arrived). A portal chosen before then waits for it. */
+  const embedReady = useRef(false);
+  const pendingJump = useRef<{ type: typeof HOME_DEMO_CONTROL; action: "jump"; portal: HomeDemoPortal; paused: boolean } | null>(null);
   const reducedRef = useRef(true);
   const [phone, setPhone] = useState<HomeDemoPhone>(() => homeDemoEndPhone());
   /** Which real portal the iframe is showing: named beside "Sample data" so the visitor always knows whose screen it is. */
@@ -54,6 +64,9 @@ export function HomeSoftwareDemoPlayer() {
   const holding = paused || hovered || focused || !inView || !visible;
   const holdingRef = useRef(holding);
   useEffect(() => { holdingRef.current = holding; }, [holding]);
+  const inViewRef = useRef(inView);
+  const visibleRef = useRef(visible);
+  useEffect(() => { inViewRef.current = inView; visibleRef.current = visible; }, [inView, visible]);
 
   const post = useCallback((message: HomeDemoControl) => {
     frame.current?.contentWindow?.postMessage(message, window.location.origin);
@@ -108,6 +121,12 @@ export function HomeSoftwareDemoPlayer() {
       const data = event.data as ({ type?: string } & Partial<Omit<HomeDemoEvent, "type">>) | null;
       if (data?.type === HOME_DEMO_READY) {
         loaded.current = true;
+        embedReady.current = true;
+        if (pendingJump.current) {
+          post(pendingJump.current);
+          pendingJump.current = null;
+          return;
+        }
         if (reducedRef.current) return;
         post({ type: HOME_DEMO_CONTROL, action: holdingRef.current ? "pause" : "play" });
         return;
@@ -125,6 +144,36 @@ export function HomeSoftwareDemoPlayer() {
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [post]);
+  /**
+   * The portal switcher: the run starts over at that portal's first step (reduced motion: that portal's end frame).
+   * The phone follows at once, from the same script the iframe plays. Choosing a portal is the visitor asking to
+   * watch, so it lifts any hold that hovering, focus or an earlier press put on the run.
+   */
+  const jump = useCallback((target: HomeDemoPortal) => {
+    const plan = homeDemoJumpPlan(target);
+    setPortal(target);
+    setPhone(homeDemoPhoneAfter(reducedRef.current ? plan.until : plan.resumeAt));
+    setTyping(null);
+    setDone(false);
+    setView("portal");
+    setPaused(false);
+    setHovered(false);
+    setFocused(false);
+    const message = { type: HOME_DEMO_CONTROL, action: "jump", portal: target, paused: reducedRef.current || !inViewRef.current || !visibleRef.current } as const;
+    if (embedReady.current) post(message);
+    else pendingJump.current = message;
+  }, [post]);
+
+  const onSwitcherKey = (event: KeyboardEvent<HTMLElement>, index: number) => {
+    const last = SWITCHER.length - 1;
+    const next = event.key === "ArrowRight" ? (index === last ? 0 : index + 1) : event.key === "ArrowLeft" ? (index === 0 ? last : index - 1) : event.key === "Home" ? 0 : event.key === "End" ? last : null;
+    if (next === null) return;
+    event.preventDefault();
+    const target = SWITCHER[next]!;
+    document.getElementById(`home-demo-portal-${target.slug}`)?.focus();
+    jump(target.portal);
+  };
+
   // Tell the iframe whether it may run.
   useEffect(() => {
     if (!loaded.current || reduced) return;
@@ -184,23 +233,47 @@ export function HomeSoftwareDemoPlayer() {
       data-view={view}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={release}
-      onFocusCapture={() => setFocused(true)}
+      onFocusCapture={(event) => { if (!(event.target as Element).closest?.('[role="tablist"]')) setFocused(true); }}
       onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}
     >
       <header className="home-software-demo-heading">
         <HomeSectionHeader id="home-dashboard-title">Software</HomeSectionHeader>
-        <span data-attr="home-software-demo-portal">{HOME_DEMO_PORTAL_LABEL[portal]} portal · Sample data</span>
+        <div
+          role="tablist"
+          aria-label="Portal"
+          className="home-software-demo-switch"
+          data-attr="home-software-demo-portal"
+          onMouseEnter={() => setHovered(false)}
+        >
+          {SWITCHER.map(({ portal: id, slug }, index) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              id={`home-demo-portal-${slug}`}
+              aria-selected={portal === id}
+              aria-controls="home-demo-portal-panel"
+              tabIndex={portal === id ? 0 : -1}
+              data-attr={`home-demo-portal-${slug}`}
+              onClick={() => jump(id)}
+              onKeyDown={(event) => onSwitcherKey(event, index)}
+            >
+              {HOME_DEMO_PORTAL_LABEL[id]}
+            </button>
+          ))}
+        </div>
+        <span className="home-software-demo-sample">Sample data</span>
       </header>
       <div className="home-software-demo-views" role="group" aria-label="Show">
         <button type="button" aria-pressed={view === "phone"} onClick={() => setView("phone")}>Phone</button>
         <button type="button" aria-pressed={view === "portal"} onClick={() => setView("portal")}>Portal</button>
       </div>
-      <div className="home-software-demo-body">
+      <div className="home-software-demo-body" onMouseMove={() => setHovered(true)}>
         <div className="home-software-demo-phone">
           <HomeIphonePhone items={items} typing={typing} label={phoneLabel} />
           <p className="home-software-demo-phone-label">{phoneLabel}</p>
         </div>
-        <div className="home-software-demo-portal" ref={stage} data-demo-frame>
+        <div className="home-software-demo-portal" ref={stage} data-demo-frame id="home-demo-portal-panel" role="tabpanel" aria-labelledby={`home-demo-portal-${SWITCHER.find((entry) => entry.portal === portal)!.slug}`}>
           {mountFrame ? (
             <div className="home-software-demo-scaler" style={{ width: LOGICAL_WIDTH * scale, height: LOGICAL_HEIGHT * scale }}>
               <iframe

@@ -1,6 +1,6 @@
 /**
  * The contract between the homepage Software demo (parent page) and its iframe
- * (`/demo/home-embed`, the real manager portal over fixture data). Pure constants and types so
+ * (`/demo/home-embed`, the real portals over fixture data). Pure constants and types so
  * the middleware, the embed and the parent can all import it.
  */
 
@@ -19,11 +19,11 @@ export const HOME_DEMO_CONTROL = "proplane-home-demo-control";
 /** The three real portals the demo shows. */
 export type HomeDemoPortal = "resident" | "vendor" | "manager";
 
-/** What the visitor reads for each portal: the cursor's label and the player's caption. */
+/** What the visitor reads for each portal: the cursor's label and the switcher's segment. The manager's portal is the "Property" portal. */
 export const HOME_DEMO_PORTAL_LABEL: Record<HomeDemoPortal, string> = {
   resident: "Resident",
   vendor: "Vendor",
-  manager: "Manager",
+  manager: "Property",
 };
 
 export function isHomeDemoPortal(value: unknown): value is HomeDemoPortal {
@@ -57,5 +57,11 @@ export type HomeDemoEvent = {
   portal: HomeDemoPortal;
 };
 
-/** `restart` plays the journey again from its first frame (the parent sends it when a run has finished and held). */
-export type HomeDemoControl = { type: typeof HOME_DEMO_CONTROL; action: "play" | "pause" | "restart" };
+/**
+ * `restart` plays the journey again from its first frame (the parent sends it when a run has finished and held).
+ * `jump` is the portal switcher: the run is cancelled and starts over at that portal's first step (reduced motion:
+ * draws the end of that portal's part instead); `paused` says whether it should hold there.
+ */
+export type HomeDemoControl =
+  | { type: typeof HOME_DEMO_CONTROL; action: "play" | "pause" | "restart" }
+  | { type: typeof HOME_DEMO_CONTROL; action: "jump"; portal: HomeDemoPortal; paused?: boolean };
