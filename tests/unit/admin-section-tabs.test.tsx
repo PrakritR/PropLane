@@ -84,7 +84,7 @@ describe("admin sidebar rows", () => {
     ["payments", "payments"],
     ["promo-codes", "payments"],
     ["finances", "payments"],
-    ["managed-finance", "payments"],
+    ["managed-finance", "properties"],
     ["bugs-feedback", "bugs-feedback"],
     ["events", "bugs-feedback"],
     ["health", "bugs-feedback"],
@@ -141,7 +141,7 @@ describe("adminSectionTabsFor", () => {
   const all = adminPortal.sections.map((s) => s.section);
 
   it("returns the group's tabs in order for a grouped section", () => {
-    expect(adminSectionTabsFor("promo-codes", all)?.sections).toEqual(["payments", "promo-codes", "finances", "managed-finance"]);
+    expect(adminSectionTabsFor("promo-codes", all)?.sections).toEqual(["payments", "promo-codes", "finances"]);
     expect(adminSectionTabsFor("health", all)).toMatchObject({ groupId: "support", label: "Support" });
   });
 
@@ -176,10 +176,10 @@ describe("AdminSectionTabs strip", () => {
     expect(screen.getByRole("link", { name: "Test accounts" }).getAttribute("href")).toBe("/admin/test-accounts");
   });
 
-  it("renders Properties · Service · PropLane line · Unassigned leads as one strip with the page's tab active", () => {
+  it("renders Properties · Service · PropLane line · Unassigned leads · Managed funds as one strip with the page's tab active", () => {
     state.pathname = "/admin/proplane-line";
     render(<AdminSectionTabs definition={operator} />);
-    expect(labels()).toEqual(["Properties", "Service", "PropLane line", "Unassigned leads"]);
+    expect(labels()).toEqual(["Properties", "Service", "PropLane line", "Unassigned leads", "Managed funds"]);
     expect(screen.getByRole("link", { name: "PropLane line" }).getAttribute("aria-current")).toBeTruthy();
   });
 
@@ -189,10 +189,10 @@ describe("AdminSectionTabs strip", () => {
     expect(labels()).toEqual(["Accounts", "Subscribers"]);
   });
 
-  it("renders Payments · Promo codes · Finances · Managed funds on a Money page", () => {
+  it("renders Payments · Promo codes · Finances on a Money page", () => {
     state.pathname = "/admin/promo-codes";
     render(<AdminSectionTabs definition={operator} />);
-    expect(labels()).toEqual(["Payments", "Promo codes", "Finances", "Managed funds"]);
+    expect(labels()).toEqual(["Payments", "Promo codes", "Finances"]);
     expect(screen.getByRole("link", { name: "Promo codes" }).getAttribute("aria-current")).toBe("page");
   });
 

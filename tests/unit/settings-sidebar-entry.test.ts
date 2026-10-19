@@ -1,7 +1,8 @@
 /**
- * Settings (the `profile` section) has no row in ANY desktop sidebar — pro/
- * manager, resident, vendor, and admin all reach it only from the top-right
- * account menu (and, on a phone, the profile menu). See
+ * Settings (the `profile` section) has no row in the pro/manager, resident and
+ * vendor desktop sidebars — they reach it only from the top-right account menu
+ * (admin is the exception: Settings is its first sidebar row, captain Oct 18,
+ * one-number-decisions #8) (and, on a phone, the profile menu). See
  * `src/lib/portals/nav-groups.ts`'s `SIDEBAR_EXCLUDED_SECTIONS`.
  */
 import { readFileSync } from "node:fs";
@@ -35,7 +36,7 @@ const ALL_PORTALS = [
 ];
 
 describe("Settings has no sidebar entry anywhere — account menu only", () => {
-  for (const { kind, sections } of ALL_PORTALS) {
+  for (const { kind, sections } of ALL_PORTALS.filter((p) => p.kind !== "admin")) {
     it(`${kind}: no group config assigns profile`, () => {
       const groups = PORTAL_NAV_GROUPS[kind];
       expect(groups.some((g) => g.id === "settings")).toBe(false);
@@ -48,6 +49,13 @@ describe("Settings has no sidebar entry anywhere — account menu only", () => {
       expect(result.flatMap((g) => g.items).map((i) => i.section)).not.toContain("profile");
     });
   }
+
+  it("admin: Settings is the first sidebar row, by explicit group assignment", () => {
+    const groups = PORTAL_NAV_GROUPS.admin;
+    expect(groups[0]).toMatchObject({ id: "settings", sections: ["profile"] });
+    const items = adminPortal.sections.map((s) => ({ section: s.section }));
+    expect(groupNavItems("admin", items)[0].items.map((i) => i.section)).toEqual(["profile"]);
+  });
 
   it("the account menu (rail avatar) keeps its own Settings link", () => {
     // The account menu moved from the old top bar to the workspace rail's avatar

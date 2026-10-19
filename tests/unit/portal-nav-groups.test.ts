@@ -15,8 +15,9 @@ import {
 } from "@/lib/portals/resident-sections";
 
 const CASES = [
-  // Settings (profile) has no sidebar row anywhere — every portal reaches it
-  // only from the account menu. Admin reaches Feedback through the Support
+  // Settings (profile) has no sidebar row in pro/resident/vendor — they reach it
+  // only from the account menu. Admin is the exception: Settings is its first
+  // sidebar row (captain, Oct 18; one-number-decisions #8). Admin reaches Feedback through the Support
   // row's tab strip; manager/resident/vendor feedback stays embedded
   // inside Settings.
   {
@@ -28,7 +29,7 @@ const CASES = [
   {
     kind: "admin" as const,
     sections: adminPortal.sections.map((s) => s.section),
-    sidebarShowsProfile: false,
+    sidebarShowsProfile: true,
     sidebarShowsFeedback: true,
   },
   {
@@ -93,10 +94,11 @@ describe("portal nav groups cover the registry exactly", () => {
       for (const id of grouped) expect(known.has(id)).toBe(true);
     });
 
-    it(`${kind}: profile ${sidebarShowsProfile ? "surfaces at the bottom of" : "is excluded from"} the sidebar`, () => {
+    it(`${kind}: profile ${sidebarShowsProfile ? "surfaces at the top of" : "is excluded from"} the sidebar`, () => {
       if (sidebarShowsProfile) {
         expect(grouped).toContain("profile");
-        expect(grouped.at(-1)).toBe("profile");
+        // Admin's Settings row is the FIRST row (the only portal that shows it).
+        expect(grouped[0]).toBe("profile");
       } else {
         expect(grouped).not.toContain("profile");
       }

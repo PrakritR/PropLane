@@ -50,7 +50,7 @@ describe("admin nav groups", () => {
       ["software", "Software"],
       ["platform", null],
     ]);
-    expect(groups.find((g) => g.id === "property-management")?.sections).toEqual(["properties", "service", "proplane-line", "unassigned-leads"]);
+    expect(groups.find((g) => g.id === "property-management")?.sections).toEqual(["properties", "service", "proplane-line", "unassigned-leads", "managed-finance"]);
     expect(groups.find((g) => g.id === "software")?.sections).toEqual(["axis-users", "subscribers", "test-accounts", "payments", "promo-codes", "finances"]);
     expect(rows).toEqual([
       "profile",

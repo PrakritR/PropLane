@@ -77,7 +77,8 @@ describe("orderNativeBottomNavItems", () => {
   it("preserves admin registry order", () => {
     const items = adminPortal.sections.map((s) => ({ section: s.section, label: s.label }));
     const ordered = orderNativeBottomNavItems(items, "admin").map((item) => item.section);
-    expect(ordered).toEqual(sectionIds(adminPortal.sections));
+    // Admin Settings is the registry's first row (captain, Oct 18); the native bar still appends Settings last.
+    expect(ordered).toEqual([...sectionIds(adminPortal.sections).filter((s) => s !== "profile"), "profile"]);
     expect(ordered.at(-1)).toBe("profile");
   });
 });
