@@ -10,7 +10,7 @@ import {
 } from "@/lib/one-number/contracts";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { applicationBucket, applicationRowLinksResident, isApprovedApplicationRow } from "@/lib/resident-manager-scope";
-import { profilePhoneVariants } from "@/lib/sms-consent";
+import { normalizeConsentPhone, profilePhoneVariants } from "@/lib/sms-consent";
 import { listResidentBindingManagerIds } from "@/lib/auth/resident-workspace-binding";
 
 /**
@@ -212,7 +212,68 @@ export async function findResidentCandidates(db: SupabaseClient, phone: string):
   return candidatesForPlacements(db, placements, "resident");
 }
 
-/** Step 3. An open job: an active vendor session bound to the sender's phone. */
+/** A finished dispatched job stays answerable (photos, an invoice) this long; the same window the dispatch replies use. */
+const DISPATCH_COMPLETED_WINDOW_DAYS = 30;
+
+/**
+ * Jobs the dispatch engine put in front of this phone: an offer waiting for YES / NO, or an accepted job
+ * still open (or finished in the last 30 days). The phone is matched through the manager's vendor roster
+ * (`manager_vendor_records.row_data.phone`, any typed format, compared as E.164), so a vendor who only ever
+ * texts YES / DONE / a photo (no PropLane login, no vendor agent session) still reaches the team that
+ * offered the job. One placement per run: the run's own owner and house name the workspace.
+ */
+async function dispatchJobPlacements(db: SupabaseClient, e164: string, phone: string): Promise<Placement[]> {
+  const key = normalizeConsentPhone(phone);
+  if (!/^\d{10}$/.test(key)) return [];
+  // A roster phone is whatever the manager typed ("(206) 555-0142", "206.555.0142"): the digit groups in order
+  // with anything between them are the candidates, and the E.164 comparison below is the real test.
+  const roster = await rows(
+    db
+      .from("manager_vendor_records")
+      .select("id, manager_user_id, row_data")
+      .ilike("row_data->>phone", `%${key.slice(0, 3)}%${key.slice(3, 6)}%${key.slice(6)}%`)
+      .limit(50),
+  );
+  const mine = roster.filter((r) => {
+    const data = (r.row_data && typeof r.row_data === "object" ? r.row_data : {}) as Row;
+    return data.active !== false && normalizeE164(str(data.phone)) === e164;
+  });
+  if (mine.length === 0) return [];
+  const attempts = await rows(
+    db
+      .from("vendor_dispatch_attempts")
+      .select("run_id, vendor_directory_id, status")
+      .in("vendor_directory_id", mine.map((r) => str(r.id)))
+      .in("status", ["offered", "timed_out", "accepted"])
+      .limit(100),
+  );
+  if (attempts.length === 0) return [];
+  const runs = await rows(
+    db
+      .from("vendor_dispatch_runs")
+      .select("id, owner_user_id, property_id, status, completed_at")
+      .in("id", [...new Set(attempts.map((a) => str(a.run_id)))])
+      .in("status", ["offering", "exhausted", "accepted", "completed"]),
+  );
+  const runById = new Map(runs.map((r) => [str(r.id), r] as const));
+  const recent = Date.now() - DISPATCH_COMPLETED_WINDOW_DAYS * 86_400_000;
+  const placements: Placement[] = [];
+  const seen = new Set<string>();
+  for (const attempt of attempts) {
+    const run = runById.get(str(attempt.run_id));
+    if (!run || seen.has(str(run.id))) continue;
+    const offered = str(attempt.status) !== "accepted";
+    const live = offered ? ["offering", "exhausted"].includes(str(run.status)) : ["accepted", "completed"].includes(str(run.status));
+    if (!live) continue;
+    if (str(run.status) === "completed" && !(Date.parse(str(run.completed_at)) >= recent)) continue;
+    seen.add(str(run.id));
+    const owner = str(run.owner_user_id);
+    if (owner) placements.push({ managerUserId: owner, propertyId: str(run.property_id) });
+  }
+  return placements;
+}
+
+/** Step 3. An open job: an active vendor session bound to the sender's phone, or a dispatched job offered or accepted. */
 export async function findVendorJobCandidates(db: SupabaseClient, phone: string): Promise<SharedLineCandidate[]> {
   const e164 = normalizeE164(phone);
   if (!e164) return [];
@@ -243,6 +304,7 @@ export async function findVendorJobCandidates(db: SupabaseClient, phone: string)
     const managerUserId = str(session.landlord_id);
     if (managerUserId) placements.push({ managerUserId, propertyId: houseByOrder.get(str(session.work_order_id)) ?? "" });
   }
+  placements.push(...(await dispatchJobPlacements(db, e164, phone).catch(() => [] as Placement[])));
   return candidatesForPlacements(db, placements, "vendor_job");
 }
 
