@@ -29,6 +29,8 @@ describe("housing texting cover", () => {
     const text = screen.getByRole("link", { name: "Text (202) 555-0123" });
     expect(text).toHaveAttribute("href", config.smsHref);
     expect(text).toHaveClass("home-number-start");
+    expect(text).toHaveTextContent("Text (202) 555-0123");
+    expect(text.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(screen.queryByRole("link", { name: "Start free" })).not.toBeInTheDocument();
     expect(container.querySelector(".home-text-pill")).toBeNull();
     expect(screen.getAllByRole("link")).toHaveLength(5);
@@ -58,9 +60,12 @@ describe("housing texting cover", () => {
     expect(screen.queryByRole("link", { name: /scan/i })).not.toBeInTheDocument();
   });
 
-  it("falls back to Start free without inventing a phone when config is missing", () => {
+  it("never shows Start free (captain #21): with no public line the text button opens Contact, inventing no phone", () => {
     render(<TextingHomeHero config={{ phone: null, smsHref: null }} />);
-    expect(screen.getByRole("link", { name: "Start free" })).toHaveAttribute("href", "/auth/create-account");
+    expect(screen.queryByText("Start free")).not.toBeInTheDocument();
+    const text = screen.getByRole("link", { name: "Text PropLane" });
+    expect(text).toHaveAttribute("href", "/#contact");
+    expect(text.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(document.querySelector('a[href^="sms:"]')).toBeNull();
   });
 

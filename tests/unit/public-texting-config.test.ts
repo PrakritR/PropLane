@@ -150,4 +150,58 @@ describe("public texting configuration", () => {
     });
     expect((await getPublicTextingConfig()).phone).toBe("+12065550123");
   });
+
+  it("keeps the last good number through a failed read and serves it at once while refreshing (captain #21)", async () => {
+    mocks.read
+      .mockResolvedValueOnce({ data: { line_mode: "shared", shared_number_e164: "+12065550123" }, error: null })
+      .mockResolvedValue({ data: null, error: { message: "timeout" } });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const { getPublicTextingConfig } = await import("@/lib/marketing/public-texting.server");
+      expect((await getPublicTextingConfig()).phone).toBe("+12065550123");
+      vi.setSystemTime(Date.now() + 61_000);
+      expect((await getPublicTextingConfig()).phone).toBe("+12065550123");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls back to the configured public number when no read has ever succeeded", async () => {
+    vi.stubEnv("PROPLANE_PUBLIC_SMS_NUMBER", "+12065550199");
+    try {
+      mocks.read.mockRejectedValue(new Error("connection timeout"));
+      const { getPublicTextingConfig } = await import("@/lib/marketing/public-texting.server");
+      expect((await getPublicTextingConfig()).phone).toBe("+12065550199");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("lets a completed read with no public line clear the kept number", async () => {
+    mocks.read
+      .mockResolvedValueOnce({ data: { line_mode: "shared", shared_number_e164: "+12065550123" }, error: null })
+      .mockResolvedValue({ data: { line_mode: "per_workspace", shared_number_e164: "+12065550123" }, error: null });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const { getPublicTextingConfig } = await import("@/lib/marketing/public-texting.server");
+      expect((await getPublicTextingConfig()).phone).toBe("+12065550123");
+      vi.setSystemTime(Date.now() + 61_000);
+      // Served the kept number while the refresh runs behind it; the refresh's answer clears it.
+      await getPublicTextingConfig();
+      await vi.waitFor(async () => expect((await getPublicTextingConfig()).phone).toBeNull());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the configured public number, never the inactive shared sender, in a mode with no public line", async () => {
+    vi.stubEnv("PROPLANE_PUBLIC_SMS_NUMBER", "+12065550199");
+    try {
+      mocks.read.mockResolvedValue({ data: { line_mode: "per_workspace", shared_number_e164: "+12065550123" }, error: null });
+      const { getPublicTextingConfig } = await import("@/lib/marketing/public-texting.server");
+      expect((await getPublicTextingConfig()).phone).toBe("+12065550199");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
