@@ -1,12 +1,12 @@
 "use client";
 
-import { Sparkles } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { usePortalContainer } from "@/components/ui/portal-container-context";
 import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
-import { AxisAssistantSparkleIcon } from "@/components/portal/assistant-shared";
+import { AxisAssistantChatIcon } from "@/components/portal/assistant-shared";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { AssistantConversationProvider } from "@/lib/axis-assistant/assistant-conversation-context";
 import { modalAssistantStorageScope } from "@/lib/axis-assistant/assistant-chat-storage";
@@ -144,13 +144,13 @@ export function ModalAssistantStrip({
   const storageScope = modalAssistantStorageScope(scopeSource, conversationInstance);
   // History belongs to the modal, not to one visit of it.
   const historyScope = modalAssistantStorageScope(scopeSource);
-  // The same utility chrome as everywhere else: a ghost ✦ icon action. The
+  // The same utility chrome as everywhere else: a ghost chat icon action. The
   // words "Ask PropLane" are its tooltip and accessible name, never a pill.
   const trigger = !hideTrigger ? (
     <PortalIconAction
       ref={triggerRef}
-      icon={Sparkles}
-      iconSlot={<AxisAssistantSparkleIcon className="size-[18px]" />}
+      icon={MessageCircle}
+      iconSlot={<AxisAssistantChatIcon className="size-[18px]" />}
       label="Ask PropLane"
       tone="primary"
       active={showExpanded}

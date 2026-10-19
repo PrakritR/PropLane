@@ -83,12 +83,12 @@ export function GeneralAssistantTrigger() {
       type="button"
       onClick={toggleAssistant}
       data-attr="general-assistant-open"
-      aria-label={open ? "Close PropLane Assistant" : "Ask PropLane"}
+      aria-label={open ? "Close PropLane Assistant" : "Assistant"}
+      title="Assistant"
       aria-expanded={open}
-      className="group flex min-h-10 items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-[13px] font-medium text-muted outline-none transition hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+      className="group grid size-10 place-items-center rounded-lg text-muted outline-none transition hover:bg-accent/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
     >
       <ChatBubbleIcon className="h-4 w-4 shrink-0 text-primary" />
-      <span className="tracking-[-0.01em]">Ask PropLane</span>
     </button>
   );
 }
@@ -261,12 +261,12 @@ export function GeneralAssistant() {
         className="glass-card fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] right-[max(1.25rem,env(safe-area-inset-right))] z-[71] flex h-[min(40rem,calc(100dvh-3rem))] w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-3xl border border-primary/15 shadow-[0_28px_70px_-28px_rgba(15,23,42,0.5)] backdrop-blur-xl lg:bottom-6 lg:right-6"
       >
         {/* Header — same shape as the product's own Ask PropLane panel:
-            a sparkle mark and the plain name, not a chat-bubble icon. */}
+            a chat mark and the plain name. */}
         <div className="relative shrink-0 border-b border-border/70 px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2">
               <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-                <span className="text-[15px] leading-none">✦</span>
+                <ChatBubbleIcon className="h-4 w-4" />
               </span>
               <p id="general-assistant-title" className="min-w-0 truncate text-[14px] font-semibold tracking-[-0.01em] text-foreground">
                 PropLane

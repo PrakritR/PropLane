@@ -48,7 +48,7 @@ export const PROPERTY_RECORD_TAB_INFO: Record<string, { title: string; body: str
     body: "Flyers, social posts, and listing-site syndication generated from this home.",
   },
   "ai-info": {
-    title: "AI info",
+    title: "Answers",
     body: "Facts the leasing assistant may quote when prospects message or tour.",
   },
 };

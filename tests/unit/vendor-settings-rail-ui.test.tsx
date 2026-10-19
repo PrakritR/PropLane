@@ -2,6 +2,8 @@
 //
 // Vendor Settings in the manager-settings layout (vendor-portal-redesign-1006):
 // a rail of Profile · Business · Money · Communication, each page a real pane.
+// Ten pages after the Oct 18 simplification: Quick replies and Work number & email
+// are sections of Phone & notifications, Account a section of Login & security.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
@@ -63,25 +65,37 @@ describe("vendor settings rail", () => {
     await waitFor(() => expect(document.querySelector('[data-attr="settings-layout"]')).toBeTruthy());
     const rail = document.querySelector('nav[aria-label="Settings sections"]')!.textContent!;
     for (const label of [
-      "Profile", "Login & security",
-      "Business", "Business details", "Trades & service area", "AI info",
+      "Profile", "Login & security", "Preferences",
+      "Business", "Business details", "Trades & service area", "Answers", "Integrations",
       "Money", "Payouts", "Invoicing",
-      "Communication", "Phone & notifications", "Quick replies",
+      "Communication", "Phone & notifications",
     ]) {
       expect(rail).toContain(label);
     }
+    // Folded pages have no rail row of their own.
+    for (const gone of ["Quick replies", "Work number & email", "Account", "Feedback"]) {
+      expect(rail).not.toContain(gone);
+    }
+    expect(document.querySelectorAll('nav[aria-label="Settings sections"] [data-attr^="settings-nav-"]')).toHaveLength(10);
   });
 
   it("marks the active page and titles it", async () => {
-    renderAt("quick-replies");
-    await waitFor(() => expect(document.querySelector('[data-attr="settings-page-title"]')?.textContent).toBe("Quick replies"));
-    expect(document.querySelector('[data-attr="settings-nav-quick-replies"]')?.getAttribute("aria-current")).toBe("page");
+    renderAt("messaging");
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-page-title"]')?.textContent).toBe("Phone & notifications"));
+    expect(document.querySelector('[data-attr="settings-nav-messaging"]')?.getAttribute("aria-current")).toBe("page");
   });
 
-  it("Quick replies page renders the vendor's list", async () => {
+  it("an old ?tab=quick-replies link opens Phone & notifications, which renders the vendor's quick replies", async () => {
     renderAt("quick-replies");
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-page-title"]')?.textContent).toBe("Phone & notifications"));
+    expect(document.querySelector('[data-attr="settings-nav-messaging"]')?.getAttribute("aria-current")).toBe("page");
     await waitFor(() => expect(text()).toContain("On my way"));
     expect(document.querySelector('[data-attr="vendor-quick-replies-add"]')).toBeTruthy();
+  });
+
+  it("an old ?tab=account link opens Login & security", async () => {
+    renderAt("account");
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-page-title"]')?.textContent).toBe("Login & security"));
   });
 
   it("Phone & notifications keeps the verify-phone control", async () => {

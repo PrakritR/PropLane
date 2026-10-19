@@ -16,6 +16,7 @@ describe("settings account vs workspace groups (S019/S014, captain 2026-09-27 si
     expect(groupFor("profile")).toBe("Profile");
     expect(groupFor("preferences")).toBe("Profile");
     expect(groupFor("security")).toBe("Profile");
+    // Feedback and Account pages are kept for the admin variant only (the manager folds Account into Login & security).
     expect(groupFor("feedback")).toBe("Profile");
     expect(groupFor("account")).toBe("Profile");
   });
@@ -51,9 +52,11 @@ describe("settings account vs workspace groups (S019/S014, captain 2026-09-27 si
     expect(src).not.toContain('id: "notifications"');
   });
 
-  it("keeps Balance & payouts on Workspace, and renames Spreadsheets to Integrations", () => {
+  it("keeps Billing & payouts (one merged page) on Workspace, and renames Spreadsheets to Integrations", () => {
     expect(groupFor("payments")).toBe("Workspace");
-    expect(src).toContain('label: "Balance & payouts"');
+    expect(src).toContain('label: "Billing & payouts"');
+    expect(src).not.toContain('label: "Balance & payouts"');
+    expect(src).not.toContain('label: "Billing & plan"');
     expect(src).not.toContain('label: "Payments"');
     expect(groupFor("payouts")).toBeNull();
     expect(src).toContain('router.replace("/portal/profile?tab=payments")');
@@ -61,8 +64,8 @@ describe("settings account vs workspace groups (S019/S014, captain 2026-09-27 si
     expect(src).toContain('label: "Integrations"');
   });
 
-  it("keeps Billing & plan and API & MCP in the Profile group (captain, 2026-10-03)", () => {
-    expect(groupFor("billing")).toBe("Profile");
+  it("keeps API & MCP in the Profile group; Billing & plan is no longer a page of its own (portal simplification, Oct 18)", () => {
+    expect(groupFor("billing")).toBeNull();
     expect(groupFor("developer")).toBe("Profile");
   });
 

@@ -151,7 +151,7 @@ type TaskSuggestSource = "availability" | "proplane-pick" | "none";
 
 const TASK_SUGGEST_SOURCE_LABEL: Record<TaskSuggestSource, string> = {
   availability: "From your availability",
-  "proplane-pick": "✦ PropLane pick",
+  "proplane-pick": "Suggested",
   none: "Nothing free in 14 days",
 };
 

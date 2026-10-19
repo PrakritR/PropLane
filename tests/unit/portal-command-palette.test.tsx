@@ -33,7 +33,7 @@ function mount(over: Partial<React.ComponentProps<typeof PortalCommandPalette>> 
   return props;
 }
 
-const input = () => screen.getByRole("combobox", { name: "Ask PropLane or search" });
+const input = () => screen.getByRole("combobox", { name: "Search" });
 
 describe("palette filtering", () => {
   it("filters the portal's sections by label or sidebar heading", () => {
@@ -72,7 +72,7 @@ describe("PortalCommandPalette", () => {
   it("the first option follows the query and Enter sends it to the assistant", () => {
     const props = mount();
     fireEvent.change(input(), { target: { value: "who is late on rent" } });
-    expect(screen.getByText("Ask PropLane: who is late on rent")).toBeTruthy();
+    expect(screen.getByText("Assistant: who is late on rent")).toBeTruthy();
     fireEvent.keyDown(input(), { key: "Enter" });
     expect(props.onAsk).toHaveBeenCalledWith("who is late on rent");
     expect(props.onOpenChange).toHaveBeenCalledWith(false);
@@ -108,7 +108,7 @@ describe("PortalCommandPalette", () => {
     mount();
     fireEvent.change(input(), { target: { value: "qqqq" } });
     expect(screen.queryByText("Jump to")).toBeNull();
-    expect(screen.getByText("Ask PropLane: qqqq")).toBeTruthy();
+    expect(screen.getByText("Assistant: qqqq")).toBeTruthy();
   });
 
   it("Escape closes the palette", () => {

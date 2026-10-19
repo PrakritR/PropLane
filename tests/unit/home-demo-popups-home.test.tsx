@@ -101,7 +101,7 @@ describe("demo Properties tab matches the real Properties page", () => {
       return el as HTMLElement;
     });
     const labels = railLabels(recordSections("manager", "property", { stage: "listed" }));
-    expect(labels).toEqual(["Preview", "House details", "Applications", "Lease", "Forms", "Move-in", "Pricing", "Services", "Promotion", "AI info"]);
+    expect(labels).toEqual(["Preview", "House details", "Applications", "Lease", "Forms", "Move-in", "Pricing", "Services", "Promotion", "Answers"]);
     for (const label of labels) expect(within(record).getAllByText(label).length).toBeGreaterThan(0);
     for (const action of ["Edit", "Share", "Duplicate property", "Unlist", "Delete"]) {
       expect(within(record).getAllByRole("button", { name: action }).length).toBeGreaterThan(0);

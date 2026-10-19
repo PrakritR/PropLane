@@ -1,4 +1,5 @@
 import type { PortalDefinition } from "@/lib/portal-types";
+import { navRowSection } from "@/lib/portals/nav-groups";
 import {
   residentBottomNavPrimarySections,
   type ResidentPortalNavStage,
@@ -14,29 +15,29 @@ export const NATIVE_BOTTOM_NAV_PRIMARY_LIMIT = 7;
 export const NATIVE_BOTTOM_NAV_SLOT_LIMIT = NATIVE_BOTTOM_NAV_PRIMARY_LIMIT;
 
 /**
- * Manager / pro footer order — mirrors `proPortal.sections` (Settings omitted; pinned last in the bar).
- * Keep in sync with `src/lib/portals/pro.ts`.
+ * Manager / pro footer order — the six sidebar rows (Home, Communication, Properties, Leasing, People, Money)
+ * with each row's tabs after it (`NAV_FOLDS` in `nav-groups.ts`); Settings omitted, pinned last in the bar.
  */
 export const NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER = [
   "dashboard",
+  "calendar",
+  "tasks",
+  "communication",
   "properties",
+  "bookings",
+  "promotion",
   "tours",
   "applications",
   "leases",
-  "residents",
   "forms",
-  "move-in",
-  "payments",
-  "services",
+  "residents",
   "vendors",
+  "services",
+  "payments",
   "outgoing",
-  "tasks",
-  "calendar",
-  "bookings",
-  "communication",
-  "promotion",
   "financials",
   "documents",
+  "move-in",
   "bugs-feedback",
   "app",
 ] as const;
@@ -46,16 +47,16 @@ export const NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER = [
  * Keep in sync with `src/lib/portals/resident-sections.ts`.
  */
 export const NATIVE_BOTTOM_NAV_RESIDENT_ORDER = [
-  "tour",
-  "applications",
   "dashboard",
   "stays",
-  "lease",
-  "services",
-  "payments",
   "communication",
-  "forms",
   "move-in",
+  "lease",
+  "forms",
+  "services",
+  "tour",
+  "applications",
+  "payments",
   "documents",
 ] as const;
 
@@ -67,6 +68,7 @@ export const NATIVE_BOTTOM_NAV_VENDOR_ORDER = [
   "dashboard",
   "work-orders",
   "calendar",
+  "reviews",
   "communication",
   "payments",
   "outgoing",
@@ -102,6 +104,23 @@ export function orderNativeBottomNavItems<T extends { section: string }>(
     // Settings is deliberately NOT appended here — the resident bottom bar / More
     // sheet catalog never carries it as an ordinary item (it lives in the profile menu).
     return [...ordered, ...trailing];
+  }
+
+  // Manager / pro and vendor follow their footer order constant (the sidebar's rows, then each row's tabs), so the
+  // phone's top strip and More sheet read in the same order as the desktop sidebar whatever order the registry lists.
+  const footerOrder: readonly string[] | null =
+    kind === "pro" || kind === "manager"
+      ? NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER
+      : kind === "vendor"
+        ? NATIVE_BOTTOM_NAV_VENDOR_ORDER
+        : null;
+  if (footerOrder) {
+    const rank = (section: string) => {
+      const index = footerOrder.indexOf(section);
+      return index === -1 ? footerOrder.length : index;
+    };
+    const sorted = [...rest].sort((a, b) => rank(a.section) - rank(b.section));
+    return settings ? [...sorted, settings] : sorted;
   }
 
   if (settings) return [...rest, settings];
@@ -148,10 +167,17 @@ export const NATIVE_BOTTOM_NAV_RESIDENT_PRE_LEASE_PRIMARY = NATIVE_BOTTOM_NAV_RE
 /** Post-lease (both parties signed). */
 export const NATIVE_BOTTOM_NAV_RESIDENT_PRIMARY = residentBottomNavPrimarySections("post_lease");
 
-export const NATIVE_BOTTOM_NAV_ADMIN_PRIMARY = ["dashboard", "properties", "axis-users", "bugs-feedback"] as const;
+// Dashboard (Feedback, Meetings, Health are its tabs) · Properties · Accounts · Communication (+ More).
+export const NATIVE_BOTTOM_NAV_ADMIN_PRIMARY = ["dashboard", "properties", "axis-users", "communication"] as const;
 
-// Services · Calendar · Dashboard · Communication (+ More).
-export const NATIVE_BOTTOM_NAV_VENDOR_PRIMARY = ["work-orders", "calendar", "dashboard", "communication"] as const;
+// Work (Services, Calendar, Reviews) · Home · Communication · Money (+ More). Primaries are ROWS: a section folded
+// into a row takes that row's slot (`splitNativeBottomNavItems`).
+export const NATIVE_BOTTOM_NAV_VENDOR_PRIMARY = [
+  "work-orders",
+  "dashboard",
+  "communication",
+  "payments",
+] as const;
 
 /**
  * Every role gets the fixed native bottom bar. Settings overflows into More
@@ -214,7 +240,9 @@ export function splitNativeBottomNavItems<T extends { section: string }>(
   if (primaryOrder.length === 0) return { primary: [], overflow: ordered };
 
   const bySection = new Map(ordered.map((item) => [item.section, item]));
-  const primary = primaryOrder
+  // A primary tab is a ROW: a section folded into a sidebar row (Lease into My home, Calendar into Work)
+  // takes that row's slot, and two primaries of one row take one slot between them.
+  const primary = [...new Set(primaryOrder.map((section) => (kind ? navRowSection(kind, section) : section)))]
     .map((section) => bySection.get(section))
     .filter((item): item is T => Boolean(item));
   const primarySections = new Set(primary.map((item) => item.section));

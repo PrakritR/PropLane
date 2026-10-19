@@ -94,8 +94,28 @@ export function portalNavLockNavigable(params: Parameters<typeof portalNavLockKi
  * not: the resident can never use it, so it must not take a slot a working tab
  * could have. The sidebar row and the More sheet keep their lock either way.
  */
-export function portalBottomBarShowsSection(params: Parameters<typeof portalNavLockKind>[0]): boolean {
-  const kind = portalNavLockKind(params);
+export function portalBottomBarShowsSection(
+  params: Parameters<typeof portalNavLockKind>[0],
+  /** The sections folded into this row, when it is a folded row: the lock is the row's, not the key's. */
+  members?: readonly string[],
+): boolean {
+  const kind = members?.length ? portalNavRowLockKind(params, members) : portalNavLockKind(params);
   if (params.kind === "resident") return kind !== "notice";
   return kind === "none";
+}
+
+/**
+ * The lock of a FOLDED row (several sections behind one sidebar row): the row is locked only when every one
+ * of its tabs is. A locked tab is locked on its own (`portalNavLockKind` for that section); the row never
+ * hides a free tab behind a sibling's paywall. When all are locked, a navigable kind (upsell, notice) wins
+ * over inert so the row stays the upgrade entry point.
+ */
+export function portalNavRowLockKind(
+  params: Parameters<typeof portalNavLockKind>[0],
+  members: readonly string[],
+): PortalNavLockKind {
+  if (members.length === 0) return portalNavLockKind(params);
+  const kinds = members.map((section) => portalNavLockKind({ ...params, section }));
+  if (kinds.includes("none")) return "none";
+  return kinds.find((k) => k === "upsell" || k === "notice") ?? kinds[0]!;
 }

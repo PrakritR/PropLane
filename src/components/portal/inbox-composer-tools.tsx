@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronDown, Clock, Mail, MessageSquare, Plus, Smartphone, Sparkles } from "lucide-react";
+import { Check, ChevronDown, Clock, Mail, MessageSquare, Plus, Pencil, Smartphone } from "lucide-react";
 import { useState } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AxisAssistantSparkleIcon } from "@/components/portal/assistant-shared";
+import { AxisAssistantChatIcon } from "@/components/portal/assistant-shared";
 import { cn } from "@/lib/utils";
 
 /**
@@ -46,26 +46,26 @@ export function InboxComposerAiMenu({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label="AI"
+          aria-label="Assistant"
           title="Draft with PropLane · Ask PropLane"
           disabled={disabled}
           className={cn(TOOL_BTN, "w-7 text-primary hover:bg-primary/10 hover:text-primary @[520px]:w-auto @[520px]:px-2 max-md:w-11 @[520px]:max-md:w-auto")}
           data-attr="inbox-composer-ai-menu"
         >
-          <AxisAssistantSparkleIcon className="h-4 w-4" />
+          <AxisAssistantChatIcon className="h-4 w-4" />
           <span className="hidden text-[12.5px] font-semibold @[520px]:inline">Prepare reply</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" side="top" className="min-w-[12rem]">
         {onDraft ? (
           <DropdownMenuItem onSelect={onDraft} data-attr="inbox-ai-draft-generate">
-            <Sparkles strokeWidth={2.25} />
+            <Pencil strokeWidth={2.25} />
             Draft with PropLane
           </DropdownMenuItem>
         ) : null}
         {onAsk ? (
           <DropdownMenuItem onSelect={onAsk} data-attr="inbox-composer-ask-proplane">
-            <AxisAssistantSparkleIcon className="h-4 w-4" />
+            <AxisAssistantChatIcon className="h-4 w-4" />
             Ask PropLane
           </DropdownMenuItem>
         ) : null}

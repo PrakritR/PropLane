@@ -33,7 +33,7 @@ import {
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
 import { inboxDisplayName } from "@/lib/inbox-display-name";
-import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Info, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Pencil, Phone, Plus, Search, Send, Sparkles, House, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Check, CheckCheck, Clock, FileText, Info, Mail, Maximize2, MessageSquare, Minimize2, Paperclip, Pencil, Phone, Plus, Search, Send, House, X, Activity, MessageCircle } from "lucide-react";
 import { pickInboxColumns, type InboxColumns } from "@/lib/inbox-columns";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
@@ -1507,7 +1507,7 @@ export function InboxBubble({
         ? formatInboxListNarrowTime(message.at)
         : message.at;
     const content = <>
-      <Sparkles className="h-4 w-4 shrink-0 text-muted" aria-hidden />
+      <Activity className="h-4 w-4 shrink-0 text-muted" aria-hidden />
       <span className="min-w-0 flex-1 truncate font-semibold" title={message.body}>{event.title}</span>
       {event.property ? <span className="hidden min-w-0 truncate text-muted md:block">{event.property}</span> : null}
       <span className="shrink-0 text-xs text-muted">{at}</span>
@@ -1545,7 +1545,7 @@ export function InboxBubble({
       {startsRun ? (
         assistant ? (
           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden>
-            <Sparkles className="size-4" />
+            <MessageCircle className="size-4" />
           </span>
         ) : (
           <InboxAvatar tile name={author} className="size-8 rounded-lg" />
@@ -2198,8 +2198,7 @@ function InboxAdoptedDraftBar({
     >
       <div className="flex items-center gap-3">
         <span className="inline-flex min-w-0 items-center gap-2 text-[12.5px] font-semibold text-primary">
-          <Sparkles className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} />
-          <span className="truncate">PropLane draft - edit before sending</span>
+          <span className="truncate">Draft</span>
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-3">
           {!adopted ? (
@@ -2254,7 +2253,7 @@ export function AiDraftReplyCard({
   onAutoSendChange,
   scheduledSection,
   maxLength,
-  generateLabel = "Draft with PropLane",
+  generateLabel = "Draft",
   onAdopt,
   adopted = false,
   hideGenerateButton = false,
@@ -2349,9 +2348,8 @@ export function AiDraftReplyCard({
             type="button"
             onClick={() => onGenerate()}
             data-attr="inbox-ai-draft-generate"
-            className="inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-full border border-primary/30 bg-primary/[0.07] px-3.5 text-[12.5px] font-semibold text-primary transition-colors hover:bg-primary/10"
+            className="inline-flex h-8 items-center whitespace-nowrap rounded-md px-2.5 text-[12.5px] font-semibold text-primary transition-colors hover:bg-primary/10"
           >
-            <Sparkles className="h-3.5 w-3.5" strokeWidth={2.25} />
             {generateLabel}
           </button>
         </div>
