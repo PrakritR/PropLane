@@ -170,10 +170,12 @@ describe("expiry and replacement", () => {
     expect(await resolvePhoneBoundLink(db, second.token, { count: false })).not.toBeNull();
   });
 
-  it("mints nothing while the workspace is off the shared line", async () => {
+  it("per_workspace: the same phone-bound link, same code step, bound to the charge's workspace", async () => {
     const { db, rows } = world();
     rows.sms_runtime_config![0]!.line_mode = "per_workspace";
     sim.charges.mockResolvedValue([{ id: "c1", status: "pending", propertyId: "prop-1" }]);
-    expect(await residentSendMyLinkTool.handler(ctx(db), { purpose: "rent" })).toEqual({ ok: false, error: "links_unavailable" });
+    const result = await residentSendMyLinkTool.handler(ctx(db), { purpose: "rent" });
+    expect(result).toMatchObject({ ok: true, purpose: "rent", requiresCode: true });
+    expect(rows.phone_bound_links!.at(-1)).toMatchObject({ phone_key: PHONE_KEY, workspace_id: WS, purpose: "rent", requires_otp: true });
   });
 });

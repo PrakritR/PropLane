@@ -18,7 +18,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildResidentRegistry } from "@/lib/tools/resident-index";
-import { residentSendMyLinkTool, withSendMyLinkTool } from "@/lib/tools/domains/one-number-links";
+import { residentSendMyLinkTool, withResidentSendMyLinkTool } from "@/lib/tools/domains/one-number-links";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import { PROMPT_IDS } from "@/lib/agent/prompt-metadata";
 import { RESIDENT_SMS_AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
@@ -130,8 +130,8 @@ export async function runResidentSmsAgentTurn(
   return runSmsAgentTurn<ResidentAgentContext>(db, {
     ctx: args.ctx,
     surface: RESIDENT_SMS_SURFACE,
-    // "send my rent link" exists only while the line is shared (one-number build).
-    registry: await withSendMyLinkTool(db, buildResidentRegistry(args.ctx), residentSendMyLinkTool),
+    // "send my rent link": a phone-bound link with a code step, on the shared line and per workspace alike.
+    registry: withResidentSendMyLinkTool(buildResidentRegistry(args.ctx), residentSendMyLinkTool),
     sessionLandlordId: args.ownerManagerUserId,
     phoneE164: args.residentPhoneE164,
     inboundText: args.inboundText,

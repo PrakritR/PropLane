@@ -52,12 +52,19 @@ export async function mintLinkForTexter(
     targetType: string;
     targetId: string;
     createdBy: string | null;
+    /**
+     * Mint even when the workspace is not on the shared line (per_workspace mode, or a workspace with a number of its
+     * own). Only a caller that has already bound the workspace to the texter passes this: the resident tool, whose
+     * charges come from the owner the resident's verified phone is linked to. The link is the same phone-bound
+     * `/l/<token>` with the same code step; the code is texted from that workspace's own work number.
+     */
+    allowPerWorkspace?: boolean;
   },
 ): Promise<SendMyLinkResult> {
   const phoneKey = normalizeConsentPhone(input.phone);
   if (!input.workspaceId || !/^\d{10}$/.test(phoneKey)) return { ok: false, error: "nothing_to_link" };
   const config = await loadSharedLineConfig(db);
-  if (!workspaceOnSharedLine(config, input.workspaceId)) return { ok: false, error: "links_unavailable" };
+  if (!workspaceOnSharedLine(config, input.workspaceId) && !input.allowPerWorkspace) return { ok: false, error: "links_unavailable" };
   try {
     const minted = await mintPhoneBoundLink(db, {
       phoneKey,
@@ -93,6 +100,22 @@ export async function withSendMyLinkTool<Ctx>(
   if (registry.has(tool.name)) return registry;
   const config = await loadSharedLineConfig(db);
   if (config.mode !== "shared") return registry;
+  const next: ToolRegistry<Ctx> = new Map(registry);
+  next.set(tool.name, tool);
+  return next;
+}
+
+/**
+ * The resident's `send_my_link` on every line mode. A resident's rent link is bound to their verified phone and
+ * unlocked by a texted code, so it needs no shared line: in per_workspace mode it is minted for the workspace of the
+ * number they texted (or, on the PropLane line, the workspace that holds their lease) and the code comes from that
+ * workspace's own work number. The tool itself refuses anything but an SMS turn with a verified phone.
+ */
+export function withResidentSendMyLinkTool<Ctx>(
+  registry: ToolRegistry<Ctx>,
+  tool: ToolDefinition<any, any, Ctx>, // eslint-disable-line @typescript-eslint/no-explicit-any
+): ToolRegistry<Ctx> {
+  if (registry.has(tool.name)) return registry;
   const next: ToolRegistry<Ctx> = new Map(registry);
   next.set(tool.name, tool);
   return next;
@@ -163,6 +186,7 @@ export const residentSendMyLinkTool = defineTool<
         targetType: "charge",
         targetId: sameWorkspace.map((c) => c.id).join(","),
         createdBy: ctx.userId,
+        allowPerWorkspace: true,
       });
     }
 
@@ -174,6 +198,7 @@ export const residentSendMyLinkTool = defineTool<
       targetType: "resident",
       targetId: ctx.userId,
       createdBy: ctx.userId,
+      allowPerWorkspace: true,
     });
   },
 });

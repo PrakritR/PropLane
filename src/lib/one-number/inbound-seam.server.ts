@@ -13,7 +13,8 @@ import { isDemoStartText } from "@/lib/one-number/demo/script";
 import { hasLiveDemo } from "@/lib/one-number/demo/store.server";
 import { handleInviteCommand, inviteCommandApplies } from "@/lib/one-number/onboarding/invite.server";
 import { classifySharedLineKeyword, emergencyReplyFor } from "@/lib/one-number/keywords";
-import { routeSharedLineInboundWithReply } from "@/lib/one-number/router.server";
+import { gatherCandidates, routeSharedLineInboundWithReply } from "@/lib/one-number/router.server";
+import { isHousingSearchText } from "@/lib/one-number/line-intent";
 import { sendSharedLineMessage } from "@/lib/one-number/send.server";
 import { loadSharedLineSession, pauseThreadAi, saveSharedLineRoute } from "@/lib/one-number/session.server";
 import { answerFromDedicatedWorkspace } from "@/lib/one-number/dedicated-redirect.server";
@@ -79,6 +80,17 @@ async function reply(
   if (!result.ok) console.warn("shared line reply not sent", keyPart, result.reason);
 }
 
+/** True when every tie this phone has is a residency and the text is a housing search ("is there any house available"). */
+async function residentSearchingForHousing(db: SupabaseClient, inbound: SharedLineInbound): Promise<boolean> {
+  if (!isHousingSearchText(inbound.body)) return false;
+  try {
+    const candidates = await gatherCandidates(db, inbound);
+    return candidates.length > 0 && candidates.every((c) => c.role === "resident");
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The shared-line seam of `/api/twilio/inbound`: keywords (HUMAN, emergency),
  * routing, the ambiguity question, the Unassigned-leads hand-off. STOP / START /
@@ -107,6 +119,16 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
   } catch (error) {
     console.error("owner line failed", error instanceof Error ? error.name : "unknown");
   }
+  // on/smsowner: the owner of record of a PropLane Service workspace (a client seated as a Property owner) is not a
+  // routable team member, so without this a status question from them reads as a stranger's. Read-only status of
+  // their own workspace; anything that is not a status question (or a housing search) is not handled here.
+  try {
+    const { handleLineMemberText } = await import("@/lib/one-number/line-member-status.server");
+    const member = await handleLineMemberText(db, { fromPhone: input.fromPhone, body: input.body, phoneKey: input.phoneKey, mode: "shared_line" });
+    if (member.handled) return { kind: "handled", twiml: member.reply };
+  } catch (error) {
+    console.error("line member status failed", error instanceof Error ? error.name : "unknown");
+  }
   const inbound: SharedLineInbound = {
     fromPhone: input.fromPhone,
     phoneKey: input.phoneKey,
@@ -117,7 +139,10 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
   const keyword = classifySharedLineKeyword(input.body);
   const session = await loadSharedLineSession(db, input.phoneKey);
   const dedicatedWorkspaceIds = input.config.dedicatedWorkspaceIds;
-  let routed = await routeSharedLineInboundWithReply(db, inbound, session, { dryRun: keyword === "HUMAN", dedicatedWorkspaceIds });
+  // on/smsowner: a resident who is looking for a house is a prospect for that text, answered from the PropLane
+  // catalog by the lead agent (their next text about rent or a repair is a resident's again).
+  const asProspect = await residentSearchingForHousing(db, inbound);
+  let routed = await routeSharedLineInboundWithReply(db, inbound, session, { dryRun: keyword === "HUMAN", dedicatedWorkspaceIds, asProspect });
   let decision = routed.decision;
 
   // Number model: someone whose only ties are workspaces with a number of their own is told, once,

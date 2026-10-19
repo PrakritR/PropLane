@@ -4,6 +4,7 @@
  *
  *   list_tours_on_day            "Who's touring tomorrow?"                         read
  *   list_unpaid_rent             "Who hasn't paid October rent?"                   read
+ *   get_portfolio_status         "How are my houses doing?"                        read (per-house occupancy, rent, services, tour, lease ends)
  *   get_application_review_link  "Approve Priya's application"                    read (a deep link; approval stays in the portal)
  *   broadcast_to_residents       "Text all 5257 residents: ..."                    write, YES-gated
  *   set_up_payouts               "set up payouts"                                  read (mints a phone-bound link)
@@ -27,6 +28,8 @@ import { resolveWorkspaceForProperty } from "@/lib/one-number/link-destinations.
 import { rentStatusFor, toursOnDay } from "@/lib/one-number/ops-facts.server";
 import { monthLabel, resolveDayKey, resolveMonthKey, usd, whichHouseQuestion } from "@/lib/one-number/ops-text";
 import { toGsm7 } from "@/lib/one-number/segments";
+import { portfolioScopeFromAgentContext, readPortfolioStatus } from "@/lib/one-number/portfolio-status.server";
+import { buildStatusReply, portfolioTotals } from "@/lib/one-number/portfolio-status";
 import { buildPortalApplicationOpenHref } from "@/lib/manager-applications-storage";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { isCurrentResidentApplicationRow } from "@/lib/current-resident";
@@ -386,7 +389,52 @@ function digits(value: string): string {
   return value.replace(/\D/g, "").slice(-10);
 }
 
+// ---- get_portfolio_status --------------------------------------------------------------------
+
+export const getPortfolioStatusTool = defineTool({
+  name: "get_portfolio_status",
+  description:
+    "How the houses are doing, per house: rooms occupied and vacant, this month's rent collected and still owed, open services, the next tour and leases ending within 60 days. Use for 'how are my houses doing', 'status', 'give me the numbers'. Every figure is computed by the tool from the same reports the portal shows; never add or estimate one yourself. A part that could not be read is named in `unreadable` and left out.",
+  kind: "read",
+  inputSchema: z.object({}).strict(),
+  handler: async (ctx) => {
+    const scope = await portfolioScopeFromAgentContext(ctx);
+    if (!scope) return { error: "No workspace to report on for this account." };
+    const status = await readPortfolioStatus(scope);
+    const totals = portfolioTotals(status);
+    return {
+      workspace: status.workspaceName,
+      month: monthLabel(status.month),
+      houses: status.houses.map((h) => ({
+        house: h.title,
+        rooms: h.rooms,
+        vacantRooms: h.vacantRooms,
+        rentCollected: h.rentCollectedCents === null ? null : usd(h.rentCollectedCents),
+        rentStillOwed: h.rentOwedCents === null ? null : usd(h.rentOwedCents),
+        unpaidResidents: h.unpaidResidents,
+        openServices: h.openServices,
+        nextTour: h.nextTour ? `${h.nextTour.day} ${h.nextTour.time}` : h.nextTour === undefined ? null : "none booked",
+        leasesEndingWithin60Days: h.leasesEnding ? h.leasesEnding.count : null,
+        firstLeaseEnd: h.leasesEnding?.earliest ?? null,
+      })),
+      totals: {
+        houses: totals.houses,
+        rooms: totals.rooms,
+        vacantRooms: totals.vacantRooms,
+        rentCollected: totals.rentCollectedCents === null ? null : usd(totals.rentCollectedCents),
+        rentStillOwed: totals.rentOwedCents === null ? null : usd(totals.rentOwedCents),
+        unpaidResidents: totals.unpaidResidents,
+        openServices: totals.openServices,
+        leasesEndingWithin60Days: totals.leasesEnding,
+      },
+      unreadable: status.unreadable,
+      reply: buildStatusReply(status, "overview"),
+    };
+  },
+});
+
 export const managerOpsTools = [
+  getPortfolioStatusTool,
   listToursOnDayTool,
   listUnpaidRentTool,
   getApplicationReviewLinkTool,
