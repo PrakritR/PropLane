@@ -38,6 +38,7 @@ import { LeaseSendSheet } from "@/components/portal/lease-send-sheet";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { UploadForResidentModal } from "@/components/portal/upload-for-resident-modal";
 import { createChargesForExecutedLease } from "@/lib/lease-signing-charges.client";
+import { applySignedLeaseRenewal } from "@/lib/lease-renewal-payments";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import {
   ManagerPortalPageShell,
@@ -2872,6 +2873,13 @@ export function ManagerResidents({
         ...signingLease,
         managerSignature: { role: "manager", name: signatureName.trim(), signedAtIso: new Date().toISOString() },
       });
+      // A renewal's new term/rent applies to the payment schedule only once BOTH parties have
+      // signed. The manager countersigns last, so this is the moment the renewal is applied;
+      // without it a renewal countersigned from the resident record never moved the schedule.
+      const renewalApplied = fullySigned && signingLease.pendingRenewal
+        ? await applySignedLeaseRenewal(signingLease.id, userId ?? null).catch(() => false)
+        : false;
+      if (renewalApplied) setHcTick((n) => n + 1);
       // The last signature just landed: payments are created now, from the signed terms.
       let paymentsScheduled = false;
       if (fullySigned && !signingLease.pendingRenewal) {
@@ -2883,11 +2891,13 @@ export function ManagerResidents({
         }
       }
       showToast(
-        fullySigned
-          ? paymentsScheduled
-            ? "Lease fully signed. Payments are scheduled."
-            : "Lease fully signed."
-          : "Manager signature saved.",
+        renewalApplied
+          ? "Lease fully signed. Rent and payment schedule updated to the renewed terms."
+          : fullySigned
+            ? paymentsScheduled
+              ? "Lease fully signed. Payments are scheduled."
+              : "Lease fully signed."
+            : "Manager signature saved.",
       );
       setSigningLease(null);
       return true;
