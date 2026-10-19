@@ -48,7 +48,7 @@ async function del(db, table, column, values) {
     if (!error) return count ?? 0;
     if (/does not exist|schema cache|Could not find/i.test(error.message ?? "")) return 0;
     // The shared dev database is busy: a statement timeout is retried, anything else is reported.
-    if (attempt === 3 || !/timeout|fetch failed|ECONNRESET|50\d/i.test(error.message ?? "")) return { error: `${table}.${column}: ${error.message}` };
+    if (attempt === 3 || !/timeout|deadlock|fetch failed|ECONNRESET|50\d/i.test(error.message ?? "")) return { error: `${table}.${column}: ${error.message}` };
     await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
   }
   return 0;
@@ -72,7 +72,9 @@ export async function cleanup(db, fx, log = () => {}) {
     ["sms_line_sessions", "phone_key", phoneKeys],
     ["sms_line_thread_state", "phone_key", phoneKeys],
     ["sms_moved_notices", "phone_key", phoneKeys],
-    ["sms_consent", "phone_key", phoneKeys],
+    ["sms_consent", "phone", [...e164s, ...phoneKeys]],
+    ["sms_consent_events", "recipient_phone_key", phoneKeys],
+    ["sms_control_receipts", "recipient_phone_key", phoneKeys],
     ["sms_media_files", "sender_phone_key", phoneKeys],
     ["inbound_sms_log", "from_phone", e164s],
     ["manager_sms_contacts", "phone_e164", e164s],

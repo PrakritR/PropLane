@@ -192,7 +192,7 @@ SCENARIOS.push({
     const { h, check } = ctx;
     const a = await h.fx.eReady;
     const r = await say(ctx, a.ownerPhone, "how is my house doing");
-    check("the owner gets the workspace name, rooms occupied and rent collected", /occupied/i.test(r.all) && /rent collected/i.test(r.all), r.all);
+    check("the owner gets the workspace name and the rent collected from the ledger", r.all.includes(a.workspaceName ?? `E2E Ballard Homes ${h.runId}`) && /rent collected/i.test(r.all) && dollars(r.all).length >= 1, r.all);
     check("no resident name, email, phone or room-level detail leaks", !/Riley|@proplane-e2e|\+1206|Room [AB]\b/i.test(r.all), r.all);
     check("the reply is short enough for a text or two", r.all.length <= 320, String(r.all.length));
     const none = await say(ctx, a.ownerPhone, "who is late on rent");
@@ -208,18 +208,21 @@ SCENARIOS.push({
     const { h, db, check, world } = ctx;
     const a = await h.fx.fReady;
     const phone = world.phone();
-    const help = await say(ctx, phone, "HELP");
-    check("HELP is answered by the system (not an agent): who we are and how to stop", true, help.all);
+    const help = await h.post({ from: phone, to: h.sharedNumber, body: "HELP" });
+    check("HELP is handled by code with a 200 (the carrier sends the HELP text; no agent answers)", help.status === 200 && help.twiml.every((m) => !/budget|looking for/i.test(m.body)), `${help.status} ${help.xml}`);
     const stop = await h.post({ from: phone, to: h.sharedNumber, body: "STOP" });
     check("STOP is acknowledged with 200", stop.status === 200, `${stop.status} ${stop.xml}`);
-    const { data: consent } = await db.from("sms_consent").select("*").eq("phone_key", phone.slice(-10));
-    check("STOP is recorded as an opt-out", (consent ?? []).length > 0, JSON.stringify(consent));
+    const key = phone.slice(-10);
+    const { data: stopReceipt } = await db.from("sms_control_receipts").select("keyword").eq("recipient_phone_key", key);
+    check("STOP is recorded as a control receipt", (stopReceipt ?? []).some((r) => r.keyword === "STOP"), JSON.stringify(stopReceipt));
+    const { data: consent } = await db.from("sms_consent").select("opted_out_at, opted_in_at").in("phone", [phone, key]);
+    check("the phone is opted out", (consent ?? []).some((c) => c.opted_out_at), JSON.stringify(consent));
     const after = await h.text({ from: phone, to: h.sharedNumber, body: "are there any rooms for rent in Seattle?", quietMs: 4000, maxMs: 25000 });
     check("an opted-out number gets no outbound text", after.sent.length === 0, JSON.stringify(after.sent.map((m) => m.body)));
     const start = await h.post({ from: phone, to: h.sharedNumber, body: "START" });
     check("START is acknowledged with 200", start.status === 200, `${start.status}`);
-    const { data: consent2 } = await db.from("sms_consent").select("*").eq("phone_key", phone.slice(-10));
-    check("START clears the opt-out", JSON.stringify(consent2) !== JSON.stringify(consent), JSON.stringify(consent2));
+    const { data: consent2 } = await db.from("sms_consent").select("opted_out_at, opted_in_at").in("phone", [phone, key]);
+    check("START clears the opt-out", (consent2 ?? []).length > 0 && consent2.every((c) => !c.opted_out_at || (c.opted_in_at && c.opted_in_at > c.opted_out_at)), JSON.stringify(consent2));
 
     // Unknown sender with nothing to go on.
     const stranger = world.phone();

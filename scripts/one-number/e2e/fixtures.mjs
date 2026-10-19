@@ -135,7 +135,7 @@ export class World {
     const applicationId = `e2e-app-${this.runId}-${label}`;
     await must(() => this.db.from("manager_application_records").upsert({
       id: applicationId, manager_user_id: ownerId, resident_email: user.email, property_id: house.id, assigned_property_id: house.id,
-      row_data: { id: applicationId, axisId: applicationId, bucket: "approved", stage: "Approved", email: user.email, name: fullName, property: house.name, propertyId: house.id, assignedPropertyId: house.id, assignedRoomChoice: room.name, managerUserId: ownerId, testRunId: this.runId, application: { propertyId: house.id, roomChoice1: room.name } },
+      row_data: { id: applicationId, axisId: applicationId, bucket: "approved", stage: "Approved", email: user.email, name: fullName, property: house.name, propertyId: house.id, assignedPropertyId: house.id, assignedRoomChoice: room.name, managerUserId: ownerId, testRunId: this.runId, application: { propertyId: house.id, roomChoice1: room.name, phone, smsConsent: true, smsConsentAt: NOW(), smsConsentWordingVersion: "e2e-v1" } },
       occupancy_start: new Date().toISOString().slice(0, 10),
     }, { onConflict: "id" }), `application ${label}`);
     await must(() => this.db.from("resident_workspace_bindings").upsert({ resident_user_id: user.id, manager_user_id: ownerId, application_id: applicationId }, { onConflict: "resident_user_id,manager_user_id" }), `binding ${label}`);
@@ -181,7 +181,7 @@ export class World {
     const user = await this.createUser({ label: "owner", role: "manager", phone, fullName });
     await must(() => this.db.from("managed_workspace_fee_policies").insert({
       workspace_id: workspaceId, owner_user_id: user.id, status: "active", owner_share_bps: 9000, applies_to: "rent", leasing_fee_bps: 0, min_fee_cents: 0,
-      reserve_target_cents: 0, repair_approval_threshold_cents: 25000, effective_from: new Date().toISOString().slice(0, 10), sent_at: NOW(), signed_at: NOW(), accepted_via: "attested",
+      reserve_target_cents: 0, repair_approval_threshold_cents: 25000, effective_from: new Date().toISOString().slice(0, 10), sent_at: NOW(), signed_at: NOW(), accepted_via: "owner_signature", terms_sha256: hex(64),
     }), "owner policy");
     return user;
   }
