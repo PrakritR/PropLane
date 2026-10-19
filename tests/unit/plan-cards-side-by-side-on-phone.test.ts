@@ -1,17 +1,18 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-/** Captain Oct 18: compare Free, Pro, Business and managed service in one row. */
+/** Captain Oct 18 feedback: four desktop choices, stacked on phones. */
 describe("four public pricing choices", () => {
-  it("uses a focusable phone swipe row and a four-column desktop grid", () => {
+  it("uses a single-column phone stack and a four-column desktop grid", () => {
     const source = readFileSync("src/components/marketing/site/pricing-cards.tsx", "utf8");
     const css = readFileSync("src/components/marketing/site/pricing-cards.css", "utf8");
     expect(source).toContain('data-attr="pricing-plan-stack"');
     expect(source).toContain('role="region"');
-    expect(source).toContain("tabIndex={0}");
-    expect(css).toContain("overflow-x: auto");
-    expect(css).toContain("scroll-snap-type: x mandatory");
+    expect(source).not.toContain("tabIndex={0}");
+    expect(css).not.toContain("overflow-x: auto");
+    expect(css).not.toContain("scroll-snap-type: x mandatory");
     expect(css).toContain("grid-template-columns: repeat(4, minmax(0, 1fr))");
+    expect(css).toMatch(/@media \(max-width: 639px\)\s*\{\s*\.pl-pricing-options\s*\{[^}]*grid-template-columns: 1fr/);
     expect(readFileSync("src/app/(public)/pricing/page.tsx", "utf8")).toContain("<PricingCards annual={annual} />");
   });
 
