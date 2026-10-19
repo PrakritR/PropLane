@@ -345,3 +345,6 @@ SCENARIOS.push({
 
 import { SVCLINE_SCENARIOS } from "./scenarios-svcline.mjs";
 SCENARIOS.push(...SVCLINE_SCENARIOS);
+
+import { VENDOR_JOBS_SCENARIOS } from "./scenarios-vendor-jobs.mjs";
+SCENARIOS.push(...VENDOR_JOBS_SCENARIOS);

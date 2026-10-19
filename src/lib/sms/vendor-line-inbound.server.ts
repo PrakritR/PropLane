@@ -5,6 +5,7 @@ import { loadSharedLineConfig, isSharedLineNumber } from "@/lib/one-number/confi
 import { sendSharedLineMessage } from "@/lib/one-number/send.server";
 import { handlePropLaneVendorText } from "@/lib/one-number/vendor-jobs/vendor-line.server";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { recordVendorInboundReplyConsent, VENDOR_CONVERSATION_PURPOSE } from "@/lib/sms/vendor-conversation-consent.server";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { isPropLaneServiceLine, readPlatformServiceOwnerId } from "@/lib/service/service-catalog.server";
 
@@ -70,6 +71,10 @@ export async function handlePropLaneLineVendorInbound(
     });
     return { handled: true, sent: sent.ok, vendorUserId: turn.vendorUserId };
   }
+  // A vendor texting the line first is their own opt-in to replies in this thread (never over a STOP).
+  const consent = await recordVendorInboundReplyConsent(db, { managerUserId: args.managerUserId, vendorUserId: turn.vendorUserId, phone, messageSid: args.messageSid })
+    .catch(() => "unavailable" as const);
+  if (consent === "suppressed") return { handled: true, sent: true, vendorUserId: turn.vendorUserId };
   const { sendFromManagerWorkNumber } = await import("@/lib/proplane-sms-transport.server");
   const sent = await sendFromManagerWorkNumber({
     managerUserId: args.managerUserId,
@@ -77,9 +82,13 @@ export async function handlePropLaneLineVendorInbound(
     text: turn.reply,
     fromNumber: args.toPhone,
     counterpartyRole: "vendor",
+    sendClass: "transactional",
+    purpose: VENDOR_CONVERSATION_PURPOSE,
     conversationKey: buildConversationKey({ ownerManagerUserId: args.managerUserId, role: "vendor", counterpartyUserId: turn.vendorUserId, counterpartyPhone: phone }),
     dedupeKey: dedupe,
     workspaceId: args.workspaceId ?? null,
   });
-  return { handled: true, sent: sent.ok || Boolean(sent.durablyAccepted), vendorUserId: turn.vendorUserId };
+  const accepted = sent.ok || Boolean(sent.durablyAccepted);
+  if (!accepted) console.error("vendor line reply not sent", sent.error ?? "unknown");
+  return { handled: true, sent: accepted, vendorUserId: turn.vendorUserId };
 }

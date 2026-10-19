@@ -16,6 +16,7 @@ const m = vi.hoisted(() => ({
   serviceLine: true,
   serviceOwner: "svc-owner" as string | null,
   sendOk: true,
+  consent: "allowed" as "allowed" | "suppressed" | "unavailable",
   sent: [] as Record<string, unknown>[],
   shared: [] as Record<string, unknown>[],
 }));
@@ -32,6 +33,10 @@ vi.mock("@/lib/proplane-sms-transport.server", () => ({
     m.sent.push(args);
     return m.sendOk ? { ok: true, outboxId: "ob-1" } : { ok: false, error: "x" };
   }),
+}));
+vi.mock("@/lib/sms/vendor-conversation-consent.server", () => ({
+  recordVendorInboundReplyConsent: vi.fn(async () => m.consent),
+  VENDOR_CONVERSATION_PURPOSE: "vendor_conversation",
 }));
 vi.mock("@/lib/one-number/send.server", () => ({
   sendSharedLineMessage: vi.fn(async (_db: unknown, args: Record<string, unknown>) => {
@@ -56,6 +61,7 @@ beforeEach(() => {
   m.serviceLine = true;
   m.serviceOwner = "svc-owner";
   m.sendOk = true;
+  m.consent = "allowed";
   m.sent.length = 0;
   m.shared.length = 0;
   project.mockClear();
@@ -79,6 +85,15 @@ describe("per_workspace PropLane line (production today)", () => {
     expect(text).toContain("/start/");
     expect(text).not.toMatch(/room|rent|tour|apply/i);
     expect(fake.tables.sms_vendor_leads).toHaveLength(1);
+  });
+
+  it("sends in the vendor consent purpose, and a vendor who texted STOP gets no reply", async () => {
+    await run("any jobs available");
+    expect(m.sent[0]).toMatchObject({ purpose: "vendor_conversation", sendClass: "transactional" });
+    m.sent.length = 0;
+    m.consent = "suppressed";
+    expect(await run("any jobs available", LINE, "SM2")).toMatchObject({ handled: true, sent: true });
+    expect(m.sent).toHaveLength(0);
   });
 
   it("a renter's text is not taken: the pipeline continues to the leasing fallback", async () => {

@@ -99,7 +99,7 @@ branch, and `db:push` applies it only once merged):
 | 20261018300000 | `action_event_domains_explicit` | restates `action_events_domain_check` with every domain spelled out, incl. `vendor_dispatch` |
 | 20261018310000 | `withdrawal_reserve_exists_stored_values` | `reserve_party_withdrawal` answers a reused key with the stored reservation, never the new request |
 | 20261018310100 | `phone_auth_failure_cap` | lifetime failed-code cap for phone sign-in (10 wrong codes in 24 hours locks the phone) |
-| 20261019130000 | `vendor_line_history` | two partial unique indexes on `agent_sessions` (PropLane-line vendor chat, personal-line carry-over); no table (branch: `on/smsvendor`) |
+| 20261019130000 | `vendor_line_history` | two partial unique indexes on `agent_sessions` (PropLane-line vendor chat, personal-line carry-over) and `agent_sessions_directory_identity_check` restated with `vendor_line_sms`; no table (branch: `on/smsvendor`) |
 | 20261019010000 | `burst_original_shared_line` | `resolve_sms_completed_receipt_original` also proves the shared PropLane line (live config, shared number, router-stamped workspace); needed before durable prospect bursts (`PROSPECT_SMS_BURSTS_ENABLED=1`) are on for the shared line (branch: `on/msge2e`) |
 
 Check after the push (SQL editor, read-only):
