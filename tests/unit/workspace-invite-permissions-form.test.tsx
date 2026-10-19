@@ -141,19 +141,14 @@ describe("Workspace invite — permissions form defaults", () => {
     expect(housesFieldText()).toContain("Only selected houses");
   });
 
-  it("offers no 'All houses' option once the role is Property owner", async () => {
+  it("no longer offers Property owner as an invite role (the owner portal is retired; a house owner who only looks is a Viewer)", async () => {
     mockFetch({ existingLink: null });
     renderSheet();
     await waitFor(() => expect(roleFieldText()).toContain("Viewer"));
 
-    pickRole("Property owner");
-    await flushMicrotasks();
-    expect(housesFieldText()).toContain("Only selected houses");
-
-    fireEvent.click(document.querySelector('[data-attr="workspace-invite-houses"]') as HTMLElement);
-    const listbox = screen.getByRole("listbox", { name: "Houses" });
-    expect(within(listbox).queryByText(/All houses/)).toBeNull();
-    expect(within(listbox).getByText("Only selected houses")).toBeTruthy();
+    fireEvent.click(document.querySelector('[data-attr="workspace-invite-role"]') as HTMLElement);
+    const listbox = screen.getByRole("listbox", { name: "Role" });
+    expect(within(listbox).queryByText("Property owner")).toBeNull();
   });
 
   it("still defaults to All houses for an owner (unscoped) viewer even when other workspaces exist", async () => {

@@ -12,6 +12,15 @@ vi.mock("@/lib/auth/co-manager-module-scope", () => ({ viewerAndLinkedOwnerIdsFo
 vi.mock("@/lib/agent-notify.server", () => ({ ensureManagerAgentNoticeThread: vi.fn() }));
 vi.mock("@/lib/agent/resident-inbox-agent.server", () => ({ ensureResidentAgentThread: vi.fn() }));
 vi.mock("@/lib/resident-manager-scope", () => ({ managerIdsOwningResident: vi.fn() }));
+// The fake db has no workspace tables; the managed view-only lock has its own tests (managed-read-only-inbox-delete).
+vi.mock("@/lib/auth/managed-read-only.server", () => ({
+  isManagedReadOnly: async () => false,
+  managedReadOnlyOwnerLocked: async () => false,
+  managedReadOnlyWorkspaceIds: async () => [],
+}));
+vi.mock("@/lib/workspaces/active.server", () => ({
+  resolveActiveWorkspaceFromRequest: async () => ({ id: "ws-1", ownerUserId: "viewer" }),
+}));
 import { POST } from "@/app/api/portal-inbox-threads/route";
 beforeEach(() => {
   vi.clearAllMocks();
