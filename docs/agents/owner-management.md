@@ -168,3 +168,8 @@ staging / production are human steps.
 capture crediting, refunds, disputes, vendor bills, balances, withdrawals, reconciliation). Routes: `/api/portal/owner-management/*`
 (admin / workspace), `/api/owner/*` (owner), `/api/vendor/managed-finance/*`, `/api/cron/owner-management`. Migration
 `supabase/migrations/20261018270000_owner_management.sql`. Tests `tests/unit/owner-management-*.test.ts`, `tests/unit/managed-finance-*.test.ts`.
+
+## Withdrawal idempotency and hand-posted vendor charges
+
+- A manual withdrawal's stored key is bound to (client key, party, workspace, amount) in `withdrawalKey`; a weekly batch key is server-made and amount-free. When `reserve_party_withdrawal` answers `exists`, only the STORED amount, party and destination decide: a mismatch is a 409 (`KEY_REUSED`) with no Stripe call, a completed row returns its stored transfer, and a reservation older than 20h (or `unknown`) is left to `reconcileWithdrawals`, never re-sent. The Stripe transfer key carries the withdrawal id, party and amount. Reconcile flags (never fails) a reservation when any transfer sits in its group without matching it.
+- `POST /api/portal/managed-finance/vendor-charge` needs a target holding the vendor role in `profile_roles`, on the workspace manager's `manager_vendor_records` roster, and not the caller. Auto-approved bills per workspace are capped at 4 repair thresholds per 24h; past it the owner is asked.

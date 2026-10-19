@@ -32,6 +32,9 @@ export type VendorBillInput = {
   jobDate?: string | null;
 };
 
+/** A hand-posted vendor charge may auto-approve at most this many repair thresholds in 24h per workspace; past it the owner is asked. */
+export const VENDOR_CHARGE_DAILY_AUTO_CAP_THRESHOLDS = 4;
+
 export type VendorBillResult =
   | { status: "posted"; journalId: string; created: boolean }
   /** Gate-only mode: the owner's approval is in place (or not needed); nothing has been posted yet. */
@@ -92,7 +95,7 @@ export async function gateAndPostManagedVendorBill(
   db: SupabaseClient,
   input: VendorBillInput,
   now: Date = new Date(),
-  opts: { gateOnly?: boolean } = {},
+  opts: { gateOnly?: boolean; /** Bills auto-approved in the last 24h may total at most this many repair thresholds; past it the owner is asked. */ dailyAutoApproveCapThresholds?: number } = {},
 ): Promise<VendorBillResult> {
   if (!Number.isSafeInteger(input.amountCents) || input.amountCents < 100) throw new LedgerError(400, "A vendor bill must be at least $1.00.");
   if (!input.sourceId.trim()) throw new LedgerError(400, "A vendor bill needs a source.");
@@ -119,7 +122,21 @@ export async function gateAndPostManagedVendorBill(
   }
 
   if (!expense) {
-    const auto = input.amountCents <= policy.terms.repairApprovalThresholdCents;
+    let auto = input.amountCents <= policy.terms.repairApprovalThresholdCents;
+    if (auto && opts.dailyAutoApproveCapThresholds) {
+      const since = new Date(now.getTime() - 24 * 3600_000).toISOString();
+      const { data: recent, error: recentError } = await db
+        .from("owner_expenses")
+        .select("amount_cents")
+        .eq("workspace_id", policy.workspaceId)
+        .eq("decided_via", "auto")
+        .gte("decided_at", since)
+        .limit(1000);
+      if (recentError) throw new LedgerError(500, "Could not read the repair approvals.");
+      const spent = ((recent ?? []) as Array<{ amount_cents: number | string }>).reduce((sum, r) => sum + Number(r.amount_cents), 0);
+      // Over the day's allowance this stops being an automatic yes: the owner is asked, like any bill above the threshold.
+      if (spent + input.amountCents > opts.dailyAutoApproveCapThresholds * policy.terms.repairApprovalThresholdCents) auto = false;
+    }
     const { data, error } = await db
       .from("owner_expenses")
       .insert({

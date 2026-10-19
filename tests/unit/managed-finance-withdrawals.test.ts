@@ -51,6 +51,11 @@ beforeEach(() => {
   ready.value = true;
 });
 
+const exists = (over: Record<string, unknown> = {}) => ({
+  status: "exists", withdrawal_id: "wd-1", withdrawal_status: "reserved", amount_cents: 50_000, party_id: `owner:${OWNER}`,
+  destination_account_id: ACCT, stripe_transfer_id: null, stripe_payout_id: null, created_at: new Date().toISOString(), ...over,
+});
+
 const owner = { kind: "owner" as const, userId: OWNER, workspaceId: WS, amountCents: 50_000, clientKey: "k1" };
 
 describe("owner withdrawal", () => {
@@ -61,11 +66,12 @@ describe("owner withdrawal", () => {
     expect(r).toMatchObject({ ok: true, withdrawalId: "wd-1", transferId: "tr_1", payoutId: "po_1", payoutPending: false });
     const reserve = f.rpcCalls.find((c) => c.name === "reserve_party_withdrawal")!.args;
     expect(reserve).toMatchObject({ p_kind: "owner", p_party: `owner:${OWNER}`, p_workspace: WS, p_amount: 50_000, p_destination: ACCT, p_reserve: 5_000 });
-    expect(String(reserve.p_key)).toContain("k1");
+    expect(String(reserve.p_key)).toMatch(/^wd:owner:owner:own-1:ws-1:[0-9a-f]{40}$/);
+    expect(String(reserve.p_key)).not.toContain("k1");
     expect(stripe.transfers.create).toHaveBeenCalledTimes(1);
     const [params, opts] = (stripe.transfers.create as unknown as { mock: { calls: Array<[Record<string, unknown>, Record<string, unknown>]> } }).mock.calls[0]!;
     expect(params).toMatchObject({ amount: 50_000, currency: "usd", destination: ACCT, transfer_group: "wd_wd-1" });
-    expect(opts).toEqual({ idempotencyKey: "party-withdrawal:wd-1" });
+    expect(opts).toEqual({ idempotencyKey: `party-withdrawal:wd-1:owner:${OWNER}:50000` });
     expect(f.rpcCalls.map((c) => c.name)).toEqual(["reserve_party_withdrawal", "complete_party_withdrawal"]);
   });
   it("a payout that cannot start leaves the transfer recorded and tells the owner it is pending", async () => {
@@ -86,13 +92,13 @@ describe("owner withdrawal", () => {
     const f = setup({ reserve_party_withdrawal: () => ({ status: "in_flight" }) });
     expect(await withdrawFromManagedFunds(makeStripe() as never, f.db, owner)).toMatchObject({ ok: false, status: 409, code: "IN_FLIGHT" });
   });
-  it("a repeated click returns the first withdrawal's outcome without a second reservation", async () => {
-    const f = setup({ reserve_party_withdrawal: () => ({ status: "exists", withdrawal_id: "wd-1", withdrawal_status: "completed" }) });
+  it("a repeated click of a completed withdrawal returns the stored result with no Stripe transfer", async () => {
+    const f = setup({ reserve_party_withdrawal: () => exists({ withdrawal_status: "completed", stripe_transfer_id: "tr_old", stripe_payout_id: "po_old" }) });
     const stripe = makeStripe();
     const r = await withdrawFromManagedFunds(stripe as never, f.db, owner);
-    expect(r.ok).toBe(true);
-    // the same idempotency key makes Stripe return the original transfer, not a second one
-    expect((stripe.transfers.create as unknown as { mock: { calls: Array<[unknown, { idempotencyKey: string }]> } }).mock.calls[0]![1].idempotencyKey).toBe("party-withdrawal:wd-1");
+    expect(r).toMatchObject({ ok: true, withdrawalId: "wd-1", transferId: "tr_old", payoutId: "po_old" });
+    expect(stripe.transfers.create).not.toHaveBeenCalled();
+    expect(f.rpcCalls.some((c) => c.name === "complete_party_withdrawal")).toBe(false);
   });
   it("refuses a failed earlier attempt with the same key", async () => {
     const f = setup({ reserve_party_withdrawal: () => ({ status: "exists", withdrawal_id: "wd-1", withdrawal_status: "failed" }) });
@@ -183,6 +189,14 @@ describe("reconciliation", () => {
     expect(await reconcileWithdrawals(s2 as never, g.db)).toEqual({ completed: 0, failed: 1, retried: 0 });
     expect(s2.transfers.create).not.toHaveBeenCalled();
   });
+  it("a transfer in the group that does not match the reservation is flagged for a person: never failed, released or retried", async () => {
+    const f = setup({}, { party_withdrawals: [row({ created_at: new Date(Date.now() - 30 * 3600_000).toISOString() })] });
+    const stripe = makeStripe({ list: [{ id: "tr_x", amount: 49_999, destination: ACCT, metadata: { withdrawal_id: "wd-9" } }] });
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toEqual({ completed: 0, failed: 0, retried: 0 });
+    expect(f.rpcCalls.some((c) => c.name === "fail_party_withdrawal")).toBe(false);
+    expect(stripe.transfers.create).not.toHaveBeenCalled();
+    expect(f.rows.owner_ledger_flags?.[0]).toMatchObject({ check_name: "withdrawal_transfer_mismatch", subject: "wd-9" });
+  });
   it("ignores withdrawals younger than two minutes (still being carried out)", async () => {
     const f = setup({}, { party_withdrawals: [row({ created_at: new Date().toISOString() })] });
     expect(await reconcileWithdrawals(makeStripe() as never, f.db)).toEqual({ completed: 0, failed: 0, retried: 0 });
@@ -206,5 +220,72 @@ describe("weekly vendor batch", () => {
     const reserve = f.rpcCalls.find((c) => c.name === "reserve_party_withdrawal")!.args;
     expect(reserve).toMatchObject({ p_party: "vendor:ven-1", p_amount: 80_000, p_source: "weekly_batch" });
     expect(String(reserve.p_key)).toContain("batch:2026-10-19");
+  });
+});
+
+describe("a reused idempotency key never moves money for a different request", () => {
+  it("binds a manual key to the amount: the same client key with another amount is a different reservation", async () => {
+    const keys: string[] = [];
+    const f = setup({ reserve_party_withdrawal: (a) => { keys.push(String(a.p_key)); return { status: "reserved", withdrawal_id: `wd-${keys.length}` }; } });
+    await withdrawFromManagedFunds(makeStripe() as never, f.db, owner);
+    await withdrawFromManagedFunds(makeStripe() as never, f.db, { ...owner, amountCents: 60_000 });
+    await withdrawFromManagedFunds(makeStripe() as never, f.db, owner);
+    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[0]).toBe(keys[2]);
+  });
+  it("a stored reservation with a different amount is refused 409 and nothing goes to Stripe", async () => {
+    const f = setup({ reserve_party_withdrawal: () => exists({ amount_cents: 999_999 }) });
+    const stripe = makeStripe();
+    const r = await withdrawFromManagedFunds(stripe as never, f.db, owner);
+    expect(r).toMatchObject({ ok: false, status: 409, code: "KEY_REUSED" });
+    expect(stripe.transfers.create).not.toHaveBeenCalled();
+    expect(f.rpcCalls.map((c) => c.name)).toEqual(["reserve_party_withdrawal"]);
+  });
+  it("a stored reservation for another party or another destination is refused 409 and nothing goes to Stripe", async () => {
+    for (const over of [{ party_id: "owner:someone-else" }, { destination_account_id: "acct_other" }]) {
+      const f = setup({ reserve_party_withdrawal: () => exists(over) });
+      const stripe = makeStripe();
+      expect(await withdrawFromManagedFunds(stripe as never, f.db, owner)).toMatchObject({ ok: false, status: 409, code: "KEY_REUSED" });
+      expect(stripe.transfers.create).not.toHaveBeenCalled();
+    }
+  });
+  it("a young stored reservation is carried out with only the stored values, under the amount-bound Stripe key", async () => {
+    const f = setup({ reserve_party_withdrawal: () => exists() });
+    const stripe = makeStripe();
+    expect(await withdrawFromManagedFunds(stripe as never, f.db, owner)).toMatchObject({ ok: true, transferId: "tr_1" });
+    const [params, opts] = (stripe.transfers.create as unknown as { mock: { calls: Array<[Record<string, unknown>, Record<string, unknown>]> } }).mock.calls[0]!;
+    expect(params).toMatchObject({ amount: 50_000, destination: ACCT });
+    expect(opts).toEqual({ idempotencyKey: `party-withdrawal:wd-1:owner:${OWNER}:50000` });
+  });
+  it("concurrent same-key requests converge on one Stripe idempotency key and one ledger completion", async () => {
+    let first = true;
+    const f = setup({
+      reserve_party_withdrawal: () => { if (first) { first = false; return { status: "reserved", withdrawal_id: "wd-1" }; } return exists(); },
+      complete_party_withdrawal: () => ({ status: first ? "completed" : "exists" }),
+    });
+    const stripe = makeStripe();
+    const [a, b] = await Promise.all([withdrawFromManagedFunds(stripe as never, f.db, owner), withdrawFromManagedFunds(stripe as never, f.db, owner)]);
+    expect(a.ok && b.ok).toBe(true);
+    const keys = (stripe.transfers.create as unknown as { mock: { calls: Array<[unknown, { idempotencyKey: string }]> } }).mock.calls.map((c) => c[1].idempotencyKey);
+    expect(new Set(keys).size).toBe(1);
+  });
+  it("a reservation older than Stripe's idempotency window is never re-sent: reconciliation settles it", async () => {
+    const old = new Date(Date.now() - 30 * 3600_000).toISOString();
+    for (const over of [{ created_at: old }, { withdrawal_status: "unknown" }]) {
+      const f = setup({ reserve_party_withdrawal: () => exists(over) });
+      const stripe = makeStripe();
+      expect(await withdrawFromManagedFunds(stripe as never, f.db, owner)).toMatchObject({ ok: false, status: 409, code: "VERIFYING" });
+      expect(stripe.transfers.create).not.toHaveBeenCalled();
+    }
+  });
+  it("a weekly batch key stays server-made and amount-free, so a retry with a changed balance is refused rather than re-sent", async () => {
+    const keys: string[] = [];
+    const f = setup({ reserve_party_withdrawal: (a) => { keys.push(String(a.p_key)); return exists({ party_id: "vendor:ven-1", amount_cents: 10_000 }); } });
+    const base = { kind: "vendor" as const, userId: "ven-1", clientKey: "batch:2026-10-12", source: "weekly_batch" as const };
+    account.value = { id: "acct_ven1", metadata: { axis_user_id: "ven-1" } };
+    const stripe = makeStripe();
+    expect(await withdrawFromManagedFunds(stripe as never, f.db, { ...base, amountCents: 12_000 })).toMatchObject({ ok: false, status: 409, code: "KEY_REUSED" });
+    expect(keys[0]).toBe("wd:vendor:vendor:ven-1:-:batch:2026-10-12");
+    expect(stripe.transfers.create).not.toHaveBeenCalled();
   });
 });

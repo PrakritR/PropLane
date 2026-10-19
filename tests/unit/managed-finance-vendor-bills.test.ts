@@ -176,3 +176,26 @@ describe("refusals", () => {
     expect(lines[1]!.party_id).toBe("vendor_dir:dir-9");
   });
 });
+
+describe("daily auto-approve cap", () => {
+  const cap = { dailyAutoApproveCapThresholds: 4 };
+  it("auto-approves up to the cap, then asks the owner instead of rejecting", async () => {
+    const { f } = setup(25_000);
+    const now = new Date("2026-10-18T12:00:00Z");
+    for (let i = 0; i < 4; i++) {
+      const r = await gateAndPostManagedVendorBill(f.db, bill({ sourceType: "manual", sourceId: `m-${i}`, amountCents: 25_000 }), now, cap);
+      expect(r.status).toBe("posted");
+    }
+    const over = await gateAndPostManagedVendorBill(f.db, bill({ sourceType: "manual", sourceId: "m-4", amountCents: 1_000 }), now, cap);
+    expect(over.status).toBe("pending_owner");
+    expect(f.rows.owner_expenses!.at(-1)).toMatchObject({ status: "pending_owner", decided_via: null });
+  });
+  it("yesterday's auto-approvals do not count, and without the option nothing changes", async () => {
+    const old = new Date("2026-10-17T00:00:00Z").toISOString();
+    const { f } = setup(25_000, { owner_expenses: [{ id: "e0", workspace_id: WS, amount_cents: 100_000, decided_via: "auto", decided_at: old, status: "posted", source_type: "manual", source_id: "old" }] });
+    const now = new Date("2026-10-18T12:00:00Z");
+    expect((await gateAndPostManagedVendorBill(f.db, bill({ sourceType: "manual", sourceId: "n-1", amountCents: 20_000 }), now, cap)).status).toBe("posted");
+    const g = setup(25_000, { owner_expenses: [{ id: "e1", workspace_id: WS, amount_cents: 100_000, decided_via: "auto", decided_at: now.toISOString(), status: "posted", source_type: "manual", source_id: "x" }] });
+    expect((await gateAndPostManagedVendorBill(g.f.db, bill({ sourceType: "manual", sourceId: "n-2", amountCents: 20_000 }), now)).status).toBe("posted");
+  });
+});
