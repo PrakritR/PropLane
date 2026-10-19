@@ -29,7 +29,9 @@ export function loadDevEnv() {
 }
 
 export function createDb(resolved) {
-  return createClient(resolved.url, resolved.key, { auth: { persistSession: false, autoRefreshToken: false } });
+  // Every database and auth call carries a 30 s timeout: a hung socket must fail the call, never freeze the run.
+  const timedFetch = (input, init = {}) => fetch(input, { ...init, signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000) });
+  return createClient(resolved.url, resolved.key, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: timedFetch } });
 }
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

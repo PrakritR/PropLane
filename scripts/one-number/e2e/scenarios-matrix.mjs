@@ -27,11 +27,21 @@ const HOST_OK = /^(www\.)?proplane\.ai$|^localhost$|^127\.0\.0\.1$/i;
 /** One text, with the connection-drop retry and a printed exchange. Returns h.text's result. */
 export async function say(ctx, from, to, body, opts = {}) {
   const { h, note } = ctx;
+  const logMark = h.logMark();
   const send = () => h.text({ from, to, body, media: opts.media ?? [], quietMs: opts.quietMs ?? 8000, maxMs: opts.maxMs });
   let r = await send();
   for (let retry = 0; retry < 2 && /could not finish that request|try again or rephrase/i.test(r.all) && !opts.media?.length; retry += 1) {
     note(`(model connection dropped; sending "${body}" again)`);
     r = await send();
+  }
+  if (!r.all) {
+    // Silence is the worst product outcome: say exactly where the text stopped.
+    const [bursts, outbox, receipt] = await Promise.all([
+      h.db.from("prospect_sms_bursts").select("status, revision, updated_at").eq("counterparty_phone_e164", from),
+      h.db.from("sms_outbox").select("status, purpose, last_error, updated_at").eq("recipient_phone", from),
+      h.db.from("sms_inbound_receipts").select("status").eq("message_sid", r.sid).maybeSingle(),
+    ]);
+    note(`NO REPLY. receipt=${receipt.data?.status ?? "none"} bursts=${JSON.stringify(bursts.data ?? bursts.error?.message)} outbox=${JSON.stringify(outbox.data ?? outbox.error?.message)}\nserver log problems:\n${h.logProblemsSince(logMark).slice(0, 12).join("\n")}`);
   }
   note(`> ${body}${(opts.media ?? []).length ? `  [+${opts.media.length} photo]` : ""}\n< [${r.status}] (${r.firstMs === null ? "no reply" : `first reply ${(r.firstMs / 1000).toFixed(1)} s, settled ${(r.totalMs / 1000).toFixed(1)} s`}) ${r.all || "(no reply)"}${r.media.length ? `\n  media: ${r.media.join(", ")}` : ""}`);
   return r;
@@ -40,7 +50,9 @@ export async function say(ctx, from, to, body, opts = {}) {
 /** Item runner: numbered, checks counted, hygiene applied to every reply handed to `c.reply`. */
 export function itemRunner(ctx) {
   const { h, check } = ctx;
+  const only = process.env.MX_ITEMS ? process.env.MX_ITEMS.split(",").map((x) => Number(x.trim())) : null;
   return async function item(n, title, fn) {
+    if (only && !only.includes(n)) return;
     let failed = 0;
     let lastReply = "";
     let firstMs = null;
@@ -488,14 +500,9 @@ MATRIX_SCENARIOS.push({
       c.check("the managed home's rent is untouched", (mcAfter?.property_data?.listingSubmission?.rooms ?? []).every((r) => r.monthlyRent !== 700), JSON.stringify((mcAfter?.property_data?.listingSubmission?.rooms ?? []).map((r) => r.monthlyRent)));
     });
 
-    await item(18, "team chat relay line: a teammate's note reaches the team chat as one line", async (c) => {
-      const { data: before } = await db.from("portal_inbox_thread_records").select("id").eq("owner_user_id", fx.manager.id).like("id", "team-thread:%");
-      const r = await say(ctx, fx.managerPhone, fx.to, "team: the front gate is stuck, can someone look at it today");
-      c.reply(r, "team note");
-      const { data: after } = await db.from("portal_inbox_thread_records").select("id, row_data").eq("owner_user_id", fx.manager.id).like("id", "team-thread:%");
-      c.note(`team threads before/after: ${(before ?? []).length}/${(after ?? []).length}`);
-      c.check("the manager got an answer", r.replies.length > 0, "no reply");
-    });
+    // A text to the work number from a member of a workspace with two or more members goes to the Team chat (unless it starts
+    // "@assistant"); a solo workspace goes to the Assistant. That relay needs a second accepted teammate, which this fixture does not build.
+    notRun(ctx, 18, "team chat relay line (two-member workspace)", "needs an accepted co-manager link fixture; the solo manager here is routed to the Assistant, as designed");
   },
 });
 

@@ -345,3 +345,6 @@ SCENARIOS.push({
 
 import { SVCLINE_SCENARIOS } from "./scenarios-svcline.mjs";
 SCENARIOS.push(...SVCLINE_SCENARIOS);
+
+import { MATRIX_SCENARIOS } from "./scenarios-matrix.mjs";
+SCENARIOS.push(...MATRIX_SCENARIOS);
