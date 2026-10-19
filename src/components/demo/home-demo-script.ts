@@ -142,13 +142,13 @@ const VENDOR: HomeDemoChapter = {
     { do: "say", count: 1, typing: "in" },
     { do: "click", target: { kind: "nav", section: "services" } },
     { do: "wait", ms: 1500 },
-    { do: "say", count: 1, typing: "out", effect: { id: "assign", workOrder: "vendor" } },
-    { do: "wait", ms: 700 },
-    { do: "click", target: { kind: "tab", label: "Assigned" } },
+    // The vendor's YES assigns the service as the cursor opens Assigned, so the row is there when the tab is
+    // (never an empty Open tab beside "Assigned 1"); the booked visit does the same for Scheduled.
+    { do: "say", count: 1, typing: "out" },
+    { do: "click", target: { kind: "tab", label: "Assigned" }, effect: { id: "assign", workOrder: "vendor" } },
     { do: "wait", ms: 1800 },
-    { do: "say", count: 1, typing: "in", effect: { id: "schedule" } },
-    { do: "wait", ms: 700 },
-    { do: "click", target: { kind: "tab", label: "Scheduled" } },
+    { do: "say", count: 1, typing: "in" },
+    { do: "click", target: { kind: "tab", label: "Scheduled" }, effect: { id: "schedule" } },
     { do: "wait", ms: 3000 },
   ],
 };

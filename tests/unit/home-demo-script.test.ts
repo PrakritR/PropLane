@@ -51,6 +51,15 @@ describe("homepage Software demo script", () => {
     expect(buildHomeDemoSnapshot().workOrders.map((w) => w.id)).toContain("home-wo-willow-faucet");
   });
 
+  it("moves the vendor's service on the tab click that shows it, so no tab is empty beside its count", () => {
+    const steps = HOME_DEMO_CHAPTER_DATA.vendor.steps;
+    const tabEffect = (label: string) =>
+      steps.find((s) => s.do === "click" && s.target.kind === "tab" && s.target.label === label);
+    expect(tabEffect("Assigned")).toMatchObject({ effect: { id: "assign", workOrder: "vendor" } });
+    expect(tabEffect("Scheduled")).toMatchObject({ effect: { id: "schedule" } });
+    expect(steps.some((s) => s.do === "say" && s.effect)).toBe(false);
+  });
+
   it("draws its photos as inline SVG the service record will render", () => {
     for (const url of Object.values(HOME_DEMO_PHOTOS)) {
       expect(url).toMatch(SAFE_PHOTO);

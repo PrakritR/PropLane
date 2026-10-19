@@ -117,7 +117,9 @@ export function HomeDemoEmbed() {
         };
         post(event);
       };
-      const press = async (step: Extract<HomeDemoStep, { do: "click" | "hover" }>) => {
+      // A click's effect lands at the press, just before the control opens, so a tab the effect fills never
+      // shows its empty state first.
+      const press = async (step: Extract<HomeDemoStep, { do: "click" | "hover" }>, onPress?: () => void) => {
         const deadline = Date.now() + (noMotion ? 2500 : 4000);
         let el = resolveTarget(step.target);
         while (!el && Date.now() < deadline) {
@@ -126,6 +128,7 @@ export function HomeDemoEmbed() {
           el = resolveTarget(step.target);
         }
         if (!el) {
+          onPress?.();
           if (step.target.kind === "nav") navigateLikeALink(step.target.section);
           return;
         }
@@ -140,6 +143,7 @@ export function HomeDemoEmbed() {
           }
         }
         if (step.do === "hover") return;
+        onPress?.();
         el.click();
         await sleep(noMotion ? 350 : 120);
       };
@@ -164,8 +168,8 @@ export function HomeDemoEmbed() {
             announce(index, null, false);
             await wait(450);
           } else if (step.do === "click" || step.do === "hover") {
-            await press(step);
-            if (step.do === "click" && step.effect) applyHomeDemoEffect(step.effect, ctx);
+            const effect = step.do === "click" ? step.effect : undefined;
+            await press(step, effect ? () => applyHomeDemoEffect(effect, ctx) : undefined);
           } else {
             applyHomeDemoEffect(step.effect, ctx);
           }
