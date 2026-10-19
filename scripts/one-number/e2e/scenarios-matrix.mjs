@@ -28,7 +28,7 @@ const HOST_OK = /^(www\.)?proplane\.ai$|^localhost$|^127\.0\.0\.1$/i;
 export async function say(ctx, from, to, body, opts = {}) {
   const { h, note } = ctx;
   const logMark = h.logMark();
-  const send = () => h.text({ from, to, body, media: opts.media ?? [], quietMs: opts.quietMs ?? 8000, maxMs: opts.maxMs });
+  const send = () => h.text({ from, to, body, media: opts.media ?? [], quietMs: opts.quietMs ?? 8000, maxMs: opts.maxMs ?? 240_000 });
   let r = await send();
   for (let retry = 0; retry < 2 && /could not finish that request|try again or rephrase/i.test(r.all) && !opts.media?.length; retry += 1) {
     note(`(model connection dropped; sending "${body}" again)`);
@@ -123,7 +123,7 @@ export function ensureMatrix(h, world) {
     if (perWorkspace) {
       line = world.phone();
       const ins = await db.from("manager_sms_numbers").insert({ manager_user_id: manager.id, workspace_id: workspaceId, phone_number: line, phone_number_sid: `PNe2e${hex(28)}`,
-        messaging_service_sid: `MGe2e${hex(28)}`, provider: "twilio", provision_state: "active", registration_state: "approved", attachment_state: "attached", number_registration_state: "registered", requested_at: NOW(), provisioned_at: NOW() });
+        messaging_service_sid: h.env.TWILIO_MESSAGING_SERVICE_SID, campaign_sid: h.env.TWILIO_CAMPAIGN_SID, provider: "twilio", provision_state: "active", registration_state: "approved", attachment_state: "attached", number_registration_state: "registered", requested_at: NOW(), provisioned_at: NOW() });
       if (ins.error) throw new Error(`workspace line: ${ins.error.message}`);
     }
     const to = perWorkspace ? line : h.sharedNumber;
@@ -150,7 +150,7 @@ export function ensureManagedClient(h, world) {
     if (h.mode === "per_workspace") {
       line = world.phone();
       const row = await db.from("manager_sms_numbers").insert({ manager_user_id: client.id, workspace_id: workspaceId, phone_number: line, phone_number_sid: `PNe2e${hex(28)}`,
-        messaging_service_sid: `MGe2e${hex(28)}`, provider: "twilio", provision_state: "active", registration_state: "approved", attachment_state: "attached", number_registration_state: "registered", requested_at: NOW(), provisioned_at: NOW() });
+        messaging_service_sid: h.env.TWILIO_MESSAGING_SERVICE_SID, campaign_sid: h.env.TWILIO_CAMPAIGN_SID, provider: "twilio", provision_state: "active", registration_state: "approved", attachment_state: "attached", number_registration_state: "registered", requested_at: NOW(), provisioned_at: NOW() });
       if (row.error) throw new Error(`managed line: ${row.error.message}`);
     }
     return { client, phone, workspaceId, house, to: line ?? h.sharedNumber };
