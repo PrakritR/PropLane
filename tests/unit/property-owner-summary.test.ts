@@ -127,7 +127,7 @@ describe("the owner payload is redacted", () => {
 
 describe("the request can only narrow to a granted house", () => {
   const grants: OwnerGrant[] = [
-    { linkId: "l", managerUserId: "m", houses: [{ propertyId: HOUSE_A, performance: true, statements: true, documents: true, messages: false }] },
+    { linkId: "l", workspaceId: "ws-1", managerUserId: "m", houses: [{ propertyId: HOUSE_A, performance: true, statements: true, documents: true, messages: false }] },
   ];
   // A db that fails the test if it is touched: scope is decided before any read.
   const untouchable = new Proxy({}, { get: () => { throw new Error("db touched before scope was checked"); } }) as never;
@@ -139,7 +139,7 @@ describe("the request can only narrow to a granted house", () => {
 
   it("refuses a house granted for statements only (no performance key)", async () => {
     const statementsOnly: OwnerGrant[] = [
-      { linkId: "l", managerUserId: "m", houses: [{ propertyId: HOUSE_B, performance: false, statements: true, documents: false, messages: false }] },
+      { linkId: "l", workspaceId: "ws-1", managerUserId: "m", houses: [{ propertyId: HOUSE_B, performance: false, statements: true, documents: false, messages: false }] },
     ];
     await expect(loadOwnerSummary(untouchable, statementsOnly, { period: "2026-10", propertyId: HOUSE_B })).rejects.toBeInstanceOf(OwnerScopeError);
   });

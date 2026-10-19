@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { MARKETING_REDIRECTS } from "./src/lib/seo/marketing-routes";
 import { networkInterfaces } from "os";
 import { browserSecurityHeaders } from "./src/lib/security/browser-headers";
 
@@ -113,9 +114,8 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
+      ...MARKETING_REDIRECTS,
       { source: "/auth/login", destination: "/auth/sign-in", permanent: false },
-      // The managed service lives under Pricing; /service is the short link.
-      { source: "/service", destination: "/pricing/service", permanent: false },
       // Captain 2026-09-26: "remove live demo no need" — the public site no
       // longer embeds or links the running `/demo` sandbox anywhere, so the
       // route itself (bare and every sub-path) now bounces home. The page

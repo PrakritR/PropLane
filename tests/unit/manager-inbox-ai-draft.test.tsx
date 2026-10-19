@@ -173,7 +173,7 @@ describe("AI draft in the unified Communication inbox", () => {
     const reply = await screen.findByDisplayValue(/I'll look into availability/);
     expect(reply.getAttribute("data-attr")).toBe("inbox-reply");
     // Draft and assistant actions stay in the composer's AI menu.
-    expect(await screen.findByRole("button", { name: "AI" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Assistant" })).toBeTruthy();
     expect(document.querySelector('[data-attr="inbox-composer-ai-menu"]')).not.toBeNull();
     // The pending server draft stays available for refresh/discard, but it is
     // status only - there is no second editable message box or send button.
@@ -306,7 +306,7 @@ describe("AI draft in the unified Communication inbox", () => {
 
     const reply = await screen.findByPlaceholderText("Write a reply…");
     fireEvent.change(reply, { target: { value: "I already wrote this response." } });
-    expect(await screen.findByRole("button", { name: "AI" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Assistant" })).toBeDisabled();
 
     await act(async () => {
       resolveDraft(

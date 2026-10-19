@@ -31,6 +31,8 @@ export type DispatchAuditEvent =
   | "retried"
   | "canceled"
   | "vendor_done"
+  | "vendor_photos"
+  | "vendor_reminded"
   | "resident_confirmed"
   | "resident_reopened"
   | "invoice_asked"

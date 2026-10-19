@@ -6,7 +6,9 @@ authoritative copy. Read it before changing code in this area.
 ## Plan entitlements: the displayed plan and the enforced plan are one value
 
 `MANAGER_PLAN_TIERS` (`src/data/manager-plan-tiers.ts`) is the advertised copy;
-`src/lib/manager-access.ts` is the enforcement model. Two rules, both learned the
+`src/lib/manager-access.ts` is the enforcement model. Public pricing cards read the same `features` through
+`managerPlanFeatureSummary`; resident allowance copy derives from `RATE_CARD`,
+never legacy hard-coded caps. Two rules, both learned the
 hard way (audit F-SET-1: Settings read "CURRENT PLAN Free · 1 property listing"
 on an account with five listings and no paywall anywhere).
 

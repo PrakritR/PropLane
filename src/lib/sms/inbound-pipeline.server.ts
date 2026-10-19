@@ -18,6 +18,7 @@ import { handleVendorSessionInbound } from "@/lib/sms/vendor-inbound-session.ser
 import {
   handleManagerDispatchReply,
   handleResidentDispatchReply,
+  handleVendorDispatchMedia,
   handleVendorDispatchReply,
 } from "@/lib/vendor-dispatch/inbound.server";
 import { recordVendorInboundReplyConsent } from "@/lib/sms/vendor-conversation-consent.server";
@@ -63,7 +64,7 @@ import { isTwilioMessageSid } from "@/lib/sms/message-sid";
 import { loadThreadPause } from "@/lib/one-number/session.server";
 import { gateAiReply } from "@/lib/one-number/knowledge/reply-modes.server";
 import { withWorkspaceStamp } from "@/lib/one-number/workspace-stamp";
-import { attachVendorJobMedia, ingestInboundMedia } from "@/lib/one-number/inbound-media.server";
+import { attachVendorJobMedia, inboundImageBlocks, ingestInboundMedia } from "@/lib/one-number/inbound-media.server";
 import { loadFeelSettings } from "@/lib/one-number/feel-settings.server";
 import { debounceInbound } from "@/lib/one-number/debounce.server";
 import { classifySmsIntent, type IntentResult } from "@/lib/one-number/intent.server";
@@ -1172,16 +1173,32 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     phoneE164: normalizeE164(fromPhone) ?? fromPhone,
     body,
     messageSid,
+    mediaCount: Number(media.NumMedia) || 0,
   }).catch((error: unknown) => {
     console.error("vendor dispatch vendor reply failed", error instanceof Error ? error.message : "unknown");
     return { handled: false as const };
   });
-  if (dispatchVendor.handled) {
+  // A photo from a vendor on an accepted dispatched job (no DONE with it) is the job's before/after picture.
+  const dispatchVendorMedia = dispatchVendor.handled || (Number(media.NumMedia) || 0) === 0
+    ? ({ handled: false } as const)
+    : await handleVendorDispatchMedia(db, {
+        ownerUserId: managerId,
+        workspaceId: workspaceId ?? null,
+        phoneE164: normalizeE164(fromPhone) ?? fromPhone,
+        body,
+        messageSid,
+        mediaCount: Number(media.NumMedia) || 0,
+      }).catch((error: unknown) => {
+        console.error("vendor dispatch photo failed", error instanceof Error ? error.message : "unknown");
+        return { handled: false as const };
+      });
+  if (dispatchVendor.handled || dispatchVendorMedia.handled) {
+    const handledVendor = dispatchVendor.handled ? dispatchVendor : dispatchVendorMedia as { handled: true; vendorUserId?: string | null };
     mark("dispatch:vendor-answer");
     await projectClassifiedInbound(db, {
       managerUserId: managerId,
       role: "vendor",
-      counterpartyUserId: dispatchVendor.vendorUserId ?? null,
+      counterpartyUserId: handledVendor.vendorUserId ?? null,
       fromPhone,
       toPhone,
       messageSid,
@@ -1364,11 +1381,18 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
         reason: error instanceof Error ? error.message : "unknown",
       });
     }
+    // The photos the resident texted, read by the model: what is wrong and how urgent (emergency / urgent /
+    // routine). The same files are attached to the service request when one is filed (30-minute window).
+    const residentImages = (Number(media.NumMedia) || 0) > 0 && !residentYielded
+      ? await inboundImageBlocks(db, { ownerUserId: managerId, messageSid }).catch(() => [])
+      : [];
     const photoPrefix = photoRefs.length
       ? `Private inspection photo sources (not filed): ${photoRefs.join(", ")}. Ask which inspection/section if unclear; use file_inspection_photo with confirmation.\n`
       : photoIntakeFailed
         ? "The resident attached photos but they could not be received. Answer the text, say the photos did not come through, and ask them to resend or upload in the portal.\n"
-        : "";
+        : residentImages.length
+          ? `The resident attached ${residentImages.length} photo${residentImages.length === 1 ? "" : "s"} (shown). If they show a problem, say what you see, rate it emergency, urgent or routine from the photo, and file the service request with that priority. The photos attach to the request automatically.\n`
+          : "";
     let residentFirstBubbleAt: number | null = null;
     // Label the text while the turn runs (rules first; the cheap model only when they cannot tell).
     if (!residentYielded) void intentOf(residentTurnBody);
@@ -1380,6 +1404,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           residentPhoneE164: normalizeE164(fromPhone) ?? fromPhone,
           inboundText: `${photoPrefix}${residentTurnBody}`,
           inboundMessageSid: messageSid,
+          inboundImages: residentImages.length ? residentImages : undefined,
           // Stored-fact answers (Wi-Fi, door code, trash day...) skip the model on the shared line.
           fastPath: feel.residentFastPath,
           onSlowWork: feel.workAck

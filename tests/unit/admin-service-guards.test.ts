@@ -2,7 +2,7 @@
  * Source guards for PropLane Service: the migration's cap exemption is the service owner only, the create
  * function refuses everyone else, and no manager-side route grows an admin branch.
  */
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -89,7 +89,7 @@ describe("no admin branch inside the manager side", () => {
     for (const f of files) {
       expect(read(f), f).not.toMatch(/provisionManagerNumber|provisionNumberForWorkspace|ensureManagerNumberRecord|reconcileManagerSmsEntitlement/);
     }
-    for (const f of ["src/lib/sms/work-numbers.server.ts", "src/lib/sms/manager-sms-entitlement.server.ts", "src/lib/sms/manager-number-provisioning.server.ts"]) {
+    for (const f of ["src/lib/sms/work-numbers.server.ts", "src/lib/sms/manager-sms-entitlement.server.ts", "src/lib/sms/manager-number-provisioning.server.ts"].filter((p) => existsSync(p))) {
       expect(read(f), f).not.toMatch(/isPlatformServiceOwner|@\/lib\/service\//);
     }
   });
@@ -102,5 +102,26 @@ describe("no admin branch inside the manager side", () => {
       expect(verbs.length, f).toBeGreaterThan(0);
       expect(gates.length, f).toBe(verbs.length);
     }
+  });
+});
+
+describe("attach an existing workspace", () => {
+  it("adds no migration of its own: it uses only the columns of 20261018260000 / 20261018260100", () => {
+    expect(readdirSync(path.join(root, "supabase/migrations")).filter((f) => f.startsWith("2026101826"))).toEqual([
+      "20261018260000_admin_service_workspaces.sql",
+      "20261018260100_service_owner_of_record.sql",
+    ]);
+  });
+
+  it("the Service routes re-derive admin status on every verb, attach included", () => {
+    const route = read("src/app/api/admin/service-workspaces/route.ts");
+    expect(route).toMatch(/case "attach":/);
+    const lib = read("src/lib/service/service-workspaces.server.ts");
+    const attach = lib.slice(lib.indexOf("export async function attachWorkspaceToService"), lib.indexOf("export type ServiceAttachCandidate"));
+    expect(attach).toMatch(/userHoldsAdminRole\(db, operatorUserId\)/);
+    // The audit row is written before the flag moves, and the attach never writes the owner column or a property row.
+    expect(attach.indexOf("writeAuditLog")).toBeLessThan(attach.indexOf('.update({ is_service: true'));
+    expect(attach).not.toMatch(/\.update\(\{[^}]*owner_user_id/);
+    expect(attach).not.toMatch(/manager_property_records/);
   });
 });

@@ -1,5 +1,6 @@
 import "server-only";
 
+import type Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchTwilioMessageMedia } from "@/lib/inspections/attachment-intake.server";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
@@ -282,5 +283,72 @@ export async function attachVendorJobMedia(
     return { linked: rows.length };
   } catch {
     return { linked: 0 };
+  }
+}
+
+/**
+ * Link every unlinked file of one inbound text to a dispatch run (`vendor_job`, the run id). Used when
+ * the run has no service record to carry the pictures. Scoped to this owner's bucket path; returns the
+ * number of files linked.
+ */
+export async function linkVendorRunMedia(
+  db: SupabaseClient,
+  args: { ownerUserId: string; runId: string; messageSid: string },
+): Promise<number> {
+  try {
+    const { data, error } = await db
+      .from("sms_media_files")
+      .select("id")
+      .eq("message_sid", args.messageSid)
+      .like("storage_path", `manager/${args.ownerUserId}/%`)
+      .is("linked_type", null);
+    if (error || !data?.length) return 0;
+    const ids = (data as Array<{ id: string }>).map((row) => row.id);
+    await linkClaimedMedia(db, { ids, linkedType: "vendor_job", linkedId: args.runId });
+    return ids.length;
+  } catch {
+    return 0;
+  }
+}
+
+const VISION_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+/** Anthropic caps an image at 5 MB encoded; 3.6 MB of bytes stays under it. */
+const VISION_MAX_BYTES = 3_600_000;
+const VISION_MAX_IMAGES = 4;
+
+/**
+ * The photos of one inbound text as image blocks the model can read (maintenance photos: what is wrong,
+ * how urgent). Read back from the private bucket by the message's own sid and this owner's path, so a file
+ * from another owner or another text is never shown to the model. Unreadable or oversized files are skipped.
+ */
+export async function inboundImageBlocks(
+  db: SupabaseClient,
+  args: { ownerUserId: string; messageSid: string },
+): Promise<Anthropic.ImageBlockParam[]> {
+  try {
+    const { data, error } = await db
+      .from("sms_media_files")
+      .select("storage_path, content_type, media_index")
+      .eq("message_sid", args.messageSid)
+      .like("storage_path", `manager/${args.ownerUserId}/%`)
+      .order("media_index", { ascending: true })
+      .limit(VISION_MAX_IMAGES);
+    if (error || !data?.length) return [];
+    const blocks: Anthropic.ImageBlockParam[] = [];
+    for (const row of data as Array<{ storage_path: string; content_type: string }>) {
+      const type = String(row.content_type ?? "").toLowerCase();
+      if (!VISION_IMAGE_TYPES.has(type)) continue;
+      const file = await db.storage.from(SMS_MEDIA_BUCKET).download(row.storage_path);
+      if (file.error || !file.data) continue;
+      const bytes = Buffer.from(await file.data.arrayBuffer());
+      if (bytes.byteLength === 0 || bytes.byteLength > VISION_MAX_BYTES) continue;
+      blocks.push({
+        type: "image",
+        source: { type: "base64", media_type: type as "image/jpeg" | "image/png" | "image/webp" | "image/gif", data: bytes.toString("base64") },
+      });
+    }
+    return blocks;
+  } catch {
+    return [];
   }
 }

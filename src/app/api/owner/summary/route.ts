@@ -14,7 +14,7 @@ export const runtime = "nodejs";
  * manager come from the membership, never from the query.
  */
 export async function GET(req: Request) {
-  const ctx = await requireOwnerRoute();
+  const ctx = await requireOwnerRoute(req);
   if (ctx instanceof NextResponse) return ctx;
   const url = new URL(req.url);
   try {

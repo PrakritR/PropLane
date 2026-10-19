@@ -7,14 +7,15 @@
  */
 
 import dynamic from "next/dynamic";
+import { DemoPopupLoading, DemoSampleLoading } from "./demo-sample-loading";
 
 const forms = () => import("@/components/marketing/site/product-mock/demo-popups-forms");
 const record = () => import("@/components/marketing/site/product-mock/demo-record");
 
 /** A record page (what a row opens in the real portal): header, icon actions, section rail, body. */
-export const DemoRecordPage = dynamic(() => record().then((m) => m.DemoRecordPage), { ssr: false });
-export const DemoRecordThread = dynamic(() => record().then((m) => m.DemoRecordThread), { ssr: false });
+export const DemoRecordPage = dynamic(() => record().then((m) => m.DemoRecordPage), { ssr: false, loading: DemoSampleLoading });
+export const DemoRecordThread = dynamic(() => record().then((m) => m.DemoRecordThread), { ssr: false, loading: DemoSampleLoading });
 
-export const DemoSendFormPopup = dynamic(() => forms().then((m) => m.DemoSendFormPopup), { ssr: false });
-export const DemoFormViewerPopup = dynamic(() => forms().then((m) => m.DemoFormViewerPopup), { ssr: false });
-export const DemoEditPendingFormPopup = dynamic(() => forms().then((m) => m.DemoEditPendingFormPopup), { ssr: false });
+export const DemoSendFormPopup = dynamic(() => forms().then((m) => m.DemoSendFormPopup), { ssr: false, loading: DemoPopupLoading });
+export const DemoFormViewerPopup = dynamic(() => forms().then((m) => m.DemoFormViewerPopup), { ssr: false, loading: DemoPopupLoading });
+export const DemoEditPendingFormPopup = dynamic(() => forms().then((m) => m.DemoEditPendingFormPopup), { ssr: false, loading: DemoPopupLoading });

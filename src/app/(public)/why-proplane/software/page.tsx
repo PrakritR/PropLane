@@ -19,6 +19,7 @@ import { SitePage } from "@/components/marketing/site/site-page";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/#service" },
   title: "The software",
   description:
     "A property manager's main job is relaying messages between residents, vendors and owners. PropLane's AI assistant does the relaying, and you approve what matters.",

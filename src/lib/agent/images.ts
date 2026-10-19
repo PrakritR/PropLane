@@ -131,3 +131,22 @@ export function buildImageUserMessage(
 ): Anthropic.MessageParam {
   return buildAttachmentUserMessage(text, blocks);
 }
+
+/**
+ * Put image blocks on the LAST user message of a text-only history (an MMS photo on an SMS turn).
+ * Returns the history unchanged, and `attached: false`, when there is nothing to attach or the last
+ * message is not a plain user string.
+ */
+export function attachImagesToLastUserMessage(
+  messages: Anthropic.MessageParam[],
+  imageBlocks: Anthropic.ImageBlockParam[],
+): { messages: Anthropic.MessageParam[]; attached: boolean } {
+  const last = messages[messages.length - 1];
+  if (imageBlocks.length === 0 || !last || last.role !== "user" || typeof last.content !== "string") {
+    return { messages, attached: false };
+  }
+  return {
+    messages: [...messages.slice(0, -1), buildAttachmentUserMessage(last.content, imageBlocks)],
+    attached: true,
+  };
+}

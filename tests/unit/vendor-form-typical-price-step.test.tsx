@@ -65,6 +65,7 @@ describe("Add vendor > Typical price step", () => {
     toProperties();
     next();
     next();
+    next(); // What they do, Dispatch, then Typical price
     expect(screen.queryByText("Pick a property and a trade first.")).not.toBeInTheDocument();
     const hourly = screen.getAllByLabelText("Hourly");
     expect(hourly).toHaveLength(1);
@@ -91,6 +92,7 @@ describe("Add vendor > Typical price step", () => {
     toProperties();
     next();
     next();
+    next(); // What they do, Dispatch, then Typical price
     expect(screen.getAllByLabelText("Hourly")).toHaveLength(1);
     expect(screen.getByRole("group", { name: "Every property" })).toBeInTheDocument();
   });
@@ -106,6 +108,7 @@ describe("Add vendor > Typical price step", () => {
     pick("4709A 8th Ave");
     next();
     next();
+    next(); // What they do, Dispatch, then Typical price
     expect(screen.getByText("5257 Brooklyn")).toBeInTheDocument();
     expect(screen.getByText("4709A 8th Ave")).toBeInTheDocument();
     expect(screen.getAllByLabelText("Hourly")).toHaveLength(2);

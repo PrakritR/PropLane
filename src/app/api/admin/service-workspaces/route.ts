@@ -4,9 +4,11 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 import {
   addServiceTeamMember,
+  attachWorkspaceToService,
   authorizeOpenServiceWorkspace,
   createServiceWorkspace,
   inviteServiceClient,
+  listServiceAttachCandidates,
   listServiceTeam,
   listServiceWorkspaces,
   removeServiceTeamMember,
@@ -27,8 +29,8 @@ function failure(result: ServiceFailure) {
 
 /**
  * Admin > Service. Every verb starts with `requireAdminRoute()` (401 signed out, 403 not an admin) and
- * the service layer then re-derives the service owner, that the workspace IS a service workspace of
- * that owner, and what the operator is inside it. A body id is a name, never authorization.
+ * the service layer then re-derives the service owner, that the workspace carries the service flag, and what
+ * the operator is inside it. A body id is a name, never authorization.
  */
 export async function GET() {
   const admin = await requireAdminRoute();
@@ -51,6 +53,22 @@ export async function POST(request: Request) {
   switch (body.action) {
     case "create": {
       const result = await createServiceWorkspace(db, admin.userId, { name: body.name, city: body.city, ownerOfRecord: body.ownerOfRecord });
+      if (!result.ok) return failure(result);
+      return NextResponse.json({ id: result.id }, { status: 201, headers: NO_STORE });
+    }
+    case "attach-candidates": {
+      const result = await listServiceAttachCandidates(db, admin.userId, body.query);
+      if (!result.ok) return failure(result);
+      return NextResponse.json({ candidates: result.candidates }, { headers: NO_STORE });
+    }
+    case "attach": {
+      // Flags an existing workspace as PropLane Service; its owner and every property row stay as they are.
+      const result = await attachWorkspaceToService(db, admin.userId, {
+        workspaceId: body.workspaceId,
+        city: body.city,
+        label: body.label,
+        reason: body.reason,
+      });
       if (!result.ok) return failure(result);
       return NextResponse.json({ id: result.id }, { status: 201, headers: NO_STORE });
     }

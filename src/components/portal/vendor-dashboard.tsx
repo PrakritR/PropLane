@@ -221,6 +221,7 @@ export function VendorDashboardView({
   belowKpis,
   onAdd,
   onOpenJob,
+  hrefForSection = (section) => `${BASE}/${section}`,
 }: {
   openJobs: number;
   bidsDue: number;
@@ -235,6 +236,8 @@ export function VendorDashboardView({
   belowKpis?: ReactNode;
   onAdd: () => void;
   onOpenJob: (id: string) => void;
+  /** Fixture previews supply fragment links so the real portal is never prefetched. */
+  hrefForSection?: (section: string) => string;
 }) {
   return (
     <ManagerPortalPageShell
@@ -249,14 +252,14 @@ export function VendorDashboardView({
             <KpiCard
               label="Open services"
               value={String(openJobs)}
-              href={vendorWorkOrderListHref(BASE, "open")}
+              href={hrefForSection("work-orders/open")}
               dataAttr="vendor-dashboard-kpi-jobs"
               icon={Wrench}
             />
             <KpiCard
               label="Bids due"
               value={String(bidsDue)}
-              href={vendorWorkOrderListHref(BASE, "open")}
+              href={hrefForSection("work-orders/open")}
               dataAttr="vendor-dashboard-kpi-bids"
               icon={FileText}
             />
@@ -264,14 +267,14 @@ export function VendorDashboardView({
               label="Upcoming visits"
               value={String(upcomingVisits)}
               unit={nextVisitLabel}
-              href={`${BASE}/calendar`}
+              href={hrefForSection("calendar")}
               dataAttr="vendor-dashboard-kpi-visits"
               icon={CalendarDays}
             />
             <KpiCard
               label="Unread messages"
               value={String(unreadMessages)}
-              href={`${BASE}/communication/active`}
+              href={hrefForSection("communication/active")}
               dataAttr="vendor-dashboard-kpi-inbox"
               icon={Mail}
             />
@@ -289,7 +292,7 @@ export function VendorDashboardView({
             <UpcomingPanel
               rows={upcomingRows}
               nowMs={nowMs}
-              calendarHref={`${BASE}/calendar`}
+              calendarHref={hrefForSection("calendar")}
               emptyCopy="No upcoming visits."
               rowLinkClassName="flex min-h-[44px] items-center gap-2.5 px-3.5 py-2.5 transition hover:bg-[var(--secondary)]"
               aside={null}

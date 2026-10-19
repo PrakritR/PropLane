@@ -1,21 +1,27 @@
 "use client";
 
-import { Building2, Download, BedDouble, Banknote } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { CalendarDays, ClipboardCheck, FileSignature, FileText, Wrench } from "lucide-react";
+import Link from "next/link";
 import { formatOwnerUsd, ownerMonthLabel, useOwnerFetch } from "@/components/owner/owner-data";
-import { OwnerBand, OwnerError, OwnerLoading, OwnerPageTitle, OwnerTile, OwnerTiles, OwnerEmpty } from "@/components/owner/owner-ui";
+import { OwnerEmpty, OwnerError, OwnerLoading } from "@/components/owner/owner-ui";
+import { useOwnerWorkspace } from "@/components/owner/owner-workspace";
+import { DashboardGlyphTile, KpiCard, PanelShell } from "@/components/portal/pro-dashboard-kpis";
+import { formatPacificDate } from "@/lib/pacific-time";
 import { OWNER_BASE_PATH } from "@/lib/property-owner/sections";
-import type { OwnerChartPoint, OwnerPropertySummary, OwnerSummary } from "@/lib/property-owner/projection";
+import type {
+  OwnerAttentionItem,
+  OwnerChartPoint,
+  OwnerOverviewExtras,
+  OwnerSummary,
+  OwnerUpcomingItem,
+} from "@/lib/property-owner/projection";
 
-export function OwnerIncomeChart({ points }: { points: OwnerChartPoint[] }) {
+export function OwnerIncomeChart({ points, periodLabel = "last 12 months" }: { points: OwnerChartPoint[]; periodLabel?: string }) {
   const max = Math.max(1, ...points.flatMap((p) => [p.incomeCents, p.expensesCents]));
   return (
-    <div className="mb-4 rounded-2xl border border-border bg-card p-4" data-attr="owner-chart">
-      <p className="text-sm font-semibold text-foreground">Income and expenses · last 12 months</p>
-      <div className="mt-3 flex h-24 items-end gap-1.5" role="img" aria-label="Income and expenses for the last 12 months">
+    <div className="rounded-[10px] border border-border bg-card p-4" data-attr="owner-chart">
+      <p className="text-sm font-[650] text-foreground">Income and expenses · {periodLabel}</p>
+      <div className="mt-3 flex h-24 items-end gap-1.5" role="img" aria-label={`Income and expenses for the ${periodLabel}`}>
         {points.map((p) => (
           <div
             key={p.month}
@@ -46,62 +52,243 @@ export function OwnerIncomeChart({ points }: { points: OwnerChartPoint[] }) {
   );
 }
 
-export function OwnerSummaryTiles({ summary, scope }: { summary: { period: string; totals: OwnerSummary["totals"] }; scope?: OwnerPropertySummary }) {
+/** The five cards. A managed workspace shows PropLane's fee, the owner's net and what can be withdrawn; any other shows net income. */
+export function OwnerKpis({
+  summary,
+  extras,
+  yearToDateKnown = true,
+  rentDueKnown = true,
+}: {
+  summary: OwnerSummary;
+  extras: OwnerOverviewExtras | null;
+  /** False where the year's figure is not supplied (the homepage sample): the card reads a dash, never a made-up zero. */
+  yearToDateKnown?: boolean;
+  /** False where rent due is not supplied (the homepage sample). */
+  rentDueKnown?: boolean;
+}) {
   const t = summary.totals;
-  const net = scope ? scope.netCents : t.netMonthCents;
-  const ytd = scope ? scope.netYtdCents : t.netYtdCents;
-  const collected = scope ? scope.rentCollectedCents : t.rentCollectedCents;
-  const due = scope ? scope.rentDueCents : t.rentDueCents;
-  const units = scope ? scope.units : t.units;
-  const occupied = scope ? scope.occupied : t.occupied;
+  const occupancy = t.units > 0 ? Math.round((t.occupied / t.units) * 100) : 0;
+  const month = ownerMonthLabel(summary.period, true);
+  const cards = [
+    <KpiCard
+      key="occupancy"
+      label="Occupancy"
+      value={`${occupancy}%`}
+      unit={`${t.occupied} of ${t.units} rooms`}
+      href={`${OWNER_BASE_PATH}/properties`}
+      dataAttr="owner-kpi-occupancy"
+    />,
+    <KpiCard
+      key="rent"
+      label={`Rent collected · ${month}`}
+      // PropLane-held rent never touches the manager's own books, so a managed workspace reads it from its ledger.
+      value={formatOwnerUsd(extras?.managed ? extras.managed.rentCents : t.rentCollectedCents)}
+      unit={extras?.managed || !rentDueKnown ? undefined : `of ${formatOwnerUsd(t.rentDueCents)} due`}
+      href={`${OWNER_BASE_PATH}/statements`}
+      dataAttr="owner-kpi-rent"
+    />,
+  ];
+  if (extras?.managed) {
+    cards.push(
+      <KpiCard
+        key="fee"
+        label="PropLane fee"
+        value={formatOwnerUsd(Math.abs(extras.managed.feeCents))}
+        unit={month}
+        href={`${OWNER_BASE_PATH}/finances`}
+        dataAttr="owner-kpi-fee"
+      />,
+      <KpiCard
+        key="net"
+        label="Net to you"
+        value={formatOwnerUsd(extras.managed.netCents)}
+        unit={month}
+        href={`${OWNER_BASE_PATH}/statements`}
+        dataAttr="owner-kpi-net"
+      />,
+      <KpiCard
+        key="available"
+        label="Available to withdraw"
+        value={formatOwnerUsd(extras.managed.availableCents)}
+        href={`${OWNER_BASE_PATH}/finances`}
+        dataAttr="owner-kpi-available"
+      />,
+    );
+  } else {
+    cards.push(
+      <KpiCard
+        key="net-month"
+        label={`Net income · ${month}`}
+        value={formatOwnerUsd(t.netMonthCents)}
+        href={`${OWNER_BASE_PATH}/statements`}
+        dataAttr="owner-kpi-net"
+      />,
+      <KpiCard
+        key="net-ytd"
+        label={`Net income · ${summary.period.slice(0, 4)}`}
+        value={yearToDateKnown ? formatOwnerUsd(t.netYtdCents) : "—"}
+        href={`${OWNER_BASE_PATH}/statements`}
+        dataAttr="owner-kpi-net-ytd"
+      />,
+      <KpiCard
+        key="due"
+        label="Rent due"
+        value={rentDueKnown ? formatOwnerUsd(t.rentDueCents) : "—"}
+        unit={month}
+        href={`${OWNER_BASE_PATH}/statements`}
+        dataAttr="owner-kpi-due"
+      />,
+    );
+  }
+  return <div className="grid grid-cols-2 gap-3 lg:grid-cols-5 [&>*]:min-w-0" data-attr="owner-kpis">{cards}</div>;
+}
+
+type AttentionRow = {
+  id: string;
+  title: string;
+  href: string;
+  action: string;
+  icon: typeof Wrench;
+  tone: "pending" | "info";
+};
+
+/** What needs the owner, as rows the Needs attention panel draws: a repair to approve, a statement that landed, an agreement to sign. */
+export function ownerAttentionRows(items: readonly OwnerAttentionItem[]): AttentionRow[] {
+  return items.map((item) => {
+    if (item.kind === "repair") {
+      return {
+        id: `repair-${item.id}`,
+        title: `${item.title} · ${formatOwnerUsd(item.amountCents)}`,
+        href: `${OWNER_BASE_PATH}/finances?workspace=${encodeURIComponent(item.workspaceId)}&approve=${encodeURIComponent(item.id)}`,
+        action: "Approve",
+        icon: Wrench,
+        tone: "pending" as const,
+      };
+    }
+    if (item.kind === "statement") {
+      return {
+        id: `statement-${item.id}`,
+        title: `${ownerMonthLabel(item.month)} statement is ready`,
+        href: `${OWNER_BASE_PATH}/statements/${encodeURIComponent(item.month)}`,
+        action: "View",
+        icon: FileText,
+        tone: "info" as const,
+      };
+    }
+    return {
+      id: `agreement-${item.id}`,
+      title: "Management agreement to sign",
+      href: `${OWNER_BASE_PATH}/finances?workspace=${encodeURIComponent(item.workspaceId)}&review=${encodeURIComponent(item.id)}`,
+      action: "Sign",
+      icon: FileSignature,
+      tone: "pending" as const,
+    };
+  });
+}
+
+export function OwnerAttentionPanel({ items }: { items: readonly OwnerAttentionItem[] }) {
+  const rows = ownerAttentionRows(items);
   return (
-    <OwnerTiles>
-      <OwnerTile label={`Net income · ${ownerMonthLabel(summary.period, true)}`} value={formatOwnerUsd(net)} tone={net >= 0 ? "good" : "bad"} />
-      <OwnerTile label={`Net income · ${summary.period.slice(0, 4)}`} value={formatOwnerUsd(ytd)} tone={ytd >= 0 ? "good" : "bad"} />
-      <OwnerTile label="Rent collected" value={formatOwnerUsd(collected)} of={`of ${formatOwnerUsd(due)}`} />
-      <OwnerTile label="Occupied" value={`${occupied} of ${units}`} />
-    </OwnerTiles>
+    <PanelShell title="Needs attention" count={rows.length} dataAttr="owner-attention-panel">
+      {rows.length === 0 ? (
+        <p className="px-4 py-6 text-center text-[13px] text-muted">Nothing is waiting on you. Nice.</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {rows.map((row) => (
+            <li key={row.id} className="flex items-center gap-2.5 px-3.5 py-2.5" data-attr="owner-attention-row">
+              <DashboardGlyphTile icon={row.icon} tone={row.tone} />
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{row.title}</span>
+              <Link
+                href={row.href}
+                className="inline-flex min-h-11 shrink-0 items-center rounded-[7px] border border-border bg-card px-3 text-[13px] font-[550] text-foreground transition hover:bg-[var(--secondary)] lg:min-h-8"
+              >
+                {row.action}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </PanelShell>
   );
 }
 
-export function OwnerPropertyRow({ property, onOpen }: { property: OwnerPropertySummary; onOpen: () => void }) {
+/** "Oct 24" for a plain YYYY-MM-DD, with no time-zone shift. */
+export function ownerShortDay(day: string): string {
+  const [y, m, d] = day.split("-").map(Number);
+  if (!y || !m || !d) return day;
+  return formatPacificDate(Date.UTC(y, m - 1, d, 19), { month: "short", day: "numeric" });
+}
+
+export function OwnerUpcomingPanel({ items }: { items: readonly OwnerUpcomingItem[] }) {
   return (
-    <PortalServiceRecordRow
-      title={property.label}
-      useServiceTile={false}
-      leading={
-        <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-primary" aria-hidden>
-          <Building2 className="size-5" />
-        </span>
-      }
-      facts={
-        <>
-          <span className="inline-flex items-center gap-1">
-            <BedDouble className="size-3.5" aria-hidden /> {property.occupied} of {property.units} occupied
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Banknote className="size-3.5" aria-hidden /> {formatOwnerUsd(property.rentCollectedCents)} of {formatOwnerUsd(property.rentDueCents)} collected
-          </span>
-        </>
-      }
-      figure={formatOwnerUsd(property.netCents)}
-      onOpen={onOpen}
-      dataAttr={`owner-property-row-${property.propertyId}`}
-    />
+    <PanelShell title="Upcoming" dataAttr="owner-upcoming-panel">
+      {items.length === 0 ? (
+        <p className="px-4 py-6 text-center text-[13px] text-muted">Nothing scheduled in the next month.</p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {items.map((item) => (
+            <li key={item.id}>
+              <Link
+                href={`${OWNER_BASE_PATH}/properties`}
+                className="flex items-center gap-2.5 px-3.5 py-2.5 transition hover:bg-[var(--secondary)]"
+                data-attr="owner-upcoming-row"
+              >
+                <DashboardGlyphTile icon={item.kind === "move-in" ? CalendarDays : ClipboardCheck} tone={item.kind === "move-in" ? "info" : "pending"} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-foreground">
+                    {item.kind === "move-in" ? "Move-in" : "Move-out"} · {[item.house, item.unit].filter(Boolean).join(" · ")}
+                  </span>
+                  <span className="block truncate text-[12.5px] text-muted">{ownerShortDay(item.date)}</span>
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </PanelShell>
   );
 }
 
-/** Screen 3: Overview. */
+/**
+ * The overview's successful-data presentation. The live page and the homepage's read-only owner sample both draw it, so the
+ * sample is the real screen over supplied data.
+ */
+export function OwnerOverviewView({
+  data,
+  extras,
+  chartPeriodLabel,
+  yearToDateKnown = true,
+  rentDueKnown = true,
+}: {
+  data: OwnerSummary;
+  extras: OwnerOverviewExtras | null;
+  chartPeriodLabel?: string;
+  yearToDateKnown?: boolean;
+  rentDueKnown?: boolean;
+}) {
+  return (
+    <>
+      <OwnerKpis summary={data} extras={extras} yearToDateKnown={yearToDateKnown} rentDueKnown={rentDueKnown} />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <OwnerAttentionPanel items={extras?.attention ?? []} />
+        <OwnerUpcomingPanel items={extras?.upcoming ?? []} />
+      </div>
+      <OwnerIncomeChart points={data.chart} periodLabel={chartPeriodLabel} />
+    </>
+  );
+}
+
+/** Overview: the five cards, Needs attention and Upcoming side by side, then the twelve-month chart. */
 export function OwnerOverview() {
-  const router = useRouter();
+  const workspace = useOwnerWorkspace();
   const { data, loading, error, reload } = useOwnerFetch<OwnerSummary>("/api/owner/summary");
+  const extras = useOwnerFetch<OwnerOverviewExtras>("/api/owner/overview");
   // The empty state is for "no houses are shared with you". A house with rent
-  // charged but nothing collected yet is real data: the tiles and the property
-  // rows stay, and the chart simply draws zero bars.
+  // charged but nothing collected yet is real data: the cards and the chart
+  // stay, and the chart simply draws zero bars.
   const empty = !loading && !error && data !== null && data.properties.length === 0;
   return (
-    <div data-attr="owner-overview">
-      <OwnerPageTitle>Overview</OwnerPageTitle>
+    <div className="space-y-4" data-attr="owner-overview" data-workspace={workspace?.activeId ?? undefined}>
       {loading && !data ? (
         <OwnerLoading />
       ) : error === "Forbidden." ? (
@@ -111,51 +298,8 @@ export function OwnerOverview() {
       ) : empty || !data ? (
         <OwnerEmpty />
       ) : (
-        <>
-          <OwnerSummaryTiles summary={data} />
-          <OwnerIncomeChart points={data.chart} />
-          <OwnerBand label="Properties" count={data.properties.length}>
-            <PortalIconAction
-              icon={Download}
-              label="Download statement"
-              data-attr="owner-download-statement"
-              onClick={() => router.push(`${OWNER_BASE_PATH}/statements`)}
-            />
-          </OwnerBand>
-          <PortalRecordListSurface dataAttr="owner-properties-list">
-            {data.properties.map((p) => (
-              <OwnerPropertyRow key={p.propertyId} property={p} onOpen={() => router.push(`${OWNER_BASE_PATH}/properties/${encodeURIComponent(p.propertyId)}`)} />
-            ))}
-          </PortalRecordListSurface>
-        </>
+        <OwnerOverviewView data={data} extras={extras.data} />
       )}
     </div>
   );
 }
-
-/** Properties tab: the same rows without the tiles. */
-export function OwnerPropertiesList() {
-  const router = useRouter();
-  const { data, loading, error, reload } = useOwnerFetch<OwnerSummary>("/api/owner/summary");
-  return (
-    <div data-attr="owner-properties">
-      <OwnerPageTitle>Properties</OwnerPageTitle>
-      {loading && !data ? (
-        <OwnerLoading />
-      ) : error === "Forbidden." ? (
-        <OwnerEmpty title="No properties are shared with you" />
-      ) : error ? (
-        <OwnerError message="Couldn't load your properties." onRetry={reload} />
-      ) : !data || data.properties.length === 0 ? (
-        <OwnerEmpty title="No properties yet" />
-      ) : (
-        <PortalRecordListSurface dataAttr="owner-properties-list">
-          {data.properties.map((p) => (
-            <OwnerPropertyRow key={p.propertyId} property={p} onOpen={() => router.push(`${OWNER_BASE_PATH}/properties/${encodeURIComponent(p.propertyId)}`)} />
-          ))}
-        </PortalRecordListSurface>
-      )}
-    </div>
-  );
-}
-

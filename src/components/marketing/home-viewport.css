@@ -1,0 +1,119 @@
+/* Each visual stage fits below the public bar at ordinary zoom. Scroll tracks
+   may span several screens; their active content does not. Text can still grow
+   at increased browser/text zoom rather than being clipped by a fixed height. */
+.home-swiss {
+  --home-nav-height: 64px;
+  --home-bottom-space: 0px;
+  --home-stage-height: calc(100svh - var(--home-nav-height) - var(--home-bottom-space));
+}
+.home-swiss :is(#how, #dashboard, #service, #pricing, #contact, #software-demo) { scroll-margin-top: var(--home-nav-height); }
+.home-swiss :is(.home-swiss-service, .swiss-pricing, .swiss-contact) {
+  min-height: var(--home-stage-height);
+  padding-block: clamp(24px, 4svh, 40px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.home-swiss .swiss-title { font-size: clamp(40px, 4.5vw, 64px); }
+.home-swiss .swiss-service-grid { gap: 40px; margin-top: 24px; }
+.home-swiss .swiss-service-list li { padding-block: 12px; font-size: clamp(17px, 1.5vw, 21px); }
+.home-swiss .swiss-track-record { margin-top: 32px; }
+.home-swiss .swiss-track-grid > p { font-size: clamp(26px, 2.8vw, 40px); }
+.home-swiss #home-pricing-title { font-size: clamp(34px, 3.4vw, 48px); }
+.home-swiss .pl-pricing-overview { margin-top: 24px; gap: 14px; }
+.home-swiss .pl-pricing-compact { min-height: 0; padding: 24px 20px; border-radius: 16px; }
+.home-swiss .pl-pricing-compact h3 { min-height: 54px; font-size: 24px; }
+.home-swiss .pl-pricing-includes-heading { min-height: 32px; font-size: 12px; margin-top: 8px; }
+.home-swiss .pl-pricing-short-list { gap: 8px; padding-bottom: 20px; }
+.home-swiss .pl-pricing-short-list li { gap: 7px; font-size: 13px; line-height: 1.35; }
+.home-swiss .pl-pricing-short-list svg { width: 14px; height: 14px; }
+.home-swiss .pl-pricing-price { font-size: 42px; }
+.home-swiss .pl-pricing-cta { margin-top: 16px; min-height: 44px; padding: 9px 8px; }
+.home-swiss .pl-pricing-fee-note { margin-top: 14px; font-size: 12px; line-height: 1.35; color: #626b78; }
+.home-swiss .swiss-contact-grid { margin-top: 20px; align-items: center; }
+.home-swiss .home-contact-intro h2 { font-size: clamp(48px, 6vw, 80px); }
+.home-swiss .swiss-field { padding-block: 8px; }
+.home-swiss .swiss-field textarea { min-height: 88px; }
+.home-swiss .home-dashboard-sticky,
+.home-swiss .home-dashboard-tour[data-enhanced="true"] .home-dashboard-sticky {
+  padding-block: 24px;
+}
+.home-swiss .home-dashboard-tour[data-interactive="true"] .home-dashboard-sticky { height: var(--home-stage-height); }
+.home-swiss .home-dashboard-heading { margin-bottom: 8px; }
+.home-swiss .home-dashboard-heading h2 { font-size: clamp(34px, 3.5vw, 48px); }
+.home-swiss .home-dashboard-role-tabs { margin-bottom: 12px; }
+.home-swiss .home-dashboard-tour[data-interactive="true"] .home-dashboard-scene { height: 100%; margin: 0; }
+.home-swiss .home-dashboard-tour[data-interactive="true"] .home-dashboard-frame { flex: 1; height: auto; max-height: none; }
+.home-swiss .home-number-stage[data-enhanced="true"] .home-stage-sticky { padding-block: 24px; height: var(--home-stage-height); }
+.home-swiss .home-number-stage .home-stage-body { margin-top: 24px; }
+.home-swiss .home-number-stage .home-stage-heading h2 { font-size: clamp(40px, 4.5vw, 64px); margin-bottom: 20px; }
+.home-swiss .home-number-stage .home-stage-step-label { font-size: clamp(26px, 2.5vw, 34px); }
+.home-swiss .home-number-stage .home-stage-rail a { padding-block: 9px; }
+.home-swiss .home-number-stage .swiss-network-map { height: min(540px, 100%); }
+@media (max-width: 860px) {
+  .home-swiss { --home-nav-height: 60px; --home-bottom-space: 74px; --swiss-gutter: 16px; }
+  .home-swiss :is(.home-swiss-service, .swiss-pricing, .swiss-contact) { padding-block: 20px; }
+  .home-swiss .swiss-title { font-size: 38px; }
+  .home-swiss .swiss-service-grid { margin-top: 16px; }
+  .home-swiss .swiss-service-list { margin-top: 20px; }
+  .home-swiss .swiss-service-list li { font-size: 16px; line-height: 1.25; padding-block: 10px; }
+  .home-swiss .swiss-track-record { margin-top: 24px; }
+  .home-swiss .swiss-track-label { margin-bottom: 8px; padding-top: 0; }
+  .home-swiss .swiss-track-grid > p { font-size: 25px; }
+  .home-swiss #home-pricing-title { font-size: 32px; }
+  .home-swiss .pl-pricing-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+  .home-swiss .pl-pricing-compact { padding: 10px; border-radius: 12px; }
+  .home-swiss .pl-pricing-compact h3 { font-size: 18px; line-height: 1.05; min-height: 0; }
+  .home-swiss .pl-pricing-includes-heading { min-height: 0; font-size: 11px; line-height: 1.2; margin-block: 6px; }
+  .home-swiss .pl-pricing-short-list { gap: 4px; padding-bottom: 8px; }
+  .home-swiss .pl-pricing-short-list li { font-size: 11px; line-height: 1.2; gap: 4px; }
+  .home-swiss .pl-pricing-short-list svg { width: 11px; height: 11px; margin-top: 1px; }
+  .home-swiss .pl-pricing-price { font-size: 30px; }
+  .home-swiss .pl-pricing-price > span { font-size: 11px; }
+  .home-swiss .pl-pricing-billing { min-height: 15px; margin-top: 4px; font-size: 10px; }
+  .home-swiss .pl-pricing-cta { margin-top: 8px; min-height: 38px; font-size: 11px; padding: 8px 3px; border-radius: 8px; }
+  .home-swiss .pl-pricing-fee-note { font-size: 10px; margin-top: 10px; }
+  .home-swiss .swiss-contact-grid { margin-top: 16px; }
+  .home-swiss .home-contact-intro { margin-bottom: 20px; }
+  .home-swiss .home-contact-intro h2 { font-size: 38px; }
+  .home-swiss .home-contact-intro h2 br { display: none; }
+  .home-swiss .home-contact-intro .home-big-number { margin-top: 16px; font-size: 30px; }
+  .home-swiss .home-contact-intro > a[href^="mailto:"] { margin-top: 10px; font-size: 16px; }
+  .home-swiss .swiss-field { padding-block: 6px; gap: 4px; }
+  .home-swiss .swiss-field label { font-size: 12px; }
+  .home-swiss .swiss-field :is(input, textarea) { font-size: 16px; min-height: 44px; padding-block: 8px; }
+  .home-swiss .swiss-field textarea { min-height: 72px; height: 72px; }
+  .home-swiss .swiss-form-footer { padding-top: 8px; }
+  .home-swiss .swiss-form-footer button { min-height: 44px; padding-block: 8px; }
+  .home-swiss .home-dashboard-sticky { padding: 20px 16px; }
+  .home-swiss .home-dashboard-heading h2 { font-size: 34px; }
+  .home-swiss .home-dashboard-role-tabs { margin-bottom: 10px; }
+  .home-swiss .home-number-stage[data-enhanced="true"] .home-stage-sticky { padding: 12px 16px; }
+  .home-swiss .home-number-stage .home-stage-body { margin-top: 10px; gap: 8px; }
+  .home-swiss .home-number-stage .home-stage-heading h2 { font-size: 30px; margin-bottom: 6px; }
+  .home-swiss .home-number-stage .home-stage-heading h2 br { display: none; }
+  .home-swiss .home-number-stage .home-stage-rail a { gap: 4px; padding: 8px 8px 8px 0; }
+  .home-swiss .home-number-stage .home-stage-step-label { font-size: 13px; letter-spacing: -.015em; }
+  .home-swiss .home-number-stage .home-stage-step-number { font-size: 9px; }
+  .home-swiss .home-number-stage .home-stage-mobile-caption { font-size: 13px; margin-top: 4px; min-height: 18px; }
+  .home-swiss .home-number-stage .swiss-network-map { height: 430px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-swiss .home-number-stage[data-enhanced="true"] .home-stage-sticky { height: auto; }
+}
+.home-swiss .home-number-phone { --home-phone-width: 280px; --home-phone-height: min(548px, calc(100% - 24px)); }
+@media (max-width: 860px) {
+  .home-swiss .home-number-phone { --home-phone-width: 244px; --home-phone-height: min(484px, calc(100% - 22px)); }
+}
+/* Without scroll enhancement each example remains a complete, readable frame. */
+.home-swiss .home-number-stage[data-enhanced="false"] .home-number-phone { --home-phone-height: 548px; }
+@media (max-width: 860px) {
+  .home-swiss .home-number-stage[data-enhanced="false"] .home-number-phone { --home-phone-height: 484px; }
+}
+@media (max-width: 860px) {
+  .home-swiss .swiss-pricing { padding-block: 12px; }
+  .home-swiss .pl-pricing-overview { margin-top: 12px; }
+  /* The price already carries /mo; retain the billing details on wider cards. */
+  .home-swiss .pl-pricing-compact .pl-pricing-billing { display: none; }
+  .home-swiss .pl-pricing-cta { min-height: 44px; }
+}

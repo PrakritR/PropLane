@@ -25,16 +25,16 @@ The auth screens (`AuthSplitShell`) use the same font and tokens, with a full-bl
   `.ps` also re-points the app palette (`--primary`, `--pl-*`, radii, `--font-sans`), so a shared component
   (Button, inputs, the apply wizard) restyles inside a journey page and nowhere else. Restyle through that
   scope; do not fork a shared component for the public look. Portals never carry `.ps`.
-- The `(public)` layout swaps in `SiteTopBar` / `SiteFooter` on journey paths through `JourneyChromeSwitch`.
-- The number is `getPublicTextingConfig()` (server, cached; null unless the line is in `shared` mode) via
+- The `(public)` layout uses the same `PublicNavbar` / `PublicFooter` for the homepage and every journey page. There is one server-loaded texting snapshot and no route-specific chrome fork.
+- The number is `getPublicTextingConfig()` (server, cached; null unless the line is in captain-approved `shared` or `shadow` mode) via
   `usePublicTexting()`. Never a literal. With no number, "Text us" is not drawn.
 - Photos: real ones only; `NoImagePlaceholder` when a listing has none. The page reads the same public
   projection as before (`publicListingProjection` is unchanged).
 - Room type on browse derives from `listingSubmission.listingPlaceCategoryId`; an option shows only when some
   loaded listing has it.
 
-## Reconcile note
+## Homepage integration
 
-These pages were built before codex-1's concept-A homepage landed. `public-texting*.ts` and
-`public-texting-context.tsx` are byte-identical copies of codex-1's files. When the homepage's own bar,
-footer and tokens land, point the journey chrome at them and drop the duplicates here.
+The duplicate journey top bar, footer and chrome switch were removed when merged
+with the homepage. Journey content keeps the scoped `.ps` styles and Inter Tight
+font; navigation and the ink-blue footer come from the shared public layout.

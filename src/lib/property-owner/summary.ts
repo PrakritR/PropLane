@@ -39,6 +39,8 @@ export type OwnerHouseInputs = {
   units: number;
   occupied: number;
   unitRows?: OwnerUnitRow[];
+  /** Monthly rent of the occupied rooms, cents; the Properties list's rent figure. */
+  rentRollCents?: number;
 };
 
 export function profitabilityRowFromCells(row: Record<string, unknown>): ProfitabilityMonthRow {
@@ -99,6 +101,7 @@ export function buildOwnerPropertySummary(period: string, house: OwnerHouseInput
     netCents: current.netCents,
     netYtdCents,
     months: rows,
+    ...(house.rentRollCents !== undefined ? { rentRollCents: house.rentRollCents } : {}),
     ...(house.unitRows ? { unitRows: house.unitRows.map((u) => ({ unit: u.unit, status: u.status, rentCents: u.rentCents, leaseEnd: u.leaseEnd })) } : {}),
   };
 }

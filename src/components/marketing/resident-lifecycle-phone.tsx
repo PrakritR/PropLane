@@ -27,9 +27,11 @@ type Props = {
   items: PhoneItem[];
   /** A message is being typed: on the other party's side (`in`) or the owner's (`out`). */
   typing?: "in" | "out" | null;
+  readOnly?: boolean;
+  hideCaption?: boolean;
 };
 
-export function ResidentLifecyclePhone({ caption, contact, items, typing = null }: Props) {
+export function ResidentLifecyclePhone({ caption, contact, items, typing = null, readOnly = false, hideCaption = false }: Props) {
   const [reply, setReply] = useState("");
   const [localReplies, setLocalReplies] = useState<string[]>([]);
   const threadRef = useRef<HTMLDivElement>(null);
@@ -52,10 +54,10 @@ export function ResidentLifecyclePhone({ caption, contact, items, typing = null 
 
   return (
     <section className="rl-phone-wrap" aria-label={`${caption} Messages conversation`}>
-      <div className="rl-phone-caption">
+      {!hideCaption && <div className="rl-phone-caption">
         <span className="rl-phone-caption-dot" />
         {caption}
-      </div>
+      </div>}
       <div className="rl-phone-device">
         <div className="rl-phone-screen">
           <div className="rl-phone-status">
@@ -68,18 +70,18 @@ export function ResidentLifecyclePhone({ caption, contact, items, typing = null 
             </span>
           </div>
           <header className="rl-phone-header">
-            <button type="button" className="rl-phone-header-back" aria-label="Back to conversations">
+            {readOnly ? <span aria-hidden="true" /> : <button type="button" className="rl-phone-header-back" aria-label="Back to conversations">
               <ArrowLeft aria-hidden />
               <span>2</span>
-            </button>
+            </button>}
             <div className="rl-phone-contact">
               <span className="rl-phone-contact-avatar">{contact.initials}</span>
               <strong>{contact.name}</strong>
               <small>{contact.sub}</small>
             </div>
-            <button type="button" className="rl-phone-video" aria-label="Video call">
+            {readOnly ? <span /> : <button type="button" className="rl-phone-video" aria-label="Video call">
               <Video aria-hidden />
-            </button>
+            </button>}
           </header>
           <div ref={threadRef} className="rl-phone-thread" aria-label={`Conversation with ${contact.name}`}>
             {items.map((item, index) =>
@@ -122,7 +124,7 @@ export function ResidentLifecyclePhone({ caption, contact, items, typing = null 
               </div>
             ) : null}
           </div>
-          <form className="rl-phone-composer" onSubmit={sendReply}>
+          {readOnly ? <div className="rl-phone-composer" aria-hidden="true"><span>Text message</span></div> : <form className="rl-phone-composer" onSubmit={sendReply}>
             <button type="button" className="rl-phone-add" aria-label="Add attachment">
               <Plus aria-hidden />
             </button>
@@ -130,7 +132,7 @@ export function ResidentLifecyclePhone({ caption, contact, items, typing = null 
             <button type="submit" className="rl-phone-send" aria-label="Send sample reply" disabled={!reply.trim()}>
               <Send aria-hidden />
             </button>
-          </form>
+          </form>}
           <div className="rl-phone-bottom" aria-hidden="true">
             <span />
           </div>

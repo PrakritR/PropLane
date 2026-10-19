@@ -53,7 +53,8 @@ vi.mock("@/lib/sms/agent-confirmation.server", () => ({ classifySmsConfirmationR
 vi.mock("@/lib/communication/manager-assistant-workspace.server", () => ({ userDefaultWorkspaceId: async () => "ws-1" }));
 
 import { createDispatchRun } from "@/lib/vendor-dispatch/runs.server";
-import { handleManagerDispatchReply, handleResidentDispatchReply, handleVendorDispatchReply } from "@/lib/vendor-dispatch/inbound.server";
+import { sweepVendorDispatch } from "@/lib/vendor-dispatch/sweep.server";
+import { handleManagerDispatchReply, handleResidentDispatchReply, handleVendorDispatchMedia, handleVendorDispatchReply } from "@/lib/vendor-dispatch/inbound.server";
 
 type Row = Record<string, unknown>;
 const OWNER = "owner-1";
@@ -219,5 +220,119 @@ describe("teams stay apart", () => {
     expect(out).toMatchObject({ ok: false, reason: "never_auto" });
     expect(sent.team).toEqual([]);
     expect(sent.vendor).toEqual([]);
+  });
+});
+
+describe("completion photos by text", () => {
+  const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+  /** The private bucket, in memory: every path "downloads" the same tiny PNG. */
+  const withStorage = (db: Db) => {
+    (db as unknown as { storage: unknown }).storage = {
+      from: () => ({ download: async () => ({ data: new Blob([PNG], { type: "image/png" }), error: null }) }),
+    };
+    return db;
+  };
+  const media = (db: Db, sid: string, owner = OWNER) => {
+    rows(db, "sms_media_files").push({
+      id: `f-${sid}`, message_sid: sid, media_index: 0, sender_phone_key: "2065550101", storage_path: `manager/${owner}/${sid}/0.png`,
+      content_type: "image/png", byte_size: PNG.length, linked_type: null, linked_id: null, created_at: T0.toISOString(),
+    });
+  };
+  const accepted = async (db: Db) => {
+    await fileLockout(db);
+    await manager(db, "Y");
+    await vendorSays(db, "+12065550101", "YES 2:30pm");
+  };
+
+  it("a bare photo from the accepted vendor goes on the service as a completion photo and the vendor is told", async () => {
+    const db = withStorage(world());
+    (db as unknown as { __tables: Record<string, Row[]> }).__tables.sms_media_files ??= [];
+    await accepted(db);
+    media(db, "SMphoto1");
+    sent.vendor.length = 0;
+    const out = await handleVendorDispatchMedia(db as never, { ownerUserId: OWNER, workspaceId: WS, phoneE164: "+12065550101", body: "", messageSid: "SMphoto1", mediaCount: 1, now: T0 });
+    expect(out).toMatchObject({ handled: true });
+    const order = rows(db, "portal_work_order_records")[0]!.row_data as { completionPhotoDataUrls?: string[] };
+    expect(order.completionPhotoDataUrls).toHaveLength(1);
+    expect(order.completionPhotoDataUrls![0]).toMatch(/^data:image\/png;base64,/);
+    expect(rows(db, "sms_media_files")[0]).toMatchObject({ linked_type: "vendor_job", linked_id: "wo-1" });
+    expect(sent.vendor.at(-1)!.text).toBe("Got your photo for #1. Reply DONE when the job is finished");
+    // The photo is on the audit trail.
+    expect(rows(db, "action_events").some((e) => e.event_type === "vendor_photos")).toBe(true);
+  });
+
+  it("DONE with a photo attaches it before the service is marked done", async () => {
+    const db = withStorage(world());
+    (db as unknown as { __tables: Record<string, Row[]> }).__tables.sms_media_files ??= [];
+    await accepted(db);
+    media(db, "SMdone1");
+    await vendorSays(db, "+12065550101", "DONE", { messageSid: "SMdone1", mediaCount: 1 });
+    const order = rows(db, "portal_work_order_records")[0]!.row_data as { completionPhotoDataUrls?: string[]; automationStatus?: string };
+    expect(order.completionPhotoDataUrls).toHaveLength(1);
+    expect(order.automationStatus).toBe("vendor_marked_done");
+  });
+
+  it("a photo from a phone with no accepted job is not ours, and another owner's file is never attached", async () => {
+    const db = withStorage(world());
+    (db as unknown as { __tables: Record<string, Row[]> }).__tables.sms_media_files ??= [];
+    await accepted(db);
+    // Not the accepted vendor.
+    media(db, "SMother1");
+    expect(await handleVendorDispatchMedia(db as never, { ownerUserId: OWNER, workspaceId: WS, phoneE164: "+12065550102", body: "", messageSid: "SMother1", mediaCount: 1, now: T0 })).toEqual({ handled: false });
+    // The right vendor, but the file sits under another owner's path: nothing is attached.
+    media(db, "SMforeign", OWNER2);
+    await handleVendorDispatchMedia(db as never, { ownerUserId: OWNER, workspaceId: WS, phoneE164: "+12065550101", body: "", messageSid: "SMforeign", mediaCount: 1, now: T0 });
+    const order = rows(db, "portal_work_order_records")[0]!.row_data as { completionPhotoDataUrls?: string[] };
+    expect(order.completionPhotoDataUrls ?? []).toHaveLength(0);
+    expect(sent.vendor.at(-1)!.text).toMatch(/Could not save that photo for #1/);
+    // No photo at all.
+    expect(await handleVendorDispatchMedia(db as never, { ownerUserId: OWNER, workspaceId: WS, phoneE164: "+12065550101", body: "hi", messageSid: "SMnone", mediaCount: 0, now: T0 })).toEqual({ handled: false });
+  });
+});
+
+describe("the hour-before reminder", () => {
+  const minutesAfter = (m: number) => new Date(T0.getTime() + m * 60_000);
+  const sweep = (db: Db, at: Date) => sweepVendorDispatch(db as never, at, { turnovers: false });
+  const reminders = () => sent.vendor.filter((v) => v.text.startsWith("Reminder:"));
+
+  it("texts the accepted vendor once, about an hour before the agreed time, and never twice", async () => {
+    const db = world();
+    await fileLockout(db);
+    await manager(db, "Y");
+    await vendorSays(db, "+12065550101", "YES 2:30pm"); // 21:30Z, accepted at 20:00Z
+    // Too early (two hours out): nothing.
+    expect((await sweep(db, minutesAfter(0))).jobReminders).toBe(0);
+    // 31 minutes later it is 59 minutes before the visit: the reminder goes.
+    expect((await sweep(db, minutesAfter(31))).jobReminders).toBe(1);
+    expect(reminders()).toHaveLength(1);
+    expect(reminders()[0]).toMatchObject({ vendorDirectoryId: "v1" });
+    expect(reminders()[0]!.text).toMatch(/^Reminder: #1 at .*2:30pm\. Reply DONE when finished$/);
+    expect(reminders()[0]!.text.length).toBeLessThanOrEqual(160);
+    // The next ticks do not text again.
+    await sweep(db, minutesAfter(33));
+    await sweep(db, minutesAfter(45));
+    expect(reminders()).toHaveLength(1);
+  });
+
+  it("does not remind a finished job, a job already past, or a job accepted minutes ago", async () => {
+    const done = world();
+    await fileLockout(done);
+    await manager(done, "Y");
+    await vendorSays(done, "+12065550101", "YES 2:30pm");
+    await vendorSays(done, "+12065550101", "DONE");
+    expect((await sweep(done, minutesAfter(40))).jobReminders).toBe(0);
+
+    const late = world();
+    await fileLockout(late);
+    await manager(late, "Y");
+    await vendorSays(late, "+12065550101", "YES 2:30pm");
+    expect((await sweep(late, minutesAfter(100))).jobReminders).toBe(0); // 21:40Z, after the visit time
+
+    const fresh = world();
+    await fileLockout(fresh);
+    await manager(fresh, "Y");
+    await vendorSays(fresh, "+12065550101", "YES 1pm"); // 20:00Z, now
+    expect((await sweep(fresh, minutesAfter(5))).jobReminders).toBe(0);
+    expect(reminders()).toHaveLength(0);
   });
 });

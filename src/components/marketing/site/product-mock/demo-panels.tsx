@@ -15,7 +15,8 @@
 
 import type { ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { BarePanelChrome, DEMO_PAGE_CLASS, InertDemoLinks } from "@/components/marketing/site/product-mock/shared";
+import { DemoSampleLoading } from "./demo-sample-loading";
+import { BarePanelChrome, InertDemoLinks } from "@/components/marketing/site/product-mock/shared";
 import { phoneScriptFor } from "@/components/marketing/resident-lifecycle-script";
 import {
   NO_STORY,
@@ -74,26 +75,26 @@ import {
  * tab's chunk arrives, and it holds the panel's own page box so nothing jumps.
  */
 const dashboards = () => import("@/components/marketing/site/product-mock/dashboards");
-const DashboardPlaceholder = () => <div className={DEMO_PAGE_CLASS} aria-hidden />;
+
 const ManagerDashboardView = dynamic(() => dashboards().then((m) => m.ManagerDashboardView), {
-  loading: DashboardPlaceholder,
+  loading: DemoSampleLoading,
 });
 const ResidentDashboardView = dynamic(() => dashboards().then((m) => m.ResidentDashboardView), {
-  loading: DashboardPlaceholder,
+  loading: DemoSampleLoading,
 });
 const VendorDashboardDemo = dynamic(() => dashboards().then((m) => m.VendorDashboardDemo), {
-  loading: DashboardPlaceholder,
+  loading: DemoSampleLoading,
 });
 
 export { DEMO_TABS };
 export type { DemoPortal, DemoTab, DemoStory };
 
-type PanelProps = { story: DemoStory; stage?: string; sub?: string };
+type PanelProps = { story: DemoStory; stage?: string; sub?: string; onNavigate?: (section: string) => void };
 
 /** One entry per REAL sidebar section id (the key IS the section id: `move-in`, `work-orders`, ...). */
 const PANELS: Record<DemoPortal, Record<string, (props: PanelProps) => ReactNode>> = {
   manager: {
-    dashboard: ({ story }) => <ManagerDashboardView story={story} />,
+    dashboard: ({ story, onNavigate }) => <ManagerDashboardView story={story} onNavigate={onNavigate} scrollWithinWindow={!onNavigate} />,
     tasks: () => <TasksPanel />,
     calendar: ({ story }) => <CalendarPanel story={story} />,
     communication: () => <CommunicationPanel />,
@@ -113,7 +114,7 @@ const PANELS: Record<DemoPortal, Record<string, (props: PanelProps) => ReactNode
     documents: ({ story }) => <DocumentsPanel story={story} />,
   },
   resident: {
-    dashboard: ({ story, stage }) => <ResidentDashboardView story={story} stage={stage} />,
+    dashboard: ({ story, stage, onNavigate }) => <ResidentDashboardView story={story} stage={stage} onNavigate={onNavigate} />,
     communication: ({ story, stage }) => (
       <ResidentCommunicationPanel conversations={residentConversations(story, phoneScriptFor("resident", stage ?? "forms").items)} />
     ),
@@ -127,7 +128,7 @@ const PANELS: Record<DemoPortal, Record<string, (props: PanelProps) => ReactNode
     documents: ({ story }) => <ResidentDocumentsPanel story={story} />,
   },
   vendor: {
-    dashboard: ({ story, stage }) => <VendorDashboardDemo story={story} stage={stage} />,
+    dashboard: ({ story, stage, onNavigate }) => <VendorDashboardDemo story={story} stage={stage} onNavigate={onNavigate} />,
     communication: ({ stage }) => (
       <VendorCommunicationPanel conversations={vendorConversations(phoneScriptFor("vendor", stage ?? "visit").items)} />
     ),
@@ -157,12 +158,12 @@ function defaultStory(portal: DemoPortal): DemoStory {
 /** The portal screen for one tab, fed fixtures and the story's progress. An unknown tab falls
  * back to that portal's first, so the demo never renders an empty frame. `stage` is the
  * resident or vendor stage id, which decides what the phone beside the panel also says. */
-export function DemoPanel({ portal, tab, story, stage, sub }: { portal: DemoPortal; tab: string; story?: DemoStory; stage?: string; sub?: string }) {
+export function DemoPanel({ portal, tab, story, stage, sub, onNavigate }: { portal: DemoPortal; tab: string; story?: DemoStory; stage?: string; sub?: string; onNavigate?: (section: string) => void }) {
   const panels = PANELS[portal];
   const render = panels[tab] ?? panels[DEMO_TABS[portal][0]!.id]!;
   return (
     <BarePanelChrome key={`${portal}:${tab}:${sub ?? ""}`}>
-      <InertDemoLinks>{render({ story: story ?? defaultStory(portal), stage, sub })}</InertDemoLinks>
+      <InertDemoLinks onNavigate={tab === "dashboard" ? undefined : onNavigate}>{render({ story: story ?? defaultStory(portal), stage, sub, onNavigate })}</InertDemoLinks>
     </BarePanelChrome>
   );
 }

@@ -3,6 +3,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readPortalAssistantSmsSession } from "@/lib/agent/portal-assistant-session.server";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { attachVendorJobMedia, linkVendorRunMedia } from "@/lib/one-number/inbound-media.server";
+import { recordDispatchEvent } from "@/lib/vendor-dispatch/audit.server";
 import { resolveOpenSmsProposal } from "@/lib/sms/agent-confirmation.server";
 import { decideRunInvoice, handleResidentFixedReply, recordVendorDone, recordVendorInvoice } from "@/lib/vendor-dispatch/completion.server";
 import { canActorApprove, loadAttempts, loadVendorContacts, type VendorContact } from "@/lib/vendor-dispatch/engine.server";
@@ -244,6 +246,36 @@ function selectJobs(parsed: VendorDispatchReply, jobs: VendorJob[]): VendorJob[]
   return parsed.handle != null ? pool.filter((job) => job.run.handle === parsed.handle) : pool;
 }
 
+async function tellVendor(db: SupabaseClient, job: VendorJob, fallbackPhone: string, text: string, key: string, messageSid: string): Promise<void> {
+  await sendVendorDispatchText(db, {
+    ownerUserId: job.run.owner_user_id,
+    workspaceId: job.run.workspace_id,
+    vendorDirectoryId: job.contact.id,
+    phone: job.contact.phone ?? fallbackPhone,
+    vendorUserId: job.contact.vendorUserId,
+    text,
+    idempotencyKey: `dispatch-reply-${key}-${messageSid}`.slice(0, 128),
+  }).catch(() => undefined);
+}
+
+/**
+ * Put the photos of one inbound text on the job: a work-order service gets them as completion photos
+ * (and the files link to it); any other kind of run just links the files to the run. Returns how many
+ * files were attached. Scoped to the run's own owner; files from another owner's bucket path never match.
+ */
+async function attachRunMedia(db: SupabaseClient, job: VendorJob, messageSid: string): Promise<number> {
+  const run = job.run;
+  let linked = 0;
+  if (run.source_type === "work_order") {
+    linked = (await attachVendorJobMedia(db, { ownerUserId: run.owner_user_id, workOrderId: run.source_id, messageSid })).linked;
+  }
+  if (linked === 0) linked = await linkVendorRunMedia(db, { ownerUserId: run.owner_user_id, runId: run.id, messageSid });
+  if (linked > 0) {
+    await recordDispatchEvent(db, { ownerUserId: run.owner_user_id, runId: run.id, handle: run.handle, event: "vendor_photos", key: messageSid, detail: { photos: linked }, channel: "sms" });
+  }
+  return linked;
+}
+
 /**
  * A text from a phone that is on a dispatch: `YES [time] [$price]`, `NO`, `BUSY [2h]`,
  * `DONE`, `INVOICE $amount`. Several open offers need the job number ("YES 7"); the vendor
@@ -257,6 +289,8 @@ export async function handleVendorDispatchReply(
     phoneE164: string;
     body: string;
     messageSid: string;
+    /** `NumMedia` of the inbound text: photos that ride a DONE belong to the job. */
+    mediaCount?: number;
     now?: Date;
   },
 ): Promise<InboundHandled & { vendorUserId?: string | null }> {
@@ -268,17 +302,7 @@ export async function handleVendorDispatchReply(
   if (candidates.length === 0) return { handled: false };
 
   const first = candidates[0]!;
-  const tell = async (job: VendorJob, text: string, key: string) => {
-    await sendVendorDispatchText(db, {
-      ownerUserId: job.run.owner_user_id,
-      workspaceId: job.run.workspace_id,
-      vendorDirectoryId: job.contact.id,
-      phone: job.contact.phone ?? input.phoneE164,
-      vendorUserId: job.contact.vendorUserId,
-      text,
-      idempotencyKey: `dispatch-reply-${key}-${input.messageSid}`.slice(0, 128),
-    }).catch(() => undefined);
-  };
+  const tell = (job: VendorJob, text: string, key: string) => tellVendor(db, job, input.phoneE164, text, key, input.messageSid);
   if (candidates.length > 1) {
     const verb = parsed.kind === "yes" ? "YES" : parsed.kind === "no" ? "NO" : parsed.kind === "busy" ? "BUSY" : parsed.kind === "done" ? "DONE" : "INVOICE";
     const options = candidates.slice(0, 3).map((job) => `${verb} ${job.run.handle}`);
@@ -296,6 +320,8 @@ export async function handleVendorDispatchReply(
   } else if (parsed.kind === "busy") {
     await recordVendorBusy(db, { ownerUserId, attemptId: first.attempt.id, minutes: parsed.minutes, rawText: raw, now });
   } else if (parsed.kind === "done") {
+    // "DONE" with photos: the photos are the proof of work, so they land on the job before anyone is told it is done.
+    if ((input.mediaCount ?? 0) > 0) await attachRunMedia(db, first, input.messageSid).catch(() => 0);
     const outcome = await recordVendorDone(db, { ownerUserId, attemptId: first.attempt.id, note: parsed.note, now });
     if (outcome === "marked_done") await tell(first, `Thanks, #${first.run.handle} is marked done. Reply INVOICE $amount to bill it`, "done");
   } else {
@@ -322,3 +348,44 @@ export async function handleResidentDispatchReply(
   return result.handled ? { handled: true, reply: result.reply } : { handled: false };
 }
 
+
+/**
+ * A photo from a vendor who has accepted a dispatched job (no DONE/INVOICE word with it): the
+ * before/after pictures. They go on the job, the vendor is told, and the text never reaches another
+ * agent (a vendor with no PropLane login has no vendor session, so the prospect agent would answer it).
+ * Several accepted jobs need a "#7" in the text. `handled: false` = this phone has no accepted job.
+ */
+export async function handleVendorDispatchMedia(
+  db: SupabaseClient,
+  input: { ownerUserId: string; workspaceId: string | null; phoneE164: string; body: string; messageSid: string; mediaCount: number; now?: Date },
+): Promise<InboundHandled & { vendorUserId?: string | null }> {
+  if (!(input.mediaCount > 0)) return { handled: false };
+  const all = await findVendorJobsForPhone(db, input).catch(() => [] as VendorJob[]);
+  const jobs = all.filter((job) => job.attempt.status === "accepted" && ["accepted", "completed"].includes(job.run.status));
+  if (jobs.length === 0) return { handled: false };
+
+  const named = /#\s*(\d{1,6})\b/.exec(input.body) ?? /\bjob\s+(\d{1,6})\b/i.exec(input.body);
+  const open = jobs.filter((job) => job.run.status === "accepted");
+  const job = named
+    ? jobs.find((candidate) => candidate.run.handle === Number(named[1]))
+    : open.length === 1
+      ? open[0]
+      : jobs.length === 1
+        ? jobs[0]
+        : undefined;
+  const tell = (target: VendorJob, text: string, key: string) => tellVendor(db, target, input.phoneE164, text, key, input.messageSid);
+  if (!job) {
+    const options = jobs.slice(0, 3).map((candidate) => `#${candidate.run.handle}`).join(" or ");
+    await tell(jobs[0]!, toGsm7(`Which job are these photos for? Send them again with the job number, like ${options}`), "photos-which");
+    return { handled: true, vendorUserId: jobs[0]!.contact.vendorUserId };
+  }
+  const linked = await attachRunMedia(db, job, input.messageSid).catch(() => 0);
+  const text =
+    linked === 0
+      ? `Could not save that photo for #${job.run.handle}. Please send it again`
+      : job.run.status === "completed"
+        ? `Got it, ${linked === 1 ? "photo" : `${linked} photos`} added to #${job.run.handle}`
+        : `Got your ${linked === 1 ? "photo" : `${linked} photos`} for #${job.run.handle}. Reply DONE when the job is finished`;
+  await tell(job, text, "photos");
+  return { handled: true, vendorUserId: job.contact.vendorUserId };
+}

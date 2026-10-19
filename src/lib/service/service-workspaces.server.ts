@@ -1,16 +1,18 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { listAdminUserIds, userHoldsAdminRole } from "@/lib/auth/admin-role";
 import { ensureProfileProplaneId } from "@/lib/manager-access-server";
-import { stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
+import { flatTeamRoleGrant, stampTeamRoleOnProperties, stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
 import { actorWorkspaceStanding, workspaceAdminCount } from "@/lib/workspaces/membership.server";
 import { canActOnMember } from "@/lib/workspaces/membership";
 import { cleanOwnerOfRecord, cleanServiceCity, cleanServiceName } from "@/lib/service/service-input";
+import { updateAuditResult, writeAuditLog } from "@/lib/tools/audit";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { proplaneIdLookupVariants } from "@/lib/manager-id";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { loadSharedLineConfig, workspaceHasDedicatedNumber, workspaceOnSharedLine } from "@/lib/one-number/config.server";
-import { loadServiceWorkspace, resolveServiceOwner } from "@/lib/service/service-owner.server";
+import { isPlatformServiceOwner, loadServiceWorkspace, resolveServiceOwner } from "@/lib/service/service-owner.server";
 
 /**
  * PropLane Service workspaces (admin Service tab). Ordinary `portal_workspaces`
@@ -28,6 +30,31 @@ export type ServiceFailure = { ok: false; status: number; error: string };
 export type ServiceResult<T> = ({ ok: true } & T) | ServiceFailure;
 
 const fail = (status: number, error: string): ServiceFailure => ({ ok: false, status, error });
+
+/**
+ * One audit row per admin Service change, under the workspace owner (so "everything ever done to this account" finds it).
+ * `required` changes (who sees a client's finances, who is on the team) refuse 503 when the row could not be recorded,
+ * so no audit row means no change; the rest log and carry on.
+ */
+async function auditServiceChange(
+  db: SupabaseClient,
+  operatorUserId: string,
+  workspaceOwnerId: string,
+  action: string,
+  summary: Record<string, unknown>,
+  required: boolean,
+): Promise<ServiceFailure | null> {
+  const audit = await writeAuditLog(
+    { db, landlordId: workspaceOwnerId, userId: operatorUserId },
+    { action, toolName: action, inputSummary: summary, resultSummary: { applied: false }, dedupeKey: `${action}:${randomUUID()}` },
+  );
+  if (audit.recorded) return null;
+  if (!required) {
+    console.error(`[service-workspaces] audit row for ${action} was not recorded`);
+    return null;
+  }
+  return fail(503, "Could not record the audit entry, so nothing was changed. Please retry.");
+}
 
 export const SERVICE_NOT_CONFIGURED = "The PropLane service owner is not set up yet.";
 const NOT_FOUND = "Service workspace not found.";
@@ -80,7 +107,10 @@ function ownerOfRecordFor(
   typedName: string | null,
   members: Record<string, unknown>[],
   profileName: Map<string, string>,
+  ownersOwn: { userId: string } | null,
 ): { name: string; linked: boolean } | null {
+  // An attached client who still owns the workspace IS its owner of record (flagged on the workspace itself).
+  if (ownersOwn) return { name: profileName.get(ownersOwn.userId) || typedName?.trim() || "Owner", linked: true };
   const flagged = members.find((l) => l.is_owner_of_record === true);
   if (flagged) {
     const name =
@@ -94,41 +124,57 @@ function ownerOfRecordFor(
   return typed ? { name: typed, linked: false } : null;
 }
 
+/**
+ * Every workspace carrying the `is_service` flag, whoever owns it: the service owner for one PropLane created, the
+ * client for one attached with `attachWorkspaceToService`. What the operator may DO in each is their own membership.
+ */
 export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: string): Promise<ServiceResult<{ payload: ServiceListPayload }>> {
   const owner = await resolveServiceOwner(db);
-  if (!owner.ok) {
-    if (owner.reason === "not_configured") return { ok: true, payload: { configured: false, ownerUserId: null, workspaces: [] } };
-    return fail(503, "Could not load service workspaces. Please retry.");
-  }
+  if (!owner.ok && owner.reason !== "not_configured") return fail(503, "Could not load service workspaces. Please retry.");
+  const configured = owner.ok;
+  const ownerUserId = owner.ok ? owner.ownerUserId : null;
   const ws = await db
     .from("portal_workspaces")
-    .select("id, name, city, is_default, owner_of_record_name")
-    .eq("owner_user_id", owner.ownerUserId)
+    .select("id, name, city, owner_user_id, is_default, owner_of_record_name")
     .eq("is_service", true)
     .order("created_at");
   if (ws.error) return fail(503, "Could not load service workspaces. Please retry.");
-  const rows = (ws.data ?? []) as { id: string; name: string; city: string | null; is_default: boolean; owner_of_record_name: string | null }[];
+  const rows = (ws.data ?? []) as {
+    id: string;
+    name: string;
+    city: string | null;
+    owner_user_id: string;
+    is_default: boolean;
+    owner_of_record_name: string | null;
+  }[];
   const ids = rows.map((r) => r.id);
-  if (ids.length === 0) return { ok: true, payload: { configured: true, ownerUserId: owner.ownerUserId, workspaces: [] } };
+  if (ids.length === 0) return { ok: true, payload: { configured, ownerUserId, workspaces: [] } };
 
   const [houses, numbers, links, sharedLine] = await Promise.all([
-    db.from("manager_property_records").select("id, workspace_id").eq("manager_user_id", owner.ownerUserId).in("workspace_id", ids),
+    db.from("manager_property_records").select("id, workspace_id, manager_user_id").in("workspace_id", ids),
     db.from("manager_sms_numbers").select("workspace_id, phone_number, provision_state, released_at").in("workspace_id", ids),
     db
       .from("account_link_invites")
-      .select("id, workspace_id, invitee_user_id, team_role, status, is_owner_of_record, invitee_display_name")
-      .eq("inviter_user_id", owner.ownerUserId)
+      .select("id, workspace_id, inviter_user_id, invitee_user_id, team_role, status, is_owner_of_record, invitee_display_name")
       .in("workspace_id", ids)
       .in("status", ["accepted", "pending"]),
     loadSharedLineConfig(db),
   ]);
   if (houses.error || numbers.error || links.error) return fail(503, "Could not load service workspaces. Please retry.");
   // The owner of record's name for an ACCEPTED flagged member comes from their profile; a pending one is shown
-  // by the name snapshot taken at invite time (never the live profile: they have not consented yet).
+  // by the name snapshot taken at invite time (never the live profile: they have not consented yet). A workspace
+  // whose own owner is the owner of record names that owner.
   const flagged = ((links.data ?? []) as Record<string, unknown>[]).filter((l) => l.is_owner_of_record === true);
-  const flaggedAccepted = flagged.filter((l) => l.status === "accepted").map((l) => String(l.invitee_user_id));
-  const flaggedProfiles = flaggedAccepted.length
-    ? await db.from("profiles").select("id, full_name, email").in("id", flaggedAccepted)
+  // An attached client still owns their workspace and IS its owner of record (no membership row needed).
+  const ownerIsRecord = (r: { owner_user_id: string }) => ownerUserId !== null && r.owner_user_id !== ownerUserId;
+  const profileIds = [
+    ...new Set([
+      ...flagged.filter((l) => l.status === "accepted").map((l) => String(l.invitee_user_id)),
+      ...rows.filter(ownerIsRecord).map((r) => r.owner_user_id),
+    ]),
+  ];
+  const flaggedProfiles = profileIds.length
+    ? await db.from("profiles").select("id, full_name, email").in("id", profileIds)
     : { data: [], error: null };
   const profileName = new Map(
     ((flaggedProfiles.data ?? []) as { id: string; full_name: string | null; email: string | null }[]).map((p) => [p.id, p.full_name?.trim() || p.email?.trim() || ""]),
@@ -136,15 +182,16 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
 
   const out: ServiceWorkspaceListRow[] = rows.map((row) => {
     const live = ((numbers.data ?? []) as Record<string, unknown>[]).find((n) => n.workspace_id === row.id && !n.released_at);
-    const members = ((links.data ?? []) as Record<string, unknown>[]).filter((l) => l.workspace_id === row.id);
+    // Memberships of THIS workspace, granted by its own owner (a row from anyone else is not a membership of it).
+    const members = ((links.data ?? []) as Record<string, unknown>[]).filter((l) => l.workspace_id === row.id && l.inviter_user_id === row.owner_user_id);
     const mine = members.find((l) => l.invitee_user_id === operatorUserId && l.status === "accepted");
-    const isOwner = operatorUserId === owner.ownerUserId;
+    const isOwner = operatorUserId === row.owner_user_id;
     const myRole = isOwner ? "owner" : mine ? String(mine.team_role ?? "custom") : null;
     return {
       id: row.id,
       name: row.name,
       city: row.city?.trim() || null,
-      ownerOfRecord: ownerOfRecordFor(row.owner_of_record_name, members, profileName),
+      ownerOfRecord: ownerOfRecordFor(row.owner_of_record_name, members, profileName, ownerIsRecord(row) ? { userId: row.owner_user_id } : null),
       isDefault: row.is_default,
       houseCount: ((houses.data ?? []) as Record<string, unknown>[]).filter((h) => h.workspace_id === row.id).length,
       ...resolveTextingNumber(live, sharedLine, row.id),
@@ -153,10 +200,10 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
       canManage: myRole === "owner" || myRole === "admin" || myRole === "full",
     };
   });
-  return { ok: true, payload: { configured: true, ownerUserId: owner.ownerUserId, workspaces: out } };
+  return { ok: true, payload: { configured, ownerUserId, workspaces: out } };
 }
 
-/** Add an accepted Admin membership of `workspaceId` for `userId`, under the service owner. */
+/** Add a membership of `workspaceId` for `userId`, under the service owner: Admin, or Property owner for the owner of record. */
 async function insertAdminMembership(
   db: SupabaseClient,
   ownerUserId: string,
@@ -164,12 +211,22 @@ async function insertAdminMembership(
   userId: string,
   opts: { pending?: boolean; ownerOfRecord?: boolean } = {},
 ): Promise<ServiceFailure | { ok: true; linkId: string }> {
+  // The owner of record is the CLIENT, not an operator: they join as a Property owner (the existing owner role),
+  // which is what lands them in the owner portal instead of the manager portal when they sign in.
+  const asOwner = opts.ownerOfRecord === true;
+  let ownerHouseIds: string[] = [];
+  if (asOwner) {
+    const houses = await db.from("manager_property_records").select("id").eq("manager_user_id", ownerUserId).eq("workspace_id", workspaceId);
+    if (houses.error) return fail(503, "Could not read the workspace's houses. Please retry.");
+    ownerHouseIds = ((houses.data ?? []) as { id: unknown }[]).map((h) => String(h.id));
+  }
   const [inviter, invitee] = await Promise.all([
     ensureProfileProplaneId(db as never, ownerUserId),
     ensureProfileProplaneId(db as never, userId),
   ]);
   if (!inviter.ok || !invitee.ok) return fail(503, "Could not read the accounts. Please retry.");
-  const stamp = stampTeamRolePermissions("admin") ?? {};
+  const ownerHouseMap = stampTeamRoleOnProperties("property_owner", ownerHouseIds, {});
+  const stamp = asOwner ? (flatTeamRoleGrant("property_owner", ownerHouseMap) ?? {}) : (stampTeamRolePermissions("admin") ?? {});
   const now = new Date().toISOString();
   const { data, error } = await db
     .from("account_link_invites")
@@ -181,14 +238,14 @@ async function insertAdminMembership(
       invitee_axis_id: invitee.proplaneId,
       inviter_display_name: inviter.fullName?.trim() || inviter.email || null,
       invitee_display_name: invitee.fullName?.trim() || invitee.email || null,
-      assigned_property_ids: [],
+      assigned_property_ids: ownerHouseIds,
       payout_percent_for_manager: 0,
-      property_co_manager_permissions: {},
+      property_co_manager_permissions: ownerHouseMap,
       co_manager_permissions: stamp,
       workspace_id: workspaceId,
       workspace_permissions: {},
-      team_role: "admin",
-      house_scope: "all",
+      team_role: asOwner ? "property_owner" : "admin",
+      house_scope: asOwner ? "selected" : "all",
       invited_via: "code",
       invited_at: now,
       responded_at: opts.pending ? null : now,
@@ -224,6 +281,7 @@ export async function createServiceWorkspace(
   const created = await db.rpc("create_portal_service_workspace", { p_owner: owner.ownerUserId, p_name: name, p_city: city });
   if (created.error || !created.data) return fail(503, "Could not create the workspace. Please retry.");
   const id = String(created.data);
+  await auditServiceChange(db, operatorUserId, owner.ownerUserId, "admin_service_create", { workspaceId: id, name, city, ownerOfRecordName: client ?? null }, false);
   if (client) {
     const named = await db.from("portal_workspaces").update({ owner_of_record_name: client }).eq("id", id).eq("owner_user_id", owner.ownerUserId);
     if (named.error) {
@@ -240,6 +298,146 @@ export async function createServiceWorkspace(
     }
   }
   return { ok: true, id };
+}
+
+export const ADMIN_SERVICE_ATTACH_AUDIT_ACTION = "admin_service_attach";
+
+/** Seat `userId` as an accepted Admin member of the workspace unless they already are one (any other live row refuses). */
+async function ensureAdminMember(db: SupabaseClient, workspaceOwnerId: string, workspaceId: string, userId: string): Promise<ServiceFailure | { ok: true; added: boolean; linkId: string | null }> {
+  const existing = await db
+    .from("account_link_invites")
+    .select("id, team_role, status")
+    .eq("inviter_user_id", workspaceOwnerId)
+    .eq("invitee_user_id", userId)
+    .eq("workspace_id", workspaceId)
+    .in("status", ["accepted", "pending"])
+    .maybeSingle();
+  if (existing.error) return fail(503, "Could not read the workspace's team. Please retry.");
+  if (existing.data) {
+    const row = existing.data as { id: string; team_role: string | null; status: string };
+    if (row.status === "accepted" && (row.team_role === "admin" || row.team_role === "full")) return { ok: true, added: false, linkId: row.id };
+    return fail(409, "A PropLane admin is already on this workspace's team with another role. Remove them from its team first.");
+  }
+  const added = await insertAdminMembership(db, workspaceOwnerId, workspaceId, userId);
+  return added.ok ? { ok: true, added: true, linkId: added.linkId } : added;
+}
+
+/**
+ * Attach an existing workspace to PropLane Service. PropLane Service is a FLAG on a workspace plus memberships,
+ * not ownership: this sets `is_service`, the city and the label (the workspace's name), and seats the service owner
+ * (and the operator) as accepted Admin members. The workspace's own owner is its owner of record by being its owner.
+ * It never changes `owner_user_id` and writes no property, lease or charge row. The caller proves the operator is a platform admin
+ * (`requireAdminRoute`); the audit row is written BEFORE anything changes, so no audit row means no change.
+ */
+export async function attachWorkspaceToService(
+  db: SupabaseClient,
+  operatorUserId: string,
+  input: { workspaceId: unknown; city: unknown; label: unknown; reason?: unknown },
+): Promise<ServiceResult<{ id: string }>> {
+  const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+  if (reason.length < 3 || reason.length > 500) return fail(400, "Give a reason of 3 to 500 characters.");
+  const workspaceId = typeof input.workspaceId === "string" ? input.workspaceId.trim() : "";
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(workspaceId)) return fail(400, "Choose a workspace.");
+  const city = cleanServiceCity(input.city);
+  if (city === undefined) return fail(400, "Use a city of up to 80 characters.");
+  const label = cleanOwnerOfRecord(input.label);
+  if (label === undefined) return fail(400, "Use a label of up to 80 characters.");
+
+  // Re-derived here, never taken from the caller: only a platform admin attaches a workspace.
+  if (!(await userHoldsAdminRole(db, operatorUserId))) return fail(403, "Only a PropLane admin can attach a workspace.");
+  const serviceOwner = await resolveServiceOwner(db);
+  if (!serviceOwner.ok) return fail(serviceOwner.reason === "not_configured" ? 409 : 503, serviceOwner.reason === "not_configured" ? SERVICE_NOT_CONFIGURED : "Could not reach the service settings. Please retry.");
+
+  const found = await db.from("portal_workspaces").select("id, name, owner_user_id, is_service").eq("id", workspaceId).maybeSingle();
+  if (found.error) return fail(503, "Could not read the workspace. Please retry.");
+  if (!found.data) return fail(404, "Workspace not found.");
+  const workspace = found.data as { id: string; name: string; owner_user_id: string; is_service: boolean | null };
+  if (workspace.is_service === true) return fail(409, "This workspace is already on PropLane Service.");
+  const workspaceOwnerId = String(workspace.owner_user_id);
+  // The workspace's own owner becomes its owner of record (derived from ownership, nothing stored). A member already
+  // flagged as the owner of record would make two, so that is refused.
+  const ownedByServiceOwner = workspaceOwnerId === serviceOwner.ownerUserId;
+  if (!ownedByServiceOwner) {
+    const flagged = await db
+      .from("account_link_invites")
+      .select("id")
+      .eq("workspace_id", workspace.id)
+      .eq("is_owner_of_record", true)
+      .in("status", ["accepted", "pending"]);
+    if (flagged.error) return fail(503, "Could not attach the workspace. Please retry.");
+    if ((flagged.data ?? []).length > 0) return fail(409, "This workspace already has an owner of record.");
+  }
+
+  // Audit first. The trail is under the workspace owner, so "everything ever done to this account" finds it.
+  const auditKey = `${ADMIN_SERVICE_ATTACH_AUDIT_ACTION}:${workspace.id}:${Date.now()}`;
+  const actor = { db, landlordId: workspaceOwnerId, userId: operatorUserId };
+  const audit = await writeAuditLog(actor, {
+    action: ADMIN_SERVICE_ATTACH_AUDIT_ACTION,
+    toolName: ADMIN_SERVICE_ATTACH_AUDIT_ACTION,
+    inputSummary: { workspaceId: workspace.id, workspaceOwnerUserId: workspaceOwnerId, serviceOwnerUserId: serviceOwner.ownerUserId, city, label, reason, ownerIsOwnerOfRecord: !ownedByServiceOwner },
+    resultSummary: { applied: false },
+    dedupeKey: auditKey,
+  });
+  if (!audit.recorded) return fail(503, "Could not record the audit entry, so nothing was changed. Please retry.");
+
+  const flagged = await db
+    .from("portal_workspaces")
+    .update({ is_service: true, city, ...(label ? { name: label } : {}) })
+    .eq("id", workspace.id)
+    .eq("owner_user_id", workspaceOwnerId)
+    .eq("is_service", false);
+  const undo = async (message: string, status = 503): Promise<ServiceFailure> => {
+    await db
+      .from("portal_workspaces")
+      .update({ is_service: false, city: null, name: workspace.name })
+      .eq("id", workspace.id)
+      .eq("owner_user_id", workspaceOwnerId);
+    await updateAuditResult(actor, auditKey, { applied: false, error: "rolled_back" });
+    return fail(status, message);
+  };
+  if (flagged.error) return undo("Could not attach the workspace. Please retry.");
+
+  // The service owner and the attaching operator become Admin members (the workspace's own owner is not a member).
+  const seats = [...new Set([serviceOwner.ownerUserId, operatorUserId])].filter((id) => id !== workspaceOwnerId);
+  const seated: string[] = [];
+  for (const userId of seats) {
+    const seat = await ensureAdminMember(db, workspaceOwnerId, workspace.id, userId);
+    if (!seat.ok) {
+      // Withdraw only the seats this attach added, then the flag.
+      for (const linkId of seated) await db.from("account_link_invites").delete().eq("id", linkId).eq("workspace_id", workspace.id);
+      return undo(seat.error, seat.status);
+    }
+    if (seat.added && seat.linkId) seated.push(seat.linkId);
+  }
+  await updateAuditResult(actor, auditKey, { applied: true });
+  return { ok: true, id: workspace.id };
+}
+
+export type ServiceAttachCandidate = { id: string; name: string; ownerName: string; ownerEmail: string };
+
+/** Workspaces not yet on PropLane Service, for the Attach picker. Platform admins only; a search narrows it. */
+export async function listServiceAttachCandidates(
+  db: SupabaseClient,
+  operatorUserId: string,
+  query: unknown,
+): Promise<ServiceResult<{ candidates: ServiceAttachCandidate[] }>> {
+  if (!(await userHoldsAdminRole(db, operatorUserId))) return fail(403, "Only a PropLane admin can attach a workspace.");
+  const needle = (typeof query === "string" ? query.trim().toLowerCase() : "").slice(0, 80);
+  const ws = await db.from("portal_workspaces").select("id, name, owner_user_id").eq("is_service", false).order("name").limit(1000);
+  if (ws.error) return fail(503, "Could not load workspaces. Please retry.");
+  const rows = (ws.data ?? []) as { id: string; name: string; owner_user_id: string }[];
+  const ownerIds = [...new Set(rows.map((r) => r.owner_user_id))];
+  const profiles = ownerIds.length ? await db.from("profiles").select("id, full_name, email").in("id", ownerIds) : { data: [], error: null };
+  if (profiles.error) return fail(503, "Could not load workspaces. Please retry.");
+  const byId = new Map(((profiles.data ?? []) as { id: string; full_name: string | null; email: string | null }[]).map((p) => [p.id, p]));
+  const all = rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    ownerName: byId.get(r.owner_user_id)?.full_name?.trim() || "",
+    ownerEmail: byId.get(r.owner_user_id)?.email?.trim() || "",
+  }));
+  const hits = needle ? all.filter((c) => `${c.name} ${c.ownerName} ${c.ownerEmail}`.toLowerCase().includes(needle)) : all;
+  return { ok: true, candidates: hits.slice(0, 25) };
 }
 
 /** What the operator is inside one service workspace, or a failure when it is not one / they hold nothing in it. */
@@ -265,9 +463,14 @@ export async function renameServiceWorkspace(
   const who = await operatorStanding(db, operatorUserId, input.id);
   if (!who.ok) return who;
   if (!who.standing.rights.members) return fail(403, "Only the owner or an admin of this workspace can rename it.");
+  await auditServiceChange(db, operatorUserId, who.workspace.ownerUserId, "admin_service_rename", { workspaceId: who.workspace.id, name, city, ownerOfRecordName: client ?? undefined }, false);
   const res = await db
     .from("portal_workspaces")
-    .update({ name, city, ...(client !== undefined ? { owner_of_record_name: client } : {}) })
+    .update({
+      name,
+      city,
+      ...(client !== undefined ? { owner_of_record_name: client } : {}),
+    })
     .eq("id", who.workspace.id)
     .eq("owner_user_id", who.workspace.ownerUserId)
     .eq("is_service", true);
@@ -353,21 +556,29 @@ export async function listServiceTeam(
 
 /** True when another live (pending or accepted) membership of this workspace is already the owner of record. */
 async function hasOwnerOfRecord(db: SupabaseClient, workspaceId: string, exceptLinkId?: string): Promise<boolean | null> {
-  const res = await db
-    .from("account_link_invites")
-    .select("id")
-    .eq("workspace_id", workspaceId)
-    .eq("is_owner_of_record", true)
-    .in("status", ["accepted", "pending"]);
-  if (res.error) return null;
-  return ((res.data ?? []) as { id: string }[]).some((r) => r.id !== exceptLinkId);
+  const [members, workspace] = await Promise.all([
+    db
+      .from("account_link_invites")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .eq("is_owner_of_record", true)
+      .in("status", ["accepted", "pending"]),
+    db.from("portal_workspaces").select("owner_user_id").eq("id", workspaceId).maybeSingle(),
+  ]);
+  if (members.error || workspace.error) return null;
+  // The owner of an attached client workspace (anyone but the service owner) IS the owner of record: then no member can also be.
+  const workspaceOwner = String((workspace.data as { owner_user_id?: unknown } | null)?.owner_user_id ?? "");
+  if (workspaceOwner && !(await isPlatformServiceOwner(db, workspaceOwner))) return true;
+  return ((members.data ?? []) as { id: string }[]).some((r) => r.id !== exceptLinkId);
 }
 
 /**
- * Invite a client person (the property owner, or someone on their side) by PropLane ID. They join as an Admin
- * member of THIS workspace only (full access to it) once they accept in their own portal; their own accounts and
- * workspaces are untouched. `ownerOfRecord` flags the owner of record for payouts and finances; it grants nothing
- * by itself. The invitee must already be a property-portal account, the same rule every co-manager invite has.
+ * Invite a client person (the property owner, or someone on their side) by PropLane ID. Someone on their side joins
+ * as an Admin member of THIS workspace only (full access to it); the OWNER OF RECORD (`ownerOfRecord`, also the
+ * payouts and finances flag) joins as a Property owner, the existing owner role, so signing in lands them in the
+ * owner portal rather than the manager portal. Either way it takes effect when they accept in their own portal;
+ * their own accounts and workspaces are untouched. The invitee must already be a property-portal account, the same
+ * rule every co-manager invite has.
  */
 export async function inviteServiceClient(
   db: SupabaseClient,
@@ -410,16 +621,23 @@ export async function inviteServiceClient(
   if (existing.data) return fail(409, "Already on this workspace's team, or invited.");
   const flag = input.ownerOfRecord === true;
   if (flag) {
+    // The owner of record is the client. An operator never becomes one (it would turn their seat into an owner seat).
+    if (await userHoldsAdminRole(db, target)) return fail(409, "A PropLane admin cannot be the owner of record.");
     const taken = await hasOwnerOfRecord(db, who.workspace.id);
     if (taken === null) return fail(503, "Could not send the invite. Please retry.");
     if (taken) return fail(409, "This workspace already has an owner of record.");
   }
+  const audited = await auditServiceChange(db, operatorUserId, who.workspace.ownerUserId, "admin_service_team_invite", { workspaceId: who.workspace.id, inviteeUserId: target, ownerOfRecord: flag }, flag);
+  if (audited) return audited;
   const added = await insertAdminMembership(db, who.workspace.ownerUserId, who.workspace.id, target, { pending: true, ownerOfRecord: flag });
   if (!added.ok) return added;
   return { ok: true, linkId: added.linkId };
 }
 
-/** Mark (or unmark) the membership that is the property owner of record. At most one per workspace. */
+/**
+ * Mark (or unmark) the membership that is the property owner of record. At most one per workspace. Marking makes the
+ * member a Property owner (owner portal); unmarking only clears the flag and leaves the role as it is.
+ */
 export async function setServiceOwnerOfRecord(
   db: SupabaseClient,
   operatorUserId: string,
@@ -432,7 +650,7 @@ export async function setServiceOwnerOfRecord(
   if (!who.standing.rights.members) return fail(403, "Only the owner or an admin of this workspace can change this.");
   const link = await db
     .from("account_link_invites")
-    .select("id")
+    .select("id, invitee_user_id, team_role, status")
     .eq("id", linkId)
     .eq("inviter_user_id", who.workspace.ownerUserId)
     .eq("workspace_id", who.workspace.id)
@@ -440,14 +658,50 @@ export async function setServiceOwnerOfRecord(
     .maybeSingle();
   if (link.error) return fail(503, "Could not update. Please retry.");
   if (!link.data) return fail(404, "Teammate not found.");
+  const target = link.data as { invitee_user_id: string; team_role: string | null; status: string };
+  let patch: Record<string, unknown> = { is_owner_of_record: input.value };
   if (input.value) {
     const taken = await hasOwnerOfRecord(db, who.workspace.id, linkId);
     if (taken === null) return fail(503, "Could not update. Please retry.");
     if (taken) return fail(409, "This workspace already has an owner of record.");
+    // The owner of record is a Property owner (the owner portal). An operator's seat is never converted, and a
+    // member is only converted when the workspace keeps an Admin without them.
+    if (target.team_role !== "property_owner") {
+      if (await userHoldsAdminRole(db, target.invitee_user_id)) return fail(409, "A PropLane admin cannot be the owner of record.");
+      if (target.status === "accepted") {
+        const verdict = canActOnMember({
+          actorRole: who.standing.role,
+          targetRole: (target.team_role ?? "custom") as never,
+          adminCount: await workspaceAdminCount(db, who.workspace.ownerUserId, who.workspace.id),
+        });
+        if (!verdict.ok) return fail(403, verdict.reason);
+      }
+      const houses = await db.from("manager_property_records").select("id").eq("manager_user_id", who.workspace.ownerUserId).eq("workspace_id", who.workspace.id);
+      if (houses.error) return fail(503, "Could not update. Please retry.");
+      const ids = ((houses.data ?? []) as { id: unknown }[]).map((h) => String(h.id));
+      const map = stampTeamRoleOnProperties("property_owner", ids, {});
+      patch = {
+        ...patch,
+        team_role: "property_owner",
+        house_scope: "selected",
+        assigned_property_ids: ids,
+        property_co_manager_permissions: map,
+        co_manager_permissions: flatTeamRoleGrant("property_owner", map) ?? {},
+      };
+    }
   }
+  const audited = await auditServiceChange(
+    db,
+    operatorUserId,
+    who.workspace.ownerUserId,
+    "admin_service_team_owner_of_record",
+    { workspaceId: who.workspace.id, linkId, inviteeUserId: target.invitee_user_id, ownerOfRecord: input.value, previousTeamRole: target.team_role },
+    true,
+  );
+  if (audited) return audited;
   const res = await db
     .from("account_link_invites")
-    .update({ is_owner_of_record: input.value })
+    .update(patch)
     .eq("id", linkId)
     .eq("inviter_user_id", who.workspace.ownerUserId)
     .eq("workspace_id", who.workspace.id);
@@ -479,6 +733,8 @@ export async function addServiceTeamMember(
     .maybeSingle();
   if (existing.error) return fail(503, "Could not add the teammate. Please retry.");
   if (existing.data) return fail(409, "Already a member of this workspace.");
+  const audited = await auditServiceChange(db, operatorUserId, who.workspace.ownerUserId, "admin_service_team_add", { workspaceId: who.workspace.id, inviteeUserId: target }, true);
+  if (audited) return audited;
   const added = await insertAdminMembership(db, who.workspace.ownerUserId, who.workspace.id, target);
   if (!added.ok) return added;
   return { ok: true, linkId: added.linkId };
@@ -514,6 +770,8 @@ export async function removeServiceTeamMember(
     });
     if (!verdict.ok) return fail(403, verdict.reason);
   }
+  const audited = await auditServiceChange(db, operatorUserId, who.workspace.ownerUserId, "admin_service_team_remove", { workspaceId: who.workspace.id, linkId, targetRole: targetRole, wasStatus: (link.data as { status?: string }).status }, true);
+  if (audited) return audited;
   const res = await db
     .from("account_link_invites")
     .update({ status: "cancelled", responded_at: new Date().toISOString() })

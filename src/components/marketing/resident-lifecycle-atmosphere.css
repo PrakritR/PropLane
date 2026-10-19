@@ -59,10 +59,6 @@
   background-size: 100% 960px, 100% 1700px, 100% 1700px, 100% 100%;
   background-repeat: no-repeat, repeat-y, repeat-y, no-repeat;
 }
-.axis-page-frame:has(.home-wavy) footer {
-  background: transparent;
-  border-top-color: rgba(120, 150, 185, 0.28);
-}
 .home-wavy {
   position: relative;
   isolation: isolate;

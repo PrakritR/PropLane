@@ -99,7 +99,9 @@ describe("POST /api/agent/housing-search", () => {
     });
     expect(body.matchCount).toBe(1);
     expect(body.listings[0]).toMatchObject({ propertyId: "u1", neighborhood: "University District" });
-    const system = create.mock.calls[0]![0].system as string;
+    // completeAgentModel (Luna) hands the SDK the system prompt as text blocks, not a bare string.
+    const rawSystem = create.mock.calls[0]![0].system as string | Array<{ type: string; text?: string }>;
+    const system = typeof rawSystem === "string" ? rawSystem : rawSystem.map((block) => block.text ?? "").join("\n");
     expect(system).toContain("University District");
   });
 });

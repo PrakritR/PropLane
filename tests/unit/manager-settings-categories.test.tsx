@@ -100,6 +100,7 @@ vi.mock("@/components/ui/modal", async (importOriginal) => ({
 
 import { PortalProfileClient } from "@/components/portal/portal-profile-client";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
+import { REPLY_TOPICS } from "@/lib/one-number/knowledge/topics";
 
 // The manager Settings nav after the studio redesign: Application form and
 // Lease documents leave this nav, and Payouts folds into Payments. Applications,
@@ -155,11 +156,20 @@ describe("manager settings categories", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
-        async () =>
-          new Response(JSON.stringify({ roles: ["manager", "resident"] }), {
+        async (input: RequestInfo | URL) => {
+          const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+          const pathname = new URL(url, "https://proplane.test").pathname;
+          // The mounted learning settings read their own routes, not portal roles.
+          const body = pathname === "/api/portal/knowledge"
+            ? { entries: [], canManageTeam: true }
+            : pathname === "/api/portal/knowledge/reply-modes"
+              ? { topics: REPLY_TOPICS.map((topic) => ({ topic, mode: "full_auto", ceiling: null, picked: false })), canEdit: true }
+              : { roles: ["manager", "resident"] };
+          return new Response(JSON.stringify(body), {
             status: 200,
             headers: { "content-type": "application/json" },
-          }),
+          });
+        },
       ),
     );
   });

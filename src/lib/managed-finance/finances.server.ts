@@ -113,6 +113,23 @@ export async function loadOwnerFinances(
   };
 }
 
+/**
+ * Net to the owner per month for one managed workspace, from ONE read of the owner's ledger lines folded month by month with
+ * the same builder the statement uses, so a list row and the month it opens always agree.
+ */
+export async function loadOwnerMonthlyNets(
+  db: SupabaseClient,
+  input: { ownerUserId: string; workspaceId: string; months: string[] },
+): Promise<Map<string, number>> {
+  const lines = toStatementLines(await readPartyLines(db, { account: "owner_payable", partyId: ownerParty(input.ownerUserId), workspaceId: input.workspaceId }));
+  const out = new Map<string, number>();
+  for (const month of input.months) {
+    const { fromIso, toIso } = monthWindow(month);
+    out.set(month, buildOwnerStatement(lines, fromIso, toIso).totals.netCents);
+  }
+  return out;
+}
+
 export type VendorFinancesView = {
   month: string;
   balance: FinanceBalance;

@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { PortalNavIcon } from "@/components/portal/admin-portal-nav-icons";
 import { Building2, ChevronRight, LayoutDashboard, MessagesSquare, Users } from "lucide-react";
 import {
@@ -84,10 +85,13 @@ const PHONE_FRAME_ASPECT = "aspect-[292/560]";
 /** Marketing phone frame — manager dashboard + native More sheet tabs. */
 export function MobileAppPreview({
   className,
+  children,
   /** Portal App tab on phones — scales up to available viewport height. */
   portalMobile = false,
 }: {
   className?: string;
+  /** A fixture-backed screen inside the existing phone; defaults retain the original preview. */
+  children?: ReactNode;
   /** @deprecated Unused — kept for call-site compatibility. */
   compact?: boolean;
   portalMobile?: boolean;
@@ -105,10 +109,11 @@ export function MobileAppPreview({
         className,
       )}
       data-attr="mobile-app-preview"
-      aria-hidden
+      aria-hidden={children ? undefined : true}
     >
       <div className="flex h-full flex-col rounded-[2.35rem] border border-border/80 bg-[#10141c] p-2 shadow-[0_28px_64px_-28px_rgba(15,23,42,0.65)]">
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[1.85rem] border border-white/10 bg-[linear-gradient(180deg,#f5f8fd_0%,#e9eef7_100%)]">
+          {children ?? <>
           <div
             className={cn(
               "min-h-0 flex-1 overflow-hidden px-2.5",
@@ -217,6 +222,7 @@ export function MobileAppPreview({
               </div>
             </div>
           </nav>
+          </>}
         </div>
       </div>
     </div>

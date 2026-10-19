@@ -176,8 +176,11 @@ describe("search box on Residents, Vendors and Tours", () => {
     ["src/components/portal/pro-tours.tsx", "tours"],
   ])("%s passes search to the control stack and clears the no-match card", (file, noun) => {
     const source = read(file);
-    expect(source).toContain(`placeholder: "Search ${noun}"`);
-    expect(source).toContain(`dataAttr: "${noun}-search"`);
+    // Vendors swaps the placeholder per tab (Dispatch tab searches rules), so only the noun's own string is pinned.
+    expect(source).toMatch(/placeholder: [^\n]*"Search /);
+    expect(source).toContain(`"Search ${noun}"`);
+    // Vendors picks its data-attr per tab (dispatch-search on the Dispatch tab), so match the noun's own value.
+    expect(source).toMatch(new RegExp(`dataAttr: [^\\n]*"${noun}-search"`));
     expect(source).toContain("matchesPortalListSearch(");
     expect(source).toContain(`portalEmptyNoMatchTitle("${noun}"`);
     expect(source).toContain(`"${noun}-empty-clear-search"`);

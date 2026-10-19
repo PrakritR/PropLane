@@ -54,7 +54,7 @@ const rows = [
 ];
 
 const grants = (documents = true, messages = false): OwnerGrant[] => [
-  { linkId: "link-1", managerUserId: MANAGER, houses: [{ propertyId: "house-a", performance: true, statements: true, documents, messages }] },
+  { linkId: "link-1", workspaceId: "ws-1", managerUserId: MANAGER, houses: [{ propertyId: "house-a", performance: true, statements: true, documents, messages }] },
 ];
 
 function dbWithStorage(tables: Record<string, Record<string, unknown>[]>) {

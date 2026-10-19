@@ -3,26 +3,28 @@
 // The home demo window mirrors the real portal's top bar (captain 2026-10-07): "Ask PropLane"
 // for every portal, no bell, and the avatar pill opens an account menu that lists the OTHER
 // portals using the product's own labels (`portalSwitchTargets`), not a switcher bar.
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ResidentLifecycleWorkspace } from "@/components/marketing/resident-lifecycle-workspace";
-import { DEMO_TABS, type DemoPortal } from "@/components/marketing/site/product-mock/demo-panels";
+import { DEMO_TABS, type DemoPortal } from "@/components/marketing/site/product-mock/demo-nav";
+import { PORTAL_META } from "@/components/marketing/resident-lifecycle-script";
 
-afterEach(cleanup);
+beforeEach(() => { vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("Sample account actions must not fetch"); }); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 const PORTALS: DemoPortal[] = ["manager", "resident", "vendor"];
 
-function mount(portal: DemoPortal, onSwitchPortal?: (portal: DemoPortal) => void) {
+function mount(portal: DemoPortal, onSwitchPortal?: (portal: DemoPortal) => void, onSelect = vi.fn()) {
   return render(
     <ResidentLifecycleWorkspace
       portal={portal}
       tabs={DEMO_TABS[portal]}
       active={DEMO_TABS[portal][0]!.id}
-      onSelect={() => {}}
+      onSelect={onSelect}
       onSwitchPortal={onSwitchPortal}
       panel
     >
-      <div />
+      <div>Sample portal content</div>
     </ResidentLifecycleWorkspace>,
   );
 }
@@ -61,5 +63,52 @@ describe("home demo window top bar", () => {
     mount("manager");
     fireEvent.click(screen.getByRole("button", { name: "Account menu" }));
     expect(screen.queryByRole("menuitem", { name: /Switch to/ })).toBeNull();
+  });
+});
+
+
+describe("sample account actions", () => {
+  it.each(PORTALS)("%s Settings opens a local profile and returns to a real sidebar page", (portal) => {
+    const onSelect = vi.fn();
+    const { container } = mount(portal, undefined, onSelect);
+    fireEvent.click(screen.getByRole("button", { name: "Account menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    expect(onSelect).toHaveBeenLastCalledWith("profile");
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByText(PORTAL_META[portal].profile.email)).toBeInTheDocument();
+    expect(screen.queryByText("Sample portal content")).toBeNull();
+    const first = DEMO_TABS[portal][0]!;
+    fireEvent.click(within(container.querySelector(".rlp-nav") as HTMLElement).getByRole("button", { name: first.label, exact: true }));
+    expect(onSelect).toHaveBeenLastCalledWith(first.id, undefined);
+    expect(screen.getByText("Sample portal content")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Settings" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Account menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to sample" }));
+    expect(screen.getByText("Sample portal content")).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(PORTALS)("%s ends only this sample session and can resume", (portal) => {
+    mount(portal);
+    fireEvent.click(screen.getByRole("button", { name: "Account menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Sample session ended");
+    expect(screen.queryByText("Sample portal content")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Account menu" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Resume sample" }));
+    expect(screen.getByText("Sample portal content")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Account menu" })).toBeInTheDocument();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("opens the one existing sample workspace through a native selector", () => {
+    mount("manager");
+    const selector = screen.getByRole("combobox", { name: "Workspace" });
+    const options = within(selector).getAllByRole("option");
+    expect(options).toHaveLength(1);
+    expect(options[0]).toHaveTextContent(PORTAL_META.manager.workspace);
+    expect(selector).toHaveValue(PORTAL_META.manager.workspace);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
