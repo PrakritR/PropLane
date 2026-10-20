@@ -17,7 +17,7 @@ const NOW = () => new Date().toISOString();
 const URL_RE = /https?:\/\/[^\s)>\]]+/g;
 const LONG_DASH = /[–—]/;
 const NON_GSM = /[^\x20-\x7E\n]/;
-const MAX_BUBBLE = 480;
+const MAX_BUBBLE = 640; // 4 GSM segments: a confirmation card is the longest sensible text
 const dollars = (text) => [...String(text).matchAll(/\$\s?([\d,]+(?:\.\d\d)?)/g)].map((m) => Number(m[1].replace(/,/g, "")));
 const urlsOf = (text) => [...String(text).matchAll(URL_RE)].map((m) => m[0].replace(/[.,;:!?]+$/, ""));
 const HOST_OK = /^(www\.)?proplane\.ai$|^localhost$|^127\.0\.0\.1$/i;
@@ -117,6 +117,8 @@ export function ensureMatrix(h, world) {
     const managerPhone = world.phone();
     const manager = await world.createUser({ label: "mx-mgr", role: "manager", phone: managerPhone, fullName: "Morgan Manager" });
     const workspaceId = await world.createWorkspace({ ownerId: manager.id, name: `E2E Matrix Homes ${world.runId}` });
+    const { data: ownerWorkspaces } = await db.from("portal_workspaces").select("id, name, is_default, is_service").eq("owner_user_id", manager.id);
+    console.log(`  fixture: workspaces of the manager: ${JSON.stringify(ownerWorkspaces)} (the line is on ${workspaceId})`);
     const house = await world.createHouse({ ownerId: manager.id, workspaceId, name: `E2E Matrix Ballard ${world.runId}`, street: `${5300 + Math.floor(Math.random() * 90)} Ballard Ave NW` });
     const campus = await world.createHouse({ ownerId: manager.id, workspaceId, name: `E2E Matrix Campus ${world.runId}`, street: "4200 Brooklyn Ave NE", rents: [1100, 1300] });
     await relocate(db, campus, { address: "4200 Brooklyn Ave NE, Seattle, WA 98105", neighborhood: "University District", zip: "98105", lat: 47.66, lng: -122.314 });

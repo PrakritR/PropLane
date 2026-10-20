@@ -13,6 +13,7 @@ import {
   loadResidentEmailRows,
   untrustedText,
 } from "./load-resident-rows";
+import { managerLabelForPreview } from "@/lib/tools/manager-label";
 
 /** Safe projection of the resident's own service request (no photo blobs; manager text quoted). */
 function summarizeOwnServiceRequest(r: ServiceRequest) {
@@ -136,7 +137,7 @@ export async function resolveServiceRequestRouting(ctx: ResidentAgentContext): P
   const contact = contacts.find((c) => c.id === managerId);
   return {
     managerId,
-    managerLabel: contact ? `${contact.name} (${contact.email})` : "your property manager",
+    managerLabel: contact ? managerLabelForPreview(contact.name) : "your property manager",
     propertyId: String(rowData.assignedPropertyId ?? rowData.propertyId ?? "").trim(),
     propertyLabel: String(rowData.property ?? "").trim() || "Assigned property",
     residentName: String(rowData.name ?? "").trim() || ctx.email,

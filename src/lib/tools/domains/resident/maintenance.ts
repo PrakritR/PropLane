@@ -329,6 +329,6 @@ export const reportMaintenanceIssueTool = defineWriteTool({
     const photoNote = photoDataUrls.length > 0
       ? ` with ${photoDataUrls.length} photo${photoDataUrls.length === 1 ? "" : "s"}`
       : "";
-    return { reply: `Filed "${result.title}"${photoNote} with your manager. You can track it under Services → Work orders.` };
+    return { reply: `Filed "${result.title}"${photoNote} with your manager. You can track it under Services.` };
   },
 });
