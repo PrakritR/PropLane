@@ -380,6 +380,8 @@ MATRIX_SCENARIOS.push({
       const token = `late-${hex(4)}`;
       const r = await say(ctx, R, fx.to, `Please tell my manager I will pay rent two days late, ref ${token}`);
       c.reply(r, "message the manager");
+      c.check("the preview names the manager without a login email", !/@/.test(r.all.replace(/\S*@proplane-e2e\S*/g, "@@")) || !/@proplane-e2e/.test(r.all), r.all);
+      if (/reply yes to confirm/i.test(r.all)) { const yes = await say(ctx, R, fx.to, "YES"); c.reply(yes, "confirm the message"); }
       await sleep(3000);
       const cookie = await h.cookieFor(fx.manager);
       const list = await h.api("/api/manager/sms-conversations", { cookie });
