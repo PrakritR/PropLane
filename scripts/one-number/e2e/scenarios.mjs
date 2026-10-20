@@ -358,3 +358,5 @@ import { SHORT_STAY_SCENARIOS } from "./scenarios-short-stay.mjs";
 SCENARIOS.push(...SHORT_STAY_SCENARIOS);
 import { SERVICE_DISPATCH_SCENARIOS } from "./scenarios-service-dispatch.mjs";
 SCENARIOS.push(...SERVICE_DISPATCH_SCENARIOS);
+import { FULL_LOOP_SCENARIOS } from "./scenarios-full-loop.mjs";
+SCENARIOS.push(...FULL_LOOP_SCENARIOS);
