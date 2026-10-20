@@ -3,7 +3,7 @@
 
 -- 1. Per-workspace mode for each preset. A workspace with no row keeps the preset's default
 --    (src/lib/automations/presets.ts). `template` is the manager's own wording, null = the default.
-create table if not exists public.workspace_automation_settings (
+create table if not exists public.workspace_automation_presets (
   workspace_id uuid not null references public.portal_workspaces (id) on delete cascade,
   preset text not null check (length(preset) between 1 and 40),
   mode text not null check (mode in ('auto', 'draft', 'off')),
@@ -58,7 +58,7 @@ do $$
 declare
   t text;
 begin
-  foreach t in array array['workspace_automation_settings', 'workspace_automation_runs'] loop
+  foreach t in array array['workspace_automation_presets', 'workspace_automation_runs'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('revoke all on public.%I from anon, authenticated', t);
     execute format('grant all on public.%I to service_role', t);

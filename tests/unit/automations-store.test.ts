@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { automationsFakeDb } from "../helpers/automations-fake-db";
 import { getAutomationPreset } from "@/lib/automations/presets";
 import {
@@ -15,7 +15,7 @@ import {
 
 describe("settings", () => {
   it("reads nothing, not an error, before the migration has run", async () => {
-    const f = automationsFakeDb({}, { broken: ["workspace_automation_settings", "workspace_automation_runs"] });
+    const f = automationsFakeDb({}, { broken: ["workspace_automation_presets", "workspace_automation_runs"] });
     expect((await loadAutomationSettings(f.db, "ws")).size).toBe(0);
     expect((await loadOptedInWorkspaces(f.db)).size).toBe(0);
     expect(await listHeldRuns(f.db, "ws")).toEqual([]);
@@ -24,8 +24,8 @@ describe("settings", () => {
 
   it("saves a pick, keeps the wording when only the mode changes, and resets it with null", async () => {
     const f = automationsFakeDb();
-    expect(await saveAutomationSetting(f.db, { workspaceId: "ws", preset: "welcome", mode: "auto", template: "Hi {first_name}", userId: "u" })).toBe(true);
-    expect(await saveAutomationSetting(f.db, { workspaceId: "ws", preset: "welcome", mode: "draft", userId: "u" })).toBe(true);
+    expect(await saveAutomationSetting(f.db, { workspaceId: "ws", preset: "welcome", mode: "auto", template: "Hi {first_name}", userId: "u" })).toEqual({ ok: true });
+    expect(await saveAutomationSetting(f.db, { workspaceId: "ws", preset: "welcome", mode: "draft", userId: "u" })).toEqual({ ok: true });
     let saved = (await loadAutomationSettings(f.db, "ws")).get("welcome")!;
     expect(saved).toEqual({ mode: "draft", template: "Hi {first_name}" });
     await saveAutomationSetting(f.db, { workspaceId: "ws", preset: "welcome", mode: "draft", template: null, userId: "u" });
@@ -35,8 +35,18 @@ describe("settings", () => {
     expect([...(await loadOptedInWorkspaces(f.db))]).toEqual(["ws"]);
   });
 
+  it("surfaces a failed write with its error code instead of swallowing it", async () => {
+    const f = automationsFakeDb({}, { broken: ["workspace_automation_presets"] });
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await saveAutomationSetting(f.db, { workspaceId: "ws", preset: "welcome", mode: "auto", userId: "u" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBeTruthy();
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
   it("ignores a stored row for a preset that no longer exists", async () => {
-    const f = automationsFakeDb({ workspace_automation_settings: [{ workspace_id: "ws", preset: "retired", mode: "auto" }] });
+    const f = automationsFakeDb({ workspace_automation_presets: [{ workspace_id: "ws", preset: "retired", mode: "auto" }] });
     expect((await loadAutomationSettings(f.db, "ws")).size).toBe(0);
   });
 });
@@ -84,7 +94,7 @@ describe("loadOffPresetResolver: what the existing senders ask", () => {
   it("says off only for the workspace the house is in", async () => {
     const f = automationsFakeDb({
       portal_workspaces: workspaces,
-      workspace_automation_settings: [{ workspace_id: "ws-b", preset: "rent_late_3d", mode: "off" }, { workspace_id: "ws-a", preset: "rent_due_3d", mode: "auto" }],
+      workspace_automation_presets: [{ workspace_id: "ws-b", preset: "rent_late_3d", mode: "off" }, { workspace_id: "ws-a", preset: "rent_due_3d", mode: "auto" }],
       manager_property_records: [{ id: "P-b", manager_user_id: "owner", workspace_id: "ws-b" }, { id: "P-a", manager_user_id: "owner", workspace_id: "ws-a" }],
     });
     const off = await loadOffPresetResolver(f.db, "owner");
@@ -96,7 +106,7 @@ describe("loadOffPresetResolver: what the existing senders ask", () => {
   });
 
   it("fails open: a missing table never mutes rent", async () => {
-    const f = automationsFakeDb({ portal_workspaces: workspaces }, { broken: ["workspace_automation_settings"] });
+    const f = automationsFakeDb({ portal_workspaces: workspaces }, { broken: ["workspace_automation_presets"] });
     const off = await loadOffPresetResolver(f.db, "owner");
     expect(off.isOff("rent_due_3d", "P-a")).toBe(false);
     expect(off.isOff("rent_late_3d", null)).toBe(false);

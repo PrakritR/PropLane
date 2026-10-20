@@ -25,7 +25,7 @@ export async function loadAutomationSettings(
   const out = new Map<AutomationPresetId, SavedAutomation>();
   try {
     const { data, error } = await db
-      .from("workspace_automation_settings")
+      .from("workspace_automation_presets")
       .select("preset, mode, template")
       .eq("workspace_id", workspaceId);
     if (error) return out;
@@ -45,7 +45,7 @@ export async function loadAutomationSettings(
 export async function loadOptedInWorkspaces(db: SupabaseClient): Promise<Set<string>> {
   const out = new Set<string>();
   try {
-    const { data, error } = await db.from("workspace_automation_settings").select("workspace_id").limit(5000);
+    const { data, error } = await db.from("workspace_automation_presets").select("workspace_id").limit(5000);
     if (error) return out;
     for (const row of (data ?? []) as Array<{ workspace_id: string }>) out.add(String(row.workspace_id));
   } catch {
@@ -67,6 +67,13 @@ export function resolveAutomation(
   };
 }
 
+export type SaveAutomationResult = { ok: true } | { ok: false; code: string; message: string };
+
+/**
+ * Write a pick. A failed write is NEVER swallowed: the Postgres / PostgREST error code is logged and
+ * returned, so a missing table or column (42P01 / 42703 / PGRST205) surfaces as a save that says
+ * why instead of a preset that silently never saves.
+ */
 export async function saveAutomationSetting(
   db: SupabaseClient,
   input: {
@@ -77,12 +84,12 @@ export async function saveAutomationSetting(
     template?: string | null;
     userId: string;
   },
-): Promise<boolean> {
+): Promise<SaveAutomationResult> {
   try {
     const existing = await loadAutomationSettings(db, input.workspaceId);
     const prior = existing.get(input.preset);
     const template = input.template === undefined ? (prior?.template ?? null) : input.template;
-    const { error } = await db.from("workspace_automation_settings").upsert(
+    const { error } = await db.from("workspace_automation_presets").upsert(
       {
         workspace_id: input.workspaceId,
         preset: input.preset,
@@ -93,9 +100,17 @@ export async function saveAutomationSetting(
       },
       { onConflict: "workspace_id,preset" },
     );
-    return !error;
-  } catch {
-    return false;
+    if (error) {
+      const code = String((error as { code?: string | null }).code ?? "unknown");
+      const message = String((error as { message?: string | null }).message ?? "");
+      console.error("[automations] save failed", { table: "workspace_automation_presets", code, message, workspaceId: input.workspaceId, preset: input.preset });
+      return { ok: false, code, message };
+    }
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[automations] save threw", { table: "workspace_automation_presets", message, workspaceId: input.workspaceId, preset: input.preset });
+    return { ok: false, code: "exception", message };
   }
 }
 
@@ -263,7 +278,7 @@ export async function loadOffPresetResolver(db: SupabaseClient, ownerUserId: str
     if (error || !workspaces?.length) return NEVER_OFF;
     const ids = (workspaces as Array<{ id: string }>).map((w) => String(w.id));
     const { data: rows, error: rowsError } = await db
-      .from("workspace_automation_settings")
+      .from("workspace_automation_presets")
       .select("workspace_id, preset")
       .eq("mode", "off")
       .in("workspace_id", ids);

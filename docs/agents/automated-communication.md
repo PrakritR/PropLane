@@ -180,3 +180,12 @@ managers, leasing and viewers, a payments event reaches the bookkeeper, a servic
 their own Assistant thread for the owner's workspace. A ROUTINE event names the OWNER alone there and tells the team
 with one Team chat line (captain 2026-10-14, table above), whose text relay reads the same matrix through
 `memberReceivesNotice`. Signature, "Also notify" recipients and the owner-first failure rule are unchanged.
+
+## Preset auto-send modes: `workspace_automation_presets`, not `workspace_automation_settings`
+
+The Automations feature (`src/lib/automations/`) keeps each workspace's preset mode and wording in
+`workspace_automation_presets` (`preset`, `mode`, `template`) beside its run ledger `workspace_automation_runs`.
+`workspace_automation_settings` is a different table that belongs to the settings scope resolver (`row_data`,
+`owner_user_id`); the two once shared a name, so the feature's `create table if not exists` was a silent no-op
+wherever the resolver's table existed. Never reuse that name. `saveAutomationSetting` returns the Postgres error
+code on a failed write and logs it; the route answers 503 with the code, never a silent "saved".

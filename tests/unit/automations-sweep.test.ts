@@ -69,7 +69,7 @@ function seedHouse() {
   return house;
 }
 
-const optedIn = (mode: string) => ({ workspace_automation_settings: [{ workspace_id: "ws", preset: "welcome", mode }] });
+const optedIn = (mode: string) => ({ workspace_automation_presets: [{ workspace_id: "ws", preset: "welcome", mode }] });
 
 beforeEach(() => {
   h.mode = "per_workspace";
@@ -104,7 +104,7 @@ describe("runAutomationSweep", () => {
 
   it("sends the welcome and the move-in details in auto, each exactly once across ticks", async () => {
     const f = automationsFakeDb({
-      workspace_automation_settings: [
+      workspace_automation_presets: [
         { workspace_id: "ws", preset: "welcome", mode: "auto" },
         { workspace_id: "ws", preset: "move_in_3d", mode: "auto" },
       ],
@@ -121,7 +121,7 @@ describe("runAutomationSweep", () => {
 
   it("keeps the door code and Wi-Fi password out of the text while move-in details are locked", async () => {
     h.locked = true;
-    const f = automationsFakeDb({ workspace_automation_settings: [{ workspace_id: "ws", preset: "move_in_3d", mode: "auto" }] });
+    const f = automationsFakeDb({ workspace_automation_presets: [{ workspace_id: "ws", preset: "move_in_3d", mode: "auto" }] });
     await runAutomationSweep(f.db, NOW);
     const text = String(h.send.mock.calls[0]![1].text);
     expect(text).not.toMatch(/4821|Sunset|Door code|password/);
@@ -142,7 +142,7 @@ describe("runAutomationSweep", () => {
     h.houses = new Map([["P1", seedHouse()]]);
     // houses are read from the leases' properties, so seed a lease-less house through a roster of one.
     h.leases = [lease({ signedKey: "2026-01-01", moveIn: "2026-01-10" })];
-    const f = automationsFakeDb({ workspace_automation_settings: [{ workspace_id: "ws", preset: "rent_due_day", mode: "auto" }] });
+    const f = automationsFakeDb({ workspace_automation_presets: [{ workspace_id: "ws", preset: "rent_due_day", mode: "auto" }] });
     await runAutomationSweep(f.db, NOW);
     await runAutomationSweep(f.db, new Date(NOW.getTime() + 5 * 60_000));
     expect(h.post).toHaveBeenCalledTimes(1);
@@ -156,7 +156,7 @@ describe("runAutomationSweep", () => {
       { entityId: "W2", ownerUserId: "owner", propertyId: "P1", unit: "Room 3", title: "Heater", window: "Wed 2-4", scheduledAtIso: null },
     ];
     h.ready.mockResolvedValue(false);
-    const f = automationsFakeDb({ workspace_automation_settings: [{ workspace_id: "ws", preset: "maintenance_booked", mode: "auto" }] });
+    const f = automationsFakeDb({ workspace_automation_presets: [{ workspace_id: "ws", preset: "maintenance_booked", mode: "auto" }] });
     await runAutomationSweep(f.db, NOW);
     // No group: the house-wide notice falls back to each resident one on one.
     expect(h.send).toHaveBeenCalledTimes(1);

@@ -61,7 +61,7 @@ const base = { workspaceId: "ws", ownerUserId: "owner" };
 
 describe("fireAutomation: modes", () => {
   it("does nothing, and records nothing, when the preset is off", async () => {
-    const f = automationsFakeDb({ workspace_automation_settings: [settingsRow("welcome", "off")] });
+    const f = automationsFakeDb({ workspace_automation_presets: [settingsRow("welcome", "off")] });
     const out = await fireAutomation(f.db, { ...base, preset: "welcome", idempotencyKey: "welcome:L1", vars: welcomeVars, target: residentTarget });
     expect(out).toEqual({ status: "off" });
     expect(h.send).not.toHaveBeenCalled();
@@ -82,7 +82,7 @@ describe("fireAutomation: modes", () => {
   });
 
   it("sends once in auto, and a repeat of the same moment sends nothing", async () => {
-    const f = automationsFakeDb({ workspace_automation_settings: [settingsRow("welcome", "auto")] });
+    const f = automationsFakeDb({ workspace_automation_presets: [settingsRow("welcome", "auto")] });
     const req = { ...base, preset: "welcome" as const, idempotencyKey: "welcome:L1", vars: welcomeVars, target: residentTarget };
     expect((await fireAutomation(f.db, req)).status).toBe("sent");
     expect((await fireAutomation(f.db, req)).status).toBe("duplicate");
@@ -93,13 +93,13 @@ describe("fireAutomation: modes", () => {
   });
 
   it("uses the manager's own wording when one is saved", async () => {
-    const f = automationsFakeDb({ workspace_automation_settings: [settingsRow("welcome", "auto", "Hey {first_name}, welcome to {house}!")] });
+    const f = automationsFakeDb({ workspace_automation_presets: [settingsRow("welcome", "auto", "Hey {first_name}, welcome to {house}!")] });
     await fireAutomation(f.db, { ...base, preset: "welcome", idempotencyKey: "welcome:L1", vars: welcomeVars, target: residentTarget });
     expect(h.send.mock.calls[0]![1].text).toBe("Hey Maya, welcome to 5259 Brooklyn!");
   });
 
   it("gives the moment back on a quiet-hours refusal so a later tick sends it", async () => {
-    const f = automationsFakeDb({ workspace_automation_settings: [settingsRow("welcome", "auto")] });
+    const f = automationsFakeDb({ workspace_automation_presets: [settingsRow("welcome", "auto")] });
     h.send.mockResolvedValueOnce({ ok: false, retry: true, reason: "quiet_hours" });
     const req = { ...base, preset: "welcome" as const, idempotencyKey: "welcome:L1", vars: welcomeVars, target: residentTarget };
     expect(await fireAutomation(f.db, req)).toEqual({ status: "deferred", reason: "quiet_hours" });
@@ -109,7 +109,7 @@ describe("fireAutomation: modes", () => {
   });
 
   it("records an opt-out as skipped and never retries it", async () => {
-    const f = automationsFakeDb({ workspace_automation_settings: [settingsRow("welcome", "auto")] });
+    const f = automationsFakeDb({ workspace_automation_presets: [settingsRow("welcome", "auto")] });
     h.send.mockResolvedValue({ ok: false, retry: false, reason: "opted_out" });
     const req = { ...base, preset: "welcome" as const, idempotencyKey: "welcome:L1", vars: welcomeVars, target: residentTarget };
     expect((await fireAutomation(f.db, req)).status).toBe("skipped");
@@ -118,7 +118,7 @@ describe("fireAutomation: modes", () => {
   });
 
   it("refuses to send without the facts the text needs", async () => {
-    const f = automationsFakeDb({ workspace_automation_settings: [settingsRow("welcome", "auto")] });
+    const f = automationsFakeDb({ workspace_automation_presets: [settingsRow("welcome", "auto")] });
     const out = await fireAutomation(f.db, { ...base, preset: "welcome", idempotencyKey: "welcome:L1", vars: { ...welcomeVars, move_in_date: "" }, target: residentTarget });
     expect(out).toEqual({ status: "skipped", reason: "missing_facts" });
     expect(h.send).not.toHaveBeenCalled();
@@ -129,7 +129,7 @@ describe("fireAutomation: house groups", () => {
   const groupTarget = { kind: "group" as const, house, roster, fallbackToResidents: false };
 
   it("posts the rent-due reminder to the group with no name, no amount and no code", async () => {
-    const f = automationsFakeDb({ workspace_automation_settings: [settingsRow("rent_due_day", "auto")] });
+    const f = automationsFakeDb({ workspace_automation_presets: [settingsRow("rent_due_day", "auto")] });
     const out = await fireAutomation(f.db, { ...base, preset: "rent_due_day", idempotencyKey: "rent_due_day:P1:2026-11-01", vars: { house: "5259 Brooklyn" }, target: groupTarget });
     expect(out.status).toBe("sent");
     expect(h.post).toHaveBeenCalledTimes(1);
@@ -150,7 +150,7 @@ describe("fireAutomation: house groups", () => {
 
   it("is silent for a group-only preset when the house has no group: no draft, no record", async () => {
     h.ready.mockResolvedValue(false);
-    const f = automationsFakeDb({ workspace_automation_settings: [settingsRow("rent_due_day", "auto")] });
+    const f = automationsFakeDb({ workspace_automation_presets: [settingsRow("rent_due_day", "auto")] });
     const out = await fireAutomation(f.db, { ...base, preset: "rent_due_day", idempotencyKey: "k", vars: { house: "x" }, target: groupTarget });
     expect(out).toEqual({ status: "skipped", reason: "no_group" });
     expect(h.post).not.toHaveBeenCalled();
@@ -158,7 +158,7 @@ describe("fireAutomation: house groups", () => {
   });
 
   it("refuses an announcement that names a resident, carries an amount, or leaks the door code", async () => {
-    const f = automationsFakeDb({ workspace_automation_settings: [settingsRow("announcement", "auto")] });
+    const f = automationsFakeDb({ workspace_automation_presets: [settingsRow("announcement", "auto")] });
     for (const [i, text] of ["Maya left the stove on", "Rent is $850 this month", "The door code is 4821"].entries()) {
       const out = await fireAutomation(f.db, { ...base, preset: "announcement", idempotencyKey: `a${i}`, vars: { house: "x", announcement: text }, target: { ...groupTarget, fallbackToResidents: true } });
       expect(out.status, text).toBe("skipped");
@@ -170,7 +170,7 @@ describe("fireAutomation: house groups", () => {
 
   it("falls back to each resident with a phone when an announcement has no group", async () => {
     h.ready.mockResolvedValue(false);
-    const f = automationsFakeDb({ workspace_automation_settings: [settingsRow("announcement", "auto")] });
+    const f = automationsFakeDb({ workspace_automation_presets: [settingsRow("announcement", "auto")] });
     const out = await fireAutomation(f.db, { ...base, preset: "announcement", idempotencyKey: "announce:A:P1", vars: { house: "x", announcement: "Water is off Tuesday 9-12." }, target: { ...groupTarget, fallbackToResidents: true } });
     expect(out.status).toBe("sent");
     expect(h.post).not.toHaveBeenCalled();
@@ -181,7 +181,7 @@ describe("fireAutomation: house groups", () => {
 
   it("falls back when the group seam says it is not enabled", async () => {
     h.post.mockResolvedValue({ ok: false, reason: "not_enabled" });
-    const f = automationsFakeDb({ workspace_automation_settings: [settingsRow("announcement", "auto")] });
+    const f = automationsFakeDb({ workspace_automation_presets: [settingsRow("announcement", "auto")] });
     const out = await fireAutomation(f.db, { ...base, preset: "announcement", idempotencyKey: "announce:B:P1", vars: { house: "x", announcement: "Cleaning day Friday." }, target: { ...groupTarget, fallbackToResidents: true } });
     expect(out.status).toBe("sent");
     expect(h.send).toHaveBeenCalledTimes(2);
@@ -189,7 +189,7 @@ describe("fireAutomation: house groups", () => {
 
   it("retries a group post held back by quiet hours or a rate limit", async () => {
     h.post.mockResolvedValueOnce({ ok: false, reason: "rate_limited" });
-    const f = automationsFakeDb({ workspace_automation_settings: [settingsRow("move_in_day", "auto")] });
+    const f = automationsFakeDb({ workspace_automation_presets: [settingsRow("move_in_day", "auto")] });
     const req = { ...base, preset: "move_in_day" as const, idempotencyKey: "move_in_day:P1:d", vars: { house: "x" }, target: groupTarget };
     expect((await fireAutomation(f.db, req)).status).toBe("deferred");
     expect((await fireAutomation(f.db, req)).status).toBe("sent");
@@ -198,7 +198,7 @@ describe("fireAutomation: house groups", () => {
 
 describe("approving and dismissing a held draft", () => {
   async function held() {
-    const f = automationsFakeDb({ workspace_automation_settings: [] });
+    const f = automationsFakeDb({ workspace_automation_presets: [] });
     await fireAutomation(f.db, { ...base, preset: "welcome", idempotencyKey: "welcome:L1", vars: welcomeVars, target: residentTarget });
     const run = f.rows.workspace_automation_runs![0]!;
     return { f, runId: String(run.id) };
@@ -239,7 +239,7 @@ describe("approving and dismissing a held draft", () => {
   });
 
   it("re-checks a held group text against who lives there now", async () => {
-    const f = automationsFakeDb({ workspace_automation_settings: [settingsRow("announcement", "draft")] });
+    const f = automationsFakeDb({ workspace_automation_presets: [settingsRow("announcement", "draft")] });
     await fireAutomation(f.db, { ...base, preset: "announcement", idempotencyKey: "announce:C:P1", vars: { house: "x", announcement: "Pat will do the cleaning" }, target: { kind: "group", house, roster, fallbackToResidents: true } });
     // Nobody called Pat lived there at drafting time; by approval Pat has moved in.
     h.leases = [...roster, lease({ leaseId: "L9", firstName: "Pat", phoneKey: "2065550199" })];

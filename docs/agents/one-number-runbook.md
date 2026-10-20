@@ -121,6 +121,8 @@ branch, and `db:push` applies it only once merged):
 | 20261020110100 | `sms_confirmation_failures_and_stay_request` | `sms_confirmation_failures` (a keyed hash of the phone, never the number: ten wrong codes in 24 hours pause the coded path for it) and `subject_kind` gains `stay_request` |
 | 20261020120000 | `sms_confirmation_phone_reserve` | that per-phone budget reserved atomically (count + insert under a per-phone advisory lock), so a burst of guesses cannot walk past it |
 | 20261020130000 | `manager_purchase_subscription_status` | `manager_purchases.subscription_status`: a `trialing` Checkout subscription is not a self-paid plan, so a card-on-file trial does not lift the managed view-only lock |
+| 20261020140000 | `manager_purchase_first_paid` | `manager_purchases.first_paid_at`: the managed view-only lock lifts only for a self-paid plan that has really been paid |
+| 20261020150000 | `automation_presets_table` | the Automations preset modes move to `workspace_automation_presets` (the old name belongs to the settings scope resolver, so the first migration's create was a no-op wherever that table existed); idempotent, copies any preset rows dev wrote under the old name, never touches the original table |
 
 Check after the push (SQL editor, read-only):
 
