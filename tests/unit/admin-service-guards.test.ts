@@ -95,7 +95,7 @@ describe("no admin branch inside the manager side", () => {
   });
 
   it("every Service and PropLane line verb starts with the admin gate", () => {
-    for (const f of ["src/app/api/admin/service-workspaces/route.ts", "src/app/api/admin/proplane-line/route.ts"]) {
+    for (const f of ["src/app/api/admin/service-workspaces/route.ts", "src/app/api/admin/proplane-line/route.ts", "src/app/api/admin/service-vendors/route.ts", "src/app/api/admin/service-manager/route.ts"]) {
       const src = read(f);
       const verbs = src.match(/export async function (GET|POST|PATCH|PUT|DELETE)/g) ?? [];
       const gates = src.match(/await requireAdminRoute\(\)/g) ?? [];

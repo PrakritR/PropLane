@@ -1412,6 +1412,9 @@ export async function fetchAdminSmsConversations(
   return fetchManagerSmsConversations(db, managerIds[0], {
     scopeManagerIdsOverride: managerIds,
     provisionWorkNumber: false,
+    // Admin oversight is not a viewer of this inbox (the option's own contract): every owner in the scope is read, or
+    // the anchor's per-house visibility would hide all but the anchor's own threads.
+    visibility: "none",
     ...(clientOwnerIds.length > 0 ? { workspaceRestriction: { ownerIds: clientOwnerIds, workspaceIds: service.workspaceIds } } : {}),
   });
 }
