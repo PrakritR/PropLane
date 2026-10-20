@@ -186,6 +186,8 @@ export const DELETE_ORDER = [
   "sms_provisioning_operations",
   "sms_vendor_leads",
   "sms_setup_links",
+  "sms_signup_sessions",
+  "sms_stay_offers",
   "inbound_sms_log",
   "house_group_messages",
   "house_group_members",

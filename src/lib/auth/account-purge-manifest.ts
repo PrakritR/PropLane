@@ -1124,6 +1124,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     resident: { ids: ["user_id"] },
   },
   {
+    // Short stays by text: the options quoted to a texter for one manager's listing, held until a YES books them.
+    // The manager owns the row; the texter is a bare phone key with no login, so there is nothing to detach.
+    table: "sms_stay_offers",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     // Shared-line shadow log: what the router would have decided vs the real owner.
     table: "sms_line_shadow_decisions",
     phase: 1,
