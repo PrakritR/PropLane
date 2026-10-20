@@ -35,6 +35,18 @@ describe("one shared list of the people who text PropLane (captain #27)", () => 
     expect(within(strip).getAllByRole("link").map((link) => link.textContent)).toEqual(LABELS);
   });
 
+  it("sends each hero role straight to its own start; managers and owners to the Property sign-up (captain #31)", () => {
+    render(<TextingHomeHero config={config} />);
+    const strip = screen.getByRole("list", { name: "Who texts PropLane" });
+    expect(within(strip).getAllByRole("link").map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
+      ["Prospects", "/rent/browse"],
+      ["Residents", "/auth/create-account?mode=create&role=resident"],
+      ["Vendors", "/auth/create-account?mode=create&role=vendor"],
+      ["Managers", "/auth/create-account?mode=create&role=manager"],
+      ["Owners", "/auth/create-account?mode=create&role=manager"],
+    ]);
+  });
+
   it("draws How it works (and its diagram) from it", () => {
     const html = renderToStaticMarkup(<PublicTextingProvider value={config}><HomeNumberStage /></PublicTextingProvider>);
     const order = HOME_ROLES.map((role) => html.indexOf(`id="how-${role.id}"`));
