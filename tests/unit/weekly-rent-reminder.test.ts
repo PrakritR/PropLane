@@ -1,20 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
 
-const { enqueueMock, dispatchMock, dedupeKeys } = vi.hoisted(() => ({
-  dedupeKeys: new Set<string>(),
-  enqueueMock: vi.fn(async (input: { dedupeKey: string }) => {
-    const duplicate = dedupeKeys.has(input.dedupeKey);
-    dedupeKeys.add(input.dedupeKey);
-    return { ok: true as const, outboxId: input.dedupeKey, status: "queued", deduplicated: duplicate };
+const { sendMock, mintMock } = vi.hoisted(() => ({
+  // The outbox row the real sender leaves behind is what the week's dedupe reads.
+  sendMock: vi.fn(async (db: { from: (t: string) => { insert: (r: unknown) => unknown } }, input: { idempotencyKey: string }) => {
+    await db.from("sms_outbox").insert({ manager_user_id: "mgrA", dedupe_key: input.idempotencyKey, status: "submitted" });
+    return { ok: true as const, outboxId: input.idempotencyKey };
   }),
-  dispatchMock: vi.fn(async () => ({ claimed: 1, submitted: 1, blocked: 0, unknown: 0 })),
+  mintMock: vi.fn(async () => ({ kind: "phone_bound" as const, url: "https://proplane.ai/l/Zk3T9v1q8mY2nB7cX4wR6pD0sL5hJ1aF3gU9eO8iKt" })),
 }));
 
-vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({
-  enqueueOwnerSms: enqueueMock,
-  dispatchOwnerSmsOutbox: dispatchMock,
-}));
+vi.mock("@/lib/payments/rent-text-send.server", () => ({ sendResidentRentText: sendMock }));
+vi.mock("@/lib/payments/rent-reminder-links.server", () => ({ mintRentReminderPayLink: mintMock }));
 
 import { isoWeekKey, sendWeeklyRentReminders, weeklyRentReminderDedupId } from "@/lib/sms/weekly-rent-reminder.server";
 
@@ -86,43 +83,43 @@ describe("isoWeekKey", () => {
 
 describe("sendWeeklyRentReminders — idempotent per week", () => {
   it("sends once, then a duplicate run (retry / redeploy / duplicate tick) does not text again", async () => {
-    enqueueMock.mockClear();
-    dispatchMock.mockClear();
-    dedupeKeys.clear();
+    sendMock.mockClear();
+    mintMock.mockClear();
     const db = seed() as never;
     const now = new Date("2026-07-22T18:00:00Z");
 
     const first = await sendWeeklyRentReminders(db, { now });
     expect(first.sent).toBe(1);
-    expect(enqueueMock).toHaveBeenCalledTimes(1);
-    // Sent as automated so consent + quiet-hours gating applies downstream.
-    expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ sendClass: "automated", recipientPhone: "+12065552222" }), expect.anything());
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    // Sent as automated so consent + quiet-hours gating applies downstream, from the house's workspace line,
+    // with a fresh phone-bound pay link on its own line.
+    const sent = sendMock.mock.calls[0]![1] as { sendClass: string; phone: string; purpose: string; body: string; ownerUserId: string };
+    expect(sent).toMatchObject({ sendClass: "automated", phone: "+12065552222", purpose: "weekly_rent_reminder", ownerUserId: "mgrA" });
+    expect(sent.body.split("\n").slice(-2)).toEqual(["Pay here:", "https://proplane.ai/l/Zk3T9v1q8mY2nB7cX4wR6pD0sL5hJ1aF3gU9eO8iKt"]);
+    expect(mintMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ phone: "+12065552222", phoneVerifiedAt: "2026-01-01T00:00:00Z" }));
 
     const second = await sendWeeklyRentReminders(db, { now });
     expect(second.sent).toBe(0);
     expect(second.skippedAlreadySent).toBe(1);
-    expect(dispatchMock).toHaveBeenCalledTimes(1); // second run only reads the durable dedupe row
+    expect(sendMock).toHaveBeenCalledTimes(1); // second run only reads the durable dedupe row
 
     // A different week is a fresh reminder.
     const nextWeek = await sendWeeklyRentReminders(db, { now: new Date("2026-07-29T18:00:00Z") });
     expect(nextWeek.sent).toBe(1);
-    expect(dispatchMock).toHaveBeenCalledTimes(2);
+    expect(sendMock).toHaveBeenCalledTimes(2);
   });
 
   it("skips managers whose registration is not approved (null send number)", async () => {
-    enqueueMock.mockReset();
-    enqueueMock.mockResolvedValue({ ok: false, error: "number_not_active" });
-    dispatchMock.mockClear();
+    sendMock.mockClear();
+    sendMock.mockResolvedValueOnce({ ok: false as never, error: "number_not_active" } as never);
     const db = seed() as never;
     const res = await sendWeeklyRentReminders(db, { now: new Date("2026-07-22T18:00:00Z") });
     expect(res.sent).toBe(0);
     expect(res.skippedNoSendNumber).toBe(1);
-    expect(dispatchMock).not.toHaveBeenCalled();
   });
 
   it("does not enqueue an automated reminder without matching application consent", async () => {
-    enqueueMock.mockClear();
-    dispatchMock.mockClear();
+    sendMock.mockClear();
     const db = seed({ applicationConsent: false });
 
     const res = await sendWeeklyRentReminders(db as never, { now: new Date("2026-07-22T18:00:00Z") });
@@ -130,20 +127,18 @@ describe("sendWeeklyRentReminders — idempotent per week", () => {
     expect(res.sent).toBe(0);
     expect(res.failed).toBe(1);
     expect(res.errors[0]?.error).toBe("scoped_consent_missing");
-    expect(enqueueMock).not.toHaveBeenCalled();
-    expect(dispatchMock).not.toHaveBeenCalled();
+    expect(sendMock).not.toHaveBeenCalled();
   });
 
   it("does not overwrite a later scoped revoke with historical application consent", async () => {
-    enqueueMock.mockClear();
-    dispatchMock.mockClear();
+    sendMock.mockClear();
     const db = seed({ revoked: true });
 
     const res = await sendWeeklyRentReminders(db as never, { now: new Date("2026-07-22T18:00:00Z") });
 
     expect(res.sent).toBe(0);
     expect(res.errors[0]?.error).toBe("scoped_consent_missing");
-    expect(enqueueMock).not.toHaveBeenCalled();
+    expect(sendMock).not.toHaveBeenCalled();
   });
 
   it("dedup id keys on week + manager + resident (one reminder per manager per resident per week)", () => {

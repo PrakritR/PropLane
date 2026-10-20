@@ -166,7 +166,7 @@ export type SharedLineSend = {
    * own purpose, conversation key and user id so their consent (never an application's) vouches for it.
    */
   delivery?: {
-    sendClass?: "control" | "transactional";
+    sendClass?: "control" | "transactional" | "automated";
     purpose?: string;
     conversationKey?: string | null;
     recipientUserId?: string | null;

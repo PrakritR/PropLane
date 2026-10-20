@@ -82,7 +82,7 @@ describe("roleForLinkPurpose", () => {
 describe("the consent basis of every text this module sends (#4)", () => {
   it("a code the person just asked for is control class: no stored grant is needed, STOP still blocks at the dispatcher", () => {
     expect(deliveryForBasis({ kind: "code" }, "owner-a", "+12065550142")).toEqual({
-      sendClass: "control", purpose: "phone_link_code", recipientUserId: null, conversationKey: null, counterpartyRole: null,
+      sendClass: "control", purpose: "phone_link_code", recipientUserId: null, recipientEmail: null, conversationKey: null, counterpartyRole: null, logToThread: false,
     });
   });
 

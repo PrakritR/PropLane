@@ -3,7 +3,10 @@ import { formatPacificDateTime } from "@/lib/pacific-time";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { mintRentReminderPayLink, residentPaymentsPortalUrl } from "@/lib/payments/rent-reminder-links.server";
+import { sendResidentRentText } from "@/lib/payments/rent-text-send.server";
+import { composeRentReminderSms, fillPayLinkToken, textUsesPayLinkToken } from "@/lib/payments/rent-reminder-sms";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   resolveChannels,
@@ -12,7 +15,6 @@ import {
 import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 import { buildTeamNoticeLine } from "@/lib/team-notice-line";
 import { notifyPropertyScopedManagersFromAgent } from "@/lib/co-manager-notification-recipients.server";
-import { resolveShareableAppOrigin } from "@/lib/app-url";
 import { traceSystemNotification } from "@/lib/observability/langfuse";
 import {
   claimPaymentReminderChannel,
@@ -20,7 +22,24 @@ import {
   resolvePaymentReminderChannel,
   type PaymentReminderChannel,
 } from "@/lib/payment-reminder-occurrence.server";
-import { residentChargesListHref } from "@/lib/portal-detail-routes";
+
+/** SMS refusals that prove the text was never submitted to the provider. */
+const SAFE_SMS_REFUSALS: ReadonlySet<string> = new Set([
+  "invalid_message",
+  "invalid_dispatch_identity",
+  "invalid_to",
+  "recipient_opted_out",
+  "scoped_consent_missing",
+  "scoped_consent_revoked",
+  "allowance_exhausted",
+  "runtime_env_paused",
+  "outbox_scheduler_unready",
+  "quiet_hours",
+  "workspace_has_no_work_number",
+  "workspace_unavailable",
+  "provider_identity_mismatch",
+  "segment_limit_exceeded",
+]);
 
 type ServiceDb = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -30,7 +49,8 @@ export async function deliverPaymentReminder(input: {
   managerId: string | null;
   dedupId: string;
   managerName: string;
-  managerSmsFromNumber: string;
+  /** @deprecated The text leaves from the line of the workspace that holds the house, not this number. */
+  managerSmsFromNumber?: string;
   apiKey: string;
   from: string;
   subject: string;
@@ -43,12 +63,17 @@ export async function deliverPaymentReminder(input: {
   managerDeliverViaEmail?: boolean;
   managerDeliverViaSms?: boolean;
   managerDeliverViaInbox?: boolean;
+  /** The other charges one combined reminder covers, so the pay link names all of them. */
+  bundledCharges?: HouseholdCharge[];
   /** Extra dedup rows to record when one send covers several charges. */
   bundledDedupEntries?: { dedupId: string; chargeId: string }[];
 }): Promise<{ sent: boolean; error?: string }> {
-  const { db, charge, managerId, dedupId, managerName, managerSmsFromNumber, apiKey, from, subject, slotLabel } =
+  const { db, charge, managerId, dedupId, managerName, apiKey, from, subject, slotLabel } =
     input;
-  const text = input.text;
+  // `{pay_link}` in a reminder template is a real link: the resident's Payments page in an email or the
+  // inbox (they are signed-in surfaces); a phone-bound link in the text, minted below.
+  const rawText = input.text;
+  const text = textUsesPayLinkToken(rawText) ? fillPayLinkToken(rawText, residentPaymentsPortalUrl()) : rawText;
   const html = reminderHtmlFromText(text);
   if (!isUnpaidHouseholdCharge(charge)) {
     return { sent: false, error: "charge_paid" };
@@ -196,47 +221,47 @@ export async function deliverPaymentReminder(input: {
     } else if (smsClaim.outcome === "claimed" && smsClaim.token) {
       try {
       const residentPhone = String(residentProfile?.phone ?? "").trim();
-      if (residentPhone && managerSmsFromNumber) {
-        // The pay link always stays in-app — the resident's own Payments tab,
-        // never a hosted checkout session — so a reminder can never hand out
-        // a link that bypasses PropLane. Only payment-category reminders get
-        // the link at all; other categories (leases, etc.) stay text-only.
-        const checkoutUrl =
+      if (residentPhone) {
+        // Only payment reminders carry a pay link; other categories (leases, etc.) stay text-only. With a
+        // verified phone the link is a fresh phone-bound /l/<token> (tap, a code to this phone, pay, done);
+        // without one it is the resident's own Payments page behind sign-in.
+        const payLink =
           category === "payments"
-            ? `${resolveShareableAppOrigin()}${residentChargesListHref("/resident", "pending")}`
+            ? await mintRentReminderPayLink(db, {
+                ownerUserId: ownerManagerId,
+                charges: [charge, ...(input.bundledCharges ?? [])],
+                phone: residentPhone,
+                phoneVerifiedAt: (residentProfile?.phone_verified_at as string | null) ?? null,
+              })
             : null;
-
-        const smsBody = [
-          `(${subject})`,
-          text.slice(0, 300),
-          checkoutUrl ? `Pay in PropLane: ${checkoutUrl}` : null,
-        ]
-          .filter((line): line is string => Boolean(line))
-          .join("\n");
+        const smsBody = composeRentReminderSms({
+          text: textUsesPayLinkToken(rawText) ? rawText : text,
+          payLink: payLink?.url ?? null,
+          canonicalOrigin: resolveEmailLinkBaseUrl(),
+        });
         const smsResult = await traceSystemNotification({
           domain: "payment_reminder",
           managerUserId: ownerManagerId,
           recipientUserId: residentUserId,
           entityId: charge.id,
           cadence: slotLabel,
-          run: () => enqueueOwnerSms({
-            managerUserId: managerId,
-            actorUserId: managerId,
-            recipientPhone: residentPhone,
-            recipientUserId: residentUserId,
-            recipientEmail: residentLower,
-            body: smsBody,
-            sendClass: "transactional",
-            purpose: "payment_reminder",
-            counterpartyRole: "resident",
+          run: () => sendResidentRentText(db, {
+            ownerUserId: ownerManagerId,
             propertyId: charge.propertyId || null,
-            dedupeKey: `${occurrence.id}:sms`,
+            phone: residentPhone,
+            body: smsBody,
+            purpose: "payment_reminder",
+            sendClass: "transactional",
+            idempotencyKey: `${occurrence.id}:sms`,
+            residentUserId,
+            residentEmail: residentLower,
           }),
           summarize: (result) => ({
             ok: result.ok,
             deliveredChannels: ["inbox", ...(emailSent ? ["email"] : []), ...(result.ok ? ["sms"] : [])],
             smsChannel: result.ok ? "outbox" : null,
-            checkoutIncluded: Boolean(checkoutUrl),
+            checkoutIncluded: Boolean(payLink),
+            payLinkKind: payLink?.kind ?? null,
           }),
         });
         if (smsResult.ok) {
@@ -264,8 +289,12 @@ export async function deliverPaymentReminder(input: {
             { onConflict: "id" },
           );
         } else {
-          const safeFailure = ["invalid_message", "invalid_dispatch_identity", "recipient_opted_out", "scoped_consent_missing", "allowance_exhausted", "runtime_env_paused", "outbox_scheduler_unready"].includes(smsResult.error);
-          await resolve("sms", smsClaim.token, safeFailure ? "failed" : "unknown", null, smsResult.error);
+          // Refusals where nothing left the building: the claim can be taken again. Anything else may have
+          // reached the provider and is held for reconciliation.
+          const reason = String(smsResult.error ?? "");
+          const safeFailure =
+            SAFE_SMS_REFUSALS.has(reason) || reason.startsWith("comms_billing_") || reason.startsWith("number_");
+          await resolve("sms", smsClaim.token, safeFailure ? "failed" : "unknown", null, reason || "sms_failed");
         }
       } else {
         await resolve("sms", smsClaim.token, "failed", null, residentPhone ? "number_missing" : "recipient_phone_missing");

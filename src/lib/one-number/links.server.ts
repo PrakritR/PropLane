@@ -117,6 +117,12 @@ export type MintPhoneBoundLinkInput = {
   now?: Date;
   /** Override the link origin (a localhost lane server). */
   origin?: string;
+  /**
+   * Default true: a newer link for the same phone + purpose + target replaces the older one. A reminder text
+   * passes false so the link in yesterday's text still works today (each has its own expiry and a payment ends
+   * them all); the per-phone mint limit still applies.
+   */
+  supersede?: boolean;
 };
 
 export class PhoneBoundLinkError extends Error {
@@ -170,18 +176,20 @@ export async function mintPhoneBoundLink(
   const policy = PHONE_BOUND_LINK_POLICY[input.purpose];
   const expires = phoneBoundLinkExpiry(input.purpose, now);
 
-  // Replace, never stack: one live link per phone + purpose + target.
-  const { error: supersedeError } = await db
-    .from("phone_bound_links")
-    .update({ revoked_at: now.toISOString() })
-    .eq("phone_key", phoneKey)
-    .eq("purpose", input.purpose)
-    .eq("target_type", targetType)
-    .eq("target_id", targetId)
-    .is("revoked_at", null)
-    .is("used_at", null);
-  if (supersedeError && !isMissingSchemaError(supersedeError)) {
-    throw new PhoneBoundLinkError("unavailable", "Could not issue the link.");
+  // Replace, never stack: one live link per phone + purpose + target (unless the caller keeps earlier ones alive).
+  if (input.supersede !== false) {
+    const { error: supersedeError } = await db
+      .from("phone_bound_links")
+      .update({ revoked_at: now.toISOString() })
+      .eq("phone_key", phoneKey)
+      .eq("purpose", input.purpose)
+      .eq("target_type", targetType)
+      .eq("target_id", targetId)
+      .is("revoked_at", null)
+      .is("used_at", null);
+    if (supersedeError && !isMissingSchemaError(supersedeError)) {
+      throw new PhoneBoundLinkError("unavailable", "Could not issue the link.");
+    }
   }
 
   const token = generatePhoneBoundToken();

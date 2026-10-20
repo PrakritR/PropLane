@@ -325,6 +325,7 @@ export async function GET(req: Request) {
       const result = await deliverPaymentReminder({
         db,
         charge: current[0]!.charge,
+        bundledCharges: current.slice(1).map((context) => context!.charge),
         managerId,
         dedupId: dedupPlan.dedupId,
         bundledDedupEntries: dedupPlan.bundledDedupEntries,

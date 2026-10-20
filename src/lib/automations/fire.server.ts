@@ -5,6 +5,7 @@ import { houseGroupReady } from "@/lib/house-groups/ready.server";
 import { postToHouseGroup } from "@/lib/house-groups/post.server";
 import type { HouseSubject, LeaseSubject } from "./moments";
 import { getAutomationPreset, type AutomationPresetId } from "./presets";
+import { sendRentDueDayLinks } from "./rent-due-links.server";
 import { sendResidentAutomationText } from "./send.server";
 import {
   claimRun,
@@ -137,7 +138,10 @@ async function deliver(
       kind: input.preset,
       idempotencyKey: `automation:${input.key}`,
     });
-    if (posted.ok) return { ok: true };
+    if (posted.ok) {
+      await sendDueDayLinks(db, input, target);
+      return { ok: true };
+    }
     if (posted.reason === "quiet_hours" || posted.reason === "rate_limited") {
       return { ok: false, retry: true, reason: posted.reason };
     }
@@ -168,8 +172,26 @@ async function deliver(
       retry = retry || result.retry;
     }
   }
-  if (sent > 0) return { ok: true };
+  if (sent > 0) {
+    await sendDueDayLinks(db, input, target);
+    return { ok: true };
+  }
   return { ok: false, retry, reason: lastReason };
+}
+
+/**
+ * The rent-due-today house text promises "check your texts for your pay link": once it is out, each resident
+ * with rent due gets their own link. Best effort, never part of whether the house text counts as sent.
+ */
+async function sendDueDayLinks(
+  db: SupabaseClient,
+  input: { preset: AutomationPresetId; key: string },
+  target: GroupTarget,
+): Promise<void> {
+  if (input.preset !== "rent_due_day") return;
+  const todayKey = input.key.split(":").pop() ?? "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(todayKey)) return;
+  await sendRentDueDayLinks(db, { house: target.house, roster: target.roster, todayKey }).catch(() => undefined);
 }
 
 export async function fireAutomation(db: SupabaseClient, request: FireRequest): Promise<FireOutcome> {

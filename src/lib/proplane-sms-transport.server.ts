@@ -140,6 +140,8 @@ export async function sendPropLaneSms(args: {
   selectedWorkLineId?: string | null;
   /** The account the text goes to when it is a PropLane user (a teammate's notice), so consent reads that profile. */
   recipientUserId?: string | null;
+  /** The house the text is about: the work number is chosen by the workspace that holds it. */
+  propertyId?: string | null;
   /** The workspace the text is about. Stamped on the outbox row; on the shared line it names the paying wallet. */
   workspaceId?: string | null;
   /** Outbound MMS media (https URLs); stored on the outbox row and sent by the dispatcher. */
@@ -244,6 +246,7 @@ export async function sendPropLaneSms(args: {
   const enqueued = await enqueueOwnerSms({
     managerUserId,
     ...(args.workspaceId?.trim() ? { workspaceId: args.workspaceId.trim() } : {}),
+    ...(args.propertyId?.trim() ? { propertyId: args.propertyId.trim() } : {}),
     ...(args.mediaUrls?.length ? { mediaUrls: args.mediaUrls } : {}),
     actorUserId: args.actorUserId?.trim() || managerUserId,
     selectedWorkLineId: args.selectedWorkLineId?.trim() || null,
@@ -326,6 +329,9 @@ export async function sendFromManagerWorkNumber(args: {
   workspaceId?: string | null;
   /** The recipient's PropLane account when they have one (a teammate, an owner, a vendor): consent reads that profile. */
   recipientUserId?: string | null;
+  /** The house the text is about, and the exact work line to send from (`manager_sms_numbers.id`), when known. */
+  propertyId?: string | null;
+  selectedWorkLineId?: string | null;
   /** Outbound MMS media (https URLs); carried on the outbox row to the provider call. */
   mediaUrls?: string[] | null;
 }): Promise<PropLaneSmsResult> {
@@ -351,6 +357,8 @@ export async function sendFromManagerWorkNumber(args: {
     suppressConversationLog: args.skipLog === true,
     ...(args.workspaceId?.trim() ? { workspaceId: args.workspaceId.trim() } : {}),
     ...(args.recipientUserId?.trim() ? { recipientUserId: args.recipientUserId.trim() } : {}),
+    ...(args.propertyId?.trim() ? { propertyId: args.propertyId.trim() } : {}),
+    ...(args.selectedWorkLineId?.trim() ? { selectedWorkLineId: args.selectedWorkLineId.trim() } : {}),
     ...(args.mediaUrls?.length ? { mediaUrls: args.mediaUrls } : {}),
     log: {
       managerUserId,
