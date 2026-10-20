@@ -166,6 +166,24 @@ export async function checkSmsConfirmationCode(
   return "ok";
 }
 
+/**
+ * Drop the stored code for a subject whose proposal is OVER (cancelled by three wrong codes, or settled).
+ *
+ * The attempt budget belongs to the proposal, and a proposal is identified by intrinsic facts (an attempt and its
+ * amount), so the SAME id can come round again - a vendor re-texting the invoice the manager never confirmed. A row
+ * left behind would hand that new proposal the spent budget of the old one and auto-decline it on the first answer.
+ */
+export async function clearSmsConfirmationCode(db: SupabaseClient, input: { kind: SmsConfirmationSubjectKind; subjectId: string }): Promise<void> {
+  const subjectId = String(input.subjectId ?? "").trim();
+  if (!subjectId) return;
+  await db
+    .from(TABLE)
+    .delete()
+    .eq("subject_kind", input.kind)
+    .eq("subject_id", subjectId)
+    .then(undefined, () => undefined);
+}
+
 const AFFIRMATIVE = new Set(["YES", "Y", "CONFIRM", "CONFIRMED", "APPROVE", "APPROVED"]);
 
 /**

@@ -12,6 +12,7 @@ vi.mock("server-only", () => ({}));
 import { createFakeDb } from "../helpers/fake-table-db";
 import {
   checkSmsConfirmationCode,
+  clearSmsConfirmationCode,
   codedConfirmationLine,
   issueSmsConfirmationCode,
   readSmsConfirmationCode,
@@ -78,7 +79,7 @@ describe("the attempt budget belongs to one proposal", () => {
     const f = db();
     // A dispatch run raises proposals in succession (a second texted invoice). Keyed on the run alone, the first
     // proposal's three wrong codes left every later one pre-exhausted - and auto-declined on the first reply.
-    const first = await issueSmsConfirmationCode(f as never, { ...invoice, proposalId: "invoice:att-1:t1" });
+    const first = await issueSmsConfirmationCode(f as never, { ...invoice, proposalId: "invoice:att-1:35000" });
     expect(await burn(f, first!)).toEqual(["wrong", "wrong", "exhausted"]);
 
     // Re-asking the SAME proposal (no proposalId) must not hand the guesser a fresh budget.
@@ -86,9 +87,24 @@ describe("the attempt budget belongs to one proposal", () => {
     expect(await checkSmsConfirmationCode(f as never, { ...invoice, code: reask! })).toBe("exhausted");
 
     // The vendor texts a new invoice: a new proposal, a new budget, and the manager can answer it.
-    const second = await issueSmsConfirmationCode(f as never, { ...invoice, proposalId: "invoice:att-1:t2" });
+    const second = await issueSmsConfirmationCode(f as never, { ...invoice, proposalId: "invoice:att-2:35000" });
     expect(f.tables.sms_confirmation_codes![0]!.attempts).toBe(0);
     expect(await checkSmsConfirmationCode(f as never, { ...invoice, code: second! })).toBe("ok");
+  });
+
+  it("the cancelled proposal's row is dropped, so the same proposal coming round again starts clean", async () => {
+    const f = db();
+    // A proposal id is built from the proposal's own facts (the attempt and the amount), so a vendor re-texting the
+    // invoice the manager never confirmed raises a proposal with the SAME id. Keeping the cancelled row would hand
+    // that one three spent guesses and auto-decline it on the first answer.
+    const proposalId = "invoice:att-1:35000";
+    const code = await issueSmsConfirmationCode(f as never, { ...invoice, proposalId });
+    expect(await burn(f, code!)).toEqual(["wrong", "wrong", "exhausted"]);
+    await clearSmsConfirmationCode(f as never, invoice);
+    expect(f.tables.sms_confirmation_codes).toEqual([]);
+
+    const again = await issueSmsConfirmationCode(f as never, { ...invoice, proposalId });
+    expect(await checkSmsConfirmationCode(f as never, { ...invoice, code: again! })).toBe("ok");
   });
 });
 

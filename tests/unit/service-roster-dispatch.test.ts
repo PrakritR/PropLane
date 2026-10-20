@@ -87,6 +87,7 @@ import { reachableVendorDirectoryIds, workspaceHasMatchingRule } from "@/lib/ven
 import { serviceOwnerForWorkspace } from "@/lib/vendor-dispatch/service-roster.server";
 import { handleManagerDispatchReply, handleVendorDispatchReply, hasLiveVendorDispatchAnswer } from "@/lib/vendor-dispatch/inbound.server";
 import { canActorApprove, exhaustRun, resolveApprovers } from "@/lib/vendor-dispatch/engine.server";
+import { sweepVendorDispatch } from "@/lib/vendor-dispatch/sweep.server";
 import { serviceRosterVendorsForTrade } from "@/lib/service/service-vendors.server";
 
 const SO = "svc-owner";
@@ -315,13 +316,16 @@ describe("the PropLane line's code on a money answer", () => {
     const created = await newRun(db);
     if (!created.ok) throw new Error("setup");
     const handle = created.run.handle;
-    // The ask the service manager received shows the code; a spoofed sender never sees this text.
-    expect(sent.team[0]!.text).toMatch(new RegExp(`Reply Y ${handle} \\d{4} or N ${handle} \\d{4}$`));
+    // The ask the service manager received shows the code; a spoofed sender never sees this text. With backups in
+    // the chain it also shows the coded PICK form, because the coded line replaces the ask's own "1-3 to pick one".
+    expect(sent.team[0]!.text).toMatch(new RegExp(`Reply Y ${handle} \\d{4}, N ${handle} \\d{4}, or 2 ${handle} \\d{4} to pick Pat Plumber$`));
     const first = codeIn(sent.team, handle);
     expect(first).toMatch(/^\d{4}$/);
 
     const bare = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `Y ${handle}`, assistantProposalOpen: async () => false });
     expect((bare as { reply?: string }).reply).toMatch(new RegExp(`#${handle} needs its code: Reply Y ${handle} \\d{4}`));
+    // The re-ask keeps the pick form too: without it the only way back is Y or N, and a bare "2" costs an attempt.
+    expect((bare as { reply?: string }).reply).toContain("to pick Pat Plumber");
     expect((db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === created.run.id)?.status).toBe("awaiting_approval");
     expect(sent.vendor).toHaveLength(0);
     // Re-asking issues a FRESH code (only the hash is stored), and the stale one no longer works.
@@ -358,6 +362,41 @@ describe("the PropLane line's code on a money answer", () => {
     expect(replies[2]).toContain("cancelled");
     expect((db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === created.run.id)?.status).toBe("declined_by_manager");
     expect(sent.vendor).toHaveLength(0);
+    // The proposal is over, so its code row goes with it: a later proposal built from the same facts (the vendor
+    // texting that invoice again) must not open pre-exhausted.
+    expect((db.__tables.sms_confirmation_codes ?? []).filter((r) => r.subject_id === created.run.id)).toEqual([]);
+  });
+
+  it("the coded pick sends the vendor the manager chose, not the first one", async () => {
+    const db = world();
+    const created = await newRun(db);
+    if (!created.ok) throw new Error("setup");
+    const handle = created.run.handle;
+    const code = codeIn(sent.team, handle);
+    const picked = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `2 ${handle} ${code}`, assistantProposalOpen: async () => false });
+    expect((picked as { reply?: string }).reply).toContain(`Approved #${handle}`);
+    expect(sent.vendor.map((entry) => entry.vendorDirectoryId)).toEqual(["svcv-pat"]);
+  });
+
+  it("the approval reminder carries the SAME proposal's code, and re-asking costs no guess", async () => {
+    const db = world();
+    const created = await newRun(db);
+    if (!created.ok) throw new Error("setup");
+    const handle = created.run.handle;
+    const first = codeIn(sent.team, handle);
+    sent.keys.clear();
+    // Sixteen minutes on, nobody has answered: the urgent schedule re-sends the ask.
+    const summary = await sweepVendorDispatch(db as never, new Date(T0.getTime() + 16 * 60_000), { turnovers: false });
+    expect(summary.reminded).toBe(1);
+    const reminder = sent.team.at(-1)!.text;
+    expect(reminder).toMatch(new RegExp(`Reply Y ${handle} \\d{4}`));
+    const reminded = codeIn(sent.team, handle);
+    expect(reminded).not.toBe(first);
+    // Same proposal: the reminder replaces the code but not the three-guess budget it is spending.
+    const row = (db.__tables.sms_confirmation_codes ?? []).find((r) => r.subject_id === created.run.id)!;
+    expect(row.proposal_id).toBe("approval:w0");
+    const approved = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `Y ${handle} ${reminded}`, assistantProposalOpen: async () => false });
+    expect((approved as { reply?: string }).reply).toContain(`Approved #${handle}`);
   });
 
   it("R and B on an exhausted chain carry the code too: they re-text vendors", async () => {
@@ -384,17 +423,29 @@ describe("the PropLane line's code on a money answer", () => {
     expect((retried as { reply?: string }).reply).toContain(`Retrying #${handle}`);
   });
 
-  it("the coded instruction names the job, and a proposal key is per proposal rather than per run", () => {
+  it("the coded instruction names the job, the pick, and a proposal built from the proposal's own facts", () => {
     expect(codedAnswerLine("dispatch_invoice", 7, "4821")).toBe("Reply Y 7 4821 or N 7 4821");
     expect(codedAnswerLine("dispatch_retry", 7, "4821")).toBe("Reply R 7 4821 or B 7 4821");
-    // An approval or an exhausted chain has one proposal per wave; a quote or an invoice is its own proposal, so a
-    // second invoice on the same run never inherits the first one's spent guess budget.
+    // One vendor has nothing to pick between; two or more carry the numbered form, by example.
+    expect(codedAnswerLine("dispatch_approval", 7, "4821", { vendorNames: ["Sam Locksmith"] })).toBe("Reply Y 7 4821 or N 7 4821");
+    expect(codedAnswerLine("dispatch_approval", 7, "4821", { vendorNames: ["Sam Locksmith", "Pacific Plumbing", "Kim Keys"] }))
+      .toBe("Reply Y 7 4821, N 7 4821, or 2 7 4821 to pick Pacific Plumbing");
+    // A name too long to spell out still says that picking by number is on the table.
+    expect(codedAnswerLine("dispatch_approval", 7, "4821", { vendorNames: ["Sam", "Pacific Northwest Plumbing, Heating and Drain Services"] }))
+      .toBe("Reply Y 7 4821, N 7 4821, or 1-2 7 4821 to pick one");
+
+    // An approval or an exhausted chain has one proposal per wave; a quote or an invoice is the attempt and the
+    // amount it asked for, so a second invoice never inherits the first one's spent guess budget - and a reminder
+    // for the proposal still OPEN can name it, which a wall-clock stamp made impossible.
     expect(dispatchProposalId({ kind: "dispatch_approval", wave: 0 })).toBe("approval:w0");
     expect(dispatchProposalId({ kind: "dispatch_retry", wave: 1 })).toBe("exhausted:w1");
-    const at = new Date("2026-10-20T20:00:00Z");
-    expect(dispatchProposalId({ kind: "dispatch_invoice", attemptId: "att-1", at })).toBe("invoice:att-1:2026-10-20T20:00:00.000Z");
-    expect(dispatchProposalId({ kind: "dispatch_invoice", attemptId: "att-1", at }))
-      .not.toBe(dispatchProposalId({ kind: "dispatch_invoice", attemptId: "att-1", at: new Date(at.getTime() + 1000) }));
+    expect(dispatchProposalId({ kind: "dispatch_invoice", attemptId: "att-1", amountCents: 35000 })).toBe("invoice:att-1:35000");
+    expect(dispatchProposalId({ kind: "dispatch_invoice", attemptId: "att-1", amountCents: 35000 }))
+      .toBe(dispatchProposalId({ kind: "dispatch_invoice", attemptId: "att-1", amountCents: 35000 }));
+    expect(dispatchProposalId({ kind: "dispatch_quote", attemptId: "att-1", amountCents: 35000 }))
+      .not.toBe(dispatchProposalId({ kind: "dispatch_invoice", attemptId: "att-1", amountCents: 35000 }));
+    expect(dispatchProposalId({ kind: "dispatch_invoice", attemptId: "att-1", amountCents: 35000 }))
+      .not.toBe(dispatchProposalId({ kind: "dispatch_invoice", attemptId: "att-2", amountCents: 35000 }));
   });
 
   it("with no signing key nothing is confirmed by text: the ask carries no code and the answer is refused", async () => {

@@ -103,19 +103,35 @@ async function sweepPortalDeclines(db: SupabaseClient, now: Date): Promise<numbe
   return moved;
 }
 
+/**
+ * The ask, re-rendered for a reminder or an escalation - carrying the SAME proposal's code.
+ *
+ * On the PropLane line the answer is refused without the code, and the code only ever travels in an ask. A reminder
+ * that dropped it told the manager to reply Y to something their Y could not answer, and the escalated teammate was
+ * sent an ask they had no code for at all. The proposal id is the open one, so re-asking costs no guess.
+ */
 async function approvalText(db: SupabaseClient, run: DispatchRunRow): Promise<string> {
   const attempts = await loadAttempts(db, run.id);
   const contacts = await loadVendorContacts(db, run.owner_user_id, attempts.map((attempt) => attempt.vendor_directory_id));
-  return composeApprovalText({
-    handle: run.handle,
-    what: String(run.details.what || "Job"),
-    houseLabel: String(run.details.houseLabel || run.details.area || "the house"),
-    room: run.details.room ?? null,
-    vendorNames: vendorNamesForApproval(attempts, contacts),
-    payCents: run.pay_cents,
-    payModel: run.details.payModel as string | undefined,
-    mode: run.mode,
-  });
+  const vendorNames = vendorNamesForApproval(attempts, contacts);
+  const { dispatchProposalId, withDispatchApprovalCode } = await import("@/lib/vendor-dispatch/approval-code.server");
+  return withDispatchApprovalCode(
+    db,
+    run,
+    "dispatch_approval",
+    composeApprovalText({
+      handle: run.handle,
+      what: String(run.details.what || "Job"),
+      houseLabel: String(run.details.houseLabel || run.details.area || "the house"),
+      room: run.details.room ?? null,
+      vendorNames,
+      payCents: run.pay_cents,
+      payModel: run.details.payModel as string | undefined,
+      mode: run.mode,
+    }),
+    dispatchProposalId({ kind: "dispatch_approval", wave: run.wave ?? 0 }),
+    vendorNames,
+  );
 }
 
 /** Resend, then escalate to the next teammate, per the urgency's schedule; expire what nobody ever answered. */
@@ -184,14 +200,21 @@ async function sweepQuoteHolds(db: SupabaseClient, now: Date): Promise<number> {
     const schedule = APPROVAL_REMINDER_MINUTES[run.urgency] ?? APPROVAL_REMINDER_MINUTES.routine;
     if (minutes(now, attempt.responded_at) < schedule.resend) continue;
     const contacts = await loadVendorContacts(db, run.owner_user_id, [attempt.vendor_directory_id]);
+    const { dispatchProposalId, withDispatchApprovalCode } = await import("@/lib/vendor-dispatch/approval-code.server");
     await notifyApprovers(db, run, {
       audience: "everyone",
-      text: composeQuoteAskText({
-        handle: run.handle,
-        vendorName: contacts.get(attempt.vendor_directory_id)?.name ?? "Vendor",
-        quoteCents: attempt.quote_cents ?? 0,
-        capCents: run.nte_cents ?? run.pay_cents,
-      }),
+      text: await withDispatchApprovalCode(
+        db,
+        run,
+        "dispatch_quote",
+        composeQuoteAskText({
+          handle: run.handle,
+          vendorName: contacts.get(attempt.vendor_directory_id)?.name ?? "Vendor",
+          quoteCents: attempt.quote_cents ?? 0,
+          capCents: run.nte_cents ?? run.pay_cents,
+        }),
+        dispatchProposalId({ kind: "dispatch_quote", attemptId: attempt.id, amountCents: attempt.quote_cents ?? 0 }),
+      ),
       key: `quote-remind-${attempt.id}`,
     });
     await db.from("vendor_dispatch_runs").update({ approval_reminded_at: now.toISOString() }).eq("id", run.id);

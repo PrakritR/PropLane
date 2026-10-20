@@ -17,7 +17,7 @@ vi.mock("@/lib/manager-apple-subscription-sync", () => ({
   reconcileManagerPurchaseWithApple: async (userId: string) => { calls.apple.push(userId); },
 }));
 
-import { reconcileManagerPlans } from "@/lib/billing/reconcile-manager-plans.server";
+import { MANAGER_PLAN_RECONCILE_RETRY_HOURS, reconcileManagerPlans } from "@/lib/billing/reconcile-manager-plans.server";
 import { createFakeDb } from "../helpers/fake-table-db";
 
 const row = (over: Record<string, unknown>) => ({ tier: "pro", stripe_subscription_id: null, apple_original_transaction_id: null, stripe_checkout_session_id: null, ...over });
@@ -84,7 +84,7 @@ describe("reconcileManagerPlans", () => {
     expect(db.tables.manager_purchases!.map((r) => r.plan_reconciled_at)).toEqual([NOW.toISOString(), NOW.toISOString(), NOW.toISOString()]);
   });
 
-  it("a row whose provider could not answer is NOT stamped, so it stays at the front", async () => {
+  it("a row whose provider could not answer backs off: stamped, with a retry-after, so the queue advances", async () => {
     const NOW = new Date("2026-10-20T08:40:00Z");
     calls.fail.add("broken-user");
     const db = createFakeDb({
@@ -94,7 +94,25 @@ describe("reconcileManagerPlans", () => {
       ],
     });
     await reconcileManagerPlans(db as never, NOW);
-    expect(db.tables.manager_purchases!.find((r) => r.id === "p-1")!.plan_reconciled_at ?? null).toBeNull();
-    expect(db.tables.manager_purchases!.find((r) => r.id === "p-2")!.plan_reconciled_at).toBe(NOW.toISOString());
+    // Left unstamped it kept its place at the head of the queue: 300 rows a provider always fails on could fill the
+    // whole budget run after run, and the tail - where an unreconciled cancellation hides - was never read.
+    const broken = db.tables.manager_purchases!.find((r) => r.id === "p-1")!;
+    expect(broken.plan_reconciled_at).toBe(NOW.toISOString());
+    expect(broken.plan_reconcile_retry_at).toBe(new Date(NOW.getTime() + MANAGER_PLAN_RECONCILE_RETRY_HOURS * 3_600_000).toISOString());
+    const fine = db.tables.manager_purchases!.find((r) => r.id === "p-2")!;
+    expect(fine.plan_reconciled_at).toBe(NOW.toISOString());
+    expect(fine.plan_reconcile_retry_at ?? null).toBeNull();
+
+    // Inside the back-off window the provider is not asked again, and a success clears it.
+    calls.stripe.length = 0;
+    await reconcileManagerPlans(db as never, new Date(NOW.getTime() + 3_600_000));
+    expect(calls.stripe).toEqual(["fine-user"]);
+    calls.fail.clear();
+    calls.stripe.length = 0;
+    const later = new Date(NOW.getTime() + (MANAGER_PLAN_RECONCILE_RETRY_HOURS + 1) * 3_600_000);
+    await reconcileManagerPlans(db as never, later);
+    expect(calls.stripe).toContain("broken-user");
+    expect(db.tables.manager_purchases!.find((r) => r.id === "p-1")!.plan_reconcile_retry_at ?? null).toBeNull();
   });
+
 });

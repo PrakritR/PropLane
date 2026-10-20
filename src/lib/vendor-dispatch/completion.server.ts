@@ -334,7 +334,7 @@ export async function recordVendorInvoice(
       run,
       "dispatch_invoice",
       composeInvoiceAskText({ handle: run.handle, vendorName: contact?.name ?? "Vendor", cents: input.amountCents }),
-      dispatchProposalId({ kind: "dispatch_invoice", attemptId: attempt.id, at: now }),
+      dispatchProposalId({ kind: "dispatch_invoice", attemptId: attempt.id, amountCents: input.amountCents }),
     ),
     key: `invoice-${attempt.id}`,
   });

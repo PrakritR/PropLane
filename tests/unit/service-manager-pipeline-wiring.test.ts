@@ -58,6 +58,11 @@ describe("service manager wiring", () => {
     // ...including R / B, which re-text vendors...
     expect(engine).toMatch(/withDispatchApprovalCode\(\s*db,\s*run,\s*"dispatch_retry"/);
     expect(inbound).toMatch(/exhausted: "dispatch_retry"/);
+    // ...and so does every RE-ask of a proposal still open, or the manager is told to reply Y to something their
+    // Y cannot answer.
+    const sweep = readFileSync("src/lib/vendor-dispatch/sweep.server.ts", "utf8");
+    expect(sweep).toMatch(/withDispatchApprovalCode\(\s*db,\s*run,\s*"dispatch_approval"/);
+    expect(sweep).toMatch(/withDispatchApprovalCode\(\s*db,\s*run,\s*"dispatch_quote"/);
     // ...and the reply is checked against it before approve / decline / invoice runs.
     expect(inbound).toMatch(/checkDispatchApprovalCode\(db, run, codedKind, presentedCode\)/);
     const gate = inbound.indexOf("checkDispatchApprovalCode");
