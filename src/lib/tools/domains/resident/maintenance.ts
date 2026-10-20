@@ -196,7 +196,7 @@ function resolvedArrival(input: ReportMaintenanceInput): string | undefined {
 export const reportMaintenanceIssueTool = defineWriteTool({
   name: "report_maintenance_issue",
   description:
-    "File a new maintenance work order for the signed-in resident (the portal's Services -> Report maintenance action). Use when the resident describes something broken or in need of repair — NOT for add-on services like parking or storage, which use create_service_request. Fill title, priority, category, arrival window, entry permission and entry notes only from what the resident actually said; to include photos the resident attached to this message, pass their positions in attachmentIndexes.",
+    "File a new maintenance work order for the signed-in resident (the portal's Services -> Report maintenance action). Use when the resident describes something broken or in need of repair, or a lockout, a lost key or a door that will not open (category Access / Locks) — NOT for add-on services like parking or storage, which use create_service_request. Fill title, priority, category, arrival window, entry permission and entry notes only from what the resident actually said; to include photos the resident attached to this message, pass their positions in attachmentIndexes.",
   inputSchema: reportMaintenanceSchema,
   preview: async (ctx: ResidentAgentContext, input) => {
     const routing = await resolveServiceRequestRouting(ctx);

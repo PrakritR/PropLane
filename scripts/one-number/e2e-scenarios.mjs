@@ -115,6 +115,7 @@ async function mainLocked(flags, { env, resolved, db }) {
   const world = new World(db, runId);
   const h = new Harness({ env, resolved, port: Number(flags.port), captureFile });
   h.world = world;
+  await world.reservePhones(40);
   h.tick = Boolean(flags.tick);
   h.runId = runId;
   h.mode = flags.mode;
