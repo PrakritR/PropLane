@@ -240,13 +240,13 @@ const ADMIN_GROUPS: NavGroupConfig[] = [
 ];
 
 // Captain #28: the resident's journey in order, Applying, then the Home they live in (`move-in` is the "My home"
-// row), the Lease and its paperwork, then Money. Stage locks and unlocks are unchanged: this only buckets the rows.
-// The "Lease" heading over the "Lease" row is the captain's exact label (#28), the one named exception to R13.
+// row), the Lease and its Paperwork, then Money. Stage locks and unlocks are unchanged: this only buckets the rows.
+// The group is headed "Paperwork", not "Lease", so no heading repeats its first row (R13).
 const RESIDENT_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard", "stays", "communication"] },
   { id: "applying", label: "Applying", sections: ["tour", "applications"] },
   { id: "my-home", label: "Home", sections: ["move-in", "services"] },
-  { id: "lease", label: "Lease", sections: ["lease", "forms", "documents"] },
+  { id: "lease", label: "Paperwork", sections: ["lease", "forms", "documents"] },
   { id: "money", label: "Money", sections: ["payments"] },
 ];
 
