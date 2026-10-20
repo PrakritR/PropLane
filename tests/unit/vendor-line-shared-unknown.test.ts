@@ -14,7 +14,7 @@ vi.mock("@/lib/service/service-catalog.server", () => ({
 }));
 vi.mock("@/lib/open-jobs-near.server", () => ({
   listOpenJobsNear: vi.fn(async () => ({
-    jobs: [{ title: "Sink", trade: "Plumbing", area: "Ravenna, Roosevelt and Wedgwood (98115)", when: "Anytime", budget: "Up to $250", distanceMiles: null }],
+    jobs: [{ title: "Sink", trade: "Plumbing", area: "Ravenna, Roosevelt and Wedgwood", when: "Anytime", budget: "Up to $250", distanceMiles: null }],
     total: 1, place: null, filteredByArea: false,
   })),
   titleWithoutAddress: (t: string) => t,
@@ -40,7 +40,7 @@ describe("an unknown number asking for work on the shared PropLane line", () => 
     const turn = await handleUnknownSenderInbound(f.db, text("hey is there any available jobs in the area to do"), deps);
     expect(lead).not.toHaveBeenCalled();
     expect(turn.reply).toContain("Hi, this is PropLane. Reply STOP to opt out.");
-    expect(turn.reply).toContain("1. Plumbing, Ravenna, Roosevelt and Wedgwood (98115), Up to $250");
+    expect(turn.reply).toContain("1. Plumbing, Ravenna, Roosevelt and Wedgwood, Up to $250");
     expect(turn.reply).toContain("https://proplane.ai/start/");
     expect(turn.reply).not.toContain(VENDOR_COPY.trade);
     expect(f.rows.sms_vendor_leads).toHaveLength(1);

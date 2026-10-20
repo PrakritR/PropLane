@@ -225,7 +225,8 @@ describe("a known vendor on the PropLane line", () => {
     expect(turn.reply).toContain("Request jobs in Find work: https://proplane.ai/vendor/work-orders/find-work");
     expect(turn.reply).not.toContain("/start/");
     expect(turn.reply).toContain("Plumbing");
-    expect(turn.reply).toContain("(98115)");
+    expect(turn.reply).toContain("Plumbing, Ravenna");
+    expect(turn.reply).not.toMatch(/\d{5}/);
     expect(turn.reply).not.toContain("Cleaning");
     expect(fake.tables.sms_vendor_leads).toHaveLength(0);
     expect(fake.tables.sms_setup_links).toHaveLength(0);
