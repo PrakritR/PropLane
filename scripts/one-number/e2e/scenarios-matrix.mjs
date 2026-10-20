@@ -233,8 +233,9 @@ MATRIX_SCENARIOS.push({
       c.check("one exact slot is offered for a final confirmation", /confirm|reply yes|\byes\b/i.test(r.all) && /9(:00)? ?(am)?/i.test(r.all), r.all);
       r = await say(ctx, T, fx.to, "yes");
       c.reply(r, "confirm");
-      c.check("the tour is confirmed", /(booked|you.?re all set|confirmed|see you|scheduled)/i.test(r.all), r.all);
-      if (!/(booked|you.?re all set|confirmed|see you|scheduled)/i.test(r.all)) {
+      const booked = /(booked|you.?re all set|confirmed|see you|scheduled)/i.test(r.all) && !/(couldn.?t|wasn.?t able|unable|not (been )?confirmed|failed|trouble)/i.test(r.all);
+      c.check("the tour is confirmed", booked, r.all);
+      if (!booked) {
         const { data: burstRows } = await db.from("prospect_sms_bursts").select("candidate_context, status").eq("counterparty_phone_e164", T).order("updated_at", { ascending: false }).limit(1);
         const facts = (burstRows?.[0]?.candidate_context ?? []).filter((f) => /prepare|confirm|slot|tour/i.test(String(f.tool)));
         c.note(`tour tool facts: ${JSON.stringify(facts).slice(0, 1800)}`);
