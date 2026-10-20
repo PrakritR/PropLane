@@ -31,6 +31,15 @@ vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({
   },
 }));
 
+/** A stay made in the portal is answered in the portal inbox + email, never by text (notice-channel.ts). */
+const inbox: Array<{ subject: string; text: string; toUserIds?: string[]; deliverViaEmail?: boolean; deliverViaSms?: boolean; suppressSms?: boolean }> = [];
+vi.mock("@/lib/portal-inbox-delivery", () => ({
+  deliverPortalInboxMessage: async (_db: unknown, input: (typeof inbox)[number]) => {
+    inbox.push(input);
+    return { ok: true };
+  },
+}));
+
 const emails: Array<{ to: string[]; subject: string; text: string }> = [];
 vi.mock("@/lib/resend-delivery.server", () => ({
   postResendEmail: async (input: { payload: { to: string[]; subject: string; text: string } }) => {
@@ -189,22 +198,20 @@ describe("the guest short-stay journey", () => {
     expect(profile(VICTIM)).toMatchObject({ email: VICTIM_EMAIL, full_name: "Dana Whitfield", application_approved: true });
   });
 
-  it("2 · the confirmation goes to the guest's own phone and address, with no live link anywhere", async () => {
-    step("2 · Delivery: the request is acknowledged by text and email");
-    const texted = sms.at(-1)!;
-    const mailed = emails.at(-1)!;
-    show("text to", texted.recipientPhone);
-    for (const line of texted.body.split("\n")) say(`     | ${line}`);
+  it("2 · the acknowledgement goes to the guest's own portal inbox and address, never by text, with no live link anywhere", async () => {
+    step("2 · Delivery: the request is acknowledged in the portal inbox and by email");
+    const notice = inbox.at(-1)!;
+    show("inbox to", notice.toUserIds);
+    show("subject", notice.subject);
+    for (const line of notice.text.split("\n")) say(`     | ${line}`);
     say();
-    show("email to", mailed.to.join(", "));
-    show("email subject", mailed.subject);
-    show("email contains token_hash?", mailed.text.includes("token_hash") ? "YES - LEAK" : "no");
+    show("texts queued for the guest", sms.length);
 
-    expect(texted.recipientPhone).toBe(GUEST_PHONE);
-    expect(texted.body).not.toContain("token_hash=");
-    expect(texted.body).not.toContain("/auth/confirm");
-    expect(mailed.to).toEqual([GUEST_EMAIL]);
-    expect(mailed.text).not.toContain("token_hash");
+    expect(notice.toUserIds).toEqual([GUEST]);
+    expect(notice).toMatchObject({ deliverViaEmail: true, deliverViaSms: false, suppressSms: true });
+    expect(sms).toEqual([]);
+    expect(notice.text).toContain("https://proplane.ai/resident/stays/upcoming");
+    expect(notice.text).not.toMatch(/token_hash|\/auth\/confirm|\/l\/|sms:/);
   });
 
   it("3 · the guest opens the link and sees their own stay; the victim sees nothing", async () => {
@@ -266,7 +273,7 @@ describe("the guest short-stay journey", () => {
     const row = blockFor("2026-10-25");
     show("new row", `${String(row.row_data.bookingStatus)} · guests ${JSON.stringify(row.row_data.stayDetails)}`);
     show("second charge", `${String(charges.at(-1)!.id)} · ${String(charges.at(-1)!.amountLabel)} · ${String(charges.at(-1)!.residentEmail)}`);
-    show("guest text", sms.at(-1)!.body.split("\n")[0]);
+    show("guest notice", inbox.at(-1)!.text.split("\n")[0]);
 
     expect(dry.ok && dry.action).toBe("confirm");
     expect(booked.ok && booked.results[0]).toMatchObject({ outcome: "confirmed", nights: 2, total: 280 });
@@ -310,7 +317,7 @@ describe("the guest short-stay journey", () => {
     show("row now", `${String(after.record_type)} · ${String(after.row_data.bookingStatus)} · ${JSON.stringify(after.row_data.stayDetails)}`);
     const guestId = String(after.row_data.residentUserId);
     show("guest's Stays row now", (await listGuestStays(db as never, { userId: guestId })).map((stay) => `${stay.checkIn} → ${stay.checkOut} · ${guestStayStatusLabel(stay, "2026-11-01")}`));
-    show("text to the guest", sms.at(-1)!.body.split("\n")[0]);
+    show("notice to the guest", inbox.at(-1)!.subject);
     say();
     say("Every assertion above is enforced by this test; a leak would fail it.");
 
