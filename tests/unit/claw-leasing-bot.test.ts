@@ -8,7 +8,7 @@ import {
   isLegacyClawSharedSmsNumber,
   managerContactSmsPhoneForPublicCta,
 } from "@/lib/claw-leasing-links";
-import { replyForIntent } from "@/lib/claw-leasing-bot.server";
+import { catalogHomeMayAnswerHint, replyForIntent } from "@/lib/claw-leasing-bot.server";
 
 describe("claw leasing intent", () => {
   it("classifies tour / apply / lease / help", () => {
@@ -234,5 +234,18 @@ describe("claw leasing intent", () => {
     expect(question).toContain("/rent/apply");
     expect(question).not.toMatch(/forwarded to the property manager/i);
     expect(question).not.toContain("/resident/payments");
+  });
+});
+
+describe("a house name in a text to one manager's number", () => {
+  it("never moves the conversation to another owner's catalog home", () => {
+    const managerIds = ["mgr-a"];
+    expect(catalogHomeMayAnswerHint({ scopedToOneManager: true, homeManagerUserId: "mgr-b", managerIds })).toBe(false);
+    expect(catalogHomeMayAnswerHint({ scopedToOneManager: true, homeManagerUserId: null, managerIds })).toBe(false);
+    expect(catalogHomeMayAnswerHint({ scopedToOneManager: true, homeManagerUserId: "mgr-a", managerIds })).toBe(true);
+  });
+
+  it("still searches the whole catalog on the old shared line, which is scoped to nobody", () => {
+    expect(catalogHomeMayAnswerHint({ scopedToOneManager: false, homeManagerUserId: "mgr-b", managerIds: [] })).toBe(true);
   });
 });

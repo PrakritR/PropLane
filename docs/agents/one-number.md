@@ -977,3 +977,34 @@ Managers/owners text about the status of their houses." Both line modes; no migr
   (identity via `resolveResidentSmsAgentContext` bound to the landlord that holds the lease). Leasing and vendor links still need the
   shared line. `start_rent_payment` stays the fallback; no hosted checkout link without the phone-bound unlock.
 - **Scenarios.** `owner-status`, `resident-prospect`, `resident-paylink` in `scripts/one-number/e2e/scenarios-smsowner.mjs`.
+
+## W24 - The SMS matrix: prospects, residents, vendors, managers on a workspace's own number (`on/smsmatrix`)
+
+Captain, Oct 19: "everyone can fully communicate via SMS ... payments, tours etc.". The scenarios are `scripts/one-number/e2e/scenarios-matrix.mjs`
+(`m-prospect`, `m-resident`, `m-vendor`, `m-manager`, `m-cross`; items 1-22 of the captain's matrix). Run one mode at a time:
+`node scripts/one-number/e2e-scenarios.mjs --mode per_workspace --only m-prospect --tick` (production's mode: each workspace's own number)
+and `--mode shared`. `MX_ITEMS=5,9` limits a run to those items. Each run ends with a table (item, PASS/FAIL, first-reply latency, the reply).
+
+- **Harness rules.** One run at a time: the harness takes `$HOME/.cockpit/slots-1018/e2e.lock` (mkdir; waits and retries every 60 s), waits for the
+  dev database to answer `profiles` in under 2 s before every scenario, gives every database call a 30 s timeout, reaps strictly one table and one
+  small batch at a time, and puts `line_mode` and the service owner back (`--check-config` restores and verifies the baseline `shadow` + the real
+  service owner). A workspace line fixture must carry the deployment's messaging service and campaign SIDs and be `attached` + `registered`, or
+  every reply is blocked `number_not_attached` / `provider_identity_mismatch`.
+- **Bugs this drove (all with unit tests).**
+  1. A house named in a text to ONE manager's number (`resolvePropertyByLabelHint`) fell back to the whole public catalog and moved the entire
+     conversation (inbound log, inbox notice, burst, reply) to the OTHER owner's account. `catalogHomeMayAnswerHint`: a scoped line only accepts its
+     own manager's homes.
+  2. Every texting resident read as the Free plan: `resident-sms-context` handed `getManagerSubscriptionTierByManagerId` the owner's USER id (it is
+     keyed by the manager code), so Services and Documents tools were hidden and no maintenance request could be filed by text. A uuid is now
+     answered from the user's own plan.
+  3. A prospect asking the application fee got "the manager will follow up": `get_listing_details` now carries `applicationFee` from the checkout's
+     own resolver. A "how do I apply" reply whose link the model typed without a lookup is redone with the home's verified links (`linkRecovery.relink`)
+     instead of losing the link.
+  4. Texts showed literal `**bold**`: `stripSmsMarkdown` at the outbox. A resident's message preview and the maintenance preview named the manager
+     with their LOGIN email; they now show a name only (`managerLabelForPreview`). "Services -> Work orders" copy is gone from a reply.
+  5. A tour booked by text (phone, no email) was never reminded: `remindableTours` accepts an email OR a phone.
+  6. The assistant's vendor list filtered trade by exact string ("plumbing" missed "Plumber"): `vendorMatchesTradeQuery`.
+  7. MMS from the e2e harness is loopback http: accepted only while the capture transport is on (`isE2eMediaUrl`); a skipped photo now logs why.
+- **Open product decisions.** A roster vendor's free-text question (address, payout) is recorded in the manager's inbox with NO automatic reply
+  (by design today); an SMS-booked tour sends the prospect no reminder text (the sweep reminds the manager); a resident's "tell my manager" needs a
+  YES; the maintenance triage asks up to four questions before filing; phone-bound links (`send_my_link`, OTP unlock) exist only in `shared` mode.

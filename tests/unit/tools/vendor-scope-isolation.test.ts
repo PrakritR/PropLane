@@ -673,7 +673,7 @@ describe("vendor write tools: happy paths write audited, scoped rows", () => {
     const input = { subject: "Question", body: "Which unit has the leak?" };
     const preview = await previewWrite(sendMessageToManagerTool, ctx, input);
     expect(preview.ok).toBe(true);
-    if (preview.ok) expect(preview.preview.fields.some((l) => l.value.includes("mgr@axis.test"))).toBe(true);
+    if (preview.ok) expect(preview.preview.fields.some((l) => l.label === "To" && !l.value.includes("@"))).toBe(true); // a name, never the manager's login email
 
     const exec = await executeWrite(sendMessageToManagerTool, ctx, input);
     expect(exec.ok).toBe(true);

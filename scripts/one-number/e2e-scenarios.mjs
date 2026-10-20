@@ -6,6 +6,8 @@
  *   npm run seed:env                                   # once per worktree
  *   node scripts/one-number/e2e-scenarios.mjs          # all scenarios, own dev server on :3010
  *   node scripts/one-number/e2e-scenarios.mjs --only a,f --port 3010 --keep
+ *   node scripts/one-number/e2e-scenarios.mjs --mode per_workspace --only m-prospect   # what production runs: each workspace's own number
+ *   node scripts/one-number/e2e-scenarios.mjs --check-config    # read line_mode + service owner; restore the dev baseline if a killed run left them changed
  *   node scripts/one-number/e2e-scenarios.mjs --reap /path/to/ledger.json [--restore-config]   # clean up a crashed run
  *
  * What it does: snapshots sms_runtime_config, flips it to `shared` with a pilot list holding only this run's
@@ -18,19 +20,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Harness, hex, loadDevEnv, createDb } from "./e2e/core.mjs";
 import { cleanup } from "./e2e/cleanup.mjs";
+import { waitHealthy, waitForOtherRuns, acquireE2eLock } from "./e2e/health.mjs";
+import { restoreBaseline, DEV_BASELINE } from "./e2e/baseline.mjs";
 import { World } from "./e2e/fixtures.mjs";
 import { SCENARIOS } from "./e2e/scenarios.mjs";
 
 function parse(argv) {
-  const flags = { port: "3010", only: null, keep: false, reap: null, sweep: false, help: false };
+  const flags = { mode: "shared", port: "3010", only: null, keep: false, reap: null, sweep: false, help: false };
   for (let i = 0; i < argv.length; i += 1) {
     const t = argv[i];
     if (t === "--keep") flags.keep = true;
     else if (t === "--help") flags.help = true;
     else if (t === "--sweep") flags.sweep = true;
+    else if (t === "--check-config") flags.checkConfig = true;
     else if (t === "--tick") flags.tick = true;
     else if (t === "--restore-config") flags.restoreConfig = true;
     else if (t === "--port") flags.port = argv[++i];
+    else if (t === "--mode") { flags.mode = argv[++i]; if (!["shared", "per_workspace"].includes(flags.mode)) throw new Error("--mode shared|per_workspace"); }
     else if (t === "--only") flags.only = argv[++i].split(",").map((s) => s.trim().toLowerCase());
     else if (t === "--reap") flags.reap = argv[++i];
     else throw new Error(`Unknown option ${t}`);
@@ -57,6 +63,24 @@ async function main() {
   console.log(`e2e: target=dev project=${resolved.ref}`);
   const db = createDb(resolved);
 
+  // The dev database and the sms_runtime_config / platform_service_settings rows are shared: one run at a time, by lock.
+  const needsLock = !flags.sweep && !(flags.reap && !flags.restoreConfig);
+  const releaseLock = needsLock ? await acquireE2eLock(console.log) : () => {};
+  process.once("SIGINT", () => { releaseLock(); });
+  process.once("SIGTERM", () => { releaseLock(); });
+  try { return await mainLocked(flags, { env, resolved, db }); } finally { releaseLock(); }
+}
+
+async function mainLocked(flags, { env, resolved, db }) {
+  // The dev database is shared and fragile: nothing below starts until it answers fast.
+  await waitHealthy(resolved, env, console.log);
+
+  if (flags.checkConfig) {
+    const state = await restoreBaseline(db, console.log);
+    console.log(`e2e: config at baseline ${JSON.stringify(state)} (expected ${JSON.stringify(DEV_BASELINE)})`);
+    return 0;
+  }
+
   if (flags.sweep) {
     // Every auth user this harness ever made carries the e2e-<run>-<label>@proplane-e2e.test address.
     const ids = [];
@@ -76,11 +100,14 @@ async function main() {
   if (flags.reap) {
     const ledger = JSON.parse(readFileSync(flags.reap, "utf8"));
     // The line config is a shared singleton (another run may be using it right now): only put it back when asked.
-    if (flags.restoreConfig) await restoreConfig(db, ledger.configSnapshot);
+    if (flags.restoreConfig) { await restoreConfig(db, ledger.configSnapshot); await restoreBaseline(db, console.log); }
     await cleanup(db, ledger.fixtures, console.log);
     return 0;
   }
 
+  await waitForOtherRuns(console.log);
+  // No other run is alive now, so a non-baseline config is a dead run's leftover (--keep, a kill): put it back before snapshotting.
+  await restoreBaseline(db, console.log);
   const runId = hex(6);
   const dir = mkdtempSync(join(tmpdir(), `one-number-e2e-${runId}-`));
   const ledgerFile = join(dir, "ledger.json");
@@ -91,6 +118,8 @@ async function main() {
   await world.reservePhones(40);
   h.tick = Boolean(flags.tick);
   h.runId = runId;
+  h.mode = flags.mode;
+  h.report = [];
 
   let cfg = null;
   let cfgError = null;
@@ -117,14 +146,15 @@ async function main() {
   process.on("SIGTERM", onSignal);
 
   try {
-    const selected = SCENARIOS.filter((s) => !flags.only || flags.only.includes(s.id));
+    const selected = SCENARIOS.filter((s) => (!flags.only || flags.only.includes(s.id)) && (s.modes ?? ["shared"]).includes(flags.mode));
+    if (!selected.length) throw new Error(`no scenario runs in mode ${flags.mode} for --only ${flags.only?.join(",") ?? "(all)"}`);
     for (const s of selected) await s.setup?.(h, world);
     writeLedger();
     // Shared line on for this run only, limited to this run's workspaces (a pilot list), and restored below.
     const pilot = world.workspaceIds;
-    const { error } = await db.from("sms_runtime_config").update({ line_mode: "shared", shared_pilot_workspace_ids: pilot, pilot_manager_user_ids: [...new Set([...(configSnapshot.pilot_manager_user_ids ?? []), ...world.ownerIds])] }).eq("singleton", true);
+    const { error } = await db.from("sms_runtime_config").update({ line_mode: flags.mode, shared_pilot_workspace_ids: flags.mode === "shared" ? pilot : (configSnapshot.shared_pilot_workspace_ids ?? []), pilot_manager_user_ids: [...new Set([...(configSnapshot.pilot_manager_user_ids ?? []), ...world.ownerIds])] }).eq("singleton", true);
     if (error) throw new Error(`cannot switch the line: ${error.message}`);
-    console.log(`e2e: line_mode=shared pilot=[${pilot.length} workspaces] number=${h.sharedNumber}`);
+    console.log(`e2e: line_mode=${flags.mode} pilot=[${flags.mode === "shared" ? pilot.length : 0} workspaces] number=${h.sharedNumber}`);
     await h.startServer();
     console.log(`e2e: dev server ready on ${h.base}; full server log ${h.logFile}`);
 
@@ -136,7 +166,7 @@ async function main() {
         note(text) { console.log(`        ${text.replace(/\n/g, "\n        ")}`); },
       };
       console.log(`\n== ${s.id.toUpperCase()}. ${s.title}`);
-      try { await s.run(ctx); } catch (error) { ctx.check("scenario ran to the end", false, error instanceof Error ? error.stack ?? error.message : String(error)); }
+      try { await waitHealthy(resolved, env, console.log); await s.run(ctx); } catch (error) { ctx.check("scenario ran to the end", false, error instanceof Error ? error.stack ?? error.message : String(error)); }
       const failed = checks.filter((c) => !c.ok);
       results.push({ id: s.id, title: s.title, passed: checks.length - failed.length, failed: failed.length, failures: failed });
       if (failed.length) exitCode = 1;
@@ -154,6 +184,11 @@ async function main() {
     }
   }
 
+  if (h.report.length) {
+    writeFileSync(join(dir, "matrix-report.json"), JSON.stringify(h.report, null, 2));
+    console.log(`\n== Matrix (${flags.mode}); full detail in ${join(dir, "matrix-report.json")}`);
+    for (const r of h.report) console.log(`${r.status.padEnd(4)}  #${String(r.item).padEnd(3)} ${r.title}  | ${r.firstMs ?? "-"} ms | ${String(r.reply ?? "").replace(/\s+/g, " ").slice(0, 160)}`);
+  }
   console.log("\n== Summary");
   for (const r of results) console.log(`${r.failed ? "FAIL" : "PASS"}  ${r.id.toUpperCase()}  ${r.title}  (${r.passed} ok, ${r.failed} failed)`);
   return exitCode;

@@ -6,6 +6,7 @@ import { sendVendorSponsoredOutbound, type VendorSponsoredOutboundResult } from 
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { VENDOR_INBOX_SCOPE, applyPortalInboxThreadScope } from "@/lib/portal-inbox-thread-scope";
 import { contentHash, linkedManagerContacts, type LinkedManagerContact } from "./load-vendor-rows";
+import { managerLabelForPreview } from "@/lib/tools/manager-label";
 
 const PAGE_SIZE = 1000;
 
@@ -126,9 +127,9 @@ export const sendMessageToManagerTool = defineWriteTool({
     return {
       kind: "send_message_to_manager",
       title: "Send message to manager",
-      summary: `Send "${input.subject.trim()}" to ${resolved.targets.map((t) => t.name).join(", ")}.`,
+      summary: `Send "${input.subject.trim()}" to ${resolved.targets.map((t) => managerLabelForPreview(t.name)).join(", ")}.`,
       fields: [
-          ...resolved.targets.map((t) => ({ label: "To", value: `${t.name} (${t.email})` })),
+          ...resolved.targets.map((t) => ({ label: "To", value: managerLabelForPreview(t.name) })),
           { label: "Subject", value: input.subject.trim() },
           { label: "Message", value: input.body.trim() },
         ],
@@ -209,6 +210,6 @@ export const sendMessageToManagerTool = defineWriteTool({
         ? "Message delivery is still pending; retry uses the same message identity."
         : "Message delivery did not complete for every manager; retry uses the same message identity.");
     }
-    return { reply: `Sent "${subject}" to ${resolved.targets.map((t) => t.name).join(", ")}.`, resultSummary: { recipientCount: resolved.targets.length, delivery: "sent" } };
+    return { reply: `Sent "${subject}" to ${resolved.targets.map((t) => managerLabelForPreview(t.name)).join(", ")}.`, resultSummary: { recipientCount: resolved.targets.length, delivery: "sent" } };
   },
 });

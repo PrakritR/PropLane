@@ -29,7 +29,9 @@ export function loadDevEnv() {
 }
 
 export function createDb(resolved) {
-  return createClient(resolved.url, resolved.key, { auth: { persistSession: false, autoRefreshToken: false } });
+  // Every database and auth call carries a 30 s timeout: a hung socket must fail the call, never freeze the run.
+  const timedFetch = (input, init = {}) => fetch(input, { ...init, signal: init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000) });
+  return createClient(resolved.url, resolved.key, { auth: { persistSession: false, autoRefreshToken: false }, global: { fetch: timedFetch } });
 }
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -161,7 +163,9 @@ export class Harness {
    */
   async text({ from, to, body, media = [], sid = newSid(), quietMs = 7000, maxMs = 120_000 }) {
     const mark = this.captureMark();
+    const t0 = Date.now();
     const res = await this.post({ from, to, body, sid, media });
+    const postMs = Date.now() - t0;
     const toKey = from.replace(/\D/g, "").slice(-10);
     const mine = () => this.captured(mark).filter((m) => String(m.to).replace(/\D/g, "").slice(-10) === toKey);
     const started = Date.now();
@@ -184,7 +188,10 @@ export class Harness {
     }
     const sent = mine();
     const replies = [...res.twiml.map((m) => m.body), ...sent.map((m) => m.body)].filter(Boolean);
-    return { ...res, sent, replies, all: replies.join("\n---\n"), media: [...res.twiml.map((m) => m.media), ...sent.flatMap((m) => m.mediaUrls ?? [])].filter(Boolean) };
+    // First-reply latency: the TwiML reply is the webhook's own answer time; a captured outbound text carries its write time.
+    const firstSentAt = sent.length ? Date.parse(sent[0].at) - t0 : null;
+    const firstMs = res.twiml.length ? postMs : firstSentAt;
+    return { ...res, postMs, firstMs, totalMs: Date.now() - t0, sent, replies, all: replies.join("\n---\n"), media: [...res.twiml.map((m) => m.media), ...sent.flatMap((m) => m.mediaUrls ?? [])].filter(Boolean) };
   }
 
   /** One scheduler tick: GET a cron route with the harness secret. Returns the parsed body (or null). */
@@ -212,6 +219,40 @@ export class Harness {
   async receiptStatus(sid) {
     const { data } = await this.db.from("sms_inbound_receipts").select("status").eq("message_sid", sid).maybeSingle();
     return data?.status ?? null;
+  }
+
+  /**
+   * A signed-in session for a fixture user, as the cookie @supabase/ssr reads: sb-<ref>-auth-token = "base64-" + base64url(session),
+   * chunked at 3180 chars (.0, .1 ...). Sets a known password first (the fixture's own is random). Returns the Cookie header value.
+   */
+  async cookieFor(user) {
+    const password = `E2e-${hex(14)}!a`;
+    const up = await this.db.auth.admin.updateUserById(user.id, { password });
+    if (up.error) throw new Error(`set password: ${up.error.message}`);
+    const anon = (this.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "").trim();
+    const res = await fetch(`${this.resolved.url}/auth/v1/token?grant_type=password`, {
+      method: "POST", headers: { apikey: anon, "content-type": "application/json" },
+      body: JSON.stringify({ email: user.email, password }), signal: AbortSignal.timeout(20_000),
+    });
+    const session = await res.json();
+    if (!session.access_token) throw new Error(`sign in ${user.email}: ${JSON.stringify(session).slice(0, 200)}`);
+    const value = "base64-" + Buffer.from(JSON.stringify(session)).toString("base64url");
+    const name = `sb-${this.resolved.ref}-auth-token`;
+    const chunks = value.match(/.{1,3180}/g) ?? [value];
+    return chunks.length === 1 ? `${name}=${value}` : chunks.map((c, i) => `${name}.${i}=${c}`).join("; ");
+  }
+
+  /** A JSON call to the dev server as a signed-in user (`cookie` from cookieFor). 20 s timeout. */
+  async api(path, { method = "GET", body, cookie, headers = {} } = {}) {
+    const res = await fetch(`${this.base}${path}`, {
+      method, redirect: "manual",
+      headers: { ...(body ? { "content-type": "application/json" } : {}), ...(cookie ? { cookie } : {}), ...headers },
+      body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(60_000),
+    });
+    const text = await res.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* not json */ }
+    return { status: res.status, json, text, location: res.headers.get("location") };
   }
 
   logMark() { return this.serverLog.join("").length; }

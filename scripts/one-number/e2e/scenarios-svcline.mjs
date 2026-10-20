@@ -11,7 +11,7 @@ import { hex, sleep } from "./core.mjs";
 
 const NOW = () => new Date().toISOString();
 
-async function relocate(db, house, { name, address, neighborhood, zip, lat, lng }) {
+export async function relocate(db, house, { name, address, neighborhood, zip, lat, lng }) {
   const { data, error } = await db.from("manager_property_records").select("property_data, row_data").eq("id", house.id).maybeSingle();
   if (error || !data) throw new Error(`relocate ${house.id}: ${error?.message ?? "missing"}`);
   const property = { ...data.property_data, address, zip, neighborhood, mapLat: lat, mapLng: lng,
