@@ -7,20 +7,27 @@ import { listMigrations } from "../../scripts/one-number/list-migrations.mjs";
 const root = join(__dirname, "..", "..");
 const runbook = readFileSync(join(root, "docs/agents/one-number-runbook.md"), "utf8");
 const COMMON = ["target", "env-file", "confirm-ref", "reason", "backup", "apply", "help"];
+// The one-number batch is every migration from this version on, not just the 20261018* day it started: a
+// prefix guard let twelve later migrations (20261019*, 20261020*) fall out of the runbook table unnoticed.
+const SINCE = "20261018000000";
+const batchOnDisk = () => listMigrations("").filter((m: { version: string }) => m.version >= SINCE);
+const batchRows = (text: string) =>
+  [...text.matchAll(/^\| (\d{14}) \|.*$/gm)].filter((m) => m[1]! >= SINCE);
 
 describe("the cutover runbook cannot rot", () => {
   it("names every one-number migration on disk (and the order is the timestamp order)", () => {
-    const onDisk = listMigrations("20261018");
+    const onDisk = batchOnDisk();
     expect(onDisk.length).toBeGreaterThan(0);
     for (const m of onDisk) expect(runbook, `${m.file} missing from the runbook`).toContain(m.version);
-    const listed = [...runbook.matchAll(/^\| (20261018\d{6}) \|/gm)].map((m) => m[1]);
+    const listed = batchRows(runbook).map((m) => m[1]!);
     expect([...listed].sort()).toEqual(listed);
     expect(new Set(listed).size).toBe(listed.length);
+    expect(listed).toEqual(onDisk.map((m: { version: string }) => m.version));
   });
 
   it("every migration the runbook names exists on disk or says which branch carries it", () => {
-    const disk = new Set(listMigrations("20261018").map((m: { version: string }) => m.version));
-    for (const line of runbook.split("\n").filter((l) => /^\| 20261018\d{6} \|/.test(l))) {
+    const disk = new Set(batchOnDisk().map((m: { version: string }) => m.version));
+    for (const line of batchRows(runbook).map((m) => m[0]!)) {
       const version = /^\| (\d+) \|/.exec(line)![1]!;
       expect(disk.has(version) || /branch/.test(line), `${version} is neither on disk nor marked as a branch`).toBe(true);
     }

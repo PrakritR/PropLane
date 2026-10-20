@@ -5,8 +5,10 @@
  *
  *   node scripts/one-number/list-migrations.mjs [--since 20261018]
  *
+ * --since is matched as a filename PREFIX, not as a floor: --since 20261018 skips 20261019* and 20261020*.
  * The runbook (docs/agents/one-number-runbook.md) lists the same files; tests/unit/one-number-migration-runbook.test.ts
- * fails when a migration exists on disk that the runbook does not name.
+ * fails when a migration from 20261018000000 on exists on disk that the runbook does not name, or when the
+ * table is out of timestamp order.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

@@ -65,11 +65,14 @@ npm run db:push                   # human, against production, after the review
 
 Production's migration ledger can disagree with the files (a merged migration that never ran; a live table
 that lacks what the list claims). Read the dry-run's pending list line by line; if it names anything older than
-`20261018*` that you did not expect, stop and reconcile before pushing. Then:
+`20261018090000` that you did not expect, stop and reconcile before pushing. Then:
 
 ```bash
-node scripts/one-number/list-migrations.mjs --since 20261018     # the files on disk, in order
+node scripts/one-number/list-migrations.mjs --since 202610     # the files on disk, in order
 ```
+
+`--since` is a filename prefix, so that call also prints the earlier October files; this batch is every version
+from `20261018090000` on, and the table below is the list it must match.
 
 The one-number migrations, in order (a file marked "branch" is not on `on/migration`'s base; it lands with its
 branch, and `db:push` applies it only once merged):
@@ -99,16 +102,16 @@ branch, and `db:push` applies it only once merged):
 | 20261018300000 | `action_event_domains_explicit` | restates `action_events_domain_check` with every domain spelled out, incl. `vendor_dispatch` |
 | 20261018310000 | `withdrawal_reserve_exists_stored_values` | `reserve_party_withdrawal` answers a reused key with the stored reservation, never the new request |
 | 20261018310100 | `phone_auth_failure_cap` | lifetime failed-code cap for phone sign-in (10 wrong codes in 24 hours locks the phone) |
-| 20261019130000 | `vendor_line_history` | two partial unique indexes on `agent_sessions` (PropLane-line vendor chat, personal-line carry-over) and `agent_sessions_directory_identity_check` restated with `vendor_line_sms`; no table (branch: `on/smsvendor`) |
-| 20261019150000 | `phone_first_accounts` | `sms_runtime_config.phone_required` (default FALSE on every row; production flips it deliberately), `phone_otp_challenges.purpose` gains `sms_signup`, `sms_signup_sessions` (sign-up by text state, service role only) (branch: `on/smssignup`) |
 | 20261019010000 | `burst_original_shared_line` | `resolve_sms_completed_receipt_original` also proves the shared PropLane line (live config, shared number, router-stamped workspace); needed before durable prospect bursts (`PROSPECT_SMS_BURSTS_ENABLED=1`) are on for the shared line (branch: `on/msge2e`) |
-| 20261019150100 | `phone_auth_failure_cap_per_purpose` | the 24-hour failed-code cap is counted per purpose (renamed from a duplicate 20261019150000 version) |
-| 20261019160000 | `phone_auth_send_budget_per_purpose` | `phone_auth_start` send budget per purpose under the phone-wide ceiling |
-| 20261019170000 | `sms_stay_offers` | the options a texter was quoted for a short stay and the one they picked (service role only, RLS on, no client grants); additive, inert until the leasing agent calls `quote_short_stays` (branch: `on/smsstay`; applied to dev only) |
-| 20261019160100 | `service_vendors_and_manager_phone` | `platform_service_settings.manager_phone_e164` / `manager_phone_verified_at`, `phone_otp_challenges.purpose` gains `service_manager` (rebuilt as the union of the live list), partial index on roster vendor rows (branch: `on/adminops`) |
 | 20261019100000 | `managed_read_only` | `managed_read_only_workspace_ids()` - a PropLane-managed client's own workspace is view-only unless she pays for a plan herself (staff keep write). Superseded by v2 and v3 below; all three land, in order, and the migration goes BEFORE the code (a missing function refuses every non-allowlisted write) |
 | 20261019120000 | `managed_read_only_v2` | restates that rule: self-paid is a `manager_purchases` row matched by `user_id` alone, tier pro/business, with a Stripe subscription id or an Apple anchor - a free-tier row written before payment no longer counts |
+| 20261019130000 | `vendor_line_history` | two partial unique indexes on `agent_sessions` (PropLane-line vendor chat, personal-line carry-over) and `agent_sessions_directory_identity_check` restated with `vendor_line_sms`; no table (branch: `on/smsvendor`) |
 | 20261019140000 | `managed_refund_gross` | a full refund of a managed capture may reverse principal PLUS the processing fee the resident added at checkout (one defaulted column, create-or-replace) |
+| 20261019150000 | `phone_first_accounts` | `sms_runtime_config.phone_required` (default FALSE on every row; production flips it deliberately), `phone_otp_challenges.purpose` gains `sms_signup`, `sms_signup_sessions` (sign-up by text state, service role only) (branch: `on/smssignup`) |
+| 20261019150100 | `phone_auth_failure_cap_per_purpose` | the 24-hour failed-code cap is counted per purpose (renamed from a duplicate 20261019150000 version) |
+| 20261019160000 | `phone_auth_send_budget_per_purpose` | `phone_auth_start` send budget per purpose under the phone-wide ceiling |
+| 20261019160100 | `service_vendors_and_manager_phone` | `platform_service_settings.manager_phone_e164` / `manager_phone_verified_at`, `phone_otp_challenges.purpose` gains `service_manager` (rebuilt as the union of the live list), partial index on roster vendor rows (branch: `on/adminops`) |
+| 20261019170000 | `sms_stay_offers` | the options a texter was quoted for a short stay and the one they picked (service role only, RLS on, no client grants); additive, inert until the leasing agent calls `quote_short_stays` (branch: `on/smsstay`; applied to dev only) |
 | 20261020100000 | `managed_read_only_v3` | the final view-only rule: admin is `profile_roles`, never the legacy `profiles.role` column |
 | 20261020100100 | `phone_required_skip_cap` | "Skip for now" on `/auth/verify-phone` is capped per account (7-day cooldown, 3 in a lifetime), because the person chooses the number whose failed send is the skip's own proof |
 | 20261020100200 | `sms_confirmation_codes` | the hashed 4-digit code a manager phone repeats to confirm a write on the PropLane line, with its attempt count (three wrong codes cancel the proposal) |
