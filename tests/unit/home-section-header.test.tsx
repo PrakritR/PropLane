@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { HomeSectionHeader } from "@/components/marketing/home-section-header";
 import { HomeJoinFree } from "@/components/marketing/home-join-free";
-import { RESIDENT_GET_STARTED_HREF, VENDOR_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
+import { MANAGER_GET_STARTED_HREF, RESIDENT_GET_STARTED_HREF, VENDOR_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 
 afterEach(cleanup);
 
@@ -43,8 +43,9 @@ describe("join free row", () => {
   it("links each role to its own preselected sign-up", () => {
     render(<HomeJoinFree />);
     const links = screen.getAllByRole("link", { name: /Sign up free/ });
-    expect(links.map((l) => l.getAttribute("href"))).toEqual([RESIDENT_GET_STARTED_HREF, VENDOR_GET_STARTED_HREF]);
+    expect(links.map((l) => l.getAttribute("href"))).toEqual([RESIDENT_GET_STARTED_HREF, VENDOR_GET_STARTED_HREF, MANAGER_GET_STARTED_HREF]);
     expect(RESIDENT_GET_STARTED_HREF).toContain("role=resident");
     expect(VENDOR_GET_STARTED_HREF).toContain("role=vendor");
+    expect(MANAGER_GET_STARTED_HREF).toContain("role=manager");
   });
 });

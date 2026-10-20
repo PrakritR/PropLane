@@ -169,7 +169,8 @@ export function HomeDemoEmbed() {
         if (!noMotion) {
           const cursor = cursorRef.current;
           if (cursor) {
-            await cursor.moveTo(el);
+            // The cursor follows the real control (re-found if a re-render replaced it) and clicks the one it is on.
+            el = await cursor.moveTo(el, () => resolveTarget(step.target, portalRef.current));
             await guard();
             if (step.do === "click") await cursor.press();
             cursor.clearHover();

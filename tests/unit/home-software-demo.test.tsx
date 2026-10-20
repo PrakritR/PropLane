@@ -47,7 +47,7 @@ const lastJump = (spy: { mock: { calls: unknown[][] } }) => [...spy.mock.calls].
 
 /** The switcher's active segment (the portal on screen). */
 const portalLabel = (_view: ReturnType<typeof render>) => screen.getAllByRole("tab").find((tab) => tab.getAttribute("aria-selected") === "true")!.textContent;
-const event = (portal: string, extra: Record<string, unknown> = {}) => ({ type: HOME_DEMO_EVENT, step: 1, done: false, typing: null, portal, phone: { label: "Jordan’s phone", items: [] }, ...extra });
+const event = (portal: string, extra: Record<string, unknown> = {}) => ({ type: HOME_DEMO_EVENT, step: 1, done: false, typing: null, portal, phone: { label: "Resident’s phone", items: [] }, ...extra });
 
 describe("homepage Software demo", () => {
   it("renders the section as #dashboard, titled Software, with no chapter bar and no pause button, and no iframe until near", () => {
@@ -77,10 +77,10 @@ describe("homepage Software demo", () => {
     const view = render(<HomeSoftwareDemoPlayer />);
     preload().emit(); viewport().emit();
     const { frame } = frameOf(view);
-    fromEmbed(frame, event("resident", { step: 3, phone: { label: "Jordan’s phone", items: [{ kind: "out", text: "Hey, any houses?" }, { kind: "listings", ids: ["prop-willow"] }] } }));
+    fromEmbed(frame, event("resident", { step: 3, phone: { label: "Resident’s phone", items: [{ kind: "out", text: "Hey, any houses?" }, { kind: "listings", ids: ["prop-willow"] }] } }));
     expect(screen.getByText("Hey, any houses?")).toBeInTheDocument();
     expect(screen.getByText("Willow Court")).toBeInTheDocument();
-    expect(screen.getAllByText("Jordan’s phone").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Resident’s phone").length).toBeGreaterThan(0);
     act(() => { window.dispatchEvent(new MessageEvent("message", { data: event("resident", { phone: { label: "x", items: [{ kind: "out", text: "Forged" }] } }), origin: "https://evil.example", source: frame.contentWindow })); });
     expect(screen.queryByText("Forged")).toBeNull();
   });

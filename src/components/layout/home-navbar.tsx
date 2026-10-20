@@ -9,6 +9,7 @@ import { ArrowRight } from "lucide-react";
 import { BOOK_DEMO_EVENT, BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import type { PublicTextingConfig } from "@/lib/marketing/public-texting";
 import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
+import { hasBrowserSessionHint } from "@/lib/auth/browser-session-hint";
 import styles from "@/components/layout/home-navbar.module.css";
 
 const HomeMobileMenu = dynamic(
@@ -21,6 +22,9 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
   const pathname = usePathname();
   const [activeSection, setActiveSection] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  // Signed out (the server's and the first paint's answer) the bar's second button is Get started, to the portal
+  // chooser; once the browser shows a session it is Portal, to sign-in (which sends a signed-in visitor on to theirs).
+  const [signedIn, setSignedIn] = useState(false);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const phone = formatPublicPhone(texting.phone);
   const configured = Boolean(phone && texting.smsHref);
@@ -110,7 +114,11 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
     };
   }, [pathname]);
 
-  // Phone (640px and below) has no Menu: the bar is brand, Book a demo and Portal. Close the sheet if the window narrows to it.
+  useEffect(() => {
+    setSignedIn(hasBrowserSessionHint());
+  }, []);
+
+  // Phone (640px and below) has no Menu: the bar is brand, Book a demo and Get started (Portal once signed in). Close the sheet if the window narrows to it.
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
     const phone = window.matchMedia("(max-width: 640px)");
@@ -170,14 +178,25 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
             >
               Book a demo
             </a>
-            <Link
-              href="/auth/sign-in"
-              prefetch={false}
-              className={styles.portal}
-              data-attr="home-nav-portal"
-            >
-              Portal <ArrowRight aria-hidden="true" size={16} />
-            </Link>
+            {signedIn ? (
+              <Link
+                href="/auth/sign-in"
+                prefetch={false}
+                className={styles.portal}
+                data-attr="home-nav-portal"
+              >
+                Portal <ArrowRight aria-hidden="true" size={16} />
+              </Link>
+            ) : (
+              <Link
+                href={GET_STARTED_HREF}
+                prefetch={false}
+                className={styles.portal}
+                data-attr="home-nav-get-started"
+              >
+                Get started <ArrowRight aria-hidden="true" size={16} />
+              </Link>
+            )}
           </div>
           <div className={styles.mobileActions}>
             <a
@@ -189,12 +208,12 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
               Book a demo
             </a>
             <Link
-              href="/auth/sign-in"
+              href={signedIn ? "/auth/sign-in" : GET_STARTED_HREF}
               prefetch={false}
               className={`${styles.portal} ${styles.phonePortal}`}
-              data-attr="home-nav-portal-phone"
+              data-attr={signedIn ? "home-nav-portal-phone" : "home-nav-get-started-phone"}
             >
-              Portal
+              {signedIn ? "Portal" : "Get started"}
             </Link>
             <button
               ref={menuTrigger}

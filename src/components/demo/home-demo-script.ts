@@ -126,9 +126,12 @@ function discoveryItems(lines: readonly DiscoveryLine[]): HomeDemoPhoneItem[] {
 
 /* ───────────── The journey ───────────── */
 
-/** Jordan's phone: the shared discovery conversation up to the booked tour, then the texts the rest of the journey adds. */
-const JORDAN_PHONE: HomeDemoScriptPhone = {
-  label: "Jordan’s phone",
+/**
+ * The resident's phone (Jordan): the shared discovery conversation up to the booked tour, then the texts the rest of
+ * the journey adds. A caption names the role, never the person (captain #30).
+ */
+const RESIDENT_PHONE: HomeDemoScriptPhone = {
+  label: "Resident’s phone",
   initial: 1,
   items: [
     ...discoveryItems(DISCOVERY_LINES.slice(0, 6)),
@@ -154,7 +157,7 @@ export const HOME_DEMO_JOURNEY: HomeDemoJourney = {
   portal: "resident",
   section: "communication",
   resident: { name: "Jordan Ellis", email: "jordan.prospect@example.com", stage: "pre_approval" },
-  phones: [JORDAN_PHONE, VENDOR_PHONE],
+  phones: [RESIDENT_PHONE, VENDOR_PHONE],
   steps: [
     /* a. A text books a tour: it shows on the resident's Tour and on the manager's Tours. */
     { do: "mark", id: "tour" },
