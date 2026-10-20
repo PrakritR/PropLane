@@ -34,6 +34,7 @@ import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
 import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import { upsertManagerSmsContact } from "@/lib/sms/manager-sms-contacts.server";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { resolveHouseRedirect } from "@/lib/one-number/house-redirect.server";
 import { getServicePublicListings } from "@/lib/service/service-catalog.server";
 
 export type UnassignedLeadTurn = {
@@ -60,6 +61,8 @@ export type LeadDeps = {
   /** Fallback answer reader. Receives text already stripped of protected clauses. */
   extract?: (input: { text: string; today: string }) => Promise<Partial<LeadProfile> | null>;
   origin?: () => string;
+  /** Reply for a text naming one home PropLane does not manage (its team's own number or public page), or null. */
+  houseRedirect?: (text: string) => Promise<string | null>;
 };
 
 type Row = Record<string, unknown>;
@@ -276,12 +279,14 @@ export async function handleUnassignedLeadInbound(
   inbound: SharedLineInbound,
   depsIn: LeadDeps = {},
 ): Promise<UnassignedLeadTurn> {
+  const listings = depsIn.listings ?? (() => getServicePublicListings(db));
   const deps: Required<LeadDeps> = {
     now: depsIn.now ?? (() => new Date()),
     // A stranger on the PropLane line is shown the homes PropLane manages and no one else's.
-    listings: depsIn.listings ?? (() => getServicePublicListings(db)),
+    listings,
     extract: depsIn.extract ?? extractLeadFieldsWithModel,
     origin: depsIn.origin ?? resolveEmailLinkBaseUrl,
+    houseRedirect: depsIn.houseRedirect ?? ((text: string) => resolveHouseRedirect(db, text, { serviceListings: listings })),
   };
   // Set as soon as a lead row is in hand, so the catch below can tell a first text from a conversation in progress.
   let known: LeadRow | null = null;
@@ -331,6 +336,13 @@ export async function handleUnassignedLeadInbound(
       void import("@/lib/service/service-manager-alerts.server")
         .then((m) => m.alertServiceManagerOfInquiry(db, { phone: inbound.phoneKey, body: inbound.body }))
         .catch(() => undefined);
+    }
+    // One specific home that PropLane does not manage: point to its team's own number (or its public page).
+    const houseRedirect = await deps.houseRedirect(inbound.body);
+    if (houseRedirect) {
+      const reply = toGsm7(first ? `${WELCOME} ${houseRedirect}` : houseRedirect);
+      await recordReply(db, lead.id, inbound.messageSid, reply, []);
+      return { leadId: lead.id, reply, assignedWorkspaceId: null };
     }
     const flow = await runFlow(lead.profile, inbound.body, first, deps);
 

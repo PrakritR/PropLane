@@ -1246,6 +1246,13 @@ export async function handleClawLeasingInbound(args: {
       .eq("recipient_phone", from);
     if (!count) return sendServiceLineReply(PROPLANE_FIRST_TEXT_REPLY);
   }
+  // A stranger asking about one specific home that PropLane does not manage: the line points to that team's own number (or the
+  // home's public page when it has none) instead of answering for it. A PropLane-managed home, or no match, falls through.
+  if (serviceLine && landlordId && text) {
+    const { resolveHouseRedirect } = await import("@/lib/one-number/house-redirect.server");
+    const redirect = await resolveHouseRedirect(createSupabaseServiceRoleClient(), text).catch(() => null);
+    if (redirect) return sendServiceLineReply(redirect);
+  }
 
   // A reschedule reply is a narrow, durable tour transition. The ordinary
   // leasing agent must never interpret YES or an alternate time after we have
