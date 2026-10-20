@@ -8,6 +8,7 @@ import { isAllowedPhoneAuthDestination, normalizeE164 } from "@/lib/phone-e164";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
 import { phoneAuthHookEnabled } from "@/lib/auth/phone-hook-flag";
 import { sendPhoneAuthCode } from "@/lib/auth/phone-otp-delivery.server";
+import { phoneCodeSignInAllowed } from "@/lib/auth/sms-proven-session.server";
 import { isAdminAccount, loadPhoneRequired, phoneSkipActive, PhoneSendFailedError } from "@/lib/auth/phone-required.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -223,6 +224,9 @@ export async function verifyPhoneChallenge(input: {
       user = await resolvePhoneUser(db, proof.phone);
     }
     if (nativeUser && nativeUser.id !== user.id) throw new Error(PHONE_AUTH_ERROR);
+    // A signed-out code sign-in opens any non-admin account; an admin signs in the ordinary way. Checked before
+    // the phone is bound so a refused admin changes nothing.
+    if (!actor && !(await phoneCodeSignInAllowed(db, user.id))) throw new Error(PHONE_AUTH_ERROR);
     const claimedUser = await db.rpc("phone_auth_claim_operation", { p_operation: operation, p_phone: proof.phone, p_user: user.id });
     if (claimedUser.error || claimedUser.data !== true) throw new Error(PHONE_AUTH_ERROR);
     const bound = await db.rpc("phone_auth_bind", {

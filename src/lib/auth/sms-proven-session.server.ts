@@ -17,6 +17,11 @@ import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
  *
  * Anything else, or any read that fails, is refused: the caller sends the person to the ordinary sign-in.
  * `src/lib/one-number/link-portal-session.server.ts` and `src/lib/one-number/signup/sign-in-link.server.ts` both ask.
+ *
+ * DOCUMENTED EXCEPTION: a signed-out phone-code sign-in (`verifyPhoneChallenge` in `phone-auth.server.ts`) is the
+ * captain's phone-first direction, so it stays open for every NON-ADMIN account (a verified one-time code is a
+ * stronger proof than an inbound text's sender id). It asks `phoneCodeSignInAllowed`, which refuses only an admin
+ * (or an unreadable account): an admin must use their normal login.
  */
 
 const PLACEHOLDER_DOMAIN = "phone.proplane.invalid";
@@ -86,4 +91,14 @@ export async function smsProvenSessionVerdict(db: SupabaseClient, userId: string
 
 export async function smsProvenSessionAllowed(db: SupabaseClient, userId: string): Promise<boolean> {
   return (await smsProvenSessionVerdict(db, userId)).ok;
+}
+
+/**
+ * Signed-out phone-code sign-in: open for every non-admin account (the documented exception above). Fails closed
+ * when the account cannot be read.
+ */
+export async function phoneCodeSignInAllowed(db: SupabaseClient, userId: string): Promise<boolean> {
+  const verdict = await smsProvenSessionVerdict(db, userId);
+  if (verdict.ok) return true;
+  return verdict.reason === "other_credential";
 }

@@ -201,6 +201,8 @@ describe("pick, YES, hold", () => {
     expect((block.row_data as { stayDetails: { holdExpiresAt: string } }).stayDetails.holdExpiresAt).toBe(new Date(NOW.getTime() + 60_000 + 24 * 3600_000).toISOString());
     // The guest was the phone that texted: login minted for that number, nothing from the call named anyone else.
     expect(ensureGuestLogin).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ phone: PHONE }));
+    // The texter never gets a sign-in link from this path: nothing asks the login helper to mint one.
+    expect((ensureGuestLogin.mock.calls[0]![1] as { mintLink?: boolean }).mintLink).toBeUndefined();
     // Hold created -> the spine hears "short_stay_requested"; the reply is the only text to the guest.
     expect(emitActionEvent.mock.calls.map((c) => (c[1] as { event: string }).event)).toEqual(["short_stay_requested"]);
     expect(enqueueOwnerSms).not.toHaveBeenCalled();
