@@ -37,7 +37,7 @@ export type WithdrawInput = {
 };
 
 export type WithdrawResult =
-  | { ok: true; withdrawalId: string; transferId: string; payoutId: string | null; payoutPending: boolean; payoutError?: string }
+  | { ok: true; withdrawalId: string; transferId: string; payoutId: string | null; payoutPending: boolean; payoutError?: string; payoutAutomatic?: true }
   | { ok: false; status: 400 | 402 | 403 | 409 | 422 | 500 | 503; error: string; code?: string };
 
 function idOf(v: string | { id: string } | null | undefined): string | null {
@@ -222,7 +222,11 @@ export async function carryOutWithdrawal(stripe: Stripe, db: SupabaseClient, w: 
 
   let payoutId: string | null = null;
   let payoutError: string | undefined;
-  try {
+  // An account on Stripe's AUTOMATIC payout schedule pays itself out: asking for a manual payout on it errors after the transfer
+  // landed. Read the schedule from the account and, when it is automatic, create no payout (the money leaves with its next one).
+  const schedule = await payoutScheduleOf(stripe, w.destinationAccountId);
+  const payoutAutomatic = schedule === "automatic";
+  if (!payoutAutomatic) try {
     const payout = await stripe.payouts.create(
       { amount: w.amountCents, currency: "usd", method: "standard", metadata: { withdrawal_id: w.withdrawalId, transfer_id: transfer.id } },
       { stripeAccount: w.destinationAccountId, idempotencyKey: `party-withdrawal-payout:${w.withdrawalId}:${w.amountCents}` },
@@ -241,7 +245,22 @@ export async function carryOutWithdrawal(stripe: Stripe, db: SupabaseClient, w: 
     await flag(db, "withdrawal_not_recorded", w.withdrawalId, { transfer: transfer.id });
     return { ok: false, status: 503, code: "VERIFYING", error: "The withdrawal is being recorded. Do not submit it again." };
   }
-  return { ok: true, withdrawalId: w.withdrawalId, transferId: transfer.id, payoutId, payoutPending: payoutId === null, ...(payoutError ? { payoutError } : {}) };
+  return {
+    ok: true, withdrawalId: w.withdrawalId, transferId: transfer.id, payoutId, payoutPending: payoutId === null,
+    ...(payoutError ? { payoutError } : {}), ...(payoutAutomatic ? { payoutAutomatic: true as const } : {}),
+  };
+}
+
+/** The connected account's payout schedule: `manual` (we create the payout), `automatic` (Stripe does), or `unknown` (read failed). */
+export async function payoutScheduleOf(stripe: Stripe, accountId: string): Promise<"manual" | "automatic" | "unknown"> {
+  try {
+    const account = await stripe.accounts.retrieve(accountId);
+    const interval = account.settings?.payouts?.schedule?.interval;
+    if (interval === "manual") return "manual";
+    return interval ? "automatic" : "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 async function flag(db: SupabaseClient, check: string, subject: string, detail: Record<string, unknown>): Promise<void> {

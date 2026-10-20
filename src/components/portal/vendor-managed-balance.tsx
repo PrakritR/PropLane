@@ -160,13 +160,13 @@ export function VendorManagedBalance({ basePath = "/vendor" }: { basePath?: stri
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amountCents, clientKey: clientKey.current }),
       });
-      const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string; payoutPending?: boolean };
+      const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string; payoutPending?: boolean; payoutAutomatic?: boolean };
       if (!res.ok) {
         setFailure({ message: body.error ?? "Could not withdraw.", code: body.code });
         return;
       }
       track("managed_balance_withdraw_submitted", { portal: "vendor", amount_cents: amountCents });
-      showToast(body.payoutPending ? "Withdrawal sent. Your bank payout is being set up." : "Withdrawal submitted.");
+      showToast(body.payoutAutomatic ? "Withdrawal sent. It is on its way with your next automatic payout." : body.payoutPending ? "Withdrawal sent. Your bank payout is being set up." : "Withdrawal submitted.");
       setWithdrawOpen(false);
       invalidateSharedGets(API);
       await load(month);

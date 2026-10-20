@@ -278,7 +278,7 @@ export function OwnerPayoutsPanel() {
       return;
     }
     setWithdrawOpen(false);
-    setNotice(r.data.payoutPending === true ? "Your bank payout is being set up" : null);
+    setNotice(r.data.payoutAutomatic === true ? "On its way with your next automatic payout" : r.data.payoutPending === true ? "Your bank payout is being set up" : null);
     reloadAll();
   };
 
