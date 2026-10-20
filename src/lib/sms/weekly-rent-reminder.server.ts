@@ -58,6 +58,8 @@ export type WeeklyRentReminderResult = {
   skippedAlreadySent: number;
   skippedNoSendNumber: number;
   skippedNoPhone: number;
+  /** Held back by quiet hours: the queued text goes out on a later run, so this is not a failure. */
+  deferred: number;
   failed: number;
   errors: Array<{ residentKey: string; error: string }>;
 };
@@ -74,6 +76,7 @@ export async function sendWeeklyRentReminders(
     skippedAlreadySent: 0,
     skippedNoSendNumber: 0,
     skippedNoPhone: 0,
+    deferred: 0,
     failed: 0,
     errors: [],
   };
@@ -182,7 +185,9 @@ export async function sendWeeklyRentReminders(
         result.sent++;
       } else {
         const reason = String(res.error ?? "unknown");
-        if (reason.includes("number_") || reason.includes("runtime") || reason.includes("provider_") || reason === "workspace_has_no_work_number") {
+        if (reason === "quiet_hours") {
+          result.deferred++;
+        } else if (reason.includes("number_") || reason.includes("runtime") || reason.includes("provider_") || reason === "workspace_has_no_work_number") {
           result.skippedNoSendNumber++;
         } else {
           result.failed++;

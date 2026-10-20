@@ -109,6 +109,13 @@ describe("sendWeeklyRentReminders — idempotent per week", () => {
     expect(sendMock).toHaveBeenCalledTimes(2);
   });
 
+  it("a quiet-hours hold is deferred, not a failure", async () => {
+    sendMock.mockClear();
+    sendMock.mockResolvedValueOnce({ ok: false as never, error: "quiet_hours" } as never);
+    const res = await sendWeeklyRentReminders(seed() as never, { now: new Date("2026-07-22T06:00:00Z") });
+    expect(res).toMatchObject({ sent: 0, deferred: 1, failed: 0 });
+  });
+
   it("skips managers whose registration is not approved (null send number)", async () => {
     sendMock.mockClear();
     sendMock.mockResolvedValueOnce({ ok: false as never, error: "number_not_active" } as never);

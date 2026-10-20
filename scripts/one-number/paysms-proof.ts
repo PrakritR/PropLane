@@ -19,6 +19,7 @@ import { restoreBaseline } from "./e2e/baseline.mjs";
 import { cleanup } from "./e2e/cleanup.mjs";
 import { World } from "./e2e/fixtures.mjs";
 
+const RealDate = Date;
 const port = Number(process.argv.includes("--port") ? process.argv[process.argv.indexOf("--port") + 1] : 3012);
 const results: Array<{ name: string; ok: boolean; detail: string }> = [];
 function check(name: string, ok: unknown, detail = "") {
@@ -66,11 +67,14 @@ async function main(): Promise<number> {
     const strangerPhone = world.phone();
     const rentChargeId = resident.charges[0]!.id;
 
-    const { data: cfg } = await db.from("sms_runtime_config").select("line_mode, shared_number_e164, shared_messaging_service_sid, shared_pilot_workspace_ids, pilot_manager_user_ids").eq("singleton", true).maybeSingle();
+    const { data: cfg } = await db.from("sms_runtime_config").select("line_mode, shared_number_e164, shared_messaging_service_sid, shared_pilot_workspace_ids, pilot_manager_user_ids, campaign_daily_segment_limit").eq("singleton", true).maybeSingle();
     if (!cfg) throw new Error("no sms_runtime_config");
     snapshot = { ...cfg };
     const { error: flipError } = await db.from("sms_runtime_config").update({
       line_mode: "shared",
+      // The shared dev project spends one daily campaign allowance (500 segments) across every lane's runs; this run
+      // raises it for its own duration and puts it back below.
+      campaign_daily_segment_limit: Math.max(Number(cfg.campaign_daily_segment_limit ?? 500), 5000),
       shared_pilot_workspace_ids: [workspaceId],
       pilot_manager_user_ids: [...new Set([...(cfg.pilot_manager_user_ids ?? []), manager.id])],
     }).eq("singleton", true);
@@ -117,7 +121,7 @@ async function main(): Promise<number> {
 
     // ---- #10: destination states --------------------------------------------------------------------------
     console.log("\n== #10  pay-link states");
-    const view = async () => (await (await fetch(`${h.base}/l/${token}`, { headers: { cookie } })).text()).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    const view = async () => (await (await fetch(`${h.base}/l/${token}`, { headers: { cookie } })).text()).replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
     const setCharge = async (patch: Record<string, unknown>, status: string) => {
       const { data } = await db.from("portal_household_charge_records").select("row_data").eq("id", rentChargeId).maybeSingle();
       await db.from("portal_household_charge_records").update({ status, row_data: { ...(data?.row_data as object), ...patch, status } }).eq("id", rentChargeId);
@@ -129,11 +133,17 @@ async function main(): Promise<number> {
     await setCharge({ balanceLabel: "$300.00", amountLabel: "$900.00" }, "partially_paid");
     const partial = await view();
     check("a part-paid charge shows the remaining balance to pay, not 'expired'", /\$300\.00/.test(partial) && !/expired/i.test(partial), partial);
-    const origPhone = `+1${keyOf(residentPhone)}`;
-    await db.from("profiles").update({ phone: `+1${keyOf(strangerPhone)}` }).eq("id", resident.id);
-    const moved = await view();
-    check("a changed verified phone refuses the old link: 'Text us for a new link'", /Text us for a new link/.test(moved), moved);
-    await db.from("profiles").update({ phone: origPhone }).eq("id", resident.id);
+    // A link texted to a number that is no longer the resident's verified phone (the account moved on): the code goes to
+    // the OLD number, and after it the page says to ask for a new link and shows nothing else.
+    const oldToken = await mintDirect(rentChargeId, strangerPhone);
+    const oldMark = h.captureMark();
+    await fetch(`${h.base}/api/l/${oldToken}/code`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "send" }) });
+    const oldCodeText = captured(oldMark).find((m: { to: string }) => keyOf(m.to) === keyOf(strangerPhone));
+    const oldCode = /\b(\d{6})\b/.exec(oldCodeText?.body ?? "")?.[1] ?? "";
+    const oldVerify = await fetch(`${h.base}/api/l/${oldToken}/code`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "verify", code: oldCode }) });
+    const oldCookie = (oldVerify.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
+    const moved = (await (await fetch(`${h.base}/l/${oldToken}`, { headers: { cookie: oldCookie } })).text()).replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    check("a link bound to a number that is no longer the resident's verified phone: 'Text us for a new link', no charge shown", /Text us for a new link/.test(moved) && !/October rent/.test(moved), moved.slice(0, 300));
     await setCharge({ balanceLabel: "$0.00" }, "paid");
     check("a paid charge reads 'Payment received'", /Payment received/.test(await view()), await view());
 
@@ -149,12 +159,46 @@ async function main(): Promise<number> {
 
     // ---- #8: reminders carry a real pay link ---------------------------------------------------------------
     console.log("\n== #8  reminders");
+    // The reminder texts are `automated`, so a night run is (rightly) held by quiet hours. Pretend it is noon Pacific for the
+    // in-process sends below only (the dev server keeps real time). The reminder-occurrence claim ledger (migration 20260913000000)
+    // is not on dev, so its two RPCs are answered here; they are not what is under proof.
+    const pacificNoon = (() => {
+      const t = new RealDate();
+      for (let i = 0; i < 48; i += 1) {
+        const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hour12: false }).format(t));
+        if (hour === 12) break;
+        t.setTime(t.getTime() - 3600_000);
+      }
+      return t.getTime();
+    })();
+    const shiftTime = (on: boolean) => {
+      if (!on) { globalThis.Date = RealDate; return; }
+      const offset = pacificNoon - RealDate.now();
+      globalThis.Date = class extends RealDate {
+        constructor(...args: unknown[]) { if (args.length === 0) super(RealDate.now() + offset); else super(...(args as [string])); }
+        static now() { return RealDate.now() + offset; }
+      } as DateConstructor;
+    };
+    const claimStub = new Proxy(db, {
+      get(target, prop) {
+        if (prop === "rpc") {
+          return (name: string, args: Record<string, unknown>) => {
+            if (name === "claim_payment_reminder_channel") return Promise.resolve({ data: [{ outcome: "claimed", token: `stub-${String(args.p_channel)}` }], error: null });
+            if (name === "resolve_payment_reminder_channel") return Promise.resolve({ data: true, error: null });
+            return (target as never as { rpc: (n: string, a: unknown) => unknown }).rpc(name, args);
+          };
+        }
+        const value = (target as never as Record<string | symbol, unknown>)[prop];
+        return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      },
+    });
     await setCharge({ balanceLabel: "$900.00" }, "pending");
     const payLinkOf = (body: string) => /(https?:\/\/\S+\/l\/[A-Za-z0-9_-]{40,})/.exec(body)?.[1] ?? "";
     const lastLine = (body: string) => body.split("\n").at(-1) ?? "";
 
     const { sendWeeklyRentReminders } = await import("../../src/lib/sms/weekly-rent-reminder.server");
     const weeklyMark = h.captureMark();
+    shiftTime(true);
     const weekly = await sendWeeklyRentReminders(db as never, { now: new Date(), managerUserId: manager.id });
     const weeklyText = toResident(weeklyMark)[0];
     check("weekly reminder: sent once", weekly.sent === 1, JSON.stringify(weekly));
@@ -172,7 +216,7 @@ async function main(): Promise<number> {
     const { data: chargeRow } = await db.from("portal_household_charge_records").select("row_data").eq("id", rentChargeId).maybeSingle();
     const dailyMark = h.captureMark();
     const daily = await deliverPaymentReminder({
-      db: db as never,
+      db: claimStub as never,
       charge: chargeRow!.row_data as never,
       managerId: manager.id,
       dedupId: `payment_reminder_paysms_${runId}`,
@@ -204,15 +248,17 @@ async function main(): Promise<number> {
     const dueText = toResident(dueMark)[0];
     check("rent-due-day: the resident gets their own pay link (the group text promised it)", due.sent === 1 && dueText && payLinkOf(dueText.body) !== "", `${JSON.stringify(due)} ${dueText?.body ?? "(no text)"}`);
 
+    shiftTime(false);
     console.log("\n== captured texts to the resident");
     for (const m of toResident()) console.log(`  [${m.at}] from ${m.from}\n${String(m.body).split("\n").map((l: string) => `      | ${l}`).join("\n")}`);
   } catch (error) {
     console.error("proof: harness error:", error instanceof Error ? error.stack : error);
     check("proof ran to the end", false, error instanceof Error ? error.message : String(error));
   } finally {
+    globalThis.Date = RealDate;
     h.stopServer();
     try {
-      if (snapshot) await db.from("sms_runtime_config").update({ line_mode: snapshot.line_mode, shared_pilot_workspace_ids: snapshot.shared_pilot_workspace_ids ?? [], pilot_manager_user_ids: snapshot.pilot_manager_user_ids ?? [] }).eq("singleton", true);
+      if (snapshot) await db.from("sms_runtime_config").update({ line_mode: snapshot.line_mode, shared_pilot_workspace_ids: snapshot.shared_pilot_workspace_ids ?? [], pilot_manager_user_ids: snapshot.pilot_manager_user_ids ?? [], campaign_daily_segment_limit: snapshot.campaign_daily_segment_limit ?? 500 }).eq("singleton", true);
       await db.from("phone_bound_links").delete().in("workspace_id", world.workspaceIds);
       await cleanup(db, ledger(), console.log);
       await restoreBaseline(db, console.log);
