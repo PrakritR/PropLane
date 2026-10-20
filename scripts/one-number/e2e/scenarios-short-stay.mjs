@@ -72,8 +72,8 @@ export const SHORT_STAY_SCENARIOS = [
         const hold = (rows ?? []).find((r) => r.row_data?.stayDetails?.source === "sms_short_stay");
         check("hold: one room_date_block from the stay core, stamped sms_short_stay", Boolean(hold), JSON.stringify(rows));
         check("hold: 24-hour holdExpiresAt, Nov 3 to 6, $360 quoted, bound to a login", Boolean(hold?.row_data?.stayDetails?.holdExpiresAt) && hold.row_data.checkIn?.endsWith("-11-03") && hold.row_data.checkOut?.endsWith("-11-06") && hold.row_data.quotedTotal === 360 && Boolean(hold.row_data.residentUserId), JSON.stringify(hold?.row_data));
-        const { data: events } = await db.from("action_events").select("event, domain").eq("entity_id", hold?.id ?? "none");
-        check("event: short_stay_requested is on the action-event bus", (events ?? []).some((e) => e.event === "short_stay_requested"), JSON.stringify(events));
+        const { data: events } = await db.from("action_events").select("event_type, domain").eq("entity_id", hold?.id ?? "none");
+        check("event: short_stay_requested is on the action-event bus", (events ?? []).some((e) => e.event_type === "short_stay_requested"), JSON.stringify(events));
 
         const again = await say(ctx, fx, phone, "YES");
         const { data: rows2 } = await db.from("portal_schedule_records").select("id, row_data").eq("property_id", fx.brooklyn.id).eq("record_type", "room_date_block");

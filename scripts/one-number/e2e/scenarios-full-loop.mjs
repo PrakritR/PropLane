@@ -398,7 +398,7 @@ export const FULL_LOOP_SCENARIOS = [
         {
           const phone = world.phone();
           const jobs = await say("unknown vendor", phone, fx.line, "any jobs near Ballard?");
-          check("managed (d): jobs near Ballard are listed", /1\. Plumbing/.test(jobs.all) && /98107/.test(jobs.all), jobs.all);
+          check("managed (d): jobs near Ballard are listed", /1\. Plumbing, Ballard/.test(jobs.all), jobs.all);
           check("managed (d): one vendor sign-up link, no street, no resident", (jobs.all.match(/\/start\//g) ?? []).length === 1 && !/22nd Ave|SECRET/i.test(jobs.all), jobs.all);
           const lead = (await db.from("sms_vendor_leads").select("status").eq("phone_key", last10(phone))).data ?? [];
           check("managed (d): one pending vendor lead", lead.length === 1 && lead[0].status === "pending", JSON.stringify(lead));
