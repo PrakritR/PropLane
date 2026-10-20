@@ -90,9 +90,34 @@ async function phoneLockState(db: SupabaseClient, hash: string, now: Date): Prom
   return ((data ?? []) as unknown[]).length >= SMS_CONFIRMATION_PHONE_FAILURE_CAP ? "locked" : null;
 }
 
-async function recordPhoneFailure(db: SupabaseClient, hash: string | null, now: Date): Promise<void> {
-  if (!hash) return;
-  await db.from(FAILURES_TABLE).insert({ phone_hash: hash, failed_at: now.toISOString() }).then(undefined, () => undefined);
+/**
+ * Reserve one guess against the phone's budget, ATOMICALLY: `sms_confirmation_phone_reserve` counts the recent failures
+ * and inserts this guess's row in one transaction under a per-phone advisory lock, so parallel guesses cannot all read
+ * "under the cap" before any of them is recorded. The row is kept when the code is wrong and released when it is right.
+ * Any error is `unavailable` (fail closed): a guess whose record could not be written is never compared.
+ */
+async function reservePhoneGuess(
+  db: SupabaseClient,
+  hash: string,
+  now: Date,
+): Promise<{ state: "reserved"; failureId: string | null } | { state: "locked" | "unavailable" }> {
+  const { data, error } = await db.rpc("sms_confirmation_phone_reserve", {
+    p_phone_hash: hash,
+    p_cap: SMS_CONFIRMATION_PHONE_FAILURE_CAP,
+    p_window_seconds: Math.floor(SMS_CONFIRMATION_PHONE_WINDOW_MS / 1000),
+    p_now: now.toISOString(),
+  });
+  if (error) return { state: "unavailable" };
+  const row = (Array.isArray(data) ? data[0] : data) as { locked?: unknown; failure_id?: unknown } | null | undefined;
+  if (!row || typeof row.locked !== "boolean") return { state: "unavailable" };
+  if (row.locked) return { state: "locked" };
+  return { state: "reserved", failureId: typeof row.failure_id === "string" ? row.failure_id : null };
+}
+
+async function releasePhoneGuess(db: SupabaseClient, failureId: string | null): Promise<void> {
+  if (!failureId) return;
+  // Best effort and fail-safe: a row that stays only makes the phone's budget stricter.
+  await db.from(FAILURES_TABLE).delete().eq("id", failureId).then(undefined, () => undefined);
 }
 
 function safeEqualHex(a: string, b: string): boolean {
@@ -155,7 +180,8 @@ export async function issueSmsConfirmationCode(
  *
  *   `locked`     (only when a `phone` is passed) that number has missed ten codes in 24 hours: refuse and point to the portal
  *
- * The attempt is counted by compare-and-set BEFORE the comparison, so concurrent guesses cannot slip past the cap.
+ * The attempt is counted by compare-and-set BEFORE the comparison, so concurrent guesses cannot slip past the cap; the
+ * per-phone guess is reserved atomically (check + increment in one SQL statement) at the same point.
  */
 export async function checkSmsConfirmationCode(
   db: SupabaseClient,
@@ -199,12 +225,21 @@ export async function checkSmsConfirmationCode(
   if (countError) return "unavailable";
   if (!counted || (counted as unknown[]).length === 0) return "wrong";
 
+  // The phone's guess is reserved (counted) BEFORE the comparison, in one atomic statement, so a burst of parallel guesses
+  // cannot slip past the cap and a failed write cannot leave a guess unrecorded.
+  let reservedFailureId: string | null = null;
+  if (failureKey) {
+    const reserved = await reservePhoneGuess(db, failureKey, now);
+    if (reserved.state !== "reserved") return reserved.state;
+    reservedFailureId = reserved.failureId;
+  }
+
   const expected = String(row.code_hash ?? "");
   const presentedHash = /^\d{4}$/.test(presented) ? hashCode({ kind: input.kind, subjectId }, presented) : null;
   if (!presentedHash || !expected || !safeEqualHex(presentedHash, expected)) {
-    await recordPhoneFailure(db, failureKey, now);
     return attempts + 1 >= SMS_CONFIRMATION_CODE_MAX_ATTEMPTS ? "exhausted" : "wrong";
   }
+  await releasePhoneGuess(db, reservedFailureId);
   await db
     .from(TABLE)
     .update({ consumed_at: now.toISOString(), updated_at: now.toISOString() })

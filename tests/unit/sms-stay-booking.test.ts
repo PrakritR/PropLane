@@ -58,6 +58,7 @@ import { prepareShortStayTool, quoteShortStaysTool, requestShortStayTool } from 
 import { leasingSendPaymentLinkTool } from "@/lib/tools/domains/payment-link-sms";
 import { resolveStayPricing } from "@/lib/room-pricing";
 import { GUEST, OWNER, PROPERTY, completedStay, seedShortStayDb } from "../helpers/short-stay-seed";
+import { withSmsConfirmationReserveRpc } from "../helpers/sms-confirmation-rpc";
 
 const NOW = new Date("2026-10-14T20:00:00Z");
 const PHONE = "+12065550142";
@@ -67,7 +68,7 @@ const option = (over: Record<string, unknown> = {}) => ({
 });
 
 function seeded(opts: Parameters<typeof seedShortStayDb>[0] = {}) {
-  const db = seedShortStayDb(opts);
+  const db = withSmsConfirmationReserveRpc(seedShortStayDb(opts));
   db.tables.portal_workspaces = [{ id: "ws-1", owner_user_id: OWNER, is_default: true, is_service: true }];
   db.tables.profile_roles = [{ user_id: GUEST, role: "resident" }];
   db.tables.sms_confirmation_codes = [];

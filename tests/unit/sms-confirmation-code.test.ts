@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import { createFakeDb } from "../helpers/fake-table-db";
+import { withSmsConfirmationReserveRpc as withReserveRpc } from "../helpers/sms-confirmation-rpc";
 import {
   checkSmsConfirmationCode,
   clearSmsConfirmationCode,
@@ -25,7 +26,7 @@ import {
 
 const subject = { kind: "pending_action" as const, subjectId: "action-1" };
 const other = { kind: "pending_action" as const, subjectId: "action-2" };
-const db = () => createFakeDb({ sms_confirmation_codes: [] });
+const db = () => withReserveRpc(createFakeDb({ sms_confirmation_codes: [] }));
 
 beforeEach(() => {
   vi.stubEnv("PHONE_OTP_HMAC_SECRET", "");
@@ -231,6 +232,37 @@ describe("a per-phone budget across proposals", () => {
     expect(JSON.stringify(row)).not.toContain("2065550142");
     expect(String(row.phone_hash)).toMatch(/^[0-9a-f]{64}$/);
     expect(f.tables.sms_confirmation_failures).toHaveLength(1);
+  });
+
+  it("the cap holds under a parallel burst: the check and the increment are one statement, so only ten guesses are ever recorded", async () => {
+    const f = db();
+    const subjects = Array.from({ length: 16 }, (_, i) => `burst-${i}`);
+    for (const subjectId of subjects) await issueSmsConfirmationCode(f as never, { kind: "pending_action", subjectId });
+    const results = await Promise.all(subjects.map((subjectId) => checkSmsConfirmationCode(f as never, { kind: "pending_action", subjectId, code: "9999", phone: PHONE })));
+    // Whatever the code was, no more than the cap's worth of guesses were compared and recorded.
+    expect(f.tables.sms_confirmation_failures!.length).toBeLessThanOrEqual(SMS_CONFIRMATION_PHONE_FAILURE_CAP);
+    expect(results.filter((r) => r === "locked").length).toBeGreaterThanOrEqual(subjects.length - SMS_CONFIRMATION_PHONE_FAILURE_CAP);
+  });
+
+  it("reserves through the RPC before comparing, and a right code releases its reservation", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const f = withReserveRpc(createFakeDb({ sms_confirmation_codes: [] }), calls);
+    const code = (await issueSmsConfirmationCode(f as never, subject))!;
+    expect(await checkSmsConfirmationCode(f as never, { ...subject, code, phone: PHONE })).toBe("ok");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ name: "sms_confirmation_phone_reserve", p_cap: SMS_CONFIRMATION_PHONE_FAILURE_CAP, p_window_seconds: 86_400 });
+    expect(f.tables.sms_confirmation_failures ?? []).toHaveLength(0);
+  });
+
+  it("fails closed when the guess cannot be recorded: unavailable, and the right code is not consumed", async () => {
+    const f = db();
+    const code = (await issueSmsConfirmationCode(f as never, subject))!;
+    (f as { rpc: unknown }).rpc = async () => ({ data: null, error: { message: "down" } });
+    expect(await checkSmsConfirmationCode(f as never, { ...subject, code, phone: PHONE })).toBe("unavailable");
+    expect(f.tables.sms_confirmation_codes![0]!.consumed_at).toBeNull();
+    (f as { rpc: unknown }).rpc = async () => ({ data: [], error: null });
+    expect(await checkSmsConfirmationCode(f as never, { ...subject, code, phone: PHONE })).toBe("unavailable");
+    expect(f.tables.sms_confirmation_codes![0]!.consumed_at).toBeNull();
   });
 
   it("an unreadable failure count refuses (fail closed), never confirms", async () => {
