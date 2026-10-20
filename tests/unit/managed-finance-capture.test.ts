@@ -21,12 +21,23 @@ const comp = (id: string, kind: string, principal: number, over: Partial<Managed
 });
 
 type Call = Record<string, unknown>;
-function db(opts: { totals?: Array<{ cum_base: number; monthly_fee: number }>; results?: Array<Call>; prior?: string[] } = {}) {
+type PriorAllocation = { email?: string; leasingCents?: number; feeCents?: number; policyId?: string };
+
+function db(opts: { totals?: Array<{ cum_base: number; monthly_fee: number }>; results?: Array<Call>; prior?: Array<string | PriorAllocation> } = {}) {
   const totals = [...(opts.totals ?? [{ cum_base: 0, monthly_fee: 0 }])];
   const results = [...(opts.results ?? [{ status: "created", journal_id: "j1" }])];
   const calls: Call[] = [];
   const f = fakeOwnerDb(
-    { managed_rent_allocations: (opts.prior ?? []).map((email) => ({ policy_id: "pol-1", resident_email: email, leasing_cents: 100 })) },
+    {
+      managed_rent_allocations: (opts.prior ?? []).map((raw) => {
+        const a: PriorAllocation = typeof raw === "string" ? { email: raw } : raw;
+        return {
+          policy_id: a.policyId ?? "pol-1", workspace_id: "ws-1", month_key: "2026-10", fee_applies: true,
+          resident_email: a.email ?? "r@x.test", leasing_cents: a.leasingCents ?? 100,
+          fee_cents: a.feeCents ?? 0, refunded_fee_cents: 0,
+        };
+      }),
+    },
     {
       rpc: {
         managed_month_totals: () => [totals.length > 1 ? totals.shift() : totals[0]],
@@ -111,6 +122,30 @@ describe("creditManagedCapture", () => {
     await creditManagedCapture(again.f.db, stripe, { policy: p, paymentIntentId: "pi_10", stripeChargeId: "ch_10", grossCents: 100_000, components: [comp("a", "first_month_rent", 100_000)] });
     expect((again.calls[0]!.p_rows as Array<Record<string, number>>)[0]!.leasing_cents).toBe(0);
   });
+  // Review fix, Oct 20: the month's accounting is per policy VERSION, which is what keeps a rate change off rent
+  // already collected - but the leasing fee and the monthly minimum are the WORKSPACE's, so an admin changing the
+  // rate mid-month must not charge either of them a second time under the new version.
+  it("a rate change does not let the same resident be charged a second leasing fee", async () => {
+    const p = { ...policy({ leasingFeeBps: 5000 }), id: "pol-2" };
+    const { f, calls } = db({ prior: [{ email: "r@x.test", policyId: "pol-1", leasingCents: 25_000 }] });
+    await creditManagedCapture(f.db, stripe, { policy: p, paymentIntentId: "pi_11", stripeChargeId: "ch_11", grossCents: 100_000, components: [comp("a", "first_month_rent", 100_000)] });
+    expect((calls[0]!.p_rows as Array<Record<string, number>>)[0]!.leasing_cents).toBe(0);
+  });
+
+  it("a rate change does not charge the monthly minimum a second time", async () => {
+    const p = { ...policy({ minFeeCents: 50_000 }), id: "pol-2" };
+    // The version this one replaced already took $500 of minimum this month, on its own cumulative base.
+    const { f, calls } = db({ prior: [{ policyId: "pol-1", leasingCents: 0, feeCents: 50_000 }] });
+    await creditManagedCapture(f.db, stripe, { policy: p, paymentIntentId: "pi_12", stripeChargeId: "ch_12", grossCents: 100_000, components: [comp("a", "rent", 100_000)] });
+    // 10% of this version's own base, not the $500 floor all over again.
+    expect((calls[0]!.p_rows as Array<Record<string, number>>)[0]!.fee_cents).toBe(10_000);
+
+    // With nothing taken earlier this month the floor still applies in full.
+    const fresh = db();
+    await creditManagedCapture(fresh.f.db, stripe, { policy: p, paymentIntentId: "pi_13", stripeChargeId: "ch_13", grossCents: 100_000, components: [comp("a", "rent", 100_000)] });
+    expect((fresh.calls[0]!.p_rows as Array<Record<string, number>>)[0]!.fee_cents).toBe(50_000);
+  });
+
   it("refuses a policy that is not accepted, and a charge that differs from the PaymentIntent", async () => {
     const { f } = db();
     await expect(creditManagedCapture(f.db, stripe, { policy: { ...policy(), status: "draft", signedAt: null }, paymentIntentId: "pi", stripeChargeId: "ch", grossCents: 100, components: [comp("c1", "rent", 100)] }))

@@ -40,8 +40,6 @@ export type PolicyRow = {
   sentAt: string | null;
   signedAt: string | null;
   acceptedVia: "owner_signature" | "admin_attested" | null;
-  /** Free text on the row: on a DRAFT it is the source marker that says which path authored it. */
-  attestationNote: string | null;
   termsSha256: string | null;
   createdAt: string;
 };
@@ -55,7 +53,7 @@ export class PolicyError extends Error {
 export type AdminActor = { role: "admin"; userId: string };
 
 export const POLICY_COLUMNS =
-  "id, workspace_id, owner_user_id, status, owner_share_bps, applies_to, leasing_fee_bps, min_fee_cents, reserve_target_cents, repair_approval_threshold_cents, effective_from, ends_on, sent_at, signed_at, accepted_via, attestation_note, terms_sha256, created_at";
+  "id, workspace_id, owner_user_id, status, owner_share_bps, applies_to, leasing_fee_bps, min_fee_cents, reserve_target_cents, repair_approval_threshold_cents, effective_from, ends_on, sent_at, signed_at, accepted_via, terms_sha256, created_at";
 
 type Row = Record<string, unknown>;
 const str = (v: unknown): string => (typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim());
@@ -83,7 +81,6 @@ export function mapPolicyRow(raw: Row): PolicyRow {
     sentAt: str(raw.sent_at) || null,
     signedAt: str(raw.signed_at) || null,
     acceptedVia: (str(raw.accepted_via) || null) as PolicyRow["acceptedVia"],
-    attestationNote: str(raw.attestation_note) || null,
     termsSha256: str(raw.terms_sha256) || null,
     createdAt: str(raw.created_at),
   };
@@ -101,29 +98,30 @@ export async function loadPolicy(db: SupabaseClient, id: string): Promise<Policy
 /**
  * The accepted policy that makes a workspace PropLane-managed, read fresh from the database. A pure read: a fee version
  * is activated by an admin's own action (Admin > Service, Admin > Managed finance) or by `ensureServiceFeePolicy` when a
- * service workspace has no policy at all, never as a side effect of settling a payment. A schema that is not there yet
- * (code runs before the migration) is "not managed". A READ that fails is an error, never "not managed": crediting a
- * managed workspace's rent to a manager hold by mistake is the one outcome this feature must not allow.
+ * service workspace has no policy at all, never as a side effect of settling a payment.
+ *
+ * With `onDate` the answer is the version IN FORCE THAT DAY - `effective_from <= onDate` and the version had not ended
+ * yet - which is an ENDED row once a newer version has replaced it. A payment in flight across a rate change (an ACH
+ * debit is days old by the time it settles) therefore settles on the split it was taken under, instead of answering
+ * "not managed" and falling through to a manager hold. A schema that is not there yet (code runs before the migration)
+ * is "not managed". A READ that fails is an error, never "not managed": crediting a managed workspace's rent to a
+ * manager hold by mistake is the one outcome this feature must not allow.
  */
 export async function loadActivePolicyForWorkspace(db: SupabaseClient, workspaceId: string, onDate?: string): Promise<PolicyRow | null> {
   const id = workspaceId.trim();
   if (!id) return null;
-  const { data, error } = await db
-    .from("managed_workspace_fee_policies")
-    .select(POLICY_COLUMNS)
-    .eq("workspace_id", id)
-    .eq("status", "active")
-    .not("signed_at", "is", null)
-    .limit(1)
-    .maybeSingle();
+  const base = db.from("managed_workspace_fee_policies").select(POLICY_COLUMNS).eq("workspace_id", id).not("signed_at", "is", null);
+  const { data, error } = onDate
+    ? await base.in("status", ["active", "ended"]).lte("effective_from", onDate).order("effective_from", { ascending: false }).limit(20)
+    : await base.eq("status", "active").limit(1);
   if (error) {
     if (isMissingSchemaError(error)) return null;
     throw new PolicyError(500, "Could not read the workspace fee policy.");
   }
-  if (!data) return null;
-  const row = mapPolicyRow(data as Row);
-  if (onDate && row.effectiveFrom > onDate) return null;
-  return row;
+  const rows = ((data ?? []) as Row[]).map(mapPolicyRow);
+  if (!onDate) return rows[0] ?? null;
+  // `ends_on` is the day the NEXT version started, so the window it covers is [effective_from, ends_on).
+  return rows.find((r) => !r.endsOn || r.endsOn > onDate) ?? null;
 }
 
 export async function listPoliciesForWorkspace(db: SupabaseClient, workspaceId: string): Promise<PolicyRow[]> {
@@ -221,23 +219,19 @@ export async function assertOwnerOfRecordAllowed(db: SupabaseClient, workspaceId
   if (!(await isWorkspaceMember(db, workspaceId, ownerUserId))) throw new PolicyError(422, "Add the owner to the workspace team first.");
 }
 
-/**
- * A start date a policy may carry. A fee VERSION is scheduled for the 1st of a later Pacific month (a rate must never
- * reach rent already collected), so `allowFutureStart` is how that path says so; every hand-authored draft still starts
- * on or before today, because it is activated the moment it is accepted.
- */
-function validateEffective(effectiveFrom: string, now: Date, allowFutureStart = false): void {
+/** A policy starts on or before today: it is activated the moment it is accepted, and never dated ahead. */
+function validateEffective(effectiveFrom: string, now: Date): void {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom)) throw new PolicyError(400, "Choose a start date.");
-  if (!allowFutureStart && effectiveFrom > pacificDayKey(now)) {
+  if (effectiveFrom > pacificDayKey(now)) {
     throw new PolicyError(400, "The start date cannot be in the future. A policy starts when it is accepted.");
   }
 }
 
-export type DraftOptions = {
-  allowFutureStart?: boolean;
-  /** Written to `attestation_note`: which path authored this draft, so only that path may edit or cancel it. */
-  note?: string | null;
-};
+/**
+ * `alongsideOpenDraft` is the automatic fee's doorway past the one-draft rule: a service workspace with no policy in
+ * force must get its rate NOW (its residents cannot pay without one), and the admin's own draft is left where it is.
+ */
+export type DraftOptions = { alongsideOpenDraft?: boolean };
 
 export async function createDraftPolicy(
   db: SupabaseClient,
@@ -249,14 +243,16 @@ export async function createDraftPolicy(
   const input = { ...rawInput, ownerUserId: rawInput.ownerUserId.trim(), workspaceId: rawInput.workspaceId.trim() };
   const problem = validateManagedFeeTerms(input.terms);
   if (problem) throw new PolicyError(400, problem);
-  validateEffective(input.effectiveFrom, now, opts.allowFutureStart);
+  validateEffective(input.effectiveFrom, now);
   const workspaceOwner = await loadWorkspaceOwnerId(db, input.workspaceId);
   if (!workspaceOwner) throw new PolicyError(404, "Workspace not found.");
   // PropLane's own account is never the owner of record (it would pay PropLane its own owner share); a client who owns an
   // attached workspace is.
   await assertOwnerOfRecordAllowed(db, input.workspaceId, input.ownerUserId, workspaceOwner);
-  const open = (await listPoliciesForWorkspace(db, input.workspaceId)).find((p) => p.status === "draft");
-  if (open) throw new PolicyError(409, "This workspace already has a draft fee policy. Edit or end it.");
+  if (!opts.alongsideOpenDraft) {
+    const open = (await listPoliciesForWorkspace(db, input.workspaceId)).find((p) => p.status === "draft");
+    if (open) throw new PolicyError(409, "This workspace already has a draft fee policy. Edit or end it.");
+  }
   const { data, error } = await db
     .from("managed_workspace_fee_policies")
     .insert({
@@ -270,7 +266,6 @@ export async function createDraftPolicy(
       reserve_target_cents: input.terms.reserveTargetCents,
       repair_approval_threshold_cents: input.terms.repairApprovalThresholdCents,
       effective_from: input.effectiveFrom,
-      ...(opts.note === undefined ? {} : { attestation_note: opts.note }),
     })
     .select(POLICY_COLUMNS)
     .single();
@@ -284,7 +279,6 @@ export async function updateDraftPolicy(
   id: string,
   patch: Partial<Pick<PolicyInput, "terms" | "effectiveFrom" | "ownerUserId">>,
   now: Date = new Date(),
-  opts: DraftOptions = {},
 ): Promise<PolicyRow> {
   const current = await loadPolicy(db, id);
   if (!current) throw new PolicyError(404, "Fee policy not found.");
@@ -294,7 +288,7 @@ export async function updateDraftPolicy(
   const effectiveFrom = patch.effectiveFrom ?? current.effectiveFrom;
   const problem = validateManagedFeeTerms(terms);
   if (problem) throw new PolicyError(400, problem);
-  validateEffective(effectiveFrom, now, opts.allowFutureStart);
+  validateEffective(effectiveFrom, now);
   if (ownerUserId !== current.ownerUserId) {
     await assertOwnerOfRecordAllowed(db, current.workspaceId, ownerUserId, await loadWorkspaceOwnerId(db, current.workspaceId));
   }
@@ -309,7 +303,6 @@ export async function updateDraftPolicy(
       reserve_target_cents: terms.reserveTargetCents,
       repair_approval_threshold_cents: terms.repairApprovalThresholdCents,
       effective_from: effectiveFrom,
-      ...(opts.note === undefined ? {} : { attestation_note: opts.note }),
       // Nothing is ever sent for signature any more; an edit clears a legacy row's stamp so no state reads as "waiting".
       sent_at: null,
       updated_at: now.toISOString(),
@@ -467,6 +460,8 @@ export type FeeActor = AdminActor | { role: "system" };
 /** Why the automatic fee could not be put in place. Carried to the admin attention item and the log, never collapsed. */
 export type EnsureFeeFailure = FeeFlagCause;
 
+/** Draft the terms, activate them, and never leave a stray draft behind if the activation refuses. */
+
 export type EnsureServiceFeePolicyResult =
   | { status: "exists"; policy: PolicyRow }
   | { status: "created"; policy: PolicyRow }
@@ -531,7 +526,10 @@ function adminOf(actor: FeeActor): AdminActor {
   return { role: "admin", userId: actor.role === "admin" ? actor.userId : "system" };
 }
 
-/** Draft the terms and activate them in one step. `activate_managed_policy` ends the previous version atomically. */
+/**
+ * Draft the terms and activate them in one step. `activate_managed_policy` ends the previous version atomically, and a
+ * refused activation takes its own draft back out rather than leaving one lying next to an admin's.
+ */
 async function activateNewVersion(
   db: SupabaseClient,
   actor: FeeActor,
@@ -539,27 +537,33 @@ async function activateNewVersion(
   note: string,
   now: Date,
 ): Promise<PolicyRow> {
+  const admin = adminOf(actor);
   const draft = await createDraftPolicy(
     db,
-    adminOf(actor),
+    admin,
     { workspaceId: input.workspaceId, ownerUserId: input.ownerUserId, terms: input.terms, effectiveFrom: pacificDayKey(now) },
     now,
-    { note },
+    { alongsideOpenDraft: true },
   );
-  return activate(db, draft, "admin_attested", actor.role === "admin" ? "admin" : "system", note);
+  try {
+    return await activate(db, draft, "admin_attested", actor.role === "admin" ? "admin" : "system", note);
+  } catch (e) {
+    await endPolicy(db, admin, draft.id, now).catch(() => undefined);
+    throw e;
+  }
 }
 
 /**
  * Every PropLane Service workspace has a management fee that applies on its own. Idempotent, and it never touches an
- * admin's work:
- *   * a policy in force -> left exactly as it is;
- *   * no policy in force but a DRAFT -> nothing is activated and nothing is created. A draft holds terms a human is
- *     still deciding (a leasing fee, a minimum, a reserve); it is recorded or ended in Admin > Managed finance. The
- *     attention item says exactly that, so an admin can see why the workspace's rent is paused;
- *   * neither -> the default (PropLane keeps 10% of rent) is created and activated, admin-attested, no signature.
+ * admin's work: a policy in force is left exactly as it is, and with none in force the default (PropLane keeps 10% of
+ * rent) is created and activated, admin-attested, no signature. A draft open in Admin > Managed finance does NOT hold
+ * rent up - rent must flow - so the default is activated beside it and the draft is left exactly where it is; recording
+ * that draft later ends the default through the ordinary activation path.
+ *
  * The owner of record is the workspace's owner when a client owns it (attached), or its flagged owner-of-record member
- * when the service owner does. Never throws: every failure answers `unavailable` with a reason that is logged AND
- * flagged, and the callers' fail-closed refusal / hold freeze stays in force.
+ * when the service owner does. Only a missing owner of record or an unreadable row keeps rent paused. Never throws:
+ * every failure answers `unavailable` with a reason that is logged AND flagged, and the callers' fail-closed refusal /
+ * hold freeze stays in force.
  */
 export async function ensureServiceFeePolicy(
   db: SupabaseClient,
@@ -581,7 +585,6 @@ export async function ensureServiceFeePolicy(
     const ws = data as Row | null;
     if (!ws || ws.is_service !== true) return { status: "not_service" };
     name = str(ws.name) || null;
-    if (await openDraftForWorkspace(db, id)) return feeUnavailable(db, id, name, "draft_pending");
     try {
       const workspaceOwner = str(ws.owner_user_id);
       const ownerUserId = workspaceOwner ? await resolveOwnerOfRecord(db, id, workspaceOwner) : null;
@@ -613,9 +616,10 @@ export const HAND_AUTHORED_DRAFT_MESSAGE =
 /**
  * Admin changes a service workspace's management fee. The new rate is a new policy version activated NOW - the one
  * atomic database function ends the previous one in the same transaction - so it applies to every payment settled from
- * this moment on, while payments already settled keep the split they were settled with. Only the fee share moves: the
- * owner of record and every other term are copied from the version it replaces. A draft open in Admin > Managed finance
- * is left untouched and the change is refused: that draft holds terms a rate box cannot see.
+ * this moment on, while a payment taken earlier settles on the version in force that day
+ * (`loadActivePolicyForWorkspace` resolves the window). Only the fee share moves: the owner of record and every other
+ * term are copied from the version it replaces. A draft open in Admin > Managed finance is left untouched and the rate
+ * change is refused: that draft holds terms a rate box cannot see.
  */
 export async function setServiceManagementFee(
   db: SupabaseClient,
@@ -629,12 +633,12 @@ export async function setServiceManagementFee(
   const ensured = await ensureServiceFeePolicy(db, workspaceId, admin, now);
   if (ensured.status !== "exists" && ensured.status !== "created") {
     if (ensured.status === "not_service") throw new PolicyError(404, "Service workspace not found.");
-    if (ensured.reason === "draft_pending") throw new PolicyError(409, HAND_AUTHORED_DRAFT_MESSAGE);
     throw new PolicyError(409, ensured.reason === "no_owner" ? "Name the workspace's owner of record first." : "Could not read the workspace fee. Try again.");
   }
   const current = ensured.policy;
   if (current.terms.ownerShareBps === ownerShareBps) {
-    return { feePercent: feePercentForOwnerShareBps(ownerShareBps), changed: false, policyId: current.id };
+    // A first policy is a change even at the default rate: the workspace went from no fee to one in force today.
+    return { feePercent: feePercentForOwnerShareBps(ownerShareBps), changed: ensured.status === "created", policyId: current.id };
   }
   if (await openDraftForWorkspace(db, current.workspaceId)) throw new PolicyError(409, HAND_AUTHORED_DRAFT_MESSAGE);
   const next = await activateNewVersion(

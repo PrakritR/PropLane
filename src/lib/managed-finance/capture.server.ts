@@ -43,6 +43,25 @@ export type ManagedCaptureInput = {
 
 const CONFLICT_RETRIES = 4;
 
+/**
+ * The monthly fee EVERY OTHER version of this workspace already took this Pacific month. `managed_month_totals` is
+ * scoped to one `policy_id` - which is what keeps a rate change off rent already collected - so the monthly minimum
+ * has to be counted across versions here, or an admin changing the rate mid-month charges that floor a second time.
+ */
+async function monthFeeTakenByOtherVersions(db: SupabaseClient, policy: PolicyRow, monthKey: string): Promise<number> {
+  const { data, error } = await db
+    .from("managed_rent_allocations")
+    .select("policy_id, fee_cents, refunded_fee_cents")
+    .eq("workspace_id", policy.workspaceId)
+    .eq("month_key", monthKey)
+    .eq("fee_applies", true);
+  if (error) throw new LedgerError(500, "Could not read the month's management fee.");
+  const rows = (data ?? []) as Array<{ policy_id: string | null; fee_cents: number; refunded_fee_cents: number }>;
+  return rows
+    .filter((r) => String(r.policy_id ?? "") !== policy.id)
+    .reduce((sum, r) => sum + Math.max(Number(r.fee_cents) - Number(r.refunded_fee_cents), 0), 0);
+}
+
 /** The journal key one managed capture is idempotent on. */
 export function managedCaptureKey(paymentIntentId: string): string {
   return `capture:${paymentIntentId}`;
@@ -107,13 +126,14 @@ export async function creditManagedCapture(
   const applicable = comps.filter((c) => c.liabilityClass === "income" && feeAppliesToKind(policy.terms, c.kind));
   const applicableBase = applicable.reduce((s, c) => s + c.distributableCents, 0);
 
-  // One leasing fee per resident per policy, on the first leasing-kind charge only.
+  // One leasing fee per resident per WORKSPACE, on the first leasing-kind charge only: a rate change makes a new policy
+  // version, and the resident must not be charged a second leasing fee because the row carries a new `policy_id`.
   const leasingEligible = new Set<string>();
   const emailsSeen = new Set<string>();
   if (policy.terms.leasingFeeBps > 0) {
     const emails = [...new Set(applicable.filter((c) => isLeasingFeeKind(c.kind) && c.residentEmail).map((c) => c.residentEmail.toLowerCase()))];
     const { data: prior, error: priorError } = emails.length
-      ? await db.from("managed_rent_allocations").select("resident_email").eq("policy_id", policy.id).gt("leasing_cents", 0).in("resident_email", emails)
+      ? await db.from("managed_rent_allocations").select("resident_email").eq("workspace_id", policy.workspaceId).gt("leasing_cents", 0).in("resident_email", emails)
       : { data: [], error: null };
     if (priorError) throw new LedgerError(500, "Could not read leasing fee history.");
     const charged = new Set(((prior ?? []) as Array<{ resident_email: string }>).map((r) => r.resident_email.toLowerCase()));
@@ -134,13 +154,17 @@ export async function creditManagedCapture(
       : [],
   );
 
+  // The monthly minimum is the workspace's for the month, not each version's: what an earlier version already took
+  // this month pays it down (`targetMonthlyFeeCents`), so a mid-month rate change never charges the floor twice.
+  const priorVersionFeeCents = policy.terms.minFeeCents > 0 ? await monthFeeTakenByOtherVersions(db, policy, monthKey) : 0;
+
   for (let attempt = 0; attempt < CONFLICT_RETRIES; attempt += 1) {
     const { data: totalsData, error: totalsError } = await db.rpc("managed_month_totals", { p_policy: policy.id, p_month: monthKey });
     const totals = (Array.isArray(totalsData) ? totalsData[0] : totalsData) as Totals | null;
     if (totalsError || !totals) throw new LedgerError(500, "Could not read the month's collected rent.");
     const cum = Number(totals.cum_base);
     const taken = Number(totals.monthly_fee);
-    const cart = computeCartFee({ terms: policy.terms, cumBaseBefore: cum, monthlyFeeTakenBefore: taken, applicableBase, leasingBase });
+    const cart = computeCartFee({ terms: policy.terms, cumBaseBefore: cum, monthlyFeeTakenBefore: taken, applicableBase, leasingBase, priorVersionFeeCents });
     const split = splitManagedCart(policy.terms, comps, cart, leasingEligible);
     const rows = split.map((s) => {
       const source = input.components.find((c) => c.id === s.id)!;

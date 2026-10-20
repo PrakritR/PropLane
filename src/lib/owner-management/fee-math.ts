@@ -97,12 +97,17 @@ export function validateManagedFeeTerms(terms: ManagedFeeTerms): string | null {
   return null;
 }
 
-/** What the month's monthly fee should total once `cumBase` of fee-applicable rent has been distributed. */
-export function targetMonthlyFeeCents(terms: ManagedFeeTerms, cumBase: number): number {
-  if (!nonNegativeInt(cumBase)) throw new Error("Collected rent must be non-negative cents.");
+/**
+ * What the month's monthly fee should total once `cumBase` of fee-applicable rent has been distributed UNDER THIS
+ * POLICY VERSION. The month's accounting is per version, which is what keeps an admin's rate change off rent already
+ * collected; `priorVersionFeeCents` is the monthly fee an EARLIER version of the same workspace already took this
+ * Pacific month, and it pays down the monthly minimum so a mid-month rate change can never charge that floor twice.
+ */
+export function targetMonthlyFeeCents(terms: ManagedFeeTerms, cumBase: number, priorVersionFeeCents = 0): number {
+  if (!nonNegativeInt(cumBase) || !nonNegativeInt(priorVersionFeeCents)) throw new Error("Collected rent must be non-negative cents.");
   if (cumBase === 0) return 0;
   const percent = floorDiv(cumBase * feeBpsOf(terms), 10_000);
-  const floor = Math.min(terms.minFeeCents, cumBase);
+  const floor = Math.min(Math.max(terms.minFeeCents - priorVersionFeeCents, 0), cumBase);
   return Math.min(Math.max(percent, floor), cumBase);
 }
 
@@ -116,18 +121,21 @@ export type CartFeeInput = {
   applicableBase: number;
   /** Part of `applicableBase` that is a lease's first payment and has not carried a leasing fee. */
   leasingBase: number;
+  /** Monthly fee EARLIER versions of this workspace took this Pacific month: it pays down the monthly minimum. */
+  priorVersionFeeCents?: number;
 };
 
 export type CartFee = { monthlyFeeCents: number; leasingFeeCents: number; totalCents: number };
 
 export function computeCartFee(input: CartFeeInput): CartFee {
   const { terms, cumBaseBefore, monthlyFeeTakenBefore, applicableBase, leasingBase } = input;
-  if (![cumBaseBefore, monthlyFeeTakenBefore, applicableBase, leasingBase].every(nonNegativeInt)) {
+  const priorVersionFeeCents = input.priorVersionFeeCents ?? 0;
+  if (![cumBaseBefore, monthlyFeeTakenBefore, applicableBase, leasingBase, priorVersionFeeCents].every(nonNegativeInt)) {
     throw new Error("Fee math needs non-negative integer cents.");
   }
   if (applicableBase === 0) return { monthlyFeeCents: 0, leasingFeeCents: 0, totalCents: 0 };
   if (leasingBase > applicableBase) throw new Error("Leasing base cannot exceed the fee-applicable amount.");
-  const raw = targetMonthlyFeeCents(terms, cumBaseBefore + applicableBase) - monthlyFeeTakenBefore;
+  const raw = targetMonthlyFeeCents(terms, cumBaseBefore + applicableBase, priorVersionFeeCents) - monthlyFeeTakenBefore;
   const monthly = Math.min(Math.max(raw, 0), applicableBase);
   const leasingRaw = leasingBase > 0 && terms.leasingFeeBps > 0 ? floorDiv(leasingBase * terms.leasingFeeBps, 10_000) : 0;
   const leasing = Math.min(leasingRaw, applicableBase - monthly);

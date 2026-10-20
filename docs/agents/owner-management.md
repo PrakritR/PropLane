@@ -202,27 +202,38 @@ owns it (attached), or its flagged owner-of-record member when the platform serv
 closed: with no `platform_service_settings` row there is no way to tell a client's workspace from PropLane's own, so the answer is
 "none" and nothing is created - PropLane is never named as the owner of record of its own workspace.
 
-- **The automatic path never touches an admin's work.** The default is created only when the workspace has neither a
-  policy in force nor a DRAFT. A draft holds terms a human is still deciding (a leasing fee, a minimum, a reserve), so
-  nothing is activated and nothing is created next to it: the attention item says to record or end it in
-  Admin > Managed finance, and the workspace's rent stays paused until someone does.
-- `loadActivePolicyForWorkspace` is a pure READ of the version in force as of a payment's own day. A fee version is
-  activated by an admin's own action or by `ensureServiceFeePolicy` on a workspace with no policy at all - never as a
-  side effect of settling a payment.
+- **Rent flows first.** With no policy in force the default is created and activated even when a DRAFT is open in
+  Admin > Managed finance: a draft is a human still deciding, not a reason a resident cannot pay. The draft is left
+  exactly where it is, and recording it later ends the default through the ordinary activation path. Only a missing
+  owner of record or an unreadable row keeps rent paused.
+- `loadActivePolicyForWorkspace` is a pure READ. A fee version is activated by an admin's own action or by
+  `ensureServiceFeePolicy` on a workspace with no policy at all - never as a side effect of settling a payment. A
+  DATED read answers with the version in force that day: `effective_from <= onDate` and the version had not ended yet,
+  which is an ENDED row once a newer version has replaced it. An ACH debit is days old by the time it settles, so this
+  is what keeps a payment in flight across a rate change on the split it was taken under instead of reading as "not
+  managed" and falling to a manager hold. `credit_managed_capture` accepts that ended version for rows whose own
+  `paid_at` falls inside its `[effective_from, ends_on)` window (migration 20261020190000).
 - Admin changes the rate in Admin > Service > Management fee (0 to `MAX_MANAGEMENT_FEE_PERCENT`, `fee-percent.ts` - one
   parse, one range, shared by the server and the modal). The new rate is a new version **activated at once**: the one
   atomic database function ends the previous one in the same transaction, so the change reaches every payment settled
   from that moment on and a payment already settled keeps the split it was settled with. Only the fee share moves - the
   owner of record and every other term are copied from the version it replaces. The modal states the rate in force and
-  the toast says whether the save moved it; there is no scheduled change and no effective date anywhere.
+  the toast says whether the save moved it; there is no scheduled change and no effective date anywhere. Setting the
+  first policy counts as a change even at the default rate - the workspace went from no fee to one in force today.
+- **The month's accounting is per policy VERSION** (`managed_month_totals(p_policy, p_month)`), which is exactly what
+  keeps a rate change off rent already collected. Two things must therefore be counted across versions instead, or a
+  mid-month change charges them twice: the monthly minimum (`targetMonthlyFeeCents` takes `priorVersionFeeCents`, the
+  fee earlier versions already took that Pacific month, and it pays the floor down) and the once-per-resident leasing
+  fee (`capture.server.ts` looks the resident up by `workspace_id`, never `policy_id`).
 - Fail-closed fallback, only when the automatic fee cannot be created: new resident checkouts are refused
   (`serviceSetupPendingProblem`, 422 `SERVICE_SETUP_PENDING`; a cart that mixes the just-created managed workspace with
   another payment setup comes back as `MIXED_PAYMENT_SETUP`, never mislabelled), hold releases for the manager of record
   stay frozen, destination-capable checkouts capture on the platform balance, and **every** failure - inside
   `ensureServiceFeePolicy` itself as well as at the money path that refused - writes the `owner_ledger_flags` row
   `fee_agreement_unsigned` (per workspace per day; the name is historical) through the one writer,
-  `flagManagedFeeProblem` (`fee-flags.server.ts`). The row names the CAUSE: `no_owner` says to name the owner of record,
-  `draft_pending` points at Admin > Managed finance, the rest are a failure to investigate. Nothing is only logged.
+  `flagManagedFeeProblem` (`fee-flags.server.ts`). The row names the CAUSE - `no_owner` says to name the owner of
+  record, the rest are a failure to investigate - and the day's row is updated rather than skipped, so `reason` ends up
+  naming where the refusal was felt (a checkout, a frozen hold). Nothing is only logged.
 - Rent already held for a manager of record before the policy existed is released to that manager without the fee once the policy exists.
 
 ## Application and form fees (decision)

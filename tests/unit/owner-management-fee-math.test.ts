@@ -65,6 +65,11 @@ describe("minimum and leasing fee", () => {
     expect(targetMonthlyFeeCents(terms({ minFeeCents: 5_000 }), 20_000)).toBe(5_000);
     expect(targetMonthlyFeeCents(terms({ minFeeCents: 5_000 }), 100_000)).toBe(10_000);
     expect(targetMonthlyFeeCents(terms({ minFeeCents: 50_000 }), 20_000)).toBe(20_000);
+    // The minimum is the WORKSPACE's for the month: what an earlier policy version already took pays it down, so a
+    // mid-month rate change never charges the floor twice.
+    expect(targetMonthlyFeeCents(terms({ minFeeCents: 5_000 }), 20_000, 5_000)).toBe(2_000);
+    expect(targetMonthlyFeeCents(terms({ minFeeCents: 5_000 }), 20_000, 2_000)).toBe(3_000);
+    expect(targetMonthlyFeeCents(terms({ minFeeCents: 5_000 }), 20_000, 99_000)).toBe(2_000);
   });
   it("adds a floor of a percent of the first month, once", () => {
     const t = terms({ leasingFeeBps: 5000 });

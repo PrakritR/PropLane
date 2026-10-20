@@ -6,8 +6,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * The one admin attention item for a PropLane Service workspace whose management fee could not be put in place: one row
  * per workspace per day in Admin > Finances > Flags, carrying the CAUSE so an operator is never told to "name an owner"
  * for a transient read failure. Written wherever the fee fails - inside `ensureServiceFeePolicy` itself and at the money
- * paths that then refuse or freeze - never only logged. Never throws: an attention item must not fail the path that
- * raised it. `check_name` stays `fee_agreement_unsigned` for continuity with the rows already in production.
+ * paths that then refuse or freeze - never only logged. The day's row is UPDATED rather than skipped, so the last write
+ * wins and `reason` ends up naming where the refusal was actually felt (a checkout, a frozen hold) instead of being
+ * stuck on whichever path happened to look first. Never throws: an attention item must not fail the path that raised
+ * it. `check_name` stays `fee_agreement_unsigned` for continuity with the rows already in production.
  */
 
 export const FEE_FLAG_CHECK_NAME = "fee_agreement_unsigned";
@@ -15,7 +17,6 @@ export const FEE_FLAG_CHECK_NAME = "fee_agreement_unsigned";
 /** Why the fee is missing. `no_owner` is the only one an admin fixes by naming someone. */
 export type FeeFlagCause =
   | "no_owner"
-  | "draft_pending"
   | "workspace_unreadable"
   | "owner_unreadable"
   | "activation_refused"
@@ -26,7 +27,6 @@ export type FeeFlagReason = "checkout_refused" | "hold_frozen" | "fee_unavailabl
 
 const WHAT_TO_DO: Record<FeeFlagCause, string> = {
   no_owner: "name its owner of record",
-  draft_pending: "record or end its draft fee policy in Admin > Managed finance",
   workspace_unreadable: "the workspace could not be read",
   owner_unreadable: "the owner of record could not be read",
   activation_refused: "the fee policy could not be activated",
@@ -49,7 +49,7 @@ export async function flagManagedFeeProblem(
         subject: input.workspaceId,
         detail: { message: feeFlagMessage(workspace, input.cause), reason: input.reason, cause: input.cause, workspace },
       },
-      { onConflict: "check_name,subject,day", ignoreDuplicates: true },
+      { onConflict: "check_name,subject,day" },
     );
   } catch {
     /* an attention item must never fail the money path that raised it */
