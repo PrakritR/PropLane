@@ -1,0 +1,89 @@
+import "server-only";
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
+
+/**
+ * The ONE rule for when possession of a phone (an inbound text, or a one-time code texted to it) may open a session.
+ *
+ * A phone proves only that someone holds the SIM or can spoof the sender, which is a weaker proof than an email
+ * sign-in. So a session minted on SMS proof alone is allowed only for an account where that proof is not weaker than
+ * the account's own credentials:
+ *
+ *   - never an admin (an `admin` role anywhere, the legacy `profiles.role`, or the primary admin email);
+ *   - and either every role the account holds is resident and/or vendor (the portals a phone already reaches by
+ *     design), or the phone is the account's ONLY proven credential (a manager account made by SMS sign-up has a
+ *     placeholder login, no real email, no OAuth identity).
+ *
+ * Anything else, or any read that fails, is refused: the caller sends the person to the ordinary sign-in.
+ * `src/lib/one-number/link-portal-session.server.ts` and `src/lib/one-number/signup/sign-in-link.server.ts` both ask.
+ */
+
+const PLACEHOLDER_DOMAIN = "phone.proplane.invalid";
+const PHONE_REACHABLE_ROLES = new Set(["resident", "vendor"]);
+const PHONE_ONLY_PROVIDERS = new Set(["phone", "email"]);
+
+export type SmsSessionVerdict =
+  | { ok: true; reason: "resident_vendor_only" | "phone_only_credential" }
+  | { ok: false; reason: "admin" | "other_credential" | "unreadable" };
+
+function isPlaceholderEmail(email: string | null | undefined): boolean {
+  const value = String(email ?? "").trim().toLowerCase();
+  return value === "" || value.endsWith(`@${PLACEHOLDER_DOMAIN}`);
+}
+
+type AuthIdentityLike = { provider?: unknown; identity_data?: { email?: unknown } | null };
+
+/** True when the auth user can prove itself some way other than the phone: a real email login or an OAuth identity. */
+function hasNonPhoneCredential(user: {
+  email?: string | null;
+  identities?: AuthIdentityLike[] | null;
+  app_metadata?: Record<string, unknown> | null;
+}): boolean {
+  if (!isPlaceholderEmail(user.email)) return true;
+  for (const identity of user.identities ?? []) {
+    const provider = String(identity?.provider ?? "").toLowerCase();
+    if (!PHONE_ONLY_PROVIDERS.has(provider)) return true;
+    if (provider === "email" && !isPlaceholderEmail(typeof identity?.identity_data?.email === "string" ? identity.identity_data.email : null)) return true;
+  }
+  const providers = user.app_metadata?.providers;
+  if (Array.isArray(providers) && providers.some((p) => !PHONE_ONLY_PROVIDERS.has(String(p).toLowerCase()))) return true;
+  const provider = user.app_metadata?.provider;
+  if (typeof provider === "string" && provider && !PHONE_ONLY_PROVIDERS.has(provider.toLowerCase())) return true;
+  return false;
+}
+
+export async function smsProvenSessionVerdict(db: SupabaseClient, userId: string): Promise<SmsSessionVerdict> {
+  try {
+    const id = String(userId ?? "").trim();
+    if (!id) return { ok: false, reason: "unreadable" };
+    const [rolesRead, profileRead, authRead] = await Promise.all([
+      db.from("profile_roles").select("role").eq("user_id", id),
+      db.from("profiles").select("role, email").eq("id", id).maybeSingle(),
+      db.auth.admin.getUserById(id),
+    ]);
+    if (rolesRead.error || profileRead.error || authRead.error || !authRead.data?.user) return { ok: false, reason: "unreadable" };
+    const roles = new Set<string>();
+    for (const row of (rolesRead.data ?? []) as Array<{ role?: unknown }>) {
+      const role = String(row.role ?? "").trim().toLowerCase();
+      if (role) roles.add(role);
+    }
+    const profile = (profileRead.data ?? null) as { role?: unknown; email?: unknown } | null;
+    const legacy = String(profile?.role ?? "").trim().toLowerCase();
+    if (legacy) roles.add(legacy);
+    const user = authRead.data.user;
+
+    if (roles.has("admin") || isPrimaryAdminEmail(user.email) || isPrimaryAdminEmail(typeof profile?.email === "string" ? profile.email : null)) {
+      return { ok: false, reason: "admin" };
+    }
+    if (roles.size > 0 && [...roles].every((role) => PHONE_REACHABLE_ROLES.has(role))) return { ok: true, reason: "resident_vendor_only" };
+    if (!hasNonPhoneCredential(user as Parameters<typeof hasNonPhoneCredential>[0])) return { ok: true, reason: "phone_only_credential" };
+    return { ok: false, reason: "other_credential" };
+  } catch {
+    return { ok: false, reason: "unreadable" };
+  }
+}
+
+export async function smsProvenSessionAllowed(db: SupabaseClient, userId: string): Promise<boolean> {
+  return (await smsProvenSessionVerdict(db, userId)).ok;
+}

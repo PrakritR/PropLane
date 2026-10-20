@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { mintPhoneSession, phoneOwners } from "@/lib/auth/phone-auth.server";
+import { smsProvenSessionAllowed } from "@/lib/auth/sms-proven-session.server";
 import { residentPhoneMatches } from "@/lib/one-number/link-destinations.server";
 import type { PhoneBoundLink } from "@/lib/one-number/links.server";
 import { normalizeE164 } from "@/lib/phone-e164";
@@ -17,7 +18,9 @@ import { normalizeE164 } from "@/lib/phone-e164";
  *   session and a real sign-in);
  * - the link names the resident account, that account's verified profile phone must still be the link's
  *   phone, and that phone must belong to exactly that one account;
- * - an account with no email is left to the normal sign-in (minting would invent an address for it).
+ * - an account with no email is left to the normal sign-in (minting would invent an address for it);
+ * - the shared SMS-proof rule (`smsProvenSessionAllowed`): never an admin, and never a manager (or any account with a
+ *   real email or OAuth login) whose other credentials are stronger than the phone. Those sign in normally.
  * It works in every line mode: nothing here reads `line_mode`. Null on any doubt; the caller then keeps the
  * ordinary sign-in redirect.
  */
@@ -35,6 +38,7 @@ export async function mintResidentPortalSessionForLink(
     if (owners.length !== 1 || owners[0] !== link.targetId) return null;
     const { data, error } = await db.auth.admin.getUserById(link.targetId);
     if (error || !data.user || !data.user.email || data.user.email.endsWith("@phone.proplane.invalid")) return null;
+    if (!(await smsProvenSessionAllowed(db, link.targetId))) return null;
     return await mintPhoneSession(db, data.user);
   } catch {
     return null;

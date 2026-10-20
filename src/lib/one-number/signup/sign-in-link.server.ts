@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { phoneOwners } from "@/lib/auth/phone-auth.server";
+import { smsProvenSessionAllowed } from "@/lib/auth/sms-proven-session.server";
 import { rateLimit } from "@/lib/rate-limit";
 import { guestSignInConfirmUrl } from "@/lib/short-stay/guest-login.server";
 
@@ -16,12 +17,15 @@ export const SIGN_IN_LINKS_PER_PHONE_PER_HOUR = 5;
  * `code`): Supabase stores only the token's hash, the link is single use and short lived, and `/auth/confirm` derives its
  * destination from `type` alone. It is bound to the phone twice over: the account is re-derived from the phone's verified
  * owner here (never from a request value), and the text goes only to that number. No second link service is invented.
- * Capped per phone per hour; returns null on any refusal.
+ * Capped per phone per hour; returns null on any refusal. A text proves only the phone, so the link is minted only where
+ * `smsProvenSessionAllowed` says that is enough (no admin; resident/vendor only, or a phone-only account); the caller then
+ * sends the canonical `/auth/sign-in` address instead.
  */
 export async function mintPhoneSignInLink(db: SupabaseClient, input: { phoneE164: string; userId: string }): Promise<string | null> {
   try {
     const owners = await phoneOwners(db, input.phoneE164);
     if (owners.length !== 1 || owners[0] !== input.userId) return null;
+    if (!(await smsProvenSessionAllowed(db, input.userId))) return null;
     const limited = await rateLimit(
       `sms-signin-link:${createHash("sha256").update(input.phoneE164).digest("hex").slice(0, 32)}`,
       SIGN_IN_LINKS_PER_PHONE_PER_HOUR,

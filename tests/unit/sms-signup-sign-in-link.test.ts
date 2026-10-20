@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 const m = vi.hoisted(() => ({ owners: vi.fn(), rate: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth/phone-auth.server", () => ({ phoneOwners: m.owners }));
+vi.mock("@/lib/auth/sms-proven-session.server", () => ({ smsProvenSessionAllowed: async () => true }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: m.rate }));
 vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://proplane.ai" }));
 

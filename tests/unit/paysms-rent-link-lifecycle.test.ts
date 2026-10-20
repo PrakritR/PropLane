@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.hoisted(() => ({ mint: vi.fn(), owners: vi.fn() }));
 vi.mock("@/lib/auth/phone-auth.server", () => ({ mintPhoneSession: auth.mint, phoneOwners: auth.owners }));
+vi.mock("@/lib/auth/sms-proven-session.server", () => ({ smsProvenSessionAllowed: async () => true }));
 vi.mock("@/lib/test-workspaces/index.server", () => ({
   resolveTestWorkspaceClassification: vi.fn(async () => ({ kind: "normal" })),
   lookupRecordTestWorkspaceId: vi.fn(async () => null),
