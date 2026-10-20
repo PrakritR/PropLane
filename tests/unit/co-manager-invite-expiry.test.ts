@@ -86,3 +86,22 @@ describe("the accept path refuses an expired invite", () => {
     expect(condition).not.toContain("reject");
   });
 });
+
+describe("accepting a team invite always leaves a manager-side role", () => {
+  const read = (path: string) => readFileSync(join(process.cwd(), path), "utf8");
+
+  it("the open-link redeem stamps the manager role before it claims the seat", () => {
+    const redeem = read("src/app/api/pro/account-links/redeem/route.ts");
+    const role = redeem.indexOf('ensureProfileRoleRow(svc, user.id, "manager")');
+    expect(role).toBeGreaterThan(-1);
+    expect(role).toBeLessThan(redeem.indexOf('status: "accepted"'));
+  });
+
+  it("the invitee accept (PATCH) does too, for every team role but the property owner, before the status flips", () => {
+    const route = read("src/app/api/pro/account-links/[inviteId]/route.ts");
+    const role = route.indexOf('ensureProfileRoleRow(svc, invite.invitee_user_id, "manager")');
+    expect(role).toBeGreaterThan(-1);
+    expect(role).toBeLessThan(route.indexOf('const nextStatus = actionNorm === "accept"'));
+    expect(route.slice(role - 400, role)).toContain('!== "property_owner"');
+  });
+});

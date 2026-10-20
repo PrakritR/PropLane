@@ -21,6 +21,9 @@ type World = {
   authEmail?: string | null;
   identities?: Array<{ provider: string; identity_data?: { email?: string } }>;
   appMetadata?: Record<string, unknown>;
+  /** Accepted team seats (`account_link_invites` where this user is the invitee). */
+  seats?: Array<{ team_role: string | null }>;
+  seatsError?: boolean;
   rolesError?: boolean;
   authError?: boolean;
 };
@@ -37,7 +40,9 @@ function world(w: World = {}) {
         then: (resolve: (v: unknown) => unknown) =>
           resolve(table === "profile_roles"
             ? { data: (w.roles ?? []).map((role) => ({ role })), error: w.rolesError ? { message: "down" } : null }
-            : { data: [], error: null }),
+            : table === "account_link_invites"
+              ? { data: w.seats ?? [], error: w.seatsError ? { message: "down" } : null }
+              : { data: [], error: null }),
       };
       return chain;
     },
@@ -104,6 +109,26 @@ describe("smsProvenSessionVerdict: who a phone alone may sign in", () => {
     ["an admin even when the phone is the only credential", { roles: ["admin"], identities: [{ provider: "phone" }] }],
   ] as Array<[string, World]>)("never mints for %s", async (_name, w) => {
     expect(await smsProvenSessionVerdict(world(w).db, "u1")).toEqual({ ok: false, reason: "admin" });
+  });
+
+  it.each([
+    ["a co-manager seat", [{ team_role: "co_manager" }]],
+    ["an assistant seat", [{ team_role: "assistant" }]],
+    ["a seat with no stored role", [{ team_role: null }]],
+    ["a seat beside an owner seat", [{ team_role: "property_owner" }, { team_role: "co_manager" }]],
+  ])("a resident-only profile that holds %s is a teammate: refused when it has a real email", async (_name, seats) => {
+    const w = { roles: ["resident"], authEmail: "t@example.com", seats } as World;
+    expect(await smsProvenSessionVerdict(world(w).db, "u1")).toEqual({ ok: false, reason: "other_credential" });
+    expect(await smsProvenSessionAllowed(world(w).db, "u1")).toBe(false);
+  });
+
+  it("a property-owner seat is not a portal: it does not turn a resident into a manager", async () => {
+    const w = { roles: ["resident"], authEmail: "o@example.com", seats: [{ team_role: "property_owner" }] } as World;
+    expect(await smsProvenSessionVerdict(world(w).db, "u1")).toEqual({ ok: true, reason: "resident_vendor_only" });
+  });
+
+  it("an unreadable seat read fails closed", async () => {
+    expect(await smsProvenSessionVerdict(world({ roles: ["resident"], seatsError: true }).db, "u1")).toEqual({ ok: false, reason: "unreadable" });
   });
 
   it("an account with no roles at all and a real email is refused, never assumed harmless", async () => {

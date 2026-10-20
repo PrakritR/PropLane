@@ -11,6 +11,8 @@ import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
  * the account's own credentials:
  *
  *   - never an admin (an `admin` role anywhere, the legacy `profiles.role`, or the primary admin email);
+ *   - an accepted team seat (`account_link_invites`, any `team_role` but `property_owner`) counts as a manager-side role,
+ *     so a teammate whose `profile_roles` only says resident is not mistaken for a resident;
  *   - and either every role the account holds is resident and/or vendor (the portals a phone already reaches by
  *     design), or the phone is the account's ONLY proven credential (a manager account made by SMS sign-up has a
  *     placeholder login, no real email, no OAuth identity).
@@ -62,16 +64,23 @@ export async function smsProvenSessionVerdict(db: SupabaseClient, userId: string
   try {
     const id = String(userId ?? "").trim();
     if (!id) return { ok: false, reason: "unreadable" };
-    const [rolesRead, profileRead, authRead] = await Promise.all([
+    const [rolesRead, profileRead, authRead, seatsRead] = await Promise.all([
       db.from("profile_roles").select("role").eq("user_id", id),
       db.from("profiles").select("role, email").eq("id", id).maybeSingle(),
       db.auth.admin.getUserById(id),
+      // An accepted team seat (co-manager, assistant, ...) is a manager-side account whatever `profile_roles` says: not every
+      // accept path stamps the `manager` role, so a teammate could otherwise read as resident-only.
+      db.from("account_link_invites").select("team_role").eq("invitee_user_id", id).eq("status", "accepted"),
     ]);
-    if (rolesRead.error || profileRead.error || authRead.error || !authRead.data?.user) return { ok: false, reason: "unreadable" };
+    if (rolesRead.error || profileRead.error || authRead.error || seatsRead.error || !authRead.data?.user) return { ok: false, reason: "unreadable" };
     const roles = new Set<string>();
     for (const row of (rolesRead.data ?? []) as Array<{ role?: unknown }>) {
       const role = String(row.role ?? "").trim().toLowerCase();
       if (role) roles.add(role);
+    }
+    // `property_owner` is a team role that is not a portal; every other accepted seat counts as a manager-side role.
+    for (const seat of (seatsRead.data ?? []) as Array<{ team_role?: unknown }>) {
+      if (String(seat.team_role ?? "").trim().toLowerCase() !== "property_owner") roles.add("manager");
     }
     const profile = (profileRead.data ?? null) as { role?: unknown; email?: unknown } | null;
     const legacy = String(profile?.role ?? "").trim().toLowerCase();

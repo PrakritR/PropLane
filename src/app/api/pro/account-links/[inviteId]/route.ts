@@ -1,3 +1,4 @@
+import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { NextResponse } from "next/server";
 import { asStringArray, readPropertyPermissionsFromRow, resolveInviteTeamRole, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
@@ -537,6 +538,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
           },
           { status: 403 },
         );
+      }
+    }
+
+    if (actionNorm === "accept" && resolveInviteTeamRole(invite.team_role, readPropertyPermissionsFromRow(invite)) !== "property_owner") {
+      // Same as the open-link redeem: a teammate holds the manager role, so nothing downstream reads the seat as resident-only.
+      try {
+        await ensureProfileRoleRow(svc, invite.invitee_user_id, "manager");
+      } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : "Could not add the team role." }, { status: 500 });
       }
     }
 
