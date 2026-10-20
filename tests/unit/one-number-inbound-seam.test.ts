@@ -124,14 +124,17 @@ describe("ambiguous text", () => {
   it("sends the question and stops", async () => {
     const { db } = world({ ...resident, ...vendor });
     expect(await run(db, "ok thanks")).toEqual({ kind: "handled", twiml: null });
-    expect(sent.map((s) => s.body)).toEqual(["Is this about 5259 Brooklyn or your job at 4709A 8th Ave?"]);
+    // The vendor half names the workspace, not the house: this fixture's address carries no city, so there is no
+    // general area to give - and an offered vendor is never told the street (review fix, Oct 20).
+    expect(sent.map((s) => s.body)).toEqual(["Is this about 5259 Brooklyn or your job at Eighth Ave Co?"]);
+    expect(sent.map((s) => s.body).join(" ")).not.toMatch(/4709A|8th Ave/);
     expect(sent[0].idempotencyKey).toBe("shared-line:question:SM1");
   });
 
   it("an emergency word with an unclear team still sends the safety text and alerts both teams, then asks", async () => {
     const { db } = world({ ...resident, ...vendor });
     await run(db, "there is smoke");
-    expect(sent.map((s) => s.body)).toEqual([EMERGENCY_SAFETY_REPLY, "Is this about 5259 Brooklyn or your job at 4709A 8th Ave?"]);
+    expect(sent.map((s) => s.body)).toEqual([EMERGENCY_SAFETY_REPLY, "Is this about 5259 Brooklyn or your job at Eighth Ave Co?"]);
     expect(alerts.map((a) => [a.workspaceId, a.kind])).toEqual([["ws-a", "emergency"], ["ws-b", "emergency"]]);
   });
 });

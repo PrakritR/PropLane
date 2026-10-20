@@ -115,7 +115,13 @@ export async function loadVendorContacts(
   return out;
 }
 
-export type HouseInfo = { label: string; address: string; area: string };
+export type HouseInfo = {
+  label: string;
+  address: string;
+  area: string;
+  /** The house's own place strings, for redacting them out of vendor-facing free text. Never sent as-is. */
+  placeStrings: string[];
+};
 
 export async function loadHouse(db: SupabaseClient, ownerUserId: string, propertyId: string | null): Promise<HouseInfo | null> {
   if (!propertyId) return null;
@@ -133,7 +139,13 @@ export async function loadHouse(db: SupabaseClient, ownerUserId: string, propert
   const address = text("address");
   const street = address.split(",")[0]?.trim() ?? "";
   const label = street || text("buildingName") || text("title") || text("name") || "the house";
-  return { label, address, area: workOrderGeneralArea({ propertyAddress: address, propertyName: text("title") || text("name") || label }) };
+  const placeStrings = [address, street, text("buildingName"), text("title"), text("name")].filter(Boolean);
+  return {
+    label,
+    address,
+    area: workOrderGeneralArea({ propertyAddress: address, propertyName: text("title") || text("name") || label }),
+    placeStrings,
+  };
 }
 
 /** Who may approve a run: the owner first, then each teammate holding Services on the house. A viewer never does. */

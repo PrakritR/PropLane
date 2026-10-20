@@ -124,6 +124,8 @@ branch, and `db:push` applies it only once merged):
 | 20261020140000 | `manager_purchase_first_paid` | `manager_purchases.first_paid_at`: a Stripe subscription also needs a real paid invoice, so a trial that fails into `past_due` and a 100%-off promotion stay locked |
 | 20261020150000 | `managed_policy_activation_terms_guard` | `activate_managed_policy` re-checks the row's OWN live fee terms against the snapshot the owner signed (and refuses an owner signature on an unsent draft), so an admin edit landing between her page's load and her signature cannot activate terms she never saw |
 | 20261020150100 | `phone_otp_start_atomic` | `phone_otp_start`: the phone-code budget check, the retire of older codes and the insert in ONE transaction under a per-phone advisory lock, so two concurrent sends cannot both pass the 3-per-hour cap or leave two live codes behind |
+| 20261020160000 | `phone_otp_start_caps_from_app` | the same function with the three caps as ARGUMENTS from `SHARED_LINE_OTP_RULES` / `PHONE_LIFETIME_FAILED_CODE_CAP` (the old 7-arg signature is dropped), so editing the constant changes what is enforced |
+| 20261020160100 | `managed_policy_guard_full_terms` | the activation guard covers canonical v3: `reserve_target_cents` and `repair_approval_threshold_cents` join the comparison, so an admin cannot raise the no-ask repair threshold between the owner's page load and her signature |
 
 Check after the push (SQL editor, read-only):
 

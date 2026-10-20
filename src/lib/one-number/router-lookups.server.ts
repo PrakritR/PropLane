@@ -140,6 +140,7 @@ async function candidatesForPlacements(
       propertyId: prop?.id ?? null,
       label: prop?.label || workspace.name || "your property team",
       ...(prop?.generalArea ? { generalArea: prop.generalArea } : {}),
+      ...(workspace.name ? { workspaceName: workspace.name } : {}),
       ...(placement.live ? { liveDispatch: [placement.live] } : {}),
     });
   }

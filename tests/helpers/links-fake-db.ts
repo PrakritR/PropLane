@@ -27,9 +27,10 @@ export function linksFakeDb(
 
   const db = {
     /**
-     * `phone_otp_start` as supabase/migrations/20261020150100 defines it: under a per-phone lock, the purpose's
-     * hourly allowance, the phone's ceiling across every purpose, the 24-hour failed-code cap, then retire this
-     * phone + purpose + subject's live codes and insert the new one. A missing table answers like the database.
+     * `phone_otp_start` as supabase/migrations/20261020160000 defines it: under a per-phone lock, the purpose's
+     * hourly allowance, the phone's ceiling across every purpose, the 24-hour failed-code cap - all three taken
+     * from the caller's arguments - then retire this phone + purpose + subject's live codes and insert the new
+     * one. A missing table answers like the database; a missing or nonsensical cap refuses.
      */
     async rpc(fn: string, args: Record<string, unknown> = {}) {
       if (fn !== "phone_otp_start") return { data: null, error: { code: "PGRST202", message: `no function ${fn}` } };
@@ -40,14 +41,19 @@ export function linksFakeDb(
       const subject = (args.p_subject ?? null) as string | null;
       const now = args.p_now ? Date.parse(String(args.p_now)) : Date.now();
       const since = (ms: number) => (row: Row) => Date.parse(String(row.created_at ?? 0)) > now - ms;
+      const cap = (value: unknown) => (Number.isInteger(Number(value)) && Number(value) >= 1 ? Number(value) : null);
+      const perPurpose = cap(args.p_max_per_purpose);
+      const perPhone = cap(args.p_max_per_phone);
+      const maxFailed = cap(args.p_max_failed);
+      if (perPurpose === null || perPhone === null || maxFailed === null) return { data: false, error: null };
       const hour = list.filter((r) => r.phone_key === phoneKey).filter(since(60 * 60 * 1000));
-      if (hour.filter((r) => r.purpose === purpose).length >= 3) return { data: false, error: null };
-      if (hour.length >= 8) return { data: false, error: null };
+      if (hour.filter((r) => r.purpose === purpose).length >= perPurpose) return { data: false, error: null };
+      if (hour.length >= perPhone) return { data: false, error: null };
       const failures = list
         .filter((r) => r.phone_key === phoneKey && r.purpose === purpose)
         .filter(since(24 * 60 * 60 * 1000))
         .reduce((sum, r) => sum + Math.max((Number(r.attempts) || 0) - (r.verified_at ? 1 : 0), 0), 0);
-      if (failures >= 10) return { data: false, error: null };
+      if (failures >= maxFailed) return { data: false, error: null };
       for (const row of list) {
         if (row.phone_key === phoneKey && row.purpose === purpose && (row.subject_id ?? null) === subject && !row.consumed_at) {
           row.consumed_at = new Date(now).toISOString();

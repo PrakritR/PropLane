@@ -11,7 +11,7 @@ vi.mock("server-only", () => ({}));
 import { createFakeDb } from "../helpers/fake-table-db";
 import { withSmsConfirmationReserveRpc as withReserveRpc } from "../helpers/sms-confirmation-rpc";
 import { checkSmsConfirmationCode, issueSmsConfirmationCode } from "@/lib/sms/confirmation-code";
-import { requestPhoneOtp } from "@/lib/one-number/phone-otp.server";
+import { PHONE_LIFETIME_FAILED_CODE_CAP, requestPhoneOtp } from "@/lib/one-number/phone-otp.server";
 import { SHARED_LINE_OTP_RULES } from "@/lib/one-number/contracts";
 import { phoneKeyOf, phoneRateKey, safeEqualHex } from "@/lib/sms/phone-key";
 
@@ -104,6 +104,24 @@ describe("requestPhoneOtp claims the hour's allowance in one statement", () => {
     expect(JSON.stringify(calls[0])).not.toContain(sent[0]!);
     // No second, racing write path.
     expect(db.tables.phone_otp_challenges).toHaveLength(0);
+  });
+
+  // Review fix, Oct 20: the caps were a second copy inside the function, so editing the constant would have left
+  // the enforced limit where it was. They travel as arguments now - one source of truth.
+  it("passes every cap from SHARED_LINE_OTP_RULES rather than letting SQL keep its own copy", async () => {
+    const { calls, db } = rpcDb(() => ({ data: true, error: null }));
+    await requestPhoneOtp(db as never, {
+      phoneKey: "2065550142",
+      purpose: "link_unlock",
+      subjectId: "link-1",
+      send: async () => true,
+    });
+    expect(calls[0]).toMatchObject({
+      p_max_per_purpose: SHARED_LINE_OTP_RULES.maxSendsPerHour,
+      p_max_per_phone: SHARED_LINE_OTP_RULES.maxSendsPerPhonePerHour,
+      p_max_failed: PHONE_LIFETIME_FAILED_CODE_CAP,
+      p_ttl_minutes: SHARED_LINE_OTP_RULES.ttlMinutes,
+    });
   });
 
   it("reports the function's refusal as rate limited, and never texts", async () => {

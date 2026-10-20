@@ -404,7 +404,8 @@ export async function workspaceHasMatchingRule(db: SupabaseClient, input: MatchI
     // the standing roster must not stand in for a rule there either.
     const { resolveDispatchSettings } = await import("@/lib/vendor-dispatch/service-default.server");
     const resolution = await resolveDispatchSettings(db, input.ownerUserId, input.workspaceId);
-    if (resolution.settings.mode === "off") return false;
+    // Unreadable settings are not permission: a workspace whose saved mode might be "off" gets no run.
+    if (resolution.unreadable || resolution.settings.mode === "off") return false;
     return await roster.serviceRosterHasTrade(db, serviceOwnerId, input.trade);
   } catch {
     return false;

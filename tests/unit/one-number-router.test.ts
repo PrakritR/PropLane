@@ -135,8 +135,9 @@ describe("lookups, one per routing step", () => {
     expect(await findVendorJobCandidates(db, "(206) 555-0142")).toMatchObject([
       {
         workspaceId: "ws-b", ownerUserId: OWNER_B, role: "vendor", reason: "vendor_job", propertyId: "prop-b1",
-        // The house still matches a text that names it; the area is what a vendor is TOLD.
-        label: "4709A 8th Ave, Seattle, WA 98108", generalArea: "Seattle",
+        // The house still matches a text that names it; the area is what a vendor is TOLD, and the workspace's own
+        // name rides along as the fallback for a house whose address names no city.
+        label: "4709A 8th Ave, Seattle, WA 98108", generalArea: "Seattle", workspaceName: "Eighth Ave Co",
       },
     ]);
     const closed = world({ agent_sessions: [{ ...VENDOR_IN_B.agent_sessions[0], status: "closed" }], ...{ portal_work_order_records: VENDOR_IN_B.portal_work_order_records } });
@@ -383,7 +384,12 @@ describe("leakage across teams", () => {
 
 describe("pure helpers", () => {
   const A: SharedLineCandidate = { workspaceId: "a", ownerUserId: "oa", role: "resident", reason: "resident", propertyId: null, label: "5259 Brooklyn Ave" };
-  const B: SharedLineCandidate = { workspaceId: "b", ownerUserId: "ob", role: "vendor", reason: "vendor_job", propertyId: null, label: "4709A 8th Ave" };
+  // A vendor candidate carries the general area and its workspace's name beside the house: `label` is what a text
+  // may NAME to route, and what we say back to a vendor is drawn from the other two, never from it.
+  const B: SharedLineCandidate = {
+    workspaceId: "b", ownerUserId: "ob", role: "vendor", reason: "vendor_job", propertyId: null,
+    label: "4709A 8th Ave", generalArea: "Seattle", workspaceName: "Eighth Ave Co",
+  };
 
   it("textNamesCandidate: all distinctive words or the street number; not a bare shared word", () => {
     expect(textNamesCandidate("about 5259 brooklyn", A)).toBe(true);
@@ -399,20 +405,30 @@ describe("pure helpers", () => {
     expect(out.map((c) => c.reason)).toEqual(["resident", "vendor_job"]);
   });
 
-  it("buildDisambiguationQuestion handles two, three, and a same-house pair", () => {
-    expect(buildDisambiguationQuestion([A, B])).toBe("Is this about 5259 Brooklyn Ave or your job at 4709A 8th Ave?");
+  it("buildDisambiguationQuestion handles two, three, and a same-place pair", () => {
+    expect(buildDisambiguationQuestion([A, B])).toBe("Is this about 5259 Brooklyn Ave or your job at Seattle?");
     const C = { ...A, workspaceId: "c", label: "Cedar" };
-    expect(buildDisambiguationQuestion([A, B, C])).toBe("Is this about 5259 Brooklyn Ave, your job at 4709A 8th Ave or Cedar?");
-    const same = { ...A, role: "vendor" as const, reason: "vendor_job" as const };
+    expect(buildDisambiguationQuestion([A, B, C])).toBe("Is this about 5259 Brooklyn Ave, your job at Seattle or Cedar?");
+    // One house, two roles: the resident half names it, the vendor half gets the area.
+    const same = { ...A, role: "vendor" as const, reason: "vendor_job" as const, generalArea: "5259 Brooklyn Ave" };
     expect(buildDisambiguationQuestion([A, same])).toBe("Is this about your room at 5259 Brooklyn Ave or a job at 5259 Brooklyn Ave?");
+  });
+
+  // Review fix, Oct 20: the old fallback was `label` - the buildingName or the street - so a house whose address
+  // has no comma-separated city (`generalArea` is "" for those) put its address in front of an OFFERED vendor.
+  it("a vendor candidate with no area names its workspace, and with neither names nobody's street", () => {
+    const noArea: SharedLineCandidate = { ...B, generalArea: undefined };
+    expect(buildDisambiguationQuestion([A, noArea])).toBe("Is this about 5259 Brooklyn Ave or your job at Eighth Ave Co?");
+    const bare: SharedLineCandidate = { ...B, generalArea: undefined, workspaceName: undefined };
+    expect(buildDisambiguationQuestion([A, bare])).not.toMatch(/4709A|8th/);
   });
 
   describe("a live dispatch offer outranks the sticky thread", () => {
     const sticky: SharedLineSession = { phoneKey: "2065550142", currentWorkspaceId: "a", activeRole: "vendor", aiPaused: false, pausedAt: null, pendingCandidates: null, updatedAt: "2026-10-18T00:00:00Z" };
-    const stickyJob: SharedLineCandidate = { ...B, workspaceId: "a", ownerUserId: "oa", label: "5259 Brooklyn Ave" };
-    const offerJob: SharedLineCandidate = { ...B, workspaceId: "c", ownerUserId: "oc", label: "Cedar Apts", liveDispatch: ["offer"] };
-    const secondOffer: SharedLineCandidate = { ...B, workspaceId: "d", ownerUserId: "od", label: "Dexter House", liveDispatch: ["offer"] };
-    const acceptedJob: SharedLineCandidate = { ...B, workspaceId: "e", ownerUserId: "oe", label: "Elm Court", liveDispatch: ["accepted"] };
+    const stickyJob: SharedLineCandidate = { ...B, workspaceId: "a", ownerUserId: "oa", label: "5259 Brooklyn Ave", generalArea: "Wedgwood" };
+    const offerJob: SharedLineCandidate = { ...B, workspaceId: "c", ownerUserId: "oc", label: "Cedar Apts", generalArea: "Cedar Apts", liveDispatch: ["offer"] };
+    const secondOffer: SharedLineCandidate = { ...B, workspaceId: "d", ownerUserId: "od", label: "Dexter House", generalArea: "Dexter House", liveDispatch: ["offer"] };
+    const acceptedJob: SharedLineCandidate = { ...B, workspaceId: "e", ownerUserId: "oe", label: "Elm Court", generalArea: "Elm Court", liveDispatch: ["accepted"] };
 
     it("a bare YES / Y / N goes to the workspace with the live offer, not the sticky one", () => {
       for (const body of ["YES", "y", "No", "N"]) {

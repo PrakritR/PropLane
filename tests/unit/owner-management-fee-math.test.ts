@@ -166,15 +166,23 @@ describe("validation, hashing, copy", () => {
     expect(validateManagedFeeTerms(terms({ minFeeCents: 600_000 }))).toMatch(/minimum/);
     expect(validateManagedFeeTerms(terms({ repairApprovalThresholdCents: -1 }))).toMatch(/repair/);
   });
-  it("the hash covers fee terms but not the owner's own preferences", () => {
+  // Canonical v3 (review fix, Oct 20): the repair-approval threshold decides how large a vendor bill is posted
+  // against the owner WITHOUT asking her, and the reserve target is part of the agreement she reads. Outside the
+  // hash, an admin could raise either one between her page's load and her signature and have it activate under it.
+  it("the hash covers every term of the agreement, the repair threshold and reserve included", () => {
     const base = { workspaceId: "w", ownerUserId: "u", terms: terms(), effectiveFrom: "2026-11-01" };
     const h = (over: Partial<typeof base> = {}, t: Partial<ManagedFeeTerms> = {}) =>
       policyTermsSha256(canonicalPolicyTerms({ ...base, ...over, terms: terms(t) }));
     expect(h()).toBe(h());
     expect(h({}, { ownerShareBps: 8999 })).not.toBe(h());
     expect(h({ effectiveFrom: "2026-11-02" })).not.toBe(h());
-    expect(h({}, { repairApprovalThresholdCents: 1 })).toBe(h());
-    expect(h({}, { reserveTargetCents: 1 })).toBe(h());
+    expect(h({}, { repairApprovalThresholdCents: 1 })).not.toBe(h());
+    expect(h({}, { reserveTargetCents: 1 })).not.toBe(h());
+    expect(h({ workspaceId: "other" })).not.toBe(h());
+  });
+  it("names its version, so a stored hash is never compared across canonical shapes", () => {
+    const canonical = canonicalPolicyTerms({ workspaceId: "w", ownerUserId: "u", terms: terms(), effectiveFrom: "2026-11-01" });
+    expect(JSON.parse(canonical)).toMatchObject({ v: 3, reserveTargetCents: 0, repairApprovalThresholdCents: 25_000 });
   });
   it("describes the split in plain English", () => {
     expect(describeManagedFee(terms())).toBe("You receive 90%, PropLane keeps 10% of rent");

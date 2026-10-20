@@ -53,6 +53,8 @@ function activateRpc(args: Record<string, unknown>, f: OwnerFakeDb) {
     String(snapshot.appliesTo) === String(row.applies_to) &&
     String(snapshot.leasingFeeBps) === String(row.leasing_fee_bps) &&
     String(snapshot.minFeeCents) === String(row.min_fee_cents) &&
+    String(snapshot.reserveTargetCents) === String(row.reserve_target_cents) &&
+    String(snapshot.repairApprovalThresholdCents) === String(row.repair_approval_threshold_cents) &&
     String(snapshot.effectiveFrom) === String(row.effective_from);
   if (!same) return { status: "refused", reason: "terms_changed" };
   for (const other of rows) if (other.workspace_id === row.workspace_id && other.status === "active") other.status = "ended";
@@ -168,6 +170,47 @@ describe("sending and signing", () => {
     expect(signed.terms.ownerShareBps).toBe(5_000);
   });
 
+  // Review fix, Oct 20: canonical v3 brought the repair threshold and the reserve inside the signature. The
+  // threshold is what decides whether a vendor bill is posted against the owner WITHOUT asking her, so an admin
+  // raising it in the window between her page's load and her signature must refuse like any other term change.
+  it("an admin raising the no-ask repair threshold in that window refuses too", async () => {
+    let edited = false;
+    const f = seed({}, {
+      activate_managed_policy: (args, ff) => {
+        if (!edited) {
+          edited = true;
+          const row = ff.rows.managed_workspace_fee_policies!.find((r) => r.id === args.p_id)!;
+          row.repair_approval_threshold_cents = 500_000;
+        }
+        return activateRpc(args, ff);
+      },
+    });
+    const d = await createDraftPolicy(f.db, admin, input);
+    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
+    await expect(signPolicy(f.db, OWNER, d.id, policyTermsHash(d))).rejects.toMatchObject({ status: 409 });
+    expect(await loadActivePolicyForWorkspace(f.db, WS)).toBeNull();
+    // Reloading shows her the raised threshold, and signing THAT works.
+    const fresh = await loadPolicy(f.db, d.id);
+    expect((await signPolicy(f.db, OWNER, d.id, policyTermsHash(fresh!))).terms.repairApprovalThresholdCents).toBe(500_000);
+  });
+
+  it("the reserve target is inside the signature as well", async () => {
+    let edited = false;
+    const f = seed({}, {
+      activate_managed_policy: (args, ff) => {
+        if (!edited) {
+          edited = true;
+          const row = ff.rows.managed_workspace_fee_policies!.find((r) => r.id === args.p_id)!;
+          row.reserve_target_cents = 250_000;
+        }
+        return activateRpc(args, ff);
+      },
+    });
+    const d = await createDraftPolicy(f.db, admin, input);
+    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
+    await expect(signPolicy(f.db, OWNER, d.id, policyTermsHash(d))).rejects.toMatchObject({ status: 409 });
+  });
+
   it("an unsent draft cannot take an owner signature, even past the TypeScript check", async () => {
     const f = seed();
     const d = await createDraftPolicy(f.db, admin, input);
@@ -273,8 +316,8 @@ describe("the owner's own preferences", () => {
   });
 });
 
-describe("the SQL mirror: the activation terms guard (migration 20261020150000)", () => {
-  const sql = readFileSync("supabase/migrations/20261020150000_managed_policy_activation_terms_guard.sql", "utf8");
+describe("the SQL mirror: the activation terms guard (migration 20261020160100)", () => {
+  const sql = readFileSync("supabase/migrations/20261020160100_managed_policy_guard_full_terms.sql", "utf8");
 
   it("replaces the function on the same signature and keeps the grant fail-closed", () => {
     expect(sql).toContain("create or replace function public.activate_managed_policy(");
@@ -289,7 +332,10 @@ describe("the SQL mirror: the activation terms guard (migration 20261020150000)"
     const compareIdx = sql.indexOf("'terms_changed'");
     expect(lockIdx).toBeGreaterThan(-1);
     expect(compareIdx).toBeGreaterThan(lockIdx);
-    for (const key of ["workspaceId", "ownerUserId", "ownerShareBps", "appliesTo", "leasingFeeBps", "minFeeCents", "effectiveFrom"]) {
+    for (const key of [
+      "workspaceId", "ownerUserId", "ownerShareBps", "appliesTo", "leasingFeeBps", "minFeeCents",
+      "reserveTargetCents", "repairApprovalThresholdCents", "effectiveFrom",
+    ]) {
       expect(sql).toContain(`p_snapshot->>'${key}'`);
     }
     // Compared as TEXT, so a malformed snapshot refuses instead of raising a cast error.
@@ -303,8 +349,8 @@ describe("the SQL mirror: the activation terms guard (migration 20261020150000)"
   });
 });
 
-describe("the SQL mirror: the atomic phone-code start (migration 20261020150100)", () => {
-  const sql = readFileSync("supabase/migrations/20261020150100_phone_otp_start_atomic.sql", "utf8");
+describe("the SQL mirror: the atomic phone-code start (migration 20261020160000)", () => {
+  const sql = readFileSync("supabase/migrations/20261020160000_phone_otp_start_caps_from_app.sql", "utf8");
 
   it("takes a per-phone lock before it counts anything", () => {
     const lockIdx = sql.indexOf("pg_advisory_xact_lock(hashtextextended('phone-otp:' || p_phone_key, 0))");
@@ -312,10 +358,14 @@ describe("the SQL mirror: the atomic phone-code start (migration 20261020150100)
     expect(sql.indexOf("select count(*) from public.phone_otp_challenges")).toBeGreaterThan(lockIdx);
   });
 
-  it("keeps the same caps as SHARED_LINE_OTP_RULES, and retires before it inserts", () => {
-    expect(sql).toContain("and purpose = p_purpose and created_at > v_now - interval '1 hour') >= 3");
-    expect(sql).toContain("and created_at > v_now - interval '1 hour') >= 8");
-    expect(sql).toContain("public.phone_auth_failed_code_count(p_phone_key, p_purpose) >= 10");
+  it("takes every cap from the caller, and retires before it inserts", () => {
+    // No second copy of the numbers: `SHARED_LINE_OTP_RULES` is the one place they are written.
+    expect(sql).toContain("and purpose = p_purpose and created_at > v_now - interval '1 hour') >= p_max_per_purpose");
+    expect(sql).toContain("and created_at > v_now - interval '1 hour') >= p_max_per_phone");
+    expect(sql).toContain("public.phone_auth_failed_code_count(p_phone_key, p_purpose) >= p_max_failed");
+    expect(sql).not.toMatch(/>= *(?:3|8|10)\b/);
+    // A missing or nonsensical cap refuses rather than meaning "no cap".
+    expect(sql).toContain("p_max_per_purpose is null or p_max_per_purpose < 1");
     const retireIdx = sql.indexOf("set consumed_at = v_now");
     const insertIdx = sql.indexOf("insert into public.phone_otp_challenges");
     expect(retireIdx).toBeGreaterThan(-1);
@@ -325,7 +375,9 @@ describe("the SQL mirror: the atomic phone-code start (migration 20261020150100)
   });
 
   it("is service-role only", () => {
-    expect(sql).toContain("revoke all on function public.phone_otp_start(uuid, text, text, text, text, integer, timestamptz) from public, anon, authenticated;");
-    expect(sql).toContain("grant execute on function public.phone_otp_start(uuid, text, text, text, text, integer, timestamptz) to service_role;");
+    expect(sql).toContain("revoke all on function public.phone_otp_start(uuid, text, text, text, text, integer, integer, integer, integer, timestamptz) from public, anon, authenticated;");
+    expect(sql).toContain("grant execute on function public.phone_otp_start(uuid, text, text, text, text, integer, integer, integer, integer, timestamptz) to service_role;");
+    // The old signature goes, so two functions cannot disagree about the caps.
+    expect(sql).toContain("drop function if exists public.phone_otp_start(uuid, text, text, text, text, integer, timestamptz);");
   });
 });

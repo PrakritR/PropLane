@@ -53,23 +53,62 @@ export function stripContactDetails(value: string): string {
 const STREET_ADDRESS_PATTERN =
   /\b\d{1,6}\s+(?:[NSEW]{1,2}\.?\s+)?(?:[A-Za-z0-9'.-]+\s+){0,3}(?:st|street|ave|avenue|av|rd|road|blvd|boulevard|dr|drive|ln|lane|way|ct|court|pl|place|ter|terrace|pkwy|parkway|hwy|highway|cir|circle|trl|trail)\b\.?(?:\s*,?\s*(?:[NSEW]{1,2})\b\.?)?(?:\s*,?\s*(?:apt|apartment|unit|ste|suite|rm|room|#)\s*[A-Za-z0-9-]+)?/gi;
 
+/**
+ * The SUFFIXLESS form this product writes its own houses in: a house number (optionally with a unit letter) and the
+ * street name alone - "5259 Brooklyn", "4709A 8th", "412 Pine". The pattern above needs a type word (St, Ave), so
+ * none of those were stripped, and a resident titling a request "Leak at 5259 Brooklyn" sent the address to every
+ * vendor who had only been offered the job.
+ *
+ * Three digits minimum, and the following token must read like a street name (capitalised, or an ordinal such as
+ * `8th`), so a count or a measurement in ordinary free text survives: "2 people", "fix 3 windows", "100 feet of
+ * pipe", "room 3". A directional may lead the name ("4100 NE 45th").
+ */
+const HOUSE_NUMBER_PATTERN =
+  /\b\d{3,6}[A-Za-z]?\s+(?:[NSEW]{1,2}\.?\s+)?(?:\d{1,3}(?:st|nd|rd|th)|[A-Z][A-Za-z'.-]*)(?:\s+(?:\d{1,3}(?:st|nd|rd|th)|[A-Z][A-Za-z'.-]*)){0,2}\b/g;
+
 /** Strip anything that reads as a street address: an OFFERED vendor is told the general area and never the street. */
 export function stripStreetAddresses(value: string): string {
-  return String(value ?? "").replace(STREET_ADDRESS_PATTERN, "");
+  return String(value ?? "").replace(STREET_ADDRESS_PATTERN, "").replace(HOUSE_NUMBER_PATTERN, "");
+}
+
+/** Longest first, so removing "5259 Brooklyn" cannot leave the tail of "5259 Brooklyn Ave NE" behind. */
+function escapeLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Remove the run's OWN place strings verbatim, case-insensitively: the exact buildingName and address this job is
+ * at. A pattern can only guess at what reads like an address, but these are the strings in hand, so whatever shape
+ * the house is written in ("The Brooklyn", "Unit B - 4709A 8th"), a title that repeats it is cleaned.
+ */
+function stripKnownPlaces(value: string, places: readonly string[]): string {
+  let text = value;
+  const unique = [...new Set(places.map((place) => String(place ?? "").trim()).filter((place) => place.length >= 3))]
+    .sort((a, b) => b.length - a.length);
+  for (const place of unique) {
+    text = text.replace(new RegExp(escapeLiteral(place), "gi"), "");
+  }
+  return text;
 }
 
 /**
  * The one sanitizer for vendor-facing free text, whoever wrote it (a resident's title and description, a model's
  * summary): no phone, no email, no street address. Every field that reaches a vendor's offer text or the
  * vendor-portal board goes through this.
+ *
+ * `knownPlaces` are the job's own house strings (buildingName, address, the street line), removed verbatim before
+ * the patterns run - the caller already loaded the house, so the exact strings to take out are known rather than
+ * guessed.
  */
-export function sanitizeVendorFacingText(value: string): string {
-  return stripStreetAddresses(stripContactDetails(value))
+export function sanitizeVendorFacingText(value: string, knownPlaces: readonly string[] = []): string {
+  const withoutPlaces = stripKnownPlaces(String(value ?? ""), knownPlaces);
+  return stripStreetAddresses(stripContactDetails(withoutPlaces))
     .replace(/\s+([,.;:!?])/g, "$1")
     .replace(/([,;:-])\s*(?=[,;:.])/g, "")
     .replace(/\s{2,}/g, " ")
     .replace(/^[\s,;:.*-]+/, "")
     .replace(/[\s,;:-]+$/, "")
+    .replace(/\s+(?:at|in|on|for)\s*$/i, "")
     .trim();
 }
 

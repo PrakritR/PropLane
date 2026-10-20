@@ -96,7 +96,8 @@ describe("one person in two teams", () => {
     const { db } = world({ ...resident, ...vendor });
     // 1. A neutral text cannot be placed: ask, naming houses and never people.
     expect(await text(db, "ok thanks")).toEqual({ kind: "handled", twiml: null });
-    expect(bodies()).toEqual(["Is this about 5259 Brooklyn or your job at 4709A 8th Ave?"]);
+    expect(bodies()).toEqual(["Is this about 5259 Brooklyn or your job at Eighth Ave Co?"]);
+    expect(bodies().join(" ")).not.toMatch(/4709A|8th Ave/);
     // 2. The answer picks a team; the text goes on to THAT team's pipeline.
     const picked = await text(db, "2");
     expect(picked).toMatchObject({ kind: "continue", owned: { workspaceId: "ws-b", managerId: "owner-b" } });
@@ -173,7 +174,8 @@ describe("a vendor who works by dispatch text", () => {
   it("resident in A and dispatched vendor in B: an unclear text is asked about, never guessed", async () => {
     const { db } = world({ ...resident, ...dispatched() });
     expect(await text(db, "ok thanks")).toEqual({ kind: "handled", twiml: null });
-    expect(bodies()).toEqual(["Is this about 5259 Brooklyn or your job at 4709A 8th Ave?"]);
+    expect(bodies()).toEqual(["Is this about 5259 Brooklyn or your job at Eighth Ave Co?"]);
+    expect(bodies().join(" ")).not.toMatch(/4709A|8th Ave/);
     expect(await text(db, "2")).toMatchObject({ kind: "continue", owned: { workspaceId: "ws-b" } });
   });
 });

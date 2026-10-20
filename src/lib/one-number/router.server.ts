@@ -153,9 +153,17 @@ export function resolvePendingAnswer(
  * What this candidate may be CALLED in a text to this phone. A vendor reads the general area, never the street: the
  * candidate exists while the job is only offered. `label` stays the house for matching, so naming the street still
  * routes - it is only what we say back that is narrowed.
+ *
+ * The fallback chain for a vendor never reaches `label`. `generalArea` is empty for any house whose address carries
+ * no comma-separated city (`propertyGeneralArea` returns "" rather than a placeholder), and `label` is the
+ * buildingName or the street - so falling back to it put the address in front of a vendor who had only been
+ * OFFERED the job. The workspace's own name is the answer there, then a generic phrase.
  */
+export const VENDOR_PLACE_FALLBACK = "your property team";
+
 export function spokenLabelFor(candidate: SharedLineCandidate): string {
-  return candidate.role === "vendor" ? candidate.generalArea || candidate.label : candidate.label;
+  if (candidate.role !== "vendor") return candidate.label;
+  return candidate.generalArea || candidate.workspaceName || VENDOR_PLACE_FALLBACK;
 }
 
 function phraseFor(candidate: SharedLineCandidate): string {

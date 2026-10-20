@@ -428,20 +428,58 @@ describe("reconciliation finishes the payouts that were never started", () => {
     expect(f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args).toMatchObject({ p_id: "wd-7", p_transfer: "tr_7", p_payout: "po_earlier", p_payout_error: null });
   });
 
-  // The money is back in the connected account's balance, and nothing ever looks at a completed withdrawal again -
-  // so adopting a dead payout would strand it silently. The marker stays and a person is told.
-  it.each(["failed", "canceled", ""])("does not end the sweep on a %s payout: the marker stays and a person is flagged", async (status) => {
+  // Review fix, Oct 20. A dead payout is not an answer AND must not match the adoption lookup: while it did, the
+  // `payouts.create` below was never reached on any later sweep, so the money sat in the connected account's
+  // balance for ever behind a row that only got flagged once a day. It is marked superseded and REPLACED.
+  it.each(["failed", "canceled", ""])("replaces a %s payout with a fresh one under a new idempotency key", async (status) => {
     const f = setup({}, { party_withdrawals: [unverified()] });
     const stripe = withSchedule(
       makeStripe({ payoutList: [{ id: "po_dead", status: status || undefined, failure_message: "account closed", metadata: { withdrawal_id: "wd-7" } }] }),
       () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }),
     );
-    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 0 });
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 1 });
+    expect(stripe.payouts.create).toHaveBeenCalledTimes(1);
+    const [params, opts] = (stripe.payouts.create as unknown as { mock: { calls: Array<[Record<string, unknown>, Record<string, unknown>]> } }).mock.calls[0]!;
+    expect(params).toMatchObject({ amount: 50_000, metadata: { withdrawal_id: "wd-7" } });
+    // A new key, or Stripe would answer the replacement with the dead payout out of its idempotency cache.
+    expect(opts.idempotencyKey).toBe("party-withdrawal-payout:wd-7:50000:r1");
+    // The row completes on the REPLACEMENT, and the dead one is on record for a person.
+    expect(f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args)
+      .toMatchObject({ p_id: "wd-7", p_payout: "po_1", p_payout_error: null });
+    expect((f.rows.owner_ledger_flags ?? []).some((r) => r.check_name === "withdrawal_payout_superseded" && r.subject === "wd-7")).toBe(true);
+  });
+
+  it("a second dead payout moves the key again, so one withdrawal is never stuck", async () => {
+    const f = setup({}, { party_withdrawals: [unverified()] });
+    const stripe = withSchedule(
+      makeStripe({
+        payoutList: [
+          { id: "po_dead_1", status: "failed", metadata: { withdrawal_id: "wd-7" } },
+          { id: "po_dead_2", status: "canceled", metadata: { withdrawal_id: "wd-7" } },
+        ],
+      }),
+      () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }),
+    );
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 1 });
+    const [, opts] = (stripe.payouts.create as unknown as { mock: { calls: Array<[unknown, Record<string, unknown>]> } }).mock.calls[0]!;
+    expect(opts.idempotencyKey).toBe("party-withdrawal-payout:wd-7:50000:r2");
+  });
+
+  it("a live payout beside a dead one is still adopted: no second payout is created", async () => {
+    const f = setup({}, { party_withdrawals: [unverified()] });
+    const stripe = withSchedule(
+      makeStripe({
+        payoutList: [
+          { id: "po_dead", status: "failed", metadata: { withdrawal_id: "wd-7" } },
+          { id: "po_live", status: "in_transit", metadata: { withdrawal_id: "wd-7" } },
+        ],
+      }),
+      () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }),
+    );
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 1 });
     expect(stripe.payouts.create).not.toHaveBeenCalled();
-    const last = f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args;
-    expect(last.p_payout).toBeNull();
-    expect(readPayoutPendingVerification(last.p_payout_error)).toEqual({ attempts: 1 });
-    expect((f.rows.owner_ledger_flags ?? []).some((r) => r.check_name === "withdrawal_payout_not_live" && r.subject === "wd-7")).toBe(true);
+    expect(f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args)
+      .toMatchObject({ p_id: "wd-7", p_payout: "po_live", p_payout_error: null });
   });
 
   it("creates the payout (tagged with the withdrawal id) when none of the recent payouts is this withdrawal's", async () => {

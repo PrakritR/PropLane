@@ -36,7 +36,7 @@ vi.mock("@/lib/google-calendar/sync.server", () => ({ syncWorkOrderToGoogleCalen
 
 import { prepareDispatch } from "@/lib/work-order-dispatch.server";
 import { handleManagerDispatchReply } from "@/lib/vendor-dispatch/inbound.server";
-import { isDispatchKeyword, resolveDispatchSettings } from "@/lib/vendor-dispatch/service-default.server";
+import { isDispatchKeyword, resetDispatchSettingsCache, resolveDispatchSettings } from "@/lib/vendor-dispatch/service-default.server";
 
 const row = (over: Record<string, unknown> = {}) => ({
   id: "wo-1", title: "Leaking faucet", category: "plumbing", bucket: "open", propertyId: "p-1", propertyName: "Maple Court", ...over,
@@ -50,7 +50,21 @@ function world(opts: { service: boolean; saved?: unknown; wo?: Record<string, un
   }, { uniques: { audit_log: [["dedupe_key"]] } });
 }
 
-beforeEach(() => { s.queue.length = 0; s.runCalls.length = 0; s.runOutcome = "created"; s.notices.length = 0; s.legacyUsed = 0; s.workspaceByProperty = {}; });
+/** The settings read fails the way a statement timeout does: the table is there, the answer is not. */
+function timingOut(f: OwnerFakeDb, onRead: () => void = () => undefined) {
+  return {
+    ...f.db,
+    from: (table: string) => {
+      if (table !== "manager_automation_settings") return f.db.from(table);
+      onRead();
+      return {
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { code: "57014", message: "statement timeout" } }) }) }),
+      } as never;
+    },
+  } as never;
+}
+
+beforeEach(() => { resetDispatchSettingsCache(); s.queue.length = 0; s.runCalls.length = 0; s.runOutcome = "created"; s.notices.length = 0; s.legacyUsed = 0; s.workspaceByProperty = {}; });
 
 describe("effective dispatch settings", () => {
   it("a service workspace with nothing saved proposes (mode approve); an explicit off stays off", async () => {
@@ -60,6 +74,47 @@ describe("effective dispatch settings", () => {
   });
   it("a self-serve workspace stays off", async () => {
     expect(await resolveDispatchSettings(world({ service: false }).db, "mgr", "ws-1")).toMatchObject({ serviceDefault: false, settings: { mode: "off" } });
+  });
+
+  // Review fix, Oct 20. A failed read and "nothing saved" both arrive as no `vendor_dispatch`, and the function
+  // then handed a service workspace mode `approve` - so the gate that is meant to honour a saved "off" let a run
+  // through on a transient error. The resolution says it could not read, and the gate refuses on that.
+  it("reports an unreadable settings row instead of calling it 'nothing saved'", async () => {
+    const failed = await resolveDispatchSettings(timingOut(world({ service: true })), "mgr", "ws-1");
+    expect(failed.unreadable).toBe(true);
+    expect(failed.serviceDefault).toBe(false);
+    // A table that is not there YET is different: nothing can have been saved, so the service default applies.
+    const premigration = fakeOwnerDb({ portal_workspaces: [{ id: "ws-1", is_service: true }] }, { broken: ["manager_automation_settings"] });
+    expect(await resolveDispatchSettings(premigration.db, "mgr", "ws-1")).toMatchObject({ serviceDefault: true, settings: { mode: "approve" } });
+    // Readable rows never carry the flag.
+    expect((await resolveDispatchSettings(world({ service: true }).db, "mgr", "ws-1")).unreadable).toBeUndefined();
+    expect((await resolveDispatchSettings(world({ service: true, saved: { mode: "off" } }).db, "mgr", "ws-1")).unreadable).toBeUndefined();
+  });
+
+  // The turnover sweep asks this once per stay, beside a roster lookup cached for exactly that reason.
+  it("reads the saved row once per workspace per window, and never remembers a failure", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("VITEST", "");
+    try {
+      const f = world({ service: true, saved: { mode: "auto" } });
+      let reads = 0;
+      const counted = { ...f.db, from: (table: string) => { if (table === "manager_automation_settings") reads += 1; return f.db.from(table); } } as never;
+      for (let i = 0; i < 3; i += 1) expect((await resolveDispatchSettings(counted, "mgr", "ws-1")).settings.mode).toBe("auto");
+      expect(reads).toBe(1);
+      // Another workspace is its own answer, not this one's.
+      await resolveDispatchSettings(counted, "mgr", "ws-2");
+      expect(reads).toBe(2);
+
+      const bad = world({ service: true });
+      let badReads = 0;
+      const countedBad = timingOut(bad, () => { badReads += 1; });
+      expect((await resolveDispatchSettings(countedBad, "mgr9", "ws-9")).unreadable).toBe(true);
+      expect((await resolveDispatchSettings(countedBad, "mgr9", "ws-9")).unreadable).toBe(true);
+      expect(badReads).toBe(2);
+    } finally {
+      vi.unstubAllEnvs();
+      resetDispatchSettingsCache();
+    }
   });
 });
 

@@ -146,14 +146,22 @@ export async function createDispatchRun(db: SupabaseClient, input: CreateDispatc
 
   const house = await loadHouse(db, input.ownerUserId, input.propertyId ?? null).catch(() => null);
   const issueDef = issueDefinition(input.trade, issue);
+  // This job's own place strings, taken out of vendor-facing free text verbatim: a pattern can only guess at what
+  // reads like an address, and this product writes its houses suffixless ("5259 Brooklyn").
+  const knownPlaces = [
+    ...(house?.placeStrings ?? []),
+    input.details.houseLabel ?? "",
+    input.details.address ?? "",
+    (input.details.address ?? "").split(",")[0] ?? "",
+  ].filter(Boolean);
   const details: DispatchJobDetails & Record<string, unknown> = {
     ...input.details,
     // Resident- or model-authored free text: an offered vendor reads the general area, never a street or a contact detail.
-    what: sanitizeVendorFacingText(input.details.what ?? "") || issueDef?.label || trade.label,
+    what: sanitizeVendorFacingText(input.details.what ?? "", knownPlaces) || issueDef?.label || trade.label,
     houseLabel: input.details.houseLabel || house?.label || "",
     address: input.details.address || house?.address || "",
     area: input.details.area || house?.area || "",
-    summary: input.details.summary ? sanitizeVendorFacingText(input.details.summary).slice(0, 300) : undefined,
+    summary: input.details.summary ? sanitizeVendorFacingText(input.details.summary, knownPlaces).slice(0, 300) : undefined,
     payModel: rule?.pay_model ?? trade.defaultPayModel,
     broadcastSize: rule?.broadcast_size ?? 3,
     ruleName: rule?.name ?? null,

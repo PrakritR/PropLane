@@ -310,17 +310,27 @@ export function nextMonthKey(key: string): string {
   return month === 12 ? `${year + 1}-01` : `${year}-${String(month + 1).padStart(2, "0")}`;
 }
 
-/** Canonical text of the terms an owner accepts, and its hash. A fee term change changes the hash. */
+/**
+ * Canonical text of the terms an owner accepts, and its hash. A term change changes the hash.
+ *
+ * v3 adds `repairApprovalThresholdCents` and `reserveTargetCents`. They are part of the agreement the owner reads,
+ * and the threshold decides how large a vendor bill is auto-approved WITHOUT asking her
+ * (`vendor-bills.server.ts`), so leaving them outside the signature let an admin edit them between her page's load
+ * and her signature. Already-active rows keep their stored v2 hash; nothing re-verifies it, and only a draft's
+ * presented hash and a new activation are compared.
+ */
 export function canonicalPolicyTerms(input: { workspaceId: string; ownerUserId: string; terms: ManagedFeeTerms; effectiveFrom: string }): string {
   const t = input.terms;
   return JSON.stringify({
-    v: 2,
+    v: 3,
     workspaceId: input.workspaceId,
     ownerUserId: input.ownerUserId,
     ownerShareBps: t.ownerShareBps,
     appliesTo: t.appliesTo,
     leasingFeeBps: t.leasingFeeBps,
     minFeeCents: t.minFeeCents,
+    reserveTargetCents: t.reserveTargetCents,
+    repairApprovalThresholdCents: t.repairApprovalThresholdCents,
     effectiveFrom: input.effectiveFrom,
   });
 }

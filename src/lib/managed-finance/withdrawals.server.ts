@@ -447,36 +447,41 @@ async function finishPendingVerificationPayouts(stripe: Stripe, db: SupabaseClie
     // first and a payout already tagged with this withdrawal is adopted instead of created again. A list that cannot
     // be read is not an answer: keep the marker and try later rather than risk a second payout.
     let adopted: Stripe.Payout | null = null;
+    let superseded: Stripe.Payout[] = [];
     try {
       const recent = await stripe.payouts.list({ limit: 100 }, { stripeAccount: accountId });
-      adopted = (recent.data ?? []).find((p) => p.metadata?.withdrawal_id === id) ?? null;
+      const mine = (recent.data ?? []).filter((p) => p.metadata?.withdrawal_id === id);
+      // ONLY a payout that is on its way (or already there) answers for this withdrawal. A `failed` or `canceled`
+      // one put the money back in the connected account's balance, so it is not an answer and must not match: it
+      // counted as "adopted" on every later sweep, which meant the replacement payout below was never reached and
+      // the money sat in that balance for ever.
+      adopted = mine.find((p) => PAYOUT_LIVE_STATUSES.has(String(p.status ?? ""))) ?? null;
+      superseded = mine.filter((p) => !PAYOUT_LIVE_STATUSES.has(String(p.status ?? "")));
     } catch {
       await keepTrying(pending.attempts + 1);
       continue;
     }
     if (adopted) {
-      const status = String(adopted.status ?? "");
-      // Only a payout that is on its way (or already there) ends this sweep. A `failed` or `canceled` payout put the
-      // money back in the connected account's balance, and a withdrawal marked completed is never looked at again -
-      // so the pending marker stays and a person is told, rather than the row reading paid with nothing moving.
-      if (!PAYOUT_LIVE_STATUSES.has(status)) {
-        await flag(db, "withdrawal_payout_not_live", id, {
-          account: accountId,
-          payout: adopted.id,
-          status: status || "unknown",
-          reason: adopted.failure_message ?? null,
-        });
-        await keepTrying(pending.attempts + 1);
-        continue;
-      }
       await db.rpc("complete_party_withdrawal", { p_id: id, p_transfer: transferId, p_payout: adopted.id, p_payout_error: null });
       finished += 1;
       continue;
     }
+    for (const dead of superseded) {
+      await flag(db, "withdrawal_payout_superseded", id, {
+        account: accountId,
+        payout: dead.id,
+        status: String(dead.status ?? "") || "unknown",
+        reason: dead.failure_message ?? null,
+      });
+    }
     try {
+      // The key is scoped to how many payouts for this withdrawal have already died, so a replacement is a NEW
+      // request Stripe will actually take, while a retry after a lost response (nothing new died) still replays the
+      // same one and cannot pay twice. It is derived from Stripe's own list, never from a local attempt counter.
+      const attemptKey = superseded.length > 0 ? `:r${superseded.length}` : "";
       const payout = await stripe.payouts.create(
         { amount: amountCents, currency: "usd", method: "standard", metadata: { withdrawal_id: id, transfer_id: transferId } },
-        { stripeAccount: accountId, idempotencyKey: `party-withdrawal-payout:${id}:${amountCents}` },
+        { stripeAccount: accountId, idempotencyKey: `party-withdrawal-payout:${id}:${amountCents}${attemptKey}` },
       );
       // `complete_party_withdrawal` on an already-completed row fills the payout id and clears the error.
       await db.rpc("complete_party_withdrawal", { p_id: id, p_transfer: transferId, p_payout: payout.id, p_payout_error: null });

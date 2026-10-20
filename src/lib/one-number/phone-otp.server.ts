@@ -100,6 +100,9 @@ function isMissingFunctionError(error: { code?: string | null } | null | undefin
 /**
  * Claim this phone's hourly allowance and leave exactly one live challenge behind, in one statement.
  *
+ * The caps travel as arguments, so `SHARED_LINE_OTP_RULES` and `PHONE_LIFETIME_FAILED_CODE_CAP` stay the one place
+ * they are written: a second copy inside the function would have gone on enforcing the old numbers after an edit.
+ *
  * The budget check, the retire of older unconsumed codes and the insert are a check-then-act triple: run as three
  * round trips, two concurrent sends both passed the cap, and two codes could be left live so the OLDER one verified
  * after the newer was redeemed. `phone_otp_start` does all three under a per-phone advisory lock, exactly as
@@ -119,6 +122,9 @@ async function startChallenge(
       p_subject: input.subjectId,
       p_code_hash: input.codeHash,
       p_ttl_minutes: SHARED_LINE_OTP_RULES.ttlMinutes,
+      p_max_per_purpose: SHARED_LINE_OTP_RULES.maxSendsPerHour,
+      p_max_per_phone: SHARED_LINE_OTP_RULES.maxSendsPerPhonePerHour,
+      p_max_failed: PHONE_LIFETIME_FAILED_CODE_CAP,
       p_now: input.now.toISOString(),
     })) as { data: unknown; error: { code?: string | null } | null };
   } catch {

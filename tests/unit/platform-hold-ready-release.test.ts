@@ -75,6 +75,41 @@ describe("release-ready-holds backstop", () => {
   // release (a frozen unsigned service workspace, an account that will never be payouts-ready) sits permanently at
   // the head, so once they hold more rows than the window nobody behind them is ever read - and an owner whose
   // `account.updated` webhook was lost is never released. The read pages on `created_at` for DISTINCT owners.
+  // Review fix, Oct 20: `created_at` alone is not a key. Advancing past the boundary with `gt` stepped over every
+  // other row sharing that timestamp - and rows written by one batch or backfill all share one - so an owner whose
+  // only holds sat on the boundary was skipped on every run. The page is a keyset on (created_at, id).
+  it("reaches an owner whose only holds share the page boundary's timestamp", async () => {
+    const BOUNDARY = "2026-03-01T00:00:00Z";
+    // Exactly one page of the stuck owner, every row on one timestamp, and the waiting owner on that SAME stamp.
+    const stuck = Array.from({ length: 1_000 }, (_, i) => held("stuck", { id: `h-stuck-${String(i).padStart(4, "0")}`, created_at: BOUNDARY }));
+    const f = fakeOwnerDb({
+      platform_payment_holds: [...stuck, held("waiting", { id: "h-zz-waiting", created_at: BOUNDARY })],
+      profiles: [
+        { id: "stuck", stripe_connect_account_id: "acct_stuck" },
+        { id: "waiting", stripe_connect_account_id: "acct_waiting" },
+      ],
+    });
+    const stripe = stripeWith({
+      acct_stuck: { id: "acct_stuck", payouts_enabled: false, metadata: { axis_user_id: "stuck" } },
+      acct_waiting: { id: "acct_waiting", payouts_enabled: true, metadata: { axis_user_id: "waiting" } },
+    });
+    const result = await releaseReadyPlatformHolds(f.db, stripe, { applyAccount: apply });
+    expect(result).toMatchObject({ owners: 2, ready: 1, notReady: 1, errors: [] });
+    expect((apply.mock.calls[0] as unknown[])[1]).toMatchObject({ id: "acct_waiting" });
+  });
+
+  it("stops instead of re-reading a page it cannot advance past", async () => {
+    // Every row on one timestamp and more than one page of them: there is no cursor that moves, so the run must
+    // finish with what it read rather than walking the same page to its page cap.
+    const f = fakeOwnerDb({
+      platform_payment_holds: Array.from({ length: 1_200 }, (_, i) =>
+        held("stuck", { id: `h-${String(i).padStart(4, "0")}`, created_at: "2026-03-01T00:00:00Z" })),
+      profiles: [{ id: "stuck", stripe_connect_account_id: "acct_stuck" }],
+    });
+    const stripe = stripeWith({ acct_stuck: { id: "acct_stuck", payouts_enabled: true, metadata: { axis_user_id: "stuck" } } });
+    expect(await releaseReadyPlatformHolds(f.db, stripe, { applyAccount: apply })).toMatchObject({ owners: 1, ready: 1, errors: [] });
+  });
+
   it("reaches an owner behind thousands of a stuck owner's holds", async () => {
     const stuck = Array.from({ length: 2_400 }, (_, i) => held("stuck", {
       id: `h-stuck-${i}`,

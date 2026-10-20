@@ -10,10 +10,18 @@ import {
   sanitizeVendorFacingText,
   stripStreetAddresses,
 } from "@/lib/vendor-dispatch/text";
-import { buildDisambiguationQuestion } from "@/lib/one-number/router.server";
+import { buildDisambiguationQuestion, spokenLabelFor, VENDOR_PLACE_FALLBACK } from "@/lib/one-number/router.server";
 import { propertyGeneralArea, propertyLabel } from "@/lib/one-number/router-lookups.server";
 import { parseOfferPick } from "@/lib/one-number/lead-match";
 import type { LeadOffer } from "@/lib/one-number/lead-match";
+import type { SharedLineCandidate } from "@/lib/one-number/contracts";
+
+const vendor = (over: Partial<SharedLineCandidate>): SharedLineCandidate => ({
+  workspaceId: "w2", ownerUserId: "o2", role: "vendor", reason: "vendor_job", propertyId: "p2", label: "", ...over,
+});
+const resident = (over: Partial<SharedLineCandidate>): SharedLineCandidate => ({
+  workspaceId: "w1", ownerUserId: "o1", role: "resident", reason: "resident", propertyId: "p1", label: "", ...over,
+});
 
 describe("vendor-facing free text", () => {
   it("strips a street address written in any of the usual shapes", () => {
@@ -32,6 +40,30 @@ describe("vendor-facing free text", () => {
     expect(clean).not.toMatch(/\d{3}[\s.-]?\d{4}/);
     expect(clean.startsWith("Lockout")).toBe(true);
     expect(clean).not.toMatch(/\s{2,}|^[\s,]+|[\s,]+$/);
+  });
+
+  // Review fix, Oct 20: the generic pattern needed a type word (St, Ave), so the SUFFIXLESS form this product
+  // writes its own houses in survived - and that is the form a resident copies into a request title.
+  it("strips a house number with no street-type word, which is how this product names its houses", () => {
+    expect(sanitizeVendorFacingText("Leak at 5259 Brooklyn")).toBe("Leak");
+    expect(sanitizeVendorFacingText("Lockout 4709A 8th")).toBe("Lockout");
+    expect(sanitizeVendorFacingText("412 Pine needs a plumber")).toBe("needs a plumber");
+    expect(sanitizeVendorFacingText("Clean 4100 NE 45th unit")).toBe("Clean unit");
+  });
+
+  it("leaves counts and measurements alone: they are not addresses", () => {
+    for (const text of ["Fix 3 windows", "2 people", "100 feet of pipe", "Clean room 3", "Replace 12 bulbs"]) {
+      expect(sanitizeVendorFacingText(text)).toBe(text);
+    }
+  });
+
+  // A pattern can only guess at what reads like an address; the run's own house strings are known exactly.
+  it("removes the job's own house strings verbatim, whatever shape they are written in", () => {
+    const places = ["5259 Brooklyn Ave NE, Seattle, WA 98105", "5259 Brooklyn Ave NE", "The Brooklyn"];
+    expect(sanitizeVendorFacingText("Leak in the basement of The Brooklyn", places)).toBe("Leak in the basement of");
+    expect(sanitizeVendorFacingText("Leak at 5259 Brooklyn Ave NE, Seattle, WA 98105", places)).toBe("Leak");
+    // Case does not matter, and nothing of the longer string is left behind by removing the shorter one first.
+    expect(sanitizeVendorFacingText("leak at the brooklyn", places)).toBe("leak");
   });
 
   it("keeps a street address out of the offer text even when it came in through `what`", () => {
@@ -62,11 +94,33 @@ describe("a vendor candidate's label", () => {
 
   it("never puts a street into the disambiguation question", () => {
     const question = buildDisambiguationQuestion([
-      { workspaceId: "w1", ownerUserId: "o1", role: "resident", reason: "resident", propertyId: "p1", label: "Fremont House" },
-      { workspaceId: "w2", ownerUserId: "o2", role: "vendor", reason: "vendor_job", propertyId: "p2", label: propertyGeneralArea(row) || "Hale Properties" },
+      resident({ label: "Fremont House" }),
+      vendor({ label: "5259 Brooklyn", generalArea: "Seattle", workspaceName: "Hale Properties" }),
     ]);
     expect(question).toContain("your job at Seattle");
     expect(question).not.toMatch(/5259|Ave NE/);
+  });
+
+  // Review fix, Oct 20. `generalArea` is empty for every house whose address carries no comma-separated city, and
+  // the old fallback was `candidate.label` - the buildingName or the street. So exactly the houses with no city
+  // were the ones whose address went to a vendor who had only been OFFERED the job.
+  it("falls back to the workspace name, never to the house, when no area can be told", () => {
+    const candidate = vendor({ label: "412 Pine St", workspaceName: "Hale Properties" });
+    expect(spokenLabelFor(candidate)).toBe("Hale Properties");
+    const question = buildDisambiguationQuestion([resident({ label: "Fremont House" }), candidate]);
+    expect(question).toBe("Is this about Fremont House or your job at Hale Properties?");
+    expect(question).not.toMatch(/412|Pine/);
+  });
+
+  it("falls back to a generic phrase when there is no workspace name either", () => {
+    const candidate = vendor({ label: "5259 Brooklyn Ave NE" });
+    expect(spokenLabelFor(candidate)).toBe(VENDOR_PLACE_FALLBACK);
+    expect(spokenLabelFor(candidate)).not.toMatch(/5259|Brooklyn/);
+    expect(buildDisambiguationQuestion([resident({ label: "Fremont House" }), candidate])).not.toMatch(/5259|Brooklyn/);
+  });
+
+  it("leaves a NON-vendor candidate naming its own house: a resident knows where they live", () => {
+    expect(spokenLabelFor(resident({ label: "5259 Brooklyn" }))).toBe("5259 Brooklyn");
   });
 });
 
