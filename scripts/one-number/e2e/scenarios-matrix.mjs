@@ -270,7 +270,7 @@ MATRIX_SCENARIOS.push({
     await item(5, "'how do I apply' returns an apply link bound to the phone", async (c) => {
       const A = world.phone();
       await say(ctx, A, fx.to, `I'm interested in the home at ${fx.house.address.split(",")[0]}`);
-      const r = await say(ctx, A, fx.to, "how do I apply for it?", { trace: true });
+      const r = await say(ctx, A, fx.to, "how do I apply for it?", { trace: true, agentUser: fx.manager.id });
       c.reply(r, "apply");
       const apply = urlsOf(r.all).find((u) => /\/rent\/apply|\/l\/|apply/i.test(u));
       c.check("an apply link is in the reply", Boolean(apply), r.all);

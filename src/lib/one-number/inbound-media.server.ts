@@ -127,7 +127,10 @@ export async function ingestInboundMedia(
         bytes: fetched.bytes,
         mime: fetched.contentType || item.declaredType,
       });
-      if (!stored) continue;
+      if (!stored) {
+        console.error("inbound media item skipped", { messageSid: args.messageSid, index: item.index, reason: "not_stored", type: fetched.contentType || item.declaredType, bytes: fetched.bytes.byteLength });
+        continue;
+      }
       const { error } = await db.from("sms_media_files").upsert(
         {
           message_sid: args.messageSid,
@@ -141,7 +144,10 @@ export async function ingestInboundMedia(
         { onConflict: "message_sid,media_index", ignoreDuplicates: true },
       );
       // A missing table (code runs before its migration) leaves the file stored but unindexed.
-      if (error && !isMissingSchemaError(error)) continue;
+      if (error && !isMissingSchemaError(error)) {
+        console.error("inbound media item skipped", { messageSid: args.messageSid, index: item.index, reason: "index_write_failed", code: error.code ?? null });
+        continue;
+      }
       out.push({ index: item.index, path: stored.path, contentType: stored.contentType, byteSize: stored.byteSize });
     } catch (error) {
       console.error("inbound media item skipped", {
