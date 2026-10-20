@@ -63,21 +63,30 @@ export function buildProspectTourHref(
   return pid ? residentCreateAccountHref(residentPortalTourSchedulePath(pid)) : buildTourContactHref(pid);
 }
 
-/**
- * Short stay "Request to book" for a visitor without a resident account: make one, then come back to this listing's
- * booking card with the picks still in place (`ShortStayProvider` reads them from the URL).
- */
-export function buildProspectBookHref(
+/** The resident portal's short-stay request (the contract with `/resident/stays/request`), prefilled with the picks. */
+export function residentStayRequestPath(
   propertyId: string,
-  picks: { roomId?: string | null; checkIn?: string | null; checkOut?: string | null; guests?: number | null; arrival?: string | null },
+  picks: { roomId?: string | null; checkIn?: string | null; checkOut?: string | null; guests?: number | null },
 ): string {
-  const q = new URLSearchParams({ stay: "1" });
+  const q = new URLSearchParams({ listing: propertyId.trim() });
+  if (picks.roomId) q.set("room", picks.roomId);
   if (picks.checkIn) q.set("checkIn", picks.checkIn);
   if (picks.checkOut) q.set("checkOut", picks.checkOut);
-  if (picks.roomId) q.set("room", picks.roomId);
-  if (picks.guests && picks.guests > 1) q.set("guests", String(picks.guests));
-  if (picks.arrival) q.set("arrive", picks.arrival);
-  return residentCreateAccountHref(`/rent/listings/${encodeURIComponent(propertyId.trim())}?${q.toString()}`);
+  q.set("guests", String(Math.max(1, Math.round(picks.guests ?? 1))));
+  return `/resident/stays/request?${q.toString()}`;
+}
+
+/**
+ * Short stay "Request to book" (captain, Oct 20): the request is made in the resident portal. A signed-in resident
+ * goes straight there; anyone else makes a resident account first and lands on it with the picks.
+ */
+export function buildProspectStayRequestHref(
+  propertyId: string,
+  picks: { roomId?: string | null; checkIn?: string | null; checkOut?: string | null; guests?: number | null },
+  auth: { ready: boolean; userId: string | null; hasResidentRole: boolean },
+): string {
+  const step = residentStayRequestPath(propertyId, picks);
+  return auth.ready && auth.userId && auth.hasResidentRole ? step : residentCreateAccountHref(step);
 }
 
 export function buildProspectMessageHref(

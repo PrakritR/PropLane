@@ -1,23 +1,19 @@
 import "server-only";
 
 /**
- * A guest's "Request to book" on a public listing (`POST /api/public/short-stay-request`).
+ * The shared core for every short-stay row. The anonymous public booking route is retired; a stay
+ * is requested only inside the resident portal (`POST /api/resident/stays`,
+ * `short-stay/guest-stays.server.ts`) or by SMS (`short-stay/sms-stay-book.server.ts`,
+ * `tools/domains/short-stay-sms.ts`). Both call `loadShortStayListing` to re-read the live listing,
+ * room and nightly rate, then `createShortStayRows`, so a stay row has one shape:
+ * `stayDetails.guests` (the capacity trigger weighs a stay by it), a 24-hour `holdExpiresAt` on a
+ * hold, the guest's `residentUserId` and a `source`.
  *
- * It creates exactly what the manager's "Add booking" sheet saves: a `room_date_block` hold in
- * `portal_schedule_records` with the guest on it (name, phone, email), the nightly rate stored on the
- * stay. Nothing is charged and no resident account is made - the manager confirms in Bookings. The
- * guest is texted from the workspace work number (email too when given) and the owner and every
- * teammate with the house hear about it through the notice spine.
- *
- * Availability is re-checked here against the same occupancy the listing reads; the capacity trigger
- * on `portal_schedule_records` is the last word, and a refusal there is a 409 too. Nothing this
- * returns names another guest.
- *
- * ONE core writes every short-stay row: `createShortStayRows`. The public route (this file's
- * `submitShortStayRequest`, which keeps its own rate limits) and the signed-in guest's
- * `POST /api/resident/stays` (`short-stay/guest-stays.server.ts`) both call it, so a stay row has
- * one shape: `stayDetails.guests` (the capacity trigger weighs a stay by it), a 24-hour
- * `holdExpiresAt` on a hold, the guest's `residentUserId` and a `source`.
+ * It creates what the manager's "Add booking" sheet saves: a `room_date_block` in
+ * `portal_schedule_records` with the guest on it. Availability is re-checked against the same
+ * occupancy the listing reads; the capacity trigger on `portal_schedule_records` is the last word,
+ * and a refusal there is a 409. Notifications are the caller's (`emitShortStayRequestedEvent` is the
+ * shared owner/teammate notice).
  */
 import { randomUUID } from "node:crypto";
 import {
@@ -30,21 +26,13 @@ import {
   type StayAddOns,
 } from "@/lib/bookings/stay-times";
 import { loadPropertyStayClock } from "@/lib/bookings/property-stay-times.server";
-import { rateLimit } from "@/lib/rate-limit";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitActionEvent } from "@/lib/action-events.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { postResendEmail } from "@/lib/resend-delivery.server";
-import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
-import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
-import { normalizeE164 } from "@/lib/phone-e164";
 import { ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { roomAvailabilityForRange } from "@/lib/room-availability-range.server";
-import { pacificTodayKey } from "@/lib/room-availability-range";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
-import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
-import { ensureGuestLogin } from "@/lib/short-stay/guest-login.server";
 import type { StayApplicationAnswers } from "@/lib/short-stay/stay-application";
 import { offerFromQuote, withPriceFloor, type StayAddOnOffer } from "@/lib/short-stay/stay-add-ons";
 import { StayAddOnReadError, loadRoomOtherStays } from "@/lib/short-stay/stay-add-ons.server";
@@ -53,218 +41,19 @@ import {
   PUBLIC_SHORT_STAY_SOURCE,
   SMS_SHORT_STAY_SOURCE,
   shortStayHoldExpiresAt,
-  withGuestSignInPrompt,
 } from "@/lib/short-stay/guest-stays";
 import {
-  SHORT_STAY_MAX_GUESTS,
   formatShortStayMoney,
   listingOffersShortStay,
   shortStayRangeLabel,
-  shortStayRequestAckText,
   shortStayRoomNightly,
   shortStayTotal,
-  validateShortStayDates,
 } from "@/lib/short-stay-request";
-
-export type ShortStayRequestBody = {
-  propertyId?: unknown;
-  roomId?: unknown;
-  checkIn?: unknown;
-  checkOut?: unknown;
-  guests?: unknown;
-  name?: unknown;
-  phone?: unknown;
-  email?: unknown;
-  /** A field real people never see; any value means a bot. */
-  honeypot?: unknown;
-  /** "HH:MM", the hour the guest expects to arrive. Stored on the stay; never changes its check-in time. */
-  estimatedArrival?: unknown;
-  /** Paid add-ons asked for at booking: `early_check_in` / `late_check_out`. Kept only where available. */
-  addOns?: unknown;
-  /** Reports which add-ons are on offer for these nights and writes nothing. Needs no name or phone. */
-  dryRun?: unknown;
-};
-
-export type ShortStayRequestResult =
-  | { ok: true; addOns?: StayAddOnOffer[] }
-  | { ok: false; status: 400 | 404 | 409 | 429 | 503; error: string };
 
 /** The add-on kinds a request body names, deduplicated and filtered to the two real ones. */
 export function requestedAddOnKinds(value: unknown): StayAddOnKind[] {
   if (!Array.isArray(value)) return [];
   return STAY_ADD_ON_KINDS.filter((kind) => value.includes(kind));
-}
-
-const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-export async function submitShortStayRequest(
-  db: SupabaseClient,
-  body: ShortStayRequestBody,
-  options: { today?: string } = {},
-): Promise<ShortStayRequestResult> {
-  // A bot filled the hidden field: answer as if it worked, create nothing.
-  if (str(body.honeypot, 200)) return { ok: true };
-
-  const propertyId = str(body.propertyId, 200);
-  const roomId = str(body.roomId, 200);
-  const name = str(body.name, 120);
-  const phone = normalizeE164(str(body.phone, 40));
-  const email = str(body.email, 320).toLowerCase();
-  const guests = Number(body.guests);
-  if (!propertyId || !roomId) return { ok: false, status: 400, error: "Choose a room." };
-  if (body.dryRun === true) {
-    // The card asks which add-ons these nights could carry. Nothing is written and no identity is needed.
-    const dryGuests = Number.isInteger(guests) && guests >= 1 && guests <= SHORT_STAY_MAX_GUESTS ? guests : 1;
-    const checked = validateShortStayDates(body.checkIn, body.checkOut, options.today ?? pacificTodayKey());
-    if (!checked.ok) return { ok: false, status: 400, error: checked.error };
-    const dryLoaded = await loadShortStayListing(db, { propertyId, roomId, guests: dryGuests });
-    if (!dryLoaded.ok) return { ok: false, status: dryLoaded.status, error: dryLoaded.error };
-    const [dry] = await createShortStayRows(db, {
-      actor: { source: PUBLIC_SHORT_STAY_SOURCE, name: "", phone: "", email: "", residentUserId: null },
-      listing: dryLoaded.listing,
-      guests: dryGuests,
-      ranges: [{ checkIn: checked.checkIn, checkOut: checked.checkOut, nights: checked.nights }],
-      status: "hold",
-      dryRun: true,
-    });
-    if (!dry || !dry.ok) return { ok: false, status: dry && !dry.ok ? dry.status : 503, error: dry && !dry.ok ? dry.error : "We couldn't check the calendar right now." };
-    return { ok: true, addOns: dry.addOnOffers };
-  }
-  if (!name) return { ok: false, status: 400, error: "Enter your name." };
-  if (!phone) return { ok: false, status: 400, error: "Enter a mobile number so we can text you." };
-  if (email && !EMAIL_RE.test(email)) return { ok: false, status: 400, error: "That email doesn't look right." };
-  if (!Number.isInteger(guests) || guests < 1 || guests > SHORT_STAY_MAX_GUESTS) {
-    return { ok: false, status: 400, error: "Choose how many guests." };
-  }
-  const dates = validateShortStayDates(body.checkIn, body.checkOut, options.today ?? pacificTodayKey());
-  if (!dates.ok) return { ok: false, status: 400, error: dates.error };
-
-  // Abuse caps beyond the route's per-IP limit: one phone and one listing can each be flooded from many IPs.
-  if (!(await rateLimit(`short-stay-phone:${phone}`, 3, 86_400_000)).ok) {
-    return { ok: false, status: 429, error: "Too many requests from this number today. Please try again tomorrow." };
-  }
-  if (!(await rateLimit(`short-stay-property:${propertyId}`, 30, 3_600_000)).ok) {
-    return { ok: false, status: 429, error: "Too many requests for this listing right now. Please try again later." };
-  }
-  const todayKey = options.today ?? pacificTodayKey();
-
-  const loaded = await loadShortStayListing(db, { propertyId, roomId, guests });
-  if (!loaded.ok) return { ok: false, status: loaded.status, error: loaded.error };
-  const { listing } = loaded;
-  const { ownerId, roomLabel, propertyLabel } = listing;
-
-  // Open (not yet checked-out) holds on this listing: one per phone per room, and a ceiling per property.
-  const { data: openRows } = await db
-    .from("portal_schedule_records")
-    .select("id, row_data")
-    .eq("property_id", propertyId)
-    .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE)
-    .gte("ends_at", `${todayKey}T00:00:00`)
-    .limit(500);
-  const openHolds = ((openRows ?? []) as Array<{ row_data?: Record<string, unknown> | null }>)
-    .map((r) => r.row_data ?? {})
-    .filter((d) => d.bookingStatus === "hold" && String(d.checkOut ?? "") > todayKey);
-  if (openHolds.some((d) => d.roomId === roomId && normalizeE164(String(d.residentPhone ?? "")) === phone)) {
-    return { ok: false, status: 409, error: "You already have a request for this room." };
-  }
-  const openShortStay = openHolds.filter((d) => (d.stayDetails as { source?: string } | undefined)?.source === PUBLIC_SHORT_STAY_SOURCE);
-  if (openShortStay.length >= 20) {
-    return { ok: false, status: 429, error: "Too many open requests for this listing right now." };
-  }
-
-  const [created] = await createShortStayRows(db, {
-    actor: { source: PUBLIC_SHORT_STAY_SOURCE, name, phone, email, residentUserId: null },
-    listing,
-    guests,
-    ranges: [{ checkIn: dates.checkIn, checkOut: dates.checkOut, nights: dates.nights }],
-    status: "hold",
-    estimatedArrival: normalizeStayTime(body.estimatedArrival),
-    addOns: requestedAddOnKinds(body.addOns),
-  });
-  if (!created || !created.ok || !created.blockId) {
-    const failed = created && !created.ok ? created : { status: 503 as const, error: "We couldn't save your request. Try again in a minute." };
-    return { ok: false, status: failed.status, error: failed.error };
-  }
-  const blockId = created.blockId;
-  const total = created.total;
-
-  // The hold exists; everything below is notification and must never undo it.
-  // A guest without a login gets one. The confirmation text names the sign-in page, never a live
-  // one-time link: this text is stored in the HOST's outbox, where the host could read and use it.
-  const login = await ensureGuestLogin(db, { name, phone, email }).catch(() => null);
-  // `ensureGuestLogin` only ever returns an account this PHONE provably owns - the placeholder login
-  // minted for the number, or one whose `profiles.phone` is verified - so the hold is stamped with it
-  // whenever there is one. That stamp is the stay's only identity: `listGuestStays` reads it, and
-  // `ensureGuestStayCharge` refuses to raise a charge without it rather than key one on the typed,
-  // unverified email (which stays on the row for the host's copy and nothing else).
-  if (login?.userId && created.rowData) {
-    await linkRowToGuest(db, blockId, created.rowData, login.userId).catch(() => undefined);
-  }
-  const { data: owner } = await db.from("profiles").select("email, full_name").eq("id", ownerId).maybeSingle();
-  const ownerName = String(owner?.full_name ?? "").trim();
-  const ack = shortStayRequestAckText({
-    guestName: name,
-    roomLabel,
-    propertyLabel,
-    checkIn: dates.checkIn,
-    checkOut: dates.checkOut,
-    total,
-    ownerFirstName: ownerName.split(/\s+/)[0] ?? "",
-  });
-  const textedAck = login?.userId ? withGuestSignInPrompt(ack, resolveEmailLinkBaseUrl()) : ack;
-  await enqueueOwnerSms(
-    {
-      managerUserId: ownerId,
-      actorUserId: ownerId,
-      recipientPhone: phone,
-      recipientEmail: email || undefined,
-      body: textedAck,
-      sendClass: "transactional",
-      purpose: "short_stay_request_ack",
-      counterpartyRole: "prospect",
-      propertyId,
-      dedupeKey: `short-stay:${phone}:${todayKey}`,
-    },
-    db,
-  ).catch(() => undefined);
-
-  if (email && !shouldSkipOutboundEmail(email) && process.env.RESEND_API_KEY?.trim()) {
-    try {
-      await postResendEmail({
-        apiKey: process.env.RESEND_API_KEY.trim(),
-        actorUserId: ownerId,
-        payload: {
-          from: await managerOutboundFromHeader(db, ownerId),
-          to: [email],
-          subject: `Your request: ${roomLabel} at ${propertyLabel}`,
-          text: ack, // informational only: the sign-in link is texted, never emailed
-        },
-        effectSummary: "Short-stay request confirmation email was captured for SMS test mode.",
-        metadata: { recipients: 1 },
-      });
-    } catch {
-      // The text already went; a failed email changes nothing about the hold.
-    }
-  }
-
-  await emitShortStayRequestedEvent(db, {
-    ownerId,
-    ownerEmail: String(owner?.email ?? "").trim().toLowerCase(),
-    ownerName,
-    propertyId,
-    roomId,
-    blockId,
-    propertyLabel,
-    roomLabel,
-    guestName: name,
-    guests,
-    checkIn: dates.checkIn,
-    checkOut: dates.checkOut,
-    nights: dates.nights,
-    total,
-  });
-  return { ok: true };
 }
 
 /* ───────────────────── the one core: every short-stay row is written here ───────────────────── */
@@ -330,7 +119,7 @@ export type ShortStayActor = {
   name: string;
   phone: string;
   email: string;
-  /** The guest's login when there is one (always for the portal route, after the fact for the public card). */
+  /** The guest's login when there is one (always for the portal route; none for an SMS stay). */
   residentUserId: string | null;
 };
 
@@ -501,14 +290,6 @@ export async function createShortStayRows(
   return results;
 }
 
-/** Stamps the guest's login onto a row that was written before the login existed (the public card). */
-async function linkRowToGuest(db: SupabaseClient, blockId: string, rowData: Record<string, unknown>, userId: string): Promise<void> {
-  await db
-    .from("portal_schedule_records")
-    .update({ row_data: { ...rowData, residentUserId: userId }, updated_at: new Date().toISOString() })
-    .eq("id", blockId);
-}
-
 /** `channel_booking` / `short_stay_requested` to the owner and teammates (the notice spine). */
 export async function emitShortStayRequestedEvent(
   db: SupabaseClient,
@@ -527,7 +308,7 @@ export async function emitShortStayRequestedEvent(
     checkOut: string;
     nights: number;
     total: number;
-    /** Said in the notice when the guest booked from their portal rather than the public card. */
+    /** Said in the notice when the guest booked from their portal rather than by text. */
     headline?: string;
   },
 ): Promise<void> {

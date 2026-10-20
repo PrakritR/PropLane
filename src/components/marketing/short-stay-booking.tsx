@@ -2,38 +2,27 @@
 
 /**
  * Short stays on the public listing, like Airbnb's: dates and guests on the price card, the rooms list
- * narrowed to rooms free for those nights, and "Request to book", which makes a manager hold (nothing is
- * charged). One provider per listing page holds the picked dates / room / guests so the card (rendered in
- * two places by width) and the rooms list always agree. The date rules, rates and per-room verdict are the
+ * narrowed to rooms free for those nights, and "Request to book", which opens the stay request in the resident
+ * portal. One provider per listing page holds the picked dates / room / guests so the card (rendered in
+ * two places by width) and the rooms list always agree. The request itself is made in the resident portal. The date rules, rates and per-room verdict are the
  * pure helpers in `src/lib/short-stay-request.ts`; the server re-checks everything.
  */
 import { Minus, Plus } from "lucide-react";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { listingPrimaryCtaClass, listingSecondaryCtaClass, listingTextUsLabel } from "@/components/marketing/listing-contact-card";
-import { usePublicTexting } from "@/components/marketing/public-texting-context";
+import { listingPrimaryCtaClass } from "@/components/marketing/listing-contact-card";
 import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
-import { buildSmsDeepLink, listingCtaSmsPhone } from "@/lib/claw-leasing-links";
-import { buildProspectBookHref } from "@/lib/prospect-public-nav";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { buildProspectStayRequestHref } from "@/lib/prospect-public-nav";
 import { DateField } from "@/components/ui/date-field";
-import { Input, Select } from "@/components/ui/input";
-import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import { Select } from "@/components/ui/input";
 import type { MockProperty } from "@/data/types";
 import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
-import { normalizePropertyStayTimes, stayAddOnLabel, type StayAddOnKind } from "@/lib/bookings/stay-times";
+import { normalizePropertyStayTimes } from "@/lib/bookings/stay-times";
 import { findPublicRoomOccupancy } from "@/lib/public-listing-available-count";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { addRangeDays, normalizeRangeDay } from "@/lib/room-availability-range";
-import {
-  addOnsQuoteCents,
-  estimatedArrivalOptions,
-  offersForBooking,
-  standardTimesLine,
-  stayAddOnCheckLabel,
-  type StayAddOnOffer,
-} from "@/lib/short-stay/stay-add-ons";
+import { standardTimesLine } from "@/lib/short-stay/stay-add-ons";
 import { pacificTodayKey } from "@/lib/sheet-sync/dates";
 import {
   SHORT_STAY_MAX_DAYS_AHEAD,
@@ -49,7 +38,7 @@ import {
 
 type StayRoom = { id: string; name: string; capacity: number; nightly: number };
 
-/** The card's two stays: a monthly lease (Apply / Quick apply) or a short stay (Request to book / Quick book). */
+/** The card's two stays: a monthly lease (Book a tour / Apply) or a short stay (Request to book, in the resident portal). */
 export type StaySegment = "monthly" | "short";
 
 type ShortStayState = {
@@ -192,7 +181,7 @@ export function ShortStayProvider({ property, disabled = false, children }: { pr
     let focusTimer: number | undefined;
     const timer = window.setTimeout(() => {
       setSegment("short");
-      // Back from resident sign-up (`buildProspectBookHref`): the picks the guest made before it are still theirs.
+      // A link that carries picks (`?stay=1&checkIn=…&checkOut=…&room=…&guests=…`) opens the card with them in place.
       const pickedIn = normalizeRangeDay(params.get("checkIn") ?? "");
       const pickedOut = normalizeRangeDay(params.get("checkOut") ?? "");
       if (pickedIn) setCheckInRaw(pickedIn);
@@ -231,71 +220,15 @@ export function ShortStayProvider({ property, disabled = false, children }: { pr
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
-type SendState = { kind: "idle" } | { kind: "form" } | { kind: "sending" } | { kind: "sent" } | { kind: "error"; message: string };
-
 /**
- * The Airbnb-style booking block: dates, room, guests, live total, Request to book, and a text link.
- * It is the price card's Short stay segment and nothing else, so it prints no price line of its own —
- * the card's one price line already sits above the segments. `quickBook` is a signed-in resident with
- * saved answers: name, phone and email come from their account and the button reads Quick book.
+ * The Airbnb-style picker on the price card's Short stay segment: dates, room, guests and the live total, then
+ * Request to book, which opens the stay request in the RESIDENT PORTAL (captain, Oct 20: the website books through
+ * an account, Messages through the text line, never mixed). A visitor without a resident account makes one first and
+ * lands on that request with these picks; the card itself never sends anything, shows no number and no text link.
  */
-export function ShortStayBookingBlock({
-  className = "",
-  quickBook = null,
-}: {
-  className?: string;
-  quickBook?: { name: string; email: string; phone: string } | null;
-}) {
+export function ShortStayBookingBlock({ className = "" }: { className?: string }) {
   const stay = useShortStay();
-  const [state, setState] = useState<SendState>({ kind: "idle" });
-  // What the guest typed wins; until they type, the signed-in account's details stand in.
-  const [typedName, setName] = useState<string | null>(null);
-  const [typedPhone, setPhone] = useState<string | null>(null);
-  const [typedEmail, setEmail] = useState<string | null>(null);
-  const name = typedName ?? quickBook?.name ?? "";
-  const phone = typedPhone ?? quickBook?.phone ?? "";
-  const email = typedEmail ?? quickBook?.email ?? "";
-  const honeypot = useRef<HTMLInputElement>(null);
-  // "none" = Not sure: nothing is sent. Any other value is the "HH:MM" the guest expects to arrive.
-  const [arrival, setArrival] = useState(() => {
-    if (typeof window === "undefined") return "none";
-    const picked = new URLSearchParams(window.location.search).get("arrive") ?? "";
-    return /^\d{2}:\d{2}$/.test(picked) ? picked : "none";
-  });
   const auth = useProspectContactAutofill();
-  const signedInResident = auth.ready && Boolean(auth.userId) && auth.hasResidentRole;
-  const publicLine = usePublicTexting().phone;
-  const [ticked, setTicked] = useState<StayAddOnKind[]>([]);
-  const [offers, setOffers] = useState<StayAddOnOffer[]>([]);
-  const pickedRoomId = stay ? (stay.rooms.find((room) => room.id === stay.roomId) ?? (stay.rooms.length === 1 ? stay.rooms[0] : null))?.id ?? "" : "";
-  // Which paid add-ons these exact nights could carry is the SERVER's answer (a dry run that writes nothing);
-  // an add-on it does not offer is never drawn, and an unreadable answer offers none.
-  const dryKey = stay && stay.offered && stay.rangeValid && pickedRoomId ? `${stay.property.id}|${pickedRoomId}|${stay.checkIn}|${stay.checkOut}|${stay.guests}` : "";
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- a changed selection clears the previous answer at once
-    setOffers([]);
-    if (!dryKey) return;
-    const [propertyId, roomId, checkIn, checkOut, guests] = dryKey.split("|");
-    let cancelled = false;
-    const timer = window.setTimeout(() => {
-      void fetch("/api/public/short-stay-request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dryRun: true, propertyId, roomId, checkIn, checkOut, guests: Number(guests) }),
-      })
-        .then(async (res) => (res.ok ? ((await res.json()) as { addOns?: StayAddOnOffer[] }) : null))
-        .then((body) => {
-          if (!cancelled) setOffers(body?.addOns ?? []);
-        })
-        .catch(() => {
-          if (!cancelled) setOffers([]);
-        });
-    }, 300);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [dryKey]);
   if (!stay || !stay.offered) return null;
 
   const today = pacificTodayKey();
@@ -305,78 +238,17 @@ export function ShortStayBookingBlock({
   const from = listingShortStayNightlyFrom(stay.property.listingSubmission);
   const nightly = picked?.nightly || from;
   const maxGuests = picked?.capacity ?? Math.max(1, ...stay.rooms.map((room) => room.capacity));
-  const stayTotal = nightly > 0 && stay.rangeValid ? shortStayTotal(nightly, stay.nights) : 0;
-  const addOnOffers = offersForBooking([offers]);
-  const activeAddOns = ticked.filter((kind) => addOnOffers.some((offer) => offer.kind === kind));
-  const addOnsCents = addOnsQuoteCents([offers], activeAddOns);
-  const total = stayTotal > 0 ? stayTotal + addOnsCents / 100 : 0;
+  const total = nightly > 0 && stay.rangeValid ? shortStayTotal(nightly, stay.nights) : 0;
   const times = normalizePropertyStayTimes(stay.property.listingSubmission?.stayTimes);
   const noFreeRoom = stay.rangeValid && !stay.occupancyLoading && freeRooms.length === 0;
   const canRequest = stay.rangeValid && Boolean(picked) && !noFreeRoom && total > 0;
-  // Two paths (captain, Oct 20): Request to book makes a resident account first and comes back to this card with the
-  // picks in place (a signed-in resident books here), and Text us opens Messages to the listing's number with the
-  // same picks written out, for the leasing agent to quote and send the pay link.
-  const homeLabel = listingTextUsLabel(stay.property);
-  const roomName = picked && stay.rooms.length > 1 ? picked.name : null;
-  const textUsHref = homeLabel
-    ? buildSmsDeepLink({
-        intent: "book",
-        toPhone: listingCtaSmsPhone(stay.property.contactSmsPhone) ?? listingCtaSmsPhone(publicLine),
-        propertyLabel: homeLabel,
-        roomName,
-        stay: {
-          checkIn: stay.rangeValid ? stay.checkIn : null,
-          checkOut: stay.rangeValid ? stay.checkOut : null,
-          guests: stay.guests,
-          arrival: arrival === "none" ? null : arrival,
-        },
-      })
-    : "#";
-  const signUpToBook =
-    !signedInResident && !quickBook
-      ? buildProspectBookHref(stay.property.id, {
-          roomId: picked?.id ?? null,
-          checkIn: stay.checkIn,
-          checkOut: stay.checkOut,
-          guests: stay.guests,
-          arrival: arrival === "none" ? null : arrival,
-        })
-      : null;
-
-  const send = async () => {
-    if (!picked || !stay.rangeValid) return;
-    setState({ kind: "sending" });
-    try {
-      const res = await fetch("/api/public/short-stay-request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          propertyId: stay.property.id,
-          roomId: picked.id,
-          checkIn: stay.checkIn,
-          checkOut: stay.checkOut,
-          guests: stay.guests,
-          name,
-          phone,
-          email,
-          honeypot: honeypot.current?.value ?? "",
-          ...(arrival !== "none" ? { estimatedArrival: arrival } : {}),
-          ...(activeAddOns.length ? { addOns: activeAddOns } : {}),
-        }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        setState({ kind: "error", message: body.error || "We couldn't send your request. Try again." });
-        return;
-      }
-      setState({ kind: "sent" });
-    } catch {
-      setState({ kind: "error", message: "We couldn't send your request. Try again." });
-    }
-  };
-
-  const formOpen = state.kind === "form" || state.kind === "sending" || state.kind === "error";
-  const ready = name.trim().length > 0 && phone.trim().length > 0;
+  const requestHref = canRequest && picked
+    ? buildProspectStayRequestHref(
+        stay.property.id,
+        { roomId: picked.id, checkIn: stay.checkIn, checkOut: stay.checkOut, guests: stay.guests },
+        { ready: auth.ready, userId: auth.userId, hasResidentRole: auth.hasResidentRole },
+      )
+    : null;
 
   return (
     <div className={className} data-attr="short-stay-block">
@@ -441,84 +313,22 @@ export function ShortStayBookingBlock({
       <p className="mt-3 text-sm font-semibold text-foreground" data-attr="short-stay-standard-times">
         {standardTimesLine(times)}
       </p>
-      <div className="mt-2.5" data-attr="short-stay-arrival">
-        <FieldSingleSelect
-          label="Estimated arrival"
-          value={arrival}
-          options={[{ value: "none", label: "Not sure" }, ...estimatedArrivalOptions().filter((option) => option.value !== "")]}
-          onChange={setArrival}
-          dataAttr="short-stay-arrival-select"
-        />
-      </div>
-      {addOnOffers.length > 0 ? (
-        <div className="mt-1.5 space-y-0.5" data-attr="short-stay-add-ons">
-          {addOnOffers.map((offer) => {
-            const label = stayAddOnCheckLabel(offer);
-            if (!label) return null;
-            return (
-              <label key={offer.kind} className="flex min-h-11 cursor-pointer items-center gap-3 text-sm font-semibold text-foreground" data-attr={`short-stay-add-on-${offer.kind}`}>
-                <input
-                  type="checkbox"
-                  className="size-5 shrink-0 rounded border-border"
-                  checked={activeAddOns.includes(offer.kind)}
-                  onChange={(event) =>
-                    setTicked((current) => (event.target.checked ? [...new Set([...current, offer.kind])] : current.filter((kind) => kind !== offer.kind)))
-                  }
-                  aria-label={stayAddOnLabel(offer.kind)}
-                />
-                <span>{label}</span>
-              </label>
-            );
-          })}
-        </div>
-      ) : null}
       {total > 0 ? (
         <p className="mt-3 flex items-baseline justify-between gap-3 text-sm" data-attr="short-stay-total">
-          <span className="text-muted">{formatShortStayMoney(nightly)} × {stay.nights} {stay.nights === 1 ? "night" : "nights"}{activeAddOns.length ? ` + ${activeAddOns.map((kind) => stayAddOnLabel(kind).toLowerCase()).join(" + ")}` : ""}</span>
+          <span className="text-muted">{formatShortStayMoney(nightly)} × {stay.nights} {stay.nights === 1 ? "night" : "nights"}</span>
           <span className="font-bold text-foreground">{formatShortStayMoney(total)}</span>
         </p>
       ) : null}
       {noFreeRoom ? <p className="mt-2 text-sm font-semibold text-foreground" role="status">No room is free for those nights.</p> : null}
-
-      {state.kind === "sent" ? (
-        <p className="mt-3 rounded-2xl bg-accent/40 p-3 text-sm font-semibold text-foreground" role="status" data-attr="short-stay-sent">
-          Request sent. We texted you to confirm.
-        </p>
-      ) : formOpen ? (
-        <div className="mt-3 space-y-2.5" data-attr="short-stay-form">
-          <Input aria-label="Your name" placeholder="Your name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
-          <PhoneNumberField value={phone} onChange={setPhone} placeholder="Mobile number" dataAttr="short-stay-phone" />
-          <Input aria-label="Email (optional)" placeholder="Email (optional)" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <input ref={honeypot} type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden className="absolute left-[-9999px] h-0 w-0 opacity-0" />
-          {state.kind === "error" ? <p className="text-sm font-semibold text-[var(--status-overdue-fg)]" role="alert">{state.message}</p> : null}
-          <button type="button" className={listingPrimaryCtaClass} disabled={!ready || state.kind === "sending"} onClick={() => void send()} data-attr="short-stay-send">
-            {state.kind === "sending" ? "Sending…" : "Send request"}
-          </button>
-        </div>
-      ) : signUpToBook && canRequest ? (
-        <Link href={signUpToBook} prefetch={false} className={`${listingPrimaryCtaClass} mt-3`} data-attr="short-stay-request">
+      {requestHref ? (
+        <Link href={requestHref} prefetch={false} className={`${listingPrimaryCtaClass} mt-3`} data-attr="short-stay-request">
           Request to book
         </Link>
       ) : (
-        <button
-          type="button"
-          className={`${listingPrimaryCtaClass} mt-3 disabled:opacity-50`}
-          disabled={!canRequest}
-          onClick={() => {
-            // Quick book: the account already supplies name and phone, so one tap sends the request.
-            if (quickBook && name.trim() && phone.trim()) void send();
-            else setState({ kind: "form" });
-          }}
-          data-attr="short-stay-request"
-        >
-          {quickBook ? "Quick book" : "Request to book"}
+        <button type="button" className={`${listingPrimaryCtaClass} mt-3 disabled:opacity-50`} disabled data-attr="short-stay-request">
+          Request to book
         </button>
       )}
-      {textUsHref !== "#" ? (
-        <a href={textUsHref} className={`${listingSecondaryCtaClass} mt-2.5`} data-attr="short-stay-text-us">
-          Text us
-        </a>
-      ) : null}
     </div>
   );
 }

@@ -86,12 +86,11 @@ describe("listing price card CTAs", () => {
     expect(screen.queryByText(/No texting on this device/)).toBeNull();
   });
 
-  it("adds a Text button only when a real work number is set", () => {
+  it("draws no Text button even when the listing has a work number: /rent is the web channel (captain, Oct 20)", () => {
     render(<ListingDetailSections property={property(WORK_NUMBER)} rich={rich} />);
-    const text = document.querySelector('[data-attr="listing-text-tour"]') as HTMLAnchorElement | null;
-    expect(text).not.toBeNull();
-    expect(text!.textContent).toBe("Text us");
-    expect(text!.getAttribute("href")?.startsWith("sms:")).toBe(true);
+    expect(document.querySelector('[data-attr="listing-text-tour"]')).toBeNull();
+    expect(document.querySelector('a[href^="sms:"], a[href^="tel:"]')).toBeNull();
+    expect(screen.getAllByText("Book a tour").length).toBeGreaterThan(0);
   });
 
   it("shows no Text button when the manager has no work number", () => {

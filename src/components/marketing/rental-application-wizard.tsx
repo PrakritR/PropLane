@@ -2846,7 +2846,6 @@ function RentalApplicationWizardInner({
             <ApplicationUnavailableContactManager
               propertyTitle={linkedProperty?.title}
               managerEmail={linkedProperty?.managerContactEmail}
-              managerPhone={linkedProperty?.contactSmsPhone}
             />
           </div>
         ) : (

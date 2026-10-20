@@ -27,7 +27,6 @@ import {
   ListingPriceCard,
   MonthlyPrimaryCta,
   PriceFigure,
-  useListingTextHref,
 } from "@/components/marketing/listing-price-card";
 import { ProspectListingCta } from "@/components/marketing/prospect-listing-cta";
 import { ListingGallery, collectListingPhotos } from "@/components/public-site/listing-gallery";
@@ -190,13 +189,12 @@ function Section({
 }
 
 /**
- * The page's actions on a phone: Book a tour, Apply (or Request to book on the short-stay segment) and Text us when a
- * number is configured. Fixed to the bottom of the public page only; the portal's preview never draws it. It tells
+ * The page's actions on a phone: Book a tour and Apply (or Request to book on the short-stay segment), all through a
+ * resident account; no number and no text link on a /rent page (captain, Oct 20). Fixed to the bottom of the public page only; the portal's preview never draws it. It tells
  * the page (a flag on <html>) so the floating assistant button rides above it.
  */
 function PhoneDock({ property, newTab }: { property: MockProperty; newTab: boolean }) {
   const stay = useShortStay();
-  const textHref = useListingTextHref(property);
   const shortSegment = stay?.offered === true && stay.segment === "short";
   useEffect(() => {
     const root = document.documentElement;
@@ -222,11 +220,6 @@ function PhoneDock({ property, newTab }: { property: MockProperty; newTab: boole
         ) : (
           <MonthlyPrimaryCta property={property} newTab={newTab} className="ps-btn ps-btn-line" label="short" />
         )}
-        {textHref ? (
-          <a href={textHref} className="ps-btn ps-btn-line" data-attr="listing-text-tour-dock">
-            Text us
-          </a>
-        ) : null}
       </div>
     </>
   );
@@ -443,7 +436,6 @@ function ListingDetailBody({
           sharedSpaces={rich.sharedSpaces}
           listingPropertyId={property.id}
           propertyLabel={propertyLabel}
-          contactSmsPhone={property.contactSmsPhone}
           signingOrder={property.signingOrder}
         />
       ),

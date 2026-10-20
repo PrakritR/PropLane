@@ -4,6 +4,7 @@ import type { PublicTextingConfig } from "@/lib/marketing/public-texting";
 import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
 import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
 import { iosAppDownloadUrl } from "@/lib/ios-app-download";
+import { FooterTextNumber } from "@/components/layout/footer-text-number";
 
 /** A closing ink-blue band with the configured number and existing public links. */
 export function PublicFooter({
@@ -43,15 +44,7 @@ export function PublicFooter({
               <ProPlaneMarkIcon />
               PropLane
             </Link>
-            {phone && texting?.smsHref && (
-              <a
-                href={texting.smsHref}
-                aria-label={`Text ${phone}`}
-                data-attr="footer-text"
-              >
-                {phone}
-              </a>
-            )}
+            {phone && texting?.smsHref && <FooterTextNumber phone={phone} smsHref={texting.smsHref} />}
           </div>
           <nav aria-label="Footer navigation">
             {links.map(([href, label]) => (

@@ -374,7 +374,11 @@ export function PortalAuthForm() {
           phone: phoneFromUrl || undefined,
         },
       )
-    : "/auth/sign-in";
+    : safeNextPath(nextPath)
+      ? // An existing account keeps where it was going (a listing's Request to book / Apply / Book a tour sends
+        // `next` into the resident portal): signing in instead of creating must not drop it.
+        residentSignInHref(safeNextPath(nextPath)!)
+      : "/auth/sign-in";
 
   const stackClassName = "native-auth-hub-stack mx-auto w-full max-w-[52rem] self-center";
 
