@@ -9,8 +9,9 @@ import { useSyncExternalStore } from "react";
 
 export type AdminSmsWorkspace = { id: string; name: string };
 
-/** The filter value for texts no service workspace holds yet; the same word the route accepts. */
-export const ADMIN_SMS_UNASSIGNED_FILTER = "unassigned";
+import { ADMIN_SMS_UNASSIGNED_FILTER } from "@/lib/admin-sms-filter";
+
+export { ADMIN_SMS_UNASSIGNED_FILTER };
 
 const ADMIN_SMS_ENDPOINT = "/api/admin/sms-conversations";
 

@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ADMIN_SMS_UNASSIGNED_FILTER } from "@/lib/admin-sms-workspaces";
+import { ADMIN_SMS_UNASSIGNED_FILTER } from "@/lib/admin-sms-filter";
 import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import type {
   ConversationHouse,
