@@ -86,6 +86,10 @@ target that unavoidably reads as an identity (`submit_vendor_invoice`'s
   assistant's capabilities always equal the resident portal's.
 - Vendor: `src/lib/tools/vendor-index.ts`
 
+Every other registry is an SMS/inbound surface, one per role. `AGENTS.md`
+§ AI Agent & Tool Layer holds the complete role → resolver → registry → route
+table; keep that table, not this list, in sync when a surface is added.
+
 ### Write-action lifecycle
 
 1. Model calls a write tool → `previewWriteTool` Zod-validates and runs
@@ -598,6 +602,22 @@ query, never instructions.
 - Limits: rate limited per IP, traced through `tracePublicToolTurn`. Coverage:
   `tests/unit/public-housing-search.test.ts`, `tests/unit/housing-search-route.test.ts`,
   `tests/unit/browse-ai-ask.test.tsx`, `tests/unit/browse-card-facts.test.ts`.
+
+### The PropLane line (shared-number surfaces)
+
+The shared PropLane line adds inbound SMS surfaces that are NOT separate
+assistants: a stranger reading as a vendor gets `vendorLineRegistry` (one read
+tool, `list_open_jobs_near`, no write), a verified owner / teammate gets
+read-only portfolio status, a resident gets a catalog search or a phone-bound
+pay link, and the verified service-manager phone gets the full manager agent.
+Who a texter is, what they get, the per-text intent decision and the short-stay
+and link tools (`short-stay-sms.ts`, `one-number-links.ts`,
+`payment-link-sms.ts`, `vendor-dispatch.ts`, `announce.ts`, `knowledge.ts`,
+`manager-ops.ts`) are all owned by
+[`agents/one-number.md`](agents/one-number.md) — read it before touching those
+domains. The rules in this file (typed tools only, `landlordId` from
+authenticated context, `defineWriteTool` for writes, surface allow-listing)
+still bind every one of them.
 
 ## Standing prompt rules (every conversational surface)
 

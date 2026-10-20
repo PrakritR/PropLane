@@ -299,7 +299,7 @@ Mono uppercase section label + “View all” accent link. Rows: name, sub-line,
 | `chromeFlow` | 26s linear | Full chrome conic rotation |
 | `chromeShift` | 18s ease-in-out | Overlay drift |
 | `sheen` | 7s | Hero search bar diagonal sweep |
-| `hero-cells-breathe` | 14s ease-in-out | Homepage hero lit-cells opacity breath (grid + bloom) |
+| `hero-cells-breathe` | 14s ease-in-out | Retired with the old homepage hero — the keyframe is still in `globals.css` but has no consumer (see § Homepage hero background) |
 | `page-enter` | 0.42s cubic-bezier(0.22,1,0.36,1) | Route transitions (`PublicMainTransition`) |
 | `fade-up` | 0.45s | Hero stagger |
 | `reveal-on-view` | 0.55s | Scroll reveals |
@@ -330,17 +330,19 @@ Five product surfaces. Per-route detail lives in [`docs/specs/`](specs/).
 
 **Spec:** [Blue Steel Marketing Spec](specs/Blue%20Steel%20Marketing%20Spec.html)
 
-**Chrome:** Full on `/partner`, `/billing/success`. The home hero (`/`) runs the
-PropLane grid + bloom background (see [Chrome substrate → Homepage hero
-background](#homepage-hero-background-proplane-grid--bloom)), not full chrome.
-Quiet elsewhere.
+**Chrome:** Full on `/partner`, `/billing/success`. The homepage (`/`) uses no
+Blue Steel chrome at all — it is the public-site look (see [Chrome substrate →
+Homepage hero background](#homepage-hero-background)). Quiet elsewhere.
 
 **Key components:** `PublicNavbar`, `PublicFooter`, `ChromeSubstrate`, pricing tier cards.
 
 **Hero patterns:**
 - Headline accent: `.text-gradient-accent`
-- Primary CTA: **Partner with Axis** → `/partner`
 - No eyebrow/badge pill above the headline — public marketing heroes open on the headline itself. The eyebrow pill primitives stay for non-marketing surfaces (listing detail modals, rental-application wizard, auth pages, portal paywalls).
+
+The homepage's own cover, CTAs and section rhythm are owned by
+[`docs/agents/marketing-mocks.md`](agents/marketing-mocks.md) § Public homepage —
+do not restate them here.
 
 **Partner:** Hero CTA pair; four glass capability cards; plan-tier price list linking to the homepage `/#pricing` section. No trailing CTA band.
 

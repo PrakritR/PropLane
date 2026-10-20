@@ -506,7 +506,8 @@ Tests: `tests/unit/automations-{presets,templates,moments,house-facts,fire,sweep
 
 ## W10 - House group chats with an AI RA (Twilio Conversations group MMS)
 
-Spec: [`texting-plan-1018`](../../../.cockpit/briefs/texting-plan-1018.md) § House group chats, § Preset auto-sends, § Risks. Migration `20261018190000_house_groups.sql` (dev applied, ledger row
+Spec: the captain's local `~/.cockpit/briefs/texting-plan-1018.md` (not in this repo) § House group chats,
+§ Preset auto-sends, § Risks; everything load-bearing from it is restated below. Migration `20261018190000_house_groups.sql` (dev applied, ledger row
 recorded): `house_group_settings`, `house_group_conversations`, `house_group_members`, `house_group_preferences`, `house_group_messages`; all RLS on,
 service role only, classified in `account-purge-manifest.ts` (`house_group_members` is purged with the resident). Every read treats 42P01 / 42703 / PGRST205 as "nothing there".
 
@@ -770,8 +771,11 @@ set of manager-side files that use an admin gate, and forbids any of them import
 admin ROLE is still not the all-owners read. Purge: `platform_service_settings` is classified in
 `account-purge-manifest.ts` (deleting the owner clears it, so the exemption fails closed).
 
-**Admin navigation: two halves** (Settings is untouched, in the account menu). `ADMIN_SECTION_TABS` /
-`ADMIN_GROUPS` in `src/lib/portals/nav-groups.ts` are the one source:
+**Admin navigation: two halves.** `ADMIN_SECTION_TABS` / `ADMIN_GROUPS` in
+`src/lib/portals/nav-groups.ts` are the one source. Admin Settings (`profile`) is the FIRST
+sidebar row and the `/admin` landing (captain, Oct 18) — assigning it to a group is what puts it
+in the sidebar at all, since `SIDEBAR_EXCLUDED_SECTIONS` only applies to unassigned sections; it
+is still in the account menu too, unchanged. Then Dashboard and Communication, then:
 - **Property management** (headed sidebar group, one row keyed on `properties`): tabs Properties (existing
   all-owners oversight) · Service · PropLane line · Unassigned leads (moved here from Accounts).
 - **Software** (headed group, two rows): Accounts (Accounts · Subscribers · Test accounts) and Money

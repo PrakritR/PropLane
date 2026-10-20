@@ -11,7 +11,8 @@ Property management software for listing units, screening applicants, signing le
 | **Resident portal** | `/resident` | Tenants linked to a manager |
 | **Vendor portal** | `/vendor` | Contractors a manager invites to services |
 | **Admin portal** | `/admin` | Platform operators |
-| **Public apply & tour flows** | `/rent/apply`, `/rent/tours`, `/rent/listings/[id]` | Applicants (manager-shared links) |
+| **Public apply & tour flows** | `/rent/browse`, `/rent/apply`, `/rent/tours`, `/rent/listings/[id]` | Applicants (manager-shared links) |
+| **Phone-bound doors** | `/l/[token]`, `/apply/[code]`, `/tour/[code]`, `/start/[token]` | Anyone who texted the PropLane line (pay, unlock, finish setup) |
 
 ### Property portal (`/portal`)
 
@@ -38,11 +39,13 @@ Rent & utility payments (card incl. Apple Pay / Google Pay, or bank/ACH — capt
 
 ### Vendor portal (`/vendor`)
 
-The contractor's side of services: the jobs a manager offered or assigned, bids, calendar, communication, Finances (balance & payouts, payments, statements, tax info), documents, reviews with replies, and a free PropLane work number and email for manager and resident contact. Contract: [`docs/agents/vendor-portal.md`](docs/agents/vendor-portal.md).
+The contractor's side of services: the jobs a manager offered or assigned, bids, calendar, communication, Finances (balance & payouts, payments, statements, tax info), documents, reviews with replies, a free PropLane work email, and an optional **PropLane Number** ($5/month) for manager and resident contact. Contract: [`docs/agents/vendor-portal.md`](docs/agents/vendor-portal.md).
 
 ### Platform capabilities
 
-- **Auth** — Supabase (email/password, Google OAuth), role-based portals
+- **Auth** — Supabase (email/password, Google OAuth), role-based portals. Every sign-up door also
+  asks for a phone, and a manager can create the account entirely by text to the PropLane line
+  (a code texted back is the proof). Contract: [`docs/agents/manager-account-creation.md`](docs/agents/manager-account-creation.md).
 - **Payments** — Stripe Checkout subscriptions for managers; Stripe Connect for resident rent & fees
 - **Comms** — Resend email, Twilio SMS, Firebase push (native apps)
 - **Screening** — Certn credit & background checks (optional)

@@ -258,6 +258,7 @@ or `src/lib/agent/`.
 | Resident personal agent | `buildResidentPersonalAgentContext` | `residentPersonalAgentRegistry` | inbound webhook (owner's number) |
 | Manager SMS | `resolveManagerSmsAgentContext` | `buildManagerSmsRegistry` | inbound webhook |
 | Vendor number AI | `buildVendorNumberAiContext` | `vendorNumberAiRegistry` | inbound webhook |
+| Vendor on the PropLane line | `buildVendorLineContext` | `vendorLineRegistry` | inbound webhook (shared line) |
 
 Resident row scoping is not uniform: charges/leases have `resident_user_id` +
 `resident_email`; work orders/service requests have email only. Use the two

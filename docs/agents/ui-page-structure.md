@@ -96,14 +96,17 @@ They show fewer sections, never a different layout.
   Outgoing); "Need help?" at the bottom. Top bar on the right: "✦ Ask PropLane ⌘K" pill, then
   the avatar pill.
 - **Avatar menu:** name, email · Settings · Appearance ☀/☾ · Sign out (red). Settings
-  opens from here, never from the sidebar.
-- **Admin's sidebar is seven unheaded rows** (Dashboard, Communication, Accounts, Money,
-  Properties, Support, Growth) instead of one row per section: a grouped row stands for several
-  sections, which appear as a Properties-style tab strip across the top of every page in the group
-  (`ADMIN_SECTION_TABS` in `src/lib/portals/nav-groups.ts`, rendered by `AdminSectionTabs`). Section
-  ids, routes and `adminPortal.sections` are unchanged — adding an admin section means adding a tab
-  to a group, not an eighth row. Its phone bottom tabs are Dashboard · Properties · Accounts ·
-  Support · More.
+  opens from here and not from the sidebar — the one exception is the admin portal, whose own
+  group config puts Settings in the sidebar as well (below).
+- **Admin's sidebar is grouped rows, not one row per section:** a grouped row stands for
+  several sections, which appear as a Properties-style tab strip across the top of every page in
+  the group (`AdminSectionTabs`). Section ids, routes and `adminPortal.sections` are unchanged —
+  adding an admin section means adding a tab to a group, not another row. The rows, their order
+  and their headings are owned by `ADMIN_NAV_ROW_ORDER` / `ADMIN_SECTION_TABS` / `ADMIN_GROUPS`
+  in `src/lib/portals/nav-groups.ts`; what the halves mean is
+  [`one-number.md`](one-number.md) § W15. Do not restate the row list here. Its phone bottom
+  tabs are derived from `NATIVE_BOTTOM_NAV_ADMIN_PRIMARY` (Dashboard · Properties · Accounts ·
+  Support · More), which is why a grouped row keeps its first section's id as its key.
 - **Phone:** header "WORKSPACE ⌄" in bold uppercase plus the avatar; bottom tabs (manager:
   Properties · Residents · Dashboard · Communication · More). More is active for every other
   section and opens a sheet grouped like the sidebar. A floating ✦ sits above the tabs.

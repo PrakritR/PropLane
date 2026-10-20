@@ -81,9 +81,14 @@ Text zoom may grow static sections rather than clip their contents.
 The closing footer is a full-width ink-blue band with faint waves, the configured
 number as a text link, the existing six-link grid and a current-year copyright.
 
-The older reusable lifecycle engine below remains available to other surfaces.
+**The live homepage is this section plus § One Software section above.** The next three
+sections — § Product rows, § Four beats and § The window — describe the PREVIOUS homepage's
+lifecycle engine (`resident-lifecycle-*`, `site/lifecycle-rows.tsx`,
+`site/switch-steps.tsx`). The Oct 18-19 takeover replaced it and no page imports those files
+any more, so read them as the shape of a reusable engine still on disk, never as a
+description of `/`. § The /app page and the copy-accuracy rules after them still apply.
 
-## The home page's product rows reuse REAL portal components, statically
+## Product rows (retired engine): the rows reuse REAL portal components, statically
 
 Captain 2026-09-26: "remove live demo no need" — `src/components/marketing/
 site/lifecycle-rows.tsx` ("From first tour to fixed faucet.") and the
@@ -105,10 +110,10 @@ there is no server to write to. If a panel's real component fetches internally
 (session, workspace, or data hooks), build a thin static wrapper around its
 purely presentational pieces instead of trying to mount the whole page tree.
 
-## The home page demo: four beats, one phone, three portals
+## Four beats (retired engine): one phone, three portals
 
-Captain 2026-10-06, reshaped 2026-10-07: the top of `/` is Akhil's hero plus a
-demo window (the lifecycle demo; it replaced `SiteHero`). There
+Captain 2026-10-06, reshaped 2026-10-07, retired Oct 18-19: this engine WAS the top of `/`
+(Akhil's hero plus a demo window; it had replaced `SiteHero`). There
 is no stage UI: no portal pill bar, stage tabs, "Sample demo" line or Activity
 row. The visitor changes portal from the window's own account menu (the real
 menu's "Switch to ... portal" rows, `portalSwitchTargets`), every portal draws
@@ -222,15 +227,15 @@ that tab.
 - **Nothing writes.** No network request, nothing saved; a vendor is never shown
   the street address before a quote is accepted (offers say the general area).
 
-## The home page window is the redesigned portal shell, and the hero grows on scroll
+## The window (retired engine): the redesigned portal shell, and the hero grows on scroll
 
-Captain 2026-10-07 (approved plan `dashboard-redesign-1007`): the window the home page draws
-(`resident-lifecycle-workspace.tsx`, styled by `resident-lifecycle-shell.css`) is the new portal shell, not a
+Captain 2026-10-07 (approved plan `dashboard-redesign-1007`): the window this engine draws
+(`resident-lifecycle-workspace.tsx`, styled by `resident-lifecycle-shell.css`) is the portal shell, not a
 lookalike of the old one: a dark 40px top strip ("Ask PropLane or search <workspace>", the house mark, no plane),
 an ink workspace rail (workspace tile, help, the account avatar that opens the account menu), a light 248px sidebar
-with collapsible groups bucketed like `PORTAL_NAV_GROUPS` (an unheaded home group, then Portfolio / Leasing / People /
-Money, or Applying / Money for the resident (whose My home group is unheaded too — a "My home" heading over the
-My home row said the same word twice), Work / Money for the vendor; labels are the real nav labels),
+with collapsible groups bucketed like `PORTAL_NAV_GROUPS`, which owns the headings and their order (the home
+group is unheaded; so is the resident's My home group — a "My home" heading over the My home row said the same
+word twice); labels are the real nav labels,
 flat white content, and the AI assistant as the ONLY right panel (the strip's right icon docks it; its "Needs
 attention" rows are the Dashboard's, counted from them). Match the running portal when you change it. The window's
 pages are the real redesigned components inside `DEMO_PAGE_CLASS` (the real main column's 32px rhythm, which the page
