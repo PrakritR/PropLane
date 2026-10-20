@@ -13,6 +13,8 @@ import { releaseCreditedHoldAfterCommit } from "@/lib/platform-post-credit-relea
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { promoteIncompleteApplicationAfterFeePaid } from "@/lib/promote-incomplete-application-after-fee.server";
 import type { ApplicationFeeClaim } from "@/lib/application-fee-payment-claim.server";
+import { creditManagedCapture } from "@/lib/managed-finance/capture.server";
+import { resolveManagedForProperties } from "@/lib/managed-finance/resolve.server";
 
 function customerEmail(session: Stripe.Checkout.Session): string {
   return String(session.customer_details?.email ?? session.customer_email ?? "").trim().toLowerCase();
@@ -251,7 +253,26 @@ export async function fulfillClaimedApplicationFeePayment(
   if (ledgerError || ledgerRows?.length !== 1) {
     throw new Error("Application payment ledger enrichment needs repair.");
   }
-  if (isHold) {
+  // A PropLane-managed workspace's application fee is allocated in the party ledger (owner payable, or PropLane's fee when the
+  // policy's fee applies to all charges), never credited to the manager of record's hold. docs/agents/owner-management.md
+  // § Application and form fees. A payment already credited as a hold stays a hold.
+  const managedResolution = isHold
+    ? await resolveManagedForProperties(db, [claim.property_id], String(chargeData.paidAt))
+    : null;
+  const priorManagedHold = managedResolution ? await findPlatformHoldByPaymentIntent(db, pi.id) : null;
+  if (isHold && managedResolution && !priorManagedHold) {
+    await creditManagedCapture(db, stripe, {
+      policy: managedResolution.policy,
+      paymentIntentId: pi.id,
+      stripeChargeId: charge.id,
+      grossCents: claim.payer_total_cents,
+      components: [{
+        id: claim.charge_id, kind: "application_fee", liabilityClass: "income",
+        principalCents: claim.principal_cents, recipientNetCents: claim.recipient_net_cents,
+        propertyId: claim.property_id, residentEmail: claim.resident_email, paidAt: String(chargeData.paidAt),
+      }],
+    });
+  } else if (isHold) {
     const [sourceHold, intentHold] = await Promise.all([
       findPlatformHold(db, "application_fee", session.id),
       findPlatformHoldByPaymentIntent(db, pi.id),

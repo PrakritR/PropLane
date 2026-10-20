@@ -20,6 +20,8 @@ import { approveDispatchRun, declineDispatchRun, retryDispatchRun } from "@/lib/
 import { decideVendorQuote, recordVendorBusy, recordVendorNo, recordVendorYes } from "@/lib/vendor-dispatch/responses.server";
 import { sendVendorDispatchText } from "@/lib/vendor-dispatch/send.server";
 import { toGsm7 } from "@/lib/vendor-dispatch/text";
+import { isDispatchKeyword } from "@/lib/vendor-dispatch/service-default.server";
+import { maybeCreateRuleRunForWorkOrder } from "@/lib/vendor-dispatch/triggers.server";
 import type { DispatchAttemptRow, DispatchRunRow } from "@/lib/vendor-dispatch/types";
 
 /**
@@ -120,6 +122,42 @@ const APPLICABLE: Record<ManagerDispatchReply["kind"], PendingKind[]> = {
   broadcast: ["exhausted"],
 };
 
+/** Repairs filed in the last week that nobody has been sent to, newest first (the DISPATCH reply's candidates). */
+const DISPATCH_KEYWORD_WINDOW_DAYS = 7;
+
+/**
+ * `DISPATCH`: the manager asked to text their vendors for the newest unassigned repair. It opens the same run a rule would,
+ * with the workspace roster as the chain, and waits for their Y before anyone is texted. Scoped to the work number's owner and
+ * workspace; the sender is the pipeline's verified manager.
+ */
+async function handleDispatchKeyword(
+  db: SupabaseClient,
+  input: { ownerUserId: string; workspaceId: string | null; actorUserId: string },
+): Promise<InboundHandled> {
+  const since = new Date(Date.now() - DISPATCH_KEYWORD_WINDOW_DAYS * 86_400_000).toISOString();
+  const { data, error } = await db
+    .from("portal_work_order_records")
+    .select("id, row_data, updated_at")
+    .eq("manager_user_id", input.ownerUserId)
+    .gte("updated_at", since)
+    .order("updated_at", { ascending: false })
+    .limit(25);
+  if (error) return { handled: false };
+  const rows = ((data ?? []) as Array<{ id: string; row_data?: Record<string, unknown> | null }>).filter((record) => {
+    const row = record.row_data ?? {};
+    return row.bucket === "open" && !row.vendorId && row.selfAssigned !== true && row.managerInitiated !== true && Boolean(row.category);
+  });
+  if (rows.length === 0) return { handled: false };
+  for (const record of rows) {
+    const outcome = await maybeCreateRuleRunForWorkOrder(db, record.id, { requireRule: false }).catch(() => "skipped" as const);
+    if (outcome === "created") return { handled: true, reply: toGsm7("Ready. Reply Y to text your vendors, or N to cancel") };
+    if (outcome === "existing") return { handled: true, reply: toGsm7("That repair is already with dispatch. Reply Y when it asks you") };
+    if (outcome === "no_vendors") return { handled: true, reply: toGsm7("None of your vendors can be texted for that repair. Add one in PropLane") };
+    if (outcome === "refused") return { handled: true, reply: toGsm7("That one could not be dispatched. Open PropLane to continue") };
+  }
+  return { handled: false };
+}
+
 /**
  * `Y`, `N`, `Y 7`, `2`, `2 7`, `R`, `B`: the manager's answer to an approval, a held quote,
  * a texted invoice or an exhausted chain. With two items pending a bare answer is refused
@@ -137,6 +175,7 @@ export async function handleManagerDispatchReply(
     assistantProposalOpen?: () => Promise<boolean>;
   },
 ): Promise<InboundHandled> {
+  if (isDispatchKeyword(input.body)) return handleDispatchKeyword(db, input);
   const parsed = parseManagerDispatchReply(input.body);
   if (!parsed) return { handled: false };
   const pending = await listPendingForActor(db, input).catch(() => [] as PendingItem[]);
@@ -194,7 +233,16 @@ export async function handleManagerDispatchReply(
   }
   if (kind === "invoice") {
     const result = await decideRunInvoice(db, { ownerUserId: run.owner_user_id, actorUserId: input.actorUserId, runId: run.id, approve: parsed.kind === "approve", rawText: base.rawText, now: input.now });
-    return { handled: true, reply: result.ok ? (parsed.kind === "approve" ? `Invoice on #${run.handle} approved.` : `Invoice on #${run.handle} declined.`) : describeFailure(result.reason, run.handle) };
+    if (result.ok && parsed.kind === "approve") {
+      const tail =
+        result.settled === "posted" ? " The vendor is being paid."
+        : result.settled === "waiting_owner" ? " It is over the owner's repair limit, so the owner was asked. You will hear when they answer."
+        : result.settled === "declined" ? " The owner declined this repair."
+        : result.settled === "unavailable" ? " Open PropLane to finish paying it."
+        : " Pay it from the service record.";
+      return { handled: true, reply: toGsm7(`Invoice on #${run.handle} approved.${tail}`) };
+    }
+    return { handled: true, reply: result.ok ? `Invoice on #${run.handle} declined.` : describeFailure(result.reason, run.handle) };
   }
   const result = await retryDispatchRun(db, { ...base, broadcast: parsed.kind === "broadcast" });
   return { handled: true, reply: result.ok ? `Retrying #${run.handle}${parsed.kind === "broadcast" ? " with every vendor of the trade" : ""}.` : describeFailure(result.reason, run.handle) };

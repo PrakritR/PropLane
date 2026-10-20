@@ -22,6 +22,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * charge filed under no property at all still pays the manager on the row.
  */
 
+vi.mock("@/lib/managed-finance/unpolicied-service.server", () => ({ serviceSetupPendingProblem: async () => null }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/stripe", () => ({ getStripe: vi.fn() }));
 

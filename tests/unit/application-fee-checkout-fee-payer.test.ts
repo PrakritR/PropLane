@@ -9,6 +9,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 //     charges use (Free = applicant pays it, Pro = manager's setting, Business =
 //     PropLane absorbs) — this supersedes the old "always face value" carve-out.
 
+const platformCapture = vi.hoisted(() => ({ required: false }));
+vi.mock("@/lib/managed-finance/unpolicied-service.server", () => ({ platformCaptureRequiredForProperty: async () => platformCapture.required }));
 vi.mock("@/lib/stripe-axis-ach-checkout", async () => {
   const actual = await vi.importActual<typeof import("@/lib/stripe-axis-ach-checkout")>(
     "@/lib/stripe-axis-ach-checkout",
@@ -114,6 +116,20 @@ describe("createApplicationFeeCheckout — destination + ownership", () => {
     vi.mocked(loadManagerManualPaymentSettings).mockResolvedValue({
       serviceFeePayer: "resident",
     });
+  });
+
+  it("captures on the platform balance, never a destination charge, for a managed or unsigned-service house", async () => {
+    platformCapture.required = true;
+    try {
+      const stripe = makeStripe({ id: "acct_manager_A", capabilities: { transfers: "active" }, payouts_enabled: true });
+      const db = makeDb({ managerUserId: "mgr_A", managerAccountId: "acct_manager_A" });
+      const result = await createApplicationFeeCheckout(db, stripe, baseInput);
+      expect(result.ok).toBe(true);
+      const passed = vi.mocked(createAxisAchCheckoutSession).mock.calls[0]?.[1] as { destinationAccountId?: string | null };
+      expect(passed.destinationAccountId ?? null).toBeNull();
+    } finally {
+      platformCapture.required = false;
+    }
   });
 
   it("routes the charge to the manager's OWN connected account", async () => {

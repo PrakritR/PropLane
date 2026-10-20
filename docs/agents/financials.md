@@ -713,3 +713,14 @@ straight off the string — a date-only value is a wall date and is never put
 through `Date`, which would shift it a day west of Greenwich), and
 `formatChargeMoneyLabel` normalizes a stored amount to "$1,800.00". Anything
 that is not an ISO date or a plain amount comes back unchanged.
+
+
+## Self-serve vendor payment from a manager (as it works today, deliberately unchanged)
+
+A self-serve workspace pays a vendor from the MANAGER'S side: Approve + pay starts a fresh Stripe Checkout (card or bank) charged to
+the manager on the platform account, and after it settles the platform Transfers the vendor's net to the vendor's own Connect
+account (`src/lib/stripe-vendor-payout.ts`, key `vendor-payout:<work order>`), or holds it until the vendor's account is ready. It
+is not paid out of a workspace balance. `PROPLANE_BALANCE_ENABLED` stays off; do not flip it as part of any money work. A
+PropLane-managed workspace is the other model (party ledger, `docs/agents/owner-management.md`). A manager's Y on a texted invoice
+sets the service's vendor cost from the invoice (never the earlier agreed price) and creates the bill; on a managed workspace it also
+gates on the owner's repair threshold and posts the vendor bill, on a self-serve workspace the manager then pays from the record.

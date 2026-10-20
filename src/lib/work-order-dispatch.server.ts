@@ -26,7 +26,8 @@ import {
   type WorkOrderRowWithDispatch,
 } from "@/lib/work-order-dispatch";
 import { loadManagerWorkOrders, loadVendorsForMatching } from "@/lib/tools/domains/work-orders";
-import { maybeCreateRuleRunForWorkOrder } from "@/lib/vendor-dispatch/triggers.server";
+import { maybeCreateRuleRunForWorkOrder, resolveOwnerAndWorkspace } from "@/lib/vendor-dispatch/triggers.server";
+import { resolveDispatchSettings } from "@/lib/vendor-dispatch/service-default.server";
 
 type Db = SupabaseClient;
 
@@ -37,6 +38,41 @@ export type DispatchActor = { userId: string; email: string; fullName: string };
  * call repeatedly with the same id (audit dedupe short-circuits replays).
  * No-ops entirely unless the owning manager has turned the feature on.
  */
+/**
+ * Dispatch is off and no rule exists: tell the manager once that the repair can still be sent to their vendors by text. The
+ * `DISPATCH` reply (handled in `handleManagerDispatchReply`) opens a run that waits for their Y. Idempotent per repair; a
+ * failed notice never fails the filing.
+ */
+async function noticeDispatchAvailable(
+  db: Db,
+  input: { managerUserId: string; workOrderId: string; row: WorkOrderRowWithDispatch; workspaceId: string | null; propertyId: string | null },
+): Promise<void> {
+  try {
+    const { error } = await db.from("audit_log").insert({
+      actor_user_id: input.managerUserId,
+      landlord_id: input.managerUserId,
+      action: "dispatch_off_notice",
+      tool_name: "vendor_dispatch",
+      input_summary: { workOrderId: input.workOrderId },
+      dedupe_key: `dispatch_off_notice:${input.workOrderId}`,
+      created_at: new Date().toISOString(),
+    });
+    if (error) return; // 23505 = already told; anything else: do not guess
+    const where = input.row.propertyName || "your house";
+    await notifyManagerFromAgent(db, {
+      landlordId: input.managerUserId,
+      subject: `New repair: ${input.row.title || "Service"}`,
+      text: `${input.row.title || "A repair"} was filed at ${where}. Reply DISPATCH to text your vendors.`,
+      threadType: "dispatch_proposal",
+      propertyId: input.propertyId,
+      workspaceId: input.workspaceId,
+      idempotencyKey: `dispatch-off-notice:${input.workOrderId}`,
+    });
+  } catch (error) {
+    console.error("prepareDispatch: dispatch-available notice failed", input.workOrderId, error instanceof Error ? error.message : error);
+  }
+}
+
 export async function prepareDispatch(db: Db, workOrderId: string): Promise<void> {
   const { data: record } = await db
     .from("portal_work_order_records")
@@ -61,8 +97,22 @@ export async function prepareDispatch(db: Db, workOrderId: string): Promise<void
   });
   if (ruleOutcome === "created" || ruleOutcome === "existing" || ruleOutcome === "refused" || ruleOutcome === "no_vendors") return;
 
-  const settings = await loadVendorDispatchSettings(db, managerUserId);
-  if (settings.mode === "off") return;
+  // A service workspace dispatches by default (propose; the manager's Y texts the roster) unless the manager saved a mode.
+  const propertyForScope = row.assignedPropertyId || row.propertyId || null;
+  const scope = await resolveOwnerAndWorkspace(db, { ownerUserId: managerUserId, propertyId: propertyForScope }).catch(() => null);
+  const resolution = await resolveDispatchSettings(db, managerUserId, scope?.workspaceId).catch(() => null);
+  if (resolution?.serviceDefault) {
+    const proposed = await maybeCreateRuleRunForWorkOrder(db, workOrderId, { requireRule: false }).catch((error: unknown) => {
+      console.error("prepareDispatch: service default dispatch failed", workOrderId, error instanceof Error ? error.message : error);
+      return "skipped" as const;
+    });
+    if (proposed === "created" || proposed === "existing" || proposed === "refused" || proposed === "no_vendors") return;
+  }
+  const settings = resolution?.settings ?? (await loadVendorDispatchSettings(db, managerUserId));
+  if (settings.mode === "off") {
+    await noticeDispatchAvailable(db, { managerUserId, workOrderId, row, workspaceId: scope?.workspaceId ?? null, propertyId: propertyForScope });
+    return;
+  }
 
   // Record intent first, idempotently — the client "replace" sync can replay a
   // new row many times, and only the first insert of this key proceeds.

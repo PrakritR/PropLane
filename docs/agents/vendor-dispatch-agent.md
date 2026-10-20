@@ -9,6 +9,24 @@ reminder-settings modal). Mode `off | approve | auto`; `agentMessagingEnabled` g
 vendor-facing agent; guardrails = approved vendor list, categories, spend cap (advisory —
 dispatch commits no money; real enforcement stays at bid-accept).
 
+**Defaults (Oct 19).** A PropLane Service workspace (`portal_workspaces.is_service`) with NO saved dispatch mode proposes by
+default: a filed repair opens a dispatch run (the rule path first, else the workspace roster as the chain) that waits for the
+manager's or service manager's Y; nobody is texted before it. A manager who SAVED a mode keeps it, "off" included
+(`resolveDispatchSettings`, `src/lib/vendor-dispatch/service-default.server.ts`). The service-wide roster plugs in at
+`serviceRosterVendorsForTrade` (`src/lib/vendor-dispatch/service-roster.server.ts`, a stub returning nothing until on/adminops lands
+it; the fallback chain appends it after the workspace's own vendors). A self-serve workspace stays off, but when a repair is filed
+with dispatch off the manager gets ONE notice (idempotent per repair): "Reply DISPATCH to text your vendors". The bare reply
+`DISPATCH` (handled before the Y/N parser in `handleManagerDispatchReply`) opens the same rule-less run for the newest open,
+unassigned repair of the last 7 days and asks for Y.
+
+**Invoice Y (Oct 19).** The manager's Y on a texted invoice (`decideRunInvoice`) sets the service's vendor cost to the approved
+invoice amount (the invoice row's recomputed total, else the texted figure) so Approve + pay never uses the earlier agreed price. On a
+PropLane-managed workspace it then gates on the owner's repair threshold (over it: the owner gets a Y/N text and the manager is told
+they were asked) and posts the vendor bill under the work order's key; a vendor with an invoice row also claims and settles that
+invoice through the invoice rail's guard, a vendor with no login is posted to their directory row and texted that money is waiting
+(`docs/agents/owner-management.md` § Vendors without a login). A self-serve workspace gets the AP bill only; the manager pays from the
+record.
+
 **Dispatch is deterministic — no LLM call.** New resident work orders (POST
 `/api/portal-work-orders`, new-row detection + `after()`) trigger `prepareDispatch`
 (`src/lib/work-order-dispatch.server.ts`): ranks vendors via the existing

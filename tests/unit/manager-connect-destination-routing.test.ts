@@ -19,6 +19,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // below, which these tests assert it never does.
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/managed-finance/unpolicied-service.server", () => ({ serviceSetupPendingProblem: async () => null }));
 vi.mock("@/lib/stripe", () => ({
   getStripe: vi.fn(),
 }));

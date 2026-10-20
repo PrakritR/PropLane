@@ -25,7 +25,7 @@ export async function POST(req: Request) {
       clientKey: typeof body.clientKey === "string" ? body.clientKey.slice(0, 80) : undefined,
     });
     if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
-    return NextResponse.json({ ok: true, withdrawalId: result.withdrawalId, payoutPending: result.payoutPending });
+    return NextResponse.json({ ok: true, withdrawalId: result.withdrawalId, payoutPending: result.payoutPending, payoutAutomatic: result.payoutAutomatic === true });
   } catch (e) {
     return financeErrorResponse(e, "Could not start the withdrawal.");
   }

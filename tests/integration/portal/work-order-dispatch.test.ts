@@ -201,14 +201,14 @@ const ACTOR = { userId: "mgr-a", email: "a@test.com", fullName: "Manager A" };
 describe("prepareDispatch", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("is fully dark when the manager has not opted in", async () => {
+  it("proposes nothing when the manager has not opted in (it only tells them once that Reply DISPATCH is available)", async () => {
     const { db, auditRows, workOrders } = mockDb({
       workOrders: [{ id: "REQ-1", manager_user_id: "mgr-a", row_data: openResidentRow() }],
       vendors: [plumberVendor()],
       vendorDispatchSettings: null,
     });
     await prepareDispatch(db, "REQ-1");
-    expect(auditRows).toHaveLength(0);
+    expect(auditRows.map((r) => r.action)).toEqual(["dispatch_off_notice"]);
     expect(workOrders.get("REQ-1")!.row_data.dispatch).toBeUndefined();
   });
 

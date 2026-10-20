@@ -6,6 +6,11 @@ import type Stripe from "stripe";
 import { connectAccountReadyForAchPayouts } from "@/lib/stripe-connect";
 import { getStripe } from "@/lib/stripe";
 import { readFrozenDisputeChargeIds } from "@/lib/vendor-banking/disputes.server";
+import {
+  flagUnsignedFeeAgreement,
+  unpoliciedServiceForManager,
+  type UnpoliciedServiceWorkspace,
+} from "@/lib/managed-finance/unpolicied-service.server";
 
 export type HeldSourceRow = {
   id: string;
@@ -149,6 +154,10 @@ export async function releaseVerifiedPlatformHoldsForOwner(
   const frozenChargeIds = holds.some((hold) => hold.owner_role === "vendor")
     ? await readFrozenDisputeChargeIds(db, opts.ownerUserId)
     : new Set<string>();
+  // A manager of record of a PropLane Service workspace with no signed fee agreement is not paid out: that rent belongs in the
+  // owner / PropLane ledger, never in a personal Connect account. A NEW release is frozen (stays held, visible); an attempt that
+  // is already reserved may still finish, because its transfer may already exist at Stripe. A failed lookup throws (fail closed).
+  let frozenService: UnpoliciedServiceWorkspace[] | undefined;
   let newDestination: string | null | undefined;
   let transferred = 0;
   let pending = 0;
@@ -162,6 +171,13 @@ export async function releaseVerifiedPlatformHoldsForOwner(
     if (!previous && hold.stripe_charge_id && frozenChargeIds.has(hold.stripe_charge_id)) {
       pending += 1;
       continue;
+    }
+    if (!previous && hold.owner_role === "manager") {
+      if (frozenService === undefined) {
+        frozenService = await unpoliciedServiceForManager(db, opts.ownerUserId);
+        for (const ws of frozenService) await flagUnsignedFeeAgreement(db, ws, "hold_frozen");
+      }
+      if (frozenService.length > 0) { pending += 1; continue; }
     }
     await verifyPlatformHoldSourceRefundHistory(db, stripe, hold);
     let destination: string | null;
