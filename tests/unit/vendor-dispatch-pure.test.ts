@@ -10,6 +10,7 @@ import {
   toGsm7,
 } from "@/lib/vendor-dispatch/text";
 import {
+  MAX_PICK_POSITION,
   parseManagerDispatchReply,
   parseResidentFixedReply,
   parseVendorDispatchReply,
@@ -145,6 +146,19 @@ describe("manager text", () => {
     expect(long.endsWith(coded)).toBe(true);
     expect(long.length).toBeLessThanOrEqual(306);
 
+    // A long chain still runs in full, but the pick list stops where the reply grammar does.
+    const twelve = composeApprovalText({
+      handle: 7,
+      what: "Leak",
+      houseLabel: "5259 Brooklyn",
+      vendorNames: Array.from({ length: 12 }, (_, i) => `Vendor ${i + 1}`),
+      payCents: 12000,
+      payModel: "flat",
+      mode: "sequential",
+    });
+    expect(twelve).toContain("1-9 to pick one");
+    expect(twelve).not.toContain("1-12");
+
     expect(composeQuoteAskText({ handle: 7, vendorName: "Mike Plumbing", quoteCents: 24000, capCents: null, instruction: "Reply Y 7 4821 or N 7 4821" }))
       .toBe("Mike quotes $240 #7. Reply Y 7 4821 or N 7 4821");
     expect(composeInvoiceAskText({ handle: 7, vendorName: "Mike Plumbing", cents: 24000, instruction: "Reply Y 7 4821 or N 7 4821" }))
@@ -186,6 +200,13 @@ describe("manager reply grammar", () => {
 
   it.each(["yes please send it", "maybe", "7 houses", "Y 7 8", "call me", ""])("leaves %j alone", (body) => {
     expect(parseManagerDispatchReply(body)).toBeNull();
+  });
+
+  it("reads a pick up to the ninth vendor and nothing past it", () => {
+    expect(MAX_PICK_POSITION).toBe(9);
+    expect(parseManagerDispatchReply(`${MAX_PICK_POSITION} 7 4821`)).toEqual({ kind: "pick", position: 9, handle: 7, code: "4821", codeCandidate: "4821" });
+    // Two leading digits with no separator are not this grammar at all, so an ask must never name position 10.
+    expect(parseManagerDispatchReply("10 7 4821")).toBeNull();
   });
 });
 

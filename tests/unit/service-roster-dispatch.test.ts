@@ -466,6 +466,10 @@ describe("the PropLane line's code on a money answer", () => {
     expect(codedAnswerLine("dispatch_approval", 7, "4821", { vendorNames: ["Sam Locksmith"] })).toBe("Reply Y 7 4821 or N 7 4821");
     expect(codedAnswerLine("dispatch_approval", 7, "4821", { vendorNames: ["Sam Locksmith", "Pacific Plumbing", "Kim Keys"] }))
       .toBe("Reply 1-3 7 4821 to pick one (e.g. 2 7 4821); Y 7 4821 sends the first, N 7 4821 declines");
+    // The chain can be longer than the reply grammar's single-digit position, and this line is the ask's ONLY
+    // instruction on the PropLane line: naming a tenth vendor would be naming a reply the handler cannot read.
+    expect(codedAnswerLine("dispatch_approval", 7, "4821", { vendorNames: Array.from({ length: 12 }, (_, i) => `Vendor ${i + 1}`) }))
+      .toBe("Reply 1-9 7 4821 to pick one (e.g. 2 7 4821); Y 7 4821 sends the first, N 7 4821 declines");
     // A broadcast run's Y sends everyone, so the line never calls it the first.
     expect(codedAnswerLine("dispatch_approval", 7, "4821", { vendorNames: ["Sam", "Lee"], mode: "broadcast" }))
       .toBe("Reply 1-2 7 4821 to pick one (e.g. 2 7 4821); Y 7 4821 sends them all, N 7 4821 declines");

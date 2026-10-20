@@ -25,6 +25,14 @@ export type ManagerDispatchReply =
 
 const MANAGER_REPLY = /^\s*(?:(y|yes)|(n|no)|(\d)|(r|retry)|(b|broadcast))\s*(?:[#\s]\s*(\d{1,6}))?\s*(?:[#\s]\s*(\d{4}))?\s*[.!]?\s*$/i;
 
+/**
+ * The highest vendor position a manager can pick by text: the position above is ONE digit, so "10 7 4821" is not a
+ * reply this grammar reads at all. An ask must never advertise a position past this - on the PropLane line the coded
+ * line is the ask's only instruction, and a tenth vendor named there would fall through to the agent unanswered.
+ * A longer chain still runs in full; only the pick list stops here.
+ */
+export const MAX_PICK_POSITION = 9;
+
 export function parseManagerDispatchReply(body: string): ManagerDispatchReply | null {
   const match = MANAGER_REPLY.exec(String(body ?? ""));
   if (!match) return null;

@@ -9,6 +9,7 @@ import {
   type SmsConfirmationCheck,
   type SmsConfirmationSubjectKind,
 } from "@/lib/sms/confirmation-code";
+import { MAX_PICK_POSITION } from "@/lib/vendor-dispatch/reply-parse";
 import { serviceOwnerForWorkspace } from "@/lib/vendor-dispatch/service-roster.server";
 import { toGsm7 } from "@/lib/vendor-dispatch/text";
 
@@ -89,7 +90,8 @@ export function codedAnswerLine(kind: DispatchApprovalKind, handle: number, code
   const names = (options.vendorNames ?? []).map((name) => toGsm7(String(name ?? "")).trim()).filter(Boolean);
   if (names.length < 2) return answer;
   const sends = options.mode === "broadcast" ? "sends them all" : "sends the first";
-  return `Reply 1-${names.length} ${handle} ${code} to pick one (e.g. 2 ${handle} ${code}); ${yes} ${handle} ${code} ${sends}, ${no} ${handle} ${code} declines`;
+  const pickable = Math.min(names.length, MAX_PICK_POSITION);
+  return `Reply 1-${pickable} ${handle} ${code} to pick one (e.g. 2 ${handle} ${code}); ${yes} ${handle} ${code} ${sends}, ${no} ${handle} ${code} declines`;
 }
 
 /**

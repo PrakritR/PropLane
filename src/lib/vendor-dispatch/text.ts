@@ -9,6 +9,8 @@
  *  - one GSM-7 segment where possible (no emoji, curly quotes or long dashes).
  */
 
+import { MAX_PICK_POSITION } from "@/lib/vendor-dispatch/reply-parse";
+
 export const SMS_SEGMENT_CHARS = 160;
 /** A segment of a MULTI-part GSM-7 message: six characters of each one carry the concatenation header. */
 export const SMS_CONCAT_SEGMENT_CHARS = 153;
@@ -157,7 +159,8 @@ export function composeApprovalText(input: {
   const head = (house: string) => `${toGsm7(input.what)} ${house} #${input.handle}.`;
   const [first, ...rest] = names;
   const coded = input.instruction ? toGsm7(input.instruction) : null;
-  const pick = coded ? "" : names.length > 1 ? ` Y/N or 1-${names.length} to pick one` : " Y/N";
+  const pickable = Math.min(names.length, MAX_PICK_POSITION);
+  const pick = coded ? "" : names.length > 1 ? ` Y/N or 1-${pickable} to pick one` : " Y/N";
   const build = (house: string, backups: string): string => {
     if (!first) return `${head(house)} No vendor on file.${coded ? "" : " Reply N"}`;
     const target = input.mode === "broadcast" && names.length > 1 ? `${names.join(", ")} at once` : `${first}${payPart}`;
