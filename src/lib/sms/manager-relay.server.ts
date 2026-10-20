@@ -35,11 +35,11 @@ export function samePhone(a: string | null | undefined, b: string | null | undef
   return first !== null && first === normalizeE164(String(b ?? ""));
 }
 
-/** Masked handle for a phone we must not reveal in full: `Texter ····1234`. */
+/** Masked handle for a phone we must not reveal in full: `Texter ...1234`. */
 export function maskedTexterLabel(phone: string): string {
   const d = String(phone ?? "").replace(/\D/g, "");
   const last4 = d.slice(-4);
-  return last4 ? `Texter ····${last4}` : "a resident";
+  return last4 ? `Texter ...${last4}` : "a resident";
 }
 
 export type ManagerSelfReply = { managerUserId: string; workNumber: string; managerPhone: string };
