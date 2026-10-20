@@ -6,6 +6,7 @@ import { resolveShareableAppOrigin } from "@/lib/app-url";
 import { sendVendorInvite } from "@/lib/vendor-invite.server";
 import { loadAllManagerRows } from "./load-manager-rows";
 import { writeAuditLog, updateAuditResult } from "../audit";
+import { vendorTradeIds } from "@/lib/vendor-dispatch/match.server";
 
 // Domain matched as dot-separated labels — same shape as the invite route's validator.
 const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
@@ -37,6 +38,22 @@ function summarizeVendor(v: ManagerVendorRow) {
   };
 }
 
+/**
+ * "plumbing" must find a vendor filed as "Plumber": an exact string match hid a manager's own plumber from the assistant
+ * ("you have no plumbers on file"). A vendor matches when either side names the same dispatch trade, or one label contains the other's stem.
+ */
+export function vendorMatchesTradeQuery(vendor: Pick<ManagerVendorRow, "trade" | "trades">, wantTrade: string): boolean {
+  const want = wantTrade.trim().toLowerCase();
+  if (!want) return true;
+  const labels = [...(vendor.trades ?? []), vendor.trade].map((label) => String(label ?? "").trim().toLowerCase()).filter(Boolean);
+  if (labels.some((label) => label === want)) return true;
+  const wanted = vendorTradeIds({ trade: wantTrade });
+  const have = vendorTradeIds(vendor);
+  if ([...wanted].some((id) => have.has(id))) return true;
+  const stem = (value: string) => value.replace(/(ing|ers?|ians?|ian|ist|s)$/i, "").slice(0, 5);
+  return labels.some((label) => label.includes(want) || want.includes(label) || (stem(label).length >= 4 && stem(label) === stem(want)));
+}
+
 export const listVendorsTool = defineTool({
   name: "list_vendors",
   description:
@@ -59,7 +76,7 @@ export const listVendorsTool = defineTool({
     const wantTrade = input.trade?.trim().toLowerCase();
     const filtered = rows.filter((v) => {
       if (input.activeOnly && v.active === false) return false;
-      if (wantTrade && String(v.trade ?? "").toLowerCase() !== wantTrade) return false;
+      if (wantTrade && !vendorMatchesTradeQuery(v, wantTrade)) return false;
       return true;
     });
     return { count: filtered.length, vendors: filtered.map(summarizeVendor) };
