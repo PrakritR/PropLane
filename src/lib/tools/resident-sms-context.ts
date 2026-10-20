@@ -65,6 +65,16 @@ type ProfileRow = {
  * @param fromPhone   the inbound `From` header
  * @param ownerManagerUserId the manager who owns the work number that was texted
  */
+/** The manager code ("MGR-...") of a manager's user id; null when it cannot be read. */
+async function managerCodeOf(db: SupabaseClient, managerUserId: string): Promise<string | null> {
+  try {
+    const { data } = await db.from("profiles").select("manager_id").eq("id", managerUserId).maybeSingle();
+    return String((data as { manager_id?: unknown } | null)?.manager_id ?? "").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function resolveResidentSmsAgentContext(
   db: SupabaseClient,
   args: { fromPhone: string; ownerManagerUserId: string },
@@ -120,8 +130,12 @@ export async function resolveResidentSmsAgentContext(
     return { ok: false, reason: "manager_not_linked" };
   }
 
+  // `getManagerSubscriptionTierByManagerId` is keyed by the manager CODE (profiles.manager_id, "MGR-..."), exactly as the portal
+  // context passes it. Handing it the owner's user id found no purchase row, read as the Free plan, and hid the Services and
+  // Documents tools from every resident who texted (no maintenance request could be filed by text).
+  const managerCode = await managerCodeOf(db, ownerManagerUserId);
   const [managerTier, access] = await Promise.all([
-    getManagerSubscriptionTierByManagerId(ownerManagerUserId),
+    managerCode ? getManagerSubscriptionTierByManagerId(managerCode) : Promise.resolve(null),
     loadResidentPortalAccessState({
       userId,
       role: profile.role,

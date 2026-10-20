@@ -65,6 +65,10 @@ function makeDb(opts: {
         // The `.not` link is load-bearing — see the truncation test below.
         return {
           select: vi.fn().mockReturnValue({
+            // The manager CODE lookup: profiles.manager_id of the work number's owner.
+            eq: vi.fn().mockImplementation((_col: string, id: string) => ({
+              maybeSingle: vi.fn().mockResolvedValue({ data: { manager_id: `MGR-${id.slice(0, 4)}` }, error: null }),
+            })),
             in: vi.fn().mockReturnValue({
               not: vi.fn().mockImplementation((col: string, op: string, val: unknown) => {
                 notCalls.push([col, op, val]);
@@ -136,7 +140,8 @@ describe("resolveResidentSmsAgentContext", () => {
     expect(res.ctx.activeManagerId).toBe(OWNER_MANAGER);
     expect(res.ctx.managerTier).toBe("paid");
     expect(res.ctx.phase).toBe("application");
-    expect(getManagerSubscriptionTierByManagerId).toHaveBeenCalledWith(OWNER_MANAGER);
+    // Keyed by the manager CODE (as the portal context does), never the owner's user id.
+    expect(getManagerSubscriptionTierByManagerId).toHaveBeenCalledWith(`MGR-${OWNER_MANAGER.slice(0, 4)}`);
     expect(loadResidentPortalAccessState).toHaveBeenCalledWith({
       userId: RESIDENT_ID,
       role: "resident",
