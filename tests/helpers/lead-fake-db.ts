@@ -19,7 +19,16 @@ const read = (row: LeadRow, column: string): unknown => row[column];
 
 export function leadFakeDb(
   seed: Record<string, LeadRow[]> = {},
-  options: { constraints?: Record<string, Constraint>; broken?: string[] } = {},
+  options: {
+    constraints?: Record<string, Constraint>;
+    /** Tables that are not there at all (42P01). */
+    broken?: string[];
+    /**
+     * Tables that ARE there but whose reads and writes fail. Unlike `broken`, this is the shape of a transient
+     * failure (a statement timeout, a connection drop), which callers must tell apart from a missing migration.
+     */
+    failing?: string[];
+  } = {},
 ): LeadFakeDb {
   const rows: Record<string, LeadRow[]> = structuredClone(seed);
   const log: LeadFakeDb["log"] = [];
@@ -43,6 +52,7 @@ export function leadFakeDb(
       const run = (): { data: unknown; error: { code: string; message: string } | null; count?: number } => {
         log.push({ table, op: mode });
         if ((options.broken ?? []).includes(table)) return { data: null, error: { code: "42P01", message: "relation does not exist" } };
+        if ((options.failing ?? []).includes(table)) return { data: null, error: { code: "57014", message: "statement timeout" } };
         const list = (rows[table] ??= []);
         if (mode === "insert" || mode === "upsert") {
           const inserted: LeadRow[] = [];

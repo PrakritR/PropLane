@@ -398,7 +398,7 @@ async function refundUnhonoredAddOn(
         }
       }
       if (!terminal) {
-        await db.from("portal_household_charge_records").upsert(
+        const recorded = await db.from("portal_household_charge_records").upsert(
           {
             id: chargeId,
             manager_user_id: input.chargeRow.manager_user_id,
@@ -415,6 +415,10 @@ async function refundUnhonoredAddOn(
           },
           { onConflict: "id" },
         );
+        // The refund itself is idempotency-keyed, so throwing here is safe and is the only way the money shows up in
+        // Payments: a silent failure leaves the charge reading paid with `refundedCents: 0` while a replay reports
+        // `already_settled`, so the same amount could be refunded a second time.
+        if (recorded.error) throw new Error(`Stay add-on refund was not recorded: ${recorded.error.message}`);
       }
     } else if (decision.reason !== "nothing_left") {
       // Cannot refund (no Stripe charge on file, payment not settled...): no retry fixes it.

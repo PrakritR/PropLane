@@ -39,7 +39,7 @@ function world(extra: Record<string, FakeRow[]> = {}) {
     ],
     manager_property_records: [
       { id: "prop-a1", manager_user_id: OWNER_A, workspace_id: "ws-a", row_data: { buildingName: "5259 Brooklyn" } },
-      { id: "prop-b1", manager_user_id: OWNER_B, workspace_id: "ws-b", row_data: { address: "4709A 8th Ave" } },
+      { id: "prop-b1", manager_user_id: OWNER_B, workspace_id: "ws-b", row_data: { address: "4709A 8th Ave, Seattle, WA 98108" } },
     ],
     profiles: [
       { id: "user-u", email: "u@x.com", phone: PHONE, phone_verified_at: VERIFIED },
@@ -133,19 +133,53 @@ describe("lookups, one per routing step", () => {
   it("step 3: an open job for the phone names the job's workspace; a closed one does not", async () => {
     const { db } = world(VENDOR_IN_B);
     expect(await findVendorJobCandidates(db, "(206) 555-0142")).toMatchObject([
-      { workspaceId: "ws-b", ownerUserId: OWNER_B, role: "vendor", reason: "vendor_job", propertyId: "prop-b1", label: "4709A 8th Ave" },
+      {
+        workspaceId: "ws-b", ownerUserId: OWNER_B, role: "vendor", reason: "vendor_job", propertyId: "prop-b1",
+        // The house still matches a text that names it; the area is what a vendor is TOLD.
+        label: "4709A 8th Ave, Seattle, WA 98108", generalArea: "Seattle",
+      },
     ]);
     const closed = world({ agent_sessions: [{ ...VENDOR_IN_B.agent_sessions[0], status: "closed" }], ...{ portal_work_order_records: VENDOR_IN_B.portal_work_order_records } });
     expect(await findVendorJobCandidates(closed.db, PHONE)).toEqual([]);
   });
 
-  it("step 4: an application carrying the phone (no account) is an applicant", async () => {
-    const { db } = world({
+  // Review fix, Oct 20: `row_data->>phone` is whatever the applicant TYPED. Matching it alone let anyone file an
+  // application naming someone else's number and attach a candidate workspace to that person's texts - and the
+  // disambiguation question is sent from, and billed to, the first candidate's workspace. So an applicant candidate
+  // now needs the same verified phone the resident, team and member lookups require.
+  it("step 4: an open application of this phone's VERIFIED account is an applicant", async () => {
+    const mine = world({
+      manager_application_records: [
+        { id: "a", manager_user_id: OWNER_B, resident_email: "u@x.com", property_id: "prop-b1", row_data: { bucket: "pending", phone: PHONE } },
+      ],
+    });
+    expect(await findApplicantCandidates(mine.db, PHONE)).toMatchObject([
+      { workspaceId: "ws-b", role: "applicant", reason: "applicant", label: "4709A 8th Ave, Seattle, WA 98108" },
+    ]);
+    // The row's own email is enough even when `resident_email` was never written.
+    const inRowData = world({
+      manager_application_records: [
+        { id: "a", manager_user_id: OWNER_B, property_id: "prop-b1", row_data: { bucket: "pending", phone: PHONE, email: "U@X.com" } },
+      ],
+    });
+    expect((await findApplicantCandidates(inRowData.db, PHONE)).map((c) => c.workspaceId)).toEqual(["ws-b"]);
+  });
+
+  it("step 4: an application that merely TYPED this number is not an applicant candidate", async () => {
+    // A phone with no verified PropLane account at all.
+    const stranger = world({
       manager_application_records: [
         { id: "a", manager_user_id: OWNER_B, property_id: "prop-b1", row_data: { bucket: "pending", phone: "+12065559999" } },
       ],
     });
-    expect(await findApplicantCandidates(db, "+12065559999")).toMatchObject([{ workspaceId: "ws-b", role: "applicant", reason: "applicant", label: "4709A 8th Ave" }]);
+    expect(await findApplicantCandidates(stranger.db, "+12065559999")).toEqual([]);
+    // And the attack: someone else's application naming a verified account's number, under neither its email.
+    const spoofed = world({
+      manager_application_records: [
+        { id: "a", manager_user_id: OWNER_B, resident_email: "attacker@x.com", property_id: "prop-b1", row_data: { bucket: "pending", phone: PHONE, email: "attacker@x.com" } },
+      ],
+    });
+    expect(await findApplicantCandidates(spoofed.db, PHONE)).toEqual([]);
   });
 
   it("step 5: a prospect conversation with a workspace is a returning prospect; a pre-stamp contact uses the owner's default workspace", async () => {
@@ -263,10 +297,11 @@ describe("routeSharedLineInbound: order and single matches", () => {
 describe("multi-role: one phone in two teams", () => {
   const both = () => world({ ...RESIDENT_IN_A, ...VENDOR_IN_B });
 
-  it("a neutral text asks 'Is this about <house> or your job at <house>?' and remembers the question", async () => {
+  it("a neutral text asks 'Is this about <house> or your job at <area>?' and remembers the question", async () => {
     const { db, rows } = both();
     const decision = await routeSharedLineInbound(db, inbound("ok thanks"), null);
-    expect(decision).toMatchObject({ kind: "ambiguous", question: "Is this about 5259 Brooklyn or your job at 4709A 8th Ave?" });
+    // The vendor half is the general AREA: that job may only be offered, and an offered vendor is never told a street.
+    expect(decision).toMatchObject({ kind: "ambiguous", question: "Is this about 5259 Brooklyn or your job at Seattle?" });
     expect(rows.sms_line_sessions).toMatchObject([{ phone_key: "2065550142" }]);
     const pending = (rows.sms_line_sessions[0].pending_candidates as SharedLineCandidate[]).map((c) => c.workspaceId);
     expect(pending).toEqual(["ws-a", "ws-b"]);

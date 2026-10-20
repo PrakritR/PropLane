@@ -9,7 +9,7 @@ import { enrichLedgerPaymentFromStripeCharge } from "@/lib/stripe-ledger-fees";
 import { verifyPlatformHoldSourceRefundHistory, type HeldSourceRow } from "@/lib/platform-hold-release.server";
 import { verifiedCapturedChargeAvailability } from "@/lib/platform-owner-recovery.server";
 import { releaseCreditedHoldAfterCommit } from "@/lib/platform-post-credit-release.server";
-import { creditManagedCapture, type ManagedCaptureComponent } from "@/lib/managed-finance/capture.server";
+import { creditManagedCapture, managedCaptureExistsForPaymentIntent, type ManagedCaptureComponent } from "@/lib/managed-finance/capture.server";
 import { resolveManagedForProperties } from "@/lib/managed-finance/resolve.server";
 
 type CapturedComponent = {
@@ -137,6 +137,9 @@ async function creditManagedIfApplicable(
   },
 ): Promise<boolean> {
   const paidAt = input.paid.map((p) => p.charge.paidAt || new Date().toISOString()).sort()[0]!;
+  // Already allocated on the party ledger: say so even if the policy has since ended, or a redelivery credits the
+  // manager's hold with money the owner has already been paid.
+  if (await managedCaptureExistsForPaymentIntent(db, input.pi.id)) return true;
   const managed = await resolveManagedForProperties(db, input.paid.map((p) => p.charge.propertyId), paidAt);
   if (!managed) return false;
   if (await findPlatformHoldByPaymentIntent(db, input.pi.id)) return false;

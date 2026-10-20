@@ -36,7 +36,7 @@ import {
 import { extractArea, extractTrade } from "@/lib/one-number/onboarding/vendor-intake";
 import { isAllowedPhoneAuthDestination } from "@/lib/phone-e164";
 import { rateLimit } from "@/lib/rate-limit";
-import { createHash } from "node:crypto";
+import { phoneKeyOf, phoneRateKey } from "@/lib/sms/phone-key";
 
 /**
  * Sign up by text, for every role (docs/agents/one-number.md § W26). One question per text; the person ends with a real
@@ -116,8 +116,6 @@ export type SignupDeps = {
   webLink?: (db: SupabaseClient, input: { role: SignupRole; phoneKey: string; vendorLeadId?: string }) => Promise<string | null>;
 };
 
-const phoneKeyOf = (e164: string): string => e164.replace(/\D/g, "").slice(-10);
-const hashOf = (value: string): string => createHash("sha256").update(value).digest("hex").slice(0, 32);
 
 const say = (text: string): SignupTurn => ({ handled: true, reply: toGsm7(text) });
 
@@ -253,7 +251,7 @@ async function startSignup(db: SupabaseClient, turn: Turn, deps: SignupDeps): Pr
   if (owners.length > 0) return existingAccountReply(db, turn.phone, owners, deps);
 
   // Starting costs us a text each time, so a phone and the whole line are rate limited.
-  const byPhone = await rateLimit(`sms-signup-start:${hashOf(turn.phone)}`, SIGNUP_STARTS_PER_PHONE_PER_HOUR, 60 * 60 * 1000);
+  const byPhone = await rateLimit(`sms-signup-start:${phoneRateKey(turn.phone)}`, SIGNUP_STARTS_PER_PHONE_PER_HOUR, 60 * 60 * 1000);
   const global = byPhone.ok ? await rateLimit("sms-signup-start-global", SIGNUP_STARTS_GLOBAL_PER_HOUR, 60 * 60 * 1000) : byPhone;
   if (!global.ok) return say(SIGNUP_COPY.busy);
 

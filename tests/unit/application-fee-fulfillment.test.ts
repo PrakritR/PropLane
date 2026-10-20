@@ -24,8 +24,12 @@ vi.mock("@/lib/platform-owner-recovery.server", () => ({
 }));
 const managedResolution = vi.hoisted(() => ({ value: null as unknown }));
 const creditManaged = vi.hoisted(() => vi.fn());
+const priorManagedJournal = vi.hoisted(() => vi.fn(async () => false));
 vi.mock("@/lib/managed-finance/resolve.server", () => ({ resolveManagedForProperties: async () => managedResolution.value }));
-vi.mock("@/lib/managed-finance/capture.server", () => ({ creditManagedCapture: creditManaged }));
+vi.mock("@/lib/managed-finance/capture.server", () => ({
+  creditManagedCapture: creditManaged,
+  managedCaptureExistsForPaymentIntent: priorManagedJournal,
+}));
 const recordSourceReview = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/household-source-review.server", () => ({
   recordHouseholdSourceReviewNeeded: recordSourceReview,

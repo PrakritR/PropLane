@@ -173,11 +173,15 @@ function dbFor(cart: Cart, rpc: { error?: { message: string } | null; holdId?: s
   return {
     calls,
     db: {
-      from() {
+      from(table: string) {
         const query: Record<string, unknown> = {};
         for (const method of ["select", "eq", "in", "order", "limit"]) query[method] = () => query;
         query.maybeSingle = async () => ({ data: null, error: null });
-        query.then = (resolve: (value: unknown) => unknown) => resolve({ data: rows, error: null });
+        // "Has this PaymentIntent already been allocated on the party ledger?", asked before the managed decision.
+        // These are hold-path carts: no journal, so the hold path runs.
+        const data = table === "party_ledger_journals" ? [] : rows;
+        query.limit = async () => ({ data, error: null });
+        query.then = (resolve: (value: unknown) => unknown) => resolve({ data, error: null });
         return query;
       },
       async rpc(_name: string, args: Record<string, unknown>) {

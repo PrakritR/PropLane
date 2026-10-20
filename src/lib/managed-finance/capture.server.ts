@@ -43,6 +43,32 @@ export type ManagedCaptureInput = {
 
 const CONFLICT_RETRIES = 4;
 
+/** The journal key one managed capture is idempotent on. */
+export function managedCaptureKey(paymentIntentId: string): string {
+  return `capture:${paymentIntentId}`;
+}
+
+/**
+ * Has this PaymentIntent already been allocated on the party ledger?
+ *
+ * The "managed or hold" deciders resolve the workspace's managed status at the moment the webhook runs, so a policy
+ * that ended between a first delivery and its retry would answer "not managed" and send the SAME money down the
+ * manager-hold path - paying the owner on the ledger AND crediting the manager's hold. The journal is the record of
+ * what was actually done, so it is asked first. Throws on a failed read: a decider that cannot tell must not credit
+ * a hold.
+ */
+export async function managedCaptureExistsForPaymentIntent(db: SupabaseClient, paymentIntentId: string): Promise<boolean> {
+  const pi = paymentIntentId.trim();
+  if (!pi) return false;
+  const { data, error } = await db
+    .from("party_ledger_journals")
+    .select("id")
+    .eq("idempotency_key", managedCaptureKey(pi))
+    .limit(1);
+  if (error) throw new LedgerError(500, "Could not read the payment allocation.");
+  return ((data ?? []) as unknown[]).length > 0;
+}
+
 type Totals = { cum_base: number | string; monthly_fee: number | string };
 
 export async function creditManagedCapture(
@@ -139,7 +165,7 @@ export async function creditManagedCapture(
     const { data, error } = await db.rpc("credit_managed_capture", {
       p_policy: policy.id,
       p_workspace: policy.workspaceId,
-      p_key: `capture:${input.paymentIntentId}`,
+      p_key: managedCaptureKey(input.paymentIntentId),
       p_pi: input.paymentIntentId,
       p_stripe_charge: input.stripeChargeId,
       p_month: monthKey,

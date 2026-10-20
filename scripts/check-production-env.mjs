@@ -55,6 +55,16 @@ const GROUPS = [
     impact: "paid-tier checkout cannot complete",
     vars: ["STRIPE_SECRET_KEY"],
   },
+  {
+    id: "public_sms_number",
+    label: "Homepage text button",
+    // In `per_workspace` (how production runs) the live read returns no public line, so this variable IS the
+    // homepage's number: unset, the green "Text (206) 678-1909" button degrades to a plain link to the contact form
+    // and the one call to action on the page is gone. docs/agents/one-number.md § The public number.
+    impact:
+      'the homepage hero loses its green "Text (206) 678-1909" button and falls back to a link to the contact form',
+    vars: ["PROPLANE_PUBLIC_SMS_NUMBER"],
+  },
 ];
 
 /** Present in the environment AND not blank. A blank is the bug this exists for. */

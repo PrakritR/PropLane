@@ -55,6 +55,15 @@ export function approvalText(input: { title: string; house: string; amountCents:
   return `${clean(input.title, 36)} at ${clean(input.house, 30)}, ${dollars}${vendor ? ` from ${vendor}` : ""}. Reply APPROVE or N`;
 }
 
+/** The `owner_expenses` columns the approval gate compares: what the owner actually said yes to. */
+type ExpenseGateRow = {
+  id: string;
+  status: string;
+  amount_cents: number;
+  vendor_party_id: string | null;
+  property_id: string | null;
+};
+
 export function vendorPartyFor(input: Pick<VendorBillInput, "vendorUserId" | "vendorDirectoryId">): string {
   if (input.vendorUserId?.trim()) return vendorParty(input.vendorUserId.trim());
   if (input.vendorDirectoryId?.trim()) return vendorDirectoryParty(input.vendorDirectoryId.trim());
@@ -106,18 +115,32 @@ export async function gateAndPostManagedVendorBill(
     const check = await resolveManagedForProperties(db, [input.propertyId], now.toISOString());
     if (!check || check.workspaceId !== policy.workspaceId) throw new LedgerError(409, "This house is not in that managed workspace.");
   }
-  vendorPartyFor(input);
+  const vendorParty = vendorPartyFor(input);
 
   const { data: existing, error: existingError } = await db
     .from("owner_expenses")
-    .select("id, status, amount_cents")
+    .select("id, status, amount_cents, vendor_party_id, property_id")
     .eq("source_type", input.sourceType)
     .eq("source_id", input.sourceId)
     .maybeSingle();
   if (existingError) throw new LedgerError(500, "Could not read the repair approval.");
-  let expense = existing as { id: string; status: string; amount_cents: number } | null;
-  if (expense && expense.amount_cents !== input.amountCents && expense.status !== "posted") {
-    // The amount changed after the owner was asked: that is a new question, not the old yes.
+  let expense = existing as ExpenseGateRow | null;
+  /**
+   * The owner said yes to a WHOLE question: this much, to this vendor, at this house. `source_id` is only its
+   * idempotency key - for `manual` it is `<workspace>:<chargeKey>` and the chargeKey comes from the manager's own
+   * request body - so a row may not be reused once any of those facts has moved, or the manager's second charge is
+   * posted to a different vendor's payable under the owner's old approval. (The title is descriptive: a reworded
+   * one is still the same money to the same person, and re-asking for it would nag the owner over a typo.)
+   */
+  const samePayee = (row: ExpenseGateRow): boolean =>
+    row.amount_cents === input.amountCents &&
+    str(row.vendor_party_id) === vendorParty &&
+    (str(row.property_id) || null) === (input.propertyId?.trim() || null);
+  if (expense && !samePayee(expense)) {
+    if (expense.status === "posted") {
+      throw new LedgerError(409, "That charge key was already used for a different charge. Use a new one.");
+    }
+    // A new question, not the old yes.
     await db.from("owner_expenses").delete().eq("id", expense.id).in("status", ["pending_owner", "declined", "auto_approved", "approved"]);
     expense = null;
   }
@@ -142,17 +165,17 @@ export async function gateAndPostManagedVendorBill(
       .from("owner_expenses")
       .insert({
         policy_id: policy.id, workspace_id: policy.workspaceId, property_id: input.propertyId, owner_user_id: policy.ownerUserId,
-        source_type: input.sourceType, source_id: input.sourceId, vendor_party_id: vendorPartyFor(input), title: input.title.slice(0, 120),
+        source_type: input.sourceType, source_id: input.sourceId, vendor_party_id: vendorParty, title: input.title.slice(0, 120),
         vendor_label: input.vendorLabel.slice(0, 120), amount_cents: input.amountCents, threshold_cents: policy.terms.repairApprovalThresholdCents,
         status: auto ? "auto_approved" : "pending_owner", decided_at: auto ? now.toISOString() : null, decided_via: auto ? "auto" : null,
       })
-      .select("id, status, amount_cents")
+      .select("id, status, amount_cents, vendor_party_id, property_id")
       .single();
     if (error || !data) {
       if (String(error?.code) === "23505") return gateAndPostManagedVendorBill(db, input, now, opts); // raced: re-read
       throw new LedgerError(500, "Could not record the repair approval.");
     }
-    expense = data as { id: string; status: string; amount_cents: number };
+    expense = data as ExpenseGateRow;
     if (!auto) await askOwnerToApprove(db, policy, input, expense.id, now);
   }
 

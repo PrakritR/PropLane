@@ -72,9 +72,11 @@ function world(): LeadFakeDb {
   return leadFakeDb(
     {
       sms_runtime_config: [{ singleton: true, line_mode: "shared", shared_number_e164: "+12065550100" }],
+      // PropLane-managed: the line's offers come from the `is_service` catalog alone, and a prospect pick is
+      // re-checked against the flag before the lead is handed over.
       portal_workspaces: [
-        { id: WS_A, name: "Brooklyn team", owner_user_id: OWNER_A, is_default: true },
-        { id: WS_B, name: "Seventeenth team", owner_user_id: OWNER_B, is_default: true },
+        { id: WS_A, name: "Brooklyn team", owner_user_id: OWNER_A, is_default: true, is_service: true },
+        { id: WS_B, name: "Seventeenth team", owner_user_id: OWNER_B, is_default: true, is_service: true },
       ],
       manager_property_records: [
         { id: "prop-uw-a", workspace_id: WS_A, manager_user_id: OWNER_A, status: "live", property_data: { buildingName: "Brooklyn House", address: "4000 15th Ave NE" } },

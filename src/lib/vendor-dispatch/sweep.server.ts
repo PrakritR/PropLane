@@ -42,6 +42,19 @@ async function guarded<T>(label: string, errors: string[], task: () => Promise<T
   }
 }
 
+/**
+ * One ITEM of a step, isolated. `guarded` wraps whole steps, which was not the promise this file makes: a single run
+ * whose approvers or attempts could not be read aborted the step at that run on every tick, and every run behind it
+ * lost its reminders, its escalation and its 72h expiry for good. Each loop body now fails alone.
+ */
+async function perItem(label: string, errors: string[], task: () => Promise<void>): Promise<void> {
+  try {
+    await task();
+  } catch (error) {
+    errors.push(`${label}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function sweepTimeouts(db: SupabaseClient, now: Date): Promise<number> {
   const { data, error } = await db
     .from("vendor_dispatch_attempts")
@@ -60,7 +73,7 @@ async function sweepTimeouts(db: SupabaseClient, now: Date): Promise<number> {
 }
 
 /** A vendor who declined in the PORTAL (not by text) moves the chain on too. */
-async function sweepPortalDeclines(db: SupabaseClient, now: Date): Promise<number> {
+async function sweepPortalDeclines(db: SupabaseClient, now: Date, errors: string[]): Promise<number> {
   const { data: runs, error } = await db
     .from("vendor_dispatch_runs")
     .select("id, owner_user_id, handle, source_id")
@@ -72,8 +85,9 @@ async function sweepPortalDeclines(db: SupabaseClient, now: Date): Promise<numbe
   }
   let moved = 0;
   for (const run of (runs ?? []) as Array<{ id: string; owner_user_id: string; handle: number; source_id: string }>) {
+    await perItem(`portal_declines:${run.id}`, errors, async () => {
     const attempts = (await loadAttempts(db, run.id)).filter((attempt) => attempt.status === "offered" && attempt.quote_status !== "pending");
-    if (attempts.length === 0) continue;
+    if (attempts.length === 0) return;
     const { data: offers } = await db
       .from("work_order_vendor_offers")
       .select("vendor_directory_id, status")
@@ -99,6 +113,7 @@ async function sweepPortalDeclines(db: SupabaseClient, now: Date): Promise<numbe
       await advanceRun(db, run.id, now);
       moved += 1;
     }
+    });
   }
   return moved;
 }
@@ -137,7 +152,7 @@ async function approvalText(db: SupabaseClient, run: DispatchRunRow): Promise<st
 }
 
 /** Resend, then escalate to the next teammate, per the urgency's schedule; expire what nobody ever answered. */
-async function sweepApprovals(db: SupabaseClient, now: Date): Promise<{ reminded: number; escalated: number; expired: number }> {
+async function sweepApprovals(db: SupabaseClient, now: Date, errors: string[]): Promise<{ reminded: number; escalated: number; expired: number }> {
   const { data, error } = await db.from("vendor_dispatch_runs").select("*").eq("status", "awaiting_approval");
   if (error) {
     if (isMissingRelationError(error)) return { reminded: 0, escalated: 0, expired: 0 };
@@ -147,6 +162,7 @@ async function sweepApprovals(db: SupabaseClient, now: Date): Promise<{ reminded
   let escalated = 0;
   let expired = 0;
   for (const run of (data ?? []) as DispatchRunRow[]) {
+    await perItem(`approvals:${run.id}`, errors, async () => {
     const age = minutes(now, run.created_at);
     const schedule = APPROVAL_REMINDER_MINUTES[run.urgency] ?? APPROVAL_REMINDER_MINUTES.routine;
     if (age >= STALE_APPROVAL_HOURS * 60) {
@@ -161,12 +177,12 @@ async function sweepApprovals(db: SupabaseClient, now: Date): Promise<{ reminded
         await recordDispatchEvent(db, { ownerUserId: run.owner_user_id, runId: run.id, handle: run.handle, event: "canceled", key: "expired", detail: { reason: "approval_expired" }, now });
         expired += 1;
       }
-      continue;
+      return;
     }
     // Nobody could be texted the first time (no verified phone, no credit): try again for a while.
     if ((run.approval_notified_user_ids ?? []).length === 0) {
       if (age < 180) await requestApproval(db, run, "first").catch(() => []);
-      continue;
+      return;
     }
     if (age >= schedule.escalate && !run.approval_escalated_at) {
       const reached = await notifyApprovers(db, run, { audience: "remaining", text: await approvalText(db, run), key: "escalate" });
@@ -179,12 +195,13 @@ async function sweepApprovals(db: SupabaseClient, now: Date): Promise<{ reminded
       await recordDispatchEvent(db, { ownerUserId: run.owner_user_id, runId: run.id, handle: run.handle, event: "approval_reminded", key: "1", detail: { recipients: reached.length }, now });
       reminded += 1;
     }
+    });
   }
   return { reminded, escalated, expired };
 }
 
 /** A vendor's held quote waits on the manager with the same resend schedule. */
-async function sweepQuoteHolds(db: SupabaseClient, now: Date): Promise<number> {
+async function sweepQuoteHolds(db: SupabaseClient, now: Date, errors: string[]): Promise<number> {
   const { data, error } = await db
     .from("vendor_dispatch_attempts")
     .select("*")
@@ -196,11 +213,12 @@ async function sweepQuoteHolds(db: SupabaseClient, now: Date): Promise<number> {
   }
   let reminded = 0;
   for (const attempt of (data ?? []) as DispatchAttemptRow[]) {
+    await perItem(`quote_holds:${attempt.id}`, errors, async () => {
     const { data: runRow } = await db.from("vendor_dispatch_runs").select("*").eq("id", attempt.run_id).maybeSingle();
     const run = runRow as DispatchRunRow | null;
-    if (!run || run.status !== "offering" || run.approval_reminded_at) continue;
+    if (!run || run.status !== "offering" || run.approval_reminded_at) return;
     const schedule = APPROVAL_REMINDER_MINUTES[run.urgency] ?? APPROVAL_REMINDER_MINUTES.routine;
-    if (minutes(now, attempt.responded_at) < schedule.resend) continue;
+    if (minutes(now, attempt.responded_at) < schedule.resend) return;
     const contacts = await loadVendorContacts(db, run.owner_user_id, [attempt.vendor_directory_id]);
     const { dispatchProposalId, withDispatchApprovalCode } = await import("@/lib/vendor-dispatch/approval-code.server");
     await notifyApprovers(db, run, {
@@ -223,6 +241,7 @@ async function sweepQuoteHolds(db: SupabaseClient, now: Date): Promise<number> {
     });
     await db.from("vendor_dispatch_runs").update({ approval_reminded_at: now.toISOString() }).eq("id", run.id);
     reminded += 1;
+    });
   }
   return reminded;
 }
@@ -232,7 +251,7 @@ export const JOB_REMINDER_LEAD_MINUTES = 60;
 /** Wide enough that a two-minute tick that runs late still catches it, narrow enough not to nag a far-off job. */
 const JOB_REMINDER_WINDOW_MINUTES = 75;
 
-async function sweepJobReminders(db: SupabaseClient, now: Date): Promise<number> {
+async function sweepJobReminders(db: SupabaseClient, now: Date, errors: string[]): Promise<number> {
   const horizon = new Date(now.getTime() + JOB_REMINDER_WINDOW_MINUTES * 60_000).toISOString();
   const { data, error } = await db
     .from("vendor_dispatch_runs")
@@ -247,12 +266,13 @@ async function sweepJobReminders(db: SupabaseClient, now: Date): Promise<number>
   }
   let reminded = 0;
   for (const run of (data ?? []) as DispatchRunRow[]) {
+    await perItem(`job_reminders:${run.id}`, errors, async () => {
     const when = run.scheduled_for ? new Date(run.scheduled_for) : null;
-    if (!when || !Number.isFinite(when.getTime()) || when.getTime() <= now.getTime() || !run.accepted_vendor_directory_id) continue;
+    if (!when || !Number.isFinite(when.getTime()) || when.getTime() <= now.getTime() || !run.accepted_vendor_directory_id) return;
     // A vendor who accepted minutes ago was just given the time and place: no second text for it.
-    if (minutes(now, run.accepted_at) < 30) continue;
+    if (minutes(now, run.accepted_at) < 30) return;
     const contact = (await loadVendorContacts(db, run.owner_user_id, [run.accepted_vendor_directory_id])).get(run.accepted_vendor_directory_id);
-    if (!contact?.phone) continue;
+    if (!contact?.phone) return;
     const where = toGsm7(String(run.details.houseLabel || run.details.area || "the house"));
     // The outbox key is the once-only guard: a later tick (or a second instance) re-sends nothing.
     const sent = await sendVendorDispatchText(db, {
@@ -265,9 +285,10 @@ async function sweepJobReminders(db: SupabaseClient, now: Date): Promise<number>
       text: `Reminder: #${run.handle} at ${where}, ${formatPacificShort(when, now)}. Reply DONE when finished`,
       idempotencyKey: `dispatch-job-reminder-${run.id}`,
     }).catch(() => ({ ok: false as const, reason: "send_failed" }));
-    if (!sent.ok) continue;
+    if (!sent.ok) return;
     await recordDispatchEvent(db, { ownerUserId: run.owner_user_id, runId: run.id, handle: run.handle, event: "vendor_reminded", channel: "system", now });
     reminded += 1;
+    });
   }
   return reminded;
 }
@@ -312,10 +333,10 @@ export type DispatchSweepSummary = {
 export async function sweepVendorDispatch(db: SupabaseClient, now: Date = new Date(), options: { turnovers?: boolean } = {}): Promise<DispatchSweepSummary> {
   const errors: string[] = [];
   const timedOut = await guarded("timeouts", errors, () => sweepTimeouts(db, now), 0);
-  const portalDeclines = await guarded("portal_declines", errors, () => sweepPortalDeclines(db, now), 0);
-  const approvals = await guarded("approvals", errors, () => sweepApprovals(db, now), { reminded: 0, escalated: 0, expired: 0 });
-  const quoteReminders = await guarded("quote_holds", errors, () => sweepQuoteHolds(db, now), 0);
-  const jobReminders = await guarded("job_reminders", errors, () => sweepJobReminders(db, now), 0);
+  const portalDeclines = await guarded("portal_declines", errors, () => sweepPortalDeclines(db, now, errors), 0);
+  const approvals = await guarded("approvals", errors, () => sweepApprovals(db, now, errors), { reminded: 0, escalated: 0, expired: 0 });
+  const quoteReminders = await guarded("quote_holds", errors, () => sweepQuoteHolds(db, now, errors), 0);
+  const jobReminders = await guarded("job_reminders", errors, () => sweepJobReminders(db, now, errors), 0);
   const turnovers =
     options.turnovers === false
       ? { created: 0, checked: 0 }

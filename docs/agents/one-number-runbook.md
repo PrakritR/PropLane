@@ -121,6 +121,9 @@ branch, and `db:push` applies it only once merged):
 | 20261020110100 | `sms_confirmation_failures_and_stay_request` | `sms_confirmation_failures` (a keyed hash of the phone, never the number: ten wrong codes in 24 hours pause the coded path for it) and `subject_kind` gains `stay_request` |
 | 20261020120000 | `sms_confirmation_phone_reserve` | that per-phone budget reserved atomically (count + insert under a per-phone advisory lock), so a burst of guesses cannot walk past it |
 | 20261020130000 | `manager_purchase_subscription_status` | `manager_purchases.subscription_status`: a `trialing` Checkout subscription is not a self-paid plan, so a card-on-file trial does not lift the managed view-only lock |
+| 20261020140000 | `manager_purchase_first_paid` | `manager_purchases.first_paid_at`: a Stripe subscription also needs a real paid invoice, so a trial that fails into `past_due` and a 100%-off promotion stay locked |
+| 20261020150000 | `managed_policy_activation_terms_guard` | `activate_managed_policy` re-checks the row's OWN live fee terms against the snapshot the owner signed (and refuses an owner signature on an unsent draft), so an admin edit landing between her page's load and her signature cannot activate terms she never saw |
+| 20261020150100 | `phone_otp_start_atomic` | `phone_otp_start`: the phone-code budget check, the retire of older codes and the insert in ONE transaction under a per-phone advisory lock, so two concurrent sends cannot both pass the 3-per-hour cap or leave two live codes behind |
 
 Check after the push (SQL editor, read-only):
 

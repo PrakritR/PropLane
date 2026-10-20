@@ -70,6 +70,31 @@ describe("release-ready-holds backstop", () => {
     const f = fakeOwnerDb({ platform_payment_holds: [] });
     expect(await releaseReadyPlatformHolds(f.db, stripeWith({}), { applyAccount: apply })).toMatchObject({ owners: 0, ready: 0 });
   });
+
+  // Review fix, Oct 20: a flat window of the OLDEST rows starved every other owner. One owner whose holds never
+  // release (a frozen unsigned service workspace, an account that will never be payouts-ready) sits permanently at
+  // the head, so once they hold more rows than the window nobody behind them is ever read - and an owner whose
+  // `account.updated` webhook was lost is never released. The read pages on `created_at` for DISTINCT owners.
+  it("reaches an owner behind thousands of a stuck owner's holds", async () => {
+    const stuck = Array.from({ length: 2_400 }, (_, i) => held("stuck", {
+      id: `h-stuck-${i}`,
+      created_at: `2026-01-01T00:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}Z`,
+    }));
+    const f = fakeOwnerDb({
+      platform_payment_holds: [...stuck, held("waiting", { id: "h-waiting", created_at: "2026-06-01T00:00:00Z" })],
+      profiles: [
+        { id: "stuck", stripe_connect_account_id: "acct_stuck" },
+        { id: "waiting", stripe_connect_account_id: "acct_waiting" },
+      ],
+    });
+    const stripe = stripeWith({
+      acct_stuck: { id: "acct_stuck", payouts_enabled: false, metadata: { axis_user_id: "stuck" } },
+      acct_waiting: { id: "acct_waiting", payouts_enabled: true, metadata: { axis_user_id: "waiting" } },
+    });
+    const result = await releaseReadyPlatformHolds(f.db, stripe, { applyAccount: apply });
+    expect(result).toMatchObject({ owners: 2, ready: 1, notReady: 1, errors: [] });
+    expect((apply.mock.calls[0] as unknown[])[1]).toMatchObject({ id: "acct_waiting" });
+  });
 });
 
 describe("the cron route", () => {

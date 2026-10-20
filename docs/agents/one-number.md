@@ -654,7 +654,13 @@ canonical public paths and of the temporary redirects from the retired URLs.
   (`src/lib/marketing/managed-service.ts`), the only operating numbers are `src/lib/marketing/track-record.ts`
   (a metric with an empty value is rendered nowhere), and `ManagedServiceForm` posts to the existing
   `/api/public/contact-message` — no new route and no new mail system.
-- Tests: `tests/unit/managed-service-marketing.test.tsx`.
+- **The homepage's number is `PROPLANE_PUBLIC_SMS_NUMBER` in production.** `readPublicTextingConfig` only returns a
+  public line in `shared` / `shadow` mode, so in `per_workspace` (how production runs) the hero's green
+  "Text (206) 678-1909" button comes from that variable alone - unset, `TextingHomeHero` degrades to a plain
+  "Text PropLane" link to `#contact` and the page loses its one call to action. It is checked by
+  `scripts/check-production-env.mjs` (group `public_sms_number`, surfaced by `npm run ship:preflight`), so a promote
+  gets told when it is empty; set it in every deployed environment.
+- Tests: `tests/unit/managed-service-marketing.test.tsx`, `tests/unit/public-texting-config.test.ts`.
 
 ## W12 - Role-detecting first conversation, sandbox DEMO, landlord and vendor setup by text
 

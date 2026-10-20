@@ -12,6 +12,7 @@ import {
 import { rateLimit } from "@/lib/rate-limit";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
 import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
+import { phoneRateKey } from "@/lib/sms/phone-key";
 
 /**
  * Phone-bound signed links: the one link service for every texted or public link (spec "Links
@@ -166,7 +167,7 @@ export async function mintPhoneBoundLink(
   if (owner.kind === "classified") throw new PhoneBoundLinkError("unavailable", "Links are unavailable for this workspace.");
 
   const limited = await rateLimit(
-    `phone-bound-mint:${createHash("sha256").update(phoneKey).digest("hex").slice(0, 32)}`,
+    `phone-bound-mint:${phoneRateKey(phoneKey)}`,
     PHONE_BOUND_MINTS_PER_PHONE_PER_HOUR,
     60 * 60 * 1000,
   );

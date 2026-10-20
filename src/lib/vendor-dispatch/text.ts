@@ -46,6 +46,33 @@ export function stripContactDetails(value: string): string {
     .trim();
 }
 
+/**
+ * Street addresses as free text writes them: a house number followed by a street name and a type word, with an
+ * optional directional either side ("5259 Brooklyn Ave NE", "42 S Alder St, Unit 2").
+ */
+const STREET_ADDRESS_PATTERN =
+  /\b\d{1,6}\s+(?:[NSEW]{1,2}\.?\s+)?(?:[A-Za-z0-9'.-]+\s+){0,3}(?:st|street|ave|avenue|av|rd|road|blvd|boulevard|dr|drive|ln|lane|way|ct|court|pl|place|ter|terrace|pkwy|parkway|hwy|highway|cir|circle|trl|trail)\b\.?(?:\s*,?\s*(?:[NSEW]{1,2})\b\.?)?(?:\s*,?\s*(?:apt|apartment|unit|ste|suite|rm|room|#)\s*[A-Za-z0-9-]+)?/gi;
+
+/** Strip anything that reads as a street address: an OFFERED vendor is told the general area and never the street. */
+export function stripStreetAddresses(value: string): string {
+  return String(value ?? "").replace(STREET_ADDRESS_PATTERN, "");
+}
+
+/**
+ * The one sanitizer for vendor-facing free text, whoever wrote it (a resident's title and description, a model's
+ * summary): no phone, no email, no street address. Every field that reaches a vendor's offer text or the
+ * vendor-portal board goes through this.
+ */
+export function sanitizeVendorFacingText(value: string): string {
+  return stripStreetAddresses(stripContactDetails(value))
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/([,;:-])\s*(?=[,;:.])/g, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^[\s,;:.*-]+/, "")
+    .replace(/[\s,;:-]+$/, "")
+    .trim();
+}
+
 export function firstNameOf(value: string | null | undefined): string {
   const first = String(value ?? "").trim().split(/\s+/)[0] ?? "";
   return first.replace(/[^A-Za-z'-]/g, "");

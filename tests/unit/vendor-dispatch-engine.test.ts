@@ -792,6 +792,38 @@ describe("the scheduler", () => {
     expect(summary.portalDeclines).toBe(1);
     expect(attemptsOf(db, run.id).map((a) => a.status)).toEqual(["declined", "offered", "queued"]);
   });
+
+  // Review fix, Oct 20. This file's header promises one failing run never blocks the others, but the guard wrapped
+  // whole STEPS: one run whose attempts or approvers could not be read threw out of `sweepApprovals` at that run,
+  // on every tick, so every run behind it lost its reminders, its escalation and its 72h expiry for good.
+  it("one unreadable run does not cost every run behind it its reminder", async () => {
+    sent.teammates.push("teammate-1");
+    const db = world();
+    const poisoned = await newRun(db);
+    const healthy = await newRun(db, { sourceId: "wo-2" });
+    const at = new Date(T0.getTime() + 6 * 60_000);
+    // The attempts of ONE run cannot be read. Ordinary rows, and every other table, are fine.
+    const flaky = {
+      ...db,
+      from: (table: string) =>
+        table === "vendor_dispatch_attempts"
+          ? ({
+              select: () => ({
+                eq: (_col: string, value: unknown) => {
+                  if (value === poisoned.id) throw new Error("attempts unreadable");
+                  return db.from(table).select("*").eq(_col, value);
+                },
+              }),
+            } as never)
+          : db.from(table),
+    } as never;
+    const summary = await sweepVendorDispatch(flaky, at, { turnovers: false });
+    // The healthy run was still reminded, and the failure is reported rather than swallowed.
+    expect(summary.reminded).toBe(1);
+    expect(summary.errors.some((e) => e.includes(poisoned.id))).toBe(true);
+    expect(runById(db, healthy.id).approval_reminded_at).toBeTruthy();
+    expect(runById(db, poisoned.id).approval_reminded_at ?? null).toBeNull();
+  });
 });
 
 describe("when a resident files a service", () => {

@@ -11,6 +11,7 @@ import type { SignupAnswers } from "@/lib/one-number/signup/state.server";
 import type { SignupRole } from "@/lib/one-number/signup/intent";
 import { tradeLabelFor } from "@/lib/one-number/vendor-jobs/intent";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
+import { phoneKeyOf } from "@/lib/sms/phone-key";
 
 /**
  * Create the account for a phone that PROVED itself (it texted back the code we texted it; see flow.server.ts). The
@@ -67,7 +68,7 @@ async function bindVerifiedPhone(db: Db, input: { phone: string; userId: string;
   // so one is written from that proof and removed again (it must not eat the phone's hourly send allowance).
   const challengeId = randomUUID();
   const browser = randomBytes(32).toString("base64url");
-  const phoneKey = input.phone.replace(/\D/g, "").slice(-10);
+  const phoneKey = phoneKeyOf(input.phone);
   const now = new Date();
   const inserted = await db.from("phone_otp_challenges").insert({
     id: challengeId,

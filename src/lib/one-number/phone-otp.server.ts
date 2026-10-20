@@ -1,9 +1,10 @@
 import "server-only";
 
-import { createHmac, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, randomInt, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingSchemaError } from "@/lib/one-number/config.server";
 import { SHARED_LINE_OTP_RULES } from "@/lib/one-number/contracts";
+import { safeEqualHex } from "@/lib/sms/phone-key";
 
 /**
  * One-time codes keyed on a PHONE (`phone_otp_challenges`), for a person who may have no account
@@ -76,12 +77,6 @@ export function generateOtpCode(): string {
   return String(randomInt(0, 10 ** SHARED_LINE_OTP_RULES.codeLength)).padStart(SHARED_LINE_OTP_RULES.codeLength, "0");
 }
 
-function safeEqualHex(a: string, b: string): boolean {
-  const left = Buffer.from(a, "utf8");
-  const right = Buffer.from(b, "utf8");
-  return left.length === right.length && timingSafeEqual(left, right);
-}
-
 /** Digits only, trimmed; anything that is not exactly six digits can never match. */
 export function normalizeOtpInput(raw: unknown): string | null {
   const digits = String(raw ?? "").replace(/\s+/g, "");
@@ -91,6 +86,95 @@ export function normalizeOtpInput(raw: unknown): string | null {
 /** Text of the code message. One GSM-7 segment, no emoji or long dashes. */
 export function otpMessageBody(code: string, contextLabel = "PropLane"): string {
   return `${code} is your ${contextLabel} code. It expires in ${SHARED_LINE_OTP_RULES.ttlMinutes} minutes. Do not share it.`;
+}
+
+/**
+ * PostgREST's "the function is not there" codes: the migration has not run on this database yet. A client that
+ * cannot make the call at all is folded in here, since the answer is the same - fall back to the old sequence.
+ */
+function isMissingFunctionError(error: { code?: string | null } | null | undefined): boolean {
+  const code = String(error?.code ?? "");
+  return code === "PGRST202" || code === "PGRST203" || code === "42883";
+}
+
+/**
+ * Claim this phone's hourly allowance and leave exactly one live challenge behind, in one statement.
+ *
+ * The budget check, the retire of older unconsumed codes and the insert are a check-then-act triple: run as three
+ * round trips, two concurrent sends both passed the cap, and two codes could be left live so the OLDER one verified
+ * after the newer was redeemed. `phone_otp_start` does all three under a per-phone advisory lock, exactly as
+ * `phone_auth_start` already did for the sign-in purposes. A database without that function yet keeps the old
+ * sequence rather than refusing every code.
+ */
+async function startChallenge(
+  db: SupabaseClient,
+  input: { challengeId: string; phoneKey: string; purpose: PhoneOtpPurpose; subjectId: string | null; codeHash: string; now: Date },
+): Promise<"ok" | "rate_limited" | "unavailable"> {
+  let called: { data: unknown; error: { code?: string | null } | null };
+  try {
+    called = (await db.rpc("phone_otp_start", {
+      p_id: input.challengeId,
+      p_phone_key: input.phoneKey,
+      p_purpose: input.purpose,
+      p_subject: input.subjectId,
+      p_code_hash: input.codeHash,
+      p_ttl_minutes: SHARED_LINE_OTP_RULES.ttlMinutes,
+      p_now: input.now.toISOString(),
+    })) as { data: unknown; error: { code?: string | null } | null };
+  } catch {
+    // A client that cannot make the call at all is the same situation as a database without the function.
+    called = { data: null, error: { code: "PGRST202" } };
+  }
+  if (!called.error) return called.data === true ? "ok" : "rate_limited";
+  if (!isMissingFunctionError(called.error)) return "unavailable";
+  return startChallengeLegacy(db, input);
+}
+
+/** The pre-migration sequence. Same caps, not atomic. */
+async function startChallengeLegacy(
+  db: SupabaseClient,
+  input: { challengeId: string; phoneKey: string; purpose: PhoneOtpPurpose; subjectId: string | null; codeHash: string; now: Date },
+): Promise<"ok" | "rate_limited" | "unavailable"> {
+  const { phoneKey, purpose, subjectId, now } = input;
+  // A phone that has burned this purpose's failed-code budget gets no more texts for it until the failures age out.
+  if (await phoneLockedOut(db, phoneKey, purpose, now)) return "rate_limited";
+
+  // Two budgets, both per rolling hour: this purpose's own allowance, and a higher ceiling for the phone across
+  // every purpose. Per purpose because the public-bind door takes an arbitrary phone from whoever holds a printed
+  // entry code, so its sends must not be able to spend what a rent link or a phone sign-in needs.
+  const since = new Date(now.getTime() - HOUR_MS).toISOString();
+  const { data: recent, error: recentError } = await db
+    .from("phone_otp_challenges")
+    .select("id, purpose")
+    .eq("phone_key", phoneKey)
+    .gte("created_at", since);
+  if (recentError) return "unavailable";
+  const sendsThisHour = (recent ?? []) as Array<{ purpose?: unknown }>;
+  if (sendsThisHour.length >= SHARED_LINE_OTP_RULES.maxSendsPerPhonePerHour) return "rate_limited";
+  const sendsForPurpose = sendsThisHour.filter((row) => row.purpose === purpose).length;
+  if (sendsForPurpose >= SHARED_LINE_OTP_RULES.maxSendsPerHour) return "rate_limited";
+
+  // Only the newest code for this phone + purpose + subject can work.
+  let retire = db
+    .from("phone_otp_challenges")
+    .update({ consumed_at: now.toISOString() })
+    .eq("phone_key", phoneKey)
+    .eq("purpose", purpose)
+    .is("consumed_at", null);
+  retire = subjectId === null ? retire.is("subject_id", null) : retire.eq("subject_id", subjectId);
+  await retire;
+
+  const { error: insertError } = await db.from("phone_otp_challenges").insert({
+    id: input.challengeId,
+    phone_key: phoneKey,
+    purpose,
+    subject_id: subjectId,
+    code_hash: input.codeHash,
+    attempts: 0,
+    created_at: now.toISOString(),
+    expires_at: new Date(now.getTime() + SHARED_LINE_OTP_RULES.ttlMinutes * 60 * 1000).toISOString(),
+  });
+  return insertError ? "unavailable" : "ok";
 }
 
 /**
@@ -113,47 +197,17 @@ export async function requestPhoneOtp(
   const phoneKey = input.phoneKey.trim();
   if (!/^\d{10}$/.test(phoneKey)) return { ok: false, reason: "unavailable" };
 
-  // A phone that has burned this purpose's failed-code budget gets no more texts for it until the failures age out.
-  if (await phoneLockedOut(db, phoneKey, input.purpose, now)) return { ok: false, reason: "rate_limited" };
-
-  // Two budgets, both per rolling hour: this purpose's own allowance, and a higher ceiling for the phone across
-  // every purpose. Per purpose because the public-bind door takes an arbitrary phone from whoever holds a printed
-  // entry code, so its sends must not be able to spend what a rent link or a phone sign-in needs.
-  const since = new Date(now.getTime() - HOUR_MS).toISOString();
-  const { data: recent, error: recentError } = await db
-    .from("phone_otp_challenges")
-    .select("id, purpose")
-    .eq("phone_key", phoneKey)
-    .gte("created_at", since);
-  if (recentError) return { ok: false, reason: "unavailable" };
-  const sendsThisHour = (recent ?? []) as Array<{ purpose?: unknown }>;
-  if (sendsThisHour.length >= SHARED_LINE_OTP_RULES.maxSendsPerPhonePerHour) return { ok: false, reason: "rate_limited" };
-  const sendsForPurpose = sendsThisHour.filter((row) => row.purpose === input.purpose).length;
-  if (sendsForPurpose >= SHARED_LINE_OTP_RULES.maxSendsPerHour) return { ok: false, reason: "rate_limited" };
-
-  // Only the newest code for this phone + purpose + subject can work.
-  let retire = db
-    .from("phone_otp_challenges")
-    .update({ consumed_at: now.toISOString() })
-    .eq("phone_key", phoneKey)
-    .eq("purpose", input.purpose)
-    .is("consumed_at", null);
-  retire = input.subjectId === null ? retire.is("subject_id", null) : retire.eq("subject_id", input.subjectId);
-  await retire;
-
   const challengeId = randomUUID();
   const code = generateOtpCode();
-  const { error: insertError } = await db.from("phone_otp_challenges").insert({
-    id: challengeId,
-    phone_key: phoneKey,
+  const started = await startChallenge(db, {
+    challengeId,
+    phoneKey,
     purpose: input.purpose,
-    subject_id: input.subjectId,
-    code_hash: hashOtpCode(challengeId, phoneKey, code),
-    attempts: 0,
-    created_at: now.toISOString(),
-    expires_at: new Date(now.getTime() + SHARED_LINE_OTP_RULES.ttlMinutes * 60 * 1000).toISOString(),
+    subjectId: input.subjectId,
+    codeHash: hashOtpCode(challengeId, phoneKey, code),
+    now,
   });
-  if (insertError) return { ok: false, reason: "unavailable" };
+  if (started !== "ok") return { ok: false, reason: started };
 
   let sent = false;
   try {
@@ -195,11 +249,8 @@ export async function verifyPhoneOtp(
     .limit(1);
   query = input.subjectId === null ? query.is("subject_id", null) : query.eq("subject_id", input.subjectId);
   const { data, error } = await query.maybeSingle();
-  if (error) {
-    if (isMissingSchemaError(error)) return { ok: false, reason: "no_challenge" };
-    return { ok: false, reason: "no_challenge" };
-  }
-  if (!data) return { ok: false, reason: "no_challenge" };
+  // A failed read and a missing table both mean there is no challenge to check: nothing can be verified either way.
+  if (error || !data) return { ok: false, reason: "no_challenge" };
   const row = data as Record<string, unknown>;
   const id = String(row.id);
   const attempts = Number(row.attempts) || 0;

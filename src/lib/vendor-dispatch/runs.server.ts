@@ -16,7 +16,7 @@ import {
 import { isMissingRelationError, loadTradeRoster, matchDispatchRule, reachableVendorDirectoryIds } from "@/lib/vendor-dispatch/match.server";
 import { serviceOwnerForWorkspace } from "@/lib/vendor-dispatch/service-roster.server";
 import { sendVendorDispatchText } from "@/lib/vendor-dispatch/send.server";
-import { composeVendorOfferText, stripContactDetails, toGsm7, type DispatchJobDetails } from "@/lib/vendor-dispatch/text";
+import { composeVendorOfferText, sanitizeVendorFacingText, toGsm7, type DispatchJobDetails } from "@/lib/vendor-dispatch/text";
 import {
   DEFAULT_OFFER_TIMEOUT_MINUTES,
   NEVER_AUTO_DISPATCH_ISSUES,
@@ -148,11 +148,12 @@ export async function createDispatchRun(db: SupabaseClient, input: CreateDispatc
   const issueDef = issueDefinition(input.trade, issue);
   const details: DispatchJobDetails & Record<string, unknown> = {
     ...input.details,
-    what: input.details.what || issueDef?.label || trade.label,
+    // Resident- or model-authored free text: an offered vendor reads the general area, never a street or a contact detail.
+    what: sanitizeVendorFacingText(input.details.what ?? "") || issueDef?.label || trade.label,
     houseLabel: input.details.houseLabel || house?.label || "",
     address: input.details.address || house?.address || "",
     area: input.details.area || house?.area || "",
-    summary: input.details.summary ? stripContactDetails(input.details.summary).slice(0, 300) : undefined,
+    summary: input.details.summary ? sanitizeVendorFacingText(input.details.summary).slice(0, 300) : undefined,
     payModel: rule?.pay_model ?? trade.defaultPayModel,
     broadcastSize: rule?.broadcast_size ?? 3,
     ruleName: rule?.name ?? null,

@@ -57,6 +57,14 @@ export type SharedLineCandidate = {
   /** Human label for a disambiguation question, e.g. "5259 Brooklyn". Never a person's name. */
   label: string;
   /**
+   * The same house as a VENDOR may be TOLD it: the general area ("Capitol Hill", "Seattle"), never the street.
+   * A vendor candidate exists while a job is only OFFERED, and an offered vendor gets the general area only
+   * (`docs/agents/services-system.md`), so everything we SEND a vendor - the disambiguation question, the
+   * dedicated-number redirect - renders this. `label` stays the house, so a vendor who names the street they are
+   * standing on still routes. Empty when no area can be told: the caller then names the workspace.
+   */
+  generalArea?: string;
+  /**
    * A vendor candidate only: what this workspace is waiting on from the phone right now. `offer` = a dispatch
    * offer out to them (a bare YES / NO is the answer), `accepted` = a job they took that is open (a bare DONE).
    * A live one outranks the sticky thread; absent or empty = nothing is waiting.

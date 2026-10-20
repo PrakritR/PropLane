@@ -534,14 +534,20 @@ export async function POST(req: Request) {
     // chat and her own Assistant thread. Resolved from the session + cookie, never from the body.
     // Runs for every action except a resident / vendor scoped write: delete / deleteIds name no scope.
     // An OWNER of a locked service workspace is locked account-wide (the cookie never lifts it).
-    if (managedReadOnlyInboxLockApplies(body.action, scopeKey, MANAGER_INBOX_SCOPE) && ctx.user.role !== "admin") {
+    if (managedReadOnlyInboxLockApplies(body.action, scopeKey, MANAGER_INBOX_SCOPE)) {
       const { resolveActiveWorkspaceFromRequest } = await import("@/lib/workspaces/active.server");
       const active = await resolveActiveWorkspaceFromRequest(ctx.db, ctx.user.id);
       let locked = true;
       try {
+        // Staff go past this lock by the lock's OWN rule (`profile_roles` + the platform service owner), never by
+        // `ctx.user.role`, which folds in the legacy singular `profiles.role` and the user-writable
+        // `user_metadata.role` - exactly the evidence `managed-read-only.server.ts` refuses to trust. This route is
+        // on the middleware allowlist, so it is the only gate.
+        const { managedReadOnlyStaffExempt } = await import("@/lib/auth/managed-read-only.server");
         locked =
-          (await managedReadOnlyOwnerLocked(ctx.db, ctx.user.id)) ||
-          (await isManagedReadOnly(ctx.db, ctx.user.id, active.id));
+          !(await managedReadOnlyStaffExempt(ctx.db, ctx.user.id)) &&
+          ((await managedReadOnlyOwnerLocked(ctx.db, ctx.user.id)) ||
+            (await isManagedReadOnly(ctx.db, ctx.user.id, active.id)));
       } catch {
         /* fail closed */
       }

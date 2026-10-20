@@ -13,6 +13,7 @@ import { normalizeE164 } from "@/lib/phone-e164";
 import { resolveSeattlePlace } from "@/lib/places/seattle-places";
 import { profilePhoneVariants } from "@/lib/sms-consent";
 import { parseNameFromInboundText } from "@/lib/sms/inbound-text-classification";
+import { phoneKeyOf } from "@/lib/sms/phone-key";
 import { buildVendorLineContext } from "@/lib/tools/vendor-line-context";
 import { listOpenJobsNearTool } from "@/lib/tools/domains/vendor-line";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
@@ -53,9 +54,7 @@ type LeadProfile = {
   [key: string]: unknown;
 };
 
-export function phoneKeyOf(e164: string): string {
-  return e164.replace(/\D/g, "").slice(-10);
-}
+export { phoneKeyOf };
 
 /** The vendor account whose VERIFIED phone this is (one owner only), or null. Never a roster row, never the text. */
 export async function resolveVendorAccountByPhone(db: SupabaseClient, phoneE164: string): Promise<{ userId: string } | null> {

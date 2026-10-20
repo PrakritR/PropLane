@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
-import { readPlatformServiceOwnerId, readPlatformServiceOwnerIdOrThrow } from "@/lib/service/service-catalog.server";
+import { readPlatformServiceOwnerIdOrThrow } from "@/lib/service/service-catalog.server";
 import { createTtlCache, serverSnapshotCacheEnabled, type TtlCache } from "@/lib/server-ttl-cache";
 import { toChain, vendorTradeIds, type VendorRecord } from "@/lib/vendor-dispatch/match.server";
 import { vendorDispatchRoles } from "@/lib/vendor-dispatch/vendor-roles";
@@ -37,6 +37,12 @@ async function snapshot<T>(cache: TtlCache<T>, key: string, load: () => Promise<
   return serverSnapshotCacheEnabled() ? cache.get(key, load) : load();
 }
 
+/** Tests only: drop both snapshots so one case's warm answer is not another's. */
+export function resetServiceRosterCaches(): void {
+  serviceOwnerCache.clear();
+  rosterTradeCache.clear();
+}
+
 /** The service owner's id when `workspaceId` is a PropLane Service workspace; null for every other workspace or any failed read. */
 export async function serviceOwnerForWorkspace(db: SupabaseClient, workspaceId: string | null | undefined): Promise<string | null> {
   const id = workspaceId?.trim();
@@ -47,7 +53,9 @@ export async function serviceOwnerForWorkspace(db: SupabaseClient, workspaceId: 
       const { data, error } = await db.from("portal_workspaces").select("is_service").eq("id", id).maybeSingle();
       if (error) throw new Error(error.message || "workspace read failed");
       if ((data as { is_service?: unknown } | null)?.is_service !== true) return null;
-      return await readPlatformServiceOwnerId(db);
+      // The OrThrow read: `readPlatformServiceOwnerId` folds its own failure into null, and a null cached for 30s
+      // reads as "not a service workspace" - which hands the approval back to the view-only client.
+      return await readPlatformServiceOwnerIdOrThrow(db);
     });
   } catch {
     return null;
@@ -171,7 +179,7 @@ export async function rosterSenderFor(
     if (error || !data) return null;
     const record = data as { manager_user_id?: string | null; row_data?: RosterRowData | null };
     if (record.row_data?.serviceRoster !== true || !record.manager_user_id) return null;
-    const ownerId = await readPlatformServiceOwnerId(db);
+    const ownerId = await readPlatformServiceOwnerIdOrThrow(db);
     return ownerId && ownerId === record.manager_user_id ? { serviceOwnerId: ownerId } : null;
   } catch {
     return null;

@@ -19,6 +19,9 @@ export type ReleaseReadyHoldsResult = {
 };
 
 const OWNER_PAGE = 200;
+/** Rows read per page while collecting distinct owners, and how many pages one run will walk. */
+const ROW_PAGE = 1_000;
+const MAX_ROW_PAGES = 20;
 
 /**
  * Backstop for a lost or never-delivered `account.updated` webhook (the Connect endpoint's secret was missing, or the endpoint
@@ -33,19 +36,37 @@ export async function releaseReadyPlatformHolds(
   deps: ReleaseReadyHoldsDeps = {},
 ): Promise<ReleaseReadyHoldsResult> {
   const apply = deps.applyAccount ?? handleStripeAccountUpdated;
-  const { data, error } = await db
-    .from("platform_payment_holds")
-    .select("owner_user_id, created_at")
-    .eq("status", "classified_held")
-    .not("source_verified_at", "is", null)
-    .not("owner_user_id", "is", null)
-    .order("created_at", { ascending: true })
-    .limit(OWNER_PAGE * 5);
-  if (error) throw new Error("Could not load held platform money.");
+  // DISTINCT OWNERS, paged on `created_at`. A flat window of the oldest rows starved every other owner once one of
+  // them - a frozen unsigned service workspace, an owner with no payouts-ready account - held more rows than the
+  // window: their holds never release, sit permanently at the head, and nobody behind them is ever read.
   const owners: string[] = [];
-  for (const row of (data ?? []) as Array<{ owner_user_id: string | null }>) {
-    const id = String(row.owner_user_id ?? "").trim();
-    if (id && !owners.includes(id)) owners.push(id);
+  const seen = new Set<string>();
+  let cursor: string | null = null;
+  let more = true;
+  for (let page = 0; page < MAX_ROW_PAGES && more && owners.length < OWNER_PAGE + 1; page += 1) {
+    let query = db
+      .from("platform_payment_holds")
+      .select("owner_user_id, created_at")
+      .eq("status", "classified_held")
+      .not("source_verified_at", "is", null)
+      .not("owner_user_id", "is", null)
+      .order("created_at", { ascending: true })
+      .limit(ROW_PAGE);
+    if (cursor) query = query.gt("created_at", cursor);
+    const { data, error } = await query;
+    if (error) throw new Error("Could not load held platform money.");
+    const rows = (data ?? []) as Array<{ owner_user_id: string | null; created_at: string | null }>;
+    for (const row of rows) {
+      const id = String(row.owner_user_id ?? "").trim();
+      if (id && !seen.has(id)) {
+        seen.add(id);
+        owners.push(id);
+      }
+    }
+    const last = rows[rows.length - 1]?.created_at ?? null;
+    // No page advance possible (every row shares one `created_at`): stop rather than re-read the same page.
+    more = rows.length === ROW_PAGE && Boolean(last) && last !== cursor;
+    cursor = last ?? cursor;
   }
   const result: ReleaseReadyHoldsResult = { owners: 0, ready: 0, notReady: 0, errors: [], truncated: owners.length > OWNER_PAGE };
   const batch = owners.slice(0, OWNER_PAGE);

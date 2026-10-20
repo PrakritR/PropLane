@@ -149,20 +149,30 @@ export function resolvePendingAnswer(
   return fresh.find((c) => candidateKey(c) === candidateKey(chosen!)) ?? null;
 }
 
-function phraseFor(candidate: SharedLineCandidate): string {
-  return candidate.role === "vendor" ? `your job at ${candidate.label}` : candidate.label;
+/**
+ * What this candidate may be CALLED in a text to this phone. A vendor reads the general area, never the street: the
+ * candidate exists while the job is only offered. `label` stays the house for matching, so naming the street still
+ * routes - it is only what we say back that is narrowed.
+ */
+export function spokenLabelFor(candidate: SharedLineCandidate): string {
+  return candidate.role === "vendor" ? candidate.generalArea || candidate.label : candidate.label;
 }
 
-/** "Is this about 5259 Brooklyn or your job at 8th Ave?" Labels are houses or workspaces, never people. */
+function phraseFor(candidate: SharedLineCandidate): string {
+  return candidate.role === "vendor" ? `your job at ${spokenLabelFor(candidate)}` : candidate.label;
+}
+
+/** "Is this about 5259 Brooklyn or your job at Capitol Hill?" Labels are houses, areas or workspaces, never people. */
 export function buildDisambiguationQuestion(candidates: SharedLineCandidate[]): string {
   const duplicate = new Set(
-    candidates.map((c) => c.label).filter((label, i, all) => all.indexOf(label) !== i),
+    candidates.map((c) => spokenLabelFor(c)).filter((label, i, all) => all.indexOf(label) !== i),
   );
   const labels = candidates.map((c) => {
-    if (!duplicate.has(c.label)) return phraseFor(c);
-    if (c.role === "vendor") return `a job at ${c.label}`;
-    if (c.role === "manager") return `the ${c.label} team`;
-    return `your room at ${c.label}`;
+    const spoken = spokenLabelFor(c);
+    if (!duplicate.has(spoken)) return phraseFor(c);
+    if (c.role === "vendor") return `a job at ${spoken}`;
+    if (c.role === "manager") return `the ${spoken} team`;
+    return `your room at ${spoken}`;
   });
   const head = labels.slice(0, -1).join(", ");
   return `Is this about ${head} or ${labels[labels.length - 1]}?`;

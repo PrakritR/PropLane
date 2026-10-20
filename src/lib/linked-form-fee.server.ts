@@ -23,7 +23,7 @@ import {
 } from "@/lib/stripe-axis-ach-checkout";
 import { resolveConnectDestinationIfReady } from "@/lib/stripe-connect";
 import { platformCaptureRequiredForProperty } from "@/lib/managed-finance/unpolicied-service.server";
-import { creditManagedCapture } from "@/lib/managed-finance/capture.server";
+import { creditManagedCapture, managedCaptureExistsForPaymentIntent } from "@/lib/managed-finance/capture.server";
 import { resolveManagedForProperties } from "@/lib/managed-finance/resolve.server";
 
 /**
@@ -321,10 +321,13 @@ export async function creditManagedLinkedFormFee(
   // Connect account never reaches the platform balance, so it can never be allocated on the platform ledger.
   if (meta.platform_capture === "0") return false;
   const paidAt = new Date().toISOString();
-  const managed = await resolveManagedForProperties(db, [propertyId], paidAt);
-  if (!managed) return false;
   const piId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? "";
   if (!piId) throw new Error("Paid linked-form fee has no PaymentIntent.");
+  // What was already DONE beats what the policy says now: a redelivery after the policy ended would otherwise read
+  // "not managed" and credit the manager's hold on top of the owner's ledger allocation.
+  if (await managedCaptureExistsForPaymentIntent(db, piId)) return true;
+  const managed = await resolveManagedForProperties(db, [propertyId], paidAt);
+  if (!managed) return false;
   if (await findPlatformHoldByPaymentIntent(db, piId)) return false; // already credited as a hold: stays a hold
   const pi = await stripe.paymentIntents.retrieve(piId);
   // Belt and braces for a session created before the metadata existed: the provider object itself says where the

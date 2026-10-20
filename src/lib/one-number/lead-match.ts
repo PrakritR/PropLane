@@ -231,7 +231,10 @@ export function parseOfferPick(text: string, offers: readonly LeadOffer[]): Offe
   if (offers.length === 0 || !t) return { kind: "none" };
   if (DECLINE.test(t)) return { kind: "decline" };
 
-  const numbered = t.match(/^(?:#|option\s*|number\s*|no\.?\s*|the\s+)?(\d)\b/i);
+  // A leading digit alone is NOT a pick: "2 people" and "1 bed" are answers to the qualifying questions, and a pick
+  // claims the lead for one workspace for good. It takes a marker ("#2", "option 2", "the 2") or a digit-only message.
+  const numbered =
+    t.match(/^(?:#\s*|option\s*|number\s*|no\.?\s*|the\s+)(\d)\b/i) ?? t.match(/^(\d)\s*[.!]*$/);
   if (numbered) {
     const hit = offers.find((o) => o.n === Number(numbered[1]));
     if (hit) return { kind: "pick", offer: hit };

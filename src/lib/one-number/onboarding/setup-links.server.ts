@@ -6,7 +6,7 @@ import { isMissingSchemaError } from "@/lib/one-number/config.server";
 import { generatePhoneBoundToken, hashPhoneBoundToken } from "@/lib/one-number/links.server";
 import type { HouseHints } from "@/lib/one-number/onboarding/role-detect";
 import { rateLimit } from "@/lib/rate-limit";
-import { createHash } from "node:crypto";
+import { phoneRateKey } from "@/lib/sms/phone-key";
 
 /**
  * "Finish setup" links texted after the demo (a landlord) or the vendor intake (a vendor). Like a
@@ -80,7 +80,7 @@ export async function mintSetupLink(
   const now = input.now ?? new Date();
   if (input.phoneKey) {
     const limited = await rateLimit(
-      `setup-link-mint:${createHash("sha256").update(input.phoneKey).digest("hex").slice(0, 32)}`,
+      `setup-link-mint:${phoneRateKey(input.phoneKey)}`,
       SETUP_LINKS_PER_PHONE_PER_HOUR,
       60 * 60 * 1000,
     );

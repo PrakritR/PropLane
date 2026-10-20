@@ -11,6 +11,7 @@ import {
 import { normalizeE164 } from "@/lib/phone-e164";
 import { applicationBucket, applicationRowLinksResident, isApprovedApplicationRow } from "@/lib/resident-manager-scope";
 import { normalizeConsentPhone, profilePhoneVariants } from "@/lib/sms-consent";
+import { workOrderGeneralArea } from "@/lib/work-order-vendor-privacy";
 import { listResidentBindingManagerIds } from "@/lib/auth/resident-workspace-binding";
 
 /**
@@ -23,7 +24,7 @@ import { listResidentBindingManagerIds } from "@/lib/auth/resident-workspace-bin
 
 type Row = Record<string, unknown>;
 type WorkspaceInfo = { id: string; name: string; ownerUserId: string };
-type PropertyInfo = { id: string; workspaceId: string | null; managerUserId: string | null; label: string };
+type PropertyInfo = { id: string; workspaceId: string | null; managerUserId: string | null; label: string; generalArea: string };
 
 const str = (value: unknown): string => (typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim());
 
@@ -42,6 +43,18 @@ async function rows(
 export function propertyLabel(rowData: unknown): string {
   const data = rowData && typeof rowData === "object" ? (rowData as Record<string, unknown>) : {};
   return str(data.buildingName) || str(data.address);
+}
+
+/**
+ * The house as a VENDOR may be told it: the general area (neighborhood or city), never the street.
+ * A vendor candidate exists while a job is only OFFERED, so the disambiguation question and the
+ * dedicated-number redirect must not name the address (docs/agents/services-system.md).
+ */
+export function propertyGeneralArea(rowData: unknown): string {
+  const data = rowData && typeof rowData === "object" ? (rowData as Record<string, unknown>) : {};
+  const area = workOrderGeneralArea({ propertyAddress: str(data.address), propertyName: str(data.buildingName) });
+  // "Nearby" is the helper's "I cannot tell": the caller then names the workspace instead of a placeholder.
+  return area === "Nearby" ? "" : area;
 }
 
 async function loadWorkspaceInfo(db: SupabaseClient, workspaceIds: string[]): Promise<Map<string, WorkspaceInfo>> {
@@ -79,6 +92,7 @@ async function loadProperties(db: SupabaseClient, propertyIds: string[]): Promis
         workspaceId: str(r.workspace_id) || null,
         managerUserId: str(r.manager_user_id) || null,
         label: propertyLabel(r.row_data),
+        generalArea: propertyGeneralArea(r.row_data),
       },
     ] as const),
   );
@@ -106,6 +120,7 @@ async function candidatesForPlacements(
     db,
     placements.map((p) => props.get(p.propertyId)?.workspaceId ?? "").filter(Boolean),
   );
+  const role = ROLE_FOR_ROUTING_REASON[reason];
   const out = new Map<string, SharedLineCandidate>();
   for (const placement of placements) {
     const prop = props.get(placement.propertyId);
@@ -120,10 +135,11 @@ async function candidatesForPlacements(
     out.set(workspace.id, {
       workspaceId: workspace.id,
       ownerUserId: workspace.ownerUserId,
-      role: ROLE_FOR_ROUTING_REASON[reason],
+      role,
       reason,
       propertyId: prop?.id ?? null,
       label: prop?.label || workspace.name || "your property team",
+      ...(prop?.generalArea ? { generalArea: prop.generalArea } : {}),
       ...(placement.live ? { liveDispatch: [placement.live] } : {}),
     });
   }
@@ -317,31 +333,42 @@ export async function findVendorJobCandidates(db: SupabaseClient, phone: string)
   return candidatesForPlacements(db, placements, "vendor_job");
 }
 
-/** Step 4. An open application (not approved, rejected or withdrawn) that carries the sender's phone or verified email. */
+/**
+ * Step 4. An open application (not approved, rejected or withdrawn) belonging to this phone's VERIFIED account.
+ *
+ * `row_data->>phone` is whatever the applicant typed, so anyone could file an application naming someone else's
+ * number and attach a candidate workspace to that person's texts - and the disambiguation question is sent from
+ * (and billed to) the first candidate's workspace. So the phone must first resolve to one verified PropLane
+ * account, exactly as the resident, team and member lookups require, and a row matched by its typed phone counts
+ * only when it also carries that account's own email.
+ */
 export async function findApplicantCandidates(db: SupabaseClient, phone: string): Promise<SharedLineCandidate[]> {
+  const profile = await findVerifiedProfileByPhone(db, phone);
+  if (!profile?.email) return [];
   const variants = profilePhoneVariants(phone);
   const byPhone = variants.length
     ? await rows(
         db
           .from("manager_application_records")
-          .select("manager_user_id, property_id, assigned_property_id, row_data, updated_at")
+          .select("manager_user_id, property_id, assigned_property_id, resident_email, row_data, updated_at")
           .in("row_data->>phone", variants)
           .order("updated_at", { ascending: false })
           .limit(25),
       )
     : [];
-  const profile = await findVerifiedProfileByPhone(db, phone);
-  const byEmail = profile?.email
-    ? await rows(
-        db
-          .from("manager_application_records")
-          .select("manager_user_id, property_id, assigned_property_id, row_data, updated_at")
-          .eq("resident_email", profile.email)
-          .order("updated_at", { ascending: false })
-          .limit(25),
-      )
-    : [];
-  const open = [...byPhone, ...byEmail].filter((a) => {
+  const ownsRow = (row: Row): boolean => {
+    const data = (row.row_data && typeof row.row_data === "object" ? row.row_data : {}) as Record<string, unknown>;
+    return str(row.resident_email).toLowerCase() === profile.email || str(data.email).toLowerCase() === profile.email;
+  };
+  const byEmail = await rows(
+    db
+      .from("manager_application_records")
+      .select("manager_user_id, property_id, assigned_property_id, resident_email, row_data, updated_at")
+      .eq("resident_email", profile.email)
+      .order("updated_at", { ascending: false })
+      .limit(25),
+  );
+  const open = [...byPhone.filter(ownsRow), ...byEmail].filter((a) => {
     if (!applicationRowLinksResident(a.row_data)) return false;
     return applicationBucket(a.row_data) !== "approved";
   });

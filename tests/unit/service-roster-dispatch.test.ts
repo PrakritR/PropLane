@@ -84,7 +84,7 @@ vi.mock("@/lib/communication/manager-assistant-workspace.server", () => ({ userD
 import { createDispatchRun, approveDispatchRun, retryDispatchRun } from "@/lib/vendor-dispatch/runs.server";
 import { codedAnswerLine, dispatchProposalId } from "@/lib/vendor-dispatch/approval-code.server";
 import { reachableVendorDirectoryIds, workspaceHasMatchingRule } from "@/lib/vendor-dispatch/match.server";
-import { serviceOwnerForWorkspace } from "@/lib/vendor-dispatch/service-roster.server";
+import { resetServiceRosterCaches, serviceOwnerForWorkspace } from "@/lib/vendor-dispatch/service-roster.server";
 import { handleManagerDispatchReply, handleVendorDispatchReply, hasLiveVendorDispatchAnswer } from "@/lib/vendor-dispatch/inbound.server";
 import { canActorApprove, exhaustRun, resolveApprovers } from "@/lib/vendor-dispatch/engine.server";
 import { sweepVendorDispatch } from "@/lib/vendor-dispatch/sweep.server";
@@ -174,6 +174,8 @@ const attemptVendors = (db: Db, runId: string) =>
   (db.__tables.vendor_dispatch_attempts ?? []).filter((a) => a.run_id === runId).sort((a, b) => Number(a.position) - Number(b.position)).map((a) => String(a.vendor_directory_id));
 
 beforeEach(() => {
+  // Both roster snapshots are per-instance, so one case's warm answer must not be another's.
+  resetServiceRosterCaches();
   // The PropLane line's confirmation code needs a signing key; with none it fails closed (no code, no approval).
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
   sent.vendor.length = 0;
@@ -230,6 +232,70 @@ describe("who a service workspace's job is offered to", () => {
     expect(await workspaceHasMatchingRule(db as never, { ...input, trade: "plumber" })).toBe(true);
     expect(await workspaceHasMatchingRule(db as never, { ...input, trade: "electrician" })).toBe(false);
     expect(await workspaceHasMatchingRule(db as never, { ownerUserId: OTHER, workspaceId: WS_P, urgency: "urgent", trade: "locksmith" })).toBe(false);
+  });
+
+  // Review fix, Oct 20: propose-by-default is a DEFAULT. The standing roster made the predicate true for every
+  // service workspace, so one whose dispatch mode was deliberately saved "off" still got approval-pending runs and
+  // still texted the service manager - against `service-default.server.ts`'s own "a saved off is kept".
+  it("a service workspace whose dispatch mode was SAVED off gets no runs", async () => {
+    const off = world({ manager_automation_settings: [{ manager_user_id: CLIENT, vendor_dispatch: { mode: "off" } }] });
+    const input = { ownerUserId: CLIENT, workspaceId: WS_A, urgency: "urgent" as const, trade: "plumber" };
+    expect(await workspaceHasMatchingRule(off as never, input)).toBe(false);
+    // An unsaved workspace keeps the default, and an explicit `approve` is still on.
+    expect(await workspaceHasMatchingRule(world() as never, input)).toBe(true);
+    const approve = world({ manager_automation_settings: [{ manager_user_id: CLIENT, vendor_dispatch: { mode: "approve" } }] });
+    expect(await workspaceHasMatchingRule(approve as never, input)).toBe(true);
+  });
+
+  // Review fix, Oct 20: `dispatchAvailable === false` is the vendor form's "do not text this one jobs". It was
+  // honoured on the roster path only - and on a PropLane-created service workspace the owner IS the service owner,
+  // so every roster row also arrives down the OWN-roster path, where an unticked vendor was still offered work.
+  it("a vendor unticked for dispatch is never offered, on the roster path or the owner's own", async () => {
+    const db = world();
+    const created = await newRun(db);
+    expect(created.ok && attemptVendors(db, created.run.id)).not.toContain("svcv-paused");
+
+    // The service owner's own workspace: these are "own" vendors, not roster ones.
+    const ownPath = world({
+      manager_vendor_records: [
+        ownVendor("so-ok", "Fine Plumber", "+12065550401", SO),
+        { ...ownVendor("so-paused", "Paused Plumber", "+12065550402", SO), row_data: { ...(ownVendor("so-paused", "Paused Plumber", "+12065550402", SO).row_data as Row), dispatchAvailable: false } },
+      ],
+      manager_property_records: [{ id: "prop-so", manager_user_id: SO, workspace_id: WS_SO, property_data: { address: "9 Owner St, Seattle, WA 98105", title: "Owner" } }],
+    });
+    const soRun = await createDispatchRun(ownPath as never, {
+      workspaceId: WS_SO, ownerUserId: SO, sourceType: "manual", sourceId: "leak-so", trade: "plumber", urgency: "urgent",
+      propertyId: "prop-so", createdBy: null, at: T0, details: { what: "Leak", area: "Wedgwood", houseLabel: "Owner" },
+    });
+    expect(soRun.ok).toBe(true);
+    if (!soRun.ok) return;
+    const offered = attemptVendors(ownPath, soRun.run.id);
+    expect(offered).toContain("so-ok");
+    expect(offered).not.toContain("so-paused");
+  });
+
+  // Review fix, Oct 20: the cached loader called `readPlatformServiceOwnerId`, which folds its OWN failed read into
+  // null - so a transient `platform_service_settings` failure was remembered for 30s as "not a service workspace",
+  // which hands the dispatch approval back to the view-only client. The loader now throws, so nothing is cached.
+  it("a failed platform-service-owner read is never cached as 'not a service workspace'", async () => {
+    const db = world();
+    let broken = true;
+    const flaky = {
+      ...db,
+      from: (table: string) =>
+        table === "platform_service_settings" && broken
+          ? ({
+              select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { code: "57014", message: "statement timeout" } }) }) }),
+            } as never)
+          : db.from(table),
+    } as never;
+    // With the snapshot ON (as on a server) the failure must not be remembered.
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("VITEST", "");
+    expect(await serviceOwnerForWorkspace(flaky, WS_A)).toBeNull();
+    broken = false;
+    expect(await serviceOwnerForWorkspace(flaky, WS_A)).toBe(SO);
+    vi.unstubAllEnvs();
   });
 
   it("one person on both the workspace's list and the roster is offered ONCE (merged by phone)", async () => {

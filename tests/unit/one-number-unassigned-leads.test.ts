@@ -59,9 +59,11 @@ function seed(): LeadFakeDb {
   return leadFakeDb(
     {
       sms_runtime_config: [{ singleton: true, line_mode: "shared", shared_number_e164: "+12065550100" }],
+      // Both are PropLane-managed: the line's offers are drawn from the `is_service` catalog alone, so a prospect
+      // can only ever pick a house in one of these (`assignLeadToHouse` re-asserts the flag for a prospect pick).
       portal_workspaces: [
-        { id: WS_A, name: "Brooklyn team", owner_user_id: OWNER_A, is_default: true },
-        { id: WS_B, name: "Seventeenth team", owner_user_id: OWNER_B, is_default: true },
+        { id: WS_A, name: "Brooklyn team", owner_user_id: OWNER_A, is_default: true, is_service: true },
+        { id: WS_B, name: "Seventeenth team", owner_user_id: OWNER_B, is_default: true, is_service: true },
       ],
       manager_property_records: [
         { id: "prop-uw-a", workspace_id: WS_A, manager_user_id: OWNER_A, status: "live", property_data: { buildingName: "Brooklyn House", address: "4000 15th Ave NE" } },
@@ -405,6 +407,63 @@ describe("webhook retries and hygiene", () => {
   it("fails closed: with the tables missing nothing is stored and nothing is said", async () => {
     const fake = leadFakeDb({}, { broken: ["sms_unassigned_leads", "sms_unassigned_lead_turns"] });
     expect(await say(fake, "hi")).toEqual({ leadId: null, reply: null, assignedWorkspaceId: null });
+  });
+});
+
+// Review fix, Oct 20. "The first text always gets a reply" is a required criterion, and several paths answered
+// Twilio with empty TwiML instead - a lead store that could not be read or written, or an unexpected throw. Twilio
+// does not retry an empty 200, and `profile.stage` may already be set, so the welcome was never sent at all. Every
+// one of those paths now sends the deterministic first-text reply, recorded against the inbound sid so a retry
+// replays it instead of asking twice. (A MISSING table is different and stays silent: see above.)
+describe("a first text is never left unanswered", () => {
+  const firstReply = `${WELCOME} What is your monthly budget for rent?`;
+
+  it("answers when the lead store cannot be read", async () => {
+    const fake = leadFakeDb({}, { failing: ["sms_unassigned_leads"] });
+    expect(await say(fake, "hi")).toMatchObject({ leadId: null, reply: firstReply });
+  });
+
+  it("answers, and records the reply, when the inbound turn cannot be stored", async () => {
+    const fake = leadFakeDb({}, { failing: ["sms_unassigned_lead_turns"] });
+    const turn = await say(fake, "hi", {}, "SMFAIL");
+    expect(turn.reply).toBe(firstReply);
+    expect(turn.leadId).toBeTruthy();
+  });
+
+  /** An unexpected throw partway through the turn: the clock gives out after the inbound turn is stored. */
+  const throwingClock = () => {
+    let calls = 0;
+    return () => {
+      calls += 1;
+      if (calls > 2) throw new Error("clock exploded");
+      return new Date("2026-10-18T20:00:00Z");
+    };
+  };
+
+  it("answers when the turn throws outright", async () => {
+    const fake = seed();
+    const turn = await say(fake, "hi", { now: throwingClock() });
+    expect(turn.reply).toBe(firstReply);
+    // Recorded against this inbound sid, so the retry replays it rather than asking again.
+    const replies = fake.rows.sms_unassigned_lead_turns!.filter((t) => String(t.message_sid ?? "").startsWith("reply:"));
+    expect(replies).toHaveLength(1);
+    expect(String(replies[0]!.body)).toBe(firstReply);
+  });
+
+  it("a retry of a first turn whose reply was never recorded gets the reply, not silence", async () => {
+    const fake = seed();
+    // The first worker stored the inbound turn and died before recording its reply.
+    await say(fake, "hi", { now: throwingClock() }, "SMHALF");
+    fake.rows.sms_unassigned_lead_turns = fake.rows.sms_unassigned_lead_turns!.filter((t) => t.message_sid === "SMHALF");
+    const retry = await say(fake, "hi", {}, "SMHALF");
+    expect(retry.reply).toBe(firstReply);
+  });
+
+  it("a text mid-conversation is NOT answered with the welcome again", async () => {
+    const fake = seed();
+    await say(fake, "hi");
+    const turn = await say(fake, "$900", { now: throwingClock() });
+    expect(turn.reply ?? "").not.toContain(WELCOME);
   });
 });
 

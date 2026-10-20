@@ -17,6 +17,8 @@ vi.mock("@/lib/auth/managed-read-only.server", () => ({
   isManagedReadOnly: async () => false,
   managedReadOnlyOwnerLocked: async () => false,
   managedReadOnlyWorkspaceIds: async () => [],
+  // Staff go past the lock by its own rule, never by `ctx.user.role`; this viewer is not staff and is not locked.
+  managedReadOnlyStaffExempt: async () => false,
 }));
 vi.mock("@/lib/workspaces/active.server", () => ({
   resolveActiveWorkspaceFromRequest: async () => ({ id: "ws-1", ownerUserId: "viewer" }),

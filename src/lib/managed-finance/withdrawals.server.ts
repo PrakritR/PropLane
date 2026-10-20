@@ -455,6 +455,20 @@ async function finishPendingVerificationPayouts(stripe: Stripe, db: SupabaseClie
       continue;
     }
     if (adopted) {
+      const status = String(adopted.status ?? "");
+      // Only a payout that is on its way (or already there) ends this sweep. A `failed` or `canceled` payout put the
+      // money back in the connected account's balance, and a withdrawal marked completed is never looked at again -
+      // so the pending marker stays and a person is told, rather than the row reading paid with nothing moving.
+      if (!PAYOUT_LIVE_STATUSES.has(status)) {
+        await flag(db, "withdrawal_payout_not_live", id, {
+          account: accountId,
+          payout: adopted.id,
+          status: status || "unknown",
+          reason: adopted.failure_message ?? null,
+        });
+        await keepTrying(pending.attempts + 1);
+        continue;
+      }
       await db.rpc("complete_party_withdrawal", { p_id: id, p_transfer: transferId, p_payout: adopted.id, p_payout_error: null });
       finished += 1;
       continue;
@@ -479,6 +493,13 @@ async function finishPendingVerificationPayouts(stripe: Stripe, db: SupabaseClie
   }
   return finished;
 }
+
+/**
+ * A payout whose money is on its way to the bank (or has arrived). Anything else - `failed`, `canceled`, or a status
+ * Stripe adds later - is NOT an answer for a withdrawal: adopting it would close the row while the money sat back in
+ * the connected account's balance.
+ */
+const PAYOUT_LIVE_STATUSES = new Set(["paid", "pending", "in_transit"]);
 
 /** The Monday (Pacific) a weekly batch belongs to, `YYYY-MM-DD`. */
 export function batchWeekKey(now: Date): string {

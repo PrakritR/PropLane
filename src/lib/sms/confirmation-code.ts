@@ -1,7 +1,8 @@
 import "server-only";
 
-import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
+import { createHmac, randomInt } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { safeEqualHex } from "@/lib/sms/phone-key";
 
 /**
  * The 4-digit code a MANAGER PHONE must repeat to confirm a write on the PropLane line (captain, Oct 20).
@@ -140,12 +141,6 @@ async function releasePhoneGuess(db: SupabaseClient, failureId: string | null): 
   }
 }
 
-function safeEqualHex(a: string, b: string): boolean {
-  const left = Buffer.from(a, "utf8");
-  const right = Buffer.from(b, "utf8");
-  return left.length === right.length && timingSafeEqual(left, right);
-}
-
 /**
  * Issue (or re-issue) the code for one subject and return it for the ask.
  *
@@ -269,13 +264,24 @@ export async function checkSmsConfirmationCode(
   if (!presentedHash || !expected || !safeEqualHex(presentedHash, expected)) {
     return attempts + 1 >= SMS_CONFIRMATION_CODE_MAX_ATTEMPTS ? "exhausted" : "wrong";
   }
-  await releasePhoneGuess(db, reservedFailureId);
-  await db
+  // The consume IS the gate. PostgREST reports a failed write as a resolved `{ error }`, so a discarded result left
+  // `consumed_at` null and the same code kept verifying for the rest of its 30-minute life: a replayed "YES 4821"
+  // would confirm the proposal twice. `ok` is returned only when THIS call is the one that took the row.
+  const consumed = await db
     .from(TABLE)
     .update({ consumed_at: now.toISOString(), updated_at: now.toISOString() })
     .eq("subject_kind", input.kind)
     .eq("subject_id", subjectId)
-    .then(undefined, () => undefined);
+    .is("consumed_at", null)
+    .select("subject_id")
+    .then(
+      (result) => (result ?? {}) as { data?: unknown[] | null; error?: { message?: string } | null },
+      (thrown: unknown) => ({ data: null, error: { message: thrown instanceof Error ? thrown.message : "consume failed" } }),
+    );
+  // The code was correct either way, so the phone's guess goes back: a right answer never costs an attempt.
+  await releasePhoneGuess(db, reservedFailureId);
+  if (consumed.error) return "unavailable";
+  if (!consumed.data || consumed.data.length === 0) return "wrong";
   return "ok";
 }
 

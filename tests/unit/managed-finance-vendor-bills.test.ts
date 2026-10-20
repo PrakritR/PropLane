@@ -141,6 +141,69 @@ describe("a bill above the owner's repair amount", () => {
   });
 });
 
+// Review fix, Oct 20. `source_id` is only the bill's idempotency key, and for `manual` it is
+// `<workspace>:<chargeKey>` with the chargeKey taken from the manager's own request body. The gate reused an
+// existing row after comparing the AMOUNT alone, so a manager could reuse a chargeKey the owner had already
+// approved and have the same money posted to a different vendor's payable - or against a different house - with
+// no fresh owner decision.
+describe("an owner approval covers one whole question", () => {
+  const manual = (over: Partial<VendorBillInput> = {}) =>
+    bill({ sourceType: "manual", sourceId: `${WS}:charge-key-1`, amountCents: 24_000, ...over });
+
+  it("asks again when the same key comes back with a different vendor", async () => {
+    const { f, posted } = setup(10_000);
+    expect(await gateAndPostManagedVendorBill(f.db, manual())).toMatchObject({ status: "pending_owner" });
+    const firstExpense = f.rows.owner_expenses![0]!.id;
+    // The owner says yes to Mike's Plumbing.
+    await decideOwnerExpense(f.db, { expenseId: String(firstExpense), ownerUserId: OWNER, approve: true, via: "sms" });
+    // The manager comes back with the SAME key and amount, a different payee.
+    const second = await gateAndPostManagedVendorBill(f.db, manual({ vendorUserId: "ven-2", vendorLabel: "Other Plumbing" }));
+    expect(second.status).toBe("pending_owner");
+    expect(posted).toHaveLength(0);
+    expect(f.rows.owner_expenses).toHaveLength(1);
+    expect(f.rows.owner_expenses![0]).toMatchObject({ status: "pending_owner", vendor_party_id: "vendor:ven-2" });
+    expect(text).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks again when the same key comes back against a different house", async () => {
+    const { f, posted } = setup(10_000, { manager_property_records: [{ id: "p1", workspace_id: WS }, { id: "p2", workspace_id: WS }] });
+    await gateAndPostManagedVendorBill(f.db, manual());
+    await decideOwnerExpense(f.db, { expenseId: String(f.rows.owner_expenses![0]!.id), ownerUserId: OWNER, approve: true, via: "sms" });
+    expect(await gateAndPostManagedVendorBill(f.db, manual({ propertyId: "p2" }))).toMatchObject({ status: "pending_owner" });
+    expect(posted).toHaveLength(0);
+    expect(f.rows.owner_expenses![0]).toMatchObject({ property_id: "p2" });
+  });
+
+  it("re-posts nothing and asks nothing again when every payee fact is the same", async () => {
+    const { f, posted } = setup(10_000);
+    await gateAndPostManagedVendorBill(f.db, manual());
+    await decideOwnerExpense(f.db, { expenseId: String(f.rows.owner_expenses![0]!.id), ownerUserId: OWNER, approve: true, via: "sms" });
+    expect(await gateAndPostManagedVendorBill(f.db, manual())).toMatchObject({ status: "posted" });
+    expect(await gateAndPostManagedVendorBill(f.db, manual())).toMatchObject({ status: "posted" });
+    // One owner question, one expense row, one journal key (the key is what makes the post idempotent).
+    expect(f.rows.owner_expenses).toHaveLength(1);
+    expect(posted.every((p) => p.p_key === `vendor-bill:manual:${WS}:charge-key-1`)).toBe(true);
+    expect(text).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a key already POSTED for a different payee instead of silently paying the new one", async () => {
+    const { f, posted } = setup();
+    expect(await gateAndPostManagedVendorBill(f.db, manual())).toMatchObject({ status: "posted" });
+    await expect(gateAndPostManagedVendorBill(f.db, manual({ vendorUserId: "ven-2", vendorLabel: "Other" })))
+      .rejects.toThrow(/already used for a different charge/);
+    expect(posted).toHaveLength(1);
+  });
+
+  // The original guard, kept: a changed amount is a new question too.
+  it("asks again when the amount changed", async () => {
+    const { f } = setup(10_000);
+    await gateAndPostManagedVendorBill(f.db, manual());
+    expect(await gateAndPostManagedVendorBill(f.db, manual({ amountCents: 30_000 }))).toMatchObject({ status: "pending_owner" });
+    expect(f.rows.owner_expenses).toHaveLength(1);
+    expect(f.rows.owner_expenses![0]).toMatchObject({ amount_cents: 30_000 });
+  });
+});
+
 describe("only the owner of record decides", () => {
   it("another person, a missing expense and a replay are all handled without a second decision", async () => {
     const { f } = setup(10_000);

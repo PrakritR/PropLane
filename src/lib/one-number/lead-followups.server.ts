@@ -8,8 +8,8 @@ import { buildOfferText, firstOfferPhoto, matchRooms, offerFromRow } from "@/lib
 import { nextQuestion, pacificToday, toGsm7, type LeadProfile } from "@/lib/one-number/lead-qualifying";
 import { sendPlatformLeadText, type PlatformLeadSendResult } from "@/lib/one-number/lead-send.server";
 import { e164FromPhoneKey } from "@/lib/one-number/unassigned-leads.server";
+import { getServicePublicListings } from "@/lib/service/service-catalog.server";
 import { quietHoursBlocks } from "@/lib/sms/number-registration-policy";
-import { getCrawlPublicListings } from "@/lib/seo/public-catalog.server";
 
 /** One nudge at 24h, one at 72h, then nothing. A lead is only ever texted by this scheduler twice. */
 export const NUDGE_FIRST_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -113,7 +113,7 @@ export async function runLeadFollowUps(db: SupabaseClient, depsIn: FollowUpDeps 
 
     // A room that fits showed up after "no match": text it once.
     if (profile.stage === "no_match" && !profile.newMatchTexted) {
-      catalog ??= await (depsIn.listings ?? getCrawlPublicListings)().catch(() => []);
+      catalog ??= await (depsIn.listings ?? (() => getServicePublicListings(db)))().catch(() => []);
       const rows = matchRooms(catalog, profile, pacificToday(now()));
       if (rows.length === 0) continue;
       const offers = rows.map((row, i) => offerFromRow(row, i + 1));

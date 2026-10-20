@@ -294,7 +294,10 @@ async function loadOwnTradeRoster(
   if (error) throw new Error(error.message);
   const rows = ((data ?? []) as VendorRecord[]).filter((row) => {
     const vendor = row.row_data;
-    if (!vendor || vendor.active === false) return false;
+    // `dispatchAvailable === false` is the vendor form's "do not text this one jobs". The service roster already
+    // honours it; on a PropLane-created service workspace the owner IS the service owner, so every roster row also
+    // arrives down this path and an unticked vendor was still being offered work.
+    if (!vendor || vendor.active === false || vendor.dispatchAvailable === false) return false;
     if (input.propertyId && vendor.propertyIds && vendor.propertyIds.length > 0 && !vendor.propertyIds.includes(input.propertyId)) {
       return false;
     }
@@ -396,7 +399,13 @@ export async function workspaceHasMatchingRule(db: SupabaseClient, input: MatchI
     // memoized per client, so a sweep over many stays does not re-scan the roster once per stay.
     const roster = await import("@/lib/vendor-dispatch/service-roster.server");
     const serviceOwnerId = await roster.serviceOwnerForWorkspace(db, input.workspaceId);
-    return serviceOwnerId ? await roster.serviceRosterHasTrade(db, serviceOwnerId, input.trade) : false;
+    if (!serviceOwnerId) return false;
+    // Propose-by-default is a DEFAULT: a workspace whose dispatch mode was explicitly saved "off" gets no runs, so
+    // the standing roster must not stand in for a rule there either.
+    const { resolveDispatchSettings } = await import("@/lib/vendor-dispatch/service-default.server");
+    const resolution = await resolveDispatchSettings(db, input.ownerUserId, input.workspaceId);
+    if (resolution.settings.mode === "off") return false;
+    return await roster.serviceRosterHasTrade(db, serviceOwnerId, input.trade);
   } catch {
     return false;
   }

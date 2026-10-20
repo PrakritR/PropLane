@@ -412,6 +412,27 @@ describe("paid but no longer honorable: refunded automatically, once", () => {
     expect(storedData(db).stayDetails.addOns!.early_check_in).toMatchObject({ status: "refunded" });
   });
 
+  // Review fix, Oct 20. The upsert that records `refundedCents` was awaited without reading `{ error }`, and
+  // PostgREST reports a failed write that way. The stay flipped to `refunded` and a replay then answered
+  // `already_settled`, while the charge row still read paid with `refundedCents: 0` - so the refund was invisible
+  // in Payments and the same money could be refunded again. The refund call is idempotency-keyed, so throwing is
+  // safe: Stripe redelivers and the write is retried.
+  it("throws when the refund cannot be recorded, so Stripe redelivers instead of losing it", async () => {
+    const db = seeded({
+      failWrite: (table, mode, payload) =>
+        table === "portal_household_charge_records" && mode === "upsert" &&
+        (payload as { row_data?: { refundedCents?: number } } | null)?.row_data?.refundedCents === 2500
+          ? { code: "57014", message: "statement timeout" }
+          : null,
+    });
+    await paidThenTaken(db);
+    const id = stayAddOnChargeId(BLOCK, "early_check_in");
+    await expect(applyPaidStayAddOn(db as never, { chargeId: id, stripe, now: NOW })).rejects.toThrow(/was not recorded/);
+    expect(spies.refundPaidHouseholdCharge).toHaveBeenCalledTimes(1);
+    // The stay was NOT marked settled, so the redelivery runs the whole thing again.
+    expect(storedData(db).stayDetails.addOns!.early_check_in).not.toMatchObject({ status: "refunded" });
+  });
+
   it("the capacity trigger refusing the new time (P4001) is the same refund", async () => {
     const db = seeded({
       // only the paid time change is refused; the guest's own request stamp (still 3:00 pm) is not

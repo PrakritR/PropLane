@@ -53,6 +53,11 @@ function fixture(savedRows: typeof rows = rows) {
   const rpc = vi.fn(async () => ({ data: [{ hold_id: "hold-paid", credited: true,
     reserved_cents: 0 }], error: null }));
   const db = { rpc, from: vi.fn((table: string) => {
+    // "Has this PaymentIntent already been allocated on the party ledger?" is asked before the managed decision, so
+    // a hold path answers it: no journal.
+    if (table === "party_ledger_journals") {
+      return { select: () => ({ eq: () => ({ limit: async () => ({ data: [], error: null }) }) }) };
+    }
     if (table !== "portal_household_charge_records") {
       throw new Error(`unexpected table: ${table}`);
     }
@@ -142,6 +147,9 @@ describe("versioned household captured sources", () => {
     const autopayCharge = { ...charge, amount: 200 };
     f.stripe.charges.retrieve.mockResolvedValue(autopayCharge);
     f.db.from = vi.fn((table: string) => {
+      if (table === "party_ledger_journals") {
+        return { select: () => ({ eq: () => ({ limit: async () => ({ data: [], error: null }) }) }) } as never;
+      }
       const data = table === "resident_autopay_runs"
         ? { id: "run-paid", charge_id: "hc_rent", manager_id: "manager-1",
           stripe_payment_intent_id: null }

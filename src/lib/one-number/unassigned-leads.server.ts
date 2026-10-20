@@ -88,23 +88,41 @@ export function e164FromPhoneKey(phoneKey: string): string {
   return normalizeE164(digits.length === 10 ? `+1${digits}` : `+${digits}`) ?? `+${digits}`;
 }
 
-async function findOrCreateOpenLead(db: SupabaseClient, phoneKey: string, nowIso: string): Promise<LeadRow | null> {
+/**
+ * `missing` = the lead tables are not there yet (code before the migration): nothing is stored and nothing is said.
+ * `unavailable` = they are there and the read or insert failed, which is a first text we still owe an answer.
+ */
+type LeadLookup = { kind: "lead"; lead: LeadRow } | { kind: "missing" } | { kind: "unavailable" };
+
+async function findOrCreateOpenLead(db: SupabaseClient, phoneKey: string, nowIso: string): Promise<LeadLookup> {
   const read = () => db.from("sms_unassigned_leads").select(LEAD_COLUMNS).eq("phone_key", phoneKey).eq("status", "open").maybeSingle();
   const first = await read();
-  if (first.error) return null;
-  if (first.data) return toLead(first.data as Row);
+  if (first.error) return isMissingSchemaError(first.error) ? { kind: "missing" } : { kind: "unavailable" };
+  if (first.data) return { kind: "lead", lead: toLead(first.data as Row) };
   const created = await db
     .from("sms_unassigned_leads")
     .insert({ phone_key: phoneKey, status: "open", profile: {}, last_inbound_at: nowIso })
     .select(LEAD_COLUMNS)
     .maybeSingle();
-  if (created.data) return toLead(created.data as Row);
+  if (created.data) return { kind: "lead", lead: toLead(created.data as Row) };
   // A concurrent first text won the unique open-phone index: take its row.
   if (created.error?.code === "23505") {
     const again = await read();
-    return again.data ? toLead(again.data as Row) : null;
+    if (again.data) return { kind: "lead", lead: toLead(again.data as Row) };
+    return again.error && isMissingSchemaError(again.error) ? { kind: "missing" } : { kind: "unavailable" };
   }
-  return null;
+  if (created.error && isMissingSchemaError(created.error)) return { kind: "missing" };
+  return { kind: "unavailable" };
+}
+
+/**
+ * The reply a first text on the PropLane line gets when the turn itself could not be produced (the lead store was
+ * unavailable, the turn insert failed, an unexpected throw). Deterministic - the welcome plus the first qualifying
+ * question - so a stranger's first text is never answered with silence, and a retry says exactly the same thing.
+ */
+export function firstTextFallbackReply(): string {
+  const question = nextQuestion({});
+  return toGsm7(`${WELCOME}${question ? ` ${question.text}` : ""}`);
 }
 
 async function storedReplyFor(db: SupabaseClient, leadId: string, messageSid: string): Promise<string | null> {
@@ -265,10 +283,16 @@ export async function handleUnassignedLeadInbound(
     extract: depsIn.extract ?? extractLeadFieldsWithModel,
     origin: depsIn.origin ?? resolveEmailLinkBaseUrl,
   };
+  // Set as soon as a lead row is in hand, so the catch below can tell a first text from a conversation in progress.
+  let known: LeadRow | null = null;
   try {
     const nowIso = deps.now().toISOString();
-    const lead = await findOrCreateOpenLead(db, inbound.phoneKey, nowIso);
-    if (!lead) return EMPTY_TURN;
+    const found = await findOrCreateOpenLead(db, inbound.phoneKey, nowIso);
+    // The tables are not there yet: nothing is stored and nothing is said. Any other failure still owes a first reply.
+    if (found.kind === "missing") return EMPTY_TURN;
+    if (found.kind === "unavailable") return { leadId: null, reply: firstTextFallbackReply(), assignedWorkspaceId: null };
+    const lead = found.lead;
+    known = lead;
 
     const inboundTurn = await db
       .from("sms_unassigned_lead_turns")
@@ -281,18 +305,27 @@ export async function handleUnassignedLeadInbound(
       })
       .select("id")
       .maybeSingle();
+    const firstTurn = lead.profile.stage === undefined;
     if (inboundTurn.error?.code === "23505") {
-      // A webhook retry: say exactly what was said the first time.
-      return { leadId: lead.id, reply: await storedReplyFor(db, lead.id, inbound.messageSid), assignedWorkspaceId: null };
+      // A webhook retry: say exactly what was said the first time. A first turn whose reply was never recorded (the
+      // first worker died between the two writes) still gets the deterministic welcome rather than silence.
+      const stored = await storedReplyFor(db, lead.id, inbound.messageSid);
+      const reply = stored ?? (firstTurn ? firstTextFallbackReply() : null);
+      if (!stored && reply) await recordReply(db, lead.id, inbound.messageSid, reply, []);
+      return { leadId: lead.id, reply, assignedWorkspaceId: null };
     }
     if (inboundTurn.error) {
-      if (!isMissingSchemaError(inboundTurn.error)) console.error("unassigned lead turn failed", inboundTurn.error.code ?? "unknown");
-      return EMPTY_TURN;
+      if (isMissingSchemaError(inboundTurn.error)) return EMPTY_TURN;
+      console.error("unassigned lead turn failed", inboundTurn.error.code ?? "unknown");
+      if (!firstTurn) return EMPTY_TURN;
+      const reply = firstTextFallbackReply();
+      await recordReply(db, lead.id, inbound.messageSid, reply, []);
+      return { leadId: lead.id, reply, assignedWorkspaceId: null };
     }
     const triggerTurnId = str((inboundTurn.data as Row | null)?.id);
     await db.from("sms_unassigned_leads").update({ last_inbound_at: nowIso, updated_at: nowIso }).eq("id", lead.id);
 
-    const first = lead.profile.stage === undefined;
+    const first = firstTurn;
     // A new inquiry on the PropLane line: tell the service manager's phone once (best effort, never blocks the reply).
     if (first) {
       void import("@/lib/service/service-manager-alerts.server")
@@ -330,13 +363,26 @@ export async function handleUnassignedLeadInbound(
     // Masked: neither a number nor the body reaches a log.
     // Outside production the first stack frames are kept: a bare "TypeError" hid a broken offer step.
     console.error("unassigned lead turn failed", error instanceof Error ? error.name : "unknown", process.env.NODE_ENV !== "production" && error instanceof Error ? error.stack?.split("\n").slice(0, 4).join(" | ") : "");
-    return EMPTY_TURN;
+    // A first text is never left unanswered: the deterministic welcome goes out and is recorded against this
+    // inbound sid, so a Twilio retry replays it instead of asking again.
+    if (known && known.profile.stage !== undefined) return EMPTY_TURN;
+    const reply = firstTextFallbackReply();
+    if (known) await recordReply(db, known.id, inbound.messageSid, reply, []).catch(() => undefined);
+    return { leadId: known?.id ?? null, reply, assignedWorkspaceId: null };
   }
 }
 
 // ---------------------------------------------------------------------------
 // Assignment
 // ---------------------------------------------------------------------------
+
+/** Does `workspaceId` carry the PropLane Service flag? A failed or absent read is NOT a service workspace (fail closed). */
+async function workspaceIsService(db: SupabaseClient, workspaceId: string): Promise<boolean> {
+  if (!workspaceId) return false;
+  const { data, error } = await db.from("portal_workspaces").select("is_service").eq("id", workspaceId).maybeSingle();
+  if (error) return false;
+  return (data as Row | null)?.is_service === true;
+}
 
 export type AssignResult =
   | { ok: true; workspaceId: string; ownerUserId: string; label: string }
@@ -382,6 +428,9 @@ export async function assignLeadToHouse(
     const owned = await db.from("portal_workspaces").select("id").eq("owner_user_id", str(house.manager_user_id)).eq("is_default", true).maybeSingle();
     workspaceId = str((owned.data as Row | null)?.id);
   }
+  // A prospect on the PropLane line is only ever handed to a PropLane-managed workspace: the offers they picked from
+  // are drawn from the `is_service` catalog alone, so a pick that names anything else did not come from this flow.
+  if (input.by === "prospect" && !(await workspaceIsService(db, workspaceId))) return { ok: false, error: "house_not_found" };
   const prospect = workspaceId ? await findWorkspaceProspectCandidate(db, workspaceId) : null;
   if (!prospect) return { ok: false, error: "workspace_not_found" };
   const label = propertyLabel(house.property_data) || propertyLabel(house.row_data) || prospect.label;

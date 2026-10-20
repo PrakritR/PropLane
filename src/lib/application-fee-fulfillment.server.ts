@@ -13,7 +13,7 @@ import { releaseCreditedHoldAfterCommit } from "@/lib/platform-post-credit-relea
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { promoteIncompleteApplicationAfterFeePaid } from "@/lib/promote-incomplete-application-after-fee.server";
 import type { ApplicationFeeClaim } from "@/lib/application-fee-payment-claim.server";
-import { creditManagedCapture } from "@/lib/managed-finance/capture.server";
+import { creditManagedCapture, managedCaptureExistsForPaymentIntent } from "@/lib/managed-finance/capture.server";
 import { resolveManagedForProperties } from "@/lib/managed-finance/resolve.server";
 
 function customerEmail(session: Stripe.Checkout.Session): string {
@@ -256,11 +256,15 @@ export async function fulfillClaimedApplicationFeePayment(
   // A PropLane-managed workspace's application fee is allocated in the party ledger (owner payable, or PropLane's fee when the
   // policy's fee applies to all charges), never credited to the manager of record's hold. docs/agents/owner-management.md
   // § Application and form fees. A payment already credited as a hold stays a hold.
-  const managedResolution = isHold
+  // Already allocated on the party ledger: a redelivery after the policy ended must not also credit the hold.
+  const alreadyAllocated = isHold ? await managedCaptureExistsForPaymentIntent(db, pi.id) : false;
+  const managedResolution = isHold && !alreadyAllocated
     ? await resolveManagedForProperties(db, [claim.property_id], String(chargeData.paidAt))
     : null;
   const priorManagedHold = managedResolution ? await findPlatformHoldByPaymentIntent(db, pi.id) : null;
-  if (isHold && managedResolution && !priorManagedHold) {
+  if (alreadyAllocated) {
+    // Nothing more to do: the owner has been paid on the ledger for this PaymentIntent.
+  } else if (isHold && managedResolution && !priorManagedHold) {
     await creditManagedCapture(db, stripe, {
       policy: managedResolution.policy,
       paymentIntentId: pi.id,

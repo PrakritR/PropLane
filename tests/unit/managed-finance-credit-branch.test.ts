@@ -8,7 +8,7 @@ import { residentServiceFeeBreakdown } from "@/lib/payment-policy";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/stripe-ledger-fees", () => ({ enrichLedgerPaymentFromStripeCharge: vi.fn(async () => undefined) }));
-const state = vi.hoisted(() => ({ releases: 0, hold: null as null | { id: string }, managed: null as unknown, managedError: null as Error | null, captured: [] as unknown[] }));
+const state = vi.hoisted(() => ({ releases: 0, hold: null as null | { id: string }, managed: null as unknown, managedError: null as Error | null, captured: [] as unknown[], priorJournal: false }));
 vi.mock("@/lib/platform-hold-release.server", () => ({
   verifyPlatformHoldSourceRefundHistory: vi.fn(async () => undefined),
   releaseVerifiedPlatformHoldsForOwner: vi.fn(async () => { state.releases += 1; }),
@@ -27,6 +27,7 @@ vi.mock("@/lib/managed-finance/resolve.server", () => ({
 }));
 vi.mock("@/lib/managed-finance/capture.server", () => ({
   creditManagedCapture: vi.fn(async (_db: unknown, _stripe: unknown, input: unknown) => { state.captured.push(input); return { status: "created", journalId: "j1" }; }),
+  managedCaptureExistsForPaymentIntent: vi.fn(async () => state.priorJournal === true),
 }));
 
 const { creditVerifiedHouseholdCheckoutSource } = await import("@/lib/household-captured-source.server");

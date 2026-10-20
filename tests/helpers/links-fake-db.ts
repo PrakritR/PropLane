@@ -26,6 +26,40 @@ export function linksFakeDb(
   const missing = options.missingColumns ?? {};
 
   const db = {
+    /**
+     * `phone_otp_start` as supabase/migrations/20261020150100 defines it: under a per-phone lock, the purpose's
+     * hourly allowance, the phone's ceiling across every purpose, the 24-hour failed-code cap, then retire this
+     * phone + purpose + subject's live codes and insert the new one. A missing table answers like the database.
+     */
+    async rpc(fn: string, args: Record<string, unknown> = {}) {
+      if (fn !== "phone_otp_start") return { data: null, error: { code: "PGRST202", message: `no function ${fn}` } };
+      if (broken.has("phone_otp_challenges")) return { data: null, error: { code: "42P01", message: "relation does not exist" } };
+      const list = (rows.phone_otp_challenges ??= []);
+      const phoneKey = String(args.p_phone_key ?? "");
+      const purpose = String(args.p_purpose ?? "");
+      const subject = (args.p_subject ?? null) as string | null;
+      const now = args.p_now ? Date.parse(String(args.p_now)) : Date.now();
+      const since = (ms: number) => (row: Row) => Date.parse(String(row.created_at ?? 0)) > now - ms;
+      const hour = list.filter((r) => r.phone_key === phoneKey).filter(since(60 * 60 * 1000));
+      if (hour.filter((r) => r.purpose === purpose).length >= 3) return { data: false, error: null };
+      if (hour.length >= 8) return { data: false, error: null };
+      const failures = list
+        .filter((r) => r.phone_key === phoneKey && r.purpose === purpose)
+        .filter(since(24 * 60 * 60 * 1000))
+        .reduce((sum, r) => sum + Math.max((Number(r.attempts) || 0) - (r.verified_at ? 1 : 0), 0), 0);
+      if (failures >= 10) return { data: false, error: null };
+      for (const row of list) {
+        if (row.phone_key === phoneKey && row.purpose === purpose && (row.subject_id ?? null) === subject && !row.consumed_at) {
+          row.consumed_at = new Date(now).toISOString();
+        }
+      }
+      list.push({
+        id: args.p_id, phone_key: phoneKey, purpose, subject_id: subject, code_hash: args.p_code_hash,
+        attempts: 0, created_at: new Date(now).toISOString(),
+        expires_at: new Date(now + Number(args.p_ttl_minutes ?? 10) * 60_000).toISOString(),
+      });
+      return { data: true, error: null };
+    },
     from(table: string) {
       let op: "select" | "insert" | "update" | "delete" | "upsert" = "select";
       let conflict: string[] = [];

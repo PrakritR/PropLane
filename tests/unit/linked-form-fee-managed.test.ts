@@ -4,11 +4,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const managed = vi.hoisted(() => ({ value: null as unknown, throws: false }));
 const capture = vi.hoisted(() => vi.fn());
 const holdByPi = vi.hoisted(() => vi.fn());
+const priorJournal = vi.hoisted(() => vi.fn());
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/managed-finance/resolve.server", () => ({
   resolveManagedForProperties: async () => { if (managed.throws) throw new Error("read failed"); return managed.value; },
 }));
-vi.mock("@/lib/managed-finance/capture.server", () => ({ creditManagedCapture: capture }));
+vi.mock("@/lib/managed-finance/capture.server", () => ({
+  creditManagedCapture: capture,
+  managedCaptureExistsForPaymentIntent: priorJournal,
+}));
 vi.mock("@/lib/stripe-platform-hold.server", () => ({ findPlatformHoldByPaymentIntent: holdByPi }));
 
 import { creditManagedLinkedFormFee, LINKED_FORM_FEE_PURPOSE } from "@/lib/linked-form-fee.server";
@@ -28,6 +32,7 @@ beforeEach(() => {
   managed.value = { workspaceId: "ws-1", policy }; managed.throws = false;
   capture.mockReset().mockResolvedValue({ status: "created", journalId: "j-1" });
   holdByPi.mockReset().mockResolvedValue(null);
+  priorJournal.mockReset().mockResolvedValue(false);
 });
 
 describe("creditManagedLinkedFormFee", () => {
@@ -89,5 +94,23 @@ describe("creditManagedLinkedFormFee", () => {
   it("a ledger refusal fails the delivery and never falls back to a hold", async () => {
     capture.mockRejectedValue(new Error("busy"));
     await expect(creditManagedLinkedFormFee({} as never, stripe(), session())).rejects.toThrow("busy");
+  });
+
+  // Review fix, Oct 20. The managed decision was re-resolved at `new Date()` on every delivery, so a policy an
+  // admin ended between the first delivery and its retry read as "not managed" - and the webhook's fallback
+  // (`creditHoldFromPaidSession`) is idempotent only on a prior HOLD for the session, not on the owner's ledger
+  // allocation. The owner would be paid on the party ledger AND the manager's hold credited for the same fee.
+  it("a fee already allocated on the party ledger never falls back to a hold, even once the policy has ended", async () => {
+    priorJournal.mockResolvedValue(true);
+    managed.value = null; // the policy ended between the first delivery and this retry
+    expect(await creditManagedLinkedFormFee({} as never, stripe(), session())).toBe(true);
+    expect(capture).not.toHaveBeenCalled();
+    expect(priorJournal.mock.calls[0]![1]).toBe("pi_form_1");
+  });
+
+  it("asks about the allocation before the policy, so a read failure there cannot credit a hold either", async () => {
+    priorJournal.mockRejectedValue(new Error("ledger unreadable"));
+    managed.value = null;
+    await expect(creditManagedLinkedFormFee({} as never, stripe(), session())).rejects.toThrow(/unreadable/);
   });
 });

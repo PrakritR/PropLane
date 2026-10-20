@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SharedLineCandidate } from "@/lib/one-number/contracts";
+import { spokenLabelFor } from "@/lib/one-number/router.server";
 import { toGsm7 } from "@/lib/one-number/segments";
 import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import { normalizeE164, formatUsPhoneDisplay } from "@/lib/phone-e164";
@@ -45,7 +46,8 @@ export async function answerFromDedicatedWorkspace(
 ): Promise<string | null> {
   const own = await ownNumberOf(db, input.candidate);
   if (!own) return null;
-  const reply = buildDedicatedRedirectReply(input.candidate.label, own);
+  // A vendor is named the general area, never the street: this redirect can reach one whose job is only offered.
+  const reply = buildDedicatedRedirectReply(spokenLabelFor(input.candidate), own);
   const from = normalizeE164(input.fromPhone) ?? input.fromPhone;
   const line = input.sharedNumber ?? own;
   const base = {

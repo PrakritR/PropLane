@@ -416,10 +416,10 @@ describe("reconciliation finishes the payouts that were never started", () => {
     expect(f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args).toMatchObject({ p_id: "wd-7", p_transfer: "tr_7", p_payout: "po_1", p_payout_error: null });
   });
 
-  it("adopts a payout already tagged with this withdrawal instead of creating a second one", async () => {
+  it.each(["paid", "pending", "in_transit"])("adopts a %s payout already tagged with this withdrawal instead of creating a second one", async (status) => {
     const f = setup({}, { party_withdrawals: [unverified()] });
     const stripe = withSchedule(
-      makeStripe({ payoutList: [{ id: "po_other", metadata: { withdrawal_id: "wd-9" } }, { id: "po_earlier", metadata: { withdrawal_id: "wd-7" } }] }),
+      makeStripe({ payoutList: [{ id: "po_other", status: "paid", metadata: { withdrawal_id: "wd-9" } }, { id: "po_earlier", status, metadata: { withdrawal_id: "wd-7" } }] }),
       () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }),
     );
     expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 1 });
@@ -428,10 +428,26 @@ describe("reconciliation finishes the payouts that were never started", () => {
     expect(f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args).toMatchObject({ p_id: "wd-7", p_transfer: "tr_7", p_payout: "po_earlier", p_payout_error: null });
   });
 
+  // The money is back in the connected account's balance, and nothing ever looks at a completed withdrawal again -
+  // so adopting a dead payout would strand it silently. The marker stays and a person is told.
+  it.each(["failed", "canceled", ""])("does not end the sweep on a %s payout: the marker stays and a person is flagged", async (status) => {
+    const f = setup({}, { party_withdrawals: [unverified()] });
+    const stripe = withSchedule(
+      makeStripe({ payoutList: [{ id: "po_dead", status: status || undefined, failure_message: "account closed", metadata: { withdrawal_id: "wd-7" } }] }),
+      () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }),
+    );
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 0 });
+    expect(stripe.payouts.create).not.toHaveBeenCalled();
+    const last = f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args;
+    expect(last.p_payout).toBeNull();
+    expect(readPayoutPendingVerification(last.p_payout_error)).toEqual({ attempts: 1 });
+    expect((f.rows.owner_ledger_flags ?? []).some((r) => r.check_name === "withdrawal_payout_not_live" && r.subject === "wd-7")).toBe(true);
+  });
+
   it("creates the payout (tagged with the withdrawal id) when none of the recent payouts is this withdrawal's", async () => {
     const f = setup({}, { party_withdrawals: [unverified()] });
     const stripe = withSchedule(
-      makeStripe({ payoutList: [{ id: "po_other", metadata: { withdrawal_id: "wd-9" } }, { id: "po_plain", metadata: {} }] }),
+      makeStripe({ payoutList: [{ id: "po_other", status: "paid", metadata: { withdrawal_id: "wd-9" } }, { id: "po_plain", status: "paid", metadata: {} }] }),
       () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }),
     );
     expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 1 });

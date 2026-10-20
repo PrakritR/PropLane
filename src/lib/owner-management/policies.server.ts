@@ -350,6 +350,12 @@ async function activate(
     throw new PolicyError(500, "Could not accept the fee policy.");
   }
   if (!result || (result.status !== "active" && result.status !== "exists")) {
+    // `terms_changed`: the row's own fee terms no longer match the ones this signature was taken against (the draft was
+    // edited after it was loaded). The function compares them under its row lock, so this is the only safe answer.
+    if (result?.reason === "terms_changed") {
+      throw new PolicyError(409, "This agreement changed. Reload it and read the new terms before signing.");
+    }
+    if (result?.reason === "not_sent") throw new PolicyError(409, "This agreement is not waiting for your signature.");
     throw new PolicyError(409, result?.reason === "future_effective_from" ? "The start date is in the future." : "This fee policy cannot be accepted any more.");
   }
   const fresh = await loadPolicy(db, policy.id);
