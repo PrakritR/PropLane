@@ -15,7 +15,7 @@ test.describe("Ladder smoke", () => {
     // streamed hero and its zero-sized replacement in the DOM, so a strict
     // locator raises a strict-mode violation — which `expect` does not retry —
     // on a page that loaded perfectly. Reproduced on ~3 of 8 cold loads.
-    await expect(page.locator("#rlp-hero-title").first()).toBeVisible();
+    await expect(page.locator("#home-title").first()).toBeVisible();
   });
 
   test("sign-in page loads", async ({ page }) => {
