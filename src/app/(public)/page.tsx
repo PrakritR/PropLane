@@ -5,6 +5,7 @@ import { HomeNumberStage } from "@/components/marketing/home-number-stage";
 import { ResidentLifecycleAtmosphere } from "@/components/marketing/resident-lifecycle-atmosphere";
 import { BigNumber } from "@/components/marketing/big-number";
 import "@/components/marketing/home-h1.css";
+import "@/components/marketing/home-small.css";
 import { HomeSectionHeader } from "@/components/marketing/home-section-header";
 import { HomeJoinFree } from "@/components/marketing/home-join-free";
 import { HomePricingCompare } from "@/components/marketing/home-pricing-compare";

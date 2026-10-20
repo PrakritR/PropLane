@@ -38,7 +38,7 @@ const LOOP_HOLD_MS = 3200;
  * only while the section is on screen, the tab is visible, and the visitor is not hovering or focused inside. Reduced
  * motion shows the journey's end state (no cursor, no autoplay).
  */
-export function HomeSoftwareDemoPlayer() {
+export function HomeSoftwareDemoPlayer({ id = "dashboard" }: { id?: string } = {}) {
   const root = useRef<HTMLElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
@@ -224,7 +224,7 @@ export function HomeSoftwareDemoPlayer() {
 
   return (
     <section
-      id="dashboard"
+      id={id}
       ref={root}
       className="home-software-demo"
       aria-labelledby="home-dashboard-title"

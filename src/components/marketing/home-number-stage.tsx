@@ -5,6 +5,7 @@ import { PROPERTY_ROWS, RESIDENT_ROWS, SERVICE_ROWS, WILLOW_INQUIRIES } from "./
 import { BOOKING_ROWS, FINANCE_BY_PROPERTY } from "./site/product-mock/fixtures-more";
 import { OPS_REPORTS } from "./site/product-mock/fixtures-popups-ops";
 import { BigNumber } from "./big-number";
+import { HomeSectionHeader } from "./home-section-header";
 
 /** A scene shows only its beat, not the cumulative thread from every earlier portal step. */
 function beatItems(role: "resident" | "vendor", id: string): PhoneItem[] {
@@ -114,7 +115,10 @@ function NetworkScene() {
   );
 }
 
-export function HomeNumberStage() {
+type Role = { id: string; label: string; caption: string; items: PhoneItem[] };
+
+/** The five roles in reading order. Desktop draws each as a phone; the small-screen list draws two of its bubbles. */
+function roleSteps(): Role[] {
   const statement = OPS_REPORTS.find(
     (report) => report.id === "owner-statement",
   )!;
@@ -129,63 +133,85 @@ export function HomeNumberStage() {
         .join("\n")}`,
     },
   ];
+  return [
+    { id: "prospects", label: "Prospects", caption: "Ask about a room. Book the tour.", items: beatItems("resident", "tour") },
+    { id: "residents", label: "Residents", caption: "Pay rent. Report a leak.", items: beatItems("resident", "pay") },
+    {
+      id: "vendors",
+      label: "Vendors",
+      caption: "Accept the job. Keep everyone posted.",
+      items: [...beatItems("vendor", "quote"), ...beatItems("vendor", "visit")],
+    },
+    { id: "managers", label: "Managers", caption: "Ask about your houses and prospects.", items: managerItems() },
+    { id: "owners", label: "Owners", caption: "Ask how your home is doing.", items: ownerItems },
+  ];
+}
+
+/** One short exchange: the first message the person sends and the first PropLane answers, in the order the phone shows them. */
+export function firstExchange(items: PhoneItem[]): Extract<PhoneItem, { kind: "in" | "out" }>[] {
+  const out = items.find((item) => item.kind === "out");
+  const answer = items.find((item) => item.kind === "in");
+  return [out, answer]
+    .filter((item): item is Extract<PhoneItem, { kind: "in" | "out" }> => item !== undefined)
+    .sort((a, b) => items.indexOf(a) - items.indexOf(b));
+}
+
+/**
+ * Tablet and phone (up to 1024px): a plain list of the roles, each with its caption and one two-bubble exchange drawn
+ * from the same items the desktop phones play. No phone frame and no network diagram. CSS shows it only there.
+ */
+function HomeHowList({ roles: list }: { roles: Role[] }) {
   return (
-    <HomeScrollStage
-      id="how"
-      title="How it works"
-      sectionNumber="01"
-      className="home-number-stage"
-      travel={500}
-      steps={[
-        {
-          id: "prospects",
-          label: "Prospects",
-          caption: "Ask about a room. Book the tour.",
-          content: (
-            <PhoneScene role="Prospect" items={beatItems("resident", "tour")} />
-          ),
-        },
-        {
-          id: "residents",
-          label: "Residents",
-          caption: "Pay rent. Report a leak.",
-          content: (
-            <PhoneScene role="Resident" items={beatItems("resident", "pay")} />
-          ),
-        },
-        {
-          id: "vendors",
-          label: "Vendors",
-          caption: "Accept the job. Keep everyone posted.",
-          content: (
-            <PhoneScene
-              role="Vendor"
-              items={[
-                ...beatItems("vendor", "quote"),
-                ...beatItems("vendor", "visit"),
-              ]}
-            />
-          ),
-        },
-        {
-          id: "managers",
-          label: "Managers",
-          caption: "Ask about your houses and prospects.",
-          content: <PhoneScene role="Manager" items={managerItems()} />,
-        },
-        {
-          id: "owners",
-          label: "Owners",
-          caption: "Ask how your home is doing.",
-          content: <PhoneScene role="Owner" items={ownerItems} />,
-        },
-        {
-          id: "homes",
-          label: "Every home",
-          caption: "A home connects the people who keep it running.",
-          content: <NetworkScene />,
-        },
-      ]}
-    />
+    <section className="home-how-list" aria-labelledby="home-how-list-title">
+      <HomeSectionHeader id="home-how-list-title">How it works</HomeSectionHeader>
+      <ol className="home-how-roles">
+        {list.map((role) => (
+          <li key={role.id} id={`how-${role.id}-list`} className="home-how-role" data-role={role.id}>
+            <h3>{role.label}</h3>
+            <p>{role.caption}</p>
+            <div className="home-how-chat" role="group" aria-label={`${role.label} example`}>
+              {firstExchange(role.items).map((message, index) => (
+                <div key={index} className={`home-how-bubble home-how-bubble--${message.kind}`}>
+                  <span>{message.text}</span>
+                </div>
+              ))}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+export function HomeNumberStage() {
+  const list = roleSteps();
+  return (
+    <div id="how" className="home-how">
+      <div className="home-how-wide">
+        <HomeScrollStage
+          id="how"
+          rootId="how-stage"
+          title="How it works"
+          sectionNumber="01"
+          className="home-number-stage"
+          travel={500}
+          steps={[
+            ...list.map((role) => ({
+              id: role.id,
+              label: role.label,
+              caption: role.caption,
+              content: <PhoneScene role={role.label.replace(/s$/, "")} items={role.items} />,
+            })),
+            {
+              id: "homes",
+              label: "Every home",
+              caption: "A home connects the people who keep it running.",
+              content: <NetworkScene />,
+            },
+          ]}
+        />
+      </div>
+      <HomeHowList roles={list} />
+    </div>
   );
 }

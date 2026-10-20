@@ -19,7 +19,6 @@ export type HomeTextingConfig = PublicTextingConfig;
 
 export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
   const pathname = usePathname();
-  const [heroPassed, setHeroPassed] = useState(false);
   const [activeSection, setActiveSection] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const menuTrigger = useRef<HTMLButtonElement>(null);
@@ -28,41 +27,14 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
   const textHref = configured ? texting.smsHref! : GET_STARTED_HREF;
 
   useEffect(() => {
-    if (typeof window.IntersectionObserver === "function") return;
-    let frame = 0;
-    const update = () => {
-      frame = 0;
-      if (typeof window.IntersectionObserver !== "function") {
-        const hero = document.getElementById("home-hero");
-        setHeroPassed(
-          Boolean(hero && hero.getBoundingClientRect().bottom <= 0),
-        );
-      }
-    };
-    const scroll = () => {
-      if (!frame) frame = requestAnimationFrame(update);
-    };
-    scroll();
-    window.addEventListener("scroll", scroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", scroll);
-      cancelAnimationFrame(frame);
-    };
-  }, [pathname]);
-
-  useEffect(() => {
     if (pathname !== "/" || typeof window.IntersectionObserver !== "function")
       return;
     const observed = new Set<Element>();
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.target.id === "home-hero") {
-            setHeroPassed(
-              !entry.isIntersecting && entry.boundingClientRect.bottom <= 0,
-            );
-            if (entry.isIntersecting) setActiveSection("");
-          }
+          if (entry.target.id === "home-hero" && entry.isIntersecting)
+            setActiveSection("");
         }
       },
       { threshold: 0 },
@@ -138,6 +110,15 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
     };
   }, [pathname]);
 
+  // Phone (640px and below) has no Menu: the bar is brand, Book a demo and Portal. Close the sheet if the window narrows to it.
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const phone = window.matchMedia("(max-width: 640px)");
+    const close = () => { if (phone.matches) setMenuOpen(false); };
+    phone.addEventListener?.("change", close);
+    return () => phone.removeEventListener?.("change", close);
+  }, []);
+
   const onHome = pathname === "/";
   // The bar's top-right action is Book a demo at every width on every public page (captain #26); the number stays in
   // the hero, the Contact section and the footer. On the homepage it opens the Contact form in place.
@@ -207,6 +188,14 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
             >
               Book a demo
             </a>
+            <Link
+              href="/auth/sign-in"
+              prefetch={false}
+              className={`${styles.portal} ${styles.phonePortal}`}
+              data-attr="home-nav-portal-phone"
+            >
+              Portal
+            </Link>
             <button
               ref={menuTrigger}
               type="button"
@@ -229,19 +218,6 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
           onClose={() => setMenuOpen(false)}
           restoreFocus={() => menuTrigger.current?.focus()}
         />
-      )}
-      {onHome && heroPassed && !menuOpen && (
-        <div className={styles.stickyCta} data-attr="home-sticky-text-bar">
-          <a
-            href={textHref}
-            className={styles.stickyAction}
-            data-attr="home-sticky-text"
-            aria-label={configured ? `Text ${phone}` : "Start free"}
-          >
-            <span>{configured ? `Text ${phone}` : "Start free"}</span>
-            <ArrowRight aria-hidden="true" size={22} />
-          </a>
-        </div>
       )}
     </>
   );
