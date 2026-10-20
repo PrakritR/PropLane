@@ -191,7 +191,7 @@ export class World {
   async createRosterVendor({ ownerId, name, trade, phone }) {
     const id = `e2e-vendor-${this.runId}-${hex(5)}`;
     this.phones.push(phone);
-    await must(() => this.db.from("manager_vendor_records").upsert({ id, manager_user_id: ownerId, row_data: { id, name, trade, trades: [trade], phone, email: "", notes: "", active: true, testRunId: this.runId } }, { onConflict: "id" }), `vendor ${name}`);
+    await must(() => this.db.from("manager_vendor_records").upsert({ id, manager_user_id: ownerId, row_data: { id, managerUserId: ownerId, name, trade, trades: [trade], phone, email: "", notes: "", active: true, testRunId: this.runId } }, { onConflict: "id" }), `vendor ${name}`);
     return { id, name, trade, phone };
   }
 
