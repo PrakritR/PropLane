@@ -94,7 +94,7 @@ export function otpMessageBody(code: string, contextLabel = "PropLane"): string 
  */
 function isMissingFunctionError(error: { code?: string | null } | null | undefined): boolean {
   const code = String(error?.code ?? "");
-  return code === "PGRST202" || code === "PGRST203" || code === "42883";
+  return code === "PGRST202" || code === "42883";
 }
 
 /**
@@ -128,8 +128,9 @@ async function startChallenge(
       p_now: input.now.toISOString(),
     })) as { data: unknown; error: { code?: string | null } | null };
   } catch {
-    // A client that cannot make the call at all is the same situation as a database without the function.
-    called = { data: null, error: { code: "PGRST202" } };
+    // A call that threw is not proof the function is missing: falling back would run the non-atomic sequence (and
+    // its race on the send cap) on a database that has the atomic one. Only PGRST202 / 42883 falls back.
+    return "unavailable";
   }
   if (!called.error) return called.data === true ? "ok" : "rate_limited";
   if (!isMissingFunctionError(called.error)) return "unavailable";

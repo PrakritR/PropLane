@@ -27,6 +27,32 @@ async function request(db: never, over: { now?: Date; subjectId?: string | null;
 const verify = (db: never, code: unknown, now: Date = T0, subjectId: string | null = "link-1") =>
   verifyPhoneOtp(db, { phoneKey: PHONE, purpose: "link_unlock", subjectId, code, now });
 
+describe("phone_otp_start failure handling", () => {
+  const withRpc = (db: ReturnType<typeof linksFakeDb>["db"], rpc: () => Promise<unknown>) =>
+    new Proxy(db as object, { get: (t, k, r) => (k === "rpc" ? rpc : Reflect.get(t, k, r)) }) as never;
+
+  it.each([
+    ["a thrown call", () => Promise.reject(new Error("socket hang up"))],
+    ["an error that is not function-missing", () => Promise.resolve({ data: null, error: { code: "57014", message: "statement timeout" } })],
+  ])("%s is unavailable and never runs the non-atomic fallback", async (_name, rpc) => {
+    const { db, rows } = linksFakeDb();
+    const send = vi.fn(async () => true);
+    const result = await requestPhoneOtp(withRpc(db, rpc), { phoneKey: PHONE, purpose: "link_unlock", subjectId: "link-1", now: T0, send });
+    expect(result).toEqual({ ok: false, reason: "unavailable" });
+    expect(send).not.toHaveBeenCalled();
+    expect(rows.phone_otp_challenges ?? []).toHaveLength(0);
+  });
+
+  it.each(["PGRST202", "42883"])("falls back to the old sequence only when the function is missing (%s)", async (code) => {
+    const { db, rows } = linksFakeDb();
+    const result = await requestPhoneOtp(withRpc(db, () => Promise.resolve({ data: null, error: { code } })), {
+      phoneKey: PHONE, purpose: "link_unlock", subjectId: "link-1", now: T0, send: async () => true,
+    });
+    expect(result.ok).toBe(true);
+    expect(rows.phone_otp_challenges).toHaveLength(1);
+  });
+});
+
 describe("requestPhoneOtp", () => {
   it("sends a six-digit code and stores only a keyed hash bound to the challenge and phone", async () => {
     const { db, rows } = linksFakeDb();

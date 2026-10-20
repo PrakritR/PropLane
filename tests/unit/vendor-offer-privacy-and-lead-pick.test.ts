@@ -116,6 +116,13 @@ describe("a vendor candidate's label", () => {
     expect(propertyGeneralArea(row)).not.toMatch(/5259|Brooklyn/);
   });
 
+  it("never returns the building name as the area, even a non-numeric one", () => {
+    expect(propertyGeneralArea({ buildingName: "The Brooklyn", address: "" })).toBe("");
+    expect(propertyGeneralArea({ buildingName: "The Brooklyn" })).toBe("");
+    expect(propertyGeneralArea({ buildingName: "The Brooklyn", address: "5259 Brooklyn Ave NE, Seattle, WA 98105" })).toBe("Seattle");
+    expect(propertyGeneralArea({ buildingName: "The Brooklyn", neighborhood: "University District", address: "5259 Brooklyn Ave NE" })).toBe("University District");
+  });
+
   it("is empty when no area can be told, so the caller names the workspace instead of a placeholder", () => {
     expect(propertyGeneralArea({ buildingName: "412 Pine St", address: "412 Pine St" })).toBe("");
     expect(propertyGeneralArea({})).toBe("");

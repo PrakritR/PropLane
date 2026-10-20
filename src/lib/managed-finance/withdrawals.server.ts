@@ -404,7 +404,7 @@ export async function reconcileWithdrawals(stripe: Stripe, db: SupabaseClient, n
 async function finishPendingVerificationPayouts(stripe: Stripe, db: SupabaseClient, now: Date): Promise<number> {
   const { data, error } = await db
     .from("party_withdrawals")
-    .select("id, amount_cents, destination_account_id, stripe_transfer_id, payout_error, updated_at")
+    .select("id, amount_cents, destination_account_id, stripe_transfer_id, payout_error, updated_at, created_at")
     .eq("status", "completed")
     .is("stripe_payout_id", null)
     .like("payout_error", `${PAYOUT_PENDING_VERIFICATION_CODE}%`)
@@ -449,8 +449,7 @@ async function finishPendingVerificationPayouts(stripe: Stripe, db: SupabaseClie
     let adopted: Stripe.Payout | null = null;
     let superseded: Stripe.Payout[] = [];
     try {
-      const recent = await stripe.payouts.list({ limit: 100 }, { stripeAccount: accountId });
-      const mine = (recent.data ?? []).filter((p) => p.metadata?.withdrawal_id === id);
+      const mine = await listPayoutsTaggedFor(stripe, accountId, id, String(raw.created_at ?? ""));
       // ONLY a payout that is on its way (or already there) answers for this withdrawal. A `failed` or `canceled`
       // one put the money back in the connected account's balance, so it is not an answer and must not match: it
       // counted as "adopted" on every later sweep, which meant the replacement payout below was never reached and
@@ -505,6 +504,34 @@ async function finishPendingVerificationPayouts(stripe: Stripe, db: SupabaseClie
  * the connected account's balance.
  */
 const PAYOUT_LIVE_STATUSES = new Set(["paid", "pending", "in_transit"]);
+
+const PAYOUT_LIST_PAGE_SIZE = 100;
+const PAYOUT_LIST_MAX_PAGES = 10;
+const PAYOUT_LIST_LOOKBACK_SECONDS = 24 * 60 * 60;
+
+/**
+ * Every payout on the connected account tagged with this withdrawal. Reads only payouts created from a day before
+ * the withdrawal and pages (`starting_after`) until a live one answers or the list is exhausted: an account with
+ * more than 100 recent payouts must not push the withdrawal's own payout out of view and get it paid twice. If the
+ * page cap is hit with more still unread and nothing live found, that is not an answer, so it throws and the caller
+ * keeps the marker for a later sweep.
+ */
+async function listPayoutsTaggedFor(stripe: Stripe, accountId: string, withdrawalId: string, withdrawalCreatedAt: string): Promise<Stripe.Payout[]> {
+  const createdMs = Date.parse(withdrawalCreatedAt);
+  const params: Stripe.PayoutListParams = { limit: PAYOUT_LIST_PAGE_SIZE };
+  if (Number.isFinite(createdMs)) params.created = { gte: Math.max(0, Math.floor(createdMs / 1000) - PAYOUT_LIST_LOOKBACK_SECONDS) };
+  const mine: Stripe.Payout[] = [];
+  let startingAfter: string | undefined;
+  for (let page = 0; page < PAYOUT_LIST_MAX_PAGES; page += 1) {
+    const res = await stripe.payouts.list(startingAfter ? { ...params, starting_after: startingAfter } : params, { stripeAccount: accountId });
+    const data = res.data ?? [];
+    mine.push(...data.filter((p) => p.metadata?.withdrawal_id === withdrawalId));
+    if (mine.some((p) => PAYOUT_LIVE_STATUSES.has(String(p.status ?? "")))) return mine;
+    if (!res.has_more || data.length === 0) return mine;
+    startingAfter = data[data.length - 1]!.id;
+  }
+  throw new Error("payout list not exhausted");
+}
 
 /** The Monday (Pacific) a weekly batch belongs to, `YYYY-MM-DD`. */
 export function batchWeekKey(now: Date): string {

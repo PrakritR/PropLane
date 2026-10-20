@@ -52,8 +52,12 @@ export function propertyLabel(rowData: unknown): string {
  */
 export function propertyGeneralArea(rowData: unknown): string {
   const data = rowData && typeof rowData === "object" ? (rowData as Record<string, unknown>) : {};
-  const area = workOrderGeneralArea({ propertyAddress: str(data.address), propertyName: str(data.buildingName) });
-  // "Nearby" is the helper's "I cannot tell": the caller then names the workspace instead of a placeholder.
+  // The building name is never an area ("The Brooklyn" names the house): only an explicit neighborhood, or the city
+  // out of the address. Empty reads as "cannot tell", and the caller names the workspace instead.
+  const neighborhood = str(data.neighborhood);
+  if (neighborhood) return neighborhood;
+  const area = workOrderGeneralArea({ propertyAddress: str(data.address), propertyName: "" });
+  // "Nearby" is the helper's "I cannot tell".
   return area === "Nearby" ? "" : area;
 }
 

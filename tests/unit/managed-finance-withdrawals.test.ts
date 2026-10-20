@@ -416,6 +416,34 @@ describe("reconciliation finishes the payouts that were never started", () => {
     expect(f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args).toMatchObject({ p_id: "wd-7", p_transfer: "tr_7", p_payout: "po_1", p_payout_error: null });
   });
 
+  it("pages past the first 100 payouts to find the one tagged with this withdrawal, instead of creating a second", async () => {
+    const f = setup({}, { party_withdrawals: [unverified()] });
+    const filler = (n: number) => Array.from({ length: 100 }, (_, i) => ({ id: `po_f${n}_${i}`, status: "paid", metadata: {} }));
+    const stripe = withSchedule(makeStripe(), () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }));
+    const list = stripe.payouts.list as unknown as ReturnType<typeof vi.fn>;
+    list.mockReset();
+    list
+      .mockResolvedValueOnce({ data: filler(1), has_more: true })
+      .mockResolvedValueOnce({ data: [...filler(2).slice(0, 5), { id: "po_mine", status: "in_transit", metadata: { withdrawal_id: "wd-7" } }], has_more: false });
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 1 });
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(list.mock.calls[1]![0]).toMatchObject({ starting_after: "po_f1_99" });
+    expect(stripe.payouts.create).not.toHaveBeenCalled();
+    expect(f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args).toMatchObject({ p_payout: "po_mine", p_payout_error: null });
+  });
+
+  it("a list that never runs out within the page cap is not an answer: no second payout, the marker is kept", async () => {
+    const f = setup({}, { party_withdrawals: [unverified()] });
+    const stripe = withSchedule(makeStripe(), () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }));
+    const list = stripe.payouts.list as unknown as ReturnType<typeof vi.fn>;
+    let n = 0;
+    list.mockReset();
+    list.mockImplementation(async () => ({ data: [{ id: `po_${(n += 1)}`, status: "paid", metadata: {} }], has_more: true }));
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 0 });
+    expect(list.mock.calls.length).toBeGreaterThan(1);
+    expect(stripe.payouts.create).not.toHaveBeenCalled();
+  });
+
   it.each(["paid", "pending", "in_transit"])("adopts a %s payout already tagged with this withdrawal instead of creating a second one", async (status) => {
     const f = setup({}, { party_withdrawals: [unverified()] });
     const stripe = withSchedule(
@@ -423,7 +451,7 @@ describe("reconciliation finishes the payouts that were never started", () => {
       () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }),
     );
     expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 1 });
-    expect(stripe.payouts.list).toHaveBeenCalledWith({ limit: 100 }, { stripeAccount: ACCT });
+    expect(stripe.payouts.list).toHaveBeenCalledWith({ limit: 100, created: { gte: expect.any(Number) } }, { stripeAccount: ACCT });
     expect(stripe.payouts.create).not.toHaveBeenCalled();
     expect(f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args).toMatchObject({ p_id: "wd-7", p_transfer: "tr_7", p_payout: "po_earlier", p_payout_error: null });
   });
