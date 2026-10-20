@@ -202,32 +202,27 @@ owns it (attached), or its flagged owner-of-record member when the platform serv
 closed: with no `platform_service_settings` row there is no way to tell a client's workspace from PropLane's own, so the answer is
 "none" and nothing is created - PropLane is never named as the owner of record of its own workspace.
 
-- **The automatic path never discards an admin's work.** An open draft is ACTIVATED at its own rate (never ended and replaced by
-  the 10% default); the default is created only when the workspace has neither a policy in force nor a draft.
-- **`loadActivePolicyForWorkspace` is the one resolver, and the one activator.** Every settle / checkout / hold path reads the
-  policy in force through it, and it is where a version dated ahead becomes the live one: on the first read on or after its
-  PACIFIC effective day it is activated and the previous version is ended at that same date, in the one atomic database function
-  (idempotent - a racing caller gets `exists`, and a version that cannot start leaves the rate in force running and logs
-  `scheduled_start_refused`). Nothing else - no cron, no `ensureServiceFeePolicy` branch - puts a scheduled version in force.
-- Admin changes the rate in Admin > Service > Management fee (0 to `MAX_MANAGEMENT_FEE_PERCENT`, `fee-percent.ts` - one parse, one
-  range, shared by the server and the modal). The new rate is a new version **dated the 1st of the next Pacific month** and left as
-  a draft until then (`setServiceManagementFee`): `targetMonthlyFeeCents` applies the policy in force to the whole Pacific month's
-  collected rent, so a mid-month change would re-price rent the owner was already paid for, and a cut could never be given back.
-  Entering the rate already in force cancels a scheduled change. The day it takes effect shows in the Admin > Service modal (only
-  when the typed rate differs from the one in force), on the Service row, and in the owner's payouts strip.
-- **A scheduled change is marked, and Admin > Service touches nothing else.** `setServiceManagementFee` writes `SCHEDULED_FEE_NOTE`
-  into the draft's `attestation_note` and will only edit or cancel a draft carrying it. A draft hand-authored in
-  Admin > Managed finance holds terms a rate box cannot see (a leasing fee, a minimum, a reserve), so the fee change is refused with
-  a message pointing there rather than overwriting it.
-- **Pull-forward is the one place a rate still starts mid-month**, and only when NO policy is in force (otherwise the workspace's
-  residents cannot pay at all): the scheduled version starts today, the row records the date it was due in its note, and
-  `[managed-fee] pulled_forward` is logged.
+- **The automatic path never touches an admin's work.** The default is created only when the workspace has neither a
+  policy in force nor a DRAFT. A draft holds terms a human is still deciding (a leasing fee, a minimum, a reserve), so
+  nothing is activated and nothing is created next to it: the attention item says to record or end it in
+  Admin > Managed finance, and the workspace's rent stays paused until someone does.
+- `loadActivePolicyForWorkspace` is a pure READ of the version in force as of a payment's own day. A fee version is
+  activated by an admin's own action or by `ensureServiceFeePolicy` on a workspace with no policy at all - never as a
+  side effect of settling a payment.
+- Admin changes the rate in Admin > Service > Management fee (0 to `MAX_MANAGEMENT_FEE_PERCENT`, `fee-percent.ts` - one
+  parse, one range, shared by the server and the modal). The new rate is a new version **activated at once**: the one
+  atomic database function ends the previous one in the same transaction, so the change reaches every payment settled
+  from that moment on and a payment already settled keeps the split it was settled with. Only the fee share moves - the
+  owner of record and every other term are copied from the version it replaces. The modal states the rate in force and
+  the toast says whether the save moved it; there is no scheduled change and no effective date anywhere.
 - Fail-closed fallback, only when the automatic fee cannot be created: new resident checkouts are refused
-  (`serviceSetupPendingProblem`, 422 `SERVICE_SETUP_PENDING`; a cart that mixes the just-created managed workspace with another
-  payment setup comes back as `MIXED_PAYMENT_SETUP`, never mislabelled), hold releases for the manager of record stay frozen,
-  destination-capable checkouts capture on the platform balance, and an `owner_ledger_flags` row `fee_agreement_unsigned` (per
-  workspace per day; the name is historical) names the REASON - `no_owner` says to name the owner of record, anything else is a
-  failure to investigate. Every failure is also logged as `[managed-fee]` with its reason code.
+  (`serviceSetupPendingProblem`, 422 `SERVICE_SETUP_PENDING`; a cart that mixes the just-created managed workspace with
+  another payment setup comes back as `MIXED_PAYMENT_SETUP`, never mislabelled), hold releases for the manager of record
+  stay frozen, destination-capable checkouts capture on the platform balance, and **every** failure - inside
+  `ensureServiceFeePolicy` itself as well as at the money path that refused - writes the `owner_ledger_flags` row
+  `fee_agreement_unsigned` (per workspace per day; the name is historical) through the one writer,
+  `flagManagedFeeProblem` (`fee-flags.server.ts`). The row names the CAUSE: `no_owner` says to name the owner of record,
+  `draft_pending` points at Admin > Managed finance, the rest are a failure to investigate. Nothing is only logged.
 - Rent already held for a manager of record before the policy existed is released to that manager without the fee once the policy exists.
 
 ## Application and form fees (decision)

@@ -405,14 +405,6 @@ export function OwnerPayoutsPanel() {
                   { id: "available", label: "Available to withdraw", value: formatManagedUsd(view.balance.availableCents), tone: "ok", dataAttr: "owner-finances-available" },
                   { id: "pending", label: "Pending", value: formatManagedUsd(view.balance.pendingCents), dataAttr: "owner-finances-pending" },
                   { id: "fee", label: "Management fee", value: `${feePercentForOwnerShareBps(view.policy.terms.ownerShareBps)}%`, dataAttr: "owner-finances-fee" },
-                  ...(view.scheduledFee
-                    ? [{
-                        id: "fee-next",
-                        label: `Management fee from ${shortDate(view.scheduledFee.effectiveFrom)}`,
-                        value: `${view.scheduledFee.feePercent}%`,
-                        dataAttr: "owner-finances-fee-scheduled",
-                      }]
-                    : []),
                   ...(view.occupancy ? [{ id: "rooms", label: "Rooms occupied", value: `${view.occupancy.occupied} of ${view.occupancy.units}` }] : []),
                 ]}
               />

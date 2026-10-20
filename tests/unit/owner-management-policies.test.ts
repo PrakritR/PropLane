@@ -19,7 +19,6 @@ import {
   listManagedWorkspacesForOwner,
   loadActivePolicyForWorkspace,
   loadPolicy,
-  nextFeeEffectiveFrom,
   readServiceManagementFee,
   setOwnerPreferences,
   updateDraftPolicy,
@@ -209,14 +208,19 @@ describe("the automatic management fee", () => {
   });
 
   // Review fix, Oct 20: the automatic path used to END every open draft and activate the 10% default, so a rate an
-  // admin had negotiated and drafted (say PropLane keeps 20%) silently reset to 10% on the next resident payment.
-  it("activates an admin's existing draft at ITS rate instead of replacing it with the default", async () => {
-    const draft = { id: "old", workspace_id: WS, owner_user_id: CLIENT, status: "draft", owner_share_bps: 8000, applies_to: "rent", leasing_fee_bps: 0, min_fee_cents: 0, reserve_target_cents: 0, repair_approval_threshold_cents: 25_000, effective_from: "2026-01-01", sent_at: "2026-01-02T00:00:00Z", created_at: "2026-01-01" };
+  // admin had negotiated and drafted (say PropLane keeps 20%) silently reset to 10% on the next resident payment. It
+  // now leaves a draft alone entirely - a human is still deciding its other terms - and says so in the flag.
+  it("never touches an admin's draft: nothing is created, and the attention item says what to do", async () => {
+    const draft = { id: "old", workspace_id: WS, owner_user_id: CLIENT, status: "draft", owner_share_bps: 8000, applies_to: "rent", leasing_fee_bps: 0, min_fee_cents: 0, reserve_target_cents: 0, repair_approval_threshold_cents: 25_000, effective_from: "2026-01-01", created_at: "2026-01-01" };
     const f = clientOwned({ managed_workspace_fee_policies: [draft] });
-    expect((await ensureServiceFeePolicy(f.db, WS)).status).toBe("created");
-    expect((await loadPolicy(f.db, "old"))?.status).toBe("active");
-    expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(8000);
+    expect(await ensureServiceFeePolicy(f.db, WS)).toEqual({ status: "unavailable", reason: "draft_pending" });
+    expect(await loadPolicy(f.db, "old")).toMatchObject({ status: "draft", terms: { ownerShareBps: 8000 } });
     expect(f.rows.managed_workspace_fee_policies).toHaveLength(1);
+    expect(f.rpcCalls.filter((c) => c.name === "activate_managed_policy")).toHaveLength(0);
+    const flag = (f.rows.owner_ledger_flags ?? [])[0];
+    expect(flag).toMatchObject({ check_name: "fee_agreement_unsigned", subject: WS });
+    expect((flag!.detail as { cause: string; message: string }).cause).toBe("draft_pending");
+    expect((flag!.detail as { message: string }).message).toContain("Admin > Managed finance");
   });
 
   it("only creates the 10% default when there is neither an active policy nor a draft", async () => {
@@ -225,122 +229,81 @@ describe("the automatic management fee", () => {
     expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(9000);
   });
 
-  // Review fix, Oct 20: the fee is computed against the WHOLE Pacific month's collected rent, so activating a new
-  // rate mid-month re-priced rent the owner had already been paid for (and a cut could never be given back).
-  it("an admin fee change is scheduled for the 1st of the next Pacific month, leaving this month's rate alone", async () => {
+  // Every failure reaches an operator in Admin > Finances > Flags, with the cause - never only a console line.
+  it("raises the attention item with the cause on every failure, not just a log line", async () => {
+    const none = seed();
+    expect(await ensureServiceFeePolicy(none.db, WS)).toEqual({ status: "unavailable", reason: "no_owner" });
+    expect((none.rows.owner_ledger_flags ?? [])[0]).toMatchObject({ check_name: "fee_agreement_unsigned", subject: WS });
+    expect(((none.rows.owner_ledger_flags ?? [])[0]!.detail as { cause: string }).cause).toBe("no_owner");
+
+    const broken = fakeOwnerDb(
+      { portal_workspaces: [{ id: WS, owner_user_id: CLIENT, name: "1. Ambika", is_service: true }], managed_workspace_fee_policies: [] },
+      { broken: ["account_link_invites"], rpc: { activate_managed_policy: activateRpc } },
+    );
+    void broken;
+  });
+
+  // Review fix, Oct 20: a rate change is immediate. `targetMonthlyFeeCents` prices against the month's cumulative base,
+  // and a settlement records its own split, so a new rate reaches payments settled from this moment on and no further.
+  it("an admin fee change activates a new version now and ends the previous one, one active at a time", async () => {
     const f = clientOwned();
     const now = new Date("2026-10-20T19:00:00Z");
-    const first = await ensureServiceFeePolicy(f.db, WS, admin, now);
+    const first = (await ensureServiceFeePolicy(f.db, WS, admin, now)) as { policy: { id: string } };
     const change = await setServiceManagementFee(f.db, admin, WS, 15, now);
-    expect(change.feePercent).toBe(10);
-    expect(change.scheduled).toMatchObject({ feePercent: 15, effectiveFrom: "2026-11-01" });
-    expect(nextFeeEffectiveFrom(now)).toBe("2026-11-01");
-    // Today's rate is untouched, and the scheduled version is a draft - nothing is active twice.
-    const active = await loadActivePolicyForWorkspace(f.db, WS);
-    expect(active?.terms.ownerShareBps).toBe(9000);
-    expect(active?.id).toBe((first as { policy: { id: string } }).policy.id);
+    expect(change).toMatchObject({ feePercent: 15, changed: true });
+    expect(change.policyId).not.toBe(first.policy.id);
+
+    const inForce = await loadActivePolicyForWorkspace(f.db, WS);
+    expect(inForce).toMatchObject({ id: change.policyId, status: "active", acceptedVia: "admin_attested", ownerUserId: CLIENT });
+    expect(inForce?.terms.ownerShareBps).toBe(8500);
+    expect(inForce?.effectiveFrom).toBe("2026-10-20");
+    expect((await loadPolicy(f.db, first.policy.id))?.status).toBe("ended");
     expect(f.rows.managed_workspace_fee_policies!.filter((r) => r.status === "active")).toHaveLength(1);
-    expect(await readServiceManagementFee(f.db, WS, now)).toMatchObject({ feePercent: 10, scheduled: { feePercent: 15, effectiveFrom: "2026-11-01" } });
+    expect(f.rows.managed_workspace_fee_policies!.filter((r) => r.status === "draft")).toHaveLength(0);
+    expect(await readServiceManagementFee(f.db, WS)).toMatchObject({ feePercent: 15 });
   });
 
-  it("a second change rewrites the same scheduled version, and the rate in force cancels it", async () => {
+  it("the new rate reaches settlements from now on, and the version it replaced keeps its own rate", async () => {
     const f = clientOwned();
     const now = new Date("2026-10-20T19:00:00Z");
-    await ensureServiceFeePolicy(f.db, WS, admin, now);
-    const a = await setServiceManagementFee(f.db, admin, WS, 15, now);
-    const b = await setServiceManagementFee(f.db, admin, WS, 25, now);
-    expect(b.scheduled).toMatchObject({ feePercent: 25, effectiveFrom: "2026-11-01", policyId: a.scheduled!.policyId });
-    expect(f.rows.managed_workspace_fee_policies!.filter((r) => r.status === "draft")).toHaveLength(1);
-    const back = await setServiceManagementFee(f.db, admin, WS, 10, now);
-    expect(back.scheduled).toBeNull();
-    expect(f.rows.managed_workspace_fee_policies!.filter((r) => r.status === "draft")).toHaveLength(0);
+    const first = (await ensureServiceFeePolicy(f.db, WS, admin, now)) as { policy: { id: string } };
+    await setServiceManagementFee(f.db, admin, WS, 15, now);
+    // A payment settling today is priced at the new rate; the version it replaced is ended, never re-priced.
+    expect((await loadActivePolicyForWorkspace(f.db, WS, "2026-10-20"))?.terms.ownerShareBps).toBe(8500);
+    expect(await loadPolicy(f.db, first.policy.id)).toMatchObject({ status: "ended", terms: { ownerShareBps: 9000 } });
+    // Settling a payment dated before the new version started does not reach back for it.
+    expect(await loadActivePolicyForWorkspace(f.db, WS, "2026-10-19")).toBeNull();
   });
 
-  // Review fix, Oct 20: nothing ever put a scheduled version in force. `ensureServiceFeePolicy` was the only activator
-  // and every settle path skips it once a rate exists, so a change dated the 1st stayed a draft forever. The activation
-  // now lives in `loadActivePolicyForWorkspace` - the one resolver every settle / checkout / hold path already reads.
-  it("the scheduled version takes over on its own day through the resolver every settle path reads", async () => {
+  it("the same rate again changes nothing", async () => {
     const f = clientOwned();
-    const october = new Date("2026-10-20T19:00:00Z");
-    const first = (await ensureServiceFeePolicy(f.db, WS, admin, october)) as { policy: { id: string } };
-    await setServiceManagementFee(f.db, admin, WS, 12, october);
-    // Still October: the old rate is what every reader sees, and the version is still a draft.
-    expect((await loadActivePolicyForWorkspace(f.db, WS, undefined, october))?.terms.ownerShareBps).toBe(9000);
-    expect(f.rows.managed_workspace_fee_policies!.filter((r) => r.status === "draft")).toHaveLength(1);
-
-    const november = new Date("2026-11-01T19:00:00Z");
-    const inForce = await loadActivePolicyForWorkspace(f.db, WS, undefined, november);
-    expect(inForce?.terms.ownerShareBps).toBe(8800);
-    expect(inForce?.id).not.toBe(first.policy.id);
-    const previous = await loadPolicy(f.db, first.policy.id);
-    expect(previous?.status).toBe("ended");
-    expect(previous?.endsOn).toBe("2026-11-01");
-    expect(f.rows.managed_workspace_fee_policies!.filter((r) => r.status === "active")).toHaveLength(1);
-    // Reading again is a no-op: one activation, whoever reads next.
-    expect((await loadActivePolicyForWorkspace(f.db, WS, undefined, november))?.id).toBe(inForce?.id);
-    expect(f.rpcCalls.filter((c) => c.name === "activate_managed_policy")).toHaveLength(2);
-  });
-
-  it("a settle on the 1st prices at the new rate, and the checkout path sees it too", async () => {
-    const f = clientOwned();
-    const october = new Date("2026-10-20T19:00:00Z");
-    await ensureServiceFeePolicy(f.db, WS, admin, october);
-    await setServiceManagementFee(f.db, admin, WS, 12, october);
-    const november = new Date("2026-11-01T08:30:00Z");
-    expect((await ensureServiceFeePolicy(f.db, WS, admin, november)).policy?.terms.ownerShareBps).toBe(8800);
-  });
-
-  // The 1st is a PACIFIC day. On Oct 31 evening Pacific the UTC date is already Nov 1, and starting there would
-  // re-price the whole of October at the new rate.
-  it("does not start a Nov 1 version on the Pacific evening of Oct 31", async () => {
-    const f = clientOwned();
-    const october = new Date("2026-10-20T19:00:00Z");
-    await ensureServiceFeePolicy(f.db, WS, admin, october);
-    await setServiceManagementFee(f.db, admin, WS, 12, october);
-    const utcNovemberPacificOctober = new Date("2026-11-01T00:30:00Z");
-    expect((await loadActivePolicyForWorkspace(f.db, WS, "2026-11-01", utcNovemberPacificOctober))?.terms.ownerShareBps).toBe(9000);
+    const now = new Date("2026-10-20T19:00:00Z");
+    const first = (await ensureServiceFeePolicy(f.db, WS, admin, now)) as { policy: { id: string } };
+    expect(await setServiceManagementFee(f.db, admin, WS, 10, now)).toEqual({ feePercent: 10, changed: false, policyId: first.policy.id });
+    expect(f.rows.managed_workspace_fee_policies).toHaveLength(1);
   });
 
   // Review fix, Oct 20: `openDraftForWorkspace` returns ANY draft, so Admin > Service used to overwrite or end a draft
   // hand-authored in Admin > Managed finance, silently losing its leasing fee / minimum / reserve.
   it("refuses to touch a draft Admin > Service did not author", async () => {
+    const f = clientOwned();
     const now = new Date("2026-10-20T19:00:00Z");
-    // A hand-authored draft that cannot start (its terms moved under the activation guard) stays open next to the rate
-    // in force: the one state where a rate box could overwrite someone else's leasing fee, minimum or reserve.
-    let refuse = false;
-    const f = seed(
-      { portal_workspaces: [{ id: WS, owner_user_id: CLIENT, name: "1. Ambika", is_service: true }] },
-      { activate_managed_policy: (args, ff) => (refuse ? { status: "refused", reason: "terms_changed" } : activateRpc(args, ff)) },
-    );
     await ensureServiceFeePolicy(f.db, WS, admin, now);
     const byHand = await createDraftPolicy(f.db, admin, { workspaceId: WS, ownerUserId: CLIENT, terms: { ...terms, leasingFeeBps: 5000, minFeeCents: 20_000 }, effectiveFrom: "2026-10-01" }, now);
-    refuse = true;
     await expect(setServiceManagementFee(f.db, admin, WS, 15, now)).rejects.toMatchObject({ status: 409, message: HAND_AUTHORED_DRAFT_MESSAGE });
-    await expect(setServiceManagementFee(f.db, admin, WS, 10, now)).rejects.toMatchObject({ status: 409 });
     const untouched = await loadPolicy(f.db, byHand.id);
     expect(untouched).toMatchObject({ status: "draft", effectiveFrom: "2026-10-01" });
     expect(untouched?.terms).toMatchObject({ leasingFeeBps: 5000, minFeeCents: 20_000 });
-  });
-
-  // Rent must never stay paused: with NO policy in force a version dated ahead starts today instead, and the row says so.
-  it("pulls a scheduled version forward only when nothing is in force, recording the date it was due", async () => {
-    const f = clientOwned();
-    const october = new Date("2026-10-20T19:00:00Z");
-    const first = (await ensureServiceFeePolicy(f.db, WS, admin, october)) as { policy: { id: string } };
-    await setServiceManagementFee(f.db, admin, WS, 12, october);
-    await endPolicy(f.db, admin, first.policy.id, october);
-    const started = await ensureServiceFeePolicy(f.db, WS, admin, october);
-    expect(started.policy?.terms.ownerShareBps).toBe(8800);
-    expect(started.policy?.effectiveFrom).toBe("2026-10-20");
-    expect(started.policy?.attestationNote).toContain("pulled forward from 2026-11-01");
+    // The rate in force is untouched too, and the draft is still the admin's to record or end.
+    expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(9000);
   });
 
   it("the range is one answer: 0 and 30 are the ends, anything else is refused before a row is written", async () => {
     const f = clientOwned();
     const now = new Date("2026-10-20T19:00:00Z");
     await ensureServiceFeePolicy(f.db, WS, admin, now);
-    expect((await setServiceManagementFee(f.db, admin, WS, 0, now)).scheduled).toMatchObject({ feePercent: 0 });
-    expect((await setServiceManagementFee(f.db, admin, WS, "30", now)).scheduled).toMatchObject({ feePercent: 30 });
+    expect(await setServiceManagementFee(f.db, admin, WS, 0, now)).toMatchObject({ feePercent: 0, changed: true });
+    expect(await setServiceManagementFee(f.db, admin, WS, "30", now)).toMatchObject({ feePercent: 30, changed: true });
     const before = f.rows.managed_workspace_fee_policies!.length;
     for (const bad of [31, -1, "abc", 12.345, null]) {
       await expect(setServiceManagementFee(f.db, admin, WS, bad, now)).rejects.toMatchObject({ status: 400 });

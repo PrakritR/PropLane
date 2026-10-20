@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingSchemaError } from "@/lib/one-number/config.server";
 import { ensureServiceFeePolicy, loadActivePolicyForWorkspace, type EnsureFeeFailure } from "@/lib/owner-management/policies.server";
+import { feeFlagMessage, flagManagedFeeProblem } from "@/lib/owner-management/fee-flags.server";
 import { managedCartProblem, resolveManagedForProperties } from "@/lib/managed-finance/resolve.server";
 
 /**
@@ -92,25 +93,12 @@ export async function unpoliciedServiceForManager(db: SupabaseClient, managerUse
 
 /** What an admin has to do, per cause. Only `no_owner` is something to name; the rest are a failure to investigate. */
 export function unpoliciedFlagMessage(ws: UnpoliciedServiceWorkspace): string {
-  return ws.cause === "no_owner"
-    ? `Could not set the management fee for ${ws.workspaceName}: name its owner of record`
-    : `Could not set the management fee for ${ws.workspaceName}: the automatic fee failed (${ws.cause})`;
+  return feeFlagMessage(ws.workspaceName, ws.cause);
 }
 
 /** The admin attention item when the automatic fee could not be set: one flag per workspace per day, in Admin > Finances > Flags. Never throws. */
 export async function flagUnsignedFeeAgreement(db: SupabaseClient, ws: UnpoliciedServiceWorkspace, reason: "checkout_refused" | "hold_frozen"): Promise<void> {
-  try {
-    await db.from("owner_ledger_flags").upsert(
-      {
-        check_name: "fee_agreement_unsigned",
-        subject: ws.workspaceId,
-        detail: { message: unpoliciedFlagMessage(ws), reason, cause: ws.cause, workspace: ws.workspaceName },
-      },
-      { onConflict: "check_name,subject,day", ignoreDuplicates: true },
-    );
-  } catch {
-    /* an attention item must never fail the money path that raised it */
-  }
+  await flagManagedFeeProblem(db, { workspaceId: ws.workspaceId, workspaceName: ws.workspaceName, cause: ws.cause, reason });
 }
 
 export type ServiceSetupProblem = { code: "SERVICE_SETUP_PENDING" | "MIXED_PAYMENT_SETUP"; message: string };

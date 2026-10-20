@@ -22,7 +22,6 @@ function view(over: Record<string, unknown> = {}) {
   return {
     workspace: { id: "ws-1", name: "Maple Court" },
     policy: { id: "pol-1", status: "active", feeLine: "You receive 90%, PropLane keeps 10% of rent", terms: TERMS, signedAt: "2026-10-01T00:00:00Z" },
-    scheduledFee: null,
     month: "2026-10",
     balance: { balanceCents: 250_000, availableCents: 240_000, pendingCents: 30_000, reserveCents: 10_000 },
     statement: {
@@ -179,15 +178,6 @@ describe("OwnerPayoutsPanel", () => {
       url: "/api/owner/finances/policy/pol-1",
       body: { repairApprovalThresholdCents: 30_000, reserveTargetCents: 0 },
     });
-  });
-
-  // The fee only ever changes on the 1st of a later month, so the strip names the rate taking over and its day.
-  it("names a scheduled rate change in the strip", async () => {
-    currentView = view({ scheduledFee: { feePercent: 15, effectiveFrom: "2026-11-01" } });
-    installFetch();
-    render(<OwnerPayoutsPanel />);
-    expect(await screen.findByText("Management fee from Nov 1")).toBeTruthy();
-    expect(screen.getByText("15%")).toBeTruthy();
   });
 
   it("never asks the owner to sign: a leftover waiting agreement renders nothing, and the fee shows in the strip", async () => {

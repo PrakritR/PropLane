@@ -23,15 +23,3 @@ export function feePercentForOwnerShareBps(ownerShareBps: number): number {
 
 export const MANAGEMENT_FEE_RANGE_MESSAGE = `Enter a fee between 0 and ${MAX_MANAGEMENT_FEE_PERCENT}%.`;
 
-/**
- * The Pacific day a rate change takes effect: the 1st of the NEXT Pacific month. The monthly fee is computed against the
- * whole Pacific month's collected rent (`targetMonthlyFeeCents`), so a version that started mid-month would re-price rent
- * the owner has already been paid for.
- */
-export function nextFeeEffectiveFrom(now: Date = new Date()): string {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit" }).formatToParts(now);
-  const year = Number(parts.find((p) => p.type === "year")?.value);
-  const month = Number(parts.find((p) => p.type === "month")?.value);
-  if (!Number.isFinite(year) || !Number.isFinite(month)) throw new Error("Could not resolve the Pacific month.");
-  return month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, "0")}-01`;
-}

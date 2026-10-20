@@ -12,11 +12,11 @@ describe("no fee agreement signing in the UI", () => {
     const unpolicied = readFileSync("src/lib/managed-finance/unpolicied-service.server.ts", "utf8");
     expect(unpolicied).not.toMatch(/Sign the fee agreement/);
   });
-  it("the admin Service row offers the management fee, with the day it takes effect", () => {
+  it("the admin Service row offers the management fee, stating the rate in force and no effective date", () => {
     const admin = readFileSync("src/components/portal/admin-service-panel.tsx", "utf8");
     expect(admin).toContain("admin-service-fee");
-    expect(admin).toContain("admin-service-fee-effective");
-    expect(admin).toContain("nextFeeEffectiveFrom()");
+    expect(admin).toContain("admin-service-fee-current");
+    expect(admin).not.toMatch(/Takes effect/);
   });
 
   // Review fix, Oct 20: the owner-facing Sign card was removed but the admin side still sent the link that opened

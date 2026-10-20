@@ -13,9 +13,8 @@ import { proplaneIdLookupVariants } from "@/lib/manager-id";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { loadSharedLineConfig, workspaceHasDedicatedNumber, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { isPlatformServiceOwner, loadServiceWorkspace, resolveServiceOwner } from "@/lib/service/service-owner.server";
-import { ensureServiceFeePolicy, setServiceManagementFee, PolicyError, SCHEDULED_FEE_NOTE, type ServiceManagementFee } from "@/lib/owner-management/policies.server";
+import { ensureServiceFeePolicy, setServiceManagementFee, PolicyError, type ServiceManagementFee } from "@/lib/owner-management/policies.server";
 import { MANAGEMENT_FEE_RANGE_MESSAGE, feePercentForOwnerShareBps, ownerShareBpsForFeePercent } from "@/lib/owner-management/fee-percent";
-import { pacificDayKey } from "@/lib/house-groups/time";
 
 /**
  * PropLane Service workspaces (admin Service tab). Ordinary `portal_workspaces`
@@ -79,9 +78,6 @@ export type ServiceWorkspaceListRow = {
   canManage: boolean;
   /** Percent PropLane keeps of this workspace's rent (its active management fee), null until one exists. */
   feePercent: number | null;
-  /** A rate change already scheduled, and the Pacific day it takes over. Null when none is waiting. */
-  scheduledFeePercent: number | null;
-  scheduledFeeFrom: string | null;
 };
 
 export type ServiceListPayload = {
@@ -207,9 +203,7 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
       teamCount: members.filter((l) => l.status === "accepted").length,
       viewerRole: myRole,
       canManage: myRole === "owner" || myRole === "admin" || myRole === "full",
-      feePercent: feePercents.get(row.id)?.feePercent ?? null,
-      scheduledFeePercent: feePercents.get(row.id)?.scheduledPercent ?? null,
-      scheduledFeeFrom: feePercents.get(row.id)?.scheduledFrom ?? null,
+      feePercent: feePercents.get(row.id) ?? null,
     };
   });
   return { ok: true, payload: { configured, ownerUserId, workspaces: out } };
@@ -432,10 +426,9 @@ export async function attachWorkspaceToService(
 
 /**
  * Admin > Service > Management fee: the percent PropLane keeps of a service workspace's rent. The range and the parse are
- * `ownerShareBpsForFeePercent`'s single answer, surfaced by `setServiceManagementFee`, which schedules the new rate for the
- * 1st of the next Pacific month rather than re-pricing rent this month's residents already paid. The operator must be a
- * platform admin and the workspace must carry the service flag; the audit row is written before the change, so no audit row
- * means no change.
+ * `ownerShareBpsForFeePercent`'s single answer, surfaced by `setServiceManagementFee`, which activates the new rate at once
+ * so it applies to every payment settled from that moment on. The operator must be a platform admin and the workspace must
+ * carry the service flag; the audit row is written before the change, so no audit row means no change.
  */
 export async function setServiceWorkspaceFee(
   db: SupabaseClient,
@@ -466,36 +459,22 @@ export async function setServiceWorkspaceFee(
     if (e instanceof PolicyError) return fail(e.status, e.message);
     return fail(503, "Could not change the management fee. Please retry.");
   }
-  await updateAuditResult(actor, auditKey, { applied: true, policyId: fee.scheduled?.policyId ?? fee.policyId, effectiveFrom: fee.scheduled?.effectiveFrom ?? null });
+  await updateAuditResult(actor, auditKey, { applied: fee.changed, policyId: fee.policyId });
   return { ok: true, ...fee };
 }
 
-export type ServiceWorkspaceFee = { feePercent: number; scheduledPercent: number | null; scheduledFrom: string | null };
-
-/**
- * The rate in force for each service workspace and any version scheduled to take over (a rate change always starts on the 1st
- * of a later Pacific month, so the Service list shows both). Never throws; a workspace with no policy yet is absent.
- */
-export async function serviceFeePercents(db: SupabaseClient, workspaceIds: string[], now: Date = new Date()): Promise<Map<string, ServiceWorkspaceFee>> {
-  const out = new Map<string, ServiceWorkspaceFee>();
+/** The percent PropLane keeps for each service workspace right now (absent: no policy in force yet). Never throws. */
+export async function serviceFeePercents(db: SupabaseClient, workspaceIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
   if (workspaceIds.length === 0) return out;
   const { data, error } = await db
     .from("managed_workspace_fee_policies")
-    .select("workspace_id, owner_share_bps, status, effective_from, attestation_note")
+    .select("workspace_id, owner_share_bps")
     .in("workspace_id", workspaceIds)
-    .in("status", ["active", "draft"]);
+    .eq("status", "active");
   if (error) return out;
-  const today = pacificDayKey(now);
-  const rows = (data ?? []) as { workspace_id: string; owner_share_bps: number; status: string; effective_from: string; attestation_note: string | null }[];
-  for (const r of rows.filter((r) => r.status === "active")) {
-    out.set(String(r.workspace_id), { feePercent: feePercentForOwnerShareBps(Number(r.owner_share_bps)), scheduledPercent: null, scheduledFrom: null });
-  }
-  // Only a change THIS surface scheduled is a pending rate; a hand-authored draft belongs to Admin > Managed finance.
-  for (const r of rows.filter((r) => r.status === "draft" && String(r.effective_from) > today && String(r.attestation_note ?? "").startsWith(SCHEDULED_FEE_NOTE))) {
-    const live = out.get(String(r.workspace_id));
-    if (!live) continue;
-    live.scheduledPercent = feePercentForOwnerShareBps(Number(r.owner_share_bps));
-    live.scheduledFrom = String(r.effective_from);
+  for (const r of (data ?? []) as { workspace_id: string; owner_share_bps: number }[]) {
+    out.set(String(r.workspace_id), feePercentForOwnerShareBps(Number(r.owner_share_bps)));
   }
   return out;
 }
