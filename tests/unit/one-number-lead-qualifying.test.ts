@@ -237,4 +237,12 @@ describe("text hygiene", () => {
   it("strips curly quotes, long dashes and emoji so a text stays one GSM-7 segment", () => {
     expect(toGsm7("It’s “great” — call … 😀")).toBe(`It's "great" - call ...`);
   });
+
+  it("keeps a person's name readable: an accented letter is folded, never deleted", () => {
+    // One implementation (`one-number/segments.ts`). A second copy here dropped every non-ASCII character, so the
+    // sign-up welcome texted "You're set, Jos." to Jose and "Zo" to Zoe.
+    expect(toGsm7("You're set, José.")).toBe("You're set, José.");
+    expect(toGsm7("Zoë")).toBe("Zoe");
+    expect(toGsm7("Björk")).toBe("Björk");
+  });
 });

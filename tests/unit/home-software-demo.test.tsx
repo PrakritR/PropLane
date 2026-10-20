@@ -101,9 +101,16 @@ describe("homepage Software demo", () => {
     expect(portalLabel(view)).toBe("Vendor");
   });
 
-  it("shows no 'Sample …' label anywhere (captain #24)", () => {
+  it("shows no 'Sample …' label anywhere, in the text OR the accessible names (captain #24)", () => {
     const { container } = render(<HomeSoftwareDemoPlayer />);
-    expect(container).not.toHaveTextContent(/Sample/);
+    expect(container).not.toHaveTextContent(/Sample/i);
+    // `toHaveTextContent` does not see attributes: the iframe's title is the demo's accessible name, and the
+    // loading line is read aloud too.
+    const attributes = [...container.querySelectorAll("*")].flatMap((node) =>
+      ["title", "aria-label", "alt", "placeholder"].map((name) => node.getAttribute(name) ?? ""),
+    );
+    expect(attributes.join(" ")).not.toMatch(/sample/i);
+    expect(container.textContent ?? "").not.toMatch(/sample/i);
   });
 
   it("choosing a portal jumps the run to that portal's first step, switches the phone view to Portal, and the phone follows", () => {

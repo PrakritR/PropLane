@@ -108,6 +108,11 @@ export async function runManagerSmsAgentTurn(
     testActor?: { userId: string; managerUserId: string; sessionKind: string; sessionId?: string | null };
     /** Instant "On it" for a confirmed slow action (dispatch, screening, payments). */
     onSlowWork?: (toolName: string) => Promise<void>;
+    /**
+     * The PropLane line, where identity is a spoofable caller ID: a write is confirmed only by the 4-digit code
+     * shown in its own preview text (`src/lib/sms/confirmation-code.ts`), never by a bare YES.
+     */
+    requireConfirmationCode?: boolean;
   },
 ): Promise<ManagerSmsTurn | null> {
   const access = args.ctx.managerSmsAccess;
@@ -132,6 +137,7 @@ export async function runManagerSmsAgentTurn(
     inboundMessageSid: args.inboundMessageSid,
     onInboundPersisted: args.onInboundPersisted,
     onSlowWork: args.onSlowWork,
+    requireConfirmationCode: args.requireConfirmationCode,
     workspaceId: args.ctx.workspace?.id ?? null,
     testActor: args.testActor ? { ...args.testActor, mode: "manager" } : undefined,
     precomputedReply:

@@ -31,7 +31,26 @@ describe("service manager wiring", () => {
     expect(notify).toMatch(/await serviceAlert;/);
   });
 
-  it("a new inquiry on the PropLane line alerts the service manager", () => {
+  it("a new inquiry on the PropLane line alerts the service manager, inside after() so it is never dropped", () => {
     expect(pipeline).toMatch(/alertServiceManagerOfInquiry\(db, \{ phone: fromPhone, body \}\)/);
+    const alert = pipeline.indexOf("alertServiceManagerOfInquiry");
+    const guard = pipeline.lastIndexOf("after(async () => {", alert);
+    expect(guard).toBeGreaterThan(-1);
+    // The fire-and-forget import used to run with nothing keeping the invocation alive.
+    expect(pipeline.slice(guard, alert)).not.toContain("void import(");
+  });
+
+  it("a write from a manager phone on the PropLane line needs the code from its own preview", () => {
+    expect(pipeline).toMatch(/const onPropLaneLine = managerInbound/);
+    expect(pipeline).toMatch(/Boolean\(serviceManager\) \|\| \(await isPropLaneServiceLine\(db, \{ ownerUserId: managerId, workNumber: toPhone \}\)/);
+    expect(pipeline).toMatch(/requireConfirmationCode: onPropLaneLine,/);
+  });
+
+  it("a live dispatch answer is read before the line's member/status handler", () => {
+    const dispatchGuard = pipeline.indexOf("hasLiveVendorDispatchAnswer(db, {");
+    const lineAnswer = pipeline.indexOf("answerPropLaneLineText(db, {");
+    expect(dispatchGuard).toBeGreaterThan(-1);
+    expect(dispatchGuard).toBeLessThan(lineAnswer);
+    expect(pipeline).toMatch(/&& !dispatchAnswerPending\) \{/);
   });
 });

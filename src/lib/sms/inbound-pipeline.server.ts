@@ -20,6 +20,7 @@ import {
   handleResidentDispatchReply,
   handleVendorDispatchMedia,
   handleVendorDispatchReply,
+  hasLiveVendorDispatchAnswer,
 } from "@/lib/vendor-dispatch/inbound.server";
 import { handlePropLaneLineVendorInbound } from "@/lib/sms/vendor-line-inbound.server";
 import { handlePropLaneLineSignupInbound } from "@/lib/sms/signup-line-inbound.server";
@@ -841,6 +842,12 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     serviceManager = null;
   }
   if (serviceManager) managerInbound = serviceManager;
+  // The PropLane line is not the sender's own work number: identity there is the inbound caller ID, which can be
+  // spoofed, and the service manager phone reaches every service workspace. Every write it confirms needs the
+  // 4-digit code from its own preview text.
+  const onPropLaneLine = managerInbound
+    ? Boolean(serviceManager) || (await isPropLaneServiceLine(db, { ownerUserId: managerId, workNumber: toPhone }).catch(() => false))
+    : false;
   if (managerInbound) {
     const consent = await ensureManagerInboundReplyConsent(db, managerInbound, messageSid);
     if (consent === "unavailable") {
@@ -1103,6 +1110,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           managerPhoneE164: normalizeE164(fromPhone) ?? fromPhone,
           inboundText: managerTurnText,
           inboundMessageSid: messageSid,
+          requireConfirmationCode: onPropLaneLine,
           onSlowWork: feel.workAck
             ? async () => {
                 await deliverManagerSmsReply({
@@ -1231,7 +1239,18 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   // houses; a resident of another workspace asking to pay gets a phone-bound payment link. Anyone else, and any other
   // topic, falls through below unchanged. The reply is deterministic, so a webhook retry re-derives the same text and the
   // MessageSid dedupe key stops a second send.
-  if (!managerInbound && !(saved?.sharedLine || input.sharedLine)) {
+  // A sender who is BOTH a member of a workspace and a dispatched vendor answers the job first: their bare NO is a
+  // decline, not small talk for the status menu.
+  const dispatchAnswerPending =
+    !managerInbound && !(saved?.sharedLine || input.sharedLine)
+      ? await hasLiveVendorDispatchAnswer(db, {
+          ownerUserId: managerId,
+          workspaceId: workspaceId ?? null,
+          phoneE164: normalizeE164(fromPhone) ?? fromPhone,
+          body,
+        }).catch(() => false)
+      : false;
+  if (!managerInbound && !(saved?.sharedLine || input.sharedLine) && !dispatchAnswerPending) {
     const lineAnswer = await answerPropLaneLineText(db, { lineOwnerUserId: managerId, toPhone, fromPhone, body, messageSid }).catch((error: unknown) => {
       console.error("propline line answer failed", error instanceof Error ? error.name : "unknown");
       return null;
@@ -1751,9 +1770,12 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
 
   // A new person writing to the PropLane line (per_workspace): the service manager's phone hears about the inquiry once.
   if (await isPropLaneServiceLine(db, { ownerUserId: managerId, workNumber: toPhone }).catch(() => false)) {
-    void import("@/lib/service/service-manager-alerts.server")
-      .then((m) => m.alertServiceManagerOfInquiry(db, { phone: fromPhone, body }))
-      .catch(() => undefined);
+    // `after` so the alert is not dropped when the invocation ends before the fire-and-forget import resolves.
+    after(async () => {
+      await import("@/lib/service/service-manager-alerts.server")
+        .then((m) => m.alertServiceManagerOfInquiry(db, { phone: fromPhone, body }))
+        .catch(() => undefined);
+    });
   }
 
   let handled;

@@ -165,7 +165,14 @@ async function isReachable(
   }
 }
 
-/** Turn roster records into reachable chain entries, keeping the given order. */
+/**
+ * Turn roster records into reachable chain entries, keeping the given order.
+ *
+ * A row the caller does not own is kept only when it is shared with managers, or when it is a live
+ * PropLane Service ROSTER row of the platform service owner: those are texted AS the service owner, so
+ * their consent is judged against that owner too. Keying consent and ownership on the caller alone
+ * dropped every roster vendor from a re-offer and asked the wrong ledger about their STOP.
+ */
 export async function toChain(
   db: SupabaseClient,
   ownerUserId: string,
@@ -175,19 +182,35 @@ export async function toChain(
   options: { requireTrade?: string } = {},
 ): Promise<ChainVendor[]> {
   const busy = await busyVendorIds(db, orderedIds, at);
+  let serviceOwnerId: string | null | undefined;
   const chain: ChainVendor[] = [];
   for (const id of orderedIds) {
     const record = records.get(id);
     const vendor = record?.row_data;
     if (!record || !vendor || vendor.active === false) continue;
     const ownedByManager = record.manager_user_id === ownerUserId;
-    if (!ownedByManager && vendor.sharedWithManagers !== true) continue;
+    let sender = ownerUserId;
+    if (!ownedByManager) {
+      const roster = vendor as { serviceRoster?: unknown; rosterRemovedAt?: unknown };
+      const liveRoster = roster.serviceRoster === true && !roster.rosterRemovedAt;
+      if (liveRoster) {
+        if (serviceOwnerId === undefined) {
+          serviceOwnerId = await import("@/lib/service/service-catalog.server")
+            .then((m) => m.readPlatformServiceOwnerId(db))
+            .catch(() => null);
+        }
+        if (!serviceOwnerId || serviceOwnerId !== record.manager_user_id) continue;
+        sender = serviceOwnerId;
+      } else if (vendor.sharedWithManagers !== true) {
+        continue;
+      }
+    }
     if (busy.has(id)) continue;
     if (options.requireTrade && !vendorTradeIds(vendor).has(options.requireTrade)) continue;
     const phone = normalizeE164(String(vendor.phone ?? "").trim());
     if (!phone) continue;
     const vendorUserId = record.vendor_user_id ?? vendor.vendorUserId ?? null;
-    if (!(await isReachable(db, ownerUserId, phone, vendorUserId))) continue;
+    if (!(await isReachable(db, sender, phone, vendorUserId))) continue;
     const name = String(vendor.name ?? "").trim() || "Vendor";
     chain.push({
       vendorDirectoryId: id,
@@ -254,10 +277,10 @@ export async function reachableVendorDirectoryIds(
 /** Every reachable vendor of the trade on this manager's roster (the "offer all cleaners at once" set). */
 export async function loadTradeRoster(
   db: SupabaseClient,
-  input: { ownerUserId: string; trade: string; propertyId?: string | null; at?: Date; workspaceId?: string | null },
+  input: { ownerUserId: string; trade: string; propertyId?: string | null; at?: Date; workspaceId?: string | null; area?: string | null },
 ): Promise<ChainVendor[]> {
   const own = await loadOwnTradeRoster(db, input);
-  return withServiceRoster(db, { workspaceId: input.workspaceId, trade: input.trade, at: input.at }, own);
+  return withServiceRoster(db, { workspaceId: input.workspaceId, trade: input.trade, area: input.area, at: input.at }, own);
 }
 
 async function loadOwnTradeRoster(
@@ -313,13 +336,17 @@ async function withServiceRoster(
 
 /** The existing fairness ranking, restricted to vendors whose trades include the job's trade; a service workspace adds the roster. */
 async function fallbackChain(db: SupabaseClient, input: MatchInput, at: Date): Promise<ChainVendor[]> {
-  const ownRoster = await loadTradeRoster(db, { ownerUserId: input.ownerUserId, trade: input.trade, propertyId: input.propertyId, at });
-  // A service workspace's chain continues into the service-wide roster (admin Service > Vendors): own vendors first.
-  const serviceExtra = await import("@/lib/vendor-dispatch/service-roster.server")
-    .then((m) => m.serviceRosterVendorsForTrade(db, { workspaceId: input.workspaceId, trade: input.trade, area: input.area, at }))
-    .catch(() => []);
-  const ownIds = new Set(ownRoster.map((vendor) => vendor.vendorDirectoryId));
-  const roster = [...ownRoster, ...serviceExtra.filter((vendor) => !ownIds.has(vendor.vendorDirectoryId))] as typeof ownRoster;
+  // A service workspace's chain continues into the service-wide roster (admin Service > Vendors): own vendors first,
+  // merged by `mergeRosterChain` (ONE entry per phone). Deduping on the directory id instead texted the same person
+  // twice on one run - a workspace vendor row and a roster row - and made their YES ambiguous between two identical handles.
+  const roster = await loadTradeRoster(db, {
+    ownerUserId: input.ownerUserId,
+    trade: input.trade,
+    propertyId: input.propertyId,
+    workspaceId: input.workspaceId,
+    area: input.area,
+    at,
+  });
   const workOrder = input.workOrder;
   if (!workOrder?.category || roster.length === 0) return roster.map((vendor, index) => ({ ...vendor, position: index }));
   const records = await loadRecords(db, roster.map((vendor) => vendor.vendorDirectoryId));
@@ -365,7 +392,8 @@ export async function workspaceHasMatchingRule(db: SupabaseClient, input: MatchI
       input.at ?? new Date(),
     );
     if (rules.length > 0) return true;
-    // A PropLane Service workspace needs no rule of its own: the service roster is its standing chain.
+    // A PropLane Service workspace needs no rule of its own: the service roster is its standing chain. Both reads are
+    // memoized per client, so a sweep over many stays does not re-scan the roster once per stay.
     const roster = await import("@/lib/vendor-dispatch/service-roster.server");
     const serviceOwnerId = await roster.serviceOwnerForWorkspace(db, input.workspaceId);
     return serviceOwnerId ? await roster.serviceRosterHasTrade(db, serviceOwnerId, input.trade) : false;

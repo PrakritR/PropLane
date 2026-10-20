@@ -6,20 +6,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeOwnerDb, type OwnerFakeDb } from "../helpers/owner-fake-db";
 
 const s = vi.hoisted(() => ({
-  runCalls: [] as Array<{ id: string; requireRule: boolean | undefined }>,
+  runCalls: [] as Array<{ id: string; requireRule: boolean | undefined; restart?: boolean | undefined }>,
   runOutcome: "created" as string,
   queue: [] as string[],
   notices: [] as Array<Record<string, unknown>>,
   legacyUsed: 0,
+  /** Which workspace a property belongs to (the DISPATCH scope check reads this). */
+  workspaceByProperty: {} as Record<string, string>,
 }));
 
 vi.mock("@/lib/agent-notify.server", () => ({ notifyManagerFromAgent: async (_db: unknown, a: Record<string, unknown>) => { s.notices.push(a); } }));
 vi.mock("@/lib/vendor-dispatch/triggers.server", () => ({
-  maybeCreateRuleRunForWorkOrder: async (_db: unknown, id: string, opts?: { requireRule?: boolean }) => {
-    s.runCalls.push({ id, requireRule: opts?.requireRule });
+  maybeCreateRuleRunForWorkOrder: async (_db: unknown, id: string, opts?: { requireRule?: boolean; restart?: boolean }) => {
+    s.runCalls.push({ id, requireRule: opts?.requireRule, ...(opts?.restart === undefined ? {} : { restart: opts.restart }) });
     return s.queue.length ? s.queue.shift()! : s.runOutcome;
   },
-  resolveOwnerAndWorkspace: async (_db: unknown, input: { ownerUserId?: string }) => ({ ownerUserId: input.ownerUserId ?? "mgr", workspaceId: "ws-1" }),
+  resolveOwnerAndWorkspace: async (_db: unknown, input: { ownerUserId?: string; propertyId?: string | null }) => ({
+    ownerUserId: input.ownerUserId ?? "mgr",
+    workspaceId: s.workspaceByProperty[String(input.propertyId ?? "")] ?? "ws-1",
+  }),
 }));
 vi.mock("@/lib/tools/domains/work-orders", () => ({
   loadVendorsForMatching: async () => { s.legacyUsed += 1; return []; },
@@ -45,7 +50,7 @@ function world(opts: { service: boolean; saved?: unknown; wo?: Record<string, un
   }, { uniques: { audit_log: [["dedupe_key"]] } });
 }
 
-beforeEach(() => { s.queue.length = 0; s.runCalls.length = 0; s.runOutcome = "created"; s.notices.length = 0; s.legacyUsed = 0; });
+beforeEach(() => { s.queue.length = 0; s.runCalls.length = 0; s.runOutcome = "created"; s.notices.length = 0; s.legacyUsed = 0; s.workspaceByProperty = {}; });
 
 describe("effective dispatch settings", () => {
   it("a service workspace with nothing saved proposes (mode approve); an explicit off stays off", async () => {
@@ -121,7 +126,8 @@ describe("DISPATCH keyword", () => {
     const r = await handleManagerDispatchReply(world({ service: false }).db as never, { ownerUserId: "mgr", workspaceId: "ws-1", actorUserId: "mgr", body: "DISPATCH" });
     expect(r).toMatchObject({ handled: true });
     expect((r as { reply: string }).reply).toMatch(/Reply Y/);
-    expect(s.runCalls).toEqual([{ id: "wo-1", requireRule: false }]);
+    // The manager asked for it themselves, so a finished run for the repair does not stand in the way.
+    expect(s.runCalls).toEqual([{ id: "wo-1", requireRule: false, restart: true }]);
   });
 
   it("reports an existing run, and no vendors, in plain words", async () => {
@@ -137,6 +143,19 @@ describe("DISPATCH keyword", () => {
     const other = fakeOwnerDb({ portal_work_order_records: [] });
     expect(await handleManagerDispatchReply(other.db as never, { ownerUserId: "mgr", workspaceId: "ws-1", actorUserId: "mgr", body: "DISPATCH" })).toEqual({ handled: false });
     expect(s.runCalls).toEqual([]);
+  });
+
+  it("only dispatches a repair of the workspace whose number was texted", async () => {
+    // One owner, two workspaces: DISPATCH to this number must not open a run against the other workspace's
+    // repair, which would land the work and its bill on the wrong workspace's ledger and calendar.
+    s.workspaceByProperty = { "p-1": "ws-2" };
+    const f = world({ service: false });
+    expect(await handleManagerDispatchReply(f.db as never, { ownerUserId: "mgr", workspaceId: "ws-1", actorUserId: "mgr", body: "DISPATCH" })).toEqual({ handled: false });
+    expect(s.runCalls).toEqual([]);
+    // The same repair on the texted number's own workspace is dispatched as before.
+    s.workspaceByProperty = { "p-1": "ws-1" };
+    expect(await handleManagerDispatchReply(world({ service: false }).db as never, { ownerUserId: "mgr", workspaceId: "ws-1", actorUserId: "mgr", body: "DISPATCH" })).toMatchObject({ handled: true });
+    expect(s.runCalls).toEqual([{ id: "wo-1", requireRule: false, restart: true }]);
   });
 
   it("only reads the work number owner's repairs", async () => {

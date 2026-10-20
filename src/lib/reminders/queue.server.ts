@@ -160,10 +160,15 @@ export async function materializeReminders(
         recipientUserId: recipient.userId ?? null,
         anchorIso: input.anchorIso,
         leadMinutes,
-        ...(rule.template?.subject?.trim()
+        // The saved template fills in only what the CALLER did not already decide. Overlaying it unconditionally
+        // replaced an explicitly passed body - the tour-interest 72-hour nudge's own "just checking in" words -
+        // with the rule's one-day text whenever a manager had set a custom template.
+        ...(rule.template?.subject?.trim() && !String(input.payload.customSubject ?? "").trim()
           ? { customSubject: rule.template.subject.trim() }
           : {}),
-        ...(rule.template?.body?.trim() ? { customBody: rule.template.body.trim() } : {}),
+        ...(rule.template?.body?.trim() && !String(input.payload.customBody ?? "").trim()
+          ? { customBody: rule.template.body.trim() }
+          : {}),
       },
     })),
   );

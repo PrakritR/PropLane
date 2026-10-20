@@ -1,6 +1,6 @@
 /**
  * A stateful PostgREST fake for the owner-management tests: select / insert / update / delete chains with
- * eq, neq, in, is, not, gte, lte, lt, gt, or-less filters, order, limit, single / maybeSingle, select after write,
+ * eq, neq, in, is, not, gte, lte, lt, gt, or-less filters, order, limit, range (paging), single / maybeSingle, select after write,
  * upsert, and `rpc(name, args)` answered by handlers the test supplies. A table in `broken` answers with
  * a Postgres "relation does not exist" error (code that runs before its migration).
  */
@@ -47,6 +47,7 @@ export function fakeOwnerDb(
     from(table: string) {
       const predicates: ((row: FakeRow) => boolean)[] = [];
       let maxRows = Infinity;
+      let sliceRange: { from: number; to: number } | null = null;
       let mode: "select" | "update" | "insert" | "delete" = "select";
       let patch: FakeRow = {};
       let inserted: FakeRow[] = [];
@@ -86,6 +87,7 @@ export function fakeOwnerDb(
             return o.ascending ? x.localeCompare(y) : y.localeCompare(x);
           });
         }
+        if (sliceRange) return { data: matched.slice(sliceRange.from, sliceRange.to + 1), error: null };
         return { data: matched.slice(0, maxRows), error: null };
       };
 
@@ -103,7 +105,7 @@ export function fakeOwnerDb(
         lt(column: string, value: unknown) { predicates.push((row) => String(read(row, column) ?? "") < String(value)); return query; },
         order(column: string, opts?: { ascending?: boolean }) { orderBy.push({ column, ascending: opts?.ascending !== false }); return query; },
         limit(n: number) { maxRows = n; return query; },
-        range() { return query; },
+        range(from: number, to: number) { sliceRange = { from, to }; return query; },
         update(value: FakeRow) { mode = "update"; patch = value; writes.push({ table, op: "update", value }); return query; },
         delete() { mode = "delete"; writes.push({ table, op: "delete" }); return query; },
         insert(value: FakeRow | FakeRow[]) {

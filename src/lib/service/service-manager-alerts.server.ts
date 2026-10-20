@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { toGsm7 } from "@/lib/one-number/segments";
+import { rateLimit } from "@/lib/rate-limit";
 import { readServiceManagerSettings, sendToServiceManager } from "@/lib/service/service-manager.server";
 import { serviceWorkspaceLabel } from "@/lib/service/service-label";
 
@@ -22,6 +23,13 @@ import { serviceWorkspaceLabel } from "@/lib/service/service-label";
 /** Notices that are bookkeeping, not something the service manager acts on. */
 const QUIET_CATEGORIES = new Set(["attention_digest"]);
 const MAX_ALERT_CHARS = 300;
+
+/**
+ * Inquiry alerts go to one person's personal cell, so the per-phone-per-day throttle is not enough on its own:
+ * rotating (or spoofed) senders would each get their own daily text. This whole-line hourly cap bounds the cost
+ * and the flood the way the sign-up path's global cap does.
+ */
+export const SERVICE_INQUIRY_ALERTS_PER_HOUR = 20;
 
 /** The same event, whoever it was fanned out to: drop `:manager` / `:team` / `:<userId>` suffixes of an idempotency key. */
 export function serviceAlertEventKey(idempotencyKey: string | null | undefined, fallback: string): string {
@@ -71,7 +79,11 @@ export async function alertServiceManagerFromNotice(
       subject: input.subject,
       text: input.externalText ?? input.text,
     });
-    const key = serviceAlertEventKey(input.idempotencyKey, `${workspaceId}|${input.subject}|${input.text}`);
+    // Without an idempotency key the fallback hashes the words, and `sendToServiceManager` dedupes forever: a later
+    // notice whose subject and text are byte-identical (a recurring "New message") was dropped for good. The day
+    // bucket keeps one-per-day for a repeat while still collapsing the same event's fan-out.
+    const day = new Date().toISOString().slice(0, 10);
+    const key = serviceAlertEventKey(input.idempotencyKey, `${workspaceId}|${input.subject}|${input.text}|${day}`);
     const sent = await sendToServiceManager(db, { text, dedupeKey: `svc-mgr-alert-${workspaceId.slice(0, 8)}-${key}`, settings });
     return sent.ok ? "sent" : "skipped";
   } catch (error) {
@@ -96,6 +108,9 @@ export async function alertServiceManagerOfInquiry(
     const snippet = input.body.replace(/\s+/g, " ").trim().slice(0, 110);
     const text = toGsm7(`PropLane line: new inquiry from ***${digits.slice(-4)}${snippet ? `: "${snippet}"` : ""}`);
     const day = (input.now ?? new Date()).toISOString().slice(0, 10);
+    // Whole-line hourly cap first: a sender rotating numbers must not be able to text this phone without limit.
+    const budget = await rateLimit("service-manager-inquiry-alert", SERVICE_INQUIRY_ALERTS_PER_HOUR, 60 * 60 * 1000);
+    if (!budget.ok) return "skipped";
     const sent = await sendToServiceManager(db, { text, dedupeKey: `svc-inquiry-${digits.slice(-10)}-${day}`, settings });
     return sent.ok ? "sent" : "skipped";
   } catch {

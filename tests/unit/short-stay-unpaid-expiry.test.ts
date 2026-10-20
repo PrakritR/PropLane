@@ -7,6 +7,17 @@ const enqueueOwnerSms = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({ enqueueOwnerSms: (...args: unknown[]) => enqueueOwnerSms(...args) }));
 vi.mock("@/lib/resend-delivery.server", () => ({ postResendEmail: vi.fn(async () => new Response("{}", { status: 200 })) }));
 vi.mock("@/lib/manager-outbound-identity.server", () => ({ managerOutboundFromHeader: async () => "PropLane <work@proplane.test>" }));
+const stripeSession = vi.hoisted(() => ({ get: { id: "cs_1", status: "open", payment_status: "unpaid" } as Record<string, unknown>, expired: [] as string[] }));
+vi.mock("@/lib/stripe", () => ({
+  getStripe: () => ({
+    checkout: {
+      sessions: {
+        retrieve: async (id: string) => ({ ...stripeSession.get, id }),
+        expire: async (id: string) => { stripeSession.expired.push(id); return { id, status: "expired" }; },
+      },
+    },
+  }),
+}));
 
 import { releaseUnpaidConfirmedStays, unpaidConfirmationDue } from "@/lib/short-stay/unpaid-expiry.server";
 import { guestStayChargeId } from "@/lib/short-stay/stay-charge.server";
@@ -45,7 +56,15 @@ function seeded(rows: ReturnType<typeof confirmedRow>[], charges: ReturnType<typ
   return db;
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  stripeSession.get = { id: "cs_1", status: "open", payment_status: "unpaid" };
+  stripeSession.expired.length = 0;
+});
+
+const openCheckout = (chargeId: string, over: Record<string, unknown> = {}) => ({
+  id: "att-1", attempt_token: "tok-1", charge_ids: [chargeId], status: "pending", stripe_session_id: "cs_1", ...over,
+});
 
 describe("a confirmed stay left unpaid for 24 hours", () => {
   it("is due only for a guest's own confirmed request, 24h+ after confirmation, with check-in ahead", () => {
@@ -76,6 +95,54 @@ describe("a confirmed stay left unpaid for 24 hours", () => {
     expect(again).toMatchObject({ checked: 0, released: 0 });
     expect(enqueueOwnerSms).toHaveBeenCalledTimes(1);
     expect(emitActionEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the stay when the guest pays in the window: the charge CAS finds no unpaid row", async () => {
+    const db = seeded([confirmedRow("blk-1")], [charge("blk-1", "pending")]);
+    // The webhook settles between the read and the write.
+    const stored = db.tables.portal_household_charge_records![0]!;
+    const original = db.from;
+    db.from = ((table: string) => {
+      const builder = original(table);
+      if (table === "portal_household_charge_records" && stored.status === "pending") {
+        const update = builder.update as (row: Record<string, unknown>) => unknown;
+        builder.update = ((row: Record<string, unknown>) => { stored.status = "paid"; return update(row); }) as never;
+      }
+      return builder;
+    }) as typeof db.from;
+    const result = await releaseUnpaidConfirmedStays(db as never, NOW);
+    expect(result).toMatchObject({ released: 0, kept: 1, failed: 0 });
+    expect(db.tables.portal_schedule_records![0]!.record_type).toBe("room_date_block");
+    expect(db.tables.portal_household_charge_records![0]!.status).toBe("paid");
+    expect(enqueueOwnerSms).not.toHaveBeenCalled();
+  });
+
+  it("expires an open checkout before giving the nights back", async () => {
+    const db = seeded([confirmedRow("blk-1")], [charge("blk-1", "pending")]);
+    db.tables.resident_checkout_attempts = [openCheckout(guestStayChargeId("blk-1"))];
+    const result = await releaseUnpaidConfirmedStays(db as never, NOW);
+    expect(result).toMatchObject({ released: 1, kept: 0 });
+    expect(stripeSession.expired).toEqual(["cs_1"]);
+  });
+
+  it("keeps the stay and puts the charge back when that checkout turns out to be paid", async () => {
+    const db = seeded([confirmedRow("blk-1")], [charge("blk-1", "pending")]);
+    db.tables.resident_checkout_attempts = [openCheckout(guestStayChargeId("blk-1"))];
+    stripeSession.get = { id: "cs_1", status: "complete", payment_status: "paid" };
+    const result = await releaseUnpaidConfirmedStays(db as never, NOW);
+    expect(result).toMatchObject({ released: 0, kept: 1 });
+    expect(db.tables.portal_schedule_records![0]!.record_type).toBe("room_date_block");
+    // The charge is exactly as it was: nothing cancelled a stay the guest has paid for.
+    expect(db.tables.portal_household_charge_records![0]).toMatchObject({ status: "pending" });
+    expect(stripeSession.expired).toEqual([]);
+  });
+
+  it("keeps the stay while a bank debit for it is in flight", async () => {
+    const db = seeded([confirmedRow("blk-1")], [charge("blk-1", "pending")]);
+    db.tables.resident_checkout_attempts = [openCheckout(guestStayChargeId("blk-1"), { status: "processing", stripe_session_id: "pi_1" })];
+    const result = await releaseUnpaidConfirmedStays(db as never, NOW);
+    expect(result).toMatchObject({ released: 0, kept: 1 });
+    expect(db.tables.portal_household_charge_records![0]).toMatchObject({ status: "pending" });
   });
 
   it("keeps a stay that is paid, clearing (processing), has no charge, or is not the guest's request", async () => {

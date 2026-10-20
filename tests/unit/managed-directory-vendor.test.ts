@@ -78,9 +78,26 @@ describe("rekeying a directory vendor's balance to their account", () => {
     expect(lines.reduce((s, l) => s + Number(l.amount_cents), 0)).toBe(0);
     const calls = f.rpcCalls.filter((c) => c.name === "post_party_journal");
     expect(calls.every((c) => c.args.p_kind === "directory_claim")).toBe(true);
-    expect(calls.map((c) => c.args.p_key)).toEqual([
-      `directory-claim:${DIR}:${USER}:ws-1:15000`, `directory-claim:${DIR}:${USER}:ws-2:5000`,
-    ]);
+    const keys = calls.map((c) => String(c.args.p_key));
+    expect(keys[0]).toMatch(new RegExp(`^directory-claim:${DIR}:${USER}:ws-1:[0-9a-f]{24}$`));
+    expect(keys[1]).toMatch(new RegExp(`^directory-claim:${DIR}:${USER}:ws-2:[0-9a-f]{24}$`));
+    expect(new Set(keys).size).toBe(2);
+  });
+
+  it("a later batch that totals the SAME cents as an already-claimed one still posts (the key is the lines, not the amount)", async () => {
+    const f = ledgerDb(seed());
+    await rekeyDirectoryBalances(f.db, { directoryId: DIR, vendorUserId: USER });
+    // Exactly 15,000 again on ws-1: an amount-keyed journal replayed as "already recorded" and left it stranded.
+    f.rows.party_ledger_lines!.push(line(`vendor_dir:${DIR}`, "ws-1", -15_000), line("owner:o1", "ws-1", 15_000));
+    expect(await rekeyDirectoryBalances(f.db, { directoryId: DIR, vendorUserId: USER })).toEqual({ journals: 1, movedCents: 15_000 });
+    expect(owed(f.rows.party_ledger_lines!, `vendor:${USER}`, "ws-1")).toBe(30_000);
+    expect(owed(f.rows.party_ledger_lines!, `vendor_dir:${DIR}`, "ws-1")).toBe(0);
+  });
+
+  it("pages the party's lines: a balance past one page is summed in full", async () => {
+    const many = Array.from({ length: 1_400 }, () => line(`vendor_dir:${DIR}`, "ws-1", -100));
+    const f = ledgerDb({ party_ledger_lines: [...many, line("owner:o1", "ws-1", 140_000)] });
+    expect(await directoryBalancesByWorkspace(f.db, DIR)).toEqual([{ workspaceId: "ws-1", owedCents: 140_000 }]);
   });
 
   it("is idempotent: a second run posts nothing and moves nothing", async () => {
@@ -142,6 +159,27 @@ describe("claiming waiting balances at sign-up", () => {
     f.rows.manager_vendor_records![0]!.vendor_user_id = "someone-else";
     expect(await claimWaitingDirectoryBalances(f.db, { userId: USER, email: "pat@plumb.test", emailProven: true })).toEqual([]);
     expect(f.rpcCalls.filter((c) => c.name === "post_party_journal")).toHaveLength(0);
+  });
+
+  it("a failed move gives the link back, so the payable is never stranded on the directory party", async () => {
+    const f = ledgerDb({
+      party_ledger_lines: [line(`vendor_dir:${DIR}`, "ws-1", -9_000), line("owner:o1", "ws-1", 9_000)],
+      manager_vendor_records: [{ id: DIR, manager_user_id: "mgr", vendor_user_id: null, row_data: { email: "pat@plumb.test" } }],
+    });
+    // The ledger refuses the claim journal: the row must not stay linked, or nothing selects it again.
+    const broken = { ...f, db: { ...(f.db as object), rpc: async () => ({ data: null, error: { code: "P0001", message: "ledger down" } }) } as never };
+    await expect(claimWaitingDirectoryBalances(broken.db, { userId: USER, email: "pat@plumb.test", emailProven: true })).rejects.toThrow();
+    expect(f.rows.manager_vendor_records![0]!.vendor_user_id).toBeNull();
+  });
+
+  it("sweeps a balance that is still on the directory party of a row already linked to this account", async () => {
+    const f = ledgerDb({
+      party_ledger_lines: [line(`vendor_dir:${DIR}`, "ws-1", -4_000), line("owner:o1", "ws-1", 4_000)],
+      manager_vendor_records: [{ id: DIR, manager_user_id: "mgr", vendor_user_id: USER, row_data: { email: "pat@plumb.test" } }],
+    });
+    expect(await claimWaitingDirectoryBalances(f.db, { userId: USER, email: "pat@plumb.test", emailProven: true })).toEqual([DIR]);
+    expect(owed(f.rows.party_ledger_lines!, `vendor:${USER}`, "ws-1")).toBe(4_000);
+    expect(owed(f.rows.party_ledger_lines!, `vendor_dir:${DIR}`, "ws-1")).toBe(0);
   });
 });
 

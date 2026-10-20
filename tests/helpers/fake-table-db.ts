@@ -117,6 +117,14 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, options: FakeDbOp
         return builder;
       },
       lt: (column: string, value: unknown) => (filters.push((row) => readPath(row, column) != null && String(readPath(row, column)) < String(value)), builder),
+      // PostgREST's array/jsonb containment (`charge_ids @> ["x"]`).
+      contains: (column: string, values: unknown[]) => {
+        filters.push((row) => {
+          const stored = readPath(row, column);
+          return Array.isArray(stored) && values.every((value) => stored.includes(value));
+        });
+        return builder;
+      },
       not: (column: string, op: string, value: unknown) => {
         if (op === "is") filters.push((row) => (readPath(row, column) ?? null) !== value);
         return builder;

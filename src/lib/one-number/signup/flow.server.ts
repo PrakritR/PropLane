@@ -227,6 +227,12 @@ export async function handleSmsSignupText(
   const read = await readSignupSession(db, phoneKey);
   if (!read.available) return { handled: false };
   let session = read.session;
+  // Twilio retrying the very text we provisioned on (our confirmation failed to send, so the pipeline answered 503).
+  // Without this the "done" session is dropped, the six-digit code falls through to the vendor / leasing branches,
+  // and the brand-new account never hears that it exists. Say it again, with a fresh sign-in link.
+  if (session?.step === "done" && session.userId && session.lastSid && session.lastSid === input.messageSid) {
+    return welcomeReply(db, { phone, role: session.role, answers: session.answers, userId: session.userId }, deps);
+  }
   if (session && (session.step === "done" || signupSessionExpired(session, now))) {
     if (session.step !== "done") await deleteSignupSession(db, phoneKey);
     session = null;
@@ -475,9 +481,18 @@ async function codeStep(
   await save({ step: "done", answers: { source: session.answers.source }, kind: "done", userId: result.userId, completedAt: now.toISOString() });
   await db.from("sms_setup_links").update({ revoked_at: now.toISOString() }).eq("phone_key", phoneKey).is("used_at", null).is("revoked_at", null).then(() => undefined, () => undefined);
 
+  return welcomeReply(db, { phone, role: session.role, answers: session.answers, userId: result.userId }, deps);
+}
+
+/** "You're set": the one confirmation a finished sign-up gets, with a one-tap sign-in link minted fresh each time. */
+async function welcomeReply(
+  db: SupabaseClient,
+  input: { phone: string; role: SignupRole | null; answers: SignupAnswers; userId: string },
+  deps: SignupDeps,
+): Promise<SignupTurn> {
   const origin = (deps.origin ?? resolveEmailLinkBaseUrl()).replace(/\/$/, "");
-  const link = await (deps.signInLink ?? mintPhoneSignInLink)(db, { phoneE164: phone, userId: result.userId });
-  const first = firstNameOf(session.answers.fullName ?? "");
-  const tail = session.role === "resident" ? " Your property manager will connect you to your home." : "";
-  return say(`You're set, ${first}. Your PropLane account is ready. Manage everything right here by text, or open your portal: ${link ?? `${origin}/auth/sign-in`}${tail}`);
+  const link = await (deps.signInLink ?? mintPhoneSignInLink)(db, { phoneE164: input.phone, userId: input.userId }).catch(() => null);
+  const first = firstNameOf(input.answers.fullName ?? "");
+  const tail = input.role === "resident" ? " Your property manager will connect you to your home." : "";
+  return say(`You're set${first ? `, ${first}` : ""}. Your PropLane account is ready. Manage everything right here by text, or open your portal: ${link ?? `${origin}/auth/sign-in`}${tail}`);
 }

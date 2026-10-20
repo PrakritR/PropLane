@@ -79,6 +79,20 @@ describe("Y on a texted invoice", () => {
     expect(state.texted).toEqual(["vendor-abc"]);
   });
 
+  it("a retried Y on an invoice-less run claims the pending amount once: one post, one 'balance waiting' text", async () => {
+    // A roster vendor has no invoice row to claim, so the run's own pending amount is the claim. Without it a
+    // webhook retry (or two approvers answering at once) posted the bill, texted the vendor and wrote the audit twice.
+    state.run = { ...baseRun(), details: { what: "Faucet" } };
+    state.contact = { id: "vendor-abc", name: "Pat Plumbing", vendorUserId: null };
+    state.settled = "posted";
+    const f = fakeOwnerDb({ vendor_dispatch_runs: [baseRun()] });
+    expect(await decide(f as never, true)).toMatchObject({ ok: true, settled: "posted" });
+    expect(await decide(f as never, true)).toEqual({ ok: false, reason: "wrong_state" });
+    expect(state.applied).toHaveLength(1);
+    expect(state.costs).toEqual([30_000]);
+    expect(state.texted).toEqual(["vendor-abc"]);
+  });
+
   it("a login vendor who is paid is not texted a sign-up link", async () => {
     state.settled = "posted";
     await decide(db(), true);

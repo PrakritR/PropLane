@@ -22,17 +22,46 @@ import type { ChainVendor } from "@/lib/vendor-dispatch/types";
 
 export type RosterRowData = ManagerVendorRow & { serviceRoster?: boolean; rosterRemovedAt?: string };
 
+/**
+ * A short per-client memo for the two roster lookups that are otherwise repeated once per stay by the turnover sweep
+ * (every 2 minutes) and twice per run by the approval check. Keyed on the client so two tests, or two requests holding
+ * their own client, never share an answer; 30 s is far shorter than how often the service flag or the roster changes.
+ */
+const LOOKUP_TTL_MS = 30_000;
+type Memo = { serviceOwner: Map<string, { at: number; value: string | null }>; trades: Map<string, { at: number; value: Set<string> }> };
+const memos = new WeakMap<object, Memo>();
+
+function memoFor(db: SupabaseClient): Memo {
+  let memo = memos.get(db as unknown as object);
+  if (!memo) {
+    memo = { serviceOwner: new Map(), trades: new Map() };
+    memos.set(db as unknown as object, memo);
+  }
+  return memo;
+}
+
+async function memoized<T>(cache: Map<string, { at: number; value: T }>, key: string, now: number, load: () => Promise<T>): Promise<T> {
+  const hit = cache.get(key);
+  if (hit && now - hit.at < LOOKUP_TTL_MS) return hit.value;
+  const value = await load();
+  if (cache.size > 500) cache.clear();
+  cache.set(key, { at: now, value });
+  return value;
+}
+
 /** The service owner's id when `workspaceId` is a PropLane Service workspace; null for every other workspace or any failed read. */
 export async function serviceOwnerForWorkspace(db: SupabaseClient, workspaceId: string | null | undefined): Promise<string | null> {
   const id = workspaceId?.trim();
   if (!id) return null;
-  try {
-    const { data, error } = await db.from("portal_workspaces").select("is_service").eq("id", id).maybeSingle();
-    if (error || (data as { is_service?: unknown } | null)?.is_service !== true) return null;
-    return await readPlatformServiceOwnerId(db);
-  } catch {
-    return null;
-  }
+  return memoized(memoFor(db).serviceOwner, id, Date.now(), async () => {
+    try {
+      const { data, error } = await db.from("portal_workspaces").select("is_service").eq("id", id).maybeSingle();
+      if (error || (data as { is_service?: unknown } | null)?.is_service !== true) return null;
+      return await readPlatformServiceOwnerId(db);
+    } catch {
+      return null;
+    }
+  });
 }
 
 /** A live roster entry: flagged, active, not removed. (Pause is checked separately: it is a dispatch filter.) */
@@ -53,8 +82,8 @@ function areaScore(vendorArea: string | undefined, jobArea: string | null | unde
     : 0;
 }
 
-/** Records of the roster that take `trade` (paused and removed entries are out). Not yet checked for consent. */
-async function rosterRecordsForTrade(db: SupabaseClient, serviceOwnerId: string, trade: string): Promise<VendorRecord[]> {
+/** Records of the roster that take `trade` (paused and removed entries are out); `null` = every live roster row. Not yet checked for consent. */
+async function rosterRecordsForTrade(db: SupabaseClient, serviceOwnerId: string, trade: string | null): Promise<VendorRecord[]> {
   const { data, error } = await db
     .from("manager_vendor_records")
     .select("id, manager_user_id, vendor_user_id, row_data")
@@ -63,6 +92,7 @@ async function rosterRecordsForTrade(db: SupabaseClient, serviceOwnerId: string,
   return ((data ?? []) as VendorRecord[]).filter((record) => {
     const row = record.row_data as RosterRowData | null;
     if (!isLiveRosterRow(row) || row!.dispatchAvailable === false) return false;
+    if (trade === null) return true;
     return vendorDispatchRoles(row!).includes(trade as never) || vendorTradeIds(row!).has(trade);
   });
 }
@@ -87,10 +117,23 @@ export async function loadServiceRosterChain(
   return toChain(db, input.serviceOwnerId, ordered.map((record) => record.id), byId, input.at ?? new Date());
 }
 
-/** Does the roster hold anyone for this trade? (Cheap predicate for "would this workspace dispatch".) */
+/**
+ * Does the roster hold anyone for this trade? (Cheap predicate for "would this workspace dispatch".) The whole trade
+ * SET is read once per owner and memoized, so the turnover sweep does not scan the roster once per stay.
+ */
 export async function serviceRosterHasTrade(db: SupabaseClient, serviceOwnerId: string, trade: string): Promise<boolean> {
   try {
-    return (await rosterRecordsForTrade(db, serviceOwnerId, trade)).length > 0;
+    const trades = await memoized(memoFor(db).trades, serviceOwnerId, Date.now(), async () => {
+      const records = await rosterRecordsForTrade(db, serviceOwnerId, null);
+      const set = new Set<string>();
+      for (const record of records) {
+        const row = record.row_data as RosterRowData;
+        for (const id of vendorDispatchRoles(row)) set.add(String(id));
+        for (const id of vendorTradeIds(row)) set.add(id);
+      }
+      return set;
+    });
+    return trades.has(trade);
   } catch {
     return false;
   }

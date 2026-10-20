@@ -351,7 +351,7 @@ export function HomeDemoEmbed() {
       ) : null}
       {seeking ? (
         <div className="absolute inset-0 grid place-items-center bg-white text-sm text-[#626b76]" style={{ zIndex: 2147483000 }} role="status">
-          Loading sample…
+          Loading the demo…
         </div>
       ) : null}
       {started && !instant ? <DemoCursor key={`cursor-${run}`} label={HOME_DEMO_PORTAL_LABEL[portal]} apiRef={cursorRef} /> : null}

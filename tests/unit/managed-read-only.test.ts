@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -108,6 +109,23 @@ describe("managedReadOnlyWorkspaceIds (mirror of the SQL rule)", () => {
     expect(await managedReadOnlyWorkspaceIds(world({ roles: [{ user_id: "client", role: "admin" }] }), "client")).toEqual([]);
     expect(await managedReadOnlyWorkspaceIds(world({ settings: [{ owner_user_id: "client" }] }), "client")).toEqual([]);
     expect(await managedReadOnlyWorkspaceIds(world({ profile: { id: "client", email: "founders@axis-seattle-housing.com" } }), "client")).toEqual([]);
+  });
+
+  it("the LEGACY profiles.role column never escapes the lock: only profile_roles (or the ops address) does", async () => {
+    // `profiles.role` is the role the account was created as and is kept forever, so an owner first created as
+    // admin - or one whose admin row was revoked - must not keep full write.
+    const legacy = world({ profile: { id: "client", email: "ambika@example.com", role: "admin" }, roles: [] });
+    expect(await managedReadOnlyWorkspaceIds(legacy, "client")).toEqual([WS]);
+    const real = world({ profile: { id: "client", email: "ambika@example.com", role: "manager" }, roles: [{ user_id: "client", role: "admin" }] });
+    expect(await managedReadOnlyWorkspaceIds(real, "client")).toEqual([]);
+  });
+
+  it("a plan that was cancelled is no longer self-paid: the tier must be pro|business NOW", async () => {
+    // Every cancellation path writes tier free and clears the id, so the row below is what a cancelled Stripe
+    // subscription (or an expired Apple one) leaves behind.
+    expect(hasSelfPaidPlan([{ tier: "free", stripe_subscription_id: null }])).toBe(false);
+    expect(await managedReadOnlyWorkspaceIds(world({ purchases: [{ user_id: "client", tier: "free", billing: "free", stripe_subscription_id: null }] }), "client")).toEqual([WS]);
+    expect(await managedReadOnlyWorkspaceIds(world({ purchases: [{ user_id: "client", tier: "free", apple_original_transaction_id: null }] }), "client")).toEqual([WS]);
   });
   it("the seated service admin member is not the owner, so is never locked", async () => {
     const db = world({
@@ -247,5 +265,24 @@ describe("managedReadOnlyOwnerLocked (mirror of managed_read_only_owner_locked)"
     const db = world({ invites });
     expect(await managedReadOnlyOwnerLocked(db, "owner-1")).toBe(false);
     expect(await managedReadOnlyWorkspaceIds(db, "owner-1")).toEqual([WS2]);
+  });
+});
+
+
+describe("the SQL mirror (migration v3)", () => {
+  const sql = readFileSync("supabase/migrations/20261020100000_managed_read_only_v3.sql", "utf8");
+
+  it("replaces the lock function idempotently and reads admin off profile_roles and the ops address only", () => {
+    expect(sql).toContain("create or replace function public.managed_read_only_owned_locked_ids(uid uuid)");
+    expect(sql).toContain("from public.profile_roles r where r.user_id = uid and r.role = 'admin'");
+    expect(sql).toContain("founders@axis-seattle-housing.com");
+    // The legacy column is gone from the escape.
+    expect(sql).not.toMatch(/coalesce\(p\.role/);
+  });
+
+  it("still requires a CURRENT pro|business tier alongside the Stripe or Apple anchor", () => {
+    expect(sql).toContain("lower(btrim(coalesce(mp.tier, ''))) in ('pro', 'business')");
+    expect(sql).toContain("mp.stripe_subscription_id");
+    expect(sql).toContain("mp.apple_original_transaction_id");
   });
 });

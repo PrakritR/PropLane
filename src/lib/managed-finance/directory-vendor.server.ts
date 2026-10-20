@@ -1,13 +1,13 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createHash } from "node:crypto";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { pacificDayKey } from "@/lib/house-groups/time";
 import { sendWorkspacePhoneText } from "@/lib/one-number/link-text.server";
-import { isMissingSchemaError } from "@/lib/one-number/config.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { createVendorInviteDraft } from "@/lib/vendor-invite.server";
-import { LedgerError, postJournal, vendorDirectoryParty, vendorParty } from "@/lib/managed-finance/ledger.server";
+import { LedgerError, postJournal, readLedgerPages, vendorDirectoryParty, vendorParty } from "@/lib/managed-finance/ledger.server";
 
 /**
  * A vendor dispatched by text may have no PropLane login: the manager's directory row is all there is. On a managed workspace
@@ -20,26 +20,51 @@ import { LedgerError, postJournal, vendorDirectoryParty, vendorParty } from "@/l
 type Row = Record<string, unknown>;
 const str = (v: unknown): string => (typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim());
 
-/** What the directory party is owed per workspace (positive = owed), from the ledger lines. */
-export async function directoryBalancesByWorkspace(db: SupabaseClient, directoryId: string): Promise<Array<{ workspaceId: string | null; owedCents: number }>> {
-  const { data, error } = await db
-    .from("party_ledger_lines")
-    .select("workspace_id, amount_cents")
-    .eq("account", "vendor_payable")
-    .eq("party_id", vendorDirectoryParty(directoryId))
-    .limit(5000);
-  if (error) {
-    if (isMissingSchemaError(error)) return [];
-    throw new LedgerError(500, "Could not read the vendor's waiting balance.");
-  }
-  const byWorkspace = new Map<string, number>();
-  for (const row of (data ?? []) as Array<{ workspace_id: string | null; amount_cents: number | string }>) {
+type DirectoryBatch = { workspaceId: string | null; owedCents: number; digest: string };
+
+/**
+ * What the directory party is owed per workspace, with a DIGEST of the exact lines that make up the balance. The read is
+ * paged in a stable order: a bare `.limit()` returned an arbitrary subset of a long ledger, which summed a directory's
+ * waiting balance short.
+ */
+async function directoryBatches(db: SupabaseClient, directoryId: string): Promise<DirectoryBatch[]> {
+  const partyId = vendorDirectoryParty(directoryId);
+  const rows = await readLedgerPages<{ id?: string | null; workspace_id: string | null; amount_cents: number | string; created_at?: string | null }>(
+    (from, to) =>
+      db
+        .from("party_ledger_lines")
+        .select("id, workspace_id, amount_cents, created_at")
+        .eq("account", "vendor_payable")
+        .eq("party_id", partyId)
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+  ).catch((error: unknown) => {
+    if (error instanceof LedgerError) throw new LedgerError(500, "Could not read the vendor's waiting balance.");
+    throw error;
+  });
+  if (rows === "missing_schema") return [];
+  const byWorkspace = new Map<string, { sum: number; parts: string[] }>();
+  for (const row of rows) {
     const key = row.workspace_id ?? "";
-    byWorkspace.set(key, (byWorkspace.get(key) ?? 0) + Number(row.amount_cents));
+    const bucket = byWorkspace.get(key) ?? { sum: 0, parts: [] };
+    bucket.sum += Number(row.amount_cents);
+    bucket.parts.push(`${String(row.id ?? "")}:${String(row.amount_cents)}`);
+    byWorkspace.set(key, bucket);
   }
   return [...byWorkspace.entries()]
-    .map(([workspaceId, sum]) => ({ workspaceId: workspaceId || null, owedCents: -sum }))
+    .map(([workspaceId, bucket]) => ({
+      workspaceId: workspaceId || null,
+      owedCents: -bucket.sum,
+      // The lines that make up THIS balance: a later batch of the same size gets its own key rather than replaying.
+      digest: createHash("sha256").update(bucket.parts.sort().join("|")).digest("hex").slice(0, 24),
+    }))
     .filter((r) => Number.isSafeInteger(r.owedCents) && r.owedCents > 0);
+}
+
+/** What the directory party is owed per workspace (positive = owed), from the ledger lines. */
+export async function directoryBalancesByWorkspace(db: SupabaseClient, directoryId: string): Promise<Array<{ workspaceId: string | null; owedCents: number }>> {
+  return (await directoryBatches(db, directoryId)).map(({ workspaceId, owedCents }) => ({ workspaceId, owedCents }));
 }
 
 export async function directoryWaitingCents(db: SupabaseClient, directoryId: string): Promise<number> {
@@ -49,7 +74,8 @@ export async function directoryWaitingCents(db: SupabaseClient, directoryId: str
 /**
  * Move a directory vendor's open balance to their account. One `directory_claim` journal per workspace
  * (DR vendor_dir payable, CR vendor payable; both sides keep the workspace so statements stay per workspace), keyed on
- * (directory, user, workspace, amount): a replay is a no-op and a balance that is already moved posts nothing.
+ * (directory, user, workspace, the lines moved): a replay is a no-op, and a LATER batch for the same party posts its own
+ * journal even when it totals the same cents.
  */
 export async function rekeyDirectoryBalances(
   db: SupabaseClient,
@@ -60,11 +86,13 @@ export async function rekeyDirectoryBalances(
   if (!directoryId || !vendorUserId) throw new LedgerError(400, "A balance move needs a directory vendor and an account.");
   let journals = 0;
   let movedCents = 0;
-  for (const bucket of await directoryBalancesByWorkspace(db, directoryId)) {
+  for (const bucket of await directoryBatches(db, directoryId)) {
     const result = await postJournal(db, {
       workspaceId: bucket.workspaceId,
       kind: "directory_claim",
-      key: `directory-claim:${directoryId}:${vendorUserId}:${bucket.workspaceId ?? "-"}:${bucket.owedCents}`,
+      // Keyed on the LINES moved, not the amount: a second batch that happened to total the same cents as an
+      // already-claimed one replayed as "created: false" and left the new balance stuck on the directory party.
+      key: `directory-claim:${directoryId}:${vendorUserId}:${bucket.workspaceId ?? "-"}:${bucket.digest}`,
       sourceType: "vendor_directory",
       sourceId: directoryId,
       detail: { directory_id: directoryId, vendor_user_id: vendorUserId, amount_cents: bucket.owedCents },
@@ -94,21 +122,40 @@ export async function claimWaitingDirectoryBalances(
   const email = input.emailProven ? str(input.email).toLowerCase() : "";
   const phone = input.phoneProven ? normalizeE164(input.phone) : null;
   if (!userId || (!email && !phone)) return [];
-  const { data, error } = await db.from("party_ledger_lines").select("party_id").eq("account", "vendor_payable").like("party_id", "vendor_dir:%").limit(5000);
-  if (error) {
-    if (isMissingSchemaError(error)) return [];
-    throw new LedgerError(500, "Could not read waiting vendor balances.");
-  }
-  const ids = [...new Set(((data ?? []) as Array<{ party_id: string | null }>).map((r) => str(r.party_id).slice("vendor_dir:".length)).filter(Boolean))];
+  // Paged, ordered scan: a bare `.limit(5000)` returned an arbitrary subset of the directory parties, so a vendor's
+  // own id could be missing and their waiting balance never claimed.
+  const lines = await readLedgerPages<{ party_id: string | null }>((from, to) =>
+    db
+      .from("party_ledger_lines")
+      .select("id, party_id")
+      .eq("account", "vendor_payable")
+      .like("party_id", "vendor_dir:%")
+      .order("party_id", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to),
+  ).catch((error: unknown) => {
+    if (error instanceof LedgerError) throw new LedgerError(500, "Could not read waiting vendor balances.");
+    throw error;
+  });
+  if (lines === "missing_schema") return [];
+  const ids = [...new Set(lines.map((r) => str(r.party_id).slice("vendor_dir:".length)).filter(Boolean))];
   if (ids.length === 0) return [];
   const { data: records, error: recordError } = await db
     .from("manager_vendor_records")
     .select("id, vendor_user_id, row_data")
-    .in("id", ids)
-    .is("vendor_user_id", null);
+    .in("id", ids);
   if (recordError) throw new LedgerError(500, "Could not read the vendor directory.");
   const claimed: string[] = [];
-  for (const record of (records ?? []) as Array<{ id: string; row_data?: Row | null }>) {
+  for (const record of (records ?? []) as Array<{ id: string; vendor_user_id?: string | null; row_data?: Row | null }>) {
+    const linkedTo = str(record.vendor_user_id);
+    if (linkedTo && linkedTo !== userId) continue;
+    // Already ours but money still on the directory party (an earlier re-key failed, or a bill posted after the
+    // link): sweep it over. Nothing else looks for a stranded directory payable.
+    if (linkedTo === userId) {
+      const moved = await rekeyDirectoryBalances(db, { directoryId: record.id, vendorUserId: userId }).catch(() => null);
+      if (moved && moved.journals > 0) claimed.push(record.id);
+      continue;
+    }
     const row = record.row_data ?? {};
     const emailMatch = Boolean(email) && str(row.email).toLowerCase() === email;
     const phoneMatch = Boolean(phone) && normalizeE164(row.phone) === phone;
@@ -121,7 +168,19 @@ export async function claimWaitingDirectoryBalances(
       .select("id");
     if (linkError) throw new LedgerError(500, "Could not link the vendor.");
     if (!linked || (linked as unknown[]).length === 0) continue; // someone else linked it first
-    await rekeyDirectoryBalances(db, { directoryId: record.id, vendorUserId: userId });
+    try {
+      await rekeyDirectoryBalances(db, { directoryId: record.id, vendorUserId: userId });
+    } catch (error) {
+      // The link must never outlive a failed move: a linked row is skipped by the contact match above, so the
+      // payable would sit on `vendor_dir:` with nothing left to claim it. Give the row back and let a retry run.
+      await db
+        .from("manager_vendor_records")
+        .update({ vendor_user_id: null, updated_at: new Date().toISOString() })
+        .eq("id", record.id)
+        .eq("vendor_user_id", userId)
+        .then(undefined, () => undefined);
+      throw error;
+    }
     claimed.push(record.id);
   }
   return claimed;

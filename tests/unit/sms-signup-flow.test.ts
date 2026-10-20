@@ -285,6 +285,24 @@ describe("failures never strand the person", () => {
     expect(w.f.rows.sms_signup_sessions![0]).toMatchObject({ step: "business", answers: { fullName: "Jane Doe" } });
   });
 
+  it("a retry of the receipt that finished the sign-up says the welcome again, with a fresh link", async () => {
+    const w = world();
+    await w.say("sign me up as a manager");
+    await w.say("Jane Doe");
+    await w.say("SKIP");
+    await w.say("3");
+    const code = codeIn(await w.say("SKIP"));
+    const done = await w.say(code, { sid: "SMdone" });
+    expect(done).toContain("You're set, Jane");
+    // The reply failed to send, so Twilio redelivered the very text that provisioned the account. Without this the
+    // "done" session was dropped and the six-digit code fell through to the prospect / vendor branches, leaving a
+    // brand-new account with no welcome and no way in.
+    const again = await w.say(code, { sid: "SMdone" });
+    expect(again).toContain("You're set");
+    expect(again).toContain("https://proplane.ai/auth/confirm?token_hash=HASH");
+    expect(w.provisioned).toHaveLength(1);
+  });
+
   it("a retried code turn re-issues a fresh code that works", async () => {
     const w = world();
     await w.say("sign me up as a manager");

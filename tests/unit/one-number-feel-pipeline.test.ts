@@ -28,6 +28,7 @@ vi.mock("@/lib/vendor-dispatch/inbound.server", () => ({
   handleResidentDispatchReply: vi.fn(async () => ({ handled: false })),
   handleVendorDispatchReply: vi.fn(async () => ({ handled: false })),
   handleVendorDispatchMedia: m.vendorMedia,
+  hasLiveVendorDispatchAnswer: vi.fn(async () => false),
 }));
 vi.mock("@/lib/one-number/inbound-media.server", async (orig) => ({
   ...(await orig<typeof import("@/lib/one-number/inbound-media.server")>()),

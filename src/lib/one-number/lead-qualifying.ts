@@ -459,18 +459,12 @@ export function nextQuestion(profile: LeadProfile): { step: LeadStep; text: stri
 // Text hygiene
 // ---------------------------------------------------------------------------
 
-/** GSM-7 only: no emoji, curly quotes or long dashes in anything we send. */
-export function toGsm7(text: string): string {
-  return text
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[–—−]/g, "-")
-    .replace(/…/g, "...")
-    .replace(/ /g, " ")
-    .replace(/[^\x20-\x7E\n]/g, "")
-    .replace(/[ ]{2,}/g, " ")
-    .trim();
-}
+/**
+ * GSM-7 only: no emoji, curly quotes or long dashes in anything we send. ONE implementation
+ * (`one-number/segments.ts`), which folds accents instead of deleting them: a second copy here ended with
+ * `[^\x20-\x7E]` and texted "Jose" as "Jos" and "Zoe" as "Zo".
+ */
+export { toGsm7 } from "@/lib/one-number/segments";
 
 // ---------------------------------------------------------------------------
 // Model output (fallback extractor)

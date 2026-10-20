@@ -21,6 +21,15 @@ vi.mock("@/lib/stripe-household-charge-checkout.server", () => ({
   resolveHouseholdChargeFeePayer: (...args: unknown[]) => resolveHouseholdChargeFeePayer(...args),
 }));
 
+const managedCartProblem = vi.fn().mockResolvedValue(null);
+vi.mock("@/lib/managed-finance/resolve.server", () => ({
+  managedCartProblem: (...args: unknown[]) => managedCartProblem(...args),
+}));
+const serviceSetupPendingProblem = vi.fn().mockResolvedValue(null);
+vi.mock("@/lib/managed-finance/unpolicied-service.server", () => ({
+  serviceSetupPendingProblem: (...args: unknown[]) => serviceSetupPendingProblem(...args),
+}));
+
 const resolveConnectDestinationIfReady = vi.fn();
 vi.mock("@/lib/stripe-connect", () => ({
   resolveConnectDestinationIfReady: (...args: unknown[]) => resolveConnectDestinationIfReady(...args),
@@ -479,6 +488,43 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
     expect(result.ok).toBe(true);
     expect(paymentIntentsCreate.mock.calls[0][0].metadata.autopay_attempt).toBe("2");
     expect(paymentIntentsCreate.mock.calls[0][1]).toEqual({ idempotencyKey: "autopay:run_1:2" });
+  });
+
+  it("refuses the debit for a managed cart or an is_service workspace with no signed fee policy, and keeps the enrollment", async () => {
+    const rentCharge = charge();
+    const setup = () => {
+      loadHouseholdChargesForCheckout.mockResolvedValue({
+        ok: true,
+        managerUserId: "mgr_1",
+        loaded: [{ id: "hc_1", charge: rentCharge, managerUserId: "mgr_1", propertyFeePayer: null, propertyFeeWaiverCode: null, acceptedPaymentMethods: ["ach", "card"] }],
+      });
+      resolveHouseholdChargeFeePayer.mockResolvedValue({ ok: true, feePayer: "resident", managerTier: "pro" });
+      paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account", customer: "cus_1" });
+      paymentIntentsCreate.mockResolvedValue({ id: "pi_x", status: "succeeded" });
+      return makeFakeDb({
+        resident_autopay_runs: [{ id: "run_1", charge_id: "hc_1", status: "claimed", updated_at: new Date().toISOString() }],
+        profiles: { res_1: { stripe_customer_id: "cus_1" } },
+      });
+    };
+    const run = {
+      id: "run_1", chargeId: "hc_1", residentUserId: "res_1", residentEmail: "resident@example.com",
+      managerId: "mgr_1", paymentMethodId: "pm_bank_1",
+    };
+
+    serviceSetupPendingProblem.mockResolvedValueOnce("This home's PropLane service agreement is not signed yet.");
+    const unsigned = setup();
+    const refusedSetup = await chargeAutopay(unsigned.db, run);
+    expect(refusedSetup).toEqual({ ok: false, reason: "This home's PropLane service agreement is not signed yet." });
+
+    managedCartProblem.mockResolvedValueOnce("Pay these charges separately.");
+    const mixed = setup();
+    const refusedCart = await chargeAutopay(mixed.db, run);
+    expect(refusedCart).toEqual({ ok: false, reason: "Pay these charges separately." });
+
+    // No provider call at all, and only the RUN is marked failed: the enrollment stands, so the next run
+    // charges once the agreement is signed.
+    expect(paymentIntentsCreate).not.toHaveBeenCalled();
+    expect(mixed.runs.find((r) => r.id === "run_1")).toMatchObject({ status: "failed" });
   });
 
   it("charges the platform (hold) when the manager has no ready Connect account", async () => {

@@ -141,16 +141,18 @@ export async function resolveApprovers(
   db: SupabaseClient,
   run: Pick<DispatchRunRow, "owner_user_id" | "workspace_id" | "property_id">,
 ): Promise<string[]> {
+  // A PropLane Service workspace is run by the service manager: the client who owns it is view only, so the service
+  // owner is the ONLY approver - neither the client nor any of their teammates is asked (or allowed) to answer, and
+  // nothing falls through to them when the service manager has no verified phone.
+  const serviceOwnerId = await serviceOwnerForWorkspace(db, run.workspace_id);
+  if (serviceOwnerId) return [serviceOwnerId];
   const members = await resolveWorkspaceTeamMembersWithGrants(db, {
     ownerManagerUserId: run.owner_user_id,
     workspaceId: run.workspace_id,
   });
-  // A PropLane Service workspace is run by the service manager: the client who owns it is view only, so the service
-  // owner is the approver and the client is not asked (nor allowed) to answer.
-  const serviceOwnerId = await serviceOwnerForWorkspace(db, run.workspace_id);
-  const ids = serviceOwnerId ? [serviceOwnerId] : [run.owner_user_id];
+  const ids = [run.owner_user_id];
   for (const member of members) {
-    if (member.isOwner || member.userId === run.owner_user_id || member.userId === serviceOwnerId) continue;
+    if (member.isOwner || member.userId === run.owner_user_id) continue;
     if (member.teamRole === "viewer") continue;
     if (!memberReceivesNotice(member, { module: "services", propertyId: run.property_id })) continue;
     ids.push(member.userId);
@@ -164,12 +166,14 @@ export async function canActorApprove(
   actorUserId: string,
 ): Promise<boolean> {
   if (!actorUserId) return false;
+  // On a service workspace the client who owns the run is NOT an approver, so the approver list is the only
+  // answer; anywhere else the owner always is, without needing the team read. The service-owner lookup is
+  // memoized per client, so resolving it here and again inside `resolveApprovers` is one read.
   try {
-    if (await serviceOwnerForWorkspace(db, run.workspace_id)) return (await resolveApprovers(db, run)).includes(actorUserId);
+    if (!(await serviceOwnerForWorkspace(db, run.workspace_id)) && actorUserId === run.owner_user_id) return true;
   } catch {
     return false;
   }
-  if (actorUserId === run.owner_user_id) return true;
   try {
     return (await resolveApprovers(db, run)).includes(actorUserId);
   } catch {

@@ -49,6 +49,20 @@ describe("creditManagedLinkedFormFee", () => {
     expect(capture).not.toHaveBeenCalled();
   });
 
+  it("a fee the session DESTINATION-charged to the manager is never allocated on the platform ledger", async () => {
+    // The managed policy became effective between checkout and settlement (days, for a bank payment). The money
+    // went straight to the manager's Connect account, so crediting owner_payable here would owe the owner money
+    // PropLane never held.
+    expect(await creditManagedLinkedFormFee({} as never, stripe(), session({}, { platform_capture: "0" }))).toBe(false);
+    expect(capture).not.toHaveBeenCalled();
+    // Belt and braces for a session created before the metadata existed: the PaymentIntent itself says so.
+    const transferred = { paymentIntents: { retrieve: vi.fn(async () => ({ id: "pi_form_1", status: "succeeded", latest_charge: "ch_form_1", transfer_data: { destination: "acct_1" } })) } } as never;
+    expect(await creditManagedLinkedFormFee({} as never, transferred, session())).toBe(false);
+    expect(capture).not.toHaveBeenCalled();
+    // A fee the session captured on the platform balance still allocates.
+    expect(await creditManagedLinkedFormFee({} as never, stripe(), session({}, { platform_capture: "1" }))).toBe(true);
+  });
+
   it("a fee already credited as a hold stays a hold", async () => {
     holdByPi.mockResolvedValue({ id: "hold-1" });
     expect(await creditManagedLinkedFormFee({} as never, stripe(), session())).toBe(false);

@@ -232,9 +232,8 @@ export async function createLinkedFormFeeCheckout(
     resolved.propertyId,
   );
   // Managed (or awaiting-agreement service) workspaces are captured on the platform balance, never destination-charged.
-  const destinationAccountId = (await platformCaptureRequiredForProperty(db, resolved.propertyId))
-    ? null
-    : await resolveConnectDestinationIfReady(stripe, db, resolved.managerUserId);
+  const platformCapture = await platformCaptureRequiredForProperty(db, resolved.propertyId);
+  const destinationAccountId = platformCapture ? null : await resolveConnectDestinationIfReady(stripe, db, resolved.managerUserId);
   const path = `/f/open/${encodeURIComponent(request.id)}`;
   const session = await createAxisAchCheckoutSession(stripe, {
     residentEmail: payer.email,
@@ -249,6 +248,10 @@ export async function createLinkedFormFeeCheckout(
       property_id: resolved.propertyId.slice(0, 450),
       resident_email: payer.email.toLowerCase().slice(0, 450),
       fee_cents: String(feeCents),
+      // The capture decision is PINNED here. The webhook re-resolving "is this managed?" at settle time credited a
+      // fee that had actually been destination-charged to the manager's Connect account to owner_payable on the
+      // platform ledger, so PropLane owed the owner money it never held.
+      platform_capture: platformCapture ? "1" : "0",
     },
     mode: "hosted",
     destinationAccountId,
@@ -314,6 +317,9 @@ export async function creditManagedLinkedFormFee(
   if (session.status !== "complete" || session.payment_status !== "paid") return false;
   const propertyId = meta.property_id?.trim() ?? "";
   if (!propertyId) return false;
+  // The session's own decision wins over anything that changed since. A fee charged straight to the manager's
+  // Connect account never reaches the platform balance, so it can never be allocated on the platform ledger.
+  if (meta.platform_capture === "0") return false;
   const paidAt = new Date().toISOString();
   const managed = await resolveManagedForProperties(db, [propertyId], paidAt);
   if (!managed) return false;
@@ -321,6 +327,9 @@ export async function creditManagedLinkedFormFee(
   if (!piId) throw new Error("Paid linked-form fee has no PaymentIntent.");
   if (await findPlatformHoldByPaymentIntent(db, piId)) return false; // already credited as a hold: stays a hold
   const pi = await stripe.paymentIntents.retrieve(piId);
+  // Belt and braces for a session created before the metadata existed: the provider object itself says where the
+  // money went.
+  if (pi.transfer_data?.destination) return false;
   const chargeId = typeof pi.latest_charge === "string" ? pi.latest_charge : pi.latest_charge?.id ?? "";
   if (!chargeId || pi.status !== "succeeded") throw new Error("Paid linked-form fee has no captured Charge.");
   const principal = Number(meta.fee_cents);

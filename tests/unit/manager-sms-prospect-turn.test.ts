@@ -24,6 +24,7 @@ vi.mock("@/lib/agent/user-preferences", () => ({
 vi.mock("@/lib/analytics/posthog", () => ({ track: mocks.track }));
 
 import { runManagerSmsAgentTurn } from "@/lib/agent/manager-sms-agent.server";
+import { smsConfirmationCode } from "@/lib/sms/confirmation-code";
 
 const originalApiKey = process.env.ANTHROPIC_API_KEY;
 const managerId = "11111111-1111-4111-8111-111111111111";
@@ -108,6 +109,54 @@ describe("manager SMS prospect proposal lifecycle", () => {
       ctx,
       portal: "manager",
     }));
+  });
+
+  it("on the PropLane line a write needs the code from its own preview: a bare YES only re-sends it", async () => {
+    const { ctx } = makeWritableCtx({ agent_sessions: [], agent_messages: [], agent_pending_actions: [] }, { landlordId: managerId, userId: managerId });
+    mocks.runAgentTurn.mockResolvedValueOnce({
+      reply: "Here is the change.",
+      toolTrace: [],
+      pendingAction: {
+        toolName: "reply_to_sms_conversation",
+        input: { conversationKey, body: "ok", toPhone: "+12065550123" },
+        preview: { kind: "reply_to_sms_conversation", title: "Send text reply", fields: [{ label: "To", value: "+12065550123" }], confirmLabel: "Send text" },
+      },
+    });
+    mocks.decidePendingAction.mockResolvedValue({ kind: "confirmed", result: { ok: true, status: 200, reply: "Text submitted to +12065550123." } });
+
+    const proposed = await runManagerSmsAgentTurn(ctx.db as never, {
+      ctx, managerPhoneE164: "+15103098345", inboundText: "Text the prospect back", inboundMessageSid: "SM-code-1",
+      requireConfirmationCode: true,
+    });
+    const code = smsConfirmationCode(String(proposed?.pendingActionId));
+    expect(proposed?.reply).toContain(`Reply YES ${code} to confirm or NO to cancel.`);
+    expect(proposed?.reply).not.toContain("Reply YES to confirm");
+
+    // A spoofed sender never saw the preview, so a bare YES authorizes nothing: it only repeats the preview.
+    const bare = await runManagerSmsAgentTurn(ctx.db as never, {
+      ctx, managerPhoneE164: "+15103098345", inboundText: "YES", inboundMessageSid: "SM-code-2",
+      requireConfirmationCode: true,
+    });
+    expect(mocks.decidePendingAction).not.toHaveBeenCalled();
+    expect(bare?.reply).toContain(`Reply YES ${code}`);
+    expect(bare?.reply).toContain("Send text reply");
+
+    const wrong = await runManagerSmsAgentTurn(ctx.db as never, {
+      ctx, managerPhoneE164: "+15103098345", inboundText: `YES ${code === "0000" ? "1111" : "0000"}`, inboundMessageSid: "SM-code-3",
+      requireConfirmationCode: true,
+    });
+    expect(mocks.decidePendingAction).not.toHaveBeenCalled();
+    expect(wrong?.reply).toContain("That code does not match.");
+
+    const confirmed = await runManagerSmsAgentTurn(ctx.db as never, {
+      ctx, managerPhoneE164: "+15103098345", inboundText: `YES ${code}`, inboundMessageSid: "SM-code-4",
+      requireConfirmationCode: true,
+    });
+    expect(confirmed?.reply).toBe("Text submitted to +12065550123.");
+    expect(mocks.decidePendingAction).toHaveBeenCalledWith(expect.objectContaining({
+      action: { kind: "confirm", actionId: proposed?.pendingActionId },
+    }));
+    expect(mocks.runAgentTurn).toHaveBeenCalledTimes(1);
   });
 
   it("sends third-party text as plain quotes but stores it fenced in the transcript", async () => {

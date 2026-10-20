@@ -19,6 +19,8 @@ import {
 import { residentServiceFeeBreakdown, type ResidentAxisPaymentMethod } from "@/lib/payment-policy";
 import { creditVerifiedHouseholdAutopaySource } from "@/lib/household-captured-source.server";
 import { creditOrFileHouseholdSourceReview } from "@/lib/household-source-review.server";
+import { managedCartProblem } from "@/lib/managed-finance/resolve.server";
+import { serviceSetupPendingProblem } from "@/lib/managed-finance/unpolicied-service.server";
 import { getStripe } from "@/lib/stripe";
 import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-reminder-delivery";
 import { loadManagerAutomationSettings, DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
@@ -415,6 +417,22 @@ export async function chargeAutopay(
   }
   const { loaded, managerUserId } = resolved;
   const loadedCharge = loaded[0]!;
+
+  // The same two gates manual checkout applies (`stripe-household-charge-checkout.server.ts`). An off-session debit
+  // is still a payment: a PropLane-managed cart that cannot be allocated, or an is_service workspace whose fee
+  // agreement is unsigned, must refuse it. `serviceSetupPendingProblem` raises the admin "sign the fee agreement"
+  // flag as it refuses; the enrollment is untouched, so the next run charges once the agreement is signed.
+  const propertyIds = loaded.map((row) => row.charge.propertyId);
+  const managedProblem = await managedCartProblem(db, propertyIds);
+  if (managedProblem) {
+    await fail(managedProblem);
+    return { ok: false, reason: managedProblem };
+  }
+  const setupProblem = await serviceSetupPendingProblem(db, propertyIds);
+  if (setupProblem) {
+    await fail(setupProblem);
+    return { ok: false, reason: setupProblem };
+  }
 
   const feePayerResolved = await resolveHouseholdChargeFeePayer(db, managerUserId, loaded);
   if (!feePayerResolved.ok) {

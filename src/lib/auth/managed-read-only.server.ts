@@ -4,7 +4,7 @@ import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 
 /**
  * TS mirror of `public.managed_read_only_workspace_ids()` / `managed_read_only_owner_locked()`
- * (migration 20261019120000), for code that holds a service-role client. Keep the rules identical.
+ * (migration 20261020100000, v3), for code that holds a service-role client. Keep the rules identical.
  */
 export type PurchaseRowForPlan = {
   tier?: string | null;
@@ -17,10 +17,14 @@ function text(value: unknown): string {
 }
 
 /**
- * A plan the client paid for herself: a pro / business row carrying a Stripe subscription id or an
- * Apple anchor. The `billing` column is NOT evidence (checkout intents write monthly / annual for
- * tier free before any payment), and admin grants, trials and waivers carry no subscription id.
- * manager_purchases has no subscription-status column, so a canceled subscription still counts.
+ * A plan the client is paying for herself RIGHT NOW: a pro / business row carrying a Stripe subscription id or an
+ * Apple anchor. The `billing` column is NOT evidence (checkout intents write monthly / annual for tier free before
+ * any payment), and admin grants, trials and waivers carry no subscription id.
+ *
+ * "Current" rests on the tier: every cancellation path writes `tier: "free"` and clears the id - Stripe's
+ * `customer.subscription.deleted` and the reconciler (`manager-stripe-subscription-sync.ts`), and RevenueCat's
+ * expiry / refund (`downgradeAppleManagerPurchase`). So a client who buys Pro for a month and cancels is locked
+ * again once that event lands, and `manager_purchases` needs no status column of its own.
  */
 export function hasSelfPaidPlan(rows: readonly PurchaseRowForPlan[] | null | undefined): boolean {
   return (rows ?? []).some((row) => {
@@ -43,19 +47,19 @@ export async function lockedOwnedServiceWorkspaceIds(
   const uid = userId.trim();
   if (!uid || ownedServiceIds.length === 0) return [];
   const [profileRes, rolesRes, serviceRes] = await Promise.all([
-    db.from("profiles").select("email, role").eq("id", uid).maybeSingle(),
+    db.from("profiles").select("email").eq("id", uid).maybeSingle(),
     db.from("profile_roles").select("role").eq("user_id", uid).eq("role", "admin"),
     db.from("platform_service_settings").select("owner_user_id").eq("owner_user_id", uid),
   ]);
   for (const res of [profileRes, rolesRes, serviceRes]) {
     if (res.error) throw new Error(res.error.message || "managed read-only lookup failed");
   }
-  const profile = (profileRes.data ?? null) as { email?: string | null; role?: string | null } | null;
+  const profile = (profileRes.data ?? null) as { email?: string | null } | null;
   const email = text(profile?.email).toLowerCase();
-  const isAdmin =
-    (rolesRes.data ?? []).length > 0 ||
-    text(profile?.role).toLowerCase() === "admin" ||
-    email === PRIMARY_ADMIN_EMAIL.toLowerCase();
+  // `profile_roles` (plus the always-admin ops address) is the ONLY admin evidence. `profiles.role` is the role the
+  // account was CREATED as and is kept forever, so an owner first created as admin - or one whose admin role has
+  // since been revoked - would have written straight past this lock.
+  const isAdmin = (rolesRes.data ?? []).length > 0 || email === PRIMARY_ADMIN_EMAIL.toLowerCase();
   if (isAdmin || (serviceRes.data ?? []).length > 0) return [];
   // Matched by user_id only: an email match is satisfied by unauthenticated inserts.
   const purchases = await db

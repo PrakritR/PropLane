@@ -82,7 +82,13 @@ import {
   sendToServiceManager,
   verifyServiceManagerPhone,
 } from "@/lib/service/service-manager.server";
-import { alertServiceManagerFromNotice, alertServiceManagerOfInquiry, composeServiceAlertText, serviceAlertEventKey } from "@/lib/service/service-manager-alerts.server";
+import {
+  alertServiceManagerFromNotice,
+  alertServiceManagerOfInquiry,
+  composeServiceAlertText,
+  serviceAlertEventKey,
+  SERVICE_INQUIRY_ALERTS_PER_HOUR,
+} from "@/lib/service/service-manager-alerts.server";
 import { buildServiceManagerAgentContext, pickServiceWorkspace, recognizeServiceManagerInbound, listServiceWorkspaceRefs } from "@/lib/sms/service-manager-inbound.server";
 import { serviceWorkspaceLabel } from "@/lib/service/service-label";
 import { ensureTeamNoticeScopedSmsConsent, isManagerRecipientSmsPurpose, SERVICE_MANAGER_SMS_PURPOSE } from "@/lib/sms/team-notice-consent.server";
@@ -260,6 +266,30 @@ describe("alerts for service workspaces", () => {
     expect(state.texts[0]!.text).not.toContain("425");
     await alertServiceManagerOfInquiry(db as never, { phone: "+14255550123", body: "again", now });
     expect(state.texts[1]!.dedupeKey).toBe(state.texts[0]!.dedupeKey);
+  });
+
+  it("inquiry alerts are capped for the whole line, so rotating senders cannot flood one personal cell", async () => {
+    const now = new Date("2026-10-19T20:00:00Z");
+    // The per-phone-per-day throttle does not bound a sender that keeps changing numbers; the hourly line cap does.
+    let sent = 0;
+    let blocked = false;
+    for (let i = 0; i < SERVICE_INQUIRY_ALERTS_PER_HOUR + 2 && !blocked; i += 1) {
+      const outcome = await alertServiceManagerOfInquiry(db as never, { phone: `+1425555${String(1000 + i).padStart(4, "0")}`, body: "hi", now });
+      if (outcome === "sent") sent += 1;
+      else blocked = true;
+    }
+    expect(blocked).toBe(true);
+    expect(sent).toBeLessThanOrEqual(SERVICE_INQUIRY_ALERTS_PER_HOUR);
+    expect(state.texts).toHaveLength(sent);
+  });
+
+  it("the fallback dedupe key carries a day, so a repeat of the same words is not silenced for ever", async () => {
+    const notice = { workspaceId: WS_A, subject: "New message", text: "Dana wrote in" };
+    const today = new Date().toISOString().slice(0, 10);
+    expect(serviceAlertEventKey(undefined, `${WS_A}|New message|Dana wrote in|${today}`))
+      .not.toBe(serviceAlertEventKey(undefined, `${WS_A}|New message|Dana wrote in|2026-01-01`));
+    expect(await alertServiceManagerFromNotice(db as never, notice)).toBe("sent");
+    expect(state.texts[0]!.dedupeKey).toContain(serviceAlertEventKey(undefined, `${WS_A}|New message|Dana wrote in|${today}`));
   });
 });
 

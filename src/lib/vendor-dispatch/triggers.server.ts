@@ -119,7 +119,12 @@ export async function ruleWouldDispatchWorkOrder(
 export async function maybeCreateRuleRunForWorkOrder(
   db: SupabaseClient,
   workOrderId: string,
-  opts: { /** false = no rule needed: the workspace roster is the chain (service default, or the manager's DISPATCH reply). */ requireRule?: boolean } = {},
+  opts: {
+    /** false = no rule needed: the workspace roster is the chain (service default, or the manager's DISPATCH reply). */
+    requireRule?: boolean;
+    /** The manager asked for this themselves (DISPATCH): a finished run for the repair is settled business, so start a new one. */
+    restart?: boolean;
+  } = {},
 ): Promise<WorkOrderTriggerOutcome> {
   const { data } = await db
     .from("portal_work_order_records")
@@ -186,6 +191,7 @@ export async function maybeCreateRuleRunForWorkOrder(
     createdBy: null,
     residentEmail: row.residentEmail ?? null,
     workOrder: row,
+    restartExhausted: opts.restart === true,
     details: {
       what: row.title || undefined,
       area: house?.area || workOrderGeneralArea(row),

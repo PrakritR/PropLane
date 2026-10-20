@@ -347,15 +347,35 @@ describe("approval comes first", () => {
     expect(attemptsOf(db, run.id).map((a) => a.status)).toEqual(["canceled", "offered", "canceled"]);
   });
 
-  it("a declined dispatch texts nobody and frees the job", async () => {
+  it("a declined dispatch texts nobody, and the decline STICKS against an automatic trigger", async () => {
     const db = world();
     const run = await newRun(db);
     const result = await declineDispatchRun(db as never, { ownerUserId: OWNER, actorUserId: OWNER, channel: "sms", runId: run.id, now: T0 });
     expect(result).toEqual({ ok: true, status: "declined_by_manager" });
     expect(sent.vendor).toHaveLength(0);
     expect(attemptsOf(db, run.id).every((a) => a.status === "canceled")).toBe(true);
+    // The sweep runs every two minutes on a stable source id: it must hand back the declined run rather than
+    // insert a new one and re-text the approver for the rest of the day.
     const again = await newRun(db);
-    expect(again.id).not.toBe(run.id);
+    expect(again.id).toBe(run.id);
+    expect(again.status).toBe("declined_by_manager");
+    expect(rows(db, "vendor_dispatch_runs")).toHaveLength(1);
+    expect(sent.team).toHaveLength(1);
+    // The manager asking for it themselves is a new request, so it does start a fresh run.
+    const restarted = await newRun(db, { restartExhausted: true, skipApprovalRequest: true });
+    expect(restarted.id).not.toBe(run.id);
+    expect(rows(db, "vendor_dispatch_runs")).toHaveLength(2);
+  });
+
+  it("a completed or canceled job is not re-proposed by a trigger either", async () => {
+    for (const status of ["completed", "canceled"]) {
+      const db = world();
+      const run = await newRun(db);
+      runById(db, run.id)!.status = status;
+      const again = await newRun(db);
+      expect(again.id).toBe(run.id);
+      expect(rows(db, "vendor_dispatch_runs")).toHaveLength(1);
+    }
   });
 });
 

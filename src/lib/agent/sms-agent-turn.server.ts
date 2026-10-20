@@ -43,6 +43,7 @@ import {
   classifySmsConfirmationReply,
   denyOpenSmsProposal,
   renderPreviewFenced,
+  renderPreviewForSms,
   unfenceUntrustedText,
   resolveOpenSmsProposal,
   supersedeOpenSmsProposals,
@@ -55,6 +56,7 @@ import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-t
 import { readPortalAssistantSmsSession } from "@/lib/agent/portal-assistant-session.server";
 import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
 import { isSlowWorkTool } from "@/lib/one-number/slow-work";
+import { codedConfirmationLine, readSmsConfirmationCode, smsConfirmationCodeMatches, withConfirmationCode } from "@/lib/sms/confirmation-code";
 
 type Db = SupabaseClient;
 
@@ -377,6 +379,22 @@ async function recordAssistantReply(
 }
 
 /**
+ * The stored preview of an open proposal, re-rendered with its 4-digit code. The preview is what the person was
+ * shown, so repeating it (rather than inventing a "say the code" line) keeps the whole decision in one text.
+ */
+async function previewWithCodeReply(db: Db, userId: string, actionId: string, mistyped: boolean): Promise<string> {
+  const { data } = await db
+    .from("agent_pending_actions")
+    .select("preview")
+    .eq("id", actionId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const preview = (data as { preview?: ActionPreview } | null)?.preview;
+  const body = preview ? withConfirmationCode(renderPreviewForSms(preview), actionId) : codedConfirmationLine(actionId);
+  return mistyped ? `That code does not match.\n\n${body}` : body;
+}
+
+/**
  * Handle a YES/NO reply against the single open proposal.
  *
  * Deliberately runs BEFORE any model call: an affirmative is an authorization,
@@ -397,10 +415,13 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
     sourceMessageSid?: string | null;
     /** Called once, before the work, when the confirmed action is a slow one (dispatch, screening, payments). */
     onSlowWork?: (toolName: string) => Promise<void>;
+    /** The PropLane line: a write needs the 4-digit code from its own preview, never a bare YES. */
+    requireConfirmationCode?: boolean;
   },
 ): Promise<SmsAgentTurn | null> {
   const { ctx, session, surface } = args;
-  const intent = classifySmsConfirmationReply(args.body);
+  const typedCode = args.requireConfirmationCode ? readSmsConfirmationCode(args.body) : null;
+  const intent = typedCode ? "confirm" : classifySmsConfirmationReply(args.body);
   if (intent === "none") return null;
 
   const open = await resolveOpenSmsProposal(db, {
@@ -427,6 +448,15 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
       sessionId: session.id,
       assistantMessageId,
     };
+  }
+
+  if (intent === "confirm" && args.requireConfirmationCode && !smsConfirmationCodeMatches(open.actionId, typedCode)) {
+    // A bare YES (or a mistyped code) re-sends the SAME preview with its code. The code travels only in the
+    // preview, which went to the real phone, so a spoofed sender can never produce it.
+    const reply = (await previewWithCodeReply(db, ctx.userId, open.actionId, typedCode != null)).slice(0, args.maxReplyChars);
+    const assistantMessageId = await recordAssistantReply(db, session, reply, [], null, args.sourceMessageSid);
+    await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, args.skipBilling);
+    return { reply, sessionId: session.id, assistantMessageId, pendingActionId: open.actionId };
   }
 
   if (intent === "deny") {
@@ -528,6 +558,8 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     /** Work-number workspace. Required to keep portal archives isolated. */
     workspaceId?: string | null;
     renderActionPreview?: (preview: ActionPreview) => string;
+    /** The PropLane line: every write this turn proposes carries a 4-digit code its confirmation must repeat. */
+    requireConfirmationCode?: boolean;
     testActor?: {
       userId: string;
       managerUserId: string;
@@ -683,6 +715,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     skipBilling: Boolean(args.testActor),
     sourceMessageSid: inboundMessageSid,
     onSlowWork: args.onSlowWork,
+    requireConfirmationCode: args.requireConfirmationCode,
   });
   if (confirmation) return { ...confirmation, inboundMessageId, lane: "scripted" as const };
 
@@ -801,7 +834,10 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
         traceId,
       };
     }
-    const fencedReply = [result.reply.trim(), renderPreview(result.pendingAction.preview)].filter(Boolean).join("\n\n");
+    const rendered = args.requireConfirmationCode
+      ? withConfirmationCode(renderPreview(result.pendingAction.preview), actionId)
+      : renderPreview(result.pendingAction.preview);
+    const fencedReply = [result.reply.trim(), rendered].filter(Boolean).join("\n\n");
     const reply = unfenceUntrustedText(fencedReply).slice(0, maxReplyChars);
     const assistantMessageId = await recordAssistantReply(db, session, fencedReply.slice(0, maxReplyChars + 800), result.toolTrace, traceId, inboundMessageSid);
     track(surface.analytics.actionProposed, ctx.userId, {

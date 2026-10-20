@@ -64,9 +64,10 @@ export type CreateDispatchRunInput = {
   /** The caller is itself the manager's approval (a confirmed assistant write): do not text them to approve. */
   skipApprovalRequest?: boolean;
   /**
-   * An explicit, new request from the manager (the assistant's dispatch_vendor): an
-   * `exhausted` run for this job is finished business, so start a fresh run instead of
-   * handing the old one back. Automatic triggers leave this off and stay idempotent.
+   * An explicit, new request from the manager (the assistant's dispatch_vendor): a FINISHED run for this
+   * job (exhausted, declined, canceled, completed) is settled business, so start a fresh run instead of
+   * handing the old one back. Automatic triggers leave this off: for them any run for the source, finished
+   * ones included, is the answer, so a sweep can never re-propose a job the manager already declined.
    */
   restartExhausted?: boolean;
 };
@@ -75,13 +76,24 @@ export type CreateDispatchRunResult =
   | { ok: true; created: boolean; run: DispatchRunRow }
   | { ok: false; reason: "bad_trade" | "never_auto" | "no_vendors" | "unavailable"; ruleId?: string | null };
 
-const OPEN_FOR_SOURCE = ["awaiting_approval", "offering", "exhausted", "accepted"];
+/** Live: a run still working its way down a chain. These block a second run for the same job for every caller. */
+const LIVE_FOR_SOURCE = ["awaiting_approval", "offering", "accepted"];
 
+/**
+ * The run that already stands for this job, newest first.
+ *
+ * An AUTOMATIC trigger (`restartExhausted` off) is blocked by ANY run for the source, finished ones included: a
+ * declined, canceled or completed job is settled business. Treating only the live statuses as blocking let the
+ * two-minute turnover sweep insert a fresh run (the partial unique index covers awaiting_approval | offering only)
+ * and re-text the approver every couple of minutes after they replied N - the decline never stuck.
+ *
+ * Only the manager's own explicit request (`restartExhausted`) looks past a finished run and starts a new one.
+ */
 async function findRunForSource(
   db: SupabaseClient,
   sourceType: string,
   sourceId: string,
-  opts: { skipExhausted?: boolean } = {},
+  opts: { restartFinished?: boolean } = {},
 ): Promise<DispatchRunRow | null> {
   const { data, error } = await db
     .from("vendor_dispatch_runs")
@@ -93,7 +105,7 @@ async function findRunForSource(
     throw new Error(error.message);
   }
   const rows = ((data ?? []) as DispatchRunRow[])
-    .filter((row) => OPEN_FOR_SOURCE.includes(row.status) && !(opts.skipExhausted && row.status === "exhausted"))
+    .filter((row) => (opts.restartFinished ? LIVE_FOR_SOURCE.includes(row.status) : true))
     .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   return rows[0] ?? null;
 }
@@ -101,7 +113,7 @@ async function findRunForSource(
 /**
  * File a dispatch run for a job and ask the manager to approve it. Nothing reaches a
  * vendor before that approval. Idempotent on (source_type, source_id): a second call
- * for a job that already has a live run returns that run.
+ * for a job that already has a run returns that run (see `restartExhausted`).
  */
 export async function createDispatchRun(db: SupabaseClient, input: CreateDispatchRunInput): Promise<CreateDispatchRunResult> {
   const trade = tradeDefinition(input.trade);
@@ -111,7 +123,7 @@ export async function createDispatchRun(db: SupabaseClient, input: CreateDispatc
   const sourceId = input.sourceId.trim();
   if (!sourceId || !input.workspaceId || !input.ownerUserId) return { ok: false, reason: "unavailable" };
 
-  const existing = await findRunForSource(db, input.sourceType, sourceId, { skipExhausted: input.restartExhausted === true });
+  const existing = await findRunForSource(db, input.sourceType, sourceId, { restartFinished: input.restartExhausted === true });
   if (existing) {
     if (existing.owner_user_id !== input.ownerUserId) return { ok: false, reason: "unavailable" };
     return { ok: true, created: false, run: existing };
@@ -193,7 +205,7 @@ export async function createDispatchRun(db: SupabaseClient, input: CreateDispatc
   });
   if (insertError) {
     if (insertError.code === "23505") {
-      const raced = await findRunForSource(db, input.sourceType, sourceId, { skipExhausted: input.restartExhausted === true });
+      const raced = await findRunForSource(db, input.sourceType, sourceId, { restartFinished: input.restartExhausted === true });
       if (raced && raced.owner_user_id === input.ownerUserId) return { ok: true, created: false, run: raced };
     }
     return { ok: false, reason: "unavailable" };

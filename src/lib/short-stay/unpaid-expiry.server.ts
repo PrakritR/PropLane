@@ -10,10 +10,13 @@ import "server-only";
  * still `pending` or `failed`. A charge that is paid, processing (a bank debit clearing), part-paid or missing
  * keeps the stay.
  *
- * What it does, once: moves the block to `cancelled_room_date_block` with `stayDetails.decision:
- * "unpaid_expired"` (compare-and-swap on the stored status, so two cron runs or an Approve race resolve to one
- * outcome), cancels the unpaid charge, ends the pay link, texts the guest from the work number, and tells the
- * team (`channel_booking` / `short_stay_unpaid_expired`, idempotent on the block id).
+ * What it does, once, IN THIS ORDER: cancels the unpaid charge (compare-and-swap on `pending` / `failed`) and ends
+ * any Checkout still open for it, then - only if that really took the money off the table - moves the block to
+ * `cancelled_room_date_block` with `stayDetails.decision: "unpaid_expired"` (compare-and-swap on the stored status,
+ * so two cron runs or an Approve race resolve to one outcome), ends the pay link, texts the guest from the work
+ * number, and tells the team (`channel_booking` / `short_stay_unpaid_expired`, idempotent on the block id). A
+ * payment that lands in that window puts the charge back and keeps the stay: the nights are never given away
+ * while the guest's money is held.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { residentPortalUrl } from "@/lib/claw-resident-links";
@@ -50,6 +53,50 @@ export function unpaidConfirmationDue(row: Row, now: Date, today: string): boole
   return String(row.checkIn ?? "") > today;
 }
 
+/**
+ * End any Stripe Checkout still open for this charge.
+ *
+ *   `closed`   nothing is open any more: nobody can pay for these nights after this
+ *   `paid`     a session for it is complete / paid: the stay is kept, the money stands
+ *   `unknown`  an attempt is in flight, or Stripe could not be reached: keep the stay (fail closed on money)
+ */
+async function closeOpenStayCheckout(db: SupabaseClient, chargeId: string): Promise<"closed" | "paid" | "unknown"> {
+  const { data, error } = await db
+    .from("resident_checkout_attempts")
+    .select("id, attempt_token, stripe_session_id, status")
+    .contains("charge_ids", [chargeId])
+    .in("status", ["pending", "processing"]);
+  // A missing table (code ahead of the migration) is "no attempt": the charge CAS is still the money guard.
+  if (error) return String(error.code ?? "") === "42P01" || String(error.code ?? "") === "PGRST205" ? "closed" : "unknown";
+  const attempts = (data ?? []) as Array<{ id: string; attempt_token: string; stripe_session_id: string | null; status: string }>;
+  if (attempts.length === 0) return "closed";
+  if (attempts.some((attempt) => attempt.status === "processing")) return "paid";
+  const sessions = attempts.map((attempt) => attempt.stripe_session_id).filter((id): id is string => Boolean(id?.startsWith("cs_")));
+  if (sessions.length === 0) return "closed"; // claimed but no provider object: nothing to pay through
+  const { getStripe } = await import("@/lib/stripe");
+  const stripe = getStripe();
+  for (const attempt of attempts) {
+    const sessionId = attempt.stripe_session_id;
+    if (!sessionId?.startsWith("cs_")) continue;
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (session.payment_status === "paid" || session.status === "complete") return "paid";
+    if (session.status === "open") await stripe.checkout.sessions.expire(sessionId);
+    // Best effort: the session is already dead at the provider, so a failed bookkeeping write must not keep the
+    // nights blocked. The next run retires the row (an expired session is never "open" again).
+    try {
+      await db.rpc("retire_resident_checkout_attempt", {
+        p_attempt_id: attempt.id,
+        p_attempt_token: attempt.attempt_token,
+        p_session_id: sessionId,
+        p_terminal_status: "expired",
+      });
+    } catch {
+      /* see above */
+    }
+  }
+  return "closed";
+}
+
 export async function releaseUnpaidConfirmedStays(db: SupabaseClient, now = new Date()): Promise<UnpaidStayExpiryResult> {
   const result: UnpaidStayExpiryResult = { checked: 0, released: 0, kept: 0, failed: 0, errors: [] };
   const today = pacificTodayKey(now);
@@ -81,6 +128,39 @@ export async function releaseUnpaidConfirmedStays(db: SupabaseClient, now = new 
         continue;
       }
       const nowIso = now.toISOString();
+      // THE MONEY FIRST. The charge is cancelled with a compare-and-swap before a single night is given back, and
+      // the nights are released only if that swap really changed a row. Releasing first and cancelling after let a
+      // payment that landed in the window (an open Checkout, or an ACH settling days later) keep the guest's money
+      // while the room was handed to someone else, with nothing to refund it and no flag raised.
+      const chargeRow = asRecord((charge as Row).row_data);
+      const { data: cancelled, error: cancelError } = await db
+        .from("portal_household_charge_records")
+        .update({ status: "cancelled", row_data: { ...chargeRow, status: "cancelled", cancelledAt: nowIso, cancelReason: "Unpaid short stay released" }, updated_at: nowIso })
+        .eq("id", chargeId)
+        .in("status", ["pending", "failed"])
+        .select("id");
+      if (cancelError) throw new Error(cancelError.message);
+      if (!cancelled || cancelled.length === 0) {
+        result.kept += 1; // paid, part-paid or clearing between the read and the write
+        continue;
+      }
+      const restoreCharge = async () => {
+        await db
+          .from("portal_household_charge_records")
+          .update({ status, row_data: chargeRow, updated_at: nowIso })
+          .eq("id", chargeId)
+          .eq("status", "cancelled")
+          .then(undefined, () => undefined);
+      };
+      // An open Checkout for this charge can still be completed by the guest. Expiring it is part of releasing the
+      // stay; a session that turns out to be paid (or one we cannot reach) keeps the stay and puts the charge back.
+      const checkout = await closeOpenStayCheckout(db, chargeId).catch(() => "unknown" as const);
+      if (checkout !== "closed") {
+        await restoreCharge();
+        result.kept += 1;
+        if (checkout === "unknown") result.errors.push(`${stay.id}: open checkout could not be closed`);
+        continue;
+      }
       const { confirmedAt: _confirmedAt, ...keptDetails } = asRecord(stay.row.stayDetails);
       void _confirmedAt;
       const next: Row = {
@@ -97,18 +177,17 @@ export async function releaseUnpaidConfirmedStays(db: SupabaseClient, now = new 
         .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE)
         .filter("row_data->>bookingStatus", "eq", "confirmed")
         .select("id");
-      if (swapError) throw new Error(swapError.message);
+      if (swapError) {
+        await restoreCharge();
+        throw new Error(swapError.message);
+      }
       if (!swapped || swapped.length === 0) {
-        result.kept += 1; // another run, or the host, got there first
+        // The host approved or moved the booking in the window: the stay stands, so its charge must too.
+        await restoreCharge();
+        result.kept += 1;
         continue;
       }
 
-      const chargeRow = asRecord((charge as Row).row_data);
-      await db
-        .from("portal_household_charge_records")
-        .update({ status: "cancelled", row_data: { ...chargeRow, status: "cancelled", cancelledAt: nowIso, cancelReason: "Unpaid short stay released" }, updated_at: nowIso })
-        .eq("id", chargeId)
-        .in("status", ["pending", "failed"]);
       await revokePhoneBoundLinksForTarget(db, { targetType: "charge", targetId: chargeId, purpose: "rent", now }).catch(() => 0);
 
       const labels = await loadStayLabels(db, stay.propertyId, String(stay.row.roomId ?? ""));

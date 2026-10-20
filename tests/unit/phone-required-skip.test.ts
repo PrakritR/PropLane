@@ -3,11 +3,40 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => ({
   getUser: vi.fn(), getUserById: vi.fn(), enabled: vi.fn(), required: vi.fn(), set: vi.fn(), values: new Map<string, string>(),
+  /** The skip ledger and the platform-wide outage switch the cap reads. */
+  skips: [] as Array<{ user_id: string; created_at: string }>,
+  outage: false,
+  insertError: null as { code?: string } | null,
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: (n: string) => (m.values.has(n) ? { value: m.values.get(n) } : undefined), set: m.set }) }));
 vi.mock("@/lib/supabase/server", () => ({ createRealIdentitySupabaseServerClient: async () => ({ auth: { getUser: m.getUser } }) }));
-vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ auth: { admin: { getUserById: m.getUserById } } }) }));
+vi.mock("@/lib/supabase/service", () => ({
+  createSupabaseServiceRoleClient: () => ({
+    auth: { admin: { getUserById: m.getUserById } },
+    from: (table: string) => {
+      if (table === "sms_runtime_config") {
+        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { phone_send_outage: m.outage }, error: null }) }) }) };
+      }
+      if (table === "phone_required_skips") {
+        const builder = {
+          select: () => builder,
+          eq: (_c: string, v: unknown) => { builder._user = String(v); return builder; },
+          order: () => builder,
+          limit: async () => ({ data: m.skips.filter((r) => r.user_id === builder._user).sort((a, b) => b.created_at.localeCompare(a.created_at)), error: null }),
+          insert: async (row: { user_id: string; created_at: string }) => {
+            if (m.insertError) return { error: m.insertError };
+            m.skips.push(row);
+            return { error: null };
+          },
+          _user: "",
+        } as Record<string, unknown> & { _user: string };
+        return builder;
+      }
+      throw new Error(`unexpected table ${table}`);
+    },
+  }),
+}));
 vi.mock("@/lib/auth/phone-auth.server", () => ({ phoneAuthEnabled: m.enabled, PHONE_AUTH_ERROR: "We couldn't verify this number. Try again or contact your manager." }));
 
 import { POST } from "@/app/api/auth/phone/skip/route";
@@ -19,6 +48,9 @@ const call = () => POST(new Request(`${ORIGIN}/api/auth/phone/skip`, { method: "
 beforeEach(() => {
   vi.clearAllMocks();
   m.values.clear();
+  m.skips.length = 0;
+  m.outage = false;
+  m.insertError = null;
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-key");
   m.getUser.mockResolvedValue({ data: { user: { id: "u1" } } });
   m.getUserById.mockResolvedValue({ data: { user: { id: "u1", last_sign_in_at: "2026-10-19T10:00:00Z" } }, error: null });
@@ -77,6 +109,50 @@ describe("POST /api/auth/phone/skip", () => {
     expect((await call()).status).toBe(400);
     vi.spyOn(req, "loadPhoneRequired").mockResolvedValue(true);
     m.getUser.mockResolvedValue({ data: { user: null } });
+    expect((await call()).status).toBe(400);
+    expect(m.set).not.toHaveBeenCalled();
+  });
+
+  it("is capped: one skip per account per 7 days, 3 in its lifetime", async () => {
+    const proof = () => m.values.set(req.PHONE_SEND_FAILED_COOKIE, req.phoneSendFailedValue("u1", Date.now())!);
+    proof();
+    expect((await call()).status).toBe(200);
+    expect(m.skips).toHaveLength(1);
+
+    // A second skip the same day is refused, however the send failed.
+    proof();
+    expect((await call()).status).toBe(400);
+    expect(m.skips).toHaveLength(1);
+
+    // Past the cooldown it is allowed again, until the lifetime cap holds for good.
+    m.skips[0]!.created_at = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+    proof();
+    expect((await call()).status).toBe(200);
+    m.skips.forEach((row, index) => { row.created_at = new Date(Date.now() - (8 + index) * 24 * 60 * 60 * 1000).toISOString(); });
+    proof();
+    expect((await call()).status).toBe(200);
+    expect(m.skips).toHaveLength(3);
+    m.skips.forEach((row, index) => { row.created_at = new Date(Date.now() - (8 + index) * 24 * 60 * 60 * 1000).toISOString(); });
+    proof();
+    expect((await call()).status).toBe(400);
+    expect(m.skips).toHaveLength(3);
+  });
+
+  it("a platform-wide send outage lifts the cap, so a real provider failure never locks everyone out", async () => {
+    m.skips.push(
+      { user_id: "u1", created_at: new Date().toISOString() },
+      { user_id: "u1", created_at: new Date().toISOString() },
+      { user_id: "u1", created_at: new Date().toISOString() },
+    );
+    m.values.set(req.PHONE_SEND_FAILED_COOKIE, req.phoneSendFailedValue("u1", Date.now())!);
+    expect((await call()).status).toBe(400);
+    m.outage = true;
+    expect((await call()).status).toBe(200);
+  });
+
+  it("refuses when the skip cannot be recorded, so the cap cannot be sidestepped", async () => {
+    m.insertError = { code: "23505" };
+    m.values.set(req.PHONE_SEND_FAILED_COOKIE, req.phoneSendFailedValue("u1", Date.now())!);
     expect((await call()).status).toBe(400);
     expect(m.set).not.toHaveBeenCalled();
   });

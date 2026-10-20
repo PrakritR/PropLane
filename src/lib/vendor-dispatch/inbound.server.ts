@@ -150,6 +150,20 @@ const APPLICABLE: Record<ManagerDispatchReply["kind"], PendingKind[]> = {
 /** Repairs filed in the last week that nobody has been sent to, newest first (the DISPATCH reply's candidates). */
 const DISPATCH_KEYWORD_WINDOW_DAYS = 7;
 
+/** Does this repair belong to the workspace whose work number was texted? (Its house's workspace, else the owner's default.) */
+async function repairIsInWorkspace(
+  db: SupabaseClient,
+  record: { id: string; row_data?: Record<string, unknown> | null },
+  input: { ownerUserId: string; workspaceId: string | null },
+): Promise<boolean> {
+  if (!input.workspaceId) return true;
+  const row = record.row_data ?? {};
+  const propertyId = String(row.assignedPropertyId ?? row.propertyId ?? "").trim() || null;
+  const { resolveOwnerAndWorkspace } = await import("@/lib/vendor-dispatch/triggers.server");
+  const scope = await resolveOwnerAndWorkspace(db, { ownerUserId: input.ownerUserId, propertyId }).catch(() => null);
+  return scope?.workspaceId === input.workspaceId;
+}
+
 /**
  * `DISPATCH`: the manager asked to text their vendors for the newest unassigned repair. It opens the same run a rule would,
  * with the workspace roster as the chain, and waits for their Y before anyone is texted. Scoped to the work number's owner and
@@ -174,7 +188,13 @@ async function handleDispatchKeyword(
   });
   if (rows.length === 0) return { handled: false };
   for (const record of rows) {
-    const outcome = await maybeCreateRuleRunForWorkOrder(db, record.id, { requireRule: false }).catch(() => "skipped" as const);
+    // The repair must belong to the workspace whose number was texted. An owner of several workspaces texting
+    // DISPATCH to one number could otherwise open a run against another workspace's repair, landing the work
+    // (and its bill) on the wrong workspace's ledger and calendar.
+    if (input.workspaceId && !(await repairIsInWorkspace(db, record, input))) continue;
+    // The manager asked for this themselves, so a finished run for the repair (declined, canceled, completed) is
+    // settled business and a new one is opened; only a LIVE run is handed back.
+    const outcome = await maybeCreateRuleRunForWorkOrder(db, record.id, { requireRule: false, restart: true }).catch(() => "skipped" as const);
     if (outcome === "created") return { handled: true, reply: toGsm7("Ready. Reply Y to text your vendors, or N to cancel") };
     if (outcome === "existing") return { handled: true, reply: toGsm7("That repair is already with dispatch. Reply Y when it asks you") };
     if (outcome === "no_vendors") return { handled: true, reply: toGsm7("None of your vendors can be texted for that repair. Add one in PropLane") };
@@ -362,6 +382,22 @@ async function attachRunMedia(db: SupabaseClient, job: VendorJob, messageSid: st
     await recordDispatchEvent(db, { ownerUserId: run.owner_user_id, runId: run.id, handle: run.handle, event: "vendor_photos", key: messageSid, detail: { photos: linked }, channel: "sms" });
   }
   return linked;
+}
+
+/**
+ * Does this text answer a live dispatch offer this phone holds? The PropLane-line handlers that run BEFORE the
+ * dispatch fork ask this first: a member of a workspace who is also a dispatched vendor (an owner who does their own
+ * handyman work) replying NO was answered with the status help menu, so the offer was never declined and the job
+ * stalled until it timed out. Read-only, and false for anyone with nothing offered.
+ */
+export async function hasLiveVendorDispatchAnswer(
+  db: SupabaseClient,
+  input: { ownerUserId: string; workspaceId: string | null; phoneE164: string; body: string },
+): Promise<boolean> {
+  const parsed = parseVendorDispatchReply(input.body);
+  if (!parsed) return false;
+  const jobs = await findVendorJobsForPhone(db, input).catch(() => [] as VendorJob[]);
+  return selectJobs(parsed, jobs).length > 0;
 }
 
 /**

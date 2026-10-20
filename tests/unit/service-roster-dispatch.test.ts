@@ -81,9 +81,10 @@ vi.mock("@/lib/sms/agent-confirmation.server", () => ({
 vi.mock("@/lib/communication/manager-assistant-workspace.server", () => ({ userDefaultWorkspaceId: async () => "ws-1" }));
 
 
-import { createDispatchRun, approveDispatchRun } from "@/lib/vendor-dispatch/runs.server";
-import { workspaceHasMatchingRule } from "@/lib/vendor-dispatch/match.server";
-import { handleManagerDispatchReply, handleVendorDispatchReply } from "@/lib/vendor-dispatch/inbound.server";
+import { createDispatchRun, approveDispatchRun, retryDispatchRun } from "@/lib/vendor-dispatch/runs.server";
+import { reachableVendorDirectoryIds, workspaceHasMatchingRule } from "@/lib/vendor-dispatch/match.server";
+import { serviceOwnerForWorkspace } from "@/lib/vendor-dispatch/service-roster.server";
+import { handleManagerDispatchReply, handleVendorDispatchReply, hasLiveVendorDispatchAnswer } from "@/lib/vendor-dispatch/inbound.server";
 import { canActorApprove, resolveApprovers } from "@/lib/vendor-dispatch/engine.server";
 import { serviceRosterVendorsForTrade } from "@/lib/service/service-vendors.server";
 
@@ -227,6 +228,56 @@ describe("who a service workspace's job is offered to", () => {
     expect(await workspaceHasMatchingRule(db as never, { ownerUserId: OTHER, workspaceId: WS_P, urgency: "urgent", trade: "locksmith" })).toBe(false);
   });
 
+  it("one person on both the workspace's list and the roster is offered ONCE (merged by phone)", async () => {
+    // The same cleaner, added by the client and kept on the service roster: two directory rows, one number. Two
+    // attempts on one run texted them twice and made their YES ambiguous between two identical job numbers.
+    const db = world();
+    db.__tables.manager_vendor_records!.push(rosterVendor("svcv-same", "Client Plumber", "+12065550301", ["plumber"]));
+    const created = await newRun(db);
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const offered = attemptVendors(db, created.run.id);
+    expect(offered).toEqual(["c-own", "svcv-pat", "svcv-stop"]);
+    expect(offered).not.toContain("svcv-same");
+  });
+
+  it("the roster vendors stay reachable for a RETRY, judged against the service owner's consent", async () => {
+    const db = world();
+    // The retry path asks for the chain again as the CLIENT: a roster row is owned by the service owner, so
+    // keying ownership and consent on the client alone answered "No one left to text".
+    expect(await reachableVendorDirectoryIds(db as never, { ownerUserId: CLIENT, vendorDirectoryIds: ["c-own", "svcv-pat"], at: T0 }))
+      .toEqual(["c-own", "svcv-pat"]);
+    sent.optedOut.add("+12065550201");
+    expect(await reachableVendorDirectoryIds(db as never, { ownerUserId: CLIENT, vendorDirectoryIds: ["c-own", "svcv-pat"], at: T0 }))
+      .toEqual(["c-own"]);
+  });
+
+  it("R after an exhausted chain re-offers the roster vendor rather than answering 'no one left'", async () => {
+    const db = world();
+    const created = await newRun(db);
+    if (!created.ok) throw new Error("setup");
+    const run = (db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === created.run.id)!;
+    run.status = "exhausted";
+    for (const attempt of db.__tables.vendor_dispatch_attempts ?? []) {
+      if (attempt.run_id === created.run.id) attempt.status = "timed_out";
+    }
+    const retried = await retryDispatchRun(db as never, {
+      ownerUserId: CLIENT, actorUserId: SO, channel: "sms", runId: created.run.id, broadcast: false, now: T0,
+    });
+    expect(retried.ok).toBe(true);
+    expect(attemptVendors(db, created.run.id)).toContain("svcv-pat");
+  });
+
+  it("the service-owner lookup is memoized per client, so a sweep does not re-read it once per stay", async () => {
+    const db = world();
+    let workspaceReads = 0;
+    const counted = { ...db, from: (table: string) => { if (table === "portal_workspaces") workspaceReads += 1; return db.from(table); } } as never;
+    expect(await serviceOwnerForWorkspace(counted, WS_A)).toBe(SO);
+    expect(await serviceOwnerForWorkspace(counted, WS_A)).toBe(SO);
+    expect(await serviceOwnerForWorkspace(counted, WS_A)).toBe(SO);
+    expect(workspaceReads).toBe(1);
+  });
+
   it("the paycore hook returns the reachable roster for a service workspace and [] for any other", async () => {
     const db = world();
     expect((await serviceRosterVendorsForTrade(db as never, { workspaceId: WS_A, trade: "plumber" })).map((v) => v.vendorDirectoryId)).toEqual(["svcv-pat", "svcv-stop"]);
@@ -244,6 +295,19 @@ describe("approval is the service manager's", () => {
     expect(await resolveApprovers(db as never, run!)).toEqual([SO]);
     expect(await canActorApprove(db as never, run!, SO)).toBe(true);
     expect(await canActorApprove(db as never, run!, CLIENT)).toBe(false);
+  });
+
+  it("a teammate of the view-only client is never asked and can never approve", async () => {
+    sent.teammates.push("client-teammate");
+    const db = world();
+    const created = await newRun(db);
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    // The client's workspace is view only: spend on it is the service owner's call alone, and nothing falls
+    // through to a teammate when the service manager has no phone.
+    expect(await resolveApprovers(db as never, created.run)).toEqual([SO]);
+    expect(await canActorApprove(db as never, created.run, "client-teammate")).toBe(false);
+    expect(sent.team.map((t) => t.memberUserId)).toEqual([SO]);
   });
 
   it("job numbers come from one counter across the service, so 'Y 1' names exactly one job", async () => {
@@ -297,6 +361,19 @@ describe("a roster vendor's YES arrives on the PropLane line and assigns the job
     const wo = (db.__tables.portal_work_order_records ?? []).find((r) => r.id === "wo-a");
     expect((wo?.row_data as Row).vendorId).toBe("svcv-pat");
     expect((wo?.row_data as Row).vendorName).toBe("Pat Plumber");
+  });
+
+  it("a live dispatch answer is recognised before the line's member/status handlers see the text", async () => {
+    const db = world();
+    const created = await newRun(db);
+    if (!created.ok) throw new Error("setup");
+    await approveDispatchRun(db as never, { runId: created.run.id, ownerUserId: CLIENT, actorUserId: SO, channel: "sms", now: T0 });
+    const ask = (phoneE164: string, body: string) =>
+      hasLiveVendorDispatchAnswer(db as never, { ownerUserId: SO, workspaceId: WS_SO, phoneE164, body });
+    // An owner or teammate who also does the work replies NO: that is a decline, not small talk for the status menu.
+    expect(await ask("+12065550301", "NO")).toBe(true);
+    expect(await ask("+12065550301", "how are my houses doing?")).toBe(false);
+    expect(await ask("+12065559999", "NO")).toBe(false);
   });
 
   it("a stranger's YES on the PropLane line matches nothing", async () => {

@@ -292,7 +292,7 @@ export function HomeSoftwareDemoPlayer({ id = "dashboard" }: { id?: string } = {
             <div className="home-software-demo-scaler" style={{ width: LOGICAL_WIDTH * scale, height: LOGICAL_HEIGHT * scale }}>
               <iframe
                 ref={frame}
-                title="PropLane portal, sample data"
+                title="PropLane portal demo"
                 src={src}
                 width={LOGICAL_WIDTH}
                 height={LOGICAL_HEIGHT}
@@ -304,7 +304,7 @@ export function HomeSoftwareDemoPlayer({ id = "dashboard" }: { id?: string } = {
               />
             </div>
           ) : (
-            <p className="home-software-demo-loading" role="status">Loading sample…</p>
+            <p className="home-software-demo-loading" role="status">Loading the demo…</p>
           )}
         </div>
       </div>

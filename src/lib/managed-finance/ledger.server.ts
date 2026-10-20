@@ -130,6 +130,29 @@ const LEDGER_PAGE_SIZE = 1000;
 const LEDGER_MAX_PAGES = 1000;
 
 /**
+ * Every row of a ledger query, in a stable order, PAGED. A bare `.limit(n)` on `party_ledger_lines` returns an
+ * arbitrary subset once a scan crosses n rows, which silently shortens a balance or hides a party entirely; every
+ * scan of that table goes through here. `page(from, to)` must apply its own ordering.
+ */
+export async function readLedgerPages<T>(
+  page: (from: number, to: number) => PromiseLike<{ data: unknown; error: { code?: string | null; message?: string } | null }>,
+): Promise<T[] | "missing_schema"> {
+  const rows: T[] = [];
+  for (let index = 0; index < LEDGER_MAX_PAGES; index += 1) {
+    const from = index * LEDGER_PAGE_SIZE;
+    const { data, error } = await page(from, from + LEDGER_PAGE_SIZE - 1);
+    if (error) {
+      if (isMissingSchemaError(error)) return "missing_schema";
+      throw new LedgerError(500, "Could not read the ledger.");
+    }
+    const batch = (data ?? []) as T[];
+    rows.push(...batch);
+    if (batch.length < LEDGER_PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+/**
  * A party's payable lines joined to their journals, oldest first, within a posted-at window. The statement folds these; nothing
  * else computes a party's history.
  */

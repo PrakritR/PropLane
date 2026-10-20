@@ -111,6 +111,54 @@ export async function phoneSkipActive(db: SupabaseClient, userId: string): Promi
   }
 }
 
+/** At most one skip per account per 7 days, and 3 in its lifetime. */
+export const PHONE_SKIP_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+export const PHONE_SKIP_LIFETIME_MAX = 3;
+
+export type PhoneSkipAllowance = { allowed: boolean; reason?: "cooldown" | "lifetime" | "unavailable" };
+
+/**
+ * May this account skip the phone step again?
+ *
+ * The send-failed proof is not enough on its own: for `verify_phone` the person picks the number, so typing an
+ * undeliverable one manufactures the proof. The cap turns that into a few delays rather than a standing opt-out.
+ * A platform-wide send outage (`sms_runtime_config.phone_send_outage`) lifts the cap, so a real provider failure
+ * can never lock everyone out, and an unreadable ledger stays permissive for the same reason.
+ */
+export async function phoneSkipAllowance(db: SupabaseClient, userId: string, now = new Date()): Promise<PhoneSkipAllowance> {
+  try {
+    const { data: config } = await db.from("sms_runtime_config").select("phone_send_outage").eq("singleton", true).maybeSingle();
+    if ((config as { phone_send_outage?: unknown } | null)?.phone_send_outage === true) return { allowed: true };
+  } catch {
+    // Unreadable switch: fall through to the cap below.
+  }
+  const { data, error } = await db
+    .from("phone_required_skips")
+    .select("created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(PHONE_SKIP_LIFETIME_MAX + 1);
+  // A missing table or a failed read must not lock an account out of signing in.
+  if (error) return { allowed: true, reason: "unavailable" };
+  const rows = (data ?? []) as Array<{ created_at?: string | null }>;
+  if (rows.length >= PHONE_SKIP_LIFETIME_MAX) return { allowed: false, reason: "lifetime" };
+  const last = Date.parse(String(rows[0]?.created_at ?? ""));
+  if (Number.isFinite(last) && now.getTime() - last < PHONE_SKIP_COOLDOWN_MS) return { allowed: false, reason: "cooldown" };
+  return { allowed: true };
+}
+
+/**
+ * Record a granted skip. `false` = it could not be written and the caller must refuse, so the cap cannot be
+ * sidestepped by a failing insert. A table that is not there yet (code ahead of the migration) is the one
+ * exception: the gate is off in that state anyway, and refusing would lock an account out of its own sign-in.
+ */
+export async function recordPhoneSkip(db: SupabaseClient, userId: string, now = new Date()): Promise<boolean> {
+  const { error } = await db.from("phone_required_skips").insert({ user_id: userId, created_at: now.toISOString() });
+  if (!error) return true;
+  const code = String((error as { code?: unknown }).code ?? "");
+  return code === "42P01" || code === "PGRST205" || code === "PGRST204";
+}
+
 /** An admin account is exempt from the phone requirement (operators must always be able to sign in and fix things). */
 export async function isAdminAccount(db: SupabaseClient, userId: string): Promise<boolean> {
   try {

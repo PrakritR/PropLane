@@ -351,6 +351,19 @@ export async function decideRunInvoice(
     if (!gate.ok) return { ok: false, reason: "tier" };
   }
   let approvedAmountCents = Number(run.pending_invoice_cents);
+  if (!invoiceId) {
+    // No invoice row to claim (the normal case for a roster vendor with no PropLane login): claim the pending
+    // amount on the run itself, conditionally, so two Y replies (or a Twilio retry) cannot both post the bill,
+    // text the vendor "balance waiting" and write the audit events twice.
+    const { data: claimedPending } = await db
+      .from("vendor_dispatch_runs")
+      .update({ pending_invoice_cents: null, updated_at: now.toISOString() })
+      .eq("id", run.id)
+      .eq("owner_user_id", run.owner_user_id)
+      .eq("pending_invoice_cents", approvedAmountCents)
+      .select("id");
+    if (!claimedPending || (claimedPending as unknown[]).length === 0) return { ok: false, reason: "wrong_state" };
+  }
   let invoiceVendorUserId: string | null = null;
   if (invoiceId) {
     const { data: updated } = await db

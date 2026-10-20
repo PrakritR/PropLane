@@ -27,7 +27,9 @@ export function statementText(input: { monthKey: string; workspaceName: string; 
 
 /**
  * Last month's statement for every managed workspace, once: the unique (workspace, month) row is claimed first, so a re-run of
- * the cron (or two overlapping runs) sends nothing twice. The email is from the workspace's work email; the text is one line.
+ * the cron (or two overlapping runs) sends nothing twice. A claimed row whose sends BOTH failed keeps null stamps and is
+ * re-driven on the next run, so a provider outage delays a statement instead of losing the month. The email is from the
+ * workspace's work email; the text is one line.
  */
 export async function sendMonthlyOwnerStatements(db: SupabaseClient, now: Date = new Date()): Promise<{ sent: number; skipped: number }> {
   const month = previousMonthKey(pacificMonthKey(now));
@@ -44,8 +46,16 @@ export async function sendMonthlyOwnerStatements(db: SupabaseClient, now: Date =
   let sent = 0;
   let skipped = 0;
   for (const p of (data ?? []) as Array<{ workspace_id: string; owner_user_id: string }>) {
-    const { data: existing } = await db.from("owner_statements").select("id").eq("workspace_id", p.workspace_id).eq("month_key", month).maybeSingle();
-    if (existing) { skipped += 1; continue; }
+    // A row that was claimed but never DELIVERED (a provider failure, a crash between the claim and the send) is
+    // re-driven: the claim marks the month, the send stamps are what prove it went out.
+    const { data: existing } = await db
+      .from("owner_statements")
+      .select("id, emailed_at, texted_at")
+      .eq("workspace_id", p.workspace_id)
+      .eq("month_key", month)
+      .maybeSingle();
+    const prior = existing as { emailed_at?: string | null; texted_at?: string | null } | null;
+    if (prior && (prior.emailed_at || prior.texted_at)) { skipped += 1; continue; }
     const view = await loadOwnerFinances(db, null, { ownerUserId: p.owner_user_id, workspaceId: p.workspace_id, month }, now);
     const s = view.statement;
     if (s.rows.length === 0 && s.beginningCents === 0 && s.endingCents === 0) { skipped += 1; continue; }
@@ -54,11 +64,14 @@ export async function sendMonthlyOwnerStatements(db: SupabaseClient, now: Date =
       otherCents: s.totals.otherCents, netCents: s.totals.netCents, withdrawalsCents: s.totals.withdrawalsCents,
       beginningCents: s.beginningCents, endingCents: s.endingCents,
     };
-    const { data: claimed, error: claimError } = await db
-      .from("owner_statements")
-      .upsert({ workspace_id: p.workspace_id, owner_user_id: p.owner_user_id, month_key: month, totals }, { onConflict: "workspace_id,month_key", ignoreDuplicates: true })
-      .select("id");
-    if (claimError || !claimed || claimed.length === 0) { skipped += 1; continue; }
+    if (!prior) {
+      const { data: claimed, error: claimError } = await db
+        .from("owner_statements")
+        .upsert({ workspace_id: p.workspace_id, owner_user_id: p.owner_user_id, month_key: month, totals }, { onConflict: "workspace_id,month_key", ignoreDuplicates: true })
+        .select("id");
+      // Another run claimed it in this instant: it owns the send.
+      if (claimError || !claimed || claimed.length === 0) { skipped += 1; continue; }
+    }
 
     const { data: ws } = await db.from("portal_workspaces").select("owner_user_id, name").eq("id", p.workspace_id).maybeSingle();
     const manager = String((ws as { owner_user_id?: string } | null)?.owner_user_id ?? "");
@@ -94,8 +107,17 @@ export async function sendMonthlyOwnerStatements(db: SupabaseClient, now: Date =
         }),
       }).catch(() => false);
     }
-    await db.from("owner_statements").update({ emailed_at: emailed ? now.toISOString() : null, texted_at: texted ? now.toISOString() : null }).eq("workspace_id", p.workspace_id).eq("month_key", month);
-    sent += 1;
+    // Only what really went out is stamped; a null stamp is what lets the next run try again.
+    if (emailed || texted) {
+      await db
+        .from("owner_statements")
+        .update({ ...(emailed ? { emailed_at: now.toISOString() } : {}), ...(texted ? { texted_at: now.toISOString() } : {}) })
+        .eq("workspace_id", p.workspace_id)
+        .eq("month_key", month);
+      sent += 1;
+    } else {
+      skipped += 1;
+    }
   }
   return { sent, skipped };
 }
