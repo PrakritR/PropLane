@@ -115,7 +115,7 @@ export async function phoneSkipActive(db: SupabaseClient, userId: string): Promi
 export const PHONE_SKIP_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 export const PHONE_SKIP_LIFETIME_MAX = 3;
 
-export type PhoneSkipAllowance = { allowed: boolean; reason?: "cooldown" | "lifetime" | "unavailable" };
+export type PhoneSkipAllowance = { allowed: boolean; reason?: "cooldown" | "lifetime" | "unavailable"; outage?: true };
 
 /**
  * May this account skip the phone step again?
@@ -128,7 +128,7 @@ export type PhoneSkipAllowance = { allowed: boolean; reason?: "cooldown" | "life
 export async function phoneSkipAllowance(db: SupabaseClient, userId: string, now = new Date()): Promise<PhoneSkipAllowance> {
   try {
     const { data: config } = await db.from("sms_runtime_config").select("phone_send_outage").eq("singleton", true).maybeSingle();
-    if ((config as { phone_send_outage?: unknown } | null)?.phone_send_outage === true) return { allowed: true };
+    if ((config as { phone_send_outage?: unknown } | null)?.phone_send_outage === true) return { allowed: true, outage: true };
   } catch {
     // Unreadable switch: fall through to the cap below.
   }
@@ -148,14 +148,34 @@ export async function phoneSkipAllowance(db: SupabaseClient, userId: string, now
 }
 
 /**
- * Record a granted skip. `false` = it could not be written and the caller must refuse, so the cap cannot be
- * sidestepped by a failing insert. A table that is not there yet (code ahead of the migration) is the one
- * exception: the gate is off in that state anyway, and refusing would lock an account out of its own sign-in.
+ * Record a granted skip, ATOMICALLY with the cap check. `phoneSkipAllowance` is only an early, cheap answer: two parallel
+ * requests could both pass it. `record_phone_required_skip` counts and inserts in one transaction under a per-account
+ * advisory lock (service role only), so the second request waits, sees the first one's row and is refused.
+ *
+ * `enforce: false` is the platform-wide send outage: the cap is lifted, the skip is still recorded.
+ * `false` = it was refused or could not be written and the caller must refuse, so the cap cannot be sidestepped by a
+ * failing write. A database that does not have the function or table yet (code ahead of the migration) is the one
+ * exception, falling back to the plain insert: the gate is off in that state anyway, and refusing would lock an account
+ * out of its own sign-in.
  */
-export async function recordPhoneSkip(db: SupabaseClient, userId: string, now = new Date()): Promise<boolean> {
-  const { error } = await db.from("phone_required_skips").insert({ user_id: userId, created_at: now.toISOString() });
-  if (!error) return true;
-  const code = String((error as { code?: unknown }).code ?? "");
+export async function recordPhoneSkip(
+  db: SupabaseClient,
+  userId: string,
+  now = new Date(),
+  options: { enforce?: boolean } = {},
+): Promise<boolean> {
+  const { data, error } = await db.rpc("record_phone_required_skip", {
+    p_user_id: userId,
+    p_cooldown_seconds: Math.floor(PHONE_SKIP_COOLDOWN_MS / 1000),
+    p_lifetime_max: PHONE_SKIP_LIFETIME_MAX,
+    p_enforce: options.enforce !== false,
+  });
+  if (!error) return data === true;
+  const rpcCode = String((error as { code?: unknown }).code ?? "");
+  if (rpcCode !== "PGRST202" && rpcCode !== "42883" && rpcCode !== "42P01" && rpcCode !== "PGRST205") return false;
+  const legacy = await db.from("phone_required_skips").insert({ user_id: userId, created_at: now.toISOString() });
+  if (!legacy.error) return true;
+  const code = String((legacy.error as { code?: unknown }).code ?? "");
   return code === "42P01" || code === "PGRST205" || code === "PGRST204";
 }
 

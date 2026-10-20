@@ -7,6 +7,9 @@ const m = vi.hoisted(() => ({
   skips: [] as Array<{ user_id: string; created_at: string }>,
   outage: false,
   insertError: null as { code?: string } | null,
+  /** Make the rpc answer as a database without the function (code ahead of the migration). */
+  rpcMissing: false,
+  rpcCalls: [] as Array<Record<string, unknown>>,
 }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: (n: string) => (m.values.has(n) ? { value: m.values.get(n) } : undefined), set: m.set }) }));
@@ -14,6 +17,21 @@ vi.mock("@/lib/supabase/server", () => ({ createRealIdentitySupabaseServerClient
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
     auth: { admin: { getUserById: m.getUserById } },
+    // record_phone_required_skip: count + insert in one step (the real one runs under an advisory lock in Postgres).
+    rpc: async (name: string, args: { p_user_id: string; p_cooldown_seconds: number; p_lifetime_max: number; p_enforce: boolean }) => {
+      if (name !== "record_phone_required_skip") throw new Error(`unexpected rpc ${name}`);
+      m.rpcCalls.push(args);
+      if (m.rpcMissing) return { data: null, error: { code: "PGRST202" } };
+      if (m.insertError) return { data: null, error: m.insertError };
+      const mine = m.skips.filter((r) => r.user_id === args.p_user_id);
+      if (args.p_enforce) {
+        if (mine.length >= args.p_lifetime_max) return { data: false, error: null };
+        const last = Math.max(0, ...mine.map((r) => Date.parse(r.created_at)));
+        if (last && Date.now() - last < args.p_cooldown_seconds * 1000) return { data: false, error: null };
+      }
+      m.skips.push({ user_id: args.p_user_id, created_at: new Date().toISOString() });
+      return { data: true, error: null };
+    },
     from: (table: string) => {
       if (table === "sms_runtime_config") {
         return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { phone_send_outage: m.outage }, error: null }) }) }) };
@@ -51,6 +69,8 @@ beforeEach(() => {
   m.skips.length = 0;
   m.outage = false;
   m.insertError = null;
+  m.rpcMissing = false;
+  m.rpcCalls.length = 0;
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-key");
   m.getUser.mockResolvedValue({ data: { user: { id: "u1" } } });
   m.getUserById.mockResolvedValue({ data: { user: { id: "u1", last_sign_in_at: "2026-10-19T10:00:00Z" } }, error: null });
@@ -155,6 +175,47 @@ describe("POST /api/auth/phone/skip", () => {
     m.values.set(req.PHONE_SEND_FAILED_COOKIE, req.phoneSendFailedValue("u1", Date.now())!);
     expect((await call()).status).toBe(400);
     expect(m.set).not.toHaveBeenCalled();
+  });
+
+  it("the cap is enforced where the row is written: a request that passed the early read is still refused by the atomic record", async () => {
+    // Both parallel requests read an empty ledger (the allowance passes), but only one insert wins in the database.
+    const proof = () => m.values.set(req.PHONE_SEND_FAILED_COOKIE, req.phoneSendFailedValue("u1", Date.now())!);
+    proof();
+    const allowanceSpy = vi.spyOn(req, "phoneSkipAllowance").mockResolvedValue({ allowed: true });
+    expect((await call()).status).toBe(200);
+    proof();
+    const second = await call();
+    expect(second.status).toBe(400);
+    expect(m.skips).toHaveLength(1);
+    expect(m.rpcCalls).toHaveLength(2);
+    expect(m.rpcCalls[1]).toMatchObject({ p_user_id: "u1", p_cooldown_seconds: 7 * 24 * 3600, p_lifetime_max: 3, p_enforce: true });
+    allowanceSpy.mockRestore();
+  });
+
+  it("an outage lifts the cap inside the atomic record too (p_enforce false), and still records the skip", async () => {
+    m.outage = true;
+    m.skips.push({ user_id: "u1", created_at: new Date().toISOString() }, { user_id: "u1", created_at: new Date().toISOString() }, { user_id: "u1", created_at: new Date().toISOString() });
+    m.values.set(req.PHONE_SEND_FAILED_COOKIE, req.phoneSendFailedValue("u1", Date.now())!);
+    expect((await call()).status).toBe(200);
+    expect(m.rpcCalls[0]).toMatchObject({ p_enforce: false });
+    expect(m.skips).toHaveLength(4);
+  });
+
+  it("a database without the function yet falls back to the plain insert instead of locking the account out", async () => {
+    m.rpcMissing = true;
+    m.values.set(req.PHONE_SEND_FAILED_COOKIE, req.phoneSendFailedValue("u1", Date.now())!);
+    expect((await call()).status).toBe(200);
+    expect(m.skips).toHaveLength(1);
+  });
+
+  it("the migration is one transaction under an advisory lock, service role only", async () => {
+    const { readFileSync } = await import("node:fs");
+    const sql = readFileSync("supabase/migrations/20261020110000_phone_required_skip_atomic.sql", "utf8");
+    expect(sql).toMatch(/security definer/);
+    expect(sql).toMatch(/pg_advisory_xact_lock\(hashtextextended\('phone-required-skip:'/);
+    expect(sql).toMatch(/revoke all on function public\.record_phone_required_skip[\s\S]*from public, anon, authenticated/);
+    expect(sql).toMatch(/grant execute on function public\.record_phone_required_skip[\s\S]*to service_role/);
+    expect(sql).toMatch(/create or replace function/);
   });
 
   it("a cross-site request is refused", async () => {

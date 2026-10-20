@@ -34,12 +34,15 @@ export async function POST(req: Request) {
     if (!user) return phoneAuthFailure();
     const jar = await cookies();
     if (!readPhoneSendFailed(user.id, jar.get(PHONE_SEND_FAILED_COOKIE)?.value)) return phoneAuthFailure();
-    if (!(await phoneSkipAllowance(db, user.id)).allowed) return phoneAuthFailure();
+    const allowance = await phoneSkipAllowance(db, user.id);
+    if (!allowance.allowed) return phoneAuthFailure();
     const auth = await db.auth.admin.getUserById(user.id);
     if (auth.error || !auth.data.user) return phoneAuthFailure();
     const value = phoneSkipValue(user.id, auth.data.user.last_sign_in_at);
     if (!value) return phoneAuthFailure();
-    if (!(await recordPhoneSkip(db, user.id))) return phoneAuthFailure();
+    // The count and the insert are ONE transaction (`record_phone_required_skip`), so parallel requests cannot all pass the
+    // allowance read above; only a platform-wide send outage lifts the cap.
+    if (!(await recordPhoneSkip(db, user.id, new Date(), { enforce: !allowance.outage }))) return phoneAuthFailure();
     jar.set(PHONE_SKIP_COOKIE, value, phoneSkipCookieOptions(new URL(req.url).protocol === "https:"));
     jar.set(PHONE_SEND_FAILED_COOKIE, "", { ...phoneSkipCookieOptions(new URL(req.url).protocol === "https:"), maxAge: 0 });
     return phoneAuthResponse({ ok: true });

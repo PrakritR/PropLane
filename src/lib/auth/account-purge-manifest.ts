@@ -1471,6 +1471,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   phone_otp_challenges: "Hashed one-time codes keyed on a phone; expire in minutes.",
   sms_confirmation_codes:
     "Hashed 4-digit confirmation codes keyed on the proposal they confirm (a pending action, a dispatch run's approval, quote or invoice); no account column, and the row is worthless once its proposal is gone.",
+  sms_confirmation_failures:
+    "Append-only wrong-code ledger keyed on a keyed hash of the texting phone (never the number, never an account); rows older than 24 hours are inert.",
   phone_auth_operation_locks: "Transient service-only phone authentication leases, expire after five minutes and pruned on the next claim.",
   property_knowledge_entries: "Workspace knowledge base; cascades with the workspace.",
   sms_topic_reply_modes: "Workspace auto-reply settings; cascade with the workspace.",
