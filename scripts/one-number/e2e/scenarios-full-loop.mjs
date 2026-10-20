@@ -643,3 +643,34 @@ FULL_LOOP_SCENARIOS.push({
     }
   },
 });
+
+FULL_LOOP_SCENARIOS.push({
+  id: "svc-apply",
+  modes: ["per_workspace"],
+  title: "PropLane line: after a tour is booked at a managed home, 'how do I apply' is still answered (the lead now belongs to a service workspace with no number of its own)",
+  async setup(h, world) { h.fx ??= {}; h.fx.svcReady = ensureServiceLine(h, world); await world.paintTourAvailability({ ownerId: (await h.fx.svcReady).owner.id, houseId: (await h.fx.svcReady).brooklyn.id }); },
+  async run(ctx) {
+    const { h, world, db, check, note } = ctx;
+    const fx = await h.fx.svcReady;
+    const restore = await enterPerWorkspace(db, fx);
+    const { data: cap } = await db.from("sms_runtime_config").select("campaign_daily_segment_limit, pilot_manager_user_ids").eq("singleton", true).maybeSingle();
+    await db.from("sms_runtime_config").update({ campaign_daily_segment_limit: Math.max(Number(cap?.campaign_daily_segment_limit ?? 500), 5000), pilot_manager_user_ids: [...new Set([...(cap?.pilot_manager_user_ids ?? []), fx.owner.id])] }).eq("singleton", true);
+    try {
+      await sleep(1500);
+      const phone = world.phone();
+      const say = async (body) => { const r = await h.text({ from: phone, to: fx.line, body, quietMs: 9000, maxMs: 150_000 }); note(`> ${body}\n< [${r.status}] (${r.firstMs == null ? "no reply" : `first reply ${(r.firstMs / 1000).toFixed(1)} s`}) ${r.all || "(no reply)"}`); return r; };
+      await say("hi, any houses near UW campus?");
+      await say("can I tour the home at 5257 Brooklyn Ave NE on Thursday?");
+      await say("Jordan Prospect, 9am works");
+      const booked = await say("yes");
+      check("the tour is confirmed", /confirmed|all set|booked/i.test(booked.all), booked.all);
+      const apply = await say("how do I apply for the Brooklyn home?");
+      check("the apply question is answered with an apply link", /\/rent\/apply|\/l\//.test(apply.all), apply.all || "(no reply)");
+      const more = await say("what is the application fee?");
+      check("a later question is answered too", more.replies.length > 0, "no reply");
+    } finally {
+      await db.from("sms_runtime_config").update({ campaign_daily_segment_limit: cap?.campaign_daily_segment_limit ?? 500, pilot_manager_user_ids: cap?.pilot_manager_user_ids ?? [] }).eq("singleton", true);
+      await restore();
+    }
+  },
+});

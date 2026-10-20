@@ -60,8 +60,20 @@ export async function ensureServiceLine(h, world) {
 
 /** Point the platform at the fixture owner and per_workspace mode; returns a function that puts everything back. */
 export async function enterPerWorkspace(db, fx) {
-  const { data: settings } = await db.from("platform_service_settings").select("*").eq("singleton", true).maybeSingle();
-  const { data: cfg } = await db.from("sms_runtime_config").select("line_mode").eq("singleton", true).maybeSingle();
+  // A read that failed (a database timeout) is NOT "no row": snapshotting it as absent made the restore delete the real platform
+  // service settings row. Read until both answer, or stop before changing anything.
+  const readOnce = async () => ({
+    settings: await db.from("platform_service_settings").select("*").eq("singleton", true).maybeSingle(),
+    cfg: await db.from("sms_runtime_config").select("line_mode").eq("singleton", true).maybeSingle(),
+  });
+  let read = await readOnce();
+  for (let attempt = 0; attempt < 5 && (read.settings.error || read.cfg.error); attempt += 1) {
+    await new Promise((r) => setTimeout(r, 4000 * (attempt + 1)));
+    read = await readOnce();
+  }
+  if (read.settings.error || read.cfg.error) throw new Error(`cannot snapshot the platform config: ${read.settings.error?.message ?? read.cfg.error?.message}`);
+  const settings = read.settings.data;
+  const cfg = read.cfg.data;
   const up = await db.from("platform_service_settings").upsert({ singleton: true, owner_user_id: fx.owner.id }, { onConflict: "singleton" });
   if (up.error) throw new Error(`platform_service_settings: ${up.error.message}`);
   const mode = await db.from("sms_runtime_config").update({ line_mode: "per_workspace" }).eq("singleton", true);
