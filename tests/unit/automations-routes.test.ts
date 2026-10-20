@@ -116,6 +116,18 @@ describe("PUT /api/portal/automations", () => {
     expect((await putAutomation(put({ preset: "welcome", mode: "bogus" }))).status).toBe(400);
   });
 
+  it("answers 503 with the error code when the write fails, never a silent 200", async () => {
+    setup();
+    const broken = automationsFakeDb({ manager_property_records: houses }, { broken: ["workspace_automation_presets"] });
+    (h.actor as { db: unknown }).db = broken.db;
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await putAutomation(put({ preset: "welcome", mode: "auto" }));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "Could not save.", code: "42P01" });
+    expect(broken.rows.workspace_automation_presets ?? []).toHaveLength(0);
+    spy.mockRestore();
+  });
+
   it("saves wording, and returns to the default when it is saved unchanged", async () => {
     const fake = setup();
     await putAutomation(put({ preset: "welcome", template: "Hey {first_name}, welcome to {house}!" }));

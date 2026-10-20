@@ -74,11 +74,11 @@ function metadata(over: Record<string, string> = {}): Record<string, string> {
 }
 
 function deliver(meta: Record<string, string>, over: Record<string, unknown> = {}, type = "checkout.session.completed") {
-  state.event = {
-    id: "evt_1",
-    type,
-    data: { object: { id: SESSION_ID, mode: "payment", payment_status: "paid", status: "complete", metadata: meta, ...over } },
-  };
+  // A paid Checkout in `payment` mode always carries its PaymentIntent, and the managed-money path refuses to
+  // credit one that does not (src/lib/linked-form-fee.server.ts) — so the fixture carries it too.
+  const object: Record<string, unknown> = { id: SESSION_ID, mode: "payment", payment_status: "paid", status: "complete", metadata: meta, ...over };
+  object.payment_intent = object.payment_intent ?? `pi_${String(object.id)}`;
+  state.event = { id: "evt_1", type, data: { object } };
   return webhook(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" }));
 }
 
