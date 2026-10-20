@@ -119,7 +119,7 @@ PLAYWRIGHT_SKIP_WEBSERVER=1 PLAYWRIGHT_BASE_URL=http://localhost:3010 \
 
 ---
 
-## Phase 1 — Manager portal (`/portal`)
+## Phase 1 — Property portal (`/portal`)
 
 Sign in as **manager@test.proplane.local**. Source of truth for sections: `src/lib/portals/pro.ts`.
 
@@ -429,7 +429,7 @@ Explicitly verify after recent template work:
 - unit: pass/fail (commands)
 - e2e: pass/fail (specs run)
 
-### Manager portal
+### Property portal
 | Section | Status | Notes |
 |---------|--------|-------|
 | ... | pass/fail | |

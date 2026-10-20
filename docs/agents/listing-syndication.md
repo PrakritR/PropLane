@@ -127,7 +127,7 @@ break that registration.
 
 ## Registering the feed with Zillow
 
-1. Open Settings → Integrations → Posting in the manager portal and copy the
+1. Open Settings → Integrations → Posting in the Property portal and copy the
    Zillow feed link (creates the feed on first read).
 2. Submit that URL once to Zillow's Rental Network feed registration (covers
    Zillow, Trulia and HotPads together — there is no separate step per site).
