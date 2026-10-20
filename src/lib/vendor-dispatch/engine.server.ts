@@ -334,6 +334,7 @@ export async function offerAttempt(
   const sent = await sendVendorDispatchText(db, {
     ownerUserId: run.owner_user_id,
     workspaceId: run.workspace_id,
+    approvedByUserId: run.approved_by,
     vendorDirectoryId: attempt.vendor_directory_id,
     phone: contact.phone,
     vendorUserId: contact.vendorUserId,

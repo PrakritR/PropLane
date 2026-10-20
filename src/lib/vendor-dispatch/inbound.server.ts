@@ -419,6 +419,7 @@ async function tellVendor(db: SupabaseClient, job: VendorJob, fallbackPhone: str
   await sendVendorDispatchText(db, {
     ownerUserId: job.run.owner_user_id,
     workspaceId: job.run.workspace_id,
+    approvedByUserId: job.run.approved_by,
     vendorDirectoryId: job.contact.id,
     phone: job.contact.phone ?? fallbackPhone,
     vendorUserId: job.contact.vendorUserId,

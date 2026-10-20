@@ -118,6 +118,8 @@ export async function readVendorTextConsent(db: SupabaseClient, input: {
 export async function recordManagerAttestedVendorConsent(db: SupabaseClient, input: {
   managerUserId: string; actorUserId: string; phone: string; conversationKey: string;
   vendorRecordId: string; senderLine: string;
+  /** The CLIENT workspace the attestation is for, when the grant sits under another owner's ledger (a PropLane Service line). */
+  clientWorkspaceId?: string | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() || "";
   if (!messagingServiceSid) return { ok: false, error: "provider_identity_mismatch" };
@@ -125,8 +127,33 @@ export async function recordManagerAttestedVendorConsent(db: SupabaseClient, inp
     ...scopeFor(input.managerUserId, input.conversationKey, messagingServiceSid),
     eventType: "granted", source: VENDOR_TEXT_ATTESTATION_SOURCE, wordingVersion: VENDOR_TEXT_ATTESTATION_WORDING_VERSION,
     evidence: { attestation: "i_work_with_this_vendor", attestedBy: input.actorUserId,
-      vendorRecordId: input.vendorRecordId, senderLine: input.senderLine, stopFooter: true },
+      vendorRecordId: input.vendorRecordId, senderLine: input.senderLine, stopFooter: true,
+      ...(input.clientWorkspaceId?.trim() ? { clientWorkspaceId: input.clientWorkspaceId.trim() } : {}) },
   });
+}
+
+/**
+ * Has THIS client workspace already attested this vendor (its first text carried the sender line and STOP footer)?
+ * A PropLane Service line texts for many client workspaces under one owner ledger, so a grant another workspace
+ * made does not stand in for this one's first text. A failed read is `ok: false`: the caller refuses the send.
+ */
+export async function readVendorWorkspaceAttestation(db: SupabaseClient, input: {
+  managerUserId: string; phone: string; workspaceId: string;
+}): Promise<{ ok: true; attested: boolean } | { ok: false; error: string }> {
+  const workspaceId = input.workspaceId.trim();
+  if (!workspaceId) return { ok: false, error: "workspace_required" };
+  const { data, error } = await db
+    .from("sms_consent_events")
+    .select("source")
+    .eq("recipient_phone_key", normalizeConsentPhone(input.phone))
+    .eq("manager_user_id", input.managerUserId)
+    .eq("purpose", VENDOR_CONVERSATION_PURPOSE)
+    .eq("event_type", "granted")
+    .eq("source", VENDOR_TEXT_ATTESTATION_SOURCE)
+    .eq("evidence->>clientWorkspaceId", workspaceId)
+    .limit(1);
+  if (error) return { ok: false, error: "scoped_consent_unreadable" };
+  return { ok: true, attested: ((data as unknown[] | null) ?? []).length > 0 };
 }
 
 /** Copy a grant the vendor's other key already holds onto the current key. Never overwrites STOP. */

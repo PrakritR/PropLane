@@ -249,6 +249,7 @@ export async function handleResidentFixedReply(
       await sendVendorDispatchText(db, {
         ownerUserId: run.owner_user_id,
         workspaceId: run.workspace_id,
+        approvedByUserId: run.approved_by,
         vendorDirectoryId: contact.id,
         phone: contact.phone,
         vendorUserId: contact.vendorUserId,

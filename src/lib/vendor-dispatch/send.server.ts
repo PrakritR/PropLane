@@ -18,6 +18,7 @@ import {
   buildVendorSenderLine,
   carryVendorConsentToKey,
   readVendorTextConsent,
+  readVendorWorkspaceAttestation,
   recordManagerAttestedVendorConsent,
 } from "@/lib/sms/vendor-conversation-consent.server";
 
@@ -64,11 +65,19 @@ async function enqueueAndDispatch(
  */
 async function sendOwnVendorViaServiceLine(
   db: SupabaseClient,
-  input: { ownerUserId: string; workspaceId: string; vendorDirectoryId: string; phone: string; vendorUserId?: string | null; text: string; idempotencyKey: string },
+  input: { ownerUserId: string; workspaceId: string; vendorDirectoryId: string; phone: string; vendorUserId?: string | null; approvedByUserId?: string | null; text: string; idempotencyKey: string },
 ): Promise<DispatchSendResult | null> {
   const serviceOwnerId = await serviceOwnerForWorkspace(db, input.workspaceId);
   if (!serviceOwnerId) return null;
-  const ownLine = await resolveWorkspaceSendLine(db, input.ownerUserId, input.workspaceId).catch(() => null);
+  // Fail closed: if the workspace's own line cannot be READ, we cannot know it has none, and borrowing the PropLane
+  // line for a workspace that has a line of its own would text from the wrong number. The caller sees a refused send
+  // (the same value as `consent_unavailable`), exactly as for any other unreadable precondition.
+  let ownLine: Awaited<ReturnType<typeof resolveWorkspaceSendLine>>;
+  try {
+    ownLine = await resolveWorkspaceSendLine(db, input.ownerUserId, input.workspaceId, { failClosed: true });
+  } catch {
+    return { ok: false, reason: "workspace_line_unreadable" };
+  }
   if (ownLine) return null;
 
   const vendorUserId = input.vendorUserId ?? null;
@@ -76,8 +85,22 @@ async function sendOwnVendorViaServiceLine(
   if (!consent?.ok) return { ok: false, reason: "consent_unavailable" };
   if (consent.state === "opted_out" || consent.state === "revoked") return { ok: false, reason: "recipient_opted_out" };
 
+  // The sender line and STOP footer ride the FIRST text this CLIENT workspace sends the vendor. The consent ledger is the
+  // service owner's and shared by every service workspace, so a grant is not proof THIS workspace's first text went out
+  // with the line: that is read per workspace (`clientWorkspaceId` on the attestation).
+  let workspaceAttested = false;
+  if (consent.state === "granted") {
+    const attestation = await readVendorWorkspaceAttestation(db, { managerUserId: serviceOwnerId, phone: input.phone, workspaceId: input.workspaceId }).catch(() => null);
+    if (!attestation?.ok) return { ok: false, reason: "consent_unavailable" };
+    workspaceAttested = attestation.attested;
+    if (consent.grantedUnder && consent.grantedUnder !== consent.conversationKey) {
+      const carried = await carryVendorConsentToKey(db, { managerUserId: serviceOwnerId, phone: input.phone, conversationKey: consent.conversationKey, fromKey: consent.grantedUnder });
+      if (!carried.ok) return { ok: false, reason: "consent_unavailable" };
+    }
+  }
+
   let text = input.text;
-  if (consent.state === "none") {
+  if (!workspaceAttested) {
     const { data: profile } = await db.from("profiles").select("full_name").eq("id", serviceOwnerId).maybeSingle();
     const senderLine = buildVendorSenderLine({
       managerFirstName: String((profile as { full_name?: unknown } | null)?.full_name ?? "").trim().split(/\s+/)[0] || null,
@@ -85,17 +108,16 @@ async function sendOwnVendorViaServiceLine(
     });
     const recorded = await recordManagerAttestedVendorConsent(db, {
       managerUserId: serviceOwnerId,
-      actorUserId: serviceOwnerId,
+      // Who attested: the person who approved this run (falls back to the client workspace's owner), never the service owner by default.
+      actorUserId: input.approvedByUserId?.trim() || input.ownerUserId,
       phone: input.phone,
       conversationKey: consent.conversationKey,
       vendorRecordId: input.vendorDirectoryId,
       senderLine,
+      clientWorkspaceId: input.workspaceId,
     });
     if (!recorded.ok) return { ok: false, reason: "consent_unavailable" };
     text = `${text} ${senderLine}`;
-  } else if (consent.grantedUnder && consent.grantedUnder !== consent.conversationKey) {
-    const carried = await carryVendorConsentToKey(db, { managerUserId: serviceOwnerId, phone: input.phone, conversationKey: consent.conversationKey, fromKey: consent.grantedUnder });
-    if (!carried.ok) return { ok: false, reason: "consent_unavailable" };
   }
 
   const ownerWorkspaceId = await userDefaultWorkspaceId(db, serviceOwnerId);
@@ -131,6 +153,8 @@ export async function sendVendorDispatchText(
     vendorDirectoryId: string;
     phone: string;
     vendorUserId?: string | null;
+    /** The run's approver (`vendor_dispatch_runs.approved_by`): the person whose approval is the first-text attestation. */
+    approvedByUserId?: string | null;
     text: string;
     idempotencyKey: string;
   },

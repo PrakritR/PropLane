@@ -11,11 +11,15 @@ const CLIENT = "client-1";
 const OTHER = "plain-owner";
 const WS_SVC = "ws-svc";
 const WS_SVC_OWN_LINE = "ws-svc-own-line";
+const WS_SVC_2 = "ws-svc-2";
 const WS_PLAIN = "ws-plain";
 const WS_SO = "ws-so";
 
 const state = vi.hoisted(() => ({
   ownLines: new Set<string>(),
+  unreadableLine: false,
+  attested: new Set<string>(),
+  attestationReadFails: false,
   consent: "none" as "none" | "granted" | "opted_out",
   recorded: [] as Array<Record<string, unknown>>,
   transport: [] as Array<Record<string, unknown>>,
@@ -27,16 +31,22 @@ vi.mock("@/lib/one-number/config.server", () => ({
   workspaceOnSharedLine: () => false,
 }));
 vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({
-  resolveWorkspaceSendLine: async (_db: unknown, _owner: string, workspaceId: string) => (state.ownLines.has(workspaceId) ? { phoneNumber: "+12065550001", numberId: "n1" } : null),
+  resolveWorkspaceSendLine: async (_db: unknown, _owner: string, workspaceId: string, options?: { failClosed?: boolean }) => {
+    if (state.unreadableLine && options?.failClosed) throw new Error("workspace_line_unreadable");
+    return state.ownLines.has(workspaceId) ? { phoneNumber: "+12065550001", numberId: "n1" } : null;
+  },
 }));
 vi.mock("@/lib/sms/vendor-conversation-consent.server", () => ({
   VENDOR_CONVERSATION_PURPOSE: "vendor_conversation",
   buildVendorSenderLine: (i: { managerFirstName?: string | null; workspaceName?: string | null }) => `- ${i.managerFirstName ?? "x"} at ${i.workspaceName} via PropLane. Reply STOP to opt out.`,
   carryVendorConsentToKey: async () => ({ ok: true }),
   readVendorTextConsent: async () => ({ ok: true, state: state.consent, conversationKey: "ck-so", grantedUnder: state.consent === "granted" ? "ck-so" : null, grantSource: null }),
+  readVendorWorkspaceAttestation: async (_db: unknown, input: { workspaceId: string }) =>
+    state.attestationReadFails ? { ok: false, error: "scoped_consent_unreadable" } : { ok: true, attested: state.attested.has(input.workspaceId) },
   recordManagerAttestedVendorConsent: async (_db: unknown, input: Record<string, unknown>) => {
     state.recorded.push(input);
     state.consent = "granted";
+    state.attested.add(String(input.clientWorkspaceId));
     return { ok: true };
   },
 }));
@@ -63,6 +73,7 @@ const db = () =>
     portal_workspaces: [
       { id: WS_SVC, owner_user_id: CLIENT, is_service: true },
       { id: WS_SVC_OWN_LINE, owner_user_id: CLIENT, is_service: true },
+      { id: WS_SVC_2, owner_user_id: "client-2", is_service: true },
       { id: WS_PLAIN, owner_user_id: OTHER, is_service: false },
       { id: WS_SO, owner_user_id: SO, is_service: false },
     ],
@@ -70,11 +81,14 @@ const db = () =>
     profiles: [{ id: SO, full_name: "Prakrit Ramachandran" }],
   });
 
-const send = (workspaceId: string, ownerUserId: string, key = "dispatch-offer-aaaaaaaa-w0") =>
-  sendVendorDispatchText(db() as never, { ownerUserId, workspaceId, vendorDirectoryId: "c-own", phone: "+12065550301", text: "PropLane job #1: Leak in Seattle. Reply YES", idempotencyKey: key });
+const send = (workspaceId: string, ownerUserId: string, key = "dispatch-offer-aaaaaaaa-w0", approvedByUserId?: string) =>
+  sendVendorDispatchText(db() as never, { ownerUserId, workspaceId, vendorDirectoryId: "c-own", phone: "+12065550301", text: "PropLane job #1: Leak in Seattle. Reply YES", idempotencyKey: key, ...(approvedByUserId ? { approvedByUserId } : {}) });
 
 beforeEach(() => {
   state.ownLines = new Set();
+  state.unreadableLine = false;
+  state.attested = new Set();
+  state.attestationReadFails = false;
   state.consent = "none";
   state.recorded = [];
   state.transport = [];
@@ -98,6 +112,43 @@ describe("a service workspace's own vendor with no work number", () => {
     expect(String(state.transport[0]!.text)).toContain("Reply STOP");
     expect(String(state.transport[1]!.text)).not.toContain("Reply STOP");
     expect(state.recorded).toHaveLength(1);
+  });
+
+  it("the first-text attestation names the run's approver and is scoped to the CLIENT workspace", async () => {
+    await send(WS_SVC, CLIENT, "dispatch-offer-dddddddd-w0", "approver-1");
+    expect(state.recorded[0]).toMatchObject({ managerUserId: SO, actorUserId: "approver-1", clientWorkspaceId: WS_SVC });
+    await send(WS_SVC_2, "client-2", "dispatch-offer-eeeeeeee-w0");
+    // No approver on the call: the client workspace's owner, never the service owner by default.
+    expect(state.recorded[1]).toMatchObject({ actorUserId: "client-2", clientWorkspaceId: WS_SVC_2 });
+  });
+
+  it("another service workspace's first text to the SAME vendor carries the sender line again (the ledger is shared, the attestation is not)", async () => {
+    await send(WS_SVC, CLIENT, "dispatch-offer-ffffffff-w0", "approver-1");
+    await send(WS_SVC, CLIENT, "dispatch-taken-gggggggg");
+    expect(state.consent).toBe("granted");
+    await send(WS_SVC_2, "client-2", "dispatch-offer-hhhhhhhh-w0", "approver-2");
+    expect(String(state.transport[0]!.text)).toContain("Reply STOP");
+    expect(String(state.transport[1]!.text)).not.toContain("Reply STOP");
+    expect(String(state.transport[2]!.text)).toContain("Reply STOP");
+    expect(state.recorded.map((r) => r.clientWorkspaceId)).toEqual([WS_SVC, WS_SVC_2]);
+    // ...and then only once per workspace.
+    await send(WS_SVC_2, "client-2", "dispatch-taken-iiiiiiii");
+    expect(String(state.transport[3]!.text)).not.toContain("Reply STOP");
+  });
+
+  it("fails closed when the workspace's own line cannot be read: no PropLane-line send, no legacy send, retryable", async () => {
+    state.unreadableLine = true;
+    expect(await send(WS_SVC, CLIENT)).toEqual({ ok: false, reason: "workspace_line_unreadable" });
+    expect(state.transport).toHaveLength(0);
+    expect(state.legacy).toHaveLength(0);
+    expect(state.recorded).toHaveLength(0);
+  });
+
+  it("fails closed when the per-workspace attestation cannot be read", async () => {
+    state.consent = "granted";
+    state.attestationReadFails = true;
+    expect(await send(WS_SVC, CLIENT)).toEqual({ ok: false, reason: "consent_unavailable" });
+    expect(state.transport).toHaveLength(0);
   });
 
   it("a STOP is final: nothing is sent", async () => {

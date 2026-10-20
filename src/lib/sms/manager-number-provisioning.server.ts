@@ -816,7 +816,16 @@ export async function resolveWorkspaceSendLine(
   db: SupabaseClient,
   managerUserId: string,
   workspaceId?: string | null,
+  /**
+   * `failClosed`: a failed read of the workspace's number rows THROWS instead of reading as "no line". For a caller that
+   * would otherwise fall back to a different line (a PropLane Service workspace borrowing the PropLane line).
+   */
+  options?: { failClosed?: boolean },
 ): Promise<{ phoneNumber: string; numberId: string | null } | null> {
+  if (options?.failClosed && workspaceId?.trim()) {
+    const probe = await db.from(TABLE).select("id").eq("workspace_id", workspaceId.trim()).limit(1);
+    if (probe.error) throw new Error("workspace_line_unreadable");
+  }
   const phoneNumber = await resolveActiveManagerSendNumber(db, managerUserId, workspaceId ?? null);
   if (!phoneNumber) return null;
   let numberId: string | null = null;
