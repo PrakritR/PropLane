@@ -57,6 +57,35 @@ describe("vendor-facing free text", () => {
     }
   });
 
+  // Review fix, Oct 20. The pattern matched a 3-6 digit number plus Title-Case words, which is also exactly how a
+  // trade job title writes an equipment spec - so the offer text lost the job's substance and `what` could collapse
+  // to a bare verb. A unit after the number (or ON it) means a specification, never a house.
+  it("leaves an equipment spec alone: that is how a trade writes a job title", () => {
+    for (const text of [
+      "Replace 200 Amp Panel",
+      "Install 240V Outlet",
+      "40 Gallon Water Heater",
+      "Fix 300 Gallon Water Heater",
+      "Repair 1200 Sq Ft Unit",
+      "Replace 200A Panel",
+      "Install 1500 Watt Heater",
+      "Replace 100W Bulb",
+      "Service 410A Line",
+    ]) {
+      expect(sanitizeVendorFacingText(text)).toBe(text);
+    }
+  });
+
+  it("still strips the house shapes, and never takes lowercase prose for an address", () => {
+    expect(sanitizeVendorFacingText("Leak at 5259 Brooklyn")).toBe("Leak");
+    expect(sanitizeVendorFacingText("Lockout 4709A 8th Ave")).toBe("Lockout");
+    expect(sanitizeVendorFacingText("4709B Brooklyn leak")).toBe("leak");
+    expect(sanitizeVendorFacingText("Leak 1200 Dexter Ave N")).toBe("Leak");
+    // Only `knownPlaces` may take out lowercase prose, because only it knows the house for certain.
+    expect(sanitizeVendorFacingText("leak at 5259 brooklyn")).toBe("leak at 5259 brooklyn");
+    expect(sanitizeVendorFacingText("leak at 5259 brooklyn", ["5259 Brooklyn"])).toBe("leak");
+  });
+
   // A pattern can only guess at what reads like an address; the run's own house strings are known exactly.
   it("removes the job's own house strings verbatim, whatever shape they are written in", () => {
     const places = ["5259 Brooklyn Ave NE, Seattle, WA 98105", "5259 Brooklyn Ave NE", "The Brooklyn"];

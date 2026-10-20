@@ -31,8 +31,11 @@ const admin = { role: "admin" as const, userId: "admin-1" };
 const terms: ManagedFeeTerms = { ownerShareBps: 9000, appliesTo: "rent", leasingFeeBps: 0, minFeeCents: 0, reserveTargetCents: 0, repairApprovalThresholdCents: 25_000 };
 const input = { workspaceId: WS, ownerUserId: OWNER, terms, effectiveFrom: "2020-01-01" };
 
+/** The `not null default` values migration 20261018270000 gives the two v3 columns. */
+const POLICY_COLUMN_DEFAULTS = { reserve_target_cents: 0, repair_approval_threshold_cents: 25_000 };
+
 /**
- * Mirrors `activate_managed_policy` (migration 20261020150000): end the workspace's active version and activate the
+ * Mirrors `activate_managed_policy` (migration 20261020170000): end the workspace's active version and activate the
  * draft, atomically - and REFUSE unless the row's own live terms are still the ones `p_snapshot` was taken against.
  * The function writes `terms_sha256` / `terms_snapshot` from the caller but leaves the live `owner_share_bps` and
  * friends alone, and fee math reads those columns, so without this comparison an admin editing the draft between
@@ -53,10 +56,22 @@ function activateRpc(args: Record<string, unknown>, f: OwnerFakeDb) {
     String(snapshot.appliesTo) === String(row.applies_to) &&
     String(snapshot.leasingFeeBps) === String(row.leasing_fee_bps) &&
     String(snapshot.minFeeCents) === String(row.min_fee_cents) &&
-    String(snapshot.reserveTargetCents) === String(row.reserve_target_cents) &&
-    String(snapshot.repairApprovalThresholdCents) === String(row.repair_approval_threshold_cents) &&
     String(snapshot.effectiveFrom) === String(row.effective_from);
   if (!same) return { status: "refused", reason: "terms_changed" };
+  // The v3 terms: compared when the snapshot names them, else allowed only on the column's own default - a
+  // canonical-v2 snapshot (from code that has not deployed yet) never saw them, so it may only vouch for a row
+  // that still carries the defaults a v2-era draft was created with.
+  const v3 = [
+    ["reserveTargetCents", "reserve_target_cents", POLICY_COLUMN_DEFAULTS.reserve_target_cents],
+    ["repairApprovalThresholdCents", "repair_approval_threshold_cents", POLICY_COLUMN_DEFAULTS.repair_approval_threshold_cents],
+  ] as const;
+  for (const [key, column, columnDefault] of v3) {
+    if (key in snapshot) {
+      if (String(snapshot[key]) !== String(row[column])) return { status: "refused", reason: "terms_changed" };
+    } else if (Number(row[column]) !== columnDefault) {
+      return { status: "refused", reason: "terms_changed" };
+    }
+  }
   for (const other of rows) if (other.workspace_id === row.workspace_id && other.status === "active") other.status = "ended";
   Object.assign(row, { status: "active", signed_at: "2026-10-19T00:00:00Z", accepted_via: args.p_via, terms_sha256: args.p_hash, terms_snapshot: args.p_snapshot });
   return { status: "active" };
@@ -211,6 +226,64 @@ describe("sending and signing", () => {
     await expect(signPolicy(f.db, OWNER, d.id, policyTermsHash(d))).rejects.toMatchObject({ status: 409 });
   });
 
+  /** A canonical-v2 snapshot: what code that has not deployed yet still builds. */
+  const v2Snapshot = (policy: { workspaceId: string; ownerUserId: string; terms: ManagedFeeTerms; effectiveFrom: string }) => ({
+    v: 2,
+    workspaceId: policy.workspaceId,
+    ownerUserId: policy.ownerUserId,
+    ownerShareBps: policy.terms.ownerShareBps,
+    appliesTo: policy.terms.appliesTo,
+    leasingFeeBps: policy.terms.leasingFeeBps,
+    minFeeCents: policy.terms.minFeeCents,
+    effectiveFrom: policy.effectiveFrom,
+  });
+
+  // Review fix, Oct 20. This repo applies the migration BEFORE the code on each rung, so between the v3 guard
+  // landing and the Vercel build there is a window where the running code still builds a v2 snapshot. Comparing
+  // the two new columns unconditionally made every signature in that window 409 "This agreement changed", and
+  // reloading could not help - which would freeze a managed workspace mid-signing during the climb itself.
+  it("accepts a v2 snapshot while the row still carries the v3 defaults", async () => {
+    const f = seed();
+    const d = await createDraftPolicy(f.db, admin, input);
+    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
+    const row = f.rows.managed_workspace_fee_policies![0]!;
+    expect([row.reserve_target_cents, row.repair_approval_threshold_cents]).toEqual([0, 25_000]);
+    expect(activateRpc(
+      { p_id: d.id, p_via: "owner_signature", p_snapshot: v2Snapshot(d), p_hash: "h" },
+      f,
+    )).toMatchObject({ status: "active" });
+  });
+
+  // It is a tolerance, not a hole: a term the snapshot never carried cannot be vouched for once it was SET.
+  it("refuses a v2 snapshot once either v3 term was moved off its default", async () => {
+    for (const edit of [{ reserve_target_cents: 250_000 }, { repair_approval_threshold_cents: 500_000 }]) {
+      const f = seed();
+      const d = await createDraftPolicy(f.db, admin, input);
+      await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
+      Object.assign(f.rows.managed_workspace_fee_policies![0]!, edit);
+      expect(activateRpc(
+        { p_id: d.id, p_via: "owner_signature", p_snapshot: v2Snapshot(d), p_hash: "h" },
+        f,
+      )).toMatchObject({ reason: "terms_changed" });
+    }
+  });
+
+  it("a v3 snapshot is still compared on both new terms, default or not", async () => {
+    const f = seed();
+    const d = await createDraftPolicy(f.db, admin, { ...input, terms: { ...terms, repairApprovalThresholdCents: 400_000 } });
+    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
+    // Named and matching: accepted even though it is not the column default.
+    expect(await signPolicy(f.db, OWNER, d.id, policyTermsHash(d))).toMatchObject({ status: "active" });
+    // Named and NOT matching: refused.
+    const g = seed();
+    const e = await createDraftPolicy(g.db, admin, input);
+    await sendPolicyForSignature(g.db, admin, e.id, new Date("2026-10-18T20:00:00Z"));
+    expect(activateRpc(
+      { p_id: e.id, p_via: "owner_signature", p_hash: "h", p_snapshot: { ...v2Snapshot(e), reserveTargetCents: 99, repairApprovalThresholdCents: 25_000 } },
+      g,
+    )).toMatchObject({ reason: "terms_changed" });
+  });
+
   it("an unsent draft cannot take an owner signature, even past the TypeScript check", async () => {
     const f = seed();
     const d = await createDraftPolicy(f.db, admin, input);
@@ -316,8 +389,8 @@ describe("the owner's own preferences", () => {
   });
 });
 
-describe("the SQL mirror: the activation terms guard (migration 20261020160100)", () => {
-  const sql = readFileSync("supabase/migrations/20261020160100_managed_policy_guard_full_terms.sql", "utf8");
+describe("the SQL mirror: the activation terms guard (migration 20261020170000)", () => {
+  const sql = readFileSync("supabase/migrations/20261020170000_managed_policy_guard_v2_snapshot_tolerance.sql", "utf8");
 
   it("replaces the function on the same signature and keeps the grant fail-closed", () => {
     expect(sql).toContain("create or replace function public.activate_managed_policy(");
@@ -338,6 +411,14 @@ describe("the SQL mirror: the activation terms guard (migration 20261020160100)"
     ]) {
       expect(sql).toContain(`p_snapshot->>'${key}'`);
     }
+    // The two v3 terms are compared only when the snapshot names them, and otherwise only on the column default,
+    // so the migration can land before the code that builds a v3 snapshot.
+    expect(sql).toContain("if p_snapshot ? 'reserveTargetCents' then");
+    expect(sql).toContain("if p_snapshot ? 'repairApprovalThresholdCents' then");
+    expect(sql).toContain("elsif v_pol.reserve_target_cents is distinct from c_reserve_default then");
+    expect(sql).toContain("elsif v_pol.repair_approval_threshold_cents is distinct from c_threshold_default then");
+    expect(sql).toContain("c_reserve_default constant integer := 0;");
+    expect(sql).toContain("c_threshold_default constant integer := 25000;");
     // Compared as TEXT, so a malformed snapshot refuses instead of raising a cast error.
     expect(sql).toContain("v_pol.owner_share_bps::text");
     expect(sql).toContain("to_char(v_pol.effective_from, 'YYYY-MM-DD')");

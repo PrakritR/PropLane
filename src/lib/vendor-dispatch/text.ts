@@ -47,24 +47,52 @@ export function stripContactDetails(value: string): string {
 }
 
 /**
- * Street addresses as free text writes them: a house number followed by a street name and a type word, with an
- * optional directional either side ("5259 Brooklyn Ave NE", "42 S Alder St, Unit 2").
+ * Street addresses as free text writes them: a house number (with an optional unit letter, "4709A") followed by a
+ * street name and a type word, with an optional directional either side ("5259 Brooklyn Ave NE", "42 S Alder St,
+ * Unit 2").
  */
 const STREET_ADDRESS_PATTERN =
-  /\b\d{1,6}\s+(?:[NSEW]{1,2}\.?\s+)?(?:[A-Za-z0-9'.-]+\s+){0,3}(?:st|street|ave|avenue|av|rd|road|blvd|boulevard|dr|drive|ln|lane|way|ct|court|pl|place|ter|terrace|pkwy|parkway|hwy|highway|cir|circle|trl|trail)\b\.?(?:\s*,?\s*(?:[NSEW]{1,2})\b\.?)?(?:\s*,?\s*(?:apt|apartment|unit|ste|suite|rm|room|#)\s*[A-Za-z0-9-]+)?/gi;
+  /\b\d{1,6}[A-Za-z]?\s+(?:[NSEW]{1,2}\.?\s+)?(?:[A-Za-z0-9'.-]+\s+){0,3}(?:st|street|ave|avenue|av|rd|road|blvd|boulevard|dr|drive|ln|lane|way|ct|court|pl|place|ter|terrace|pkwy|parkway|hwy|highway|cir|circle|trl|trail)\b\.?(?:\s*,?\s*(?:[NSEW]{1,2})\b\.?)?(?:\s*,?\s*(?:apt|apartment|unit|ste|suite|rm|room|#)\s*[A-Za-z0-9-]+)?/gi;
 
 /**
- * The SUFFIXLESS form this product writes its own houses in: a house number (optionally with a unit letter) and the
- * street name alone - "5259 Brooklyn", "4709A 8th", "412 Pine". The pattern above needs a type word (St, Ave), so
- * none of those were stripped, and a resident titling a request "Leak at 5259 Brooklyn" sent the address to every
- * vendor who had only been offered the job.
- *
- * Three digits minimum, and the following token must read like a street name (capitalised, or an ordinal such as
- * `8th`), so a count or a measurement in ordinary free text survives: "2 people", "fix 3 windows", "100 feet of
- * pipe", "room 3". A directional may lead the name ("4100 NE 45th").
+ * Units and spec words a trade job title puts straight after a number: "200 Amp panel", "40 Gallon water heater",
+ * "1200 Sq Ft unit". A number followed by one of these is a specification, never a house number.
  */
-const HOUSE_NUMBER_PATTERN =
-  /\b\d{3,6}[A-Za-z]?\s+(?:[NSEW]{1,2}\.?\s+)?(?:\d{1,3}(?:st|nd|rd|th)|[A-Z][A-Za-z'.-]*)(?:\s+(?:\d{1,3}(?:st|nd|rd|th)|[A-Z][A-Za-z'.-]*)){0,2}\b/g;
+const SPEC_UNIT_WORDS = [
+  "amp", "amps", "a", "v", "volt", "volts", "w", "watt", "watts", "kw", "gal", "gallon", "gallons", "btu", "mbh",
+  "psi", "ton", "tons", "inch", "inches", "in", "ft", "foot", "feet", "sq", "sqft", "yd", "yard", "yards", "lb",
+  "lbs", "cfm", "hp", "degree", "degrees", "deg", "x",
+];
+
+/** Letters that read as a unit on the number itself ("240V", "200A"), not as a house's unit suffix. */
+const SPEC_UNIT_LETTERS = "AVWK";
+
+/** `amp` -> `[Aa]mp`, so the unit list matches either capitalisation without making the whole pattern case-blind. */
+const eitherCase = (word: string): string => `[${word[0]!.toUpperCase()}${word[0]!}]${word.slice(1)}`;
+
+const STREET_NAME_WORD = String.raw`(?:\d{1,3}(?:st|nd|rd|th)|[A-Z][A-Za-z'.-]*)`;
+const ORDINAL_WORD = String.raw`\d{1,3}(?:st|nd|rd|th)`;
+const DIRECTIONAL = String.raw`(?:[NSEW]{1,2}\.?\s+)?`;
+
+/**
+ * The SUFFIXLESS form this product writes its own houses in: a house number and the street name alone -
+ * "5259 Brooklyn", "4709A 8th", "412 Pine". The pattern above needs a type word (St, Ave), so none of those were
+ * stripped, and a resident titling a request "Leak at 5259 Brooklyn" sent the address to every vendor who had only
+ * been offered the job.
+ *
+ * The run's own place strings (`knownPlaces`) are the exact protection; this is the guess for a house the job does
+ * not name, so it stays the narrow shape and leaves ordinary job text alone. Three digits minimum, the following
+ * token must read like a street name (capitalised, or an ordinal such as `8th`) and must not be a unit, and the
+ * pattern is case-SENSITIVE so lowercase prose is never taken for an address. A unit letter ON the number
+ * ("240V", "200A") needs an ordinal after it to read as a house, because that is also how a part is written.
+ */
+const HOUSE_NUMBER_PATTERN = new RegExp(
+  [
+    String.raw`\b\d{3,6}[${SPEC_UNIT_LETTERS}]\s+${DIRECTIONAL}${ORDINAL_WORD}\b`,
+    String.raw`\b\d{3,6}(?![${SPEC_UNIT_LETTERS}]\b)[A-Za-z]?\s+${DIRECTIONAL}(?!(?:${SPEC_UNIT_WORDS.map(eitherCase).join("|")})\b)${STREET_NAME_WORD}(?:\s+${STREET_NAME_WORD}){0,2}\b`,
+  ].join("|"),
+  "g",
+);
 
 /** Strip anything that reads as a street address: an OFFERED vendor is told the general area and never the street. */
 export function stripStreetAddresses(value: string): string {
