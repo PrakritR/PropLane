@@ -102,7 +102,6 @@ export function AdminServiceNetwork({ bucket }: { bucket: NetworkBucket }) {
 
   useEffect(() => {
     let cancelled = false;
-    setSelectedId(null);
     const run = async () => {
       if (bucket === "leads") {
         const next = await load<Lead>("/api/admin/vendor-leads", (j) => (Array.isArray(j.items) ? (j.items as Lead[]) : null), "Could not load the vendor leads.");
