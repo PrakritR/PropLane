@@ -983,7 +983,7 @@ Managers/owners text about the status of their houses." Both line modes; no migr
 Captain, Oct 19: admins add vendors' phone numbers and those vendors are texted when work is needed in a managed workspace;
 tours and messages for managed workspaces land in the admin portal; 510-309-8345 acts as a manager with access to ALL
 service properties and is told about every inquiry, tour, stay request, application, filed service and payment.
-Migration `20261019160000_service_vendors_and_manager_phone.sql` (dev applied, ledger row recorded): the two
+Migration `20261019160100_service_vendors_and_manager_phone.sql` (dev applied, ledger row recorded): the two
 `platform_service_settings` columns, `phone_otp_challenges.purpose` gains `service_manager` (rebuilt as the UNION of the live
 list, so `sms_signup` and any later value survive), and a partial index on roster rows.
 
