@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/stripe-connect", () => ({ connectAccountReadyForAchPayouts: () => true }));
+// The unsigned-service freeze is covered in managed-unpolicied-service.test.ts; this fixture db has no property/workspace tables.
+vi.mock("@/lib/managed-finance/unpolicied-service.server", () => ({
+  unpoliciedServiceForManager: async () => [],
+  flagUnsignedFeeAgreement: async () => undefined,
+}));
 
 import { releaseVerifiedPlatformHoldsForOwner, reconcileReservedPlatformHoldTransfers } from "@/lib/platform-hold-release.server";
 

@@ -50,7 +50,7 @@ export function fakeOwnerDb(
       let mode: "select" | "update" | "insert" | "delete" = "select";
       let patch: FakeRow = {};
       let inserted: FakeRow[] = [];
-      let orderBy: { column: string; ascending: boolean }[] = [];
+      const orderBy: { column: string; ascending: boolean }[] = [];
       let wantResult = false;
 
       const run = (): { data: FakeRow[] | null; error: { code: string; message: string } | null } => {
@@ -96,6 +96,7 @@ export function fakeOwnerDb(
         in(column: string, values: unknown[]) { predicates.push((row) => values.includes(read(row, column))); return query; },
         is(column: string, value: unknown) { predicates.push((row) => (value === null ? read(row, column) == null : read(row, column) === value)); return query; },
         not(column: string, _op: string, value: unknown) { predicates.push((row) => (value === null ? read(row, column) != null : read(row, column) !== value)); return query; },
+        like(column: string, pattern: string) { const prefix = pattern.replace(/%$/, ""); predicates.push((row) => String(read(row, column) ?? "").startsWith(prefix)); return query; },
         gte(column: string, value: unknown) { predicates.push((row) => String(read(row, column) ?? "") >= String(value)); return query; },
         gt(column: string, value: unknown) { predicates.push((row) => String(read(row, column) ?? "") > String(value)); return query; },
         lte(column: string, value: unknown) { predicates.push((row) => String(read(row, column) ?? "") <= String(value)); return query; },

@@ -367,8 +367,8 @@ export function AdminManagedFinancePanel() {
               <PortalEntryRow
                 key={`${f.check}:${f.subject}:${f.day}:${i}`}
                 tile={{ kind: "glyph", icon: Flag }}
-                title={f.check}
-                place={f.subject}
+                title={f.message ?? f.check}
+                place={f.message ? undefined : f.subject}
                 facts={[{ icon: CalendarDays, label: f.day, srLabel: "Day" }]}
                 dataAttr="admin-managed-flag-row"
               />
