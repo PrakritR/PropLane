@@ -166,22 +166,23 @@ describe("sidebar header", () => {
 });
 
 describe("regrouped nav", () => {
-  it("shows the home rows then Portfolio, Leasing, People, Money in order", () => {
+  it("shows the home rows then Portfolio, Leasing, People, Operations, Money in order (captain #28)", () => {
     renderManager();
     const side = aside();
     const groups = Array.from(side.querySelectorAll("[data-nav-group]")).map((g) => g.getAttribute("data-nav-group"));
-    expect(groups).toEqual(["home", "portfolio", "leasing", "people", "money"]);
+    expect(groups).toEqual(["home", "portfolio", "leasing", "people", "operations", "money"]);
     const labelsIn = (id: string) =>
       Array.from(side.querySelectorAll(`[data-nav-group="${id}"] a, [data-nav-group="${id}"] [role="link"]`)).map(
         (a) => (a.getAttribute("aria-label") ?? a.textContent ?? "").trim(),
       );
     expect(labelsIn("home").map((l) => l.replace(/\d+$/, ""))).toEqual(["Dashboard", "Tasks", "Calendar", "Communication"]);
     expect(labelsIn("portfolio").map((l) => l.replace(/\d+$/, ""))).toEqual(["Properties", "Bookings", "Promotion"]);
+    expect(labelsIn("people").map((l) => l.replace(/\d+$/, ""))).toEqual(["Residents", "Vendors"]);
+    expect(labelsIn("operations").map((l) => l.replace(/\d+$/, ""))).toEqual(["Services", "Documents"]);
     expect(labelsIn("money").map((l) => l.replace(/\d+$/, ""))).toEqual([
       "Incoming payments",
       "Outgoing payments",
       "Finances",
-      "Documents",
     ]);
   });
 

@@ -67,8 +67,10 @@ const PRO_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard", "tasks", "calendar", "communication"] },
   { id: "portfolio", label: "Portfolio", sections: ["properties", "bookings", "promotion"] },
   { id: "leasing", label: "Leasing", sections: ["tours", "applications", "leases", "forms"] },
-  { id: "people", label: "People", sections: ["residents", "vendors", "services"] },
-  { id: "money", label: "Money", sections: ["payments", "outgoing", "financials", "documents"] },
+  { id: "people", label: "People", sections: ["residents", "vendors"] },
+  // Captain #28: Services is work on the houses, not a person; Documents is records, not money.
+  { id: "operations", label: "Operations", sections: ["services", "documents"] },
+  { id: "money", label: "Money", sections: ["payments", "outgoing", "financials"] },
 ];
 
 /**
@@ -237,19 +239,23 @@ const ADMIN_GROUPS: NavGroupConfig[] = [
   { id: "platform", label: null, sections: adminRowSections("support", "growth") },
 ];
 
-// `move-in` is the resident's "My home" row (label "My home"). Its group carries no heading of its own:
-// a "My home" heading over the "My home" row said the same word twice.
+// Captain #28: the resident's journey in order, Applying, then the Home they live in (`move-in` is the "My home"
+// row), the Lease and its paperwork, then Money. Stage locks and unlocks are unchanged: this only buckets the rows.
+// The "Lease" heading over the "Lease" row is the captain's exact label (#28), the one named exception to R13.
 const RESIDENT_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard", "stays", "communication"] },
-  { id: "my-home", label: null, sections: ["move-in", "lease", "forms", "services"] },
   { id: "applying", label: "Applying", sections: ["tour", "applications"] },
-  { id: "money", label: "Money", sections: ["payments", "documents"] },
+  { id: "my-home", label: "Home", sections: ["move-in", "services"] },
+  { id: "lease", label: "Lease", sections: ["lease", "forms", "documents"] },
+  { id: "money", label: "Money", sections: ["payments"] },
 ];
 
+// Captain #28: Reviews and Documents are the vendor's business record, not the work queue or money.
 const VENDOR_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard", "communication", "calendar"] },
-  { id: "work", label: "Work", sections: ["work-orders", "reviews"] },
-  { id: "money", label: "Money", sections: ["payments", "outgoing", "financials", "documents"] },
+  { id: "work", label: "Work", sections: ["work-orders"] },
+  { id: "money", label: "Money", sections: ["payments", "outgoing", "financials"] },
+  { id: "business", label: "Business", sections: ["reviews", "documents"] },
 ];
 
 export const PORTAL_NAV_GROUPS: Record<PortalKind, NavGroupConfig[]> = {

@@ -45,11 +45,13 @@ async function landing(section: string, tabs?: string[], search?: Record<string,
 }
 
 describe("vendor Money group registry", () => {
-  it("lists Incoming payments, Outgoing payments, Finances and Documents, each its own row", () => {
+  it("lists Incoming payments, Outgoing payments and Finances under Money; Documents sits under Business (captain #28)", () => {
     const money = PORTAL_NAV_GROUPS.vendor.find((group) => group.id === "money")!;
-    expect(money.sections).toEqual(["payments", "outgoing", "financials", "documents"]);
+    expect(money.sections).toEqual(["payments", "outgoing", "financials"]);
     const label = (section: string) => vendorPortal.sections.find((s) => s.section === section)?.label;
-    expect(money.sections.map(label)).toEqual(["Incoming payments", "Outgoing payments", "Finances", "Documents"]);
+    expect(money.sections.map(label)).toEqual(["Incoming payments", "Outgoing payments", "Finances"]);
+    const business = PORTAL_NAV_GROUPS.vendor.find((group) => group.id === "business")!;
+    expect(business.sections.map(label)).toEqual(["Reviews", "Documents"]);
   });
 
   it("Finances has no registry tabs (Overview · Payouts · Refunds are in-page); Documents has the five tabs", () => {

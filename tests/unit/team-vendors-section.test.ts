@@ -18,8 +18,10 @@ describe("Vendors section (Teams page removed)", () => {
     expect(vendors?.tabs ?? []).toEqual([]);
     const ids = proPortal.sections.map((s) => s.section);
     expect(ids.indexOf("vendors")).toBe(ids.indexOf("services") + 1);
+    // Captain #28: People is the people; Services moved to Operations.
     const people = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "people");
-    expect(people?.sections).toEqual(["residents", "vendors", "services"]);
+    expect(people?.sections).toEqual(["residents", "vendors"]);
+    expect(PORTAL_NAV_GROUPS.pro.find((g) => g.id === "operations")?.sections).toEqual(["services", "documents"]);
   });
 
   it("Teams is not a manager nav section — team is Settings → Workspaces", () => {

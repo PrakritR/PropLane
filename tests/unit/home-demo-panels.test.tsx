@@ -30,19 +30,22 @@ describe("DEMO_TABS contract", () => {
       "dashboard", "tasks", "calendar", "communication",
       "properties", "bookings", "promotion",
       "tours", "applications", "leases", "forms",
-      "residents", "vendors", "services",
-      "payments", "outgoing", "financials", "documents",
+      "residents", "vendors",
+      "services", "documents",
+      "payments", "outgoing", "financials",
     ]);
     expect(DEMO_TABS.resident.map((t) => t.id)).toEqual([
       "dashboard", "communication",
-      "move-in", "lease", "forms", "services",
       "tour", "applications",
-      "payments", "documents",
+      "move-in", "services",
+      "lease", "forms", "documents",
+      "payments",
     ]);
     expect(DEMO_TABS.vendor.map((t) => t.id)).toEqual([
       "dashboard", "communication", "calendar",
-      "work-orders", "reviews",
-      "payments", "outgoing", "financials", "documents",
+      "work-orders",
+      "payments", "outgoing", "financials",
+      "reviews", "documents",
     ]);
   });
 });

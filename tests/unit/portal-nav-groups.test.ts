@@ -120,10 +120,10 @@ describe("groupNavItems", () => {
     const result = groupNavItems("pro", items);
 
     // The unheaded home group opens the sidebar, then Portfolio / Leasing /
-    // People / Money. "app" (the download page) is excluded from every nav:
+    // People / Operations / Money (captain #28). "app" (the download page) is excluded from every nav:
     // it stays routable, it is just not a row. Asserted in full because this
     // case is specifically about bucketing in config order.
-    expect(result.map((g) => g.id)).toEqual(["home", "portfolio", "leasing", "people", "money"]);
+    expect(result.map((g) => g.id)).toEqual(["home", "portfolio", "leasing", "people", "operations", "money"]);
     expect(result[0]).toEqual({
       id: "home",
       label: null,
@@ -136,9 +136,11 @@ describe("groupNavItems", () => {
     expect(result.find((g) => g.id === "leasing")?.label).toBe("Leasing");
     expect(sectionsOf("leasing")).toEqual(["tours", "applications", "leases", "forms"]);
     expect(result.find((g) => g.id === "people")?.label).toBe("People");
-    expect(sectionsOf("people")).toEqual(["residents", "vendors", "services"]);
+    expect(sectionsOf("people")).toEqual(["residents", "vendors"]);
+    expect(result.find((g) => g.id === "operations")?.label).toBe("Operations");
+    expect(sectionsOf("operations")).toEqual(["services", "documents"]);
     expect(result.find((g) => g.id === "money")?.label).toBe("Money");
-    expect(sectionsOf("money")).toEqual(["payments", "outgoing", "financials", "documents"]);
+    expect(sectionsOf("money")).toEqual(["payments", "outgoing", "financials"]);
     // profile was filtered out of `items` above (pro's sidebar otherwise surfaces it)
     expect(result.flatMap((g) => g.items).map((i) => i.section)).not.toContain("profile");
   });
@@ -159,10 +161,10 @@ describe("groupNavItems", () => {
       { section: "profile", label: "Settings", href: "/resident/profile" },
     ];
     const result = groupNavItems("resident", items);
-    expect(result.map((g) => g.id)).toEqual(["home", "my-home", "applying"]);
+    expect(result.map((g) => g.id)).toEqual(["home", "applying", "lease"]);
     expect(result[0]?.items.map((i) => i.section)).toEqual(["dashboard", "communication"]);
-    expect(result[1]?.items.map((i) => i.section)).toEqual(["lease"]);
-    expect(result[2]?.items.map((i) => i.section)).toEqual(["tour", "applications"]);
+    expect(result[1]?.items.map((i) => i.section)).toEqual(["tour", "applications"]);
+    expect(result[2]?.items.map((i) => i.section)).toEqual(["lease"]);
     expect(result.flatMap((g) => g.items).map((i) => i.section)).not.toContain("profile");
   });
 });
@@ -171,30 +173,34 @@ describe("phase 1 regroup: headings and exact order per portal", () => {
   const headings = (kind: "manager" | "resident" | "vendor") =>
     PORTAL_NAV_GROUPS[kind].map((g) => [g.label, g.sections] as const);
 
-  it("manager: home, Portfolio, Leasing, People, Money", () => {
+  // Captain #28 ("Services doesn't belong in People, Documents doesn't belong in Money"): display grouping only.
+  it("property: home, Portfolio, Leasing, People, Operations, Money", () => {
     expect(headings("manager")).toEqual([
       [null, ["dashboard", "tasks", "calendar", "communication"]],
       ["Portfolio", ["properties", "bookings", "promotion"]],
       ["Leasing", ["tours", "applications", "leases", "forms"]],
-      ["People", ["residents", "vendors", "services"]],
-      ["Money", ["payments", "outgoing", "financials", "documents"]],
+      ["People", ["residents", "vendors"]],
+      ["Operations", ["services", "documents"]],
+      ["Money", ["payments", "outgoing", "financials"]],
     ]);
   });
 
-  it("resident: home, My home (no heading: it would repeat its own first row), Applying, Money", () => {
+  it("resident: home, Applying, Home, Lease, Money", () => {
     expect(headings("resident")).toEqual([
       [null, ["dashboard", "stays", "communication"]],
-      [null, ["move-in", "lease", "forms", "services"]],
       ["Applying", ["tour", "applications"]],
-      ["Money", ["payments", "documents"]],
+      ["Home", ["move-in", "services"]],
+      ["Lease", ["lease", "forms", "documents"]],
+      ["Money", ["payments"]],
     ]);
   });
 
-  it("vendor: home, Work, Money", () => {
+  it("vendor: home, Work, Money, Business", () => {
     expect(headings("vendor")).toEqual([
       [null, ["dashboard", "communication", "calendar"]],
-      ["Work", ["work-orders", "reviews"]],
-      ["Money", ["payments", "outgoing", "financials", "documents"]],
+      ["Work", ["work-orders"]],
+      ["Money", ["payments", "outgoing", "financials"]],
+      ["Business", ["reviews", "documents"]],
     ]);
   });
 
