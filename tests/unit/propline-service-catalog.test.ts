@@ -84,6 +84,35 @@ describe("PropLane line detection (per_workspace mode)", () => {
   });
 });
 
+describe("PropLane line detection for a security gate (onUnreadable)", () => {
+  beforeEach(() => { resetPlatformServiceOwnerCache(); vi.clearAllMocks(); });
+  const ok = (): Tables => ({
+    platform_service_settings: [{ singleton: true, owner_user_id: SERVICE_OWNER }],
+    manager_sms_numbers: [{ id: "n1", manager_user_id: SERVICE_OWNER, phone_number: LINE, provision_state: "active", released_at: null }],
+  });
+
+  it("an unreadable settings or number read answers what the gate asked for, never a silent false", async () => {
+    await expect(isPropLaneServiceLine(fakeDb({ platform_service_settings: { error: { code: "500" } } }), { ownerUserId: SERVICE_OWNER, workNumber: LINE, onUnreadable: true })).resolves.toBe(true);
+    resetPlatformServiceOwnerCache();
+    await expect(isPropLaneServiceLine(fakeDb({ ...ok(), manager_sms_numbers: { error: { code: "500" } } }), { ownerUserId: SERVICE_OWNER, workNumber: LINE, onUnreadable: true })).resolves.toBe(true);
+    // Routing callers that omit it keep the old answer.
+    resetPlatformServiceOwnerCache();
+    await expect(isPropLaneServiceLine(fakeDb({ platform_service_settings: { error: { code: "500" } } }), { ownerUserId: SERVICE_OWNER, workNumber: LINE })).resolves.toBe(false);
+  });
+
+  it("a READABLE answer is never overridden: another workspace's number is still not the line", async () => {
+    await expect(isPropLaneServiceLine(fakeDb(ok()), { ownerUserId: OTHER_OWNER, workNumber: LINE, onUnreadable: true })).resolves.toBe(false);
+    await expect(isPropLaneServiceLine(fakeDb(ok()), { ownerUserId: SERVICE_OWNER, workNumber: "+12065550999", onUnreadable: true })).resolves.toBe(false);
+    await expect(isPropLaneServiceLine(fakeDb(ok()), { ownerUserId: SERVICE_OWNER, workNumber: LINE, onUnreadable: true })).resolves.toBe(true);
+  });
+
+  it("the inbound pipeline asks with onUnreadable: true and treats a rejection as the PropLane line", async () => {
+    const { readFileSync } = await import("node:fs");
+    const src = readFileSync("src/lib/sms/inbound-pipeline.server.ts", "utf8");
+    expect(src).toMatch(/isPropLaneServiceLine\(db, \{ ownerUserId: managerId, workNumber: toPhone, onUnreadable: true \}\)\.catch\(\(\) => true\)/);
+  });
+});
+
 describe("service catalog read", () => {
   beforeEach(() => { resetServiceCatalogCache(); vi.clearAllMocks(); });
 

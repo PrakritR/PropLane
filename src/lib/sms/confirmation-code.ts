@@ -19,11 +19,20 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  */
 
 export const SMS_CONFIRMATION_CODE_MAX_ATTEMPTS = 3;
+/**
+ * A per-PHONE budget across every proposal (security review, Oct 20): the three-guess cap above belongs to one proposal,
+ * so a spoofer who keeps raising new ones (or re-quoting a stay) gets three blind guesses each. Ten wrong codes from one
+ * number in 24 hours lock the coded path for that number; the portal is the way through.
+ */
+export const SMS_CONFIRMATION_PHONE_FAILURE_CAP = 10;
+export const SMS_CONFIRMATION_PHONE_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const SMS_CONFIRMATION_LOCKED_REPLY = "Too many wrong codes from this number, so confirming by text is paused. Please use the PropLane portal instead.";
 export const SMS_CONFIRMATION_CANCELLED_REPLY = "Too many wrong codes, so I cancelled that. Nothing was changed - start again when you are ready.";
 
 const CODE_LENGTH = 4;
 const CODE_TTL_MS = 30 * 60 * 1000;
 const TABLE = "sms_confirmation_codes";
+const FAILURES_TABLE = "sms_confirmation_failures";
 
 /** What a code can confirm. One row per subject, so the code for one job never answers another. */
 export type SmsConfirmationSubjectKind =
@@ -31,9 +40,10 @@ export type SmsConfirmationSubjectKind =
   | "dispatch_approval"
   | "dispatch_quote"
   | "dispatch_invoice"
-  | "dispatch_retry";
+  | "dispatch_retry"
+  | "stay_request";
 
-export type SmsConfirmationCheck = "ok" | "wrong" | "exhausted" | "unavailable";
+export type SmsConfirmationCheck = "ok" | "wrong" | "exhausted" | "unavailable" | "locked";
 
 type Subject = { kind: SmsConfirmationSubjectKind; subjectId: string };
 
@@ -57,6 +67,32 @@ function hashCode(subject: Subject, code: string): string | null {
 
 export function generateSmsConfirmationCode(): string {
   return String(randomInt(0, 10 ** CODE_LENGTH)).padStart(CODE_LENGTH, "0");
+}
+
+/** Only a keyed hash of the phone is stored, so the failures table is not a list of numbers. */
+function phoneHash(phone: string): string | null {
+  const key = secret();
+  const digits = String(phone ?? "").replace(/\D/g, "").slice(-10);
+  if (!key || digits.length < 7) return null;
+  return createHmac("sha256", key).update(`sms-confirm-phone-v1:${digits}`).digest("hex");
+}
+
+/** `locked` = this phone has hit the cap; `unavailable` = the count could not be read (fail closed); null = not locked. */
+async function phoneLockState(db: SupabaseClient, hash: string, now: Date): Promise<"locked" | "unavailable" | null> {
+  const since = new Date(now.getTime() - SMS_CONFIRMATION_PHONE_WINDOW_MS).toISOString();
+  const { data, error } = await db
+    .from(FAILURES_TABLE)
+    .select("id")
+    .eq("phone_hash", hash)
+    .gte("failed_at", since)
+    .limit(SMS_CONFIRMATION_PHONE_FAILURE_CAP);
+  if (error) return "unavailable";
+  return ((data ?? []) as unknown[]).length >= SMS_CONFIRMATION_PHONE_FAILURE_CAP ? "locked" : null;
+}
+
+async function recordPhoneFailure(db: SupabaseClient, hash: string | null, now: Date): Promise<void> {
+  if (!hash) return;
+  await db.from(FAILURES_TABLE).insert({ phone_hash: hash, failed_at: now.toISOString() }).then(undefined, () => undefined);
 }
 
 function safeEqualHex(a: string, b: string): boolean {
@@ -117,16 +153,27 @@ export async function issueSmsConfirmationCode(
  *   `exhausted`  this was the third wrong code: the caller CANCELS the proposal
  *   `unavailable` the store or the key could not answer - refuse, never confirm
  *
+ *   `locked`     (only when a `phone` is passed) that number has missed ten codes in 24 hours: refuse and point to the portal
+ *
  * The attempt is counted by compare-and-set BEFORE the comparison, so concurrent guesses cannot slip past the cap.
  */
 export async function checkSmsConfirmationCode(
   db: SupabaseClient,
-  input: { kind: SmsConfirmationSubjectKind; subjectId: string; code: string | null | undefined; now?: Date },
+  input: { kind: SmsConfirmationSubjectKind; subjectId: string; code: string | null | undefined; phone?: string | null; now?: Date },
 ): Promise<SmsConfirmationCheck> {
   const subjectId = String(input.subjectId ?? "").trim();
   const presented = String(input.code ?? "").trim();
   if (!subjectId || !secret()) return "unavailable";
   const now = input.now ?? new Date();
+  // A caller that knows the sender passes the phone: ten wrong codes in 24 hours across proposals lock the coded path
+  // for that number, correct code or not. No phone = no per-phone budget (the per-proposal cap still applies).
+  let failureKey: string | null = null;
+  if (input.phone && String(input.phone).trim()) {
+    failureKey = phoneHash(input.phone);
+    if (!failureKey) return "unavailable";
+    const lock = await phoneLockState(db, failureKey, now);
+    if (lock) return lock;
+  }
   const { data, error } = await db
     .from(TABLE)
     .select("code_hash, attempts, expires_at, consumed_at")
@@ -155,6 +202,7 @@ export async function checkSmsConfirmationCode(
   const expected = String(row.code_hash ?? "");
   const presentedHash = /^\d{4}$/.test(presented) ? hashCode({ kind: input.kind, subjectId }, presented) : null;
   if (!presentedHash || !expected || !safeEqualHex(presentedHash, expected)) {
+    await recordPhoneFailure(db, failureKey, now);
     return attempts + 1 >= SMS_CONFIRMATION_CODE_MAX_ATTEMPTS ? "exhausted" : "wrong";
   }
   await db

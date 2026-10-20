@@ -19,6 +19,8 @@ import {
   smsConfirmationCodeConfigured,
   withConfirmationCode,
   SMS_CONFIRMATION_CODE_MAX_ATTEMPTS,
+  SMS_CONFIRMATION_PHONE_FAILURE_CAP,
+  SMS_CONFIRMATION_PHONE_WINDOW_MS,
 } from "@/lib/sms/confirmation-code";
 
 const subject = { kind: "pending_action" as const, subjectId: "action-1" };
@@ -171,5 +173,74 @@ describe("the preview", () => {
 
   it("appends the instruction when the preview has none", () => {
     expect(withConfirmationCode("Charge Dana $1,200", "4821")).toContain(codedConfirmationLine("4821"));
+  });
+});
+
+
+describe("a per-phone budget across proposals", () => {
+  const PHONE = "+12065550142";
+  const OTHER_PHONE = "+12065550177";
+  const wrongOf = (code: string) => (code === "0000" ? "1111" : "0000");
+
+  /** Ten wrong codes, each on a DIFFERENT proposal (so the per-proposal cap of three never trips). */
+  async function burn(f: ReturnType<typeof db>, n: number, phone = PHONE) {
+    for (let i = 0; i < n; i += 1) {
+      const subjectId = `action-${i}`;
+      const code = (await issueSmsConfirmationCode(f as never, { kind: "pending_action", subjectId }))!;
+      expect(await checkSmsConfirmationCode(f as never, { kind: "pending_action", subjectId, code: wrongOf(code), phone })).toBe("wrong");
+    }
+  }
+
+  it("ten wrong codes in 24 hours lock the coded path for that phone: even the right code is refused", async () => {
+    const f = db();
+    await burn(f, SMS_CONFIRMATION_PHONE_FAILURE_CAP);
+    const code = (await issueSmsConfirmationCode(f as never, { kind: "pending_action", subjectId: "fresh" }))!;
+    expect(await checkSmsConfirmationCode(f as never, { kind: "pending_action", subjectId: "fresh", code, phone: PHONE })).toBe("locked");
+    // A locked check spends no attempt and does not consume the code.
+    expect(f.tables.sms_confirmation_codes!.find((r) => r.subject_id === "fresh")).toMatchObject({ attempts: 0, consumed_at: null });
+  });
+
+  it("nine wrong codes do not lock; the right one still confirms", async () => {
+    const f = db();
+    await burn(f, SMS_CONFIRMATION_PHONE_FAILURE_CAP - 1);
+    const code = (await issueSmsConfirmationCode(f as never, { kind: "pending_action", subjectId: "fresh" }))!;
+    expect(await checkSmsConfirmationCode(f as never, { kind: "pending_action", subjectId: "fresh", code, phone: PHONE })).toBe("ok");
+  });
+
+  it("is per phone: another number is untouched, and a call with no phone has only the per-proposal cap", async () => {
+    const f = db();
+    await burn(f, SMS_CONFIRMATION_PHONE_FAILURE_CAP);
+    const code = (await issueSmsConfirmationCode(f as never, { kind: "pending_action", subjectId: "fresh" }))!;
+    expect(await checkSmsConfirmationCode(f as never, { kind: "pending_action", subjectId: "fresh", code, phone: OTHER_PHONE })).toBe("ok");
+    const code2 = (await issueSmsConfirmationCode(f as never, { kind: "pending_action", subjectId: "fresh2" }))!;
+    expect(await checkSmsConfirmationCode(f as never, { kind: "pending_action", subjectId: "fresh2", code: code2 })).toBe("ok");
+  });
+
+  it("failures older than 24 hours stop counting", async () => {
+    const f = db();
+    await burn(f, SMS_CONFIRMATION_PHONE_FAILURE_CAP);
+    const later = new Date(Date.now() + SMS_CONFIRMATION_PHONE_WINDOW_MS + 60_000);
+    const code = (await issueSmsConfirmationCode(f as never, { kind: "pending_action", subjectId: "fresh", now: later }))!;
+    expect(await checkSmsConfirmationCode(f as never, { kind: "pending_action", subjectId: "fresh", code, phone: PHONE, now: later })).toBe("ok");
+  });
+
+  it("stores only a keyed hash of the phone", async () => {
+    const f = db();
+    await burn(f, 1);
+    const row = f.tables.sms_confirmation_failures![0]!;
+    expect(JSON.stringify(row)).not.toContain("2065550142");
+    expect(String(row.phone_hash)).toMatch(/^[0-9a-f]{64}$/);
+    expect(f.tables.sms_confirmation_failures).toHaveLength(1);
+  });
+
+  it("an unreadable failure count refuses (fail closed), never confirms", async () => {
+    const f = createFakeDb({ sms_confirmation_codes: [] }, { failWrite: () => null });
+    const code = (await issueSmsConfirmationCode(f as never, subject))!;
+    const broken = {
+      from: (table: string) => (table === "sms_confirmation_failures"
+        ? { select: () => ({ eq: () => ({ gte: () => ({ limit: async () => ({ data: null, error: { code: "42P01" } }) }) }) }) }
+        : f.from(table)),
+    };
+    expect(await checkSmsConfirmationCode(broken as never, { ...subject, code, phone: PHONE })).toBe("unavailable");
   });
 });

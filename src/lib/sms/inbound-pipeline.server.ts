@@ -844,9 +844,10 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   if (serviceManager) managerInbound = serviceManager;
   // The PropLane line is not the sender's own work number: identity there is the inbound caller ID, which can be
   // spoofed, and the service manager phone reaches every service workspace. Every write it confirms needs the
-  // 4-digit code from its own preview text.
+  // 4-digit code from its own preview text. FAILS CLOSED: a line check that cannot be read counts as the PropLane line
+  // (the manager is asked for a code), never as a line that needs none.
   const onPropLaneLine = managerInbound
-    ? Boolean(serviceManager) || (await isPropLaneServiceLine(db, { ownerUserId: managerId, workNumber: toPhone }).catch(() => false))
+    ? Boolean(serviceManager) || (await isPropLaneServiceLine(db, { ownerUserId: managerId, workNumber: toPhone, onUnreadable: true }).catch(() => true))
     : false;
   if (managerInbound) {
     const consent = await ensureManagerInboundReplyConsent(db, managerInbound, messageSid);
@@ -947,6 +948,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       workspaceId: workspaceId ?? null,
       actorUserId: managerInbound.actorUserId,
       body,
+      fromPhone,
       ...(serviceScopes ? { scopes: serviceScopes } : {}),
     }).catch((error: unknown) => {
       console.error("vendor dispatch manager reply failed", error instanceof Error ? error.message : "unknown");

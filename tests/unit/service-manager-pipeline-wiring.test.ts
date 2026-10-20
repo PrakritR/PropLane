@@ -42,7 +42,7 @@ describe("service manager wiring", () => {
 
   it("a write from a manager phone on the PropLane line needs the code from its own preview", () => {
     expect(pipeline).toMatch(/const onPropLaneLine = managerInbound/);
-    expect(pipeline).toMatch(/Boolean\(serviceManager\) \|\| \(await isPropLaneServiceLine\(db, \{ ownerUserId: managerId, workNumber: toPhone \}\)/);
+    expect(pipeline).toMatch(/Boolean\(serviceManager\) \|\| \(await isPropLaneServiceLine\(db, \{ ownerUserId: managerId, workNumber: toPhone, onUnreadable: true \}\)/);
     expect(pipeline).toMatch(/requireConfirmationCode: onPropLaneLine,/);
   });
 
@@ -64,7 +64,7 @@ describe("service manager wiring", () => {
     expect(sweep).toMatch(/withDispatchApprovalCode\(\s*db,\s*run,\s*"dispatch_approval"/);
     expect(sweep).toMatch(/withDispatchApprovalCode\(\s*db,\s*run,\s*"dispatch_quote"/);
     // ...and the reply is checked against it before approve / decline / invoice runs.
-    expect(inbound).toMatch(/checkDispatchApprovalCode\(db, run, codedKind, presentedCode\)/);
+    expect(inbound).toMatch(/checkDispatchApprovalCode\(db, run, codedKind, presentedCode, input\.fromPhone\)/);
     const gate = inbound.indexOf("checkDispatchApprovalCode");
     expect(gate).toBeGreaterThan(-1);
     expect(gate).toBeLessThan(inbound.indexOf("const result = await approveDispatchRun"));

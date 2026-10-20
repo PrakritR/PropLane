@@ -57,6 +57,17 @@ export async function readPlatformServiceOwnerId(db: SupabaseClient): Promise<st
   return value;
 }
 
+/**
+ * The same read that THROWS when it cannot be made. A gate that decides whether a security control applies (the
+ * dispatch approval code) must tell "no service owner" from "could not read", which `readPlatformServiceOwnerId` folds
+ * into one null. Not cached: a failure must never be remembered as an answer.
+ */
+export async function readPlatformServiceOwnerIdOrThrow(db: SupabaseClient): Promise<string | null> {
+  const { data, error } = await db.from("platform_service_settings").select("owner_user_id").eq("singleton", true).maybeSingle();
+  if (error) throw new Error(error.message || "platform service owner read failed");
+  return String((data as { owner_user_id?: unknown } | null)?.owner_user_id ?? "").trim() || null;
+}
+
 export function resetPlatformServiceOwnerCache(): void {
   ownerCache = null;
 }
@@ -69,7 +80,16 @@ export function resetPlatformServiceOwnerCache(): void {
  */
 export async function isPropLaneServiceLine(
   db: SupabaseClient,
-  input: { ownerUserId: string; workNumber: string | null | undefined; sharedNumber?: string | null },
+  input: {
+    ownerUserId: string;
+    workNumber: string | null | undefined;
+    sharedNumber?: string | null;
+    /**
+     * What to answer when the answer cannot be READ (a failed platform-owner or number read). Omitted = false, which is right
+     * for routing. A security gate that must not switch off on a database error passes `true`.
+     */
+    onUnreadable?: boolean;
+  },
 ): Promise<boolean> {
   const owner = input.ownerUserId.trim();
   const number = normalizeE164(input.workNumber ?? "");
@@ -77,18 +97,18 @@ export async function isPropLaneServiceLine(
   const shared = normalizeE164(input.sharedNumber ?? "");
   if (shared && shared === number) return false;
   try {
-    const serviceOwner = await readPlatformServiceOwnerId(db);
+    const serviceOwner = input.onUnreadable === undefined ? await readPlatformServiceOwnerId(db) : await readPlatformServiceOwnerIdOrThrow(db);
     if (!serviceOwner || serviceOwner !== owner) return false;
     const { data, error } = await db
       .from("manager_sms_numbers")
       .select("id, phone_number, provision_state, released_at")
       .eq("manager_user_id", owner)
       .is("released_at", null);
-    if (error) return false;
+    if (error) return input.onUnreadable ?? false;
     return ((data ?? []) as { phone_number?: unknown; provision_state?: unknown }[]).some(
       (row) => normalizeE164(String(row.phone_number ?? "")) === number && String(row.provision_state ?? "") !== "failed",
     );
   } catch {
-    return false;
+    return input.onUnreadable ?? false;
   }
 }

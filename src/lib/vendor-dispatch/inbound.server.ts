@@ -6,7 +6,7 @@ import { normalizeE164 } from "@/lib/phone-e164";
 import { attachVendorJobMedia, linkVendorRunMedia } from "@/lib/one-number/inbound-media.server";
 import { recordDispatchEvent } from "@/lib/vendor-dispatch/audit.server";
 import { resolveOpenSmsProposal } from "@/lib/sms/agent-confirmation.server";
-import { SMS_CONFIRMATION_CANCELLED_REPLY } from "@/lib/sms/confirmation-code";
+import { SMS_CONFIRMATION_CANCELLED_REPLY, SMS_CONFIRMATION_LOCKED_REPLY } from "@/lib/sms/confirmation-code";
 import { decideRunInvoice, handleResidentFixedReply, recordVendorDone, recordVendorInvoice } from "@/lib/vendor-dispatch/completion.server";
 import { canActorApprove, loadAttempts, loadVendorContacts, type VendorContact } from "@/lib/vendor-dispatch/engine.server";
 import { isMissingRelationError } from "@/lib/vendor-dispatch/match.server";
@@ -233,6 +233,8 @@ export async function handleManagerDispatchReply(
     actorUserId: string;
     body: string;
     now?: Date;
+    /** The texting phone, for the per-phone wrong-code budget on the PropLane line. */
+    fromPhone?: string | null;
     /** Test seam: is an assistant confirmation also waiting for this person? */
     assistantProposalOpen?: () => Promise<boolean>;
     /**
@@ -297,7 +299,8 @@ export async function handleManagerDispatchReply(
   // repeat the code from its own ask. A bare Y re-asks with a fresh code and costs no attempt; three wrong codes
   // cancel THAT proposal (a later invoice or a new exhaustion gets its own budget).
   const codedKind = CODED_ANSWER_KIND[kind];
-  const checked = await checkDispatchApprovalCode(db, run, codedKind, presentedCode);
+  const checked = await checkDispatchApprovalCode(db, run, codedKind, presentedCode, input.fromPhone);
+  if (checked === "locked") return { handled: true, reply: toGsm7(`#${run.handle}: ${SMS_CONFIRMATION_LOCKED_REPLY}`) };
   if (checked === "exhausted") {
     if (kind === "approval") await declineDispatchRun(db, base).catch(() => undefined);
     else if (kind === "quote") {

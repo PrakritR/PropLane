@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { readPlatformServiceOwnerId } from "@/lib/service/service-catalog.server";
+import { readPlatformServiceOwnerIdOrThrow } from "@/lib/service/service-catalog.server";
 import {
   checkSmsConfirmationCode,
   clearSmsConfirmationCode,
@@ -10,7 +10,7 @@ import {
   type SmsConfirmationSubjectKind,
 } from "@/lib/sms/confirmation-code";
 import { MAX_PICK_POSITION } from "@/lib/vendor-dispatch/reply-parse";
-import { serviceOwnerForWorkspace } from "@/lib/vendor-dispatch/service-roster.server";
+import { serviceOwnerForWorkspaceOrThrow } from "@/lib/vendor-dispatch/service-roster.server";
 import { toGsm7 } from "@/lib/vendor-dispatch/text";
 
 /**
@@ -62,13 +62,19 @@ export function dispatchProposalId(input: { kind: DispatchApprovalKind; wave?: n
   return `${input.kind === "dispatch_quote" ? "quote" : "invoice"}:${String(input.attemptId ?? "")}:${amount}`;
 }
 
-/** Is this run's answer given on the PropLane line, where the inbound caller ID proves nothing? */
+/**
+ * Is this run's answer given on the PropLane line, where the inbound caller ID proves nothing?
+ *
+ * FAILS CLOSED: a read that errors (the workspace flag, the platform service owner) answers `true`, never `false`.
+ * A control that switches itself off when the database hiccups is a control an attacker can wait for; the worst case
+ * of the other direction is a manager asked for a code on a workspace that did not need one.
+ */
 export async function dispatchApprovalNeedsCode(db: SupabaseClient, run: Pick<RunRef, "owner_user_id" | "workspace_id">): Promise<boolean> {
   try {
-    if (await serviceOwnerForWorkspace(db, run.workspace_id)) return true;
-    return (await readPlatformServiceOwnerId(db)) === run.owner_user_id;
+    if (await serviceOwnerForWorkspaceOrThrow(db, run.workspace_id)) return true;
+    return (await readPlatformServiceOwnerIdOrThrow(db)) === run.owner_user_id;
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -150,8 +156,9 @@ export async function checkDispatchApprovalCode(
   run: Pick<RunRef, "id" | "owner_user_id" | "workspace_id">,
   kind: DispatchApprovalKind,
   code: string | null | undefined,
+  phone?: string | null,
 ): Promise<DispatchApprovalCheck> {
   if (!(await dispatchApprovalNeedsCode(db, run))) return "not_required";
   if (!code) return "wrong";
-  return checkSmsConfirmationCode(db, { kind, subjectId: run.id, code });
+  return checkSmsConfirmationCode(db, { kind, subjectId: run.id, code, phone });
 }

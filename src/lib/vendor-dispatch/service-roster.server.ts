@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
-import { readPlatformServiceOwnerId } from "@/lib/service/service-catalog.server";
+import { readPlatformServiceOwnerId, readPlatformServiceOwnerIdOrThrow } from "@/lib/service/service-catalog.server";
 import { createTtlCache, serverSnapshotCacheEnabled, type TtlCache } from "@/lib/server-ttl-cache";
 import { toChain, vendorTradeIds, type VendorRecord } from "@/lib/vendor-dispatch/match.server";
 import { vendorDispatchRoles } from "@/lib/vendor-dispatch/vendor-roles";
@@ -52,6 +52,19 @@ export async function serviceOwnerForWorkspace(db: SupabaseClient, workspaceId: 
   } catch {
     return null;
   }
+}
+
+/**
+ * `serviceOwnerForWorkspace` for a caller that must not mistake a failed read for "not a service workspace" (the
+ * approval-code gate): it throws when either read fails, and is never cached.
+ */
+export async function serviceOwnerForWorkspaceOrThrow(db: SupabaseClient, workspaceId: string | null | undefined): Promise<string | null> {
+  const id = workspaceId?.trim();
+  if (!id) return null;
+  const { data, error } = await db.from("portal_workspaces").select("is_service").eq("id", id).maybeSingle();
+  if (error) throw new Error(error.message || "workspace read failed");
+  if ((data as { is_service?: unknown } | null)?.is_service !== true) return null;
+  return readPlatformServiceOwnerIdOrThrow(db);
 }
 
 /** A live roster entry: flagged, active, not removed. (Pause is checked separately: it is a dispatch filter.) */

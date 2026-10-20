@@ -63,6 +63,7 @@ import {
   readSmsConfirmationCode,
   withConfirmationCode,
   SMS_CONFIRMATION_CANCELLED_REPLY,
+  SMS_CONFIRMATION_LOCKED_REPLY,
 } from "@/lib/sms/confirmation-code";
 
 type Db = SupabaseClient;
@@ -427,6 +428,8 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
     onSlowWork?: (toolName: string) => Promise<void>;
     /** The PropLane line: a write needs the 4-digit code from its own preview, never a bare YES. */
     requireConfirmationCode?: boolean;
+    /** The texting phone, for the per-phone wrong-code budget. */
+    phoneE164?: string | null;
   },
 ): Promise<SmsAgentTurn | null> {
   const { ctx, session, surface } = args;
@@ -464,7 +467,7 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
     // The code travels only in the ask, which went to the real phone, so a spoofed sender cannot produce it.
     // A bare YES costs no attempt and re-sends the ask; three wrong codes cancel the proposal outright.
     const checked = typedCode
-      ? await checkSmsConfirmationCode(db, { kind: "pending_action", subjectId: open.actionId, code: typedCode })
+      ? await checkSmsConfirmationCode(db, { kind: "pending_action", subjectId: open.actionId, code: typedCode, phone: args.phoneE164 })
       : ("wrong" as const);
     if (checked !== "ok") {
       let reply: string;
@@ -477,6 +480,8 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
           traceMetadata: args.traceMetadata,
         }).catch(() => undefined);
         reply = SMS_CONFIRMATION_CANCELLED_REPLY;
+      } else if (checked === "locked") {
+        reply = SMS_CONFIRMATION_LOCKED_REPLY;
       } else {
         const asked = checked === "unavailable" ? null : await previewWithCodeReply(db, ctx.userId, open.actionId, typedCode != null);
         reply = asked ?? "I could not check that just now. Please confirm it in PropLane.";
@@ -745,6 +750,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     sourceMessageSid: inboundMessageSid,
     onSlowWork: args.onSlowWork,
     requireConfirmationCode: args.requireConfirmationCode,
+    phoneE164: args.phoneE164,
   });
   if (confirmation) return { ...confirmation, inboundMessageId, lane: "scripted" as const };
 

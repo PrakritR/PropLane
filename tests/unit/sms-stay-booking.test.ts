@@ -10,7 +10,14 @@ vi.mock("@/lib/resend-delivery.server", () => ({ postResendEmail: (...args: unkn
 vi.mock("@/lib/manager-outbound-identity.server", () => ({ managerOutboundFromHeader: async () => "PropLane <work@proplane.test>" }));
 const availability = vi.fn();
 vi.mock("@/lib/room-availability-range.server", () => ({ roomAvailabilityForRange: (...args: unknown[]) => availability(...args) }));
-vi.mock("@/lib/rate-limit", () => ({ rateLimit: async () => ({ ok: true }) }));
+const rate = vi.hoisted(() => ({ counts: new Map<string, number>() }));
+vi.mock("@/lib/rate-limit", () => ({
+  rateLimit: async (key: string, limit: number) => {
+    const next = (rate.counts.get(key) ?? 0) + 1;
+    rate.counts.set(key, next);
+    return { ok: next <= limit };
+  },
+}));
 const chargeWrites: Array<Record<string, unknown>> = [];
 let chargeDb: { tables: Record<string, Array<Record<string, unknown>>> } | null = null;
 vi.mock("@/lib/household-charges.server", () => ({
@@ -63,9 +70,15 @@ function seeded(opts: Parameters<typeof seedShortStayDb>[0] = {}) {
   const db = seedShortStayDb(opts);
   db.tables.portal_workspaces = [{ id: "ws-1", owner_user_id: OWNER, is_default: true, is_service: true }];
   db.tables.profile_roles = [{ user_id: GUEST, role: "resident" }];
+  db.tables.sms_confirmation_codes = [];
   chargeDb = db;
   return db;
 }
+
+/** The 4-digit code the confirmation question carries (it goes to the phone that texted). */
+const codeOf = (picked: { confirmationQuestion: string }) => /Reply YES (\d{4})/.exec(picked.confirmationQuestion)![1]!;
+const wrongCodeFor = (code: string) => (code === "0000" ? "1111" : "0000");
+const PROOF = (offerId: string) => ({ offerId, verified: true as const });
 
 const ctxFor = (db: ReturnType<typeof seeded>, text = "ok", extra: Record<string, unknown> = {}) =>
   ({
@@ -76,6 +89,9 @@ const ctxFor = (db: ReturnType<typeof seeded>, text = "ok", extra: Record<string
 
 beforeEach(() => {
   vi.clearAllMocks();
+  rate.counts.clear();
+  vi.stubEnv("PHONE_OTP_HMAC_SECRET", "");
+  vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   chargeWrites.length = 0;
@@ -83,7 +99,10 @@ beforeEach(() => {
   availability.mockImplementation(async (input: { roomId: string }) => ({ ok: true, rooms: [{ roomId: input.roomId, available: true }] }));
   ensureGuestLogin.mockResolvedValue({ userId: GUEST, loginEmail: "guest@import.proplane.local", created: false, signInUrl: null });
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+});
 
 const run = (tool: { handler: (...a: never[]) => Promise<unknown> }, ctx: unknown, input: unknown) => (tool.handler as (c: unknown, i: unknown) => Promise<any>)(ctx, input); // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -145,15 +164,16 @@ describe("pick, YES, hold", () => {
   it("needs a YES: nothing is written before it, a same-turn pick+YES is refused, a hedged reply is refused", async () => {
     const db = await quoted();
     const picked = await run(prepareShortStayTool, ctxFor(db), { option: 1 });
-    expect(picked.confirmationQuestion).toContain("Reply YES");
+    expect(picked.confirmationQuestion).toMatch(/Reply YES \d{4} to request it/);
     expect(picked.confirmationQuestion).toContain("$420");
+    const code = codeOf(picked);
 
-    const sameTurn = await run(requestShortStayTool, ctxFor(db, "yes"), {});
+    const sameTurn = await run(requestShortStayTool, ctxFor(db, `YES ${code}`), {});
     expect(sameTurn).toMatchObject({ ok: false, error: "same_turn", sideEffects: "none" });
 
     vi.setSystemTime(new Date(NOW.getTime() + 60_000));
-    expect(await run(requestShortStayTool, ctxFor(db, "yes but can we do friday"), {})).toMatchObject({ ok: false, error: "not_confirmed" });
-    expect(await run(requestShortStayTool, ctxFor(db, "maybe"), {})).toMatchObject({ ok: false, error: "not_confirmed" });
+    expect(await run(requestShortStayTool, ctxFor(db, "yes but can we do friday"), {})).toMatchObject({ ok: false, error: "code_required" });
+    expect(await run(requestShortStayTool, ctxFor(db, "maybe"), {})).toMatchObject({ ok: false, error: "code_required" });
     const blocks = db.tables.portal_schedule_records!.filter((r) => r.record_type === "room_date_block");
     expect(blocks).toHaveLength(0);
   });
@@ -165,9 +185,9 @@ describe("pick, YES, hold", () => {
 
   it("YES writes the 24-hour hold through the one core, bound to the texter's login, and says what happens next", async () => {
     const db = await quoted();
-    await run(prepareShortStayTool, ctxFor(db), { option: 1 });
+    const code = codeOf(await run(prepareShortStayTool, ctxFor(db), { option: 1 }));
     vi.setSystemTime(new Date(NOW.getTime() + 60_000));
-    const booked = await run(requestShortStayTool, ctxFor(db, "YES"), { name: "Priya" });
+    const booked = await run(requestShortStayTool, ctxFor(db, `YES ${code}`), { name: "Priya" });
     expect(booked).toMatchObject({ ok: true, status: "hold" });
     expect(booked.reply).toContain("$420");
     expect(booked.reply).toContain("24 hours");
@@ -190,36 +210,116 @@ describe("pick, YES, hold", () => {
 
   it("a second YES books nothing more", async () => {
     const db = await quoted();
-    await run(prepareShortStayTool, ctxFor(db), { option: 1 });
+    const code = codeOf(await run(prepareShortStayTool, ctxFor(db), { option: 1 }));
     vi.setSystemTime(new Date(NOW.getTime() + 60_000));
-    await run(requestShortStayTool, ctxFor(db, "yes"), {});
-    expect(await run(requestShortStayTool, ctxFor(db, "yes"), {})).toMatchObject({ ok: false, error: "not_prepared" });
+    await run(requestShortStayTool, ctxFor(db, `yes ${code}`), {});
+    expect(await run(requestShortStayTool, ctxFor(db, `yes ${code}`), {})).toMatchObject({ ok: false, error: "not_prepared" });
     expect(db.tables.portal_schedule_records!.filter((r) => r.record_type === "room_date_block")).toHaveLength(1);
   });
 
   it("a price changed since the quote is a new quote, not a booking", async () => {
     const db = await quoted();
-    await run(prepareShortStayTool, ctxFor(db), { option: 1 });
+    const code = codeOf(await run(prepareShortStayTool, ctxFor(db), { option: 1 }));
     (db.tables.manager_property_records![0]!.property_data as { listingSubmission: { shortTermDailyCost: string } }).listingSubmission.shortTermDailyCost = "200";
     vi.setSystemTime(new Date(NOW.getTime() + 60_000));
-    const result = await run(requestShortStayTool, ctxFor(db, "yes"), {});
+    const result = await run(requestShortStayTool, ctxFor(db, `yes ${code}`), {});
     expect(result).toMatchObject({ ok: false, error: "price_changed" });
     expect(db.tables.portal_schedule_records!.filter((r) => r.record_type === "room_date_block")).toHaveLength(0);
   });
 
   it("nights taken between the quote and the YES are refused", async () => {
     const db = await quoted();
-    await run(prepareShortStayTool, ctxFor(db), { option: 1 });
+    const code = codeOf(await run(prepareShortStayTool, ctxFor(db), { option: 1 }));
     availability.mockImplementation(async (input: { roomId: string }) => ({ ok: true, rooms: [{ roomId: input.roomId, available: false }] }));
     vi.setSystemTime(new Date(NOW.getTime() + 60_000));
-    expect(await run(requestShortStayTool, ctxFor(db, "yes"), {})).toMatchObject({ ok: false, error: "unavailable" });
+    expect(await run(requestShortStayTool, ctxFor(db, `yes ${code}`), {})).toMatchObject({ ok: false, error: "unavailable" });
+  });
+});
+
+describe("a caller ID is not an identity: the stay needs the code from the confirmation question", () => {
+  async function prepared() {
+    const db = seeded();
+    await run(quoteShortStaysTool, ctxFor(db), { checkIn: "2026-10-20", checkOut: "2026-10-23" });
+    const code = codeOf(await run(prepareShortStayTool, ctxFor(db), { option: 1 }));
+    vi.setSystemTime(new Date(NOW.getTime() + 60_000));
+    return { db, code };
+  }
+  const blocks = (db: ReturnType<typeof seeded>) => db.tables.portal_schedule_records!.filter((r) => r.record_type === "room_date_block");
+
+  it("a bare YES books nothing, makes no login and re-asks with a fresh code that works", async () => {
+    const { db, code } = await prepared();
+    const bare = await run(requestShortStayTool, ctxFor(db, "YES"), {});
+    expect(bare).toMatchObject({ ok: false, error: "code_required", sideEffects: "none" });
+    const fresh = /reply YES (\d{4})/.exec(bare.message)![1]!;
+    expect(ensureGuestLogin).not.toHaveBeenCalled();
+    expect(blocks(db)).toHaveLength(0);
+    // The fresh code books (the first question's code is replaced the moment a new one is issued).
+    expect(code).toMatch(/^\d{4}$/);
+    expect(await run(requestShortStayTool, ctxFor(db, `YES ${fresh}`), {})).toMatchObject({ ok: true, status: "hold" });
+  });
+
+  it("a wrong code books nothing and links no account; three wrong codes cancel the offer", async () => {
+    const { db, code } = await prepared();
+    const wrong = wrongCodeFor(code);
+    for (let i = 0; i < 2; i += 1) {
+      expect(await run(requestShortStayTool, ctxFor(db, `YES ${wrong}`), {})).toMatchObject({ ok: false, error: "wrong_code", sideEffects: "none" });
+    }
+    // A re-ask keeps the attempt count, so the third miss cancels. (The fresh codes differ from `wrong` only by chance.)
+    const third = await run(requestShortStayTool, ctxFor(db, `YES ${wrong}`), {});
+    expect(third).toMatchObject({ ok: false, error: "cancelled" });
+    expect(ensureGuestLogin).not.toHaveBeenCalled();
+    expect(blocks(db)).toHaveLength(0);
+    expect(db.tables.sms_stay_offers![0]!.status).toBe("superseded");
+    expect(await run(requestShortStayTool, ctxFor(db, `YES ${wrong}`), {})).toMatchObject({ ok: false, error: "not_prepared" });
+  });
+
+  it("the code is single use", async () => {
+    const { db, code } = await prepared();
+    expect(await run(requestShortStayTool, ctxFor(db, `YES ${code}`), {})).toMatchObject({ ok: true });
+    expect(await run(requestShortStayTool, ctxFor(db, `YES ${code}`), {})).toMatchObject({ ok: false, error: "not_prepared" });
+    expect(blocks(db)).toHaveLength(1);
+  });
+
+  it("ten wrong codes from one phone in a day lock the coded path, even for the right code", async () => {
+    const { db, code } = await prepared();
+    const now = NOW.toISOString();
+    const { createHmac } = await import("node:crypto");
+    const hash = createHmac("sha256", "test-service-key").update("sms-confirm-phone-v1:2065550142").digest("hex");
+    db.tables.sms_confirmation_failures = Array.from({ length: 10 }, (_, i) => ({ id: `f${i}`, phone_hash: hash, failed_at: now }));
+    expect(await run(requestShortStayTool, ctxFor(db, `YES ${code}`), {})).toMatchObject({ ok: false, error: "locked", message: expect.stringContaining("portal") });
+    expect(ensureGuestLogin).not.toHaveBeenCalled();
+    expect(blocks(db)).toHaveLength(0);
+  });
+
+  it("bookStayForTexter itself refuses without the proof, before any login is made", async () => {
+    const db = seeded();
+    for (const proof of [undefined, null, PROOF("someone-elses-offer")]) {
+      expect(await bookStayForTexter(db as never, { option: option(), phone: PHONE, now: NOW, offerId: "offer-1", proof })).toMatchObject({ ok: false, error: "not_confirmed" });
+    }
+    expect(ensureGuestLogin).not.toHaveBeenCalled();
+    expect(blocks(db)).toHaveLength(0);
+  });
+
+  it("one room takes 3 SMS holds a day whoever is texting, and one workspace 6 an hour", async () => {
+    const db = seeded();
+    for (let i = 0; i < 3; i += 1) {
+      const result = await bookStayForTexter(db as never, {
+        option: option({ checkIn: `2026-11-0${i + 1}`, checkOut: `2026-11-0${i + 2}`, nights: 1, total: 140 }), phone: `+1206555010${i}`, now: NOW, offerId: `o${i}`, proof: PROOF(`o${i}`),
+      });
+      expect(result.ok, JSON.stringify(result)).toBe(true);
+    }
+    const fourth = await bookStayForTexter(db as never, { option: option({ checkIn: "2026-11-10", checkOut: "2026-11-11", nights: 1, total: 140 }), phone: "+12065550109", now: NOW, offerId: "o9", proof: PROOF("o9") });
+    expect(fourth).toMatchObject({ ok: false, error: "rate_limited" });
+    // A different room on the same host still has the workspace hour budget (3 of 6 used).
+    const otherRoom = await bookStayForTexter(db as never, { option: option({ roomId: "r4", roomLabel: "Garden Room" }), phone: "+12065550108", now: NOW, offerId: "o8", proof: PROOF("o8") });
+    expect(otherRoom.ok === false && otherRoom.error === "rate_limited").toBe(false);
   });
 });
 
 describe("pay link", () => {
   it("a returning guest is confirmed at once, the stay_total is raised and the reply carries the in-page pay link (purpose rent on that charge)", async () => {
     const db = seeded({ history: [completedStay()] });
-    const result = await bookStayForTexter(db as never, { option: option(), phone: PHONE, now: NOW });
+    const result = await bookStayForTexter(db as never, { option: option(), phone: PHONE, now: NOW, offerId: "offer-1", proof: PROOF("offer-1") });
     expect(result).toMatchObject({ ok: true, status: "confirmed", total: 420 });
     expect(chargeWrites).toHaveLength(1);
     expect(chargeWrites[0]).toMatchObject({ kind: "stay_total", amountLabel: "$420.00", residentUserId: GUEST });
@@ -233,7 +333,7 @@ describe("pay link", () => {
   it("a held stay gets its pay link the moment the host approves, texted and never emailed", async () => {
     const db = seeded();
     db.tables.profiles!.find((p) => p.id === GUEST)!.residentEmail = undefined;
-    const held = await bookStayForTexter(db as never, { option: option(), phone: PHONE, now: NOW });
+    const held = await bookStayForTexter(db as never, { option: option(), phone: PHONE, now: NOW, offerId: "offer-1", proof: PROOF("offer-1") });
     expect(held).toMatchObject({ ok: true, status: "hold" });
     expect(mintPhoneBoundLink).not.toHaveBeenCalled();
     const blockId = (held as { blockId: string }).blockId;

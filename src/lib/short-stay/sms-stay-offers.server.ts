@@ -129,7 +129,7 @@ export async function claimPreparedStayOffer(db: SupabaseClient, offerId: string
 
 export async function finishStayOffer(
   db: SupabaseClient,
-  input: { offerId: string; status: "booked" | "prepared"; blockId?: string | null },
+  input: { offerId: string; status: "booked" | "prepared" | "superseded"; blockId?: string | null },
 ): Promise<void> {
   await db
     .from("sms_stay_offers")

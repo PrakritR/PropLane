@@ -5,7 +5,7 @@
  *                                with its total, from the stored listing: nightly x nights, the same figure
  *                                `createShortStayRows` writes and the `stay_total` charge bills (and the
  *                                `resolveStayPricing` short-stay daily rate). Saves the options server-side.
- *   prepare_short_stay  (read)   they picked option N -> the exact question that ends in "reply YES".
+ *   prepare_short_stay  (read)   they picked option N -> the exact question that ends in "Reply YES <code>".
  *   request_short_stay  (write)  their YES -> the ONE core (`bookGuestStays` -> `createShortStayRows`), a
  *                                24-hour hold the host answers, or an instant confirm for a returning guest,
  *                                then the phone-bound pay link as soon as there is a charge to pay.
@@ -18,7 +18,6 @@
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
-import { deriveAgreementSource, unambiguousOfferAffirmative } from "./tours";
 import { loadShortStayHomes, publicOrigin } from "./leasing-sms";
 import { buildManagerListingUrl } from "@/lib/manager-property-links";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
@@ -34,7 +33,7 @@ import {
 import { createShortStayRows, loadShortStayListing } from "@/lib/short-stay-request.server";
 import { SHORT_STAY_HOLD_HOURS, SMS_SHORT_STAY_SOURCE } from "@/lib/short-stay/guest-stays";
 import { parseStayDates } from "@/lib/short-stay/sms-stay-intent";
-import { bookStayForTexter } from "@/lib/short-stay/sms-stay-book.server";
+import { bookStayForTexter, confirmStayRequestCode, issueStayRequestCode, stayRequestCodedLine } from "@/lib/short-stay/sms-stay-book.server";
 import {
   claimPreparedStayOffer,
   finishStayOffer,
@@ -203,7 +202,7 @@ export const prepareShortStayTool = defineTool<
 >({
   name: "prepare_short_stay",
   description:
-    "After the texter picks one of the options quote_short_stays returned, call this with that option's number. It returns the exact question to send, which ends in 'Reply YES'. Send confirmationQuestion verbatim as your whole reply. Never call request_short_stay in the same turn.",
+    "After the texter picks one of the options quote_short_stays returned, call this with that option's number. It returns the exact question to send, which ends in 'Reply YES <4-digit code>' (the code is for the texter's phone only). Send confirmationQuestion verbatim as your whole reply. Never call request_short_stay in the same turn.",
   kind: "read",
   inputSchema: prepareInput,
   handler: async (ctx, input) => {
@@ -215,8 +214,11 @@ export const prepareShortStayTool = defineTool<
     if (!(await prepareStayOffer(ctx.db, { offerId: offer.id, index: input.option - 1, turn: turnOf(ctx) }))) {
       return { ok: false, error: "no_offer", message: "Those options expired. Quote the dates again." };
     }
+    // The code travels only in this question, which goes to the phone that texted: a caller ID alone never books a stay.
+    const code = await issueStayRequestCode(ctx.db, offer.id);
+    if (!code) return { ok: false, error: "unavailable", message: "I could not set up the confirmation just now. A teammate will follow up." };
     const guests = `${option.guests} ${option.guests === 1 ? "guest" : "guests"}`;
-    const confirmationQuestion = `${option.roomLabel} at ${option.homeName}, ${shortStayRangeLabel(option.checkIn, option.checkOut).replace(/\s*–\s*/, " to ")} (${option.nights} ${option.nights === 1 ? "night" : "nights"}, ${guests}): ${formatShortStayMoney(option.total)} total. Reply YES and I'll send the request. The host has ${SHORT_STAY_HOLD_HOURS} hours to confirm, then I text you a link to pay. Nothing is charged until then.`;
+    const confirmationQuestion = `${option.roomLabel} at ${option.homeName}, ${shortStayRangeLabel(option.checkIn, option.checkOut).replace(/\s*–\s*/, " to ")} (${option.nights} ${option.nights === 1 ? "night" : "nights"}, ${guests}): ${formatShortStayMoney(option.total)} total. ${stayRequestCodedLine(code)} The host has ${SHORT_STAY_HOLD_HOURS} hours to confirm, then I text you a link to pay. Nothing is charged until then.`;
     return { ok: true, confirmationQuestion, next: "Send confirmationQuestion exactly, then stop." };
   },
 });
@@ -236,7 +238,7 @@ const refused = (error: string, message: string, total?: number): RequestResult 
 export const requestShortStayTool = defineWriteTool<z.infer<typeof requestInput>, RequestResult, AgentContext>({
   name: "request_short_stay",
   description:
-    "Book the stay the texter picked, ONLY after prepare_short_stay asked them to reply YES in an earlier text and their newest text is that YES. It takes no room, date or price: it books the exact stored option. Send the returned reply verbatim. If it refuses, tell the texter what the message says and offer to re-quote.",
+    "Book the stay the texter picked, ONLY after prepare_short_stay asked them to reply YES with its 4-digit code in an earlier text. It reads the code from their newest text itself (never pass or guess one); without the right code nothing is booked. It takes no room, date or price: it books the exact stored option. Send the returned reply verbatim. If it refuses, tell the texter what the message says and offer to re-quote.",
   inputSchema: requestInput,
   preview: async (ctx) => {
     const who = texter(ctx);
@@ -264,14 +266,18 @@ export const requestShortStayTool = defineWriteTool<z.infer<typeof requestInput>
     if (!offer || !option) return refused("not_prepared", "No stay is waiting for a YES. Quote the dates and ask which option they want first.");
     if (!pickIsFromEarlierTurn(offer, { turn: turnOf(ctx) })) return refused("same_turn", "They have not answered the question yet. Send the confirmation question and wait for their YES.");
 
-    const burst = ctx.leasingScope?.prospectBurst;
-    const affirmed = burst ? (await deriveAgreementSource(ctx, burst)) !== null : unambiguousOfferAffirmative(ctx.leasingScope?.currentInboundText ?? "");
-    if (!affirmed) return refused("not_confirmed", "Their newest text is not a plain YES to the exact question. Answer what they said; do not book.");
+    // A caller ID is not an identity: the stay is requested only when the text repeats the code from the confirmation
+    // question (sent to the phone that texted). A bare YES re-asks with a fresh code; three wrong codes cancel the offer.
+    const coded = await confirmStayRequestCode(ctx.db, { offerId: offer.id, text: ctx.leasingScope?.currentInboundText ?? "", phone: who.phoneE164 });
+    if (!coded.ok) {
+      if (coded.error === "cancelled") await finishStayOffer(ctx.db, { offerId: offer.id, status: "superseded" });
+      return refused(coded.error, coded.message);
+    }
 
     if (!(await claimPreparedStayOffer(ctx.db, offer.id))) return refused("already_claimed", "That request was already sent.");
     let booked: Awaited<ReturnType<typeof bookStayForTexter>>;
     try {
-      booked = await bookStayForTexter(ctx.db, { option, phone: who.phoneE164, name: input.name });
+      booked = await bookStayForTexter(ctx.db, { option, phone: who.phoneE164, name: input.name, offerId: offer.id, proof: coded.proof });
     } catch (error) {
       await finishStayOffer(ctx.db, { offerId: offer.id, status: "prepared" });
       throw error;
