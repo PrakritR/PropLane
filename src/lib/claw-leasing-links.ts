@@ -216,6 +216,9 @@ export function looksLikeProspectLeasingCta(text: string): boolean {
   if (/propertyId=/i.test(t) || /bundleId=/i.test(t)) return true;
   if (/\/rent\/(listings|apply)\//i.test(t) || /\/rent\/apply\?/i.test(t)) return true;
   if (/^(TOUR|APPLY|LEASE|HELP|BUNDLE)([\s!.?,]|$)/i.test(t)) return true;
+  // The listing page's Text us drafts ("Hi, I'd like to book 4709A 8th Ave · …" / "…tour or apply for …") already
+  // pass the "Hi — " test only with an em dash; these start "Hi, I'd like to".
+  if (/^hi, i'd like to (book|tour or apply for)\s/i.test(t)) return true;
   const intent = classifyLeasingIntent(text);
   if (
     intent === "tour" ||
@@ -267,6 +270,10 @@ export function extractPropertyLabelHint(text: string): string | null {
   // js/polynomial-redos). The ` at ` split that `.+?` used to do is now done on
   // the captured label, which is the same answer for real CTA copy.
   const rules: Array<{ re: RegExp; splitAt?: boolean }> = [
+    // The listing page's Text us drafts (see `listingTextUsBody`): "Hi, I'd like to book <home> · <room> · …" and
+    // "Hi, I'd like to tour or apply for <home> · <room> · move-in …". The home is everything up to the first " · ".
+    { re: /^hi, i'd like to book\s+([^·\s][^·]*)/i },
+    { re: /^hi, i'd like to tour or apply for\s+([^·\s][^·]*)/i },
     { re: /apply for the bundle\s+"[^"]+"\s+at\s+(\S.*)/i },
     { re: /apply for a room bundle at\s+(\S.*)/i },
     { re: /schedule a tour for\s+(\S.*)/i },
@@ -295,7 +302,66 @@ export function extractBundleLabelHint(text: string): string | null {
   return m?.[1]?.trim() || null;
 }
 
-export type SmsDeepLinkIntent = "tour" | "apply" | "lease" | "bundle" | "question";
+export type SmsDeepLinkIntent = "tour" | "apply" | "lease" | "bundle" | "question" | "book" | "monthly";
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+const parseDayKey = (key: string) => {
+  const [, month, day] = key.split("-").map(Number);
+  return { month: MONTHS[(month ?? 1) - 1] ?? "", day: day ?? 0 };
+};
+
+/** "Nov 1" from a YYYY-MM-DD key. */
+function dayLabel(key: string): string {
+  const { month, day } = parseDayKey(key);
+  return `${month} ${day}`;
+}
+
+/** "Oct 20–21", or "Oct 30–Nov 2" across a month, from two YYYY-MM-DD keys. */
+export function shortStayDatesLabel(checkIn: string, checkOut: string): string {
+  const parse = parseDayKey;
+  const a = parse(checkIn);
+  const b = parse(checkOut);
+  return a.month === b.month ? `${a.month} ${a.day}–${b.day}` : `${a.month} ${a.day}–${b.month} ${b.day}`;
+}
+
+/** "1 pm" / "9:30 am" from a 24-hour "HH:MM". */
+export function arrivalLabel(time: string): string {
+  const [h, m] = time.split(":").map(Number);
+  if (!Number.isFinite(h)) return "";
+  const hour = ((h! + 11) % 12) + 1;
+  const suffix = h! < 12 ? "am" : "pm";
+  return m ? `${hour}:${String(m).padStart(2, "0")} ${suffix}` : `${hour} ${suffix}`;
+}
+
+/**
+ * The listing page's Text us draft (captain, Oct 20): the home, then whatever the visitor picked, joined by " · ".
+ *   book:          "Hi, I'd like to book 4709A 8th Ave · Room 8 · Oct 20–21 · 1 guest · arrive 1 pm"
+ *   tour or apply: "Hi, I'd like to tour or apply for 4534 Darrow Ct · Room 2 · move-in Nov 1"
+ * The leasing SMS agent reads it back: the home from `extractPropertyLabelHint`, the rest into its tools.
+ */
+export function listingTextUsBody(args: {
+  kind: "book" | "monthly";
+  propertyLabel: string;
+  roomName?: string | null;
+  checkIn?: string | null;
+  checkOut?: string | null;
+  guests?: number | null;
+  arrival?: string | null;
+  moveIn?: string | null;
+}): string {
+  const parts = [args.kind === "book" ? `Hi, I'd like to book ${args.propertyLabel.trim()}` : `Hi, I'd like to tour or apply for ${args.propertyLabel.trim()}`];
+  if (args.roomName?.trim()) parts.push(args.roomName.trim());
+  if (args.kind === "book") {
+    if (args.checkIn && args.checkOut) parts.push(shortStayDatesLabel(args.checkIn, args.checkOut));
+    if (args.guests && args.guests > 0) parts.push(`${args.guests} guest${args.guests === 1 ? "" : "s"}`);
+    const arrive = args.arrival ? arrivalLabel(args.arrival) : "";
+    if (arrive) parts.push(`arrive ${arrive}`);
+  } else if (args.moveIn) {
+    parts.push(`move-in ${dayLabel(args.moveIn)}`);
+  }
+  return parts.join(" · ");
+}
 
 export function buildSmsDeepLink(args: {
   intent: SmsDeepLinkIntent;
@@ -306,6 +372,8 @@ export function buildSmsDeepLink(args: {
   /** Optional context for question CTAs (layout, bathroom, lease terms, …). */
   topic?: string | null;
   roomName?: string | null;
+  /** `book` / `monthly` (Text us): what the visitor picked (YYYY-MM-DD dates, guests, an "HH:MM" arrival, a move-in day). */
+  stay?: { checkIn?: string | null; checkOut?: string | null; guests?: number | null; arrival?: string | null; moveIn?: string | null } | null;
   /**
    * The listing's server-resolved CTA number (production: its own manager's
    * phone; dev/preview: the shared Claw line). No number means no `sms:` link —
@@ -342,6 +410,12 @@ export function buildSmsDeepLink(args: {
       : label
         ? `Hi — I'd like to apply for a room bundle at ${label}.`
         : `Hi — I'd like to apply for a room bundle.`;
+  } else if (args.intent === "book" || args.intent === "monthly") {
+    body = label
+      ? listingTextUsBody({ kind: args.intent === "book" ? "book" : "monthly", propertyLabel: label, roomName: room, ...args.stay })
+      : args.intent === "book"
+        ? `Hi — I'd like to book a stay.`
+        : `Hi — I'd like to schedule a tour.`;
   } else if (args.intent === "lease") {
     body = `Hi — I'm ready to review / sign my lease.`;
   } else if (args.intent === "question") {

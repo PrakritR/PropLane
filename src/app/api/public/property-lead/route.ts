@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import type { MockProperty } from "@/data/types";
 import { isPropertyActiveForLeads } from "@/lib/demo-property-pipeline";
-import { resolveListingCtaSmsPhone } from "@/lib/listing-cta-phone.server";
-import { resolveSharedLineNumberFor } from "@/lib/one-number/display-number.server";
+import { resolveListingTextNumber } from "@/lib/listing-text-number.server";
+import { geocodeListingAddressWithin } from "@/lib/listing-geocode.server";
 import { publicListingProjection, resolvePublicSigningContext } from "@/lib/public-listings.server";
 import { resolveListingAttributionByOwnerWorkspace } from "@/lib/listing-attribution.server";
 import { loadLeasingPipelineState } from "@/lib/leasing-pipeline-preferences";
@@ -59,25 +59,13 @@ export async function GET(req: Request) {
     }
 
     let managerEmail: string | null = null;
-    let managerProfile: {
-      phone: string | null;
-      phone_verified_at: string | null;
-      sms_from_number: string | null;
-    } | null = null;
     if (data.manager_user_id) {
       const { data: profile } = await db
         .from("profiles")
-        .select("email, phone, phone_verified_at, sms_from_number")
+        .select("email")
         .eq("id", data.manager_user_id)
         .maybeSingle();
       managerEmail = profile?.email ?? null;
-      managerProfile = profile
-        ? {
-            phone: profile.phone ?? null,
-            phone_verified_at: profile.phone_verified_at ?? null,
-            sms_from_number: profile.sms_from_number ?? null,
-          }
-        : null;
     }
 
     const resolved: MockProperty = {
@@ -85,17 +73,12 @@ export async function GET(req: Request) {
       id: property.id || propertyId,
       managerUserId: property.managerUserId ?? data.manager_user_id ?? undefined,
       managerContactEmail: managerEmail?.trim() || undefined,
-      // Same per-property rule as the public catalog: this listing's own
-      // manager, and the stored blob number is never trusted. See
-      // `resolveListingCtaSmsPhone`.
-      // A workspace on the set PropLane line texts from it (number model, Oct 18); one with a number of
-      // its own, or outside the shared line, keeps its own manager's work number.
-      contactSmsPhone:
-        (data.manager_user_id
-          ? await resolveSharedLineNumberFor(db, data.manager_user_id, data.workspace_id ?? null)
-          : null) ??
-        resolveListingCtaSmsPhone(managerProfile) ??
-        undefined,
+      // Same per-property rule as the public catalog, and the stored blob number is never trusted: a
+      // PropLane-managed workspace texts the PropLane line, a customer's own workspace its own work number
+      // (else the PropLane line). See `resolveListingTextNumber`.
+      contactSmsPhone: data.manager_user_id
+        ? (await resolveListingTextNumber(db, { ownerUserId: data.manager_user_id, workspaceId: data.workspace_id ?? null })) ?? undefined
+        : undefined,
       contactWorkEmail:
         (await resolveListingCtaEmail(db, data.manager_user_id ?? null)) ?? undefined,
     };
@@ -105,6 +88,17 @@ export async function GET(req: Request) {
         return NextResponse.json({ error: "Property not found." }, { status: 404 });
       }
     }
+
+    // The map pin: geocoded on read, ZIP-verified and cached (`listing-geocode.server`), started now so it runs
+    // beside the reads below. It is bounded: past ~2.5s the page ships without a fresh pin and the client keeps its
+    // own geocode path. A stored mapLat/mapLng is only the fallback: nothing in the product writes one, so a stored
+    // pin is a seed's or an import's and is never trusted over the address it should match.
+    const pinPromise = geocodeListingAddressWithin({
+      address: resolved.address,
+      zip: resolved.zip,
+      city: resolved.listingSubmission?.city,
+      state: resolved.state ?? resolved.listingSubmission?.state,
+    });
 
     // Same workspace-application-form resolution as the catalog
     // (`getPublicListings`) — a share link for one property must not disagree
@@ -152,9 +146,11 @@ export async function GET(req: Request) {
     // allowlist as the catalog — this route reaches the SAME stored blob from
     // the SAME anonymous audience, so a projection on only one of the two is
     // trivially bypassed by asking for the property by id.
+    const pin = await pinPromise;
+    const withPin: MockProperty = pin ? { ...resolved, mapLat: pin.lat, mapLng: pin.lng } : resolved;
     return NextResponse.json(
       {
-        property: publicListingProjection(resolved, workspaceForm, signingContext, showAttribution),
+        property: publicListingProjection(withPin, workspaceForm, signingContext, showAttribution),
         ...(scope.kind === "active" ? { testWorkspaceId: scope.workspaceId } : {}),
       },
       { headers: scope.kind === "active"

@@ -175,11 +175,16 @@ export type LeaseBasicRow = {
 
 export type AmenityItem = { id: string; icon: string; label: string };
 
+/** One glyph + text fact on a bundle card ("3 rooms", "$1,000–$1,200 each"). */
+export type BundleCardFact = { icon: "rooms" | "price" | "stay"; text: string };
+
 export type BundleCard = {
   id: string;
   label: string;
   price: string;
   strikethrough?: string;
+  /** The public listing card's one fact line: glyph facts beside the label, the figure on the right. */
+  facts?: BundleCardFact[];
   promo?: string;
   /** Short row/subtitle shown on the bundle card. */
   roomsLine: string;
@@ -546,6 +551,10 @@ const defaultBundles: BundleCard[] = [
     id: "bundle-multi-room",
     label: "Two or more rooms",
     price: "from $1,550/mo",
+    facts: [
+      { icon: "rooms", text: "5 rooms" },
+      { icon: "price", text: "$775–$875 each" },
+    ],
     promo: "Combine any bedrooms on one lease",
     roomsLine: "5 rooms available — rent 2 or more together",
     roomLines: ["Room 1: $875", "Room 2: $800", "Room 3: $775", "Room 4: $775"],

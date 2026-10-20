@@ -5,7 +5,7 @@ import type {
   ManagerListingSubmissionV1,
   ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
-import { normalizeManagerListingSubmissionV1, formatListingBasicsSummary, isEntireHomeListing, entireHomeMonthlyRentAmount } from "@/lib/manager-listing-submission";
+import { normalizeManagerListingSubmissionV1, formatListingBasicsSummary, isEntireHomeListing, entireHomeMonthlyRentAmount, leaseLengthsDisplayText } from "@/lib/manager-listing-submission";
 import {
   LEGACY_HOUSE_AMENITY_LABELS_IN_SHARED_PRESETS,
   LISTING_TOTAL_BATH_OPTIONS,
@@ -121,6 +121,7 @@ function shortTermStayDetailBody(sub: ManagerListingSubmissionV1): string {
 import type {
   AmenityItem,
   BundleCard,
+  BundleCardFact,
   LeaseBasicRow,
   ListingBathroomRow,
   ListingFloorCard,
@@ -648,6 +649,22 @@ function twoOrMoreRoomRents(rooms: ManagerRoomSubmission[]): number[] {
   return rooms.map(roomMonthlyEquivalent).filter((n) => Number.isFinite(n) && n > 0).sort((a, b) => a - b);
 }
 
+/** The card's one fact line: how many rooms, and what each costs ("3 rooms", "$1,000–$1,200 each"). */
+export function compactBundleFacts(rooms: ManagerRoomSubmission[]): BundleCardFact[] {
+  const facts: BundleCardFact[] = [];
+  if (rooms.length > 0) facts.push({ icon: "rooms", text: `${rooms.length} room${rooms.length === 1 ? "" : "s"}` });
+  const rents = twoOrMoreRoomRents(rooms);
+  if (rents.length > 0) {
+    const lo = rents[0]!;
+    const hi = rents[rents.length - 1]!;
+    facts.push({
+      icon: "price",
+      text: lo === hi ? `${moneyLabel(lo)} each` : `${moneyLabel(lo)}–${moneyLabel(hi)} each`,
+    });
+  }
+  return facts;
+}
+
 function twoOrMoreRoomPriceLabel(rooms: ManagerRoomSubmission[]): string | null {
   const rents = twoOrMoreRoomRents(rooms);
   if (rents.length < 2) return null;
@@ -1006,6 +1023,7 @@ function buildDefaultMultiRoomBundleCard(
     id: "bundle-multi-room",
     label: "Two or more rooms",
     price,
+    facts: compactBundleFacts(rooms),
     promo: "Combine 2+ bedrooms on one lease",
     roomsLine: `${rooms.length} room${rooms.length === 1 ? "" : "s"} available — rent 2 or more together`,
     roomLines: rooms.map((room) => perRoomBundleSummaryLine(room, sub)),
@@ -1129,6 +1147,10 @@ function buildBundleCards(sub: ManagerListingSubmissionV1, rooms: ManagerRoomSub
         label: b.label.trim() || "Package",
         price: stPrice ?? (b.price.trim() || "—"),
         strikethrough: b.strikethrough.trim() || undefined,
+        facts: [
+          ...compactBundleFacts(scopedRooms),
+          ...(stPrice ? [{ icon: "stay" as const, text: "Short-term stay" }] : []),
+        ],
         promo: stPrice ? "Short-term stay" : undefined,
         roomsLine: scope || `${scopedRooms.length} room${scopedRooms.length === 1 ? "" : "s"} included`,
         roomLines: scopedRooms.map((room) => perRoomBundleSummaryLine(room, sub)),
@@ -1150,6 +1172,9 @@ function buildBundleCards(sub: ManagerListingSubmissionV1, rooms: ManagerRoomSub
         id: "bundle-entire-home",
         label: "Entire home",
         price: `${formatRoomPriceAmount(entireRent)}/mo`,
+        facts: named.length
+          ? [{ icon: "rooms", text: `${named.length} bedroom${named.length === 1 ? "" : "s"}` }]
+          : [],
         promo: "One lease for the full unit",
         roomsLine: named.length
           ? `${named.length} bedroom${named.length === 1 ? "" : "s"} · entire home`
@@ -1167,6 +1192,7 @@ function buildBundleCards(sub: ManagerListingSubmissionV1, rooms: ManagerRoomSub
         id: "bundle-fallback",
         label: property.unitLabel?.trim() || "Rooms",
         price: property.rentLabel || "—",
+        facts: compactBundleFacts(rooms),
         roomsLine: "Room pricing has not been listed for this home yet.",
       },
     ];
@@ -1184,6 +1210,7 @@ function buildBundleCards(sub: ManagerListingSubmissionV1, rooms: ManagerRoomSub
       id: "bundle-listed-rooms",
       label: "Listed rooms",
       price: `from ${priceSummary}`,
+      facts: compactBundleFacts(rooms),
       roomsLine: `${rooms.length} room${rooms.length === 1 ? "" : "s"} available`,
       roomLines: rooms.map((room) => perRoomBundleSummaryLine(room, sub)),
       summaryItems: bundleSummaryItems(rooms, sub),
@@ -1423,7 +1450,7 @@ export function listingRichFromManagerSubmission(
     leaseBasics,
     amenities,
     bundlesText:
-      sub.leaseTermsBody.trim() ||
+      leaseLengthsDisplayText(sub.leaseTermsBody) ||
       "Lease terms and lengths have not been added to this listing yet.",
     bundleCards,
     quickFacts,

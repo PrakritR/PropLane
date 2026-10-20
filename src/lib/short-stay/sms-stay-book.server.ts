@@ -141,6 +141,7 @@ export async function bookStayForTexter(
       roomId: option.roomId,
       guests: option.guests,
       ranges: [{ checkIn: option.checkIn, checkOut: option.checkOut }],
+      ...(option.arrival ? { estimatedArrival: option.arrival } : {}),
     },
     via: "sms",
     now: input.now,

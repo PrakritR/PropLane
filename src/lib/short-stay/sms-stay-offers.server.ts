@@ -26,6 +26,8 @@ export type StayOfferOption = {
   checkOut: string;
   guests: number;
   listingUrl: string;
+  /** "HH:MM" the texter said they would arrive ("arrive 1 pm"); stored on the stay, never acted on. */
+  arrival?: string;
 };
 
 export type StayOfferRow = {

@@ -9,7 +9,12 @@
  */
 import { Minus, Plus } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { listingContactRows, listingPrimaryCtaClass, listingTextLinkClass as textLinkClass } from "@/components/marketing/listing-contact-card";
+import Link from "next/link";
+import { listingPrimaryCtaClass, listingSecondaryCtaClass, listingTextUsLabel } from "@/components/marketing/listing-contact-card";
+import { usePublicTexting } from "@/components/marketing/public-texting-context";
+import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
+import { buildSmsDeepLink, listingCtaSmsPhone } from "@/lib/claw-leasing-links";
+import { buildProspectBookHref } from "@/lib/prospect-public-nav";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { DateField } from "@/components/ui/date-field";
 import { Input, Select } from "@/components/ui/input";
@@ -182,10 +187,27 @@ export function ShortStayProvider({ property, disabled = false, children }: { pr
   // `?stay=1` (the short-stay post's link) lands on the date inputs.
   useEffect(() => {
     if (!offered || typeof window === "undefined") return;
-    if (new URLSearchParams(window.location.search).get("stay") !== "1") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("stay") !== "1") return;
     let focusTimer: number | undefined;
     const timer = window.setTimeout(() => {
       setSegment("short");
+      // Back from resident sign-up (`buildProspectBookHref`): the picks the guest made before it are still theirs.
+      const pickedIn = normalizeRangeDay(params.get("checkIn") ?? "");
+      const pickedOut = normalizeRangeDay(params.get("checkOut") ?? "");
+      if (pickedIn) setCheckInRaw(pickedIn);
+      if (pickedIn && pickedOut && pickedOut > pickedIn) setCheckOut(pickedOut);
+      const pickedRoom = params.get("room") ?? "";
+      if (pickedRoom && rooms.some((room) => room.id === pickedRoom)) setRoomIdRaw(pickedRoom);
+      const pickedGuests = Number(params.get("guests"));
+      if (Number.isFinite(pickedGuests) && pickedGuests > 1) setGuestsRaw(clampGuests(pickedGuests, pickedRoom));
+      if (pickedIn) {
+        focusTimer = window.setTimeout(() => {
+          const block = Array.from(document.querySelectorAll<HTMLElement>('[data-attr="short-stay-block"]')).find((node) => node.offsetParent !== null);
+          block?.scrollIntoView({ block: "center", behavior: "smooth" });
+        }, 120);
+        return;
+      }
       // The short-stay inputs mount with the segment: look for them one beat later.
       focusTimer = window.setTimeout(() => {
         const inputs = Array.from(document.querySelectorAll<HTMLInputElement>('[data-attr="short-stay-check-in"] input[type="text"], [data-attr="short-stay-check-in"] input:not([type])'));
@@ -198,6 +220,8 @@ export function ShortStayProvider({ property, disabled = false, children }: { pr
       window.clearTimeout(timer);
       window.clearTimeout(focusTimer);
     };
+    // Read once, when the offer is known: the URL is the guest's earlier picks, not a live control.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [offered]);
 
   const value = useMemo<ShortStayState>(
@@ -233,7 +257,14 @@ export function ShortStayBookingBlock({
   const email = typedEmail ?? quickBook?.email ?? "";
   const honeypot = useRef<HTMLInputElement>(null);
   // "none" = Not sure: nothing is sent. Any other value is the "HH:MM" the guest expects to arrive.
-  const [arrival, setArrival] = useState("none");
+  const [arrival, setArrival] = useState(() => {
+    if (typeof window === "undefined") return "none";
+    const picked = new URLSearchParams(window.location.search).get("arrive") ?? "";
+    return /^\d{2}:\d{2}$/.test(picked) ? picked : "none";
+  });
+  const auth = useProspectContactAutofill();
+  const signedInResident = auth.ready && Boolean(auth.userId) && auth.hasResidentRole;
+  const publicLine = usePublicTexting().phone;
   const [ticked, setTicked] = useState<StayAddOnKind[]>([]);
   const [offers, setOffers] = useState<StayAddOnOffer[]>([]);
   const pickedRoomId = stay ? (stay.rooms.find((room) => room.id === stay.roomId) ?? (stay.rooms.length === 1 ? stay.rooms[0] : null))?.id ?? "" : "";
@@ -280,9 +311,37 @@ export function ShortStayBookingBlock({
   const addOnsCents = addOnsQuoteCents([offers], activeAddOns);
   const total = stayTotal > 0 ? stayTotal + addOnsCents / 100 : 0;
   const times = normalizePropertyStayTimes(stay.property.listingSubmission?.stayTimes);
-  const contact = listingContactRows(stay.property).phone;
   const noFreeRoom = stay.rangeValid && !stay.occupancyLoading && freeRooms.length === 0;
   const canRequest = stay.rangeValid && Boolean(picked) && !noFreeRoom && total > 0;
+  // Two paths (captain, Oct 20): Request to book makes a resident account first and comes back to this card with the
+  // picks in place (a signed-in resident books here), and Text us opens Messages to the listing's number with the
+  // same picks written out, for the leasing agent to quote and send the pay link.
+  const homeLabel = listingTextUsLabel(stay.property);
+  const roomName = picked && stay.rooms.length > 1 ? picked.name : null;
+  const textUsHref = homeLabel
+    ? buildSmsDeepLink({
+        intent: "book",
+        toPhone: listingCtaSmsPhone(stay.property.contactSmsPhone) ?? listingCtaSmsPhone(publicLine),
+        propertyLabel: homeLabel,
+        roomName,
+        stay: {
+          checkIn: stay.rangeValid ? stay.checkIn : null,
+          checkOut: stay.rangeValid ? stay.checkOut : null,
+          guests: stay.guests,
+          arrival: arrival === "none" ? null : arrival,
+        },
+      })
+    : "#";
+  const signUpToBook =
+    !signedInResident && !quickBook
+      ? buildProspectBookHref(stay.property.id, {
+          roomId: picked?.id ?? null,
+          checkIn: stay.checkIn,
+          checkOut: stay.checkOut,
+          guests: stay.guests,
+          arrival: arrival === "none" ? null : arrival,
+        })
+      : null;
 
   const send = async () => {
     if (!picked || !stay.rangeValid) return;
@@ -423,7 +482,7 @@ export function ShortStayBookingBlock({
 
       {state.kind === "sent" ? (
         <p className="mt-3 rounded-2xl bg-accent/40 p-3 text-sm font-semibold text-foreground" role="status" data-attr="short-stay-sent">
-          Request sent. We texted {phone ? phone : "you"} to confirm.
+          Request sent. We texted you to confirm.
         </p>
       ) : formOpen ? (
         <div className="mt-3 space-y-2.5" data-attr="short-stay-form">
@@ -436,6 +495,10 @@ export function ShortStayBookingBlock({
             {state.kind === "sending" ? "Sending…" : "Send request"}
           </button>
         </div>
+      ) : signUpToBook && canRequest ? (
+        <Link href={signUpToBook} prefetch={false} className={`${listingPrimaryCtaClass} mt-3`} data-attr="short-stay-request">
+          Request to book
+        </Link>
       ) : (
         <button
           type="button"
@@ -451,9 +514,9 @@ export function ShortStayBookingBlock({
           {quickBook ? "Quick book" : "Request to book"}
         </button>
       )}
-      {contact ? (
-        <a href={contact.smsHref} className={textLinkClass} data-attr="short-stay-message">
-          Text {contact.label}
+      {textUsHref !== "#" ? (
+        <a href={textUsHref} className={`${listingSecondaryCtaClass} mt-2.5`} data-attr="short-stay-text-us">
+          Text us
         </a>
       ) : null}
     </div>

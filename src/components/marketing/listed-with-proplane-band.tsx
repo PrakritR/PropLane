@@ -4,11 +4,11 @@ import Link from "next/link";
 
 import { AxisLogoGlyph } from "@/components/brand/axis-logo";
 import { track } from "@/lib/analytics/track-client";
-import { LISTING_ATTRIBUTION_PARTNER_PATH } from "@/lib/listing-attribution";
+import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 
 /**
  * Bottom band of the public listing page: the PropLane mark and "Listed with PropLane" on the
- * left, one link to the landlord page on the right. The page decides whether to draw it
+ * left, one link into the manager sign-up on the right. The page decides whether to draw it
  * (`property.showProPlaneAttribution`, resolved server-side); this component only draws.
  */
 export function ListedWithProPlaneBand({ propertyId }: { propertyId: string }) {
@@ -20,7 +20,7 @@ export function ListedWithProPlaneBand({ propertyId }: { propertyId: string }) {
           <span className="truncate">Listed with PropLane</span>
         </span>
         <Link
-          href={LISTING_ATTRIBUTION_PARTNER_PATH}
+          href={MANAGER_GET_STARTED_HREF}
           data-attr="listed-with-proplane-cta"
           className="ps-link shrink-0 whitespace-nowrap text-sm"
           onClick={() => track("landlord_cta_clicked", { source: "listing_page", listing_id: propertyId })}

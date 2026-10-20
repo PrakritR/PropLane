@@ -32,7 +32,8 @@ import {
 } from "@/lib/short-stay-request";
 import { createShortStayRows, loadShortStayListing } from "@/lib/short-stay-request.server";
 import { SHORT_STAY_HOLD_HOURS, SMS_SHORT_STAY_SOURCE } from "@/lib/short-stay/guest-stays";
-import { parseStayDates } from "@/lib/short-stay/sms-stay-intent";
+import { parseArrivalTime, parseStayDates } from "@/lib/short-stay/sms-stay-intent";
+import { normalizeListingIdentity } from "@/lib/listing-identity";
 import { bookStayForTexter, confirmStayRequestCode, issueStayRequestCode, stayRequestCodedLine } from "@/lib/short-stay/sms-stay-book.server";
 import {
   claimPreparedStayOffer,
@@ -62,6 +63,15 @@ function turnOf(ctx: AgentContext): string | null {
   return burst ? `${burst.burstId}:${burst.revision}` : null;
 }
 
+/** The one room whose name is the texter's ("Room 8" for "8" or "room 8"); null when none or several match. */
+function matchRoomByName<T extends { name?: string }>(rooms: readonly T[], wanted: string): T | null {
+  const strip = (value: string) => normalizeListingIdentity(value).replace(/^room/, "");
+  const target = strip(wanted);
+  if (!target) return null;
+  const hits = rooms.filter((room) => strip(room.name ?? "") === target);
+  return hits.length === 1 ? hits[0]! : null;
+}
+
 const NOT_SMS = { ok: false as const, error: "sms_only" as const, message: "Short stays can only be booked from a text conversation." };
 
 /* ───────────────────────────── quote ───────────────────────────── */
@@ -74,17 +84,20 @@ const quoteInput = z
     guests: z.number().int().min(1).max(SHORT_STAY_MAX_GUESTS).optional().describe("How many people. Defaults to 1."),
     area: z.string().max(200).optional().describe("A place the guest named, in their words."),
     budgetPerNight: z.number().positive().max(100_000).optional().describe("Their nightly budget in dollars, if they gave one."),
+    home: z.string().max(200).optional().describe("The home the texter named, in their words: the street address or listing title from a \"Hi, I'd like to book 4709A 8th Ave · Room 8 · Oct 20–21 · …\" text (\"4709A 8th Ave\"). Looked up on the server among this line's own homes; when it resolves, ONLY that home is quoted."),
+    room: z.string().max(120).optional().describe("The room they named at that home (\"Room 8\"), copied as written. Only used with home."),
+    arrivalText: z.string().max(120).optional().describe("Their arrival words, verbatim (\"arrive 1 pm\"). Kept on the stay; never convert it yourself."),
   })
   .strict();
 
 type QuoteResult =
-  | { ok: true; options: Array<StayOfferOption & { number: number; distanceMiles?: number | null }>; checkIn: string; checkOut: string; nights: number; guests: number; holdHours: number; next: string }
+  | { ok: true; options: Array<StayOfferOption & { number: number; distanceMiles?: number | null }>; checkIn: string; checkOut: string; nights: number; guests: number; holdHours: number; next: string; requestedHome?: "resolved" | "unresolved"; requestedRoom?: "matched" | "unmatched" | "unavailable" }
   | { ok: false; error: string; message?: string; ask?: string; maxNights?: number };
 
 export const quoteShortStaysTool = defineTool<z.infer<typeof quoteInput>, QuoteResult, AgentContext>({
   name: "quote_short_stays",
   description:
-    "Quote a SHORT stay (nights or a few weeks, 1 to 28 nights) for a texter: up to 3 homes that are free for those dates with the exact total, plus each home's link. Use when they ask for a room for nights, a few weeks, 'short term', 'nightly' or 'Airbnb style'. Pass their date words as datesText and let the tool read them. If it says need_dates, ask ONE question for the missing date. Numbers come only from this tool: never work out a price. Afterwards list the options with dates, total and link, and ask which one they want.",
+    "Quote a SHORT stay (nights or a few weeks, 1 to 28 nights) for a texter: up to 3 homes that are free for those dates with the exact total, plus each home's link. Use when they ask for a room for nights, a few weeks, 'short term', 'nightly' or 'Airbnb style'. Pass their date words as datesText and let the tool read them. When the newest text is a 'Hi, I'd like to book <home> · <room> · <dates> · <n> guests · arrive <time>' draft, pass the home (and room, guests, arrivalText) from it and the tool quotes that exact home and room instead of searching an area. If it says need_dates, ask ONE question for the missing date. Numbers come only from this tool: never work out a price. Afterwards list the options with dates, total and link, and ask which one they want.",
   kind: "read",
   inputSchema: quoteInput,
   handler: async (ctx, input): Promise<QuoteResult> => {
@@ -108,10 +121,15 @@ export const quoteShortStaysTool = defineTool<z.infer<typeof quoteInput>, QuoteR
     }
     const guests = input.guests ?? 1;
 
-    const { homes, area } = await loadShortStayHomes(ctx, { area: input.area });
-    if (area && area.resolved === false) return { ok: false, error: "unknown_area", message: `I can't place "${String(area.requested)}". Ask which Seattle neighborhood, landmark or zip they mean.` };
+    const { homes, area, home: homeOutcome } = await loadShortStayHomes(ctx, { area: input.area, home: input.home });
+    const homePinned = homeOutcome?.resolved === true;
+    if (!homePinned && area && area.resolved === false) return { ok: false, error: "unknown_area", message: `I can't place "${String(area.requested)}". Ask which Seattle neighborhood, landmark or zip they mean.` };
     const ranked = homes.slice(0, 10);
     const candidates: Array<{ home: (typeof ranked)[number]; roomId: string }> = [];
+    // When the texter named a room at the named home, it goes first and alone; the home's other rooms are the fallback.
+    const fallbackCandidates: typeof candidates = [];
+    let roomOutcome: "matched" | "unmatched" | undefined;
+    const wantedRoom = homePinned ? (input.room ?? "").trim() : "";
     if (ranked.length > 0) {
       const { data } = await ctx.db
         .from("manager_property_records")
@@ -120,18 +138,21 @@ export const quoteShortStaysTool = defineTool<z.infer<typeof quoteInput>, QuoteR
         .eq("status", "live")
         .is("test_workspace_id", null);
       const submissions = new Map(
-        ((data ?? []) as Array<{ id: string; property_data?: { listingSubmission?: { rooms?: Array<{ id?: string }> } } | null }>).map((row) => [row.id, row.property_data?.listingSubmission ?? null] as const),
+        ((data ?? []) as Array<{ id: string; property_data?: { listingSubmission?: { rooms?: Array<{ id?: string; name?: string }> } } | null }>).map((row) => [row.id, row.property_data?.listingSubmission ?? null] as const),
       );
       for (const home of ranked) {
         const submission = submissions.get(home.id);
         if (!submission || !listingOffersShortStay(submission as never)) continue;
-        for (const room of submission.rooms ?? []) if (room.id) candidates.push({ home, roomId: room.id });
+        const rooms = (submission.rooms ?? []).filter((room) => room.id);
+        const named = wantedRoom ? matchRoomByName(rooms, wantedRoom) : null;
+        if (wantedRoom) roomOutcome = named ? "matched" : "unmatched";
+        for (const room of rooms) (named && room !== named ? fallbackCandidates : candidates).push({ home, roomId: room.id! });
       }
     }
 
     const range = { checkIn: dates.checkIn, checkOut: dates.checkOut, nights: dates.nights };
-    const evaluated = await Promise.all(
-      candidates.slice(0, MAX_ROOMS_CHECKED).map(async ({ home, roomId }) => {
+    const evaluate = (list: typeof candidates) => Promise.all(
+      list.slice(0, MAX_ROOMS_CHECKED).map(async ({ home, roomId }) => {
         const loaded = await loadShortStayListing(ctx.db, { propertyId: home.id, roomId, guests });
         if (!loaded.ok) return null;
         const { listing } = loaded;
@@ -148,6 +169,13 @@ export const quoteShortStaysTool = defineTool<z.infer<typeof quoteInput>, QuoteR
         return { home, listing, total: row.total };
       }),
     );
+    let evaluated = await evaluate(candidates);
+    let roomUnavailable = false;
+    if (roomOutcome === "matched" && !evaluated.some(Boolean) && fallbackCandidates.length > 0) {
+      // The room they named is not free (or not bookable) for those nights: say so and offer the same home's others.
+      roomUnavailable = true;
+      evaluated = await evaluate(fallbackCandidates);
+    }
 
     // One room per home (the cheapest that is free), homes in the order the area ranked them.
     const origin = publicOrigin();
@@ -173,7 +201,15 @@ export const quoteShortStaysTool = defineTool<z.infer<typeof quoteInput>, QuoteR
         listingUrl: buildManagerListingUrl(origin, home.id),
       });
     }
-    if (options.length === 0) return { ok: true, options: [], checkIn: dates.checkIn, checkOut: dates.checkOut, nights: dates.nights, guests, holdHours: SHORT_STAY_HOLD_HOURS, next: "Nothing is free for those dates. Say so, and offer other dates or a long-term room." };
+    const arrival = parseArrivalTime(input.arrivalText ?? "");
+    if (arrival) for (const option of options) option.arrival = arrival;
+    const named = homeOutcome
+      ? {
+          requestedHome: homePinned ? ("resolved" as const) : ("unresolved" as const),
+          ...(homePinned && wantedRoom ? { requestedRoom: roomUnavailable ? ("unavailable" as const) : roomOutcome === "matched" ? ("matched" as const) : ("unmatched" as const) } : {}),
+        }
+      : {};
+    if (options.length === 0) return { ok: true, options: [], checkIn: dates.checkIn, checkOut: dates.checkOut, nights: dates.nights, guests, holdHours: SHORT_STAY_HOLD_HOURS, next: "Nothing is free for those dates. Say so, and offer other dates or a long-term room.", ...named };
 
     const saved = await saveStayOffer(ctx.db, { managerUserId: ctx.landlordId, phoneKey: who.phoneKey, options });
     if (!saved) return { ok: false, error: "unavailable", message: "I could not save these options. A teammate will follow up." };
@@ -186,7 +222,12 @@ export const quoteShortStaysTool = defineTool<z.infer<typeof quoteInput>, QuoteR
       nights: dates.nights,
       guests,
       holdHours: SHORT_STAY_HOLD_HOURS,
-      next: "List each option on its own line: home, room, dates, the total, then its link. Then ask which one they want. When they pick, call prepare_short_stay with its number.",
+      next: homePinned
+        ? roomUnavailable
+          ? "The room they named is not free for those dates, but this is the same home. Say so plainly, then offer this option (home, room, dates, total, link) and ask if they want it. When they say yes, call prepare_short_stay with its number."
+          : "They named this exact home. Offer just this option (home, room, dates, total, link) and ask if they want it; do not ask about dates, guests or area again. When they say yes, call prepare_short_stay with its number."
+        : "List each option on its own line: home, room, dates, the total, then its link. Then ask which one they want. When they pick, call prepare_short_stay with its number.",
+      ...named,
     };
   },
 });

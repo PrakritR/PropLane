@@ -29,6 +29,11 @@ export function listingContactRows(property: Pick<MockProperty, "id" | "building
   };
 }
 
+/** How a Text us draft names the home: its street address ("4709A 8th Ave"), else its building name or title. */
+export function listingTextUsLabel(property: Pick<MockProperty, "buildingName" | "title" | "address">): string {
+  return property.address?.split(",")[0]?.trim() || property.buildingName?.trim() || property.title?.trim() || "";
+}
+
 /**
  * The listing's action pills — shared with the price card and sticky bar so a
  * renter sees ONE control for tour, apply, text and email (captain, 3009).

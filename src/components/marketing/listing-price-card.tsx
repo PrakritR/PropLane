@@ -15,12 +15,12 @@
  */
 import Link from "next/link";
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import { listingContactRows, listingPrimaryCtaClass } from "@/components/marketing/listing-contact-card";
+import { listingPrimaryCtaClass, listingTextUsLabel } from "@/components/marketing/listing-contact-card";
 import { ProspectListingCta } from "@/components/marketing/prospect-listing-cta";
 import { QuickApplySheet } from "@/components/marketing/quick-apply-sheet";
 import { ShortStayBookingBlock, useShortStay } from "@/components/marketing/short-stay-booking";
 import { usePublicTexting } from "@/components/marketing/public-texting-context";
-import { renterSmsHref } from "@/components/public-site/journey-paths";
+import { buildSmsDeepLink, listingCtaSmsPhone } from "@/lib/claw-leasing-links";
 import { DateField } from "@/components/ui/date-field";
 import { Select } from "@/components/ui/input";
 import type { ListingRichContent } from "@/data/listing-rich-content";
@@ -209,15 +209,29 @@ export function PriceFigure({ label, className = "", "data-attr": dataAttr }: { 
 }
 
 /**
- * "Text us": the listing's own work number when it has one (so the reply knows which home), otherwise the
- * PropLane line from the public layout. Null when neither is configured: the button is not drawn.
+ * "Text us": the listing's number (`resolveListingTextNumber`: the PropLane line for a managed house, else the
+ * workspace's own, else the PropLane line), or the public line from the layout when the listing carries none,
+ * prefilled with what the visitor picked: a short stay's nights, guests and room, or a monthly room and move-in day
+ * (captain, Oct 20). Null when no number is configured: the button is not drawn.
  */
 export function useListingTextHref(property: MockProperty): string | null {
   const publicLine = usePublicTexting().phone;
-  const own = listingContactRows(property).phone?.smsHref ?? null;
-  if (own) return own;
-  const title = property.buildingName?.trim() || property.title?.trim() || property.address?.trim() || "this home";
-  return renterSmsHref(publicLine, `Hi PropLane, I'm interested in ${title}`);
+  const stay = useShortStay();
+  const label = listingTextUsLabel(property);
+  const toPhone = listingCtaSmsPhone(property.contactSmsPhone) ?? listingCtaSmsPhone(publicLine);
+  if (!toPhone || !label) return null;
+  const room = stay && stay.rooms.length > 1 && !listingIsEntireHome(property) ? stay.rooms.find((r) => r.id === stay.roomId) : null;
+  const short = stay?.offered === true && stay.segment === "short";
+  const href = buildSmsDeepLink({
+    intent: short ? "book" : "monthly",
+    toPhone,
+    propertyLabel: label,
+    roomName: room?.name ?? null,
+    stay: short
+      ? { checkIn: stay.rangeValid ? stay.checkIn : null, checkOut: stay.rangeValid ? stay.checkOut : null, guests: stay.guests }
+      : { moveIn: stay?.moveIn || null },
+  });
+  return href === "#" ? null : href;
 }
 
 export const BOOK_TOUR_LABEL = "Book a tour";

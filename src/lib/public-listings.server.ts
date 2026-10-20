@@ -1,7 +1,7 @@
 import "server-only";
 import type { MockProperty } from "@/data/types";
 import { isPropertyActiveForLeads } from "@/lib/demo-property-pipeline";
-import { resolveWorkspaceDisplayNumber } from "@/lib/one-number/display-number.server";
+import { listingTextNumberKey, resolveListingTextNumbers } from "@/lib/listing-text-number.server";
 import { resolveActiveManagerWorkEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import type {
   ManagerBathroomSubmission,
@@ -629,12 +629,18 @@ export async function getPublicListings(opts?: { testWorkspaceId?: string | null
   const managerEmailByUserId = new Map<string, string | null>();
 
   const workContacts = new Map<string, { phone: string | null; email: string | null }>();
-  await Promise.all([...new Map((data ?? []).filter((row) => row.manager_user_id).map((row) => [`${row.manager_user_id}:${row.workspace_id ?? ""}`, row])).entries()].map(async ([key, row]) => {
-    const [phone, email] = await Promise.all([
-      resolveWorkspaceDisplayNumber(db, row.manager_user_id!, row.workspace_id).catch(() => null),
-      resolveActiveManagerWorkEmail(db, row.manager_user_id!, row.workspace_id).catch(() => null),
-    ]);
-    workContacts.set(key, { phone, email });
+  const workContactRows = [...new Map((data ?? []).filter((row) => row.manager_user_id).map((row) => [`${row.manager_user_id}:${row.workspace_id ?? ""}`, row])).entries()];
+  // One number rule for Browse and the share link (`resolveListingTextNumbers`); one `portal_workspaces` read for the whole catalog.
+  const textNumbers = await resolveListingTextNumbers(
+    db,
+    workContactRows.map(([, row]) => ({ ownerUserId: row.manager_user_id!, workspaceId: row.workspace_id })),
+  ).catch(() => new Map<string, string | null>());
+  await Promise.all(workContactRows.map(async ([key, row]) => {
+    const email = await resolveActiveManagerWorkEmail(db, row.manager_user_id!, row.workspace_id).catch(() => null);
+    workContacts.set(key, {
+      phone: textNumbers.get(listingTextNumberKey({ ownerUserId: row.manager_user_id!, workspaceId: row.workspace_id })) ?? null,
+      email,
+    });
   }));
   if (managerIds.length > 0) {
     const { data: profiles, error: profileError } = await db

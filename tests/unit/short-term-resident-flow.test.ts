@@ -51,12 +51,14 @@ import type { MockProperty } from "@/data/types";
 import type { DemoApplicantRow } from "@/lib/manager-applications-storage";
 
 describe("listing apply doors", () => {
-  it("the short door opens the in-portal application for a signed-in resident, and the public one otherwise", () => {
+  it("the short door opens the in-portal application for a signed-in resident, and resident sign-up first otherwise", () => {
     const signedIn = { ready: true, userId: "u1", hasResidentRole: true };
     const signedOut = { ready: true, userId: null, hasResidentRole: false };
     const params = { propertyId: "p1", rentalType: "short_term" as const };
     expect(buildProspectApplyHref(params, signedIn)).toBe("/resident/applications/apply?propertyId=p1&rentalType=short_term");
-    expect(buildProspectApplyHref(params, signedOut)).toBe("/rent/apply?propertyId=p1&rentalType=short_term");
+    expect(buildProspectApplyHref(params, signedOut)).toBe(
+      `/auth/create-account?mode=create&role=resident&next=${encodeURIComponent("/resident/applications/apply?propertyId=p1&rentalType=short_term")}`,
+    );
     expect(buildProspectApplyHref({ propertyId: "p1" }, signedIn)).toBe("/resident/applications/apply?propertyId=p1");
   });
 

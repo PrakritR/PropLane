@@ -20,8 +20,10 @@ const anon = { ready: true, userId: null, hasResidentRole: false };
 const resident = { ready: true, userId: "u1", hasResidentRole: true };
 
 describe("buildProspectTourHref", () => {
-  it("is the tour contact page by default", () => {
-    expect(buildProspectTourHref("prop-1", anon)).toContain("/rent/tours-contact");
+  it("is resident sign-up, then the tour scheduler, by default", () => {
+    const href = buildProspectTourHref("prop-1", anon);
+    expect(href.startsWith("/auth/create-account?mode=create&role=resident&next=")).toBe(true);
+    expect(decodeURIComponent(href.split("next=")[1]!)).toBe("/resident/tour/schedule?propertyId=prop-1");
   });
 
   it("sends a visitor to apply first when the workspace requires it", () => {

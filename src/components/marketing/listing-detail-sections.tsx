@@ -3,7 +3,7 @@
 import "@/components/public-site/public-site.css";
 import { displayPropertyTitle } from "@/lib/property-title";
 import Link from "next/link";
-import { Heart, Share2 } from "lucide-react";
+import { BedDouble, CalendarDays, DollarSign, Heart, Share2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ListingStickySubnav } from "@/components/marketing/listing-detail-subnav";
 import { ListingLocationBlock } from "@/components/marketing/listing-location-block";
@@ -43,6 +43,8 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
  * THIS component (its `previewModal` / `portalEmbedded` / `managerPreviewChrome` flags only change chrome), so the
  * two can never drift apart. The dock is the public page's alone (`phoneDock`).
  */
+
+const BUNDLE_FACT_ICONS = { rooms: BedDouble, price: DollarSign, stay: CalendarDays } as const;
 
 function formatBoldSegments(text: string) {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
@@ -476,18 +478,17 @@ function ListingDetailBody({
                 <li key={card.id} className="ps-row ps-room-plain">
                   <div className="ps-row-main">
                     <p className="ps-row-name">{card.label}</p>
-                    {card.promo ? <p className="ps-row-sub">{card.promo}</p> : null}
-                    <p className="ps-row-sub">{card.roomsLine}</p>
-                    {card.roomLines && card.roomLines.length > 0 ? (
-                      <ul className="ps-pack-lines">
-                        {card.roomLines.map((line) => (
-                          <li key={line}>{line}</li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    {card.summaryItems && card.summaryItems.length > 0 ? (
-                      <p className="ps-row-sub">
-                        {card.summaryItems.map((item) => `${item.label} ${item.value}`).join(" · ")}
+                    {card.facts && card.facts.length > 0 ? (
+                      <p className="ps-row-sub flex flex-wrap items-center gap-x-4 gap-y-1" data-attr="listing-bundle-facts">
+                        {card.facts.map((fact) => {
+                          const Icon = BUNDLE_FACT_ICONS[fact.icon];
+                          return (
+                            <span key={`${fact.icon}-${fact.text}`} className="inline-flex items-center gap-1.5">
+                              <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                              {fact.text}
+                            </span>
+                          );
+                        })}
                       </p>
                     ) : null}
                   </div>

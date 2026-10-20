@@ -205,8 +205,8 @@ describe("segments", () => {
     expect(card().querySelector('[data-attr="listing-price-line"]')!.textContent).toContain("/ night");
     expect(card().textContent).not.toContain("— / night");
     expect(card().querySelector('[data-attr="short-stay-request"]')!.textContent).toBe("Request to book");
-    // The tertiary text link, not a Message button
-    expect(card().querySelector('[data-attr="short-stay-message"]')!.textContent).toMatch(/^Text /);
+    // The other path is Text us (captain, Oct 20), never a printed number.
+    expect(card().querySelector('[data-attr="short-stay-text-us"]')!.textContent).toBe("Text us");
   });
 
   it("the monthly segment has Move-in, Apply, Book a tour and Text us, and no Email door", () => {

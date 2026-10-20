@@ -1390,6 +1390,18 @@ export function formatLeaseTermsBodyFromAllowed(terms: string[]): string {
   return `Available lease lengths: ${clean.join(", ")}.`;
 }
 
+/**
+ * The lease lengths as the public listing shows them: just the values. The stored body keeps its
+ * "Available lease lengths:" label (the lease document and the leasing tools read it whole), so the
+ * listing strips the label and the closing period on read; manager-written prose is returned untouched.
+ */
+export function leaseLengthsDisplayText(body: string | null | undefined): string {
+  const text = (body ?? "").trim();
+  const labelled = /^available lease lengths\s*:\s*/i;
+  if (!labelled.test(text)) return text;
+  return text.replace(labelled, "").replace(/\.\s*$/, "").trim();
+}
+
 export function syncShortTermLeaseTermInAllowed(
   terms: string[],
   shortTermRentalsAllowed: boolean,

@@ -28,7 +28,7 @@ import {
 } from "@/lib/claw-leasing-links";
 import { useProspectListingHrefs } from "@/hooks/use-prospect-listing-hrefs";
 import { listingApplyLabel, listingMessageLabel } from "@/lib/listing-prospect-cta-labels";
-import { getRoomUnavailabilityWindows, LISTING_ROOM_CHOICE_SEP, type RoomUnavailabilityWindow } from "@/lib/rental-application/data";
+import { buildProspectApplyHref } from "@/lib/prospect-public-nav";
 import { roomAvailabilityPillClasses, roomAvailabilityTone, type RoomAvailabilityTone } from "@/lib/room-availability-style";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
 import { RoomAvailabilityMonthCalendar, type RoomCalendarSpan } from "@/components/room-availability-month-calendar";
@@ -36,6 +36,8 @@ import { ColumnHelp } from "@/components/portal/listing-wizard-v2/wizard-primiti
 import { RENT_PER_RESIDENT_HELP, rentPerResidentSubLabel } from "@/lib/shared-room-display";
 import { normalizeRoomOccupancyCapacity, type OpenResidentSlot } from "@/lib/rental-application/room-occupancy";
 import { findPublicRoomOccupancy, roomAvailabilityDisplay } from "@/lib/public-listing-available-count";
+import { roomUnavailableRanges, type RoomUnavailableRange } from "@/lib/room-availability";
+import { localDateFromDateKey } from "@/lib/room-availability-calendar";
 import { pacificTodayKey } from "@/lib/room-availability-range";
 import { useListingPublicOccupancy } from "@/hooks/use-listing-public-occupancy";
 import { useShortStay } from "@/components/marketing/short-stay-booking";
@@ -46,7 +48,6 @@ import {
   sharedRoomOpenBedsLine,
   sharedRoomRentCellLabel,
 } from "@/lib/public-shared-room-listing";
-import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listing";
 
 const LISTING_TABLE_HEAD =
   "text-[10px] font-semibold uppercase tracking-wide text-muted sm:text-[11px]";
@@ -153,28 +154,20 @@ function DetailsButton({ onClick, className = "" }: { onClick: () => void; class
   );
 }
 
-function formatRangeDate(d: Date): string {
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
-function rangeSummaryLabel(w: RoomUnavailabilityWindow): string {
-  if (w.start && w.end) return `Unavailable ${formatRangeDate(w.start)} to ${formatRangeDate(w.end)}`;
-  if (w.start) return `Unavailable from ${formatRangeDate(w.start)}`;
-  if (w.end) return `Unavailable until ${formatRangeDate(w.end)}`;
-  return "Unavailable dates set";
-}
-
-function RoomAvailabilityTimelineCalendar({ windows }: { windows: RoomUnavailabilityWindow[] }) {
-  // Every window a renter sees is simply "not open" — one colour.
-  const spans: RoomCalendarSpan[] = windows.map((w) => ({ start: w.start, end: w.end, tone: "occupied" }));
-  return (
-    <div className="space-y-3">
-      <p className="text-xs text-muted">
-        Green dates are open and red dates are unavailable. Use the arrows to browse upcoming months.
-      </p>
-      <RoomAvailabilityMonthCalendar spans={spans} />
-    </div>
-  );
+function RoomAvailabilityTimelineCalendar({
+  ranges,
+  loading,
+}: {
+  ranges: RoomUnavailableRange[];
+  loading: boolean;
+}) {
+  // Every range a renter sees is simply "not open" — one colour.
+  const spans: RoomCalendarSpan[] = ranges.map((r) => ({
+    start: localDateFromDateKey(r.start),
+    end: localDateFromDateKey(r.end),
+    tone: "occupied",
+  }));
+  return <RoomAvailabilityMonthCalendar spans={spans} loading={loading} legend />;
 }
 
 const LISTING_MODAL_LABEL = "text-xs font-semibold uppercase tracking-wide text-muted";
@@ -506,7 +499,7 @@ export function ListingDetailModal({
   const newTabProps = listingLinkTargetProps(useListingPreviewNewTab());
   const textEnabled = isClawMessagingPubliclyEnabled(contactSmsPhone);
   const label = propertyLabel?.trim() || null;
-  const { applyHref: webApplyHref, messageHref: webMessageHref, tourHref, stageMessageCompose } =
+  const { applyHref: webApplyHref, messageHref: webMessageHref, tourHref, stageMessageCompose, auth } =
     useProspectListingHrefs(listingPropertyId);
   const textApplyHref = textEnabled
     ? buildSmsDeepLink({ intent: "apply", propertyId: listingPropertyId, propertyLabel: label, toPhone: contactSmsPhone })
@@ -523,8 +516,15 @@ export function ListingDetailModal({
   const stageWebMessageCompose = textEnabled ? undefined : stageMessageCompose;
   const messageCtaExtras = { onClick: stageWebMessageCompose };
   const { rooms: occupancyRows, loading: occupancyLoading, failed: occupancyFailed } = useListingPublicOccupancy(listingPropertyId);
-  const roomApplyHref = (roomId: string) =>
-    buildRentalApplyHref({ propertyId: listingPropertyId, listingRoomId: roomId });
+  // A room's action buttons take the account path (resident sign-up, then that room's application); its Text us
+  // opens Messages with the room written out (captain, Oct 20).
+  const roomApplyHref = (roomId: string) => buildProspectApplyHref({ propertyId: listingPropertyId, listingRoomId: roomId }, auth);
+  const roomTextUsHref = (roomName: string) => {
+    const href = label
+      ? buildSmsDeepLink({ intent: "monthly", propertyId: listingPropertyId, propertyLabel: label, roomName, toPhone: contactSmsPhone })
+      : "#";
+    return href === "#" ? null : href;
+  };
 
   useEffect(() => {
     if (!state) return;
@@ -560,7 +560,7 @@ export function ListingDetailModal({
               <div className="flex w-full flex-wrap gap-2">
                 <ListingModalCta
                   href={roomApplyHref(state.room.id)}
-                  label={applyLabel}
+                  label="Apply"
                   variant="primary"
                   dataAttr="listing-room-apply"
                   newTabProps={newTabProps}
@@ -572,12 +572,19 @@ export function ListingDetailModal({
                   dataAttr="listing-room-tour"
                   newTabProps={newTabProps}
                 />
+                {roomTextUsHref(state.room.name) ? (
+                  <ListingModalCta
+                    href={roomTextUsHref(state.room.name)!}
+                    label="Text us"
+                    variant="secondary"
+                    dataAttr="listing-room-text-us"
+                    newTabProps={{}}
+                  />
+                ) : null}
               </div>
             }
           >
             {(() => {
-              const roomChoiceValue = `${listingPropertyId}${LISTING_ROOM_CHOICE_SEP}${state.room.id}`;
-              const roomUnavailableWindows = getRoomUnavailabilityWindows(roomChoiceValue);
               const capacity = roomOccupancyCapacity(state.room);
               const occ = findPublicRoomOccupancy(occupancyRows, listingPropertyId, state.room.id);
               const openBeds = publicRoomOpenBedCount(capacity, occ?.spans ?? []);
@@ -588,6 +595,8 @@ export function ListingDetailModal({
                 pacificTodayKey(),
                 listingPropertyId,
               );
+              // The timeline reads the same spans the status above does, so the two cannot disagree.
+              const timelineRanges = roomUnavailableRanges(state.room, occ?.spans ?? [], pacificTodayKey());
               return (
                 <>
                   <ListingModalHeader title={state.room.name} />
@@ -719,28 +728,7 @@ export function ListingDetailModal({
                     );
                   })()}
                   <ListingModalSection label="Availability timeline">
-                    {roomUnavailableWindows.length > 0 ? (
-                      <div className="space-y-2">
-                        {roomUnavailableWindows.map((w) => (
-                          <div
-                            key={w.id}
-                            className="flex items-start gap-2 rounded-lg border border-border bg-accent/30 px-3 py-2 text-xs text-muted"
-                          >
-                            <span
-                              className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${w.source === "resident" ? "bg-rose-500" : "bg-sky-500"}`}
-                            />
-                            <span>{rangeSummaryLabel(w)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-emerald-800 [html[data-theme=dark]_&]:text-emerald-300">
-                        No blocked ranges or resident occupancy currently set for this room.
-                      </p>
-                    )}
-                    <div className={roomUnavailableWindows.length > 0 ? "mt-4" : "mt-3"}>
-                      <RoomAvailabilityTimelineCalendar windows={roomUnavailableWindows} />
-                    </div>
+                    <RoomAvailabilityTimelineCalendar ranges={timelineRanges} loading={occupancyLoading} />
                   </ListingModalSection>
                 </>
               );

@@ -35,6 +35,8 @@ export function useProspectListingHrefs(
         applicationFirst: auth.ready && getPropertyById(propertyId)?.applicationBeforeTour === true,
       }),
       messageHref: buildProspectMessageHref(propertyId, auth),
+      /** Who is looking, for a caller that builds a step href of its own (a room's apply). */
+      auth,
       isResident,
       stageMessageCompose: () => {
         if (isResident) stageResidentListingMessageCompose(propertyId);

@@ -169,14 +169,15 @@ describe("public page dock", () => {
 
   it("adds Text us from the PropLane line when the listing has no work number, and nothing when no line is set", () => {
     render(
-      <PublicTextingProvider value={{ phone: "+12065550100", smsHref: null }}>
+      <PublicTextingProvider value={{ phone: "+12066781909", smsHref: null }}>
         <ListingDetailSections property={property({})} rich={rich} phoneDock />
       </PublicTextingProvider>,
     );
     const text = document.querySelector('[data-dock] [data-attr="listing-text-tour-dock"]') as HTMLAnchorElement;
     expect(text.textContent).toBe("Text us");
-    expect(text.getAttribute("href")).toContain("sms:+12065550100");
-    expect(decodeURIComponent(text.getAttribute("href")!)).toContain("I'm interested in 5257 Brooklyn Avenue Northeast");
+    expect(text.getAttribute("href")).toContain("sms:+12066781909");
+    // The monthly Text us draft (captain, Oct 20): "Hi, I'd like to tour or apply for <home> …".
+    expect(decodeURIComponent(text.getAttribute("href")!)).toMatch(/body=Hi, I'd like to tour or apply for \S/);
     cleanup();
     render(<ListingDetailSections property={property({})} rich={rich} phoneDock />);
     expect(document.querySelector('[data-attr="listing-text-tour-dock"]')).toBeNull();

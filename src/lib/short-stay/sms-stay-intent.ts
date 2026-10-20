@@ -158,3 +158,15 @@ export function parseStayDates(raw: string, today: string): ParsedStayDates {
   if (checkIn && nights) checkOut = addRangeDays(checkIn, nights);
   return { checkIn: normalizeRangeDay(checkIn), checkOut: normalizeRangeDay(checkOut), nights: nights ?? null };
 }
+
+/**
+ * "arrive 1 pm", "1pm", "around 9:30 am" -> "13:00" / "09:30" (the "HH:MM" `estimatedArrival` is stored as); null when
+ * there is no clock time with am/pm. A bare number is not a time.
+ */
+export function parseArrivalTime(raw: string): string | null {
+  const m = /\b(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*([ap])\.?m\b/i.exec(raw);
+  if (!m) return null;
+  const hour12 = Number(m[1]) % 12;
+  const hour = m[3]!.toLowerCase() === "p" ? hour12 + 12 : hour12;
+  return `${pad(hour)}:${m[2] ?? "00"}`;
+}

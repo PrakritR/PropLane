@@ -6,7 +6,8 @@ import { listingGeocodeQuery, parseGeocodeResult } from "@/lib/geocode-address";
 import { listingFallbackMapCenter } from "@/lib/listing-map";
 
 export function useListingMapCoords(
-  property: Pick<MockProperty, "address" | "zip" | "neighborhood" | "unitLabel" | "mapLat" | "mapLng">,
+  property: Pick<MockProperty, "address" | "zip" | "neighborhood" | "unitLabel" | "mapLat" | "mapLng"> &
+    Partial<Pick<MockProperty, "state" | "listingSubmission">>,
 ): { coords: { lat: number; lng: number } | null; loading: boolean; geocoded: boolean } {
   const hasStored =
     property.mapLat != null &&
@@ -28,7 +29,13 @@ export function useListingMapCoords(
       return;
     }
 
-    const query = listingGeocodeQuery(property);
+    // Street + city/state + ZIP when the listing carries them, so a street name shared with another part of the
+    // metro cannot win over the right one.
+    const query = listingGeocodeQuery({
+      ...property,
+      city: property.listingSubmission?.city,
+      state: property.state ?? property.listingSubmission?.state,
+    });
     if (!query) {
       setCoords(listingFallbackMapCenter(property as MockProperty));
       setLoading(false);
@@ -73,6 +80,9 @@ export function useListingMapCoords(
     property.zip,
     property.neighborhood,
     property.unitLabel,
+    property.state,
+    property.listingSubmission?.city,
+    property.listingSubmission?.state,
     property.mapLat,
     property.mapLng,
   ]);

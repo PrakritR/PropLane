@@ -89,9 +89,13 @@ describe("prospect-public-nav", () => {
     );
   });
 
-  it("keeps guests on public marketing paths", () => {
-    expect(buildProspectTourHref("p1", guestAuth)).toBe("/rent/tours-contact?propertyId=p1");
+  it("sends a guest's tour and apply through resident sign-up to that step (captain, Oct 20); a message stays public", () => {
+    expect(buildProspectTourHref("p1", guestAuth)).toBe(
+      `/auth/create-account?mode=create&role=resident&next=${encodeURIComponent("/resident/tour/schedule?propertyId=p1")}`,
+    );
     expect(buildProspectMessageHref("p1", guestAuth)).toContain("tab=message");
-    expect(buildProspectApplyHref({ propertyId: "p1" }, guestAuth)).toBe("/rent/apply?propertyId=p1");
+    expect(buildProspectApplyHref({ propertyId: "p1" }, guestAuth)).toBe(
+      `/auth/create-account?mode=create&role=resident&next=${encodeURIComponent("/resident/applications/apply?propertyId=p1")}`,
+    );
   });
 });

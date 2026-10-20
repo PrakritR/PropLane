@@ -6,7 +6,7 @@
  * (dates and counts only, never a name), so the answer carries dates only. Pure and client-safe.
  */
 import { classifyRoomOpening } from "@/lib/room-availability-style";
-import { nextDayKey, occupiedBedsOn } from "@/lib/room-occupancy-rule";
+import { nextDayKey, occupiedBedsOn, previousDayKey } from "@/lib/room-occupancy-rule";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 
@@ -66,6 +66,60 @@ export function roomAvailability(
     if (occupiedBedsOn(spans, day) < capacity) return day === today ? { kind: "now" } : { kind: "from", date: day };
   }
   return { kind: "unavailable" };
+}
+
+export type RoomUnavailableRange = {
+  /** First unavailable day, YYYY-MM-DD (never before today). */
+  start: string;
+  /** Last unavailable day, or null when the room stays closed with no end. */
+  end: string | null;
+};
+
+/**
+ * The days the room modal's timeline draws red: the SAME decision as `roomAvailability`, laid out
+ * as ranges from today. A day is red when the beds taken that day fill the room's capacity
+ * (`occupiedBedsOn`), or when it falls before the room's own static opening date; a room the
+ * status calls "Not available" is red from today with no end, so the calendar and the status
+ * line can never disagree. Pure; spans are the anonymous ones the public occupancy route returns.
+ */
+export function roomUnavailableRanges(
+  room: RoomAvailabilityRoom,
+  spans: PublicRoomOccupancy["spans"],
+  today: string,
+): RoomUnavailableRange[] {
+  const status = roomAvailability(room, spans, today);
+  if (status.kind === "unavailable") return [{ start: today, end: null }];
+  const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
+  const ranges: RoomUnavailableRange[] = [];
+  // The room's own opening date (a dated "Available from …") is red until the day before it.
+  const floor = roomAvailability(room, [], today);
+  if (floor.kind === "from") ranges.push({ start: today, end: previousDayKey(floor.date) });
+  // Occupancy only changes on a span's first day or the day after its last, so test just those.
+  const points = new Set<string>();
+  for (const span of spans) {
+    points.add(span.start);
+    if (span.end) points.add(nextDayKey(span.end));
+  }
+  const sorted = [...points].sort();
+  sorted.forEach((point, index) => {
+    if (occupiedBedsOn(spans, point) < capacity) return;
+    const nextPoint = sorted[index + 1];
+    const end = nextPoint ? previousDayKey(nextPoint) : null;
+    if (end !== null && end < today) return;
+    ranges.push({ start: point < today ? today : point, end });
+  });
+  // Merge touching or overlapping pieces so the grid sees clean ranges.
+  ranges.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+  const merged: RoomUnavailableRange[] = [];
+  for (const range of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && (last.end === null || nextDayKey(last.end) >= range.start)) {
+      if (last.end !== null && (range.end === null || range.end > last.end)) last.end = range.end;
+    } else {
+      merged.push({ ...range });
+    }
+  }
+  return merged;
 }
 
 /** `months` on from `day`, clamped to the last day of the target month (Aug 31 + 6 is Feb 28, not Mar 3). */

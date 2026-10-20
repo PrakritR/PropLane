@@ -665,11 +665,40 @@ function areaFactsOf(rec: RawPropertyRecord) {
  * number it is that workspace's own live listings. Whether a home really takes short stays, and at what
  * nightly rate, is decided later from the stored listing (`loadShortStayListing`), never from this projection.
  */
+/**
+ * The ONE live listing a texter's words name ("4709A 8th Ave", a listing title), or null. Matches the normalized street
+ * address, title or "also listed as" only (never a room name, never the fuzzy ad-token tier) and only when exactly one
+ * home holds the best rank, so "8th Ave" alone is ambiguous and falls back to the caller's area flow.
+ */
+export function matchShortStayHome(rows: readonly RawPropertyRecord[], home: string): RawPropertyRecord | null {
+  const needle = home.trim();
+  if (!normalizeListingIdentity(needle)) return null;
+  const ranked = rows
+    .map((rec) => ({ rec, rank: listingSummaryMatchRank({ ...summarizeListingRecord(rec), rooms: [] }, needle) }))
+    .filter((entry) => entry.rank >= 3);
+  const best = Math.max(0, ...ranked.map((entry) => entry.rank));
+  const top = ranked.filter((entry) => entry.rank === best);
+  return top.length === 1 ? top[0]!.rec : null;
+}
+
 export async function loadShortStayHomes(
   ctx: AgentContext,
-  input: { area?: string | null },
-): Promise<{ homes: { id: string; name: string; area: AreaMatch | null }[]; area?: Record<string, unknown> }> {
+  input: { area?: string | null; home?: string | null },
+): Promise<{
+  homes: { id: string; name: string; area: AreaMatch | null }[];
+  area?: Record<string, unknown>;
+  /** Present only when the texter named a home: whether it resolved to exactly one home in THIS context's scope. */
+  home?: { requested: string; resolved: boolean };
+}> {
   const rows = isServiceCatalog(ctx) || isCrossCatalog(ctx) ? await loadServiceCatalogRows() : await loadBrowsableListings(ctx);
+  const homeText = (input.home ?? "").trim();
+  let homeOutcome: { requested: string; resolved: boolean } | undefined;
+  if (homeText) {
+    // Resolved against the same rows the area flow uses, so a workspace's number only ever reaches that workspace's homes.
+    const hit = matchShortStayHome(rows, homeText);
+    homeOutcome = { requested: homeText, resolved: Boolean(hit) };
+    if (hit) return { homes: [{ id: hit.id, name: propertyLabel(propertySource(hit)) ?? "the house", area: null }], home: homeOutcome };
+  }
   const areaText = (input.area ?? "").trim();
   const place: ResolvedPlace | null = areaText ? resolveSeattlePlace(areaText) : null;
   let homes = rows.map((rec) => ({
@@ -681,9 +710,9 @@ export async function loadShortStayHomes(
     const measured = homes.filter((home) => home.area !== null) as { id: string; name: string; area: AreaMatch }[];
     const near = measured.filter((home) => home.area.near).sort((a, b) => compareAreaMatches(a.area, b.area));
     homes = near.length > 0 ? near : measured.sort((a, b) => compareAreaMatches(a.area, b.area)).slice(0, 3);
-    return { homes, area: { resolved: true, place: place.label, nearCount: near.length } };
+    return { homes, area: { resolved: true, place: place.label, nearCount: near.length }, ...(homeOutcome ? { home: homeOutcome } : {}) };
   }
-  return { homes, ...(areaText ? { area: { resolved: false, requested: areaText } } : {}) };
+  return { homes, ...(areaText ? { area: { resolved: false, requested: areaText } } : {}), ...(homeOutcome ? { home: homeOutcome } : {}) };
 }
 
 type ListedHome = { listing: ReturnType<typeof summarizeListingRecord>; rec: RawPropertyRecord; rank: number; area: AreaMatch | null };
