@@ -187,6 +187,19 @@ export class World {
     return { ...user, applicationId, room, charges };
   }
 
+  /** What applying leaves behind: a login with the proven phone, a submitted application that carries the SMS consent, and the binding to the house's manager. */
+  async createApplicant({ ownerId, house, phone, label, fullName = "Jordan Prospect" }) {
+    const user = await this.createUser({ label, role: "resident", phone, fullName });
+    const applicationId = `e2e-app-${this.runId}-${label}`;
+    await must(() => this.db.from("manager_application_records").upsert({
+      id: applicationId, manager_user_id: ownerId, resident_email: user.email, property_id: house.id,
+      row_data: { id: applicationId, axisId: applicationId, bucket: "pending", stage: "Submitted", email: user.email, name: fullName, property: house.name, propertyId: house.id, managerUserId: ownerId, testRunId: this.runId,
+        application: { propertyId: house.id, roomChoice1: "Room A", phone, smsConsent: true, smsConsentAt: NOW(), smsConsentWordingVersion: "e2e-v1" } },
+    }, { onConflict: "id" }), `applicant application ${label}`);
+    await must(() => this.db.from("resident_workspace_bindings").upsert({ resident_user_id: user.id, manager_user_id: ownerId, application_id: applicationId }, { onConflict: "resident_user_id,manager_user_id" }), `applicant binding ${label}`);
+    return user;
+  }
+
   /** A vendor on the workspace owner's roster (a phone is all a texting vendor needs). */
   async createRosterVendor({ ownerId, name, trade, phone }) {
     const id = `e2e-vendor-${this.runId}-${hex(5)}`;
@@ -210,8 +223,8 @@ export class World {
   }
 
   /** The owner of record of a PropLane-managed workspace: a verified phone and an active, signed fee policy. */
-  async createOwner({ workspaceId, phone, fullName = "Olive Owner" }) {
-    const user = await this.createUser({ label: "owner", role: "manager", phone, fullName });
+  async createOwner({ workspaceId, phone, fullName = "Olive Owner", label = "owner" }) {
+    const user = await this.createUser({ label, role: "manager", phone, fullName });
     await must(() => this.db.from("managed_workspace_fee_policies").insert({
       workspace_id: workspaceId, owner_user_id: user.id, status: "active", owner_share_bps: 9000, applies_to: "rent", leasing_fee_bps: 0, min_fee_cents: 0,
       reserve_target_cents: 0, repair_approval_threshold_cents: 25000, effective_from: new Date().toISOString().slice(0, 10), sent_at: NOW(), signed_at: NOW(), accepted_via: "owner_signature", terms_sha256: hex(64),

@@ -347,17 +347,36 @@ async function tellVendor(db: SupabaseClient, job: VendorJob, fallbackPhone: str
 }
 
 /**
+ * A PropLane Service roster vendor texts the PropLane line, which belongs to the service owner, so the pictures are stored under the
+ * service owner's bucket path while the service (and the run) belong to the client. The service owner is the one extra path a
+ * service workspace's run may read; any other workspace's run reads only its own owner's.
+ */
+async function serviceMediaOwners(db: SupabaseClient, run: Pick<DispatchRunRow, "owner_user_id" | "workspace_id">): Promise<string[]> {
+  try {
+    if (!run.workspace_id) return [];
+    const { data } = await db.from("portal_workspaces").select("is_service").eq("id", run.workspace_id).maybeSingle();
+    if ((data as { is_service?: unknown } | null)?.is_service !== true) return [];
+    const { readPlatformServiceOwnerId } = await import("@/lib/service/service-catalog.server");
+    const owner = await readPlatformServiceOwnerId(db);
+    return owner && owner !== run.owner_user_id ? [owner] : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Put the photos of one inbound text on the job: a work-order service gets them as completion photos
  * (and the files link to it); any other kind of run just links the files to the run. Returns how many
  * files were attached. Scoped to the run's own owner; files from another owner's bucket path never match.
  */
 async function attachRunMedia(db: SupabaseClient, job: VendorJob, messageSid: string): Promise<number> {
   const run = job.run;
+  const mediaOwnerUserIds = await serviceMediaOwners(db, run);
   let linked = 0;
   if (run.source_type === "work_order") {
-    linked = (await attachVendorJobMedia(db, { ownerUserId: run.owner_user_id, workOrderId: run.source_id, messageSid })).linked;
+    linked = (await attachVendorJobMedia(db, { ownerUserId: run.owner_user_id, workOrderId: run.source_id, messageSid, mediaOwnerUserIds })).linked;
   }
-  if (linked === 0) linked = await linkVendorRunMedia(db, { ownerUserId: run.owner_user_id, runId: run.id, messageSid });
+  if (linked === 0) linked = await linkVendorRunMedia(db, { ownerUserId: run.owner_user_id, runId: run.id, messageSid, mediaOwnerUserIds });
   if (linked > 0) {
     await recordDispatchEvent(db, { ownerUserId: run.owner_user_id, runId: run.id, handle: run.handle, event: "vendor_photos", key: messageSid, detail: { photos: linked }, channel: "sms" });
   }

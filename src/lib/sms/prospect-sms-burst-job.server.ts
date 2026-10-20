@@ -34,9 +34,17 @@ export async function loadBurstWorkspaceId(
     // A burst never spans two workspaces; if it somehow does, stamp nothing rather than guess.
     if (stamped.size !== 1) return null;
     const workspaceId = [...stamped][0];
-    const { data: workspace } = await db.from("portal_workspaces").select("id")
+    const { data: workspace } = await db.from("portal_workspaces").select("id, is_service")
       .eq("id", workspaceId).eq("owner_user_id", ownerUserId).maybeSingle();
-    return workspace?.id ? String(workspace.id) : null;
+    if (!workspace?.id) return null;
+    // PropLane's own service has no line per workspace: a prospect on the PropLane line whose lead was assigned to a
+    // service workspace (a booked tour) keeps being answered from the service owner's line. Naming a workspace that has
+    // no number of its own refused every later reply with `workspace_has_no_work_number` and the prospect got silence.
+    if ((workspace as { is_service?: unknown }).is_service === true) {
+      const { data: own } = await db.from("manager_sms_numbers").select("id").eq("workspace_id", workspaceId).limit(1);
+      if (!Array.isArray(own) || own.length === 0) return null;
+    }
+    return String(workspace.id);
   } catch {
     return null;
   }

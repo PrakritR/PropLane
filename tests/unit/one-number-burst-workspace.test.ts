@@ -17,13 +17,15 @@ const OTHER = "22222222-2222-4222-8222-222222222222";
 function fakeDb(opts: {
   receipts?: Array<{ message_sid: string; workspace_id: string | null }>;
   receiptError?: { code: string } | null;
-  workspaces?: Array<{ id: string; owner_user_id: string }>;
+  workspaces?: Array<{ id: string; owner_user_id: string; is_service?: boolean }>;
+  numbers?: Array<{ id: string; workspace_id: string }>;
 }) {
   return {
     from: (table: string) => {
       const filters: Record<string, unknown> = {};
       const q: Record<string, unknown> = {
         select: () => q,
+        limit: () => q,
         in: (_c: string, v: string[]) => { filters.sids = v; return q; },
         eq: (c: string, v: unknown) => { filters[c] = v; return q; },
         maybeSingle: async () => ({
@@ -33,7 +35,7 @@ function fakeDb(opts: {
         then: (resolve: (v: unknown) => unknown) => resolve(
           table === "sms_inbound_receipts"
             ? { data: opts.receiptError ? null : (opts.receipts ?? []).filter((r) => (filters.sids as string[]).includes(r.message_sid)), error: opts.receiptError ?? null }
-            : { data: [], error: null },
+            : { data: table === "manager_sms_numbers" ? (opts.numbers ?? []).filter((n) => n.workspace_id === filters.workspace_id) : [], error: null },
         ),
       };
       return q;
@@ -57,6 +59,12 @@ describe("loadBurstWorkspaceId", () => {
     }), "owner-1", ["SM1", "SM2"])).toBeNull();
     expect(await loadBurstWorkspaceId(fakeDb({ receipts: [{ message_sid: "SM1", workspace_id: null }], workspaces: owned }), "owner-1", ["SM1"])).toBeNull();
     expect(await loadBurstWorkspaceId(fakeDb({ workspaces: owned }), "owner-1", [])).toBeNull();
+  });
+
+  it("a PropLane service workspace with no number of its own is stamped as nothing, so the reply leaves from the service owner's line", async () => {
+    const service = [{ id: WS, owner_user_id: "owner-1", is_service: true }];
+    expect(await loadBurstWorkspaceId(fakeDb({ receipts: [{ message_sid: "SM1", workspace_id: WS }], workspaces: service }), "owner-1", ["SM1"])).toBeNull();
+    expect(await loadBurstWorkspaceId(fakeDb({ receipts: [{ message_sid: "SM1", workspace_id: WS }], workspaces: service, numbers: [{ id: "n1", workspace_id: WS }] }), "owner-1", ["SM1"])).toBe(WS);
   });
 
   it("reads a missing column (code before the migration) and a throwing client as no stamp", async () => {

@@ -67,7 +67,7 @@ vi.mock("@/lib/auth/portal-access", () => ({
 }));
 
 const PHONE = "+14252240508";
-const FOOTER = "— Sam at Alder Property Co via PropLane. Reply STOP to opt out.";
+const FOOTER = "- Sam at Alder Property Co via PropLane. Reply STOP to opt out.";
 const body = { workOrderId: "wo-1", phone: "(425) 224-0508", recipientName: "Dima Handyman", sharePhotos: false };
 const post = (extra: Record<string, unknown> = {}) =>
   sendRoute(new Request("http://localhost/x", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, ...extra }) }));

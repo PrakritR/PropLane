@@ -1533,7 +1533,7 @@ key). `none` needs the manager's attestation ("I work with this vendor",
 `vendor_attestation_required`. The attestation is stored as a `granted` event,
 source `manager_attested_vendor_relationship`, wording `vendor-text-attestation-v1`,
 evidence `{attestation, attestedBy, vendorRecordId, senderLine, stopFooter}`, and
-the first text carries `— <manager first name> at <workspace name> via PropLane.
+the first text carries `- <manager first name> at <workspace name> via PropLane.
 Reply STOP to opt out.` (also on the retry when that first text never left: the
 footer rule is "no manager text accepted for delivery yet", not "just attested").
 A revoked scope is never re-attested. `GET /api/manager/vendor-text-consent`

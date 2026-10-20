@@ -21,6 +21,7 @@
  * canonical host.
  */
 import Stripe from "stripe";
+import { createClient } from "@supabase/supabase-js";
 import { hex, sleep } from "./core.mjs";
 import { ensureServiceLine, enterPerWorkspace, relocate } from "./scenarios-svcline.mjs";
 
@@ -52,6 +53,21 @@ function hygiene(ctx, label, bodies) {
     }
   }
   check(`${label}: ${bodies.length} text(s) pass hygiene (no markdown, no long dash, GSM-7, links on their own line, canonical host)`, problems.length === 0, problems.join("\n"));
+}
+
+/** A headless Chromium from the repo's playwright; null (and a note) when none can start. */
+async function inBrowser(note, fn) {
+  let browser = null;
+  try {
+    const { chromium } = await import("playwright");
+    browser = await chromium.launch({ headless: true });
+    return await fn(browser);
+  } catch (error) {
+    note(`(no browser: ${error instanceof Error ? error.message.split("\n")[0] : error})`);
+    return null;
+  } finally {
+    await browser?.close().catch(() => undefined);
+  }
 }
 
 function stripeOrNull(env) {
@@ -144,17 +160,16 @@ async function ensureFullLoop(h, world) {
 
     // ---- managed: the Brooklyn service home takes tours and has a signed fee policy; the client's own service workspace holds the resident
     await world.paintTourAvailability({ ownerId: fx.owner.id, houseId: fx.brooklyn.id });
-    await world.createOwner({ workspaceId: fx.service[0], phone: world.phone(), fullName: "Olive Owner" });
+    await world.createOwner({ workspaceId: fx.service[0], phone: world.phone(), fullName: "Olive Owner", label: "fl-owner1" });
     const client = await world.createUser({ label: "fl-client", role: "manager", phone: world.phone(), fullName: "Ambika Client" });
     const ws = await db.from("portal_workspaces").insert({ owner_user_id: client.id, name: `E2E 1. LoopClient ${world.runId}`, is_default: true, is_service: true, city: "Seattle" }).select("id");
     if (ws.error) throw new Error(`client workspace: ${ws.error.message}`);
     const clientWs = ws.data[0].id;
     world.workspaceIds.push(clientWs);
-    const clientHouse = await world.createHouse({ ownerId: client.id, workspaceId: clientWs, name: `E2E Loop Client House ${world.runId}`, street: "5257 Brooklyn Ave NE" });
-    await relocate(db, clientHouse, { address: "5257 Brooklyn Ave NE, Seattle, WA 98105", neighborhood: "University District", zip: "98105", lat: 47.6674, lng: -122.3144 });
+    const clientHouse = await world.createHouse({ ownerId: client.id, workspaceId: clientWs, name: `E2E Loop Client House ${world.runId}`, street: "6100 24th Ave NW" });
     const clientLine = world.phone();
     const clientNumberId = await placeNumber(db, h, { managerId: client.id, workspaceId: clientWs, phone: clientLine });
-    await world.createOwner({ workspaceId: clientWs, phone: world.phone(), fullName: "Casey Owner" });
+    await world.createOwner({ workspaceId: clientWs, phone: world.phone(), fullName: "Casey Owner", label: "fl-owner2" });
     const mResidentPhone = world.phone();
     const mResident = await world.createResident({ ownerId: client.id, house: clientHouse, roomIndex: 1, label: "fl-mres", phone: mResidentPhone, fullName: "Riley Resident" });
     const rosterVendorPhone = world.phone();
@@ -286,7 +301,7 @@ export const FULL_LOOP_SCENARIOS = [
         const approve = await say(`${kind} manager`, v.managerPhone, managed ? fx.line : v.line, `Y ${run.handle}`);
         check(`${L}: Y approves the job`, /approved/i.test(approve.all), approve.all);
         const offer = ((await textTo(v.vendorPhone, vendorMark, 60_000)) ?? []).join("\n");
-        check(`${L}: the vendor is offered the job with the general area only (no street address, no resident contact)`, Boolean(offer) && /plumb|leak|sink/i.test(offer) && !/Brooklyn Ave/i.test(offer) && !/@|\d{3}[-. ]?\d{4}/.test(offer.replace(/#\d+/g, "")), offer || "(no offer sent)");
+        check(`${L}: the vendor is offered the job with the general area only (no street address, no resident contact)`, Boolean(offer) && /plumb|leak|sink/i.test(offer) && !/24th Ave|Brooklyn Ave/i.test(offer) && !/@|\d{3}[-. ]?\d{4}/.test(offer.replace(/#\d+/g, "")), offer || "(no offer sent)");
         hygiene(ctx, `${L} offer`, offer ? [offer] : []);
 
         const afterMark = h.captureMark();
@@ -298,7 +313,7 @@ export const FULL_LOOP_SCENARIOS = [
         }, 30_000);
         check(`${L}: the run is accepted by the vendor`, accepted?.accepted_vendor_directory_id === v.vendorId, JSON.stringify(accepted));
         const toVendorAfter = toPhone(v.vendorPhone, afterMark).map((m) => m.body).join("\n");
-        check(`${L}: the street address reaches the vendor only after accepting`, /5257 Brooklyn|4200 Brooklyn/i.test(toVendorAfter), toVendorAfter || "(nothing after accept)");
+        check(`${L}: the street address reaches the vendor only after accepting`, /6100 24th Ave|4200 Brooklyn/i.test(toVendorAfter), toVendorAfter || "(nothing after accept)");
         check(`${L}: the service is assigned to the vendor`, (await filed())[0]?.row_data?.vendorId === v.vendorId, JSON.stringify((await filed())[0]?.row_data?.vendorId));
 
         const residentMark = h.captureMark();
@@ -372,7 +387,7 @@ export const FULL_LOOP_SCENARIOS = [
             check("managed (a): the apply link opens (HTTP 200)", res.status === 200, `${res.status} ${res.url}`);
           }
           // Applying creates the applicant's login (their verified phone) and the application fee charge.
-          const applicant = await world.createUser({ label: "fl-applicant", role: "resident", phone, fullName: "Jordan Prospect" });
+          const applicant = await world.createApplicant({ ownerId: fx.owner.id, house: fx.brooklyn, phone, label: "fl-applicant" });
           const fee = await writeApplicationFee({ db, world, applicant, house: fx.brooklyn, managerUserId: fx.owner.id });
           const link2 = await P("send me the application fee payment link");
           const url = urlsOf(link2.all).find((u) => /\/l\/[A-Za-z0-9_-]{32,}/.test(u));
@@ -432,13 +447,26 @@ export const FULL_LOOP_SCENARIOS = [
           check("sign-up: the account exists with the proven phone", prof?.length === 1 && Boolean(prof[0].phone_verified_at), JSON.stringify(prof));
           const linkUrl = urlsOf(done.all).find((u) => /auth\/confirm/.test(u));
           if (linkUrl) {
-            const res = await fetch(`${h.base}${new URL(linkUrl).pathname}${new URL(linkUrl).search}`, { redirect: "manual" });
-            const cookies = (res.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]);
-            check("sign-up: the one-tap link signs in (redirect with a session cookie)", [301, 302, 303, 307, 308].includes(res.status) && cookies.some((c) => /^sb-.*auth-token/.test(c)), `${res.status} ${cookies.map((c) => c.slice(0, 30)).join(",")} ${res.headers.get("location")}`);
-            const next = res.headers.get("location");
-            if (next && cookies.length) {
-              const landed = await fetch(new URL(next, h.base).toString(), { headers: { cookie: cookies.join("; ") }, redirect: "follow" });
-              check("sign-up: the signed-in landing page opens (HTTP 200)", landed.status === 200, `${landed.status} ${landed.url}`);
+            const path = `${new URL(linkUrl).pathname}${new URL(linkUrl).search}`;
+            const page = await fetch(`${h.base}${path}`, { redirect: "manual" });
+            check("sign-up: the one-tap link opens (HTTP 200)", page.status === 200, String(page.status));
+            const session = await inBrowser(note, async (browser) => {
+              const ctxb = await browser.newContext();
+              const pg = await ctxb.newPage();
+              await pg.goto(`${h.base}${path}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+              await pg.waitForURL((u) => !u.pathname.startsWith("/auth/confirm"), { timeout: 60_000 }).catch(() => undefined);
+              await pg.waitForLoadState("domcontentloaded").catch(() => undefined);
+              const cookies = await ctxb.cookies();
+              const out = { url: pg.url(), cookie: cookies.some((c) => /^sb-.*auth-token/.test(c.name)) };
+              await ctxb.close();
+              return out;
+            });
+            if (session) check("sign-up: the one-tap link signs the new manager in (session cookie, left the confirm page)", session.cookie && !new URL(session.url).pathname.startsWith("/auth/confirm") && !/sign-in|invalid/i.test(session.url), JSON.stringify(session));
+            else {
+              const tokenHashNow = decodeURIComponent(tokenHash ?? "");
+              const anon = createClient(h.env.NEXT_PUBLIC_SUPABASE_URL, h.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+              const ok = await anon.auth.verifyOtp({ token_hash: tokenHashNow, type: "magiclink" });
+              check("sign-up: the one-tap token signs in as the new account (no browser available)", !ok.error && ok.data?.user?.id === prof?.[0]?.id, JSON.stringify(ok.error ?? ok.data?.user?.id));
             }
           } else check("sign-up: the reply carries an /auth/confirm link", false, done.all);
         }
@@ -466,7 +494,7 @@ export const FULL_LOOP_SCENARIOS = [
             const res = await fetch(`${h.base}${new URL(applyUrl).pathname}${new URL(applyUrl).search}`, { redirect: "follow" });
             check("self-serve (a): the apply link opens (HTTP 200)", res.status === 200, `${res.status} ${res.url}`);
           }
-          const applicant = await world.createUser({ label: "fl-applicant2", role: "resident", phone, fullName: "Jordan Prospect" });
+          const applicant = await world.createApplicant({ ownerId: v.manager.id, house: v.house, phone, label: "fl-applicant2" });
           const fee = await writeApplicationFee({ db, world, applicant, house: v.house, managerUserId: v.manager.id });
           const link2 = await P("send me the application fee payment link");
           const url = urlsOf(link2.all).find((u) => /\/l\/[A-Za-z0-9_-]{32,}/.test(u));

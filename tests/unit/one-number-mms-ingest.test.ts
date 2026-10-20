@@ -28,7 +28,7 @@ function db() {
     from: (table: string) => {
       let payload: Record<string, unknown> | null = null;
       const q: Record<string, unknown> = {
-        select: () => q, eq: () => q, in: () => q, like: () => q, gte: () => q, order: () => q, limit: () => q,
+        select: () => q, eq: () => q, in: () => q, like: () => q, or: () => q, gte: () => q, order: () => q, limit: () => q,
         is: () => q,
         update: (p: Record<string, unknown>) => { payload = p; mocks.updates.push({ table, payload: p }); return q; },
         upsert: async (row: Record<string, unknown>) => { mocks.upserts.push(row); return { error: null }; },
