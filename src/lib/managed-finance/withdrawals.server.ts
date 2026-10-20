@@ -48,10 +48,45 @@ export type WithdrawResult =
   | { ok: false; status: 400 | 402 | 403 | 409 | 422 | 500 | 503; error: string; code?: string };
 
 /**
- * Recorded as the withdrawal's `payout_error` when the destination's payout schedule could not be read. It is the
- * marker `reconcileWithdrawals` looks for to come back and finish the payout, so it is matched, not just displayed.
+ * "The transfer landed but no bank payout has started yet" is a CONTROL, not a sentence.
+ *
+ * `reconcileWithdrawals` finds those rows by matching the machine code below on `payout_error`, so the code and the
+ * copy are stored together but read apart: the sweep matches `PAYOUT_PENDING_VERIFICATION#<attempts>` and never the
+ * words, so re-wording (or translating) the sentence cannot orphan a row mid-flight. The attempt count rides in the
+ * marker because it is what the back-off is computed from - `party_withdrawals` has no retry column of its own.
  */
-export const PAYOUT_SCHEDULE_UNVERIFIED_ERROR = "We could not check your payout schedule, so no bank payout has started yet. We will check and finish it.";
+const PAYOUT_PENDING_VERIFICATION_CODE = "PAYOUT_PENDING_VERIFICATION";
+
+/** The sentence a person is shown while the payout is still being worked out. Copy only - never matched. */
+export const PAYOUT_PENDING_VERIFICATION_MESSAGE = "We could not start your bank payout yet. We will check and finish it.";
+
+/** What goes in `payout_error`: the machine code, its attempt count, then the copy. */
+export function payoutPendingVerificationMarker(attempts: number): string {
+  const n = Number.isFinite(attempts) ? Math.max(0, Math.trunc(attempts)) : 0;
+  return `${PAYOUT_PENDING_VERIFICATION_CODE}#${n} ${PAYOUT_PENDING_VERIFICATION_MESSAGE}`;
+}
+
+/** The attempt count on a marked row, or null when this `payout_error` is not the marker. */
+export function readPayoutPendingVerification(value: unknown): { attempts: number } | null {
+  const match = new RegExp(`^${PAYOUT_PENDING_VERIFICATION_CODE}#(\\d+)(?:\\s|$)`).exec(String(value ?? ""));
+  return match ? { attempts: Number(match[1]) } : null;
+}
+
+/** Back-off between sweep attempts: 15 minutes doubling to a day, so a broken destination is not hammered hourly. */
+const PAYOUT_RETRY_BASE_MS = 15 * 60_000;
+const PAYOUT_RETRY_MAX_MS = 24 * 3600_000;
+/** After this many attempts the row is flagged for a person, while the sweep keeps trying. */
+const PAYOUT_RETRY_FLAG_AFTER = 5;
+
+/**
+ * Does this Stripe failure mean "never going to work" rather than "not right now"? Same classification the transfer
+ * uses: an invalid request, a declined card or a permission problem is the destination's own state, and anything else
+ * (a 429, a 5xx, a dropped connection) is worth another go.
+ */
+function stripeFailureIsDefinitive(e: unknown): boolean {
+  const type = (e as { type?: string } | null)?.type ?? "";
+  return type === "StripeInvalidRequestError" || type === "StripeCardError" || type === "StripePermissionError";
+}
 
 function idOf(v: string | { id: string } | null | undefined): string | null {
   return typeof v === "string" ? v : v?.id ?? null;
@@ -215,9 +250,7 @@ export async function carryOutWithdrawal(stripe: Stripe, db: SupabaseClient, w: 
       { idempotencyKey: `party-withdrawal:${w.withdrawalId}:${w.partyId}:${w.amountCents}` },
     );
   } catch (e) {
-    const type = (e as { type?: string }).type ?? "";
-    const definitive = type === "StripeInvalidRequestError" || type === "StripeCardError" || type === "StripePermissionError";
-    if (definitive) {
+    if (stripeFailureIsDefinitive(e)) {
       await db.rpc("fail_party_withdrawal", { p_id: w.withdrawalId, p_reason: (e as Error).message ?? "Stripe refused the transfer." });
       return { ok: false, status: 409, error: "Stripe could not send those funds. Nothing was withdrawn." };
     }
@@ -235,13 +268,19 @@ export async function carryOutWithdrawal(stripe: Stripe, db: SupabaseClient, w: 
 
   let payoutId: string | null = null;
   let payoutError: string | undefined;
+  // What the ROW carries, which is not what the person is told: a payout still worth another attempt is marked so the
+  // sweep comes back for it, while the person reads whatever actually happened.
+  let storedPayoutError: string | null = null;
   // An account on Stripe's AUTOMATIC payout schedule pays itself out: asking for a manual payout on it errors after the transfer
   // landed. Only a schedule read as `manual` gets a payout created here. An UNREADABLE schedule is left to Stripe's own
   // schedule too (automatic is the Express default), because guessing `manual` on an automatic account is exactly the
   // post-transfer error this reads the schedule to avoid; the money is in the recipient's own account either way.
   const schedule = await payoutScheduleOf(stripe, w.destinationAccountId);
   const payoutAutomatic = schedule === "automatic";
-  if (schedule === "unknown") payoutError = PAYOUT_SCHEDULE_UNVERIFIED_ERROR;
+  if (schedule === "unknown") {
+    payoutError = PAYOUT_PENDING_VERIFICATION_MESSAGE;
+    storedPayoutError = payoutPendingVerificationMarker(0);
+  }
   if (schedule === "manual") try {
     const payout = await stripe.payouts.create(
       { amount: w.amountCents, currency: "usd", method: "standard", metadata: { withdrawal_id: w.withdrawalId, transfer_id: transfer.id } },
@@ -250,12 +289,20 @@ export async function carryOutWithdrawal(stripe: Stripe, db: SupabaseClient, w: 
     payoutId = payout.id;
   } catch (e) {
     payoutError = e instanceof Error ? e.message : "The payout to your bank could not be started.";
+    if (stripeFailureIsDefinitive(e)) {
+      storedPayoutError = payoutError;
+      await flag(db, "withdrawal_payout_refused", w.withdrawalId, { transfer: transfer.id, reason: payoutError });
+    } else {
+      // A 429 or a 5xx is not an answer: the row is marked so the sweep tries again rather than leaving the money
+      // sitting in the recipient's Stripe balance with nothing watching it.
+      storedPayoutError = payoutPendingVerificationMarker(0);
+    }
   }
-  // No payout was created and we never learned whether this account creates its own. The row keeps the unverified
-  // marker as its payout_error (so `reconcileWithdrawals` comes back for it) and the flag makes it visible now.
+  // No payout was created and we never learned whether this account creates its own. The marker is what brings
+  // `reconcileWithdrawals` back for it, and the flag makes it visible now.
   if (schedule === "unknown") await flag(db, "withdrawal_payout_schedule_unknown", w.withdrawalId, { transfer: transfer.id });
   const { data: done, error } = await db.rpc("complete_party_withdrawal", {
-    p_id: w.withdrawalId, p_transfer: transfer.id, p_payout: payoutId, p_payout_error: payoutError ?? null,
+    p_id: w.withdrawalId, p_transfer: transfer.id, p_payout: payoutId, p_payout_error: storedPayoutError,
   });
   const d = done as { status?: string } | null;
   if (error || !d || (d.status !== "completed" && d.status !== "exists")) {
@@ -292,9 +339,9 @@ async function flag(db: SupabaseClient, check: string, subject: string, detail: 
  * existing transfer is found by listing (never by retrying past Stripe's 24h idempotency window); only a young reservation with
  * no transfer is retried with its own key. Anything older with no transfer fails and releases the reservation.
  *
- * It also finishes the payouts that were never started because the destination's payout schedule could not be read
- * (`PAYOUT_SCHEDULE_UNVERIFIED_ERROR`): those withdrawals are complete and the transfer landed, but on a manual-schedule
- * account the money would otherwise sit in the recipient's Stripe balance for ever.
+ * It also finishes the payouts that were never started - an unreadable schedule, or a payout Stripe could not take
+ * right then. Those withdrawals are complete and the transfer landed, but on a manual-schedule account the money
+ * would otherwise sit in the recipient's Stripe balance for ever.
  */
 export async function reconcileWithdrawals(stripe: Stripe, db: SupabaseClient, now: Date = new Date()): Promise<{ completed: number; failed: number; retried: number; payoutsFinished: number }> {
   const { data, error } = await db
@@ -316,7 +363,9 @@ export async function reconcileWithdrawals(stripe: Stripe, db: SupabaseClient, n
     const found = await stripe.transfers.list({ transfer_group: `wd_${w.withdrawalId}`, limit: 10 });
     const match = found.data.find((t) => t.metadata?.withdrawal_id === w.withdrawalId && t.amount === w.amountCents && idOf(t.destination) === w.destinationAccountId);
     if (match) {
-      const { data: done } = await db.rpc("complete_party_withdrawal", { p_id: w.withdrawalId, p_transfer: match.id, p_payout: null, p_payout_error: "Payout not started." });
+      // The transfer is real but nothing ever started its payout, so the row is completed WITH the marker and the
+      // sweep below decides what that destination needs.
+      const { data: done } = await db.rpc("complete_party_withdrawal", { p_id: w.withdrawalId, p_transfer: match.id, p_payout: null, p_payout_error: payoutPendingVerificationMarker(0) });
       if ((done as { status?: string } | null)?.status === "completed") completed += 1;
       continue;
     }
@@ -338,33 +387,54 @@ export async function reconcileWithdrawals(stripe: Stripe, db: SupabaseClient, n
       failed += 1;
     }
   }
-  return { completed, failed, retried, payoutsFinished: await finishUnverifiedSchedulePayouts(stripe, db) };
+  return { completed, failed, retried, payoutsFinished: await finishPendingVerificationPayouts(stripe, db, now) };
 }
 
 /**
- * The payouts `carryOutWithdrawal` could not decide on: completed withdrawals with no payout whose `payout_error` is
- * the unverified-schedule marker. Re-read the schedule - `manual` gets the payout now (same idempotency key, so a
- * duplicate run pays nobody twice), `automatic` is Stripe's own job and the row says so, and a schedule that still
- * cannot be read is left exactly as it is for the next run.
+ * The payouts that are still owed: completed withdrawals with a transfer, no payout, and the pending-verification
+ * marker on `payout_error`.
+ *
+ * Re-read the schedule - `manual` gets the payout now (the same per-withdrawal idempotency key, so a duplicate run
+ * pays nobody twice), and `automatic` is Stripe's own job, which ends the sweep for that row. Everything that is not
+ * an answer - an unreadable schedule, a 429, a 5xx - KEEPS the marker with its attempt count raised, because dropping
+ * it would quietly strand the money: nothing else looks at a completed withdrawal. Only a definitive Stripe refusal
+ * ends the sweep, and it raises a flag for a person. The attempt count also sets the back-off, so a destination that
+ * keeps failing is tried on a widening interval instead of every hour.
  */
-async function finishUnverifiedSchedulePayouts(stripe: Stripe, db: SupabaseClient): Promise<number> {
+async function finishPendingVerificationPayouts(stripe: Stripe, db: SupabaseClient, now: Date): Promise<number> {
   const { data, error } = await db
     .from("party_withdrawals")
-    .select("id, amount_cents, destination_account_id, stripe_transfer_id")
+    .select("id, amount_cents, destination_account_id, stripe_transfer_id, payout_error, updated_at")
     .eq("status", "completed")
     .is("stripe_payout_id", null)
-    .eq("payout_error", PAYOUT_SCHEDULE_UNVERIFIED_ERROR)
+    .like("payout_error", `${PAYOUT_PENDING_VERIFICATION_CODE}%`)
     .limit(100);
   if (error) return 0;
   let finished = 0;
   for (const raw of (data ?? []) as Array<Record<string, unknown>>) {
+    const pending = readPayoutPendingVerification(raw.payout_error);
+    if (!pending) continue;
     const id = String(raw.id);
     const amountCents = Number(raw.amount_cents);
     const accountId = String(raw.destination_account_id ?? "");
     const transferId = String(raw.stripe_transfer_id ?? "");
     if (!accountId || !transferId || !Number.isFinite(amountCents) || amountCents <= 0) continue;
+    const lastTouched = Date.parse(String(raw.updated_at ?? ""));
+    const wait = Math.min(PAYOUT_RETRY_BASE_MS * 2 ** pending.attempts, PAYOUT_RETRY_MAX_MS);
+    if (Number.isFinite(lastTouched) && now.getTime() - lastTouched < wait) continue;
+
+    const keepTrying = async (attempts: number) => {
+      await db.rpc("complete_party_withdrawal", {
+        p_id: id, p_transfer: transferId, p_payout: null, p_payout_error: payoutPendingVerificationMarker(attempts),
+      });
+      if (attempts >= PAYOUT_RETRY_FLAG_AFTER) await flag(db, "withdrawal_payout_retrying", id, { attempts, account: accountId });
+    };
+
     const schedule = await payoutScheduleOf(stripe, accountId);
-    if (schedule === "unknown") continue;
+    if (schedule === "unknown") {
+      await keepTrying(pending.attempts + 1);
+      continue;
+    }
     if (schedule === "automatic") {
       await db.rpc("complete_party_withdrawal", {
         p_id: id, p_transfer: transferId, p_payout: null, p_payout_error: "It is on its way with the account's own automatic payout.",
@@ -381,10 +451,13 @@ async function finishUnverifiedSchedulePayouts(stripe: Stripe, db: SupabaseClien
       await db.rpc("complete_party_withdrawal", { p_id: id, p_transfer: transferId, p_payout: payout.id, p_payout_error: null });
       finished += 1;
     } catch (e) {
-      await db.rpc("complete_party_withdrawal", {
-        p_id: id, p_transfer: transferId, p_payout: null,
-        p_payout_error: e instanceof Error ? e.message : "The payout to your bank could not be started.",
-      });
+      const reason = e instanceof Error ? e.message : "The payout to your bank could not be started.";
+      if (!stripeFailureIsDefinitive(e)) {
+        await keepTrying(pending.attempts + 1);
+        continue;
+      }
+      await db.rpc("complete_party_withdrawal", { p_id: id, p_transfer: transferId, p_payout: null, p_payout_error: reason });
+      await flag(db, "withdrawal_payout_refused", id, { account: accountId, reason });
     }
   }
   return finished;
