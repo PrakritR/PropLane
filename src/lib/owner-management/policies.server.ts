@@ -37,6 +37,8 @@ export type PolicyRow = {
   terms: ManagedFeeTerms;
   effectiveFrom: string;
   endsOn: string | null;
+  /** When the version actually stopped. The Pacific day of THIS is the window's end - see `policyEndBoundary`. */
+  endedAt: string | null;
   sentAt: string | null;
   signedAt: string | null;
   acceptedVia: "owner_signature" | "admin_attested" | null;
@@ -53,7 +55,7 @@ export class PolicyError extends Error {
 export type AdminActor = { role: "admin"; userId: string };
 
 export const POLICY_COLUMNS =
-  "id, workspace_id, owner_user_id, status, owner_share_bps, applies_to, leasing_fee_bps, min_fee_cents, reserve_target_cents, repair_approval_threshold_cents, effective_from, ends_on, sent_at, signed_at, accepted_via, terms_sha256, created_at";
+  "id, workspace_id, owner_user_id, status, owner_share_bps, applies_to, leasing_fee_bps, min_fee_cents, reserve_target_cents, repair_approval_threshold_cents, effective_from, ends_on, ended_at, sent_at, signed_at, accepted_via, terms_sha256, created_at";
 
 type Row = Record<string, unknown>;
 const str = (v: unknown): string => (typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim());
@@ -78,6 +80,7 @@ export function mapPolicyRow(raw: Row): PolicyRow {
     },
     effectiveFrom: str(raw.effective_from),
     endsOn: str(raw.ends_on) || null,
+    endedAt: str(raw.ended_at) || null,
     sentAt: str(raw.sent_at) || null,
     signedAt: str(raw.signed_at) || null,
     acceptedVia: (str(raw.accepted_via) || null) as PolicyRow["acceptedVia"],
@@ -96,16 +99,36 @@ export async function loadPolicy(db: SupabaseClient, id: string): Promise<Policy
 }
 
 /**
+ * The Pacific day an ENDED version stopped covering payments - the exclusive end of its `[effective_from, …)` window.
+ *
+ * `ends_on` cannot be trusted as a Pacific day: `activate_managed_policy` stamps the retired row with the DATABASE's
+ * `current_date`, which is UTC, so a rate change made after ~17:00 Pacific leaves it a day later than the day the next
+ * version actually started - and the two windows would overlap. `ended_at` is the instant it stopped, so its Pacific
+ * day is the honest boundary; `ends_on` is only the fallback for a row written before this column was filled. An ended
+ * row with neither covers nothing, which is what `credit_managed_capture` decides too: a version the resolver claimed
+ * and the database then refused would 409 the capture on every webhook retry and leave the money unallocated.
+ */
+export function policyEndBoundary(policy: Pick<PolicyRow, "status" | "endsOn" | "endedAt">): string | null {
+  if (policy.status !== "ended") return null;
+  if (policy.endedAt) {
+    const day = pacificDayKey(new Date(policy.endedAt));
+    return policy.endsOn && policy.endsOn < day ? policy.endsOn : day;
+  }
+  return policy.endsOn;
+}
+
+/**
  * The accepted policy that makes a workspace PropLane-managed, read fresh from the database. A pure read: a fee version
  * is activated by an admin's own action (Admin > Service, Admin > Managed finance) or by `ensureServiceFeePolicy` when a
  * service workspace has no policy at all, never as a side effect of settling a payment.
  *
  * With `onDate` the answer is the version IN FORCE THAT DAY - `effective_from <= onDate` and the version had not ended
- * yet - which is an ENDED row once a newer version has replaced it. A payment in flight across a rate change (an ACH
- * debit is days old by the time it settles) therefore settles on the split it was taken under, instead of answering
- * "not managed" and falling through to a manager hold. A schema that is not there yet (code runs before the migration)
- * is "not managed". A READ that fails is an error, never "not managed": crediting a managed workspace's rent to a
- * manager hold by mistake is the one outcome this feature must not allow.
+ * yet - which is an ENDED row once a newer version has replaced it, or once management itself ended. A payment in
+ * flight (an ACH debit is days old by the time it settles) therefore settles on the split it was taken under, instead
+ * of answering "not managed" and falling through to a manager hold: that fee was earned while the workspace was
+ * managed. Only an ACTIVE row is open-ended. A schema that is not there yet (code runs before the migration) is "not
+ * managed". A READ that fails is an error, never "not managed": crediting a managed workspace's rent to a manager hold
+ * by mistake is the one outcome this feature must not allow.
  */
 export async function loadActivePolicyForWorkspace(db: SupabaseClient, workspaceId: string, onDate?: string): Promise<PolicyRow | null> {
   const id = workspaceId.trim();
@@ -120,8 +143,11 @@ export async function loadActivePolicyForWorkspace(db: SupabaseClient, workspace
   }
   const rows = ((data ?? []) as Row[]).map(mapPolicyRow);
   if (!onDate) return rows[0] ?? null;
-  // `ends_on` is the day the NEXT version started, so the window it covers is [effective_from, ends_on).
-  return rows.find((r) => !r.endsOn || r.endsOn > onDate) ?? null;
+  return rows.find((r) => {
+    if (r.status === "active") return true;
+    const endsAfter = policyEndBoundary(r);
+    return endsAfter !== null && endsAfter > onDate;
+  }) ?? null;
 }
 
 export async function listPoliciesForWorkspace(db: SupabaseClient, workspaceId: string): Promise<PolicyRow[]> {

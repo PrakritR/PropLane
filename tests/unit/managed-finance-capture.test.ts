@@ -23,12 +23,22 @@ const comp = (id: string, kind: string, principal: number, over: Partial<Managed
 type Call = Record<string, unknown>;
 type PriorAllocation = { email?: string; leasingCents?: number; feeCents?: number; policyId?: string };
 
-function db(opts: { totals?: Array<{ cum_base: number; monthly_fee: number }>; results?: Array<Call>; prior?: Array<string | PriorAllocation> } = {}) {
+function db(opts: {
+  totals?: Array<{ cum_base: number; monthly_fee: number }>;
+  results?: Array<Call>;
+  prior?: Array<string | PriorAllocation>;
+  /** Other fee versions of the same workspace, and the monthly fee each already took this month. */
+  otherVersions?: Array<{ id: string; monthlyFee: number }>;
+  policyId?: string;
+} = {}) {
+  const self = opts.policyId ?? "pol-1";
   const totals = [...(opts.totals ?? [{ cum_base: 0, monthly_fee: 0 }])];
   const results = [...(opts.results ?? [{ status: "created", journal_id: "j1" }])];
+  const others = new Map((opts.otherVersions ?? []).map((v) => [v.id, v.monthlyFee] as const));
   const calls: Call[] = [];
   const f = fakeOwnerDb(
     {
+      managed_workspace_fee_policies: [self, ...others.keys()].map((id) => ({ id, workspace_id: "ws-1" })),
       managed_rent_allocations: (opts.prior ?? []).map((raw) => {
         const a: PriorAllocation = typeof raw === "string" ? { email: raw } : raw;
         return {
@@ -40,7 +50,11 @@ function db(opts: { totals?: Array<{ cum_base: number; monthly_fee: number }>; r
     },
     {
       rpc: {
-        managed_month_totals: () => [totals.length > 1 ? totals.shift() : totals[0]],
+        managed_month_totals: (args) => {
+          const id = String(args.p_policy);
+          if (others.has(id)) return [{ cum_base: 0, monthly_fee: others.get(id)! }];
+          return [totals.length > 1 ? totals.shift() : totals[0]];
+        },
         credit_managed_capture: (args) => { calls.push(args); return results.length > 1 ? results.shift() : results[0]; },
       },
     },
@@ -134,14 +148,15 @@ describe("creditManagedCapture", () => {
 
   it("a rate change does not charge the monthly minimum a second time", async () => {
     const p = { ...policy({ minFeeCents: 50_000 }), id: "pol-2" };
-    // The version this one replaced already took $500 of minimum this month, on its own cumulative base.
-    const { f, calls } = db({ prior: [{ policyId: "pol-1", leasingCents: 0, feeCents: 50_000 }] });
+    // The version this one replaced already took $500 of minimum this month, on its own cumulative base. It is
+    // summed through `managed_month_totals`, the same SQL aggregate the current version's own total comes from.
+    const { f, calls } = db({ policyId: "pol-2", otherVersions: [{ id: "pol-1", monthlyFee: 50_000 }] });
     await creditManagedCapture(f.db, stripe, { policy: p, paymentIntentId: "pi_12", stripeChargeId: "ch_12", grossCents: 100_000, components: [comp("a", "rent", 100_000)] });
     // 10% of this version's own base, not the $500 floor all over again.
     expect((calls[0]!.p_rows as Array<Record<string, number>>)[0]!.fee_cents).toBe(10_000);
 
     // With nothing taken earlier this month the floor still applies in full.
-    const fresh = db();
+    const fresh = db({ policyId: "pol-2" });
     await creditManagedCapture(fresh.f.db, stripe, { policy: p, paymentIntentId: "pi_13", stripeChargeId: "ch_13", grossCents: 100_000, components: [comp("a", "rent", 100_000)] });
     expect((fresh.calls[0]!.p_rows as Array<Record<string, number>>)[0]!.fee_cents).toBe(50_000);
   });

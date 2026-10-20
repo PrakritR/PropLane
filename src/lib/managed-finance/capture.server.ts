@@ -43,23 +43,34 @@ export type ManagedCaptureInput = {
 
 const CONFLICT_RETRIES = 4;
 
+/** The workspace's OTHER fee versions. Bounded by the one-active-per-workspace rule; a workspace holds a handful. */
+async function otherPolicyIdsForWorkspace(db: SupabaseClient, policy: PolicyRow): Promise<string[]> {
+  const { data, error } = await db
+    .from("managed_workspace_fee_policies")
+    .select("id")
+    .eq("workspace_id", policy.workspaceId)
+    .neq("id", policy.id)
+    .limit(100);
+  if (error) throw new LedgerError(500, "Could not read the workspace fee versions.");
+  return ((data ?? []) as Array<{ id: string }>).map((r) => String(r.id));
+}
+
 /**
  * The monthly fee EVERY OTHER version of this workspace already took this Pacific month. `managed_month_totals` is
  * scoped to one `policy_id` - which is what keeps a rate change off rent already collected - so the monthly minimum
  * has to be counted across versions here, or an admin changing the rate mid-month charges that floor a second time.
+ * Summed by the same SQL function the current version's own total comes from: a plain select of the month's
+ * allocation rows is capped by PostgREST's `max-rows` and would silently under-count a busy workspace.
  */
-async function monthFeeTakenByOtherVersions(db: SupabaseClient, policy: PolicyRow, monthKey: string): Promise<number> {
-  const { data, error } = await db
-    .from("managed_rent_allocations")
-    .select("policy_id, fee_cents, refunded_fee_cents")
-    .eq("workspace_id", policy.workspaceId)
-    .eq("month_key", monthKey)
-    .eq("fee_applies", true);
-  if (error) throw new LedgerError(500, "Could not read the month's management fee.");
-  const rows = (data ?? []) as Array<{ policy_id: string | null; fee_cents: number; refunded_fee_cents: number }>;
-  return rows
-    .filter((r) => String(r.policy_id ?? "") !== policy.id)
-    .reduce((sum, r) => sum + Math.max(Number(r.fee_cents) - Number(r.refunded_fee_cents), 0), 0);
+async function monthFeeTakenByOtherVersions(db: SupabaseClient, policyIds: readonly string[], monthKey: string): Promise<number> {
+  let total = 0;
+  for (const id of policyIds) {
+    const { data, error } = await db.rpc("managed_month_totals", { p_policy: id, p_month: monthKey });
+    const totals = (Array.isArray(data) ? data[0] : data) as Totals | null;
+    if (error || !totals) throw new LedgerError(500, "Could not read the month's management fee.");
+    total += Math.max(Number(totals.monthly_fee), 0);
+  }
+  return total;
 }
 
 /** The journal key one managed capture is idempotent on. */
@@ -156,9 +167,11 @@ export async function creditManagedCapture(
 
   // The monthly minimum is the workspace's for the month, not each version's: what an earlier version already took
   // this month pays it down (`targetMonthlyFeeCents`), so a mid-month rate change never charges the floor twice.
-  const priorVersionFeeCents = policy.terms.minFeeCents > 0 ? await monthFeeTakenByOtherVersions(db, policy, monthKey) : 0;
+  const otherVersions = policy.terms.minFeeCents > 0 ? await otherPolicyIdsForWorkspace(db, policy) : [];
 
   for (let attempt = 0; attempt < CONFLICT_RETRIES; attempt += 1) {
+    // Re-read inside the retry: a concurrent capture under another version moves this between attempts.
+    const priorVersionFeeCents = await monthFeeTakenByOtherVersions(db, otherVersions, monthKey);
     const { data: totalsData, error: totalsError } = await db.rpc("managed_month_totals", { p_policy: policy.id, p_month: monthKey });
     const totals = (Array.isArray(totalsData) ? totalsData[0] : totalsData) as Totals | null;
     if (totalsError || !totals) throw new LedgerError(500, "Could not read the month's collected rent.");

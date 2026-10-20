@@ -19,6 +19,7 @@ import {
   listManagedWorkspacesForOwner,
   loadActivePolicyForWorkspace,
   loadPolicy,
+  policyEndBoundary,
   readServiceManagementFee,
   setOwnerPreferences,
   updateDraftPolicy,
@@ -32,6 +33,10 @@ const OWNER = "own-1";
 const admin = { role: "admin" as const, userId: "admin-1" };
 const terms: ManagedFeeTerms = { ownerShareBps: 9000, appliesTo: "rent", leasingFeeBps: 0, minFeeCents: 0, reserveTargetCents: 0, repairApprovalThresholdCents: 25_000 };
 const input = { workspaceId: WS, ownerUserId: OWNER, terms, effectiveFrom: "2020-01-01" };
+
+/** The database's own clock, as `activate_managed_policy` sees it. A test that cares sets it before acting. */
+let dbClockIso = "2026-10-19T00:00:00Z";
+const dbNow = () => new Date(dbClockIso);
 
 /** The `not null default` values migration 20261018270000 gives the two v3 columns. */
 const POLICY_COLUMN_DEFAULTS = { reserve_target_cents: 0, repair_approval_threshold_cents: 25_000 };
@@ -74,14 +79,16 @@ function activateRpc(args: Record<string, unknown>, f: OwnerFakeDb) {
       return { status: "refused", reason: "terms_changed" };
     }
   }
-  // `ends_on = greatest(current_date, effective_from)` in SQL. The row being activated started today, so its own
-  // `effective_from` stands in for `current_date`: the version it replaces stops the day this one begins.
+  // `ends_on = greatest(current_date, effective_from), ended_at = now()` in SQL - and `current_date` is the
+  // DATABASE's UTC date, which after 17:00 Pacific is already tomorrow. Modelled exactly, because that skew is the
+  // reason `policyEndBoundary` reads the window's end off `ended_at` instead of trusting `ends_on`.
+  const utcDay = dbNow().toISOString().slice(0, 10);
   for (const other of rows) {
     if (other.workspace_id !== row.workspace_id || other.status !== "active") continue;
-    const endsOn = String(row.effective_from) > String(other.effective_from) ? row.effective_from : other.effective_from;
-    Object.assign(other, { status: "ended", ends_on: endsOn });
+    const endsOn = utcDay > String(other.effective_from) ? utcDay : other.effective_from;
+    Object.assign(other, { status: "ended", ends_on: endsOn, ended_at: dbNow().toISOString(), ended_by_role: "system" });
   }
-  Object.assign(row, { status: "active", signed_at: "2026-10-19T00:00:00Z", accepted_via: args.p_via, terms_sha256: args.p_hash, terms_snapshot: args.p_snapshot, attestation_note: args.p_note });
+  Object.assign(row, { status: "active", signed_at: dbNow().toISOString(), accepted_via: args.p_via, terms_sha256: args.p_hash, terms_snapshot: args.p_snapshot, attestation_note: args.p_note });
   return { status: "active" };
 }
 
@@ -102,6 +109,7 @@ function seed(extra: Record<string, FakeRow[]> = {}, rpc: Record<string, (args: 
 beforeEach(() => {
   email.mockClear();
   text.mockClear();
+  dbClockIso = "2026-10-19T00:00:00Z";
 });
 
 describe("drafting", () => {
@@ -306,6 +314,53 @@ describe("the automatic management fee", () => {
     expect(await loadActivePolicyForWorkspace(f.db, WS, "2026-10-01")).toBeNull();
     // An undated read is still just the version in force now.
     expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(8500);
+  });
+
+  // Review fix, Oct 20: `activate_managed_policy` stamps the retired row's `ends_on` from the DATABASE's UTC date,
+  // so a rate change after 17:00 Pacific left it a day LATER than the day its successor started - two versions
+  // covering the same Pacific day. The window's end is read off `ended_at` instead, which is the honest instant.
+  it("a rate change made at 18:00 Pacific leaves no day covered by two versions", async () => {
+    const f = clientOwned();
+    const started = new Date("2026-10-10T19:00:00Z");
+    const first = (await ensureServiceFeePolicy(f.db, WS, admin, started)) as { policy: { id: string } };
+
+    // 18:00 Pacific on Oct 20 is already Oct 21 in UTC.
+    const evening = new Date("2026-10-21T01:00:00Z");
+    dbClockIso = evening.toISOString();
+    const change = await setServiceManagementFee(f.db, admin, WS, 15, evening);
+    const retired = (await loadPolicy(f.db, first.policy.id))!;
+    expect(retired.endsOn).toBe("2026-10-21");
+    expect(policyEndBoundary(retired)).toBe("2026-10-20");
+    expect((await loadActivePolicyForWorkspace(f.db, WS, "2026-10-20"))?.id).toBe(change.policyId);
+
+    // Once the successor is itself ended, the retired one must not come back and claim that same day.
+    await endPolicy(f.db, admin, change.policyId, evening);
+    expect(await loadActivePolicyForWorkspace(f.db, WS, "2026-10-20")).toBeNull();
+    // The day before the change still belongs to the version that was in force then.
+    expect((await loadActivePolicyForWorkspace(f.db, WS, "2026-10-19"))?.id).toBe(first.policy.id);
+  });
+
+  // The two sides have to agree: `credit_managed_capture` refuses an ended version with no `ends_on`, so a resolver
+  // that claimed one would 409 the capture on every webhook retry and leave the money unallocated.
+  it("an ended version with no end date covers nothing; only an active one is open-ended", () => {
+    const base = { status: "ended" as const, endsOn: null, endedAt: null };
+    expect(policyEndBoundary(base)).toBeNull();
+    expect(policyEndBoundary({ ...base, endsOn: "2026-10-21" })).toBe("2026-10-21");
+    expect(policyEndBoundary({ status: "active", endsOn: null, endedAt: null })).toBeNull();
+  });
+
+  it("a workspace whose management ended still settles a payment taken while it was managed", async () => {
+    const f = clientOwned();
+    const started = new Date("2026-10-10T19:00:00Z");
+    const first = (await ensureServiceFeePolicy(f.db, WS, admin, started)) as { policy: { id: string } };
+    await endPolicy(f.db, admin, first.policy.id, new Date("2026-10-25T19:00:00Z"));
+    // An ACH taken Oct 20 and settling in November: the fee was earned while the workspace was managed.
+    const earned = await loadActivePolicyForWorkspace(f.db, WS, "2026-10-20");
+    expect(earned).toMatchObject({ id: first.policy.id, status: "ended" });
+    expect(earned?.terms.ownerShareBps).toBe(9000);
+    // From the day management ended the workspace is not managed, and there is no version in force now.
+    expect(await loadActivePolicyForWorkspace(f.db, WS, "2026-10-25")).toBeNull();
+    expect(await loadActivePolicyForWorkspace(f.db, WS)).toBeNull();
   });
 
   it("the same rate again changes nothing, but setting the FIRST policy is a change", async () => {

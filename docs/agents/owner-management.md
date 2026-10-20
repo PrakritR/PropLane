@@ -212,7 +212,12 @@ closed: with no `platform_service_settings` row there is no way to tell a client
   which is an ENDED row once a newer version has replaced it. An ACH debit is days old by the time it settles, so this
   is what keeps a payment in flight across a rate change on the split it was taken under instead of reading as "not
   managed" and falling to a manager hold. `credit_managed_capture` accepts that ended version for rows whose own
-  `paid_at` falls inside its `[effective_from, ends_on)` window (migration 20261020190000).
+  `paid_at` falls inside its `[effective_from, ends_on)` window (migration 20261020190000). The window's end is read
+  off `ended_at` (`policyEndBoundary`), never `ends_on` alone: `activate_managed_policy` stamps `ends_on` from the
+  database's UTC `current_date`, which after 17:00 Pacific is already the next Pacific day. An ENDED version with no
+  end date at all covers nothing, which is what the database decides too. **A payment collected while the workspace
+  was managed settles on the version in force on its payment date even if management has since ended** - that fee was
+  earned - and only an ACTIVE version is open-ended.
 - Admin changes the rate in Admin > Service > Management fee (0 to `MAX_MANAGEMENT_FEE_PERCENT`, `fee-percent.ts` - one
   parse, one range, shared by the server and the modal). The new rate is a new version **activated at once**: the one
   atomic database function ends the previous one in the same transaction, so the change reaches every payment settled
@@ -224,7 +229,9 @@ closed: with no `platform_service_settings` row there is no way to tell a client
   keeps a rate change off rent already collected. Two things must therefore be counted across versions instead, or a
   mid-month change charges them twice: the monthly minimum (`targetMonthlyFeeCents` takes `priorVersionFeeCents`, the
   fee earlier versions already took that Pacific month, and it pays the floor down) and the once-per-resident leasing
-  fee (`capture.server.ts` looks the resident up by `workspace_id`, never `policy_id`).
+  fee (`capture.server.ts` looks the resident up by `workspace_id`, never `policy_id`). That prior-version total is
+  summed by `managed_month_totals` once per other version, re-read on every conflict retry - never a plain select of
+  the month's allocation rows, which PostgREST's `max-rows` would silently truncate on a busy workspace.
 - Fail-closed fallback, only when the automatic fee cannot be created: new resident checkouts are refused
   (`serviceSetupPendingProblem`, 422 `SERVICE_SETUP_PENDING`; a cart that mixes the just-created managed workspace with
   another payment setup comes back as `MIXED_PAYMENT_SETUP`, never mislabelled), hold releases for the manager of record
