@@ -11,6 +11,7 @@ import { VENDOR_TRADES, tradeDefinition } from "@/lib/vendor-dispatch/trades";
 import { isBusinessHoursPacific } from "@/lib/vendor-dispatch/time";
 import { firstNameOf } from "@/lib/vendor-dispatch/text";
 import type { ChainVendor, DispatchRuleRow } from "@/lib/vendor-dispatch/types";
+import { serviceRosterVendorsForTrade } from "@/lib/vendor-dispatch/service-roster.server";
 
 /**
  * Which rule governs a job and who is offered it, in order (vendor-dispatch-1018).
@@ -265,7 +266,11 @@ export async function loadTradeRoster(
 
 /** The existing fairness ranking, restricted to vendors whose trades include the job's trade. */
 async function fallbackChain(db: SupabaseClient, input: MatchInput, at: Date): Promise<ChainVendor[]> {
-  const roster = await loadTradeRoster(db, { ownerUserId: input.ownerUserId, trade: input.trade, propertyId: input.propertyId, at });
+  const ownRoster = await loadTradeRoster(db, { ownerUserId: input.ownerUserId, trade: input.trade, propertyId: input.propertyId, at });
+  // A service workspace's chain continues into the service-wide roster (a stub until on/adminops lands it): own vendors first.
+  const serviceExtra = await serviceRosterVendorsForTrade(db, { workspaceId: input.workspaceId, trade: input.trade }).catch(() => []);
+  const ownIds = new Set(ownRoster.map((vendor) => vendor.vendorDirectoryId));
+  const roster = [...ownRoster, ...serviceExtra.filter((vendor) => !ownIds.has(vendor.vendorDirectoryId))] as typeof ownRoster;
   const workOrder = input.workOrder;
   if (!workOrder?.category || roster.length === 0) return roster.map((vendor, index) => ({ ...vendor, position: index }));
   const records = await loadRecords(db, roster.map((vendor) => vendor.vendorDirectoryId));

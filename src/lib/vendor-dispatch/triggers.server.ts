@@ -116,7 +116,11 @@ export async function ruleWouldDispatchWorkOrder(
  * A resident-filed service: when the workspace has an active rule for its trade and issue,
  * open a dispatch run (awaiting the manager's approval) instead of the legacy proposal.
  */
-export async function maybeCreateRuleRunForWorkOrder(db: SupabaseClient, workOrderId: string): Promise<WorkOrderTriggerOutcome> {
+export async function maybeCreateRuleRunForWorkOrder(
+  db: SupabaseClient,
+  workOrderId: string,
+  opts: { /** false = no rule needed: the workspace roster is the chain (service default, or the manager's DISPATCH reply). */ requireRule?: boolean } = {},
+): Promise<WorkOrderTriggerOutcome> {
   const { data } = await db
     .from("portal_work_order_records")
     .select("id, manager_user_id, row_data")
@@ -141,7 +145,7 @@ export async function maybeCreateRuleRunForWorkOrder(db: SupabaseClient, workOrd
     propertyId,
     urgency: inferred.urgency,
   };
-  if (!(await workspaceHasMatchingRule(db, matchInput))) return "no_rule";
+  if (opts.requireRule !== false && !(await workspaceHasMatchingRule(db, matchInput))) return "no_rule";
 
   // A lockout opens a door: the texter must be a resident of THIS house by verified phone.
   if (inferred.issue === "lockout") {
