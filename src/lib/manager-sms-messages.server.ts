@@ -740,8 +740,19 @@ export async function fetchManagerSmsConversations(
      * the turn could not name one and nothing is shown.
      */
     workspace?: { id: string | null };
+    /**
+     * Admin oversight of PropLane Service workspaces: for these owners (clients who own a service workspace) ONLY
+     * messages stamped with one of `workspaceIds` are read; their relay threads and directory residents are left out,
+     * so none of the client's other workspaces is ever shown. Owners not listed are read in full, as before.
+     */
+    workspaceRestriction?: { ownerIds: string[]; workspaceIds: string[] };
   },
 ): Promise<ManagerSmsConversationsPayload> {
+  const restriction = options?.workspaceRestriction && options.workspaceRestriction.ownerIds.length > 0
+    ? { owners: new Set(options.workspaceRestriction.ownerIds), workspaces: new Set(options.workspaceRestriction.workspaceIds) }
+    : null;
+  const inRestrictedWorkspace = (ownerId: string, workspaceId: unknown): boolean =>
+    !restriction || !restriction.owners.has(ownerId) || restriction.workspaces.has(String(workspaceId ?? "").trim());
   const scopeManagerIds =
     options?.scopeManagerIdsOverride && options.scopeManagerIdsOverride.length > 0
       ? [...new Set(options.scopeManagerIdsOverride.map((id) => id.trim()).filter(Boolean))]
@@ -789,6 +800,7 @@ export async function fetchManagerSmsConversations(
   const seenResidentKeys = new Set<string>();
   const residentsByOwner = await listResidentsForOwners(db, scopeManagerIds);
   for (const ownerId of scopeManagerIds) {
+    if (restriction?.owners.has(ownerId)) continue;
     for (const seed of residentsByOwner.get(ownerId) ?? []) {
       const key = seed.residentUserId || seed.residentEmail || seed.phone || seed.name;
       if (seenResidentKeys.has(key)) continue;
@@ -823,7 +835,8 @@ export async function fetchManagerSmsConversations(
   const { data: inbound } = await db
     .from("inbound_sms_log")
     .select(
-      "id, manager_user_id, from_phone, to_phone, body, message_sid, matched_sender_user_id, counterparty_role, conversation_key, created_at",
+      ("id, manager_user_id, from_phone, to_phone, body, message_sid, matched_sender_user_id, counterparty_role, conversation_key, created_at" +
+        (restriction ? ", workspace_id" : "")) as "*",
     )
     .in("manager_user_id", scopeManagerIds)
     .order("created_at", { ascending: false })
@@ -833,6 +846,7 @@ export async function fetchManagerSmsConversations(
     const from = String(row.from_phone ?? "").trim();
     if (!from) continue;
     const ownerId = String(row.manager_user_id ?? "").trim() || managerUserId;
+    if (!inRestrictedWorkspace(ownerId, (row as { workspace_id?: unknown }).workspace_id)) continue;
     const counterpartyUserId = String(row.matched_sender_user_id ?? "").trim() || null;
     const role = coerceCounterpartyRole(
       row.counterparty_role ?? deriveCounterpartyRole({ hasResidentUserId: Boolean(counterpartyUserId) }),
@@ -860,7 +874,8 @@ export async function fetchManagerSmsConversations(
   const { data: outbound } = await db
     .from("manager_sms_messages")
     .select(
-      "id, manager_user_id, resident_user_id, resident_phone, body, from_phone, to_phone, message_sid, source, created_at, direction, counterparty_role, conversation_key",
+      ("id, manager_user_id, resident_user_id, resident_phone, body, from_phone, to_phone, message_sid, source, created_at, direction, counterparty_role, conversation_key" +
+        (restriction ? ", workspace_id" : "")) as "*",
     )
     .in("manager_user_id", scopeManagerIds)
     .order("created_at", { ascending: false })
@@ -883,6 +898,7 @@ export async function fetchManagerSmsConversations(
     const phone = String(row.resident_phone ?? "").trim();
     if (!phone) continue;
     const ownerId = String(row.manager_user_id ?? "").trim() || managerUserId;
+    if (!inRestrictedWorkspace(ownerId, (row as { workspace_id?: unknown }).workspace_id)) continue;
     const counterpartyUserId = String(row.resident_user_id ?? "").trim() || null;
     const role = coerceCounterpartyRole(
       row.counterparty_role ?? deriveCounterpartyRole({ hasResidentUserId: Boolean(counterpartyUserId) }),
@@ -911,7 +927,7 @@ export async function fetchManagerSmsConversations(
   const { data: relayThreads } = await db
     .from("sms_relay_threads")
     .select("id, manager_user_id, counterparty_user_id, counterparty_name")
-    .in("manager_user_id", scopeManagerIds)
+    .in("manager_user_id", restriction ? scopeManagerIds.filter((id) => !restriction.owners.has(id)) : scopeManagerIds)
     .limit(400);
 
   const relayCounterpartyByKey = new Map<string, { userId: string | null; name: string | null }>();
@@ -1369,11 +1385,17 @@ export async function fetchAdminSmsConversations(
   db: SupabaseClient,
 ): Promise<ManagerSmsConversationsPayload> {
   const { resolveMappedManagerContacts } = await import("@/lib/claw-resident-messaging.server");
-  const managerIds = [
+  const cohortIds = [
     ...new Set(
       (await resolveMappedManagerContacts()).map((m) => String(m.userId ?? "").trim()).filter(Boolean),
     ),
   ];
+  // PropLane Service: every text of a service workspace lands here too (prospects, tours, residents, vendors), and the
+  // PropLane line itself (the service owner's number). A client who owns a service workspace is read ONLY for the
+  // messages stamped with a service workspace; the service owner's traffic is the PropLane line, read in full.
+  const service = await loadServiceInboxScope(db);
+  const clientOwnerIds = service.clientOwnerIds.filter((id) => !cohortIds.includes(id));
+  const managerIds = [...new Set([...cohortIds, ...service.serviceOwnerIds, ...clientOwnerIds])];
   const smsConfigured = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
   if (managerIds.length === 0) {
     return {
@@ -1390,5 +1412,26 @@ export async function fetchAdminSmsConversations(
   return fetchManagerSmsConversations(db, managerIds[0], {
     scopeManagerIdsOverride: managerIds,
     provisionWorkNumber: false,
+    ...(clientOwnerIds.length > 0 ? { workspaceRestriction: { ownerIds: clientOwnerIds, workspaceIds: service.workspaceIds } } : {}),
   });
+}
+
+/** Who admin Communication reads for PropLane Service. Empty when no service is configured or a read fails (nothing is added). */
+export async function loadServiceInboxScope(
+  db: SupabaseClient,
+): Promise<{ serviceOwnerIds: string[]; clientOwnerIds: string[]; workspaceIds: string[] }> {
+  const empty = { serviceOwnerIds: [], clientOwnerIds: [], workspaceIds: [] };
+  try {
+    const { data: settings, error: settingsError } = await db.from("platform_service_settings").select("owner_user_id").eq("singleton", true).maybeSingle();
+    const serviceOwner = String((settings as { owner_user_id?: unknown } | null)?.owner_user_id ?? "").trim();
+    if (settingsError || !serviceOwner) return empty;
+    const { data, error } = await db.from("portal_workspaces").select("id, owner_user_id").eq("is_service", true).limit(500);
+    if (error) return empty;
+    const rows = (data ?? []) as Array<{ id?: unknown; owner_user_id?: unknown }>;
+    const workspaceIds = rows.map((row) => String(row.id ?? "").trim()).filter(Boolean);
+    const clientOwnerIds = [...new Set(rows.map((row) => String(row.owner_user_id ?? "").trim()).filter((id) => id && id !== serviceOwner))];
+    return { serviceOwnerIds: [serviceOwner], clientOwnerIds, workspaceIds };
+  } catch {
+    return empty;
+  }
 }

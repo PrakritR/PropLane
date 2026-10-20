@@ -293,6 +293,12 @@ export async function handleUnassignedLeadInbound(
     await db.from("sms_unassigned_leads").update({ last_inbound_at: nowIso, updated_at: nowIso }).eq("id", lead.id);
 
     const first = lead.profile.stage === undefined;
+    // A new inquiry on the PropLane line: tell the service manager's phone once (best effort, never blocks the reply).
+    if (first) {
+      void import("@/lib/service/service-manager-alerts.server")
+        .then((m) => m.alertServiceManagerOfInquiry(db, { phone: inbound.phoneKey, body: inbound.body }))
+        .catch(() => undefined);
+    }
     const flow = await runFlow(lead.profile, inbound.body, first, deps);
 
     if (flow.assign) {

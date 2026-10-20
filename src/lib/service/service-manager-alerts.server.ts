@@ -79,3 +79,26 @@ export async function alertServiceManagerFromNotice(
     return "skipped";
   }
 }
+
+/**
+ * A new person wrote to the PropLane line wanting a house (a prospect inquiry, short stay or long term). Texted once per
+ * phone per day. The number is shown by its last four digits only; the whole thread is in Admin Communication.
+ */
+export async function alertServiceManagerOfInquiry(
+  db: SupabaseClient,
+  input: { phone: string; body: string; now?: Date },
+): Promise<"sent" | "skipped"> {
+  try {
+    const settings = await readServiceManagerSettings(db);
+    if (!settings?.phoneE164 || !settings.verifiedAt) return "skipped";
+    const digits = input.phone.replace(/\D/g, "");
+    if (digits.length < 10) return "skipped";
+    const snippet = input.body.replace(/\s+/g, " ").trim().slice(0, 110);
+    const text = toGsm7(`PropLane line: new inquiry from ***${digits.slice(-4)}${snippet ? `: "${snippet}"` : ""}`);
+    const day = (input.now ?? new Date()).toISOString().slice(0, 10);
+    const sent = await sendToServiceManager(db, { text, dedupeKey: `svc-inquiry-${digits.slice(-10)}-${day}`, settings });
+    return sent.ok ? "sent" : "skipped";
+  } catch {
+    return "skipped";
+  }
+}

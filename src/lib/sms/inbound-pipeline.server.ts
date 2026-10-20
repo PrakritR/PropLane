@@ -1722,6 +1722,13 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   }
   // === end on/smsvendor ===
 
+  // A new person writing to the PropLane line (per_workspace): the service manager's phone hears about the inquiry once.
+  if (await isPropLaneServiceLine(db, { ownerUserId: managerId, workNumber: toPhone }).catch(() => false)) {
+    void import("@/lib/service/service-manager-alerts.server")
+      .then((m) => m.alertServiceManagerOfInquiry(db, { phone: fromPhone, body }))
+      .catch(() => undefined);
+  }
+
   let handled;
   const preparedProspectReply: { text: string | null } = { text: null };
   try {
