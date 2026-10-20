@@ -17,7 +17,7 @@ import { SHARED_LINE_OTP_RULES } from "@/lib/one-number/contracts";
  * destination from the person asking.
  */
 
-export type PhoneOtpPurpose = "link_unlock" | "public_bind" | "sign_in" | "change_number_old" | "change_number_new";
+export type PhoneOtpPurpose = "link_unlock" | "public_bind" | "sign_in" | "change_number_old" | "change_number_new" | "sms_signup";
 
 export type RequestOtpResult =
   | { ok: true; challengeId: string }
