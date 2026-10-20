@@ -46,7 +46,7 @@ export async function say(ctx, from, to, body, opts = {}) {
   if (opts.agentUser) {
     const { data: rows } = await h.db.from("agent_messages").select("role, tool_trace, created_at").eq("landlord_id", opts.agentUser).order("created_at", { ascending: false }).limit(4);
     const traces = (rows ?? []).filter((m) => Array.isArray(m.tool_trace) && m.tool_trace.length).slice(0, 1).flatMap((m) => m.tool_trace);
-    note(`agent tools: ${traces.map((t) => `${t.tool ?? t.name}${t.ok === false ? `(failed: ${String(t.error ?? t.message ?? "").slice(0, 120)})` : ""}`).join(", ") || "(none)"}`);
+    note(`agent tools: ${traces.map((t) => `${t.tool ?? t.name}${t.ok === false ? `(failed: ${String(t.error ?? t.message ?? "").slice(0, 120)})` : ""}${opts.traceOutput ? ` -> ${JSON.stringify(t.output ?? t.result ?? t.resultSummary ?? t).slice(0, 220)}` : ""}`).join("; ") || "(none)"}`);
   }
   if (opts.trace) {
     const { data: rows } = await h.db.from("prospect_sms_bursts").select("candidate_context").eq("counterparty_phone_e164", from).order("updated_at", { ascending: false }).limit(1);
@@ -425,7 +425,7 @@ MATRIX_SCENARIOS.push({
     let accepted = false;
 
     await item(14, "job offer text, YES accepts, schedule time, DONE with a photo, manager sees completion", async (c) => {
-      const send = await say(ctx, fx.managerPhone, fx.to, `send a plumber to the bathroom faucet leak at ${fx.house.name}`, { agentUser: fx.manager.id });
+      const send = await say(ctx, fx.managerPhone, fx.to, `send a plumber to the bathroom faucet leak at ${fx.house.name}`, { agentUser: fx.manager.id, traceOutput: true });
       c.reply(send, "manager dispatches");
       let confirm = send;
       if (/yes/i.test(send.all)) confirm = await say(ctx, fx.managerPhone, fx.to, "YES");
