@@ -23,8 +23,12 @@ export const IN_APP_PATH_PREFIXES = [
   "/vendor/",
 ] as const;
 
-/** Exact paths (no trailing segment) that are also in-app. */
-export const IN_APP_PATH_EXACT = ["/", "/partner", "/pricing", "/contact", "/tos", "/privacy", "/app"] as const;
+/**
+ * Exact paths (no trailing segment) that are also in-app. `/pricing` and `/contact` are gone with the rest of
+ * the shadowed marketing pages: the home page owns that content and those routes only redirect to its anchors,
+ * so the native shell sends them to the in-app home rather than loading a page that bounces.
+ */
+export const IN_APP_PATH_EXACT = ["/", "/partner", "/tos", "/privacy", "/app"] as const;
 
 /**
  * Push notification tap targets used in server code — keep in sync when adding
