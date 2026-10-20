@@ -2,6 +2,7 @@ import "server-only";
 
 import type Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isE2eMediaUrl } from "@/lib/sms/e2e-transport.server";
 import { fetchTwilioMessageMedia } from "@/lib/inspections/attachment-intake.server";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
 import {
@@ -58,7 +59,9 @@ export function inboundMediaItems(params: Record<string, string>): InboundMediaI
   const items: InboundMediaItem[] = [];
   for (let index = 0; index < count; index += 1) {
     const url = String(params[`MediaUrl${index}`] ?? "").trim();
-    if (!url.startsWith("https://")) continue;
+    // Twilio media is https. The e2e harness serves its photos from loopback http, accepted only while the capture transport is on
+    // (a non-production dev server started by the harness): `isE2eMediaUrl` is false everywhere else.
+    if (!url.startsWith("https://") && !isE2eMediaUrl(url)) continue;
     items.push({ index, url, declaredType: String(params[`MediaContentType${index}`] ?? "").trim().toLowerCase() });
   }
   return items;
