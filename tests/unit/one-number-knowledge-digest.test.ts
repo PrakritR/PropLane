@@ -48,7 +48,10 @@ describe("weekly digest", () => {
     const fake = knowledgeFakeDb(seed());
     const result = await runWeeklyKnowledgeDigest(fake.db, now);
     expect(result).toEqual({ sent: 2, skipped: 0 });
-    const byOwner = Object.fromEntries(notify.mock.calls.map((c: any[]) => [c[1].landlordId, c[1]]));
+    const notices = notify.mock.calls.map(
+      (call) => (call as unknown[])[1] as { landlordId: string; workspaceId: string; text: string },
+    );
+    const byOwner = Object.fromEntries(notices.map((notice) => [notice.landlordId, notice]));
     expect(byOwner.ownerA.text).toContain("Is there a gym? (2 times)");
     expect(byOwner.ownerA.text).not.toContain("Bike room");
     expect(byOwner.ownerA.text).not.toContain("Pool hours");

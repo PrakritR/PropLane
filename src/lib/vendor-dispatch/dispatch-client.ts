@@ -42,30 +42,39 @@ export function useDispatchRules(enabled = true): DispatchRulesState {
 
   const load = useCallback(
     async (force: boolean) => {
-      if (!enabled || isDemoModeActive()) {
-        setLoading(false);
-        return;
-      }
-      const mine = ++generation.current;
-      const result = await sharedGet(adminOversightUrl(RULES_URL), { force });
-      if (mine !== generation.current) return;
-      if (!result.ok) {
-        // One quiet retry: a slow first read should not leave the list in an error until the person taps Try again.
-        if (!retried.current) {
-          retried.current = true;
-          void load(true);
+      // The retry recurses through this local helper rather than through `load`
+      // itself: a callback that reads its own binding is a stale-closure hazard
+      // the react-hooks rules refuse.
+      const run = async (attemptForce: boolean): Promise<void> => {
+        if (!enabled || isDemoModeActive()) {
+          setLoading(false);
           return;
         }
-        setError(true);
+        const mine = ++generation.current;
+        const result = await sharedGet(adminOversightUrl(RULES_URL), { force: attemptForce });
+        if (mine !== generation.current) return;
+        if (!result.ok) {
+          // One quiet retry: a slow first read should not leave the list in an error until the person taps Try again.
+          if (!retried.current) {
+            retried.current = true;
+            await run(true);
+            return;
+          }
+          setError(true);
+          setLoading(false);
+          return;
+        }
+        retried.current = false;
+        const data = result.data as {
+          rules?: DispatchRule[];
+          workspacePropertyIds?: string[];
+        } | null;
+        setRules(Array.isArray(data?.rules) ? data!.rules! : []);
+        setHouses(Array.isArray(data?.workspacePropertyIds) ? data!.workspacePropertyIds! : []);
+        setError(false);
         setLoading(false);
-        return;
-      }
-      retried.current = false;
-      const data = result.data as { rules?: DispatchRule[]; workspacePropertyIds?: string[] } | null;
-      setRules(Array.isArray(data?.rules) ? data!.rules! : []);
-      setHouses(Array.isArray(data?.workspacePropertyIds) ? data!.workspacePropertyIds! : []);
-      setError(false);
-      setLoading(false);
+      };
+      await run(force);
     },
     [enabled],
   );

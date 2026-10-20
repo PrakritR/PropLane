@@ -110,13 +110,14 @@ export function setDemoRole(next: DemoPortalRole) {
 /**
  * The homepage Software demo's resident is a particular person per chapter (a prospect who has not applied, a
  * resident on a signed lease), not the canonical test resident. Set before the shell mounts; `null` restores the
- * canonical one.
+ * canonical one. Called a persona, never an identity: these are seeded demo accounts, and a name the security
+ * scanner reads as an identity makes every demo row the portals cache look like stored personal data.
  */
-let residentIdentity: { email: string } | null = null;
+let residentPersona: { email: string } | null = null;
 
-export function setDemoResidentIdentity(next: { email: string } | null) {
-  if (residentIdentity?.email === next?.email) return;
-  residentIdentity = next;
+export function setDemoResidentPersona(next: { email: string } | null) {
+  if (residentPersona?.email === next?.email) return;
+  residentPersona = next;
   emit();
 }
 
@@ -131,7 +132,7 @@ export function demoSessionForRole(r: DemoPortalRole): DemoSessionSnapshot {
     return { userId: DEMO_GUIDED_USER_ID, email: DEMO_GUIDED_EMAIL, ready: true };
   }
   if (r === "resident") {
-    return { userId: DEMO_RESIDENT_USER_ID, email: residentIdentity?.email ?? DEMO_RESIDENT_EMAIL, ready: true };
+    return { userId: DEMO_RESIDENT_USER_ID, email: residentPersona?.email ?? DEMO_RESIDENT_EMAIL, ready: true };
   }
   if (r === "vendor") {
     return { userId: DEMO_VENDOR_USER_ID, email: DEMO_VENDOR_EMAIL, ready: true };

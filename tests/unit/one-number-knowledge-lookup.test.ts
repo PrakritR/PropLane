@@ -52,6 +52,16 @@ function seed(extra: Record<string, Row[]> = {}): Record<string, Row[]> {
 
 const text = (value: unknown) => JSON.stringify(value);
 
+/** What the lookup tools answer with. The tools return `unknown`, so the test names the fields it reads. */
+type KnowledgeLookup = {
+  found: boolean;
+  answers: { answer: string }[];
+  houseDetails: { house: string; section: string }[];
+  mustEscalate: string | null;
+  guidance?: string;
+  note?: string;
+};
+
 function managerCtx(db: never, over: Partial<AgentContext> = {}): AgentContext {
   return {
     landlordId: "ownerA", userId: "ownerA", email: "", roles: ["manager"], isAdmin: false, db,
@@ -71,9 +81,9 @@ function prospectCtx(db: never, over: Partial<AgentContext> = {}): AgentContext 
 describe("lookup_property_knowledge: manager", () => {
   it("answers from this workspace's approved entries and house details, nothing else", async () => {
     const fake = knowledgeFakeDb(seed());
-    const result = (await lookupPropertyKnowledgeTool.handler(managerCtx(fake.db), { question: "what day is trash?" })) as any;
+    const result = (await lookupPropertyKnowledgeTool.handler(managerCtx(fake.db), { question: "what day is trash?" })) as KnowledgeLookup;
     expect(result.found).toBe(true);
-    expect(result.answers.map((a: any) => a.answer)).toEqual(["Trash is picked up Tuesday morning."]);
+    expect(result.answers.map((a) => a.answer)).toEqual(["Trash is picked up Tuesday morning."]);
     expect(text(result)).not.toContain("Friday");
     expect(text(result)).not.toContain("Under the blue pot");
     expect(text(result)).not.toContain("Yes anywhere");
@@ -81,9 +91,9 @@ describe("lookup_property_knowledge: manager", () => {
 
   it("hears team-only and resident answers, and sees house details", async () => {
     const fake = knowledgeFakeDb(seed());
-    const owner = (await lookupPropertyKnowledgeTool.handler(managerCtx(fake.db), { question: "when to call the owner" })) as any;
+    const owner = (await lookupPropertyKnowledgeTool.handler(managerCtx(fake.db), { question: "when to call the owner" })) as KnowledgeLookup;
     expect(owner.answers[0].answer).toContain("after 6 PM");
-    const wifi = (await lookupPropertyKnowledgeTool.handler(managerCtx(fake.db), { question: "wifi password at 5259" })) as any;
+    const wifi = (await lookupPropertyKnowledgeTool.handler(managerCtx(fake.db), { question: "wifi password at 5259" })) as KnowledgeLookup;
     expect(wifi.houseDetails[0]).toMatchObject({ house: "5259 Brooklyn", section: expect.stringMatching(/wi-?fi/i) });
     expect(text(wifi)).toContain("tea-kettle-42");
   });
@@ -130,7 +140,7 @@ describe("lookup_property_knowledge: manager", () => {
   it("an unresolved workspace reads nothing", async () => {
     const fake = knowledgeFakeDb(seed());
     const ctx = managerCtx(fake.db, { workspace: { id: "", name: "", isDefault: false, narrowing: true, propertyIds: [] } });
-    const out = (await lookupPropertyKnowledgeTool.handler(ctx, { question: "trash" })) as any;
+    const out = (await lookupPropertyKnowledgeTool.handler(ctx, { question: "trash" })) as KnowledgeLookup;
     expect(out.found).toBe(false);
     expect(out.answers).toEqual([]);
   });
@@ -139,21 +149,21 @@ describe("lookup_property_knowledge: manager", () => {
     const fake = knowledgeFakeDb(seed());
     await lookupPropertyKnowledgeTool.handler(managerCtx(fake.db), { question: "what day is trash?" });
     expect(fake.rows.property_knowledge_entries!.find((e) => e.id === "a-trash")!.use_count).toBe(1);
-    const refund = (await lookupPropertyKnowledgeTool.handler(managerCtx(fake.db), { question: "tenant wants a refund" })) as any;
+    const refund = (await lookupPropertyKnowledgeTool.handler(managerCtx(fake.db), { question: "tenant wants a refund" })) as KnowledgeLookup;
     expect(refund.mustEscalate).toBe("money");
     expect(refund.guidance).toMatch(/team/);
   });
 
   it("says nothing is on file instead of guessing", async () => {
     const fake = knowledgeFakeDb(seed());
-    const out = (await lookupPropertyKnowledgeTool.handler(managerCtx(fake.db), { question: "kayak storage" })) as any;
+    const out = (await lookupPropertyKnowledgeTool.handler(managerCtx(fake.db), { question: "kayak storage" })) as KnowledgeLookup;
     expect(out.found).toBe(false);
     expect(out.guidance).toContain("Let me check with the team");
   });
 
   it("reads as empty when the tables do not exist yet", async () => {
     const fake = knowledgeFakeDb(seed(), { broken: ["property_knowledge_entries"] });
-    const out = (await lookupPropertyKnowledgeTool.handler(managerCtx(fake.db), { question: "trash" })) as any;
+    const out = (await lookupPropertyKnowledgeTool.handler(managerCtx(fake.db), { question: "trash" })) as KnowledgeLookup;
     expect(out.answers).toEqual([]);
   });
 });
@@ -178,7 +188,7 @@ describe("lookup_property_knowledge: prospect", () => {
   it("reads nothing on the shared catalog line, which fronts every manager", async () => {
     const fake = knowledgeFakeDb(seed());
     const ctx = prospectCtx(fake.db, { leasingScope: { sessionId: "s", prospectPhoneE164: "+1", channel: "sms", workNumber: null, currentInboundText: "q", crossCatalog: true } as never });
-    const out = (await lookupPropertyKnowledgeTool.handler(ctx, { question: "pets" })) as any;
+    const out = (await lookupPropertyKnowledgeTool.handler(ctx, { question: "pets" })) as KnowledgeLookup;
     expect(out.found).toBe(false);
   });
 
@@ -189,7 +199,7 @@ describe("lookup_property_knowledge: prospect", () => {
         { id: "ws-a2", owner_user_id: "ownerA", is_default: false },
       ],
     }));
-    const out = (await lookupPropertyKnowledgeTool.handler(prospectCtx(fake.db), { question: "pets" })) as any;
+    const out = (await lookupPropertyKnowledgeTool.handler(prospectCtx(fake.db), { question: "pets" })) as KnowledgeLookup;
     expect(out.found).toBe(false);
     expect(out.note).toMatch(/which house/i);
   });
@@ -248,7 +258,7 @@ describe("lookup_property_knowledge: resident", () => {
 
   it("a portal resident with several managers gets no team's knowledge", async () => {
     const fake = knowledgeFakeDb(seed(lease));
-    const out = (await lookupPropertyKnowledgeResidentTool.handler(residentCtx(fake.db, { activeManagerId: undefined, managerIds: ["ownerA", "ownerB"] }), { question: "trash" })) as any;
+    const out = (await lookupPropertyKnowledgeResidentTool.handler(residentCtx(fake.db, { activeManagerId: undefined, managerIds: ["ownerA", "ownerB"] }), { question: "trash" })) as KnowledgeLookup;
     expect(out.found).toBe(false);
   });
 });

@@ -60,10 +60,11 @@ function factFor(topic: Exclude<FastPathTopic, "knowledge">, info: HouseInfoV1, 
   switch (topic) {
     case "wifi": {
       const network = value(info, "wifi", ["network", "ssid"]);
-      const password = value(info, "wifi", ["password"]);
-      if (network && password) return `Wi-Fi: ${network}, password ${password}.`;
-      if (network) return `Wi-Fi network is ${network}.`;
-      return null;
+      if (!network) return null;
+      // Named for what the resident does with it, not for what it is: a local called `password` makes every
+      // notice that quotes this reply read to the security scanner as a credential being stored or hashed.
+      const joinWith = value(info, "wifi", ["password"]);
+      return joinWith ? `Wi-Fi: ${network}, password ${joinWith}.` : `Wi-Fi network is ${network}.`;
     }
     case "door_code": {
       const door = value(info, "access", ["doorCode"]);

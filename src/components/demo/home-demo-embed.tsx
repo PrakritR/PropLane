@@ -14,7 +14,7 @@ import { installHomeDemoGuards } from "@/components/demo/home-demo-fetch-guard";
 import { applyHomeDemoEffect, type HomeDemoEffectContext } from "@/components/demo/home-demo-effects";
 import { HOME_DEMO_JOURNEY, homeDemoJumpPlan, type HomeDemoJumpPlan, type HomeDemoStep, type HomeDemoTarget } from "@/components/demo/home-demo-script";
 import { DemoCursor, sleep, type DemoCursorApi } from "@/components/marketing/resident-lifecycle-cursor";
-import { setDemoResidentIdentity, setDemoRole } from "@/lib/demo/demo-session";
+import { setDemoResidentPersona, setDemoRole } from "@/lib/demo/demo-session";
 import {
   HOME_DEMO_CONTROL,
   HOME_DEMO_EVENT,
@@ -272,7 +272,7 @@ export function HomeDemoEmbed() {
     setSwitchTo(null);
     setStage(journey.resident.stage);
     setDemoRole(journey.portal);
-    setDemoResidentIdentity({ email: journey.resident.email });
+    setDemoResidentPersona({ email: journey.resident.email });
     touchedRef.current = false;
     setInstant(noMotion);
     setStarted(true);

@@ -10,6 +10,16 @@ import { assertDevOnly } from "../../scripts/one-number-eval/export-fixtures.mjs
 // @ts-expect-error plain .mjs scripts
 import { loadFixtures } from "../../scripts/one-number-eval/run.mjs";
 
+/** The grader's own shapes. The scripts are plain .mjs, so the test names what it reads. */
+type GradeCheck = { name: string; pass: boolean };
+type EvalCase = {
+  id: string;
+  role: string;
+  turns: string[];
+  gold?: string;
+  knowledge?: { answer: string }[];
+};
+
 describe("segments", () => {
   it("counts GSM-7 and UCS-2 parts", () => {
     expect(isGsm7("Trash is Tuesday.")).toBe(true);
@@ -35,7 +45,7 @@ describe("grader", () => {
     expect(gradeCase(c, { reply: "Twelve months with a deposit." }).pass).toBe(true);
     const missing = gradeCase(c, { reply: "Twelve months." });
     expect(missing.pass).toBe(false);
-    expect(missing.checks.find((x: any) => !x.pass).name).toBe("fact:deposit");
+    expect(missing.checks.find((x: GradeCheck) => !x.pass).name).toBe("fact:deposit");
   });
 
   it("fails a reply that runs past one segment", () => {
@@ -86,7 +96,7 @@ describe("grader", () => {
 });
 
 describe("committed fixtures", () => {
-  const cases = loadFixtures() as any[];
+  const cases = loadFixtures() as EvalCase[];
 
   it("are valid, unique, and cover all four roles with 30 or more cases", () => {
     expect(cases.length).toBeGreaterThanOrEqual(30);
@@ -98,13 +108,13 @@ describe("committed fixtures", () => {
   it("each hand-written gold reply passes its own case (the grader and the fixtures agree)", () => {
     for (const c of cases) {
       const r = gradeCase(c, { reply: c.gold ?? "", toolTrace: [] });
-      expect(r.pass, `${c.id}: ${JSON.stringify(r.checks.filter((x: any) => !x.pass))}`).toBe(true);
+      expect(r.pass, `${c.id}: ${JSON.stringify(r.checks.filter((x: GradeCheck) => !x.pass))}`).toBe(true);
     }
   });
 
   it("carry no personal data", () => {
     for (const c of cases) {
-      for (const t of [...c.turns, c.gold ?? "", ...(c.knowledge ?? []).map((k: any) => k.answer)]) expect(looksLikePii(t), c.id).toBe(false);
+      for (const t of [...c.turns, c.gold ?? "", ...(c.knowledge ?? []).map((k) => k.answer)]) expect(looksLikePii(t), c.id).toBe(false);
     }
   });
 

@@ -27,6 +27,13 @@ function check(name: string, ok: unknown, detail = "") {
   console.log(`  ${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : `\n        ${detail.replace(/\n/g, "\n        ")}`}`);
 }
 const keyOf = (phone: string) => phone.replace(/\D/g, "").slice(-10);
+/**
+ * The page's visible words. Script blocks go first (the RSC payload repeats the charge in JSON, which would
+ * answer every check on its own); case-insensitive, and the end tag may carry junk, because the browser accepts
+ * `<SCRIPT>` and `</script foo>` and so must a filter that claims to drop them.
+ */
+const visibleText = (html: string) =>
+  html.replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
 async function main(): Promise<number> {
   const { env, resolved } = loadDevEnv();
@@ -121,7 +128,7 @@ async function main(): Promise<number> {
 
     // ---- #10: destination states --------------------------------------------------------------------------
     console.log("\n== #10  pay-link states");
-    const view = async () => (await (await fetch(`${h.base}/l/${token}`, { headers: { cookie } })).text()).replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    const view = async () => visibleText(await (await fetch(`${h.base}/l/${token}`, { headers: { cookie } })).text());
     const setCharge = async (patch: Record<string, unknown>, status: string) => {
       const { data } = await db.from("portal_household_charge_records").select("row_data").eq("id", rentChargeId).maybeSingle();
       await db.from("portal_household_charge_records").update({ status, row_data: { ...(data?.row_data as object), ...patch, status } }).eq("id", rentChargeId);
@@ -142,7 +149,7 @@ async function main(): Promise<number> {
     const oldCode = /\b(\d{6})\b/.exec(oldCodeText?.body ?? "")?.[1] ?? "";
     const oldVerify = await fetch(`${h.base}/api/l/${oldToken}/code`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "verify", code: oldCode }) });
     const oldCookie = (oldVerify.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
-    const moved = (await (await fetch(`${h.base}/l/${oldToken}`, { headers: { cookie: oldCookie } })).text()).replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    const moved = visibleText(await (await fetch(`${h.base}/l/${oldToken}`, { headers: { cookie: oldCookie } })).text());
     check("a link bound to a number that is no longer the resident's verified phone: 'Text us for a new link', no charge shown", /Text us for a new link/.test(moved) && !/October rent/.test(moved), moved.slice(0, 300));
     await setCharge({ balanceLabel: "$0.00" }, "paid");
     check("a paid charge reads 'Payment received'", /Payment received/.test(await view()), await view());
