@@ -9,6 +9,7 @@
  * submit side effects. The route keeps the guest and manager branches.
  */
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { withRecordedNoticeChannel, type NoticeChannel } from "@/lib/notice-channel";
 import { isMissingColumnError } from "@/lib/db-missing-column";
 import { persistRenamedApplicationRecord, type ApplicationRecordSnapshot } from "@/lib/security/application-record-normalization.server";
 import { prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
@@ -149,6 +150,8 @@ export async function persistNormalizedRow(
   db: ReturnType<typeof createSupabaseServiceRoleClient>, oldId: string, row: DemoApplicantRow,
   authorizedExisting: (Omit<Partial<ApplicationRecordSnapshot>, "id"> & { id?: string | null }) | null,
   sourceChannel: string | null = null,
+  /** The channel a brand-new applicant row is made on: `portal` for an applicant's own web write, null for a manager's. */
+  noticeChannel: NoticeChannel | null = null,
 ) {
   // Carry the exact snapshot whose actor/property/token access was checked.
   // Re-reading it here could adopt a concurrent transfer without reauthorizing.
@@ -157,6 +160,8 @@ export async function persistNormalizedRow(
   }
   const existing = authorizedExisting ? { ...authorizedExisting, id: authorizedExisting.id as string, row_data: authorizedExisting.row_data } : null;
   if (oldId !== row.id && !existing) throw new Error("Application normalization source is unavailable.");
+  // The channel is server-owned: the stored row's wins, else the writer's; a value in the body never does.
+  row = withRecordedNoticeChannel(row, existing?.row_data, noticeChannel);
   row = prepareApplicantIdentityWrite(row, existing?.row_data, String(existing?.id ?? row.id));
   const renaming = Boolean(existing && existing.id !== row.id);
   if (renaming) row = { ...row, managerUserId: existing!.manager_user_id ?? null };
@@ -482,6 +487,8 @@ export async function persistApplicationWrite(
   row = await persistNormalizedRow(
     db, authorizedWriteRecord?.id ?? row.id, row, authorizedWriteRecord,
     input.leadSource,
+    // An applicant's own write is the web channel; a manager writing a row for someone is not a request made by them.
+    residentSelfWrite ? "portal" : null,
   );
   // The one writer of the proof that lets a manager's "Delete resident" also delete this
   // login: the id is the authenticated session's (`user.id`), the manager is the listing's.

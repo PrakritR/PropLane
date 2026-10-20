@@ -207,3 +207,23 @@ describe("createTourInquiry anchors the stored window to the slot key", () => {
     ]);
   });
 });
+
+describe("the channel a tour is made on is recorded on the row (web vs Messages)", () => {
+  const stored = () => {
+    const events = upserts.flat().filter((record) => String(record.record_type) === INQUIRY_EVENT_RECORD_TYPE);
+    return ((events[0]!.row_data as { payload: Record<string, unknown> }).payload);
+  };
+
+  it("a tour made on the web or in the app is a portal tour, whatever the body says", async () => {
+    await createTourInquiry(fakeDb(), { incoming: tourRequest({ noticeChannel: "sms" }) });
+    expect(stored().noticeChannel).toBe("portal");
+  });
+
+  it("a tour made by text is an sms tour: by the leasing SMS origin, or by a caller that is the text channel", async () => {
+    await createTourInquiry(fakeDb(), { incoming: tourRequest(), smsOrigin: { senderPhoneE164: "+12065550123" } });
+    expect(stored().noticeChannel).toBe("sms");
+    upserts = [];
+    await createTourInquiry(fakeDb(), { incoming: tourRequest(), noticeChannel: "sms" });
+    expect(stored().noticeChannel).toBe("sms");
+  });
+});

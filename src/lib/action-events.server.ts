@@ -1,3 +1,4 @@
+import { NOTICE_CHANNEL_PAYLOAD_KEY, payloadNoticeChannel, withResidentPortalLink, type NoticeChannel } from "@/lib/notice-channel";
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -284,9 +285,16 @@ async function deliverProjection(
     finalizeGuard?: { status: "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred"; dueAt: string };
   },
 ): Promise<"delivered" | "submitted" | "deferred" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "stale"> {
-  const text = input.digest
+  // A resident copy of an event for a request made in the portal is delivered on the PORTAL channel
+  // (`notice-channel.ts`): email + the resident inbox, with a /resident link, and never a text - not
+  // deferred, not retried, whatever the resident's notification preferences say. The channel rides on the
+  // stored event payload, so a retry of this delivery keeps it.
+  const portalOnly = input.recipient.audience === "resident" && payloadNoticeChannel(input.payload) === "portal";
+  const text = input.digest && !portalOnly
     ? `Several updates were recorded. Open PropLane for the latest status.`
-    : input.rendered.text;
+    : portalOnly
+      ? withResidentPortalLink(input.rendered.text, input.domain)
+      : input.rendered.text;
   // `team` audience: a notice for the owning manager's TEAM (a tour claimed, an
   // availability change, a work order accepted). The owner gets their Assistant
   // notice and the team gets ONE PropLane line in the Team chat; only an urgent
@@ -492,7 +500,7 @@ async function deliverProjection(
     toEmails: input.recipient.email ? [input.recipient.email] : undefined,
     eventCategory: input.category,
     automated: true,
-    suppressSms: input.suppressSms,
+    suppressSms: portalOnly || input.suppressSms,
     suppressEmail: input.retryMode === "sms",
     suppressInbox: Boolean(input.retryMode),
     messageId: `action-event:${input.eventKey}:${input.recipient.audience}:${input.recipient.userId ?? input.recipient.email}`,
@@ -550,8 +558,8 @@ async function deliverProjection(
     : hasEmailFailure ? "email_failed"
       : hasSmsFailure ? "sms_failed"
         : hasAcceptedSms ? "submitted"
-          : input.suppressSms && input.smsDeferredUntil ? "deferred"
-            : input.retryMode ? "delivered" : input.suppressSms ? "deferred" : "delivered";
+          : input.suppressSms && input.smsDeferredUntil && !portalOnly ? "deferred"
+            : input.retryMode ? "delivered" : input.suppressSms && !portalOnly ? "deferred" : "delivered";
   const retrySmsAt = new Date(input.now.getTime() + 5 * 60_000).toISOString();
   const retryChannels = status === "email_failed" || status === "sms_failed" || status === "channels_failed";
   const finalPayload = retryChannels ? {
@@ -613,6 +621,12 @@ export async function emitActionEvent(
      * event so a retry takes the same path.
      */
     systemNotice?: boolean;
+    /**
+     * Where the request this event is about was made (`notice-channel.ts`). `portal` sends the RESIDENT copy
+     * by email + the resident inbox with a /resident link and never by text; absent or `sms` is today's
+     * behaviour. Persisted on the event payload so a retry keeps it. Manager and team copies are unaffected.
+     */
+    channel?: NoticeChannel;
   },
 ): Promise<ActionEventResult> {
   const eventKey = input.eventId.trim();
@@ -670,7 +684,11 @@ export async function emitActionEvent(
     sender_email: input.senderEmail.trim().toLowerCase(),
     sender_name: input.senderName?.trim() || null,
     occurred_at: input.occurredAt ?? now.toISOString(),
-    payload: systemNotice ? { ...(input.payload ?? {}), [SYSTEM_NOTICE_PAYLOAD_KEY]: true } : input.payload ?? {},
+    payload: {
+      ...(input.payload ?? {}),
+      ...(systemNotice ? { [SYSTEM_NOTICE_PAYLOAD_KEY]: true } : {}),
+      ...(input.channel === "portal" ? { [NOTICE_CHANNEL_PAYLOAD_KEY]: "portal" } : {}),
+    },
     sms_test_actor_user_id: smsTest?.actorUserId ?? null,
     sms_test_manager_user_id: smsTest?.managerUserId ?? null,
     sms_test_session_id: smsTest?.sessionId ?? null,
@@ -699,14 +717,18 @@ export async function emitActionEvent(
     if (!recipientKey || !recipient.rendered.subject.trim() || !recipient.rendered.text.trim()) continue;
     const since = new Date(now.getTime() - 10 * 60_000).toISOString();
     const { count } = await db.from("action_event_deliveries").select("id", { count: "exact", head: true }).eq("recipient_key", recipientKey).gte("created_at", since);
-    const policy = await withVendorQuietHours(
-      db,
-      actionDeliveryPolicy({ now, urgent: input.urgent, recentEventCount: count ?? 0, timeZone }),
-      recipient,
-      now,
-      input.urgent,
-      timeZone,
-    );
+    // A portal-channel resident copy sends no text, so quiet hours and the digest window have nothing to defer.
+    const portalOnly = input.channel === "portal" && recipient.audience === "resident";
+    const policy: ActionDeliveryPolicy = portalOnly
+      ? { deferSms: false, digest: false, nextAttemptAt: null }
+      : await withVendorQuietHours(
+          db,
+          actionDeliveryPolicy({ now, urgent: input.urgent, recentEventCount: count ?? 0, timeZone }),
+          recipient,
+          now,
+          input.urgent,
+          timeZone,
+        );
     const initialStatus = smsTest ? "captured" : policy.deferSms ? "deferred" : "pending";
     const { data: delivery } = await db.from("action_event_deliveries").upsert({
       event_id: eventRow.id,
@@ -756,7 +778,7 @@ export async function emitActionEvent(
       eventType: input.event,
       urgent: input.urgent,
       draftForReview: recipient.draftForReview,
-      payload: input.payload ?? null,
+      payload: input.channel === "portal" ? { ...(input.payload ?? {}), [NOTICE_CHANNEL_PAYLOAD_KEY]: "portal" } : input.payload ?? null,
       propertyId,
       managerUserId: input.managerUserId,
       recordRef: serviceRecordRefForEvent(input.domain, input.entityId, input.payload?.title),

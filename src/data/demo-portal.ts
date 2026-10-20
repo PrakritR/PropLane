@@ -42,6 +42,12 @@ export type DemoApplicantRow = {
   stage: string;
   bucket: ManagerApplicationBucket;
   email?: string;
+  /**
+   * Where the application was made (`@/lib/notice-channel`): `portal` for one the applicant filed on the web or
+   * in the app, which is answered by email + the resident portal and never by text. Server-owned: stamped when
+   * the row is first written by an applicant, kept by every later write, never taken from a request body.
+   */
+  noticeChannel?: "portal" | "sms";
   detail: string;
   application?: RentalWizardFormState;
   /** Listing id from the rental application (for filtering). */

@@ -16,9 +16,9 @@ describe("noticeChannelFor: where a request was made decides how it is answered"
     expect(noticeChannelFor(null)).toBe("sms");
     expect(noticeChannelFor({ stayDetails: { source: "Direct" } })).toBe("sms");
   });
-  it("applications and tours carry the same fact as `noticeChannel`, `channel` or `source_channel`", () => {
+  it("applications and tours carry the same fact as `noticeChannel` (or `channel`); the lead-source column is never read", () => {
     expect(noticeChannelFor({ noticeChannel: "portal" })).toBe("portal");
-    expect(noticeChannelFor({ source_channel: "resident_portal" })).toBe("portal");
+    expect(noticeChannelFor({ source_channel: "resident_portal" })).toBe("sms");
     expect(noticeChannelFor({ channel: "sms" })).toBe("sms");
     // An explicit channel wins over a source.
     expect(noticeChannelFor({ noticeChannel: "sms", stayDetails: { source: "guest_portal" } })).toBe("sms");

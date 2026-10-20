@@ -1386,6 +1386,8 @@ export async function POST(req: Request) {
       const persistedGuestRow = await persistNormalizedRow(
         db, existingRecord?.id ?? row.id, row, existingRecord ?? null,
         await applicantLeadSource(req, true),
+        // A guest applies on the website: the web channel (email + inbox by address, never a text).
+        "portal",
       );
       await revokeMaterializedApplicationConsentAfterWrite(db, existingRecord ?? null, row);
       // Forms the published template's rules owe after this submit. The first submit creates them (the share
@@ -1416,7 +1418,7 @@ export async function POST(req: Request) {
         void emitApplicationTransition(db, {
           managerUserId: row.managerUserId,
           previous: previousRow,
-          application: row,
+          application: { ...row, noticeChannel: persistedGuestRow?.noticeChannel ?? row.noticeChannel },
         }).catch(bestEffortFailed("application action event", { application: row.id }));
       }
       if (row.bucket === "pending" && row.application?.consentCredit) {

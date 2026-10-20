@@ -1,3 +1,4 @@
+import { residentNoticeChannel } from "@/lib/resident-notice-channel.server";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
@@ -213,6 +214,7 @@ export async function POST(req: Request) {
     const transition = managerUserId
       ? buildDurableLeaseTransitionEnvelope({
         automated: await loadAutomatedMessageSettings(db, managerUserId).catch(() => null),
+        channel: await residentNoticeChannel(db, { managerUserId, email: next.residentEmail }),
           managerUserId,
           previous: stored,
           lease: next,

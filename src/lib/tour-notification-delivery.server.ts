@@ -2,6 +2,7 @@
  * Server-side tour notification delivery (Resend email + Axis inbox records).
  */
 
+import { noticeChannelFor, withResidentPortalLink } from "@/lib/notice-channel";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { appendResidentPropertyManagerInboxMessage, appendManagerPropertyLeadInboxMessage } from "@/lib/property-manager-inbox-thread.server";
@@ -519,7 +520,12 @@ async function textTourGuest(args: {
   /** False only for newly persisted non-SMS origins. Legacy rows remain eligible for proven inbound evidence. */
   allowConversationEvidence?: boolean;
   eligibility?: Awaited<ReturnType<typeof resolveTourSmsEligibility>>;
+  /** The tour row's recorded channel (`notice-channel.ts`): a tour made in the portal / on the web is never texted. */
+  inquiry?: unknown;
 }): Promise<TourNotificationResult["sms"]> {
+  if (args.inquiry !== undefined && noticeChannelFor(args.inquiry) === "portal") {
+    return { requested: false, sent: false, skipped: true };
+  }
   const eligibility = args.eligibility ?? await resolveTourSmsEligibility(args.db, {
     managerUserId: args.managerUserId,
     guestPhone: args.guestPhone,
@@ -639,7 +645,8 @@ export async function notifyTenantTourRequestReceived(
   });
 
   const subject = TOUR_REQUEST_TENANT_SUBJECT;
-  const text = buildTourRequestTenantBody(ctx);
+  const portalChannel = noticeChannelFor(inquiry) === "portal";
+  const text = portalChannel ? withResidentPortalLink(buildTourRequestTenantBody(ctx), "tour") : buildTourRequestTenantBody(ctx);
   const email = await deliverEmail([guestEmail], subject, text, undefined, undefined, {
     db,
     managerUserId: textField(inquiry as Record<string, unknown>, "managerUserId"),
@@ -667,6 +674,7 @@ export async function notifyTenantTourRequestReceived(
     guestPhone,
     smsConsent: inquirySmsConsent(inquiry),
     purpose: "tour_request_received",
+    inquiry,
     inquiryId: textField(inquiry as Record<string, unknown>, "id") || null,
     allowConversationEvidence: inquiryAllowsConversationSmsEvidence(inquiry),
     text: `PropLane: we received your tour request for ${ctx.propertyTitle}${
@@ -716,7 +724,8 @@ export async function notifyTenantTourRequestRemoved(
   });
 
   const subject = opts?.subject?.trim() || TOUR_REQUEST_REMOVED_TENANT_SUBJECT;
-  const text = opts?.body?.trim() || buildTourRequestRemovedTenantBody(ctx);
+  const removedText = opts?.body?.trim() || buildTourRequestRemovedTenantBody(ctx);
+  const text = noticeChannelFor(inquiry) === "portal" ? withResidentPortalLink(removedText, "tour") : removedText;
   const managerUserId = textField(row, "managerUserId");
 
   const inbox = await recordGuestInboxCopy(db, textField(row, "id") || null, {
@@ -742,6 +751,7 @@ export async function notifyTenantTourRequestRemoved(
     guestPhone: textField(row, "phone") || null,
     smsConsent: inquirySmsConsent(inquiry),
     purpose: "tour_request_removed",
+    inquiry,
     inquiryId: textField(row, "id") || null,
     allowConversationEvidence: inquiryAllowsConversationSmsEvidence(inquiry),
     text: `PropLane: your tour request for ${ctx.propertyTitle}${
@@ -783,7 +793,9 @@ async function notifyTenantTourChanged(
   const row = inquiry as Record<string, unknown>;
   const guestEmail = textField(row, "email");
   const wantsEmail = input.channels?.viaEmail !== false;
-  const wantsSms = input.channels?.viaSms !== false;
+  // A tour made in the portal is answered by email + the resident portal inbox, never by text.
+  const portalChannel = noticeChannelFor(inquiry) === "portal";
+  const wantsSms = input.channels?.viaSms !== false && !portalChannel;
   const managerUserId = input.window.managerUserId || textField(row, "managerUserId");
   const guestPhone = textField(row, "phone") || null;
   const smsPurpose = input.kind === "canceled" ? "tour_canceled" : "tour_rescheduled";
@@ -851,11 +863,12 @@ async function notifyTenantTourChanged(
   // it makes no promise the server cannot honor. If it overclaims a reply path,
   // replace it with the server-authoritative default. Unknown text is manager
   // prose and remains untouched.
-  const text = !suppliedBody
+  const changeText = !suppliedBody
     ? authoritativeDefault
     : suppliedDefaultMatch?.generated && !suppliedDefaultMatch.replyPathClaimsAreAvailable
       ? authoritativeDefault
       : suppliedBody;
+  const text = portalChannel ? withResidentPortalLink(changeText, "tour") : changeText;
 
   let inboxSent = false;
   const hasGuestEmail = guestEmail.includes("@");
@@ -1000,7 +1013,8 @@ async function deliverTenantTourConfirmed(
 ): Promise<TourNotificationResult> {
   const guestEmail = textField(inquiry as Record<string, unknown>, "email");
   const wantsEmail = channels?.viaEmail !== false;
-  const wantsSms = channels?.viaSms !== false;
+  const portalChannel = noticeChannelFor(inquiry) === "portal";
+  const wantsSms = channels?.viaSms !== false && !portalChannel;
   const propertyId = textField(inquiry as Record<string, unknown>, "propertyId");
   const propertyAddress = await resolvePropertyAddressForTour(db, propertyId);
   const origin = resolveEmailLinkBaseUrl();
@@ -1023,8 +1037,10 @@ async function deliverTenantTourConfirmed(
   });
 
   const subject = opts?.subject?.trim() || TOUR_CONFIRMED_TENANT_SUBJECT;
-  const text = opts?.body?.trim() || buildTourConfirmedTenantBody(ctx);
-  const html = opts?.body?.trim() ? undefined : buildTourConfirmedTenantHtml(ctx);
+  const confirmedText = opts?.body?.trim() || buildTourConfirmedTenantBody(ctx);
+  const text = portalChannel ? withResidentPortalLink(confirmedText, "tour") : confirmedText;
+  // The generated HTML has no portal link, so a portal-channel mail sends the text body (which carries it).
+  const html = opts?.body?.trim() || portalChannel ? undefined : buildTourConfirmedTenantHtml(ctx);
 
   let inboxSent = false;
   const hasGuestEmail = guestEmail.includes("@");

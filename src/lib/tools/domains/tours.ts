@@ -287,7 +287,9 @@ export const residentRequestTourTool = defineWriteTool<
     const db = ctx.db as AgentContext["db"];
     await assertTourAllowedByApplicationRule(db, input.propertyId, ctx.email);
     await assertSlotStillOpen(db, input);
-    const created = await createTourInquiry(db, { incoming: tourInquiryRowFrom(input), verifiedApplicantEmail: ctx.email });
+    // The resident assistant also runs over text and email: a request made by text is answered by text.
+    const noticeChannel = (ctx as { channel?: string }).channel === "sms" ? "sms" : "portal";
+    const created = await createTourInquiry(db, { incoming: tourInquiryRowFrom(input), verifiedApplicantEmail: ctx.email, noticeChannel });
     if (!created.ok) throw new Error(created.error);
     return {
       reply: `Tour requested for ${formatTourRangeLabel(input.start, input.end)}. The manager will confirm the time.`,

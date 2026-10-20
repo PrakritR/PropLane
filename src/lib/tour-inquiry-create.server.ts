@@ -17,6 +17,7 @@
  * Callers own two things this function does not: rate limiting, and linking a
  * signed-in resident to the inquiry afterwards.
  */
+import type { NoticeChannel } from "@/lib/notice-channel";
 import "server-only";
 import { isMissingColumnError } from "@/lib/db-missing-column";
 import { normalizeLeadSource } from "@/lib/listing-channels/lead-source";
@@ -255,12 +256,19 @@ export async function createTourInquiry(
     verifiedApplicantEmail?: string | null;
     /** Listing site the prospect came from (the `pl_src` cookie); re-validated against the allowlist here. */
     sourceChannel?: string | null;
+    /**
+     * Where the request is being made (`@/lib/notice-channel`): `sms` for a tool a prospect or resident reaches by
+     * text, otherwise the web channel. A request carrying `smsOrigin` is always `sms`.
+     */
+    noticeChannel?: NoticeChannel;
   },
 ): Promise<CreateTourInquiryResult> {
   // Strip this internal provenance key before copying public input. It is set
   // only from the authenticated inbound channel below.
   const incoming = { ...args.incoming };
   delete incoming.smsOrigin;
+  // Server-owned like `smsOrigin`: a caller cannot pick the channel its own tour notices go out on.
+  delete incoming.noticeChannel;
   const notify = args.notify !== false;
 
   const id = typeof incoming.id === "string" && incoming.id.trim() ? incoming.id.trim() : crypto.randomUUID();
@@ -286,6 +294,9 @@ export async function createTourInquiry(
   // This marker is server-owned. Public callers can never name an SMS sender
   // merely by adding fields to `incoming`.
   row.smsOrigin = args.smsOrigin?.senderPhoneE164 ? "leasing_sms" : "non_sms";
+  // The channel the guest is answered on (confirmed, rescheduled, cancelled, removed): a tour made on the web
+  // or in the app is answered by email + the resident portal and never by text; one made by text, by text.
+  row.noticeChannel = args.smsOrigin?.senderPhoneE164 || args.noticeChannel === "sms" ? "sms" : "portal";
   const propertyId = typeof row["propertyId"] === "string" ? row["propertyId"] : null;
   const isTour = textValue(row.kind) === "tour";
 

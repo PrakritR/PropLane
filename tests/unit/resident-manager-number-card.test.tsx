@@ -33,7 +33,7 @@ function stubContacts(contacts: unknown[]) {
 }
 
 describe("resident manager number card", () => {
-  it("shows the number as a tappable sms link", async () => {
+  it("shows the work number as plain text: the portal never links to Messages", async () => {
     stubContacts([{ phone: "+12065559000", phoneKind: "work", propertyLabel: "4709A", leaseStart: null, leaseEnd: null, status: "current" }]);
     const { container } = render(<ResidentManagerNumberCard />);
     // The label shares its line with the caption now that the card is compact,
@@ -41,10 +41,9 @@ describe("resident manager number card", () => {
     await waitFor(() =>
       expect(container.querySelector('[title*="Your property manager"]')).not.toBeNull(),
     );
-    // A tel/sms link so a phone opens its messages app pre-addressed rather
-    // than making the resident copy digits off the screen.
-    const link = container.querySelector('[data-attr="resident-manager-number-link"]');
-    expect(link?.getAttribute("href")).toBe("sms:+12065559000");
+    expect(container.querySelector('[data-attr="resident-manager-number-link"]')).toBeNull();
+    expect(container.querySelector('a[href^="sms:"]')).toBeNull();
+    expect(screen.getByText("(206) 555-9000")).toBeTruthy();
   });
 
   it("renders nothing only when the manager has neither a phone nor an email", async () => {
@@ -99,22 +98,21 @@ describe("resident manager number card", () => {
     expect(container.querySelector('[data-attr="resident-manager-email-link"]')?.getAttribute("href")).toBe(
       "mailto:manager@test.proplane.local",
     );
-    // A profile phone is a real line: it rings, so it gets Call as well as Text.
+    // A profile phone is a real line: it rings, so it gets Call. There is no Text (the portal is the web channel).
     expect(container.querySelector('[data-attr="resident-manager-call-link"]')?.getAttribute("href")).toBe(
       "tel:+15103098345",
     );
-    expect(container.querySelector('[data-attr="resident-manager-number-link"]')?.getAttribute("href")).toBe(
-      "sms:+15103098345",
-    );
+    expect(container.querySelector('a[href^="sms:"]')).toBeNull();
   });
 
-  it("offers Text only for a work number, which never rings", async () => {
+  it("offers no phone action for a work number, which never rings and is never texted from the portal", async () => {
     stubContacts([
       { phone: "+12065559000", phoneKind: "work", email: null, emailKind: null, propertyLabel: "4709A", leaseStart: null, leaseEnd: null, status: "current" },
     ]);
     const { container } = render(<ResidentManagerNumberCard />);
-    await waitFor(() => expect(container.querySelector('[data-attr="resident-manager-number-link"]')).not.toBeNull());
+    await waitFor(() => expect(screen.getByText("(206) 555-9000")).toBeTruthy());
     expect(container.querySelector('[data-attr="resident-manager-call-link"]')).toBeNull();
+    expect(container.querySelector('[data-attr="resident-manager-number-link"]')).toBeNull();
   });
 
   it("leads with the contact and names the manager beside the role", async () => {
@@ -136,9 +134,7 @@ describe("resident manager number card", () => {
     // form truncated mid-digit in the list pane.
     await waitFor(() => expect(screen.getByText("(206) 555-9000")).toBeTruthy());
     expect(screen.getByTitle(/Akash Jain · Your property manager:/)).toBeTruthy();
-    expect(container.querySelector('[data-attr="resident-manager-number-link"]')?.getAttribute("href")).toBe(
-      "sms:+12065559000",
-    );
+    expect(container.querySelector('a[href^="sms:"]')).toBeNull();
   });
 
   it("labels each number by property only when there are several", async () => {
@@ -153,15 +149,12 @@ describe("resident manager number card", () => {
 });
 
 describe("phoneActions", () => {
-  it("gives a profile phone Call and Text, in that order", () => {
-    expect(phoneActions({ phone: "+15103098345", phoneKind: "profile" }, "(510) 309-8345").map((a) => a.key)).toEqual([
-      "call",
-      "text",
-    ]);
+  it("gives a profile phone Call and never Text", () => {
+    expect(phoneActions({ phone: "+15103098345", phoneKind: "profile" }, "(510) 309-8345").map((a) => a.key)).toEqual(["call"]);
   });
 
-  it("gives a work number Text only", () => {
-    expect(phoneActions({ phone: "+12065559000", phoneKind: "work" }, null).map((a) => a.key)).toEqual(["text"]);
+  it("gives a work number no action (the portal never links to Messages)", () => {
+    expect(phoneActions({ phone: "+12065559000", phoneKind: "work" }, null)).toEqual([]);
   });
 
   it("offers nothing without a phone", () => {

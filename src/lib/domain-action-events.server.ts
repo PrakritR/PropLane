@@ -1,3 +1,5 @@
+import { noticeChannelFor, NOTICE_CHANNEL_PAYLOAD_KEY, type NoticeChannel } from "@/lib/notice-channel";
+import { chargeNoticeChannel, residentNoticeChannel } from "@/lib/resident-notice-channel.server";
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -187,6 +189,8 @@ type ApplicationRowFacts = {
   withdrawnAt?: string | null;
   residentUserId?: string | null;
   updatedAtIso?: string | null;
+  /** Where the application was made (`notice-channel.ts`); server-owned, absent on an older row. */
+  noticeChannel?: string | null;
 };
 
 export function applicationEventForTransition(
@@ -276,6 +280,8 @@ export async function emitApplicationTransition(
     managerUserId: input.managerUserId,
     entityId: input.application.id,
     category: "applications",
+    // A portal-made application is answered in the portal (email + inbox), a text-made one by text.
+    channel: noticeChannelFor(input.application),
     senderUserId: actor.userId,
     senderEmail: actor.email,
     senderName: actor.name,
@@ -440,6 +446,7 @@ export async function emitHouseholdChargeTransition(
     managerUserId: input.managerUserId,
     entityId: input.charge.id,
     category: "payments",
+    channel: await chargeNoticeChannel(db, { managerUserId: input.managerUserId, charge: input.charge as { guestStayBlockId?: unknown; residentEmail?: string | null } }),
     senderUserId: sender.userId,
     senderEmail: sender.email,
     senderName: sender.name,
@@ -522,6 +529,8 @@ export function buildDurableLeaseTransitionEnvelope(input: {
   occurredAt?: string;
   /** The manager's per-event switch and templates; absent = defaults. */
   automated?: AutomatedMessageSettings | null;
+  /** The resident's channel (`residentNoticeChannel`): `portal` stamps the event so its retries never text. */
+  channel?: NoticeChannel;
 }): DurableLeaseTransitionEnvelope | null {
   const event = leaseEventForTransition(input.previous, input.lease);
   if (!event) return null;
@@ -576,7 +585,13 @@ export function buildDurableLeaseTransitionEnvelope(input: {
     senderEmail: input.actor.email.trim().toLowerCase(),
     senderName: input.actor.name?.trim() || null,
     occurredAt: input.occurredAt ?? new Date().toISOString(),
-    payload: { status: input.lease.status, propertyId: input.lease.propertyId, propertyLabel, triggeringActorUserId: input.triggeringActorUserId ?? input.actor.userId },
+    payload: {
+      status: input.lease.status,
+      propertyId: input.lease.propertyId,
+      propertyLabel,
+      triggeringActorUserId: input.triggeringActorUserId ?? input.actor.userId,
+      ...(input.channel === "portal" ? { [NOTICE_CHANNEL_PAYLOAD_KEY]: "portal" } : {}),
+    },
     deliveries,
   };
 }
@@ -624,6 +639,7 @@ export async function emitLeaseTransition(
     managerUserId: input.managerUserId,
     entityId: input.lease.id,
     category: "leases",
+    channel: await residentNoticeChannel(db, { managerUserId: input.managerUserId, email: input.lease.residentEmail }),
     senderUserId: input.actor.userId,
     senderEmail: input.actor.email,
     senderName: input.actor.name,
@@ -673,6 +689,7 @@ export async function emitLeaseDateChange(
     managerUserId: input.managerUserId,
     entityId: input.lease.id,
     category: "leases",
+    channel: await residentNoticeChannel(db, { managerUserId: input.managerUserId, email: input.lease.residentEmail }),
     senderUserId: actor.userId,
     senderEmail: actor.email,
     senderName: actor.name,

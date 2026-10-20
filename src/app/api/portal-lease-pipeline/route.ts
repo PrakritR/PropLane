@@ -1,3 +1,4 @@
+import { residentNoticeChannel } from "@/lib/resident-notice-channel.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { createHash } from "node:crypto";
 import { FINISH_FORMS_FIRST_MESSAGE, RESIDENT_FORMS_CHECK_FAILED_MESSAGE, leaseApplicationIds, loadResidentBlockingForms } from "@/lib/move-in-forms/blocking";
@@ -1648,6 +1649,7 @@ export async function POST(req: Request) {
       }
       const transition = managerUserId ? buildDurableLeaseTransitionEnvelope({
         automated: await loadAutomatedMessageSettings(ctx.db, managerUserId).catch(() => null),
+        channel: await residentNoticeChannel(ctx.db, { managerUserId, email: (plan.record.row_data as LeasePipelineRow).residentEmail }),
         managerUserId,
         previous: plan.previousRow,
         lease: plan.record.row_data as LeasePipelineRow,

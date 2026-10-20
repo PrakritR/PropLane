@@ -1,48 +1,12 @@
 /**
- * Web vs Messages (captain, Oct 20): a request made in the resident portal is answered in the portal and
- * by email, never by text; a request made by text is answered by text. ONE helper decides, from what the
- * row says about where it was made, and every outcome notice (requested, confirmed, approved, declined,
- * expired, unpaid) asks it:
- *
- *   portal -> email + the resident portal inbox, with /resident links; never SMS, never a /l/ pay link
- *   sms    -> today's behaviour, unchanged (the work-number text, the phone-bound pay link)
- *
- * Anything this cannot read is `sms`: that is what every row did before the channel was recorded, so an
- * older row keeps its old behaviour.
+ * The short-stay half of the channel rule (see `@/lib/notice-channel`, which owns `noticeChannelFor`): the
+ * portal copy of each outcome notice (requested, confirmed, approved, declined, expired, unpaid).
  */
 import { residentPortalUrl } from "@/lib/claw-resident-links";
-import {
-  GUEST_PORTAL_SHORT_STAY_SOURCE,
-  SHORT_STAY_HOLD_HOURS,
-  SHORT_STAY_PAY_HOURS,
-} from "@/lib/short-stay/guest-stays";
+import { SHORT_STAY_HOLD_HOURS, SHORT_STAY_PAY_HOURS } from "@/lib/short-stay/guest-stays";
 import { formatShortStayMoney, shortStayCompactRange } from "@/lib/short-stay-request";
 
-export type NoticeChannel = "portal" | "sms";
-
-const PORTAL_SOURCES = new Set([GUEST_PORTAL_SHORT_STAY_SOURCE, "portal", "resident_portal", "web", "app"]);
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
-/**
- * Where a request was made, from the stored row: a stay's `row_data` (`stayDetails.source`), or an
- * application / tour record carrying `noticeChannel`, `channel`, `source_channel` or `source`.
- */
-export function noticeChannelFor(row: unknown): NoticeChannel {
-  const record = asRecord(row);
-  const details = asRecord(record.stayDetails);
-  for (const candidate of [record.noticeChannel, record.channel, details.source, record.sourceChannel, record.source_channel, record.source]) {
-    if (typeof candidate !== "string" || !candidate.trim()) continue;
-    const value = candidate.trim().toLowerCase();
-    if (value === "sms" || value === "text") return "sms";
-    if (value === "portal" || PORTAL_SOURCES.has(value)) return "portal";
-    // A known text-origin source (sms_short_stay, the legacy public card) or anything unreadable.
-    return "sms";
-  }
-  return "sms";
-}
+export { noticeChannelFor, type NoticeChannel } from "@/lib/notice-channel";
 
 export type PortalNoticeKind = "requested" | "confirmed" | "approved" | "declined" | "expired" | "unpaid_released";
 

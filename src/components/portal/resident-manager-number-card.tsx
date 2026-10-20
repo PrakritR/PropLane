@@ -9,7 +9,7 @@
  * With neither channel configured, the card is absent.
 
  */
-import { Mail, MessageCircle, Phone } from "lucide-react";
+import { Mail, Phone } from "lucide-react";
 import {
   PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS,
   PortalInboxContactCard,
@@ -70,14 +70,9 @@ export function phoneActions(
     href: `tel:${contact.phone}`,
     icon: <Phone className="h-4 w-4" strokeWidth={1.9} />,
   };
-  const textAction: PortalInboxContactCardAction = {
-    key: "text",
-    label: `Text ${who}`,
-    dataAttr: "resident-manager-number-link",
-    href: `sms:${contact.phone}`,
-    icon: <MessageCircle className="h-4 w-4" strokeWidth={1.9} />,
-  };
-  return contact.phoneKind === "profile" ? [call, textAction] : [textAction];
+  // The portal is the web channel: it never links to Messages (no sms: action, no pre-addressed text). A
+  // profile phone is a real line and rings; a work number never rings, so it is shown as the number alone.
+  return contact.phoneKind === "profile" ? [call] : [];
 }
 
 function emailAction(email: string): PortalInboxContactCardAction {
