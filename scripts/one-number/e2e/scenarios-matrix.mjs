@@ -41,7 +41,7 @@ export async function say(ctx, from, to, body, opts = {}) {
       h.db.from("sms_outbox").select("status, purpose, last_error, updated_at").eq("recipient_phone", from),
       h.db.from("sms_inbound_receipts").select("status").eq("message_sid", r.sid).maybeSingle(),
     ]);
-    note(`NO REPLY. receipt=${receipt.data?.status ?? "none"} bursts=${JSON.stringify(bursts.data ?? bursts.error?.message)} outbox=${JSON.stringify(outbox.data ?? outbox.error?.message)}\nserver log problems:\n${h.logProblemsSince(logMark).slice(0, 12).join("\n")}`);
+    note(`NO REPLY. receipt=${receipt.data?.status ?? "none"} bursts=${JSON.stringify(bursts.data ?? bursts.error?.message)} outbox=${JSON.stringify(outbox.data ?? outbox.error?.message)}\nserver log problems:\n${h.logProblemsSince(logMark).slice(0, 12).join("\n")}\nraw server log since this text:\n${h.serverLog.join("").slice(logMark).split("\n").filter((l) => l.trim() && !/Compiling|✓/.test(l)).slice(0, 25).join("\n")}`);
   }
   if (opts.agentUser) {
     const { data: rows } = await h.db.from("agent_messages").select("role, tool_trace, created_at").eq("landlord_id", opts.agentUser).order("created_at", { ascending: false }).limit(4);
@@ -434,7 +434,7 @@ MATRIX_SCENARIOS.push({
       const offers = h.captured().filter((m) => String(m.to).replace(/\D/g, "").endsWith(V.slice(-10))).map((m) => m.body);
       c.check("the plumber was texted an offer", offers.length >= 1, "no offer captured");
       const offer = offers.join("\n");
-      c.check("the offer shows pay and a first-name resident only, no street address", /\$/.test(offer) && !new RegExp(fx.house.address.split(",")[0]).test(offer), offer);
+      c.check("the offer shows pay and a first-name resident only, no street address", /pay:/i.test(offer) && !new RegExp(fx.house.address.split(",")[0]).test(offer), offer);
       const yes = await say(ctx, V, fx.to, "YES tomorrow 3pm");
       c.reply(yes, "vendor YES");
       c.check("the vendor's YES is accepted", /(got it|accepted|confirmed|you have|assigned|scheduled|thanks)/i.test(yes.all), yes.all);
