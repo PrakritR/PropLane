@@ -68,10 +68,10 @@ async function main() {
   const releaseLock = needsLock ? await acquireE2eLock(console.log, { branch: process.env.E2E_BRANCH || "on/finale2e" }) : () => {};
   process.once("SIGINT", () => { releaseLock(); });
   process.once("SIGTERM", () => { releaseLock(); });
-  try { return await mainLocked(flags, { env, resolved, db }); } finally { releaseLock(); }
+  try { return await mainLocked(flags, { env, resolved, db, needsLockHeld: needsLock }); } finally { releaseLock(); }
 }
 
-async function mainLocked(flags, { env, resolved, db }) {
+async function mainLocked(flags, { env, resolved, db, needsLockHeld = false }) {
   // The dev database is shared and fragile: nothing below starts until it answers fast.
   await waitHealthy(resolved, env, console.log);
 
@@ -105,7 +105,9 @@ async function mainLocked(flags, { env, resolved, db }) {
     return 0;
   }
 
-  await waitForOtherRuns(console.log);
+  // The e2e lock (taken in main) already serialises runs; waiting here for "no other e2e-scenarios process" deadlocks with a run that is
+  // only queued for that lock (the holder waits for the queued run, the queued run waits for the lock). Only a run that holds no lock waits.
+  if (!needsLockHeld) await waitForOtherRuns(console.log);
   // No other run is alive now, so a non-baseline config is a dead run's leftover (--keep, a kill): put it back before snapshotting.
   await restoreBaseline(db, console.log);
   const runId = hex(6);
