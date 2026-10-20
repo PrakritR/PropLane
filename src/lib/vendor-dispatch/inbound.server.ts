@@ -42,19 +42,20 @@ const COMPLETED_RUN_WINDOW_DAYS = 30;
 
 async function loadOwnerRuns(
   db: SupabaseClient,
-  ownerUserId: string,
-  workspaceId: string | null,
+  ownerUserId: string | string[],
+  workspaceId: string | string[] | null,
   statuses: string[],
   options: { completed?: "invoice_pending" | "recent" } = {},
 ): Promise<DispatchRunRow[]> {
-  const live = await db.from("vendor_dispatch_runs").select("*").eq("owner_user_id", ownerUserId).in("status", statuses);
+  const owners = Array.isArray(ownerUserId) ? ownerUserId : [ownerUserId];
+  const live = await db.from("vendor_dispatch_runs").select("*").in("owner_user_id", owners).in("status", statuses);
   if (live.error) {
     if (isMissingRelationError(live.error)) return [];
     throw new Error(live.error.message);
   }
   let rows = (live.data ?? []) as DispatchRunRow[];
   if (options.completed) {
-    let query = db.from("vendor_dispatch_runs").select("*").eq("owner_user_id", ownerUserId).eq("status", "completed");
+    let query = db.from("vendor_dispatch_runs").select("*").in("owner_user_id", owners).eq("status", "completed");
     query =
       options.completed === "invoice_pending"
         ? query.not("pending_invoice_cents", "is", null)
@@ -63,7 +64,31 @@ async function loadOwnerRuns(
     if (done.error) throw new Error(done.error.message);
     rows = [...rows, ...((done.data ?? []) as DispatchRunRow[])];
   }
-  return rows.filter((run) => !workspaceId || run.workspace_id === workspaceId);
+  const workspaces = Array.isArray(workspaceId) ? workspaceId : workspaceId ? [workspaceId] : null;
+  return rows.filter((run) => !workspaces || workspaces.includes(run.workspace_id));
+}
+
+/**
+ * Whose runs a text to this number can answer. A work number answers its own owner's runs. The PropLane line (the service
+ * owner's number) also answers the runs of every PropLane Service workspace, because roster vendors are texted from it:
+ * their YES arrives here, while the runs belong to the client who owns the workspace. Only `is_service` workspaces are
+ * added, never the rest of a client's workspaces.
+ */
+async function replyScope(
+  db: SupabaseClient,
+  ownerUserId: string,
+  workspaceId: string | null,
+): Promise<{ owners: string[]; workspaces: string[] | string | null }> {
+  try {
+    const { readPlatformServiceOwnerId } = await import("@/lib/service/service-catalog.server");
+    if ((await readPlatformServiceOwnerId(db)) !== ownerUserId) return { owners: [ownerUserId], workspaces: workspaceId };
+    const { data, error } = await db.from("portal_workspaces").select("id, owner_user_id").eq("is_service", true).limit(500);
+    if (error) return { owners: [ownerUserId], workspaces: workspaceId };
+    const rows = (data ?? []) as Array<{ id: string; owner_user_id: string }>;
+    return { owners: [...new Set([ownerUserId, ...rows.map((row) => row.owner_user_id)])], workspaces: rows.map((row) => row.id) };
+  } catch {
+    return { owners: [ownerUserId], workspaces: workspaceId };
+  }
 }
 
 /** Everything awaiting THIS person's answer, newest first. */
@@ -135,11 +160,20 @@ export async function handleManagerDispatchReply(
     now?: Date;
     /** Test seam: is an assistant confirmation also waiting for this person? */
     assistantProposalOpen?: () => Promise<boolean>;
+    /**
+     * The service manager answers for EVERY PropLane Service workspace at once: each scope is one workspace and its owner.
+     * Handles come from one counter across the service (`createDispatchRun`), so a handle names exactly one run.
+     */
+    scopes?: Array<{ ownerUserId: string; workspaceId: string | null }>;
   },
 ): Promise<InboundHandled> {
   const parsed = parseManagerDispatchReply(input.body);
   if (!parsed) return { handled: false };
-  const pending = await listPendingForActor(db, input).catch(() => [] as PendingItem[]);
+  const pending = input.scopes
+    ? (await Promise.all(input.scopes.map((scope) => listPendingForActor(db, { ...scope, actorUserId: input.actorUserId }).catch(() => [] as PendingItem[]))))
+        .flat()
+        .sort((a, b) => b.run.handle - a.run.handle)
+    : await listPendingForActor(db, input).catch(() => [] as PendingItem[]);
   if (pending.length === 0) return { handled: false };
 
   const applicable = pending.filter((item) => APPLICABLE[parsed.kind].includes(item.kind));
@@ -209,7 +243,8 @@ export async function findVendorJobsForPhone(
 ): Promise<VendorJob[]> {
   const phone = normalizeE164(input.phoneE164);
   if (!phone) return [];
-  const runs = await loadOwnerRuns(db, input.ownerUserId, input.workspaceId, ["offering", "exhausted", "accepted"], { completed: "recent" });
+  const scope = await replyScope(db, input.ownerUserId, input.workspaceId);
+  const runs = await loadOwnerRuns(db, scope.owners, scope.workspaces, ["offering", "exhausted", "accepted"], { completed: "recent" });
   if (runs.length === 0) return [];
   const runById = new Map(runs.map((run) => [run.id, run] as const));
   const { data, error } = await db
@@ -222,11 +257,16 @@ export async function findVendorJobsForPhone(
     throw new Error(error.message);
   }
   const attempts = (data ?? []) as DispatchAttemptRow[];
-  const contacts = await loadVendorContacts(db, input.ownerUserId, [...new Set(attempts.map((attempt) => attempt.vendor_directory_id))]);
+  // Contacts are re-read per run owner: a vendor is a contact of the run's owner (or the service owner's roster).
+  const contactsByOwner = new Map<string, Map<string, VendorContact>>();
+  for (const owner of new Set(runs.map((run) => run.owner_user_id))) {
+    const ids = [...new Set(attempts.filter((attempt) => runById.get(attempt.run_id)?.owner_user_id === owner).map((attempt) => attempt.vendor_directory_id))];
+    contactsByOwner.set(owner, await loadVendorContacts(db, owner, ids));
+  }
   const jobs: VendorJob[] = [];
   for (const attempt of attempts) {
-    const contact = contacts.get(attempt.vendor_directory_id);
     const run = runById.get(attempt.run_id);
+    const contact = run ? contactsByOwner.get(run.owner_user_id)?.get(attempt.vendor_directory_id) : undefined;
     if (!contact || !run || contact.phone !== phone) continue;
     jobs.push({ run, attempt, contact });
   }

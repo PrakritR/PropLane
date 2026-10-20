@@ -25,6 +25,12 @@ import { handlePropLaneLineVendorInbound } from "@/lib/sms/vendor-line-inbound.s
 import { recordVendorInboundReplyConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 import {
+  buildServiceManagerAgentContext,
+  listServiceWorkspaceRefs,
+  pickServiceWorkspace,
+  recognizeServiceManagerInbound,
+} from "@/lib/sms/service-manager-inbound.server";
+import {
   deliverManagerSmsReply,
   runManagerSmsAgentTurn,
 } from "@/lib/agent/manager-sms-agent.server";
@@ -824,6 +830,16 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
     return NextResponse.json({ error: "Manager identity unavailable." }, { status: 503 });
   }
+  // The SERVICE MANAGER (the verified manager phone in admin Service settings) texting the PropLane line is the manager
+  // of every PropLane Service workspace. Checked before the generic identity so a number several profiles share, or an
+  // ambiguous one, never decides it (`service-manager-inbound.server.ts`).
+  let serviceManager: Awaited<ReturnType<typeof recognizeServiceManagerInbound>> = null;
+  try {
+    serviceManager = await recognizeServiceManagerInbound(db, { managerId, fromPhone, toPhone });
+  } catch {
+    serviceManager = null;
+  }
+  if (serviceManager) managerInbound = serviceManager;
   if (managerInbound) {
     const consent = await ensureManagerInboundReplyConsent(db, managerInbound, messageSid);
     if (consent === "unavailable") {
@@ -915,11 +931,15 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     // Vendor dispatch (vendor-dispatch-1018): Y / N / 2 / R / B answering a dispatch approval is
     // parsed here, deterministically, before the Team chat or the Assistant sees the text. Only a
     // sender with something waiting on them is claimed; everything else falls through unchanged.
+    const serviceScopes = serviceManager
+      ? ((await listServiceWorkspaceRefs(db).catch(() => null)) ?? []).map((ws) => ({ ownerUserId: ws.ownerUserId, workspaceId: ws.id }))
+      : undefined;
     const dispatchAnswer = await handleManagerDispatchReply(db, {
       ownerUserId: managerInbound.workNumberOwnerId,
       workspaceId: workspaceId ?? null,
       actorUserId: managerInbound.actorUserId,
       body,
+      ...(serviceScopes ? { scopes: serviceScopes } : {}),
     }).catch((error: unknown) => {
       console.error("vendor dispatch manager reply failed", error instanceof Error ? error.message : "unknown");
       return { handled: false as const };
@@ -952,7 +972,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     // and relayed to the others; it never reaches the agent.
     let teamRoute: Awaited<ReturnType<typeof routeManagerInboundText>>;
     try {
-      teamRoute = await routeManagerInboundText(db, {
+      // The service manager talks to the assistant, never the Team chat of the line owner's own workspace.
+      teamRoute = serviceManager ? { kind: "agent", text: body } : await routeManagerInboundText(db, {
         ownerManagerUserId: managerInbound.workNumberOwnerId,
         workspaceId: workspaceId ?? null,
         actorUserId: managerInbound.actorUserId,
@@ -992,12 +1013,41 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       occurredAt,
       workspaceId: workspaceId ?? null,
     }).catch((error) => console.error("manager inbound projection failed", error instanceof Error ? error.message : "unknown"));
-    const managerIdentity = await resolveManagerSmsAgentContext(db, {
-      managerUserId: managerInbound.workNumberOwnerId,
-      actorUserId: managerInbound.actorUserId,
-      access: managerInbound.access,
-      workspaceId: workspaceId,
-    });
+    let managerIdentity: Awaited<ReturnType<typeof resolveManagerSmsAgentContext>>;
+    if (serviceManager) {
+      // Which PropLane Service workspace is this about? A name in the text, the last pick, or one short question.
+      const workspaces = await listServiceWorkspaceRefs(db).catch(() => null);
+      const picked = workspaces ? await pickServiceWorkspace(db, { fromPhone, body: agentBody, workspaces }).catch(() => null) : null;
+      if (!picked || picked.kind !== "chosen") {
+        const reply = !picked
+          ? "I could not read the service workspaces just now. Try again in a minute."
+          : picked.kind === "ask"
+            ? picked.question
+            : "There are no PropLane Service workspaces yet.";
+        await deliverManagerSmsReply({
+          managerUserId: managerInbound.workNumberOwnerId,
+          actorUserId: managerInbound.actorUserId,
+          toPhone: fromPhone,
+          text: stripLongDashes(reply),
+          workNumber,
+          inboundMessageSid: messageSid,
+          workspaceId: workspaceId ?? null,
+        }).catch((error: unknown) => console.error("service manager question not delivered", error instanceof Error ? error.message : "unknown"));
+        await db.from("inbound_sms_log").delete().eq("message_sid", messageSid).eq("manager_user_id", managerId);
+        if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+          return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+        }
+        return twimlOk();
+      }
+      managerIdentity = await buildServiceManagerAgentContext(db, { serviceOwnerId: managerInbound.actorUserId, workspace: picked.workspace });
+    } else {
+      managerIdentity = await resolveManagerSmsAgentContext(db, {
+        managerUserId: managerInbound.workNumberOwnerId,
+        actorUserId: managerInbound.actorUserId,
+        access: managerInbound.access,
+        workspaceId: workspaceId,
+      });
+    }
     // One assistant conversation: the manager's own text lands in their
     // PropLane Assistant thread (marked SMS) before the agent answers. The id
     // is the Twilio MessageSid, so a webhook retry appends nothing. A failed

@@ -38,6 +38,8 @@ export type MatchInput = {
   at?: Date;
   /** When the job is a work order, its row drives the fairness ranking of the fallback. */
   workOrder?: DemoManagerWorkOrderRow | null;
+  /** The job's general area (never a street): ranks roster vendors whose service area matches. */
+  area?: string | null;
 };
 
 export type MatchResult = {
@@ -73,7 +75,7 @@ export function vendorTradeIds(vendor: Pick<ManagerVendorRow, "trade" | "trades"
   return ids;
 }
 
-type VendorRecord = {
+export type VendorRecord = {
   id: string;
   manager_user_id: string | null;
   vendor_user_id: string | null;
@@ -164,7 +166,7 @@ async function isReachable(
 }
 
 /** Turn roster records into reachable chain entries, keeping the given order. */
-async function toChain(
+export async function toChain(
   db: SupabaseClient,
   ownerUserId: string,
   orderedIds: string[],
@@ -236,6 +238,14 @@ export async function loadRuleChain(
 /** Every reachable vendor of the trade on this manager's roster (the "offer all cleaners at once" set). */
 export async function loadTradeRoster(
   db: SupabaseClient,
+  input: { ownerUserId: string; trade: string; propertyId?: string | null; at?: Date; workspaceId?: string | null },
+): Promise<ChainVendor[]> {
+  const own = await loadOwnTradeRoster(db, input);
+  return withServiceRoster(db, { workspaceId: input.workspaceId, trade: input.trade, at: input.at }, own);
+}
+
+async function loadOwnTradeRoster(
+  db: SupabaseClient,
   input: { ownerUserId: string; trade: string; propertyId?: string | null; at?: Date },
 ): Promise<ChainVendor[]> {
   const { data, error } = await db
@@ -263,9 +273,36 @@ export async function loadTradeRoster(
   return toChain(db, input.ownerUserId, ordered, records, input.at ?? new Date());
 }
 
-/** The existing fairness ranking, restricted to vendors whose trades include the job's trade. */
+/**
+ * A PropLane Service workspace (`is_service`) is also offered to the service-wide vendor roster (admin Service >
+ * Vendors), behind the workspace's own vendors. Any other workspace, or a roster that cannot be read, returns `own`
+ * unchanged.
+ */
+async function withServiceRoster(
+  db: SupabaseClient,
+  input: { workspaceId?: string | null; trade: string; area?: string | null; at?: Date },
+  own: ChainVendor[],
+): Promise<ChainVendor[]> {
+  if (!input.workspaceId) return own;
+  try {
+    const roster = await import("@/lib/vendor-dispatch/service-roster.server");
+    const serviceOwnerId = await roster.serviceOwnerForWorkspace(db, input.workspaceId);
+    if (!serviceOwnerId) return own;
+    const chain = await roster.loadServiceRosterChain(db, { serviceOwnerId, trade: input.trade, area: input.area, at: input.at });
+    return roster.mergeRosterChain(own, chain);
+  } catch {
+    return own;
+  }
+}
+
+/** The existing fairness ranking, restricted to vendors whose trades include the job's trade; a service workspace adds the roster. */
 async function fallbackChain(db: SupabaseClient, input: MatchInput, at: Date): Promise<ChainVendor[]> {
-  const roster = await loadTradeRoster(db, { ownerUserId: input.ownerUserId, trade: input.trade, propertyId: input.propertyId, at });
+  const own = await ownFallbackChain(db, input, at);
+  return withServiceRoster(db, { workspaceId: input.workspaceId, trade: input.trade, area: input.area, at }, own);
+}
+
+async function ownFallbackChain(db: SupabaseClient, input: MatchInput, at: Date): Promise<ChainVendor[]> {
+  const roster = await loadOwnTradeRoster(db, { ownerUserId: input.ownerUserId, trade: input.trade, propertyId: input.propertyId, at });
   const workOrder = input.workOrder;
   if (!workOrder?.category || roster.length === 0) return roster.map((vendor, index) => ({ ...vendor, position: index }));
   const records = await loadRecords(db, roster.map((vendor) => vendor.vendorDirectoryId));
@@ -310,7 +347,11 @@ export async function workspaceHasMatchingRule(db: SupabaseClient, input: MatchI
       input,
       input.at ?? new Date(),
     );
-    return rules.length > 0;
+    if (rules.length > 0) return true;
+    // A PropLane Service workspace needs no rule of its own: the service roster is its standing chain.
+    const roster = await import("@/lib/vendor-dispatch/service-roster.server");
+    const serviceOwnerId = await roster.serviceOwnerForWorkspace(db, input.workspaceId);
+    return serviceOwnerId ? await roster.serviceRosterHasTrade(db, serviceOwnerId, input.trade) : false;
   } catch {
     return false;
   }

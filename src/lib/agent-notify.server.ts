@@ -99,6 +99,18 @@ export async function notifyManagerFromAgent(
     workLineId: args.workLineId,
   });
   const sendWorkspaceId = noticeWorkspace.workspaceId || null;
+  // A PropLane Service workspace's notices are also texted to the service manager's verified phone (no-op for any other workspace).
+  const serviceAlert = import("@/lib/service/service-manager-alerts.server").then((m) =>
+    m.alertServiceManagerFromNotice(db, {
+      workspaceId: sendWorkspaceId,
+      subject: args.subject,
+      text: args.text,
+      externalText: args.externalText,
+      category: args.category,
+      threadType: args.threadType,
+      idempotencyKey: args.idempotencyKey,
+    }),
+  ).catch(() => "skipped" as const);
   const channels = await resolveManagerNotificationChannels(
     db,
     args.landlordId,
@@ -320,6 +332,7 @@ export async function notifyManagerFromAgent(
     throw new Error("Manager SMS was not accepted for delivery.");
   }
 
+  await serviceAlert;
   const suppressed = !channels.inbox && !smsRequested && !emailRequested;
   return { delivered: inboxDelivered || smsDelivered || emailDelivered, suppressed, sms: smsStatus, email: emailStatus };
 }

@@ -12,6 +12,8 @@ export const TEAM_NOTICE_SMS_PURPOSE = "team_notice";
 export const TEAM_CHAT_RELAY_SMS_PURPOSE = "team_chat_relay";
 /** A resident / prospect text to the work number, forwarded to a teammate with that house. */
 export const TEAM_INBOUND_FORWARD_SMS_PURPOSE = "team_inbound_forward";
+/** A manager alert texted to the verified SERVICE MANAGER phone (`platform_service_settings`, admin Service settings). */
+export const SERVICE_MANAGER_SMS_PURPOSE = "service_manager_notice";
 /** Prefix of every PropLane Assistant notice text (`manager_agent_notification_<category>`). */
 export const MANAGER_NOTICE_SMS_PURPOSE_PREFIX = "manager_agent_notification_";
 
@@ -27,6 +29,7 @@ export function isManagerRecipientSmsPurpose(purpose: string | null | undefined)
     value === TEAM_NOTICE_SMS_PURPOSE ||
     value === TEAM_CHAT_RELAY_SMS_PURPOSE ||
     value === TEAM_INBOUND_FORWARD_SMS_PURPOSE ||
+    value === SERVICE_MANAGER_SMS_PURPOSE ||
     value.startsWith(MANAGER_NOTICE_SMS_PURPOSE_PREFIX)
   );
 }
@@ -56,6 +59,35 @@ export async function ensureTeamNoticeScopedSmsConsent(
   if (!current.ok) return current;
   if (current.state === "granted") return { ok: true, granted: true };
   if (current.state === "revoked") return { ok: true, granted: false };
+
+  // The service manager's phone is verified by a code the admin typed (platform_service_settings), not by a profile:
+  // several profiles can hold the same number, so the setting alone is the evidence.
+  if (input.purpose === SERVICE_MANAGER_SMS_PURPOSE) {
+    const { data: settings, error: settingsError } = await db
+      .from("platform_service_settings")
+      .select("owner_user_id, manager_phone_e164, manager_phone_verified_at")
+      .eq("singleton", true)
+      .maybeSingle();
+    if (settingsError) return { ok: false, error: "team_consent_unreadable" };
+    const row = settings as { owner_user_id?: unknown; manager_phone_e164?: unknown; manager_phone_verified_at?: unknown } | null;
+    const verifiedAt = typeof row?.manager_phone_verified_at === "string" ? row.manager_phone_verified_at.trim() : "";
+    if (
+      !verifiedAt ||
+      Number.isNaN(Date.parse(verifiedAt)) ||
+      String(row?.owner_user_id ?? "") !== input.managerUserId ||
+      normalizeConsentPhone(String(row?.manager_phone_e164 ?? "")) !== normalizeConsentPhone(input.recipientPhone)
+    ) {
+      return { ok: true, granted: false };
+    }
+    const recorded = await recordScopedSmsConsent(db, input.recipientPhone, {
+      ...scope,
+      eventType: "granted",
+      source: "service_manager_verified_phone",
+      occurredAt: verifiedAt,
+      evidence: { ownerUserId: input.managerUserId, phoneVerifiedAt: verifiedAt },
+    });
+    return recorded.ok ? { ok: true, granted: true } : recorded;
+  }
 
   const recipientUserId = input.recipientUserId?.trim() ?? "";
   if (!recipientUserId) return { ok: true, granted: false };

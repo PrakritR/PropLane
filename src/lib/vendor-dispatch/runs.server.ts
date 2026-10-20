@@ -14,6 +14,7 @@ import {
   requestApproval,
 } from "@/lib/vendor-dispatch/engine.server";
 import { isMissingRelationError, loadTradeRoster, matchDispatchRule } from "@/lib/vendor-dispatch/match.server";
+import { serviceOwnerForWorkspace } from "@/lib/vendor-dispatch/service-roster.server";
 import { sendVendorDispatchText } from "@/lib/vendor-dispatch/send.server";
 import { composeVendorOfferText, stripContactDetails, toGsm7, type DispatchJobDetails } from "@/lib/vendor-dispatch/text";
 import {
@@ -126,6 +127,7 @@ export async function createDispatchRun(db: SupabaseClient, input: CreateDispatc
     urgency: input.urgency,
     at,
     workOrder: input.workOrder ?? null,
+    area: input.details.area ?? null,
   });
   if (match.chain.length === 0) return { ok: false, reason: "no_vendors", ruleId: match.rule?.id ?? null };
   const rule = match.rule;
@@ -148,7 +150,10 @@ export async function createDispatchRun(db: SupabaseClient, input: CreateDispatc
   const payCents = input.payCents ?? rule?.pay_cents ?? null;
   const timeoutMinutes = rule?.timeout_minutes ?? DEFAULT_OFFER_TIMEOUT_MINUTES[input.urgency];
 
-  const handleResult = await db.rpc("next_vendor_dispatch_handle", { p_owner: input.ownerUserId });
+  // Every PropLane Service workspace draws its job numbers from the service owner's counter, so "Y 7" from the service
+  // manager's phone names one job across all of them. Any other workspace keeps its owner's own counter.
+  const handleOwner = (await serviceOwnerForWorkspace(db, input.workspaceId)) ?? input.ownerUserId;
+  const handleResult = await db.rpc("next_vendor_dispatch_handle", { p_owner: handleOwner });
   const handle = Number(handleResult.data);
   if (handleResult.error || !Number.isInteger(handle) || handle < 1) return { ok: false, reason: "unavailable" };
 
@@ -347,7 +352,7 @@ export async function retryDispatchRun(
 
   let vendorIds: string[];
   if (input.broadcast) {
-    const roster = await loadTradeRoster(db, { ownerUserId: run.owner_user_id, trade: run.trade, propertyId: run.property_id, at: now });
+    const roster = await loadTradeRoster(db, { ownerUserId: run.owner_user_id, trade: run.trade, propertyId: run.property_id, at: now, workspaceId: run.workspace_id });
     vendorIds = roster.slice(0, BROADCAST_ALL_CAP).map((vendor) => vendor.vendorDirectoryId);
   } else {
     vendorIds = attempts.filter((attempt) => attempt.status !== "accepted").map((attempt) => attempt.vendor_directory_id);

@@ -10,6 +10,8 @@ import { dispatchOwnerSmsOutbox, enqueueOwnerSms } from "@/lib/sms/owner-sms-dis
 import { resolveWorkspaceSendLine } from "@/lib/sms/manager-number-provisioning.server";
 import { TEAM_NOTICE_SMS_PURPOSE } from "@/lib/sms/team-notice-consent.server";
 import { memberPhoneEligibility } from "@/lib/team-comms.server";
+import { userDefaultWorkspaceId } from "@/lib/communication/manager-assistant-workspace.server";
+import { rosterSenderFor, serviceOwnerForWorkspace } from "@/lib/vendor-dispatch/service-roster.server";
 import { toGsm7 } from "@/lib/vendor-dispatch/text";
 
 /**
@@ -83,6 +85,26 @@ export async function sendVendorDispatchText(
     if (sent.reason !== "not_shared_mode") return { ok: false, reason: sent.reason };
   }
 
+  // A PropLane Service roster vendor belongs to the service owner: the text leaves from the PropLane line as the
+  // service owner, under their consent ledger (where the vendor's STOP and replies live).
+  const rosterSender = await rosterSenderFor(db, input.vendorDirectoryId);
+  if (rosterSender) {
+    const ownerWorkspaceId = await userDefaultWorkspaceId(db, rosterSender.serviceOwnerId);
+    const sent = await sendManagerConversationSms(db, {
+      actorUserId: rosterSender.serviceOwnerId,
+      idempotencyKey: input.idempotencyKey.replace(/[^A-Za-z0-9_-]/g, "_").padEnd(16, "_").slice(0, 128),
+      toPhone: phone,
+      text,
+      vendorRecordId: input.vendorDirectoryId,
+      attestVendorRelationship: true,
+      workspace: { id: ownerWorkspaceId || null },
+    });
+    if (sent.status >= 200 && sent.status < 300 && !sent.body.error) {
+      return { ok: true, outboxId: typeof sent.body.outboxId === "string" ? sent.body.outboxId : null };
+    }
+    return { ok: false, reason: String(sent.body.error ?? sent.body.code ?? `status_${sent.status}`) };
+  }
+
   const key = /^[A-Za-z0-9_-]{16,128}$/.test(input.idempotencyKey)
     ? input.idempotencyKey
     : input.idempotencyKey.replace(/[^A-Za-z0-9_-]/g, "_").padEnd(16, "_").slice(0, 128);
@@ -116,6 +138,14 @@ export async function sendTeamMemberDispatchText(
 ): Promise<DispatchSendResult> {
   const text = toGsm7(input.text);
   if (!text) return { ok: false, reason: "empty" };
+  // The service manager of a PropLane Service workspace is texted at the verified manager phone from the PropLane line
+  // (`platform_service_settings`), never at a profile phone: several profiles can share that number.
+  const serviceOwnerId = await serviceOwnerForWorkspace(db, input.workspaceId);
+  if (serviceOwnerId && serviceOwnerId === input.memberUserId) {
+    const { sendToServiceManager } = await import("@/lib/service/service-manager.server");
+    const sent = await sendToServiceManager(db, { text, dedupeKey: input.dedupeKey });
+    return sent.ok ? { ok: true, outboxId: null } : { ok: false, reason: sent.reason };
+  }
   const eligibility = await memberPhoneEligibility(db, input.memberUserId);
   if (!eligibility.eligible) return { ok: false, reason: eligibility.reason };
   const line = await resolveWorkspaceSendLine(db, input.ownerUserId, input.workspaceId).catch(() => null);

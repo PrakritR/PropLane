@@ -9,6 +9,7 @@ import { resolveWorkspaceTeamMembersWithGrants } from "@/lib/team-comms.server";
 import { workOrderGeneralArea } from "@/lib/work-order-vendor-privacy";
 import { recordDispatchEvent } from "@/lib/vendor-dispatch/audit.server";
 import { isMissingRelationError } from "@/lib/vendor-dispatch/match.server";
+import { serviceOwnerForWorkspace } from "@/lib/vendor-dispatch/service-roster.server";
 import { sendTeamMemberDispatchText, sendVendorDispatchText } from "@/lib/vendor-dispatch/send.server";
 import {
   composeApprovalText,
@@ -85,15 +86,23 @@ export async function loadVendorContacts(
     .select("id, manager_user_id, vendor_user_id, row_data")
     .in("id", ids);
   if (error) throw new Error(error.message);
+  // A PropLane Service roster vendor (owned by the service owner) is a contact of any service workspace's run.
+  let serviceOwnerId: string | null | undefined;
   for (const row of (data ?? []) as Array<{
     id: string;
     manager_user_id: string | null;
     vendor_user_id: string | null;
-    row_data: { name?: string; preferredName?: string; phone?: string; active?: boolean; sharedWithManagers?: boolean; vendorUserId?: string | null } | null;
+    row_data: { name?: string; preferredName?: string; phone?: string; active?: boolean; sharedWithManagers?: boolean; vendorUserId?: string | null; serviceRoster?: boolean; rosterRemovedAt?: string } | null;
   }>) {
     const vendor = row.row_data;
     if (!vendor || vendor.active === false) continue;
-    if (row.manager_user_id !== ownerUserId && vendor.sharedWithManagers !== true) continue;
+    if (row.manager_user_id !== ownerUserId && vendor.sharedWithManagers !== true) {
+      if (vendor.serviceRoster !== true || vendor.rosterRemovedAt) continue;
+      if (serviceOwnerId === undefined) {
+        serviceOwnerId = await import("@/lib/service/service-catalog.server").then((m) => m.readPlatformServiceOwnerId(db)).catch(() => null);
+      }
+      if (!serviceOwnerId || serviceOwnerId !== row.manager_user_id) continue;
+    }
     const name = String(vendor.name ?? "").trim() || "Vendor";
     out.set(row.id, {
       id: row.id,
@@ -136,9 +145,12 @@ export async function resolveApprovers(
     ownerManagerUserId: run.owner_user_id,
     workspaceId: run.workspace_id,
   });
-  const ids = [run.owner_user_id];
+  // A PropLane Service workspace is run by the service manager: the client who owns it is view only, so the service
+  // owner is the approver and the client is not asked (nor allowed) to answer.
+  const serviceOwnerId = await serviceOwnerForWorkspace(db, run.workspace_id);
+  const ids = serviceOwnerId ? [serviceOwnerId] : [run.owner_user_id];
   for (const member of members) {
-    if (member.isOwner || member.userId === run.owner_user_id) continue;
+    if (member.isOwner || member.userId === run.owner_user_id || member.userId === serviceOwnerId) continue;
     if (member.teamRole === "viewer") continue;
     if (!memberReceivesNotice(member, { module: "services", propertyId: run.property_id })) continue;
     ids.push(member.userId);
@@ -152,6 +164,11 @@ export async function canActorApprove(
   actorUserId: string,
 ): Promise<boolean> {
   if (!actorUserId) return false;
+  try {
+    if (await serviceOwnerForWorkspace(db, run.workspace_id)) return (await resolveApprovers(db, run)).includes(actorUserId);
+  } catch {
+    return false;
+  }
   if (actorUserId === run.owner_user_id) return true;
   try {
     return (await resolveApprovers(db, run)).includes(actorUserId);
