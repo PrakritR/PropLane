@@ -12,6 +12,7 @@ import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { AdminNewServiceWorkspace } from "@/components/portal/admin-new-service-workspace";
 import { AdminServiceManagerPhone } from "@/components/portal/admin-service-manager-phone";
+import { AdminServiceNetwork, networkBucketFromParam } from "@/components/portal/admin-service-network";
 import { AdminServiceVendorsList } from "@/components/portal/admin-service-vendors-list";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -108,7 +109,9 @@ async function post<T extends Record<string, unknown>>(body: Record<string, unkn
 export function AdminServicePanel() {
   const { showToast } = useAppUi();
   const searchParams = useSearchParams();
-  const tab: "workspaces" | "vendors" = searchParams?.get("tab") === "vendors" ? "vendors" : "workspaces";
+  const tabParam = searchParams?.get("tab");
+  const tab: "workspaces" | "vendors" | "network" = tabParam === "vendors" ? "vendors" : tabParam === "network" ? "network" : "workspaces";
+  const networkBucket = networkBucketFromParam(searchParams?.get("bucket"));
   const [vendorAddOpen, setVendorAddOpen] = useState(false);
   const [managerPhoneOpen, setManagerPhoneOpen] = useState(false);
   const [state, setState] = useState<State>({ status: "loading" });
@@ -393,6 +396,7 @@ export function AdminServicePanel() {
         destinations={[
           { id: "workspaces", label: "Workspaces", href: "/admin/service", dataAttr: "admin-service-tab-workspaces" },
           { id: "vendors", label: "Vendors", href: "/admin/service?tab=vendors", dataAttr: "admin-service-tab-vendors" },
+          { id: "network", label: "Network", href: "/admin/service?tab=network", dataAttr: "admin-service-tab-network" },
         ]}
         activeDestinationId={tab}
         destinationAriaLabel="Service"
@@ -418,7 +422,7 @@ export function AdminServicePanel() {
           </>
         }
         primary={
-          tab === "vendors" ? (
+          tab === "network" ? null : tab === "vendors" ? (
             <PortalPrimaryIconAction label="Add vendor" data-attr="admin-service-vendor-add" onClick={() => setVendorAddOpen(true)} />
           ) : (
             <PortalPrimaryIconAction
@@ -431,7 +435,9 @@ export function AdminServicePanel() {
         }
       />
       <AdminServiceManagerPhone open={managerPhoneOpen} onClose={() => setManagerPhoneOpen(false)} />
-      {tab === "vendors" ? (
+      {tab === "network" ? (
+        <AdminServiceNetwork bucket={networkBucket} />
+      ) : tab === "vendors" ? (
         <AdminServiceVendorsList addOpen={vendorAddOpen} onAddClose={() => setVendorAddOpen(false)} />
       ) : (
       <PortalRecordListSurface

@@ -1128,3 +1128,13 @@ list, so `sms_signup` and any later value survive), and a partial index on roste
 - Not done: the shared-mode router does not yet recognise the manager phone ahead of its own routing (per_workspace is what the live line runs).
 
 Tests: `tests/unit/{service-vendors-roster,service-roster-dispatch,service-manager,admin-service-vendors-route,admin-sms-service-scope,service-manager-pipeline-wiring,admin-service-vendors-list}.test.ts(x)`.
+
+## W28 - A specific home on the PropLane line that PropLane does not manage (`on/admnetwork`)
+
+Captain, Oct 20: free managers' homes show on the public site; if someone texts the PropLane line about one, the line sends them to that
+team's number. `house-redirect.ts` (pure street-number + street-name match, one edit of slack on a 5+ letter word, never a guess between two
+homes) and `house-redirect.server.ts` (`resolveHouseRedirect`): a text naming a street address that is NOT in the service catalog but IS a live
+public listing of a non-service workspace gets `buildDedicatedRedirectReply(<street line>, <that workspace's own number>)`; with no own number
+of its own it gets the home's public link and an offer of the homes PropLane manages. A PropLane-managed home, no match or a failed read
+returns null and the existing flow answers. Seams: `claw-leasing-bot.server.ts` (per_workspace line, via `sendServiceLineReply`) and
+`handleUnassignedLeadInbound` (shared line, `houseRedirect` dep). Tests: `tests/unit/one-number-house-redirect.test.ts`.
