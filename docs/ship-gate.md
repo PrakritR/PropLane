@@ -148,7 +148,7 @@ still runs, but the later fixtures it would have created are missing.
 
 ### Known-failing specs — expect these, don't re-triage them
 
-All of these live outside the 9-case `main` smoke, so they now surface only in
+All of these live outside the 14-case `main` smoke, so they now surface only in
 the nightly/manual `e2e-full` job or a local full run — a green `e2e` on `main`
 says nothing about them.
 

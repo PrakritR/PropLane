@@ -153,7 +153,7 @@ Finished means it has been **run, with real data, including the edges**.
 Follow [`docs/ship-gate.md`](docs/ship-gate.md). Run `npm run ship:preflight` before promote.
 
 A green PR or green `main`/`staging` run is **not** full e2e. `e2e` on those
-branches is a 9-case public smoke. `e2e-full` is nightly / manual only. Run the
+branches is a 14-case public smoke. `e2e-full` is nightly / manual only. Run the
 suite locally before promoting portal UI or routes.
 
 The `check` job aggregates `unit` + `lint` + `build` only. Add a new hermetic
