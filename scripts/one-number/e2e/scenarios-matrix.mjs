@@ -347,6 +347,8 @@ MATRIX_SCENARIOS.push({
       if (/reply yes to confirm/i.test(r.all) && (await filed()).length === 0) r = await say(ctx, R, fx.to, "YES");
       const rows = await filed();
       c.check("a service row exists at the house", rows.length >= 1 && rows[0].property_id === fx.house.id, JSON.stringify(rows.map((x) => x.id)));
+      const { data: mediaRows } = await db.from("sms_media_files").select("storage_path, linked_type, linked_id, created_at, workspace_id").eq("sender_phone_key", R.slice(-10));
+      c.note(`sms_media_files for the resident: ${JSON.stringify(mediaRows)} ; resident profile phone key ${R.slice(-10)}`);
       c.check("the photo is attached to the service", Array.isArray(rows[0]?.row_data?.photoDataUrls) && rows[0].row_data.photoDataUrls.length >= 1, JSON.stringify(Object.keys(rows[0]?.row_data ?? {})));
       c.check("the reply says 'service', never 'work order'", !/work order/i.test(r.all), r.all);
       await sleep(4000);
