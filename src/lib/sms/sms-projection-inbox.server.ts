@@ -84,7 +84,48 @@ type Context = {
   personKeys: Map<string, { key: string; workspaceId: string }>;
   /** The configured shared PropLane number, when the line is on (null = per-workspace numbers only). */
   sharedNumber: string | null;
+  /**
+   * PropLane Service: a conversation the router stamped with a service workspace (`sms_projection_conversations.workspace_id`
+   * of an `is_service` workspace) -> that workspace. Empty when nothing is routed or a read fails (nothing is placed).
+   */
+  serviceRouted: Map<string, string>;
 };
+
+/**
+ * The workspace a conversation is PLACED in, by its stamp alone: a shared-number conversation's synthetic line id, else the
+ * PropLane Service workspace the router routed it to. The PropLane line is one number held by the service owner's default
+ * workspace, so without this a prospect routed to a service workspace is only ever visible in that default one.
+ */
+function placedWorkspaceIdOf(summary: SmsProjectionSummary, context: Context): string | null {
+  return sharedLineWorkspaceIdOf(summary, context.sharedNumber) ?? context.serviceRouted.get(summary.id) ?? null;
+}
+
+/** Conversation id -> the PropLane Service workspace it was routed to. Best effort: a failed read places nothing. */
+async function loadServiceRoutedWorkspaces(db: SupabaseClient, ids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!ids.length) return out;
+  try {
+    const { data, error } = await db.from("sms_projection_conversations").select("id,workspace_id").in("id", ids);
+    if (error) return out;
+    const stamped = new Map<string, string>();
+    for (const row of data ?? []) {
+      const workspaceId = String((row as { workspace_id?: unknown }).workspace_id ?? "").trim();
+      if (workspaceId) stamped.set(String((row as { id: unknown }).id), workspaceId);
+    }
+    if (stamped.size === 0) return out;
+    const { data: services, error: serviceError } = await db
+      .from("portal_workspaces")
+      .select("id")
+      .in("id", [...new Set(stamped.values())])
+      .eq("is_service", true);
+    if (serviceError) return out;
+    const serviceIds = new Set((services ?? []).map((row) => String((row as { id: unknown }).id)));
+    for (const [conversationId, workspaceId] of stamped) if (serviceIds.has(workspaceId)) out.set(conversationId, workspaceId);
+  } catch {
+    return new Map();
+  }
+  return out;
+}
 
 /** Read the conversation key apart from the summary columns, so a database without the key columns still lists. */
 async function loadPersonConversationKeys(db: SupabaseClient, ids: string[]): Promise<Map<string, { key: string; workspaceId: string }>> {
@@ -108,7 +149,7 @@ async function loadPageContext(db: SupabaseClient, viewerId: string, summaries: 
   const aliases = new Map<string, string[]>();
   const ids = summaries.map((summary) => summary.id);
   const owners = [...new Set(summaries.map((summary) => summary.ownerManagerUserId))];
-  if (!ids.length) return { aliases, lastSourceIds: new Map(), houseIds: new Map(), houseLabels: new Map(), archived: new Set(), residencyLabels: new Map(), viewStates: new Map(), directory: new Map(), personKeys: new Map(), sharedNumber: null };
+  if (!ids.length) return { aliases, lastSourceIds: new Map(), houseIds: new Map(), houseLabels: new Map(), archived: new Set(), residencyLabels: new Map(), viewStates: new Map(), directory: new Map(), personKeys: new Map(), sharedNumber: null, serviceRouted: new Map() };
   const lastIds = summaries.map((summary) => summary.lastEventId).filter((id): id is string => Boolean(id));
   const { data: lastTurns, error: lastTurnsError } = lastIds.length
     ? await db.from("sms_projection_turns").select("id,source_event_id").in("id", lastIds)
@@ -239,6 +280,7 @@ async function loadPageContext(db: SupabaseClient, viewerId: string, summaries: 
     directory,
     personKeys: await loadPersonConversationKeys(db, ids),
     sharedNumber: (await loadSharedLineConfig(db)).sharedNumber,
+    serviceRouted: await loadServiceRoutedWorkspaces(db, ids),
   };
 }
 
@@ -298,7 +340,7 @@ export async function visibleManagerSmsProjectionIds(
     houseIds: context.houseIds.get(summary.id) ?? [],
     untaggedTurns: true,
     lines: summary.workLinePhone ? [summary.workLinePhone] : [],
-    sharedLineWorkspaceId: sharedLineWorkspaceIdOf(summary, context.sharedNumber),
+    sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context),
   })).map((summary) => summary.id));
 }
 
@@ -323,7 +365,7 @@ export async function fetchManagerSmsProjectionPage(db: SupabaseClient, viewerId
       processed += 1;
       const houseIds = context.houseIds.get(summary.id) ?? [];
       const line = summary.workLinePhone;
-      if (conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds, untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: sharedLineWorkspaceIdOf(summary, context.sharedNumber) })) {
+      if (conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds, untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context) })) {
         visible.push(asResident(summary, context));
       }
       cursor = { occurredAt: summary.lastEventAt!, id: summary.id };
@@ -385,7 +427,7 @@ export async function viewerMayActOnSmsProjection(
     houseIds: context.houseIds.get(summary.id) ?? [],
     untaggedTurns: true,
     lines: line ? [line] : [],
-    sharedLineWorkspaceId: sharedLineWorkspaceIdOf(summary, context.sharedNumber),
+    sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context),
   });
 }
 
@@ -404,7 +446,7 @@ export async function fetchManagerSmsProjectionDetail(db: SupabaseClient, viewer
   const summary = summaryFromRow(row);
   const context = await loadPageContext(db, viewerId, [summary]);
   const line = summary.workLinePhone;
-  if (!conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds: context.houseIds.get(summary.id) ?? [], untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: sharedLineWorkspaceIdOf(summary, context.sharedNumber) })) return null;
+  if (!conversationVisible(scope, { ownerId: summary.ownerManagerUserId, houseIds: context.houseIds.get(summary.id) ?? [], untaggedTurns: true, lines: line ? [line] : [], sharedLineWorkspaceId: placedWorkspaceIdOf(summary, context) })) return null;
   const page = await getSmsProjectionTurns(db, { ownerManagerUserId: summary.ownerManagerUserId, conversationId, before: before ?? undefined, limit: 50 });
   const outboundSids = [...new Set(page.turns.filter((turn) => turn.direction === "outbound" && isTwilioMessageSid(turn.sourceEventId)).map((turn) => turn.sourceEventId))];
   const { data: outboxRows, error: outboxError } = outboundSids.length

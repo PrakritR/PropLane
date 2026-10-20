@@ -1125,6 +1125,8 @@ list, so `sms_signup` and any later value survive), and a partial index on roste
 - **Admin Communication** (`fetchAdminSmsConversations`): adds the service owner's PropLane-line traffic and, for a client who owns a service
   workspace, ONLY texts stamped with a service workspace (`workspaceRestriction`); it reads with `visibility: "none"` (oversight is not a viewer).
   Non-service workspaces of the same client are never shown, and no manager route gained an admin branch.
+  Oct 20 (`on/admcomms`): each thread is placed on its service workspace (or Unassigned) with a Workspace filter, Open in workspace and lead
+  assignment - [`communication-inbox.md`](communication-inbox.md) § Admin Communication.
 - Not done: the shared-mode router does not yet recognise the manager phone ahead of its own routing (per_workspace is what the live line runs).
 
 Tests: `tests/unit/{service-vendors-roster,service-roster-dispatch,service-manager,admin-service-vendors-route,admin-sms-service-scope,service-manager-pipeline-wiring,admin-service-vendors-list}.test.ts(x)`.
