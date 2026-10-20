@@ -337,7 +337,7 @@ MATRIX_SCENARIOS.push({
       let r = await say(ctx, R, fx.to, "my kitchen sink is leaking", { media: [{ url: h.mediaUrl("leak"), type: "image/png" }], agentUser: fx.resident.id });
       c.reply(r, "report");
       const filed = async () => (await db.from("portal_work_order_records").select("id, property_id, row_data").eq("manager_user_id", fx.manager.id).eq("resident_email", fx.resident.email)).data ?? [];
-      const answers = ["Clean water, nothing electrical nearby, and I closed the shutoff valve. Please file it now.", "Yes, file it please."];
+      const answers = ["Clean water, nothing electrical nearby, I closed the shutoff valve, and maintenance can enter when I am not home. Please file it now.", "Yes, file it please."];
       for (let i = 0; i < answers.length && (await filed()).length === 0; i += 1) {
         if (/reply yes to confirm/i.test(r.all)) r = await say(ctx, R, fx.to, "YES");
         if ((await filed()).length) break;
