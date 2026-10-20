@@ -1181,7 +1181,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   // topic, falls through below unchanged. The reply is deterministic, so a webhook retry re-derives the same text and the
   // MessageSid dedupe key stops a second send.
   if (!managerInbound && !(saved?.sharedLine || input.sharedLine)) {
-    const lineAnswer = await answerPropLaneLineText(db, { lineOwnerUserId: managerId, toPhone, fromPhone, body }).catch((error: unknown) => {
+    const lineAnswer = await answerPropLaneLineText(db, { lineOwnerUserId: managerId, toPhone, fromPhone, body, messageSid }).catch((error: unknown) => {
       console.error("propline line answer failed", error instanceof Error ? error.name : "unknown");
       return null;
     });

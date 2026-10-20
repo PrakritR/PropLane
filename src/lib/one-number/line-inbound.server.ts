@@ -21,7 +21,7 @@ export type PropLaneLineAnswer = { reply: string; actorUserId: string; kind: "me
 
 export async function answerPropLaneLineText(
   db: SupabaseClient,
-  input: { lineOwnerUserId: string; toPhone: string; fromPhone: string; body: string },
+  input: { lineOwnerUserId: string; toPhone: string; fromPhone: string; body: string; messageSid?: string | null },
 ): Promise<PropLaneLineAnswer | null> {
   const phoneKey = normalizeConsentPhone(input.fromPhone);
   if (!phoneKey) return null;
@@ -35,6 +35,7 @@ export async function answerPropLaneLineText(
     phoneKey,
     mode: "service_line",
     lineOwnerUserId: input.lineOwnerUserId,
+    messageSid: input.messageSid ?? null,
   });
   if (member.handled) return { reply: member.reply, actorUserId: member.actorUserId, kind: "member" };
 
