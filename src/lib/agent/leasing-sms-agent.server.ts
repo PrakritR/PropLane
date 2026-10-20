@@ -39,7 +39,7 @@ import {
 } from "@/lib/prospect-tour-scheduling-context.server";
 import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
 import { summarizeLeasingEvidence } from "@/lib/agent/leasing-sms-fallback";
-import { proplaneSiteLinks, publicOrigin } from "@/lib/tools/domains/leasing-sms";
+import { buildProspectLinksTool, proplaneSiteLinks, publicOrigin } from "@/lib/tools/domains/leasing-sms";
 import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
 
 type Db = SupabaseClient;
@@ -632,6 +632,23 @@ export async function runLeasingSmsAgentTurn(
                 linkRecovery: {
                   allowedUrls: Object.values(proplaneSiteLinks(publicOrigin())).filter((value) => value.startsWith("http")),
                   summarize: summarizeLeasingEvidence,
+                  // "How do I apply?" must come back with the apply link. When the draft carried a link the model never looked up,
+                  // the home this conversation is about (its last listing link) gets its real links from the same tool.
+                  relink: async () => {
+                    try {
+                      const text = history.map((m) => (typeof m.content === "string" ? m.content : "")).join("\n");
+                      const ids = [...text.matchAll(/\/rent\/listings\/([A-Za-z0-9_.~-]+)/g)].map((m) => m[1]);
+                      const propertyId = ids[ids.length - 1];
+                      if (!propertyId) return null;
+                      const links = await buildProspectLinksTool.handler(ctx, { propertyId });
+                      if (!links || (links as { ok?: unknown }).ok !== true) return null;
+                      const l = links as { listingUrl?: string; tourUrl?: string; applyUrl?: string };
+                      const urls = [l.listingUrl, l.tourUrl, l.applyUrl].filter((u): u is string => typeof u === "string" && u.startsWith("http"));
+                      return urls.length ? { urls, context: JSON.stringify({ listingUrl: l.listingUrl, tourUrl: l.tourUrl, applyUrl: l.applyUrl }) } : null;
+                    } catch {
+                      return null;
+                    }
+                  },
                   replaceWhen: (trace: { tool: string; ok: boolean }[]) => {
                     if (!serviceLine) return false;
                     const lists = trace.filter((entry) => entry.tool === "list_live_listings");

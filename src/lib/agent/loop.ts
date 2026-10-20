@@ -165,6 +165,12 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
     summarize: (evidence: ToolEvidenceEntry[]) => string;
     /** True when a read the answer depends on failed (the catalog): the reply is replaced by `summarize([])`, never a guess. */
     replaceWhen?: (trace: ToolTraceEntry[]) => boolean;
+    /**
+     * Before the no-links retry: look the real links up deterministically (the home this conversation is about) so a
+     * "send me the apply link" still gets its link. `context` is handed to the model as verified facts; `urls` are the
+     * only links the second draft may carry besides the usual ones. Null = nothing to offer (the no-links retry runs).
+     */
+    relink?: (draft: string) => Promise<{ context: string; urls: string[] } | null>;
   };
 }): Promise<AgentTurnResult> {
   const system = opts.system ?? MANAGER_SYSTEM_PROMPT;
@@ -230,6 +236,29 @@ async function runAgentTurnWithinBudget<Ctx = AgentContext>(opts: {
     if (recovery.replaceWhen?.(toolTrace)) return recovery.summarize([]);
     const text = draft.trim();
     if (text && unsupportedReplyLinks(text, outputs, priorLinks).length === 0) return text;
+    if (text && recovery.relink) {
+      // The reply wanted a link the model never looked up. Look the home's real links up here and let it answer again with them.
+      try {
+        const found = await recovery.relink(text);
+        if (found && found.urls.length > 0) {
+          const redo = await completeAgentModel({
+            selection: { ...selection, timeoutMs: Math.min(selection.timeoutMs ?? 20_000, 20_000) },
+            system,
+            tools: [],
+            messages: [
+              ...messages,
+              { role: "assistant", content: text },
+              { role: "user", content: `Your last reply contained a link that no lookup returned. These are the verified links for this home: ${found.context}\nSend the same answer again as one short text, using only these links where a link is needed.` },
+            ],
+          });
+          totalLatencyMs += redo.latencyMs;
+          usage.inputTokens += redo.usage.inputTokens;
+          usage.outputTokens += redo.usage.outputTokens;
+          const relinked = redo.content.filter((b): b is Anthropic.TextBlock => b.type === "text").map((b) => b.text).join("").trim();
+          if (relinked && unsupportedReplyLinks(relinked, outputs, [...priorLinks, ...found.urls]).length === 0) return relinked;
+        }
+      } catch { /* fall through to the no-links retry */ }
+    }
     if (text) {
       // One retry with no tools and an explicit no-links instruction.
       try {
@@ -555,6 +584,10 @@ async function runInlineTool<Ctx>(
   if (result.ok) toolEvidence.push({ tool: use.name, input: use.input, output });
 
   toolTrace.push({ tool: use.name, ok });
+  // The e2e harness's dev server only (capture transport on, never production): the tool's answer in the server log.
+  if (process.env.SMS_E2E_CAPTURE_FILE && process.env.NODE_ENV !== "production") {
+    console.log(`e2e tool ${use.name} ${ok ? "ok" : "FAILED"} input=${JSON.stringify(use.input).slice(0, 200)} output=${(ok ? JSON.stringify(output) : String(output)).slice(0, 400)}`);
+  }
   notify(
     observer?.onToolCall &&
       (() =>
