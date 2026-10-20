@@ -63,3 +63,11 @@ manager Danger zone — collects the reason through one popup,
 
 Coverage: `tests/unit/admin-account-active-reason.test.ts`,
 `tests/unit/admin-account-active-audit-route.test.ts`.
+
+## Service vendors and the manager phone (Oct 19)
+
+Admin > Service has two tabs, Workspaces and Vendors, and a Settings icon for the **Manager phone**. Vendors is the
+roster (round + adds; the selected row's bar edits, pauses or removes). Every `/api/admin/service-vendors` and
+`/api/admin/service-manager` verb starts with `requireAdminRoute()`; the roster layer re-derives the service owner and
+touches only roster rows it owns. The manager phone is verified with a code texted to the NEW number and every change is
+audited before it applies. Details: [`one-number.md`](one-number.md) § W26.

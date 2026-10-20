@@ -977,3 +977,42 @@ Managers/owners text about the status of their houses." Both line modes; no migr
   (identity via `resolveResidentSmsAgentContext` bound to the landlord that holds the lease). Leasing and vendor links still need the
   shared line. `start_rent_payment` stays the fallback; no hosted checkout link without the phone-bound unlock.
 - **Scenarios.** `owner-status`, `resident-prospect`, `resident-paylink` in `scripts/one-number/e2e/scenarios-smsowner.mjs`.
+
+## W26 - Service roster, service manager phone, one manager for every service workspace (`on/adminops`)
+
+Captain, Oct 19: admins add vendors' phone numbers and those vendors are texted when work is needed in a managed workspace;
+tours and messages for managed workspaces land in the admin portal; 510-309-8345 acts as a manager with access to ALL
+service properties and is told about every inquiry, tour, stay request, application, filed service and payment.
+Migration `20261019160000_service_vendors_and_manager_phone.sql` (dev applied, ledger row recorded): the two
+`platform_service_settings` columns, `phone_otp_challenges.purpose` gains `service_manager` (rebuilt as the UNION of the live
+list, so `sms_signup` and any later value survive), and a partial index on roster rows.
+
+- **Roster** (`service-vendors.ts` pure, `service-vendors.server.ts`, routes `/api/admin/service-vendors`, UI `admin-service-vendors-list.tsx`):
+  `manager_vendor_records` rows owned by the service owner with `serviceRoster: true`, `dispatchTrades`, `serviceArea`,
+  `dispatchAvailable` (Pause), soft Remove (`active: false`, `rosterRemovedAt`; the row stays for history). One entry per phone
+  (a vendor already on the owner's own list is promoted, not duplicated); a verified phone of a PropLane vendor account links
+  (`vendor_user_id`). ONE intro text per entry (`introSentAt`), as the service owner, relationship attested on the vendor consent ledger
+  (`consentBasis: added_by_admin_prior_relationship`, `rosterAddedBy`); a STOPped number is never texted. Intro:
+  `PropLane here. <Admin> added you to our local vendor list for homes we manage. You'll get texts when a job near you needs doing. Reply YES to a job to take it.`
+  plus the transport's first-text sender line with `Reply STOP to opt out.`
+- **Dispatch**: [`vendor-dispatch-agent.md`](vendor-dispatch-agent.md) § Service roster.
+- **Manager phone** (`service-manager.server.ts`, route `/api/admin/service-manager`, UI `admin-service-manager-phone.tsx`): a code is texted
+  to the number being verified (`requestPhoneOtp`, purpose `service_manager`), `verify` saves it, audited first (`admin_service_manager_phone_change`,
+  numbers masked). Texts to it use the manager-recipient purpose `service_manager_notice`, whose consent is the verified setting
+  (`ensureTeamNoticeScopedSmsConsent`).
+- **Alerts**: `notifyManagerFromAgent` (the one chokepoint of the notice spine, so the action-event bus, escalations, tour requests, applications,
+  stays, services and payments) calls `alertServiceManagerFromNotice` for the notice's workspace; only `is_service` workspaces, one text per
+  event (the per-recipient suffix of the idempotency key is dropped), digests and reminder confirmations quiet. A new person writing to the
+  PropLane line (per_workspace, or a new unassigned lead) is `alertServiceManagerOfInquiry`: once per phone per day, last four digits only.
+- **PropLane line**: `recognizeServiceManagerInbound` (before the generic identity fork in `inbound-pipeline.server.ts`) - the verified manager phone
+  texting the PropLane line (the service owner's number, or the shared number) is the service manager: the FULL manager agent, writes behind the
+  usual YES, over ONE service workspace at a time (landlord = the workspace's owner, actor = the service owner, access `owner`; the managed-client
+  lock is the client's and never applies to the service owner). The workspace is named in the text, remembered for 6 hours (`sms_line_sessions`
+  key `sm:<phone>`), else "Is this about Ambika or Vinod?". Dispatch Y / N / R / B answers across all service workspaces at once.
+- **Admin Communication** (`fetchAdminSmsConversations`): adds the service owner's PropLane-line traffic and, for a client who owns a service
+  workspace, ONLY texts stamped with a service workspace (`workspaceRestriction`); it reads with `visibility: "none"` (oversight is not a viewer).
+  Non-service workspaces of the same client are never shown, and no manager route gained an admin branch.
+- Not done: the shared-mode router does not yet recognise the manager phone ahead of its own routing (per_workspace is what the live line runs);
+  a client's own (non-roster) vendors in a service workspace without a work number of their own cannot be texted by the engine (as before).
+
+Tests: `tests/unit/{service-vendors-roster,service-roster-dispatch,service-manager,admin-service-vendors-route,admin-sms-service-scope,service-manager-pipeline-wiring,admin-service-vendors-list}.test.ts(x)`.

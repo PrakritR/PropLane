@@ -109,3 +109,20 @@ phone, and not texted by the owner in the last 90 days.
 and issue gets a text-approved run instead of the proposal above: `prepareDispatch` hands the service
 to `maybeCreateRuleRunForWorkOrder` first. Both paths stay: with no rule, everything above is
 unchanged. The loop, its invariants and the files are in [`one-number.md`](one-number.md) § W7a.
+
+**Service roster (Oct 19, `on/adminops`).** A PropLane Service workspace (`portal_workspaces.is_service`) needs no rule
+of its own: its job goes to the workspace's own vendors, then the service-wide roster an admin keeps in Admin >
+Service > Vendors. A roster vendor is a `manager_vendor_records` row OWNED BY THE SERVICE OWNER with
+`row_data.serviceRoster = true` (no second table, no second dispatcher). Invariants:
+- Only live roster rows of the trade are offered (`active`, not `rosterRemovedAt`, not `dispatchAvailable: false`, reachable:
+  a STOP is final); the service owner's own non-roster vendors are never offered to a client's workspace.
+- Roster vendors are texted AS the service owner from the PropLane line (`sendVendorDispatchText` -> `rosterSenderFor`), so
+  consent, STOP and replies live under the service owner; their YES arrives on the service owner's number and
+  `findVendorJobsForPhone` (`replyScope`) matches the runs of every `is_service` workspace, never another workspace.
+- The approver of a service run is the service owner (`resolveApprovers`); the client who owns it is view only. The
+  approval, price holds and outcomes are texted to the verified manager phone (`sendTeamMemberDispatchText` ->
+  `sendToServiceManager`). Job numbers for service runs come from the service owner's counter, so "Y 7" names one job.
+- `workspaceHasMatchingRule` is true for a service workspace while the roster holds someone for the trade.
+- `serviceRosterVendorsForTrade(db, workspaceId, trade)` (`src/lib/service/service-vendors.server.ts`) is the hook other
+  branches call; `[]` for any workspace that is not a service workspace.
+Files: `src/lib/vendor-dispatch/service-roster.server.ts`, `tests/unit/service-roster-dispatch.test.ts`.

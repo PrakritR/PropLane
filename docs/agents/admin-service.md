@@ -15,3 +15,5 @@ PropLane Service is a FLAG on a workspace plus memberships, never ownership.
 - Opening a workspace sets the portal workspace cookie after `authorizeOpenServiceWorkspace` re-derives membership.
 - Every `/api/admin/service-workspaces` verb starts with `requireAdminRoute()`; a body id is a name, never a grant.
 - Work number column: the workspace's own active work number, else nothing.
+- Vendors tab (the roster) and Manager phone: [`one-number.md`](one-number.md) § W26. `platform_service_settings.manager_phone_e164` /
+  `manager_phone_verified_at` are the service manager's identity; `profiles.phone` is never consulted for it.
