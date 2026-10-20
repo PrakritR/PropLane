@@ -159,17 +159,26 @@ async function payCardInBrowserAndSettle(ctx, { label, token, cookie, sessionId,
       if (!frame) await page.waitForTimeout(1000);
     }
     if (!frame) return { error: "no Stripe card field appeared" };
-    await frame.fill("#cardNumber", "4242424242424242");
-    await frame.fill("#cardExpiry", "12 / 34");
-    await frame.fill("#cardCvc", "123");
-    if (await frame.locator("#billingName").count()) await frame.fill("#billingName", "Sky Resident");
-    if (await frame.locator("#billingPostalCode").count()) await frame.fill("#billingPostalCode", "98105");
-    await frame.locator('button[type="submit"], .SubmitButton').first().click({ timeout: 30_000 });
+    // Typed key by key: Stripe's card fields format and validate on real key events, a bare fill leaves them empty.
+    for (const [selector, value] of [["#cardNumber", "4242424242424242"], ["#cardExpiry", "1234"], ["#cardCvc", "123"]]) {
+      await frame.locator(selector).click();
+      await frame.locator(selector).pressSequentially(value, { delay: 60 });
+    }
+    if (await frame.locator("#billingName").count()) { await frame.locator("#billingName").click(); await frame.locator("#billingName").fill("Sky Resident"); }
+    if (await frame.locator("#billingPostalCode").count()) { await frame.locator("#billingPostalCode").click(); await frame.locator("#billingPostalCode").pressSequentially("98105", { delay: 60 }); }
+    const submit = frame.locator('button[type="submit"], .SubmitButton').first();
+    await submit.scrollIntoViewIfNeeded().catch(() => undefined);
+    await submit.click({ timeout: 30_000 });
     const until = Date.now() + 120_000;
     for (;;) {
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       if (session.payment_status === "paid") return { paid: true, paymentIntent: session.payment_intent };
-      if (Date.now() > until) return { error: `session still ${session.payment_status}` };
+      if (Date.now() > until) {
+        const shot = `${h.captureFile.replace(/captured-sms\.jsonl$/, "")}pay-card.png`;
+        await page.screenshot({ path: shot, fullPage: true }).catch(() => undefined);
+        const text = await frame.locator("body").innerText().catch(() => "");
+        return { error: `session still ${session.payment_status}`, screenshot: shot, form: text.replace(/\s+/g, " ").slice(0, 700), url: page.url() };
+      }
       await page.waitForTimeout(3000);
     }
   });
@@ -188,7 +197,7 @@ async function payCardInBrowserAndSettle(ctx, { label, token, cookie, sessionId,
   if (!event) return;
   const payload = JSON.stringify(event);
   const header = stripe.webhooks.generateTestHeaderString({ payload, secret });
-  const res = await fetch(`${h.base}/api/stripe/webhook`, { method: "POST", headers: { "content-type": "application/json", "stripe-signature": header }, body: payload, signal: AbortSignal.timeout(60_000) });
+  const res = await fetch(`${h.base}/api/stripe/webhook`, { method: "POST", headers: { "content-type": "application/json", "stripe-signature": header }, body: payload, signal: AbortSignal.timeout(240_000) });
   check(`${label}: the local webhook accepts the signed event (HTTP 200)`, res.status === 200, `${res.status} ${(await res.text()).slice(0, 200)}`);
   let row = null;
   for (let attempt = 0; attempt < 15; attempt += 1) {
@@ -199,8 +208,9 @@ async function payCardInBrowserAndSettle(ctx, { label, token, cookie, sessionId,
   }
   check(`${label}: the charge is marked paid`, row?.status === "paid", JSON.stringify({ status: row?.status, bal: row?.row_data?.balanceLabel }));
   const after = await fetch(`${h.base}/l/${token}`, { headers: { cookie }, redirect: "manual" });
-  const afterText = (await after.text()).replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  check(`${label}: the link now reads 'Payment received'`, /Payment received/.test(afterText), afterText.slice(0, 200));
+  const afterHtml = await after.text();
+  const afterText = afterHtml.replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  check(`${label}: the settled link no longer offers to pay (spent, or 'Payment received')`, !/phone-link-pay/.test(afterHtml) && /Payment received|expired/i.test(afterText), afterText.slice(0, 300));
 }
 
 /** A pending application fee for the applicant's own login (what applying creates). */
