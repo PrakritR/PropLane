@@ -391,19 +391,28 @@ describe("ACH checkout routes", () => {
       expect(stripe.paymentIntents.create).not.toHaveBeenCalled();
     });
 
-    it("refuses a partially_paid historical charge before any claim or provider call", async () => {
+    it("charges only the remaining balance of a partially_paid charge", async () => {
+      vi.mocked(resolveListingForHouseholdCharge).mockResolvedValue(LISTING as never);
       vi.mocked(listingFromPropertyData).mockReturnValue(LISTING as never);
+      // $2,500.00 charge with $1,000.00 left: the checkout core reads the balance, not the face amount.
       const partial = { ...CHARGE_ROW!, status: "partially_paid",
-        row_data: { ...(CHARGE_ROW!.row_data as object), status: "partially_paid" } };
+        row_data: { ...(CHARGE_ROW!.row_data as object), status: "partially_paid", amountCents: 100000, balanceLabel: "$1,000.00" } };
       const { db, rpcCalls } = residentDb({ charge: partial, property: PROPERTY_ROW });
       vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+      vi.mocked(getStripe).mockReturnValue({} as never);
+      vi.mocked(createAxisAchCheckoutSession).mockResolvedValue(
+        { mode: "embedded", clientSecret: "cs_ach_secret", sessionId: "cs_ach_session" } as never,
+      );
 
       const res = await householdChargeCheckout(jsonRequest("http://localhost/api/stripe/household-charge-checkout", {
         method: "POST", body: { chargeId: "charge_1", embedded: true, paymentMethod: "card" },
       }));
-      expect(res.status).toBe(409);
-      expect(rpcCalls).toEqual([]);
-      expect(createAxisAchCheckoutSession).not.toHaveBeenCalled();
+      const { status, data } = await parseJsonResponse<{ subtotalCents?: number }>(res);
+      expect(status).toBe(200);
+      expect(data.subtotalCents).toBe(100000);
+      expect(rpcCalls.find((c) => c.name === "reserve_resident_checkout_attempt")?.args).toMatchObject({
+        p_charge_ids: ["charge_1"], p_charge_cents: [100000], p_subtotal_cents: 100000,
+      });
     });
 
     it("refuses another resident's charge with 403 before any claim", async () => {
