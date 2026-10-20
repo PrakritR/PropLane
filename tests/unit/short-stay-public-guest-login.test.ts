@@ -29,17 +29,20 @@ beforeEach(() => {
 });
 
 describe("a public request from a guest with no login", () => {
-  it("creates the login, stamps it on the hold and puts the one-time link in the confirmation text", async () => {
+  it("creates the login, stamps it on the hold and points the confirmation text at the sign-in page (no live link)", async () => {
     ensureGuestLogin.mockResolvedValue({ userId: "guest-new", loginEmail: "guest.12065550142@import.proplane.local", created: true, signInUrl: "https://proplane.ai/auth/confirm?token_hash=abc&type=magiclink" });
     const db = seedShortStayDb();
     expect(await submitShortStayRequest(db as never, request, { today: TODAY })).toEqual({ ok: true });
     expect(ensureGuestLogin).toHaveBeenCalledWith(expect.anything(), { name: "Priya Shah", phone: "+12065550142", email: "" });
+    expect((ensureGuestLogin.mock.calls[0]![1] as { mintLink?: boolean }).mintLink).toBeUndefined();
     const hold = db.tables.portal_schedule_records!.at(-1)!.row_data as { residentUserId: string; bookingStatus: string; stayDetails: { source: string; holdExpiresAt: string } };
     expect(hold).toMatchObject({ residentUserId: "guest-new", bookingStatus: "hold", stayDetails: { source: "public_short_stay_request" } });
     expect(hold.stayDetails.holdExpiresAt).toBeTruthy();
     const body = (enqueueOwnerSms.mock.calls[0]![0] as { body: string }).body;
     expect(body).toContain("Got it, Priya");
-    expect(body).toContain("Sign in to see your stays: https://proplane.ai/auth/confirm?token_hash=abc&type=magiclink");
+    expect(body).toMatch(/Sign in at https?:\/\/[^ ]+\/auth\/sign-in to see your stays\./);
+    expect(body).not.toContain("token_hash");
+    expect(body).not.toContain("/auth/confirm");
   });
 
   it("still saves the hold and texts when no login could be made (no link, nothing lost)", async () => {
@@ -67,7 +70,8 @@ describe("the one-time sign-in link only travels to the phone that keyed it", ()
     ensureGuestLogin.mockResolvedValue({ userId: "guest-phone", loginEmail: "proven@example.com", created: false, signInUrl: SIGN_IN });
     const db = seedShortStayDb();
     expect(await submitShortStayRequest(db as never, { ...request, email: "typed@example.com" }, { today: TODAY })).toEqual({ ok: true });
-    expect(textedBody()).toContain(SIGN_IN);
+    expect(textedBody()).not.toContain(SIGN_IN);
+    expect(textedBody()).not.toContain("token_hash");
     expect(emailedText()).not.toContain("token_hash");
     expect(emailedText()).not.toContain("Sign in");
     const hold = db.tables.portal_schedule_records!.at(-1)!.row_data as Record<string, unknown>;
@@ -79,7 +83,8 @@ describe("the one-time sign-in link only travels to the phone that keyed it", ()
     ensureGuestLogin.mockResolvedValue({ userId: "guest-2", loginEmail: "priya@example.com", created: false, signInUrl: SIGN_IN });
     const db = seedShortStayDb();
     expect(await submitShortStayRequest(db as never, { ...request, email: "Priya@example.com" }, { today: TODAY })).toEqual({ ok: true });
-    expect(textedBody()).toContain(SIGN_IN);
+    expect(textedBody()).not.toContain(SIGN_IN);
+    expect(textedBody()).not.toContain("token_hash");
     expect(emailedText()).not.toContain("token_hash");
     expect(emailedText()).not.toContain("Sign in");
     expect((db.tables.portal_schedule_records!.at(-1)!.row_data as Record<string, unknown>).residentUserId).toBe("guest-2");
@@ -89,7 +94,8 @@ describe("the one-time sign-in link only travels to the phone that keyed it", ()
     ensureGuestLogin.mockResolvedValue({ userId: "guest-new", loginEmail: "guest.12065550142@import.proplane.local", created: true, signInUrl: SIGN_IN });
     const db = seedShortStayDb();
     expect(await submitShortStayRequest(db as never, { ...request, email: "victim@example.com" }, { today: TODAY })).toEqual({ ok: true });
-    expect(textedBody()).toContain(SIGN_IN);
+    expect(textedBody()).not.toContain(SIGN_IN);
+    expect(textedBody()).not.toContain("token_hash");
     expect(postResendEmail).toHaveBeenCalledTimes(1);
     expect(emailedText()).toContain("Got it, Priya");
     expect(emailedText()).not.toContain("token_hash");

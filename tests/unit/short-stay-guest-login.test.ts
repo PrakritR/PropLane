@@ -8,6 +8,9 @@ vi.mock("@/lib/auth/profile-role-row", () => ({ ensureProfileRoleRow: (...args: 
 const provision = vi.fn(async (..._args: unknown[]) => ({ ok: true as const, axisId: "AXIS-1", linkedApplication: false }));
 vi.mock("@/lib/auth/provision-resident-account", () => ({ provisionResidentAccountByEmail: (...args: unknown[]) => provision(...args) }));
 
+const smsProvenSessionAllowed = vi.fn(async (..._args: unknown[]) => true);
+vi.mock("@/lib/auth/sms-proven-session.server", () => ({ smsProvenSessionAllowed: (...args: unknown[]) => smsProvenSessionAllowed(...args) }));
+
 import { ensureGuestLogin, guestPlaceholderEmail, guestSignInConfirmUrl } from "@/lib/short-stay/guest-login.server";
 import { createFakeDb } from "../helpers/fake-table-db";
 
@@ -21,6 +24,7 @@ function dbFor(rows: { profiles?: Array<Record<string, unknown>>; roles?: Array<
 beforeEach(() => {
   vi.clearAllMocks();
   findAuthUserIdByEmail.mockResolvedValue(null);
+  smsProvenSessionAllowed.mockResolvedValue(true);
 });
 
 describe("the one-time sign-in link", () => {
@@ -38,7 +42,7 @@ describe("the one-time sign-in link", () => {
 describe("ensureGuestLogin", () => {
   const input = { name: "Priya Shah", phone: "+12065550142", email: "priya@example.com" };
 
-  it("creates a resident login on the PLACEHOLDER, never the typed email, and mints the link for it", async () => {
+  it("creates a resident login on the PLACEHOLDER, never the typed email, and mints no link unless asked", async () => {
     const { db, createUser, generateLink } = dbFor({});
     const login = await ensureGuestLogin(db, input);
     const placeholder = "guest.12065550142@import.proplane.local";
@@ -50,9 +54,36 @@ describe("ensureGuestLogin", () => {
     );
     expect(JSON.stringify(provision.mock.calls)).not.toContain("priya@example.com");
     expect(ensureProfileRoleRow).toHaveBeenCalledWith(expect.anything(), "new-user", "resident");
-    expect(generateLink).toHaveBeenCalledWith({ type: "magiclink", email: placeholder });
-    expect(login).toMatchObject({ userId: "new-user", created: true, loginEmail: placeholder });
+    expect(generateLink).not.toHaveBeenCalled();
+    expect(login).toMatchObject({ userId: "new-user", created: true, loginEmail: placeholder, signInUrl: null });
+  });
+
+  it("mints the link only when asked, and only when the shared SMS-proof rule allows the account", async () => {
+    const asked = dbFor({});
+    const login = await ensureGuestLogin(asked.db, { ...input, mintLink: true });
+    expect(smsProvenSessionAllowed).toHaveBeenCalledWith(expect.anything(), "new-user");
+    expect(asked.generateLink).toHaveBeenCalledWith({ type: "magiclink", email: "guest.12065550142@import.proplane.local" });
     expect(login?.signInUrl).toContain("/auth/confirm?token_hash=hash-for-guest.12065550142%40import.proplane.local&type=magiclink");
+  });
+
+  it("a multi-role team account (resident + manager/admin) that the SMS-proof rule refuses is never handed a link", async () => {
+    smsProvenSessionAllowed.mockResolvedValue(false);
+    const { db, generateLink } = dbFor({
+      profiles: [{ id: "u-team", email: "team@home.test", phone: "+12065550142", phone_verified_at: "2026-09-01T00:00:00Z" }],
+      roles: [{ user_id: "u-team", role: "resident" }, { user_id: "u-team", role: "manager" }],
+    });
+    const login = await ensureGuestLogin(db, { ...input, mintLink: true });
+    expect(smsProvenSessionAllowed).toHaveBeenCalledWith(expect.anything(), "u-team");
+    expect(generateLink).not.toHaveBeenCalled();
+    expect(login).toMatchObject({ userId: "u-team", signInUrl: null });
+  });
+
+  it("never mints for the reused-placeholder path when the rule refuses either", async () => {
+    smsProvenSessionAllowed.mockResolvedValue(false);
+    const placeholder = "guest.12065550142@import.proplane.local";
+    const { db, generateLink } = dbFor({ profiles: [{ id: "u-guest", email: placeholder }], roles: [{ user_id: "u-guest", role: "resident" }] });
+    expect((await ensureGuestLogin(db, { ...input, mintLink: true }))?.signInUrl).toBeNull();
+    expect(generateLink).not.toHaveBeenCalled();
   });
 
   it("a victim's email (existing account, applications, inbox threads) is never looked up, attached or used", async () => {
@@ -61,7 +92,7 @@ describe("ensureGuestLogin", () => {
     const login = await ensureGuestLogin(db, { ...input, email: "victim@example.com" });
     expect(findAuthUserIdByEmail).not.toHaveBeenCalled();
     expect(createUser).toHaveBeenCalledWith(expect.objectContaining({ email: "guest.12065550142@import.proplane.local" }));
-    expect(generateLink).toHaveBeenCalledWith({ type: "magiclink", email: "guest.12065550142@import.proplane.local" });
+    expect(generateLink).not.toHaveBeenCalled();
     // The only provisioning call is on the placeholder with every email-keyed inheritance switched off.
     expect(provision).toHaveBeenCalledTimes(1);
     const opts = provision.mock.calls[0]![1] as { email: string; emailProven: boolean; inheritFromApplication: boolean };
@@ -84,7 +115,7 @@ describe("ensureGuestLogin", () => {
     });
     const login = await ensureGuestLogin(db, input);
     expect(createUser).not.toHaveBeenCalled();
-    expect(generateLink).toHaveBeenCalledWith({ type: "magiclink", email: "p@home.test" });
+    expect(generateLink).not.toHaveBeenCalled();
     expect(login).toMatchObject({ userId: "u-priya", created: false });
   });
 
@@ -98,7 +129,7 @@ describe("ensureGuestLogin", () => {
     const login = await ensureGuestLogin(db, input);
     const placeholder = "guest.12065550142@import.proplane.local";
     expect(createUser).toHaveBeenCalledWith(expect.objectContaining({ email: placeholder }));
-    expect(generateLink).toHaveBeenCalledWith({ type: "magiclink", email: placeholder });
+    expect(generateLink).not.toHaveBeenCalled();
     expect(login).toMatchObject({ userId: "new-user", created: true, loginEmail: placeholder });
   });
 
@@ -113,7 +144,7 @@ describe("ensureGuestLogin", () => {
     });
     const login = await ensureGuestLogin(db, input);
     expect(createUser).not.toHaveBeenCalled();
-    expect(generateLink).toHaveBeenCalledWith({ type: "magiclink", email: placeholder });
+    expect(generateLink).not.toHaveBeenCalled();
     expect(login).toMatchObject({ userId: "u-guest", created: false, loginEmail: placeholder });
   });
 

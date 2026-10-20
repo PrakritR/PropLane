@@ -241,7 +241,7 @@ describe("the guest short-stay journey", () => {
     expect((hold.row_data.stayDetails as Record<string, unknown>).holdExpiresAt).toBeTruthy();
   });
 
-  it("2 · the one-time sign-in link is TEXTED to the typed phone and is absent from the email", async () => {
+  it("2 · the confirmation is TEXTED to the typed phone with the sign-in page, no live link anywhere", async () => {
     step("2 · Delivery: the link goes to the phone, the typed address gets an informational note");
     const texted = sms.at(-1)!;
     const mailed = emails.at(-1)!;
@@ -255,15 +255,15 @@ describe("the guest short-stay journey", () => {
     show("links minted for", mintedLinks.map((link) => link.email));
 
     expect(texted.recipientPhone).toBe(GUEST_PHONE);
-    expect(texted.body).toContain("Sign in to see your stays: https://");
-    expect(texted.body).toContain("token_hash=");
-    expect(texted.body).toContain("type=magiclink");
-    expect(texted.body).not.toContain("code=");
+    // The text is stored in the HOST's outbox: it names the sign-in page and never carries a live link.
+    expect(texted.body).toMatch(/Sign in at https?:\/\/[^ ]+\/auth\/sign-in to see your stays\./);
+    expect(texted.body).not.toContain("token_hash=");
+    expect(texted.body).not.toContain("/auth/confirm");
     expect(mailed.to).toEqual([TYPED_EMAIL]);
     expect(mailed.text).not.toContain("token_hash");
     expect(mailed.text).not.toMatch(/Sign in/);
-    // Every link minted in this journey is for the placeholder login, never the typed address.
-    expect(mintedLinks.every((link) => link.email === PLACEHOLDER)).toBe(true);
+    // No link is minted at all: nothing a host could read can open the guest's account.
+    expect(mintedLinks).toEqual([]);
   });
 
   it("3 · the guest opens the link and sees their own stay; the victim sees nothing", async () => {

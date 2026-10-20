@@ -52,7 +52,7 @@ import {
   PUBLIC_SHORT_STAY_SOURCE,
   SMS_SHORT_STAY_SOURCE,
   shortStayHoldExpiresAt,
-  withGuestSignInLink,
+  withGuestSignInPrompt,
 } from "@/lib/short-stay/guest-stays";
 import {
   SHORT_STAY_MAX_GUESTS,
@@ -189,8 +189,8 @@ export async function submitShortStayRequest(
   const total = created.total;
 
   // The hold exists; everything below is notification and must never undo it.
-  // A guest without a login gets one, and the confirmation text carries the one-time sign-in link
-  // (`token_hash`, never a PKCE code) so the Stays page becomes theirs.
+  // A guest without a login gets one. The confirmation text names the sign-in page, never a live
+  // one-time link: this text is stored in the HOST's outbox, where the host could read and use it.
   const login = await ensureGuestLogin(db, { name, phone, email }).catch(() => null);
   // `ensureGuestLogin` only ever returns an account this PHONE provably owns - the placeholder login
   // minted for the number, or one whose `profiles.phone` is verified - so the hold is stamped with it
@@ -211,7 +211,7 @@ export async function submitShortStayRequest(
     total,
     ownerFirstName: ownerName.split(/\s+/)[0] ?? "",
   });
-  const textedAck = withGuestSignInLink(ack, login?.signInUrl);
+  const textedAck = login?.userId ? withGuestSignInPrompt(ack, resolveEmailLinkBaseUrl()) : ack;
   await enqueueOwnerSms(
     {
       managerUserId: ownerId,

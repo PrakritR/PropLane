@@ -239,9 +239,14 @@ export function guestStayExpiredText(input: StayTextInput, portalUrl: string): s
   return `PropLane: The host didn't answer in time for ${plainRange(input)}, so those nights are free again. Try other nights in your portal: ${portalUrl}`;
 }
 
-/** The one-time sign-in link for a first-time guest, appended to the confirmation text. */
-export function withGuestSignInLink(text: string, signInUrl: string | null | undefined): string {
-  return signInUrl ? `${text} Sign in to see your stays: ${signInUrl}` : text;
+/**
+ * The sign-in pointer appended to a guest's confirmation text: the canonical sign-in PAGE, never a live
+ * one-time link. The text leaves from the host's line and is stored in the host's outbox, so nothing in it
+ * may open an account; the guest signs in there with their phone code.
+ */
+export function withGuestSignInPrompt(text: string, origin: string | null | undefined): string {
+  const base = String(origin ?? "").trim().replace(/\/$/, "");
+  return base ? `${text} Sign in at ${base}/auth/sign-in to see your stays.` : text;
 }
 
 /* ─────────────────── what a manager's save must not strip ─────────────────── */

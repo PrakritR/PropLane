@@ -20,7 +20,7 @@ import {
   shortStayQuickPicks,
   shortStayRangesOverlap,
   sortGuestStays,
-  withGuestSignInLink,
+  withGuestSignInPrompt,
   type GuestStay,
 } from "@/lib/short-stay/guest-stays";
 import { guestStayFromRecord, listGuestStays } from "@/lib/short-stay/guest-stays.server";
@@ -112,9 +112,9 @@ describe("the guest's texts", () => {
     for (const text of texts) expect(text).not.toMatch(/[–—]/);
   });
 
-  it("adds the one-time sign-in link only when there is one", () => {
-    expect(withGuestSignInLink("Got it.", "https://x/auth/confirm?token_hash=a&type=magiclink")).toBe("Got it. Sign in to see your stays: https://x/auth/confirm?token_hash=a&type=magiclink");
-    expect(withGuestSignInLink("Got it.", null)).toBe("Got it.");
+  it("points at the sign-in page, never a one-time link", () => {
+    expect(withGuestSignInPrompt("Got it.", "https://x/")).toBe("Got it. Sign in at https://x/auth/sign-in to see your stays.");
+    expect(withGuestSignInPrompt("Got it.", "")).toBe("Got it.");
   });
 });
 

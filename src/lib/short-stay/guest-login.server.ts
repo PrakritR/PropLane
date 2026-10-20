@@ -23,10 +23,17 @@ import "server-only";
  * The link is a `token_hash` that `/auth/confirm` verifies with `verifyOtp`, never a PKCE `code`
  * (a code is bound to the browser that asked, and a text is opened on a phone). The account gets the
  * `resident` role, which is what unlocks `/resident/stays`.
+ *
+ * A link is minted ONLY when the caller asks (`mintLink: true`) AND `smsProvenSessionAllowed` says a text
+ * alone may open that account (never an admin, never a team account that also holds manager/admin roles).
+ * No caller asks today: a text sent from a host's line is stored in that host's outbox, and a live
+ * sign-in link must never sit where the host can read it. The public stay request therefore tells the
+ * guest to sign in with their phone at `/auth/sign-in` instead (`withGuestSignInPrompt`).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
+import { smsProvenSessionAllowed } from "@/lib/auth/sms-proven-session.server";
 import { provisionResidentAccountByEmail } from "@/lib/auth/provision-resident-account";
 import { PORTFOLIO_IMPORT_PLACEHOLDER_EMAIL_DOMAIN } from "@/lib/portfolio-import/placeholder-email";
 
@@ -35,7 +42,7 @@ export type GuestLogin = {
   /** The address the account signs in with: the phone-keyed placeholder, or the reused account's own. */
   loginEmail: string;
   created: boolean;
-  /** One-time link for the guest's text, or null when it could not be minted. */
+  /** One-time link, only when the caller asked for one and a text alone may open the account; otherwise null. */
   signInUrl: string | null;
 };
 
@@ -49,7 +56,9 @@ export function guestPlaceholderEmail(phone: string): string {
   return `guest.${phone.replace(/\D/g, "")}@${PORTFOLIO_IMPORT_PLACEHOLDER_EMAIL_DOMAIN}`;
 }
 
-async function mintSignInUrl(db: SupabaseClient, loginEmail: string): Promise<string | null> {
+async function mintSignInUrl(db: SupabaseClient, userId: string, loginEmail: string): Promise<string | null> {
+  // A phone proves possession of a SIM, not the account's other credentials: the one shared rule decides.
+  if (!(await smsProvenSessionAllowed(db, userId))) return null;
   const { data, error } = await db.auth.admin.generateLink({ type: "magiclink", email: loginEmail });
   const tokenHash = data?.properties?.hashed_token;
   if (error || !tokenHash) return null;
@@ -75,11 +84,13 @@ async function holdsResidentRole(db: SupabaseClient, userId: string): Promise<bo
  */
 export async function ensureGuestLogin(
   db: SupabaseClient,
-  input: { name: string; phone: string; email?: string },
+  input: { name: string; phone: string; email?: string; mintLink?: boolean },
 ): Promise<GuestLogin | null> {
   // `input.email` is deliberately unused: it is unverified and is never an identity (see the module note).
   const { name, phone } = input;
   if (!phone) return null;
+  const mint = (userId: string, loginEmail: string) =>
+    input.mintLink === true ? mintSignInUrl(db, userId, loginEmail).catch(() => null) : Promise.resolve(null);
 
   const placeholderEmail = guestPlaceholderEmail(phone);
 
@@ -94,7 +105,7 @@ export async function ensureGuestLogin(
       userId: mintedUserId,
       loginEmail: placeholderEmail,
       created: false,
-      signInUrl: await mintSignInUrl(db, placeholderEmail).catch(() => null),
+      signInUrl: await mint(mintedUserId, placeholderEmail),
     };
   }
 
@@ -109,7 +120,7 @@ export async function ensureGuestLogin(
     const loginEmail = String(existing.email ?? "").trim().toLowerCase();
     if (!userId || !loginEmail) return null;
     if (await holdsResidentRole(db, userId)) {
-      return { userId, loginEmail, created: false, signInUrl: await mintSignInUrl(db, loginEmail).catch(() => null) };
+      return { userId, loginEmail, created: false, signInUrl: await mint(userId, loginEmail) };
     }
   }
   // Every other match is an unverified claim on the number: it gets this phone's own placeholder
@@ -135,7 +146,7 @@ export async function ensureGuestLogin(
   });
   if (!provisioned.ok) return null;
   await ensureProfileRoleRow(db, userId, "resident");
-  return { userId, loginEmail, created: true, signInUrl: await mintSignInUrl(db, loginEmail).catch(() => null) };
+  return { userId, loginEmail, created: true, signInUrl: await mint(userId, loginEmail) };
 }
 
 /**
