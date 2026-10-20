@@ -27,6 +27,7 @@ import {
   createAxisAchCheckoutSession,
 } from "@/lib/stripe-axis-ach-checkout";
 import { resolveConnectDestinationIfReady } from "@/lib/stripe-connect";
+import { platformCaptureRequiredForProperty } from "@/lib/managed-finance/unpolicied-service.server";
 import { loadWorkspacePaymentSettingsForProperty } from "@/lib/workspace-payment-settings.server";
 import {
   listingPaymentWaiverCodeMatchesServer,
@@ -577,7 +578,11 @@ export async function createApplicationFeeCheckout(
     };
   }
 
-  const destinationAccountId = await resolveConnectDestinationIfReady(stripe, db, managerUserId);
+  // A PropLane-managed workspace (or a service workspace awaiting its signed fee agreement) is always captured on the platform
+  // balance: a destination charge would put its money in the manager of record's own Connect account.
+  const destinationAccountId = (await platformCaptureRequiredForProperty(db, input.propertyId))
+    ? null
+    : await resolveConnectDestinationIfReady(stripe, db, managerUserId);
 
   const itemization = await resolveApplicationFeeItemization(
     db,

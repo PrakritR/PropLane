@@ -43,6 +43,10 @@
       "schedule": "7 * * * *"
     },
     {
+      "path": "/api/cron/release-ready-holds",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/cron/listing-channel-posts",
       "schedule": "*/5 * * * *"
     },
