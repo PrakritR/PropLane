@@ -42,7 +42,8 @@ import { track } from "@/lib/analytics/posthog";
 import {
   classifySmsConfirmationReply,
   denyOpenSmsProposal,
-  renderPreviewForSms,
+  renderPreviewFenced,
+  unfenceUntrustedText,
   resolveOpenSmsProposal,
   supersedeOpenSmsProposals,
   SMS_PENDING_ACTION_TTL_MS,
@@ -543,7 +544,8 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   const { ctx, surface, registry } = args;
   const maxReplyChars = surface.maxReplyChars ?? DEFAULT_MAX_REPLY_CHARS;
   const messageChannel = surface.messageChannel ?? "sms";
-  const renderPreview = args.renderActionPreview ?? renderPreviewForSms;
+  // The transcript keeps third-party text fenced; only the body that goes out as an SMS is unfenced.
+  const renderPreview = args.renderActionPreview ?? renderPreviewFenced;
 
   let session = args.testActor
     ? await findOrCreateSmsAgentTestSession(db, {
@@ -798,11 +800,9 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
         traceId,
       };
     }
-    const reply = [result.reply.trim(), renderPreview(result.pendingAction.preview)]
-      .filter(Boolean)
-      .join("\n\n")
-      .slice(0, maxReplyChars);
-    const assistantMessageId = await recordAssistantReply(db, session, reply, result.toolTrace, traceId, inboundMessageSid);
+    const fencedReply = [result.reply.trim(), renderPreview(result.pendingAction.preview)].filter(Boolean).join("\n\n");
+    const reply = unfenceUntrustedText(fencedReply).slice(0, maxReplyChars);
+    const assistantMessageId = await recordAssistantReply(db, session, fencedReply.slice(0, maxReplyChars + 800), result.toolTrace, traceId, inboundMessageSid);
     track(surface.analytics.actionProposed, ctx.userId, {
       channel: messageChannel,
       tool: result.pendingAction.toolName,

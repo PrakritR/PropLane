@@ -88,19 +88,27 @@ export function unfenceUntrustedText(value: string): string {
     .replace(/\u200B/g, "");
 }
 
-/** Render a preview as plain text a person can judge from a phone. */
-export function renderPreviewForSms(preview: ActionPreview): string {
+/**
+ * The preview as the TRANSCRIPT keeps it: third-party text still inside its model fence, so a later turn that reads this
+ * history sees untrusted text as untrusted. Never send this to a person; use `renderPreviewForSms`.
+ */
+export function renderPreviewFenced(preview: ActionPreview): string {
   const lines: string[] = [preview.title];
   if (preview.summary) lines.push("", preview.summary);
   if (preview.fields?.length) {
     lines.push("");
     for (const field of preview.fields.slice(0, 8)) {
-      lines.push(`${field.label}: ${unfenceUntrustedText(field.value)}`);
+      lines.push(`${field.label}: ${field.value}`);
     }
   }
   for (const warning of preview.warnings ?? []) lines.push("", `Note: ${warning}`);
   lines.push("", "Reply YES to confirm or NO to cancel.");
   return lines.join("\n");
+}
+
+/** Render a preview as plain text a person can judge from a phone (the fence becomes plain quotes). */
+export function renderPreviewForSms(preview: ActionPreview): string {
+  return unfenceUntrustedText(renderPreviewFenced(preview));
 }
 
 type OpenProposal = { id: string; tool_name: string; created_at: string };
