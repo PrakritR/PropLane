@@ -81,7 +81,7 @@ describe("manager-tier-sync waiver-grant protection", () => {
       });
 
       await expect(revokeUnauthorizedManagerPaidTier("user-1")).resolves.toBe(true);
-      expect(update).toHaveBeenCalledWith({ tier: "free", billing: "free", stripe_subscription_id: null });
+      expect(update).toHaveBeenCalledWith({ tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null });
     });
 
     it("revokes a self-assigned paid tier with no Stripe, admin, or waiver backing", async () => {
@@ -96,7 +96,7 @@ describe("manager-tier-sync waiver-grant protection", () => {
 
       await expect(revokeUnauthorizedManagerPaidTier("user-1")).resolves.toBe(true);
       expect(selectEq).toHaveBeenCalledWith("user_id", "user-1");
-      expect(update).toHaveBeenCalledWith({ tier: "free", billing: "free", stripe_subscription_id: null });
+      expect(update).toHaveBeenCalledWith({ tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null });
       expect(updateEq).toHaveBeenCalledWith("id", "purchase-1");
     });
   });

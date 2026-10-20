@@ -225,10 +225,12 @@ export async function carryOutWithdrawal(stripe: Stripe, db: SupabaseClient, w: 
   let payoutId: string | null = null;
   let payoutError: string | undefined;
   // An account on Stripe's AUTOMATIC payout schedule pays itself out: asking for a manual payout on it errors after the transfer
-  // landed. Read the schedule from the account and, when it is automatic, create no payout (the money leaves with its next one).
+  // landed. Only a schedule read as `manual` gets a payout created here. An UNREADABLE schedule is left to Stripe's own
+  // schedule too (automatic is the Express default), because guessing `manual` on an automatic account is exactly the
+  // post-transfer error this reads the schedule to avoid; the money is in the recipient's own account either way.
   const schedule = await payoutScheduleOf(stripe, w.destinationAccountId);
   const payoutAutomatic = schedule === "automatic";
-  if (!payoutAutomatic) try {
+  if (schedule === "manual") try {
     const payout = await stripe.payouts.create(
       { amount: w.amountCents, currency: "usd", method: "standard", metadata: { withdrawal_id: w.withdrawalId, transfer_id: transfer.id } },
       { stripeAccount: w.destinationAccountId, idempotencyKey: `party-withdrawal-payout:${w.withdrawalId}:${w.amountCents}` },
@@ -237,6 +239,9 @@ export async function carryOutWithdrawal(stripe: Stripe, db: SupabaseClient, w: 
   } catch (e) {
     payoutError = e instanceof Error ? e.message : "The payout to your bank could not be started.";
   }
+  // No payout was created and we never learned whether this account creates its own: flag it so the money sitting in
+  // the connected account's balance is visible rather than silent.
+  if (schedule === "unknown") await flag(db, "withdrawal_payout_schedule_unknown", w.withdrawalId, { transfer: transfer.id });
   const { data: done, error } = await db.rpc("complete_party_withdrawal", {
     p_id: w.withdrawalId, p_transfer: transfer.id, p_payout: payoutId, p_payout_error: payoutError ?? null,
   });

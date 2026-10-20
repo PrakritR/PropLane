@@ -74,6 +74,50 @@ describe("manager-purchase-from-session", () => {
     // its Price has since been retired from the current checkout catalog.
   });
 
+  it("records the subscription's own status, so a card-on-file TRIAL is not read as a self-paid plan", async () => {
+    // Manager Pro/Business checkout carries `trial_period_days`, and fulfillment accepts a `trialing` subscription.
+    // The managed view-only lock reads this column: a subscription id alone would unlock a managed workspace for the
+    // whole trial (hasSelfPaidPlan / managed_read_only_owned_locked_ids).
+    const patchFor = async (status: string) => {
+      const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) }));
+      const query = {
+        eq: vi.fn(),
+        maybeSingle: vi.fn().mockResolvedValue({
+          data: { id: "purchase-1", user_id: null, manager_id: "MGR-TEST", email: "manager@example.com" },
+          error: null,
+        }),
+      };
+      query.eq.mockReturnValue(query);
+      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
+        from: vi.fn(() => ({ select: vi.fn(() => query), update })),
+      } as never);
+      const stripe = vi.mocked(getStripe);
+      const original = stripe.getMockImplementation()!;
+      stripe.mockImplementation(() => {
+        const live = original() as unknown as { subscriptions: { retrieve: (id: string) => Promise<Record<string, unknown>> } };
+        return {
+          ...live,
+          subscriptions: { retrieve: async (id: string) => ({ ...(await live.subscriptions.retrieve(id)), status }) },
+        } as never;
+      });
+      try {
+        await recordPaidManagerCheckoutSession(
+          mockCheckoutSession({
+            id: `cs_test_${status}`,
+            customer_email: "manager@example.com",
+            metadata: { tier: "pro", billing: "monthly", manager_id: "MGR-TEST" },
+          }),
+        );
+      } finally {
+        stripe.mockImplementation(original);
+      }
+      return (update.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+    };
+
+    expect((await patchFor("trialing")).subscription_status).toBe("trialing");
+    expect((await patchFor("active")).subscription_status).toBe("active");
+  });
+
   it("records a redeemed FREEFIRST in stripe_promotion_code and never in the waiver column", async () => {
     const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) }));
     const query = {

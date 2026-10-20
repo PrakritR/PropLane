@@ -26,7 +26,10 @@ function makeStripe(over: { balance?: number; transfer?: () => unknown; payout?:
   const transfers = { create: vi.fn(async (params: Record<string, unknown>) => (over.transfer ? over.transfer() : { id: "tr_1", amount: params.amount, currency: "usd", destination: params.destination, metadata: params.metadata })), list: vi.fn(async () => ({ data: over.list ?? [] })) };
   const payouts = { create: vi.fn(async () => (over.payout ? over.payout() : { id: "po_1" })) };
   const balance = { retrieve: vi.fn(async () => ({ available: [{ currency: "usd", amount: over.balance ?? 1_000_000 }] })) };
-  return { transfers, payouts, balance } as never as { transfers: typeof transfers; payouts: typeof payouts; balance: typeof balance };
+  // The schedule decides whether this code creates the payout at all, so the fixture states it: `manual` is the
+  // account PropLane pays out itself. The schedule block below stubs `automatic` and an unreadable read.
+  const accounts = { retrieve: vi.fn(async (id: string) => ({ id, settings: { payouts: { schedule: { interval: "manual" } } } })) };
+  return { transfers, payouts, balance, accounts } as never as { transfers: typeof transfers; payouts: typeof payouts; balance: typeof balance; accounts: typeof accounts };
 }
 
 function setup(rpc: Record<string, (args: Record<string, unknown>) => unknown> = {}, rows: Record<string, FakeRow[]> = {}) {
@@ -321,14 +324,20 @@ describe("payout schedule of the destination account", () => {
     expect(stripe.payouts.create).toHaveBeenCalledTimes(1);
   });
 
-  it("an unreadable schedule falls back to trying the payout, and a payout error after the transfer never fails the withdrawal", async () => {
+  it("an unreadable schedule creates no payout: guessing manual on an automatic account is the error this read avoids", async () => {
     const f = setup();
     const stripe = makeStripe({ payout: () => { throw new Error("You cannot create manual payouts on an automatic schedule"); } });
     (stripe as unknown as { accounts: unknown }).accounts = { retrieve: vi.fn(async () => { throw new Error("rate limited"); }) };
     const r = await withdrawFromManagedFunds(stripe as never, f.db, owner);
     expect(r).toMatchObject({ ok: true, transferId: "tr_1", payoutId: null, payoutPending: true });
+    expect((r as { payoutError?: string }).payoutError).toBeUndefined();
+    expect(stripe.payouts.create).not.toHaveBeenCalled();
+    // The transfer stands and is recorded without a payout error; the unreadable schedule is flagged instead.
+    const complete = f.rpcCalls.find((c) => c.name === "complete_party_withdrawal")!.args;
+    expect(complete).toMatchObject({ p_transfer: "tr_1", p_payout: null, p_payout_error: null });
     expect(f.rpcCalls.some((c) => c.name === "fail_party_withdrawal")).toBe(false);
   });
+
 });
 
 describe("weekly batch and vendors without a login", () => {

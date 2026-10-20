@@ -114,10 +114,30 @@ async function reservePhoneGuess(
   return { state: "reserved", failureId: typeof row.failure_id === "string" ? row.failure_id : null };
 }
 
+/**
+ * Hand a reserved guess back: the code was right, or it was never compared at all.
+ *
+ * A row that stays is fail-safe for the spoofer (the phone's budget only gets stricter) but NOT for the operator -
+ * the service manager phone that only ever types correct codes would walk its own ten-in-24-hours cap and lose the
+ * coded path. PostgREST reports a failed delete as a resolved `{ error }`, so the error is read and logged rather
+ * than swallowed: the condition is visible before a real phone is locked out by it.
+ */
 async function releasePhoneGuess(db: SupabaseClient, failureId: string | null): Promise<void> {
   if (!failureId) return;
-  // Best effort and fail-safe: a row that stays only makes the phone's budget stricter.
-  await db.from(FAILURES_TABLE).delete().eq("id", failureId).then(undefined, () => undefined);
+  const released = await db
+    .from(FAILURES_TABLE)
+    .delete()
+    .eq("id", failureId)
+    .then(
+      (result) => (result ?? {}) as { error?: { message?: string } | null },
+      (thrown: unknown) => ({ error: { message: thrown instanceof Error ? thrown.message : "release failed" } }),
+    );
+  if (released.error) {
+    console.error("[sms-confirmation] phone guess reservation was not released", {
+      failureId,
+      message: released.error.message ?? "unknown",
+    });
+  }
 }
 
 function safeEqualHex(a: string, b: string): boolean {
@@ -180,8 +200,9 @@ export async function issueSmsConfirmationCode(
  *
  *   `locked`     (only when a `phone` is passed) that number has missed ten codes in 24 hours: refuse and point to the portal
  *
- * The attempt is counted by compare-and-set BEFORE the comparison, so concurrent guesses cannot slip past the cap; the
- * per-phone guess is reserved atomically (check + increment in one SQL statement) at the same point.
+ * The per-phone guess is reserved atomically (check + increment in one SQL statement) and the proposal's attempt is then
+ * counted by compare-and-set, both BEFORE the comparison, so concurrent guesses cannot slip past either cap. A step that
+ * cannot answer hands the reservation back and spends no attempt: a guess that was never compared costs nothing.
  */
 export async function checkSmsConfirmationCode(
   db: SupabaseClient,
@@ -215,6 +236,17 @@ export async function checkSmsConfirmationCode(
   // An expired code is not a guess: a manager answering late is re-asked rather than charged an attempt.
   if (new Date(String(row.expires_at ?? 0)).getTime() <= now.getTime()) return "wrong";
 
+  // The phone's guess is reserved (counted) BEFORE the comparison, in one atomic statement, so a burst of parallel guesses
+  // cannot slip past the cap and a failed write cannot leave a guess unrecorded. It is also reserved before the PROPOSAL's
+  // attempt is spent: a reserve that cannot answer (`locked` / `unavailable`) never compared a code, and spending an
+  // attempt on it would let three unavailable stores exhaust - and so CANCEL - a proposal nobody ever answered.
+  let reservedFailureId: string | null = null;
+  if (failureKey) {
+    const reserved = await reservePhoneGuess(db, failureKey, now);
+    if (reserved.state !== "reserved") return reserved.state;
+    reservedFailureId = reserved.failureId;
+  }
+
   const { data: counted, error: countError } = await db
     .from(TABLE)
     .update({ attempts: attempts + 1, updated_at: now.toISOString() })
@@ -222,16 +254,14 @@ export async function checkSmsConfirmationCode(
     .eq("subject_id", subjectId)
     .eq("attempts", attempts)
     .select("subject_id");
-  if (countError) return "unavailable";
-  if (!counted || (counted as unknown[]).length === 0) return "wrong";
-
-  // The phone's guess is reserved (counted) BEFORE the comparison, in one atomic statement, so a burst of parallel guesses
-  // cannot slip past the cap and a failed write cannot leave a guess unrecorded.
-  let reservedFailureId: string | null = null;
-  if (failureKey) {
-    const reserved = await reservePhoneGuess(db, failureKey, now);
-    if (reserved.state !== "reserved") return reserved.state;
-    reservedFailureId = reserved.failureId;
+  // No attempt was recorded, so no guess was made: the reservation goes back rather than counting against the phone.
+  if (countError) {
+    await releasePhoneGuess(db, reservedFailureId);
+    return "unavailable";
+  }
+  if (!counted || (counted as unknown[]).length === 0) {
+    await releasePhoneGuess(db, reservedFailureId);
+    return "wrong";
   }
 
   const expected = String(row.code_hash ?? "");

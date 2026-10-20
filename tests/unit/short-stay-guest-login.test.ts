@@ -8,9 +8,6 @@ vi.mock("@/lib/auth/profile-role-row", () => ({ ensureProfileRoleRow: (...args: 
 const provision = vi.fn(async (..._args: unknown[]) => ({ ok: true as const, axisId: "AXIS-1", linkedApplication: false }));
 vi.mock("@/lib/auth/provision-resident-account", () => ({ provisionResidentAccountByEmail: (...args: unknown[]) => provision(...args) }));
 
-const smsProvenSessionAllowed = vi.fn(async (..._args: unknown[]) => true);
-vi.mock("@/lib/auth/sms-proven-session.server", () => ({ smsProvenSessionAllowed: (...args: unknown[]) => smsProvenSessionAllowed(...args) }));
-
 import { ensureGuestLogin, guestPlaceholderEmail, guestSignInConfirmUrl } from "@/lib/short-stay/guest-login.server";
 import { createFakeDb } from "../helpers/fake-table-db";
 
@@ -24,10 +21,9 @@ function dbFor(rows: { profiles?: Array<Record<string, unknown>>; roles?: Array<
 beforeEach(() => {
   vi.clearAllMocks();
   findAuthUserIdByEmail.mockResolvedValue(null);
-  smsProvenSessionAllowed.mockResolvedValue(true);
 });
 
-describe("the one-time sign-in link", () => {
+describe("the sign-in confirm link helper (used by the phone-bound signup link)", () => {
   it("is a token_hash confirm link, never a PKCE code", () => {
     const url = guestSignInConfirmUrl("https://proplane.ai/", "abc 123");
     expect(url).toBe("https://proplane.ai/auth/confirm?token_hash=abc%20123&type=magiclink");
@@ -42,7 +38,7 @@ describe("the one-time sign-in link", () => {
 describe("ensureGuestLogin", () => {
   const input = { name: "Priya Shah", phone: "+12065550142", email: "priya@example.com" };
 
-  it("creates a resident login on the PLACEHOLDER, never the typed email, and mints no link unless asked", async () => {
+  it("creates a resident login on the PLACEHOLDER, never the typed email, and mints no link at all", async () => {
     const { db, createUser, generateLink } = dbFor({});
     const login = await ensureGuestLogin(db, input);
     const placeholder = "guest.12065550142@import.proplane.local";
@@ -55,35 +51,28 @@ describe("ensureGuestLogin", () => {
     expect(JSON.stringify(provision.mock.calls)).not.toContain("priya@example.com");
     expect(ensureProfileRoleRow).toHaveBeenCalledWith(expect.anything(), "new-user", "resident");
     expect(generateLink).not.toHaveBeenCalled();
-    expect(login).toMatchObject({ userId: "new-user", created: true, loginEmail: placeholder, signInUrl: null });
+    expect(login).toEqual({ userId: "new-user", created: true, loginEmail: placeholder });
   });
 
-  it("mints the link only when asked, and only when the shared SMS-proof rule allows the account", async () => {
-    const asked = dbFor({});
-    const login = await ensureGuestLogin(asked.db, { ...input, mintLink: true });
-    expect(smsProvenSessionAllowed).toHaveBeenCalledWith(expect.anything(), "new-user");
-    expect(asked.generateLink).toHaveBeenCalledWith({ type: "magiclink", email: "guest.12065550142@import.proplane.local" });
-    expect(login?.signInUrl).toContain("/auth/confirm?token_hash=hash-for-guest.12065550142%40import.proplane.local&type=magiclink");
-  });
+  it("mints NO sign-in link on any path: a link in the host's outbox is a link the host can use", async () => {
+    // This flow has no opt-in to mint one. The guest is told to sign in with their phone instead
+    // (`withGuestSignInPrompt`); the only phone-bound link is the signup one, which is gated by
+    // `smsProvenSessionAllowed` and texted to the number that proved itself.
+    const fresh = dbFor({});
+    expect(await ensureGuestLogin(fresh.db, input)).toEqual({ userId: "new-user", created: true, loginEmail: "guest.12065550142@import.proplane.local" });
+    expect(fresh.generateLink).not.toHaveBeenCalled();
 
-  it("a multi-role team account (resident + manager/admin) that the SMS-proof rule refuses is never handed a link", async () => {
-    smsProvenSessionAllowed.mockResolvedValue(false);
-    const { db, generateLink } = dbFor({
-      profiles: [{ id: "u-team", email: "team@home.test", phone: "+12065550142", phone_verified_at: "2026-09-01T00:00:00Z" }],
-      roles: [{ user_id: "u-team", role: "resident" }, { user_id: "u-team", role: "manager" }],
-    });
-    const login = await ensureGuestLogin(db, { ...input, mintLink: true });
-    expect(smsProvenSessionAllowed).toHaveBeenCalledWith(expect.anything(), "u-team");
-    expect(generateLink).not.toHaveBeenCalled();
-    expect(login).toMatchObject({ userId: "u-team", signInUrl: null });
-  });
-
-  it("never mints for the reused-placeholder path when the rule refuses either", async () => {
-    smsProvenSessionAllowed.mockResolvedValue(false);
     const placeholder = "guest.12065550142@import.proplane.local";
-    const { db, generateLink } = dbFor({ profiles: [{ id: "u-guest", email: placeholder }], roles: [{ user_id: "u-guest", role: "resident" }] });
-    expect((await ensureGuestLogin(db, { ...input, mintLink: true }))?.signInUrl).toBeNull();
-    expect(generateLink).not.toHaveBeenCalled();
+    const reused = dbFor({ profiles: [{ id: "u-guest", email: placeholder }], roles: [{ user_id: "u-guest", role: "resident" }] });
+    expect(await ensureGuestLogin(reused.db, input)).toEqual({ userId: "u-guest", created: false, loginEmail: placeholder });
+    expect(reused.generateLink).not.toHaveBeenCalled();
+
+    const verified = dbFor({
+      profiles: [{ id: "u-team", email: "team@home.test", phone: "+12065550142", phone_verified_at: "2026-09-01T00:00:00Z" }],
+      roles: [{ user_id: "u-team", role: "resident" }],
+    });
+    expect(await ensureGuestLogin(verified.db, input)).toEqual({ userId: "u-team", created: false, loginEmail: "team@home.test" });
+    expect(verified.generateLink).not.toHaveBeenCalled();
   });
 
   it("a victim's email (existing account, applications, inbox threads) is never looked up, attached or used", async () => {
@@ -108,7 +97,7 @@ describe("ensureGuestLogin", () => {
     expect(login?.created).toBe(true);
   });
 
-  it("reuses the resident account whose phone is VERIFIED: the link goes to that phone's proven owner", async () => {
+  it("reuses the resident account whose phone is VERIFIED: the stay is stamped with that phone's proven owner", async () => {
     const { db, createUser, generateLink } = dbFor({
       profiles: [{ id: "u-priya", email: "p@home.test", phone: "+12065550142", phone_verified_at: "2026-09-01T00:00:00Z" }],
       roles: [{ user_id: "u-priya", role: "resident" }],
@@ -120,8 +109,8 @@ describe("ensureGuestLogin", () => {
   });
 
   it("never signs into an account whose phone is UNVERIFIED: a typed number is a claim, not possession", async () => {
-    // `profiles.phone` is self-edited in Settings; a recycled or mistyped number must not be texted a
-    // link into that resident's lease, payments and documents.
+    // `profiles.phone` is self-edited in Settings; a recycled or mistyped number must not be handed
+    // that resident's lease, payments and documents.
     const { db, createUser, generateLink } = dbFor({
       profiles: [{ id: "u-resident", email: "someone@home.test", phone: "+12065550142", phone_verified_at: null }],
       roles: [{ user_id: "u-resident", role: "resident" }],
@@ -156,7 +145,7 @@ describe("ensureGuestLogin", () => {
     expect(ensureProfileRoleRow).not.toHaveBeenCalledWith(expect.anything(), "u-mgr", "resident");
   });
 
-  it("gives up (no link, no account) when two accounts claim the VERIFIED phone or the account service refuses", async () => {
+  it("gives up (no account at all) when two accounts claim the VERIFIED phone or the account service refuses", async () => {
     const two = dbFor({
       profiles: [
         { id: "a", email: "a@x.test", phone: "+12065550142", phone_verified_at: "2026-09-01T00:00:00Z" },

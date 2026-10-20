@@ -265,6 +265,68 @@ describe("a per-phone budget across proposals", () => {
     expect(f.tables.sms_confirmation_codes![0]!.consumed_at).toBeNull();
   });
 
+  it("a reserve that cannot answer spends NO proposal attempt, so transient blips never cancel the proposal", async () => {
+    // `exhausted` is a CANCELLATION to every caller (the dispatch run is declined, the stay offer cleared). Counting the
+    // attempt before the reserve meant three unavailable reserves cancelled a proposal nobody had answered.
+    const f = db();
+    const code = (await issueSmsConfirmationCode(f as never, subject))!;
+    const reserve = (f as { rpc: unknown }).rpc;
+    (f as { rpc: unknown }).rpc = async () => ({ data: null, error: { message: "down" } });
+    for (let i = 0; i < SMS_CONFIRMATION_CODE_MAX_ATTEMPTS + 1; i += 1) {
+      expect(await checkSmsConfirmationCode(f as never, { ...subject, code, phone: PHONE })).toBe("unavailable");
+    }
+    expect(f.tables.sms_confirmation_codes![0]!.attempts ?? 0).toBe(0);
+    // The store comes back and the manager's correct code still confirms.
+    (f as { rpc: unknown }).rpc = reserve;
+    expect(await checkSmsConfirmationCode(f as never, { ...subject, code, phone: PHONE })).toBe("ok");
+  });
+
+  it("a locked phone spends no proposal attempt either, even when the pre-check missed the cap", async () => {
+    const f = db();
+    const code = (await issueSmsConfirmationCode(f as never, subject))!;
+    (f as { rpc: unknown }).rpc = async () => ({ data: [{ locked: true, failure_id: null }], error: null });
+    expect(await checkSmsConfirmationCode(f as never, { ...subject, code, phone: PHONE })).toBe("locked");
+    expect(f.tables.sms_confirmation_codes![0]!.attempts ?? 0).toBe(0);
+    expect(f.tables.sms_confirmation_codes![0]!.consumed_at).toBeNull();
+  });
+
+  it("an attempt that was not recorded hands the phone's reserved guess back", async () => {
+    // The compare-and-set lost to a concurrent guess, so this call never compared a code: it must not also cost the
+    // phone one of its ten.
+    const calls: Array<Record<string, unknown>> = [];
+    const f = withReserveRpc(createFakeDb({ sms_confirmation_codes: [] }), calls);
+    const code = (await issueSmsConfirmationCode(f as never, subject))!;
+    const row = f.tables.sms_confirmation_codes![0]!;
+    const realFrom = f.from.bind(f);
+    (f as { from: unknown }).from = (table: string) => {
+      const builder = realFrom(table);
+      if (table !== "sms_confirmation_codes") return builder;
+      return new Proxy(builder as object, {
+        get(target, prop, receiver) {
+          // The attempt moved under us between the read and the compare-and-set.
+          if (prop === "update") row.attempts = 1;
+          return Reflect.get(target, prop, receiver);
+        },
+      }) as never;
+    };
+    expect(await checkSmsConfirmationCode(f as never, { ...subject, code, phone: PHONE })).toBe("wrong");
+    expect(f.tables.sms_confirmation_failures ?? []).toHaveLength(0);
+  });
+
+  it("a release that fails is reported rather than swallowed: a correct-code phone must not walk its own cap", async () => {
+    // PostgREST reports a failed delete as a resolved `{ error }`, so the row survives a CORRECT code and counts
+    // toward the ten-in-24-hours cap. The operator phone that only ever types right codes would lock itself out.
+    const f = withReserveRpc(createFakeDb({ sms_confirmation_codes: [] }, {
+      failWrite: (table, mode) => (table === "sms_confirmation_failures" && mode === "delete" ? { message: "delete refused" } : null),
+    }));
+    const code = (await issueSmsConfirmationCode(f as never, subject))!;
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(await checkSmsConfirmationCode(f as never, { ...subject, code, phone: PHONE })).toBe("ok");
+    expect(logged).toHaveBeenCalled();
+    expect(String(logged.mock.calls[0]![0])).toContain("not released");
+    logged.mockRestore();
+  });
+
   it("an unreadable failure count refuses (fail closed), never confirms", async () => {
     const f = createFakeDb({ sms_confirmation_codes: [] }, { failWrite: () => null });
     const code = (await issueSmsConfirmationCode(f as never, subject))!;

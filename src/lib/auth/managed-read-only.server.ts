@@ -4,33 +4,48 @@ import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 
 /**
  * TS mirror of `public.managed_read_only_workspace_ids()` / `managed_read_only_owner_locked()`
- * (migration 20261020100000, v3), for code that holds a service-role client. Keep the rules identical.
+ * (migrations 20261020100000 v3 and 20261020130000), for code that holds a service-role client. Keep the rules
+ * identical.
  */
 export type PurchaseRowForPlan = {
   tier?: string | null;
   stripe_subscription_id?: string | null;
+  subscription_status?: string | null;
   apple_original_transaction_id?: string | null;
 };
+
+/** The Stripe subscription states that are a plan the client is PAYING for: `past_due` is a retry, not a revocation. */
+const SELF_PAID_SUBSCRIPTION_STATUSES = new Set(["active", "past_due"]);
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
 /**
- * A plan the client is paying for herself RIGHT NOW: a pro / business row carrying a Stripe subscription id or an
- * Apple anchor. The `billing` column is NOT evidence (checkout intents write monthly / annual for tier free before
- * any payment), and admin grants, trials and waivers carry no subscription id.
+ * A plan the client is paying for herself RIGHT NOW: a pro / business row carrying an Apple anchor, or a Stripe
+ * subscription whose own status is `active` / `past_due`. The `billing` column is NOT evidence (checkout intents
+ * write monthly / annual for tier free before any payment), and admin grants, trials and waivers carry no
+ * subscription id.
  *
- * "Current" rests on the tier: every cancellation path writes `tier: "free"` and clears the id - Stripe's
+ * The status is load-bearing: manager Checkout is created with `trial_period_days`, so a subscription id alone is
+ * satisfied by a card-on-file TRIAL that has paid nothing - which would unlock a managed workspace for the length
+ * of the trial. `past_due` still counts (money has been paid and Stripe is retrying); `trialing`, `incomplete`,
+ * `unpaid`, `paused`, `canceled` and an unwritten status do not.
+ *
+ * "Current" also rests on the tier: every cancellation path writes `tier: "free"` and clears the id - Stripe's
  * `customer.subscription.deleted` and the reconciler (`manager-stripe-subscription-sync.ts`), and RevenueCat's
  * expiry / refund (`downgradeAppleManagerPurchase`). So a client who buys Pro for a month and cancels is locked
- * again once that event lands, and `manager_purchases` needs no status column of its own.
+ * again once that event lands.
  */
 export function hasSelfPaidPlan(rows: readonly PurchaseRowForPlan[] | null | undefined): boolean {
   return (rows ?? []).some((row) => {
     const tier = text(row.tier).toLowerCase();
     if (tier !== "pro" && tier !== "business") return false;
-    return text(row.stripe_subscription_id) !== "" || text(row.apple_original_transaction_id) !== "";
+    if (text(row.apple_original_transaction_id) !== "") return true;
+    return (
+      text(row.stripe_subscription_id) !== "" &&
+      SELF_PAID_SUBSCRIPTION_STATUSES.has(text(row.subscription_status).toLowerCase())
+    );
   });
 }
 
@@ -64,7 +79,7 @@ export async function lockedOwnedServiceWorkspaceIds(
   // Matched by user_id only: an email match is satisfied by unauthenticated inserts.
   const purchases = await db
     .from("manager_purchases")
-    .select("tier, stripe_subscription_id, apple_original_transaction_id")
+    .select("tier, stripe_subscription_id, subscription_status, apple_original_transaction_id")
     .eq("user_id", uid);
   if (purchases.error) throw new Error("managed read-only plan lookup failed");
   if (hasSelfPaidPlan((purchases.data ?? []) as PurchaseRowForPlan[])) return [];

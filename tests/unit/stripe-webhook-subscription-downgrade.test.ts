@@ -91,7 +91,7 @@ describe("customer.subscription.deleted", () => {
   it("downgrades the purchase row to free and acknowledges", async () => {
     const res = await webhook(signed(deleted));
     expect(res.status).toBe(200);
-    expect(state.updates).toContainEqual({ table: "manager_purchases", tier: "free", billing: "free", stripe_subscription_id: null });
+    expect(state.updates).toContainEqual({ table: "manager_purchases", tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null });
   });
 
   it("answers 500 so Stripe retries when the downgrade cannot be written", async () => {

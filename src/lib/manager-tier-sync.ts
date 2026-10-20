@@ -47,7 +47,7 @@ export async function revokeUnauthorizedManagerPaidTier(userId: string): Promise
 
   const { error } = await supabase
     .from("manager_purchases")
-    .update({ tier: "free", billing: "free", stripe_subscription_id: null })
+    .update({ tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null })
     .eq("id", data.id);
 
   return !error;

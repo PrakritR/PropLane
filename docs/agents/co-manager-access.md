@@ -671,6 +671,13 @@ its Property-portal home (`src/lib/property-owner/legacy-redirects.ts`, read by 
   `DropdownMenuItem`, `resolveAddPropertyWorkspaceAction`), `data-read-only="managed"` on the root, and one strip under the top
   bar: "Managed by PropLane · View only" with Message the team (Team chat) and Get a plan (Billing & plan).
   `tests/unit/managed-read-only-ui.test.tsx`.
+- What lifts the lock is a plan the client pays for herself: tier pro|business plus an Apple anchor, or a Stripe
+  subscription whose `manager_purchases.subscription_status` is `active` / `past_due`. A card-on-file TRIAL
+  (`trialing`, from manager Checkout's `trial_period_days`), an admin grant, a waiver and an unwritten status do not -
+  one rule in `hasSelfPaidPlan` and its SQL mirror `managed_read_only_owned_locked_ids`
+  (`supabase/migrations/20261020130000_manager_purchase_subscription_status.sql`); the status is written by the Stripe
+  subscription webhook, the plan reconciler and checkout fulfillment. Staff (platform admin via `profile_roles`, the
+  platform service owner) are never locked.
 - Owner money lives in Finances › Owner payouts (`financials/owner-payouts`, `OwnerPayoutsPanel` over `/api/owner/finances/*`),
   shown only when `GET /api/owner/finances` answers (403 hides the tab).
 

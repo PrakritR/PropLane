@@ -1,4 +1,4 @@
-import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
+import { stampProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { NextResponse } from "next/server";
 import { asStringArray, readPropertyPermissionsFromRow, resolveInviteTeamRole, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
@@ -541,14 +541,27 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       }
     }
 
+    // The role is stamped before the seat it belongs to: a teammate holds the manager role, so nothing downstream reads
+    // the seat as resident-only. It is therefore stamped REVERSIBLY - a status update that does not land would otherwise
+    // leave a standing manager grant with no accepted seat behind it, and nothing here sweeps one up.
+    let roleStamp: { rollback: () => Promise<void> } | null = null;
     if (actionNorm === "accept" && resolveInviteTeamRole(invite.team_role, readPropertyPermissionsFromRow(invite)) !== "property_owner") {
-      // Same as the open-link redeem: a teammate holds the manager role, so nothing downstream reads the seat as resident-only.
       try {
-        await ensureProfileRoleRow(svc, invite.invitee_user_id, "manager");
+        roleStamp = await stampProfileRoleRow(svc, invite.invitee_user_id, "manager");
       } catch (error) {
         return NextResponse.json({ error: error instanceof Error ? error.message : "Could not add the team role." }, { status: 500 });
       }
     }
+
+    // Two clicks on the same invite both stamp the role and only one moves the status: the loser must not revoke the
+    // role the winner's accepted seat now needs. So the undo first re-reads the row and keeps the role on an accepted one.
+    const undoRoleStamp = async () => {
+      if (!roleStamp) return;
+      const { data: current, error } = await svc.from("account_link_invites").select("status").eq("id", id).maybeSingle();
+      if (error) return;
+      if (String((current as { status?: string | null } | null)?.status ?? "") === "accepted") return;
+      await roleStamp.rollback();
+    };
 
     const nextStatus = actionNorm === "accept" ? "accepted" : "rejected";
     const { data: updated, error: upErr } = await svc
@@ -560,7 +573,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       .maybeSingle();
 
     if (upErr) {
+      await undoRoleStamp();
       return NextResponse.json({ error: upErr.message }, { status: 500 });
+    }
+    if (!updated) {
+      await undoRoleStamp();
+      return NextResponse.json({ error: "This invite is no longer pending." }, { status: 409 });
     }
 
     if (actionNorm === "accept") {

@@ -94,7 +94,8 @@ export function checkoutSessionIndicatesPaidPurchase(session: Stripe.Checkout.Se
     (session.payment_status === "paid" || session.payment_status === "no_payment_required");
 }
 
-async function verifyPaidManagerSubscription(session: Stripe.Checkout.Session): Promise<void> {
+/** Returns the verified subscription's own status (`active` / `trialing`), which fulfillment records on the row. */
+async function verifyPaidManagerSubscription(session: Stripe.Checkout.Session): Promise<string> {
   if (!checkoutSessionIndicatesPaidPurchase(session) || session.mode !== "subscription") {
     throw new Error("Manager subscription payment has not settled.");
   }
@@ -128,6 +129,7 @@ async function verifyPaidManagerSubscription(session: Stripe.Checkout.Session): 
   if (!floorPriceId) throw new Error("Paid Checkout subscription has no matching plan price.");
   // The new-session resolver checks the active current price before creation.
   // Fulfillment preserves captured provider terms after a catalog rotation.
+  return subscription.status;
 }
 
 /** Repair a pre-reservation portal session only after the authenticated owner
@@ -200,7 +202,7 @@ export async function recordPaidManagerCheckoutSession(session: Stripe.Checkout.
   const email = checkoutEmail(session);
 
   if (!checkoutSessionIndicatesPaidPurchase(session)) return;
-  await verifyPaidManagerSubscription(session);
+  const subscriptionStatus = await verifyPaidManagerSubscription(session);
 
   const supabase = createSupabaseServiceRoleClient();
   const customerId =
@@ -230,6 +232,9 @@ export async function recordPaidManagerCheckoutSession(session: Stripe.Checkout.
     stripe_checkout_session_id: session.id,
     stripe_customer_id: customerId,
     stripe_subscription_id: subscriptionId,
+    // A trial that has paid nothing is recorded as `trialing`: the managed view-only lock only treats
+    // `active` / `past_due` as a self-paid plan (hasSelfPaidPlan + managed_read_only_owned_locked_ids).
+    subscription_status: subscriptionStatus,
     tier: tierMeta,
     billing: billingMeta,
     // The code Stripe applied as a discount on this session, never the free text typed on the pricing

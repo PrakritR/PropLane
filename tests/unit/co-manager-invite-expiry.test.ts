@@ -90,18 +90,30 @@ describe("the accept path refuses an expired invite", () => {
 describe("accepting a team invite always leaves a manager-side role", () => {
   const read = (path: string) => readFileSync(join(process.cwd(), path), "utf8");
 
-  it("the open-link redeem stamps the manager role before it claims the seat", () => {
+  it("the open-link redeem stamps the manager role before it claims the seat, and rolls it back if the claim fails", () => {
     const redeem = read("src/app/api/pro/account-links/redeem/route.ts");
-    const role = redeem.indexOf('ensureProfileRoleRow(svc, user.id, "manager")');
+    const role = redeem.indexOf('stampProfileRoleRow(svc, user.id, "manager")');
     expect(role).toBeGreaterThan(-1);
     expect(role).toBeLessThan(redeem.indexOf('status: "accepted"'));
+    // A claim that errors or loses the race must not leave a standing manager grant with no seat behind it,
+    // and the undo keeps the role when the seat did end up accepted by this user (two parallel redeems).
+    const claimed = redeem.slice(redeem.indexOf("if (claimErr) {"));
+    expect(claimed.slice(0, 600)).toContain("undoRoleStamp()");
+    expect(claimed.slice(claimed.indexOf("if (!updated) {"), claimed.indexOf("if (!updated) {") + 200)).toContain("undoRoleStamp()");
+    expect(redeem.slice(redeem.indexOf("const undoRoleStamp"), redeem.indexOf("if (claimErr) {"))).toContain('=== "accepted"');
   });
 
   it("the invitee accept (PATCH) does too, for every team role but the property owner, before the status flips", () => {
     const route = read("src/app/api/pro/account-links/[inviteId]/route.ts");
-    const role = route.indexOf('ensureProfileRoleRow(svc, invite.invitee_user_id, "manager")');
+    const role = route.indexOf('stampProfileRoleRow(svc, invite.invitee_user_id, "manager")');
     expect(role).toBeGreaterThan(-1);
     expect(role).toBeLessThan(route.indexOf('const nextStatus = actionNorm === "accept"'));
-    expect(route.slice(role - 400, role)).toContain('!== "property_owner"');
+    expect(route.slice(role - 600, role)).toContain('!== "property_owner"');
+    const afterUpdate = route.slice(role);
+    const failed = afterUpdate.indexOf("if (upErr) {");
+    expect(afterUpdate.slice(failed, failed + 250)).toContain("undoRoleStamp()");
+    const stale = afterUpdate.indexOf("if (!updated) {");
+    expect(afterUpdate.slice(stale, stale + 250)).toContain("undoRoleStamp()");
+    expect(afterUpdate.slice(afterUpdate.indexOf("const undoRoleStamp"), failed)).toContain('=== "accepted"');
   });
 });

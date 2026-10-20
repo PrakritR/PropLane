@@ -10,7 +10,7 @@ import { describeCoManagerPermissions, flatCoManagerPermissionsFromProperty } fr
 import { parseHouseScope } from "@/lib/workspaces/membership";
 import { looksLikeAccountLinksMissingTable } from "@/lib/account-links";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
-import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
+import { stampProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { findPendingOpenInviteByToken, openInviteIsExpired } from "@/lib/co-manager-open-invite.server";
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import { hashCoManagerInviteToken } from "@/lib/co-manager-invite-token.server";
@@ -225,7 +225,23 @@ export async function POST(req: Request) {
       }
     }
 
-    await ensureProfileRoleRow(svc, user.id, "manager");
+    // Stamped before the claim below, and reversibly: a claim that loses the race (or fails) must not leave a standing
+    // manager grant with no accepted seat behind it.
+    const roleStamp = await stampProfileRoleRow(svc, user.id, "manager");
+
+    // Two parallel redeems of the same link both stamp the role and only one claims the seat: the loser must not
+    // revoke the role the winner now needs. The undo re-reads the row and keeps the role once this user holds the seat.
+    const undoRoleStamp = async () => {
+      const { data: current, error } = await svc
+        .from("account_link_invites")
+        .select("status, invitee_user_id")
+        .eq("id", row.id)
+        .maybeSingle();
+      if (error) return;
+      const claimed = current as { status?: string | null; invitee_user_id?: string | null } | null;
+      if (String(claimed?.status ?? "") === "accepted" && String(claimed?.invitee_user_id ?? "") === user.id) return;
+      await roleStamp.rollback();
+    };
 
     const { data: updated, error: claimErr } = await svc
       .from("account_link_invites")
@@ -247,10 +263,12 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (claimErr) {
+      await undoRoleStamp();
       if (looksLikeAccountLinksMissingTable(claimErr)) return missingTableResponse();
       return NextResponse.json({ error: claimErr.message }, { status: 500 });
     }
     if (!updated) {
+      await undoRoleStamp();
       return NextResponse.json({ error: "This invite link is no longer available." }, { status: 409 });
     }
 

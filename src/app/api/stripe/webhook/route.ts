@@ -632,7 +632,7 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
         if (event.type === "customer.subscription.deleted") {
           const { error: downgradeError } = await db
             .from("manager_purchases")
-            .update({ tier: "free", billing: "free", stripe_subscription_id: null })
+            .update({ tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null })
             .eq("stripe_subscription_id", sub.id);
           if (downgradeError) throw new Error(downgradeError.message || "Could not downgrade the cancelled plan.");
         } else {

@@ -86,7 +86,7 @@ describe("reconcileManagerPurchaseWithStripe downgrade flow", () => {
     await reconcileManagerPurchaseWithStripe("user-1");
 
     expect(subscriptionsRetrieve).toHaveBeenCalledWith("sub_123", { expand: ["items.data.price"] });
-    expect(update).toHaveBeenCalledWith({ tier: "free", billing: "free", stripe_subscription_id: null });
+    expect(update).toHaveBeenCalledWith({ tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null });
     expect(updateEq).toHaveBeenCalledWith("user_id", "user-1");
   });
 
@@ -98,6 +98,31 @@ describe("reconcileManagerPurchaseWithStripe downgrade flow", () => {
 
     expect(subscriptionsRetrieve).toHaveBeenCalledOnce();
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it("records the live subscription's status, so a trialing plan is not stored as a paid one", async () => {
+    // The managed view-only lock reads `subscription_status`: a Stripe subscription id alone is satisfied by a
+    // card-on-file trial that has paid nothing. This write is the webhook's path too
+    // (`customer.subscription.updated` -> reconcileManagerPurchaseByStripeSubscriptionId).
+    vi.stubEnv("STRIPE_PRICE_PRO_MONTHLY", "price_pro_monthly");
+    for (const status of ["trialing", "active"]) {
+      const { update } = fakeClient({ stripe_subscription_id: "sub_123", stripe_checkout_session_id: "cs_normal" });
+      subscriptionsRetrieve.mockResolvedValueOnce({
+        id: "sub_123",
+        status,
+        items: { data: [{ price: { id: "price_pro_monthly" } }] },
+      });
+
+      await reconcileManagerPurchaseWithStripe("user-1");
+
+      expect(update).toHaveBeenCalledWith({
+        tier: "pro",
+        billing: "monthly",
+        stripe_subscription_id: "sub_123",
+        subscription_status: status,
+      });
+    }
+    vi.unstubAllEnvs();
   });
 
   it("returns early for admin-managed grants without ever calling Stripe", async () => {

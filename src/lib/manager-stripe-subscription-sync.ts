@@ -179,7 +179,7 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
     if (isDefinitiveStripeSubscriptionMissingError(err)) {
       await supabase
         .from("manager_purchases")
-        .update({ tier: "free", billing: "free", stripe_subscription_id: null })
+        .update({ tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null })
         .eq("user_id", userId);
     }
     return;
@@ -188,7 +188,7 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
   if (sub.status === "canceled" || sub.status === "incomplete_expired") {
     await supabase
       .from("manager_purchases")
-      .update({ tier: "free", billing: "free", stripe_subscription_id: null })
+      .update({ tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null })
       .eq("user_id", userId);
     return;
   }
@@ -198,7 +198,7 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
   if (cancelAtPeriodEnd && periodEndSec && periodEndSec * 1000 <= Date.now()) {
     await supabase
       .from("manager_purchases")
-      .update({ tier: "free", billing: "free", stripe_subscription_id: null })
+      .update({ tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null })
       .eq("user_id", userId);
     return;
   }
@@ -216,6 +216,9 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
       tier: paidTier,
       billing,
       stripe_subscription_id: sub.id,
+      // The managed view-only lock reads this: a subscription id alone is satisfied by a card-on-file TRIAL that has
+      // paid nothing, so only `active` / `past_due` counts as self-paid (hasSelfPaidPlan + the SQL mirror).
+      subscription_status: sub.status,
     })
     .eq("user_id", userId);
 }
