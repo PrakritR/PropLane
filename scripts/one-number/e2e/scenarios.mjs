@@ -350,3 +350,5 @@ import { VENDOR_JOBS_SCENARIOS } from "./scenarios-vendor-jobs.mjs";
 SCENARIOS.push(...VENDOR_JOBS_SCENARIOS);
 import { SMSOWNER_SCENARIOS } from "./scenarios-smsowner.mjs";
 SCENARIOS.push(...SMSOWNER_SCENARIOS);
+import { SMSSIGNUP_SCENARIOS } from "./scenarios-smssignup.mjs";
+SCENARIOS.push(...SMSSIGNUP_SCENARIOS);
