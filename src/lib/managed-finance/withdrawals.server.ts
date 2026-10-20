@@ -442,6 +442,23 @@ async function finishPendingVerificationPayouts(stripe: Stripe, db: SupabaseClie
       finished += 1;
       continue;
     }
+    // The create below is idempotent only for Stripe's 24 hours. A retry after that window (or one whose earlier
+    // response was lost) would pay the same withdrawal twice, so the connected account's recent payouts are read
+    // first and a payout already tagged with this withdrawal is adopted instead of created again. A list that cannot
+    // be read is not an answer: keep the marker and try later rather than risk a second payout.
+    let adopted: Stripe.Payout | null = null;
+    try {
+      const recent = await stripe.payouts.list({ limit: 100 }, { stripeAccount: accountId });
+      adopted = (recent.data ?? []).find((p) => p.metadata?.withdrawal_id === id) ?? null;
+    } catch {
+      await keepTrying(pending.attempts + 1);
+      continue;
+    }
+    if (adopted) {
+      await db.rpc("complete_party_withdrawal", { p_id: id, p_transfer: transferId, p_payout: adopted.id, p_payout_error: null });
+      finished += 1;
+      continue;
+    }
     try {
       const payout = await stripe.payouts.create(
         { amount: amountCents, currency: "usd", method: "standard", metadata: { withdrawal_id: id, transfer_id: transferId } },

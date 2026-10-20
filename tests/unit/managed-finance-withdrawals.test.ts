@@ -30,9 +30,12 @@ function policyRows(): FakeRow[] {
 }
 
 type Stripeish = ReturnType<typeof makeStripe>;
-function makeStripe(over: { balance?: number; transfer?: () => unknown; payout?: () => unknown; list?: unknown[] } = {}) {
+function makeStripe(over: { balance?: number; transfer?: () => unknown; payout?: () => unknown; list?: unknown[]; payoutList?: unknown[] } = {}) {
   const transfers = { create: vi.fn(async (params: Record<string, unknown>) => (over.transfer ? over.transfer() : { id: "tr_1", amount: params.amount, currency: "usd", destination: params.destination, metadata: params.metadata })), list: vi.fn(async () => ({ data: over.list ?? [] })) };
-  const payouts = { create: vi.fn(async () => (over.payout ? over.payout() : { id: "po_1" })) };
+  const payouts = {
+    create: vi.fn(async () => (over.payout ? over.payout() : { id: "po_1" })),
+    list: vi.fn(async (...args: unknown[]) => (void args, { data: over.payoutList ?? [] })),
+  };
   const balance = { retrieve: vi.fn(async () => ({ available: [{ currency: "usd", amount: over.balance ?? 1_000_000 }] })) };
   // The schedule decides whether this code creates the payout at all, so the fixture states it: `manual` is the
   // account PropLane pays out itself. The schedule block below stubs `automatic` and an unreadable read.
@@ -411,6 +414,40 @@ describe("reconciliation finishes the payouts that were never started", () => {
     expect(opts).toMatchObject({ stripeAccount: ACCT, idempotencyKey: "party-withdrawal-payout:wd-7:50000" });
     // The payout id lands on the already-completed row, which clears the unverified marker.
     expect(f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args).toMatchObject({ p_id: "wd-7", p_transfer: "tr_7", p_payout: "po_1", p_payout_error: null });
+  });
+
+  it("adopts a payout already tagged with this withdrawal instead of creating a second one", async () => {
+    const f = setup({}, { party_withdrawals: [unverified()] });
+    const stripe = withSchedule(
+      makeStripe({ payoutList: [{ id: "po_other", metadata: { withdrawal_id: "wd-9" } }, { id: "po_earlier", metadata: { withdrawal_id: "wd-7" } }] }),
+      () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }),
+    );
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 1 });
+    expect(stripe.payouts.list).toHaveBeenCalledWith({ limit: 100 }, { stripeAccount: ACCT });
+    expect(stripe.payouts.create).not.toHaveBeenCalled();
+    expect(f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args).toMatchObject({ p_id: "wd-7", p_transfer: "tr_7", p_payout: "po_earlier", p_payout_error: null });
+  });
+
+  it("creates the payout (tagged with the withdrawal id) when none of the recent payouts is this withdrawal's", async () => {
+    const f = setup({}, { party_withdrawals: [unverified()] });
+    const stripe = withSchedule(
+      makeStripe({ payoutList: [{ id: "po_other", metadata: { withdrawal_id: "wd-9" } }, { id: "po_plain", metadata: {} }] }),
+      () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }),
+    );
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 1 });
+    expect(stripe.payouts.create).toHaveBeenCalledTimes(1);
+    const [params] = (stripe.payouts.create as unknown as { mock: { calls: Array<[Record<string, unknown>]> } }).mock.calls[0]!;
+    expect(params).toMatchObject({ metadata: { withdrawal_id: "wd-7" } });
+  });
+
+  it("an unreadable payout list keeps the marker and creates nothing: a second payout is worse than a late one", async () => {
+    const f = setup({}, { party_withdrawals: [unverified()] });
+    const stripe = withSchedule(makeStripe(), () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }));
+    stripe.payouts.list.mockImplementation(async () => { throw new Error("rate limited"); });
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 0 });
+    expect(stripe.payouts.create).not.toHaveBeenCalled();
+    const last = f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args;
+    expect(readPayoutPendingVerification(last.p_payout_error)).toEqual({ attempts: 1 });
   });
 
   it("an automatic schedule needs no payout: the row says so instead of keeping the unverified marker", async () => {
