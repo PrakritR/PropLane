@@ -242,6 +242,22 @@ describe("several workspaces: ask once, remember the answer", () => {
     expect(next.handled && next.reply).not.toContain("Is this about");
   });
 
+  it("a remembered choice older than 10 minutes is not honored: the question is asked again", async () => {
+    const db = two();
+    await run(db, "how are my houses doing");
+    await run(db, "1");
+    const row = db.tables.sms_line_sessions![0]!;
+    expect(row.current_workspace_id).toBe("ws-a");
+    // Fresh: remembered.
+    const fresh = await run(db, "unpaid rent");
+    expect(fresh.handled && fresh.reply).not.toContain("Is this about");
+    // Eleven minutes of silence later (a stranger spoofing this caller ID): asked again, nothing read.
+    row.updated_at = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+    const stale = await run(db, "unpaid rent");
+    expect(stale.handled && stale.reply).toBe("Is this about Brooklyn Homes or Eighth Ave Co?");
+    expect(stale.handled && stale.reply).not.toContain("October rent");
+  });
+
   it("a text that names the workspace settles it without a question", async () => {
     const db = two();
     const named = await run(db, "how is Eighth Ave Co doing");

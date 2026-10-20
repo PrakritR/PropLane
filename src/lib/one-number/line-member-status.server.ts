@@ -196,6 +196,9 @@ export function isLineKeywordOrUrgentText(body: string): boolean {
   return CONTROL_WORDS.test(body.trim()) || classifySharedLineKeyword(body) !== null || URGENT_WORDS.test(body);
 }
 
+/** How long a "which workspace" answer is remembered for the conversation. */
+export const REMEMBERED_CHOICE_TTL_MS = 10 * 60 * 1000;
+
 const sessionKey = (phoneKey: string) => `ls:${phoneKey}`;
 
 const candidateOf = (m: LineMembership): SharedLineCandidate => ({
@@ -280,7 +283,13 @@ export async function handleLineMemberText(db: SupabaseClient, input: HandleLine
     let chosen: LineMembership | null = memberships.length === 1 ? memberships[0]! : null;
     let answeredQuestion = false;
     if (!chosen) {
-      const session = await loadSharedLineSession(db, key);
+      const loaded = await loadSharedLineSession(db, key);
+      // A remembered "which workspace" answer is honored for 10 minutes of the conversation only. A later text from the
+      // same number (a spoofed caller ID included) is asked again instead of reading a workspace it never chose.
+      const updatedAt = Date.parse(loaded?.updatedAt ?? "");
+      // The session's own clock (it stamps updated_at with the real time), not the report month's `now`.
+      const remembered = Number.isFinite(updatedAt) && Date.now() - updatedAt <= REMEMBERED_CHOICE_TTL_MS;
+      const session = loaded && !remembered ? { ...loaded, currentWorkspaceId: null, activeRole: null } : loaded;
       const decided = decideFromCandidates({ body: input.body, candidates, session });
       if (decided.kind === "ambiguous") {
         await saveSharedLinePending(db, key, decided.candidates);
