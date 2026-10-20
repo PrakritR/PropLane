@@ -109,6 +109,10 @@ export function linksFakeDb(
           return query;
         },
         eq: (column: string, value: unknown) => where(column, (v) => v === value),
+        like: (column: string, pattern: string) => {
+          const re = new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".")}$`);
+          return where(column, (v) => re.test(String(v ?? "")));
+        },
         in: (column: string, values: unknown[]) => where(column, (v) => values.includes(v)),
         is: (column: string, value: unknown) => where(column, (v) => (value === null ? v == null : v === value)),
         not: (column: string, _op: string, value: unknown) => where(column, (v) => (value === null ? v != null : v !== value)),

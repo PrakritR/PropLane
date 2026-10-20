@@ -158,7 +158,8 @@ export async function loadHouseholdChargesForCheckout(
 
     const charge = row.row_data as HouseholdCharge | null;
     if (!charge?.id) return { ok: false, status: 500, error: "Invalid charge record." };
-    if (!["pending", "failed", "processing"].includes(row.status ?? charge.status)) {
+    // A part-paid charge is payable for its balance (`householdChargeAmountCents` reads the balance).
+    if (!["pending", "failed", "processing", "partially_paid"].includes(row.status ?? charge.status)) {
       return { ok: false, status: 409, error: "One or more selected charges are no longer available for payment." };
     }
     if (!chargeOwnedByUser(charge, input.userId, userEmail)) {

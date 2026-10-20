@@ -269,6 +269,52 @@ export async function markPhoneBoundLinkUsed(db: SupabaseClient, linkId: string,
     .is("used_at", null);
 }
 
+/**
+ * A rent link ends when the charges it names are PAID, not when someone merely opens or starts paying.
+ * Called from the Stripe webhook once a charge is confirmed paid (never on `processing`: a bank debit can
+ * still fail, and the person must be able to come back to the same link). A link that names several
+ * charges ends only when every one is paid; a part-paid link stays open for the balance.
+ * Best effort by design: the link page re-derives the same answer on its next open.
+ */
+export async function settlePhoneBoundRentLinks(
+  db: SupabaseClient,
+  chargeIds: readonly string[],
+  now: Date = new Date(),
+): Promise<number> {
+  const ids = [...new Set(chargeIds.map((id) => str(id)).filter((id) => /^[A-Za-z0-9_.:-]{1,120}$/.test(id)))];
+  if (ids.length === 0) return 0;
+  const candidates = new Map<string, { id: string; targetId: string }>();
+  for (const id of ids) {
+    const { data, error } = await db
+      .from("phone_bound_links")
+      .select("id, target_id")
+      .eq("purpose", "rent")
+      .is("used_at", null)
+      .is("revoked_at", null)
+      .like("target_id", `%${id}%`);
+    if (error) {
+      if (isMissingSchemaError(error)) return 0;
+      throw new Error("Could not read rent links.");
+    }
+    for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+      const targets = str(row.target_id).split(",").map((t) => t.trim());
+      if (targets.includes(id)) candidates.set(str(row.id), { id: str(row.id), targetId: str(row.target_id) });
+    }
+  }
+  let settled = 0;
+  for (const link of candidates.values()) {
+    const named = [...new Set(link.targetId.split(",").map((t) => t.trim()).filter(Boolean))];
+    const { data, error } = await db.from("portal_household_charge_records").select("id, status").in("id", named);
+    if (error) continue;
+    const paid = new Set(((data ?? []) as Array<Record<string, unknown>>).filter((r) => str(r.status) === "paid").map((r) => str(r.id)));
+    if (named.every((id) => paid.has(id))) {
+      await markPhoneBoundLinkUsed(db, link.id, now);
+      settled += 1;
+    }
+  }
+  return settled;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Verified page sessions (after a one-time code)
 // ---------------------------------------------------------------------------------------------

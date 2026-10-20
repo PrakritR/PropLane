@@ -21,12 +21,21 @@ export type RentChargeView = { id: string; title: string; amountLabel: string; p
 export type LinkDestination =
   /** A public page that needs no account. */
   | { kind: "redirect"; href: string }
-  /** A page inside the signed-in portal (identity and money setup live there). */
-  | { kind: "portal"; href: string }
-  /** The rent page: charges the resident can pay by card from here. */
+  /**
+   * A page inside the signed-in portal (identity and money setup live there). `href` goes through sign-in.
+   * `directHref` + `signedInAs` are set for a resident's own lease / move-in page: when the browser already
+   * holds that resident's session (the code step opened one for their verified phone) the page goes straight
+   * there instead of asking for a second sign-in.
+   */
+  | { kind: "portal"; href: string; directHref?: string; signedInAs?: string }
+  /** The rent page: charges the resident can pay by card from here (a part-paid charge shows what is still owed). */
   | { kind: "rent"; chargeIds: string[]; charges: RentChargeView[]; residentUserId: string; residentEmail: string }
   /** Everything linked here is already paid. */
   | { kind: "paid" }
+  /** A bank debit is clearing and nothing else is payable: the link stays open to show its status. */
+  | { kind: "processing" }
+  /** The resident's verified phone is no longer the one this link was sent to. */
+  | { kind: "phone_changed" }
   | { kind: "gone" };
 
 const GONE: LinkDestination = { kind: "gone" };
@@ -154,6 +163,7 @@ async function rentDestination(db: SupabaseClient, link: PhoneBoundLink): Promis
   if (ids.length === 0) return GONE;
   const charges: RentChargeView[] = [];
   let paid = 0;
+  let processing = 0;
   let residentUserId = "";
   let residentEmail = "";
   for (const id of ids) {
@@ -173,32 +183,54 @@ async function rentDestination(db: SupabaseClient, link: PhoneBoundLink): Promis
     residentUserId = owner;
     residentEmail = str(charge.residentEmail).toLowerCase();
     const status = str((data as Row).status) || str(charge.status);
-    // Paid, or a bank debit already clearing: nothing left to pay from here.
-    if (status === "paid" || status === "processing") {
+    if (status === "paid") {
       paid += 1;
       continue;
     }
-    // Only a charge the checkout core would accept is payable; cancelled, refunded or part-paid is not.
-    if (status !== "pending" && status !== "failed") return GONE;
+    // A bank debit already clearing is not paid yet (it can still fail): the link keeps showing its status.
+    if (status === "processing") {
+      processing += 1;
+      continue;
+    }
+    // Only a charge the checkout core would accept is payable; cancelled or refunded is not. A part-paid
+    // charge is payable for what is still owed (the core charges the balance, never the original amount).
+    if (status !== "pending" && status !== "failed" && status !== "partially_paid") return GONE;
     charges.push({
       id,
-      title: str(charge.title) || "Rent",
+      title: status === "partially_paid" ? `${str(charge.title) || "Rent"} (balance)` : str(charge.title) || "Rent",
       amountLabel: str(charge.balanceLabel) || str(charge.amountLabel),
       propertyLabel: str(charge.propertyLabel),
     });
   }
-  if (!(await residentPhoneMatches(db, residentUserId, link.phoneKey))) return GONE;
+  // The phone on the resident's account moved on: this link, texted to the old number, must not pay or
+  // show anything. The person is told to ask for a new one (their old number cannot be told anything else).
+  if (!(await residentPhoneMatches(db, residentUserId, link.phoneKey))) return { kind: "phone_changed" };
+  if (charges.length === 0 && processing > 0) return { kind: "processing" };
   if (charges.length === 0 && paid > 0) return { kind: "paid" };
   if (charges.length === 0) return GONE;
   return { kind: "rent", chargeIds: charges.map((c) => c.id), charges, residentUserId, residentEmail };
 }
 
-/** The resident account holds this phone. An account with no phone on file cannot vouch for one. */
+/**
+ * The resident account holds this phone, and verified it. An account with no phone on file, or one it never
+ * verified, cannot vouch for a number.
+ */
 export async function residentPhoneMatches(db: SupabaseClient, residentUserId: string, phoneKey: string): Promise<boolean> {
-  const { data, error } = await db.from("profiles").select("phone").eq("id", residentUserId).maybeSingle();
+  const { data, error } = await db.from("profiles").select("phone, phone_verified_at").eq("id", residentUserId).maybeSingle();
   if (error || !data) return false;
+  if (!str((data as Row).phone_verified_at)) return false;
   const onFile = normalizeConsentPhone(str((data as Row).phone));
   return /^\d{10}$/.test(onFile) && onFile === phoneKey;
+}
+
+/** A resident's own page: through sign-in, or straight there when the code step already opened their session. */
+function residentPortalDestination(link: PhoneBoundLink, path: string): LinkDestination {
+  const residentUserId = link.targetType === "resident" ? link.targetId : "";
+  return {
+    kind: "portal",
+    href: portalSignInHref(path),
+    ...(residentUserId ? { directHref: path, signedInAs: residentUserId } : {}),
+  };
 }
 
 /**
@@ -220,9 +252,9 @@ export async function resolveLinkDestination(db: SupabaseClient, link: PhoneBoun
       return { kind: "redirect", href: buildManagerApplyUrl("", { propertyId: link.targetId, phone: link.phoneKey }) };
     }
     case "lease":
-      return { kind: "portal", href: portalSignInHref("/resident/lease") };
+      return residentPortalDestination(link, "/resident/lease");
     case "move_in":
-      return { kind: "portal", href: portalSignInHref("/resident/move-in") };
+      return residentPortalDestination(link, "/resident/move-in");
     case "payouts":
       return {
         kind: "portal",

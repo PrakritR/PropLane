@@ -11,7 +11,7 @@ import { SHARED_LINE_OTP_RULES } from "@/lib/one-number/contracts";
  * keyed on a signed-in user, so it cannot serve them.)
  *
  * Rules (`SHARED_LINE_OTP_RULES`): 6 digits, 10-minute expiry, 5 attempts then locked, at most 3
- * sends per phone per hour, stored hashed. A code is hashed with a keyed HMAC bound to its own
+ * sends per phone per purpose per hour (a wider ceiling across purposes), stored hashed. A code is hashed with a keyed HMAC bound to its own
  * challenge id and phone: a six-digit code under a bare SHA-256 falls to a table dump in a second.
  * The code is only ever delivered to the phone the challenge is for; this module never takes a
  * destination from the person asking.
@@ -109,15 +109,22 @@ export async function requestPhoneOtp(
   // A phone that has burned its failed-code budget gets no more texts until the failures age out.
   if (await phoneLockedOut(db, phoneKey, now)) return { ok: false, reason: "rate_limited" };
 
-  // At most 3 sends per phone per rolling hour, across every purpose and subject.
+  // At most 3 sends per phone PER PURPOSE per rolling hour, and a wider ceiling across every purpose.
+  // A budget shared by all purposes let a few sign-in or apply codes lock the same phone out of its
+  // rent link: the person could then not pay. Each purpose has its own allowance, and the ceiling only
+  // stops a flood.
   const since = new Date(now.getTime() - HOUR_MS).toISOString();
   const { data: recent, error: recentError } = await db
     .from("phone_otp_challenges")
-    .select("id")
+    .select("id, purpose")
     .eq("phone_key", phoneKey)
     .gte("created_at", since);
   if (recentError) return { ok: false, reason: "unavailable" };
-  if ((recent?.length ?? 0) >= SHARED_LINE_OTP_RULES.maxSendsPerHour) return { ok: false, reason: "rate_limited" };
+  const recentRows = (recent ?? []) as Array<{ purpose?: unknown }>;
+  if (recentRows.filter((row) => row.purpose === input.purpose).length >= SHARED_LINE_OTP_RULES.maxSendsPerHour) {
+    return { ok: false, reason: "rate_limited" };
+  }
+  if (recentRows.length >= SHARED_LINE_OTP_RULES.maxSendsPerHourAllPurposes) return { ok: false, reason: "rate_limited" };
 
   // Only the newest code for this phone + purpose + subject can work.
   let retire = db

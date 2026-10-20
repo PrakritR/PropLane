@@ -212,6 +212,8 @@ export const SHARED_LINE_OTP_RULES = {
   ttlMinutes: 10,
   maxAttempts: 5,
   maxSendsPerHour: 3,
+  /** Ceiling across every purpose, so one purpose's sends cannot starve another's but a flood still stops. */
+  maxSendsPerHourAllPurposes: 8,
   moneySessionMinutes: 30,
   otherSessionDays: 7,
 } as const;

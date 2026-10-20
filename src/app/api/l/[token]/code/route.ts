@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { expiredLinkResponse, allowLinkRequest, setLinkSessionCookie } from "@/lib/one-number/link-http.server";
 import { requestLinkUnlockCode, verifyLinkUnlockCode } from "@/lib/one-number/link-unlock.server";
 import { resolvePhoneBoundLink } from "@/lib/one-number/links.server";
+import { mintResidentPortalSessionForLink } from "@/lib/one-number/link-portal-session.server";
+import { createRealIdentitySupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -42,6 +44,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (body?.action === "verify") {
     const verified = await verifyLinkUnlockCode(db, link, body.code);
     if (verified.ok) {
+      // A resident's lease or move-in link also opens their portal session, so the page does not ask for a
+      // second sign-in. Never replaces a different account's session already open in this browser.
+      const portalSession = await mintResidentPortalSessionForLink(db, link);
+      if (portalSession) {
+        try {
+          const client = await createRealIdentitySupabaseServerClient();
+          const { data: { user } } = await client.auth.getUser();
+          if (!user) await client.auth.setSession(portalSession);
+        } catch {
+          /* the ordinary sign-in redirect still works */
+        }
+      }
       const response = NextResponse.json({ ok: true }, { headers: NO_STORE });
       setLinkSessionCookie(response, token, verified.session);
       return response;
