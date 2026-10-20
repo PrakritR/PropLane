@@ -126,12 +126,9 @@ describe("listing sticky bar", () => {
     expect(document.body.textContent).not.toContain("available now");
   });
 
-  it("carries the work number as the card's text link and prints no email door anywhere", () => {
+  it("never carries the work number, a text link or an email door, even when the listing has them (captain, Oct 20)", () => {
     render(<ListingDetailSections property={property({ phone: WORK_NUMBER, email: WORK_EMAIL })} rich={rich} />);
-    const text = document.querySelector('[data-attr="listing-price-card"] [data-attr="listing-text-tour"]') as HTMLAnchorElement | null;
-    expect(text).not.toBeNull();
-    expect(text!.getAttribute("href")?.startsWith("sms:")).toBe(true);
-    expect(text!.textContent).toBe("Text us");
+    expect(document.querySelector('[data-attr="listing-text-tour"], a[href^="sms:"], a[href^="tel:"]')).toBeNull();
     expect(document.body.textContent).not.toContain("Email the manager");
     expect(document.querySelector('[data-attr="listing-email-tour"]')).toBeNull();
     expect(document.querySelector('[data-attr="listing-sticky-email"]')).toBeNull();
@@ -167,19 +164,13 @@ describe("public page dock", () => {
     expect(document.querySelector(".ps-dock")).toBeNull();
   });
 
-  it("adds Text us from the PropLane line when the listing has no work number, and nothing when no line is set", () => {
+  it("draws no Text us in the dock, even with the PropLane line configured: /rent is the web channel", () => {
     render(
-      <PublicTextingProvider value={{ phone: "+12066781909", smsHref: null }}>
-        <ListingDetailSections property={property({})} rich={rich} phoneDock />
+      <PublicTextingProvider value={{ phone: "+12066781909", smsHref: "sms:+12066781909" }}>
+        <ListingDetailSections property={property({ phone: WORK_NUMBER })} rich={rich} phoneDock />
       </PublicTextingProvider>,
     );
-    const text = document.querySelector('[data-dock] [data-attr="listing-text-tour-dock"]') as HTMLAnchorElement;
-    expect(text.textContent).toBe("Text us");
-    expect(text.getAttribute("href")).toContain("sms:+12066781909");
-    // The monthly Text us draft (captain, Oct 20): "Hi, I'd like to tour or apply for <home> …".
-    expect(decodeURIComponent(text.getAttribute("href")!)).toMatch(/body=Hi, I'd like to tour or apply for \S/);
-    cleanup();
-    render(<ListingDetailSections property={property({})} rich={rich} phoneDock />);
-    expect(document.querySelector('[data-attr="listing-text-tour-dock"]')).toBeNull();
+    expect(document.querySelector('[data-dock]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="listing-text-tour-dock"], [data-dock] a[href^="sms:"]')).toBeNull();
   });
 });

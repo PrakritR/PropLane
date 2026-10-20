@@ -12,8 +12,8 @@ vi.mock("@/lib/short-stay/guest-login.server", () => ({ ensureGuestLogin: async 
 const availability = vi.fn();
 vi.mock("@/lib/room-availability-range.server", () => ({ roomAvailabilityForRange: (...args: unknown[]) => availability(...args) }));
 
-import { createShortStayRows, loadShortStayListing, submitShortStayRequest } from "@/lib/short-stay-request.server";
-import { GUEST, PROPERTY, TODAY, seedShortStayDb } from "../helpers/short-stay-seed";
+import { createShortStayRows, loadShortStayListing } from "@/lib/short-stay-request.server";
+import { GUEST, PROPERTY, seedShortStayDb } from "../helpers/short-stay-seed";
 
 /**
  * The capacity trigger (`enforce_short_stay_room_date_block`) weighs a stay by `stayDetails.guests` and
@@ -67,16 +67,20 @@ describe("a stay counts every guest on a shared room (the bug: it counted one)",
     expect(stored.residentUserId).toBe(GUEST);
   });
 
-  it("the public card's request writes it too", async () => {
+  it("a text-booked stay (no login) writes it too", async () => {
     const db = seedShortStayDb();
-    const result = await submitShortStayRequest(
-      db as never,
-      { propertyId: PROPERTY, roomId: "r4", checkIn: "2026-10-20", checkOut: "2026-10-23", guests: 3, name: "Priya Shah", phone: "+12065550199", email: "", honeypot: "" },
-      { today: TODAY },
-    );
-    expect(result).toEqual({ ok: true });
+    const loaded = await loadShortStayListing(db as never, { propertyId: PROPERTY, roomId: "r4", guests: 3 });
+    if (!loaded.ok) throw new Error("listing should load");
+    const [row] = await createShortStayRows(db as never, {
+      actor: { source: "sms_short_stay", name: "Priya Shah", phone: "+12065550199", email: "", residentUserId: null },
+      listing: loaded.listing,
+      guests: 3,
+      ranges: [{ checkIn: "2026-10-20", checkOut: "2026-10-23", nights: 3 }],
+      status: "hold",
+    });
+    expect(row).toMatchObject({ ok: true });
     const stored = db.tables.portal_schedule_records!.at(-1)!.row_data as { stayDetails: { guests: number; source: string; holdExpiresAt: string } };
-    expect(stored.stayDetails).toMatchObject({ guests: 3, source: "public_short_stay_request" });
+    expect(stored.stayDetails).toMatchObject({ guests: 3, source: "sms_short_stay" });
     expect(stored.stayDetails.holdExpiresAt).toBeTruthy();
   });
 

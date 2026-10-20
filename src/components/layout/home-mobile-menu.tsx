@@ -17,7 +17,8 @@ export default function HomeMobileMenu({
   onClose,
   restoreFocus,
 }: {
-  textHref: string;
+  /** Null on a /rent page, which shows no number and no text link (captain, Oct 20): the entry is not drawn. */
+  textHref: string | null;
   phone: string | null;
   onClose: () => void;
   restoreFocus: () => void;
@@ -67,11 +68,13 @@ export default function HomeMobileMenu({
             </SheetClose>
           ))}
         </nav>
-        <SheetClose asChild>
-          <a href={textHref} className={styles.menuNumber}>
-            {phone ? `Text ${phone}` : "Start free"}
-          </a>
-        </SheetClose>
+        {textHref ? (
+          <SheetClose asChild>
+            <a href={textHref} className={styles.menuNumber}>
+              {phone ? `Text ${phone}` : "Start free"}
+            </a>
+          </SheetClose>
+        ) : null}
       </SheetContent>
     </Sheet>
   );

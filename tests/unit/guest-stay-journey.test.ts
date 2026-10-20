@@ -1,16 +1,14 @@
 /**
- * The whole guest short-stay journey end to end over one in-memory database, with the identity chain
- * UNMOCKED: the public "Request to book" card -> `ensureGuestLogin` -> `provisionResidentAccountByEmail`
- * -> the texted one-time link -> the guest's own Stays list -> the host's Approve -> the `stay_total`
- * charge -> Book again (instant confirm for a returning guest) -> a taken range refused on its own ->
- * the 24-hour hold expiry cron.
+ * The whole guest short-stay journey end to end over one in-memory database: a signed-in resident books
+ * from the portal (`POST /api/resident/stays`) -> the guest's own Stays list -> the host's Approve -> the
+ * `stay_total` charge -> Book again (instant confirm for a returning guest) -> a taken range refused on
+ * its own -> the 24-hour hold expiry cron.
  *
  * Why it exists next to the per-module suites: the security rule only holds if it holds ACROSS the
- * modules. The guest here types a VICTIM's address into the public card while the victim's account
- * already stores the same (unverified) phone number and has an approved application on file - the exact
- * takeover this batch closes. Nothing may leak: the login is the phone-keyed placeholder, the victim's
- * application / inbox / auth account are never inherited, the typed address lives on the stay row only,
- * and the charge is keyed on the guest's own login.
+ * modules. A second resident's account stores the same (unverified) phone number and has an approved
+ * application on file - the exact takeover this batch closed. Nothing may leak: a stay is claimed by the
+ * login that booked it, the other account sees nothing, and the charge is keyed on the guest's own login.
+ * (The anonymous public booking route that used to start this journey is retired.)
  *
  * Only the edges are stood in for: SMS / email delivery, the notice bus, the charge writer, and the
  * occupancy read (which opens its own service-role client) - the last one answers from this very table,
@@ -42,11 +40,6 @@ vi.mock("@/lib/resend-delivery.server", () => ({
 }));
 vi.mock("@/lib/manager-outbound-identity.server", () => ({ managerOutboundFromHeader: async () => "Cedar Court <work@proplane.test>" }));
 
-const inboxAttach = vi.fn(async () => undefined);
-vi.mock("@/lib/tour-resident-link.server", () => ({ attachInboxThreadsToResident: (...a: unknown[]) => inboxAttach(...(a as [])) }));
-const migratePortalUserId = vi.fn(async () => undefined);
-vi.mock("@/lib/auth/migrate-portal-user-id", () => ({ migratePortalUserId: (...a: unknown[]) => migratePortalUserId(...(a as [])) }));
-
 const charges: Array<Record<string, unknown>> = [];
 vi.mock("@/lib/household-charges.server", () => ({
   upsertManagerCharges: async (_db: unknown, _owner: string, rows: Array<Record<string, unknown>>) => {
@@ -75,22 +68,21 @@ vi.mock("@/lib/room-availability-range.server", () => ({
   },
 }));
 
-import { provisionResidentAccountByEmail } from "@/lib/auth/provision-resident-account";
-import { guestPlaceholderEmail } from "@/lib/short-stay/guest-login.server";
 import { listGuestStays, bookGuestStays } from "@/lib/short-stay/guest-stays.server";
 import { guestStayChargeId } from "@/lib/short-stay/stay-charge.server";
 import { guestStayStatusLabel } from "@/lib/short-stay/guest-stays";
 import { decideShortStayHold } from "@/lib/short-stay/hold-decisions.server";
 import { expireShortStayHolds } from "@/lib/short-stay-hold-expiry.server";
-import { submitShortStayRequest } from "@/lib/short-stay-request.server";
 
 const OWNER = "owner-1";
 const VICTIM = "victim-1";
 const PROPERTY = "prop-1";
 const TODAY = "2026-10-14";
+const GUEST = "guest-1";
+const GUEST2 = "guest-2";
 const GUEST_PHONE = "+12065550142";
-const TYPED_EMAIL = "victim@example.com";
-const PLACEHOLDER = guestPlaceholderEmail(GUEST_PHONE);
+const GUEST_EMAIL = "priya@example.com";
+const VICTIM_EMAIL = "victim@example.com";
 
 /* ─────────── transcript ─────────── */
 const lines: string[] = [];
@@ -102,10 +94,6 @@ const step = (title: string) => {
 const show = (label: string, value: unknown) => say(`   ${label.padEnd(34)} ${typeof value === "string" ? value : JSON.stringify(value)}`);
 
 /* ─────────── the world ─────────── */
-type AuthUser = { id: string; email: string; user_metadata: Record<string, unknown> };
-const authUsers: AuthUser[] = [];
-const mintedLinks: Array<{ email: string; token: string }> = [];
-
 function listing() {
   return {
     v: 1,
@@ -133,40 +121,21 @@ function build() {
     profiles: [
       { id: OWNER, email: "owner@proplane.test", full_name: "Ambika Mago", role: "manager" },
       // The victim: a resident whose Settings page stores the SAME mobile number, never verified.
-      { id: VICTIM, email: TYPED_EMAIL, full_name: "Dana Whitfield", phone: GUEST_PHONE, phone_verified_at: null, role: "resident", application_approved: true },
+      { id: VICTIM, email: VICTIM_EMAIL, full_name: "Dana Whitfield", phone: GUEST_PHONE, phone_verified_at: null, role: "resident", application_approved: true },
+      // The guests: signed-in residents who book from their portal.
+      { id: GUEST, email: GUEST_EMAIL, full_name: "Priya Natarajan", phone: GUEST_PHONE, phone_verified_at: "2026-09-01T00:00:00Z", role: "resident", application_approved: false },
+      { id: GUEST2, email: "omar@example.com", full_name: "Omar Haddad", phone: "+12065550177", phone_verified_at: "2026-09-01T00:00:00Z", role: "resident", application_approved: false },
     ],
-    profile_roles: [{ user_id: VICTIM, role: "resident" }],
+    profile_roles: [{ user_id: VICTIM, role: "resident" }, { user_id: GUEST, role: "resident" }, { user_id: GUEST2, role: "resident" }],
     // The bait: an APPROVED application on the typed address.
     manager_application_records: [
-      { id: "PROPLANE-APP1", resident_email: TYPED_EMAIL, updated_at: "2026-09-01", row_data: { bucket: "approved", name: "Dana Whitfield", application: { phone: "+12065559999" } } },
+      { id: "PROPLANE-APP1", resident_email: VICTIM_EMAIL, updated_at: "2026-09-01", row_data: { bucket: "approved", name: "Dana Whitfield", application: { phone: "+12065559999" } } },
     ],
     portal_schedule_records: [],
     portal_household_charge_records: [],
     account_recovery_requests: [],
   });
-  authUsers.length = 0;
-  authUsers.push({ id: VICTIM, email: TYPED_EMAIL, user_metadata: { role: "resident" } });
-  let n = 0;
-  const admin = {
-    createUser: async ({ email, user_metadata }: { email: string; user_metadata?: Record<string, unknown> }) => {
-      const user: AuthUser = { id: `auth-${++n}`, email: String(email).toLowerCase(), user_metadata: user_metadata ?? {} };
-      authUsers.push(user);
-      return { data: { user }, error: null };
-    },
-    getUserById: async (id: string) => ({ data: { user: authUsers.find((u) => u.id === id) ?? null }, error: null }),
-    updateUserById: async (id: string, patch: { user_metadata?: Record<string, unknown> }) => {
-      const user = authUsers.find((u) => u.id === id);
-      if (user && patch.user_metadata) user.user_metadata = patch.user_metadata;
-      return { data: { user }, error: null };
-    },
-    listUsers: async () => ({ data: { users: authUsers }, error: null }),
-    generateLink: async ({ email }: { email: string }) => {
-      const token = `tok_${mintedLinks.length + 1}`;
-      mintedLinks.push({ email: String(email).toLowerCase(), token });
-      return { data: { properties: { hashed_token: token } }, error: null };
-    },
-  };
-  return Object.assign(fake, { auth: { admin } });
+  return fake;
 }
 
 const db = build();
@@ -174,19 +143,15 @@ const blocks = () => (db.tables.portal_schedule_records ?? []) as Array<Row & { 
 const blockFor = (checkIn: string) => blocks().find((row) => row.row_data.checkIn === checkIn)!;
 const profile = (id: string) => (db.tables.profiles ?? []).find((row) => row.id === id) as Record<string, unknown> | undefined;
 
-const publicRequest = (over: Record<string, unknown> = {}) =>
-  submitShortStayRequest(
-    db as never,
-    { propertyId: PROPERTY, roomId: "r1", checkIn: "2026-10-20", checkOut: "2026-10-23", guests: 1, name: "Priya Natarajan", phone: GUEST_PHONE, email: TYPED_EMAIL, honeypot: "", ...over },
-    { today: TODAY },
-  );
+const portalBook = (userId: string, ranges: Array<{ checkIn: string; checkOut: string }>, over: Record<string, unknown> = {}, today = TODAY) =>
+  bookGuestStays(db as never, { userId, today, body: { propertyId: PROPERTY, roomId: "r1", guests: 1, ranges, ...over } });
 
 beforeAll(() => {
   process.env.RESEND_API_KEY = "re_journey";
   say("PropLane · guest short-stay journey, end to end on one database");
   say(`today ${TODAY} (Pacific) · listing "Cedar Court" · room "Attic Nook" $140/night · instant book for returning guests: on`);
-  say(`the guest types phone ${GUEST_PHONE} and the address ${TYPED_EMAIL} - which belongs to resident "Dana Whitfield",`);
-  say("whose account stores that same number UNVERIFIED and has an APPROVED application on file.");
+  say(`the guest signs in as ${GUEST_EMAIL} (phone ${GUEST_PHONE}); resident "Dana Whitfield" stores that same number`);
+  say("UNVERIFIED and has an APPROVED application on file.");
 });
 
 afterAll(() => {
@@ -198,51 +163,34 @@ afterAll(() => {
 let guestUserId = "";
 
 describe("the guest short-stay journey", () => {
-  it("1 · the public card: the hold is saved, and the login it mints is keyed on the PHONE, never the typed address", async () => {
-    step("1 · Public listing card -> Request to book (POST /api/public/short-stay-request)");
-    const result = await publicRequest();
-    expect(result).toEqual({ ok: true });
-    show("route answer", result);
+  it("1 · the resident portal: the hold is saved on the signed-in login, never on another account that shares the phone", async () => {
+    step("1 · Portal -> Request to book (POST /api/resident/stays)");
+    const result = await portalBook(GUEST, [{ checkIn: "2026-10-20", checkOut: "2026-10-23" }]);
+    if (!result.ok) throw new Error(`expected a booking, got ${JSON.stringify(result)}`);
+    show("route answer", result.results[0]!);
 
     const hold = blockFor("2026-10-20");
     guestUserId = String(hold.row_data.residentUserId);
-    const account = authUsers.find((user) => user.id === guestUserId)!;
 
     show("stay row written", `${String(hold.row_data.reason)} · ${String(hold.row_data.checkIn)} → ${String(hold.row_data.checkOut)} · $${String(hold.row_data.quotedTotal)}`);
     show("  bookingStatus", hold.row_data.bookingStatus);
     show("  stayDetails", hold.row_data.stayDetails);
     show("  residentPhone", hold.row_data.residentPhone);
-    show("  residentEmail (host's copy)", hold.row_data.residentEmail);
+    show("  residentEmail", hold.row_data.residentEmail);
     show("  residentUserId", guestUserId);
-    say();
-    show("auth login created", account.email);
-    show("profiles.email for that login", profile(guestUserId)!.email);
-    show("profiles.full_name", profile(guestUserId)!.full_name);
-    show("profiles.application_approved", profile(guestUserId)!.application_approved);
     show("victim's own profile row", `${String(profile(VICTIM)!.email)} (id ${VICTIM}, untouched)`);
-    show("application inherited?", migratePortalUserId.mock.calls.length === 0 && profile(guestUserId)!.application_approved === false ? "no" : "YES - LEAK");
-    show("victim inbox threads attached?", inboxAttach.mock.calls.length ? "YES - LEAK" : "no");
 
-    // The login is the phone-keyed placeholder, and the typed address is nobody's login here.
-    expect(account.email).toBe(PLACEHOLDER);
-    expect(profile(guestUserId)!.email).toBe(PLACEHOLDER);
-    expect(account.email).not.toBe(TYPED_EMAIL);
+    expect(result.results[0]).toMatchObject({ outcome: "pending" });
+    expect(guestUserId).toBe(GUEST);
     expect(guestUserId).not.toBe(VICTIM);
-    // emailProven:false -> no application, no auth-account merge, no inbox threads.
-    expect(profile(guestUserId)!.application_approved).toBe(false);
-    expect(profile(guestUserId)!.full_name).toBe("Priya Natarajan");
-    expect(migratePortalUserId).not.toHaveBeenCalled();
-    expect(inboxAttach).not.toHaveBeenCalled();
-    // The victim's row is exactly as it was.
-    expect(profile(VICTIM)).toMatchObject({ email: TYPED_EMAIL, full_name: "Dana Whitfield", application_approved: true });
-    // The typed address lives on the stay row only.
-    expect(hold.row_data.residentEmail).toBe(TYPED_EMAIL);
-    expect(hold.row_data.bookingStatus).toBe("hold");
+    expect(hold.row_data).toMatchObject({ bookingStatus: "hold", residentEmail: GUEST_EMAIL, residentPhone: GUEST_PHONE, stayDetails: { source: "guest_portal" } });
     expect((hold.row_data.stayDetails as Record<string, unknown>).holdExpiresAt).toBeTruthy();
+    // The victim's row is exactly as it was.
+    expect(profile(VICTIM)).toMatchObject({ email: VICTIM_EMAIL, full_name: "Dana Whitfield", application_approved: true });
   });
 
-  it("2 · the confirmation is TEXTED to the typed phone with the sign-in page, no live link anywhere", async () => {
-    step("2 · Delivery: the link goes to the phone, the typed address gets an informational note");
+  it("2 · the confirmation goes to the guest's own phone and address, with no live link anywhere", async () => {
+    step("2 · Delivery: the request is acknowledged by text and email");
     const texted = sms.at(-1)!;
     const mailed = emails.at(-1)!;
     show("text to", texted.recipientPhone);
@@ -251,19 +199,12 @@ describe("the guest short-stay journey", () => {
     show("email to", mailed.to.join(", "));
     show("email subject", mailed.subject);
     show("email contains token_hash?", mailed.text.includes("token_hash") ? "YES - LEAK" : "no");
-    show("email contains 'Sign in'?", /Sign in/.test(mailed.text) ? "YES - LEAK" : "no");
-    show("links minted for", mintedLinks.map((link) => link.email));
 
     expect(texted.recipientPhone).toBe(GUEST_PHONE);
-    // The text is stored in the HOST's outbox: it names the sign-in page and never carries a live link.
-    expect(texted.body).toMatch(/Sign in at https?:\/\/[^ ]+\/auth\/sign-in to see your stays\./);
     expect(texted.body).not.toContain("token_hash=");
     expect(texted.body).not.toContain("/auth/confirm");
-    expect(mailed.to).toEqual([TYPED_EMAIL]);
+    expect(mailed.to).toEqual([GUEST_EMAIL]);
     expect(mailed.text).not.toContain("token_hash");
-    expect(mailed.text).not.toMatch(/Sign in/);
-    // No link is minted at all: nothing a host could read can open the guest's account.
-    expect(mintedLinks).toEqual([]);
   });
 
   it("3 · the guest opens the link and sees their own stay; the victim sees nothing", async () => {
@@ -303,10 +244,10 @@ describe("the guest short-stay journey", () => {
     expect(confirmed.row_data.bookingStatus).toBe("confirmed");
     expect(charge.id).toBe(guestStayChargeId(String(hold.id)));
     expect(charge.kind).toBe("stay_total");
-    // The payable charge is keyed on the guest's own login - never the unverified typed address.
+    // The payable charge is keyed on the guest's own login - never the other account that shares the phone.
     expect(charge.residentUserId).toBe(guestUserId);
-    expect(charge.residentEmail).toBe(PLACEHOLDER);
-    expect(charge.residentEmail).not.toBe(TYPED_EMAIL);
+    expect(charge.residentEmail).toBe(GUEST_EMAIL);
+    expect(charge.residentEmail).not.toBe(VICTIM_EMAIL);
     expect(charge.guestStayBlockId).toBe(String(hold.id));
     expect(charge.shortStayBookingId).toBeUndefined();
     expect(again).toMatchObject({ ok: false, status: 409 });
@@ -331,11 +272,11 @@ describe("the guest short-stay journey", () => {
     expect(booked.ok && booked.results[0]).toMatchObject({ outcome: "confirmed", nights: 2, total: 280 });
     expect(row.row_data.bookingStatus).toBe("confirmed");
     expect(charges).toHaveLength(2);
-    expect(charges.at(-1)!.residentEmail).toBe(PLACEHOLDER);
+    expect(charges.at(-1)!.residentEmail).toBe(GUEST_EMAIL);
   });
 
   it("6 · a taken range is refused on its own (409) while the free range in the same request still books", async () => {
-    step("6 · Those nights are asked for again, by the portal and by the public card");
+    step("6 · Those nights are asked for again, by the same guest and by a second guest");
     const mixed = await bookGuestStays(db as never, {
       userId: guestUserId,
       today: "2026-10-24",
@@ -344,18 +285,20 @@ describe("the guest short-stay journey", () => {
     if (!mixed.ok) throw new Error("expected a per-range answer");
     mixed.results.forEach((range, index) => show(`range ${index + 1}`, `${range.checkIn} → ${range.checkOut} · ${range.outcome}${range.error ? ` · "${range.error}"` : ""}`));
     show("summary", mixed.summary);
-    const refused = await publicRequest({ phone: "+12065550199", name: "Someone Else", email: "", checkIn: "2026-10-25", checkOut: "2026-10-26" });
-    show("public card, same nights", refused);
+    const refused = await portalBook(GUEST2, [{ checkIn: "2026-10-25", checkOut: "2026-10-26" }], {}, "2026-10-24");
+    if (!refused.ok) throw new Error("expected a per-range answer");
+    show("second guest, same nights", refused.results[0]!);
 
     expect(mixed.results[0]).toMatchObject({ outcome: "unavailable", error: "That room was just booked for those dates." });
     expect(mixed.results[1]).toMatchObject({ outcome: "confirmed" });
-    expect(refused).toEqual({ ok: false, status: 409, error: "That room was just booked for those dates." });
+    expect(refused.results[0]).toMatchObject({ outcome: "unavailable", error: "That room was just booked for those dates." });
   });
 
   it("7 · the 24-hour hold expiry cron answers a request the host left alone", async () => {
     step("7 · Cron /api/cron/short-stay-hold-expiry, 25 hours after a request");
-    const fresh = await publicRequest({ phone: "+12065550177", name: "Omar Haddad", email: "", checkIn: "2026-11-02", checkOut: "2026-11-04" });
-    expect(fresh).toEqual({ ok: true });
+    const fresh = await portalBook(GUEST2, [{ checkIn: "2026-11-02", checkOut: "2026-11-04" }], {}, "2026-10-28");
+    expect(fresh).toMatchObject({ ok: true });
+    expect(fresh.ok && fresh.results[0]).toMatchObject({ outcome: "pending" });
     const hold = blockFor("2026-11-02");
     const expires = String((hold.row_data.stayDetails as Record<string, unknown>).holdExpiresAt);
     show("hold expires at", expires);

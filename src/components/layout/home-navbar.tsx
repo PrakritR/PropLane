@@ -10,6 +10,7 @@ import { BOOK_DEMO_EVENT, BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketi
 import type { PublicTextingConfig } from "@/lib/marketing/public-texting";
 import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
 import { hasBrowserSessionHint } from "@/lib/auth/browser-session-hint";
+import { isRentPath } from "@/components/layout/footer-text-number";
 import styles from "@/components/layout/home-navbar.module.css";
 
 const HomeMobileMenu = dynamic(
@@ -232,8 +233,8 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
       </header>
       {menuOpen && (
         <HomeMobileMenu
-          textHref={textHref}
-          phone={configured ? phone : null}
+          textHref={isRentPath(pathname) ? null : textHref}
+          phone={configured && !isRentPath(pathname) ? phone : null}
           onClose={() => setMenuOpen(false)}
           restoreFocus={() => menuTrigger.current?.focus()}
         />

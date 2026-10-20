@@ -22,10 +22,6 @@ import {
   useListingPreviewNewTab,
   useListingSidebarRenterCtas,
 } from "@/components/marketing/listing-preview-context";
-import {
-  buildSmsDeepLink,
-  isClawMessagingPubliclyEnabled,
-} from "@/lib/claw-leasing-links";
 import { useProspectListingHrefs } from "@/hooks/use-prospect-listing-hrefs";
 import { listingApplyLabel, listingMessageLabel } from "@/lib/listing-prospect-cta-labels";
 import { buildProspectApplyHref } from "@/lib/prospect-public-nav";
@@ -377,14 +373,6 @@ function ListingModalCta({
     variant === "primary"
       ? "flex min-h-[48px] w-full items-center justify-center rounded-full bg-primary py-3 text-sm font-semibold text-white shadow-[0_4px_20px_rgba(47,95,208,0.28)] transition hover:opacity-95"
       : "flex min-h-[48px] w-full items-center justify-center rounded-full border border-border bg-card py-3 text-sm font-semibold text-foreground transition hover:bg-accent/30";
-  // sms: must use a plain anchor — Next Link treats it as an app route.
-  if (href.startsWith("sms:")) {
-    return (
-      <a href={href} className="flex-1" data-attr={dataAttr}>
-        <span className={className}>{label}</span>
-      </a>
-    );
-  }
   return (
     <Link href={href} className="flex-1" data-attr={dataAttr} onClick={onClick} {...newTabProps}>
       <span className={className}>{label}</span>
@@ -482,49 +470,29 @@ export function ListingDetailModal({
   state,
   onClose,
   listingPropertyId,
-  propertyLabel = null,
-  contactSmsPhone = null,
   signingOrder = null,
 }: {
   state: ModalState;
   onClose: () => void;
   listingPropertyId: string;
   propertyLabel?: string | null;
-  contactSmsPhone?: string | null;
   /** The listing's resolved leasing-pipeline order — swaps "Apply" for "Sign lease" below. */
   signingOrder?: "application_first" | null;
 }) {
   const stop = useCallback((e: React.MouseEvent) => e.stopPropagation(), []);
   const isClient = useIsClient();
   const newTabProps = listingLinkTargetProps(useListingPreviewNewTab());
-  const textEnabled = isClawMessagingPubliclyEnabled(contactSmsPhone);
-  const label = propertyLabel?.trim() || null;
-  const { applyHref: webApplyHref, messageHref: webMessageHref, tourHref, stageMessageCompose, auth } =
+  // A /rent page is the web channel (captain, Oct 20): every action is a web path behind a resident account, and no
+  // number, text link or prefilled message is drawn here. Texting lives on the homepage and the text line.
+  const { applyHref: textApplyHref, messageHref: textMessageHref, tourHref, stageMessageCompose, auth } =
     useProspectListingHrefs(listingPropertyId);
-  const textApplyHref = textEnabled
-    ? buildSmsDeepLink({ intent: "apply", propertyId: listingPropertyId, propertyLabel: label, toPhone: contactSmsPhone })
-    : webApplyHref;
-  const textMessageHref = textEnabled
-    ? buildSmsDeepLink({ intent: "question", propertyId: listingPropertyId, propertyLabel: label, toPhone: contactSmsPhone })
-    : webMessageHref;
-  const textMessageAbout = (topic: string) =>
-    textEnabled
-      ? buildSmsDeepLink({ intent: "question", propertyId: listingPropertyId, propertyLabel: label, topic, toPhone: contactSmsPhone })
-      : webMessageHref;
-  const applyLabel = listingApplyLabel(textEnabled, signingOrder);
-  const messageLabel = listingMessageLabel(textEnabled);
-  const stageWebMessageCompose = textEnabled ? undefined : stageMessageCompose;
-  const messageCtaExtras = { onClick: stageWebMessageCompose };
+  const applyLabel = listingApplyLabel(false, signingOrder);
+  const messageLabel = listingMessageLabel(false);
+  const messageCtaExtras = { onClick: stageMessageCompose };
   const { rooms: occupancyRows, loading: occupancyLoading, failed: occupancyFailed } = useListingPublicOccupancy(listingPropertyId);
-  // A room's action buttons take the account path (resident sign-up, then that room's application); its Text us
-  // opens Messages with the room written out (captain, Oct 20).
+  // A room's and a bundle's Apply take the account path too: resident sign-up, then that room's or bundle's application.
   const roomApplyHref = (roomId: string) => buildProspectApplyHref({ propertyId: listingPropertyId, listingRoomId: roomId }, auth);
-  const roomTextUsHref = (roomName: string) => {
-    const href = label
-      ? buildSmsDeepLink({ intent: "monthly", propertyId: listingPropertyId, propertyLabel: label, roomName, toPhone: contactSmsPhone })
-      : "#";
-    return href === "#" ? null : href;
-  };
+  const bundleApplyHref = (bundleId: string) => buildProspectApplyHref({ propertyId: listingPropertyId, bundleId }, auth);
 
   useEffect(() => {
     if (!state) return;
@@ -572,15 +540,6 @@ export function ListingDetailModal({
                   dataAttr="listing-room-tour"
                   newTabProps={newTabProps}
                 />
-                {roomTextUsHref(state.room.name) ? (
-                  <ListingModalCta
-                    href={roomTextUsHref(state.room.name)!}
-                    label="Text us"
-                    variant="secondary"
-                    dataAttr="listing-room-text-us"
-                    newTabProps={{}}
-                  />
-                ) : null}
               </div>
             }
           >
@@ -742,7 +701,7 @@ export function ListingDetailModal({
               <PreviewSafeModalActions
                 newTabProps={newTabProps}
                 primary={{
-                  href: textMessageAbout("the floor plan / layout"),
+                  href: textMessageHref,
                   label: messageLabel,
                   dataAttr: "listing-text-message-layout",
                   ...messageCtaExtras,
@@ -866,7 +825,7 @@ export function ListingDetailModal({
                   dataAttr: "listing-text-apply",
                 }}
                 secondary={{
-                  href: textMessageAbout("lease terms"),
+                  href: textMessageHref,
                   label: messageLabel,
                   dataAttr: "listing-text-message-lease",
                   ...messageCtaExtras,
@@ -898,17 +857,8 @@ export function ListingDetailModal({
               <PreviewSafeModalActions
                 newTabProps={newTabProps}
                 primary={{
-                  href: textEnabled
-                    ? buildSmsDeepLink({
-                        intent: "bundle",
-                        propertyId: listingPropertyId,
-                        propertyLabel: label,
-                        bundleId: state.row.id,
-                        bundleLabel: state.row.label,
-                        toPhone: contactSmsPhone,
-                      })
-                    : textApplyHref,
-                  label: textEnabled ? "Text for bundle" : applyLabel,
+                  href: bundleApplyHref(state.row.id),
+                  label: applyLabel,
                   dataAttr: "listing-text-bundle",
                 }}
                 secondary={{
@@ -1020,13 +970,11 @@ export function InteractiveFloorPlanCard({
   floor,
   listingPropertyId,
   propertyLabel = null,
-  contactSmsPhone = null,
   signingOrder = null,
 }: {
   floor: ListingFloorCard;
   listingPropertyId: string;
   propertyLabel?: string | null;
-  contactSmsPhone?: string | null;
   signingOrder?: "application_first" | null;
 }) {
   const [modal, setModal] = useState<ModalState>(null);
@@ -1043,7 +991,6 @@ export function InteractiveFloorPlanCard({
         onClose={() => setModal(null)}
         listingPropertyId={listingPropertyId}
         propertyLabel={propertyLabel}
-        contactSmsPhone={contactSmsPhone}
         signingOrder={signingOrder}
       />
     </>
@@ -1059,14 +1006,12 @@ export function LeaseBasicsTableInteractive({
   rows,
   listingPropertyId,
   propertyLabel = null,
-  contactSmsPhone = null,
   signingOrder = null,
   showTermSections = false,
 }: {
   rows: LeaseBasicRow[];
   listingPropertyId: string;
   propertyLabel?: string | null;
-  contactSmsPhone?: string | null;
   signingOrder?: "application_first" | null;
   /** When true, always render Long term / Short term headings (short-term may be empty). */
   showTermSections?: boolean;
@@ -1128,7 +1073,6 @@ export function LeaseBasicsTableInteractive({
         onClose={() => setModal(null)}
         listingPropertyId={listingPropertyId}
         propertyLabel={propertyLabel}
-        contactSmsPhone={contactSmsPhone}
         signingOrder={signingOrder}
       />
     </>
@@ -1190,13 +1134,11 @@ export function BundleTableInteractive({
   rows,
   listingPropertyId,
   propertyLabel = null,
-  contactSmsPhone = null,
   signingOrder = null,
 }: {
   rows: BundleCard[];
   listingPropertyId: string;
   propertyLabel?: string | null;
-  contactSmsPhone?: string | null;
   signingOrder?: "application_first" | null;
 }) {
   const [modal, setModal] = useState<ModalState>(null);
@@ -1251,7 +1193,6 @@ export function BundleTableInteractive({
         onClose={() => setModal(null)}
         listingPropertyId={listingPropertyId}
         propertyLabel={propertyLabel}
-        contactSmsPhone={contactSmsPhone}
         signingOrder={signingOrder}
       />
     </>
@@ -1272,7 +1213,6 @@ export function AmenitiesTableInteractive({
   rows: AmenityItem[];
   listingPropertyId?: string;
   propertyLabel?: string | null;
-  contactSmsPhone?: string | null;
 }) {
   const [showAll, setShowAll] = useState(false);
   const visible = showAll ? rows : rows.slice(0, AMENITIES_PREVIEW_COUNT);
@@ -1397,7 +1337,6 @@ export function SpacesInteractive({
   sharedSpaces,
   listingPropertyId,
   propertyLabel = null,
-  contactSmsPhone = null,
   signingOrder = null,
 }: {
   floorPlans: ListingFloorCard[];
@@ -1405,7 +1344,6 @@ export function SpacesInteractive({
   sharedSpaces: ListingSharedRow[];
   listingPropertyId: string;
   propertyLabel?: string | null;
-  contactSmsPhone?: string | null;
   signingOrder?: "application_first" | null;
 }) {
   const [modal, setModal] = useState<ModalState>(null);
@@ -1769,7 +1707,6 @@ export function SpacesInteractive({
         onClose={() => setModal(null)}
         listingPropertyId={listingPropertyId}
         propertyLabel={propertyLabel}
-        contactSmsPhone={contactSmsPhone}
         signingOrder={signingOrder}
       />
     </>
@@ -1787,7 +1724,6 @@ export function SpacesHairlineList({
   sharedSpaces,
   listingPropertyId,
   propertyLabel = null,
-  contactSmsPhone = null,
   signingOrder = null,
 }: {
   floorPlans: ListingFloorCard[];
@@ -1795,7 +1731,6 @@ export function SpacesHairlineList({
   sharedSpaces: ListingSharedRow[];
   listingPropertyId: string;
   propertyLabel?: string | null;
-  contactSmsPhone?: string | null;
   signingOrder?: "application_first" | null;
 }) {
   const [modal, setModal] = useState<ModalState>(null);
@@ -1962,7 +1897,6 @@ export function SpacesHairlineList({
         onClose={() => setModal(null)}
         listingPropertyId={listingPropertyId}
         propertyLabel={propertyLabel}
-        contactSmsPhone={contactSmsPhone}
         signingOrder={signingOrder}
       />
     </div>

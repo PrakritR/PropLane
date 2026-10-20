@@ -67,36 +67,13 @@ describe("short-stay booking card", () => {
     expect(container.querySelector('[data-attr="short-stay-block"]')).toBeNull();
   });
 
-  it("reads Quick book for a signed-in resident and sends in one tap with their details", async () => {
-    const calls: { url: string; body: Record<string, unknown> }[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
-      calls.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
-      return new Response("{}", { status: 200 });
-    }));
-    render(
-      <ShortStayProvider property={property}>
-        <ShortStayBookingBlock quickBook={{ name: "Dana Resident", email: "dana@example.com", phone: "2065550100" }} />
-        <Probe />
-        <PickRoom />
-      </ShortStayProvider>,
-    );
-    fireEvent.click(screen.getByText("pick dates"));
-    fireEvent.click(screen.getByText("pick room 3"));
-    const quick = screen.getByRole("button", { name: "Quick book" }) as HTMLButtonElement;
-    expect(screen.queryByRole("button", { name: "Request to book" })).toBeNull();
-    await waitFor(() => expect(quick.disabled).toBe(false));
-    fireEvent.click(quick);
-    await waitFor(() => expect(calls).toHaveLength(1));
-    expect(calls[0]!.body).toMatchObject({ propertyId: "prop-1", roomId: "r3", name: "Dana Resident", phone: "2065550100", email: "dana@example.com" });
-  });
-
   it("prints no price header of its own (the card's one price line sits above it), and never a dash", () => {
     render(<ShortStayProvider property={property}><ShortStayBookingBlock /></ShortStayProvider>);
     expect(screen.queryByText("/ night")).toBeNull();
     expect(document.body.textContent).not.toContain("—");
   });
 
-  it("shows the live total and Text us; Request to book waits for a room", async () => {
+  it("shows the live total; Request to book waits for a room and never offers a text link, a number or Quick book", async () => {
     render(<ShortStayProvider property={property}><ShortStayBookingBlock /><Probe /></ShortStayProvider>);
     const request = screen.getByRole("button", { name: "Request to book" }) as HTMLButtonElement;
     expect(request.disabled).toBe(true);
@@ -104,13 +81,15 @@ describe("short-stay booking card", () => {
     await waitFor(() => expect(screen.getByText("$55 × 4 nights")).toBeTruthy());
     expect(screen.getByText("$220")).toBeTruthy();
     expect(request.disabled).toBe(true);
-    expect(screen.getByRole("link", { name: "Text us" }).getAttribute("href")).toMatch(/^sms:/);
+    expect(document.querySelector('a[href^="sms:"], a[href^="tel:"]')).toBeNull();
+    expect(screen.queryByText(/Text us|Quick book/)).toBeNull();
+    expect(document.body.textContent).not.toMatch(/\(814\)|8146793694/);
     expect(document.body.textContent).not.toContain("— / night");
   });
 
-  it("two paths: a signed-out guest's Request to book makes a resident account and returns to these picks; Text us writes them out", async () => {
+  it("a signed-out visitor's Request to book makes a resident account, then opens the portal's stay request with the picks", async () => {
     render(
-      <ShortStayProvider property={{ ...property, address: "5257 Brooklyn Ave NE, Seattle, WA 98105" } as MockProperty}>
+      <ShortStayProvider property={property}>
         <ShortStayBookingBlock />
         <Probe />
         <PickRoom />
@@ -119,17 +98,15 @@ describe("short-stay booking card", () => {
     fireEvent.click(screen.getByText("pick dates"));
     fireEvent.click(screen.getByText("pick room 3"));
     const book = await screen.findByRole("link", { name: "Request to book" });
-    const next = decodeURIComponent(book.getAttribute("href")!.split("next=")[1]!);
-    expect(book.getAttribute("href")!.startsWith("/auth/create-account?mode=create&role=resident&next=")).toBe(true);
-    expect(next).toBe("/rent/listings/prop-1?stay=1&checkIn=2026-10-20&checkOut=2026-10-24&room=r3");
-    const text = screen.getByRole("link", { name: "Text us" });
-    expect(text.getAttribute("href")).toMatch(/^sms:\+18146793694\?&body=/);
-    expect(decodeURIComponent(text.getAttribute("href")!.split("body=")[1]!)).toBe("Hi, I'd like to book 5257 Brooklyn Ave NE · Room 3 · Oct 20–24 · 1 guest");
-    // The plain "Text +1 (814) …" link is gone: no number is printed on the card.
-    expect(document.body.textContent).not.toMatch(/\(814\)|\+1814|8146793694/);
+    const href = book.getAttribute("href")!;
+    expect(href.startsWith("/auth/create-account?mode=create&role=resident&next=")).toBe(true);
+    expect(decodeURIComponent(href.split("next=")[1]!)).toBe("/resident/stays/request?listing=prop-1&room=r3&checkIn=2026-10-20&checkOut=2026-10-24&guests=1");
+    // Nothing is sent from the public card: no form, no request.
+    expect(screen.queryByLabelText("Your name")).toBeNull();
+    expect(fetch).not.toHaveBeenCalledWith("/api/public/short-stay-request", expect.anything());
   });
 
-  it("a signed-in resident books right here, and the confirmation never prints a number", async () => {
+  it("a signed-in resident goes straight to the portal's stay request", async () => {
     auth.current = { ready: true, userId: "u1", hasResidentRole: true };
     render(
       <ShortStayProvider property={property}>
@@ -140,13 +117,7 @@ describe("short-stay booking card", () => {
     );
     fireEvent.click(screen.getByText("pick dates"));
     fireEvent.click(screen.getByText("pick room 3"));
-    fireEvent.click(await screen.findByRole("button", { name: "Request to book" }));
-    fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "Ana Guest" } });
-    const phone = document.querySelector('[data-attr="short-stay-phone"] input') as HTMLInputElement;
-    fireEvent.change(phone, { target: { value: "5103098345" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
-    const sent = await screen.findByText(/Request sent/);
-    expect(sent.textContent).toBe("Request sent. We texted you to confirm.");
-    expect(document.body.textContent).not.toMatch(/\+1510|5103098345/);
+    const book = await screen.findByRole("link", { name: "Request to book" });
+    expect(book.getAttribute("href")).toBe("/resident/stays/request?listing=prop-1&room=r3&checkIn=2026-10-20&checkOut=2026-10-24&guests=1");
   });
 });

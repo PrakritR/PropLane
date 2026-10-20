@@ -29,7 +29,7 @@ vi.mock("@/lib/household-charges.server", () => ({
 }));
 
 import { bookGuestStays } from "@/lib/short-stay/guest-stays.server";
-import { submitShortStayRequest } from "@/lib/short-stay-request.server";
+import { createShortStayRows, loadShortStayListing } from "@/lib/short-stay-request.server";
 import { stayAddOnChargeId } from "@/lib/short-stay/stay-add-ons";
 import { GUEST, PROPERTY, TODAY, completedStay, seedShortStayDb } from "../helpers/short-stay-seed";
 
@@ -150,29 +150,48 @@ describe("add-ons asked for at booking", () => {
   });
 });
 
-describe("the public card", () => {
-  const publicBody = { propertyId: PROPERTY, roomId: "r1", guests: 1, ...range };
+describe("the shared row core (text bookings)", () => {
+  const smsActor = { source: "sms_short_stay" as const, name: "Sam Rivera", phone: "+12065550199", email: "sam@example.com", residentUserId: null };
+  const listingFor = async (db: ReturnType<typeof seededDb>) => {
+    const loaded = await loadShortStayListing(db as never, { propertyId: PROPERTY, roomId: "r1", guests: 1 });
+    if (!loaded.ok) throw new Error("listing should load");
+    return loaded.listing;
+  };
 
-  it("a dry run needs no name or phone, writes nothing, and answers the add-on offers", async () => {
+  it("a dry run writes nothing and answers the add-on offers", async () => {
     const db = seededDb({ others: [neighbour("2026-10-24", "2026-10-26")] });
     const before = db.tables.portal_schedule_records!.length;
-    const result = await submitShortStayRequest(db as never, { ...publicBody, dryRun: true }, { today: TODAY });
-    expect(db.tables.portal_schedule_records!.length).toBe(before);
-    expect(result).toEqual({
-      ok: true,
-      addOns: [{ kind: "early_check_in", available: true, time: "12:00", priceCents: 2500 }, { kind: "late_check_out", available: false }],
+    const [result] = await createShortStayRows(db as never, {
+      actor: { ...smsActor, name: "", phone: "", email: "" },
+      listing: await listingFor(db),
+      guests: 1,
+      ranges: [{ ...range, nights: 3 }],
+      status: "hold",
+      dryRun: true,
+      now: NOW,
     });
+    expect(db.tables.portal_schedule_records!.length).toBe(before);
+    expect(result).toMatchObject({ ok: true, blockId: null, rowData: null });
+    expect((result as { addOnOffers: unknown[] }).addOnOffers).toEqual([
+      { kind: "early_check_in", available: true, time: "12:00", priceCents: 2500 },
+      { kind: "late_check_out", available: false },
+    ]);
   });
 
   it("a request stamps the times and keeps the add-on as `requested` on the hold", async () => {
     const db = seededDb();
-    const result = await submitShortStayRequest(
-      db as never,
-      { ...publicBody, name: "Sam Rivera", phone: "(206) 555-0199", email: "sam@example.com", estimatedArrival: "14:00", addOns: ["late_check_out"] },
-      { today: TODAY },
-    );
-    expect(result).toEqual({ ok: true });
-    const row = db.tables.portal_schedule_records!.find((r) => (r.row_data as { stayDetails?: { source?: string } }).stayDetails?.source === "public_short_stay_request")!.row_data as Record<string, unknown>;
+    const [result] = await createShortStayRows(db as never, {
+      actor: smsActor,
+      listing: await listingFor(db),
+      guests: 1,
+      ranges: [{ ...range, nights: 3 }],
+      status: "hold",
+      estimatedArrival: "14:00",
+      addOns: ["late_check_out"],
+      now: NOW,
+    });
+    expect(result).toMatchObject({ ok: true });
+    const row = db.tables.portal_schedule_records!.find((r) => (r.row_data as { stayDetails?: { source?: string } }).stayDetails?.source === "sms_short_stay")!.row_data as Record<string, unknown>;
     expect(row).toMatchObject({ bookingStatus: "hold", checkInTime: "15:00", checkOutTime: "11:00", stayDetails: { estimatedArrival: "14:00", addOns: { late_check_out: { status: "requested", priceCents: 2500 } } } });
     expect(chargeWrites).toHaveLength(0);
   });

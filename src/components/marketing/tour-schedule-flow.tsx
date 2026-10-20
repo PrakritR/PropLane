@@ -30,6 +30,7 @@ import {
 import { useProspectContactAutofill, type ProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
 import { linkBookedToursToSignedInResident } from "@/lib/tour-resident-link.client";
 import { residentCreateAccountHref, residentSignInHref } from "@/lib/resident-public-nav";
+import { residentPortalListingMessagePath } from "@/lib/prospect-public-nav";
 import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listing";
 import {
   PropertySearchPicker,
@@ -1158,15 +1159,15 @@ function Step2({
         ) : noTimes ? (
           <div data-attr="tour-no-times-yet" className="ps-j-note">
             <p>No tour times yet</p>
-            {property.contactSmsPhone?.trim() ? (
-              <a
-                href={`sms:${property.contactSmsPhone.trim()}`}
-                data-attr="tour-message-manager"
-                className="ps-btn ps-btn-line"
-              >
-                Message the manager
-              </a>
-            ) : null}
+            {/* The web channel messages the manager in the resident portal, never by a text link (captain, Oct 20). */}
+            <Link
+              href={residentPortalListingMessagePath(property.id)}
+              prefetch={false}
+              data-attr="tour-message-manager"
+              className="ps-btn ps-btn-line"
+            >
+              Message the manager
+            </Link>
           </div>
         ) : null}
 
@@ -1265,15 +1266,15 @@ function Step2({
           className="flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm portal-banner-pending"
         >
           <p className="min-w-0 flex-1 font-semibold">No tour times yet</p>
-          {property.contactSmsPhone?.trim() ? (
-            <a
-              href={`sms:${property.contactSmsPhone.trim()}`}
-              data-attr="tour-message-manager"
-              className="rounded-full border border-current px-4 py-1.5 text-xs font-semibold"
-            >
-              Message the manager
-            </a>
-          ) : null}
+          {/* The web channel messages the manager in the resident portal, never by a text link (captain, Oct 20). */}
+          <Link
+            href={residentPortalListingMessagePath(property.id)}
+            prefetch={false}
+            data-attr="tour-message-manager"
+            className="rounded-full border border-current px-4 py-1.5 text-xs font-semibold"
+          >
+            Message the manager
+          </Link>
         </div>
       ) : (
         <p className="text-sm text-muted">

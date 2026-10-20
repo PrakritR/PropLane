@@ -147,15 +147,7 @@ describe("a failed tour-availability read is never a booking page with zero slot
     });
   });
 
-  it("offers Message the manager next to the empty state only when the listing has a work number", async () => {
-    stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }]);
-    await renderAtDateStep();
-    await waitFor(() => {
-      expect(screen.getByText(EMPTY_STATE)).toBeTruthy();
-    });
-    expect(screen.queryByText("Message the manager")).toBeNull();
-    cleanup();
-
+  it("offers Message the manager next to the empty state as a resident-portal message, never a text link", async () => {
     stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }]);
     render(
       <TourScheduleFlow
@@ -167,6 +159,6 @@ describe("a failed tour-availability read is never a booking page with zero slot
     fireEvent.click(await screen.findByText(`${PROPERTY.buildingName} · ${PROPERTY.unitLabel}`));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     const link = await screen.findByText("Message the manager");
-    expect(link.closest("a")?.getAttribute("href")).toBe("sms:+12065550123");
+    expect(link.closest("a")?.getAttribute("href")).toBe(`/resident/communication/active?propertyId=${encodeURIComponent(PROPERTY.id)}&compose=1`);
   });
 });
