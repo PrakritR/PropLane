@@ -124,7 +124,7 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
   // their own workspace; anything that is not a status question (or a housing search) is not handled here.
   try {
     const { handleLineMemberText } = await import("@/lib/one-number/line-member-status.server");
-    const member = await handleLineMemberText(db, { fromPhone: input.fromPhone, body: input.body, phoneKey: input.phoneKey, mode: "shared_line" });
+    const member = await handleLineMemberText(db, { fromPhone: input.fromPhone, body: input.body, phoneKey: input.phoneKey, mode: "shared_line", messageSid: input.messageSid });
     if (member.handled) return { kind: "handled", twiml: member.reply };
   } catch (error) {
     console.error("line member status failed", error instanceof Error ? error.name : "unknown");

@@ -102,10 +102,14 @@ export async function loadOrderedPoolFunders(
   // (a funder's later choice to switch it off is a row with enabled = false, and stays).
   if (ownerId && !ids.includes(ownerId)) {
     try {
-      const { error: seedError } = await db
+      // ignoreDuplicates + select returns ONLY a row this call inserted. A row that already exists but is
+      // disabled (the owner scoped funding away from this workspace) comes back empty: the owner is then
+      // not a funder, so a turn here never reserves from them.
+      const { data: seeded, error: seedError } = await db
         .from("comms_workspace_funding")
-        .upsert({ funder_user_id: ownerId, workspace_id: workspaceId, enabled: true }, { onConflict: "funder_user_id,workspace_id", ignoreDuplicates: true });
-      if (!seedError) ids.push(ownerId);
+        .upsert({ funder_user_id: ownerId, workspace_id: workspaceId, enabled: true }, { onConflict: "funder_user_id,workspace_id", ignoreDuplicates: true })
+        .select("funder_user_id");
+      if (!seedError && Array.isArray(seeded) && seeded.length > 0) ids.push(ownerId);
     } catch {
       /* unreadable or unwritable: the owner is simply not a funder this time */
     }

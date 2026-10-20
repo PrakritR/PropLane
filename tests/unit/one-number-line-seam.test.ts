@@ -95,6 +95,18 @@ describe("shared line: the owner of record of a PropLane Service workspace", () 
     expect(result.kind === "handled" && result.twiml).toContain("Your account is view only");
   });
 
+  it("EMERGENCY and HUMAN texts from them are not answered with a status report", async () => {
+    for (const body of ["EMERGENCY", "water everywhere in the basement", "HUMAN"]) {
+      const result = await run(client(), body);
+      const twiml = result.kind === "handled" ? result.twiml : null;
+      expect(twiml ?? "").not.toContain("Ambika Homes, October");
+      expect(twiml ?? "").not.toContain("I can only share status");
+    }
+    const emergency = await run(client(), "water everywhere in the basement");
+    // Falls through to the keyword path instead (the stranger path: unassigned lead agent answers or nothing).
+    expect(emergency.kind === "handled" ? emergency.twiml : "").not.toMatch(/rooms occupied/);
+  });
+
   it("a housing search from them is the lead agent's, like anyone else's", async () => {
     const result = await run(client(), "I'm looking for a room for my cousin");
     expect(unassigned).toHaveBeenCalledTimes(1);

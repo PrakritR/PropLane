@@ -14,6 +14,9 @@ vi.mock("@/lib/one-number/display-number.server", () => ({
   resolveWorkspaceDisplayNumber: vi.fn(async () => "+12065550111"),
 }));
 
+const alerts = vi.hoisted(() => vi.fn(async () => ({ sent: true })));
+vi.mock("@/lib/one-number/team-alerts.server", () => ({ alertWorkspaceTeam: alerts }));
+
 import { PLANNED_RECORD_ID } from "@/lib/tour-inquiry.server";
 import { summarizeRentForMonth } from "@/lib/one-number/ops-text";
 import { buildStatusReply, portfolioTotals } from "@/lib/one-number/portfolio-status";
@@ -102,7 +105,10 @@ function world(extra: Record<string, Row[]> = {}): FakeDb {
 const run = (db: FakeDb, body: string, over: Record<string, unknown> = {}) =>
   handleLineMemberText(db as never, { fromPhone: FROM, body, phoneKey: KEY, mode: "service_line", lineOwnerUserId: LINE_OWNER, now: NOW, ...over } as never);
 
-beforeEach(() => availability.clear());
+beforeEach(() => {
+  availability.clear();
+  alerts.mockClear();
+});
 
 describe("get_portfolio_status: every figure is read, never estimated", () => {
   it("reads per-house occupancy, rent, services, the next tour and lease ends from the same reports", async () => {
@@ -234,6 +240,22 @@ describe("several workspaces: ask once, remember the answer", () => {
     const next = await run(db, "unpaid rent");
     expect(next.handled && next.reply).toContain("October rent");
     expect(next.handled && next.reply).not.toContain("Is this about");
+  });
+
+  it("a remembered choice older than 10 minutes is not honored: the question is asked again", async () => {
+    const db = two();
+    await run(db, "how are my houses doing");
+    await run(db, "1");
+    const row = db.tables.sms_line_sessions![0]!;
+    expect(row.current_workspace_id).toBe("ws-a");
+    // Fresh: remembered.
+    const fresh = await run(db, "unpaid rent");
+    expect(fresh.handled && fresh.reply).not.toContain("Is this about");
+    // Eleven minutes of silence later (a stranger spoofing this caller ID): asked again, nothing read.
+    row.updated_at = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+    const stale = await run(db, "unpaid rent");
+    expect(stale.handled && stale.reply).toBe("Is this about Brooklyn Homes or Eighth Ave Co?");
+    expect(stale.handled && stale.reply).not.toContain("October rent");
   });
 
   it("a text that names the workspace settles it without a question", async () => {
@@ -422,5 +444,64 @@ describe("the pipeline gate: only the PropLane service owner's number is the Pro
   it("falls through for a housing search of their own and for a stranger on the line", async () => {
     expect(await answerPropLaneLineText(onLine() as never, { lineOwnerUserId: LINE_OWNER, toPhone: LINE_NUMBER, fromPhone: FROM, body: "I'm looking for another place to live" })).toBeNull();
     expect(await answerPropLaneLineText(onLine() as never, { lineOwnerUserId: LINE_OWNER, toPhone: LINE_NUMBER, fromPhone: "+12065550777", body: "any vacancies?" })).toBeNull();
+  });
+});
+
+describe("keywords and emergencies from a known member are never answered with a status report", () => {
+  it.each(["EMERGENCY", "HUMAN", "human please", "STOP", "HELP", "START", "flood in room 3", "there is a fire at 5259 Brooklyn", "gas leak!!", "water everywhere in the basement", "smoke in the hallway", "I am locked out"])(
+    "%s falls through to the keyword path (handled: false)",
+    async (body) => {
+      expect(await run(world(), body)).toEqual({ handled: false });
+      expect(alerts).not.toHaveBeenCalled();
+    },
+  );
+
+  it("an emergency falls through before any lookup, on the shared line too", async () => {
+    const db = createFakeDb({ profiles: [], portal_workspaces: [] });
+    const shared = await handleLineMemberText(db as never, { fromPhone: FROM, body: "FIRE in the kitchen", phoneKey: KEY, mode: "shared_line", now: NOW } as never);
+    expect(shared).toEqual({ handled: false });
+  });
+
+  it("a plain status question still gets its answer", async () => {
+    const result = await run(world(), "how are my houses doing");
+    expect(result.handled && result.reply).toContain("Brooklyn Homes, October");
+  });
+});
+
+describe("a member's request or problem is not answered with a status dump", () => {
+  it("points a free-form request at the work number and the portal, and tells the team once", async () => {
+    const result = await run(world(), "can you get a locksmith to copy the spare key for Sam", { messageSid: "SM1" });
+    expect(result.handled && result.reply).toContain("text your work number +12065550111 or use the portal");
+    expect(result.handled && result.reply).not.toContain("rooms occupied");
+    expect(alerts).toHaveBeenCalledTimes(1);
+    expect(alerts).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ workspaceId: "ws-a", ownerUserId: "u-own", kind: "unanswered", urgent: false, idempotencyKey: "line-member-request:SM1:ws-a" }));
+  });
+
+  it("a problem report with a status word in it (broken, leaking) is a report, not a services overview", async () => {
+    const result = await run(world(), "the dishwasher is broken at 5259");
+    expect(result.handled && result.reply).toContain("or use the portal");
+    expect(result.handled && result.reply).not.toContain("open service");
+    expect(alerts).toHaveBeenCalledTimes(1);
+  });
+
+  it("a view only client is told their team makes changes, and the team is not pinged", async () => {
+    availability.clear();
+    availability.set("p1", { rooms: 3, vacant: 1 });
+    const db = createFakeDb({
+      profiles: [{ id: "u-amb", email: "amb@x.com", phone: FROM, phone_verified_at: VERIFIED }],
+      portal_workspaces: [{ id: "ws-svc", name: "Ambika Homes", owner_user_id: LINE_OWNER, is_default: false, is_service: true }],
+      account_link_invites: [{ id: "i1", inviter_user_id: LINE_OWNER, invitee_user_id: "u-amb", workspace_id: "ws-svc", status: "accepted", team_role: "property_owner", is_owner_of_record: true }],
+      manager_property_records: [{ id: "p1", manager_user_id: LINE_OWNER, workspace_id: "ws-svc", row_data: { buildingName: "12 Alder St" }, property_data: {} }],
+      portal_household_charge_records: [], portal_work_order_records: [], portal_service_request_records: [], portal_lease_pipeline_records: [], portal_schedule_records: [],
+    });
+    const result = await handleLineMemberText(db as never, { fromPhone: FROM, body: "the faucet is leaking in the kitchen", phoneKey: KEY, mode: "service_line", lineOwnerUserId: "u-x", now: NOW } as never);
+    expect(result.handled && result.reply).toContain("view only");
+    expect(alerts).not.toHaveBeenCalled();
+  });
+
+  it("a bare house name or a status question is still an overview, with no alert", async () => {
+    const named = await run(world(), "5259 Brooklyn");
+    expect(named.handled && named.reply).toContain("Brooklyn Homes, October");
+    expect(alerts).not.toHaveBeenCalled();
   });
 });

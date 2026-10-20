@@ -1,7 +1,7 @@
 // list_open_jobs_near: the Find work board's own public view, filtered by the place and trade a texter names.
 import { describe, expect, it, vi } from "vitest";
 import { createFakeDb } from "../helpers/fake-table-db";
-import { BOARD_FIXTURE } from "../helpers/vendor-line-fixtures";
+import { BOARD_FIXTURE, boardService } from "../helpers/vendor-line-fixtures";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
@@ -35,7 +35,8 @@ describe("listOpenJobsNear", () => {
   it("filters by a zip", async () => {
     const out = await listOpenJobsNear(db(), { areaText: "98115" });
     expect(out.jobs).toHaveLength(1);
-    expect(out.jobs[0]!.area).toContain("98115");
+    expect(out.jobs[0]!.area).not.toMatch(/\d{5}/);
+    expect(out.jobs[0]!.area.length).toBeGreaterThan(0);
   });
 
   it("filters by trade, and trade + place together", async () => {
@@ -83,6 +84,43 @@ describe("listOpenJobsNear", () => {
     const out = await listOpenJobsNear(db(), { limit: 1 });
     expect(out.jobs).toHaveLength(1);
     expect(out.total).toBe(3);
+  });
+});
+
+describe("area and title never carry a zip or an address", () => {
+  it("the area is the neighborhood or city only: 'Ballard', not 'Ballard (98107)'", async () => {
+    const out = await listOpenJobsNear(db(), {});
+    for (const job of out.jobs) expect(job.area).not.toMatch(/\d{5}|\(|\)/);
+    expect(out.jobs.find((j) => j.trade === "Cleaning")!.area).toBe("Ballard");
+  });
+
+  it("a zip the place table does not hold still never reaches the area", async () => {
+    const d = createFakeDb({
+      portal_work_order_records: [boardService("wo-x", {}, { propertyAddress: "9 Nowhere Rd, Tacoma, WA 98402" })],
+      work_order_vendor_offers: [],
+    }) as never;
+    const out = await listOpenJobsNear(d, {});
+    expect(out.jobs).toHaveLength(1);
+    expect(out.jobs[0]!.area).not.toMatch(/\d{5}/);
+  });
+
+  it("strips an address the street-word list misses, a unit and a zip from a title", () => {
+    expect(titleWithoutAddress("Fix heater at 1420 Alder Hts", "Plumbing")).toBe("Fix heater");
+    expect(titleWithoutAddress("Clogged drain 98115 unit 4B", "Plumbing")).toBe("Clogged drain");
+    expect(titleWithoutAddress("Paint hallway, 88 N Pike Cir #12", "Painting")).toBe("Paint hallway");
+    expect(titleWithoutAddress("Replace 2 faucets", "Plumbing")).toBe("Replace 2 faucets");
+  });
+
+  it("reads the zip of a whole board in ONE property query, not one per service", async () => {
+    const properties = Array.from({ length: 6 }, (_, i) => ({ id: `p${i}`, row_data: { zip: "98107" } }));
+    const records = properties.map((p, i) => boardService(`wo-${i}`, {}, { propertyAddress: "", assignedPropertyId: p.id, propertyId: p.id }));
+    const inner = createFakeDb({ portal_work_order_records: records, work_order_vendor_offers: [], manager_property_records: properties }) as unknown as { from: (t: string) => unknown };
+    let propertyReads = 0;
+    const counted = { ...inner, from: (table: string) => { if (table === "manager_property_records") propertyReads += 1; return inner.from(table); } };
+    const out = await listOpenJobsNear(counted as never, {});
+    expect(out.total).toBe(6);
+    expect(out.jobs.every((j) => j.area === "Ballard")).toBe(true);
+    expect(propertyReads).toBe(1);
   });
 });
 

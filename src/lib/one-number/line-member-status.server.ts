@@ -7,6 +7,7 @@ import { coManagerModuleAllowed } from "@/lib/co-manager-permissions";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import type { SharedLineCandidate } from "@/lib/one-number/contracts";
 import { resolveWorkspaceDisplayNumber } from "@/lib/one-number/display-number.server";
+import { classifySharedLineKeyword } from "@/lib/one-number/keywords";
 import { classifyLineText } from "@/lib/one-number/line-intent";
 import { portalSignInHref } from "@/lib/one-number/link-destinations.server";
 import {
@@ -19,6 +20,7 @@ import { readPortfolioStatus, type PortfolioScope } from "@/lib/one-number/portf
 import { decideFromCandidates, textNamesCandidate } from "@/lib/one-number/router.server";
 import { findVerifiedProfileByPhone } from "@/lib/one-number/router-lookups.server";
 import { loadSharedLineSession, saveSharedLinePending, saveSharedLineRoute } from "@/lib/one-number/session.server";
+import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
 import { resolveManagerSmsAccess } from "@/lib/sms/manager-sms-access.server";
 
 /**
@@ -178,6 +180,25 @@ export async function scopeForMembership(db: SupabaseClient, profileId: string, 
 
 const SMALL_TALK = /^(?:hi|hey|hello|yo|thanks?|thank you|ty|ok|okay|k|cool|great|got it|yes|no|yep|nope|help|menu)\b[\s.!?]*$/;
 
+/** Compliance words and the words the shared-line seam hands to a person: never answered with a status overview. */
+const CONTROL_WORDS = /^[^a-z0-9]*(?:stop|stopall|unsubscribe|cancel|end|quit|start|yes|unstop|help|info|human|agent|person|representative)(?:[^a-z0-9]+(?:please|pls|plz|thanks|thank you))?[^a-z0-9]*$/i;
+
+/** Danger the keyword list does not name outright. A member who texts this is reporting it, not asking for a figure. */
+const URGENT_WORDS =
+  /\b(?:emergency|911|urgent|on fire|burning|fire|smoke|gas|flood\w*|water everywhere|sparks?|sewage|carbon monoxide|collaps\w*|break[- ]?in|broke in|locked out|lockout|burst)\b/i;
+
+/** A member telling us something is wrong (a report to the team), as opposed to asking for a figure. */
+const PROBLEM_REPORT =
+  /\b(?:broke|broken|leaking|leaks?|clogged|backed up|no (?:hot )?water|no heat|no power|not working|stopped working|won'?t (?:work|start|turn|open|close|flush)|isn'?t working|mold|mould|pests?|roaches|mice|rats|bed ?bugs|infest\w*)\b/i;
+
+/** True for a text the line must leave to the shared-line keyword handling and its team escalation. */
+export function isLineKeywordOrUrgentText(body: string): boolean {
+  return CONTROL_WORDS.test(body.trim()) || classifySharedLineKeyword(body) !== null || URGENT_WORDS.test(body);
+}
+
+/** How long a "which workspace" answer is remembered for the conversation. */
+export const REMEMBERED_CHOICE_TTL_MS = 10 * 60 * 1000;
+
 const sessionKey = (phoneKey: string) => `ls:${phoneKey}`;
 
 const candidateOf = (m: LineMembership): SharedLineCandidate => ({
@@ -188,6 +209,19 @@ const candidateOf = (m: LineMembership): SharedLineCandidate => ({
   propertyId: null,
   label: m.workspaceName,
 });
+
+/** Does the text name one of this workspace's houses? (Reads titles only; a failed read means no.) */
+async function houseNamedIn(db: SupabaseClient, m: LineMembership, body: string): Promise<boolean> {
+  try {
+    const { data } = await db.from("manager_property_records").select("row_data").eq("workspace_id", m.workspaceId).limit(200);
+    return (data ?? []).some((r) => {
+      const label = str(((r as Row).row_data as Row | null)?.buildingName);
+      return label ? textNamesCandidate(body, { label } as SharedLineCandidate) : false;
+    });
+  } catch {
+    return false;
+  }
+}
 
 /** Narrow a status to the one house the text names, when it names exactly one. */
 function narrowToNamedHouse(status: PortfolioStatus, body: string): PortfolioStatus {
@@ -204,6 +238,8 @@ export type HandleLineMemberInput = {
   mode: "service_line" | "shared_line";
   /** service_line: the line owner. Their own workspaces are answered by the work-number agent, not here. */
   lineOwnerUserId?: string | null;
+  /** The inbound MessageSid, so a webhook retry notifies the team once. */
+  messageSid?: string | null;
   now?: Date;
 };
 
@@ -213,6 +249,9 @@ export type HandleLineMemberInput = {
  * there, with the full manager agent).
  */
 export async function handleLineMemberText(db: SupabaseClient, input: HandleLineMemberInput): Promise<LineMemberResult> {
+  // STOP / HELP / START, HUMAN and anything that reads as an emergency belong to the keyword path (the emergency reply
+  // and the team escalation), never to a status overview. Checked before any lookup, so it holds for every member.
+  if (isLineKeywordOrUrgentText(input.body)) return { handled: false };
   const intent = classifyLineText(input.body, { member: true });
   if (intent.kind === "housing_search") return { handled: false };
 
@@ -248,7 +287,13 @@ export async function handleLineMemberText(db: SupabaseClient, input: HandleLine
     let chosen: LineMembership | null = memberships.length === 1 ? memberships[0]! : null;
     let answeredQuestion = false;
     if (!chosen) {
-      const session = await loadSharedLineSession(db, key);
+      const loaded = await loadSharedLineSession(db, key);
+      // A remembered "which workspace" answer is honored for 10 minutes of the conversation only. A later text from the
+      // same number (a spoofed caller ID included) is asked again instead of reading a workspace it never chose.
+      const updatedAt = Date.parse(loaded?.updatedAt ?? "");
+      // The session's own clock (it stamps updated_at with the real time), not the report month's `now`.
+      const remembered = Number.isFinite(updatedAt) && Date.now() - updatedAt <= REMEMBERED_CHOICE_TTL_MS;
+      const session = loaded && !remembered ? { ...loaded, currentWorkspaceId: null, activeRole: null } : loaded;
       const decided = decideFromCandidates({ body: input.body, candidates, session });
       if (decided.kind === "ambiguous") {
         await saveSharedLinePending(db, key, decided.candidates);
@@ -265,6 +310,32 @@ export async function handleLineMemberText(db: SupabaseClient, input: HandleLine
     // "5259 Brooklyn") is read as "how is it going": the overview for that workspace or house.
     if (intent.kind === "other" && !answeredQuestion && SMALL_TALK.test(input.body.trim().toLowerCase())) return reply(STATUS_HELP_REPLY);
     const topic = intent.topic;
+
+    // A request or a problem ("the dishwasher in room 3 is broken", "can the Smiths get a key copy") is not a status
+    // question: this line only reads status, so the member is pointed at the work number / portal and the team is told.
+    const looksLikeProblem = intent.kind !== "pay_link" && !input.body.includes("?") && PROBLEM_REPORT.test(input.body);
+    const otherWords = input.body.trim().split(/\s+/).filter(Boolean).length;
+    const namesHouse = textNamesCandidate(input.body, candidateOf(chosen)) || (await houseNamedIn(db, chosen, input.body));
+    if (looksLikeProblem || (intent.kind === "other" && !answeredQuestion && otherWords >= 4 && !namesHouse)) {
+      const number = await resolveWorkspaceDisplayNumber(db, chosen.ownerUserId, chosen.workspaceId).catch(() => null);
+      const portalUrl = `${resolveEmailLinkBaseUrl()}${portalSignInHref("/portal")}`;
+      const where = number ? `text your work number ${number} or use the portal` : "use the portal";
+      if (!chosen.viewOnly) {
+        await alertWorkspaceTeam(db, {
+          workspaceId: chosen.workspaceId,
+          ownerUserId: chosen.ownerUserId,
+          kind: "unanswered",
+          urgent: false,
+          text: `A member texted the PropLane line with a request I did not act on (${chosen.workspaceName}). Open the PropLane line thread to follow up.`,
+          idempotencyKey: input.messageSid ? `line-member-request:${input.messageSid}:${chosen.workspaceId}` : undefined,
+        }).catch(() => undefined);
+      }
+      return reply(
+        chosen.viewOnly
+          ? `I can only share status on this line. Your account is view only, so changes are made by your PropLane team: ${portalUrl}`
+          : `I can only share status on this line. For a request or a problem, ${where}: ${portalUrl}`,
+      );
+    }
 
     const scope = await scopeForMembership(db, profile.id, chosen);
     if (!scope) return reply(`I do not see any houses assigned to you in ${chosen.workspaceName}.`);
