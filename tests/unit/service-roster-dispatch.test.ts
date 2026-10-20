@@ -82,10 +82,11 @@ vi.mock("@/lib/communication/manager-assistant-workspace.server", () => ({ userD
 
 
 import { createDispatchRun, approveDispatchRun, retryDispatchRun } from "@/lib/vendor-dispatch/runs.server";
+import { codedAnswerLine, dispatchProposalId } from "@/lib/vendor-dispatch/approval-code.server";
 import { reachableVendorDirectoryIds, workspaceHasMatchingRule } from "@/lib/vendor-dispatch/match.server";
 import { serviceOwnerForWorkspace } from "@/lib/vendor-dispatch/service-roster.server";
 import { handleManagerDispatchReply, handleVendorDispatchReply, hasLiveVendorDispatchAnswer } from "@/lib/vendor-dispatch/inbound.server";
-import { canActorApprove, resolveApprovers } from "@/lib/vendor-dispatch/engine.server";
+import { canActorApprove, exhaustRun, resolveApprovers } from "@/lib/vendor-dispatch/engine.server";
 import { serviceRosterVendorsForTrade } from "@/lib/service/service-vendors.server";
 
 const SO = "svc-owner";
@@ -301,10 +302,11 @@ describe("who a service workspace's job is offered to", () => {
   });
 });
 
-/** The code the ask for #handle carried ("... Reply Y 4821 or N 4821"). */
+/** The code the ask for #handle carried ("... Reply Y 7 4821 or N 7 4821"): the instruction names the job too. */
 function codeIn(team: Array<{ text: string }>, handle: number): string {
-  const ask = [...team].reverse().find((entry) => entry.text.includes(`#${handle}`) && /Reply Y \d{4}/.test(entry.text));
-  return /Reply Y (\d{4})/.exec(ask?.text ?? "")?.[1] ?? "";
+  const coded = new RegExp(`Reply [A-Z] ${handle} (\\d{4})`);
+  const ask = [...team].reverse().find((entry) => entry.text.includes(`#${handle}`) && coded.test(entry.text));
+  return coded.exec(ask?.text ?? "")?.[1] ?? "";
 }
 
 describe("the PropLane line's code on a money answer", () => {
@@ -314,16 +316,16 @@ describe("the PropLane line's code on a money answer", () => {
     if (!created.ok) throw new Error("setup");
     const handle = created.run.handle;
     // The ask the service manager received shows the code; a spoofed sender never sees this text.
-    expect(sent.team[0]!.text).toMatch(/Reply Y \d{4} or N \d{4}$/);
+    expect(sent.team[0]!.text).toMatch(new RegExp(`Reply Y ${handle} \\d{4} or N ${handle} \\d{4}$`));
     const first = codeIn(sent.team, handle);
     expect(first).toMatch(/^\d{4}$/);
 
     const bare = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `Y ${handle}`, assistantProposalOpen: async () => false });
-    expect((bare as { reply?: string }).reply).toMatch(new RegExp(`#${handle} needs its code: reply Y \\d{4}`));
+    expect((bare as { reply?: string }).reply).toMatch(new RegExp(`#${handle} needs its code: Reply Y ${handle} \\d{4}`));
     expect((db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === created.run.id)?.status).toBe("awaiting_approval");
     expect(sent.vendor).toHaveLength(0);
     // Re-asking issues a FRESH code (only the hash is stored), and the stale one no longer works.
-    const fresh = /reply Y (\d{4})/.exec((bare as { reply?: string }).reply ?? "")?.[1] ?? "";
+    const fresh = new RegExp(`Reply Y ${handle} (\\d{4})`).exec((bare as { reply?: string }).reply ?? "")?.[1] ?? "";
     expect(fresh).not.toBe(first);
 
     const approved = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `Y ${handle} ${fresh}`, assistantProposalOpen: async () => false });
@@ -358,13 +360,50 @@ describe("the PropLane line's code on a money answer", () => {
     expect(sent.vendor).toHaveLength(0);
   });
 
+  it("R and B on an exhausted chain carry the code too: they re-text vendors", async () => {
+    const db = world();
+    const created = await newRun(db);
+    if (!created.ok) throw new Error("setup");
+    const handle = created.run.handle;
+    await approveDispatchRun(db as never, { runId: created.run.id, ownerUserId: CLIENT, actorUserId: SO, channel: "sms", now: T0 });
+    for (const attempt of db.__tables.vendor_dispatch_attempts ?? []) {
+      if (attempt.run_id === created.run.id) attempt.status = "timed_out";
+    }
+    const offering = (db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === created.run.id)!;
+    expect(await exhaustRun(db as never, offering as never, T0)).toBe(true);
+    // The "no one took it" text is the ask for R / B, so it carries a code of its own.
+    expect(sent.team.at(-1)!.text).toMatch(new RegExp(`Reply R ${handle} \\d{4} or B ${handle} \\d{4}$`));
+    const code = new RegExp(`Reply R ${handle} (\\d{4})`).exec(sent.team.at(-1)!.text)?.[1] ?? "";
+    expect(code).toMatch(/^\d{4}$/);
+
+    const bare = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `R ${handle}`, assistantProposalOpen: async () => false });
+    expect((bare as { reply?: string }).reply).toContain("needs its code");
+    expect((db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === created.run.id)?.status).toBe("exhausted");
+    const fresh = new RegExp(`Reply R ${handle} (\\d{4})`).exec((bare as { reply?: string }).reply ?? "")?.[1] ?? "";
+    const retried = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `R ${handle} ${fresh}`, assistantProposalOpen: async () => false });
+    expect((retried as { reply?: string }).reply).toContain(`Retrying #${handle}`);
+  });
+
+  it("the coded instruction names the job, and a proposal key is per proposal rather than per run", () => {
+    expect(codedAnswerLine("dispatch_invoice", 7, "4821")).toBe("Reply Y 7 4821 or N 7 4821");
+    expect(codedAnswerLine("dispatch_retry", 7, "4821")).toBe("Reply R 7 4821 or B 7 4821");
+    // An approval or an exhausted chain has one proposal per wave; a quote or an invoice is its own proposal, so a
+    // second invoice on the same run never inherits the first one's spent guess budget.
+    expect(dispatchProposalId({ kind: "dispatch_approval", wave: 0 })).toBe("approval:w0");
+    expect(dispatchProposalId({ kind: "dispatch_retry", wave: 1 })).toBe("exhausted:w1");
+    const at = new Date("2026-10-20T20:00:00Z");
+    expect(dispatchProposalId({ kind: "dispatch_invoice", attemptId: "att-1", at })).toBe("invoice:att-1:2026-10-20T20:00:00.000Z");
+    expect(dispatchProposalId({ kind: "dispatch_invoice", attemptId: "att-1", at }))
+      .not.toBe(dispatchProposalId({ kind: "dispatch_invoice", attemptId: "att-1", at: new Date(at.getTime() + 1000) }));
+  });
+
   it("with no signing key nothing is confirmed by text: the ask carries no code and the answer is refused", async () => {
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
     vi.stubEnv("PHONE_OTP_HMAC_SECRET", "");
     const db = world();
     const created = await newRun(db);
     if (!created.ok) throw new Error("setup");
-    expect(sent.team[0]!.text).not.toMatch(/Reply Y \d{4}/);
+    expect(sent.team[0]!.text).not.toMatch(/Reply Y \d+ \d{4}/);
     const answer = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `Y ${created.run.handle}`, assistantProposalOpen: async () => false });
     expect((answer as { reply?: string }).reply).toContain("PropLane");
     expect((db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === created.run.id)?.status).toBe("awaiting_approval");
@@ -374,7 +413,7 @@ describe("the PropLane line's code on a money answer", () => {
     const db = world();
     const created = await newRun(db, { workspaceId: WS_P, ownerUserId: OTHER, sourceId: "wo-p", propertyId: PROP_P });
     if (!created.ok) throw new Error("setup");
-    expect(sent.team[0]!.text).not.toMatch(/Reply Y \d{4}/);
+    expect(sent.team[0]!.text).not.toMatch(/Reply Y \d+ \d{4}/);
     const approved = await handleManagerDispatchReply(db as never, { ownerUserId: OTHER, workspaceId: WS_P, actorUserId: OTHER, body: "Y", assistantProposalOpen: async () => false });
     expect((approved as { reply?: string }).reply).toContain(`Approved #${created.run.handle}`);
   });

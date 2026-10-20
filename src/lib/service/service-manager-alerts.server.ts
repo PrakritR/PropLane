@@ -97,6 +97,26 @@ export async function alertServiceManagerFromNotice(
  * phone per day, under a whole-line hourly cap that only a text which really goes out can spend. The number is shown by
  * its last four digits only; the whole thread is in Admin Communication.
  */
+/**
+ * Has this phone's inquiry already produced an alert today? A read of the outbox row the transport dedupes on, so
+ * it costs no budget and cannot itself become a suppression lever. An unreadable outbox answers "no": the transport
+ * dedupe is still authoritative, so the worst case is one extra attempt that it collapses.
+ */
+async function inquiryAlreadyAlerted(db: SupabaseClient, ownerUserId: string, dedupeKey: string): Promise<boolean> {
+  try {
+    const { data, error } = await db
+      .from("sms_outbox")
+      .select("id")
+      .eq("manager_user_id", ownerUserId)
+      .eq("dedupe_key", dedupeKey)
+      .limit(1)
+      .maybeSingle();
+    return !error && Boolean(data);
+  } catch {
+    return false;
+  }
+}
+
 export async function alertServiceManagerOfInquiry(
   db: SupabaseClient,
   input: { phone: string; body: string; now?: Date },
@@ -109,15 +129,17 @@ export async function alertServiceManagerOfInquiry(
     const snippet = input.body.replace(/\s+/g, " ").trim().slice(0, 110);
     const text = toGsm7(`PropLane line: new inquiry from ***${digits.slice(-4)}${snippet ? `: "${snippet}"` : ""}`);
     const day = (input.now ?? new Date()).toISOString().slice(0, 10);
-    // This phone's own daily slot FIRST. The per-phone dedupe lives downstream in the transport, so spending the
-    // whole-line budget before checking it let one number texting repeatedly burn every slot for the hour and
-    // silence the next genuinely new inquiry - a suppression primitive needing a single phone.
-    const perPhone = await rateLimit(`service-manager-inquiry-phone:${digits.slice(-10)}`, 1, 24 * 60 * 60 * 1000);
-    if (!perPhone.ok) return "skipped";
+    const dedupeKey = `svc-inquiry-${digits.slice(-10)}-${day}`;
+    // This phone's own daily slot is PEEKED, never consumed: the outbox row the transport writes under the same key
+    // is the state, so reading it spends nothing. A limiter was wrong here twice over - spending the phone's slot
+    // before the line's cap allowed the send silenced a genuinely new prospect for a day while a flood held the cap
+    // saturated, and a limiter outage silenced every alert at once.
+    if (await inquiryAlreadyAlerted(db, settings.ownerUserId, dedupeKey)) return "skipped";
     // Then the whole-line hourly cap: a sender rotating numbers must not be able to text this phone without limit.
+    // An unreachable limiter lets the alert through - the per-phone dedupe still bounds it to one per number per day.
     const budget = await rateLimit("service-manager-inquiry-alert", SERVICE_INQUIRY_ALERTS_PER_HOUR, 60 * 60 * 1000);
-    if (!budget.ok) return "skipped";
-    const sent = await sendToServiceManager(db, { text, dedupeKey: `svc-inquiry-${digits.slice(-10)}-${day}`, settings });
+    if (!budget.ok && !budget.unavailable) return "skipped";
+    const sent = await sendToServiceManager(db, { text, dedupeKey, settings });
     return sent.ok ? "sent" : "skipped";
   } catch {
     return "skipped";

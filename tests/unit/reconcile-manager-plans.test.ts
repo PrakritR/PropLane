@@ -63,9 +63,38 @@ describe("reconcileManagerPlans", () => {
   it("a read failure throws so the cron reports it rather than claiming a clean sweep", async () => {
     const db = {
       from: () => ({
-        select: () => ({ in: () => ({ order: () => ({ range: async () => ({ data: null, error: { message: "boom" } }) }) }) }),
+        select: () => ({ in: () => ({ order: () => ({ limit: async () => ({ data: null, error: { message: "boom" } }) }) }) }),
       }),
     };
     await expect(reconcileManagerPlans(db as never)).rejects.toThrow(/boom/);
+  });
+
+  it("takes the least recently checked rows and stamps what it finished, so the queue advances", async () => {
+    const NOW = new Date("2026-10-20T08:40:00Z");
+    const db = createFakeDb({
+      manager_purchases: [
+        { id: "p-new", ...row({ user_id: "never-checked", stripe_subscription_id: "sub_1" }) },
+        { id: "p-old", ...row({ user_id: "checked-long-ago", stripe_subscription_id: "sub_2" }), plan_reconciled_at: "2026-10-01T00:00:00Z" },
+        { id: "p-today", ...row({ user_id: "checked-today", stripe_subscription_id: "sub_3" }), plan_reconciled_at: "2026-10-20T07:00:00Z" },
+      ],
+    });
+    await reconcileManagerPlans(db as never, NOW);
+    // Never-checked first, then oldest: the same prefix is never re-read every day while the tail starves.
+    expect(calls.stripe).toEqual(["never-checked", "checked-long-ago", "checked-today"]);
+    expect(db.tables.manager_purchases!.map((r) => r.plan_reconciled_at)).toEqual([NOW.toISOString(), NOW.toISOString(), NOW.toISOString()]);
+  });
+
+  it("a row whose provider could not answer is NOT stamped, so it stays at the front", async () => {
+    const NOW = new Date("2026-10-20T08:40:00Z");
+    calls.fail.add("broken-user");
+    const db = createFakeDb({
+      manager_purchases: [
+        { id: "p-1", ...row({ user_id: "broken-user", stripe_subscription_id: "sub_1" }) },
+        { id: "p-2", ...row({ user_id: "fine-user", stripe_subscription_id: "sub_2" }) },
+      ],
+    });
+    await reconcileManagerPlans(db as never, NOW);
+    expect(db.tables.manager_purchases!.find((r) => r.id === "p-1")!.plan_reconciled_at ?? null).toBeNull();
+    expect(db.tables.manager_purchases!.find((r) => r.id === "p-2")!.plan_reconciled_at).toBe(NOW.toISOString());
   });
 });

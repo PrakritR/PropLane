@@ -19,6 +19,7 @@ import {
 } from "@/lib/vendor-dispatch/reply-parse";
 import {
   checkDispatchApprovalCode,
+  codedAnswerLine,
   reaskDispatchApprovalCode,
   type DispatchApprovalKind,
 } from "@/lib/vendor-dispatch/approval-code.server";
@@ -145,12 +146,12 @@ function describeFailure(reason: string, handle: number): string {
   return `#${handle} is already handled.`;
 }
 
-/** Which pending answers carry the PropLane line's code: the ones that commit spend. An exhausted chain's R / B does not. */
-const CODED_ANSWER_KIND: Record<PendingKind, DispatchApprovalKind | null> = {
+/** Every pending answer on the PropLane line carries its code: each one either commits spend or texts vendors. */
+const CODED_ANSWER_KIND: Record<PendingKind, DispatchApprovalKind> = {
   approval: "dispatch_approval",
   quote: "dispatch_quote",
   invoice: "dispatch_invoice",
-  exhausted: null,
+  exhausted: "dispatch_retry",
 };
 
 const APPLICABLE: Record<ManagerDispatchReply["kind"], PendingKind[]> = {
@@ -290,30 +291,29 @@ export async function handleManagerDispatchReply(
   const actor = { ownerUserId: run.owner_user_id, actorUserId: input.actorUserId, channel: "sms" as const };
   const base = { ...actor, runId: run.id, rawText: input.body.trim().slice(0, 120), now: input.now };
 
-  // On the PropLane line the inbound caller ID proves nothing, so the answer that spends money must repeat the code
-  // from its own ask. A bare Y re-asks with a fresh code and costs no attempt; three wrong codes cancel the job.
+  // On the PropLane line the inbound caller ID proves nothing, so an answer that spends money or texts vendors must
+  // repeat the code from its own ask. A bare Y re-asks with a fresh code and costs no attempt; three wrong codes
+  // cancel THAT proposal (a later invoice or a new exhaustion gets its own budget).
   const codedKind = CODED_ANSWER_KIND[kind];
-  if (codedKind) {
-    const checked = await checkDispatchApprovalCode(db, run, codedKind, presentedCode);
-    if (checked === "exhausted") {
-      if (kind === "approval") await declineDispatchRun(db, base).catch(() => undefined);
-      else if (kind === "quote") {
-        await decideVendorQuote(db, { ...actor, runId: run.id, approve: false, rawText: base.rawText, now: input.now }).catch(() => undefined);
-      } else {
-        await decideRunInvoice(db, { ...actor, runId: run.id, approve: false, rawText: base.rawText, now: input.now }).catch(() => undefined);
-      }
-      return { handled: true, reply: toGsm7(`#${run.handle}: ${SMS_CONFIRMATION_CANCELLED_REPLY}`) };
+  const checked = await checkDispatchApprovalCode(db, run, codedKind, presentedCode);
+  if (checked === "exhausted") {
+    if (kind === "approval") await declineDispatchRun(db, base).catch(() => undefined);
+    else if (kind === "quote") {
+      await decideVendorQuote(db, { ...actor, runId: run.id, approve: false, rawText: base.rawText, now: input.now }).catch(() => undefined);
+    } else if (kind === "invoice") {
+      await decideRunInvoice(db, { ...actor, runId: run.id, approve: false, rawText: base.rawText, now: input.now }).catch(() => undefined);
     }
-    if (checked === "unavailable") {
-      return { handled: true, reply: toGsm7(`I could not check that code. Answer #${run.handle} in PropLane`) };
-    }
-    if (checked === "wrong") {
-      const fresh = await reaskDispatchApprovalCode(db, run, codedKind);
-      if (!fresh) return { handled: true, reply: toGsm7(`I could not send a code for #${run.handle}. Answer it in PropLane`) };
-      const verb = parsed.kind === "decline" ? "N" : "Y";
-      const prefix = presentedCode ? "That code does not match. " : "";
-      return { handled: true, reply: toGsm7(`${prefix}#${run.handle} needs its code: reply ${verb} ${fresh}`) };
-    }
+    // An exhausted chain has nothing to cancel: the run already offered nobody, so the ask simply closes.
+    return { handled: true, reply: toGsm7(`#${run.handle}: ${SMS_CONFIRMATION_CANCELLED_REPLY}`) };
+  }
+  if (checked === "unavailable") {
+    return { handled: true, reply: toGsm7(`I could not check that code. Answer #${run.handle} in PropLane`) };
+  }
+  if (checked === "wrong") {
+    const fresh = await reaskDispatchApprovalCode(db, run, codedKind);
+    if (!fresh) return { handled: true, reply: toGsm7(`I could not send a code for #${run.handle}. Answer it in PropLane`) };
+    const prefix = presentedCode ? "That code does not match. " : "";
+    return { handled: true, reply: toGsm7(`${prefix}#${run.handle} needs its code: ${codedAnswerLine(codedKind, run.handle, fresh)}`) };
   }
 
   if (kind === "approval") {

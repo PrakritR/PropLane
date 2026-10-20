@@ -326,7 +326,7 @@ export async function recordVendorInvoice(
       .eq("id", run.id);
   }
   await recordDispatchEvent(db, { ownerUserId: run.owner_user_id, runId: run.id, handle: run.handle, event: "invoice_asked", key: attempt.id, detail: { amountCents: input.amountCents, invoiceId }, now });
-  const { withDispatchApprovalCode } = await import("@/lib/vendor-dispatch/approval-code.server");
+  const { dispatchProposalId, withDispatchApprovalCode } = await import("@/lib/vendor-dispatch/approval-code.server");
   await notifyApprovers(db, { ...run, details: { ...run.details, invoiceId } }, {
     audience: "everyone",
     text: await withDispatchApprovalCode(
@@ -334,6 +334,7 @@ export async function recordVendorInvoice(
       run,
       "dispatch_invoice",
       composeInvoiceAskText({ handle: run.handle, vendorName: contact?.name ?? "Vendor", cents: input.amountCents }),
+      dispatchProposalId({ kind: "dispatch_invoice", attemptId: attempt.id, at: now }),
     ),
     key: `invoice-${attempt.id}`,
   });

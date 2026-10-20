@@ -26,7 +26,12 @@ const CODE_TTL_MS = 30 * 60 * 1000;
 const TABLE = "sms_confirmation_codes";
 
 /** What a code can confirm. One row per subject, so the code for one job never answers another. */
-export type SmsConfirmationSubjectKind = "pending_action" | "dispatch_approval" | "dispatch_quote" | "dispatch_invoice";
+export type SmsConfirmationSubjectKind =
+  | "pending_action"
+  | "dispatch_approval"
+  | "dispatch_quote"
+  | "dispatch_invoice"
+  | "dispatch_retry";
 
 export type SmsConfirmationCheck = "ok" | "wrong" | "exhausted" | "unavailable";
 
@@ -61,13 +66,17 @@ function safeEqualHex(a: string, b: string): boolean {
 }
 
 /**
- * Issue (or re-issue) the code for one subject and return it for the ask. The attempt count is deliberately NOT
- * reset: re-asking must not hand a guesser a fresh budget. `null` = no code could be issued (no secret, or the
- * store is unavailable), and the caller must then not promise a coded confirmation.
+ * Issue (or re-issue) the code for one subject and return it for the ask.
+ *
+ * The attempt budget belongs to ONE PROPOSAL, not to the subject for ever. A subject that raises proposals in
+ * succession (a dispatch run's second texted invoice, a new held quote) passes the new `proposalId`, which resets
+ * the count; a RE-ASK of the proposal already open omits it, so re-asking cannot hand a guesser a fresh budget.
+ * `null` = no code could be issued (no secret, or the store is unavailable), and the caller must then not promise a
+ * coded confirmation.
  */
 export async function issueSmsConfirmationCode(
   db: SupabaseClient,
-  input: { kind: SmsConfirmationSubjectKind; subjectId: string; now?: Date },
+  input: { kind: SmsConfirmationSubjectKind; subjectId: string; proposalId?: string | null; now?: Date },
 ): Promise<string | null> {
   const subjectId = String(input.subjectId ?? "").trim();
   if (!subjectId) return null;
@@ -75,14 +84,16 @@ export async function issueSmsConfirmationCode(
   const codeHash = hashCode({ kind: input.kind, subjectId }, code);
   if (!codeHash) return null;
   const now = input.now ?? new Date();
-  // The attempt count is written ONLY when the row is created, so re-asking cannot hand a guesser a fresh budget.
+  const proposalId = String(input.proposalId ?? "").trim() || null;
   const { data: existing, error: readError } = await db
     .from(TABLE)
-    .select("subject_id")
+    .select("subject_id, proposal_id")
     .eq("subject_kind", input.kind)
     .eq("subject_id", subjectId)
     .maybeSingle();
   if (readError) return null;
+  const stored = (existing ?? null) as { proposal_id?: unknown } | null;
+  const newProposal = !stored || (proposalId !== null && String(stored.proposal_id ?? "") !== proposalId);
   const { error } = await db.from(TABLE).upsert(
     {
       subject_kind: input.kind,
@@ -91,7 +102,7 @@ export async function issueSmsConfirmationCode(
       consumed_at: null,
       expires_at: new Date(now.getTime() + CODE_TTL_MS).toISOString(),
       updated_at: now.toISOString(),
-      ...(existing ? {} : { attempts: 0 }),
+      ...(newProposal ? { attempts: 0, proposal_id: proposalId } : {}),
     },
     { onConflict: "subject_kind,subject_id" },
   );

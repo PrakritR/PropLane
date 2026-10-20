@@ -55,6 +55,9 @@ describe("service manager wiring", () => {
     expect(engine).toMatch(/withDispatchApprovalCode\(\s*db,\s*run,\s*"dispatch_approval"/);
     expect(responses).toMatch(/withDispatchApprovalCode\(\s*db,\s*run,\s*"dispatch_quote"/);
     expect(completion).toMatch(/withDispatchApprovalCode\(\s*db,\s*run,\s*"dispatch_invoice"/);
+    // ...including R / B, which re-text vendors...
+    expect(engine).toMatch(/withDispatchApprovalCode\(\s*db,\s*run,\s*"dispatch_retry"/);
+    expect(inbound).toMatch(/exhausted: "dispatch_retry"/);
     // ...and the reply is checked against it before approve / decline / invoice runs.
     expect(inbound).toMatch(/checkDispatchApprovalCode\(db, run, codedKind, presentedCode\)/);
     const gate = inbound.indexOf("checkDispatchApprovalCode");

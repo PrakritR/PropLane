@@ -84,17 +84,21 @@ async function closeOpenStayCheckout(db: SupabaseClient, chargeId: string): Prom
     // Retired HERE rather than through `retire_resident_checkout_attempt`: that function refuses once a charge is
     // not pending/failed/processing (ours is already cancelled) and would put a cancelled charge back to pending,
     // so it could only ever return false and leave the attempt and its charge slot behind for good.
+    //
+    // Slots first, status second. The reverse order, if the delete then failed, left a slot owned by an attempt no
+    // longer pending, and `reserve_resident_checkout_attempt` refuses that cart for ever - fatal for a live
+    // co-charge that shared it. This way a failure leaves a `pending` attempt with no slots, which reserve heals.
+    await db
+      .from("resident_charge_payment_slots")
+      .delete()
+      .eq("checkout_attempt_id", attempt.id)
+      .then(undefined, () => undefined);
     await db
       .from("resident_checkout_attempts")
       .update({ status: "expired", updated_at: new Date().toISOString() })
       .eq("id", attempt.id)
       .eq("attempt_token", attempt.attempt_token)
       .eq("status", "pending")
-      .then(undefined, () => undefined);
-    await db
-      .from("resident_charge_payment_slots")
-      .delete()
-      .eq("checkout_attempt_id", attempt.id)
       .then(undefined, () => undefined);
   }
   return "closed";

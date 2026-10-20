@@ -130,6 +130,29 @@ describe("a confirmed stay left unpaid for 24 hours", () => {
     expect(db.tables.resident_charge_payment_slots).toHaveLength(0);
   });
 
+  it("frees the charge slots BEFORE retiring the attempt, so a failed delete cannot wedge a shared cart", async () => {
+    const db = seeded([confirmedRow("blk-1")], [charge("blk-1", "pending")]);
+    db.tables.resident_checkout_attempts = [openCheckout(guestStayChargeId("blk-1"))];
+    db.tables.resident_charge_payment_slots = [{ id: "slot-1", checkout_attempt_id: "att-1", charge_id: guestStayChargeId("blk-1") }];
+    const writes: string[] = [];
+    const original = db.from;
+    db.from = ((table: string) => {
+      const builder = original(table);
+      for (const verb of ["update", "delete"] as const) {
+        const inner = builder[verb] as (...args: unknown[]) => unknown;
+        builder[verb] = ((...args: unknown[]) => {
+          if (table === "resident_checkout_attempts" || table === "resident_charge_payment_slots") writes.push(`${table}:${verb}`);
+          return inner(...args);
+        }) as never;
+      }
+      return builder;
+    }) as typeof db.from;
+    await releaseUnpaidConfirmedStays(db as never, NOW);
+    // The reverse order left a slot owned by a non-pending attempt, which `reserve_resident_checkout_attempt`
+    // refuses for ever - fatal for any live co-charge that shared the cart.
+    expect(writes).toEqual(["resident_charge_payment_slots:delete", "resident_checkout_attempts:update"]);
+  });
+
   it("keeps the stay and puts the charge back when that checkout turns out to be paid", async () => {
     const db = seeded([confirmedRow("blk-1")], [charge("blk-1", "pending")]);
     db.tables.resident_checkout_attempts = [openCheckout(guestStayChargeId("blk-1"))];

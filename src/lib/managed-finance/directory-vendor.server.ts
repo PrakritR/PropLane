@@ -115,10 +115,11 @@ type DirectoryRecord = { id: string; vendor_user_id?: string | null; row_data?: 
 /**
  * The directory rows that could be THIS vendor's, by proven contact.
  *
- * One narrow query, never a platform-wide scan: the email matches case-insensitively, and the phone is matched on its
- * last four digits (contiguous in every format a row can hold - "+12065550100", "(206) 555-0100", "206.555.0100"),
- * with the exact comparison done here against the normalized number. Scanning the whole `vendor_dir:%` ledger to
- * discover candidates read every vendor_payable line on the platform and then fed every id it found into one `.in()`.
+ * One narrow query, never a platform-wide scan: the email matches case-insensitively, and the phone is matched on a
+ * CONTAINS of its last four digits (contiguous in every format a row can hold - "+12065550100", "(206) 555-0100",
+ * "206.555.0100", "(206) 555-0100 cell"), with the exact comparison done here against the normalized number. An
+ * anchored suffix match dropped a row carrying a trailing note or extension. Scanning the whole `vendor_dir:%`
+ * ledger to discover candidates read every vendor_payable line on the platform and fed every id into one `.in()`.
  */
 async function directoryRecordsForContact(
   db: SupabaseClient,
@@ -126,7 +127,7 @@ async function directoryRecordsForContact(
 ): Promise<DirectoryRecord[]> {
   const clauses: string[] = [];
   if (input.email) clauses.push(`row_data->>email.ilike.${postgrestFilterValue(input.email)}`);
-  if (input.phone) clauses.push(`row_data->>phone.like.*${input.phone.slice(-4)}`);
+  if (input.phone) clauses.push(`row_data->>phone.like.*${input.phone.slice(-4)}*`);
   if (clauses.length === 0) return [];
   const { data, error } = await db
     .from("manager_vendor_records")

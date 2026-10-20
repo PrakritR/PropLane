@@ -63,6 +63,35 @@ describe("issuing a code", () => {
   });
 });
 
+describe("the attempt budget belongs to one proposal", () => {
+  const invoice = { kind: "dispatch_invoice" as const, subjectId: "run-1" };
+  const burn = async (f: ReturnType<typeof db>, code: string) => {
+    const wrong = code === "0000" ? "1111" : "0000";
+    const outcomes: string[] = [];
+    for (let i = 0; i < SMS_CONFIRMATION_CODE_MAX_ATTEMPTS; i += 1) {
+      outcomes.push(await checkSmsConfirmationCode(f as never, { ...invoice, code: wrong }));
+    }
+    return outcomes;
+  };
+
+  it("a NEW proposal on the same subject gets a fresh budget; a re-ask of the open one does not", async () => {
+    const f = db();
+    // A dispatch run raises proposals in succession (a second texted invoice). Keyed on the run alone, the first
+    // proposal's three wrong codes left every later one pre-exhausted - and auto-declined on the first reply.
+    const first = await issueSmsConfirmationCode(f as never, { ...invoice, proposalId: "invoice:att-1:t1" });
+    expect(await burn(f, first!)).toEqual(["wrong", "wrong", "exhausted"]);
+
+    // Re-asking the SAME proposal (no proposalId) must not hand the guesser a fresh budget.
+    const reask = await issueSmsConfirmationCode(f as never, invoice);
+    expect(await checkSmsConfirmationCode(f as never, { ...invoice, code: reask! })).toBe("exhausted");
+
+    // The vendor texts a new invoice: a new proposal, a new budget, and the manager can answer it.
+    const second = await issueSmsConfirmationCode(f as never, { ...invoice, proposalId: "invoice:att-1:t2" });
+    expect(f.tables.sms_confirmation_codes![0]!.attempts).toBe(0);
+    expect(await checkSmsConfirmationCode(f as never, { ...invoice, code: second! })).toBe("ok");
+  });
+});
+
 describe("checking a code", () => {
   it("accepts the exact code once, and a code for another proposal never works", async () => {
     const f = db();

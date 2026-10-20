@@ -56,7 +56,14 @@ vi.mock("@/lib/tools/audit", () => ({
   updateAuditResult: async () => undefined,
 }));
 vi.mock("@/lib/proplane-sms-transport.server", () => ({
-  sendFromManagerWorkNumber: async (args: { to: string; text: string; purpose?: string; dedupeKey?: string | null }) => {
+  // The real transport dedupes on (manager_user_id, dedupe_key) and leaves the sms_outbox row behind, which is the
+  // state the inquiry alert peeks at; model both so the per-phone throttle is exercised rather than mocked away.
+  sendFromManagerWorkNumber: async (args: { managerUserId: string; to: string; text: string; purpose?: string; dedupeKey?: string | null }) => {
+    const rows = (db.__tables.sms_outbox ??= []);
+    if (args.dedupeKey && rows.some((row) => row.manager_user_id === args.managerUserId && row.dedupe_key === args.dedupeKey)) {
+      return { ok: true };
+    }
+    rows.push({ id: `outbox-${rows.length + 1}`, manager_user_id: args.managerUserId, dedupe_key: args.dedupeKey ?? null });
     state.texts.push({ to: args.to, text: args.text, purpose: args.purpose, dedupeKey: args.dedupeKey });
     return { ok: true };
   },
@@ -235,8 +242,8 @@ describe("alerts for service workspaces", () => {
     const notice = { subject: "New application", text: "Priya applied for 5259 Brooklyn", category: "applications", idempotencyKey: "action-event:e1:manager" };
     expect(await alertServiceManagerFromNotice(db as never, { ...notice, workspaceId: WS_A })).toBe("sent");
     expect(await alertServiceManagerFromNotice(db as never, { ...notice, workspaceId: WS_A, idempotencyKey: "action-event:e1:team" })).toBe("sent");
-    expect(state.texts).toHaveLength(2);
-    expect(state.texts[0]!.dedupeKey).toBe(state.texts[1]!.dedupeKey);
+    // One event, one text: the owner's copy and the Team line share a dedupe key, which the transport collapses.
+    expect(state.texts).toHaveLength(1);
     expect(state.texts[0]).toMatchObject({ to: MANAGER_PHONE, text: "PropLane Ambika: New application - Priya applied for 5259 Brooklyn" });
     state.texts = [];
     expect(await alertServiceManagerFromNotice(db as never, { ...notice, workspaceId: WS_P })).toBe("skipped");

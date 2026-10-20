@@ -253,7 +253,7 @@ export async function requestApproval(db: SupabaseClient, run: DispatchRunRow, a
   const attempts = await loadAttempts(db, run.id);
   const contacts = await loadVendorContacts(db, run.owner_user_id, attempts.map((a) => a.vendor_directory_id));
   const trade = tradeDefinition(run.trade);
-  const { withDispatchApprovalCode } = await import("@/lib/vendor-dispatch/approval-code.server");
+  const { dispatchProposalId, withDispatchApprovalCode } = await import("@/lib/vendor-dispatch/approval-code.server");
   const text = await withDispatchApprovalCode(
     db,
     run,
@@ -268,6 +268,7 @@ export async function requestApproval(db: SupabaseClient, run: DispatchRunRow, a
       payModel: run.details.payModel as string | undefined,
       mode: run.mode,
     }),
+    dispatchProposalId({ kind: "dispatch_approval", wave: run.wave ?? 0 }),
   );
   const reached = await notifyApprovers(db, run, {
     audience,
@@ -395,10 +396,18 @@ export async function exhaustRun(db: SupabaseClient, run: DispatchRunRow, now: D
     now,
   });
   const trade = tradeDefinition(run.trade);
+  // R and B re-text vendors, so the exhausted ask carries the PropLane line's code too.
+  const { dispatchProposalId, withDispatchApprovalCode } = await import("@/lib/vendor-dispatch/approval-code.server");
   await notifyOutcome(
     db,
     run,
-    composeExhaustedText({ handle: run.handle, tradeLabel: trade?.label ?? "vendor" }),
+    await withDispatchApprovalCode(
+      db,
+      run,
+      "dispatch_retry",
+      composeExhaustedText({ handle: run.handle, tradeLabel: trade?.label ?? "vendor" }),
+      dispatchProposalId({ kind: "dispatch_retry", wave: run.wave ?? 0 }),
+    ),
     `exhausted-${run.wave ?? 0}`,
   );
   return true;

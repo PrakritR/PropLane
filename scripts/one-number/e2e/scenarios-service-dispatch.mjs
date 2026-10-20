@@ -122,11 +122,11 @@ export const SERVICE_DISPATCH_SCENARIOS = [
 
         // 3. The manager phone approves on the PropLane line - with the 4-digit code the ask carried, because the
         //    inbound caller ID on that line proves nothing (a bare Y only re-asks).
-        const askedCode = /Reply Y (\d{4})/.exec(ask)?.[1] ?? "";
+        const askedCode = new RegExp(`Reply Y ${run.handle} (\\d{4})`).exec(ask)?.[1] ?? "";
         check("the approval ask carries the PropLane line's confirmation code", /^\d{4}$/.test(askedCode), ask);
         const bare = await say(sd.managerPhone, fx.line, `Y ${run.handle}`);
         check("a bare Y does not approve: it re-asks with a fresh code", /needs its code/i.test(bare.all), bare.all);
-        const code = /reply Y (\d{4})/i.exec(bare.all)?.[1] ?? askedCode;
+        const code = new RegExp(`Reply Y ${run.handle} (\\d{4})`, "i").exec(bare.all)?.[1] ?? askedCode;
         const approve = await say(sd.managerPhone, fx.line, `Y ${run.handle} ${code}`);
         check("the manager's coded Y on the PropLane line approves the job", /approved/i.test(approve.all), approve.all);
         const offer = await waitFor(async () => toPhone(sd.vendorPhone).map((m) => m.body).join("\n") || null, 45_000);

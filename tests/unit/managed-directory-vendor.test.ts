@@ -170,6 +170,14 @@ describe("claiming waiting balances at sign-up", () => {
     expect(f.rows.manager_vendor_records!.find((r) => r.id === "vendor-near")!.vendor_user_id).toBeNull();
   });
 
+  it("finds a phone stored with a trailing note, which an anchored suffix pre-filter excluded", async () => {
+    const f = ledgerDb({
+      party_ledger_lines: [line(`vendor_dir:${DIR}`, "ws-1", -9_000), line("owner:o1", "ws-1", 9_000)],
+      manager_vendor_records: [{ id: DIR, manager_user_id: "mgr", vendor_user_id: null, row_data: { phone: "(206) 555-0100 cell" } }],
+    });
+    expect(await claimWaitingDirectoryBalances(f.db, { userId: USER, phone: "+12065550100", phoneProven: true })).toEqual([DIR]);
+  });
+
   it("a matching row with nothing waiting is left alone", async () => {
     const f = ledgerDb({
       party_ledger_lines: [],
