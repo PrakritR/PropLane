@@ -2,10 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 const mocks = vi.hoisted(() => ({
+  required: vi.fn(), admin: vi.fn(), skip: vi.fn(),
   config: vi.fn(), send: vi.fn(), verifyOtp: vi.fn(), signInWithOtp: vi.fn(), createClient: vi.fn(),
 }));
 vi.mock("node:crypto", async (original) => ({ ...(await original<typeof import("node:crypto")>()), randomInt: () => 7 }));
 vi.mock("@/lib/one-number/config.server", () => ({ loadSharedLineConfig: mocks.config }));
+vi.mock("@/lib/auth/phone-required.server", async (original) => ({
+  ...(await original<typeof import("@/lib/auth/phone-required.server")>()),
+  loadPhoneRequired: mocks.required, isAdminAccount: mocks.admin, phoneSkipActive: mocks.skip,
+}));
 vi.mock("@/lib/auth/phone-otp-delivery.server", () => ({ sendPhoneAuthCode: mocks.send }));
 vi.mock("@supabase/supabase-js", () => ({ createClient: mocks.createClient }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
@@ -58,6 +63,9 @@ beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "test-anon");
   vi.stubEnv("SUPABASE_PHONE_AUTH_HOOK_ENABLED", "false");
   mocks.config.mockResolvedValue({ mode: "shared" });
+  mocks.required.mockResolvedValue(false);
+  mocks.admin.mockResolvedValue(false);
+  mocks.skip.mockResolvedValue(false);
   mocks.send.mockResolvedValue(true);
   mocks.verifyOtp.mockResolvedValue({ data: { user, session: { user, access_token: "access", refresh_token: "refresh" } }, error: null });
   mocks.signInWithOtp.mockResolvedValue({ error: null });
@@ -298,5 +306,104 @@ describe("server-minted session identity", () => {
     const { db } = database();
     mocks.verifyOtp.mockResolvedValue({ data: { user: { id: "other" }, session: { access_token: "wrong", refresh_token: "wrong" } }, error: null });
     await expect(mintPhoneSession(db, user)).rejects.toThrow(PHONE_AUTH_ERROR);
+  });
+});
+
+describe("phone_required gate (any line mode)", () => {
+  const unverified = (state: ReturnType<typeof database>["state"]) => { state.profile = { phone: PHONE, phone_verified_at: null }; };
+
+  it("on: an account without a verified phone is sent to verify, in per_workspace mode", async () => {
+    const { db, state, admin } = database();
+    mocks.config.mockResolvedValue({ mode: "per_workspace" });
+    mocks.required.mockResolvedValue(true);
+    unverified(state);
+    admin.getUserById.mockResolvedValue({ data: { user: { ...user, phone: undefined, phone_confirmed_at: undefined } }, error: null });
+    expect(await needsPhoneVerification(user.id, db)).toBe(true);
+  });
+
+  it("on: a verified phone passes", async () => {
+    const { db } = database();
+    mocks.config.mockResolvedValue({ mode: "per_workspace" });
+    mocks.required.mockResolvedValue(true);
+    expect(await needsPhoneVerification(user.id, db)).toBe(false);
+  });
+
+  it("off: no redirect for an unverified account, and nothing about the phone is read", async () => {
+    const { db, state, rpc } = database();
+    mocks.config.mockResolvedValue({ mode: "per_workspace" });
+    mocks.required.mockResolvedValue(false);
+    unverified(state);
+    expect(await needsPhoneVerification(user.id, db)).toBe(false);
+    expect(rpc).not.toHaveBeenCalled();
+    expect(mocks.admin).not.toHaveBeenCalled();
+  });
+
+  it("on: an admin is exempt", async () => {
+    const { db, state, admin } = database();
+    mocks.config.mockResolvedValue({ mode: "per_workspace" });
+    mocks.required.mockResolvedValue(true);
+    mocks.admin.mockResolvedValue(true);
+    unverified(state);
+    admin.getUserById.mockResolvedValue({ data: { user: { ...user, phone: undefined, phone_confirmed_at: undefined } }, error: null });
+    expect(await needsPhoneVerification(user.id, db)).toBe(false);
+  });
+
+  it("on: an account that skipped on its CURRENT sign-in (a code could not be sent) is let in", async () => {
+    const { db, state, admin } = database();
+    mocks.config.mockResolvedValue({ mode: "per_workspace" });
+    mocks.required.mockResolvedValue(true);
+    mocks.skip.mockResolvedValue(true);
+    unverified(state);
+    admin.getUserById.mockResolvedValue({ data: { user: { ...user, phone: undefined, phone_confirmed_at: undefined } }, error: null });
+    expect(await needsPhoneVerification(user.id, db)).toBe(false);
+  });
+
+  it("on: an unreadable phone state never locks an account out", async () => {
+    const { db, admin } = database();
+    mocks.config.mockResolvedValue({ mode: "per_workspace" });
+    mocks.required.mockResolvedValue(true);
+    db.from = (() => { throw new Error("db down"); }) as never;
+    admin.getUserById.mockRejectedValue(new Error("auth down"));
+    expect(await needsPhoneVerification(user.id, db)).toBe(false);
+  });
+
+  it("shared mode keeps its own gate (no admin exemption, no skip)", async () => {
+    const { db, state, admin } = database();
+    mocks.config.mockResolvedValue({ mode: "shared" });
+    mocks.admin.mockResolvedValue(true);
+    mocks.skip.mockResolvedValue(true);
+    unverified(state);
+    admin.getUserById.mockResolvedValue({ data: { user: { ...user, phone: undefined, phone_confirmed_at: undefined } }, error: null });
+    expect(await needsPhoneVerification(user.id, db)).toBe(true);
+  });
+
+  it("a signed-in account can start verification under phone_required in per_workspace mode, from the platform sender", async () => {
+    const { db } = database();
+    mocks.config.mockResolvedValue({ mode: "per_workspace" });
+    mocks.required.mockResolvedValue(true);
+    await expect(startPhoneChallenge({ db, userId: user.id, browser: BROWSER, phone: PHONE, purpose: "verify_phone" })).resolves.toHaveProperty("challengeId");
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("phone SIGN-IN still needs the shared line even when phone_required is on", async () => {
+    const { db } = database();
+    mocks.config.mockResolvedValue({ mode: "per_workspace" });
+    mocks.required.mockResolvedValue(true);
+    await expect(startPhoneChallenge({ db, userId: null, browser: BROWSER, phone: PHONE, purpose: "sign_in" })).rejects.toThrow(PHONE_AUTH_ERROR);
+  });
+
+  it("verification off entirely (neither switch): starting is refused", async () => {
+    const { db } = database();
+    mocks.config.mockResolvedValue({ mode: "per_workspace" });
+    await expect(startPhoneChallenge({ db, userId: user.id, browser: BROWSER, phone: PHONE, purpose: "verify_phone" })).rejects.toThrow(PHONE_AUTH_ERROR);
+  });
+
+  it("a code that cannot be sent raises the send-failed error (the only failure that offers Skip)", async () => {
+    const { db } = database();
+    mocks.config.mockResolvedValue({ mode: "per_workspace" });
+    mocks.required.mockResolvedValue(true);
+    mocks.send.mockResolvedValue(false);
+    const { PhoneSendFailedError } = await import("@/lib/auth/phone-required.server");
+    await expect(startPhoneChallenge({ db, userId: user.id, browser: BROWSER, phone: PHONE, purpose: "verify_phone" })).rejects.toBeInstanceOf(PhoneSendFailedError);
   });
 });

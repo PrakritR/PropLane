@@ -181,6 +181,8 @@ export function ResidentSignupForm({
         if (patch.password !== undefined) setPassword(patch.password);
       }}
       disabled={locked}
+      phonePlaceholder="Phone number"
+      phoneRequired
       onSubmit={() => void submit()}
     />
   );

@@ -352,3 +352,5 @@ import { SMSOWNER_SCENARIOS } from "./scenarios-smsowner.mjs";
 SCENARIOS.push(...SMSOWNER_SCENARIOS);
 import { MATRIX_SCENARIOS } from "./scenarios-matrix.mjs";
 SCENARIOS.push(...MATRIX_SCENARIOS);
+import { SMSSIGNUP_SCENARIOS } from "./scenarios-smssignup.mjs";
+SCENARIOS.push(...SMSSIGNUP_SCENARIOS);

@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { handleLineMemberText } from "@/lib/one-number/line-member-status.server";
 import { handleLineResidentText } from "@/lib/one-number/line-resident.server";
+import { readSignupIntent } from "@/lib/one-number/signup/intent";
 import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
 
@@ -28,6 +29,9 @@ export async function answerPropLaneLineText(
   // The cheap test first: not the PropLane service owner's number = not this line, no further read.
   const onLine = await isPropLaneServiceLine(db, { ownerUserId: input.lineOwnerUserId, workNumber: input.toPhone }).catch(() => false);
   if (!onLine) return null;
+  // "Sign me up as a manager" is the sign-up flow's, even from someone who already has an account: it tells them so and
+  // texts a sign-in link instead of the member status ("I can only share status on this line").
+  if (readSignupIntent(input.body).wantsSignup) return null;
 
   const member = await handleLineMemberText(db, {
     fromPhone: input.fromPhone,

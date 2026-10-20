@@ -10,6 +10,7 @@ import { classifyLineText } from "@/lib/one-number/line-intent";
 import { asksForJobs } from "@/lib/one-number/vendor-jobs/intent";
 import { handlePropLaneVendorText, isPropLaneLineVendorLead } from "@/lib/one-number/vendor-jobs/vendor-line.server";
 import { readPlatformServiceOwnerId } from "@/lib/service/service-catalog.server";
+import { handleSmsSignupText } from "@/lib/one-number/signup/flow.server";
 import { handleVendorIntake } from "@/lib/one-number/onboarding/vendor-intake.server";
 import {
   extractHouseHints,
@@ -120,6 +121,10 @@ export async function handleUnknownSenderInbound(db: SupabaseClient, inbound: Sh
 
 async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbound, deps: UnknownSenderDeps): Promise<UnknownSenderTurn> {
   const leadPath = () => handleUnassignedLeadInbound(db, inbound, deps.lead);
+  // on/smssignup: "I want to sign up as a manager" (or a sign-up already in progress) is answered by the sign-up
+  // conversation, which ends in a real account after the sender texts back the code we sent. Not a sign-up: unchanged.
+  const signup = await handleSmsSignupText(db, { phoneE164: inbound.fromPhone, body: inbound.body, messageSid: inbound.messageSid }, { now: deps.now, origin: deps.origin }).catch(() => ({ handled: false as const }));
+  if (signup.handled) return single(signup.reply);
   const { available, state } = await readOnboardingState(db, inbound.phoneKey);
   if (!available) return leadPath();
   const now = deps.now?.();

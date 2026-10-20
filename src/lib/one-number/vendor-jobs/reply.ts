@@ -11,6 +11,7 @@ export const VENDOR_LINE_COPY = {
   none: "No open jobs match yet. I saved your details and you will see new ones as they post.",
   help: "Text me what work you do and where, like 'plumbing in Ballard', and I will show open jobs.",
   signUp: "Create your free vendor account to request jobs:",
+  signUpByText: "Or reply SIGNUP to create it right here by text.",
   findWork: "Request jobs in Find work:",
   linkSent: "Your sign-up link is in my earlier text, or reply LINK for a new one.",
   linkBusy: "Too many links just now. Try again in a bit.",
@@ -60,7 +61,7 @@ export function composeVendorJobsReply(input: {
     input.jobs.forEach((job, i) => lines.push(jobLine(i + 1, job)));
     if (input.total > input.jobs.length) lines.push(`+${input.total - input.jobs.length} more.`);
   }
-  if (input.link.kind === "signup") lines.push(`${VENDOR_LINE_COPY.signUp} ${input.link.url}`);
+  if (input.link.kind === "signup") lines.push(`${VENDOR_LINE_COPY.signUp} ${input.link.url}`, VENDOR_LINE_COPY.signUpByText);
   else if (input.link.kind === "findwork") lines.push(`${VENDOR_LINE_COPY.findWork} ${input.link.url}`);
   else if (input.link.kind === "earlier") lines.push(VENDOR_LINE_COPY.linkSent);
   else if (input.link.kind === "busy") lines.push(VENDOR_LINE_COPY.linkBusy);
@@ -84,7 +85,7 @@ export function composeVendorAnswerReply(input: {
   const lines: string[] = [];
   if (input.firstReply) lines.push(VENDOR_LINE_COPY.welcome);
   lines.push(VENDOR_ANSWERS[input.topic]);
-  if (input.link.kind === "signup") lines.push(`${VENDOR_LINE_COPY.signUp} ${input.link.url}`);
+  if (input.link.kind === "signup") lines.push(`${VENDOR_LINE_COPY.signUp} ${input.link.url}`, VENDOR_LINE_COPY.signUpByText);
   else if (input.link.kind === "findwork") {
     lines.push(input.topic === "pay" && input.payoutsUrl ? `Set up payouts: ${input.payoutsUrl}` : `${VENDOR_LINE_COPY.findWork} ${input.link.url}`);
   } else if (input.link.kind === "earlier") lines.push(VENDOR_LINE_COPY.linkSent);
@@ -96,7 +97,7 @@ export function composeVendorHelpReply(input: { firstReply: boolean; link: Vendo
   const lines: string[] = [];
   if (input.firstReply) lines.push(VENDOR_LINE_COPY.welcome);
   lines.push(VENDOR_LINE_COPY.help);
-  if (input.link.kind === "signup") lines.push(`${VENDOR_LINE_COPY.signUp} ${input.link.url}`);
+  if (input.link.kind === "signup") lines.push(`${VENDOR_LINE_COPY.signUp} ${input.link.url}`, VENDOR_LINE_COPY.signUpByText);
   else if (input.link.kind === "findwork") lines.push(`${VENDOR_LINE_COPY.findWork} ${input.link.url}`);
   else if (input.link.kind === "earlier") lines.push(VENDOR_LINE_COPY.linkSent);
   else if (input.link.kind === "busy") lines.push(VENDOR_LINE_COPY.linkBusy);

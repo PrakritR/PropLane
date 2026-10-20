@@ -233,6 +233,11 @@ export function PortalAuthForm() {
       setErrorText("Enter the phone number you used on your tour request.");
       return;
     }
+    // Phone-first accounts: every sign-up puts its number in.
+    if (phone.replace(/\D/g, "").length < 10) {
+      setErrorText("Enter a valid phone number.");
+      return;
+    }
     setErrorText(null);
     setBusy(true);
     let didRedirect = false;
@@ -387,7 +392,8 @@ export function PortalAuthForm() {
         // A prospect handoff carries the address off the tour request; letting it
         // be edited here would sign the person up as somebody else.
         emailDisabled={prospectHandoff && Boolean(emailFromUrl)}
-        phonePlaceholder={tourInquiryFromUrl ? "Phone from your tour request" : undefined}
+        phonePlaceholder={tourInquiryFromUrl ? "Phone from your tour request" : "Phone number"}
+        phoneRequired
         onSubmit={() => void submit()}
       />
     </div>
