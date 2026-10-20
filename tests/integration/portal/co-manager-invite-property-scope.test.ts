@@ -119,6 +119,14 @@ function serviceClient(ownedByInviter: string[], invite?: Record<string, unknown
           })),
         };
       }
+      if (table === "profile_roles") {
+        // Accepting a seat stamps the account-wide `manager` role before the claim, and rolls it back if the
+        // claim does not land (stampProfileRoleRow). Both writes go through this table.
+        return {
+          upsert: vi.fn(() => ({ select: vi.fn().mockResolvedValue({ data: [{ user_id: INVITEE }], error: null }) })),
+          delete: vi.fn(() => ({ eq: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) })) })),
+        };
+      }
       return {
         select: vi.fn(() => ({
           eq: vi.fn(() => ({ maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }) })),

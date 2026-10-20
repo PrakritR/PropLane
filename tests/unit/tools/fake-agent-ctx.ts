@@ -169,12 +169,12 @@ type Row = Record<string, unknown>;
 /**
  * Read/write fake for the gated write tools: supports the read chains the
  * loaders use plus insert (with audit_log dedupe_key UNIQUE semantics),
- * upsert (by id), and update(...).eq/gt(...).select(). Tables are plain
+ * upsert (by id), update(...).eq/gt(...).select() and delete(...).eq(...). Tables are plain
  * arrays exposed on `store` so tests can assert exactly what was written.
  */
 class FakeWriteQuery {
   private filters: ((r: Row) => boolean)[] = [];
-  private mode: "select" | "insert" | "update" | "upsert" = "select";
+  private mode: "select" | "insert" | "update" | "upsert" | "delete" = "select";
   private pendingInsert: Row | null = null;
   private pendingUpdate: Row | null = null;
   private wantSingle = false;
@@ -284,6 +284,11 @@ class FakeWriteQuery {
     return this;
   }
 
+  delete() {
+    this.mode = "delete";
+    return this;
+  }
+
   private resolve(): { data: unknown; error: { code: string; message: string } | null } {
     if (this.mode === "insert") {
       if (!this.pendingInsert) {
@@ -295,6 +300,10 @@ class FakeWriteQuery {
     const matched = this.rows().filter((r) => this.filters.every((f) => f(r)));
     if (this.mode === "update") {
       for (const r of matched) Object.assign(r, this.pendingUpdate);
+      return { data: matched, error: null };
+    }
+    if (this.mode === "delete") {
+      this.store[this.table] = this.rows().filter((r) => !matched.includes(r));
       return { data: matched, error: null };
     }
     return { data: this.wantSingle ? (matched[0] ?? null) : matched, error: null };
@@ -319,6 +328,21 @@ export function makeWritableCtx(
       return new FakeWriteQuery(store, table);
     },
     async rpc(name: string, args: Record<string, unknown>) {
+      // `sms_confirmation_phone_reserve` as supabase/migrations/20261020120000 defines it: count the phone's recent
+      // failures and, under the cap, record THIS guess (returned by id); at the cap record nothing and report locked.
+      // A confirmation-code turn reserves before it compares, and treats an unsupported rpc as "unavailable" (fail
+      // closed), so without this the coded path answers "I could not check that just now" instead of comparing.
+      if (name === "sms_confirmation_phone_reserve") {
+        const failures = (store.sms_confirmation_failures ??= []);
+        const since = new Date(Date.parse(String(args.p_now)) - Number(args.p_window_seconds) * 1000).toISOString();
+        const recent = failures.filter(
+          (row) => row.phone_hash === args.p_phone_hash && String(row.failed_at) >= since,
+        ).length;
+        if (recent >= Number(args.p_cap)) return { data: [{ locked: true, failure_id: null }], error: null };
+        const id = `fail-${failures.length + 1}`;
+        failures.push({ id, phone_hash: args.p_phone_hash, failed_at: args.p_now });
+        return { data: [{ locked: false, failure_id: id }], error: null };
+      }
       if (name !== "find_or_create_manager_sms_portal_session") {
         return { data: null, error: { message: `unsupported rpc: ${name}` } };
       }

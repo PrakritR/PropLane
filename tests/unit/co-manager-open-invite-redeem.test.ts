@@ -1,14 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  session: vi.fn(), service: vi.fn(), find: vi.fn(), sku: vi.fn(), identity: vi.fn(), ownership: vi.fn(), role: vi.fn(), notify: vi.fn(),
+  session: vi.fn(), service: vi.fn(), find: vi.fn(), sku: vi.fn(), identity: vi.fn(), ownership: vi.fn(), role: vi.fn(), stamp: vi.fn(), rollback: vi.fn(), seat: vi.fn(), notify: vi.fn(),
 }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: mocks.session }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: mocks.service }));
 vi.mock("@/lib/co-manager-open-invite.server", () => ({ findPendingOpenInviteByToken: mocks.find, openInviteIsExpired: () => false }));
 vi.mock("@/lib/manager-access-server", () => ({ getManagerPurchaseSku: mocks.sku, ensureProfileProplaneId: mocks.identity }));
 vi.mock("@/lib/auth/co-manager-invite-scope", () => ({ findPropertyIdsNotOwnedByManager: mocks.ownership }));
-vi.mock("@/lib/auth/profile-role-row", () => ({ ensureProfileRoleRow: mocks.role }));
+vi.mock("@/lib/auth/profile-role-row", () => ({ ensureProfileRoleRow: mocks.role, stampProfileRoleRow: mocks.stamp }));
+vi.mock("@/lib/auth/team-seat-manager-role.server", () => ({ holdsAcceptedManagerSeat: mocks.seat }));
 vi.mock("@/lib/co-manager-notification.server", () => ({ notifyCoManagerInviteAccepted: mocks.notify }));
 import { POST } from "@/app/api/pro/account-links/redeem/route";
 import { hashCoManagerInviteToken } from "@/lib/co-manager-invite-token.server";
@@ -52,6 +53,10 @@ beforeEach(() => {
   mocks.sku.mockImplementation(async (id: string) => ({ tier: id === "owner" ? "pro" : "free" }));
   mocks.identity.mockResolvedValue({ ok: true, proplaneId: "GUEST", fullName: "Guest" });
   mocks.ownership.mockResolvedValue({ ok: true, unowned: [] });
+  // The route stamps the manager role before it claims the row and undoes that stamp when the claim does not land.
+  mocks.stamp.mockResolvedValue({ rollback: mocks.rollback });
+  mocks.rollback.mockResolvedValue(undefined);
+  mocks.seat.mockResolvedValue(false);
 });
 
 describe("open-invite redemption authorization", () => {
@@ -64,6 +69,8 @@ describe("open-invite redemption authorization", () => {
     mocks.service.mockReturnValue(db({ rotated: true }));
     expect((await POST(request())).status).toBe(409);
     expect(mocks.notify).not.toHaveBeenCalled();
+    // A claim that lost the race leaves no standing manager grant behind it.
+    expect(mocks.rollback).toHaveBeenCalled();
   });
   it("rejects an owner who no longer has a paid plan", async () => {
     const service = db(); mocks.service.mockReturnValue(service);

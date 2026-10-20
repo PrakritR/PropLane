@@ -508,10 +508,13 @@ describe("Stripe subscription billing", () => {
     });
     const res = await webhook(req);
     expect(res.status).toBe(200);
+    // The cancellation also clears the stored Stripe status, so a cancelled row never reads as an
+    // active/trialing subscriber (that status is what the view-only lock calls "self-paid").
     expect(update).toHaveBeenCalledWith({
       tier: "free",
       billing: "free",
       stripe_subscription_id: null,
+      subscription_status: null,
     });
     expect(eq).toHaveBeenCalledWith("stripe_subscription_id", "sub_deleted_1");
   });
