@@ -305,10 +305,12 @@ export async function handleManagerDispatchReply(
     } else if (kind === "invoice") {
       await decideRunInvoice(db, { ...actor, runId: run.id, approve: false, rawText: base.rawText, now: input.now }).catch(() => undefined);
     }
-    // The cancelled proposal's code dies with it, so the next proposal built from the same facts (the vendor texting
-    // that invoice again) opens with its own three guesses instead of inheriting a spent budget. An exhausted chain
-    // has nothing to cancel - the run already offered nobody - so its ask stays open, budget and all.
-    if (kind !== "exhausted") await clearDispatchApprovalCode(db, run, codedKind).catch(() => undefined);
+    // The cancelled proposal's code dies with it, so the NEXT ask - the vendor texting that invoice again, or the
+    // manager's next R / B on a chain nobody took - opens with its own three guesses instead of inheriting a spent
+    // budget. Keeping the exhausted chain's row made R and B permanently unanswerable by text: its proposal id only
+    // changes when a retry succeeds, which the spent budget was the very thing preventing. Nothing was committed by
+    // a wrong code, so a fresh budget costs nothing and "start again when you are ready" is true for every kind.
+    await clearDispatchApprovalCode(db, run, codedKind).catch(() => undefined);
     return { handled: true, reply: toGsm7(`#${run.handle}: ${SMS_CONFIRMATION_CANCELLED_REPLY}`) };
   }
   if (checked === "unavailable") {
@@ -319,7 +321,10 @@ export async function handleManagerDispatchReply(
     if (!fresh) return { handled: true, reply: toGsm7(`I could not send a code for #${run.handle}. Answer it in PropLane`) };
     const prefix = presentedCode ? "That code does not match. " : "";
     const vendorNames = codedKind === "dispatch_approval" ? await dispatchApprovalVendorNames(db, run) : [];
-    return { handled: true, reply: toGsm7(`${prefix}#${run.handle} needs its code: ${codedAnswerLine(codedKind, run.handle, fresh, { vendorNames })}`) };
+    return {
+      handled: true,
+      reply: toGsm7(`${prefix}#${run.handle} needs its code: ${codedAnswerLine(codedKind, run.handle, fresh, { vendorNames, mode: run.mode })}`),
+    };
   }
 
   if (kind === "approval") {

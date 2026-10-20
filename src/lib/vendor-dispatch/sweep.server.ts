@@ -119,18 +119,20 @@ async function approvalText(db: SupabaseClient, run: DispatchRunRow): Promise<st
     db,
     run,
     "dispatch_approval",
-    composeApprovalText({
-      handle: run.handle,
-      what: String(run.details.what || "Job"),
-      houseLabel: String(run.details.houseLabel || run.details.area || "the house"),
-      room: run.details.room ?? null,
-      vendorNames,
-      payCents: run.pay_cents,
-      payModel: run.details.payModel as string | undefined,
-      mode: run.mode,
-    }),
+    (instruction) =>
+      composeApprovalText({
+        handle: run.handle,
+        what: String(run.details.what || "Job"),
+        houseLabel: String(run.details.houseLabel || run.details.area || "the house"),
+        room: run.details.room ?? null,
+        vendorNames,
+        payCents: run.pay_cents,
+        payModel: run.details.payModel as string | undefined,
+        mode: run.mode,
+        instruction,
+      }),
     dispatchProposalId({ kind: "dispatch_approval", wave: run.wave ?? 0 }),
-    vendorNames,
+    { vendorNames, mode: run.mode },
   );
 }
 
@@ -207,12 +209,14 @@ async function sweepQuoteHolds(db: SupabaseClient, now: Date): Promise<number> {
         db,
         run,
         "dispatch_quote",
-        composeQuoteAskText({
-          handle: run.handle,
-          vendorName: contacts.get(attempt.vendor_directory_id)?.name ?? "Vendor",
-          quoteCents: attempt.quote_cents ?? 0,
-          capCents: run.nte_cents ?? run.pay_cents,
-        }),
+        (instruction) =>
+          composeQuoteAskText({
+            handle: run.handle,
+            vendorName: contacts.get(attempt.vendor_directory_id)?.name ?? "Vendor",
+            quoteCents: attempt.quote_cents ?? 0,
+            capCents: run.nte_cents ?? run.pay_cents,
+            instruction,
+          }),
         dispatchProposalId({ kind: "dispatch_quote", attemptId: attempt.id, amountCents: attempt.quote_cents ?? 0 }),
       ),
       key: `quote-remind-${attempt.id}`,

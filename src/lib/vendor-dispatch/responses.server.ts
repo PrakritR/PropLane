@@ -429,7 +429,7 @@ export async function recordVendorYes(
         db,
         run,
         "dispatch_quote",
-        composeQuoteAskText({ handle: run.handle, vendorName: contact?.name ?? "Vendor", quoteCents: price, capCents: cap }),
+        (instruction) => composeQuoteAskText({ handle: run.handle, vendorName: contact?.name ?? "Vendor", quoteCents: price, capCents: cap, instruction }),
         dispatchProposalId({ kind: "dispatch_quote", attemptId: attempt.id, amountCents: price }),
       ),
       key: `quote-${attempt.id}`,

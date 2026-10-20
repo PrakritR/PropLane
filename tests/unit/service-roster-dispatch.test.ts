@@ -303,9 +303,9 @@ describe("who a service workspace's job is offered to", () => {
   });
 });
 
-/** The code the ask for #handle carried ("... Reply Y 7 4821 or N 7 4821"): the instruction names the job too. */
+/** The code the ask for #handle carried ("... Y 7 4821 sends the first ..."): the instruction names the job too. */
 function codeIn(team: Array<{ text: string }>, handle: number): string {
-  const coded = new RegExp(`Reply [A-Z] ${handle} (\\d{4})`);
+  const coded = new RegExp(`\\b[A-Z] ${handle} (\\d{4})`);
   const ask = [...team].reverse().find((entry) => entry.text.includes(`#${handle}`) && coded.test(entry.text));
   return coded.exec(ask?.text ?? "")?.[1] ?? "";
 }
@@ -317,19 +317,24 @@ describe("the PropLane line's code on a money answer", () => {
     if (!created.ok) throw new Error("setup");
     const handle = created.run.handle;
     // The ask the service manager received shows the code; a spoofed sender never sees this text. With backups in
-    // the chain it also shows the coded PICK form, because the coded line replaces the ask's own "1-3 to pick one".
-    expect(sent.team[0]!.text).toMatch(new RegExp(`Reply Y ${handle} \\d{4}, N ${handle} \\d{4}, or 2 ${handle} \\d{4} to pick Pat Plumber$`));
+    // the chain the coded line names every pick the handler honours, and it REPLACES the ask's own "1-3 to pick
+    // one": two instructions would leave the manager reading a form this line refuses.
+    expect(sent.team[0]!.text).toMatch(
+      new RegExp(`Reply 1-3 ${handle} \\d{4} to pick one \\(e\\.g\\. 2 ${handle} \\d{4}\\); Y ${handle} \\d{4} sends the first, N ${handle} \\d{4} declines$`),
+    );
+    expect(sent.team[0]!.text).not.toContain("Y/N");
+    expect(sent.team[0]!.text.length).toBeLessThanOrEqual(306);
     const first = codeIn(sent.team, handle);
     expect(first).toMatch(/^\d{4}$/);
 
     const bare = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `Y ${handle}`, assistantProposalOpen: async () => false });
-    expect((bare as { reply?: string }).reply).toMatch(new RegExp(`#${handle} needs its code: Reply Y ${handle} \\d{4}`));
+    expect((bare as { reply?: string }).reply).toMatch(new RegExp(`#${handle} needs its code: Reply 1-3 ${handle} \\d{4} to pick one`));
     // The re-ask keeps the pick form too: without it the only way back is Y or N, and a bare "2" costs an attempt.
-    expect((bare as { reply?: string }).reply).toContain("to pick Pat Plumber");
+    expect((bare as { reply?: string }).reply).toMatch(new RegExp(`Y ${handle} \\d{4} sends the first`));
     expect((db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === created.run.id)?.status).toBe("awaiting_approval");
     expect(sent.vendor).toHaveLength(0);
     // Re-asking issues a FRESH code (only the hash is stored), and the stale one no longer works.
-    const fresh = new RegExp(`Reply Y ${handle} (\\d{4})`).exec((bare as { reply?: string }).reply ?? "")?.[1] ?? "";
+    const fresh = new RegExp(`\\bY ${handle} (\\d{4})`).exec((bare as { reply?: string }).reply ?? "")?.[1] ?? "";
     expect(fresh).not.toBe(first);
 
     const approved = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `Y ${handle} ${fresh}`, assistantProposalOpen: async () => false });
@@ -389,7 +394,8 @@ describe("the PropLane line's code on a money answer", () => {
     const summary = await sweepVendorDispatch(db as never, new Date(T0.getTime() + 16 * 60_000), { turnovers: false });
     expect(summary.reminded).toBe(1);
     const reminder = sent.team.at(-1)!.text;
-    expect(reminder).toMatch(new RegExp(`Reply Y ${handle} \\d{4}`));
+    expect(reminder).toMatch(new RegExp(`\\bY ${handle} \\d{4}`));
+    expect(reminder).not.toContain("Y/N");
     const reminded = codeIn(sent.team, handle);
     expect(reminded).not.toBe(first);
     // Same proposal: the reminder replaces the code but not the three-guess budget it is spending.
@@ -411,7 +417,7 @@ describe("the PropLane line's code on a money answer", () => {
     const offering = (db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === created.run.id)!;
     expect(await exhaustRun(db as never, offering as never, T0)).toBe(true);
     // The "no one took it" text is the ask for R / B, so it carries a code of its own.
-    expect(sent.team.at(-1)!.text).toMatch(new RegExp(`Reply R ${handle} \\d{4} or B ${handle} \\d{4}$`));
+    expect(sent.team.at(-1)!.text).toMatch(new RegExp(`Reply R ${handle} \\d{4} or B ${handle} \\d{4}, or handle it yourself$`));
     const code = new RegExp(`Reply R ${handle} (\\d{4})`).exec(sent.team.at(-1)!.text)?.[1] ?? "";
     expect(code).toMatch(/^\d{4}$/);
 
@@ -423,16 +429,46 @@ describe("the PropLane line's code on a money answer", () => {
     expect((retried as { reply?: string }).reply).toContain(`Retrying #${handle}`);
   });
 
+  it("three wrong codes on an exhausted chain do not dead-end it: the next R gets a fresh code", async () => {
+    const db = world();
+    const created = await newRun(db);
+    if (!created.ok) throw new Error("setup");
+    const handle = created.run.handle;
+    await approveDispatchRun(db as never, { runId: created.run.id, ownerUserId: CLIENT, actorUserId: SO, channel: "sms", now: T0 });
+    for (const attempt of db.__tables.vendor_dispatch_attempts ?? []) {
+      if (attempt.run_id === created.run.id) attempt.status = "timed_out";
+    }
+    const offering = (db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === created.run.id)!;
+    expect(await exhaustRun(db as never, offering as never, T0)).toBe(true);
+    const wrong = codeIn(sent.team, handle) === "0000" ? "1111" : "0000";
+    const replies: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const answer = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `R ${handle} ${wrong}`, assistantProposalOpen: async () => false });
+      replies.push((answer as { reply?: string }).reply ?? "");
+    }
+    expect(replies[2]).toContain("cancelled");
+    // Its proposal id only changes when a retry SUCCEEDS, so keeping the spent row made R and B unanswerable for
+    // good - and the "start again when you are ready" reply a lie.
+    expect((db.__tables.sms_confirmation_codes ?? []).filter((r) => r.subject_kind === "dispatch_retry")).toEqual([]);
+
+    const again = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `R ${handle}`, assistantProposalOpen: async () => false });
+    expect((again as { reply?: string }).reply).toContain("needs its code");
+    const fresh = new RegExp(`R ${handle} (\\d{4})`).exec((again as { reply?: string }).reply ?? "")?.[1] ?? "";
+    const retried = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `R ${handle} ${fresh}`, assistantProposalOpen: async () => false });
+    expect((retried as { reply?: string }).reply).toContain(`Retrying #${handle}`);
+  });
+
   it("the coded instruction names the job, the pick, and a proposal built from the proposal's own facts", () => {
     expect(codedAnswerLine("dispatch_invoice", 7, "4821")).toBe("Reply Y 7 4821 or N 7 4821");
     expect(codedAnswerLine("dispatch_retry", 7, "4821")).toBe("Reply R 7 4821 or B 7 4821");
-    // One vendor has nothing to pick between; two or more carry the numbered form, by example.
+    // One vendor has nothing to pick between; two or more name the WHOLE range, not one example of it, because the
+    // handler honours every position and a form the manager was never shown costs them an attempt.
     expect(codedAnswerLine("dispatch_approval", 7, "4821", { vendorNames: ["Sam Locksmith"] })).toBe("Reply Y 7 4821 or N 7 4821");
     expect(codedAnswerLine("dispatch_approval", 7, "4821", { vendorNames: ["Sam Locksmith", "Pacific Plumbing", "Kim Keys"] }))
-      .toBe("Reply Y 7 4821, N 7 4821, or 2 7 4821 to pick Pacific Plumbing");
-    // A name too long to spell out still says that picking by number is on the table.
-    expect(codedAnswerLine("dispatch_approval", 7, "4821", { vendorNames: ["Sam", "Pacific Northwest Plumbing, Heating and Drain Services"] }))
-      .toBe("Reply Y 7 4821, N 7 4821, or 1-2 7 4821 to pick one");
+      .toBe("Reply 1-3 7 4821 to pick one (e.g. 2 7 4821); Y 7 4821 sends the first, N 7 4821 declines");
+    // A broadcast run's Y sends everyone, so the line never calls it the first.
+    expect(codedAnswerLine("dispatch_approval", 7, "4821", { vendorNames: ["Sam", "Lee"], mode: "broadcast" }))
+      .toBe("Reply 1-2 7 4821 to pick one (e.g. 2 7 4821); Y 7 4821 sends them all, N 7 4821 declines");
 
     // An approval or an exhausted chain has one proposal per wave; a quote or an invoice is the attempt and the
     // amount it asked for, so a second invoice never inherits the first one's spent guess budget - and a reminder

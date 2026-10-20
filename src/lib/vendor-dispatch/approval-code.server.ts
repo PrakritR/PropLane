@@ -71,50 +71,47 @@ export async function dispatchApprovalNeedsCode(db: SupabaseClient, run: Pick<Ru
   }
 }
 
-/** Past this the pick example gives way to the plain range, so one long vendor name cannot bloat the instruction. */
-const CODED_PICK_CHARS = 80;
+/** What the ask shows a manager on the PropLane line, and the only form the reply side accepts there. */
+export type CodedAnswerOptions = { vendorNames?: readonly string[]; mode?: "sequential" | "broadcast" };
 
 /**
  * "Reply Y 7 4821 or N 7 4821": the handle is in the instruction, because a lone code only resolves one waiting job.
  *
- * An approval with backups is answerable by NUMBER as well ("2 7 4821" picks the second vendor), and the coded
- * instruction has to carry that form too: it replaces the ask's own "Y/N or 1-3 to pick one", so a manager reading
- * only the coded line would otherwise have no way to see that picking is still on the table - and a bare "2" costs
- * them a wrong-code attempt.
+ * An approval with backups is answerable by NUMBER as well, and the instruction names the WHOLE range the handler
+ * honours ("1-3 7 4821 to pick"), not one example of it: the parser accepts any position, and a form the manager was
+ * never shown costs them a wrong-code attempt. This line is the ask's only instruction, so it also has to say what
+ * the plain Y does.
  */
-export function codedAnswerLine(
-  kind: DispatchApprovalKind,
-  handle: number,
-  code: string,
-  options: { vendorNames?: readonly string[] } = {},
-): string {
+export function codedAnswerLine(kind: DispatchApprovalKind, handle: number, code: string, options: CodedAnswerOptions = {}): string {
   const [yes, no] = ANSWER_VERBS[kind];
   const answer = `Reply ${yes} ${handle} ${code} or ${no} ${handle} ${code}`;
   if (kind !== "dispatch_approval") return answer;
   const names = (options.vendorNames ?? []).map((name) => toGsm7(String(name ?? "")).trim()).filter(Boolean);
   if (names.length < 2) return answer;
-  const both = `Reply ${yes} ${handle} ${code}, ${no} ${handle} ${code}, or 2 ${handle} ${code} to pick ${names[1]}`;
-  return both.length <= CODED_PICK_CHARS
-    ? both
-    : `Reply ${yes} ${handle} ${code}, ${no} ${handle} ${code}, or 1-${names.length} ${handle} ${code} to pick one`;
+  const sends = options.mode === "broadcast" ? "sends them all" : "sends the first";
+  return `Reply 1-${names.length} ${handle} ${code} to pick one (e.g. 2 ${handle} ${code}); ${yes} ${handle} ${code} ${sends}, ${no} ${handle} ${code} declines`;
 }
 
 /**
- * The ask, with its code. Returns the text unchanged for a run this gate does not cover, and ALSO when no code
- * could be issued: the reply side refuses a coded confirmation in that state, so promising one would be a lie.
+ * The ask, with its code.
+ *
+ * `compose` renders the ask around ONE instruction: the coded line when this gate covers the run, and `null` when it
+ * does not - a run this gate does not cover, or a state where no code could be issued (the reply side refuses a
+ * coded confirmation then, so promising one would be a lie). The composer substitutes rather than appends, so the
+ * ask never carries a second instruction the reply side will not accept, and its own length budget covers the line.
  */
 export async function withDispatchApprovalCode(
   db: SupabaseClient,
   run: Pick<RunRef, "id" | "handle" | "owner_user_id" | "workspace_id">,
   kind: DispatchApprovalKind,
-  text: string,
+  compose: (instruction: string | null) => string,
   proposalId: string,
-  vendorNames: readonly string[] = [],
+  options: CodedAnswerOptions = {},
 ): Promise<string> {
-  if (!(await dispatchApprovalNeedsCode(db, run))) return text;
+  if (!(await dispatchApprovalNeedsCode(db, run))) return compose(null);
   const code = await issueSmsConfirmationCode(db, { kind, subjectId: run.id, proposalId }).catch(() => null);
-  if (!code) return text;
-  return toGsm7(`${text.trimEnd()} ${codedAnswerLine(kind, run.handle, code, { vendorNames })}`);
+  if (!code) return compose(null);
+  return toGsm7(compose(codedAnswerLine(kind, run.handle, code, options)));
 }
 
 /** Re-ask the SAME proposal with a fresh code (only its hash is stored); the guess budget carries over. */

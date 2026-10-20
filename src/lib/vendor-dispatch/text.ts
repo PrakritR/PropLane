@@ -10,6 +10,8 @@
  */
 
 export const SMS_SEGMENT_CHARS = 160;
+/** A segment of a MULTI-part GSM-7 message: six characters of each one carry the concatenation header. */
+export const SMS_CONCAT_SEGMENT_CHARS = 153;
 
 const GSM_REPLACEMENTS: Array<[RegExp, string]> = [
   [/[‘’‛]/g, "'"],
@@ -131,6 +133,11 @@ export function composeVendorOfferText(input: {
 /**
  * The manager approval text, one segment:
  * `Lockout 5259 Brooklyn R3 #7. Send Sam Locksmith $120, then Lee, Kim if busy? Y/N or 1-3 to pick one`
+ *
+ * `instruction` REPLACES the plain "Y/N or 1-3 to pick one" clause (the PropLane line's coded line, which is the
+ * only form that works there). An ask carries ONE instruction: two would leave the manager reading a form their
+ * reply is refused for. The instruction is never clipped, and the body is fitted to what is left of the budget -
+ * two segments with an instruction, since the code line cannot share one with the job.
  */
 export function composeApprovalText(input: {
   handle: number;
@@ -141,6 +148,7 @@ export function composeApprovalText(input: {
   payCents?: number | null;
   payModel?: string | null;
   mode: "sequential" | "broadcast";
+  instruction?: string | null;
 }): string {
   const names = input.vendorNames.map((name) => toGsm7(name)).filter(Boolean);
   const pay = payLabel(input);
@@ -148,9 +156,10 @@ export function composeApprovalText(input: {
   const where = toGsm7([input.houseLabel, input.room ?? ""].filter(Boolean).join(" "));
   const head = (house: string) => `${toGsm7(input.what)} ${house} #${input.handle}.`;
   const [first, ...rest] = names;
-  const pick = names.length > 1 ? ` Y/N or 1-${names.length} to pick one` : " Y/N";
+  const coded = input.instruction ? toGsm7(input.instruction) : null;
+  const pick = coded ? "" : names.length > 1 ? ` Y/N or 1-${names.length} to pick one` : " Y/N";
   const build = (house: string, backups: string): string => {
-    if (!first) return `${head(house)} No vendor on file. Reply N`;
+    if (!first) return `${head(house)} No vendor on file.${coded ? "" : " Reply N"}`;
     const target = input.mode === "broadcast" && names.length > 1 ? `${names.join(", ")} at once` : `${first}${payPart}`;
     return `${head(house)} Send ${target}${backups}?${pick}`;
   };
@@ -160,16 +169,19 @@ export function composeApprovalText(input: {
     build(where, input.mode === "sequential" && rest.length > 0 ? `, then ${rest.length} backup${rest.length === 1 ? "" : "s"}` : ""),
     build(clip(where, 22), input.mode === "sequential" && rest.length > 0 ? `, +${rest.length}` : ""),
   ];
+  const suffix = coded ? ` ${coded}` : "";
+  const bodyBudget = (coded ? SMS_CONCAT_SEGMENT_CHARS * 2 : SMS_SEGMENT_CHARS) - suffix.length;
   for (const attempt of attempts) {
     const text = toGsm7(attempt);
-    if (text.length <= SMS_SEGMENT_CHARS) return text;
+    if (text.length <= bodyBudget) return `${text}${suffix}`;
   }
-  return clip(toGsm7(attempts[2]!), SMS_SEGMENT_CHARS);
+  return `${clip(toGsm7(attempts[2]!), bodyBudget)}${suffix}`;
 }
 
-export function composeQuoteAskText(input: { handle: number; vendorName: string; quoteCents: number; capCents: number | null }): string {
+export function composeQuoteAskText(input: { handle: number; vendorName: string; quoteCents: number; capCents: number | null; instruction?: string | null }): string {
   const cap = input.capCents != null ? ` (cap ${formatDollars(input.capCents)})` : "";
-  return toGsm7(`${firstNameOf(input.vendorName) || "Vendor"} quotes ${formatDollars(input.quoteCents)}${cap} #${input.handle}. Y/N`);
+  const answer = input.instruction ? toGsm7(input.instruction) : "Y/N";
+  return toGsm7(`${firstNameOf(input.vendorName) || "Vendor"} quotes ${formatDollars(input.quoteCents)}${cap} #${input.handle}. ${answer}`);
 }
 
 export function composeManagerAcceptedText(input: { handle: number; vendorName: string; whenLabel?: string | null }): string {
@@ -177,10 +189,12 @@ export function composeManagerAcceptedText(input: { handle: number; vendorName: 
   return toGsm7(`${firstNameOf(input.vendorName) || "Vendor"} accepted${when} #${input.handle}`);
 }
 
-export function composeExhaustedText(input: { handle: number; tradeLabel: string }): string {
-  return toGsm7(
-    `No one took #${input.handle}. R to retry, B to offer all ${input.tradeLabel.toLowerCase()}s at once, or handle it yourself`,
-  );
+export function composeExhaustedText(input: { handle: number; tradeLabel: string; instruction?: string | null }): string {
+  const trade = `${input.tradeLabel.toLowerCase()}s`;
+  if (input.instruction) {
+    return toGsm7(`No one took #${input.handle}. R retries, B offers all ${trade} at once. ${input.instruction}, or handle it yourself`);
+  }
+  return toGsm7(`No one took #${input.handle}. R to retry, B to offer all ${trade} at once, or handle it yourself`);
 }
 
 export function composeVendorTakenText(handle: number): string {
@@ -232,6 +246,7 @@ export function composeManagerDoneText(input: { handle: number; vendorName: stri
   return toGsm7(`${firstNameOf(input.vendorName) || "Vendor"} finished #${input.handle}. Asked the resident to confirm`);
 }
 
-export function composeInvoiceAskText(input: { handle: number; vendorName: string; cents: number }): string {
-  return toGsm7(`${firstNameOf(input.vendorName) || "Vendor"} invoiced ${formatDollars(input.cents)} for #${input.handle}. Y/N`);
+export function composeInvoiceAskText(input: { handle: number; vendorName: string; cents: number; instruction?: string | null }): string {
+  const answer = input.instruction ? toGsm7(input.instruction) : "Y/N";
+  return toGsm7(`${firstNameOf(input.vendorName) || "Vendor"} invoiced ${formatDollars(input.cents)} for #${input.handle}. ${answer}`);
 }

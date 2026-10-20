@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   composeApprovalText,
   composeExhaustedText,
+  composeInvoiceAskText,
   composeQuoteAskText,
   composeVendorConfirmText,
   composeVendorOfferText,
@@ -108,6 +109,48 @@ describe("manager text", () => {
     expect(broadcast).toContain("Ana, Bo at once");
     expect(composeQuoteAskText({ handle: 7, vendorName: "Mike Plumbing", quoteCents: 24000, capCents: 18000 })).toBe("Mike quotes $240 (cap $180) #7. Y/N");
     expect(composeExhaustedText({ handle: 7, tradeLabel: "Cleaner" })).toBe("No one took #7. R to retry, B to offer all cleaners at once, or handle it yourself");
+  });
+
+  it("an instruction REPLACES the ask's own answer clause, is never clipped, and the fit allows for it", () => {
+    // On the PropLane line only the coded form is accepted, so an ask that kept "Y/N or 1-3 to pick one" alongside
+    // it would be telling the manager to send something the reply side refuses.
+    const coded = "Reply 1-3 7 4821 to pick one (e.g. 2 7 4821); Y 7 4821 sends the first, N 7 4821 declines";
+    const text = composeApprovalText({
+      handle: 7,
+      what: "Lockout",
+      houseLabel: "5259 Brooklyn",
+      room: "R3",
+      vendorNames: ["Sam Locksmith", "Lee", "Kim"],
+      payCents: 12000,
+      payModel: "flat",
+      mode: "sequential",
+      instruction: coded,
+    });
+    expect(text).toBe(`Lockout 5259 Brooklyn R3 #7. Send Sam Locksmith $120, then Lee, Kim if busy? ${coded}`);
+    expect(text).not.toContain("Y/N");
+    expect(text.length).toBeLessThanOrEqual(306);
+
+    // The body gives way, never the instruction: a clipped code line could not be answered at all.
+    const long = composeApprovalText({
+      handle: 21,
+      what: "Plumbing leak in the second floor bathroom that has been running since Tuesday evening",
+      houseLabel: "4709A Eighth Avenue Northeast Apartments",
+      room: "Room 12",
+      vendorNames: ["Northwest Premier Plumbing and Drain Services Incorporated", "Another Very Long Plumber Name LLC", "Third Plumbing Co"],
+      payCents: null,
+      payModel: "quote",
+      mode: "sequential",
+      instruction: coded,
+    });
+    expect(long.endsWith(coded)).toBe(true);
+    expect(long.length).toBeLessThanOrEqual(306);
+
+    expect(composeQuoteAskText({ handle: 7, vendorName: "Mike Plumbing", quoteCents: 24000, capCents: null, instruction: "Reply Y 7 4821 or N 7 4821" }))
+      .toBe("Mike quotes $240 #7. Reply Y 7 4821 or N 7 4821");
+    expect(composeInvoiceAskText({ handle: 7, vendorName: "Mike Plumbing", cents: 24000, instruction: "Reply Y 7 4821 or N 7 4821" }))
+      .toBe("Mike invoiced $240 for #7. Reply Y 7 4821 or N 7 4821");
+    expect(composeExhaustedText({ handle: 7, tradeLabel: "Cleaner", instruction: "Reply R 7 4821 or B 7 4821" }))
+      .toBe("No one took #7. R retries, B offers all cleaners at once. Reply R 7 4821 or B 7 4821, or handle it yourself");
   });
 });
 
