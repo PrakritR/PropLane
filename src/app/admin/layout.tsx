@@ -10,6 +10,8 @@ import { PortalTopBar } from "@/components/portal/portal-top-bar";
 import { PortalWorkspaceRail } from "@/components/portal/portal-workspace-rail";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
 import { assertAdminPortalAccess } from "@/lib/auth/portal-access";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { loadAdminServiceShell } from "@/lib/service/service-mode.server";
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
 import {
   PORTAL_MAIN_CONTENT_CLASS,
@@ -29,13 +31,15 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   await assertAdminPortalAccess();
-  const { profile } = await getServerSessionProfile();
-  const [sidebarCollapsed, assistantDockCollapsed, testWorkspaceOperator] = await Promise.all([
+  const { profile, user } = await getServerSessionProfile();
+  const [sidebarCollapsed, assistantDockCollapsed, testWorkspaceOperator, serviceShell] = await Promise.all([
     getSidebarCollapsed(),
     getAssistantDockCollapsed(),
     isTestWorkspaceFeatureEnabled()
       ? requireTrustedTestWorkspaceOperator().then(() => true, () => false)
       : Promise.resolve(false),
+    // The rail: PropLane logo, then every PropLane Service workspace this admin can open, then +.
+    user ? loadAdminServiceShell(createSupabaseServiceRoleClient(), user.id) : Promise.resolve(undefined),
   ]);
   const adminPortal = adminPortalForTestWorkspaceOperator(testWorkspaceOperator);
   return (
@@ -65,6 +69,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             basePath={adminPortal.basePath}
             name={profile?.full_name ?? null}
             email={profile?.email ?? null}
+            service={serviceShell}
           />
           <PortalSidebar definition={adminPortal} subtitle="Admin" initialCollapsed={sidebarCollapsed} />
           <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

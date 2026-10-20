@@ -31,10 +31,17 @@ import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { getAssistantDockCollapsed } from "@/lib/assistant-dock-state";
 import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
 import { WorkspaceProvider } from "@/components/portal/workspace-provider";
+import { ServiceModeProvider } from "@/components/portal/service-mode-context";
 import { TestAccountBanner } from "@/components/portal/test-account-banner";
 import { TestAccountUnavailable } from "@/components/portal/test-account-unavailable";
 import { isTestWorkspaceFeatureEnabled, resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 import { ViewAsBanner } from "@/components/portal/view-as-banner";
+import { cookies } from "next/headers";
+import { getPortalAccessContext, hasAdminRole } from "@/lib/auth/portal-access";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolvePortalServiceShell, type PortalServiceShell } from "@/lib/service/service-mode.server";
+import { serviceTopBarLabel } from "@/lib/service/service-mode";
+import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 import { getViewAsBannerState } from "@/lib/auth/view-as-banner.server";
 
 export default async function PropertyPortalLayout({ children }: { children: React.ReactNode }) {
@@ -54,7 +61,7 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
   // The nav definition and the test-workspace classification are independent of each other, so they resolve together.
   // `session` is already resolved (and request-cached), so `user` is known.
   const { profile, user } = session;
-  const [nav, testWorkspace] = await Promise.all([
+  const [navBase, testWorkspace] = await Promise.all([
     buildProPortalDefinition(),
     user ? resolveTestWorkspaceClassification(user.id) : Promise.resolve({ kind: "normal" as const }),
   ]);
@@ -65,12 +72,33 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
   // A "View as" support session: banner on top, assistant and its side panel off.
   const viewAs = await getViewAsBannerState();
 
+  // Service mode: the active workspace is a PropLane Service workspace this account is staff of. The Property portal
+  // is for managers who bought the software; PropLane's managed workspaces open in the admin-style shell instead
+  // (same panels and routes, a different rail). Never during a View-as session, never for the client who owns one.
+  const isAdminViewer = hasAdminRole(await getPortalAccessContext());
+  const serviceShell: PortalServiceShell =
+    user && !viewAs
+      ? await resolvePortalServiceShell(
+          createSupabaseServiceRoleClient(),
+          user.id,
+          (await cookies()).get(WORKSPACE_COOKIE)?.value,
+          isAdminViewer,
+        )
+      : { mode: "property", staff: [] };
+  const service = serviceShell.mode === "service" ? serviceShell : null;
+  // Service mode is the service's own plan, not the viewer's: nav locks follow "paid", no upgrade banner, and the
+  // sidebar badge names the service instead of the viewer's own tier.
+  const nav = service
+    ? { ...navBase, showPlanBanner: false, subscriptionTier: "paid" as const, planLabel: "PropLane Service" }
+    : navBase;
+
   return (
     <AxisAssistant managerName={profile?.full_name ?? null} smsTestPortal="manager" disabled={Boolean(viewAs)}>
       <div className={PORTAL_SHELL_ROOT_CLASS}>
         {viewAs ? <ViewAsBanner {...viewAs} /> : null}
         <WorkspaceProvider>
         <PortalReadOnlyProvider>
+        <ServiceModeProvider value={{ active: Boolean(service), isAdmin: isAdminViewer }}>
         <SurfaceThemeDefault theme="light" />
         <PortalDataPrefetch kind="pro" />
         <PortalSessionKeepalive />
@@ -87,6 +115,7 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
           initialSidebarCollapsed={sidebarCollapsed}
           name={profile?.full_name ?? null}
           email={profile?.email ?? null}
+          serviceLabel={service ? serviceTopBarLabel(service.activeName) : undefined}
         />
         <ManagedReadOnlyStrip />
         <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
@@ -96,6 +125,8 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
             basePath={nav.definition.basePath}
             name={profile?.full_name ?? null}
             email={profile?.email ?? null}
+            service={service?.shell}
+            serviceEntries={!service && serviceShell.mode === "property" && !isAdminViewer ? serviceShell.staff : undefined}
           />
           <PortalSidebar
             definition={nav.definition}
@@ -150,6 +181,7 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
             />
           )}
         </div>
+        </ServiceModeProvider>
         </PortalReadOnlyProvider>
         </WorkspaceProvider>
       </div>
