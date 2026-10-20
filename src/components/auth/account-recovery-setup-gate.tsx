@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { AuthCard } from "@/components/auth/auth-card";
+import { AuthOAuthLoading } from "@/components/auth/auth-oauth-loading";
 import { Button } from "@/components/ui/button";
 
 const UNGATED = ["/auth/sign-in", "/auth/forgot-password", "/auth/reset-password", "/auth/recover-account", "/auth/callback", "/auth/sign-out"];
@@ -34,8 +35,9 @@ export function AccountRecoverySetupGate({ children }: { children: ReactNode }) 
   if (bypass) return children;
   const current = result.path === pathname && result.attempt === attempt;
   if (current && result.state === "ready") return children;
+  if (!current) return <AuthOAuthLoading label="Checking your account" caption="Checking your account…" />;
   return <AuthCard><div className="space-y-4">
-    <p role={current ? "alert" : "status"}>{current ? "We couldn't check your account. Your data has not been changed." : "Checking your account…"}</p>
-    {current && <Button variant="outline" data-attr="account-recovery-setup-retry" onClick={() => setAttempt(value => value + 1)}>Try again</Button>}
+    <p role="alert">We couldn&apos;t check your account. Your data has not been changed.</p>
+    <Button variant="outline" data-attr="account-recovery-setup-retry" onClick={() => setAttempt(value => value + 1)}>Try again</Button>
   </div></AuthCard>;
 }

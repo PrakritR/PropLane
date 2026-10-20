@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import "@/components/public-site/public-site.css";
 import "./auth-split.css";
 import { AuthBrandPanel } from "@/components/auth/auth-brand-panel";
-import { AuthLayoutFooter, AuthLayoutHomeMark } from "@/components/auth/auth-layout-chrome";
+import { AuthLayoutHomeMark } from "@/components/auth/auth-layout-chrome";
 import { publicSiteFont } from "@/components/public-site/fonts/inter-tight";
 import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
 
@@ -16,6 +16,9 @@ import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
  * The PropLane number is read here on the server (the auth layout is not under
  * `(public)`, so `usePublicTexting` has no provider) and handed down; with none
  * configured the panel simply omits it.
+ *
+ * There is no site footer here (captain #27): the left column is the logo and the form, nothing else. The public
+ * footer's styles live under `(public)`, so drawn here it rendered as a giant house mark and raw waves.
  */
 export async function AuthSplitShell({ children }: { children: ReactNode }) {
   const texting = await getPublicTextingConfig();
@@ -29,7 +32,6 @@ export async function AuthSplitShell({ children }: { children: ReactNode }) {
         <main className="auth-layout-main">
           <div className="auth-layout-panel w-full max-w-[min(100%,52rem)]">{children}</div>
         </main>
-        <AuthLayoutFooter />
       </div>
       <AuthBrandPanel phone={texting.phone} />
     </div>

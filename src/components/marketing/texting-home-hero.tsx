@@ -9,18 +9,22 @@ import { HOME_HEADLINE } from "@/lib/marketing/home-copy";
 import { usePublicTexting } from "@/components/marketing/public-texting-context";
 import { formatPublicPhone } from "@/lib/marketing/format-public-phone";
 import { MessagesTile } from "@/components/marketing/messages-tile";
+import { HOME_ROLES, type HomeRoleId } from "@/lib/marketing/home-roles";
 
-/** Each audience goes to its own start: browse homes, resident and vendor sign-up, and the managed service for owners. */
-const WHO_TEXTS = [
-  { role: "Prospects", href: "/rent/browse" },
-  { role: "Residents", href: RESIDENT_GET_STARTED_HREF },
-  { role: "Vendors", href: VENDOR_GET_STARTED_HREF },
-  { role: "Owners", href: "#how-owners" },
-] as const;
+/** Where each audience goes: browse homes, resident and vendor sign-up, and How it works for managers and owners. */
+const WHO_HREF: Record<HomeRoleId, string> = {
+  prospects: "/rent/browse",
+  residents: RESIDENT_GET_STARTED_HREF,
+  vendors: VENDOR_GET_STARTED_HREF,
+  managers: "#how-managers",
+  owners: "#how-owners",
+};
+/** The strip under the cover: the shared roles (names and order from HOME_ROLES), each to its own start. */
+const WHO_TEXTS = HOME_ROLES.map((role) => ({ role: role.label, href: WHO_HREF[role.id] }));
 
 /**
  * The How it works anchors: the desktop phones, or (up to 1024px) the role list whose items carry `<id>-list`. On a
- * phone neither is drawn (the page is hero, Contact, Join free), so Owners goes to Contact, where the managed service lives.
+ * phone neither is drawn (the page is hero, Contact, Join free), so Managers and Owners go to Contact.
  */
 function followHowAnchor(event: MouseEvent<HTMLAnchorElement>, href: string) {
   if (!href.startsWith("#how-")) return;

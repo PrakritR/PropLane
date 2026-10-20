@@ -5,6 +5,7 @@ import { PROPERTY_ROWS, RESIDENT_ROWS, SERVICE_ROWS, WILLOW_INQUIRIES } from "./
 import { BOOKING_ROWS, FINANCE_BY_PROPERTY } from "./site/product-mock/fixtures-more";
 import { OPS_REPORTS } from "./site/product-mock/fixtures-popups-ops";
 import { BigNumber } from "./big-number";
+import { HOME_ROLES, type HomeRoleId } from "@/lib/marketing/home-roles";
 import { HomeSectionHeader } from "./home-section-header";
 
 /** A scene shows only its beat, not the cumulative thread from every earlier portal step. */
@@ -61,7 +62,8 @@ function managerItems(): PhoneItem[] {
 }
 
 const homes = PROPERTY_ROWS.slice(0, 3);
-const roles = ["Prospects", "Residents", "Vendors", "Owners"] as const;
+/** The five people across the bottom of the diagram, 76 wide on an 82 pitch inside the 420 viewBox. */
+const PERSON_X = (index: number) => 6 + index * 82;
 
 function NetworkScene() {
   return (
@@ -70,11 +72,11 @@ function NetworkScene() {
         <svg
           viewBox="0 0 420 560"
           role="img"
-          aria-label={`Network: ${homes.length} homes connected to prospects, residents, vendors and owners through PropLane`}
+          aria-label={`Network: ${homes.length} homes connected to ${HOME_ROLES.map((role) => role.label.toLowerCase()).join(", ")} through PropLane`}
         >
           <g className="swiss-network-lines" fill="none">
             <path d="M210 232V158M72 158H348M72 158V86M210 158V86M348 158V86" />
-            <path d="M210 328V402M54 402H366M54 402V436M158 402V436M262 402V436M366 402V436" />
+            <path d={`M210 328V402M${PERSON_X(0) + 38} 402H${PERSON_X(HOME_ROLES.length - 1) + 38}${HOME_ROLES.map((_, index) => `M${PERSON_X(index) + 38} 402V436`).join("")}`} />
           </g>
           {homes.map((home, index) => (
             <g key={home.id} className="swiss-network-home">
@@ -84,20 +86,20 @@ function NetworkScene() {
               </text>
             </g>
           ))}
-          {roles.map((role, index) => (
-            <g key={role} className="swiss-network-person">
-              <rect x={8 + index * 104} y="436" width="92" height="96" rx="10" />
-              <text x={18 + index * 104} y="460">
-                {role}
+          {HOME_ROLES.map((role, index) => (
+            <g key={role.id} className="swiss-network-person">
+              <rect x={PERSON_X(index)} y="436" width="76" height="96" rx="10" />
+              <text x={PERSON_X(index) + 7} y="460">
+                {role.label}
               </text>
-              <circle cx={30 + index * 104} cy="494" r="13" />
+              <circle cx={PERSON_X(index) + 20} cy="494" r="13" />
               <text
                 className="swiss-network-initial"
-                x={30 + index * 104}
+                x={PERSON_X(index) + 20}
                 y="498"
                 aria-hidden="true"
               >
-                {role[0]}
+                {role.label[0]}
               </text>
             </g>
           ))}
@@ -133,18 +135,15 @@ function roleSteps(): Role[] {
         .join("\n")}`,
     },
   ];
-  return [
-    { id: "prospects", label: "Prospects", caption: "Ask about a room. Book the tour.", items: beatItems("resident", "tour") },
-    { id: "residents", label: "Residents", caption: "Pay rent. Report a leak.", items: beatItems("resident", "pay") },
-    {
-      id: "vendors",
-      label: "Vendors",
-      caption: "Accept the job. Keep everyone posted.",
-      items: [...beatItems("vendor", "quote"), ...beatItems("vendor", "visit")],
-    },
-    { id: "managers", label: "Managers", caption: "Ask about your houses and prospects.", items: managerItems() },
-    { id: "owners", label: "Owners", caption: "Ask how your home is doing.", items: ownerItems },
-  ];
+  const items: Record<HomeRoleId, PhoneItem[]> = {
+    prospects: beatItems("resident", "tour"),
+    residents: beatItems("resident", "pay"),
+    vendors: [...beatItems("vendor", "quote"), ...beatItems("vendor", "visit")],
+    managers: managerItems(),
+    owners: ownerItems,
+  };
+  // Names, order and lines come from the one shared list (HOME_ROLES); this file only supplies the conversations.
+  return HOME_ROLES.map((role) => ({ id: role.id, label: role.label, caption: role.detail, items: items[role.id] }));
 }
 
 /** One short exchange: the first message the person sends and the first PropLane answers, in the order the phone shows them. */

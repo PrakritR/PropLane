@@ -1,19 +1,19 @@
 import { SiteBackdrop } from "@/components/marketing/site/site-backdrop";
 import { formatUsPhoneDisplay } from "@/lib/phone-e164";
+import { HOME_ROLES } from "@/lib/marketing/home-roles";
 
-/** Who texts the line, as on the homepage cover. */
-const WHO_TEXTS = [
-  { n: "01", title: "Renters", line: "Looking for a room" },
-  { n: "02", title: "Residents", line: "Rent, repairs" },
-  { n: "03", title: "Vendors", line: "Jobs, invoices" },
-  { n: "04", title: "Owners", line: "How is my house" },
-] as const;
+/** Who texts the line: the homepage's shared roles (names, order and lines from HOME_ROLES, captain #27). */
+const WHO_TEXTS = HOME_ROLES.map((role, index) => ({
+  n: String(index + 1).padStart(2, "0"),
+  title: role.label,
+  line: role.caption,
+}));
 
 /**
  * The right half of every auth screen on a wide web window, edge to edge: the
  * homepage's blue slab with its own wavy-line atmosphere, "Text us" and (when
  * configured) the PropLane number as one big figure, a short thread showing the
- * product, and the four people who text it.
+ * product, and the five people who text it.
  *
  * Purely decorative: `aria-hidden`, no controls, no links. The number is never
  * a literal here; it arrives from the server's public texting snapshot and the
@@ -33,7 +33,7 @@ export function AuthBrandPanel({ phone }: { phone: string | null }) {
 
         <div className="auth-thread">
           <p className="auth-bubble auth-bubble-in">
-            <span className="auth-bubble-who">Renter</span>
+            <span className="auth-bubble-who">Prospect</span>
             Is the room on Alder still open?
           </p>
           <p className="auth-bubble auth-bubble-out">
