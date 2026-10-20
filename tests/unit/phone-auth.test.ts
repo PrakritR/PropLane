@@ -119,6 +119,15 @@ describe("phone auth start and gate", () => {
     expect(admin.createUser).not.toHaveBeenCalled();
   });
 
+  it("keeps an admin's phone off hosted OTP, so GoTrue's verify cannot mint a session past the admin refusal", async () => {
+    const { db, rpc, state } = database();
+    vi.stubEnv("SUPABASE_PHONE_AUTH_HOOK_ENABLED", "true");
+    state.roles = ["admin"];
+    await startPhoneChallenge({ db, userId: null, browser: BROWSER, phone: PHONE, purpose: "sign_in" });
+    expect(rpc).toHaveBeenCalledWith("phone_auth_start", expect.objectContaining({ p_provider: "local" }));
+    expect(mocks.signInWithOtp).not.toHaveBeenCalled();
+  });
+
   it("keeps legacy profile-only phone owners on the custom proof flow", async () => {
     const { db, admin } = database();
     vi.stubEnv("SUPABASE_PHONE_AUTH_HOOK_ENABLED", "true");

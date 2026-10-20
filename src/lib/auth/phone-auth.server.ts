@@ -123,7 +123,13 @@ export async function startPhoneChallenge(input: {
     const owners = await phoneOwners(db, phone);
     if (owners.length === 1) {
       const { data, error } = await db.auth.admin.getUserById(owners[0]);
-      if (!error && data.user.phone_confirmed_at && data.user.phone && normalizeE164(`+${data.user.phone.replace(/^\+/, "")}`) === phone) provider = "supabase";
+      // Hosted verify would mint the session inside GoTrue, past `phoneCodeSignInAllowed` in `verifyPhoneChallenge`;
+      // an account that may not sign in by code (an admin) stays on the local path, where that check runs.
+      if (
+        !error && data.user.phone_confirmed_at && data.user.phone &&
+        normalizeE164(`+${data.user.phone.replace(/^\+/, "")}`) === phone &&
+        (await phoneCodeSignInAllowed(db, owners[0]))
+      ) provider = "supabase";
     }
   }
   const actor = purpose === "sign_in" ? null : userId;
