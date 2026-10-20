@@ -50,6 +50,24 @@ async function readSnapshot(): Promise<PublicTextingConfig> {
   return config;
 }
 
+/** How long the first request on an instance will wait for the live read before the configured number answers. */
+export const PUBLIC_TEXTING_COLD_START_BUDGET_MS = 400;
+
+/** The read's answer if it lands inside the budget, else null. The read itself keeps going and fills `lastGood`. */
+async function withColdStartBudget(read: Promise<PublicTextingConfig>): Promise<PublicTextingConfig | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      read,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), PUBLIC_TEXTING_COLD_START_BUDGET_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /**
  * One public snapshot, with request-level coalescing and no cached read failures. The homepage's text button is
  * never taken away (captain #21): a completed read with a public line is the answer; a mode with no public
@@ -63,9 +81,14 @@ export const getPublicTextingConfig = cache(
       void readSnapshot().catch(() => undefined);
       return served;
     }
+    // Nothing kept yet (a cold instance): the read gets a short budget and then the configured number answers
+    // while it finishes in the background. Awaiting it outright blocked the homepage and every auth page for up
+    // to the read's own five-second timeout, which is the opposite of "the text button is never taken away".
+    const read = readSnapshot();
+    read.catch(() => undefined);
     try {
-      const config = await readSnapshot();
-      return config.phone ? config : configuredFallback();
+      const config = await withColdStartBudget(read);
+      return config?.phone ? config : configuredFallback();
     } catch {
       return lastGood ?? configuredFallback();
     }

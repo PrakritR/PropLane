@@ -194,6 +194,42 @@ describe("public texting configuration", () => {
     }
   });
 
+  it("never blocks the first request on a cold instance: the configured number answers and the read refreshes behind it", async () => {
+    vi.stubEnv("PROPLANE_PUBLIC_SMS_NUMBER", "+12065550199");
+    try {
+      let release: (() => void) | null = null;
+      // A read that never settles inside the budget stands in for the slow dev database on a cold lambda.
+      mocks.read.mockImplementation(
+        () => new Promise((resolve) => {
+          release = () => resolve({ data: { line_mode: "shared", shared_number_e164: "+12065550123" }, error: null });
+        }),
+      );
+      const { getPublicTextingConfig, PUBLIC_TEXTING_COLD_START_BUDGET_MS } =
+        await import("@/lib/marketing/public-texting.server");
+      // Far under the read's own five-second deadline, which the page used to wait out.
+      expect(PUBLIC_TEXTING_COLD_START_BUDGET_MS).toBeLessThanOrEqual(1_000);
+      const started = Date.now();
+      expect((await getPublicTextingConfig()).phone).toBe("+12065550199");
+      expect(Date.now() - started).toBeLessThan(2_000);
+      // The read it started is still the one that fills the snapshot for the next request.
+      release!();
+      await vi.waitFor(async () => expect((await getPublicTextingConfig()).phone).toBe("+12065550123"));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("serves a read that lands inside the budget rather than the fallback", async () => {
+    vi.stubEnv("PROPLANE_PUBLIC_SMS_NUMBER", "+12065550199");
+    try {
+      mocks.read.mockResolvedValue({ data: { line_mode: "shared", shared_number_e164: "+12065550123" }, error: null });
+      const { getPublicTextingConfig } = await import("@/lib/marketing/public-texting.server");
+      expect((await getPublicTextingConfig()).phone).toBe("+12065550123");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("shows the configured public number, never the inactive shared sender, in a mode with no public line", async () => {
     vi.stubEnv("PROPLANE_PUBLIC_SMS_NUMBER", "+12065550199");
     try {

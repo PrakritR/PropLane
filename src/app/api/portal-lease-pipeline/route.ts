@@ -161,6 +161,12 @@ function normalizeRow(row: Record<string, unknown>, { sanitizeGeneratedHtml = fa
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Row fields that alone establish an existing tenancy (`loadResidentManagerAttestedTenancy`). Only the server
+ * writes them, so a resident-scoped save keeps the stored value and may never supply one.
+ */
+export const SERVER_OWNED_TENANCY_FIELDS = ["signedLeaseSnapshots", "managerAttestedTenancyAt"] as const;
+
 /** row_data may carry synthetic/demo ids ("demo-resident") — only uuid-shaped
  *  values may reach the uuid column, else the whole upsert 500s. */
 function asUuidOrNull(value: unknown): string | null {
@@ -807,6 +813,19 @@ export async function POST(req: Request) {
       const existingRecord = (existing ?? [])[0] as
         | (LeaseScopeRecord & StoredLeaseScopeColumns & { row_data?: Record<string, unknown>; updated_at?: string | null })
         | undefined;
+
+      // `signedLeaseSnapshots` and `managerAttestedTenancyAt` are the two row fields that, on their own, say the
+      // resident is mid-tenancy: `loadResidentManagerAttestedTenancy` unlocks My home, Payments, Lease, Services
+      // and Documents off either one. Both are written only by the server (the renewal archive and the
+      // existing-resident onboarding), so a resident-scoped write keeps whatever is stored and can never plant
+      // them — a lease row created or updated in a resident's own email scope would otherwise forge tenancy.
+      if (ctx.user.role === "resident") {
+        const storedRowData = existingRecord?.row_data as Record<string, unknown> | undefined;
+        for (const field of SERVER_OWNED_TENANCY_FIELDS) {
+          if (storedRowData && field in storedRowData) normalized[field] = storedRowData[field];
+          else delete normalized[field];
+        }
+      }
 
       // The client edit helper restores P7 verbatim blocks too, but this is a
       // public route. Re-run that comparison against the stored source before

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HomePricingCompare } from "@/components/marketing/home-pricing-compare";
@@ -7,6 +8,7 @@ import { COMPARE } from "@/components/marketing/site/pricing-compare-data";
 import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import { MANAGED_CONTACT_HREF } from "@/lib/marketing/managed-service";
 import { TIER_CTA } from "@/components/marketing/site/pricing-cards";
+import { MANAGER_PLAN_TIERS, PROCESSING_FEES_FEATURE_TEXT } from "@/data/manager-plan-tiers";
 
 vi.mock("@/lib/analytics/track-client", () => ({ track: vi.fn() }));
 afterEach(cleanup);
@@ -32,6 +34,20 @@ describe("homepage plan comparison", () => {
     }
     expect(document.querySelector('[data-attr="pricing-plan-managed-cta"]')).toHaveAttribute("href", MANAGED_CONTACT_HREF);
     expect(document.querySelector('[data-attr="pricing-plan-free-cta"]')).toHaveAttribute("href", TIER_CTA.free.href);
+  });
+
+  it("prints the processing-fee note from the named constant, not a position in a feature list", () => {
+    // `MANAGER_PLAN_TIERS[0].features[8].text` silently changed wording when a Free-tier feature was reordered,
+    // and threw in a server component (taking the home page with it) if the list ever got shorter.
+    render(<HomePricingCompare />);
+    const note = document.querySelector(".home-compare-note");
+    expect(note).toHaveTextContent(`${PROCESSING_FEES_FEATURE_TEXT}.`);
+    const source = readFileSync("src/components/marketing/home-pricing-compare.tsx", "utf8");
+    expect(source).not.toMatch(/features\[\d+\]/);
+    // The same sentence is still what every plan card carries, so the note and the cards cannot drift.
+    for (const tier of MANAGER_PLAN_TIERS) {
+      expect(tier.features.some((feature) => feature.text === PROCESSING_FEES_FEATURE_TEXT), tier.id).toBe(true);
+    }
   });
 
   it("shows the same rows in the same order for every plan, every cell a check, a value or an en dash", () => {

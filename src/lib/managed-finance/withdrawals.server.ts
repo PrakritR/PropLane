@@ -23,6 +23,8 @@ import {
 
 export const MIN_WITHDRAWAL_CENTS = 100;
 export const WEEKLY_BATCH_MIN_CENTS = 2500;
+const VENDOR_PARTY_PAGE_SIZE = 1000;
+const VENDOR_PARTY_MAX_PAGES = 1000;
 
 export type WithdrawInput = {
   kind: "owner" | "vendor";
@@ -313,12 +315,25 @@ export function batchWeekKey(now: Date): string {
  * Idempotent per (vendor, week) through the withdrawal key, so a re-run of the cron pays nobody twice.
  */
 export async function runWeeklyVendorBatch(stripe: Stripe, db: SupabaseClient, now: Date = new Date()): Promise<{ paid: number; skipped: number; failed: number }> {
-  const { data, error } = await db.from("party_ledger_lines").select("party_id").eq("account", "vendor_payable").limit(5000);
-  if (error) {
-    if (String(error.code) === "42P01" || String(error.code) === "PGRST205") return { paid: 0, skipped: 0, failed: 0 };
-    throw new LedgerError(500, "Could not read vendor balances.");
+  // Paged: the cap was on LINES, not distinct vendors, so a vendor whose lines fell past it was never paid.
+  const parties = new Set<string>();
+  for (let page = 0; page < VENDOR_PARTY_MAX_PAGES; page += 1) {
+    const { data, error } = await db
+      .from("party_ledger_lines")
+      .select("party_id, created_at")
+      .eq("account", "vendor_payable")
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(page * VENDOR_PARTY_PAGE_SIZE, page * VENDOR_PARTY_PAGE_SIZE + VENDOR_PARTY_PAGE_SIZE - 1);
+    if (error) {
+      if (String(error.code) === "42P01" || String(error.code) === "PGRST205") return { paid: 0, skipped: 0, failed: 0 };
+      throw new LedgerError(500, "Could not read vendor balances.");
+    }
+    const batch = (data ?? []) as Array<{ party_id: string | null }>;
+    for (const row of batch) parties.add(row.party_id ?? "");
+    if (batch.length < VENDOR_PARTY_PAGE_SIZE) break;
   }
-  const vendors = [...new Set(((data ?? []) as Array<{ party_id: string | null }>).map((r) => r.party_id ?? "").filter((p) => p.startsWith("vendor:")))];
+  const vendors = [...parties].filter((p) => p.startsWith("vendor:"));
   const week = batchWeekKey(now);
   let paid = 0, skipped = 0, failed = 0;
   for (const party of vendors) {

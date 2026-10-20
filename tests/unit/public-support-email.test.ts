@@ -8,14 +8,13 @@ import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 const LEGACY_PUBLIC_SUPPORT_EMAIL = "info@axis-seattle-housing.com";
 
 /**
- * Public support address surfaces. `PUBLIC_SUPPORT_EMAIL` drives footer /
- * contact / support; the legal + reviews pages hardcode the same address.
+ * Public support address surfaces. `PUBLIC_SUPPORT_EMAIL` drives the home page's Contact section; the legal
+ * pages hardcode the same address. (The /reviews page is gone — the home page took its content.)
  */
 const HARDCODED_PAGES = [
   "src/app/(public)/privacy/page.tsx",
   "src/app/(public)/tos/page.tsx",
   "src/app/(public)/sms-terms/page.tsx",
-  "src/app/(public)/reviews/page.tsx",
 ];
 
 function read(relPath: string) {
@@ -33,7 +32,7 @@ describe("public support email", () => {
     }
   });
 
-  it("legal + reviews pages link and display the current support address", () => {
+  it("legal pages link and display the current support address", () => {
     for (const page of HARDCODED_PAGES) {
       const source = read(page);
       // Either the literal address or the shared constant interpolated into
@@ -44,9 +43,10 @@ describe("public support email", () => {
     }
   });
 
-  it("keeps the reviews feedback mailto subject param", () => {
-    const source = read("src/app/(public)/reviews/page.tsx");
-    expect(source).toMatch(/mailto:(\$\{PUBLIC_SUPPORT_EMAIL\}|support@proplane\.ai)\?subject=PropLane%20feedback/);
+  it("the home page's Contact section reaches the shared support address", () => {
+    const source = read("src/app/(public)/page.tsx");
+    expect(source).toContain("PUBLIC_SUPPORT_EMAIL");
+    expect(source).not.toContain(LEGACY_PUBLIC_SUPPORT_EMAIL);
   });
 
   it("keeps the admin account identity separate from the public support address", () => {

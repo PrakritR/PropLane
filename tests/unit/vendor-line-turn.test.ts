@@ -277,3 +277,25 @@ describe("shared mode", () => {
     expect(forced.handled).toBe(true);
   });
 });
+
+describe("a housing search always escapes the vendor flow", () => {
+  it("a phone with a live vendor lead still gets the catalog search when it asks for a room", async () => {
+    // One "handyman here" opens a lead that never expires. Without a per-message escape that phone could never
+    // reach the catalog again: it was answered "text me what work you do" for good.
+    await say("handyman here");
+    expect(fake.tables.sms_vendor_leads!.length).toBe(1);
+
+    const housing = await say("looking for a room near UW");
+    expect(housing).toEqual({ handled: false, reply: null, vendorUserId: null, leadId: null });
+  });
+
+  it("escapes even when the caller already decided this sender is a vendor", async () => {
+    const forced = await say("any houses available near Ballard", { force: true });
+    expect(forced.handled).toBe(false);
+  });
+
+  it("a vendor's own jobs question is untouched", async () => {
+    const jobs = await say("any jobs available near Ballard");
+    expect(jobs.handled).toBe(true);
+  });
+});

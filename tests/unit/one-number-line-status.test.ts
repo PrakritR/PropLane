@@ -262,9 +262,10 @@ describe("a PropLane Service client (owner of record) is view only", () => {
       portal_schedule_records: [],
     });
   }
-  // The platform service owner's own line: Ambika is not the line owner, so she is served here even though the workspace is the owner's.
+  // The platform service owner's own line: her workspace IS owned by the line owner, which is the production
+  // shape in per_workspace mode — the filter must key on the texter, not on the workspace's owner.
   const asClient = (db: FakeDb, body: string) =>
-    handleLineMemberText(db as never, { fromPhone: FROM, body, phoneKey: KEY, mode: "service_line", lineOwnerUserId: "u-someone-else", now: NOW } as never);
+    handleLineMemberText(db as never, { fromPhone: FROM, body, phoneKey: KEY, mode: "service_line", lineOwnerUserId: LINE_OWNER, now: NOW } as never);
 
   it("is recognised through the owner-of-record seat the router drops, and sees her own workspace", async () => {
     const db = client();
@@ -272,6 +273,30 @@ describe("a PropLane Service client (owner of record) is view only", () => {
     const result = await asClient(db, "how are my houses doing");
     expect(result.handled && result.reply).toContain("Ambika Homes, October: 1 house, 2 of 3 rooms occupied.");
     expect(result.handled && result.reply).toContain("Rent collected $0 of $900, 1 unpaid.");
+  });
+
+  it("is answered on the service line even though the platform service owner owns her workspace", async () => {
+    // The membership filter exists to keep the LINE OWNER'S OWN workspaces on the work-number agent. Keying it
+    // on the workspace's owner instead removed every owner-of-record seat, which is this handler's audience.
+    const db = client();
+    const result = await handleLineMemberText(
+      db as never,
+      { fromPhone: FROM, body: "how is rent", phoneKey: KEY, mode: "service_line", lineOwnerUserId: LINE_OWNER, now: NOW } as never,
+    );
+    expect(result).toMatchObject({ handled: true, actorUserId: "u-amb" });
+    expect(result.handled && result.reply).toContain("Ambika Homes");
+  });
+
+  it("still leaves the line owner's OWN workspace to their work number", async () => {
+    const own = client();
+    own.tables.profiles![0]!.id = LINE_OWNER;
+    own.tables.portal_workspaces!.push({ id: "ws-line-own", name: "PropLane Homes", owner_user_id: LINE_OWNER, is_default: true, is_service: true });
+    own.tables.account_link_invites = [];
+    const result = await handleLineMemberText(
+      own as never,
+      { fromPhone: FROM, body: "status", phoneKey: KEY, mode: "service_line", lineOwnerUserId: LINE_OWNER, now: NOW } as never,
+    );
+    expect(result).toEqual({ handled: false });
   });
 
   it("is told it is view only when asking for a change", async () => {

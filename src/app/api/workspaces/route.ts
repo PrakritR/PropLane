@@ -174,6 +174,9 @@ export async function POST(request: Request) {
         const propertyId = typeof body.propertyId === "string" ? body.propertyId.trim() : "";
         if (propertyId) {
           const src = await db.from("manager_property_records").select("workspace_id").eq("id", propertyId).maybeSingle();
+          // Fail CLOSED, like the main lock: if the source workspace cannot be read we do not know whether it is
+          // a view-only one, and letting the move through is exactly the bypass this block exists to close.
+          if (src.error) return NextResponse.json({ ...MANAGED_READ_ONLY_BODY }, { status: 403 });
           movingFrom = String(src.data?.workspace_id ?? "").trim();
         }
       }

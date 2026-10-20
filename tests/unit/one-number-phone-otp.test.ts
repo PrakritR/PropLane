@@ -189,3 +189,37 @@ describe("verifyPhoneOtp", () => {
     expect(await verify(db, "123456")).toEqual({ ok: false, reason: "no_challenge" });
   });
 });
+
+describe("the failed-code cap is scoped to its PURPOSE", () => {
+  /** /api/public/phone-bind lets anyone holding a printed entry code name an arbitrary phone and guess at it. */
+  const bindSend = (db: never, now: Date) =>
+    requestPhoneOtp(db, { phoneKey: PHONE, purpose: "public_bind", subjectId: "entry-1", now, send: async () => true });
+  const bindVerify = (db: never, now: Date) =>
+    verifyPhoneOtp(db, { phoneKey: PHONE, purpose: "public_bind", subjectId: "entry-1", code: "000000", now });
+
+  /** Two sends plus five wrong codes each: the ten failures the 24-hour cap counts. */
+  async function burnPublicBindBudget(db: never) {
+    for (const offset of [0, 1000]) {
+      await bindSend(db, new Date(T0.getTime() + offset));
+      for (let i = 0; i < 5; i += 1) await bindVerify(db, new Date(T0.getTime() + offset + 100 + i));
+    }
+  }
+
+  it("locks the purpose that was actually guessed at", async () => {
+    const { db } = linksFakeDb();
+    await burnPublicBindBudget(db);
+    const later = new Date(T0.getTime() + 2 * HOUR);
+    expect((await bindVerify(db, later)).reason).toBe("locked");
+    expect(await bindSend(db, later)).toEqual({ ok: false, reason: "rate_limited" });
+  });
+
+  it("never locks the owner out of their rent link or texts them for it", async () => {
+    const { db } = linksFakeDb();
+    await burnPublicBindBudget(db);
+    // The victim's own purpose is untouched: a code still goes out, and it still verifies.
+    const later = new Date(T0.getTime() + 2 * HOUR);
+    const { result, code } = await request(db, { now: later });
+    expect(result.ok).toBe(true);
+    expect(await verify(db, code, new Date(later.getTime() + 1000))).toEqual({ ok: true });
+  });
+});

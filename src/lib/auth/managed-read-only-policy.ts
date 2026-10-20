@@ -130,14 +130,24 @@ export function managedReadOnlyInboxLockApplies(action: string | undefined, scop
 
 const TEAM_THREAD_PREFIX = "team-thread:";
 
+const AGENT_NOTICE_PREFIX = "agent_notice_";
+
 /**
  * Inbox thread ids a locked client may write: the Team chat of THIS workspace
- * (`team-thread:<owner>:ws:<workspace>`) and her own Assistant thread.
+ * (`team-thread:<owner>:ws:<workspace>`) and THEIR OWN Assistant thread
+ * (`agent_notice_<viewer>` for the default workspace, `agent_notice_<viewer>__<workspace>` otherwise —
+ * `managerAgentNoticeThreadId`). The `agent_notice_` prefix alone also named a staff member's Assistant.
  */
-export function managedReadOnlyInboxThreadAllowed(id: string, workspaceId: string, ownerUserId: string): boolean {
+export function managedReadOnlyInboxThreadAllowed(
+  id: string,
+  workspaceId: string,
+  ownerUserId: string,
+  viewerUserId: string,
+): boolean {
   const t = id.trim();
-  if (!t) return false;
-  if (t.startsWith("agent_notice_")) return true;
+  const viewer = viewerUserId.trim();
+  if (!t || !viewer) return false;
+  if (t === `${AGENT_NOTICE_PREFIX}${viewer}` || t === `${AGENT_NOTICE_PREFIX}${viewer}__${workspaceId.trim()}`) return true;
   return t === `${TEAM_THREAD_PREFIX}${ownerUserId.trim()}:ws:${workspaceId.trim()}`;
 }
 

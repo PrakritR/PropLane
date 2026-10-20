@@ -13,7 +13,7 @@ import {
   loadVendorContacts,
   requestApproval,
 } from "@/lib/vendor-dispatch/engine.server";
-import { isMissingRelationError, loadTradeRoster, matchDispatchRule } from "@/lib/vendor-dispatch/match.server";
+import { isMissingRelationError, loadTradeRoster, matchDispatchRule, reachableVendorDirectoryIds } from "@/lib/vendor-dispatch/match.server";
 import { sendVendorDispatchText } from "@/lib/vendor-dispatch/send.server";
 import { composeVendorOfferText, stripContactDetails, toGsm7, type DispatchJobDetails } from "@/lib/vendor-dispatch/text";
 import {
@@ -350,9 +350,13 @@ export async function retryDispatchRun(
     const roster = await loadTradeRoster(db, { ownerUserId: run.owner_user_id, trade: run.trade, propertyId: run.property_id, at: now });
     vendorIds = roster.slice(0, BROADCAST_ALL_CAP).map((vendor) => vendor.vendorDirectoryId);
   } else {
-    vendorIds = attempts.filter((attempt) => attempt.status !== "accepted").map((attempt) => attempt.vendor_directory_id);
-    const contacts = await loadVendorContacts(db, run.owner_user_id, vendorIds);
-    vendorIds = vendorIds.filter((id) => contacts.get(id)?.phone);
+    // Through the SAME reachability filter the first wave uses. Re-offering straight off the attempt rows and
+    // clearing `busy_until` texted a vendor who had just said BUSY (and an opted-out one) all over again.
+    vendorIds = await reachableVendorDirectoryIds(db, {
+      ownerUserId: run.owner_user_id,
+      vendorDirectoryIds: attempts.filter((attempt) => attempt.status !== "accepted").map((attempt) => attempt.vendor_directory_id),
+      at: now,
+    });
   }
   if (vendorIds.length === 0) return { ok: false, reason: "no_vendors" };
 

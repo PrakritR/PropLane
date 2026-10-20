@@ -1,11 +1,10 @@
 /** Retail credit and purchase price are equal; no automatic replenishment. */
 
 /**
- * @deprecated Kept only for the public pricing page's illustrative "$5, $10,
- * $25, $50" copy (`src/app/(public)/pricing/page.tsx`). The actual checkout
- * flow (Settings → Billing & plan → Extra usage) takes a typed whole-dollar
- * amount validated by `isValidCommsCreditAmountCents`, not a fixed pack —
- * see `docs/agents/comms-billing.md` § Purchases and stops.
+ * @deprecated No surface reads these any more: the standalone /pricing page that showed them illustratively is
+ * gone with the single-page marketing consolidation. The actual checkout flow (Settings -> Billing & plan ->
+ * Extra usage) takes a typed whole-dollar amount validated by `isValidCommsCreditAmountCents`, not a fixed pack
+ * — see `docs/agents/comms-billing.md` § Purchases and stops.
  */
 export const COMMS_CREDIT_PACKS_CENTS = [500, 1000, 2500, 5000] as const;
 export const COMMS_CREDIT_PURPOSE = "manager_communication_credit";

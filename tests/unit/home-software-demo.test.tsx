@@ -12,15 +12,22 @@ class Observer {
   emit(ratio = 1) { act(() => this.callback([{ isIntersecting: ratio > 0, intersectionRatio: ratio } as IntersectionObserverEntry], this as unknown as IntersectionObserver)); }
 }
 let motion = false;
+/** Whether the visitor's pointer can hover. A tap on a touch screen emits mouse events with no mouseleave. */
+let hoverCapable = true;
 const preload = () => Observer.instances.find((o) => o.options.rootMargin === "300px")!;
 const viewport = () => Observer.instances.find((o) => Array.isArray(o.options.threshold))!;
 
 beforeEach(() => {
   Observer.instances = [];
   motion = false;
+  hoverCapable = true;
   vi.stubGlobal("IntersectionObserver", Observer);
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
-  vi.stubGlobal("matchMedia", () => ({ get matches() { return motion; }, addEventListener: () => {}, removeEventListener: () => {} }));
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    get matches() { return query.includes("hover") ? hoverCapable : motion; },
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
   vi.spyOn(globalThis, "fetch").mockImplementation(() => { throw new Error("The sample cannot fetch"); });
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -173,6 +180,21 @@ describe("homepage Software demo", () => {
     expect(spy).toHaveBeenLastCalledWith({ type: HOME_DEMO_CONTROL, action: "play" }, window.location.origin);
     viewport().emit(0.1);
     expect(spy).toHaveBeenLastCalledWith({ type: HOME_DEMO_CONTROL, action: "pause" }, window.location.origin);
+  });
+
+  it("a tap on a touch screen never leaves the journey paused for good", () => {
+    // A tap fires mouseenter/mousemove with no mouseleave behind it, so a hover pause on a phone or a hybrid
+    // laptop stuck the Software demo until the visitor happened to tap a portal segment.
+    hoverCapable = false;
+    const view = render(<HomeSoftwareDemoPlayer />);
+    preload().emit(); viewport().emit();
+    const { frame, spy } = frameOf(view);
+    fromEmbed(frame, { type: HOME_DEMO_READY });
+    const section = view.container.querySelector("section")!;
+    fireEvent.mouseEnter(section);
+    fireEvent.mouseMove(view.container.querySelector(".home-software-demo-body")!);
+    expect(spy).toHaveBeenLastCalledWith({ type: HOME_DEMO_CONTROL, action: "play" }, window.location.origin);
+    expect(section).toHaveAttribute("data-playing", "true");
   });
 
   it("a press inside the portal pauses it, and moving off the section lets the journey go on (there is no pause button)", () => {

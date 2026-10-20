@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MANAGER_PLAN_TIERS } from "@/data/manager-plan-tiers";
+import { PROCESSING_FEES_FEATURE_TEXT } from "@/data/manager-plan-tiers";
 import type { CompareCell } from "@/components/marketing/site/pricing-compare-data";
 import { HomeSectionHeader } from "./home-section-header";
 import { HomePricingCompareReveal } from "./home-pricing-compare-reveal";
@@ -147,7 +147,7 @@ export function HomePricingCompare({ titleId }: { titleId?: string }) {
             </div>
           ))}
         </div>
-        <p className="home-compare-note">{MANAGER_PLAN_TIERS[0].features[8].text}.</p>
+        <p className="home-compare-note">{PROCESSING_FEES_FEATURE_TEXT}.</p>
       </div>
       </HomePricingCompareReveal>
     </div>

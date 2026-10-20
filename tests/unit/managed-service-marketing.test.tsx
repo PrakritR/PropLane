@@ -34,15 +34,14 @@ const read = (rel: string) => readFileSync(join(process.cwd(), rel), "utf8");
 const stripComments = (s: string) =>
   s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 
+// The /pricing/service and /why-proplane pages these used to include are gone: the home page's own service
+// and pricing sections carry that content, and they are held to the same no-invented-figure rule.
 const NEW_FILES = [
   "src/components/marketing/site/pricing-cards.tsx",
   "src/components/marketing/site/managed-service-sections.tsx",
   "src/components/marketing/site/track-record-band.tsx",
-  "src/app/(public)/pricing/service/page.tsx",
-  "src/app/(public)/why-proplane/page.tsx",
-  "src/app/(public)/why-proplane/track-record/page.tsx",
-  "src/app/(public)/why-proplane/how-we-manage/page.tsx",
-  "src/app/(public)/why-proplane/software/page.tsx",
+  "src/components/marketing/home-pricing-compare.tsx",
+  "src/components/marketing/home-pricing-compare-data.ts",
   "src/lib/marketing/managed-service.ts",
   "src/lib/marketing/track-record.ts",
 ];
@@ -129,8 +128,10 @@ describe("contact form", () => {
 
   it("posts to the existing contact route under a topic that route's page offers", async () => {
     expect(MANAGED_SERVICE_FORM_ENDPOINT).toBe("/api/public/contact-message");
-    expect(read("src/app/(public)/contact/page.tsx")).toContain(
-      `"${MANAGED_SERVICE_TOPIC}"`,
+    // The home page's Contact section is the one send surface, and it mounts this very form.
+    expect(read("src/app/(public)/page.tsx")).toContain("<ManagedServiceForm");
+    expect(read("src/components/marketing/site/managed-service-form.tsx")).toContain(
+      "topic: MANAGED_SERVICE_TOPIC",
     );
     expect(existsRoute("src/app/api/public/contact-message/route.ts")).toBe(
       true,
@@ -216,7 +217,7 @@ describe("crawl surfaces include the managed service", () => {
     expect(MARKETING_REDIRECTS).toContainEqual({
       source: "/service",
       destination: "/#service",
-      statusCode: 308,
+      statusCode: 307,
     });
   });
 });

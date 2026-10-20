@@ -220,10 +220,14 @@ export async function handleLineMemberText(db: SupabaseClient, input: HandleLine
   if (!profile) return { handled: false };
   const all = await listLineMemberships(db, profile.id, input.mode === "shared_line" ? { kinds: ["owner_of_record"] } : {}).catch(() => null);
   if (!all) return { handled: false };
+  // `service_line` drops only the LINE OWNER'S OWN workspaces: those are answered by the work-number agent, not
+  // here. It keys on the membership being theirs as owner, never on the workspace's owner — a PropLane Service
+  // workspace is owned by the platform service owner who holds the line, so keying on `ownerUserId` dropped
+  // exactly the audience this handler exists for (the client seated as owner of record, and their teammates).
   const memberships = all.filter((m) =>
     input.mode === "shared_line"
       ? m.kind === "owner_of_record"
-      : !input.lineOwnerUserId || m.ownerUserId !== input.lineOwnerUserId,
+      : !(input.lineOwnerUserId && m.kind === "owner" && m.ownerUserId === input.lineOwnerUserId),
   );
   if (memberships.length === 0) return { handled: false };
   const reply = (text: string): LineMemberResult => ({ handled: true, reply: text, actorUserId: profile.id });

@@ -14,7 +14,8 @@ import { COMPARE } from "@/components/marketing/site/pricing-compare-data";
 
 const TARGET_FILES = [
   "src/components/marketing/site/pricing-compare-data.tsx",
-  "src/app/(public)/pricing/page.tsx",
+  "src/components/marketing/home-pricing-compare.tsx",
+  "src/components/marketing/home-pricing-compare-data.ts",
 ];
 
 /** Strips `//` and `/* *‍/` comments so a doc-comment mentioning "door" (an

@@ -29,20 +29,26 @@ export type VerifyOtpResult =
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
-/** Wrong codes allowed per phone in any 24 hours, across every purpose and link. The cap in SQL (`phone_auth_failed_code_count`) is the same number. */
+/**
+ * Wrong codes allowed per phone PER PURPOSE in any 24 hours. Scoped to the purpose on purpose: the public-bind
+ * door lets anyone holding a printed entry code name an arbitrary phone, so an account-wide count let a few
+ * cheap wrong guesses there lock the owner of that phone out of their rent link and phone sign-in for a day.
+ * The cap in SQL (`phone_auth_failed_code_count`) is the same number and the same scope.
+ */
 export const PHONE_LIFETIME_FAILED_CODE_CAP = 10;
 
 /**
- * True when this phone has burned its failed-code budget for the last 24 hours. A failure is an
+ * True when this phone has burned its failed-code budget for this purpose in the last 24 hours. A failure is an
  * attempt that did not verify its challenge; one attempt on a verified challenge is the success.
  * Fails closed: a read that errors locks rather than lets a guess through (a missing table means
  * there is no challenge to guess, which verify reports separately).
  */
-async function phoneLockedOut(db: SupabaseClient, phoneKey: string, now: Date): Promise<boolean> {
+async function phoneLockedOut(db: SupabaseClient, phoneKey: string, purpose: PhoneOtpPurpose, now: Date): Promise<boolean> {
   const { data, error } = await db
     .from("phone_otp_challenges")
     .select("attempts, verified_at")
     .eq("phone_key", phoneKey)
+    .eq("purpose", purpose)
     .gte("created_at", new Date(now.getTime() - DAY_MS).toISOString());
   if (error) return !isMissingSchemaError(error);
   let failures = 0;
@@ -106,8 +112,8 @@ export async function requestPhoneOtp(
   const phoneKey = input.phoneKey.trim();
   if (!/^\d{10}$/.test(phoneKey)) return { ok: false, reason: "unavailable" };
 
-  // A phone that has burned its failed-code budget gets no more texts until the failures age out.
-  if (await phoneLockedOut(db, phoneKey, now)) return { ok: false, reason: "rate_limited" };
+  // A phone that has burned this purpose's failed-code budget gets no more texts for it until the failures age out.
+  if (await phoneLockedOut(db, phoneKey, input.purpose, now)) return { ok: false, reason: "rate_limited" };
 
   // At most 3 sends per phone per rolling hour, across every purpose and subject.
   const since = new Date(now.getTime() - HOUR_MS).toISOString();
@@ -170,8 +176,8 @@ export async function verifyPhoneOtp(
   const now = input.now ?? new Date();
   const phoneKey = input.phoneKey.trim();
 
-  // Lifetime cap: ten wrong codes for this phone in 24 hours locks it, even for the right code.
-  if (await phoneLockedOut(db, phoneKey, now)) return { ok: false, reason: "locked" };
+  // Lifetime cap: ten wrong codes for this phone and purpose in 24 hours lock it, even for the right code.
+  if (await phoneLockedOut(db, phoneKey, input.purpose, now)) return { ok: false, reason: "locked" };
 
   let query = db
     .from("phone_otp_challenges")

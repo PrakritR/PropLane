@@ -16,13 +16,18 @@ const targets = [
 ];
 
 describe("single-page marketing routes", () => {
-  it("registers exact 308 redirects without intermediate hops", async () => {
+  it("registers exact TEMPORARY redirects without intermediate hops, and no page behind any of them", async () => {
     const redirects = await nextConfig.redirects!();
     for (const [source, destination] of targets) {
-      expect(redirects.filter((r) => r.source === source)).toEqual([{ source, destination, statusCode: 308 }]);
+      // 307, not 308: a permanent redirect is cached hard, so giving one of these its own page again would
+      // never reach a visitor who had already followed it.
+      expect(redirects.filter((r) => r.source === source)).toEqual([{ source, destination, statusCode: 307 }]);
       const path = destination.split("#")[0];
       expect(existsSync(`src/app/(public)${path === "/" ? "" : path}/page.tsx`)).toBe(true);
       expect(redirects.some((r) => r.source === path)).toBe(false);
+      // `redirects()` outranks the app router, so a page left under a redirected route is unreachable code.
+      const shadowed = source.replace(/\/:path\+$/, "");
+      expect(existsSync(`src/app/(public)${shadowed}/page.tsx`), `${shadowed} must have no page`).toBe(false);
     }
   });
 

@@ -43,6 +43,7 @@ describe("classifyOwnerText", () => {
     expect(classifyOwnerText("N 2")).toMatchObject({ kind: "approve", approve: false, index: 2 });
     expect(classifyOwnerText("y1")).toMatchObject({ kind: "approve", approve: true, index: 1 });
     expect(classifyOwnerText("Y all")).toMatchObject({ kind: "approve", approve: true, all: true });
+    expect(classifyOwnerText("APPROVE")).toMatchObject({ kind: "approve", approve: true, explicit: true });
     expect(classifyOwnerText("statement").kind).toBe("statement");
     expect(classifyOwnerText("How's my house doing?").kind).toBe("status");
     expect(classifyOwnerText("balance").kind).toBe("status");
@@ -80,10 +81,10 @@ describe("the owner lane", () => {
     expect(await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "Y" })).toEqual({ handled: false });
     expect(decide).not.toHaveBeenCalled();
   });
-  it("one waiting repair: Y approves it as this owner, over SMS", async () => {
+  it("one waiting repair: APPROVE approves it as this owner, over SMS", async () => {
     pending.value = [{ id: "e1", title: "Leak repair", amountCents: 24_000 }];
     decide.mockResolvedValue({ status: "approved", expenseId: "e1" });
-    const r = await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "Y" });
+    const r = await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "APPROVE" });
     expect(decide).toHaveBeenCalledWith(expect.anything(), { expenseId: "e1", ownerUserId: "own-1", approve: true, via: "sms" }, expect.any(Date));
     expect((r as { reply: string }).reply).toContain("Approved: Leak repair");
   });
@@ -92,23 +93,50 @@ describe("the owner lane", () => {
     decide.mockResolvedValue({ status: "declined", expenseId: "e1" });
     expect((await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "n" }) as { reply: string }).reply).toContain("Declined");
   });
-  it("several waiting: a bare Y asks which, Y2 picks the second, Y all approves every one", async () => {
+  it("several waiting: a bare APPROVE asks which, Y2 picks the second, APPROVE all approves every one", async () => {
     pending.value = [{ id: "e1", title: "Leak", amountCents: 24_000 }, { id: "e2", title: "Fence", amountCents: 90_000 }];
     decide.mockResolvedValue({ status: "approved" });
-    const ask = await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "Y" });
+    const ask = await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "approve" });
     expect((ask as { reply: string }).reply).toContain("2 repairs waiting");
     expect(decide).not.toHaveBeenCalled();
     await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "Y2" });
     expect(decide.mock.calls[0]![1]).toMatchObject({ expenseId: "e2" });
     decide.mockClear();
-    const all = await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "Y all" });
+    const all = await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "APPROVE all" });
     expect(decide).toHaveBeenCalledTimes(2);
     expect((all as { reply: string }).reply).toBe("Approved 2 repairs.");
   });
+  it("a bare y / yes / ok / okay never approves: it asks which repair", async () => {
+    // "ok" is the ordinary reply to any text PropLane sends; it must not charge the owner for a repair.
+    pending.value = [{ id: "e1", title: "Leak repair", amountCents: 24_000 }];
+    decide.mockResolvedValue({ status: "approved", expenseId: "e1" });
+    for (const body of ["y", "yes", "ok", "okay", "Yes"]) {
+      const r = await handleOwnerLine(db().db, { fromPhone: "+12065550100", body });
+      expect(r, body).toMatchObject({ handled: true });
+      expect((r as { reply: string }).reply, body).toMatch(/Which one\?/);
+      expect(decide, body).not.toHaveBeenCalled();
+    }
+    // Naming it is enough, and so is the word.
+    await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "Y1" });
+    expect(decide).toHaveBeenCalledWith(expect.anything(), { expenseId: "e1", ownerUserId: "own-1", approve: true, via: "sms" }, expect.any(Date));
+  });
+
+  it("an unnamed approval of a stale prompt asks which repair instead", async () => {
+    pending.value = [{ id: "e1", title: "Leak repair", amountCents: 24_000, requestedAt: "2026-10-01T00:00:00.000Z" } as never];
+    decide.mockResolvedValue({ status: "approved", expenseId: "e1" });
+    const now = new Date("2026-10-19T00:00:00.000Z");
+    const stale = await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "approve", now });
+    expect((stale as { reply: string }).reply).toMatch(/Which one\?/);
+    expect(decide).not.toHaveBeenCalled();
+    // Naming the repair still answers it, however old the prompt is.
+    await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "approve 1", now });
+    expect(decide).toHaveBeenCalledTimes(1);
+  });
+
   it("an answer already given is said so, and an out-of-range number asks again", async () => {
     pending.value = [{ id: "e1", title: "Leak", amountCents: 24_000 }];
     decide.mockResolvedValue({ status: "already_decided" });
-    expect((await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "Y" }) as { reply: string }).reply).toContain("already answered");
+    expect((await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "approve" }) as { reply: string }).reply).toContain("already answered");
     pending.value = [{ id: "e1", title: "Leak", amountCents: 24_000 }, { id: "e2", title: "Fence", amountCents: 1_000 }];
     expect((await handleOwnerLine(db().db, { fromPhone: "+12065550100", body: "Y9" }) as { reply: string }).reply).toContain("2 repairs waiting");
   });

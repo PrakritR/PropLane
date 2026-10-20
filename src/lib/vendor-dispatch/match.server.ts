@@ -233,6 +233,22 @@ export async function loadRuleChain(
   return toChain(db, rule.owner_user_id, ordered, records, at);
 }
 
+/**
+ * The subset of these roster entries that may be texted right now, in the order given: the SAME busy-window and
+ * opt-out rules the first wave applies. A re-offer must go through this, never straight off the attempt rows.
+ */
+export async function reachableVendorDirectoryIds(
+  db: SupabaseClient,
+  input: { ownerUserId: string; vendorDirectoryIds: readonly string[]; at?: Date },
+): Promise<string[]> {
+  const ordered = [...new Set(input.vendorDirectoryIds.filter(Boolean))];
+  if (ordered.length === 0) return [];
+  const records = await loadRecords(db, ordered);
+  const chain = await toChain(db, input.ownerUserId, ordered, records, input.at ?? new Date());
+  const reachable = new Set(chain.map((vendor) => vendor.vendorDirectoryId));
+  return ordered.filter((id) => reachable.has(id));
+}
+
 /** Every reachable vendor of the trade on this manager's roster (the "offer all cleaners at once" set). */
 export async function loadTradeRoster(
   db: SupabaseClient,
