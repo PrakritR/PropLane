@@ -13,6 +13,8 @@ import {
   attestPolicy,
   createDraftPolicy,
   endPolicy,
+  ensureServiceFeePolicy,
+  setServiceManagementFee,
   listManagedWorkspacesForOwner,
   loadActivePolicyForWorkspace,
   loadPolicy,
@@ -80,7 +82,8 @@ function activateRpc(args: Record<string, unknown>, f: OwnerFakeDb) {
 function seed(extra: Record<string, FakeRow[]> = {}, rpc: Record<string, (args: Record<string, unknown>, f: OwnerFakeDb) => unknown> = {}) {
   return fakeOwnerDb(
     {
-      portal_workspaces: [{ id: WS, owner_user_id: PL, name: "Seattle Homes" }],
+      portal_workspaces: [{ id: WS, owner_user_id: PL, name: "Seattle Homes", is_service: true }],
+      platform_service_settings: [{ singleton: true, owner_user_id: PL }],
       account_link_invites: [{ id: "i1", workspace_id: WS, invitee_user_id: OWNER, status: "accepted" }],
       profiles: [{ id: OWNER, email: "o@x.test", phone: "+12065550100", phone_verified_at: "2026-01-01" }],
       managed_workspace_fee_policies: [],
@@ -122,6 +125,91 @@ describe("drafting", () => {
     const edited = await updateDraftPolicy(f.db, admin, d.id, { terms: { ...terms, ownerShareBps: 8500 } });
     expect(edited.sentAt).toBeNull();
     await expect(signPolicy(f.db, OWNER, d.id, policyTermsHash(edited))).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+describe("the owner of record rule", () => {
+  it("a client who owns an attached workspace IS its owner of record; the platform service owner never is", async () => {
+    const client = "client-1";
+    const f = seed({ portal_workspaces: [{ id: WS, owner_user_id: client, name: "1. Ambika", is_service: true }] });
+    const row = await createDraftPolicy(f.db, admin, { ...input, ownerUserId: client });
+    expect(row).toMatchObject({ status: "draft", ownerUserId: client });
+    // The same person on a workspace the service owner owns: refused (it would pay PropLane its own owner share).
+    const g = seed();
+    await expect(createDraftPolicy(g.db, admin, { ...input, ownerUserId: PL })).rejects.toMatchObject({ status: 422 });
+  });
+});
+
+describe("the automatic management fee", () => {
+  const CLIENT = "client-1";
+  const clientOwned = (extra: Record<string, FakeRow[]> = {}) =>
+    seed({ portal_workspaces: [{ id: WS, owner_user_id: CLIENT, name: "1. Ambika", is_service: true }], ...extra });
+
+  it("creates the 10% policy for a client-owned workspace, owner of record = the client, admin-attested, no signature", async () => {
+    const f = clientOwned();
+    const r = await ensureServiceFeePolicy(f.db, WS);
+    expect(r.status).toBe("created");
+    const policy = (r as { policy: Awaited<ReturnType<typeof loadPolicy>> & object }).policy;
+    expect(policy).toMatchObject({ status: "active", ownerUserId: CLIENT, acceptedVia: "admin_attested" });
+    expect(policy.terms).toEqual({ ownerShareBps: 9000, appliesTo: "rent", leasingFeeBps: 0, minFeeCents: 0, reserveTargetCents: 0, repairApprovalThresholdCents: 25_000 });
+    const call = f.rpcCalls.find((c) => c.name === "activate_managed_policy")!;
+    expect(call.args).toMatchObject({ p_via: "admin_attested", p_note: "Automatic PropLane management fee", p_actor_role: "system" });
+    expect(email).not.toHaveBeenCalled();
+    expect(text).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent: an active policy is left alone", async () => {
+    const f = clientOwned();
+    await ensureServiceFeePolicy(f.db, WS);
+    const again = await ensureServiceFeePolicy(f.db, WS);
+    expect(again.status).toBe("exists");
+    expect(f.rpcCalls.filter((c) => c.name === "activate_managed_policy")).toHaveLength(1);
+    expect(f.rows.managed_workspace_fee_policies).toHaveLength(1);
+  });
+
+  it("a service-owner-owned workspace uses its flagged owner-of-record member, and says no_owner without one", async () => {
+    const none = seed();
+    expect((await ensureServiceFeePolicy(none.db, WS)).status).toBe("no_owner");
+    expect(none.rows.managed_workspace_fee_policies).toHaveLength(0);
+    const f = seed({ account_link_invites: [{ id: "i1", workspace_id: WS, invitee_user_id: OWNER, status: "accepted", is_owner_of_record: true }] });
+    const r = await ensureServiceFeePolicy(f.db, WS);
+    expect(r).toMatchObject({ status: "created", policy: { ownerUserId: OWNER } });
+  });
+
+  it("skips a workspace that is not a service workspace, and never throws on an unreadable one", async () => {
+    const f = seed({ portal_workspaces: [{ id: WS, owner_user_id: CLIENT, name: "Self serve", is_service: false }] });
+    expect((await ensureServiceFeePolicy(f.db, WS)).status).toBe("not_service");
+    const g = fakeOwnerDb({ portal_workspaces: [] }, { broken: ["managed_workspace_fee_policies"] });
+    expect((await ensureServiceFeePolicy(g.db, WS)).status).toBe("not_service");
+    const h = clientOwned();
+    const broken = { ...h.db, from: () => { throw new Error("boom"); } } as never;
+    expect((await ensureServiceFeePolicy(broken, WS)).status).toBe("unavailable");
+  });
+
+  it("replaces a stale unsent draft rather than leaving it signable", async () => {
+    const f = clientOwned({ managed_workspace_fee_policies: [{ id: "old", workspace_id: WS, owner_user_id: CLIENT, status: "draft", owner_share_bps: 8000, applies_to: "rent", leasing_fee_bps: 0, min_fee_cents: 0, reserve_target_cents: 0, repair_approval_threshold_cents: 25_000, effective_from: "2026-01-01", sent_at: "2026-01-02T00:00:00Z" }] });
+    expect((await ensureServiceFeePolicy(f.db, WS)).status).toBe("created");
+    expect((await loadPolicy(f.db, "old"))?.status).toBe("ended");
+    expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(9000);
+  });
+
+  it("the admin fee change versions the policy: new rate active, the old one ended, one active at a time", async () => {
+    const f = clientOwned();
+    const first = (await ensureServiceFeePolicy(f.db, WS)) as { policy: { id: string } };
+    const next = await setServiceManagementFee(f.db, admin, WS, 15);
+    expect(next).toMatchObject({ status: "active", ownerUserId: CLIENT, acceptedVia: "admin_attested" });
+    expect(next.terms.ownerShareBps).toBe(8500);
+    expect(next.id).not.toBe(first.policy.id);
+    expect((await loadPolicy(f.db, first.policy.id))?.status).toBe("ended");
+    expect(f.rows.managed_workspace_fee_policies!.filter((r) => r.status === "active")).toHaveLength(1);
+    // Same rate again: nothing new.
+    expect((await setServiceManagementFee(f.db, admin, WS, 15)).id).toBe(next.id);
+    // 0% and 30% are the ends of the range; 31% and nonsense are refused before anything is written.
+    expect((await setServiceManagementFee(f.db, admin, WS, 0)).terms.ownerShareBps).toBe(10_000);
+    expect((await setServiceManagementFee(f.db, admin, WS, "30")).terms.ownerShareBps).toBe(7000);
+    for (const bad of [31, -1, "abc", 12.345, null]) {
+      await expect(setServiceManagementFee(f.db, admin, WS, bad)).rejects.toMatchObject({ status: 400 });
+    }
   });
 });
 

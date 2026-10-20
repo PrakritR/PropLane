@@ -190,23 +190,24 @@ capture crediting, refunds, disputes, vendor bills, balances, withdrawals, recon
 - `POST /api/portal/managed-finance/vendor-charge` needs a target holding the vendor role in `profile_roles`, on the workspace manager's `manager_vendor_records` roster, and not the caller. Auto-approved bills per workspace are capped at 4 repair thresholds per 24h; past it the owner is asked.
 
 
-## Unsigned service workspace (`is_service`, no active policy)
+## Automatic management fee (`is_service`)
 
-A workspace is PropLane-managed only while an ACTIVE, signed `managed_workspace_fee_policies` row exists; `is_service` alone is
-not enough. A service workspace whose fee agreement is not signed yet is therefore NOT managed, and without a guard its rent would
-be captured for the manager of record and transferred to that person's personal Connect account. Until the agreement is signed
-(`src/lib/managed-finance/unpolicied-service.server.ts`):
+A workspace is PropLane-managed only while an ACTIVE `managed_workspace_fee_policies` row exists. For every `is_service`
+workspace that row is created automatically, with no signature: `ensureServiceFeePolicy` (`src/lib/owner-management/policies.server.ts`)
+is idempotent and makes an admin-attested policy (note "Automatic PropLane management fee", PropLane keeps 10%, appliesTo `rent`,
+no leasing fee or minimum) on attach, on create, and lazily wherever a service workspace is found without one (checkout, autopay,
+platform-capture decision, hold release; `unpolicied-service.server.ts`). The owner of record is the workspace's owner when a client
+owns it (attached), or its flagged owner-of-record member when the platform service owner owns it. `createDraftPolicy` refuses an
+owner of record equal to the workspace owner ONLY when that owner is the platform service owner.
 
-- **New resident checkouts are refused** (`serviceSetupPendingProblem`, next to `managedCartProblem`; 422 `SERVICE_SETUP_PENDING`):
-  "Payments for this home are being set up. Your manager will text you a link shortly." A failed read refuses too.
-- **Hold releases are frozen** for the manager of record (`releaseVerifiedPlatformHoldsForOwner`): a NEW release stays held and
-  visible (counted pending); an attempt that was already reserved may finish, because its transfer may already exist at Stripe.
-  Owner-wide on purpose (a hold row does not name its house): a manager who also runs a self-serve house is delayed, never
-  misdirected, until the agreement is signed.
-- **Application, linked-form and other destination-capable checkouts capture on the platform balance**
-  (`platformCaptureRequiredForProperty`: managed or unsigned-service houses never get a destination charge to the manager's account).
-- **An admin attention item** is raised: an `owner_ledger_flags` row `fee_agreement_unsigned` per workspace per day with the message
-  "Sign the fee agreement for <workspace>", shown under Admin > Finances > Flags.
+- Admin changes the rate in Admin > Service > Management fee (0 to 30%): a new version is activated by `activate_managed_policy`,
+  which ends the old active row in the same transaction (`setServiceManagementFee`). The owner just sees the fee in the Owner
+  payouts strip; there is no signing step.
+- Fail-closed fallback, only when the automatic fee cannot be created (an unreadable table, or no owner of record to name): new
+  resident checkouts are refused (`serviceSetupPendingProblem`, 422 `SERVICE_SETUP_PENDING`), hold releases for the manager of record
+  stay frozen, destination-capable checkouts capture on the platform balance, and an `owner_ledger_flags` row `fee_agreement_unsigned`
+  (per workspace per day; the name is historical) says to name the owner of record.
+- Rent already held for a manager of record before the policy existed is released to that manager without the fee once the policy exists.
 
 ## Application and form fees (decision)
 

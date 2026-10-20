@@ -13,6 +13,7 @@ import { proplaneIdLookupVariants } from "@/lib/manager-id";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { loadSharedLineConfig, workspaceHasDedicatedNumber, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { isPlatformServiceOwner, loadServiceWorkspace, resolveServiceOwner } from "@/lib/service/service-owner.server";
+import { ensureServiceFeePolicy, setServiceManagementFee, PolicyError, type PolicyRow } from "@/lib/owner-management/policies.server";
 
 /**
  * PropLane Service workspaces (admin Service tab). Ordinary `portal_workspaces`
@@ -74,6 +75,8 @@ export type ServiceWorkspaceListRow = {
   /** What the viewing operator is in this workspace; null = not a member (cannot open it). */
   viewerRole: string | null;
   canManage: boolean;
+  /** Percent PropLane keeps of this workspace's rent (its active management fee), null until one exists. */
+  feePercent: number | null;
 };
 
 export type ServiceListPayload = {
@@ -150,6 +153,7 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
   const ids = rows.map((r) => r.id);
   if (ids.length === 0) return { ok: true, payload: { configured, ownerUserId, workspaces: [] } };
 
+  const feePercents = await serviceFeePercents(db, ids);
   const [houses, numbers, links, sharedLine] = await Promise.all([
     db.from("manager_property_records").select("id, workspace_id, manager_user_id").in("workspace_id", ids),
     db.from("manager_sms_numbers").select("workspace_id, phone_number, provision_state, released_at").in("workspace_id", ids),
@@ -198,6 +202,7 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
       teamCount: members.filter((l) => l.status === "accepted").length,
       viewerRole: myRole,
       canManage: myRole === "owner" || myRole === "admin" || myRole === "full",
+      feePercent: feePercents.get(row.id) ?? null,
     };
   });
   return { ok: true, payload: { configured, ownerUserId, workspaces: out } };
@@ -297,6 +302,9 @@ export async function createServiceWorkspace(
       return fail(member.status, member.error);
     }
   }
+  // The automatic management fee. A new workspace has no owner of record yet, so this usually answers "no_owner" and the fee is
+  // created the first time anything needs it; it never blocks creating the workspace.
+  await ensureServiceFeePolicy(db, id, { role: "admin", userId: operatorUserId });
   return { ok: true, id };
 }
 
@@ -410,7 +418,60 @@ export async function attachWorkspaceToService(
     if (seat.added && seat.linkId) seated.push(seat.linkId);
   }
   await updateAuditResult(actor, auditKey, { applied: true });
+  // The automatic management fee (no signature): the client who owns the attached workspace is its owner of record.
+  await ensureServiceFeePolicy(db, workspace.id, { role: "admin", userId: operatorUserId });
   return { ok: true, id: workspace.id };
+}
+
+/**
+ * Admin > Service > Management fee: the percent PropLane keeps of a service workspace's rent (0 to 30). A new policy version at
+ * that rate replaces the active one atomically (`setServiceManagementFee`). The operator must be a platform admin and the
+ * workspace must carry the service flag; the audit row is written before the change, so no audit row means no change.
+ */
+export async function setServiceWorkspaceFee(
+  db: SupabaseClient,
+  operatorUserId: string,
+  input: { id: string; percent: unknown },
+): Promise<ServiceResult<{ feePercent: number }>> {
+  if (!(await userHoldsAdminRole(db, operatorUserId))) return fail(403, "Only a PropLane admin can change the management fee.");
+  const workspace = await loadServiceWorkspace(db, input.id);
+  if (!workspace) return fail(404, "Service workspace not found.");
+  const percent = typeof input.percent === "number" ? input.percent : typeof input.percent === "string" && input.percent.trim() !== "" ? Number(input.percent) : NaN;
+  if (!Number.isFinite(percent) || percent < 0 || percent > 30) return fail(400, "Enter a fee between 0 and 30%.");
+  const auditKey = `admin_service_fee:${workspace.id}:${Date.now()}`;
+  const actor = { db, landlordId: workspace.ownerUserId, userId: operatorUserId };
+  const audit = await writeAuditLog(actor, {
+    action: "admin_service_fee",
+    toolName: "admin_service_fee",
+    inputSummary: { workspaceId: workspace.id, feePercent: percent },
+    resultSummary: { applied: false },
+    dedupeKey: auditKey,
+  });
+  if (!audit.recorded) return fail(503, "Could not record the audit entry, so nothing was changed. Please retry.");
+  let policy: PolicyRow;
+  try {
+    policy = await setServiceManagementFee(db, { role: "admin", userId: operatorUserId }, workspace.id, percent);
+  } catch (e) {
+    await updateAuditResult(actor, auditKey, { applied: false, error: "refused" });
+    if (e instanceof PolicyError) return fail(e.status, e.message);
+    return fail(503, "Could not change the management fee. Please retry.");
+  }
+  await updateAuditResult(actor, auditKey, { applied: true, policyId: policy.id });
+  return { ok: true, feePercent: (10_000 - policy.terms.ownerShareBps) / 100 };
+}
+
+/** The percent PropLane keeps for each service workspace right now (null: no active policy yet). Never throws. */
+export async function serviceFeePercents(db: SupabaseClient, workspaceIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (workspaceIds.length === 0) return out;
+  const { data, error } = await db
+    .from("managed_workspace_fee_policies")
+    .select("workspace_id, owner_share_bps")
+    .in("workspace_id", workspaceIds)
+    .eq("status", "active");
+  if (error) return out;
+  for (const r of (data ?? []) as { workspace_id: string; owner_share_bps: number }[]) out.set(String(r.workspace_id), (10_000 - Number(r.owner_share_bps)) / 100);
+  return out;
 }
 
 export type ServiceAttachCandidate = { id: string; name: string; ownerName: string; ownerEmail: string };

@@ -39,6 +39,7 @@ export type ServiceRow = {
   teamCount: number;
   viewerRole: string | null;
   canManage: boolean;
+  feePercent?: number | null;
 };
 
 type TeamState = {
@@ -117,6 +118,8 @@ export function AdminServicePanel() {
   const [addOpen, setAddOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
+  const [feeOpen, setFeeOpen] = useState(false);
+  const [feeDraft, setFeeDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
@@ -263,6 +266,26 @@ export function AdminServicePanel() {
     }
   };
 
+  const saveFee = async () => {
+    if (!selected) return;
+    setBusy(true);
+    setFormError(null);
+    try {
+      const { ok, json } = await post({ action: "fee", id: selected.id, percent: feeDraft.trim() });
+      if (!ok) {
+        setFormError(json.error ?? "Could not change the management fee.");
+        return;
+      }
+      setFeeOpen(false);
+      showToast("Management fee updated.");
+      reload();
+    } catch {
+      setFormError("Could not change the management fee.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const addMember = async () => {
     if (!selected || !candidateId) return;
     setBusy(true);
@@ -371,6 +394,15 @@ export function AdminServicePanel() {
             onClick={() => { setCandidateId(""); setInviteId(""); setInviteOwner(false); setTeamOpen(true); void loadTeam(selected.id); }}
           >
             Team
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_BULK_BAR_BTN}
+            data-attr="admin-service-fee"
+            onClick={() => { setFormError(null); setFeeDraft(String(selected.feePercent ?? 10)); setFeeOpen(true); }}
+          >
+            Management fee
           </Button>
           {serviceWorkspaceFinancesHref(selected.id) ? (
             <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-service-finances" onClick={() => window.location.assign(serviceWorkspaceFinancesHref(selected.id)!)}>
@@ -557,6 +589,28 @@ export function AdminServicePanel() {
             <Input value={clientDraft} onChange={(e) => setClientDraft(e.target.value)} maxLength={80} data-attr="admin-service-rename-client" />
           </label>
         </div>
+        {formError ? <p className="mt-2 text-[13px] text-[var(--status-overdue-fg)]" role="alert">{formError}</p> : null}
+      </Modal>
+
+      <Modal
+        open={feeOpen}
+        title="Management fee"
+        onClose={() => setFeeOpen(false)}
+        contextPanel={null}
+        preview={null}
+        dataAttr="admin-service-fee-modal"
+        footer={
+          <ModalFooter>
+            <Button type="button" disabled={busy || !(Number(feeDraft) >= 0 && Number(feeDraft) <= 30) || feeDraft.trim() === ""} data-attr="admin-service-fee-save" onClick={() => void saveFee()}>
+              Save
+            </Button>
+          </ModalFooter>
+        }
+      >
+        <label className="block text-[13px] font-semibold text-foreground">
+          <span className="mb-1 block">Percent of rent (0 to 30)</span>
+          <Input type="number" inputMode="decimal" min={0} max={30} step={0.5} value={feeDraft} onChange={(e) => setFeeDraft(e.target.value)} data-attr="admin-service-fee-percent" />
+        </label>
         {formError ? <p className="mt-2 text-[13px] text-[var(--status-overdue-fg)]" role="alert">{formError}</p> : null}
       </Modal>
 

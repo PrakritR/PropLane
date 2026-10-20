@@ -419,9 +419,9 @@ export async function chargeAutopay(
   const loadedCharge = loaded[0]!;
 
   // The same two gates manual checkout applies (`stripe-household-charge-checkout.server.ts`). An off-session debit
-  // is still a payment: a PropLane-managed cart that cannot be allocated, or an is_service workspace whose fee
-  // agreement is unsigned, must refuse it. `serviceSetupPendingProblem` raises the admin "sign the fee agreement"
-  // flag as it refuses; the enrollment is untouched, so the next run charges once the agreement is signed.
+  // is still a payment: a PropLane-managed cart that cannot be allocated, or an is_service workspace that has no
+  // management fee and could not be given one. `serviceSetupPendingProblem` gives it the automatic fee and proceeds; only if
+  // that fails does it refuse (and flag), leaving the enrollment untouched so the next run charges.
   const propertyIds = loaded.map((row) => row.charge.propertyId);
   const managedProblem = await managedCartProblem(db, propertyIds);
   if (managedProblem) {
