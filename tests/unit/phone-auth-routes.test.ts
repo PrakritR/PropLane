@@ -24,7 +24,7 @@ vi.mock("@/lib/auth/phone-auth.server", () => ({
   PHONE_AUTH_ERROR: "We couldn't verify this number. Try again or contact your manager.",
   PHONE_BROWSER_COOKIE: "proplane_phone_browser", PHONE_OLD_COOKIE: "proplane_phone_old",
   newPhoneBrowserSecret: () => "new-browser-secret", startPhoneChallenge: mocks.start, verifyPhoneChallenge: mocks.verify,
-  phoneAuthEnabled: mocks.enabled, readPhoneIdentity: mocks.identity, needsPhoneVerification: mocks.needsPhone,
+  phoneAuthEnabled: mocks.enabled, phoneVerificationEnabled: mocks.enabled, readPhoneIdentity: mocks.identity, needsPhoneVerification: mocks.needsPhone,
 }));
 
 import { GET } from "@/app/api/auth/phone/route";
@@ -82,6 +82,21 @@ describe("phone auth routes", () => {
     expect(mocks.start).toHaveBeenCalledWith(expect.objectContaining({ userId: "user", browser: "new-browser-secret" }));
     expect(mocks.cookieSet).toHaveBeenCalledWith("proplane_phone_browser", "new-browser-secret", expect.objectContaining({ httpOnly: true, secure: true, sameSite: "strict", maxAge: 600 }));
     expect(await response.json()).toEqual({ challengeId: ID });
+  });
+
+  it("a code that could not be SENT answers sendFailed and sets the signed proof the skip route needs; other failures do not", async () => {
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-key");
+    const { PhoneSendFailedError } = await import("@/lib/auth/phone-required.server");
+    mocks.start.mockRejectedValueOnce(new PhoneSendFailedError(PHONE_AUTH_ERROR));
+    const failed = await start(request({ phone: "+12065550100", purpose: "verify_phone" }));
+    expect(failed.status).toBe(400);
+    expect(await failed.json()).toEqual({ error: PHONE_AUTH_ERROR, sendFailed: true });
+    expect(mocks.cookieSet).toHaveBeenCalledWith("proplane_phone_send_failed", expect.stringMatching(/^\d+\./), expect.objectContaining({ httpOnly: true }));
+    mocks.cookieSet.mockClear();
+    mocks.start.mockRejectedValueOnce(new Error("bad phone"));
+    const other = await start(request({ phone: "+12065550100", purpose: "verify_phone" }));
+    expect(await other.json()).toEqual({ error: PHONE_AUTH_ERROR });
+    expect(mocks.cookieSet).not.toHaveBeenCalled();
   });
 
   it("limits sends per IP and for the whole endpoint, before any challenge or cookie", async () => {

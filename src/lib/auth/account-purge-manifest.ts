@@ -1116,6 +1116,14 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["user_id"] },
   },
   {
+    // Sign-up by text: the finished session names the login it made (its typed answers are dropped at completion).
+    table: "sms_signup_sessions",
+    phase: 1,
+    manager: { ids: ["user_id"] },
+    vendor: { ids: ["user_id"] },
+    resident: { ids: ["user_id"] },
+  },
+  {
     // Shared-line shadow log: what the router would have decided vs the real owner.
     table: "sms_line_shadow_decisions",
     phase: 1,
