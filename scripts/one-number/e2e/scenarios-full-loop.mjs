@@ -32,7 +32,7 @@ const urlsOf = (text) => [...String(text).matchAll(URL_RE)].map((m) => m[0].repl
 const HOST_OK = /^(www\.)?proplane\.ai$|^localhost$|^127\.0\.0\.1$/i;
 const LONG_DASH = /[–—]/;
 const NON_GSM = /[^\x20-\x7E\n]/;
-const MARKDOWN = [/\*\*[^*\n]+\*\*/, /`[^`\n]+`/, /^\s{0,3}#{1,6}\s/m, /\[[^\]\n]+\]\(https?:/, /(^|\s)__[^_\n]+__(\s|$)/, /^\s*[-*]\s+\S/m];
+const MARKDOWN = [/\*\*[^*\n]+\*\*/, /`[^`\n]+`/, /^\s{0,3}#{1,6}\s/m, /\[[^\]\n]+\]\(https?:/, /(^|\s)__[^_\n]+__(\s|$)/, /^\s*\*\s+\S/m];
 
 /** Every text any party got must read like a text: no markdown, no long dashes, plain GSM-7, links alone on a line, canonical host. */
 function hygiene(ctx, label, bodies) {
