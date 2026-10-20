@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { usePublicTexting } from "@/components/marketing/public-texting-context";
 import { renterSmsHref } from "@/components/public-site/journey-paths";
+import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { formatUsPhoneDisplay } from "@/lib/phone-e164";
 import "./phone-bound-link-ui.css";
@@ -227,15 +228,18 @@ function totalLabel(charges: RentLinkCharge[]): string | null {
 export function RentLinkCard({ token, charges }: { token: string; charges: RentLinkCharge[] }) {
   const [error, setError] = useState("");
   const [signInHref, setSignInHref] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [paid, setPaid] = useState(false);
   const total = totalLabel(charges);
 
   const pay = async () => {
     setError("");
     const result = await post(`/api/l/${encodeURIComponent(token)}/rent-checkout`, {});
-    const url = typeof result.data.url === "string" ? result.data.url : "";
-    if (result.ok && url) {
-      window.location.assign(url);
-      return new Promise<void>(() => undefined);
+    const secret = typeof result.data.clientSecret === "string" ? result.data.clientSecret : "";
+    // The payment form opens right here on the page: card, Apple Pay or Google Pay. No other site is opened.
+    if (result.ok && secret) {
+      setClientSecret(secret);
+      return;
     }
     if (result.data.needsCode) {
       window.location.reload();
@@ -245,8 +249,10 @@ export function RentLinkCard({ token, charges }: { token: string; charges: RentL
     if (typeof result.data.signInHref === "string") setSignInHref(result.data.signInHref);
   };
 
+  if (paid) return <LinkMessageView title="Payment received" line="You can close this page." />;
+
   return (
-    <DoorShell title="Pay rent" dataAttr="phone-link-rent">
+    <DoorShell title="Pay" dataAttr="phone-link-rent">
       <ul className="ps-facts" data-attr="phone-link-rent-charges">
         {charges.map((charge) => (
           <li key={charge.id}>
@@ -264,9 +270,15 @@ export function RentLinkCard({ token, charges }: { token: string; charges: RentL
           <span className="ps-figure">{total}</span>
         </div>
       ) : null}
-      <DoorButton dataAttr="phone-link-pay" onClick={pay}>
-        {total ? `Pay ${total}` : "Pay"}
-      </DoorButton>
+      {clientSecret ? (
+        <div data-attr="phone-link-payment-form">
+          <StripeEmbeddedCheckout clientSecret={clientSecret} onComplete={() => setPaid(true)} />
+        </div>
+      ) : (
+        <DoorButton dataAttr="phone-link-pay" onClick={pay}>
+          {total ? `Pay ${total}` : "Pay"}
+        </DoorButton>
+      )}
       {error ? (
         <p className="ps-error" role="alert" data-attr="phone-link-error">
           {error}

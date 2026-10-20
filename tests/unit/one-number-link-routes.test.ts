@@ -166,15 +166,15 @@ describe("POST /api/l/[token]/rent-checkout", () => {
     const { db, token, link } = await rentLink();
     const session = (await createLinkSession(db, link))!;
     state.cookies[linkSessionCookieName(token)] = session.token;
-    state.checkout.mockResolvedValue({ ok: true, mode: "hosted", url: "https://checkout.stripe.test/s/1" });
+    state.checkout.mockResolvedValue({ ok: true, mode: "embedded", clientSecret: "cs_test_secret_1" });
 
     const res = await call(rentRoute, token, { chargeIds: ["chg-someone-elses"], userId: "attacker", paymentMethod: "ach" });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ url: "https://checkout.stripe.test/s/1" });
+    expect(await res.json()).toEqual({ clientSecret: "cs_test_secret_1" });
     // Nothing from the body reached the checkout core.
     expect(state.checkout).toHaveBeenCalledTimes(1);
     expect(state.checkout.mock.calls[0]![1]).toMatchObject({
-      userId: "res-1", userEmail: "res@example.com", chargeIds: ["chg-1"], mode: "hosted", paymentMethod: "card",
+      userId: "res-1", userEmail: "res@example.com", chargeIds: ["chg-1"], mode: "embedded", paymentMethod: "card",
       appOrigin: "https://proplane.test", returnPath: `/l/${encodeURIComponent(token)}`,
     });
   });

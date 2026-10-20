@@ -12,7 +12,8 @@ export const runtime = "nodejs";
 const NO_STORE = { "Cache-Control": "no-store" };
 
 /**
- * Start card checkout for the charge(s) a rent link names. Same checkout core the resident's own
+ * Start the IN-PAGE payment form (Stripe embedded checkout: card, Apple Pay, Google Pay) for the charge(s) a rent link names.
+ * The person never leaves /l/<token>; there is no redirect to a hosted payment page. Same checkout core the resident's own
  * Payments page and the agent use (`createHouseholdChargeCheckout`): ownership, not-already-paid,
  * fee payer, the claim that stops a double debit, and the metadata the webhook reads (charge ids,
  * resident email, manager id) all come from it. This route adds only the proof that the caller
@@ -42,12 +43,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     userId: destination.residentUserId,
     userEmail: destination.residentEmail,
     chargeIds: destination.chargeIds,
-    mode: "hosted",
+    mode: "embedded",
     paymentMethod: "card",
     appOrigin: resolveAppOrigin(req),
     returnPath: `/l/${encodeURIComponent(token)}`,
   });
-  if (!result.ok || result.mode !== "hosted") {
+  if (!result.ok || result.mode !== "embedded") {
     // A bank debit needs the in-app form; say where, not why a card could not start.
     const needsApp = !result.ok && (result.code === "PAYMENT_METHOD_DISABLED" || result.code === "IN_APP_BANK_PAYMENT");
     return NextResponse.json(
@@ -62,5 +63,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       { status: result.ok ? 502 : result.status, headers: NO_STORE },
     );
   }
-  return NextResponse.json({ url: result.url }, { headers: NO_STORE });
+  return NextResponse.json({ clientSecret: result.clientSecret }, { headers: NO_STORE });
 }
