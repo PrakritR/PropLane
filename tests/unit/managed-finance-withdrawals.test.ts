@@ -7,7 +7,7 @@ vi.mock("@/lib/stripe-connect", () => ({ retrieveManagerConnectAccountOrNull: vi
 const ready = vi.hoisted(() => ({ value: true }));
 vi.mock("@/lib/stripe-payouts-readiness.server", () => ({ resolvePayoutsReadiness: () => ({ ready: ready.value }) }));
 
-import { batchWeekKey, reconcileWithdrawals, runWeeklyVendorBatch, withdrawFromManagedFunds } from "@/lib/managed-finance/withdrawals.server";
+import { batchWeekKey, PAYOUT_SCHEDULE_UNVERIFIED_ERROR, reconcileWithdrawals, runWeeklyVendorBatch, withdrawFromManagedFunds } from "@/lib/managed-finance/withdrawals.server";
 
 const WS = "ws-1";
 const OWNER = "own-1";
@@ -180,7 +180,7 @@ describe("reconciliation", () => {
   it("finds an existing transfer by its group and completes the withdrawal", async () => {
     const f = setup({}, { party_withdrawals: [row()] });
     const stripe = makeStripe({ list: [{ id: "tr_9", amount: 50_000, destination: ACCT, metadata: { withdrawal_id: "wd-9" } }] });
-    expect(await reconcileWithdrawals(stripe as never, f.db)).toEqual({ completed: 1, failed: 0, retried: 0 });
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toEqual({ completed: 1, failed: 0, retried: 0, payoutsFinished: 0 });
     expect(stripe.transfers.create).not.toHaveBeenCalled();
   });
   it("retries a young reservation with its own key, and fails an old one with no transfer", async () => {
@@ -189,20 +189,20 @@ describe("reconciliation", () => {
     expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ retried: 1 });
     const g = setup({}, { party_withdrawals: [row({ created_at: new Date(Date.now() - 30 * 3600_000).toISOString() })] });
     const s2 = makeStripe();
-    expect(await reconcileWithdrawals(s2 as never, g.db)).toEqual({ completed: 0, failed: 1, retried: 0 });
+    expect(await reconcileWithdrawals(s2 as never, g.db)).toEqual({ completed: 0, failed: 1, retried: 0, payoutsFinished: 0 });
     expect(s2.transfers.create).not.toHaveBeenCalled();
   });
   it("a transfer in the group that does not match the reservation is flagged for a person: never failed, released or retried", async () => {
     const f = setup({}, { party_withdrawals: [row({ created_at: new Date(Date.now() - 30 * 3600_000).toISOString() })] });
     const stripe = makeStripe({ list: [{ id: "tr_x", amount: 49_999, destination: ACCT, metadata: { withdrawal_id: "wd-9" } }] });
-    expect(await reconcileWithdrawals(stripe as never, f.db)).toEqual({ completed: 0, failed: 0, retried: 0 });
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toEqual({ completed: 0, failed: 0, retried: 0, payoutsFinished: 0 });
     expect(f.rpcCalls.some((c) => c.name === "fail_party_withdrawal")).toBe(false);
     expect(stripe.transfers.create).not.toHaveBeenCalled();
     expect(f.rows.owner_ledger_flags?.[0]).toMatchObject({ check_name: "withdrawal_transfer_mismatch", subject: "wd-9" });
   });
   it("ignores withdrawals younger than two minutes (still being carried out)", async () => {
     const f = setup({}, { party_withdrawals: [row({ created_at: new Date().toISOString() })] });
-    expect(await reconcileWithdrawals(makeStripe() as never, f.db)).toEqual({ completed: 0, failed: 0, retried: 0 });
+    expect(await reconcileWithdrawals(makeStripe() as never, f.db)).toEqual({ completed: 0, failed: 0, retried: 0, payoutsFinished: 0 });
   });
 });
 
@@ -324,20 +324,80 @@ describe("payout schedule of the destination account", () => {
     expect(stripe.payouts.create).toHaveBeenCalledTimes(1);
   });
 
-  it("an unreadable schedule creates no payout: guessing manual on an automatic account is the error this read avoids", async () => {
+  it("an unreadable schedule creates no payout and promises none: it is recorded as unverified, not as on its way", async () => {
     const f = setup();
     const stripe = makeStripe({ payout: () => { throw new Error("You cannot create manual payouts on an automatic schedule"); } });
     (stripe as unknown as { accounts: unknown }).accounts = { retrieve: vi.fn(async () => { throw new Error("rate limited"); }) };
     const r = await withdrawFromManagedFunds(stripe as never, f.db, owner);
-    expect(r).toMatchObject({ ok: true, transferId: "tr_1", payoutId: null, payoutPending: true });
-    expect((r as { payoutError?: string }).payoutError).toBeUndefined();
+    // Guessing `manual` on an automatic account is the post-transfer error this read avoids, so no payout is created -
+    // and the person is told the payout has not started rather than that it is on its way.
+    expect(r).toMatchObject({ ok: true, transferId: "tr_1", payoutId: null, payoutPending: true, payoutScheduleUnknown: true, payoutError: PAYOUT_SCHEDULE_UNVERIFIED_ERROR });
+    expect((r as { payoutAutomatic?: boolean }).payoutAutomatic).toBeUndefined();
     expect(stripe.payouts.create).not.toHaveBeenCalled();
-    // The transfer stands and is recorded without a payout error; the unreadable schedule is flagged instead.
+    // The marker on the row is what reconciliation comes back for.
     const complete = f.rpcCalls.find((c) => c.name === "complete_party_withdrawal")!.args;
-    expect(complete).toMatchObject({ p_transfer: "tr_1", p_payout: null, p_payout_error: null });
+    expect(complete).toMatchObject({ p_transfer: "tr_1", p_payout: null, p_payout_error: PAYOUT_SCHEDULE_UNVERIFIED_ERROR });
     expect(f.rpcCalls.some((c) => c.name === "fail_party_withdrawal")).toBe(false);
+    expect(f.rows.owner_ledger_flags?.[0]).toMatchObject({ check_name: "withdrawal_payout_schedule_unknown", subject: "wd-1" });
   });
 
+});
+
+describe("reconciliation finishes the payouts an unreadable schedule left unstarted", () => {
+  const unverified = (over: Record<string, unknown> = {}) => ({
+    id: "wd-7", party_kind: "owner", party_id: `owner:${OWNER}`, workspace_id: WS, amount_cents: 50_000,
+    destination_account_id: ACCT, status: "completed", stripe_transfer_id: "tr_7", stripe_payout_id: null,
+    payout_error: PAYOUT_SCHEDULE_UNVERIFIED_ERROR, created_at: new Date(Date.now() - 10 * 60_000).toISOString(), ...over,
+  });
+  const withSchedule = (stripe: ReturnType<typeof makeStripe>, retrieve: () => unknown) => {
+    (stripe as unknown as { accounts: unknown }).accounts = { retrieve: vi.fn(async () => retrieve()) };
+    return stripe;
+  };
+
+  it("creates the payout once the schedule reads manual, with the withdrawal's own idempotency key", async () => {
+    const f = setup({}, { party_withdrawals: [unverified()] });
+    const stripe = withSchedule(makeStripe(), () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }));
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 1 });
+    expect(stripe.payouts.create).toHaveBeenCalledTimes(1);
+    const [params, opts] = (stripe.payouts.create as unknown as { mock: { calls: Array<[Record<string, unknown>, Record<string, unknown>]> } }).mock.calls[0]!;
+    expect(params).toMatchObject({ amount: 50_000, currency: "usd" });
+    expect(opts).toMatchObject({ stripeAccount: ACCT, idempotencyKey: "party-withdrawal-payout:wd-7:50000" });
+    // The payout id lands on the already-completed row, which clears the unverified marker.
+    expect(f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args).toMatchObject({ p_id: "wd-7", p_transfer: "tr_7", p_payout: "po_1", p_payout_error: null });
+  });
+
+  it("an automatic schedule needs no payout: the row says so instead of keeping the unverified marker", async () => {
+    const f = setup({}, { party_withdrawals: [unverified()] });
+    const stripe = withSchedule(makeStripe(), () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "daily" } } } }));
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 1 });
+    expect(stripe.payouts.create).not.toHaveBeenCalled();
+    const last = f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args;
+    expect(last).toMatchObject({ p_id: "wd-7", p_payout: null });
+    expect(String(last.p_payout_error)).toContain("automatic payout");
+  });
+
+  it("leaves the row exactly as it is while the schedule still cannot be read", async () => {
+    const f = setup({}, { party_withdrawals: [unverified()] });
+    const stripe = withSchedule(makeStripe(), () => { throw new Error("rate limited"); });
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 0 });
+    expect(stripe.payouts.create).not.toHaveBeenCalled();
+    expect(f.rpcCalls.some((c) => c.name === "complete_party_withdrawal")).toBe(false);
+    expect(f.rows.party_withdrawals![0]).toMatchObject({ stripe_payout_id: null, payout_error: PAYOUT_SCHEDULE_UNVERIFIED_ERROR });
+  });
+
+  it("a payout that cannot start is recorded as that error, not left claiming the schedule is unverified", async () => {
+    const f = setup({}, { party_withdrawals: [unverified()] });
+    const stripe = withSchedule(makeStripe({ payout: () => { throw new Error("bank unavailable"); } }), () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }));
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 0 });
+    expect(f.rpcCalls.filter((c) => c.name === "complete_party_withdrawal").pop()!.args).toMatchObject({ p_id: "wd-7", p_payout: null, p_payout_error: "bank unavailable" });
+  });
+
+  it("never touches a completed withdrawal that already has its payout", async () => {
+    const f = setup({}, { party_withdrawals: [unverified({ stripe_payout_id: "po_old", payout_error: null })] });
+    const stripe = withSchedule(makeStripe(), () => ({ id: ACCT, settings: { payouts: { schedule: { interval: "manual" } } } }));
+    expect(await reconcileWithdrawals(stripe as never, f.db)).toMatchObject({ payoutsFinished: 0 });
+    expect(stripe.payouts.create).not.toHaveBeenCalled();
+  });
 });
 
 describe("weekly batch and vendors without a login", () => {

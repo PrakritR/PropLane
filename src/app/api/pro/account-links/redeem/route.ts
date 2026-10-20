@@ -11,6 +11,7 @@ import { parseHouseScope } from "@/lib/workspaces/membership";
 import { looksLikeAccountLinksMissingTable } from "@/lib/account-links";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
 import { stampProfileRoleRow } from "@/lib/auth/profile-role-row";
+import { holdsAcceptedManagerSeat } from "@/lib/auth/team-seat-manager-role.server";
 import { findPendingOpenInviteByToken, openInviteIsExpired } from "@/lib/co-manager-open-invite.server";
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import { hashCoManagerInviteToken } from "@/lib/co-manager-invite-token.server";
@@ -229,17 +230,11 @@ export async function POST(req: Request) {
     // manager grant with no accepted seat behind it.
     const roleStamp = await stampProfileRoleRow(svc, user.id, "manager");
 
-    // Two parallel redeems of the same link both stamp the role and only one claims the seat: the loser must not
-    // revoke the role the winner now needs. The undo re-reads the row and keeps the role once this user holds the seat.
+    // The role is account-wide, so the undo asks the account-wide question: does ANY accepted non-owner seat still
+    // justify it? That covers a parallel redeem of this link winning the claim and a seat on another workspace alike -
+    // reading only this row would revoke the role that other, accepted, seat depends on.
     const undoRoleStamp = async () => {
-      const { data: current, error } = await svc
-        .from("account_link_invites")
-        .select("status, invitee_user_id")
-        .eq("id", row.id)
-        .maybeSingle();
-      if (error) return;
-      const claimed = current as { status?: string | null; invitee_user_id?: string | null } | null;
-      if (String(claimed?.status ?? "") === "accepted" && String(claimed?.invitee_user_id ?? "") === user.id) return;
+      if (await holdsAcceptedManagerSeat(svc, user.id)) return;
       await roleStamp.rollback();
     };
 

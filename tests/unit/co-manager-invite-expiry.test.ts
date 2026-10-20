@@ -100,12 +100,13 @@ describe("accepting a team invite always leaves a manager-side role", () => {
     const claimed = redeem.slice(redeem.indexOf("if (claimErr) {"));
     expect(claimed.slice(0, 600)).toContain("undoRoleStamp()");
     expect(claimed.slice(claimed.indexOf("if (!updated) {"), claimed.indexOf("if (!updated) {") + 200)).toContain("undoRoleStamp()");
-    expect(redeem.slice(redeem.indexOf("const undoRoleStamp"), redeem.indexOf("if (claimErr) {"))).toContain('=== "accepted"');
+    // The role is account-wide, so the undo asks whether ANY accepted non-owner seat still justifies it.
+    expect(redeem.slice(redeem.indexOf("const undoRoleStamp"), redeem.indexOf("if (claimErr) {"))).toContain("holdsAcceptedManagerSeat(svc, user.id)");
   });
 
   it("the invitee accept (PATCH) does too, for every team role but the property owner, before the status flips", () => {
     const route = read("src/app/api/pro/account-links/[inviteId]/route.ts");
-    const role = route.indexOf('stampProfileRoleRow(svc, invite.invitee_user_id, "manager")');
+    const role = route.indexOf('stampProfileRoleRow(svc, inviteeUserId, "manager")');
     expect(role).toBeGreaterThan(-1);
     expect(role).toBeLessThan(route.indexOf('const nextStatus = actionNorm === "accept"'));
     expect(route.slice(role - 600, role)).toContain('!== "property_owner"');
@@ -114,6 +115,6 @@ describe("accepting a team invite always leaves a manager-side role", () => {
     expect(afterUpdate.slice(failed, failed + 250)).toContain("undoRoleStamp()");
     const stale = afterUpdate.indexOf("if (!updated) {");
     expect(afterUpdate.slice(stale, stale + 250)).toContain("undoRoleStamp()");
-    expect(afterUpdate.slice(afterUpdate.indexOf("const undoRoleStamp"), failed)).toContain('=== "accepted"');
+    expect(afterUpdate.slice(afterUpdate.indexOf("const undoRoleStamp"), failed)).toContain("holdsAcceptedManagerSeat(svc, inviteeUserId)");
   });
 });

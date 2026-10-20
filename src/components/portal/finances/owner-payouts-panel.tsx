@@ -279,7 +279,15 @@ export function OwnerPayoutsPanel() {
       return;
     }
     setWithdrawOpen(false);
-    setNotice(r.data.payoutAutomatic === true ? "On its way with your next automatic payout" : r.data.payoutPending === true ? "Your bank payout is being set up" : null);
+    setNotice(
+      r.data.payoutScheduleUnknown === true
+        ? "We could not check your payout schedule — we will finish the bank payout and follow up"
+        : r.data.payoutAutomatic === true
+          ? "On its way with your next automatic payout"
+          : r.data.payoutPending === true
+            ? "Your bank payout is being set up"
+            : null,
+    );
     reloadAll();
   };
 

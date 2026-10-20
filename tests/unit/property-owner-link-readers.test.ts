@@ -53,6 +53,9 @@ const REVIEWED: Record<string, string> = {
   "lib/owner-management/policies.server.ts": "membership check: the owner of record is a workspace member and may hold the Property owner role",
   // PropLane Service workspaces: admin-only (requireAdminRoute) team and workspace listing; the owner of record is a member (owner role included) and must be listed, and the read grants nothing.
   "lib/auth/managed-read-only.server.ts": "reads property_owner seats on purpose: an accepted seat is a view-only seat (the managed view-only lock)",
+  // Readers that ASK about the owner role in order to exclude it: an owner seat is never manager-side.
+  "lib/auth/sms-proven-session.server.ts": "counts an accepted seat as manager-side and skips property_owner explicitly (a team role, not a portal)",
+  "lib/auth/team-seat-manager-role.server.ts": "asks whether any accepted seat still justifies the manager role; a property_owner seat never does",
   "lib/service/service-workspaces.server.ts": "admin-only: the Service tab lists every live member, the owner of record included, on purpose",
   "app/api/admin/managed-workspaces/[workspaceId]/policies/route.ts": "admin-only: lists every accepted member so an owner of record can be picked",
 };

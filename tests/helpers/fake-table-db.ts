@@ -42,6 +42,7 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, options: FakeDbOp
     let mode: "select" | "insert" | "update" | "delete" | "upsert" = "select";
     let payload: Row | Row[] | null = null;
     let upsertConflict: string[] = [];
+    let upsertIgnoreDuplicates = false;
     let limitN: number | null = null;
     let rangeFrom = 0;
     let orderBy: { column: string; ascending: boolean } | null = null;
@@ -66,6 +67,8 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, options: FakeDbOp
         const item = payload as Row;
         const existing = rows.find((row) => upsertConflict.every((key) => row[key] === item[key]));
         if (existing) {
+          // PostgREST's `resolution=ignore-duplicates`: the conflicting row is left alone and not returned.
+          if (upsertIgnoreDuplicates) return { data: [], error: null };
           Object.assign(existing, item);
           return { data: [existing], error: null };
         }
@@ -135,10 +138,11 @@ export function createFakeDb(seed: Record<string, Row[]> = {}, options: FakeDbOp
       range: (from: number, to: number) => ((rangeFrom = from), (limitN = to - from + 1), builder),
       insert: (row: Row | Row[]) => ((mode = "insert"), (payload = row), builder),
       update: (row: Row) => ((mode = "update"), (payload = row), builder),
-      upsert: (row: Row, opts?: { onConflict?: string }) => (
+      upsert: (row: Row, opts?: { onConflict?: string; ignoreDuplicates?: boolean }) => (
         (mode = "upsert"),
         (payload = row),
         (upsertConflict = (opts?.onConflict ?? "id").split(",").map((s) => s.trim())),
+        (upsertIgnoreDuplicates = opts?.ignoreDuplicates === true),
         builder
       ),
       delete: () => ((mode = "delete"), builder),

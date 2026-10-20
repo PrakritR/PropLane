@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 import { getStripe } from "@/lib/stripe";
+import { writeManagerPurchasePatch } from "@/lib/manager-purchase-subscription-status";
 import { resolveCheckoutSessionPromoCodeResult } from "@/lib/stripe/checkout-promo-code.server";
 
 type ManagerPurchaseDb = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -258,12 +259,9 @@ export async function recordPaidManagerCheckoutSession(session: Stripe.Checkout.
       metadata: { operation: "manager_subscription_fulfillment" },
       db: supabase,
     })).captured) return;
-  const { error: verifiedUpdateError } = await supabase
-    .from("manager_purchases")
-    .update({
-      ...patch,
-      manager_id: stored.managerId || managerId,
-    })
-    .eq("id", stored.id);
+  const { error: verifiedUpdateError } = await writeManagerPurchasePatch(
+    { ...patch, manager_id: stored.managerId || managerId },
+    (next) => supabase.from("manager_purchases").update(next).eq("id", stored.id),
+  );
   if (verifiedUpdateError) throw new Error(verifiedUpdateError.message);
 }

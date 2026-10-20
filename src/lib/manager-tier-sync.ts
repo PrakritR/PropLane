@@ -1,5 +1,6 @@
 import { isWaiverGrantedManagerPurchase, normalizeManagerSkuTier } from "@/lib/manager-access";
 import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
+import { writeManagerPurchasePatch } from "@/lib/manager-purchase-subscription-status";
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import { reconcileManagerPurchaseWithApple } from "@/lib/manager-apple-subscription-sync";
 import { isManagerPurchasePeriodExpired, isSignupTrialManagerPurchase, resolveEffectiveManagerTier } from "@/lib/manager-tier-expiry";
@@ -45,10 +46,10 @@ export async function revokeUnauthorizedManagerPaidTier(userId: string): Promise
   // (the #1 integration landmine; see docs/agents/apple-iap.md).
   if (isAppleBilledManagerPurchase(billing, data.apple_original_transaction_id)) return false;
 
-  const { error } = await supabase
-    .from("manager_purchases")
-    .update({ tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null })
-    .eq("id", data.id);
+  const { error } = await writeManagerPurchasePatch(
+    { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null },
+    (patch) => supabase.from("manager_purchases").update(patch).eq("id", data.id),
+  );
 
   return !error;
 }

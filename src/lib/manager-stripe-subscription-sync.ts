@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 import { resolveRateCardVersionMetadataPatch, syncManagerDoorQuantity } from "@/lib/billing/quantity-sync.server";
 import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
+import { writeManagerPurchasePatch } from "@/lib/manager-purchase-subscription-status";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { assertManagerPriceMatchesRateCard } from "@/lib/stripe/resolve-manager-price";
@@ -177,29 +178,29 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
     // Only downgrade when Stripe confirms the subscription is gone. On any other
     // (transient / non-authoritative) error, keep the last known DB state.
     if (isDefinitiveStripeSubscriptionMissingError(err)) {
-      await supabase
-        .from("manager_purchases")
-        .update({ tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null })
-        .eq("user_id", userId);
+      await writeManagerPurchasePatch(
+        { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null },
+        (patch) => supabase.from("manager_purchases").update(patch).eq("user_id", userId),
+      );
     }
     return;
   }
 
   if (sub.status === "canceled" || sub.status === "incomplete_expired") {
-    await supabase
-      .from("manager_purchases")
-      .update({ tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null })
-      .eq("user_id", userId);
+    await writeManagerPurchasePatch(
+      { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null },
+      (patch) => supabase.from("manager_purchases").update(patch).eq("user_id", userId),
+    );
     return;
   }
 
   const periodEndSec = stripeSubscriptionPeriodEndSec(sub);
   const cancelAtPeriodEnd = Boolean((sub as { cancel_at_period_end?: boolean }).cancel_at_period_end);
   if (cancelAtPeriodEnd && periodEndSec && periodEndSec * 1000 <= Date.now()) {
-    await supabase
-      .from("manager_purchases")
-      .update({ tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null })
-      .eq("user_id", userId);
+    await writeManagerPurchasePatch(
+      { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null },
+      (patch) => supabase.from("manager_purchases").update(patch).eq("user_id", userId),
+    );
     return;
   }
 
@@ -210,15 +211,15 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
 
   if (!paidTier || !billing) return;
 
-  await supabase
-    .from("manager_purchases")
-    .update({
+  await writeManagerPurchasePatch(
+    {
       tier: paidTier,
       billing,
       stripe_subscription_id: sub.id,
       // The managed view-only lock reads this: a subscription id alone is satisfied by a card-on-file TRIAL that has
       // paid nothing, so only `active` / `past_due` counts as self-paid (hasSelfPaidPlan + the SQL mirror).
       subscription_status: sub.status,
-    })
-    .eq("user_id", userId);
+    },
+    (patch) => supabase.from("manager_purchases").update(patch).eq("user_id", userId),
+  );
 }

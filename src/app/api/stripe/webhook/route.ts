@@ -43,6 +43,7 @@ import {
   recordPaidManagerCheckoutSession,
   resolveManagerCheckoutPurchase,
 } from "@/lib/manager-purchase-from-session";
+import { writeManagerPurchasePatch } from "@/lib/manager-purchase-subscription-status";
 import { recordAutoExpense } from "@/lib/reports/auto-expense";
 import {
   inferPaidTierFromStripePriceId,
@@ -630,10 +631,10 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
       // it here acknowledged the event and Stripe never came back, so the failure is rethrown instead (500 = retry).
       try {
         if (event.type === "customer.subscription.deleted") {
-          const { error: downgradeError } = await db
-            .from("manager_purchases")
-            .update({ tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null })
-            .eq("stripe_subscription_id", sub.id);
+          const { error: downgradeError } = await writeManagerPurchasePatch(
+            { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null },
+            (patch) => db.from("manager_purchases").update(patch).eq("stripe_subscription_id", sub.id),
+          );
           if (downgradeError) throw new Error(downgradeError.message || "Could not downgrade the cancelled plan.");
         } else {
           await reconcileManagerPurchaseByStripeSubscriptionId(sub.id);

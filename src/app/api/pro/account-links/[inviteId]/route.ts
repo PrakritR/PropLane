@@ -1,4 +1,5 @@
 import { stampProfileRoleRow } from "@/lib/auth/profile-role-row";
+import { holdsAcceptedManagerSeat } from "@/lib/auth/team-seat-manager-role.server";
 import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { NextResponse } from "next/server";
 import { asStringArray, readPropertyPermissionsFromRow, resolveInviteTeamRole, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
@@ -544,22 +545,22 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
     // The role is stamped before the seat it belongs to: a teammate holds the manager role, so nothing downstream reads
     // the seat as resident-only. It is therefore stamped REVERSIBLY - a status update that does not land would otherwise
     // leave a standing manager grant with no accepted seat behind it, and nothing here sweeps one up.
+    const inviteeUserId = invite.invitee_user_id ?? user.id;
     let roleStamp: { rollback: () => Promise<void> } | null = null;
     if (actionNorm === "accept" && resolveInviteTeamRole(invite.team_role, readPropertyPermissionsFromRow(invite)) !== "property_owner") {
       try {
-        roleStamp = await stampProfileRoleRow(svc, invite.invitee_user_id, "manager");
+        roleStamp = await stampProfileRoleRow(svc, inviteeUserId, "manager");
       } catch (error) {
         return NextResponse.json({ error: error instanceof Error ? error.message : "Could not add the team role." }, { status: 500 });
       }
     }
 
-    // Two clicks on the same invite both stamp the role and only one moves the status: the loser must not revoke the
-    // role the winner's accepted seat now needs. So the undo first re-reads the row and keeps the role on an accepted one.
+    // The role is account-wide, so the undo asks the account-wide question: does ANY accepted non-owner seat still
+    // justify it? That covers this invite being accepted by a parallel click and a seat on another workspace alike -
+    // reading only this invite's status would revoke the role that other, accepted, seat depends on.
     const undoRoleStamp = async () => {
       if (!roleStamp) return;
-      const { data: current, error } = await svc.from("account_link_invites").select("status").eq("id", id).maybeSingle();
-      if (error) return;
-      if (String((current as { status?: string | null } | null)?.status ?? "") === "accepted") return;
+      if (await holdsAcceptedManagerSeat(svc, inviteeUserId)) return;
       await roleStamp.rollback();
     };
 

@@ -14,7 +14,7 @@ export type ReconcileReport = {
   stripeCoversPlatformCash: boolean | null;
   capturesChecked: number;
   capturesMismatched: number;
-  withdrawals: { completed: number; failed: number; retried: number };
+  withdrawals: { completed: number; failed: number; retried: number; payoutsFinished: number };
   flagged: number;
 };
 

@@ -41,12 +41,21 @@ describe("stampProfileRoleRow", () => {
     ]);
   });
 
-  it("throws when it cannot tell whether the role was already there (no silent grant it cannot undo)", async () => {
-    const db = {
-      from: () => ({
-        select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: "boom" } }) }) }) }),
-      }),
-    };
+  it("decides 'added' from the insert itself, so two parallel first-time stamps do not both claim the row", async () => {
+    // A read-then-write would have both calls believing they added it, and the loser's rollback would then delete the
+    // row the winner's accepted seat depends on.
+    const db = createFakeDb({ profile_roles: [] });
+    const first = await stampProfileRoleRow(db as never, USER, "manager");
+    const second = await stampProfileRoleRow(db as never, USER, "manager");
+    expect(db.tables.profile_roles).toHaveLength(1);
+    await second.rollback();
+    expect(db.tables.profile_roles).toHaveLength(1);
+    await first.rollback();
+    expect(db.tables.profile_roles).toEqual([]);
+  });
+
+  it("throws when the stamp itself cannot be written (no silent grant, and nothing to undo)", async () => {
+    const db = { from: () => ({ upsert: () => ({ select: async () => ({ data: null, error: { message: "boom" } }) }) }) };
     await expect(stampProfileRoleRow(db as never, USER, "manager")).rejects.toMatchObject({ message: "boom" });
   });
 
