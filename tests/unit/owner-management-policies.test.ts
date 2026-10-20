@@ -14,6 +14,7 @@ import {
   createDraftPolicy,
   endPolicy,
   ensureServiceFeePolicy,
+  HAND_AUTHORED_DRAFT_MESSAGE,
   setServiceManagementFee,
   listManagedWorkspacesForOwner,
   loadActivePolicyForWorkspace,
@@ -73,8 +74,11 @@ function activateRpc(args: Record<string, unknown>, f: OwnerFakeDb) {
       return { status: "refused", reason: "terms_changed" };
     }
   }
-  for (const other of rows) if (other.workspace_id === row.workspace_id && other.status === "active") other.status = "ended";
-  Object.assign(row, { status: "active", signed_at: "2026-10-19T00:00:00Z", accepted_via: args.p_via, terms_sha256: args.p_hash, terms_snapshot: args.p_snapshot });
+  // `ends_on = greatest(current_date, effective_from)` in SQL; the caller corrects it to the day the new version starts.
+  for (const other of rows) {
+    if (other.workspace_id === row.workspace_id && other.status === "active") Object.assign(other, { status: "ended", ends_on: other.effective_from });
+  }
+  Object.assign(row, { status: "active", signed_at: "2026-10-19T00:00:00Z", accepted_via: args.p_via, terms_sha256: args.p_hash, terms_snapshot: args.p_snapshot, attestation_note: args.p_note });
   return { status: "active" };
 }
 
@@ -252,19 +256,83 @@ describe("the automatic management fee", () => {
     expect(f.rows.managed_workspace_fee_policies!.filter((r) => r.status === "draft")).toHaveLength(0);
   });
 
-  it("the scheduled version takes over on its own day, ending the old one, one active at a time", async () => {
+  // Review fix, Oct 20: nothing ever put a scheduled version in force. `ensureServiceFeePolicy` was the only activator
+  // and every settle path skips it once a rate exists, so a change dated the 1st stayed a draft forever. The activation
+  // now lives in `loadActivePolicyForWorkspace` - the one resolver every settle / checkout / hold path already reads.
+  it("the scheduled version takes over on its own day through the resolver every settle path reads", async () => {
     const f = clientOwned();
     const october = new Date("2026-10-20T19:00:00Z");
     const first = (await ensureServiceFeePolicy(f.db, WS, admin, october)) as { policy: { id: string } };
-    await setServiceManagementFee(f.db, admin, WS, 15, october);
-    // Still October: the old rate is in force and nothing new was activated.
-    expect((await ensureServiceFeePolicy(f.db, WS, admin, october)).status).toBe("exists");
+    await setServiceManagementFee(f.db, admin, WS, 12, october);
+    // Still October: the old rate is what every reader sees, and the version is still a draft.
+    expect((await loadActivePolicyForWorkspace(f.db, WS, undefined, october))?.terms.ownerShareBps).toBe(9000);
+    expect(f.rows.managed_workspace_fee_policies!.filter((r) => r.status === "draft")).toHaveLength(1);
+
     const november = new Date("2026-11-01T19:00:00Z");
-    expect((await ensureServiceFeePolicy(f.db, WS, admin, november)).status).toBe("created");
-    const active = await loadActivePolicyForWorkspace(f.db, WS);
-    expect(active?.terms.ownerShareBps).toBe(8500);
-    expect((await loadPolicy(f.db, first.policy.id))?.status).toBe("ended");
+    const inForce = await loadActivePolicyForWorkspace(f.db, WS, undefined, november);
+    expect(inForce?.terms.ownerShareBps).toBe(8800);
+    expect(inForce?.id).not.toBe(first.policy.id);
+    const previous = await loadPolicy(f.db, first.policy.id);
+    expect(previous?.status).toBe("ended");
+    expect(previous?.endsOn).toBe("2026-11-01");
     expect(f.rows.managed_workspace_fee_policies!.filter((r) => r.status === "active")).toHaveLength(1);
+    // Reading again is a no-op: one activation, whoever reads next.
+    expect((await loadActivePolicyForWorkspace(f.db, WS, undefined, november))?.id).toBe(inForce?.id);
+    expect(f.rpcCalls.filter((c) => c.name === "activate_managed_policy")).toHaveLength(2);
+  });
+
+  it("a settle on the 1st prices at the new rate, and the checkout path sees it too", async () => {
+    const f = clientOwned();
+    const october = new Date("2026-10-20T19:00:00Z");
+    await ensureServiceFeePolicy(f.db, WS, admin, october);
+    await setServiceManagementFee(f.db, admin, WS, 12, october);
+    const november = new Date("2026-11-01T08:30:00Z");
+    expect((await ensureServiceFeePolicy(f.db, WS, admin, november)).policy?.terms.ownerShareBps).toBe(8800);
+  });
+
+  // The 1st is a PACIFIC day. On Oct 31 evening Pacific the UTC date is already Nov 1, and starting there would
+  // re-price the whole of October at the new rate.
+  it("does not start a Nov 1 version on the Pacific evening of Oct 31", async () => {
+    const f = clientOwned();
+    const october = new Date("2026-10-20T19:00:00Z");
+    await ensureServiceFeePolicy(f.db, WS, admin, october);
+    await setServiceManagementFee(f.db, admin, WS, 12, october);
+    const utcNovemberPacificOctober = new Date("2026-11-01T00:30:00Z");
+    expect((await loadActivePolicyForWorkspace(f.db, WS, "2026-11-01", utcNovemberPacificOctober))?.terms.ownerShareBps).toBe(9000);
+  });
+
+  // Review fix, Oct 20: `openDraftForWorkspace` returns ANY draft, so Admin > Service used to overwrite or end a draft
+  // hand-authored in Admin > Managed finance, silently losing its leasing fee / minimum / reserve.
+  it("refuses to touch a draft Admin > Service did not author", async () => {
+    const now = new Date("2026-10-20T19:00:00Z");
+    // A hand-authored draft that cannot start (its terms moved under the activation guard) stays open next to the rate
+    // in force: the one state where a rate box could overwrite someone else's leasing fee, minimum or reserve.
+    let refuse = false;
+    const f = seed(
+      { portal_workspaces: [{ id: WS, owner_user_id: CLIENT, name: "1. Ambika", is_service: true }] },
+      { activate_managed_policy: (args, ff) => (refuse ? { status: "refused", reason: "terms_changed" } : activateRpc(args, ff)) },
+    );
+    await ensureServiceFeePolicy(f.db, WS, admin, now);
+    const byHand = await createDraftPolicy(f.db, admin, { workspaceId: WS, ownerUserId: CLIENT, terms: { ...terms, leasingFeeBps: 5000, minFeeCents: 20_000 }, effectiveFrom: "2026-10-01" }, now);
+    refuse = true;
+    await expect(setServiceManagementFee(f.db, admin, WS, 15, now)).rejects.toMatchObject({ status: 409, message: HAND_AUTHORED_DRAFT_MESSAGE });
+    await expect(setServiceManagementFee(f.db, admin, WS, 10, now)).rejects.toMatchObject({ status: 409 });
+    const untouched = await loadPolicy(f.db, byHand.id);
+    expect(untouched).toMatchObject({ status: "draft", effectiveFrom: "2026-10-01" });
+    expect(untouched?.terms).toMatchObject({ leasingFeeBps: 5000, minFeeCents: 20_000 });
+  });
+
+  // Rent must never stay paused: with NO policy in force a version dated ahead starts today instead, and the row says so.
+  it("pulls a scheduled version forward only when nothing is in force, recording the date it was due", async () => {
+    const f = clientOwned();
+    const october = new Date("2026-10-20T19:00:00Z");
+    const first = (await ensureServiceFeePolicy(f.db, WS, admin, october)) as { policy: { id: string } };
+    await setServiceManagementFee(f.db, admin, WS, 12, october);
+    await endPolicy(f.db, admin, first.policy.id, october);
+    const started = await ensureServiceFeePolicy(f.db, WS, admin, october);
+    expect(started.policy?.terms.ownerShareBps).toBe(8800);
+    expect(started.policy?.effectiveFrom).toBe("2026-10-20");
+    expect(started.policy?.attestationNote).toContain("pulled forward from 2026-11-01");
   });
 
   it("the range is one answer: 0 and 30 are the ends, anything else is refused before a row is written", async () => {
@@ -442,7 +510,12 @@ describe("attesting, versions, ending", () => {
   });
   it("a read that fails is an error, never 'not managed'", async () => {
     const f = fakeOwnerDb({}, { broken: [] });
-    f.db = { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ not: () => ({ limit: () => ({ maybeSingle: async () => ({ data: null, error: { code: "XX000" } }) }) }) }) }) }) }) } as never;
+    const failing = { data: null, error: { code: "XX000" } };
+    const chain: Record<string, unknown> = {};
+    for (const key of ["select", "eq", "in", "not", "order", "limit"]) chain[key] = () => chain;
+    chain.maybeSingle = async () => failing;
+    chain.then = (resolve: (r: unknown) => void) => resolve(failing);
+    f.db = { from: () => chain } as never;
     await expect(loadActivePolicyForWorkspace(f.db, WS)).rejects.toBeInstanceOf(PolicyError);
   });
   it("a database without the table is simply not managed", async () => {

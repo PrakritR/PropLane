@@ -46,6 +46,29 @@ export type ServiceRow = {
   scheduledFeeFrom?: string | null;
 };
 
+/**
+ * The one line under the fee box: the day a change starts, or that typing the rate already in force cancels the pending
+ * one. Nothing at all when neither is true - a field does not get a sentence explaining itself.
+ */
+export function feeModalLine(
+  row: Pick<ServiceRow, "feePercent" | "scheduledFeePercent"> | null,
+  typed: string,
+  effectiveFrom: string,
+): string | null {
+  const ownerShareBps = ownerShareBpsForFeePercent(typed.trim());
+  if (ownerShareBps === null) return null;
+  const inForce = row?.feePercent == null ? null : 10_000 - Math.round(row.feePercent * 100);
+  if (ownerShareBps !== inForce) return `Takes effect ${formatPacificDate(effectiveFrom, { month: "long", day: "numeric" })}`;
+  return row?.scheduledFeePercent == null ? null : "Cancels the scheduled change";
+}
+
+/** What actually happened to the fee: scheduled for a date, a pending change cancelled, or the rate left alone. */
+export function feeOutcomeToast(result: { scheduled?: { effectiveFrom?: string } | null }, cancelled: boolean): string {
+  const from = result.scheduled?.effectiveFrom;
+  if (from) return `Management fee scheduled for ${formatPacificDate(from, { month: "long", day: "numeric" })}.`;
+  return cancelled ? "Scheduled change cancelled." : "Management fee unchanged.";
+}
+
 /** A rate change always starts on the 1st of a later Pacific month, so the day it takes over is part of the fact. */
 export function feeFactLabel(row: Pick<ServiceRow, "feePercent" | "scheduledFeePercent" | "scheduledFeeFrom">): string {
   const live = row.feePercent == null ? "No fee yet" : `${row.feePercent}% fee`;
@@ -278,6 +301,9 @@ export function AdminServicePanel() {
     }
   };
 
+  const feeChangeLine = feeModalLine(selected, feeDraft, nextFeeEffectiveFrom());
+  const cancelsScheduledChange = feeChangeLine === "Cancels the scheduled change";
+
   const saveFee = async () => {
     if (!selected) return;
     setBusy(true);
@@ -289,7 +315,7 @@ export function AdminServicePanel() {
         return;
       }
       setFeeOpen(false);
-      showToast("Management fee updated.");
+      showToast(feeOutcomeToast(json as { scheduled?: { effectiveFrom?: string } | null }, cancelsScheduledChange));
       reload();
     } catch {
       setFormError("Could not change the management fee.");
@@ -623,9 +649,11 @@ export function AdminServicePanel() {
           <span className="mb-1 block">Percent of rent (0 to {MAX_MANAGEMENT_FEE_PERCENT})</span>
           <Input type="number" inputMode="decimal" min={0} max={MAX_MANAGEMENT_FEE_PERCENT} step={0.5} value={feeDraft} onChange={(e) => setFeeDraft(e.target.value)} data-attr="admin-service-fee-percent" />
         </label>
-        <p className="mt-3 text-[13px] font-semibold text-foreground" data-attr="admin-service-fee-effective">
-          Takes effect {formatPacificDate(nextFeeEffectiveFrom(), { month: "long", day: "numeric" })}
-        </p>
+        {feeChangeLine ? (
+          <p className="mt-3 text-[13px] font-semibold text-foreground" data-attr="admin-service-fee-effective">
+            {feeChangeLine}
+          </p>
+        ) : null}
         {formError ? <p className="mt-2 text-[13px] text-[var(--status-overdue-fg)]" role="alert">{formError}</p> : null}
       </Modal>
 

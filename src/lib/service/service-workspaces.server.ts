@@ -13,7 +13,7 @@ import { proplaneIdLookupVariants } from "@/lib/manager-id";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { loadSharedLineConfig, workspaceHasDedicatedNumber, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { isPlatformServiceOwner, loadServiceWorkspace, resolveServiceOwner } from "@/lib/service/service-owner.server";
-import { ensureServiceFeePolicy, setServiceManagementFee, PolicyError, type ServiceManagementFee } from "@/lib/owner-management/policies.server";
+import { ensureServiceFeePolicy, setServiceManagementFee, PolicyError, SCHEDULED_FEE_NOTE, type ServiceManagementFee } from "@/lib/owner-management/policies.server";
 import { MANAGEMENT_FEE_RANGE_MESSAGE, feePercentForOwnerShareBps, ownerShareBpsForFeePercent } from "@/lib/owner-management/fee-percent";
 import { pacificDayKey } from "@/lib/house-groups/time";
 
@@ -481,16 +481,17 @@ export async function serviceFeePercents(db: SupabaseClient, workspaceIds: strin
   if (workspaceIds.length === 0) return out;
   const { data, error } = await db
     .from("managed_workspace_fee_policies")
-    .select("workspace_id, owner_share_bps, status, effective_from")
+    .select("workspace_id, owner_share_bps, status, effective_from, attestation_note")
     .in("workspace_id", workspaceIds)
     .in("status", ["active", "draft"]);
   if (error) return out;
   const today = pacificDayKey(now);
-  const rows = (data ?? []) as { workspace_id: string; owner_share_bps: number; status: string; effective_from: string }[];
+  const rows = (data ?? []) as { workspace_id: string; owner_share_bps: number; status: string; effective_from: string; attestation_note: string | null }[];
   for (const r of rows.filter((r) => r.status === "active")) {
     out.set(String(r.workspace_id), { feePercent: feePercentForOwnerShareBps(Number(r.owner_share_bps)), scheduledPercent: null, scheduledFrom: null });
   }
-  for (const r of rows.filter((r) => r.status === "draft" && String(r.effective_from) > today)) {
+  // Only a change THIS surface scheduled is a pending rate; a hand-authored draft belongs to Admin > Managed finance.
+  for (const r of rows.filter((r) => r.status === "draft" && String(r.effective_from) > today && String(r.attestation_note ?? "").startsWith(SCHEDULED_FEE_NOTE))) {
     const live = out.get(String(r.workspace_id));
     if (!live) continue;
     live.scheduledPercent = feePercentForOwnerShareBps(Number(r.owner_share_bps));
