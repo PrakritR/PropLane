@@ -131,6 +131,8 @@ import { managerServicesWriteTools } from "./domains/services-write";
 import { managerDispatchTools } from "./domains/vendor-dispatch";
 import { managerAnnounceTools } from "./domains/announce";
 import { confirmTourInquiryTool } from "./domains/tours-write";
+import { prepareShortStayTool, quoteShortStaysTool, requestShortStayTool } from "./domains/short-stay-sms";
+import { leasingSendPaymentLinkTool } from "./domains/one-number-links";
 import {
   bookTourTool,
   cancelTourTool,
@@ -427,6 +429,20 @@ export const leasingSmsAutonomousTourRegistry = buildRegistry([
   prepareProspectTourConfirmationTool,
   confirmProspectSmsTourTool,
 ]);
+
+/**
+ * Short stays and payment links by text. Added to the leasing registry for SMS turns only (the tools refuse any
+ * other channel anyway). `request_short_stay` is the third inline write: it writes the same 24-hour hold the host
+ * answers (or an instant confirm for a returning guest) through the ONE stay core, from a stored option the
+ * texter picked and then affirmed with YES; it charges nothing.
+ */
+export const LEASING_SMS_STAY_TOOLS = [quoteShortStaysTool, prepareShortStayTool, requestShortStayTool, leasingSendPaymentLinkTool];
+export const LEASING_SMS_STAY_WRITE_TOOLS: readonly string[] = [requestShortStayTool.name];
+export function withLeasingSmsStayTools(registry: ToolRegistry<AgentContext>): ToolRegistry<AgentContext> {
+  const next: ToolRegistry<AgentContext> = new Map(registry);
+  for (const tool of LEASING_SMS_STAY_TOOLS) if (!next.has(tool.name)) next.set(tool.name, tool);
+  return next;
+}
 
 /**
  * Write tools the prospect-facing leasing SMS agent may run inline.

@@ -29,6 +29,7 @@ import { pacificTodayKey, rangeDaysBetween } from "@/lib/room-availability-range
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import {
   GUEST_PORTAL_SHORT_STAY_SOURCE,
+  SMS_SHORT_STAY_SOURCE,
   SHORT_STAY_HOLD_HOURS,
   SHORT_STAY_MAX_RANGES,
   guestBookAction,
@@ -43,6 +44,7 @@ import {
 import { emitShortStayTeamNotice, loadOwnerIdentity, loadStayLabels } from "@/lib/short-stay/hold-decisions.server";
 import { guestIsReturning, instantBookStatus, listingBooksReturningGuestsInstantly } from "@/lib/short-stay/instant-book.server";
 import { ensureGuestStayCharge } from "@/lib/short-stay/stay-charge.server";
+import { mintStayPayLink } from "@/lib/short-stay/stay-pay-link.server";
 import { readStayAddOns } from "@/lib/short-stay/stay-add-ons";
 import { raiseRequestedStayAddOnCharges, storedStayTimes } from "@/lib/short-stay/stay-add-ons.server";
 import {
@@ -245,7 +247,18 @@ const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim
 
 export async function bookGuestStays(
   db: SupabaseClient,
-  input: { userId: string; body: GuestBookBody; today?: string; now?: Date },
+  input: {
+    userId: string;
+    body: GuestBookBody;
+    today?: string;
+    now?: Date;
+    /**
+     * "sms": the stay was booked by text (`request_short_stay`). Same core, same rules; the row says so
+     * (`stayDetails.source`), the host's notice says so, and the reply to the texter IS the confirmation, so
+     * no second text goes out from here.
+     */
+    via?: "sms";
+  },
 ): Promise<GuestBookResult> {
   const today = input.today ?? pacificTodayKey(input.now);
   const body = input.body;
@@ -308,7 +321,7 @@ export async function bookGuestStays(
     }
 
     const created = await createShortStayRows(db, {
-      actor: { source: GUEST_PORTAL_SHORT_STAY_SOURCE, name, phone, email, residentUserId: input.userId },
+      actor: { source: input.via === "sms" ? SMS_SHORT_STAY_SOURCE : GUEST_PORTAL_SHORT_STAY_SOURCE, name, phone, email, residentUserId: input.userId },
       listing,
       guests,
       ranges: valid,
@@ -366,11 +379,11 @@ export async function bookGuestStays(
             checkOut: row.range.checkOut,
             nights: row.range.nights,
             total: row.total,
-            headline: "Short-stay request from a returning guest",
+            headline: input.via === "sms" ? "Short-stay request by text" : "Short-stay request from a returning guest",
           }).catch(() => undefined);
         }
       }
-      if (written.length) {
+      if (written.length && input.via !== "sms") {
         await textGuest(db, {
           ownerId: listing.ownerId,
           propertyId,
@@ -403,9 +416,14 @@ async function textGuest(
   const portalUrl = residentPortalUrl("stays");
   const base = { roomLabel: input.roomLabel, propertyLabel: input.propertyLabel };
   const one = input.written.length === 1 ? input.written[0]! : null;
+  // A stay confirmed at once is paid from a phone-bound link in the same text.
+  const payUrl =
+    one && one.status === "confirmed"
+      ? await mintStayPayLink(db, { blockId: one.blockId, ownerId: input.ownerId, propertyId: input.propertyId, phone: input.phone }).catch(() => null)
+      : null;
   const text = one
     ? one.status === "confirmed"
-      ? guestStayConfirmedText({ ...base, checkIn: one.checkIn, checkOut: one.checkOut, nights: one.nights, total: one.total }, portalUrl)
+      ? guestStayConfirmedText({ ...base, checkIn: one.checkIn, checkOut: one.checkOut, nights: one.nights, total: one.total }, portalUrl, payUrl)
       : guestStayRequestedText({ ...base, checkIn: one.checkIn, checkOut: one.checkOut, nights: one.nights, total: one.total })
     : `PropLane: ${guestBookSummaryLine(input.written.map((row) => ({ outcome: row.status === "confirmed" ? "confirmed" : "pending" })))} at ${input.propertyLabel}.${
         input.written.some((row) => row.status === "hold") ? ` The host has ${SHORT_STAY_HOLD_HOURS} hours to confirm.` : ""
@@ -433,7 +451,8 @@ async function textGuest(
         from: await managerOutboundFromHeader(db, input.ownerId),
         to: [input.email],
         subject: `Your stay: ${input.roomLabel} at ${input.propertyLabel}`,
-        text,
+        // The pay link is texted to the phone it is bound to, never emailed.
+        text: payUrl ? text.replace(payUrl, residentPortalUrl("stays")) : text,
       },
       effectSummary: "Short-stay booking email was captured for SMS test mode.",
       metadata: { recipients: 1 },

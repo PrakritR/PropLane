@@ -13,8 +13,10 @@ import { formatShortStayMoney, shortStayCompactRange } from "@/lib/short-stay-re
 export const PUBLIC_SHORT_STAY_SOURCE = "public_short_stay_request";
 /** Written on `stayDetails.source` by `POST /api/resident/stays`. */
 export const GUEST_PORTAL_SHORT_STAY_SOURCE = "guest_portal";
-/** Both sources are a guest's request the manager can Approve or Decline while it is a hold. */
-export const SHORT_STAY_REQUEST_SOURCES: readonly string[] = [PUBLIC_SHORT_STAY_SOURCE, GUEST_PORTAL_SHORT_STAY_SOURCE];
+/** Written on `stayDetails.source` by a stay booked by text (the PropLane line's `request_short_stay`). */
+export const SMS_SHORT_STAY_SOURCE = "sms_short_stay";
+/** Every source is a guest's request the manager can Approve or Decline while it is a hold. */
+export const SHORT_STAY_REQUEST_SOURCES: readonly string[] = [PUBLIC_SHORT_STAY_SOURCE, GUEST_PORTAL_SHORT_STAY_SOURCE, SMS_SHORT_STAY_SOURCE];
 
 export function isShortStayRequestSource(source: unknown): boolean {
   return typeof source === "string" && SHORT_STAY_REQUEST_SOURCES.includes(source);
@@ -203,15 +205,22 @@ function stayWhere(input: StayTextInput): string {
 }
 
 /** Confirmed at once (a returning guest, free nights) or after the host approves. No long dashes. */
-export function guestStayConfirmedText(input: StayTextInput, portalUrl: string): string {
+export function guestStayConfirmedText(input: StayTextInput, portalUrl: string, payUrl?: string | null): string {
+  if (payUrl) return `PropLane: Confirmed, ${stayWhere(input)}, ${plainRange(input)} (${nightsMoney(input)}). ${payLinkSentence(input.total)} ${payUrl}`;
   return `PropLane: Confirmed, ${stayWhere(input)}, ${plainRange(input)} (${nightsMoney(input)}). Check-in details are in your portal: ${portalUrl}`;
+}
+
+/** One sentence, then the link: opens the payment form on the page after a code that is texted to this number. */
+export function payLinkSentence(total: number | null): string {
+  return `${total != null ? `Pay ${formatShortStayMoney(total)}` : "Pay"} here, we text you a code when you open it:`;
 }
 
 export function guestStayRequestedText(input: StayTextInput): string {
   return `PropLane: Request sent for ${plainRange(input)} (${nightsMoney(input)}). The host has ${SHORT_STAY_HOLD_HOURS} hours to confirm; we'll text you.`;
 }
 
-export function guestStayApprovedText(input: StayTextInput, portalUrl: string): string {
+export function guestStayApprovedText(input: StayTextInput, portalUrl: string, payUrl?: string | null): string {
+  if (payUrl) return `PropLane: Confirmed, ${plainRange(input)} at ${input.propertyLabel}. ${payLinkSentence(input.total)} ${payUrl}`;
   return `PropLane: Confirmed, ${plainRange(input)} at ${input.propertyLabel}. See it in your portal: ${portalUrl}`;
 }
 

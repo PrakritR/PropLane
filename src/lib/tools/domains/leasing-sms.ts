@@ -659,6 +659,33 @@ function areaFactsOf(rec: RawPropertyRecord) {
   return { lat: num("mapLat"), lng: num("mapLng"), neighborhood: str(src, "neighborhood"), zip: str(src, "zip") };
 }
 
+/**
+ * The homes a texter can book a short stay in, nearest first when they named a place. On the PropLane line
+ * (and the shared catalog line) that is the PropLane-managed `is_service` catalog only; on a workspace's own
+ * number it is that workspace's own live listings. Whether a home really takes short stays, and at what
+ * nightly rate, is decided later from the stored listing (`loadShortStayListing`), never from this projection.
+ */
+export async function loadShortStayHomes(
+  ctx: AgentContext,
+  input: { area?: string | null },
+): Promise<{ homes: { id: string; name: string; area: AreaMatch | null }[]; area?: Record<string, unknown> }> {
+  const rows = isServiceCatalog(ctx) || isCrossCatalog(ctx) ? await loadServiceCatalogRows() : await loadBrowsableListings(ctx);
+  const areaText = (input.area ?? "").trim();
+  const place: ResolvedPlace | null = areaText ? resolveSeattlePlace(areaText) : null;
+  let homes = rows.map((rec) => ({
+    id: rec.id,
+    name: propertyLabel(propertySource(rec)) ?? "the house",
+    area: place ? matchHomeToPlace(areaFactsOf(rec), place) : null,
+  }));
+  if (place) {
+    const measured = homes.filter((home) => home.area !== null) as { id: string; name: string; area: AreaMatch }[];
+    const near = measured.filter((home) => home.area.near).sort((a, b) => compareAreaMatches(a.area, b.area));
+    homes = near.length > 0 ? near : measured.sort((a, b) => compareAreaMatches(a.area, b.area)).slice(0, 3);
+    return { homes, area: { resolved: true, place: place.label, nearCount: near.length } };
+  }
+  return { homes, ...(areaText ? { area: { resolved: false, requested: areaText } } : {}) };
+}
+
 type ListedHome = { listing: ReturnType<typeof summarizeListingRecord>; rec: RawPropertyRecord; rank: number; area: AreaMatch | null };
 
 export const listLiveListingsTool = defineTool({
