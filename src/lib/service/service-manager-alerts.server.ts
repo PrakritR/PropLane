@@ -94,7 +94,8 @@ export async function alertServiceManagerFromNotice(
 
 /**
  * A new person wrote to the PropLane line wanting a house (a prospect inquiry, short stay or long term). Texted once per
- * phone per day. The number is shown by its last four digits only; the whole thread is in Admin Communication.
+ * phone per day, under a whole-line hourly cap that only a text which really goes out can spend. The number is shown by
+ * its last four digits only; the whole thread is in Admin Communication.
  */
 export async function alertServiceManagerOfInquiry(
   db: SupabaseClient,
@@ -108,7 +109,12 @@ export async function alertServiceManagerOfInquiry(
     const snippet = input.body.replace(/\s+/g, " ").trim().slice(0, 110);
     const text = toGsm7(`PropLane line: new inquiry from ***${digits.slice(-4)}${snippet ? `: "${snippet}"` : ""}`);
     const day = (input.now ?? new Date()).toISOString().slice(0, 10);
-    // Whole-line hourly cap first: a sender rotating numbers must not be able to text this phone without limit.
+    // This phone's own daily slot FIRST. The per-phone dedupe lives downstream in the transport, so spending the
+    // whole-line budget before checking it let one number texting repeatedly burn every slot for the hour and
+    // silence the next genuinely new inquiry - a suppression primitive needing a single phone.
+    const perPhone = await rateLimit(`service-manager-inquiry-phone:${digits.slice(-10)}`, 1, 24 * 60 * 60 * 1000);
+    if (!perPhone.ok) return "skipped";
+    // Then the whole-line hourly cap: a sender rotating numbers must not be able to text this phone without limit.
     const budget = await rateLimit("service-manager-inquiry-alert", SERVICE_INQUIRY_ALERTS_PER_HOUR, 60 * 60 * 1000);
     if (!budget.ok) return "skipped";
     const sent = await sendToServiceManager(db, { text, dedupeKey: `svc-inquiry-${digits.slice(-10)}-${day}`, settings });

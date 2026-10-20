@@ -46,6 +46,22 @@ describe("service manager wiring", () => {
     expect(pipeline).toMatch(/requireConfirmationCode: onPropLaneLine,/);
   });
 
+  it("the dispatch money answers carry the same code gate as the Assistant's writes", () => {
+    const engine = readFileSync("src/lib/vendor-dispatch/engine.server.ts", "utf8");
+    const responses = readFileSync("src/lib/vendor-dispatch/responses.server.ts", "utf8");
+    const completion = readFileSync("src/lib/vendor-dispatch/completion.server.ts", "utf8");
+    const inbound = readFileSync("src/lib/vendor-dispatch/inbound.server.ts", "utf8");
+    // Every ask that spends money shows the code...
+    expect(engine).toMatch(/withDispatchApprovalCode\(\s*db,\s*run,\s*"dispatch_approval"/);
+    expect(responses).toMatch(/withDispatchApprovalCode\(\s*db,\s*run,\s*"dispatch_quote"/);
+    expect(completion).toMatch(/withDispatchApprovalCode\(\s*db,\s*run,\s*"dispatch_invoice"/);
+    // ...and the reply is checked against it before approve / decline / invoice runs.
+    expect(inbound).toMatch(/checkDispatchApprovalCode\(db, run, codedKind, presentedCode\)/);
+    const gate = inbound.indexOf("checkDispatchApprovalCode");
+    expect(gate).toBeGreaterThan(-1);
+    expect(gate).toBeLessThan(inbound.indexOf("const result = await approveDispatchRun"));
+  });
+
   it("a live dispatch answer is read before the line's member/status handler", () => {
     const dispatchGuard = pipeline.indexOf("hasLiveVendorDispatchAnswer(db, {");
     const lineAnswer = pipeline.indexOf("answerPropLaneLineText(db, {");

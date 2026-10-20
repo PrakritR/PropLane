@@ -326,9 +326,15 @@ export async function recordVendorInvoice(
       .eq("id", run.id);
   }
   await recordDispatchEvent(db, { ownerUserId: run.owner_user_id, runId: run.id, handle: run.handle, event: "invoice_asked", key: attempt.id, detail: { amountCents: input.amountCents, invoiceId }, now });
+  const { withDispatchApprovalCode } = await import("@/lib/vendor-dispatch/approval-code.server");
   await notifyApprovers(db, { ...run, details: { ...run.details, invoiceId } }, {
     audience: "everyone",
-    text: composeInvoiceAskText({ handle: run.handle, vendorName: contact?.name ?? "Vendor", cents: input.amountCents }),
+    text: await withDispatchApprovalCode(
+      db,
+      run,
+      "dispatch_invoice",
+      composeInvoiceAskText({ handle: run.handle, vendorName: contact?.name ?? "Vendor", cents: input.amountCents }),
+    ),
     key: `invoice-${attempt.id}`,
   });
   return "asked";
@@ -364,6 +370,27 @@ export async function decideRunInvoice(
       .select("id");
     if (!claimedPending || (claimedPending as unknown[]).length === 0) return { ok: false, reason: "wrong_state" };
   }
+  // Whichever claim this call took (the invoice row's `submitted` -> `approved` flip, or the run's pending amount),
+  // handing it back is what lets the manager's next Y try the same invoice again.
+  const restoreInvoiceClaim = async (): Promise<void> => {
+    if (invoiceId) {
+      await db
+        .from("vendor_invoices")
+        .update({ status: "submitted", decided_at: null, decided_by: null, updated_at: now.toISOString() })
+        .eq("id", invoiceId)
+        .eq("manager_user_id", run.owner_user_id)
+        .eq("status", "approved")
+        .then(undefined, () => undefined);
+      return;
+    }
+    await db
+      .from("vendor_dispatch_runs")
+      .update({ pending_invoice_cents: approvedAmountCents, updated_at: now.toISOString() })
+      .eq("id", run.id)
+      .eq("owner_user_id", run.owner_user_id)
+      .is("pending_invoice_cents", null)
+      .then(undefined, () => undefined);
+  };
   let invoiceVendorUserId: string | null = null;
   if (invoiceId) {
     const { data: updated } = await db
@@ -410,24 +437,32 @@ export async function decideRunInvoice(
   }
   let settled: ApprovedInvoiceOutcome | undefined;
   if (input.approve) {
-    // What the manager approved is what the service costs; Approve + pay reads it, never the earlier agreed price.
-    await setServiceVendorCost(db, run, approvedAmountCents, now.toISOString());
-    const contacts = run.accepted_vendor_directory_id
-      ? await loadVendorContacts(db, run.owner_user_id, [run.accepted_vendor_directory_id]).catch(() => null)
-      : null;
-    const contact = run.accepted_vendor_directory_id ? contacts?.get(run.accepted_vendor_directory_id) : undefined;
-    settled = await applyApprovedDispatchInvoice(db, {
-      run,
-      amountCents: approvedAmountCents,
-      invoiceId,
-      vendorUserId: invoiceVendorUserId ?? contact?.vendorUserId ?? null,
-      vendorDirectoryId: run.accepted_vendor_directory_id,
-      vendorName: contact?.name ?? "Vendor",
-      now,
-    });
-    if (settled === "posted" && !invoiceVendorUserId && !contact?.vendorUserId && run.accepted_vendor_directory_id) {
-      const { textUnclaimedDirectoryBalance } = await import("@/lib/managed-finance/directory-vendor.server");
-      await textUnclaimedDirectoryBalance(db, { directoryId: run.accepted_vendor_directory_id, workspaceId: run.workspace_id, now });
+    try {
+      // What the manager approved is what the service costs; Approve + pay reads it, never the earlier agreed price.
+      await setServiceVendorCost(db, run, approvedAmountCents, now.toISOString());
+      const contacts = run.accepted_vendor_directory_id
+        ? await loadVendorContacts(db, run.owner_user_id, [run.accepted_vendor_directory_id]).catch(() => null)
+        : null;
+      const contact = run.accepted_vendor_directory_id ? contacts?.get(run.accepted_vendor_directory_id) : undefined;
+      settled = await applyApprovedDispatchInvoice(db, {
+        run,
+        amountCents: approvedAmountCents,
+        invoiceId,
+        vendorUserId: invoiceVendorUserId ?? contact?.vendorUserId ?? null,
+        vendorDirectoryId: run.accepted_vendor_directory_id,
+        vendorName: contact?.name ?? "Vendor",
+        now,
+      });
+      if (settled === "posted" && !invoiceVendorUserId && !contact?.vendorUserId && run.accepted_vendor_directory_id) {
+        const { textUnclaimedDirectoryBalance } = await import("@/lib/managed-finance/directory-vendor.server");
+        await textUnclaimedDirectoryBalance(db, { directoryId: run.accepted_vendor_directory_id, workspaceId: run.workspace_id, now });
+      }
+    } catch (error) {
+      // The claim must not outlive a failed post, or the manager's next Y finds nothing to approve and the bill is
+      // never created. Give the claim back - the ledger post is idempotent on its own source key, so a retry is safe.
+      await restoreInvoiceClaim();
+      console.error("vendor dispatch invoice not posted", error instanceof Error ? error.message : "unknown");
+      return { ok: false, reason: "unavailable" };
     }
   }
   await db

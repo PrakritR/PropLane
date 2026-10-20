@@ -117,12 +117,17 @@ describe("a confirmed stay left unpaid for 24 hours", () => {
     expect(enqueueOwnerSms).not.toHaveBeenCalled();
   });
 
-  it("expires an open checkout before giving the nights back", async () => {
+  it("expires an open checkout before giving the nights back, and retires its attempt and charge slot", async () => {
     const db = seeded([confirmedRow("blk-1")], [charge("blk-1", "pending")]);
     db.tables.resident_checkout_attempts = [openCheckout(guestStayChargeId("blk-1"))];
+    db.tables.resident_charge_payment_slots = [{ id: "slot-1", checkout_attempt_id: "att-1", charge_id: guestStayChargeId("blk-1") }];
     const result = await releaseUnpaidConfirmedStays(db as never, NOW);
     expect(result).toMatchObject({ released: 1, kept: 0 });
     expect(stripeSession.expired).toEqual(["cs_1"]);
+    // Retired here rather than through `retire_resident_checkout_attempt`, which refuses once the charge is
+    // cancelled and would have put it back to pending - so the attempt and its slot used to linger for ever.
+    expect(db.tables.resident_checkout_attempts![0]).toMatchObject({ status: "expired" });
+    expect(db.tables.resident_charge_payment_slots).toHaveLength(0);
   });
 
   it("keeps the stay and puts the charge back when that checkout turns out to be paid", async () => {

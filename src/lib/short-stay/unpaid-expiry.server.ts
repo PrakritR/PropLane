@@ -81,18 +81,21 @@ async function closeOpenStayCheckout(db: SupabaseClient, chargeId: string): Prom
     const session = await stripe.checkout.sessions.retrieve(sessionId);
     if (session.payment_status === "paid" || session.status === "complete") return "paid";
     if (session.status === "open") await stripe.checkout.sessions.expire(sessionId);
-    // Best effort: the session is already dead at the provider, so a failed bookkeeping write must not keep the
-    // nights blocked. The next run retires the row (an expired session is never "open" again).
-    try {
-      await db.rpc("retire_resident_checkout_attempt", {
-        p_attempt_id: attempt.id,
-        p_attempt_token: attempt.attempt_token,
-        p_session_id: sessionId,
-        p_terminal_status: "expired",
-      });
-    } catch {
-      /* see above */
-    }
+    // Retired HERE rather than through `retire_resident_checkout_attempt`: that function refuses once a charge is
+    // not pending/failed/processing (ours is already cancelled) and would put a cancelled charge back to pending,
+    // so it could only ever return false and leave the attempt and its charge slot behind for good.
+    await db
+      .from("resident_checkout_attempts")
+      .update({ status: "expired", updated_at: new Date().toISOString() })
+      .eq("id", attempt.id)
+      .eq("attempt_token", attempt.attempt_token)
+      .eq("status", "pending")
+      .then(undefined, () => undefined);
+    await db
+      .from("resident_charge_payment_slots")
+      .delete()
+      .eq("checkout_attempt_id", attempt.id)
+      .then(undefined, () => undefined);
   }
   return "closed";
 }

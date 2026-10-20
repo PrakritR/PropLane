@@ -1,9 +1,11 @@
 /**
  * A stateful PostgREST fake for the owner-management tests: select / insert / update / delete chains with
- * eq, neq, in, is, not, gte, lte, lt, gt, or-less filters, order, limit, range (paging), single / maybeSingle, select after write,
+ * eq, neq, in, is, not, gte, lte, lt, gt, like / ilike, or(), order, limit, range (paging), single / maybeSingle, select after write,
  * upsert, and `rpc(name, args)` answered by handlers the test supplies. A table in `broken` answers with
  * a Postgres "relation does not exist" error (code that runs before its migration).
  */
+import { parseOrFilterClauses } from "@/lib/supabase/or-filter";
+
 export type FakeRow = Record<string, unknown>;
 export type RpcHandler = (args: Record<string, unknown>, db: OwnerFakeDb) => unknown | Promise<unknown>;
 
@@ -21,6 +23,14 @@ function read(row: FakeRow, column: string): unknown {
     return inner && typeof inner === "object" ? (inner as FakeRow)[key!] : undefined;
   }
   return row[column];
+}
+
+/** `*5550100` / `%5550100%` as a LIKE pattern (PostgREST writes `*` for `%` inside an or() clause). */
+function likeMatches(value: unknown, pattern: string, caseInsensitive: boolean): boolean {
+  const text = caseInsensitive ? String(value ?? "").toLowerCase() : String(value ?? "");
+  const pat = caseInsensitive ? pattern.toLowerCase() : pattern;
+  const source = pat.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/[*%]/g, ".*").replace(/_/g, ".");
+  return new RegExp(`^${source}$`).test(text);
 }
 
 let idCounter = 0;
@@ -98,7 +108,21 @@ export function fakeOwnerDb(
         in(column: string, values: unknown[]) { predicates.push((row) => values.includes(read(row, column))); return query; },
         is(column: string, value: unknown) { predicates.push((row) => (value === null ? read(row, column) == null : read(row, column) === value)); return query; },
         not(column: string, _op: string, value: unknown) { predicates.push((row) => (value === null ? read(row, column) != null : read(row, column) !== value)); return query; },
-        like(column: string, pattern: string) { const prefix = pattern.replace(/%$/, ""); predicates.push((row) => String(read(row, column) ?? "").startsWith(prefix)); return query; },
+        like(column: string, pattern: string) { predicates.push((row) => likeMatches(read(row, column), pattern, false)); return query; },
+        ilike(column: string, pattern: string) { predicates.push((row) => likeMatches(read(row, column), pattern, true)); return query; },
+        // PostgREST's `or()`: one string of `column.op.value` clauses, parsed the way the real builder quotes them.
+        or(expr: string) {
+          const clauses = parseOrFilterClauses(expr);
+          predicates.push((row) => clauses.some(({ column, operator, value }) => {
+            const cell = read(row, column);
+            if (operator === "eq") return String(cell ?? "") === value;
+            if (operator === "is") return value === "null" ? cell == null : String(cell ?? "") === value;
+            if (operator === "like") return likeMatches(cell, value, false);
+            if (operator === "ilike") return likeMatches(cell, value, true);
+            return false;
+          }));
+          return query;
+        },
         gte(column: string, value: unknown) { predicates.push((row) => String(read(row, column) ?? "") >= String(value)); return query; },
         gt(column: string, value: unknown) { predicates.push((row) => String(read(row, column) ?? "") > String(value)); return query; },
         lte(column: string, value: unknown) { predicates.push((row) => String(read(row, column) ?? "") <= String(value)); return query; },

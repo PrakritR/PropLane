@@ -56,7 +56,14 @@ import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-t
 import { readPortalAssistantSmsSession } from "@/lib/agent/portal-assistant-session.server";
 import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
 import { isSlowWorkTool } from "@/lib/one-number/slow-work";
-import { codedConfirmationLine, readSmsConfirmationCode, smsConfirmationCodeMatches, withConfirmationCode } from "@/lib/sms/confirmation-code";
+import {
+  checkSmsConfirmationCode,
+  codedConfirmationLine,
+  issueSmsConfirmationCode,
+  readSmsConfirmationCode,
+  withConfirmationCode,
+  SMS_CONFIRMATION_CANCELLED_REPLY,
+} from "@/lib/sms/confirmation-code";
 
 type Db = SupabaseClient;
 
@@ -379,10 +386,13 @@ async function recordAssistantReply(
 }
 
 /**
- * The stored preview of an open proposal, re-rendered with its 4-digit code. The preview is what the person was
- * shown, so repeating it (rather than inventing a "say the code" line) keeps the whole decision in one text.
+ * The stored preview of an open proposal, re-rendered with a FRESH 4-digit code. The preview is what the person was
+ * shown, so repeating it (rather than inventing a "say the code" line) keeps the whole decision in one text. Only
+ * the hash of a code is stored, so re-asking issues a new one; the attempt count carries over.
  */
-async function previewWithCodeReply(db: Db, userId: string, actionId: string, mistyped: boolean): Promise<string> {
+async function previewWithCodeReply(db: Db, userId: string, actionId: string, mistyped: boolean): Promise<string | null> {
+  const code = await issueSmsConfirmationCode(db, { kind: "pending_action", subjectId: actionId });
+  if (!code) return null;
   const { data } = await db
     .from("agent_pending_actions")
     .select("preview")
@@ -390,7 +400,7 @@ async function previewWithCodeReply(db: Db, userId: string, actionId: string, mi
     .eq("user_id", userId)
     .maybeSingle();
   const preview = (data as { preview?: ActionPreview } | null)?.preview;
-  const body = preview ? withConfirmationCode(renderPreviewForSms(preview), actionId) : codedConfirmationLine(actionId);
+  const body = preview ? withConfirmationCode(renderPreviewForSms(preview), code) : codedConfirmationLine(code);
   return mistyped ? `That code does not match.\n\n${body}` : body;
 }
 
@@ -450,13 +460,32 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
     };
   }
 
-  if (intent === "confirm" && args.requireConfirmationCode && !smsConfirmationCodeMatches(open.actionId, typedCode)) {
-    // A bare YES (or a mistyped code) re-sends the SAME preview with its code. The code travels only in the
-    // preview, which went to the real phone, so a spoofed sender can never produce it.
-    const reply = (await previewWithCodeReply(db, ctx.userId, open.actionId, typedCode != null)).slice(0, args.maxReplyChars);
-    const assistantMessageId = await recordAssistantReply(db, session, reply, [], null, args.sourceMessageSid);
-    await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, args.skipBilling);
-    return { reply, sessionId: session.id, assistantMessageId, pendingActionId: open.actionId };
+  if (intent === "confirm" && args.requireConfirmationCode) {
+    // The code travels only in the ask, which went to the real phone, so a spoofed sender cannot produce it.
+    // A bare YES costs no attempt and re-sends the ask; three wrong codes cancel the proposal outright.
+    const checked = typedCode
+      ? await checkSmsConfirmationCode(db, { kind: "pending_action", subjectId: open.actionId, code: typedCode })
+      : ("wrong" as const);
+    if (checked !== "ok") {
+      let reply: string;
+      if (checked === "exhausted") {
+        await decidePendingAction({
+          action: { kind: "deny", actionId: open.actionId },
+          ctx,
+          registry: args.registry,
+          portal: surface.portal,
+          traceMetadata: args.traceMetadata,
+        }).catch(() => undefined);
+        reply = SMS_CONFIRMATION_CANCELLED_REPLY;
+      } else {
+        const asked = checked === "unavailable" ? null : await previewWithCodeReply(db, ctx.userId, open.actionId, typedCode != null);
+        reply = asked ?? "I could not check that just now. Please confirm it in PropLane.";
+      }
+      reply = reply.slice(0, args.maxReplyChars);
+      const assistantMessageId = await recordAssistantReply(db, session, reply, [], null, args.sourceMessageSid);
+      await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, args.skipBilling);
+      return { reply, sessionId: session.id, assistantMessageId, pendingActionId: open.actionId };
+    }
   }
 
   if (intent === "deny") {
@@ -834,8 +863,20 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
         traceId,
       };
     }
-    const rendered = args.requireConfirmationCode
-      ? withConfirmationCode(renderPreview(result.pendingAction.preview), actionId)
+    const confirmationCode = args.requireConfirmationCode
+      ? await issueSmsConfirmationCode(db, { kind: "pending_action", subjectId: actionId })
+      : null;
+    if (args.requireConfirmationCode && !confirmationCode) {
+      // No code, no coded confirmation: the proposal would be unconfirmable by text, so it is withdrawn here
+      // rather than left open for a bare YES to answer.
+      await supersedeOpenSmsProposals(db, { userId: ctx.userId, portal: surface.portal, sessionId: session.id });
+      const reply = "I could not set that up just now. Please do it in PropLane.";
+      const assistantMessageId = await recordAssistantReply(db, session, reply, result.toolTrace, traceId, inboundMessageSid);
+      await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, Boolean(args.testActor));
+      return { reply, sessionId: session.id, assistantMessageId, traceId };
+    }
+    const rendered = confirmationCode
+      ? withConfirmationCode(renderPreview(result.pendingAction.preview), confirmationCode)
       : renderPreview(result.pendingAction.preview);
     const fencedReply = [result.reply.trim(), rendered].filter(Boolean).join("\n\n");
     const reply = unfenceUntrustedText(fencedReply).slice(0, maxReplyChars);

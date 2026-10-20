@@ -1,7 +1,7 @@
 /**
  * PropLane Service dispatch (W27, per_workspace mode, what production runs): a resident of a service workspace files a leak
  * by text; the job goes to the service ROSTER (a vendor an admin added), the approval goes to the verified SERVICE MANAGER
- * phone, the manager approves from that phone on the PropLane line, the roster vendor's YES arrives on the same line and
+ * phone, the manager approves from that phone on the PropLane line with the code in the ask, the roster vendor's YES arrives on the same line and
  * assigns the job in the client's workspace, and the manager phone hears the outcome. Nothing is sent: the transport capture
  * records it.
  *
@@ -120,9 +120,15 @@ export const SERVICE_DISPATCH_SCENARIOS = [
         check("the client owner was not texted for the approval", toPhone(sd.client.phone ?? "0000000000").every((m) => !new RegExp(`#${run.handle}\\b`).test(m.body)), "client texted");
         check("the roster vendor was NOT texted before approval", toPhone(sd.vendorPhone).length === 0, JSON.stringify(toPhone(sd.vendorPhone)));
 
-        // 3. The manager phone approves on the PropLane line.
-        const approve = await say(sd.managerPhone, fx.line, `Y ${run.handle}`);
-        check("the manager's Y on the PropLane line approves the job", /approved/i.test(approve.all), approve.all);
+        // 3. The manager phone approves on the PropLane line - with the 4-digit code the ask carried, because the
+        //    inbound caller ID on that line proves nothing (a bare Y only re-asks).
+        const askedCode = /Reply Y (\d{4})/.exec(ask)?.[1] ?? "";
+        check("the approval ask carries the PropLane line's confirmation code", /^\d{4}$/.test(askedCode), ask);
+        const bare = await say(sd.managerPhone, fx.line, `Y ${run.handle}`);
+        check("a bare Y does not approve: it re-asks with a fresh code", /needs its code/i.test(bare.all), bare.all);
+        const code = /reply Y (\d{4})/i.exec(bare.all)?.[1] ?? askedCode;
+        const approve = await say(sd.managerPhone, fx.line, `Y ${run.handle} ${code}`);
+        check("the manager's coded Y on the PropLane line approves the job", /approved/i.test(approve.all), approve.all);
         const offer = await waitFor(async () => toPhone(sd.vendorPhone).map((m) => m.body).join("\n") || null, 45_000);
         check("the roster vendor is offered the job from the PropLane line: general area only, no street address", Boolean(offer) && !/Brooklyn Ave/i.test(offer ?? "") && /plumb|leak|sink/i.test(offer ?? ""), offer ?? "(no offer sent)");
 

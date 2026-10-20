@@ -264,8 +264,22 @@ describe("alerts for service workspaces", () => {
     expect(await alertServiceManagerOfInquiry(db as never, { phone: "+14255550123", body: "Hi is the Brooklyn room open for 3 nights in November?", now })).toBe("sent");
     expect(state.texts[0]!.text).toContain("***0123");
     expect(state.texts[0]!.text).not.toContain("425");
-    await alertServiceManagerOfInquiry(db as never, { phone: "+14255550123", body: "again", now });
-    expect(state.texts[1]!.dedupeKey).toBe(state.texts[0]!.dedupeKey);
+    expect(state.texts[0]!.dedupeKey).toBe("svc-inquiry-4255550123-2026-10-19");
+    // The same number again: this phone's daily slot is spent, so nothing is sent AND no line budget is burned.
+    expect(await alertServiceManagerOfInquiry(db as never, { phone: "+14255550123", body: "again", now })).toBe("skipped");
+    expect(state.texts).toHaveLength(1);
+  });
+
+  it("one number texting repeatedly cannot spend the whole line's hourly budget", async () => {
+    const now = new Date("2026-10-19T20:00:00Z");
+    // The per-phone dedupe lives downstream in the transport, so the daily slot is checked BEFORE the hourly cap:
+    // otherwise a single sender could burn every slot and silence the next genuinely new inquiry.
+    for (let i = 0; i < SERVICE_INQUIRY_ALERTS_PER_HOUR + 5; i += 1) {
+      await alertServiceManagerOfInquiry(db as never, { phone: "+14255550900", body: `spam ${i}`, now });
+    }
+    expect(state.texts).toHaveLength(1);
+    expect(await alertServiceManagerOfInquiry(db as never, { phone: "+14255550901", body: "a real one", now })).toBe("sent");
+    expect(state.texts).toHaveLength(2);
   });
 
   it("inquiry alerts are capped for the whole line, so rotating senders cannot flood one personal cell", async () => {

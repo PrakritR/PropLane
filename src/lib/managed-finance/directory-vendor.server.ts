@@ -8,6 +8,7 @@ import { sendWorkspacePhoneText } from "@/lib/one-number/link-text.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { createVendorInviteDraft } from "@/lib/vendor-invite.server";
 import { LedgerError, postJournal, readLedgerPages, vendorDirectoryParty, vendorParty } from "@/lib/managed-finance/ledger.server";
+import { postgrestFilterValue } from "@/lib/supabase/or-filter";
 
 /**
  * A vendor dispatched by text may have no PropLane login: the manager's directory row is all there is. On a managed workspace
@@ -109,10 +110,41 @@ export async function rekeyDirectoryBalances(
   return { journals, movedCents };
 }
 
+type DirectoryRecord = { id: string; vendor_user_id?: string | null; row_data?: Row | null };
+
+/**
+ * The directory rows that could be THIS vendor's, by proven contact.
+ *
+ * One narrow query, never a platform-wide scan: the email matches case-insensitively, and the phone is matched on its
+ * last four digits (contiguous in every format a row can hold - "+12065550100", "(206) 555-0100", "206.555.0100"),
+ * with the exact comparison done here against the normalized number. Scanning the whole `vendor_dir:%` ledger to
+ * discover candidates read every vendor_payable line on the platform and then fed every id it found into one `.in()`.
+ */
+async function directoryRecordsForContact(
+  db: SupabaseClient,
+  input: { email: string; phone: string | null },
+): Promise<DirectoryRecord[]> {
+  const clauses: string[] = [];
+  if (input.email) clauses.push(`row_data->>email.ilike.${postgrestFilterValue(input.email)}`);
+  if (input.phone) clauses.push(`row_data->>phone.like.*${input.phone.slice(-4)}`);
+  if (clauses.length === 0) return [];
+  const { data, error } = await db
+    .from("manager_vendor_records")
+    .select("id, vendor_user_id, row_data")
+    .or(clauses.join(","))
+    .limit(500);
+  if (error) throw new LedgerError(500, "Could not read the vendor directory.");
+  return ((data ?? []) as DirectoryRecord[]).filter((record) => {
+    const row = record.row_data ?? {};
+    if (input.email && str(row.email).toLowerCase() === input.email) return true;
+    return Boolean(input.phone) && normalizeE164(row.phone) === input.phone;
+  });
+}
+
 /**
  * A new vendor account: claim the directory rows that were waiting for it, by PROVEN contact only (a verified email or a
  * verified phone; a typed one proves nothing), link the row to the account and move the open balance. Only rows with money
- * waiting are considered, so the scan is bounded. Returns the directory ids claimed.
+ * waiting are considered, and only this vendor's own rows are read. Returns the directory ids claimed.
  */
 export async function claimWaitingDirectoryBalances(
   db: SupabaseClient,
@@ -122,31 +154,10 @@ export async function claimWaitingDirectoryBalances(
   const email = input.emailProven ? str(input.email).toLowerCase() : "";
   const phone = input.phoneProven ? normalizeE164(input.phone) : null;
   if (!userId || (!email && !phone)) return [];
-  // Paged, ordered scan: a bare `.limit(5000)` returned an arbitrary subset of the directory parties, so a vendor's
-  // own id could be missing and their waiting balance never claimed.
-  const lines = await readLedgerPages<{ party_id: string | null }>((from, to) =>
-    db
-      .from("party_ledger_lines")
-      .select("id, party_id")
-      .eq("account", "vendor_payable")
-      .like("party_id", "vendor_dir:%")
-      .order("party_id", { ascending: true })
-      .order("id", { ascending: true })
-      .range(from, to),
-  ).catch((error: unknown) => {
-    if (error instanceof LedgerError) throw new LedgerError(500, "Could not read waiting vendor balances.");
-    throw error;
-  });
-  if (lines === "missing_schema") return [];
-  const ids = [...new Set(lines.map((r) => str(r.party_id).slice("vendor_dir:".length)).filter(Boolean))];
-  if (ids.length === 0) return [];
-  const { data: records, error: recordError } = await db
-    .from("manager_vendor_records")
-    .select("id, vendor_user_id, row_data")
-    .in("id", ids);
-  if (recordError) throw new LedgerError(500, "Could not read the vendor directory.");
+  const records = await directoryRecordsForContact(db, { email, phone });
+  if (records.length === 0) return [];
   const claimed: string[] = [];
-  for (const record of (records ?? []) as Array<{ id: string; vendor_user_id?: string | null; row_data?: Row | null }>) {
+  for (const record of records) {
     const linkedTo = str(record.vendor_user_id);
     if (linkedTo && linkedTo !== userId) continue;
     // Already ours but money still on the directory party (an earlier re-key failed, or a bill posted after the
@@ -156,10 +167,8 @@ export async function claimWaitingDirectoryBalances(
       if (moved && moved.journals > 0) claimed.push(record.id);
       continue;
     }
-    const row = record.row_data ?? {};
-    const emailMatch = Boolean(email) && str(row.email).toLowerCase() === email;
-    const phoneMatch = Boolean(phone) && normalizeE164(row.phone) === phone;
-    if (!emailMatch && !phoneMatch) continue;
+    // A row with nothing waiting is not this function's business: linking it is the directory's own job.
+    if ((await directoryWaitingCents(db, record.id).catch(() => 0)) <= 0) continue;
     const { data: linked, error: linkError } = await db
       .from("manager_vendor_records")
       .update({ vendor_user_id: userId, updated_at: new Date().toISOString() })

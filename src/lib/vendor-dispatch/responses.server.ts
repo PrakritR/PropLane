@@ -422,9 +422,15 @@ export async function recordVendorYes(
     await db.from("vendor_dispatch_runs").update({ approval_reminded_at: null, approval_escalated_at: null, updated_at: nowIso }).eq("id", run.id);
     const contacts = await loadVendorContacts(db, run.owner_user_id, [attempt.vendor_directory_id]);
     const contact = contacts.get(attempt.vendor_directory_id);
+    const { withDispatchApprovalCode } = await import("@/lib/vendor-dispatch/approval-code.server");
     await notifyApprovers(db, { ...run, status: "offering" }, {
       audience: "everyone",
-      text: composeQuoteAskText({ handle: run.handle, vendorName: contact?.name ?? "Vendor", quoteCents: price, capCents: cap }),
+      text: await withDispatchApprovalCode(
+        db,
+        run,
+        "dispatch_quote",
+        composeQuoteAskText({ handle: run.handle, vendorName: contact?.name ?? "Vendor", quoteCents: price, capCents: cap }),
+      ),
       key: `quote-${attempt.id}`,
     });
     await textVendor(db, run, contact, attempt.id, composeVendorQuoteHeldText(run.handle), "quote-held");

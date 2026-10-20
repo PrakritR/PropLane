@@ -172,6 +172,8 @@ const attemptVendors = (db: Db, runId: string) =>
   (db.__tables.vendor_dispatch_attempts ?? []).filter((a) => a.run_id === runId).sort((a, b) => Number(a.position) - Number(b.position)).map((a) => String(a.vendor_directory_id));
 
 beforeEach(() => {
+  // The PropLane line's confirmation code needs a signing key; with none it fails closed (no code, no approval).
+  vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
   sent.vendor.length = 0;
   sent.keys.clear();
   sent.team.length = 0;
@@ -268,20 +270,113 @@ describe("who a service workspace's job is offered to", () => {
     expect(attemptVendors(db, created.run.id)).toContain("svcv-pat");
   });
 
-  it("the service-owner lookup is memoized per client, so a sweep does not re-read it once per stay", async () => {
+  it("the service-owner lookup rides one per-instance snapshot, so a sweep does not re-read it once per stay", async () => {
     const db = world();
-    let workspaceReads = 0;
-    const counted = { ...db, from: (table: string) => { if (table === "portal_workspaces") workspaceReads += 1; return db.from(table); } } as never;
-    expect(await serviceOwnerForWorkspace(counted, WS_A)).toBe(SO);
-    expect(await serviceOwnerForWorkspace(counted, WS_A)).toBe(SO);
-    expect(await serviceOwnerForWorkspace(counted, WS_A)).toBe(SO);
-    expect(workspaceReads).toBe(1);
+    const reads = () => {
+      let count = 0;
+      const counted = { ...db, from: (table: string) => { if (table === "portal_workspaces") count += 1; return db.from(table); } } as never;
+      return { counted, count: () => count };
+    };
+    // Under test the shared snapshot cache is deliberately off, so every call reads live.
+    const live = reads();
+    expect(await serviceOwnerForWorkspace(live.counted, WS_A)).toBe(SO);
+    expect(await serviceOwnerForWorkspace(live.counted, WS_A)).toBe(SO);
+    expect(live.count()).toBe(2);
+
+    // With the snapshot on (as on a server) the repeat is free.
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("VITEST", "");
+    const cached = reads();
+    expect(await serviceOwnerForWorkspace(cached.counted, WS_A)).toBe(SO);
+    expect(await serviceOwnerForWorkspace(cached.counted, WS_A)).toBe(SO);
+    expect(await serviceOwnerForWorkspace(cached.counted, WS_A)).toBe(SO);
+    expect(cached.count()).toBe(1);
+    vi.unstubAllEnvs();
   });
 
   it("the paycore hook returns the reachable roster for a service workspace and [] for any other", async () => {
     const db = world();
     expect((await serviceRosterVendorsForTrade(db as never, { workspaceId: WS_A, trade: "plumber" })).map((v) => v.vendorDirectoryId)).toEqual(["svcv-pat", "svcv-stop"]);
     expect(await serviceRosterVendorsForTrade(db as never, { workspaceId: WS_P, trade: "plumber" })).toEqual([]);
+  });
+});
+
+/** The code the ask for #handle carried ("... Reply Y 4821 or N 4821"). */
+function codeIn(team: Array<{ text: string }>, handle: number): string {
+  const ask = [...team].reverse().find((entry) => entry.text.includes(`#${handle}`) && /Reply Y \d{4}/.test(entry.text));
+  return /Reply Y (\d{4})/.exec(ask?.text ?? "")?.[1] ?? "";
+}
+
+describe("the PropLane line's code on a money answer", () => {
+  it("the approval ask carries a code, a bare Y only re-asks with a fresh one, and the code approves", async () => {
+    const db = world();
+    const created = await newRun(db);
+    if (!created.ok) throw new Error("setup");
+    const handle = created.run.handle;
+    // The ask the service manager received shows the code; a spoofed sender never sees this text.
+    expect(sent.team[0]!.text).toMatch(/Reply Y \d{4} or N \d{4}$/);
+    const first = codeIn(sent.team, handle);
+    expect(first).toMatch(/^\d{4}$/);
+
+    const bare = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `Y ${handle}`, assistantProposalOpen: async () => false });
+    expect((bare as { reply?: string }).reply).toMatch(new RegExp(`#${handle} needs its code: reply Y \\d{4}`));
+    expect((db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === created.run.id)?.status).toBe("awaiting_approval");
+    expect(sent.vendor).toHaveLength(0);
+    // Re-asking issues a FRESH code (only the hash is stored), and the stale one no longer works.
+    const fresh = /reply Y (\d{4})/.exec((bare as { reply?: string }).reply ?? "")?.[1] ?? "";
+    expect(fresh).not.toBe(first);
+
+    const approved = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `Y ${handle} ${fresh}`, assistantProposalOpen: async () => false });
+    expect((approved as { reply?: string }).reply).toContain(`Approved #${handle}`);
+    expect((db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === created.run.id)?.status).toBe("offering");
+  });
+
+  it("a lone 4-digit number is read as the code for the one job waiting", async () => {
+    const db = world();
+    const created = await newRun(db);
+    if (!created.ok) throw new Error("setup");
+    const code = codeIn(sent.team, created.run.handle);
+    const approved = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `Y ${code}`, assistantProposalOpen: async () => false });
+    expect((approved as { reply?: string }).reply).toContain(`Approved #${created.run.handle}`);
+  });
+
+  it("three wrong codes cancel the job and say so; nobody is texted", async () => {
+    const db = world();
+    const created = await newRun(db);
+    if (!created.ok) throw new Error("setup");
+    const handle = created.run.handle;
+    const wrong = codeIn(sent.team, handle) === "0000" ? "1111" : "0000";
+    const replies: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const answer = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `Y ${handle} ${wrong}`, assistantProposalOpen: async () => false });
+      replies.push((answer as { reply?: string }).reply ?? "");
+    }
+    expect(replies[0]).toContain("That code does not match");
+    expect(replies[1]).toContain("That code does not match");
+    expect(replies[2]).toContain("cancelled");
+    expect((db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === created.run.id)?.status).toBe("declined_by_manager");
+    expect(sent.vendor).toHaveLength(0);
+  });
+
+  it("with no signing key nothing is confirmed by text: the ask carries no code and the answer is refused", async () => {
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    vi.stubEnv("PHONE_OTP_HMAC_SECRET", "");
+    const db = world();
+    const created = await newRun(db);
+    if (!created.ok) throw new Error("setup");
+    expect(sent.team[0]!.text).not.toMatch(/Reply Y \d{4}/);
+    const answer = await handleManagerDispatchReply(db as never, { ownerUserId: CLIENT, workspaceId: WS_A, actorUserId: SO, body: `Y ${created.run.handle}`, assistantProposalOpen: async () => false });
+    expect((answer as { reply?: string }).reply).toContain("PropLane");
+    expect((db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === created.run.id)?.status).toBe("awaiting_approval");
+  });
+
+  it("a workspace of its own is never gated: its approval answers on its own work number", async () => {
+    const db = world();
+    const created = await newRun(db, { workspaceId: WS_P, ownerUserId: OTHER, sourceId: "wo-p", propertyId: PROP_P });
+    if (!created.ok) throw new Error("setup");
+    expect(sent.team[0]!.text).not.toMatch(/Reply Y \d{4}/);
+    const approved = await handleManagerDispatchReply(db as never, { ownerUserId: OTHER, workspaceId: WS_P, actorUserId: OTHER, body: "Y", assistantProposalOpen: async () => false });
+    expect((approved as { reply?: string }).reply).toContain(`Approved #${created.run.handle}`);
   });
 });
 
@@ -327,7 +422,7 @@ describe("approval is the service manager's", () => {
     const ask = await handleManagerDispatchReply(db as never, { ownerUserId: SO, workspaceId: WS_SO, actorUserId: SO, body: "Y", scopes, assistantProposalOpen: async () => false });
     expect(ask).toMatchObject({ handled: true });
     expect((ask as { reply?: string }).reply).toMatch(/^Which one\? Reply Y \d+ or Y \d+$/);
-    const approved = await handleManagerDispatchReply(db as never, { ownerUserId: SO, workspaceId: WS_SO, actorUserId: SO, body: `Y ${v.run.handle}`, scopes, assistantProposalOpen: async () => false });
+    const approved = await handleManagerDispatchReply(db as never, { ownerUserId: SO, workspaceId: WS_SO, actorUserId: SO, body: `Y ${v.run.handle} ${codeIn(sent.team, v.run.handle)}`, scopes, assistantProposalOpen: async () => false });
     expect((approved as { reply?: string }).reply).toContain(`Approved #${v.run.handle}`);
     const runV = (db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === v.run.id);
     const runA = (db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === a.run.id);

@@ -625,17 +625,22 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
       if (await refuseWebhookOwner(db, smsManagerId, "subscription_event")) {
         return NextResponse.json({ received: true }, { status: 200 });
       }
+      // The view-only lock rests on this downgrade: "self-paid" is the row's CURRENT tier, so a cancellation that
+      // fails to write leaves a cancelled subscriber on tier pro and unlocks a managed workspace for good. Swallowing
+      // it here acknowledged the event and Stripe never came back, so the failure is rethrown instead (500 = retry).
       try {
         if (event.type === "customer.subscription.deleted") {
-          await db
+          const { error: downgradeError } = await db
             .from("manager_purchases")
             .update({ tier: "free", billing: "free", stripe_subscription_id: null })
             .eq("stripe_subscription_id", sub.id);
+          if (downgradeError) throw new Error(downgradeError.message || "Could not downgrade the cancelled plan.");
         } else {
           await reconcileManagerPurchaseByStripeSubscriptionId(sub.id);
         }
       } catch (e) {
         console.error("[stripe webhook] subscription event", e);
+        throw e instanceof Error ? e : new Error("Subscription event could not be applied.");
       }
       if (smsManagerId) {
         const smsEntitlement = await reconcileManagerSmsEntitlement(db, smsManagerId, {

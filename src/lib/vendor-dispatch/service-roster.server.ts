@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { readPlatformServiceOwnerId } from "@/lib/service/service-catalog.server";
+import { createTtlCache, serverSnapshotCacheEnabled, type TtlCache } from "@/lib/server-ttl-cache";
 import { toChain, vendorTradeIds, type VendorRecord } from "@/lib/vendor-dispatch/match.server";
 import { vendorDispatchRoles } from "@/lib/vendor-dispatch/vendor-roles";
 import type { ChainVendor } from "@/lib/vendor-dispatch/types";
@@ -23,45 +24,34 @@ import type { ChainVendor } from "@/lib/vendor-dispatch/types";
 export type RosterRowData = ManagerVendorRow & { serviceRoster?: boolean; rosterRemovedAt?: string };
 
 /**
- * A short per-client memo for the two roster lookups that are otherwise repeated once per stay by the turnover sweep
- * (every 2 minutes) and twice per run by the approval check. Keyed on the client so two tests, or two requests holding
- * their own client, never share an answer; 30 s is far shorter than how often the service flag or the roster changes.
+ * The two roster lookups are repeated once per stay by the turnover sweep (every 2 minutes) and again by the approval
+ * check, and both are PUBLIC facts - the workspace's service flag and which trades the roster covers - identical for
+ * every caller. `createTtlCache` is the repo's helper for exactly that: one answer per instance, one in-flight read
+ * shared, a failure never cached, and off under test so the reads under test stay live.
  */
 const LOOKUP_TTL_MS = 30_000;
-type Memo = { serviceOwner: Map<string, { at: number; value: string | null }>; trades: Map<string, { at: number; value: Set<string> }> };
-const memos = new WeakMap<object, Memo>();
+const serviceOwnerCache = createTtlCache<string | null>(LOOKUP_TTL_MS);
+const rosterTradeCache = createTtlCache<ReadonlySet<string>>(LOOKUP_TTL_MS);
 
-function memoFor(db: SupabaseClient): Memo {
-  let memo = memos.get(db as unknown as object);
-  if (!memo) {
-    memo = { serviceOwner: new Map(), trades: new Map() };
-    memos.set(db as unknown as object, memo);
-  }
-  return memo;
-}
-
-async function memoized<T>(cache: Map<string, { at: number; value: T }>, key: string, now: number, load: () => Promise<T>): Promise<T> {
-  const hit = cache.get(key);
-  if (hit && now - hit.at < LOOKUP_TTL_MS) return hit.value;
-  const value = await load();
-  if (cache.size > 500) cache.clear();
-  cache.set(key, { at: now, value });
-  return value;
+async function snapshot<T>(cache: TtlCache<T>, key: string, load: () => Promise<T>): Promise<T> {
+  return serverSnapshotCacheEnabled() ? cache.get(key, load) : load();
 }
 
 /** The service owner's id when `workspaceId` is a PropLane Service workspace; null for every other workspace or any failed read. */
 export async function serviceOwnerForWorkspace(db: SupabaseClient, workspaceId: string | null | undefined): Promise<string | null> {
   const id = workspaceId?.trim();
   if (!id) return null;
-  return memoized(memoFor(db).serviceOwner, id, Date.now(), async () => {
-    try {
+  try {
+    // The loader THROWS on a failed read so the cache never keeps the failure; the caller still sees null.
+    return await snapshot(serviceOwnerCache, id, async () => {
       const { data, error } = await db.from("portal_workspaces").select("is_service").eq("id", id).maybeSingle();
-      if (error || (data as { is_service?: unknown } | null)?.is_service !== true) return null;
+      if (error) throw new Error(error.message || "workspace read failed");
+      if ((data as { is_service?: unknown } | null)?.is_service !== true) return null;
       return await readPlatformServiceOwnerId(db);
-    } catch {
-      return null;
-    }
-  });
+    });
+  } catch {
+    return null;
+  }
 }
 
 /** A live roster entry: flagged, active, not removed. (Pause is checked separately: it is a dispatch filter.) */
@@ -123,7 +113,7 @@ export async function loadServiceRosterChain(
  */
 export async function serviceRosterHasTrade(db: SupabaseClient, serviceOwnerId: string, trade: string): Promise<boolean> {
   try {
-    const trades = await memoized(memoFor(db).trades, serviceOwnerId, Date.now(), async () => {
+    const trades = await snapshot(rosterTradeCache, serviceOwnerId, async () => {
       const records = await rosterRecordsForTrade(db, serviceOwnerId, null);
       const set = new Set<string>();
       for (const record of records) {
@@ -131,7 +121,7 @@ export async function serviceRosterHasTrade(db: SupabaseClient, serviceOwnerId: 
         for (const id of vendorDispatchRoles(row)) set.add(String(id));
         for (const id of vendorTradeIds(row)) set.add(id);
       }
-      return set;
+      return set as ReadonlySet<string>;
     });
     return trades.has(trade);
   } catch {

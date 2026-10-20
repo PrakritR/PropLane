@@ -24,7 +24,7 @@ vi.mock("@/lib/agent/user-preferences", () => ({
 vi.mock("@/lib/analytics/posthog", () => ({ track: mocks.track }));
 
 import { runManagerSmsAgentTurn } from "@/lib/agent/manager-sms-agent.server";
-import { smsConfirmationCode } from "@/lib/sms/confirmation-code";
+import { SMS_CONFIRMATION_CANCELLED_REPLY } from "@/lib/sms/confirmation-code";
 
 const originalApiKey = process.env.ANTHROPIC_API_KEY;
 const managerId = "11111111-1111-4111-8111-111111111111";
@@ -34,6 +34,7 @@ describe("manager SMS prospect proposal lifecycle", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.ANTHROPIC_API_KEY = "unit-test-key";
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
   });
 
   afterEach(() => {
@@ -111,8 +112,10 @@ describe("manager SMS prospect proposal lifecycle", () => {
     }));
   });
 
-  it("on the PropLane line a write needs the code from its own preview: a bare YES only re-sends it", async () => {
-    const { ctx } = makeWritableCtx({ agent_sessions: [], agent_messages: [], agent_pending_actions: [] }, { landlordId: managerId, userId: managerId });
+  const codeIn = (reply: string | null | undefined): string => /Reply YES (\d{4}) to confirm/.exec(reply ?? "")?.[1] ?? "";
+
+  function proposeOnTheLine() {
+    const { ctx, store } = makeWritableCtx({ agent_sessions: [], agent_messages: [], agent_pending_actions: [], sms_confirmation_codes: [] }, { landlordId: managerId, userId: managerId });
     mocks.runAgentTurn.mockResolvedValueOnce({
       reply: "Here is the change.",
       toolTrace: [],
@@ -123,40 +126,73 @@ describe("manager SMS prospect proposal lifecycle", () => {
       },
     });
     mocks.decidePendingAction.mockResolvedValue({ kind: "confirmed", result: { ok: true, status: 200, reply: "Text submitted to +12065550123." } });
+    const answer = (inboundText: string, sid: string) =>
+      runManagerSmsAgentTurn(ctx.db as never, { ctx, managerPhoneE164: "+15103098345", inboundText, inboundMessageSid: sid, requireConfirmationCode: true });
+    return { ctx, store, answer };
+  }
 
-    const proposed = await runManagerSmsAgentTurn(ctx.db as never, {
-      ctx, managerPhoneE164: "+15103098345", inboundText: "Text the prospect back", inboundMessageSid: "SM-code-1",
-      requireConfirmationCode: true,
-    });
-    const code = smsConfirmationCode(String(proposed?.pendingActionId));
-    expect(proposed?.reply).toContain(`Reply YES ${code} to confirm or NO to cancel.`);
+  it("on the PropLane line a write needs the code from its own preview: a bare YES only re-sends it", async () => {
+    const w = proposeOnTheLine();
+    const proposed = await w.answer("Text the prospect back", "SM-code-1");
+    const code = codeIn(proposed?.reply);
+    expect(code).toMatch(/^\d{4}$/);
     expect(proposed?.reply).not.toContain("Reply YES to confirm");
+    // Only the hash is stored, so the code itself is nowhere in the row.
+    const stored = w.store.sms_confirmation_codes![0]!;
+    expect(stored).toMatchObject({ subject_kind: "pending_action", subject_id: proposed?.pendingActionId, attempts: 0 });
+    expect(JSON.stringify(stored)).not.toContain(code);
 
-    // A spoofed sender never saw the preview, so a bare YES authorizes nothing: it only repeats the preview.
-    const bare = await runManagerSmsAgentTurn(ctx.db as never, {
-      ctx, managerPhoneE164: "+15103098345", inboundText: "YES", inboundMessageSid: "SM-code-2",
-      requireConfirmationCode: true,
-    });
+    // A spoofed sender never saw the preview, so a bare YES authorizes nothing: it repeats the preview with a
+    // FRESH code and costs no attempt.
+    const bare = await w.answer("YES", "SM-code-2");
     expect(mocks.decidePendingAction).not.toHaveBeenCalled();
-    expect(bare?.reply).toContain(`Reply YES ${code}`);
     expect(bare?.reply).toContain("Send text reply");
+    const fresh = codeIn(bare?.reply);
+    expect(fresh).not.toBe(code);
+    expect(w.store.sms_confirmation_codes![0]!.attempts).toBe(0);
 
-    const wrong = await runManagerSmsAgentTurn(ctx.db as never, {
-      ctx, managerPhoneE164: "+15103098345", inboundText: `YES ${code === "0000" ? "1111" : "0000"}`, inboundMessageSid: "SM-code-3",
-      requireConfirmationCode: true,
-    });
+    const wrong = await w.answer(`YES ${fresh === "0000" ? "1111" : "0000"}`, "SM-code-3");
     expect(mocks.decidePendingAction).not.toHaveBeenCalled();
     expect(wrong?.reply).toContain("That code does not match.");
+    expect(w.store.sms_confirmation_codes![0]!.attempts).toBe(1);
 
-    const confirmed = await runManagerSmsAgentTurn(ctx.db as never, {
-      ctx, managerPhoneE164: "+15103098345", inboundText: `YES ${code}`, inboundMessageSid: "SM-code-4",
-      requireConfirmationCode: true,
-    });
+    const confirmed = await w.answer(`YES ${codeIn(wrong?.reply)}`, "SM-code-4");
     expect(confirmed?.reply).toBe("Text submitted to +12065550123.");
     expect(mocks.decidePendingAction).toHaveBeenCalledWith(expect.objectContaining({
       action: { kind: "confirm", actionId: proposed?.pendingActionId },
     }));
     expect(mocks.runAgentTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it("three wrong codes cancel the proposal instead of letting a spoofed sender walk the 4 digits", async () => {
+    const w = proposeOnTheLine();
+    const proposed = await w.answer("Text the prospect back", "SM-brute-0");
+    let reply = proposed?.reply ?? "";
+    const replies: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      const code = codeIn(reply);
+      const turn = await w.answer(`YES ${code === "0000" ? "1111" : "0000"}`, `SM-brute-${i + 1}`);
+      reply = turn?.reply ?? "";
+      replies.push(reply);
+    }
+    expect(replies[2]).toBe(SMS_CONFIRMATION_CANCELLED_REPLY);
+    expect(mocks.decidePendingAction).toHaveBeenCalledWith(expect.objectContaining({
+      action: { kind: "deny", actionId: proposed?.pendingActionId },
+    }));
+    expect(mocks.decidePendingAction).not.toHaveBeenCalledWith(expect.objectContaining({
+      action: { kind: "confirm", actionId: proposed?.pendingActionId },
+    }));
+  });
+
+  it("with no signing key the proposal is withdrawn rather than left open for a bare YES", async () => {
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    vi.stubEnv("PHONE_OTP_HMAC_SECRET", "");
+    const w = proposeOnTheLine();
+    const proposed = await w.answer("Text the prospect back", "SM-nokey-1");
+    expect(proposed?.reply).toContain("PropLane");
+    expect(proposed?.reply).not.toMatch(/Reply YES/);
+    expect(w.store.agent_pending_actions!.every((row) => row.status !== "proposed")).toBe(true);
+    vi.unstubAllEnvs();
   });
 
   it("sends third-party text as plain quotes but stores it fenced in the transcript", async () => {

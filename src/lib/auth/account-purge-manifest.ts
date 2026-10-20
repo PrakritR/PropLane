@@ -1055,6 +1055,15 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["user_id"] },
   },
   {
+    // "Skip for now" on the verify-phone screen, one row per granted skip. The cap reads it, so a re-registered
+    // email must not inherit the last account's skips.
+    table: "phone_required_skips",
+    phase: 2,
+    manager: { ids: ["user_id"] },
+    resident: { ids: ["user_id"] },
+    vendor: { ids: ["user_id"] },
+  },
+  {
     // Vendor dispatch rules (vendor-dispatch-1018): the workspace owner's own rows.
     table: "vendor_dispatch_rules",
     phase: 1,
@@ -1460,6 +1469,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   phone_bound_links: "Phone-bound signed links; keyed on a phone, cascade with the workspace.",
   phone_bound_link_sessions: "Verified link sessions; cascade with the link.",
   phone_otp_challenges: "Hashed one-time codes keyed on a phone; expire in minutes.",
+  sms_confirmation_codes:
+    "Hashed 4-digit confirmation codes keyed on the proposal they confirm (a pending action, a dispatch run's approval, quote or invoice); no account column, and the row is worthless once its proposal is gone.",
   phone_auth_operation_locks: "Transient service-only phone authentication leases, expire after five minutes and pruned on the next claim.",
   property_knowledge_entries: "Workspace knowledge base; cascades with the workspace.",
   sms_topic_reply_modes: "Workspace auto-reply settings; cascade with the workspace.",

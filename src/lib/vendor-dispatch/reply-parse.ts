@@ -2,32 +2,44 @@
  * Deterministic parsing of the replies the dispatch loop expects, run BEFORE
  * any AI agent sees the text (vendor-dispatch-1018). Pure.
  *
- * Manager: `Y`, `YES`, `Y 7`, `N 7`, `2`, `2 7`, `R 7` (retry), `B 7` (offer all).
+ * Manager: `Y`, `YES`, `Y 7`, `N 7`, `2`, `2 7`, `R 7` (retry), `B 7` (offer all), each with the PropLane line's
+ *           4-digit confirmation code where one is required (`Y 4821`, `Y 7 4821`).
  * Vendor:  `YES [time] [$price]`, `NO`, `BUSY [2h]`, `DONE`, each with an optional job number.
  * Anything else is "not ours" and falls through to the normal agents.
  */
 
-export type ManagerDispatchReply =
-  | { kind: "approve"; handle: number | null }
-  | { kind: "decline"; handle: number | null }
-  | { kind: "pick"; position: number; handle: number | null }
-  | { kind: "retry"; handle: number | null }
-  | { kind: "broadcast"; handle: number | null };
+/**
+ * `code` is the 4-digit confirmation code a manager phone must repeat on the PropLane line ("Y 7 4821"). With only
+ * one number in the reply the two readings are ambiguous ("Y 4821" is a handle on any other line), so the number is
+ * reported as BOTH: `handle` as before, and `codeCandidate` with its leading zeros intact. The handler resolves it -
+ * a number that names an open job is a handle, otherwise it is the code for the one job waiting.
+ */
+export type ManagerDispatchReplyBase = { handle: number | null; code: string | null; codeCandidate: string | null };
 
-const MANAGER_REPLY = /^\s*(?:(y|yes)|(n|no)|(\d)|(r|retry)|(b|broadcast))\s*(?:[#\s]\s*(\d{1,6}))?\s*[.!]?\s*$/i;
+export type ManagerDispatchReply =
+  | ({ kind: "approve" } & ManagerDispatchReplyBase)
+  | ({ kind: "decline" } & ManagerDispatchReplyBase)
+  | ({ kind: "pick"; position: number } & ManagerDispatchReplyBase)
+  | ({ kind: "retry" } & ManagerDispatchReplyBase)
+  | ({ kind: "broadcast" } & ManagerDispatchReplyBase);
+
+const MANAGER_REPLY = /^\s*(?:(y|yes)|(n|no)|(\d)|(r|retry)|(b|broadcast))\s*(?:[#\s]\s*(\d{1,6}))?\s*(?:[#\s]\s*(\d{4}))?\s*[.!]?\s*$/i;
 
 export function parseManagerDispatchReply(body: string): ManagerDispatchReply | null {
   const match = MANAGER_REPLY.exec(String(body ?? ""));
   if (!match) return null;
   const handle = match[6] ? Number(match[6]) : null;
-  if (match[1]) return { kind: "approve", handle };
-  if (match[2]) return { kind: "decline", handle };
+  const code = match[7] ?? null;
+  const codeCandidate = code ?? (match[6] && match[6].length === 4 ? match[6] : null);
+  const base = { handle, code, codeCandidate };
+  if (match[1]) return { kind: "approve", ...base };
+  if (match[2]) return { kind: "decline", ...base };
   if (match[3]) {
     const position = Number(match[3]);
-    return position >= 1 ? { kind: "pick", position, handle } : null;
+    return position >= 1 ? { kind: "pick", position, ...base } : null;
   }
-  if (match[4]) return { kind: "retry", handle };
-  return { kind: "broadcast", handle };
+  if (match[4]) return { kind: "retry", ...base };
+  return { kind: "broadcast", ...base };
 }
 
 export type VendorDispatchReply =

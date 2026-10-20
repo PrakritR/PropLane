@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
   applied: [] as Array<Record<string, unknown>>,
   costs: [] as number[],
   texted: [] as string[],
+  applyThrows: false,
   contact: { id: "vendor-abc", name: "Pat Plumbing", vendorUserId: "ven-1" } as { id: string; name: string; vendorUserId: string | null },
   bills: 0,
 }));
@@ -22,7 +23,11 @@ vi.mock("@/lib/vendor-dispatch/engine.server", () => ({
 }));
 vi.mock("@/lib/vendor-dispatch/invoice-managed.server", () => ({
   setServiceVendorCost: async (_db: unknown, _run: unknown, cents: number) => { state.costs.push(cents); return true; },
-  applyApprovedDispatchInvoice: async (_db: unknown, input: Record<string, unknown>) => { state.applied.push(input); return state.settled; },
+  applyApprovedDispatchInvoice: async (_db: unknown, input: Record<string, unknown>) => {
+    if (state.applyThrows) throw new Error("ledger unavailable");
+    state.applied.push(input);
+    return state.settled;
+  },
 }));
 vi.mock("@/lib/managed-finance/directory-vendor.server", () => ({
   textUnclaimedDirectoryBalance: async (_db: unknown, input: { directoryId: string }) => { state.texted.push(input.directoryId); return true; },
@@ -46,6 +51,7 @@ const db = () => fakeOwnerDb({
 
 beforeEach(() => {
   state.run = baseRun(); state.settled = "not_managed"; state.applied.length = 0; state.costs.length = 0; state.texted.length = 0; state.bills = 0;
+  state.applyThrows = false;
   state.contact = { id: "vendor-abc", name: "Pat Plumbing", vendorUserId: "ven-1" };
 });
 
@@ -91,6 +97,30 @@ describe("Y on a texted invoice", () => {
     expect(state.applied).toHaveLength(1);
     expect(state.costs).toEqual([30_000]);
     expect(state.texted).toEqual(["vendor-abc"]);
+  });
+
+  it("a failed post hands the claim back, so the manager's next Y can approve the same invoice", async () => {
+    // Clearing the pending amount before the work ran meant a LedgerError left nothing to approve ever again.
+    state.run = { ...baseRun(), details: { what: "Faucet" } };
+    state.contact = { id: "vendor-abc", name: "Pat Plumbing", vendorUserId: null };
+    state.settled = "posted";
+    state.applyThrows = true;
+    const f = fakeOwnerDb({ vendor_dispatch_runs: [baseRun()] });
+    expect(await decide(f as never, true)).toEqual({ ok: false, reason: "unavailable" });
+    expect(f.rows.vendor_dispatch_runs![0]!.pending_invoice_cents).toBe(30_000);
+    state.applyThrows = false;
+    expect(await decide(f as never, true)).toMatchObject({ ok: true, settled: "posted" });
+    expect(state.applied).toHaveLength(1);
+  });
+
+  it("a failed post on an invoice row puts the invoice back to submitted", async () => {
+    state.settled = "posted";
+    state.applyThrows = true;
+    const f = db();
+    expect(await decide(f, true)).toEqual({ ok: false, reason: "unavailable" });
+    expect(f.rows.vendor_invoices![0]!.status).toBe("submitted");
+    state.applyThrows = false;
+    expect(await decide(f, true)).toMatchObject({ ok: true, settled: "posted" });
   });
 
   it("a login vendor who is paid is not texted a sign-up link", async () => {

@@ -268,9 +268,11 @@ class FakeWriteQuery {
     return this;
   }
 
-  upsert(row: Row) {
+  upsert(row: Row, opts?: { onConflict?: string }) {
     this.mode = "upsert";
-    const idx = this.rows().findIndex((r) => r.id === row.id);
+    // Composite keys ("a,b") match Postgres' `on conflict (a, b)`; omitted columns keep their stored value.
+    const keys = (opts?.onConflict ?? "id").split(",").map((k) => k.trim()).filter(Boolean);
+    const idx = this.rows().findIndex((r) => keys.every((key) => r[key] === row[key]));
     if (idx >= 0) this.rows()[idx] = { ...this.rows()[idx], ...row };
     else this.rows().push({ ...row });
     return this;

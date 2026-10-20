@@ -6,6 +6,7 @@ import { normalizeE164 } from "@/lib/phone-e164";
 import { attachVendorJobMedia, linkVendorRunMedia } from "@/lib/one-number/inbound-media.server";
 import { recordDispatchEvent } from "@/lib/vendor-dispatch/audit.server";
 import { resolveOpenSmsProposal } from "@/lib/sms/agent-confirmation.server";
+import { SMS_CONFIRMATION_CANCELLED_REPLY } from "@/lib/sms/confirmation-code";
 import { decideRunInvoice, handleResidentFixedReply, recordVendorDone, recordVendorInvoice } from "@/lib/vendor-dispatch/completion.server";
 import { canActorApprove, loadAttempts, loadVendorContacts, type VendorContact } from "@/lib/vendor-dispatch/engine.server";
 import { isMissingRelationError } from "@/lib/vendor-dispatch/match.server";
@@ -16,6 +17,11 @@ import {
   type ManagerDispatchReply,
   type VendorDispatchReply,
 } from "@/lib/vendor-dispatch/reply-parse";
+import {
+  checkDispatchApprovalCode,
+  reaskDispatchApprovalCode,
+  type DispatchApprovalKind,
+} from "@/lib/vendor-dispatch/approval-code.server";
 import { approveDispatchRun, declineDispatchRun, retryDispatchRun } from "@/lib/vendor-dispatch/runs.server";
 import { decideVendorQuote, recordVendorBusy, recordVendorNo, recordVendorYes } from "@/lib/vendor-dispatch/responses.server";
 import { sendVendorDispatchText } from "@/lib/vendor-dispatch/send.server";
@@ -139,6 +145,14 @@ function describeFailure(reason: string, handle: number): string {
   return `#${handle} is already handled.`;
 }
 
+/** Which pending answers carry the PropLane line's code: the ones that commit spend. An exhausted chain's R / B does not. */
+const CODED_ANSWER_KIND: Record<PendingKind, DispatchApprovalKind | null> = {
+  approval: "dispatch_approval",
+  quote: "dispatch_quote",
+  invoice: "dispatch_invoice",
+  exhausted: null,
+};
+
 const APPLICABLE: Record<ManagerDispatchReply["kind"], PendingKind[]> = {
   approve: ["approval", "quote", "invoice"],
   decline: ["approval", "quote", "invoice"],
@@ -237,8 +251,15 @@ export async function handleManagerDispatchReply(
 
   const applicable = pending.filter((item) => APPLICABLE[parsed.kind].includes(item.kind));
   let target: PendingItem | undefined;
+  // The code presented with this answer: the second number ("Y 7 4821"), or a lone 4-digit number that names no
+  // open job ("Y 4821" with one job waiting).
+  let presentedCode: string | null = parsed.code;
   if (parsed.handle != null) {
     target = pending.find((item) => item.run.handle === parsed.handle);
+    if (!target && parsed.codeCandidate && applicable.length === 1) {
+      target = applicable[0]!;
+      presentedCode = parsed.codeCandidate;
+    }
     if (!target) {
       const open = pending.slice(0, 3).map((item) => `#${item.run.handle}`).join(", ");
       return { handled: true, reply: toGsm7(`No open job #${parsed.handle}. Waiting on you: ${open}`) };
@@ -268,6 +289,32 @@ export async function handleManagerDispatchReply(
   const { run, kind } = target;
   const actor = { ownerUserId: run.owner_user_id, actorUserId: input.actorUserId, channel: "sms" as const };
   const base = { ...actor, runId: run.id, rawText: input.body.trim().slice(0, 120), now: input.now };
+
+  // On the PropLane line the inbound caller ID proves nothing, so the answer that spends money must repeat the code
+  // from its own ask. A bare Y re-asks with a fresh code and costs no attempt; three wrong codes cancel the job.
+  const codedKind = CODED_ANSWER_KIND[kind];
+  if (codedKind) {
+    const checked = await checkDispatchApprovalCode(db, run, codedKind, presentedCode);
+    if (checked === "exhausted") {
+      if (kind === "approval") await declineDispatchRun(db, base).catch(() => undefined);
+      else if (kind === "quote") {
+        await decideVendorQuote(db, { ...actor, runId: run.id, approve: false, rawText: base.rawText, now: input.now }).catch(() => undefined);
+      } else {
+        await decideRunInvoice(db, { ...actor, runId: run.id, approve: false, rawText: base.rawText, now: input.now }).catch(() => undefined);
+      }
+      return { handled: true, reply: toGsm7(`#${run.handle}: ${SMS_CONFIRMATION_CANCELLED_REPLY}`) };
+    }
+    if (checked === "unavailable") {
+      return { handled: true, reply: toGsm7(`I could not check that code. Answer #${run.handle} in PropLane`) };
+    }
+    if (checked === "wrong") {
+      const fresh = await reaskDispatchApprovalCode(db, run, codedKind);
+      if (!fresh) return { handled: true, reply: toGsm7(`I could not send a code for #${run.handle}. Answer it in PropLane`) };
+      const verb = parsed.kind === "decline" ? "N" : "Y";
+      const prefix = presentedCode ? "That code does not match. " : "";
+      return { handled: true, reply: toGsm7(`${prefix}#${run.handle} needs its code: reply ${verb} ${fresh}`) };
+    }
+  }
 
   if (kind === "approval") {
     if (parsed.kind === "decline") {

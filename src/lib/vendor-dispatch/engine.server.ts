@@ -253,16 +253,22 @@ export async function requestApproval(db: SupabaseClient, run: DispatchRunRow, a
   const attempts = await loadAttempts(db, run.id);
   const contacts = await loadVendorContacts(db, run.owner_user_id, attempts.map((a) => a.vendor_directory_id));
   const trade = tradeDefinition(run.trade);
-  const text = composeApprovalText({
-    handle: run.handle,
-    what: String(run.details.what || trade?.label || "Job"),
-    houseLabel: String(run.details.houseLabel || run.details.area || "the house"),
-    room: run.details.room ?? null,
-    vendorNames: vendorNamesForApproval(attempts, contacts),
-    payCents: run.pay_cents,
-    payModel: run.details.payModel as string | undefined,
-    mode: run.mode,
-  });
+  const { withDispatchApprovalCode } = await import("@/lib/vendor-dispatch/approval-code.server");
+  const text = await withDispatchApprovalCode(
+    db,
+    run,
+    "dispatch_approval",
+    composeApprovalText({
+      handle: run.handle,
+      what: String(run.details.what || trade?.label || "Job"),
+      houseLabel: String(run.details.houseLabel || run.details.area || "the house"),
+      room: run.details.room ?? null,
+      vendorNames: vendorNamesForApproval(attempts, contacts),
+      payCents: run.pay_cents,
+      payModel: run.details.payModel as string | undefined,
+      mode: run.mode,
+    }),
+  );
   const reached = await notifyApprovers(db, run, {
     audience,
     text,

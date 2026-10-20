@@ -146,6 +146,39 @@ describe("claiming waiting balances at sign-up", () => {
     expect(await claimWaitingDirectoryBalances(f.db, { userId: USER, phone: "+12065550100", phoneProven: true })).toEqual([DIR]);
   });
 
+  it("reads only this vendor's own directory rows, never the whole vendor_dir ledger", async () => {
+    const f = world();
+    // A platform-wide `vendor_dir:%` scan read every vendor_payable line on the platform (up to a million rows
+    // over a thousand round trips) just to discover which directory ids exist.
+    const seen: string[] = [];
+    const db = { ...(f.db as object), from: (table: string) => { seen.push(table); return (f.db as { from: (t: string) => unknown }).from(table); } } as never;
+    expect(await claimWaitingDirectoryBalances(db, { userId: USER, phone: "+12065550100", phoneProven: true })).toEqual([DIR]);
+    expect(seen[0]).toBe("manager_vendor_records");
+    // Every ledger read that follows is scoped to one party, never a `like('party_id', 'vendor_dir:%')` sweep.
+    expect(seen.filter((table) => table === "party_ledger_lines").length).toBeGreaterThan(0);
+  });
+
+  it("matches a phone stored in a human format, and never another vendor's number", async () => {
+    const f = ledgerDb({
+      party_ledger_lines: [line(`vendor_dir:${DIR}`, "ws-1", -9_000), line("owner:o1", "ws-1", 9_000)],
+      manager_vendor_records: [
+        { id: DIR, manager_user_id: "mgr", vendor_user_id: null, row_data: { phone: "(206) 555-0100" } },
+        { id: "vendor-near", manager_user_id: "mgr", vendor_user_id: null, row_data: { phone: "206-555-9100" } },
+      ],
+    });
+    expect(await claimWaitingDirectoryBalances(f.db, { userId: USER, phone: "+12065550100", phoneProven: true })).toEqual([DIR]);
+    expect(f.rows.manager_vendor_records!.find((r) => r.id === "vendor-near")!.vendor_user_id).toBeNull();
+  });
+
+  it("a matching row with nothing waiting is left alone", async () => {
+    const f = ledgerDb({
+      party_ledger_lines: [],
+      manager_vendor_records: [{ id: DIR, manager_user_id: "mgr", vendor_user_id: null, row_data: { email: "pat@plumb.test" } }],
+    });
+    expect(await claimWaitingDirectoryBalances(f.db, { userId: USER, email: "pat@plumb.test", emailProven: true })).toEqual([]);
+    expect(f.rows.manager_vendor_records![0]!.vendor_user_id).toBeNull();
+  });
+
   it("claims nothing by an unproven email or phone (a typed contact proves nothing)", async () => {
     const f = world();
     expect(await claimWaitingDirectoryBalances(f.db, { userId: USER, email: "pat@plumb.test", emailProven: false })).toEqual([]);

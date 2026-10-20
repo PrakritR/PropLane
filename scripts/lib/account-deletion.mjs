@@ -288,6 +288,7 @@ export const DELETE_ORDER = [
   "agent_user_preferences",
   "device_push_tokens",
   "phone_verifications",
+  "phone_required_skips",
   "sms_consent",
   "sms_manager_entitlements",
   "prospect_sms_bursts",

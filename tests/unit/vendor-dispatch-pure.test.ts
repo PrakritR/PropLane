@@ -112,18 +112,32 @@ describe("manager text", () => {
 });
 
 describe("manager reply grammar", () => {
+  const plain = { code: null, codeCandidate: null };
   it.each([
-    ["Y", { kind: "approve", handle: null }],
-    ["yes", { kind: "approve", handle: null }],
-    ["Y 7", { kind: "approve", handle: 7 }],
-    ["yes #7", { kind: "approve", handle: 7 }],
-    ["N", { kind: "decline", handle: null }],
-    ["N 7", { kind: "decline", handle: 7 }],
-    ["2", { kind: "pick", position: 2, handle: null }],
-    ["2 7", { kind: "pick", position: 2, handle: 7 }],
-    ["R", { kind: "retry", handle: null }],
-    ["B 7", { kind: "broadcast", handle: 7 }],
+    ["Y", { kind: "approve", handle: null, ...plain }],
+    ["yes", { kind: "approve", handle: null, ...plain }],
+    ["Y 7", { kind: "approve", handle: 7, ...plain }],
+    ["yes #7", { kind: "approve", handle: 7, ...plain }],
+    ["N", { kind: "decline", handle: null, ...plain }],
+    ["N 7", { kind: "decline", handle: 7, ...plain }],
+    ["2", { kind: "pick", position: 2, handle: null, ...plain }],
+    ["2 7", { kind: "pick", position: 2, handle: 7, ...plain }],
+    ["R", { kind: "retry", handle: null, ...plain }],
+    ["B 7", { kind: "broadcast", handle: 7, ...plain }],
   ])("parses %s", (body, expected) => {
+    expect(parseManagerDispatchReply(body)).toEqual(expected);
+  });
+
+  // The PropLane line's confirmation code. With two numbers the second is the code; with one, both readings are
+  // reported (a number that names an open job is a handle, otherwise it is the code) and leading zeros survive.
+  it.each([
+    ["Y 7 4821", { kind: "approve", handle: 7, code: "4821", codeCandidate: "4821" }],
+    ["N 7 4821", { kind: "decline", handle: 7, code: "4821", codeCandidate: "4821" }],
+    ["2 7 4821", { kind: "pick", position: 2, handle: 7, code: "4821", codeCandidate: "4821" }],
+    ["Y 4821", { kind: "approve", handle: 4821, code: null, codeCandidate: "4821" }],
+    ["Y 0007", { kind: "approve", handle: 7, code: null, codeCandidate: "0007" }],
+    ["Y 12", { kind: "approve", handle: 12, code: null, codeCandidate: null }],
+  ])("parses the coded %s", (body, expected) => {
     expect(parseManagerDispatchReply(body)).toEqual(expected);
   });
 
