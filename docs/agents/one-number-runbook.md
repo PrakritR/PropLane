@@ -128,6 +128,8 @@ branch, and `db:push` applies it only once merged):
 | 20261020160100 | `managed_policy_guard_full_terms` | the activation guard covers canonical v3: `reserve_target_cents` and `repair_approval_threshold_cents` join the comparison, so an admin cannot raise the no-ask repair threshold between the owner's page load and her signature |
 | 20261020170000 | `managed_policy_guard_v2_snapshot_tolerance` | that guard compares the two v3 terms only when the snapshot NAMES them, else only on the column default - so the migration can land before the code (this repo's order) without 409ing every fee-policy signature in between |
 
+| 20261020180000 | `automation_presets_table` | the Automations preset modes move to `workspace_automation_presets` (the old name belongs to the settings scope resolver, so the first migration's create was a no-op wherever that table existed); idempotent, copies any preset rows dev wrote under the old name, never touches the original table |
+
 Check after the push (SQL editor, read-only):
 
 ```sql

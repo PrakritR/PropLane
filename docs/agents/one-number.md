@@ -439,7 +439,7 @@ GSM-7 is returned unchanged.
 ## W11 - Preset auto-sends (Automations), house facts, escalations inbox
 
 Spec: `texting-plan-1018` "Preset auto-sends", "Resident fast path" (house facts) and "New data". Migration
-`20261018200000_automations.sql` (dev applied, ledger row recorded): `workspace_automation_settings` (workspace, preset,
+`20261018200000_automations.sql` (dev applied, ledger row recorded): `workspace_automation_presets` (workspace, preset,
 mode `auto|draft|off`, optional wording), `workspace_automation_runs` (the ledger; `unique (workspace_id, idempotency_key)` is the
 idempotency, `held` = a draft waiting), and `sms_escalated_questions` gains `source` (`agent|ra|unanswered`), `excerpt`,
 `resolved_by`. Both new tables are RLS-on, service role only, classified in `account-purge-manifest.ts`. Every read treats 42P01 /

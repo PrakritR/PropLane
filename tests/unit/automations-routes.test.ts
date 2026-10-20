@@ -97,14 +97,14 @@ describe("PUT /api/portal/automations", () => {
     const fake = setup();
     const res = await putAutomation(put({ preset: "welcome", mode: "auto" }));
     expect(res.status).toBe(200);
-    expect(fake.rows.workspace_automation_settings).toHaveLength(1);
-    expect(fake.rows.workspace_automation_settings![0]).toMatchObject({ workspace_id: "ws", preset: "welcome", mode: "auto", updated_by: "owner" });
+    expect(fake.rows.workspace_automation_presets).toHaveLength(1);
+    expect(fake.rows.workspace_automation_presets![0]).toMatchObject({ workspace_id: "ws", preset: "welcome", mode: "auto", updated_by: "owner" });
   });
 
   it("is owner only", async () => {
     const fake = setup({ owner: false });
     expect((await putAutomation(put({ preset: "welcome", mode: "auto" }))).status).toBe(403);
-    expect(fake.rows.workspace_automation_settings ?? []).toHaveLength(0);
+    expect(fake.rows.workspace_automation_presets ?? []).toHaveLength(0);
   });
 
   it("refuses a mode the preset does not offer, an unknown preset and bad wording", async () => {
@@ -119,9 +119,9 @@ describe("PUT /api/portal/automations", () => {
   it("saves wording, and returns to the default when it is saved unchanged", async () => {
     const fake = setup();
     await putAutomation(put({ preset: "welcome", template: "Hey {first_name}, welcome to {house}!" }));
-    expect(fake.rows.workspace_automation_settings![0]).toMatchObject({ template: "Hey {first_name}, welcome to {house}!", mode: "draft" });
+    expect(fake.rows.workspace_automation_presets![0]).toMatchObject({ template: "Hey {first_name}, welcome to {house}!", mode: "draft" });
     await putAutomation(put({ preset: "welcome", template: null }));
-    expect(fake.rows.workspace_automation_settings![0]!.template).toBeNull();
+    expect(fake.rows.workspace_automation_presets![0]!.template).toBeNull();
   });
 });
 
@@ -171,7 +171,7 @@ describe("POST /api/portal/automations/runs/[id]", () => {
 });
 
 describe("POST /api/portal/automations/announce", () => {
-  const optIn = { workspace_automation_settings: [{ workspace_id: "ws", preset: "announcement", mode: "auto" }] };
+  const optIn = { workspace_automation_presets: [{ workspace_id: "ws", preset: "announcement", mode: "auto" }] };
 
   it("sends to the chosen house only, one on one when it has no group", async () => {
     setup({ rows: optIn });

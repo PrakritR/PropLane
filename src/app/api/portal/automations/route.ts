@@ -89,12 +89,14 @@ export async function PUT(req: Request) {
   } else if (body.template !== undefined) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
-  const ok = await saveAutomationSetting(actor.db, {
+  const result = await saveAutomationSetting(actor.db, {
     workspaceId: actor.workspaceId,
     preset: preset.id,
     mode,
     template,
     userId: actor.userId,
   });
-  return ok ? NextResponse.json({ preset: preset.id, mode }) : NextResponse.json({ error: "Could not save." }, { status: 503 });
+  return result.ok
+    ? NextResponse.json({ preset: preset.id, mode })
+    : NextResponse.json({ error: "Could not save.", code: result.code }, { status: 503 });
 }

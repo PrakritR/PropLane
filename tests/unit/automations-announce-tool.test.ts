@@ -33,7 +33,7 @@ const houses = [
 function ctx(over: Record<string, unknown> = {}, ids = ["P1", "P2"]) {
   const fake = automationsFakeDb({
     manager_property_records: houses,
-    workspace_automation_settings: [{ workspace_id: "ws", preset: "announcement", mode: "auto" }],
+    workspace_automation_presets: [{ workspace_id: "ws", preset: "announcement", mode: "auto" }],
   });
   return {
     fake,
@@ -90,10 +90,10 @@ describe("announce_to_house", () => {
   });
 
   it("tells the manager when announcements are off or waiting", async () => {
-    const off = automationsFakeDb({ manager_property_records: houses, workspace_automation_settings: [{ workspace_id: "ws", preset: "announcement", mode: "off" }] });
+    const off = automationsFakeDb({ manager_property_records: houses, workspace_automation_presets: [{ workspace_id: "ws", preset: "announcement", mode: "off" }] });
     const c = { landlordId: "owner", userId: "owner", db: off.db, workspace: { id: "ws", name: "W", isDefault: true, narrowing: false, propertyIds: ["P1"] } } as never;
     expect((await announceToHouseTool.handler(c, { text: "Water is off." })).reply).toMatch(/switched off/);
-    const draft = automationsFakeDb({ manager_property_records: houses, workspace_automation_settings: [{ workspace_id: "ws", preset: "announcement", mode: "draft" }] });
+    const draft = automationsFakeDb({ manager_property_records: houses, workspace_automation_presets: [{ workspace_id: "ws", preset: "announcement", mode: "draft" }] });
     const d = { landlordId: "owner", userId: "owner", db: draft.db, workspace: { id: "ws", name: "W", isDefault: true, narrowing: false, propertyIds: ["P1"] } } as never;
     expect((await announceToHouseTool.handler(d, { text: "Water is off." })).reply).toMatch(/waiting for your approval/);
     expect(h.send).not.toHaveBeenCalled();
