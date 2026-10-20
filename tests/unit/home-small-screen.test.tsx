@@ -170,11 +170,12 @@ describe("phone (640px and below)", () => {
     for (const kept of ["#contact", "home-join", "#number", "home-hero"]) expect(phone).not.toContain(kept);
   });
 
-  it("puts Book a demo and Portal in the bar with no Menu button on a phone", () => {
+  it("puts Book a demo and Get started in the bar with no Menu button on a phone", () => {
     render(<HomeNavbar texting={publicTextingConfig("+12025550123")} />);
-    const portal = document.querySelector('[data-attr="home-nav-portal-phone"]') as HTMLAnchorElement;
-    expect(portal).toHaveTextContent("Portal");
-    expect(portal).toHaveAttribute("href", "/auth/sign-in");
+    // Signed out (captain #29): Get started to the portal chooser; Portal once the browser holds a session.
+    const portal = document.querySelector('[data-attr="home-nav-get-started-phone"]') as HTMLAnchorElement;
+    expect(portal).toHaveTextContent("Get started");
+    expect(portal).toHaveAttribute("href", "/auth/create-account");
     expect(portal.parentElement).toBe(document.querySelector('[data-attr="home-nav-book-demo-mobile"]')!.parentElement);
     const barCss = readFileSync("src/components/layout/home-navbar.module.css", "utf8");
     const phoneBar = barCss.slice(barCss.indexOf("@media (max-width: 640px)"));
@@ -187,7 +188,13 @@ describe("phone (640px and below)", () => {
   it("keeps Sign up free on the right of its row at tablet and phone", () => {
     const { container } = render(<HomeJoinFree />);
     const rows = [...container.querySelectorAll(".home-join-rows li")];
-    expect(rows).toHaveLength(2);
+    // Captain #29: Resident, Vendor, Manager, each to its own sign-up.
+    expect(rows.map((row) => row.querySelector(".home-join-role")!.textContent)).toEqual(["Resident", "Vendor", "Manager"]);
+    expect(rows.map((row) => row.querySelector("a")!.getAttribute("href"))).toEqual([
+      "/auth/create-account?mode=create&role=resident",
+      "/auth/create-account?mode=create&role=vendor",
+      "/auth/create-account?mode=create&role=manager",
+    ]);
     for (const row of rows) {
       expect([...row.children].map((child) => child.className)).toEqual(["home-join-role", "home-join-line", "home-join-actions"]);
       expect(row.querySelector(".home-join-actions a")).toHaveTextContent("Sign up free");

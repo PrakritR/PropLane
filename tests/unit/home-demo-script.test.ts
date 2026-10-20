@@ -76,7 +76,7 @@ describe("homepage Software demo journey", () => {
     // (the resident's part stops before the text that offers the service to the vendor: that text is the vendor's.)
     const residentEnd = homeDemoJumpPlan("resident").until;
     expect(steps.slice(residentEnd).findIndex((s) => s.do === "portal" && s.role === "vendor")).toBeGreaterThan(-1);
-    expect(homeDemoPhoneAfter(residentEnd).label).toBe("Jordan’s phone");
+    expect(homeDemoPhoneAfter(residentEnd).label).toBe("Resident’s phone");
     expect(portalAt(homeDemoJumpPlan("vendor").until)).toBe("manager");
     expect(homeDemoJumpPlan("manager").until).toBe(steps.length);
     // The vendor's part ends after the YES, and its phone has said so.
@@ -127,7 +127,7 @@ describe("homepage Software demo journey", () => {
 
   it("tells beat one with the shared discovery conversation, not a retyped copy", () => {
     const phone = HOME_DEMO_JOURNEY.phones[0]!;
-    expect(phone.label).toBe("Jordan’s phone");
+    expect(phone.label).toBe("Resident’s phone");
     expect(HOME_DEMO_JOURNEY.phones[1]!.label).toBe("Vendor’s phone");
     expect(phone.initial).toBe(1);
     // Up to the booked tour: the lines the hero phone shows.

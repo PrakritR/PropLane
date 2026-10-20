@@ -34,7 +34,7 @@ const update = (id: string, isIntersecting: boolean, bottom: number) => act(() =
 });
 
 describe("simple public navigation", () => {
-  it("uses five direct links, then Book a demo and Portal at the far right, without auth or menus", () => {
+  it("uses five direct links, then Book a demo and Get started at the far right, without auth or menus", () => {
     render(<PublicNavbar texting={texting} />);
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
     expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual(desktopPaths);
@@ -48,9 +48,12 @@ describe("simple public navigation", () => {
     expect(document.querySelector('header a[href^="sms:"]')).toBeNull();
     expect(screen.queryByText("Start free")).not.toBeInTheDocument();
     const desktop = document.querySelector('[data-attr="home-nav-book-demo-desktop"]')!;
-    expect(desktop.nextElementSibling).toHaveTextContent("Portal");
-    // One Portal link per bar (desktop actions, and the phone bar where the Menu is gone); both go to sign-in.
-    for (const link of screen.getAllByRole("link", { name: "Portal" })) expect(link).toHaveAttribute("href", "/auth/sign-in");
+    // Captain #29: signed out, the second button is Get started to the portal chooser (one per bar: desktop, phone).
+    expect(desktop.nextElementSibling).toHaveTextContent("Get started");
+    const starts = screen.getAllByRole("link", { name: /^Get started/ });
+    expect(starts).toHaveLength(2);
+    for (const link of starts) expect(link).toHaveAttribute("href", "/auth/create-account");
+    expect(screen.queryByRole("link", { name: /^Portal/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /search|pricing|why proplane|product|resources/i })).not.toBeInTheDocument();
     expect(document.querySelector("details")).toBeNull();
   });
@@ -60,8 +63,7 @@ describe("simple public navigation", () => {
     render(<PublicNavbar texting={texting} />);
     expect(screen.getByRole("link", { name: "Pricing" })).toHaveAttribute("href", "/#pricing");
     expect(document.querySelector('[data-attr="home-nav-book-demo-desktop"]')).toHaveAttribute("href", BOOK_DEMO_HREF);
-    // One Portal link per bar (desktop actions, and the phone bar where the Menu is gone); both go to sign-in.
-    for (const link of screen.getAllByRole("link", { name: "Portal" })) expect(link).toHaveAttribute("href", "/auth/sign-in");
+    for (const link of screen.getAllByRole("link", { name: /^Get started/ })) expect(link).toHaveAttribute("href", "/auth/create-account");
     expect(screen.queryByRole("button", { name: /resources|product/i })).not.toBeInTheDocument();
   });
 

@@ -2,15 +2,17 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { HomeSectionHeader } from "@/components/marketing/home-section-header";
 import {
+  MANAGER_GET_STARTED_HREF,
   RESIDENT_GET_STARTED_HREF,
   VENDOR_GET_STARTED_HREF,
 } from "@/lib/marketing/public-contact";
 
-/** The people who do not run homes: a resident finds housing by text, a vendor gets jobs by text; each row signs up
- *  to its own role (the number lives in the top bar, the hero and the footer, not on these rows: captain #23). */
+/** Each row signs up to its own role: a resident finds housing by text, a vendor gets jobs by text, a manager runs
+ *  their homes by text (captain #29). The number lives in the hero and the footer, not on these rows (captain #23). */
 const ROWS = [
   { id: "resident", role: "Resident", line: "Find housing by text", href: RESIDENT_GET_STARTED_HREF },
   { id: "vendor", role: "Vendor", line: "Get jobs by text", href: VENDOR_GET_STARTED_HREF },
+  { id: "manager", role: "Manager", line: "Run your homes by text", href: MANAGER_GET_STARTED_HREF },
 ] as const;
 
 export function HomeJoinFree() {

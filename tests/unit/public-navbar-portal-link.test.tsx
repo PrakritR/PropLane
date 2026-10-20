@@ -4,8 +4,9 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 /**
  * The public bar used to resolve a Supabase session and point "Portal" at the signed-in role's home. The live
- * bar (`HomeNavbar`, behind `PublicNavbar`) deliberately does not: it is one static link to sign-in, so the
- * marketing pages never boot auth. This pins that — a reintroduced role lookup fails on the mocked client.
+ * bar (`HomeNavbar`, behind `PublicNavbar`) deliberately does not boot auth: signed out it shows Get started (the
+ * portal chooser), and only the session cookie's presence (or the portal's signed-in flag) turns it into Portal,
+ * to sign-in (captain #29). This pins that — a reintroduced role lookup fails on the mocked client.
  */
 vi.mock("@/lib/supabase/browser", () => ({
   createSupabaseBrowserClient: () => {
@@ -35,21 +36,43 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  document.cookie = "sb-emstjswhotsnyksqhqyf-auth-token.0=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/";
+  window.localStorage.clear();
 });
 
 describe("public navbar portal link", () => {
-  it("reads \"Portal\" and goes to sign-in, on the homepage and on every other public page", () => {
+  it("reads \"Get started\" and goes to the portal chooser for a signed-out visitor, on every public page", () => {
     for (const pathname of ["/", "/blog", "/about"]) {
       mockPathname = pathname;
       render(<PublicNavbar texting={texting} />);
-      const links = screen.getAllByRole("link", { name: "Portal" });
-      expect(links.length).toBeGreaterThan(0);
-      for (const link of links) expect(link).toHaveAttribute("href", "/auth/sign-in");
+      const links = screen.getAllByRole("link", { name: /^Get started/ });
+      expect(links).toHaveLength(2);
+      for (const link of links) expect(link).toHaveAttribute("href", "/auth/create-account");
+      expect(screen.queryByRole("link", { name: /^Portal/ })).toBeNull();
       cleanup();
     }
   });
 
-  it("carries no signed-out Log in / Start free pair any more", () => {
+  it("reads \"Portal\" and goes to sign-in once the browser holds a session cookie", async () => {
+    document.cookie = "sb-emstjswhotsnyksqhqyf-auth-token.0=base64-abc; path=/";
+    for (const pathname of ["/", "/blog"]) {
+      mockPathname = pathname;
+      render(<PublicNavbar texting={texting} />);
+      const links = await screen.findAllByRole("link", { name: /^Portal/ });
+      expect(links).toHaveLength(2);
+      for (const link of links) expect(link).toHaveAttribute("href", "/auth/sign-in");
+      expect(screen.queryByRole("link", { name: /^Get started/ })).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("reads \"Portal\" when the portal's signed-in flag is set", async () => {
+    window.localStorage.setItem("axis:signed_in", "1");
+    render(<PublicNavbar texting={texting} />);
+    expect(await screen.findAllByRole("link", { name: /^Portal/ })).toHaveLength(2);
+  });
+
+  it("carries no Log in / Start free pair any more", () => {
     render(<PublicNavbar texting={texting} />);
     expect(screen.queryByRole("link", { name: /log in/i })).toBeNull();
     expect(screen.queryByRole("link", { name: /start free/i })).toBeNull();
