@@ -20,6 +20,7 @@
  * Every text any party receives passes the hygiene checks: no markdown, no long dashes, plain GSM-7, links on their own line,
  * canonical host.
  */
+import { createHash, randomBytes } from "node:crypto";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { hex, sleep } from "./core.mjs";
@@ -110,6 +111,7 @@ async function payLinkFlow(ctx, { label, url, phone, chargeId, title, amountCent
 
   const checkout = await fetch(`${h.base}/api/l/${token}/rent-checkout`, { method: "POST", headers: { "content-type": "application/json", cookie }, body: JSON.stringify(method === "bank" ? { method: "bank" } : {}) });
   const body = await checkout.json().catch(() => ({}));
+  let sessionId = null;
   if (method === "bank") {
     const piId = body?.bank?.paymentIntentId;
     check(`${label}: a bank PaymentIntent is created (TEST)`, checkout.status === 200 && /^pi_/.test(piId ?? ""), `${checkout.status} ${JSON.stringify(body).slice(0, 300)}`);
@@ -121,12 +123,84 @@ async function payLinkFlow(ctx, { label, url, phone, chargeId, title, amountCent
     const secret = body?.clientSecret ?? "";
     check(`${label}: an embedded checkout session is created (TEST)`, checkout.status === 200 && /_secret_/.test(secret), `${checkout.status} ${JSON.stringify(body).slice(0, 300)}`);
     if (secret) {
-      const session = await stripe.checkout.sessions.retrieve(secret.split("_secret_")[0]);
+      sessionId = secret.split("_secret_")[0];
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
       check(`${label}: Stripe has the session, test mode, open and unpaid, for the charge`, session.livemode === false && session.status === "open" && session.payment_status === "unpaid" && String(session.metadata?.charge_ids ?? "").includes(chargeId), `${session.status} ${session.payment_status} ${JSON.stringify(session.metadata)}`);
       check(`${label}: the session total covers the exact amount (${dollars}) plus only the processing fee`, session.amount_total >= amountCents && session.amount_total <= amountCents + Math.ceil(amountCents * 0.06) + 100, `${session.amount_total} vs ${amountCents}`);
     }
   }
-  return { token, cookie };
+  return { token, cookie, sessionId };
+}
+
+/**
+ * Really pay a card checkout in Stripe TEST mode: open the phone-bound page in headless Chromium with the verified link session, click Pay,
+ * fill Stripe's embedded form with the 4242 test card, wait for Stripe to report the session paid, then hand the local webhook the
+ * `checkout.session.completed` event Stripe recorded (signed with the test webhook secret; Stripe cannot reach localhost) and assert
+ * the charge is paid. Skipped, with a note, when no browser can start.
+ */
+async function payCardInBrowserAndSettle(ctx, { label, token, cookie, sessionId, chargeId }) {
+  const { h, db, check, note } = ctx;
+  const stripe = stripeOrNull(h.env);
+  if (!stripe || !sessionId) return;
+  const outcome = await inBrowser(note, async (browser) => {
+    const context = await browser.newContext();
+    await context.addCookies(cookie.split("; ").filter(Boolean).map((c) => { const i = c.indexOf("="); return { name: c.slice(0, i), value: c.slice(i + 1), url: h.base }; }));
+    const page = await context.newPage();
+    await page.goto(`${h.base}/l/${token}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.click('[data-attr="phone-link-pay"]', { timeout: 30_000 });
+    // Stripe's embedded form lives in a cross-origin iframe; find the frame that holds the card field.
+    const deadline = Date.now() + 90_000;
+    let frame = null;
+    while (Date.now() < deadline && !frame) {
+      for (const f of page.frames()) {
+        if (f === page.mainFrame()) continue;
+        if (await f.locator("#cardNumber").count().catch(() => 0)) { frame = f; break; }
+      }
+      if (!frame) await page.waitForTimeout(1000);
+    }
+    if (!frame) return { error: "no Stripe card field appeared" };
+    await frame.fill("#cardNumber", "4242424242424242");
+    await frame.fill("#cardExpiry", "12 / 34");
+    await frame.fill("#cardCvc", "123");
+    if (await frame.locator("#billingName").count()) await frame.fill("#billingName", "Sky Resident");
+    if (await frame.locator("#billingPostalCode").count()) await frame.fill("#billingPostalCode", "98105");
+    await frame.locator('button[type="submit"], .SubmitButton').first().click({ timeout: 30_000 });
+    const until = Date.now() + 120_000;
+    for (;;) {
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      if (session.payment_status === "paid") return { paid: true, paymentIntent: session.payment_intent };
+      if (Date.now() > until) return { error: `session still ${session.payment_status}` };
+      await page.waitForTimeout(3000);
+    }
+  });
+  if (!outcome) return;
+  check(`${label}: the test card payment completes in Stripe (4242, test mode)`, outcome.paid === true, JSON.stringify(outcome));
+  if (!outcome.paid) return;
+  const secret = String(h.env.STRIPE_WEBHOOK_SECRET ?? "");
+  if (!secret) { check(`${label}: a webhook secret is configured`, false, "STRIPE_WEBHOOK_SECRET missing"); return; }
+  let event = null;
+  for (let attempt = 0; attempt < 10 && !event; attempt += 1) {
+    const list = await stripe.events.list({ type: "checkout.session.completed", limit: 20 });
+    event = list.data.find((e) => e.data?.object?.id === sessionId) ?? null;
+    if (!event) await sleep(2000);
+  }
+  check(`${label}: Stripe recorded the checkout.session.completed event`, Boolean(event), "no event for the session");
+  if (!event) return;
+  const payload = JSON.stringify(event);
+  const header = stripe.webhooks.generateTestHeaderString({ payload, secret });
+  const res = await fetch(`${h.base}/api/stripe/webhook`, { method: "POST", headers: { "content-type": "application/json", "stripe-signature": header }, body: payload, signal: AbortSignal.timeout(60_000) });
+  check(`${label}: the local webhook accepts the signed event (HTTP 200)`, res.status === 200, `${res.status} ${(await res.text()).slice(0, 200)}`);
+  let row = null;
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    const { data } = await db.from("portal_household_charge_records").select("status, row_data").eq("id", chargeId).maybeSingle();
+    row = data;
+    if (row?.status === "paid") break;
+    await sleep(2000);
+  }
+  check(`${label}: the charge is marked paid`, row?.status === "paid", JSON.stringify({ status: row?.status, bal: row?.row_data?.balanceLabel }));
+  const after = await fetch(`${h.base}/l/${token}`, { headers: { cookie }, redirect: "manual" });
+  const afterText = (await after.text()).replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  check(`${label}: the link now reads 'Payment received'`, /Payment received/.test(afterText), afterText.slice(0, 200));
 }
 
 /** A pending application fee for the applicant's own login (what applying creates). */
@@ -504,7 +578,10 @@ export const FULL_LOOP_SCENARIOS = [
           const pay = await say("self-serve resident", v.residentPhone, v.line, "send me my rent link");
           const rentUrl = urlsOf(pay.all).find((u) => /\/l\/[A-Za-z0-9_-]{32,}/.test(u));
           check("self-serve (b): the reply carries a /l/<token> rent link and names the code step", Boolean(rentUrl) && /code/i.test(pay.all), pay.all);
-          if (rentUrl) await payLinkFlow(ctx, { label: "self-serve (b) rent link", url: rentUrl, phone: v.residentPhone, chargeId: v.resident.charges[0].id, title: v.resident.charges[0].title, amountCents: 100000, method: "card" });
+          if (rentUrl) {
+            const flow = await payLinkFlow(ctx, { label: "self-serve (b) rent link", url: rentUrl, phone: v.residentPhone, chargeId: v.resident.charges[0].id, title: v.resident.charges[0].title, amountCents: 100000, method: "card" });
+            if (flow?.sessionId) await payCardInBrowserAndSettle(ctx, { label: "self-serve (b) rent payment", token: flow.token, cookie: flow.cookie, sessionId: flow.sessionId, chargeId: v.resident.charges[0].id });
+          }
           await serviceLoop("self");
         }
 
@@ -518,3 +595,41 @@ export const FULL_LOOP_SCENARIOS = [
     },
   },
 ];
+
+FULL_LOOP_SCENARIOS.push({
+  id: "pay-card",
+  modes: ["per_workspace"],
+  title: "A card payment for real in Stripe TEST mode: phone-bound link -> code -> embedded form -> 4242 card -> signed checkout.session.completed -> charge paid",
+  async setup(h, world) {
+    h.fx ??= {};
+    h.fx.svcReady = ensureServiceLine(h, world);
+    h.fx.flReady = ensureFullLoop(h, world);
+    await h.fx.flReady;
+  },
+  async run(ctx) {
+    const { h, db, check, world } = ctx;
+    const fl = await h.fx.flReady;
+    const v = fl.self;
+    const restorePerWorkspace = await enterPerWorkspace(db, fl.fx);
+    const { data: capBefore } = await db.from("sms_runtime_config").select("campaign_daily_segment_limit, pilot_manager_user_ids").eq("singleton", true).maybeSingle();
+    const pilotBefore = capBefore?.pilot_manager_user_ids ?? [];
+    await db.from("sms_runtime_config").update({ campaign_daily_segment_limit: Math.max(Number(capBefore?.campaign_daily_segment_limit ?? 500), 5000), pilot_manager_user_ids: [...new Set([...pilotBefore, v.manager.id])] }).eq("singleton", true);
+    try {
+      await sleep(1500);
+      const token = randomBytes(32).toString("base64url");
+      const charge = v.resident.charges[0];
+      const ins = await db.from("phone_bound_links").insert({
+        token_hash: createHash("sha256").update(token, "utf8").digest("hex"), phone_key: last10(v.residentPhone), workspace_id: v.workspaceId, purpose: "rent",
+        target_type: "charge", target_id: charge.id, requires_otp: true, expires_at: new Date(Date.now() + 10 * 86400000).toISOString(), created_by: v.manager.id,
+      });
+      check("fixture: the rent link row is written", !ins.error, ins.error?.message ?? "");
+      const flow = await payLinkFlow(ctx, { label: "pay-card rent link", url: `${h.base}/l/${token}`, phone: v.residentPhone, chargeId: charge.id, title: charge.title, amountCents: 100000, method: "card" });
+      if (flow?.sessionId) await payCardInBrowserAndSettle(ctx, { label: "pay-card rent payment", token: flow.token, cookie: flow.cookie, sessionId: flow.sessionId, chargeId: charge.id });
+      void world;
+    } finally {
+      await db.from("sms_runtime_config").update({ campaign_daily_segment_limit: capBefore?.campaign_daily_segment_limit ?? 500, pilot_manager_user_ids: pilotBefore }).eq("singleton", true);
+      await db.from("manager_sms_numbers").delete().in("id", [fl.managed.numberId, fl.self.numberId]);
+      await restorePerWorkspace();
+    }
+  },
+});
