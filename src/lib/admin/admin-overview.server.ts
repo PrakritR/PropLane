@@ -88,6 +88,29 @@ export type AdminOverview = {
     | null;
 };
 
+/**
+ * How long one SLOW source (the live Stripe read, the Subscribers population, the newest-signups window, the feedback
+ * count) may take before the Dashboard stops waiting for it. The route answers once, so one source that hangs held the
+ * whole page on "Loading…" until the browser gave up; a source that misses its budget reads as `null` and its card is
+ * left out (the same contract as an unreadable source), and the rest of the page draws.
+ */
+export const OVERVIEW_SOURCE_BUDGET_MS = 9_000;
+
+/** Pure: the promise's value, or `fallback` when it rejects or has not settled within `ms`. Exported for the tests. */
+export async function withBudget<T>(work: PromiseLike<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve(work).catch(() => fallback),
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 const SMS_FAILED_STATUSES = ["failed", "undelivered"];
 const SMS_ATTEMPT_FAILED_STATES = ["provider_rejected", "pre_dispatch_failed"];
 /** How many newest sign-ups the dashboard card lists. */
@@ -190,7 +213,7 @@ export async function loadAdminOverview(db: SupabaseClient, now = new Date()): P
     countActiveAccounts(db, realResidents),
     countActiveAccounts(db, realVendors),
     countActiveAccountsWithPayouts(db, realManagers),
-    countOpenFeedback(db),
+    withBudget(countOpenFeedback(db), OVERVIEW_SOURCE_BUDGET_MS, null),
     countOrNull(() =>
       db
         .from("sms_delivery_log")
@@ -208,10 +231,10 @@ export async function loadAdminOverview(db: SupabaseClient, now = new Date()): P
     countOrNull(() =>
       db.from("stripe_disputes").select("id", { count: "exact", head: true }).not("status", "in", CLOSED_DISPUTE_STATUSES_FILTER),
     ),
-    recentSignupsOf(db, kindById),
-    loadAdminSubscriberFigures(db, now.getTime()),
-    loadAdminMonthEarnings(db, { now: () => now.getTime() }).catch(() => null),
-    loadMonthExpensesCents(db, currentRevenueMonth(now.getTime())),
+    withBudget(recentSignupsOf(db, kindById), OVERVIEW_SOURCE_BUDGET_MS, null),
+    withBudget(loadAdminSubscriberFigures(db, now.getTime()), OVERVIEW_SOURCE_BUDGET_MS, null),
+    withBudget(loadAdminMonthEarnings(db, { now: () => now.getTime() }), OVERVIEW_SOURCE_BUDGET_MS, null),
+    withBudget(loadMonthExpensesCents(db, currentRevenueMonth(now.getTime())), OVERVIEW_SOURCE_BUDGET_MS, null),
   ]);
 
   const smsFailures24h = smsLog === null && smsAttempts === null ? null : (smsLog ?? 0) + (smsAttempts ?? 0);

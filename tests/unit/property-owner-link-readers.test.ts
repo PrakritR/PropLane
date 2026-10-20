@@ -29,6 +29,7 @@ const REVIEWED: Record<string, string> = {
   "lib/invite-links/invite-links.server.ts": "mint/redeem; owner role is handled explicitly",
   "lib/co-manager-open-invite.server.ts": "open-invite redeem",
   "lib/workspaces/membership.server.ts": "standing: an owner row resolves to rights of none",
+  "lib/service/service-mode.server.ts": "staff test: a Property owner seat is excluded by isStaffTeamRole, so an owner row never opens service mode",
   "lib/workspaces/server.ts": "workspace switcher: owner rows add no houses (no module key) and carry no rights",
   "lib/auth/resident-account-deletion.ts": "existence check only: ANY invite row, owner rows included, keeps the resident's login",
   "lib/auth/purge-orphaned-co-manager-links.ts": "cleanup",

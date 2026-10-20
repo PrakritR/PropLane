@@ -80,8 +80,17 @@ describe("no admin branch inside the manager side", () => {
   });
 
   it("never lets a manager route reach the Service layer or its owner config", () => {
-    const hits = MANAGER_SIDE.flatMap(walk).filter((f) => /@\/lib\/service\/|PROPLANE_SERVICE_OWNER_USER_ID/.test(read(f)));
+    // The one reviewed bridge: service mode (docs/agents/admin-service.md § Service mode). `service-mode.ts` is pure;
+    // `service-mode.server.ts` only answers "is this viewer staff of a service workspace" (membership rows plus the
+    // read-only, fail-closed `isPlatformServiceOwner` boolean) and never hands the owner's id or settings to a caller.
+    const BRIDGE = /@\/lib\/service\/service-mode(\.server)?"/g;
+    const hits = MANAGER_SIDE.flatMap(walk).filter((f) => /@\/lib\/service\/|PROPLANE_SERVICE_OWNER_USER_ID/.test(read(f).replace(BRIDGE, "")));
     expect(hits).toEqual([]);
+  });
+
+  it("the service-mode bridge exposes no owner config and no write", () => {
+    const src = read("src/lib/service/service-mode.server.ts");
+    expect(src).not.toMatch(/resolveServiceOwner|PROPLANE_SERVICE_OWNER_USER_ID|\.(insert|update|upsert|delete)\(/);
   });
 
   it("provisions, reserves and exempts no number for service workspaces", () => {

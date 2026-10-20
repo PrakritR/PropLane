@@ -9,7 +9,7 @@ import {
 import { AttentionPanel, KpiCard, PanelShell, type AttentionRow } from "@/components/portal/pro-dashboard-kpis";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { Button } from "@/components/ui/button";
-import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
+import { fetchWithTimeout, FetchTimeoutError } from "@/lib/auth/fetch-with-timeout";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { adminAccountCategory, adminAccountKey, ADMIN_ACCOUNT_ROLE_LABEL } from "@/lib/admin/admin-account-keys";
 import { formatAdminUsd } from "@/lib/admin/admin-revenue-model";
@@ -102,8 +102,8 @@ export function AdminDashboard() {
           return;
         }
         setOverview(json as AdminOverview);
-      } catch {
-        if (!cancelled) setError("Could not load the dashboard.");
+      } catch (caught) {
+        if (!cancelled) setError(caught instanceof FetchTimeoutError ? "That took too long to load." : "Could not load the dashboard.");
       }
     })();
     return () => {

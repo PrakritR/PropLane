@@ -53,6 +53,8 @@ const ACTIONS: Array<Record<string, unknown>> = [
   { action: "open", id: "x" },
   { action: "team", id: "x" },
   { action: "team-add", id: "x", userId: ADMIN_B },
+  { action: "team-invite", id: "x", email: "helper@example.com" },
+  { action: "team-invite", id: "x", proplaneId: "AX-1234" },
   { action: "team-remove", id: "x", linkId: "y" },
   { action: "attach-candidates", query: "" },
   { action: "attach", workspaceId: "cccccccc-1111-4111-8111-cccccccccccc", city: "Seattle", label: "L", reason: "Client asked" },
@@ -92,7 +94,7 @@ describe("create and open", () => {
     const opened = await post({ action: "open", id });
     expect(opened.status).toBe(200);
     expect(opened.headers.get("set-cookie")).toContain(`proplane-workspace=${id}`);
-    expect(((await opened.json()) as { href: string }).href).toBe("/portal/properties");
+    expect(((await opened.json()) as { href: string }).href).toBe("/portal/dashboard");
   });
 
   it("Open sets NO cookie for an admin who is not on the team, or for a workspace that is not a service one", async () => {

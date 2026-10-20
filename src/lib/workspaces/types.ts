@@ -139,6 +139,8 @@ export type PortalWorkspace = {
    * the UI hides every create/edit action, and the middleware and tool layer refuse the writes.
    */
   readOnly?: boolean;
+  /** PropLane Service: a workspace PropLane manages (`portal_workspaces.is_service`). Absent = an ordinary workspace. */
+  isService?: boolean;
 };
 export type WorkspacePayload = {
   workspaces: PortalWorkspace[];

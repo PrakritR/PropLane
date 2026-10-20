@@ -9,6 +9,8 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { loadWorkspacePlan, loadWorkspaces } from "@/lib/workspaces/server";
+import { workspacesForPortalPayload } from "@/lib/service/service-mode";
+import { loadServiceStaffIds } from "@/lib/service/service-mode.server";
 import { actorWorkspaceStanding, previewHouseMove } from "@/lib/workspaces/membership.server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 import {
@@ -62,9 +64,14 @@ export async function GET() {
     const workspaces = await loadWorkspaces(ctx.db, ctx.user.id);
     const plan = await loadWorkspacePlan(ctx.db, ctx.user.id, workspaces);
     const selected = (await cookies()).get(WORKSPACE_COOKIE)?.value;
+    // A PropLane Service workspace the viewer is staff of lives on the service rail, not in the Property portal's
+    // list: left out here unless the portal is in service mode (then it is the active workspace). The list the
+    // scope readers use (`loadWorkspaces`) is untouched. An ordinary manager has no staff seat: nothing changes.
+    const staffIds = workspaces.some((w) => w.isService === true) ? await loadServiceStaffIds(ctx.db, ctx.user.id) : new Set<string>();
+    const shown = workspacesForPortalPayload(workspaces, staffIds, selected);
     return NextResponse.json({
-      workspaces,
-      activeWorkspaceId: workspaces.find((w) => w.id === selected)?.id ?? workspaces[0]?.id ?? null,
+      workspaces: shown.workspaces,
+      activeWorkspaceId: shown.activeWorkspaceId,
       plan,
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
