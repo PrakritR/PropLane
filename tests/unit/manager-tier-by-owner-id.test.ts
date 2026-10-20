@@ -11,7 +11,7 @@ function chain() {
     get(_t, prop) {
       if (prop === "then") return (resolve: (v: unknown) => void) => resolve(many);
       if (prop === "eq") return (col: string, val: unknown) => { eqCalls.push([col, val]); return proxy; };
-      if (prop === "maybeSingle" || prop === "single") return () => Promise.resolve(many);
+      if (prop === "maybeSingle" || prop === "single") return () => Promise.resolve(one);
       return () => proxy;
     },
     apply() { return proxy; },
