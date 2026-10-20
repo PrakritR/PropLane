@@ -180,6 +180,8 @@ export async function textUnclaimedDirectoryBalance(
       body: `You have ${dollars} waiting from PropLane. Create your account to get paid: ${link}`,
       role: "vendor",
       idempotencyKey: `dir-balance-waiting:${record.id}:${day}`,
+      // An unclaimed directory vendor has no login yet: the text rides the vendor-conversation consent basis.
+      basis: { kind: "vendor_notice", recipientUserId: null },
     });
   } catch (error) {
     console.error("[directory-vendor] waiting-balance text failed", error instanceof Error ? error.message : "unknown");

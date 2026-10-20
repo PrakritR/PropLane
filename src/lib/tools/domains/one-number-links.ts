@@ -168,7 +168,7 @@ export const residentSendMyLinkTool = defineTool<
 
     if (input.purpose === "rent") {
       const open = (await loadOwnCharges(ctx)).filter(
-        (c: HouseholdCharge) => (c.status === "pending" || c.status === "failed") && !str(c.id).includes(","),
+        (c: HouseholdCharge) => (c.status === "pending" || c.status === "failed" || c.status === "partially_paid") && !str(c.id).includes(","),
       );
       if (open.length === 0) return { ok: false, error: "nothing_to_link" };
       // One workspace per link: the first open charge decides it, the rest must share it.

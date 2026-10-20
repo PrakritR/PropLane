@@ -78,6 +78,10 @@ export async function textPayoutsReady(
     body: payoutsReadyText(last4),
     role,
     idempotencyKey: `payouts-ready:${input.accountId}:${String(link.id)}`,
+    basis:
+      role === "vendor"
+        ? { kind: "vendor_notice", recipientUserId: input.userId, requestLinkId: String(link.id) }
+        : { kind: "manager_notice", topic: "payouts_ready", recipientUserId: input.userId },
   });
   return sent ? { sent: true } : { sent: false, reason: "send_refused" };
 }

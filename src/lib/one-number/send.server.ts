@@ -60,9 +60,11 @@ export async function sendSharedLineMessage(
     text,
     ...(send.mediaUrls?.length ? { mediaUrls: send.mediaUrls } : {}),
     source: "work_number",
-    sendClass: "transactional",
+    sendClass: send.delivery?.sendClass ?? "transactional",
     counterpartyRole: COUNTERPARTY_FOR_ROLE[send.role],
-    purpose: "shared_line_message",
+    purpose: send.delivery?.purpose ?? "shared_line_message",
+    ...(send.delivery?.conversationKey ? { conversationKey: send.delivery.conversationKey } : {}),
+    ...(send.delivery?.recipientUserId ? { recipientUserId: send.delivery.recipientUserId } : {}),
     dedupeKey: `shared-line:${send.idempotencyKey}`,
   });
 

@@ -87,6 +87,7 @@ export async function sendMonthlyOwnerStatements(db: SupabaseClient, now: Date =
     if (prof.phone && prof.phone_verified_at) {
       texted = await sendWorkspacePhoneText(db, {
         workspaceId: p.workspace_id, phoneKey: prof.phone, role: "manager", idempotencyKey: `owner-statement:${p.workspace_id}:${month}`,
+        basis: { kind: "manager_notice", topic: "owner_statement", recipientUserId: p.owner_user_id },
         body: statementText({
           monthKey: month, workspaceName: view.workspace.name, rentCents: s.totals.rentGrossCents, feeCents: s.totals.feeCents,
           vendorCents: s.totals.vendorChargesCents, netCents: s.totals.netCents, balanceCents: s.endingCents, link,

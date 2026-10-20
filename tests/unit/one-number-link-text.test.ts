@@ -4,11 +4,11 @@ const mocks = vi.hoisted(() => ({ shared: vi.fn(), workNumber: vi.fn() }));
 vi.mock("@/lib/one-number/send.server", () => ({ sendSharedLineMessage: mocks.shared }));
 vi.mock("@/lib/proplane-sms-transport.server", () => ({ sendFromManagerWorkNumber: mocks.workNumber }));
 
-import { roleForLinkPurpose, sendWorkspacePhoneText } from "@/lib/one-number/link-text.server";
+import { deliveryForBasis, roleForLinkPurpose, sendWorkspacePhoneText } from "@/lib/one-number/link-text.server";
 import { linksFakeDb, type Row } from "../helpers/links-fake-db";
 
 const WS = "ws-a";
-const input = { workspaceId: WS, phoneKey: "2065550142", body: "123456 is your PropLane code.", role: "prospect" as const, idempotencyKey: "phone-code:c1" };
+const input = { workspaceId: WS, phoneKey: "2065550142", body: "123456 is your PropLane code.", role: "prospect" as const, idempotencyKey: "phone-code:c1", basis: { kind: "code" as const } };
 const world = (mode: string, pilot: string[] = []) =>
   linksFakeDb({
     portal_workspaces: [{ id: WS, owner_user_id: "owner-a" }],
@@ -26,7 +26,7 @@ describe("sendWorkspacePhoneText", () => {
     expect(await sendWorkspacePhoneText(world("per_workspace"), input)).toBe(true);
     expect(mocks.shared).not.toHaveBeenCalled();
     expect(mocks.workNumber).toHaveBeenCalledWith(expect.objectContaining({
-      managerUserId: "owner-a", to: "+12065550142", text: input.body, sendClass: "transactional", skipLog: true, dedupeKey: "phone-code:c1",
+      managerUserId: "owner-a", to: "+12065550142", text: input.body, sendClass: "control", purpose: "phone_link_code", skipLog: true, dedupeKey: "phone-code:c1",
     }));
   });
 
@@ -35,6 +35,7 @@ describe("sendWorkspacePhoneText", () => {
     expect(await sendWorkspacePhoneText(world("shared"), input)).toBe(true);
     expect(mocks.shared.mock.calls[0]![1]).toMatchObject({
       workspaceId: WS, ownerUserId: "owner-a", toPhone: "+12065550142", role: "prospect", idempotencyKey: "phone-code:c1",
+      delivery: { sendClass: "control", purpose: "phone_link_code", recipientUserId: null },
     });
     expect(mocks.workNumber).not.toHaveBeenCalled();
   });
@@ -75,5 +76,39 @@ describe("roleForLinkPurpose", () => {
     expect(roleForLinkPurpose("application")).toBe("prospect");
     expect(roleForLinkPurpose("tour")).toBe("prospect");
     expect(roleForLinkPurpose("gallery")).toBe("prospect");
+  });
+});
+
+describe("the consent basis of every text this module sends (#4)", () => {
+  it("a code the person just asked for is control class: no stored grant is needed, STOP still blocks at the dispatcher", () => {
+    expect(deliveryForBasis({ kind: "code" }, "owner-a", "+12065550142")).toEqual({
+      sendClass: "control", purpose: "phone_link_code", recipientUserId: null, recipientEmail: null, conversationKey: null, counterpartyRole: null, logToThread: false,
+    });
+  });
+
+  it("an owner or manager notice uses the manager-recipient purposes and carries the recipient's account", async () => {
+    const delivery = deliveryForBasis({ kind: "manager_notice", topic: "Owner Statement", recipientUserId: "owner-user" }, "owner-a", "+12065550142");
+    expect(delivery).toMatchObject({ sendClass: "transactional", purpose: "manager_agent_notification_owner_statement", recipientUserId: "owner-user", counterpartyRole: "manager" });
+    const { isManagerRecipientSmsPurpose } = await import("@/lib/sms/team-notice-consent.server");
+    expect(isManagerRecipientSmsPurpose(delivery.purpose)).toBe(true);
+  });
+
+  it("a vendor notice rides the vendor thread's purpose and key", () => {
+    const delivery = deliveryForBasis({ kind: "vendor_notice", recipientUserId: "vendor-1" }, "owner-a", "+12065550142");
+    expect(delivery).toMatchObject({ sendClass: "transactional", purpose: "vendor_conversation", recipientUserId: "vendor-1", counterpartyRole: "vendor" });
+    expect(delivery.conversationKey).toBeTruthy();
+  });
+
+  it("the work-number path hands the manager basis to the transport, unlogged", async () => {
+    await sendWorkspacePhoneText(world("per_workspace"), { ...input, role: "manager", basis: { kind: "manager_notice", topic: "fee_policy", recipientUserId: "u-1" } });
+    expect(mocks.workNumber).toHaveBeenCalledWith(expect.objectContaining({
+      sendClass: "transactional", purpose: "manager_agent_notification_fee_policy", recipientUserId: "u-1", counterpartyRole: "manager", skipLog: true,
+    }));
+  });
+
+  it("the shared-line path hands the same basis to the shared sender", async () => {
+    mocks.shared.mockResolvedValue({ ok: true, messageSid: "SM1", segments: 1 });
+    await sendWorkspacePhoneText(world("shared"), { ...input, role: "manager", basis: { kind: "manager_notice", topic: "repair_approval", recipientUserId: "u-2" } });
+    expect(mocks.shared.mock.calls[0]![1].delivery).toMatchObject({ sendClass: "transactional", purpose: "manager_agent_notification_repair_approval", recipientUserId: "u-2" });
   });
 });

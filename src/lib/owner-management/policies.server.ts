@@ -319,6 +319,7 @@ export async function sendPolicyForSignature(
       body: `Your PropLane management agreement is ready to sign: ${link}`,
       role: "manager",
       idempotencyKey: `managed-policy-sent:${policy.id}:${stamp}`,
+      basis: { kind: "manager_notice", topic: "fee_policy", recipientUserId: policy.ownerUserId },
     }).catch(() => false);
   }
   return { policy, emailed: email.status === "sent", texted };

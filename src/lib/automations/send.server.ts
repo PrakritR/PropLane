@@ -3,7 +3,9 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { sendSharedLineMessage } from "@/lib/one-number/send.server";
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { formatSmsLinks } from "@/lib/sms/link-format";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { ensureApplicationScopedSmsConsent } from "@/lib/sms/application-consent.server";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
@@ -32,6 +34,8 @@ export async function sendResidentAutomationText(
 ): Promise<AutomationSendResult> {
   const to = normalizeE164(input.phoneKey);
   if (!to) return { ok: false, retry: false, reason: "bad_phone" };
+  // A link in a preset text is on its own line, on the canonical host, with nothing glued to it.
+  const text = formatSmsLinks(input.text, resolveEmailLinkBaseUrl());
 
   const config = await loadSharedLineConfig(db);
   if (workspaceOnSharedLine(config, input.workspaceId)) {
@@ -39,7 +43,7 @@ export async function sendResidentAutomationText(
       workspaceId: input.workspaceId,
       ownerUserId: input.ownerUserId,
       toPhone: to,
-      body: input.text,
+      body: text,
       role: "resident",
       idempotencyKey: `automation:${input.idempotencyKey}`,
     });
@@ -71,7 +75,7 @@ export async function sendResidentAutomationText(
     managerUserId: input.ownerUserId,
     workspaceId: input.workspaceId,
     to,
-    text: input.text,
+    text,
     sendClass: "automated",
     purpose: "preset_automation",
     counterpartyRole: "resident",

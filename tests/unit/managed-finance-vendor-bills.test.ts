@@ -99,6 +99,7 @@ describe("a bill above the owner's repair amount", () => {
     expect(posted).toHaveLength(0);
     expect(text).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(text.mock.calls[0])).toContain("Reply APPROVE or N");
+    expect((text.mock.calls[0] as unknown[])[1]).toMatchObject({ role: "manager", basis: { kind: "manager_notice", topic: "repair_approval" } });
     expect(email).toHaveBeenCalledTimes(1);
     expect(f.rows.owner_expenses![0]).toMatchObject({ status: "pending_owner", approval_phone_key: "+12065550100" });
   });

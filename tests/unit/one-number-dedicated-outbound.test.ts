@@ -104,7 +104,7 @@ describe("conversation send line", () => {
 
 describe("link and code texts", () => {
   const send = (db: ReturnType<typeof world>, workspaceId: string) =>
-    sendWorkspacePhoneText(db as never, { workspaceId, phoneKey: "2065550142", body: "Your code is 123456", role: "resident", idempotencyKey: "k-1234567890123456" });
+    sendWorkspacePhoneText(db as never, { workspaceId, phoneKey: "2065550142", body: "Your code is 123456", role: "resident", idempotencyKey: "k-1234567890123456", basis: { kind: "code" } });
 
   it("a Pro workspace's code leaves from its own number, pinned to that workspace", async () => {
     expect(await send(world(), "ws-pro")).toBe(true);

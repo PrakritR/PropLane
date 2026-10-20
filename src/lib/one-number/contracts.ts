@@ -160,6 +160,17 @@ export type SharedLineSend = {
   mediaUrls?: string[];
   /** Stable key so a retry never double-sends. */
   idempotencyKey: string;
+  /**
+   * How the consent gate reads this text. Default `transactional` / `shared_line_message`. A one-time code
+   * the person just asked for is `control`; a notice to a signed-in manager or vendor carries that person's
+   * own purpose, conversation key and user id so their consent (never an application's) vouches for it.
+   */
+  delivery?: {
+    sendClass?: "control" | "transactional" | "automated";
+    purpose?: string;
+    conversationKey?: string | null;
+    recipientUserId?: string | null;
+  };
 };
 
 export type SharedLineSendResult =

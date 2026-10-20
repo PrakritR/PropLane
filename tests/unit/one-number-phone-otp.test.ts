@@ -55,6 +55,27 @@ describe("requestPhoneOtp", () => {
     expect((await request(db, { subjectId: "d" })).result).toEqual({ ok: false, reason: "rate_limited" });
   });
 
+  it("each purpose has its own allowance: sign-in and apply codes never lock a phone out of its rent link", async () => {
+    const { db } = linksFakeDb();
+    const other = (purpose: "sign_in" | "public_bind", n: number) =>
+      requestPhoneOtp(db, { phoneKey: PHONE, purpose, subjectId: null, now: new Date(T0.getTime() + n * 1000), send: async () => true });
+    for (let i = 0; i < 3; i += 1) expect((await other("sign_in", i)).ok).toBe(true);
+    for (let i = 0; i < 2; i += 1) expect((await other("public_bind", 10 + i)).ok).toBe(true);
+    // The rent link's own allowance is untouched by the five sends above.
+    for (let i = 0; i < 3; i += 1) expect((await request(db, { now: new Date(T0.getTime() + 20_000 + i * 1000) })).result.ok).toBe(true);
+    expect((await request(db, { now: new Date(T0.getTime() + 30_000) })).result).toEqual({ ok: false, reason: "rate_limited" });
+  });
+
+  it("a flood across purposes still stops at the ceiling", async () => {
+    const { db } = linksFakeDb();
+    const send = (purpose: "sign_in" | "public_bind" | "link_unlock", n: number) =>
+      requestPhoneOtp(db, { phoneKey: PHONE, purpose, subjectId: null, now: new Date(T0.getTime() + n * 1000), send: async () => true });
+    for (let i = 0; i < 3; i += 1) await send("sign_in", i);
+    for (let i = 0; i < 3; i += 1) await send("public_bind", 10 + i);
+    for (let i = 0; i < 2; i += 1) expect((await send("link_unlock", 20 + i)).ok).toBe(true);
+    expect(await send("link_unlock", 30)).toEqual({ ok: false, reason: "rate_limited" });
+  });
+
   it("a text that never left leaves no challenge and spends no allowance", async () => {
     const { db, rows } = linksFakeDb();
     for (let i = 0; i < 5; i += 1) {

@@ -41,6 +41,8 @@ describe("link unlock code", () => {
     expect(call.workspaceId).toBe(WS);
     expect(call.body).toMatch(/\b\d{6}\b/);
     expect(call.role).toBe("prospect");
+    // A code the person just asked for is control class, never gated on a stored grant.
+    expect((call as { basis: unknown }).basis).toEqual({ kind: "code" });
   });
 
   it("the function takes no destination: a forwarded link still texts the original phone", () => {

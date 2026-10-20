@@ -141,6 +141,31 @@ export async function carryVendorConsentToKey(db: SupabaseClient, input: {
   });
 }
 
+/** A vendor asking for a link by text (it exists only because they texted the line) opens that thread for replies. */
+export const VENDOR_LINK_REQUEST_CONSENT_SOURCE = "recipient_initiated_link_request";
+
+/**
+ * The vendor asked, by text, for a link (their payouts page): that request is their opt-in to the one
+ * reply about it. Never overwrites a STOP or a revoke, and never grants for a number that texted STOP.
+ * Returns whether a text may go to them now.
+ */
+export async function ensureVendorLinkRequestConsent(db: SupabaseClient, input: {
+  managerUserId: string; vendorUserId: string | null; phone: string; linkId: string;
+}): Promise<boolean> {
+  const state = await readVendorTextConsent(db, input);
+  if (!state.ok) return false;
+  if (state.state === "opted_out" || state.state === "revoked") return false;
+  if (state.state === "granted" && state.grantedUnder === state.conversationKey) return true;
+  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() || "";
+  if (!messagingServiceSid || !input.linkId.trim()) return false;
+  const recorded = await recordScopedSmsConsent(db, input.phone, {
+    ...scopeFor(input.managerUserId, state.conversationKey, messagingServiceSid),
+    eventType: "granted", source: VENDOR_LINK_REQUEST_CONSENT_SOURCE,
+    evidence: { linkId: input.linkId, role: "vendor" },
+  });
+  return recorded.ok;
+}
+
 /**
  * A text from a vendor on the manager's list (or one the manager texted in the
  * last 90 days) unlocks replies in that thread. Called only after the webhook

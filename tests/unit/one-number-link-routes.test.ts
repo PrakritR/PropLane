@@ -50,7 +50,7 @@ function world() {
   const fake = linksFakeDb({
     portal_workspaces: [{ id: WS, owner_user_id: "owner-a", is_default: true }],
     manager_property_records: [{ id: "prop-1", workspace_id: WS, manager_user_id: "owner-a" }],
-    profiles: [{ id: "res-1", phone: "2065550142" }],
+    profiles: [{ id: "res-1", phone: "2065550142", phone_verified_at: "2026-09-01T00:00:00Z" }],
     portal_household_charge_records: [{
       id: "chg-1", status: "pending",
       row_data: { id: "chg-1", residentUserId: "res-1", residentEmail: "res@example.com", propertyId: "prop-1", title: "Rent", amountLabel: "$100.00", balanceLabel: "$100.00", propertyLabel: "X", status: "pending" },

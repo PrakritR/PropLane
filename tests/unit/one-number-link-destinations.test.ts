@@ -38,7 +38,7 @@ function world(extra: Record<string, Record<string, unknown>[]> = {}) {
       { id: "prop-b", workspace_id: OTHER_WS, manager_user_id: "owner-b" },
       { id: "prop-loose", workspace_id: null, manager_user_id: "owner-a" },
     ],
-    profiles: [{ id: "res-1", phone: "(206) 555-0142" }],
+    profiles: [{ id: "res-1", phone: "(206) 555-0142", phone_verified_at: "2026-09-01T00:00:00Z" }],
     portal_household_charge_records: [{ id: "chg-1", status: "pending", row_data: charge() }],
     ...extra,
   });
@@ -85,11 +85,12 @@ describe("no-code destinations", () => {
 describe("portal destinations", () => {
   it("lease, move-in and payouts continue through sign-in; the page never reaches into the record", async () => {
     const { db } = world();
+    // A resident's own lease / move-in page also names where to go when the code step already opened their session.
     expect(await resolveLinkDestination(db, link({ purpose: "lease", targetType: "resident", targetId: "res-1" }))).toEqual({
-      kind: "portal", href: portalSignInHref("/resident/lease"),
+      kind: "portal", href: portalSignInHref("/resident/lease"), directHref: "/resident/lease", signedInAs: "res-1",
     });
     expect(await resolveLinkDestination(db, link({ purpose: "move_in", targetType: "resident", targetId: "res-1" }))).toEqual({
-      kind: "portal", href: "/auth/sign-in?next=%2Fresident%2Fmove-in",
+      kind: "portal", href: "/auth/sign-in?next=%2Fresident%2Fmove-in", directHref: "/resident/move-in", signedInAs: "res-1",
     });
     expect(await resolveLinkDestination(db, link({ purpose: "payouts", targetType: "vendor", targetId: "v" }))).toMatchObject({
       kind: "portal", href: "/auth/sign-in?next=%2Fvendor%2Ffinancials%2Fpayouts",
@@ -109,10 +110,15 @@ describe("rent destination", () => {
     });
   });
 
-  it("refuses when the phone is not the resident's, or the account has none on file", async () => {
-    expect(await resolveLinkDestination(world().db, rent({ phoneKey: "2065550199" }))).toEqual({ kind: "gone" });
+  it("a link whose phone is no longer the resident's verified phone says to ask for a new link, and shows nothing else", async () => {
+    expect(await resolveLinkDestination(world().db, rent({ phoneKey: "2065550199" }))).toEqual({ kind: "phone_changed" });
+    const moved = world({ profiles: [{ id: "res-1", phone: "(206) 555-0177", phone_verified_at: "2026-10-01T00:00:00Z" }] });
+    expect(await resolveLinkDestination(moved.db, rent())).toEqual({ kind: "phone_changed" });
     const noPhone = world({ profiles: [{ id: "res-1", phone: null }] });
-    expect(await resolveLinkDestination(noPhone.db, rent())).toEqual({ kind: "gone" });
+    expect(await resolveLinkDestination(noPhone.db, rent())).toEqual({ kind: "phone_changed" });
+    const unverified = world({ profiles: [{ id: "res-1", phone: "(206) 555-0142", phone_verified_at: null }] });
+    expect(await resolveLinkDestination(unverified.db, rent())).toEqual({ kind: "phone_changed" });
+    expect(await residentPhoneMatches(unverified.db, "res-1", PHONE)).toBe(false);
     expect(await residentPhoneMatches(world().db, "res-1", PHONE)).toBe(true);
     expect(await residentPhoneMatches(world().db, "nobody", PHONE)).toBe(false);
   });
@@ -148,6 +154,17 @@ describe("rent destination", () => {
       ],
     });
     expect(await resolveLinkDestination(db, rent({ targetId: "chg-1,chg-2" }))).toEqual({ kind: "processing" });
+  });
+
+  it("a part-paid charge is payable for what is still owed, not expired", async () => {
+    const { db } = world({
+      portal_household_charge_records: [
+        { id: "chg-1", status: "partially_paid", row_data: charge({ status: "partially_paid", amountLabel: "$1,200.00", balanceLabel: "$450.00" }) },
+      ],
+    });
+    expect(await resolveLinkDestination(db, rent())).toMatchObject({
+      kind: "rent", chargeIds: ["chg-1"], charges: [{ id: "chg-1", amountLabel: "$450.00", title: "October rent (balance)" }],
+    });
   });
 
   it("offers only the charges still owed when some are paid", async () => {

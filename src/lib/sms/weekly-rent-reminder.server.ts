@@ -2,7 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { ensureApplicationScopedSmsConsent } from "@/lib/sms/application-consent.server";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
-import { dispatchOwnerSmsOutbox, enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { mintRentReminderPayLink } from "@/lib/payments/rent-reminder-links.server";
+import { composeRentReminderSms } from "@/lib/payments/rent-reminder-sms";
+import { sendResidentRentText } from "@/lib/payments/rent-text-send.server";
 
 /**
  * Weekly recurring rent-reminder SMS, sent from each manager's own PropLane
@@ -43,7 +46,7 @@ export function weeklyRentReminderDedupId(weekKey: string, managerUserId: string
   return `weekly_rent_sms_${weekKey}_${managerUserId}_${residentKey}`;
 }
 
-function reminderBody(charge: HouseholdCharge): string {
+export function reminderBody(charge: HouseholdCharge): string {
   const where = charge.propertyLabel?.trim() ? ` for ${charge.propertyLabel.trim()}` : "";
   const due = charge.dueDateLabel?.trim() ? ` (due ${charge.dueDateLabel.trim()})` : "";
   return `Rent reminder${where}: ${charge.amountLabel}${due}. Reply here with any questions.`;
@@ -55,6 +58,8 @@ export type WeeklyRentReminderResult = {
   skippedAlreadySent: number;
   skippedNoSendNumber: number;
   skippedNoPhone: number;
+  /** Held back by quiet hours: the queued text goes out on a later run, so this is not a failure. */
+  deferred: number;
   failed: number;
   errors: Array<{ residentKey: string; error: string }>;
 };
@@ -71,6 +76,7 @@ export async function sendWeeklyRentReminders(
     skippedAlreadySent: 0,
     skippedNoSendNumber: 0,
     skippedNoPhone: 0,
+    deferred: 0,
     failed: 0,
     errors: [],
   };
@@ -96,20 +102,23 @@ export async function sendWeeklyRentReminders(
     byManager.set(managerId, residents);
   }
 
-  const newlyQueuedOutboxIds: string[] = [];
   for (const [managerId, residents] of byManager) {
     for (const [residentKey, charge] of residents) {
       result.considered++;
 
       // Resolve a verified resident phone (never text an unverified number).
       let phone = "";
+      let phoneVerifiedAt: string | null = null;
       if (charge.residentUserId) {
         const { data: prof } = await db
           .from("profiles")
           .select("phone, phone_verified_at")
           .eq("id", charge.residentUserId)
           .maybeSingle();
-        if (prof?.phone_verified_at) phone = String(prof?.phone ?? "").trim();
+        if (prof?.phone_verified_at) {
+          phone = String(prof?.phone ?? "").trim();
+          phoneVerifiedAt = String(prof.phone_verified_at);
+        }
       }
       if (!phone) {
         result.skippedNoPhone++;
@@ -141,41 +150,50 @@ export async function sendWeeklyRentReminders(
         });
         continue;
       }
-      const res = await enqueueOwnerSms({
-        managerUserId: managerId,
-        actorUserId: managerId,
-        recipientPhone: phone,
-        recipientUserId: charge.residentUserId,
-        recipientEmail: charge.residentEmail,
-        body: reminderBody(charge),
-        sendClass: "automated",
-        purpose: "weekly_rent_reminder",
-        conversationKey,
-        dedupeKey: dedupId,
-      }, db);
-      if (res.ok && res.deduplicated) {
+      // Already sent this week (the outbox dedupe key is the week's id, on either door).
+      const { data: already } = await db
+        .from("sms_outbox")
+        .select("id, status")
+        .eq("manager_user_id", managerId)
+        .in("dedupe_key", [dedupId, `shared-line:${dedupId}`])
+        .in("status", ["submitted", "sent", "delivered"])
+        .limit(1);
+      if ((already ?? []).length > 0) {
         result.skippedAlreadySent++;
-      } else if (res.ok) {
-        newlyQueuedOutboxIds.push(res.outboxId);
+        continue;
+      }
+      // Every reminder carries a fresh phone-bound pay link (or the portal URL without a verified phone) and
+      // leaves from the line of the workspace that holds the house, the PropLane line included.
+      const payLink = await mintRentReminderPayLink(db, {
+        ownerUserId: managerId,
+        charges: [charge],
+        phone,
+        phoneVerifiedAt,
+      });
+      const res = await sendResidentRentText(db, {
+        ownerUserId: managerId,
+        propertyId: charge.propertyId || null,
+        phone,
+        body: composeRentReminderSms({ text: reminderBody(charge), payLink: payLink.url, canonicalOrigin: resolveEmailLinkBaseUrl() }),
+        purpose: "weekly_rent_reminder",
+        sendClass: "automated",
+        idempotencyKey: dedupId,
+        residentUserId: charge.residentUserId ?? null,
+        residentEmail: charge.residentEmail,
+      });
+      if (res.ok) {
+        result.sent++;
       } else {
-        if (res.error.includes("number_") || res.error.includes("runtime") || res.error.includes("provider_")) {
+        const reason = String(res.error ?? "unknown");
+        if (reason === "quiet_hours") {
+          result.deferred++;
+        } else if (reason.includes("number_") || reason.includes("runtime") || reason.includes("provider_") || reason === "workspace_has_no_work_number") {
           result.skippedNoSendNumber++;
         } else {
           result.failed++;
-          result.errors.push({ residentKey, error: res.error });
+          result.errors.push({ residentKey, error: reason });
         }
       }
-    }
-  }
-
-  if (newlyQueuedOutboxIds.length > 0) {
-    const workerId = `weekly-${weekKey}`;
-    // Dispatch only rows created by this run. A global claim could otherwise
-    // send unrelated manager traffic and report it as a weekly reminder.
-    for (const outboxId of newlyQueuedOutboxIds.slice(0, 50)) {
-      const dispatched = await dispatchOwnerSmsOutbox({ workerId, outboxId }, db);
-      result.sent += dispatched.submitted;
-      result.failed += dispatched.blocked + dispatched.unknown;
     }
   }
 

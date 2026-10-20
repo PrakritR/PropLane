@@ -1037,3 +1037,6 @@ Captain, Oct 19: "implement messaging for residents [prospects/guests] to book s
 - **Scenario.** `short-stay` in `scripts/one-number/e2e/scenarios-short-stay.mjs`.
 - **Apple Pay / Google Pay.** Register `proplane.ai` as a Stripe payment method domain (Dashboard > Settings > Payment methods > Payment method domains) in the live account, and in test mode for staging/dev; the wallet buttons appear in the embedded form only for a registered domain. Dashboard step, not code.
 
+## paysms (Oct 19) - texted codes, rent reminders and the pay link
+
+See [`resident-payments.md`](resident-payments.md) § Pay by text link and [`sms-system.md`](sms-system.md) § Consent basis of a texted code. In short: a code is `control` class, owner / vendor notices use their own consent purposes, every rent reminder carries a fresh phone-bound `/l/<token>` (works in `per_workspace` too), reminders leave from the line of the workspace that holds the house, links in any text sit on their own line on the canonical host, OTP sends are budgeted per purpose, and lease / move-in links open a portal session after the code for a verified phone.

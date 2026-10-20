@@ -1790,3 +1790,13 @@ The PropLane line (the platform service owner's number) belongs to the PropLane 
 workspace gets read-only status of their own houses (never a write, never another workspace); a resident of another workspace asking to pay gets a
 phone-bound payment link for the workspace that holds their lease; a resident asking for a house is a prospect for that text. Identity is the verified
 profile phone every time; intent is decided per text (`src/lib/one-number/line-intent.ts`). Detail: `docs/agents/one-number.md` § W24.
+
+### Consent basis of a texted code and of account notices (paysms, Oct 19)
+
+`sendWorkspacePhoneText` / `sendWorkspaceText` (`src/lib/one-number/link-text.server.ts`) take a `basis` so the dispatcher's scoped-consent gate has something true to read. Before this every code and notice went out as `transactional` purpose `phone_link_code` with no recipient id, which needs a stored grant nobody writes (`scoped_consent_missing`), so unlock codes, public-bind codes, owner statements, fee-policy texts, owner repair Y/N and "payouts ready" all bounced.
+
+- `code`: a one-time code the person just asked for is **`control`** class (purpose `phone_link_code`), like a passcode requested from any service: the request is the consent, it carries no marketing and no account history. STOP is still absolute: the dispatcher reads the suppression ledger BEFORE the class check, so a number that texted STOP is refused.
+- `manager_notice`: an owner / manager at their own verified profile phone. Purpose `manager_agent_notification_<topic>` (`owner_statement`, `fee_policy`, `repair_approval`, `payouts_ready`) with `recipientUserId`; `isManagerRecipientSmsPurpose` -> `ensureTeamNoticeScopedSmsConsent` grants from that verified phone.
+- `vendor_notice`: purpose `vendor_conversation` under the vendor's conversation key. "Payouts ready" follows a payouts link the vendor asked for BY TEXT, and that request is their opt-in to that one reply (`ensureVendorLinkRequestConsent`, source `recipient_initiated_link_request`; never overwrites a STOP or revoke).
+- `resident_notice`: a resident's rent text (`payment_reminder`, `weekly_rent_reminder`, `rent_due_link`); consent stays their rental application's, materialized per purpose by the dispatcher.
+- Shared line: `SharedLineSend.delivery` carries the same class / purpose / key / recipient into `sendSharedLineMessage`.

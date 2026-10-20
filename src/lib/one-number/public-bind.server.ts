@@ -98,6 +98,7 @@ export async function requestPublicBindCode(
         body: otpMessageBody(code),
         role: roleForLinkPurpose(kind === "apply" ? "application" : "tour"),
         idempotencyKey: `phone-code:${challengeId}`,
+        basis: { kind: "code" },
       }),
   });
 }

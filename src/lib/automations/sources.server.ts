@@ -180,6 +180,28 @@ export async function loadRentDueToday(db: SupabaseClient, todayKey: string): Pr
   return out;
 }
 
+/** The open rent charges of one house that fall due on `todayKey` (Pacific), for the due-day pay links. */
+export async function loadRentDueTodayForHouse(
+  db: SupabaseClient,
+  propertyId: string,
+  todayKey: string,
+): Promise<HouseholdCharge[]> {
+  const { data, error } = await db
+    .from("portal_household_charge_records")
+    .select("row_data")
+    .eq("property_id", propertyId)
+    .eq("status", "pending")
+    .limit(500);
+  if (error) throw error;
+  const out: HouseholdCharge[] = [];
+  for (const record of (data ?? []) as Array<{ row_data: (HouseholdCharge & { smsTestSessionId?: string }) | null }>) {
+    const charge = record.row_data;
+    if (!charge?.id || charge.smsTestSessionId || !RENT_KINDS.has(charge.kind)) continue;
+    if (localDateKey(householdChargeDueDate(charge)) === todayKey) out.push(charge);
+  }
+  return out;
+}
+
 export type ScheduledService = {
   entityId: string;
   ownerUserId: string;

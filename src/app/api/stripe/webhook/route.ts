@@ -100,6 +100,7 @@ import {
   handleStripeTransferReversed,
 } from "@/lib/stripe-webhook-financials";
 import { handleVendorBankingDispute } from "@/lib/vendor-banking/disputes.server";
+import { settlePhoneBoundRentLinks } from "@/lib/one-number/links.server";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
 export const runtime = "nodejs";
@@ -441,6 +442,9 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
               stripe,
               paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null,
             });
+            // A paid rent link ends here, on the confirmed payment (never on `processing`). Best effort:
+            // the link page re-derives the same answer when it is next opened.
+            await settlePhoneBoundRentLinks(db, householdChargeIdsFromMetadata(session.metadata)).catch(() => undefined);
             const distinctId = session.client_reference_id ?? session.id;
             track("household_charge_paid", distinctId, { session_id: session.id });
           }
