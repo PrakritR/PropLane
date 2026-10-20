@@ -22,6 +22,9 @@ export function isShortStayRequestSource(source: unknown): boolean {
   return typeof source === "string" && SHORT_STAY_REQUEST_SOURCES.includes(source);
 }
 
+/** A confirmed stay that is not paid frees its nights this many hours after it was confirmed. */
+export const SHORT_STAY_PAY_HOURS = 24;
+
 /** A request the host does not answer frees its nights after this many hours. */
 export const SHORT_STAY_HOLD_HOURS = 24;
 /** Date ranges one request may carry (each is its own stay with its own outcome). */
@@ -212,7 +215,7 @@ export function guestStayConfirmedText(input: StayTextInput, portalUrl: string, 
 
 /** One sentence, then the link: opens the payment form on the page after a code that is texted to this number. */
 export function payLinkSentence(total: number | null): string {
-  return `${total != null ? `Pay ${formatShortStayMoney(total)}` : "Pay"} here, we text you a code when you open it:`;
+  return `${total != null ? `Pay ${formatShortStayMoney(total)}` : "Pay"} here within ${SHORT_STAY_PAY_HOURS} hours to keep it. We text you a code when you open it:`;
 }
 
 export function guestStayRequestedText(input: StayTextInput): string {
@@ -226,6 +229,10 @@ export function guestStayApprovedText(input: StayTextInput, portalUrl: string, p
 
 export function guestStayDeclinedText(input: StayTextInput, portalUrl: string): string {
   return `PropLane: The host couldn't confirm ${plainRange(input)}. Other nights are open in your portal: ${portalUrl}`;
+}
+
+export function guestStayUnpaidReleasedText(input: StayTextInput, portalUrl: string): string {
+  return `PropLane: We didn't get payment for ${plainRange(input)} at ${input.propertyLabel} within ${SHORT_STAY_PAY_HOURS} hours, so those nights are free again. Book again in your portal: ${portalUrl}`;
 }
 
 export function guestStayExpiredText(input: StayTextInput, portalUrl: string): string {

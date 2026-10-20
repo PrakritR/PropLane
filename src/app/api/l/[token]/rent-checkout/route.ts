@@ -39,26 +39,39 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   const destination = await resolveLinkDestination(db, link);
   if (destination.kind !== "rent") return expiredLinkResponse();
 
+  // "Pay from bank": the same checkout core with the bank method. It refuses (PAYMENT_METHOD_DISABLED) a charge that
+  // does not accept a bank debit, and the answer is the PaymentIntent the in-page bank form confirms; the body names a
+  // method and nothing else.
+  const body = (await req.json().catch(() => null)) as { method?: unknown } | null;
+  const bank = body?.method === "bank";
   const result = await createHouseholdChargeCheckout(db, {
     userId: destination.residentUserId,
     userEmail: destination.residentEmail,
     chargeIds: destination.chargeIds,
     mode: "embedded",
-    paymentMethod: "card",
+    paymentMethod: bank ? "ach" : "card",
     appOrigin: resolveAppOrigin(req),
     returnPath: `/l/${encodeURIComponent(token)}`,
   });
+  if (result.ok && result.mode === "manual_ach") {
+    return NextResponse.json(
+      { bank: { clientSecret: result.clientSecret, paymentIntentId: result.paymentIntentId, bankStatus: result.bankStatus, totalCents: result.totalCents } },
+      { headers: NO_STORE },
+    );
+  }
   if (!result.ok || result.mode !== "embedded") {
     // A bank debit needs the in-app form; say where, not why a card could not start.
     const needsApp = !result.ok && (result.code === "PAYMENT_METHOD_DISABLED" || result.code === "IN_APP_BANK_PAYMENT");
     return NextResponse.json(
       {
         error: needsApp
-          ? "Card is not accepted for this charge. Sign in to PropLane to pay by bank."
+          ? bank
+            ? "Bank payment is not available for this charge. Pay by card instead."
+            : "Card is not accepted for this charge. Sign in to PropLane to pay by bank."
           : result.ok || result.status >= 500
             ? "Checkout could not start. Try again soon."
             : result.error,
-        signInHref: needsApp ? "/auth/sign-in?next=%2Fresident%2Fpayments" : undefined,
+        signInHref: needsApp && !bank ? "/auth/sign-in?next=%2Fresident%2Fpayments" : undefined,
       },
       { status: result.ok ? 502 : result.status, headers: NO_STORE },
     );

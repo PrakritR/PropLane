@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { usePublicTexting } from "@/components/marketing/public-texting-context";
 import { renterSmsHref } from "@/components/public-site/journey-paths";
+import { ResidentBankAccountForm } from "@/components/portal/resident-bank-account-form";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { formatUsPhoneDisplay } from "@/lib/phone-e164";
@@ -229,6 +230,7 @@ export function RentLinkCard({ token, charges }: { token: string; charges: RentL
   const [error, setError] = useState("");
   const [signInHref, setSignInHref] = useState("");
   const [clientSecret, setClientSecret] = useState("");
+  const [bank, setBank] = useState<{ clientSecret: string; paymentIntentId: string; bankStatus: "entry" | "verification" | "clearing" | "paid"; totalCents: number } | null>(null);
   const [paid, setPaid] = useState(false);
   const total = totalLabel(charges);
 
@@ -247,6 +249,22 @@ export function RentLinkCard({ token, charges }: { token: string; charges: RentL
     }
     setError(result.error ?? "Checkout could not start.");
     if (typeof result.data.signInHref === "string") setSignInHref(result.data.signInHref);
+  };
+
+  const payByBank = async () => {
+    setError("");
+    setSignInHref("");
+    const result = await post(`/api/l/${encodeURIComponent(token)}/rent-checkout`, { method: "bank" });
+    const next = result.data.bank as { clientSecret?: string; paymentIntentId?: string; bankStatus?: "entry" | "verification" | "clearing" | "paid"; totalCents?: number } | undefined;
+    if (result.ok && next?.clientSecret && next.paymentIntentId && next.bankStatus && Number.isSafeInteger(next.totalCents)) {
+      setBank({ clientSecret: next.clientSecret, paymentIntentId: next.paymentIntentId, bankStatus: next.bankStatus, totalCents: next.totalCents as number });
+      return;
+    }
+    if (result.data.needsCode) {
+      window.location.reload();
+      return;
+    }
+    setError(result.error ?? "Bank payment could not start.");
   };
 
   if (paid) return <LinkMessageView title="Payment received" line="You can close this page." />;
@@ -270,14 +288,31 @@ export function RentLinkCard({ token, charges }: { token: string; charges: RentL
           <span className="ps-figure">{total}</span>
         </div>
       ) : null}
-      {clientSecret ? (
+      {bank ? (
+        <div data-attr="phone-link-bank-form">
+          <ResidentBankAccountForm
+            key={bank.paymentIntentId}
+            kind="payment"
+            clientSecret={bank.clientSecret}
+            intentId={bank.paymentIntentId}
+            amountCents={bank.totalCents}
+            initialStatus={bank.bankStatus}
+            endpoint={`/api/l/${encodeURIComponent(token)}/bank-payment`}
+          />
+        </div>
+      ) : clientSecret ? (
         <div data-attr="phone-link-payment-form">
           <StripeEmbeddedCheckout clientSecret={clientSecret} onComplete={() => setPaid(true)} />
         </div>
       ) : (
-        <DoorButton dataAttr="phone-link-pay" onClick={pay}>
-          {total ? `Pay ${total}` : "Pay"}
-        </DoorButton>
+        <>
+          <DoorButton dataAttr="phone-link-pay" onClick={pay}>
+            {total ? `Pay ${total}` : "Pay"}
+          </DoorButton>
+          <DoorButton tone="text" dataAttr="phone-link-pay-bank" onClick={payByBank}>
+            Pay from bank
+          </DoorButton>
+        </>
       )}
       {error ? (
         <p className="ps-error" role="alert" data-attr="phone-link-error">

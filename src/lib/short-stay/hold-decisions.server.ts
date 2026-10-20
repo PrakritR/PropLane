@@ -219,7 +219,7 @@ async function notifyOfDecision(
 export async function emitShortStayTeamNotice(
   db: SupabaseClient,
   input: {
-    event: "short_stay_confirmed" | "short_stay_declined" | "short_stay_expired";
+    event: "short_stay_confirmed" | "short_stay_declined" | "short_stay_expired" | "short_stay_unpaid_expired";
     headline: string;
     blockId: string;
     ownerId: string;

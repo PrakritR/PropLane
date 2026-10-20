@@ -5,6 +5,8 @@ const state = vi.hoisted(() => ({
   cookies: {} as Record<string, string>,
   send: vi.fn(),
   checkout: vi.fn(),
+  achStatus: vi.fn(),
+  achVerify: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => state.db }));
@@ -14,6 +16,10 @@ vi.mock("next/headers", () => ({
 vi.mock("@/lib/one-number/link-text.server", async (orig) => ({
   ...(await orig<typeof import("@/lib/one-number/link-text.server")>()),
   sendWorkspacePhoneText: state.send,
+}));
+vi.mock("@/lib/resident-ach-payment.server", () => ({
+  residentAchStatusResponse: state.achStatus,
+  residentAchVerifyResponse: state.achVerify,
 }));
 vi.mock("@/lib/stripe-household-charge-checkout.server", () => ({ createHouseholdChargeCheckout: state.checkout }));
 vi.mock("@/lib/app-url", async (orig) => ({
@@ -27,6 +33,7 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({
 
 import { POST as codeRoute } from "@/app/api/l/[token]/code/route";
 import { POST as rentRoute } from "@/app/api/l/[token]/rent-checkout/route";
+import { GET as bankGet, POST as bankPost } from "@/app/api/l/[token]/bank-payment/route";
 import { POST as bindRoute } from "@/app/api/public/phone-bind/route";
 import { createLinkSession, linkSessionCookieName, mintPhoneBoundLink, resolvePhoneBoundLink } from "@/lib/one-number/links.server";
 import { linksFakeDb } from "../helpers/links-fake-db";
@@ -65,6 +72,8 @@ beforeEach(() => {
   state.send.mockReset();
   state.send.mockResolvedValue(true);
   state.checkout.mockReset();
+  state.achStatus.mockReset();
+  state.achVerify.mockReset();
 });
 
 describe("POST /api/l/[token]/code", () => {
@@ -204,6 +213,63 @@ describe("POST /api/l/[token]/rent-checkout", () => {
     const card = await call(rentRoute, token, {});
     expect(card.status).toBe(422);
     expect(await card.json()).toMatchObject({ signInHref: "/auth/sign-in?next=%2Fresident%2Fpayments" });
+  });
+});
+
+describe("bank (ACH) on a rent link", () => {
+  async function verifiedLink() {
+    const { db } = world();
+    const minted = await mint(db, "rent", "charge", "chg-1", "2065550142");
+    const session = (await createLinkSession(db, minted.link))!;
+    state.cookies[linkSessionCookieName(minted.token)] = session.token;
+    return { ...minted, db };
+  }
+
+  it("starts a bank payment through the same checkout core and returns only what the in-page form needs", async () => {
+    const { token } = await verifiedLink();
+    state.checkout.mockResolvedValue({ ok: true, mode: "manual_ach", clientSecret: "pi_secret", paymentIntentId: "pi_1", bankStatus: "entry", totalCents: 10150 });
+    const res = await call(rentRoute, token, { method: "bank", chargeIds: ["other"], userId: "attacker" });
+    expect(await res.json()).toEqual({ bank: { clientSecret: "pi_secret", paymentIntentId: "pi_1", bankStatus: "entry", totalCents: 10150 } });
+    expect(state.checkout.mock.calls[0]![1]).toMatchObject({ userId: "res-1", chargeIds: ["chg-1"], paymentMethod: "ach", mode: "embedded" });
+  });
+
+  it("a charge that does not accept a bank debit says so without sending the payer anywhere", async () => {
+    const { token } = await verifiedLink();
+    state.checkout.mockResolvedValue({ ok: false, status: 422, code: "PAYMENT_METHOD_DISABLED", error: "x" });
+    const res = await call(rentRoute, token, { method: "bank" });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: "Bank payment is not available for this charge. Pay by card instead." });
+  });
+
+  it("the status read and the verification need this link's verified session, and act as the resident the charge names", async () => {
+    const { token, db, link } = await verifiedLink();
+    delete state.cookies[linkSessionCookieName(token)];
+    const get = (t: string) => bankGet(new Request(`http://x/api?payment_intent_id=pi_1`, { headers: { "x-forwarded-for": `10.2.0.${++counter}` } }), { params: Promise.resolve({ token: t }) });
+    expect((await get(token)).status).toBe(401);
+    expect(state.achStatus).not.toHaveBeenCalled();
+
+    const session = (await createLinkSession(db, link))!;
+    state.cookies[linkSessionCookieName(token)] = session.token;
+    state.achStatus.mockResolvedValue(new Response(JSON.stringify({ bankStatus: "entry" }), { status: 200 }));
+    expect((await get(token)).status).toBe(200);
+    expect(state.achStatus).toHaveBeenCalledWith("pi_1", "res-1");
+
+    state.achVerify.mockResolvedValue(new Response(JSON.stringify({ bankStatus: "clearing" }), { status: 200 }));
+    expect((await call(bankPost, token, { paymentIntentId: "pi_1", descriptorCode: "SMABCD" })).status).toBe(200);
+    expect(state.achVerify.mock.calls[0]![1]).toBe("res-1");
+  });
+
+  it("a gallery link or a phone that no longer matches the resident reaches nothing", async () => {
+    const { db } = world();
+    const gallery = await mint(db, "gallery");
+    expect((await call(bankPost, gallery.token, {})).status).toBe(404);
+    const fake = world();
+    const minted = await mint(fake.db, "rent", "charge", "chg-1", "2065550142");
+    const session = (await createLinkSession(fake.db, minted.link))!;
+    state.cookies[linkSessionCookieName(minted.token)] = session.token;
+    fake.rows.profiles![0]!.phone = "2069990000";
+    expect((await call(bankPost, minted.token, {})).status).toBe(404);
+    expect(state.achVerify).not.toHaveBeenCalled();
   });
 });
 

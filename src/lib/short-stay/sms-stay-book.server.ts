@@ -13,7 +13,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rateLimit } from "@/lib/rate-limit";
 import { bookGuestStays } from "@/lib/short-stay/guest-stays.server";
-import { SHORT_STAY_HOLD_HOURS } from "@/lib/short-stay/guest-stays";
+import { SHORT_STAY_HOLD_HOURS, payLinkSentence } from "@/lib/short-stay/guest-stays";
 import { ensureGuestLogin } from "@/lib/short-stay/guest-login.server";
 import type { StayOfferOption } from "@/lib/short-stay/sms-stay-offers.server";
 import { mintStayPayLink } from "@/lib/short-stay/stay-pay-link.server";
@@ -80,7 +80,7 @@ export async function bookStayForTexter(
       blockId: result.stayId,
       total,
       reply: payUrl
-        ? `Booked: ${where}, ${range}, ${money} total. Pay here, we text you a code when you open it: ${payUrl}`
+        ? `Booked: ${where}, ${range}, ${money} total. ${payLinkSentence(total)} ${payUrl}`
         : `Booked: ${where}, ${range}, ${money} total. We will text you the payment link shortly.`,
     };
   }
@@ -89,6 +89,6 @@ export async function bookStayForTexter(
     status: "hold",
     blockId: result.stayId,
     total,
-    reply: `Request sent: ${where}, ${range}, ${money} total. The host has ${SHORT_STAY_HOLD_HOURS} hours to confirm. The moment they do, I text you a link to pay ${money} right here, no app needed. Nothing is charged until then.`,
+    reply: `Request sent: ${where}, ${range}, ${money} total. The host has ${SHORT_STAY_HOLD_HOURS} hours to confirm. The moment they do, I text you a link to pay ${money} right on the page (card, Apple Pay, Google Pay or bank), no app needed. Nothing is charged until then.`,
   };
 }

@@ -132,7 +132,7 @@ import { managerDispatchTools } from "./domains/vendor-dispatch";
 import { managerAnnounceTools } from "./domains/announce";
 import { confirmTourInquiryTool } from "./domains/tours-write";
 import { prepareShortStayTool, quoteShortStaysTool, requestShortStayTool } from "./domains/short-stay-sms";
-import { leasingSendPaymentLinkTool } from "./domains/one-number-links";
+import { leasingSendPaymentLinkTool } from "./domains/payment-link-sms";
 import {
   bookTourTool,
   cancelTourTool,
@@ -453,6 +453,8 @@ export function withLeasingSmsStayTools(registry: ToolRegistry<AgentContext>): T
  * class — each files a request and notifies the manager, and neither changes
  * anything the manager has not then seen and acted on. Nothing that books,
  * charges, sends on the manager's behalf, or reads personal data may join them.
+ * (The one captain-directed exception, `request_short_stay`, is a separate list above: it writes a
+ * hold the host answers, from a stored option and a YES, and charges nothing.)
  */
 export const LEASING_SMS_INLINE_WRITE_TOOLS: readonly string[] = [
   escalateLeasingToManagerTool.name,

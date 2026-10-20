@@ -10,6 +10,11 @@ vi.mock("@/components/stripe-embedded-checkout", () => ({
     </div>
   ),
 }));
+vi.mock("@/components/portal/resident-bank-account-form", () => ({
+  ResidentBankAccountForm: ({ endpoint, intentId, amountCents }: { endpoint?: string; intentId: string; amountCents?: number }) => (
+    <div data-testid="bank-form" data-endpoint={endpoint} data-intent={intentId} data-amount={amountCents} />
+  ),
+}));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: nav.refresh, push: nav.push }) }));
 
 import { PublicTextingProvider } from "@/components/marketing/public-texting-context";
@@ -112,6 +117,30 @@ describe("RentLinkCard in-page payment", () => {
     expect(assign).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("finish-payment"));
     await screen.findByText("Payment received");
+  });
+});
+
+describe("RentLinkCard bank option", () => {
+  const charges = [{ id: "c1", title: "3 nights at $120/night", amountLabel: "$360.00", propertyLabel: "Maple House" }];
+
+  it("opens the bank form on the page, reading and verifying through this link's own route", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json(200, { bank: { clientSecret: "pi_s", paymentIntentId: "pi_1", bankStatus: "entry", totalCents: 36000 } }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RentLinkCard token={"B".repeat(43)} charges={charges} />);
+    fireEvent.click(screen.getByText("Pay from bank"));
+    const form = await screen.findByTestId("bank-form");
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ method: "bank" });
+    expect(form.getAttribute("data-endpoint")).toBe(`/api/l/${"B".repeat(43)}/bank-payment`);
+    expect(form.getAttribute("data-intent")).toBe("pi_1");
+    expect(form.getAttribute("data-amount")).toBe("36000");
+  });
+
+  it("a charge that cannot be paid from a bank says so and keeps the card button", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(422, { error: "Bank payment is not available for this charge. Pay by card instead." })));
+    render(<RentLinkCard token={"B".repeat(43)} charges={charges} />);
+    fireEvent.click(screen.getByText("Pay from bank"));
+    await screen.findByText("Bank payment is not available for this charge. Pay by card instead.");
+    expect(screen.getByText("Pay $360.00")).toBeTruthy();
   });
 });
 

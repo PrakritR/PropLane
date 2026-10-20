@@ -48,7 +48,7 @@ import { bookStayForTexter } from "@/lib/short-stay/sms-stay-book.server";
 import { mintStayPayLink } from "@/lib/short-stay/stay-pay-link.server";
 import { guestStayChargeId } from "@/lib/short-stay/stay-charge.server";
 import { prepareShortStayTool, quoteShortStaysTool, requestShortStayTool } from "@/lib/tools/domains/short-stay-sms";
-import { leasingSendPaymentLinkTool } from "@/lib/tools/domains/one-number-links";
+import { leasingSendPaymentLinkTool } from "@/lib/tools/domains/payment-link-sms";
 import { resolveStayPricing } from "@/lib/room-pricing";
 import { GUEST, OWNER, PROPERTY, completedStay, seedShortStayDb } from "../helpers/short-stay-seed";
 
@@ -226,7 +226,7 @@ describe("pay link", () => {
     const mint = mintPhoneBoundLink.mock.calls[0]![1];
     expect(mint).toMatchObject({ purpose: "rent", targetType: "charge", phoneKey: "2065550142", workspaceId: "ws-1" });
     expect(String(mint.targetId)).toBe(guestStayChargeId((result as { blockId: string }).blockId));
-    expect((result as { reply: string }).reply).toMatch(/Pay here, we text you a code when you open it: https:\/\/proplane\.ai\/l\//);
+    expect((result as { reply: string }).reply).toMatch(/Pay \$420 here within 24 hours to keep it\. We text you a code when you open it: https:\/\/proplane\.ai\/l\//);
     expect(emitActionEvent.mock.calls.map((c) => (c[1] as { event: string }).event)).toContain("short_stay_confirmed");
   });
 
@@ -240,7 +240,7 @@ describe("pay link", () => {
     await decideShortStayHold(db as never, { blockId, decision: "approve" });
     const sms = enqueueOwnerSms.mock.calls.at(-1)![0] as { body: string; purpose: string };
     expect(sms.purpose).toBe("short_stay_confirmed");
-    expect(sms.body).toMatch(/^PropLane: Confirmed, Oct 20 to 23 at Cedar Court\. Pay \$420 here, we text you a code when you open it: https:\/\/proplane\.ai\/l\//);
+    expect(sms.body).toMatch(/^PropLane: Confirmed, Oct 20 to 23 at Cedar Court\. Pay \$420 here within 24 hours to keep it\. We text you a code when you open it: https:\/\/proplane\.ai\/l\//);
     for (const call of postResendEmail.mock.calls) expect(JSON.stringify(call)).not.toContain("/l/TOKEN");
   });
 

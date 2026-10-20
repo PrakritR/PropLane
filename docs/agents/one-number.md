@@ -977,3 +977,14 @@ Managers/owners text about the status of their houses." Both line modes; no migr
   (identity via `resolveResidentSmsAgentContext` bound to the landlord that holds the lease). Leasing and vendor links still need the
   shared line. `start_rent_payment` stays the fallback; no hosted checkout link without the phone-bound unlock.
 - **Scenarios.** `owner-status`, `resident-prospect`, `resident-paylink` in `scripts/one-number/e2e/scenarios-smsowner.mjs`.
+
+## W26 - Short stays and payment links by text (`on/smsstay`)
+
+Captain, Oct 19: "implement messaging for residents [prospects/guests] to book short-term stays by text"; the reply states the exact price and sends a link to pay, with no third-party app.
+
+- **Flow.** The leasing SMS agent (PropLane line in `per_workspace` and shared, and a workspace's own number) gets `quote_short_stays`, `prepare_short_stay`, `request_short_stay` (the third inline write, after `escalate_to_manager` and `request_tour`) and `send_payment_link` on SMS turns only (`withLeasingSmsStayTools`, prompt `leasing-sms-stay-prompt.ts`). One question per text (dates, guests, area); up to 3 homes with the stay total (`nightly x nights`, the figure the `stay_total` charge bills, equal to `resolveStayPricing`'s short-stay daily rate) and each home's link; a pick; "Reply YES"; the 24-hour hold. `detectStayIntent` / `parseStayDates` (`short-stay/sms-stay-intent.ts`, Pacific) split short from long term; a "month" is 30 nights, over the 28-night cap, and the agent says so. Owned by [`bookings.md`](bookings.md) § Guest portal stays.
+- **Pay link.** The existing `rent` purpose on the stay's own charge (no new purpose, no new destination logic). The `/l/<token>` form is now the in-page Stripe embedded checkout (card, Apple Pay, Google Pay) with "Pay from bank" (`/api/l/<token>/bank-payment`, the shared `resident-ach-payment.server.ts` core with the link session as the actor); the hosted-checkout redirect is gone. The long-term path uses the same link: `send_payment_link` for the open deposit / first-month / fee charges of the login the texting phone owns.
+- **Migration.** `20261019170000_sms_stay_offers.sql` (`sms_stay_offers`, RLS on, no client grants). Applied to dev only. No `action_events` constraint changed (`channel_booking` / `tours` already admitted; new events `short_stay_unpaid_expired`).
+- **Scenario.** `short-stay` in `scripts/one-number/e2e/scenarios-short-stay.mjs`.
+- **Apple Pay / Google Pay.** Register `proplane.ai` as a Stripe payment method domain (Dashboard > Settings > Payment methods > Payment method domains) in the live account, and in test mode for staging/dev; the wallet buttons appear in the embedded form only for a registered domain. Dashboard step, not code.
+

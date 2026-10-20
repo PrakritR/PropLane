@@ -106,7 +106,7 @@ export function guestStayFromRecord(
   const status: GuestStay["status"] = cancelled
     ? details.decision === "declined"
       ? "declined"
-      : details.decision === "expired"
+      : details.decision === "expired" || details.decision === "unpaid_expired"
         ? "expired"
         : "cancelled"
     : row.bookingStatus === "confirmed"
