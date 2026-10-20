@@ -467,23 +467,28 @@ MATRIX_SCENARIOS.push({
       let confirm = send;
       if (/yes/i.test(send.all)) confirm = await say(ctx, fx.managerPhone, fx.to, "YES");
       c.reply(confirm, "manager dispatches");
+      const offerText = h.captured().filter((m) => String(m.to).replace(/\D/g, "").endsWith(V2.slice(-10))).map((m) => m.body).join("\n");
+      c.check("the electrician was offered the job", /job #|PropLane job/i.test(offerText), offerText || "(no offer sent)");
+      c.check("the offer carries no street address and no access detail", !new RegExp(fx.house.address.split(",")[0]).test(offerText) && !offerText.includes(fx.secrets.doorCode), offerText);
       const before = await say(ctx, V2, fx.to, "what is the address and how do I get in?");
-      c.reply(before, "before accepting");
-      c.check("before accepting, no street address and no access detail", !new RegExp(fx.house.address.split(",")[0]).test(before.all) && !before.all.includes(fx.secrets.doorCode), before.all);
+      c.reply(before, "asked before accepting");
+      c.check("asking before accepting leaks no address or access detail", !new RegExp(fx.house.address.split(",")[0]).test(before.all) && !before.all.includes(fx.secrets.doorCode), before.all);
+      c.check("a vendor's free-text question is not left in silence (an acknowledgement or an answer)", before.replies.length > 0, "no reply: a roster vendor's free text goes to the manager's inbox with no automatic answer");
       const yes = await say(ctx, V2, fx.to, "YES tomorrow 10am");
       c.reply(yes, "accept");
-      const after = await say(ctx, V2, fx.to, "what is the address?");
-      c.reply(after, "after accepting");
-      c.check("after accepting, the address is given", new RegExp(fx.house.address.split(",")[0]).test(after.all), after.all);
-      c.check("the door code is not given to a vendor", !after.all.includes(fx.secrets.doorCode), after.all);
+      c.check("after accepting, the address is given", new RegExp(fx.house.address.split(",")[0]).test(yes.all), yes.all);
+      c.check("the door code is never given to a vendor", !yes.all.includes(fx.secrets.doorCode), yes.all);
       void second;
     });
 
-    await item(16, "an invoice / payout question gets a grounded answer", async (c) => {
-      const r = await say(ctx, V, fx.to, "when do I get paid for the faucet job and how do I send an invoice?");
-      c.reply(r);
-      c.check("a reply came with no invented dollar amounts", r.replies.length > 0 && dollars(r.all).every((n) => [120, 180].includes(n)), r.all);
-      c.check("it points to the manager or the vendor portal, no made-up payout date", /(manager|portal|invoice|paid|payout)/i.test(r.all) && !/\b(on|by) (monday|tuesday|wednesday|thursday|friday)\b/i.test(r.all), r.all);
+    await item(16, "invoice by text (INVOICE $amount after DONE) and a payout question", async (c) => {
+      const inv = await say(ctx, V, fx.to, "INVOICE $150");
+      c.reply(inv, "INVOICE");
+      c.check("the invoice is acknowledged with the amount the vendor typed", inv.replies.length > 0 && /150/.test(inv.all) && /invoice|bill/i.test(inv.all), inv.all);
+      const paid = await say(ctx, V, fx.to, "when do I get paid for this job?");
+      c.reply(paid, "payout question");
+      c.check("a payout question is answered or acknowledged (no silence)", paid.replies.length > 0, "no reply: a roster vendor's free text goes to the manager's inbox with no automatic answer");
+      c.check("no invented payout date or amount", !/\b(on|by) (monday|tuesday|wednesday|thursday|friday)\b/i.test(paid.all) && dollars(paid.all).every((n) => n === 150), paid.all);
     });
   },
 });
