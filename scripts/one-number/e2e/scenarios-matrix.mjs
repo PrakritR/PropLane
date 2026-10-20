@@ -34,6 +34,11 @@ export async function say(ctx, from, to, body, opts = {}) {
     note(`(model connection dropped; sending "${body}" again)`);
     r = await send();
   }
+  // A model connection that died mid-turn (the dev runtime's HTTP/2 session) is not a product silence: a person would text again.
+  if (!r.all && !opts.media?.length && !opts.noResend && /Connection error|session has been destroyed|fetch failed/i.test(h.serverLog.join("").slice(logMark))) {
+    note(`(the model connection dropped and nothing was sent; sending "${body}" again)`);
+    r = await h.text({ from, to, body, media: [], quietMs: opts.quietMs ?? 8000, maxMs: opts.maxMs ?? 240_000 });
+  }
   if (!r.all) {
     // Silence is the worst product outcome: say exactly where the text stopped.
     const [bursts, outbox, receipt] = await Promise.all([
