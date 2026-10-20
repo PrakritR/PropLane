@@ -511,10 +511,10 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
       managerId: "mgr_1", paymentMethodId: "pm_bank_1",
     };
 
-    serviceSetupPendingProblem.mockResolvedValueOnce("This home's PropLane service agreement is not signed yet.");
+    serviceSetupPendingProblem.mockResolvedValueOnce({ code: "SERVICE_SETUP_PENDING", reason: "pending", message: "This home's PropLane management fee is still being set up." });
     const unsigned = setup();
     const refusedSetup = await chargeAutopay(unsigned.db, run);
-    expect(refusedSetup).toEqual({ ok: false, reason: "This home's PropLane service agreement is not signed yet." });
+    expect(refusedSetup).toEqual({ ok: false, reason: "This home's PropLane management fee is still being set up." });
 
     managedCartProblem.mockResolvedValueOnce("Pay these charges separately.");
     const mixed = setup();

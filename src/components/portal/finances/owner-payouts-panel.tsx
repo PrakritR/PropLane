@@ -34,6 +34,7 @@ import { centsToDollarsInput, parseDollarsToCents } from "@/lib/dollar-input";
 import { pacificCalendarMonthKey, formatPacificDate } from "@/lib/pacific-time";
 import type { OwnerFinancesView } from "@/lib/managed-finance/finances.server";
 import { formatManagedUsd, managedMonthLabel } from "@/lib/managed-finance/format";
+import { feePercentForOwnerShareBps } from "@/lib/owner-management/fee-percent";
 import { invalidateSharedGets, sharedGet } from "@/lib/shared-get-cache";
 import { cn } from "@/lib/utils";
 
@@ -403,7 +404,15 @@ export function OwnerPayoutsPanel() {
                   { id: "balance", label: "Balance", value: formatManagedUsd(view.balance.balanceCents), dataAttr: "owner-finances-balance" },
                   { id: "available", label: "Available to withdraw", value: formatManagedUsd(view.balance.availableCents), tone: "ok", dataAttr: "owner-finances-available" },
                   { id: "pending", label: "Pending", value: formatManagedUsd(view.balance.pendingCents), dataAttr: "owner-finances-pending" },
-                  { id: "fee", label: "Management fee", value: `${(10_000 - view.policy.terms.ownerShareBps) / 100}%`, dataAttr: "owner-finances-fee" },
+                  { id: "fee", label: "Management fee", value: `${feePercentForOwnerShareBps(view.policy.terms.ownerShareBps)}%`, dataAttr: "owner-finances-fee" },
+                  ...(view.scheduledFee
+                    ? [{
+                        id: "fee-next",
+                        label: `Management fee from ${shortDate(view.scheduledFee.effectiveFrom)}`,
+                        value: `${view.scheduledFee.feePercent}%`,
+                        dataAttr: "owner-finances-fee-scheduled",
+                      }]
+                    : []),
                   ...(view.occupancy ? [{ id: "rooms", label: "Rooms occupied", value: `${view.occupancy.occupied} of ${view.occupancy.units}` }] : []),
                 ]}
               />

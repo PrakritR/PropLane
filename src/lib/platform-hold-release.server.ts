@@ -174,7 +174,7 @@ export async function releaseVerifiedPlatformHoldsForOwner(
     }
     if (!previous && hold.owner_role === "manager") {
       if (frozenService === undefined) {
-        frozenService = await unpoliciedServiceForManager(db, opts.ownerUserId);
+        frozenService = (await unpoliciedServiceForManager(db, opts.ownerUserId)).pending;
         for (const ws of frozenService) await flagUnsignedFeeAgreement(db, ws, "hold_frozen");
       }
       if (frozenService.length > 0) { pending += 1; continue; }

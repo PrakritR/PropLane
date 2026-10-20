@@ -119,11 +119,12 @@ Stripe. A failure records an `owner_ledger_flags` row and alerts admin; it never
 
 One *active* row per workspace (`owner_share_bps` default 9000 = owner 90 / PropLane 10, `applies_to` rent | all, `leasing_fee_bps`
 of the first month, `min_fee_cents` per month, `reserve_target_cents`, `repair_approval_threshold_cents`, `effective_from`).
-History is kept: editing a signed policy is not possible (trigger); a change is a new draft version that, once accepted,
-ends the previous one. The owner of record (`owner_user_id`) accepts it by signing in to the Property portal (Finances › Owner payouts), or an admin records an
-offline signed contract (`accepted_via = admin_attested`, with a note). Only an accepted policy makes a workspace managed.
-Only a platform admin sets or ends a policy (the fee is PropLane's revenue). Rounding, odd amounts, partial payments, minimum and
-leasing fees: `src/lib/owner-management/fee-math.ts`, tested.
+History is kept: editing an accepted policy is not possible (trigger); a change is a new draft version that, once activated,
+ends the previous one in the same transaction (`activate_managed_policy`). **Nobody signs a fee policy** - there is no
+signature step, no "send for signature" and no owner sign route anywhere in the product. A draft becomes active when an
+admin records it (`accepted_via = admin_attested`, with a note) or when PropLane Service activates it automatically.
+Only an accepted policy makes a workspace managed, and only a platform admin sets or ends one (the fee is PropLane's
+revenue). Rounding, odd amounts, partial payments, minimum and leasing fees: `src/lib/owner-management/fee-math.ts`, tested.
 
 ## Vendors
 
@@ -197,16 +198,25 @@ workspace that row is created automatically, with no signature: `ensureServiceFe
 is idempotent and makes an admin-attested policy (note "Automatic PropLane management fee", PropLane keeps 10%, appliesTo `rent`,
 no leasing fee or minimum) on attach, on create, and lazily wherever a service workspace is found without one (checkout, autopay,
 platform-capture decision, hold release; `unpolicied-service.server.ts`). The owner of record is the workspace's owner when a client
-owns it (attached), or its flagged owner-of-record member when the platform service owner owns it. `createDraftPolicy` refuses an
-owner of record equal to the workspace owner ONLY when that owner is the platform service owner.
+owns it (attached), or its flagged owner-of-record member when the platform service owner owns it. `resolveOwnerOfRecord` fails
+closed: with no `platform_service_settings` row there is no way to tell a client's workspace from PropLane's own, so the answer is
+"none" and nothing is created - PropLane is never named as the owner of record of its own workspace.
 
-- Admin changes the rate in Admin > Service > Management fee (0 to 30%): a new version is activated by `activate_managed_policy`,
-  which ends the old active row in the same transaction (`setServiceManagementFee`). The owner just sees the fee in the Owner
-  payouts strip; there is no signing step.
-- Fail-closed fallback, only when the automatic fee cannot be created (an unreadable table, or no owner of record to name): new
-  resident checkouts are refused (`serviceSetupPendingProblem`, 422 `SERVICE_SETUP_PENDING`), hold releases for the manager of record
-  stay frozen, destination-capable checkouts capture on the platform balance, and an `owner_ledger_flags` row `fee_agreement_unsigned`
-  (per workspace per day; the name is historical) says to name the owner of record.
+- **The automatic path never discards an admin's work.** An open draft is ACTIVATED at its own rate (never ended and replaced by
+  the 10% default); the default is created only when the workspace has neither an active policy nor a draft.
+- Admin changes the rate in Admin > Service > Management fee (0 to `MAX_MANAGEMENT_FEE_PERCENT`, `fee-percent.ts` - one parse, one
+  range, shared by the server and the modal). The new rate is a new version **dated the 1st of the next Pacific month** and left as
+  a draft until then (`setServiceManagementFee`): `targetMonthlyFeeCents` applies the policy in force to the whole Pacific month's
+  collected rent, so a mid-month change would re-price rent the owner was already paid for, and a cut could never be given back.
+  `ensureServiceFeePolicy` activates that version on its day, ending the old one in one transaction. Entering the rate already in
+  force cancels a scheduled change. The day it takes effect shows in the Admin > Service modal, on the Service row, and in the
+  owner's payouts strip.
+- Fail-closed fallback, only when the automatic fee cannot be created: new resident checkouts are refused
+  (`serviceSetupPendingProblem`, 422 `SERVICE_SETUP_PENDING`; a cart that mixes the just-created managed workspace with another
+  payment setup comes back as `MIXED_PAYMENT_SETUP`, never mislabelled), hold releases for the manager of record stay frozen,
+  destination-capable checkouts capture on the platform balance, and an `owner_ledger_flags` row `fee_agreement_unsigned` (per
+  workspace per day; the name is historical) names the REASON - `no_owner` says to name the owner of record, anything else is a
+  failure to investigate. Every failure is also logged as `[managed-fee]` with its reason code.
 - Rent already held for a manager of record before the policy existed is released to that manager without the fee once the policy exists.
 
 ## Application and form fees (decision)

@@ -45,24 +45,25 @@ function world(over: Record<string, FakeRow[]> = {}) {
 describe("service workspace whose automatic fee could not be created (fail-closed fallback)", () => {
   it("is found for an unsigned service house only", async () => {
     const f = world();
-    expect(await unpoliciedServiceForProperties(f.db, ["p-svc"])).toEqual([{ workspaceId: "ws-svc", workspaceName: "Maple Court" }]);
-    expect(await unpoliciedServiceForProperties(f.db, ["p-signed", "p-self", "p-none", ""])).toEqual([]);
+    expect((await unpoliciedServiceForProperties(f.db, ["p-svc"])).pending).toEqual([{ workspaceId: "ws-svc", workspaceName: "Maple Court", cause: "no_owner" }]);
+    expect((await unpoliciedServiceForProperties(f.db, ["p-signed", "p-self", "p-none", ""])).pending).toEqual([]);
   });
 
   it("is a draft or ended policy, not an active one: still unsigned", async () => {
     const f = world({ managed_workspace_fee_policies: [{ ...activePolicy("ws-svc"), status: "draft", signed_at: null }] });
-    expect(await unpoliciedServiceForProperties(f.db, ["p-svc"])).toHaveLength(1);
+    expect((await unpoliciedServiceForProperties(f.db, ["p-svc"])).pending).toHaveLength(1);
   });
 
   it("refuses the resident checkout with the setup message and raises one admin flag", async () => {
     const f = world();
-    expect(await serviceSetupPendingProblem(f.db, ["p-svc"])).toBe(SERVICE_SETUP_PENDING_MESSAGE);
+    expect(await serviceSetupPendingProblem(f.db, ["p-svc"])).toEqual({ code: "SERVICE_SETUP_PENDING", message: SERVICE_SETUP_PENDING_MESSAGE });
     expect(SERVICE_SETUP_PENDING_MESSAGE).toContain("being set up");
     const flags = f.rows.owner_ledger_flags ?? [];
     expect(flags).toHaveLength(1);
     expect(flags[0]).toMatchObject({ check_name: "fee_agreement_unsigned", subject: "ws-svc" });
     expect((flags[0]!.detail as { message: string }).message).toContain("Maple Court");
     expect((flags[0]!.detail as { message: string }).message).not.toMatch(/sign/i);
+    expect(flags[0]!.detail).toMatchObject({ cause: "no_owner" });
     await serviceSetupPendingProblem(f.db, ["p-svc"]);
     expect(f.rows.owner_ledger_flags).toHaveLength(1); // one flag per workspace per day
   });
@@ -77,15 +78,15 @@ describe("service workspace whose automatic fee could not be created (fail-close
   it("fails closed when the read fails", async () => {
     const f = world();
     const db = { from: () => { throw new Error("boom"); } } as never;
-    expect(await serviceSetupPendingProblem(db, ["p-svc"])).toMatch(/Could not confirm/);
+    expect(await serviceSetupPendingProblem(db, ["p-svc"])).toMatchObject({ code: "SERVICE_SETUP_PENDING", message: expect.stringMatching(/Could not confirm/) });
     void f;
   });
 
   it("the manager of record of an unsigned service house is flagged, a self-serve-only manager is not", async () => {
     const f = world();
-    expect((await unpoliciedServiceForManager(f.db, MANAGER)).map((w) => w.workspaceId)).toEqual(["ws-svc"]);
+    expect((await unpoliciedServiceForManager(f.db, MANAGER)).pending.map((w) => w.workspaceId)).toEqual(["ws-svc"]);
     const g = world({ manager_property_records: [{ id: "p-self", manager_user_id: "other", workspace_id: "ws-self" }] });
-    expect(await unpoliciedServiceForManager(g.db, "other")).toEqual([]);
+    expect((await unpoliciedServiceForManager(g.db, "other")).pending).toEqual([]);
   });
 
   it("platform capture is required for managed and unsigned-service houses, never for self-serve", async () => {
@@ -162,8 +163,36 @@ describe("a service workspace without a policy gets its automatic fee instead of
       },
       { rpc: { activate_managed_policy: activateRpc } },
     );
-    expect(await serviceSetupPendingProblem(f.db, ["p-svc"])).toBe(SERVICE_SETUP_PENDING_MESSAGE);
+    expect(await serviceSetupPendingProblem(f.db, ["p-svc"])).toEqual({ code: "SERVICE_SETUP_PENDING", message: SERVICE_SETUP_PENDING_MESSAGE });
     expect(f.rows.owner_ledger_flags).toHaveLength(1);
+    expect((f.rows.owner_ledger_flags![0]!.detail as { cause: string }).cause).toBe("no_owner");
+  });
+
+  // Review fix, Oct 20: the cart was re-resolved on EVERY call, including self-serve carts that touch no service
+  // workspace, and a mixed-cart answer came back labelled SERVICE_SETUP_PENDING. It is re-checked only when a policy
+  // was actually created a moment ago, and it says which refusal it is.
+  it("re-checks the cart only when a policy was just created, and labels a mixed cart as such", async () => {
+    const f = autoWorld();
+    expect(await serviceSetupPendingProblem(f.db, ["p-svc"])).toBeNull();
+    expect(f.rows.managed_workspace_fee_policies).toHaveLength(1);
+    // Nothing was created this time, so nothing is re-resolved and the answer is still "go ahead".
+    expect(await serviceSetupPendingProblem(f.db, ["p-svc"])).toBeNull();
+  });
+
+  it("a cart that mixes the just-created managed workspace with a plain house is refused as MIXED_PAYMENT_SETUP", async () => {
+    const f = fakeOwnerDb(
+      {
+        portal_workspaces: [{ id: "ws-svc", name: "Maple Court", is_service: true, owner_user_id: "client-1" }],
+        platform_service_settings: [{ singleton: true, owner_user_id: "svc-owner" }],
+        manager_property_records: [
+          { id: "p-svc", manager_user_id: "client-1", workspace_id: "ws-svc" },
+          { id: "p-plain", manager_user_id: "client-1", workspace_id: null },
+        ],
+        managed_workspace_fee_policies: [],
+      },
+      { rpc: { activate_managed_policy: activateRpc } },
+    );
+    expect(await serviceSetupPendingProblem(f.db, ["p-svc", "p-plain"])).toMatchObject({ code: "MIXED_PAYMENT_SETUP" });
   });
 });
 

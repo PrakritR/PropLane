@@ -10,6 +10,8 @@ import {
   describeManagedFee,
   type ManagedFeeTerms,
 } from "@/lib/owner-management/fee-math";
+import { feePercentForOwnerShareBps } from "@/lib/owner-management/fee-percent";
+import { pacificDayKey } from "@/lib/house-groups/time";
 import { listPendingExpensesForOwner, type PendingExpense } from "@/lib/managed-finance/vendor-bills.server";
 import { listPoliciesForWorkspace, PolicyError, type PolicyRow } from "@/lib/owner-management/policies.server";
 import {
@@ -32,6 +34,8 @@ export type WithdrawalView = { id: string; amountCents: number; status: string; 
 export type OwnerFinancesView = {
   workspace: { id: string; name: string };
   policy: { id: string; status: PolicyRow["status"]; feeLine: string; terms: ManagedFeeTerms; signedAt: string | null };
+  /** The rate that takes over, and the Pacific day it does. A change always starts on the 1st of a later month. */
+  scheduledFee: { feePercent: number; effectiveFrom: string } | null;
   month: string;
   balance: FinanceBalance;
   statement: Statement & { rows: Array<StatementRow & { propertyLabel?: string | null }> };
@@ -78,6 +82,9 @@ export async function loadOwnerFinances(
   const mine = policies.filter((p) => p.ownerUserId === input.ownerUserId && p.signedAt);
   if (mine.length === 0) throw new PolicyError(404, "Not found.");
   const current = mine.find((p) => p.status === "active") ?? mine[0]!;
+  // The next version of the fee, if an admin scheduled one: a draft of this owner's dated after today.
+  const today = pacificDayKey(now);
+  const scheduled = policies.find((p) => p.status === "draft" && p.ownerUserId === input.ownerUserId && p.effectiveFrom > today) ?? null;
   const month = parseMonth(input.month, now);
   const { fromIso, toIso } = monthWindow(month);
   const party = ownerParty(input.ownerUserId);
@@ -103,6 +110,7 @@ export async function loadOwnerFinances(
   return {
     workspace: { id: input.workspaceId, name: ws.name ?? "Your workspace" },
     policy: { id: current.id, status: current.status, feeLine: describeManagedFee(current.terms), terms: current.terms, signedAt: current.signedAt },
+    scheduledFee: scheduled ? { feePercent: feePercentForOwnerShareBps(scheduled.terms.ownerShareBps), effectiveFrom: scheduled.effectiveFrom } : null,
     month,
     balance: { balanceCents: balance.owedCents, availableCents: availableToWithdraw(balance, reserve), pendingCents: balance.pendingCents, reserveCents: reserve },
     statement: { ...statement, rows },

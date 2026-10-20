@@ -430,8 +430,8 @@ export async function chargeAutopay(
   }
   const setupProblem = await serviceSetupPendingProblem(db, propertyIds);
   if (setupProblem) {
-    await fail(setupProblem);
-    return { ok: false, reason: setupProblem };
+    await fail(setupProblem.message);
+    return { ok: false, reason: setupProblem.message };
   }
 
   const feePayerResolved = await resolveHouseholdChargeFeePayer(db, managerUserId, loaded);

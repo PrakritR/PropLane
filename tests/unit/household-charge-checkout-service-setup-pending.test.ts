@@ -42,7 +42,7 @@ describe("a resident cannot start a checkout for a service workspace whose fee a
   });
 
   it("answers 422 SERVICE_SETUP_PENDING with the setup message and never creates a Stripe session", async () => {
-    pending.mockResolvedValue("Payments for this home are being set up. Your manager will text you a link shortly.");
+    pending.mockResolvedValue({ code: "SERVICE_SETUP_PENDING", message: "Payments for this home are being set up. Your manager will text you a link shortly." });
     const result = await createHouseholdChargeCheckout(fakeDb() as never, {
       ...resident, chargeIds: ["charge-1"], mode: "embedded", paymentMethod: "card", appOrigin: "http://localhost:3000",
     });

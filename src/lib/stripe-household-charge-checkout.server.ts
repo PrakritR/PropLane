@@ -340,7 +340,7 @@ export async function createHouseholdChargeCheckout(
     // A PropLane Service workspace with no management fee is not managed yet: its rent must not be captured for the manager of
     // record's personal payout account. It is given its automatic fee here and proceeds; refused only if that cannot be done.
     const setupProblem = await serviceSetupPendingProblem(db, loaded.map((row) => row.charge.propertyId));
-    if (setupProblem) return { ok: false, status: 422, code: "SERVICE_SETUP_PENDING", error: setupProblem };
+    if (setupProblem) return { ok: false, status: 422, code: setupProblem.code, error: setupProblem.message };
 
     const feePayerResolved = await resolveHouseholdChargeFeePayer(db, managerUserId, loaded);
     if (!feePayerResolved.ok) return feePayerResolved;
