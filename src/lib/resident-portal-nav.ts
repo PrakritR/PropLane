@@ -68,9 +68,9 @@ export const RESIDENT_BOTTOM_NAV_PRIMARY: Record<ResidentPortalNavStage, readonl
 };
 
 /**
- * Sections open at EVERY stage (a section that is gated by what the account HAS, not where it is in the
- * lifecycle): Stays shows for any account with a stay row and is drawn only then (the resident layout
- * drops it from the sidebar's definition otherwise, and the path guard below requires `hasStays`).
+ * Sections open at EVERY stage (not gated by where the account is in the lifecycle): Stays is reachable
+ * by any resident account (the request page is where a new signup lands) and is DRAWN in the sidebar only
+ * once the account has a stay row (the resident layout drops it from the sidebar's definition otherwise).
  * Appended to each stage's list by {@link withStageIndependentSections}, so no stage's table can forget it.
  */
 const STAGE_INDEPENDENT_SECTIONS = ["stays"] as const;
@@ -213,8 +213,11 @@ export function isResidentPathAllowedForAccess(
 
   if (RESIDENT_LEGACY_SECTION_ALIASES.has(section)) return true;
 
-  // Stays: open at every stage, but only an account with a stay row has anything to show there.
-  if (section === "stays") return Boolean(access.hasStays);
+  // Stays (the list and the booking application at `/stays/request`): open at EVERY stage for any resident
+  // account, a brand-new signup included. A web request for a stay needs a resident account and nothing
+  // else, so the request page cannot wait for a stay row, an application or a lease. The sidebar still
+  // draws the row only once the account has a stay (`hasStays`); this guard is about reachability.
+  if (section === "stays") return true;
 
   if (section === "communication" || pathname.startsWith("/resident/communication/")) {
     return residentSectionUnlockedForStage("communication", stage);

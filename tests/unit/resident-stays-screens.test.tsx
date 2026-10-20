@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 /**
  * Captures the batch's new surfaces as reviewable HTML: the guest's Stays list (Upcoming · Past · the
- * empty state), the Book again sheet (cart + calendar with the taken nights crossed out, and its result
- * screen) and the manager's Connect popup on the new Other calendar (iCal) channel.
+ * empty state), the booking application (Stay with the taken nights crossed out, then Review) and the manager's Connect popup on the new Other calendar (iCal) channel.
  *
  * It is a render test first - each screen must come up with the copy the reviewer is checking - and an
  * evidence writer second: set `STAYS_SCREENS_DIR=<dir>` and each screen is written there as a
@@ -20,6 +19,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/resident/stays/upcoming",
   useSearchParams: () => new URLSearchParams(),
 }));
+vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => vi.fn() }));
 vi.mock("@/hooks/use-portal-session", () => ({ usePortalSession: () => ({ userId: "u1", email: "priya@example.com", ready: true }) }));
 vi.mock("@/hooks/use-listing-public-occupancy", () => ({
   useListingPublicOccupancy: () => ({ loading: false, rooms: [{ roomChoice: "prop-1::r1", spans: [{ start: "2026-10-21", end: "2026-10-22", count: 1 }] }] }),
@@ -52,7 +52,7 @@ const client = vi.hoisted(() => ({ fetchGuestStays: vi.fn(), fetchBookableListin
 vi.mock("@/lib/short-stay/guest-stays-client", async (orig) => ({ ...(await orig<typeof import("@/lib/short-stay/guest-stays-client")>()), ...client }));
 
 import { ResidentStaysPanel } from "@/components/portal/resident-stays-panel";
-import { BookAgainSheet } from "@/components/portal/book-again-sheet";
+import { ResidentStayRequest } from "@/components/portal/resident-stay-request";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { BookingsEditSheet } from "@/components/portal/bookings-edit-sheet";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
@@ -122,13 +122,13 @@ describe("the surfaces this batch adds, as a reviewer sees them", () => {
     const text = document.body.textContent ?? "";
     expect(text).toContain("Cedar Court · Attic Nook");
     expect(text).toContain("Confirmed");
-    expect(text).toContain("Pending, expires in 22h");
+    expect(text).toContain("Requested, expires in 22h");
     expect(text).toContain("$420");
     expect(text).not.toMatch(/work order/i);
     capture("01-stays-upcoming", "Resident portal › Stays › Upcoming", { width: 980, label: "desktop 980px" });
   });
 
-  it("Stays · Past shows the finished stay a Book again starts from", async () => {
+  it("Stays · Past shows the finished stay a Request again starts from", async () => {
     render(<ResidentStaysPanel bucket="past" />);
     await waitFor(() => expect(document.querySelectorAll('[data-attr="resident-stay-row"]')).toHaveLength(1));
     expect(document.body.textContent).toContain("Completed");
@@ -143,42 +143,24 @@ describe("the surfaces this batch adds, as a reviewer sees them", () => {
     capture("03-stays-empty", "Resident portal › Stays › empty", { width: 980, label: "desktop 980px" });
   });
 
-  it("Book again · a quick pick fills the cart and the taken nights are crossed out", async () => {
-    render(<BookAgainSheet stays={stays} seed={base} onClose={vi.fn()} onBooked={vi.fn()} />);
-    await waitFor(() => expect((document.querySelector('[data-attr="book-again-quick-tomorrow-1"]') as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(document.querySelector('[data-attr="book-again-quick-tomorrow-1"]')!);
-    await waitFor(() => expect(document.querySelector('[data-attr="book-again-primary"]')?.textContent).toBe("Confirm stay"));
-    expect(document.querySelector('[data-attr="book-again-cart"]')?.textContent).toContain("Oct 15 → Oct 16 · 1 night · $140");
+  const prefill = { listing: "prop-1", room: "r1", checkIn: "2026-10-23", checkOut: "2026-10-24", guests: 1 };
+
+  it("Request a stay · the Stay step draws the calendar with the taken nights crossed out", async () => {
+    client.fetchBookableListing.mockResolvedValue({ ...listing, guestName: "Priya Natarajan", houseRules: "Quiet after 10 pm.", stayTimes: undefined });
+    client.postGuestStays.mockResolvedValue({ ok: true, dryRun: true, action: "request", summary: "", results: [{ checkIn: "2026-10-23", checkOut: "2026-10-24", nights: 1, total: 140, outcome: "pending" }] });
+    render(<ResidentStayRequest prefill={prefill} />);
+    await waitFor(() => expect(document.querySelector('[data-attr="stay-request-calendar"]')).toBeTruthy());
     const taken = document.querySelector('[data-day="2026-10-21"]') as HTMLButtonElement;
     expect(taken.hasAttribute("data-taken")).toBe(true);
     expect(taken.className).toContain("line-through");
-    capture("04-book-again-sheet", "Resident portal › Book again (cart + calendar)", { width: 980, label: "desktop 980px" });
+    expect(document.body.textContent).not.toMatch(/Quick book|Confirm stay/);
+    capture("04-request-stay", "Resident portal › Request a stay › Stay", { width: 980, label: "desktop 980px" });
   });
 
-  it("Book again · phone width renders the same sheet", async () => {
-    render(<BookAgainSheet stays={stays} seed={base} onClose={vi.fn()} onBooked={vi.fn()} />);
-    await waitFor(() => expect(document.querySelector('[data-attr="book-again-form"]')).toBeTruthy());
-    capture("05-book-again-phone", "Resident portal › Book again (phone)", { width: 390, label: "phone 390px" });
-  });
-
-  it("Book again · the result screen names each stay's outcome", async () => {
-    render(<BookAgainSheet stays={stays} seed={base} onClose={vi.fn()} onBooked={vi.fn()} />);
-    await waitFor(() => expect((document.querySelector('[data-attr="book-again-quick-tomorrow-1"]') as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(document.querySelector('[data-attr="book-again-quick-tomorrow-1"]')!);
-    await waitFor(() => expect(document.querySelector('[data-attr="book-again-primary"]')?.textContent).toBe("Confirm stay"));
-    client.postGuestStays.mockResolvedValueOnce({
-      ok: true, dryRun: false, action: "confirm", summary: "1 confirmed",
-      results: [{ checkIn: "2026-10-15", checkOut: "2026-10-16", nights: 1, total: 140, outcome: "confirmed", stayId: "b1" }],
-    });
-    fireEvent.click(document.querySelector('[data-attr="book-again-primary"]')!);
-    await waitFor(() => expect(document.querySelector('[data-attr="book-again-result"]')).toBeTruthy());
-    expect(document.querySelector('[data-attr="book-again-result"]')?.textContent).toContain("1 confirmed");
-    // The rail counts the stay that went through, not the cart the booking emptied.
-    const rail = document.body.textContent ?? "";
-    expect(rail).toContain("Stays1");
-    expect(rail).not.toContain("None yet");
-    expect(rail).toContain("Total$140");
-    capture("06-book-again-result", "Resident portal › Book again › result", { width: 980, label: "desktop 980px" });
+  it("Request a stay · phone width renders the same application", async () => {
+    render(<ResidentStayRequest prefill={prefill} />);
+    await waitFor(() => expect(document.querySelector('[data-attr="stay-request-room"]')).toBeTruthy());
+    capture("05-request-stay-phone", "Resident portal › Request a stay (phone)", { width: 390, label: "phone 390px" });
   });
 
   it("Manager Bookings · a guest's request offers Approve and Decline as icon actions", async () => {

@@ -50,8 +50,11 @@ describe("Upcoming | Past and the row facts", () => {
     expect(guestStayBucket(stay(), today)).toBe("upcoming");
     expect(guestStayBucket(stay({ status: "pending" }), today)).toBe("upcoming");
     expect(guestStayBucket(stay({ checkOut: "2026-10-14" }), today)).toBe("past");
-    expect(guestStayBucket(stay({ status: "declined" }), today)).toBe("past");
-    expect(guestStayBucket(stay({ status: "expired" }), today)).toBe("past");
+    // The host's answer stays in Upcoming while the dates are ahead, so a guest sees Declined / Expired.
+    expect(guestStayBucket(stay({ status: "declined" }), today)).toBe("upcoming");
+    expect(guestStayBucket(stay({ status: "expired" }), today)).toBe("upcoming");
+    expect(guestStayBucket(stay({ status: "declined", checkOut: "2026-10-14" }), today)).toBe("past");
+    expect(guestStayBucket(stay({ status: "cancelled" }), today)).toBe("past");
     expect(parseGuestStayBucket("past")).toBe("past");
     expect(parseGuestStayBucket("nope")).toBeNull();
   });
@@ -69,6 +72,9 @@ describe("Upcoming | Past and the row facts", () => {
     expect(holdExpiresInLabel("2026-10-14T19:00:00Z", now)).toBe("Pending, expiring");
     expect(holdExpiresInLabel(null, now)).toBe("Pending");
     expect(guestStayStatusLabel(stay(), today)).toBe("Confirmed");
+    expect(guestStayStatusLabel(stay({ payment: "due" }), today)).toBe("Approved, pay now");
+    expect(guestStayStatusLabel(stay({ payment: "processing" }), today)).toBe("Approved, payment processing");
+    expect(guestStayStatusLabel(stay({ payment: "paid" }), today)).toBe("Confirmed");
     expect(guestStayStatusLabel(stay({ checkOut: "2026-10-10" }), today)).toBe("Completed");
     expect(guestStayStatusLabel(stay({ status: "declined" }), today)).toBe("Declined");
     expect(guestStayStatusLabel(stay({ status: "expired" }), today)).toBe("Expired");

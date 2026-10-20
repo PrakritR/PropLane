@@ -5,6 +5,8 @@ const emitActionEvent = vi.fn(async (..._args: unknown[]) => ({}));
 vi.mock("@/lib/action-events.server", () => ({ emitActionEvent: (...args: unknown[]) => emitActionEvent(...args) }));
 const enqueueOwnerSms = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({ enqueueOwnerSms: (...args: unknown[]) => enqueueOwnerSms(...args) }));
+const deliverInbox = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
+vi.mock("@/lib/portal-inbox-delivery", () => ({ deliverPortalInboxMessage: (...args: unknown[]) => deliverInbox(...args) }));
 vi.mock("@/lib/resend-delivery.server", () => ({ postResendEmail: vi.fn(async () => new Response("{}", { status: 200 })) }));
 vi.mock("@/lib/manager-outbound-identity.server", () => ({ managerOutboundFromHeader: async () => "PropLane <work@proplane.test>" }));
 const availability = vi.fn();
@@ -28,6 +30,9 @@ import { GUEST, OWNER, PROPERTY, TODAY, completedStay, seedShortStayDb } from ".
 const tomorrow = { checkIn: "2026-10-15", checkOut: "2026-10-16" };
 const nextWeek = { checkIn: "2026-10-21", checkOut: "2026-10-24" };
 
+/** The host ticked "Returning guests book instantly": the switch is OFF unless a listing saved it on. */
+const seedInstant = (opts: Parameters<typeof seedShortStayDb>[0] = {}) => seedShortStayDb({ ...opts, submission: { shortStayInstantBookReturning: true, ...opts?.submission } });
+
 const book = (db: ReturnType<typeof seedShortStayDb>, body: Record<string, unknown>) =>
   bookGuestStays(db as never, { userId: GUEST, today: TODAY, body: { propertyId: PROPERTY, roomId: "r1", guests: 1, ...body } });
 
@@ -41,11 +46,11 @@ describe("the instant-book rule (pure)", () => {
   const completed = { record_type: "room_date_block", row_data: completedStay().row_data };
   const who = { userId: GUEST };
 
-  it("is on unless the listing saved it off", () => {
-    expect(listingBooksReturningGuestsInstantly({})).toBe(true);
+  it("is OFF unless the host saved it on (a web request is an application the host answers)", () => {
+    expect(listingBooksReturningGuestsInstantly({})).toBe(false);
     expect(listingBooksReturningGuestsInstantly({ shortStayInstantBookReturning: true })).toBe(true);
     expect(listingBooksReturningGuestsInstantly({ shortStayInstantBookReturning: false })).toBe(false);
-    expect(listingBooksReturningGuestsInstantly(null)).toBe(true);
+    expect(listingBooksReturningGuestsInstantly(null)).toBe(false);
   });
 
   it("needs a COMPLETED confirmed stay: a future, pending or cancelled one does not count", () => {
@@ -100,7 +105,7 @@ describe("the instant-book rule (pure)", () => {
 
 describe("a returning guest books 1 night tomorrow and 3 nights next week", () => {
   it("writes both ranges confirmed at once, raises one stay_total charge each and texts once", async () => {
-    const db = seedShortStayDb({ history: [completedStay()] });
+    const db = seedInstant({ history: [completedStay()] });
     const result = await book(db, { ranges: [tomorrow, nextWeek] });
     expect(result).toMatchObject({ ok: true, dryRun: false, action: "confirm", summary: "2 confirmed" });
 
@@ -125,24 +130,34 @@ describe("a returning guest books 1 night tomorrow and 3 nights next week", () =
     expect(String(chargeWrites[0]!.id)).toMatch(/^hc_mgr_stay_.*_stay_total$/);
     // The charge must never carry the field the Stripe webhook reads to settle a legacy pay-to-hold booking.
     expect(chargeWrites[0]).not.toHaveProperty("shortStayBookingId");
-    expect(enqueueOwnerSms).toHaveBeenCalledTimes(1);
-    expect((enqueueOwnerSms.mock.calls[0]![0] as { body: string }).body).toBe("PropLane: 2 confirmed at Cedar Court. See them in your portal: https://proplane.ai/resident/stays/upcoming");
+    // Made in the portal, answered in the portal: email + inbox, never a text, never a /l/ pay link.
+    expect(enqueueOwnerSms).not.toHaveBeenCalled();
+    expect(deliverInbox).toHaveBeenCalledTimes(2);
+    for (const call of deliverInbox.mock.calls) {
+      const opts = call[1] as { deliverViaSms: boolean; suppressSms: boolean; toUserIds: string[]; text: string };
+      expect(opts).toMatchObject({ deliverViaSms: false, suppressSms: true, toUserIds: [GUEST] });
+      expect(opts.text).toContain("https://proplane.ai/resident/payments/pending");
+      expect(opts.text).not.toContain("/l/");
+    }
     const events = emitActionEvent.mock.calls.map((c) => (c[1] as { event: string }).event);
     expect(events).toEqual(["short_stay_confirmed", "short_stay_confirmed"]);
   });
 
   it("a single confirmed range gets the plan's text (no dashes)", async () => {
-    const db = seedShortStayDb({ history: [completedStay()] });
+    const db = seedInstant({ history: [completedStay()] });
     await book(db, { ranges: [tomorrow] });
-    const body = (enqueueOwnerSms.mock.calls[0]![0] as { body: string }).body;
-    expect(body).toBe("PropLane: Confirmed, Attic Nook at Cedar Court, Oct 15 to 16 (1 night, $140). Check-in details are in your portal: https://proplane.ai/resident/stays/upcoming");
+    expect(enqueueOwnerSms).not.toHaveBeenCalled();
+    const body = (deliverInbox.mock.calls[0]![1] as { text: string }).text;
+    expect(body).toContain("Confirmed: Attic Nook at Cedar Court, Oct 15 to 16 (1 night, $140).");
+    expect(body).toContain("Pay $140 in Payments within 24 hours to keep it: https://proplane.ai/resident/payments/pending");
+    expect(body).toContain("https://proplane.ai/resident/stays/upcoming");
     expect(body).not.toMatch(/[–—]/);
   });
 });
 
 describe("a first-time guest, or a listing with instant book off, requests to book", () => {
   it("writes a 24-hour hold with holdExpiresAt, raises no charge and tells the team", async () => {
-    const db = seedShortStayDb();
+    const db = seedInstant();
     const before = Date.now();
     const result = await book(db, { ranges: [tomorrow, nextWeek] });
     expect(result).toMatchObject({ ok: true, action: "request", summary: "2 pending" });
@@ -158,24 +173,30 @@ describe("a first-time guest, or a listing with instant book off, requests to bo
     }
     expect(chargeWrites).toHaveLength(0);
     expect(emitActionEvent.mock.calls.map((c) => (c[1] as { event: string }).event)).toEqual(["short_stay_requested", "short_stay_requested"]);
-    expect((enqueueOwnerSms.mock.calls[0]![0] as { body: string }).body).toContain("The host has 24 hours");
+    expect(enqueueOwnerSms).not.toHaveBeenCalled();
+    expect((deliverInbox.mock.calls[0]![1] as { text: string }).text).toContain("They have 24 hours to answer");
+  });
+
+  it("holds a returning guest when the listing never saved the switch (default OFF)", async () => {
+    const db = seedShortStayDb({ history: [completedStay()] });
+    expect(await book(db, { ranges: [tomorrow] })).toMatchObject({ action: "request" });
   });
 
   it("holds a returning guest when the listing switched instant book off", async () => {
-    const db = seedShortStayDb({ history: [completedStay()], submission: { shortStayInstantBookReturning: false } });
+    const db = seedInstant({ history: [completedStay()], submission: { shortStayInstantBookReturning: false } });
     expect(await book(db, { ranges: [tomorrow] })).toMatchObject({ action: "request" });
   });
 
   it("holds a returning guest the host once declined", async () => {
     const declined = { record_type: "cancelled_room_date_block", row_data: { ...completedStay().row_data, checkIn: "2026-09-10", checkOut: "2026-09-11", bookingStatus: "cancelled", stayDetails: { decision: "declined" } } };
-    const db = seedShortStayDb({ history: [completedStay(), declined] });
+    const db = seedInstant({ history: [completedStay(), declined] });
     expect(await book(db, { ranges: [tomorrow] })).toMatchObject({ action: "request" });
   });
 });
 
 describe("what the server's dry run tells the sheet", () => {
   it("answers the button without writing anything", async () => {
-    const db = seedShortStayDb({ history: [completedStay()] });
+    const db = seedInstant({ history: [completedStay()] });
     const before = db.tables.portal_schedule_records!.length;
     const result = await book(db, { ranges: [tomorrow], dryRun: true });
     expect(result).toMatchObject({ ok: true, dryRun: true, action: "confirm", results: [{ outcome: "confirmed", total: 140 }] });
@@ -189,7 +210,7 @@ describe("what the server's dry run tells the sheet", () => {
       ok: true,
       rooms: [{ roomId: input.roomId, available: input.moveIn !== nextWeek.checkIn }],
     }));
-    const db = seedShortStayDb({ history: [completedStay()] });
+    const db = seedInstant({ history: [completedStay()] });
     const result = await book(db, { ranges: [tomorrow, nextWeek] });
     expect(result).toMatchObject({ ok: true, action: "confirm", summary: "1 confirmed" });
     if (!result.ok) throw new Error("unreachable");
@@ -200,7 +221,7 @@ describe("what the server's dry run tells the sheet", () => {
 
   it("a 409 from the capacity trigger lands on that range alone and nothing else is lost", async () => {
     let writes = 0;
-    const db = seedShortStayDb({
+    const db = seedInstant({
       history: [completedStay()],
       failWrite: (table, mode) => (table === "portal_schedule_records" && mode === "upsert" && ++writes === 2 ? { code: "P4001", message: "Those dates are no longer available." } : null),
     });
@@ -211,7 +232,7 @@ describe("what the server's dry run tells the sheet", () => {
   });
 
   it("refuses a bad range or an overlapping one by itself", async () => {
-    const db = seedShortStayDb({ history: [completedStay()] });
+    const db = seedInstant({ history: [completedStay()] });
     const result = await book(db, { ranges: [tomorrow, { checkIn: "2026-10-15", checkOut: "2026-10-17" }, { checkIn: "2026-10-01", checkOut: "2026-10-02" }] });
     if (!result.ok) throw new Error("unreachable");
     expect(result.results.map((r) => r.outcome)).toEqual(["confirmed", "invalid", "invalid"]);
@@ -222,11 +243,11 @@ describe("what the server's dry run tells the sheet", () => {
 
 describe("request limits", () => {
   it("refuses more than five ranges, too many guests for the room, and a guest with no mobile number", async () => {
-    const db = seedShortStayDb({ history: [completedStay()] });
+    const db = seedInstant({ history: [completedStay()] });
     const many = Array.from({ length: 6 }, (_, i) => ({ checkIn: `2026-11-0${i + 1}`, checkOut: `2026-11-0${i + 2}` }));
     expect(await book(db, { ranges: many })).toMatchObject({ ok: false, status: 400 });
     expect(await book(db, { ranges: [tomorrow], guests: 2 })).toMatchObject({ ok: false, status: 400, error: "That's more guests than the room sleeps." });
-    const noPhone = seedShortStayDb({ guestPhone: null });
+    const noPhone = seedInstant({ guestPhone: null });
     expect(await book(noPhone, { ranges: [tomorrow] })).toMatchObject({ ok: false, status: 400 });
   });
 
@@ -234,7 +255,7 @@ describe("request limits", () => {
     const pending = Array.from({ length: 6 }, (_, i) => ({
       row_data: { bookingStatus: "hold", propertyId: PROPERTY, roomId: "r1", checkIn: `2026-12-0${i + 1}`, checkOut: `2026-12-0${i + 2}`, residentUserId: GUEST, stayDetails: { holdExpiresAt: "2026-10-15T00:00:00Z" } },
     }));
-    const db = seedShortStayDb({ history: pending });
+    const db = seedInstant({ history: pending });
     expect(await book(db, { ranges: [tomorrow] })).toMatchObject({ ok: false, status: 429 });
     // A dry run is only a question, so it is never capped.
     expect(await book(db, { ranges: [tomorrow], dryRun: true })).toMatchObject({ ok: true });

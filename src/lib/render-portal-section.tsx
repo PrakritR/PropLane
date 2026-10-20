@@ -11,6 +11,7 @@ import { isListingChannelId, listingChannelDef } from "@/lib/listing-channels/re
 import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { isResidentFormId, parseResidentFormsBucket } from "@/lib/resident-forms-routes";
 import { parseGuestStayBucket } from "@/lib/short-stay/guest-stays";
+import { parseStayRequestPrefill } from "@/lib/short-stay/stay-request-link";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
 import { resolveVendorSettingsTab, vendorSettingsMovedHref } from "@/lib/portals/vendor-settings-pages";
@@ -305,7 +306,7 @@ export async function renderPortalSectionWith(
     AdminBugFeedbackClient, AdminHealthClient, AdminPaymentsPanel, AdminSubscribersPanel, AdminUnassignedLeadsPanel, AdminServicePanel, AdminProplaneLinePanel, AdminPromoCodesPanel,
     AdminFinancesPanel, AdminManagedFinancePanel, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
-    ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentStaysPanel, ResidentTourPanel, ResidentLeasePanel,
+    ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentStaysPanel, ResidentStayRequest, ResidentTourPanel, ResidentLeasePanel,
     ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel,
     VendorFinancesPanel, VendorFinancesPage, VendorWithdrawalDetail,
     VendorStatementsPanel, VendorTaxPanel, VendorDocumentsPanel, VendorSettingsPanel,
@@ -1778,11 +1779,21 @@ export async function renderPortalSectionWith(
     );
   }
 
-  // Resident Stays: the guest's own short stays, Upcoming | Past (a route each). The path guard above lets
-  // only an account with a stay row in (`hasStays`); a bare address opens Upcoming.
+  // Resident Stays: the guest's own short stays, Upcoming | Past (a route each), and the booking application
+  // at `/stays/request`. The path guard above lets any resident account in (a brand-new signup lands on the
+  // request page); a bare address opens Upcoming.
   if (kind === "resident" && section === "stays") {
     if ((tabParts?.length ?? 0) > 1) notFound();
     if (!tabParts?.length) redirect(`${def.basePath}/stays/upcoming`);
+    if (tabParts[0] === "request") {
+      // The application opens as the pop-up over the guest's Stays, so closing it lands back on the list.
+      return (
+        <ManagerPortalPageShell title="Stays" hideTitleOnMobileNav compactFilterRow>
+          <ResidentStaysPanel basePath={def.basePath} bucket="upcoming" />
+          <ResidentStayRequest basePath={def.basePath} prefill={parseStayRequestPrefill(searchParams ?? {})} />
+        </ManagerPortalPageShell>
+      );
+    }
     const staysBucket = parseGuestStayBucket(tabParts[0]);
     if (!staysBucket) notFound();
     return (

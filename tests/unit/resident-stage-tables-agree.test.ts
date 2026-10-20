@@ -65,12 +65,20 @@ describe("Stays across the resident stage tables", () => {
     expect(resolveResidentPortalNavStage({ ...none, isBookingResidency: true, hasStays: true })).toBe("booking_residency");
   });
 
-  it("the Stays URL loads for an account with a stay row at every stage and is refused otherwise", () => {
+  it("Stays and the booking application load for ANY resident account at every stage, a brand-new signup included", () => {
+    const request = "/resident/stays/request?listing=p1&room=r1&checkIn=2026-10-21&checkOut=2026-10-24&guests=2";
     for (const access of [none, submitted, approved, signed]) {
-      expect(isResidentPathAllowedForAccess("/resident/stays/upcoming", { ...access, hasStays: true })).toBe(true);
-      expect(isResidentPathAllowedForAccess("/resident/stays/upcoming", access)).toBe(false);
-      expect(isResidentPathAllowedForAccess("/resident/stays", { ...access, hasStays: false })).toBe(false);
+      for (const hasStays of [true, false]) {
+        const who = { ...access, hasStays };
+        expect(isResidentPathAllowedForAccess("/resident/stays/upcoming", who)).toBe(true);
+        expect(isResidentPathAllowedForAccess("/resident/stays/request", who)).toBe(true);
+        expect(isResidentPathAllowedForAccess(request.split("?")[0]!, who)).toBe(true);
+        expect(isResidentPathAllowedForAccess("/resident/stays", who)).toBe(true);
+      }
     }
+    // Stage 0 (no application, no tour, no stay) still lands on the request page, not the apply wizard.
+    expect(resolveResidentPortalNavStage(none)).toBe("pre_approval");
+    expect(isResidentPathAllowedForAccess("/resident/stays/request", none)).toBe(true);
   });
 
   it("a guest with only stays lands on them after a sign-in link", () => {

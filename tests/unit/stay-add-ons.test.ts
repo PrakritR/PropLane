@@ -11,6 +11,7 @@ vi.mock("server-only", () => ({}));
 const spies = vi.hoisted(() => ({
   emitActionEvent: vi.fn(async (..._args: unknown[]) => ({})),
   enqueueOwnerSms: vi.fn(async (..._args: unknown[]) => ({ ok: true })),
+  deliverPortalInboxMessage: vi.fn(async (..._args: unknown[]) => ({ ok: true })),
   refreshTurnoverCleaningTimes: vi.fn(async (..._args: unknown[]) => undefined),
   refundPaidHouseholdCharge: vi.fn(async (..._args: unknown[]) => ({ refundId: "re_1", rail: "destination" as const })),
   ReviewError: class extends Error {},
@@ -18,6 +19,7 @@ const spies = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/action-events.server", () => ({ emitActionEvent: spies.emitActionEvent }));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({ enqueueOwnerSms: spies.enqueueOwnerSms }));
+vi.mock("@/lib/portal-inbox-delivery", () => ({ deliverPortalInboxMessage: spies.deliverPortalInboxMessage }));
 vi.mock("@/lib/vendor-dispatch/turnover-timing.server", () => ({ refreshTurnoverCleaningTimes: spies.refreshTurnoverCleaningTimes }));
 vi.mock("@/lib/household-charge-refund-rail.server", () => ({
   refundPaidHouseholdCharge: spies.refundPaidHouseholdCharge,
@@ -79,7 +81,7 @@ function stayRow(over: Record<string, unknown> = {}, details: Record<string, unk
       residentPhone: "+12065550142",
       residentEmail: "typed-by-guest@elsewhere.test",
       residentUserId: GUEST,
-      stayDetails: { source: "guest_portal", guests: 1, ...details },
+      stayDetails: { source: "sms_short_stay", guests: 1, ...details },
       ...over,
     },
   };
@@ -302,6 +304,17 @@ describe("paid", () => {
     expect(spies.emitActionEvent).toHaveBeenCalledTimes(1);
     expect(spies.emitActionEvent.mock.calls[0]![1]).toMatchObject({ domain: "channel_booking", category: "tours", event: "short_stay_add_on_paid" });
     expect(spies.refundPaidHouseholdCharge).not.toHaveBeenCalled();
+  });
+
+  it("a stay made in the portal hears about its add-on in the portal and by email, not by text", async () => {
+    const db = seeded({ stay: stayRow({}, { source: "guest_portal" }), others: [otherStay("prev", "2026-10-17", "2026-10-19")] });
+    await paidEarly(db);
+    await applyPaidStayAddOn(db as never, { chargeId: stayAddOnChargeId(BLOCK, "early_check_in"), now: NOW });
+    expect(spies.enqueueOwnerSms).not.toHaveBeenCalled();
+    const notice = spies.deliverPortalInboxMessage.mock.calls[0]![1] as { text: string; suppressSms: boolean; toUserIds: string[] };
+    expect(notice).toMatchObject({ suppressSms: true, toUserIds: [GUEST] });
+    expect(notice.text).toContain("Early check-in at 12:00 pm is confirmed for Oct 20.");
+    expect(notice.text).toContain("https://proplane.ai/resident/stays/upcoming");
   });
 
   it("a late checkout moves the checkout and re-times this stay's own clean", async () => {

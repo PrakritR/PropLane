@@ -9,6 +9,7 @@ import {
   loadGuestBookableListing,
   type GuestBookBody,
 } from "@/lib/short-stay/guest-stays.server";
+import { checkStayApplication, type StayApplicationAnswers } from "@/lib/short-stay/stay-application";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -24,7 +25,7 @@ async function requireResident() {
   } = await auth.auth.getUser();
   if (!user) return null;
   const db = createSupabaseServiceRoleClient();
-  const { data: profile } = await db.from("profiles").select("email, phone, phone_verified_at, role").eq("id", user.id).maybeSingle();
+  const { data: profile } = await db.from("profiles").select("email, phone, phone_verified_at, role, full_name").eq("id", user.id).maybeSingle();
   if (!(await authorizeResidentRole(db, { userId: user.id, legacyRole: profile?.role }))) return null;
   return {
     db,
@@ -32,12 +33,13 @@ async function requireResident() {
     email: String(profile?.email ?? user.email ?? "").trim().toLowerCase(),
     phone: normalizeE164(String(profile?.phone ?? "")) ?? "",
     phoneVerified: Boolean(profile?.phone_verified_at),
+    name: String(profile?.full_name ?? "").trim(),
   };
 }
 
 /**
- * The guest's own stays (`stays`), or - with `?propertyId=` - what the Book again sheet needs for that
- * house: its bookable rooms and whether this guest would be confirmed at once.
+ * The guest's own stays (`stays`), or - with `?propertyId=` - what the request page needs for that
+ * house: its bookable rooms, its house rules and the standard times.
  */
 export async function GET(req: Request) {
   try {
@@ -47,7 +49,7 @@ export async function GET(req: Request) {
     if (propertyId) {
       const listing = await loadGuestBookableListing(ctx.db, { propertyId, userId: ctx.userId, email: ctx.email, phone: ctx.phone, phoneVerified: ctx.phoneVerified });
       if (!listing) return NextResponse.json({ error: "This home doesn't take short stays." }, { status: 404, headers: NO_STORE });
-      return NextResponse.json({ listing }, { headers: NO_STORE });
+      return NextResponse.json({ listing: { ...listing, guestName: ctx.name } }, { headers: NO_STORE });
     }
     return NextResponse.json({ stays: await listGuestStays(ctx.db, { userId: ctx.userId }) }, { headers: NO_STORE });
   } catch {
@@ -72,7 +74,15 @@ export async function POST(req: Request) {
     if (!allowed.ok) {
       return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429, headers: NO_STORE });
     }
-    const result = await bookGuestStays(ctx.db, { userId: ctx.userId, body });
+    // A web request is an application: a real booking carries its answers and the house-rules agreement
+    // (a dry run is only the availability check and needs neither).
+    let application: StayApplicationAnswers | null = null;
+    if (!dryRun) {
+      const checked = checkStayApplication((body as { application?: unknown }).application, Number(body.guests));
+      if (!checked.ok) return NextResponse.json({ error: checked.error }, { status: 400, headers: NO_STORE });
+      application = checked.application;
+    }
+    const result = await bookGuestStays(ctx.db, { userId: ctx.userId, body, application });
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status, headers: NO_STORE });
     // Every range refused: say why with the status of the first (a race is a 409), keep the per-range detail.
     const refused = result.results.length > 0 && result.results.every((r) => r.outcome === "unavailable" || r.outcome === "invalid");

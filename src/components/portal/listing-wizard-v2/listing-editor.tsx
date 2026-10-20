@@ -2370,7 +2370,7 @@ function LeaseDocumentGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
           <Field group label="Booking">
             <CheckboxOption
               label="Returning guests book instantly"
-              checked={sub.shortStayInstantBookReturning !== false}
+              checked={sub.shortStayInstantBookReturning === true}
               onChange={(next) => patch({ shortStayInstantBookReturning: next })}
             />
           </Field>

@@ -31,7 +31,9 @@ import {
   guestStayUnpaidReleasedText,
   isShortStayRequestSource,
 } from "@/lib/short-stay/guest-stays";
+import { deliverGuestPortalNotice } from "@/lib/short-stay/guest-notice.server";
 import { emitShortStayTeamNotice } from "@/lib/short-stay/hold-decisions.server";
+import { guestStayPortalNotice, noticeChannelFor } from "@/lib/short-stay/notice-channel";
 import { loadStayLabels } from "@/lib/short-stay/stay-labels.server";
 import { guestStayChargeId } from "@/lib/short-stay/stay-charge.server";
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
@@ -201,7 +203,17 @@ export async function releaseUnpaidConfirmedStays(db: SupabaseClient, now = new 
       const phone = typeof stay.row.residentPhone === "string" ? stay.row.residentPhone : "";
       const nights = Number(stay.row.quotedNights) || 0;
       const total = Number.isFinite(Number(stay.row.quotedTotal)) ? Number(stay.row.quotedTotal) : null;
-      if (phone) {
+      if (noticeChannelFor(next) === "portal") {
+        // Made in the portal: tell them in the portal and by email, with the Stays address; no text.
+        await deliverGuestPortalNotice(db, {
+          ownerId: stay.managerUserId,
+          propertyId: stay.propertyId,
+          blockId: stay.id,
+          event: "short_stay_unpaid_expired",
+          row: next,
+          notice: guestStayPortalNotice("unpaid_released", { ...labels, checkIn: String(stay.row.checkIn ?? ""), checkOut: String(stay.row.checkOut ?? ""), nights, total }),
+        }).catch(() => undefined);
+      } else if (phone) {
         await enqueueOwnerSms(
           {
             managerUserId: stay.managerUserId,

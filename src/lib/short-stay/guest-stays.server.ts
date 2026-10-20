@@ -40,10 +40,14 @@ import {
   type GuestBookAction,
   type GuestRangeResult,
   type GuestStay,
+  type GuestStayPayment,
 } from "@/lib/short-stay/guest-stays";
+import { deliverGuestPortalNotice } from "@/lib/short-stay/guest-notice.server";
 import { emitShortStayTeamNotice, loadOwnerIdentity, loadStayLabels } from "@/lib/short-stay/hold-decisions.server";
+import { guestStayPortalNotice, noticeChannelFor } from "@/lib/short-stay/notice-channel";
+import type { StayApplicationAnswers } from "@/lib/short-stay/stay-application";
 import { guestIsReturning, instantBookStatus, listingBooksReturningGuestsInstantly } from "@/lib/short-stay/instant-book.server";
-import { ensureGuestStayCharge } from "@/lib/short-stay/stay-charge.server";
+import { ensureGuestStayCharge, guestStayChargeId } from "@/lib/short-stay/stay-charge.server";
 import { mintStayPayLink } from "@/lib/short-stay/stay-pay-link.server";
 import { readStayAddOns } from "@/lib/short-stay/stay-add-ons";
 import { raiseRequestedStayAddOnCharges, storedStayTimes } from "@/lib/short-stay/stay-add-ons.server";
@@ -95,7 +99,7 @@ type StayRecord = { id: string; property_id: string | null; record_type: string;
 /** Pure: one stored block as the guest's list row. */
 export function guestStayFromRecord(
   record: StayRecord,
-  property: { propertyLabel: string; roomLabel: string; canBookAgain: boolean; stayTimes?: PropertyStayTimes },
+  property: { propertyLabel: string; roomLabel: string; canBookAgain: boolean; stayTimes?: PropertyStayTimes; payment?: GuestStayPayment },
 ): GuestStay | null {
   const row = asRecord(record.row_data);
   const checkIn = String(row.checkIn ?? "");
@@ -133,10 +137,42 @@ export function guestStayFromRecord(
     total: Number.isFinite(quoted) && quoted > 0 ? quoted : Number.isFinite(nightly) && nightly > 0 ? Math.round(nightly * nights * 100) / 100 : null,
     nightly: Number.isFinite(nightly) && nightly > 0 ? nightly : null,
     canBookAgain: property.canBookAgain,
+    ...(status === "confirmed" ? { payment: property.payment ?? "none" } : {}),
     ...(times ?? {}),
     estimatedArrival: normalizeStayTime(details.estimatedArrival),
     ...(Object.keys(addOns).length ? { addOns } : {}),
   };
+}
+
+/** Pure: the guest-facing standing of a stay_total charge row's status. */
+export function guestStayPaymentFromChargeStatus(status: string | null | undefined): GuestStayPayment {
+  switch (String(status ?? "").toLowerCase()) {
+    case "paid":
+    case "refunded":
+      return "paid";
+    case "processing":
+      return "processing";
+    case "pending":
+    case "failed":
+    case "partially_paid":
+      return "due";
+    default:
+      return "none";
+  }
+}
+
+async function readStayPayments(db: SupabaseClient, blockIds: readonly string[]): Promise<Map<string, GuestStayPayment>> {
+  const out = new Map<string, GuestStayPayment>();
+  if (blockIds.length === 0) return out;
+  const idFor = new Map(blockIds.map((id) => [guestStayChargeId(id), id]));
+  const { data, error } = await db.from("portal_household_charge_records").select("id, status").in("id", [...idFor.keys()]);
+  // An unreadable charge table is "no charge": the row still draws, only without Pay.
+  if (error) return out;
+  for (const row of (data ?? []) as Array<{ id: string; status: string | null }>) {
+    const blockId = idFor.get(row.id);
+    if (blockId) out.set(blockId, guestStayPaymentFromChargeStatus(row.status));
+  }
+  return out;
 }
 
 export async function listGuestStays(db: SupabaseClient, input: { userId: string }): Promise<GuestStay[]> {
@@ -158,6 +194,8 @@ export async function listGuestStays(db: SupabaseClient, input: { userId: string
       .in("id", propertyIds);
     for (const row of (rows ?? []) as PropertyRow[]) properties.set(row.id, row);
   }
+  // Where each confirmed stay's stay_total stands (read by the charge id the block id derives).
+  const payments = await readStayPayments(db, records.filter((record) => asRecord(record.row_data).bookingStatus === "confirmed" && record.record_type === ROOM_DATE_BLOCK_RECORD_TYPE).map((record) => record.id));
   const stays: GuestStay[] = [];
   for (const record of records) {
     const property = properties.get(String(record.property_id ?? ""));
@@ -172,6 +210,7 @@ export async function listGuestStays(db: SupabaseClient, input: { userId: string
       roomLabel: roomIndex >= 0 ? rooms[roomIndex]!.name?.trim() || `Room ${roomIndex + 1}` : "Room",
       canBookAgain: Boolean(property && property.status === "live" && bookable),
       stayTimes: propertyStayClockFromRecord(property ? { property_data: property.property_data } : null).times,
+      payment: payments.get(record.id),
     });
     if (stay) stays.push(stay);
   }
@@ -184,8 +223,11 @@ export type GuestBookableListing = {
   propertyId: string;
   propertyLabel: string;
   rooms: BookableRoom[];
-  /** True when the guest would be confirmed at once for free nights (flag on and a completed stay here). */
+  /** True when the guest would be confirmed at once for free nights (the host ticked instant book AND a completed stay here). Off by default: a web request is an application. */
   confirmsInstantly: boolean;
+  /** The listing's house rules and short-stay requirements, shown on the request page next to the agreement. */
+  houseRules: string;
+  shortStayRequirements: string;
   /** The standard times and add-on prices the sheet shows. The cleaning buffer is the host's and is not sent. */
   stayTimes: Omit<PropertyStayTimes, "cleaningBufferMinutes">;
 };
@@ -221,6 +263,8 @@ export async function loadGuestBookableListing(
     propertyLabel: propertyLabelOf(property),
     rooms,
     confirmsInstantly: instantBookStatus({ flagOn: listingBooksReturningGuestsInstantly(submission), returning }) === "confirmed",
+    houseRules: typeof submission.houseRulesText === "string" ? submission.houseRulesText.trim() : "",
+    shortStayRequirements: typeof submission.shortTermRequirements === "string" ? submission.shortTermRequirements.trim() : "",
     stayTimes: publicStayTimes(propertyStayClockFromRecord({ property_data: data.property_data }).times),
   };
 }
@@ -258,6 +302,8 @@ export async function bookGuestStays(
      * no second text goes out from here.
      */
     via?: "sms";
+    /** The booking application's answers (`checkStayApplication`): saved on every stay of the request. */
+    application?: StayApplicationAnswers | null;
   },
 ): Promise<GuestBookResult> {
   const today = input.today ?? pacificTodayKey(input.now);
@@ -330,6 +376,7 @@ export async function bookGuestStays(
       now: input.now,
       estimatedArrival: normalizeStayTime(body.estimatedArrival),
       addOns: requestedAddOnKinds(body.addOns),
+      application: input.application ?? null,
     });
     created.forEach((row, i) => {
       const target = validIndex[i]!;
@@ -384,15 +431,38 @@ export async function bookGuestStays(
         }
       }
       if (written.length && input.via !== "sms") {
-        await textGuest(db, {
-          ownerId: listing.ownerId,
-          propertyId,
-          phone,
-          email,
-          roomLabel: listing.roomLabel,
-          propertyLabel: listing.propertyLabel,
-          written: written.map((row) => ({ blockId: row.blockId, status: row.status, checkIn: row.range.checkIn, checkOut: row.range.checkOut, nights: row.range.nights, total: row.total })),
-        }).catch(() => undefined);
+        // Channel-aware (notice-channel.ts): a stay made in the portal is answered by email + the portal
+        // inbox, never a text and never a /l/ pay link; the text path below is for a row made by text.
+        const portalRows = written.filter((row) => noticeChannelFor(row.rowData) === "portal");
+        const smsRows = written.filter((row) => noticeChannelFor(row.rowData) !== "portal");
+        for (const row of portalRows) {
+          await deliverGuestPortalNotice(db, {
+            ownerId: listing.ownerId,
+            propertyId,
+            blockId: row.blockId,
+            event: row.status === "confirmed" ? "short_stay_confirmed" : "short_stay_requested",
+            row: row.rowData,
+            notice: guestStayPortalNotice(row.status === "confirmed" ? "confirmed" : "requested", {
+              roomLabel: listing.roomLabel,
+              propertyLabel: listing.propertyLabel,
+              checkIn: row.range.checkIn,
+              checkOut: row.range.checkOut,
+              nights: row.range.nights,
+              total: row.total,
+            }),
+          }).catch(bestEffortFailed("guest portal notice", { blockId: row.blockId, propertyId }));
+        }
+        if (smsRows.length) {
+          await textGuest(db, {
+            ownerId: listing.ownerId,
+            propertyId,
+            phone,
+            email,
+            roomLabel: listing.roomLabel,
+            propertyLabel: listing.propertyLabel,
+            written: smsRows.map((row) => ({ blockId: row.blockId, status: row.status, checkIn: row.range.checkIn, checkOut: row.range.checkOut, nights: row.range.nights, total: row.total })),
+          }).catch(() => undefined);
+        }
       }
     }
   }

@@ -37,7 +37,8 @@ const NOW = new Date("2026-10-14T18:00:00Z");
 const range = { checkIn: "2026-10-21", checkOut: "2026-10-24" };
 
 function seededDb(opts: { returning?: boolean; others?: Array<Record<string, unknown>> } = {}) {
-  const db = seedShortStayDb({ history: opts.returning ? [completedStay()] : [] });
+  // A returning guest is confirmed at once only on a listing whose host ticked the switch (default OFF).
+  const db = seedShortStayDb({ history: opts.returning ? [completedStay()] : [], ...(opts.returning ? { submission: { shortStayInstantBookReturning: true } } : {}) });
   for (const other of opts.others ?? []) db.tables.portal_schedule_records!.push(other as never);
   chargeDb = db;
   return db;

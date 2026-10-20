@@ -130,7 +130,8 @@ describe("resident thread composer", () => {
     await screen.findByPlaceholderText(/reply/i);
     expect(screen.getByText("Cascade Lofts Management")).toBeTruthy();
     expect(screen.getByText(/Property manager · Cascade Lofts/)).toBeTruthy();
-    expect(document.querySelector("[data-attr=inbox-thread-text-manager]")).toBeTruthy();
+    // The portal is the web channel: no sms: link to the manager.
+    expect(document.querySelector("[data-attr=inbox-thread-text-manager]")).toBeNull();
     expect(document.querySelector("[data-attr=inbox-thread-email-manager]")).toBeTruthy();
     expect(document.querySelector("[data-attr=inbox-thread-mark-unread]")).toBeTruthy();
     expect(document.querySelector("[data-attr=inbox-thread-archive]")).toBeTruthy();

@@ -3,7 +3,7 @@
 import { sharedGet } from "@/lib/shared-get-cache";
 import { ELIGIBLE_CONTACTS_TTL_MS } from "@/lib/inbox-eligible-contacts-ttl";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Archive, ArchiveRestore, Mail, MailOpen, MessageSquare, Phone, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Mail, MailOpen, Trash2 } from "lucide-react";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { useSearchParams } from "next/navigation";
 import { consumeComposeQueryParam } from "@/lib/portals/compose-query";
@@ -1236,36 +1236,12 @@ export const ResidentInboxPanel = forwardRef<
         </>
       );
     }
-    const managerPhone = activeManager?.workPhone?.trim() || activeManagerContact?.phone?.trim() || null;
     const managerEmail = activeManagerContact?.email?.trim() || null;
-    // A text-only conversation is derived and read-only: reach the manager by
-    // text, nothing to mark unread or archive.
-    if (activeThread.smsOnly) {
-      return managerPhone ? (
-        <a
-          href={`sms:${managerPhone}`}
-          className={INBOX_THREAD_ICON_BTN}
-          aria-label="Text your property manager"
-          title="Text your property manager"
-          data-attr="inbox-thread-text-manager"
-        >
-          <Phone className="h-4 w-4" aria-hidden />
-        </a>
-      ) : undefined;
-    }
+    // A text-only conversation is derived and read-only: nothing to mark unread or archive. The portal is
+    // the web channel, so there is no sms: link to the manager here (the portal inbox is how they are reached).
+    if (activeThread.smsOnly) return undefined;
     return (
       <>
-        {managerPhone ? (
-          <a
-            href={`sms:${managerPhone}`}
-            className={INBOX_THREAD_ICON_BTN}
-            aria-label="Text your property manager"
-            title="Text your property manager"
-            data-attr="inbox-thread-text-manager"
-          >
-            <Phone className="h-4 w-4" aria-hidden />
-          </a>
-        ) : null}
         {managerEmail ? (
           <a
             href={`mailto:${managerEmail}`}
@@ -1300,7 +1276,7 @@ export const ResidentInboxPanel = forwardRef<
         </button>
       </>
     );
-  }, [activeThread, activeManager, activeManagerContact, restoreFromTrash, deleteForever, moveToTrash, markUnread]);
+  }, [activeThread, activeManagerContact, restoreFromTrash, deleteForever, moveToTrash, markUnread]);
 
   useEffect(() => {
     if (!embeddedInCommunication) return;
@@ -1628,24 +1604,8 @@ export const ResidentInboxPanel = forwardRef<
   // menu and Send — that is all.
   const activeThreadComposer = useMemo(() => {
     if (!activeThread || activeThread.folder === "trash" || tabId === "trash") return undefined;
-    // A text-only conversation has no in-app send: the composer is replaced by
-    // one action that opens the resident's own texting app to the work number.
-    if (activeThread.smsOnly) {
-      const workPhone = activeManager?.workPhone?.trim();
-      if (!workPhone) return undefined;
-      return (
-        <div className="shrink-0 border-t border-border p-3">
-          <a
-            href={`sms:${workPhone}`}
-            className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:opacity-90"
-            data-attr="resident-inbox-text-manager"
-          >
-            <MessageSquare className="h-4 w-4 shrink-0" aria-hidden />
-            Text {formatSmsPhoneLabel(workPhone) ?? workPhone}
-          </a>
-        </div>
-      );
-    }
+    // A text-only conversation has no in-app send, and the portal never opens a texting app (web channel).
+    if (activeThread.smsOnly) return undefined;
     return (
       <InboxComposer
         value={replyDraft}
@@ -1694,7 +1654,6 @@ export const ResidentInboxPanel = forwardRef<
       />
     );
   }, [
-    activeManager,
     activeProplaneAvailable,
     activeSmsAvailable,
     activeThread,

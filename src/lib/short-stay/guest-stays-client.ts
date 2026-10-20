@@ -1,6 +1,6 @@
 "use client";
 
-/** Browser calls for the guest's Stays page and Book again sheet (`/api/resident/stays`). */
+/** Browser calls for the guest's Stays page and the booking application (`/api/resident/stays`). */
 import type { PropertyStayTimes, StayAddOnKind } from "@/lib/bookings/stay-times";
 import type { GuestBookAction, GuestRangeResult, GuestStay } from "@/lib/short-stay/guest-stays";
 import type { StayAddOnQuoteRow } from "@/lib/short-stay/stay-add-ons";
@@ -12,6 +12,11 @@ export type BookableListing = {
   propertyLabel: string;
   rooms: Array<{ id: string; label: string; nightly: number; sleeps: number }>;
   confirmsInstantly: boolean;
+  /** The listing's house rules text (may be empty) and what a short stay requires, for the request page's agreement. */
+  houseRules?: string;
+  shortStayRequirements?: string;
+  /** The signed-in account holder's name (the session's, never typed). */
+  guestName?: string;
   /** The standard times and add-on prices the sheet shows (the host's cleaning buffer is not sent). */
   stayTimes?: Omit<PropertyStayTimes, "cleaningBufferMinutes">;
 };
@@ -64,6 +69,8 @@ export async function postGuestStays(input: {
   estimatedArrival?: string;
   /** Paid add-ons ticked in the sheet. */
   addOns?: StayAddOnKind[];
+  /** The booking application's answers (required on a real request, not on a dry run). */
+  application?: { purpose: string; message: string; guestNames: string[]; rulesAgreed: boolean };
 }): Promise<GuestBookResponse> {
   const res = await fetch("/api/resident/stays", {
     method: "POST",

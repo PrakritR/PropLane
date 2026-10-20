@@ -33,6 +33,8 @@ import {
   guestStayExpiredText,
   isShortStayRequestSource,
 } from "@/lib/short-stay/guest-stays";
+import { deliverGuestPortalNotice } from "@/lib/short-stay/guest-notice.server";
+import { guestStayPortalNotice, noticeChannelFor } from "@/lib/short-stay/notice-channel";
 import { ensureGuestStayCharge } from "@/lib/short-stay/stay-charge.server";
 import { mintStayPayLink } from "@/lib/short-stay/stay-pay-link.server";
 import { raiseRequestedStayAddOnCharges } from "@/lib/short-stay/stay-add-ons.server";
@@ -155,6 +157,53 @@ async function notifyOfDecision(
   const total = Number.isFinite(Number(row.quotedTotal)) ? Number(row.quotedTotal) : null;
   const portalUrl = residentPortalUrl("stays");
   const stay = { ...labels, checkIn, checkOut, nights, total };
+  const event = EVENT_FOR[decision];
+
+  if (noticeChannelFor(row) === "portal") {
+    // Made in the portal, answered in the portal: email + the resident inbox with /resident links. No text,
+    // and an approval points at Payments (the embedded checkout), never a phone-bound /l/ pay link.
+    await deliverGuestPortalNotice(db, {
+      ownerId,
+      propertyId,
+      blockId,
+      event,
+      row,
+      notice: guestStayPortalNotice(decision === "approve" ? "approved" : decision === "decline" ? "declined" : "expired", stay),
+    }).catch(() => undefined);
+  } else {
+    await textAndEmailGuest(db, { decision, blockId, ownerId, propertyId, row, labels, stay, portalUrl, event });
+  }
+
+  await emitShortStayTeamNotice(db, {
+    event,
+    headline: HEADLINE_FOR[decision],
+    blockId,
+    ownerId,
+    propertyId,
+    row,
+    labels,
+  });
+}
+
+/**
+ * The text path (a stay made by text, or an older row with no channel): the work-number SMS, the
+ * phone-bound pay link on an approval, and the email beside it. Unchanged by the portal channel.
+ */
+async function textAndEmailGuest(
+  db: SupabaseClient,
+  input: {
+    decision: ShortStayHoldDecision;
+    blockId: string;
+    ownerId: string;
+    propertyId: string;
+    row: Record<string, unknown>;
+    labels: { propertyLabel: string; roomLabel: string };
+    stay: { propertyLabel: string; roomLabel: string; checkIn: string; checkOut: string; nights: number; total: number | null };
+    portalUrl: string;
+    event: string;
+  },
+): Promise<void> {
+  const { decision, blockId, ownerId, propertyId, row, labels, stay, portalUrl, event } = input;
   const guestPhone = typeof row.residentPhone === "string" ? row.residentPhone : "";
   // An approved stay is paid from a phone-bound link texted to the guest: the charge was just raised.
   const payUrl =
@@ -167,9 +216,8 @@ async function notifyOfDecision(
       : decision === "decline"
         ? guestStayDeclinedText(stay, portalUrl)
         : guestStayExpiredText(stay, portalUrl);
-  const phone = typeof row.residentPhone === "string" ? row.residentPhone : "";
+  const phone = guestPhone;
   const email = typeof row.residentEmail === "string" ? row.residentEmail.trim().toLowerCase() : "";
-  const event = EVENT_FOR[decision];
 
   if (phone) {
     await enqueueOwnerSms(
@@ -203,16 +251,6 @@ async function notifyOfDecision(
       metadata: { recipients: 1 },
     }).catch(() => undefined);
   }
-
-  await emitShortStayTeamNotice(db, {
-    event,
-    headline: HEADLINE_FOR[decision],
-    blockId,
-    ownerId,
-    propertyId,
-    row,
-    labels,
-  });
 }
 
 /** `channel_booking` / `short_stay_confirmed|declined|expired` to the owner and teammates (the notice spine). */

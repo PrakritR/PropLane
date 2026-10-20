@@ -321,7 +321,7 @@ describe("a caller ID is not an identity: the stay needs the code from the confi
 
 describe("pay link", () => {
   it("a returning guest is confirmed at once, the stay_total is raised and the reply carries the in-page pay link (purpose rent on that charge)", async () => {
-    const db = seeded({ history: [completedStay()] });
+    const db = seeded({ history: [completedStay()], submission: { shortStayInstantBookReturning: true } });
     const result = await bookStayForTexter(db as never, { option: option(), phone: PHONE, now: NOW, offerId: "offer-1", proof: PROOF("offer-1") });
     expect(result).toMatchObject({ ok: true, status: "confirmed", total: 420 });
     expect(chargeWrites).toHaveLength(1);

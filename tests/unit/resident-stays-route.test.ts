@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 let sessionUser: { id: string; email?: string } | null = null;
-let profile: { email: string; phone: string; role: string } | null = null;
+let profile: { email: string; phone: string; role: string; full_name?: string } | null = null;
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser: async () => ({ data: { user: sessionUser } }) } }),
 }));
@@ -77,7 +77,30 @@ describe("GET /api/resident/stays", () => {
 });
 
 describe("POST /api/resident/stays", () => {
-  const body = { propertyId: "p1", roomId: "r1", guests: 1, ranges: [{ checkIn: "2026-10-15", checkOut: "2026-10-16" }] };
+  const application = { purpose: "travel", message: "Landing late.", guestNames: [] as string[], rulesAgreed: true };
+  const body = { propertyId: "p1", roomId: "r1", guests: 1, ranges: [{ checkIn: "2026-10-15", checkOut: "2026-10-16" }], application };
+
+  it("a real request is an application: it needs a purpose and the house-rules agreement, and a dry run needs neither", async () => {
+    const { application: _omitted, ...bare } = body;
+    void _omitted;
+    expect((await post(bare)).status).toBe(400);
+    expect((await post({ ...body, application: { ...application, rulesAgreed: false } })).status).toBe(400);
+    expect((await post({ ...body, application: { ...application, purpose: "" } })).status).toBe(400);
+    // Two guests need the second guest's name.
+    expect((await post({ ...body, guests: 2 })).status).toBe(400);
+    expect(bookGuestStays).not.toHaveBeenCalled();
+    bookGuestStays.mockResolvedValue({ ok: true, dryRun: true, results: [], action: "none", summary: "" });
+    expect((await post({ ...bare, dryRun: true })).status).toBe(200);
+  });
+
+  it("hands the validated application (with the agreement time stamped by the server) to the writer", async () => {
+    bookGuestStays.mockResolvedValue({ ok: true, dryRun: false, results: [{ outcome: "pending" }], action: "request", summary: "1 pending" });
+    const res = await post({ ...body, guests: 2, application: { ...application, guestNames: ["Sam Lee"], rulesAgreedAt: "1999-01-01" } });
+    expect(res.status).toBe(200);
+    const passed = bookGuestStays.mock.calls[0]![1] as { application: { purpose: string; guestNames: string[]; rulesAgreedAt: string } };
+    expect(passed.application).toMatchObject({ purpose: "travel", guestNames: ["Sam Lee"] });
+    expect(passed.application.rulesAgreedAt).not.toBe("1999-01-01");
+  });
 
   it("refuses a visitor and a non-resident without touching the writer", async () => {
     sessionUser = null;

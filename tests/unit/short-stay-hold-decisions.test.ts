@@ -5,6 +5,8 @@ const emitActionEvent = vi.fn(async (..._args: unknown[]) => ({}));
 vi.mock("@/lib/action-events.server", () => ({ emitActionEvent: (...args: unknown[]) => emitActionEvent(...args) }));
 const enqueueOwnerSms = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({ enqueueOwnerSms: (...args: unknown[]) => enqueueOwnerSms(...args) }));
+const deliverInbox = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
+vi.mock("@/lib/portal-inbox-delivery", () => ({ deliverPortalInboxMessage: (...args: unknown[]) => deliverInbox(...args) }));
 vi.mock("@/lib/resend-delivery.server", () => ({ postResendEmail: vi.fn(async () => new Response("{}", { status: 200 })) }));
 vi.mock("@/lib/manager-outbound-identity.server", () => ({ managerOutboundFromHeader: async () => "PropLane <work@proplane.test>" }));
 const chargeWrites: Array<Record<string, unknown>> = [];
@@ -50,7 +52,8 @@ function holdRow(overrides: Record<string, unknown> = {}, stayDetails: Record<st
       residentName: "Priya Natarajan",
       residentPhone: "+12065550142",
       residentUserId: GUEST,
-      stayDetails: { source: "guest_portal", guests: 1, holdExpiresAt: "2026-10-15T08:00:00.000Z", ...stayDetails },
+      // A request made BY TEXT keeps today's text behaviour; the guest_portal cases below cover the portal channel.
+      stayDetails: { source: "sms_short_stay", guests: 1, holdExpiresAt: "2026-10-15T08:00:00.000Z", ...stayDetails },
       ...overrides,
     },
   };
@@ -76,7 +79,7 @@ describe("the host approves a guest's request", () => {
     expect(result).toEqual({ ok: true, outcome: "confirmed", decision: "approve", chargeCreated: true });
     const stored = db.tables.portal_schedule_records!.find((r) => r.id === BLOCK)!;
     expect(stored.record_type).toBe("room_date_block");
-    expect(stored.row_data).toMatchObject({ bookingStatus: "confirmed", reason: "Short-stay confirmed", stayDetails: { decision: "approved", guests: 1, source: "guest_portal" } });
+    expect(stored.row_data).toMatchObject({ bookingStatus: "confirmed", reason: "Short-stay confirmed", stayDetails: { decision: "approved", guests: 1, source: "sms_short_stay" } });
     expect((stored.row_data as { stayDetails: Record<string, unknown> }).stayDetails.holdExpiresAt).toBeUndefined();
     expect(chargeWrites).toHaveLength(1);
     expect(chargeWrites[0]).toMatchObject({ kind: "stay_total", amountLabel: "$420.00", residentUserId: GUEST });
@@ -112,6 +115,42 @@ describe("the host approves a guest's request", () => {
     const result = await decideShortStayHold(db as never, { blockId: BLOCK, decision: "approve" });
     expect(result).toMatchObject({ ok: true, chargeCreated: false });
     expect(chargeWrites).toHaveLength(0);
+  });
+});
+
+describe("a request made in the portal is answered in the portal (never by text, never a /l/ pay link)", () => {
+  const portalRow = () => holdRow({}, { source: "guest_portal" });
+  const lastInbox = () => deliverInbox.mock.calls.at(-1)![1] as { subject: string; text: string; toUserIds: string[]; deliverViaSms: boolean; suppressSms: boolean; messageId: string };
+
+  it("approve: the inbox + email notice points at Payments; no text is queued", async () => {
+    const db = seeded(portalRow());
+    expect(await decideShortStayHold(db as never, { blockId: BLOCK, decision: "approve" })).toMatchObject({ ok: true, chargeCreated: true });
+    expect(enqueueOwnerSms).not.toHaveBeenCalled();
+    const notice = lastInbox();
+    expect(notice).toMatchObject({ toUserIds: [GUEST], deliverViaSms: false, suppressSms: true, messageId: `short-stay:short_stay_confirmed:${BLOCK}` });
+    expect(notice.subject).toBe("Approved: Attic Nook at Cedar Court");
+    expect(notice.text).toContain("Pay $420 in Payments within 24 hours to keep it: https://proplane.ai/resident/payments/pending");
+    expect(notice.text).not.toContain("/l/");
+    expect(notice.text).not.toMatch(/sms:|tel:/);
+  });
+
+  it("decline and expiry: the same channel, with the Stays address", async () => {
+    const declined = seeded(portalRow());
+    await decideShortStayHold(declined as never, { blockId: BLOCK, decision: "decline" });
+    expect(lastInbox().subject).toBe("Not confirmed: Attic Nook at Cedar Court");
+    expect(lastInbox().text).toContain("https://proplane.ai/resident/stays/upcoming");
+    deliverInbox.mockClear();
+    const expired = seeded(portalRow());
+    await expireShortStayHolds(expired as never, new Date("2026-10-15T09:00:00Z"));
+    expect(lastInbox().subject).toBe("Request expired: Attic Nook at Cedar Court");
+    expect(enqueueOwnerSms).not.toHaveBeenCalled();
+  });
+
+  it("a stay with no login has nowhere in the portal to put it, so nothing is sent (an address is not an identity)", async () => {
+    const db = seeded(holdRow({ residentUserId: undefined, residentEmail: "typed@example.com" }, { source: "guest_portal" }));
+    await decideShortStayHold(db as never, { blockId: BLOCK, decision: "decline" });
+    expect(deliverInbox).not.toHaveBeenCalled();
+    expect(enqueueOwnerSms).not.toHaveBeenCalled();
   });
 });
 

@@ -1,5 +1,6 @@
 import { RESIDENT_TERM_LABELS, type ResidentTerm } from "@/lib/resident-term-split";
 import { dateKeyInBookingRange } from "@/lib/channel-calendar/bookings-dates";
+import type { StayApplicationAnswers } from "@/lib/short-stay/stay-application";
 import type { ManagerChannelBookingProperty } from "@/lib/channel-calendar/types";
 import { leaseIsFullyExecuted, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
@@ -53,6 +54,8 @@ export type PropertyBookingEntry = {
     addOns?: StayAddOns;
     /** "HH:MM" the guest expects to arrive. */
     estimatedArrival?: string;
+    /** The guest's booking application (server-owned): purpose, message to the host, who else is staying, the rules agreement. */
+    application?: StayApplicationAnswers;
   };
   /**
    * The stay's resolved check-in / check-out times, "HH:MM" property wall time (explicit, else legacy, else

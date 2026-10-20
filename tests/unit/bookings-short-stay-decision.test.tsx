@@ -68,3 +68,26 @@ describe("a guest's request in the booking sheet", () => {
     }
   });
 });
+
+describe("the guest's booking application on the hold", () => {
+  it("shows purpose, who else is staying, the message and the house-rules agreement to the host", () => {
+    const withApplication: PropertyBookingEntry = {
+      ...request,
+      stayDetails: {
+        ...request.stayDetails,
+        application: { purpose: "work", message: "Landing at 9 pm.", guestNames: ["Sam Lee"], rulesAgreedAt: "2099-10-14T00:00:00Z" },
+      },
+    };
+    sheet(withApplication);
+    const facts = document.querySelector('[data-attr="bookings-stay-application"]')!;
+    expect(facts.textContent).toContain("Work or business");
+    expect(facts.textContent).toContain("Sam Lee");
+    expect(facts.textContent).toContain("Landing at 9 pm.");
+    expect(facts.textContent).toContain("Agreed");
+  });
+
+  it("draws nothing for a hold that carries no application (a text or older request)", () => {
+    sheet(request);
+    expect(document.querySelector('[data-attr="bookings-stay-application"]')).toBeNull();
+  });
+});

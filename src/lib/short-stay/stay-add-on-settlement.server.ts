@@ -46,6 +46,9 @@ import {
   type StayAddOnContext,
 } from "@/lib/short-stay/stay-add-ons.server";
 import { loadOwnerIdentity, loadStayLabels } from "@/lib/short-stay/stay-labels.server";
+import { deliverGuestPortalNotice } from "@/lib/short-stay/guest-notice.server";
+import { noticeChannelFor } from "@/lib/short-stay/notice-channel";
+import { residentPortalUrl } from "@/lib/claw-resident-links";
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 import { refreshTurnoverCleaningTimes } from "@/lib/vendor-dispatch/turnover-timing.server";
 
@@ -108,8 +111,20 @@ async function stripeChargeIdFor(
 
 async function textGuest(
   db: SupabaseClient,
-  input: { row: Record<string, unknown>; ownerId: string; propertyId: string; chargeId: string; purpose: string; body: string },
+  input: { row: Record<string, unknown>; ownerId: string; propertyId: string; chargeId: string; purpose: string; body: string; blockId?: string },
 ): Promise<void> {
+  // A stay made in the portal hears about its add-on in the portal and by email, never by text.
+  if (noticeChannelFor(input.row) === "portal") {
+    await deliverGuestPortalNotice(db, {
+      ownerId: input.ownerId,
+      propertyId: input.propertyId,
+      blockId: input.chargeId,
+      event: input.purpose,
+      row: input.row,
+      notice: { subject: "Your stay was updated", text: `${input.body} See it in Stays: ${residentPortalUrl("stays")}` },
+    });
+    return;
+  }
   const phone = typeof input.row.residentPhone === "string" ? input.row.residentPhone : "";
   if (!phone) return;
   const email = typeof input.row.residentEmail === "string" ? input.row.residentEmail.trim().toLowerCase() : "";

@@ -3,13 +3,13 @@
 /**
  * Resident portal › Stays: a guest's own short stays, Upcoming | Past (a route each). The list is the
  * Properties list anatomy (`PortalRecordListSurface`): tile · title · place line · glyph facts · figure ·
- * the per-row ⋯ menu. No status pill - the fact line says Confirmed, Pending (with the hours left on the
- * host's 24), Completed, Declined or Expired. A past row (and the band's round +) opens the Book again
- * sheet with its room prefilled. See docs/agents/bookings.md § Guest portal stays.
+ * the per-row ⋯ menu. No status pill - the fact line says Requested (with the hours left on the host's 24),
+ * Approved (pay now, while the stay's charge is unpaid), Confirmed, Completed, Declined or Expired. The band's
+ * round + and a row's "Request again" open the booking application (`/stays/request`) with the house and
+ * room prefilled; an approved row's "Pay now" opens Payments. See docs/agents/bookings.md § Guest portal stays.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarCheck, CalendarX, Clock, Luggage, Moon, Users } from "lucide-react";
-import { BookAgainSheet } from "@/components/portal/book-again-sheet";
+import { CalendarCheck, CalendarX, Clock, CreditCard, Luggage, Moon, Users } from "lucide-react";
 import { StayTimesSheet } from "@/components/portal/stay-times-sheet";
 import { PortalEntryRow } from "@/components/portal/portal-entry-row";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -29,6 +29,8 @@ import {
   type GuestStayBucket,
 } from "@/lib/short-stay/guest-stays";
 import { parseStayAddOnLink, type StayAddOnLink } from "@/lib/short-stay/stay-add-ons";
+import { stayRequestHref } from "@/lib/short-stay/stay-request-link";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { formatShortStayMoney, shortStayDayLabel } from "@/lib/short-stay-request";
 
 const BUCKET_LABELS: Record<GuestStayBucket, string> = { upcoming: "Upcoming", past: "Past" };
@@ -43,6 +45,7 @@ export function guestStaysListHref(basePath: string, bucket: GuestStayBucket): s
 }
 
 function statusIcon(stay: GuestStay) {
+  if (stay.status === "confirmed" && stay.payment === "due") return CreditCard;
   if (stay.status === "confirmed") return CalendarCheck;
   if (stay.status === "pending") return Clock;
   return CalendarX;
@@ -50,7 +53,7 @@ function statusIcon(stay: GuestStay) {
 
 export function ResidentStaysPanel({ basePath = "/resident", bucket = "upcoming" }: { basePath?: string; bucket?: GuestStayBucket }) {
   const [list, setList] = useState<ListState>({ status: "loading" });
-  const [sheet, setSheet] = useState<{ seed: GuestStay | null } | null>(null);
+  const navigate = usePortalNavigate();
   // The Check-in and checkout sheet, opened from a stay's ⋯ menu or by the text link (`?stay=&addOn=&time=`).
   const [timesSheet, setTimesSheet] = useState<{ stay: GuestStay; link: StayAddOnLink | null } | null>(null);
   const linkHandled = useRef(false);
@@ -98,8 +101,11 @@ export function ResidentStaysPanel({ basePath = "/resident", bucket = "upcoming"
     [stays, today],
   );
   const rows = useMemo(() => sortGuestStays(stays.filter((stay) => guestStayBucket(stay, today) === bucket), bucket), [stays, today, bucket]);
-  // The round + books another stay at the house of the newest stay that can still be booked.
+  // The round + opens the booking application at the house of the newest stay that can still be booked.
   const seedStay = useMemo(() => [...stays].sort((a, b) => b.checkIn.localeCompare(a.checkIn)).find((stay) => stay.canBookAgain) ?? null, [stays]);
+  const requestAgain = (stay: GuestStay) =>
+    navigate(stayRequestHref({ listing: stay.propertyId, room: stay.roomId, guests: stay.guests }, basePath));
+  const payNow = () => navigate(`${basePath}/payments/pending`);
 
   const destinations = GUEST_STAY_BUCKETS.map((id) => ({
     id,
@@ -121,7 +127,7 @@ export function ResidentStaysPanel({ basePath = "/resident", bucket = "upcoming"
           seedStay ? (
             <PortalPrimaryIconAction
               label={portalListAddPrimaryLabel("stay")}
-              onClick={() => setSheet({ seed: seedStay })}
+              onClick={() => requestAgain(seedStay)}
               data-attr="resident-stays-add"
             />
           ) : undefined
@@ -150,7 +156,8 @@ export function ResidentStaysPanel({ basePath = "/resident", bucket = "upcoming"
             bucket === "upcoming" && stay.checkInTime && stay.checkOutTime
               ? `${formatStayMoment(stay.checkIn, stay.checkInTime)} → ${formatStayMoment(stay.checkOut, stay.checkOutTime)}`
               : `${shortStayDayLabel(stay.checkIn)} → ${shortStayDayLabel(stay.checkOut)}`;
-          const bookAgain = stay.canBookAgain ? () => setSheet({ seed: stay }) : undefined;
+          const bookAgain = stay.canBookAgain ? () => requestAgain(stay) : undefined;
+          const pay = stay.status === "confirmed" && stay.payment === "due" && bucket === "upcoming" ? payNow : undefined;
           const openTimes = bucket === "upcoming" && (stay.status === "confirmed" || stay.status === "pending") ? () => setTimesSheet({ stay, link: null }) : undefined;
           return (
             <RecordActionContext.Provider
@@ -159,8 +166,14 @@ export function ResidentStaysPanel({ basePath = "/resident", bucket = "upcoming"
                 scope: stay.id,
                 clear: () => {},
                 actions:
-                  bookAgain || openTimes ? (
+                  bookAgain || openTimes || pay ? (
                     <>
+                      {pay ? (
+                        <Button data-attr="resident-stay-menu-pay" onClick={pay}>
+                          <CreditCard className="size-4 shrink-0" aria-hidden />
+                          Pay now
+                        </Button>
+                      ) : null}
                       {openTimes ? (
                         <Button data-attr="resident-stay-menu-times" onClick={openTimes}>
                           <Clock className="size-4 shrink-0" aria-hidden />
@@ -169,7 +182,7 @@ export function ResidentStaysPanel({ basePath = "/resident", bucket = "upcoming"
                       ) : null}
                       {bookAgain ? (
                         <Button data-attr="resident-stay-menu-book-again" onClick={bookAgain}>
-                          Book again
+                          Request again
                         </Button>
                       ) : null}
                     </>
@@ -186,7 +199,7 @@ export function ResidentStaysPanel({ basePath = "/resident", bucket = "upcoming"
                   ...(stay.guests > 1 ? [{ icon: Users, label: `${stay.guests} guests` }] : []),
                 ]}
                 figure={stay.total != null ? { value: formatShortStayMoney(stay.total) } : undefined}
-                onOpen={bucket === "past" ? bookAgain : undefined}
+                onOpen={pay ?? (bucket === "past" ? bookAgain : undefined)}
                 onSelectedChange={() => {}}
                 omitActionView
                 selectLabel={`${stay.propertyLabel} ${stay.roomLabel} ${place}`}
@@ -206,16 +219,6 @@ export function ResidentStaysPanel({ basePath = "/resident", bucket = "upcoming"
             setTimesSheet(null);
           }}
           onChanged={() => void load()}
-        />
-      ) : null}
-      {sheet ? (
-        <BookAgainSheet
-          stays={stays}
-          seed={sheet.seed}
-          onClose={() => setSheet(null)}
-          onBooked={() => {
-            void load();
-          }}
         />
       ) : null}
     </div>

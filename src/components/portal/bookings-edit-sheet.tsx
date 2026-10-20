@@ -17,6 +17,7 @@ import { stayMetaRefOf, type StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { ROOM_DATE_BLOCKS_CHANGED } from "@/lib/channel-calendar/room-date-blocks";
 import { ROOM_BLOCK_KIND_CLOSED, roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { isShortStayRequestSource } from "@/lib/short-stay/guest-stays";
+import { stayApplicationFacts } from "@/lib/short-stay/stay-application";
 import { stayTimeOptions } from "@/lib/bookings/stay-time-options";
 import { DEFAULT_PROPERTY_STAY_TIMES, normalizePropertyStayTimes, resolveStayTimes } from "@/lib/bookings/stay-times";
 import { getPropertyById, getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
@@ -167,6 +168,7 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
   const rateUnit = basis === "daily" ? "day" : basis === "weekly" ? "week" : "month";
   const sections: (AddWorkspaceStep & { id: string })[] = [
     ...(reservation ? [] : [{ id: "guest", label: "Guest" }]),
+    ...(details.application ? [{ id: "request", label: "Request" }] : []),
     { id: "where", label: "Where", incomplete: !lockedDetails && conflicts.length > 0 },
     { id: "when", label: "When", incomplete: !lockedDetails && !valid },
     ...(reservation ? [{ id: "label", label: "Label" }] : [
@@ -209,6 +211,16 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
       <label><span className={POPUP_FIELD_LABEL_CLASS}>Email</span><Input type="email" disabled={guestLocked || busy} maxLength={200} value={guestEmail} onChange={(event) => setGuestEmail(event.target.value)} /></label>
       <div><span className={POPUP_FIELD_LABEL_CLASS}>Phone</span><PhoneNumberField id="booking-edit-phone" value={guestPhone} onChange={setGuestPhone} disabled={guestLocked || busy} dataAttr="booking-edit-phone" /></div>
       <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Status" dataAttr="select-booking-edit-status" disabled={locked || busy || decidable} value={status} onChange={setStatus} options={[{ value: "hold", label: "Hold" }, { value: "confirmed", label: "Confirmed" }]} />
+    </EditSection> : null}
+    {has("request") && details.application ? <EditSection id="request" label="Request">
+      <dl className="grid gap-x-4 gap-y-3 sm:col-span-2 sm:grid-cols-2" data-attr="bookings-stay-application">
+        {stayApplicationFacts(details.application).map((fact) => (
+          <div key={fact.label} className={fact.label === "Message" ? "sm:col-span-2" : undefined}>
+            <dt className={POPUP_FIELD_LABEL_CLASS}>{fact.label}</dt>
+            <dd className="text-[15px] font-medium text-foreground sm:text-[14px]">{fact.value}</dd>
+          </div>
+        ))}
+      </dl>
     </EditSection> : null}
     <EditSection id="where" label="Where">
       <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Property" dataAttr="select-booking-edit-property" disabled={locked || busy} value={propertyId} onChange={(next) => { setPropertyId(next); chooseRoom("", next); }} options={properties.map((property) => ({ value: property.id, label: property.label }))} />

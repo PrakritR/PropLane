@@ -36,6 +36,12 @@ export function shortStayHoldExpiresAt(now: Date = new Date()): string {
 
 export type GuestStayStatus = "confirmed" | "pending" | "declined" | "expired" | "cancelled";
 
+/**
+ * Where a CONFIRMED stay's `stay_total` stands in the guest's Payments: `due` = approved, pay it now;
+ * `processing` = a bank debit is clearing; `paid`; `none` = no charge (a manager-typed or older stay).
+ */
+export type GuestStayPayment = "due" | "processing" | "paid" | "none";
+
 /** One of the guest's own stays, as the Stays list draws it. Never carries another guest's data. */
 export type GuestStay = {
   id: string;
@@ -55,6 +61,8 @@ export type GuestStay = {
   nightly: number | null;
   /** True when the listing still takes short stays, so a past row can offer Book again. */
   canBookAgain: boolean;
+  /** The stay_total's standing in Payments (only meaningful once `status` is `confirmed`). */
+  payment?: GuestStayPayment;
   /** The stay's CURRENT check-in / check-out wall times ("HH:MM", the property's clock): standard, or moved by a paid add-on. */
   checkInTime?: string;
   checkOutTime?: string;
@@ -71,10 +79,14 @@ export function parseGuestStayBucket(value: string | undefined): GuestStayBucket
   return GUEST_STAY_BUCKETS.find((bucket) => bucket === value) ?? null;
 }
 
-/** A stay is Upcoming while it is confirmed or pending and its check-out is still ahead (check-out day is exclusive). */
+/**
+ * A stay is Upcoming while its check-out is still ahead (check-out day is exclusive) and the host's answer
+ * is one the guest still needs to see: Requested, Approved, Confirmed, Declined or Expired. Any other
+ * ending (a cancellation) and anything over is Past.
+ */
 export function guestStayBucket(stay: Pick<GuestStay, "status" | "checkOut">, today: string): GuestStayBucket {
-  const live = stay.status === "confirmed" || stay.status === "pending";
-  return live && stay.checkOut > today ? "upcoming" : "past";
+  const shown = stay.status === "confirmed" || stay.status === "pending" || stay.status === "declined" || stay.status === "expired";
+  return shown && stay.checkOut > today ? "upcoming" : "past";
 }
 
 export function sortGuestStays(stays: readonly GuestStay[], bucket: GuestStayBucket): GuestStay[] {
@@ -91,13 +103,19 @@ export function holdExpiresInLabel(expiresAt: string | null | undefined, now: Da
   return `Pending, expires in ${Math.floor(minutes / 60)}h`;
 }
 
-/** The status fact a row prints (no pill: the fact line says it). */
-export function guestStayStatusLabel(stay: Pick<GuestStay, "status" | "checkOut" | "holdExpiresAt">, today: string, now: Date = new Date()): string {
+/**
+ * The status fact a row prints (no pill: the fact line says it): Requested (with the host's hours left),
+ * Approved (with "pay now" while the stay_total is unpaid), Confirmed, Completed, Declined or Expired.
+ */
+export function guestStayStatusLabel(stay: Pick<GuestStay, "status" | "checkOut" | "holdExpiresAt"> & { payment?: GuestStayPayment }, today: string, now: Date = new Date()): string {
   switch (stay.status) {
     case "confirmed":
-      return stay.checkOut <= today ? "Completed" : "Confirmed";
+      if (stay.checkOut <= today) return "Completed";
+      if (stay.payment === "due") return "Approved, pay now";
+      if (stay.payment === "processing") return "Approved, payment processing";
+      return "Confirmed";
     case "pending":
-      return holdExpiresInLabel(stay.holdExpiresAt, now);
+      return holdExpiresInLabel(stay.holdExpiresAt, now).replace(/^Pending/, "Requested");
     case "declined":
       return "Declined";
     case "expired":
@@ -251,7 +269,7 @@ export function withGuestSignInPrompt(text: string, origin: string | null | unde
 
 /* ─────────────────── what a manager's save must not strip ─────────────────── */
 
-const CARRIED_STAY_DETAIL_KEYS = ["guests", "holdExpiresAt", "decision", "confirmedAt", "decidedAt"] as const;
+const CARRIED_STAY_DETAIL_KEYS = ["guests", "holdExpiresAt", "decision", "confirmedAt", "decidedAt", "application"] as const;
 
 /**
  * The booking editor posts back only the fields it draws. For a guest's stay, the guest's login

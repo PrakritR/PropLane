@@ -16,6 +16,7 @@ import { normalizeRoomBlockKind, roomDateBlockNameError } from "@/lib/channel-ca
 import { stampStayRow } from "@/lib/bookings/stay-stamp";
 import { STAY_ADD_ON_KINDS, normalizePropertyStayTimes, normalizeStayTime, type StayAddOns } from "@/lib/bookings/stay-times";
 import { propertyTimeZoneForZip } from "@/lib/property-time-zone";
+import { normalizeStayApplication } from "@/lib/short-stay/stay-application";
 import { getPropertyById } from "@/lib/rental-application/data";
 
 export const ROOM_DATE_BLOCKS_CHANGED = "axis:room-date-blocks-changed";
@@ -72,6 +73,9 @@ function normalizeStayDetails(raw: unknown): RoomDateBlock["stayDetails"] {
   if (addOns) result.addOns = addOns;
   const arrival = normalizeStayTime(values.estimatedArrival);
   if (arrival) result.estimatedArrival = arrival;
+  // The guest's booking application (resident portal request): server-written, read back for the host.
+  const application = normalizeStayApplication(values.application);
+  if (application) result.application = application;
   return result;
 }
 

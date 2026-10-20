@@ -4,7 +4,7 @@ import "server-only";
  * The instant-book rule for a signed-in guest's short stay.
  *
  * A stay is written `confirmed` at once only when ALL of these hold: the listing's
- * "Returning guests book instantly" switch is on (`shortStayInstantBookReturning`, default on, saved on
+ * "Returning guests book instantly" switch is on (`shortStayInstantBookReturning`, default OFF, saved on
  * the submission and read here - never resolved from a default downstream), the guest has at least one
  * COMPLETED stay on this listing, and the host has not declined one of their requests here. A past stay
  * is theirs by login, by login address, or by a VERIFIED phone - never by a number they just typed into
@@ -21,9 +21,9 @@ import {
 import { isPlaceholderImportEmail } from "@/lib/portfolio-import/placeholder-email";
 import { postgrestFilterValue } from "@/lib/supabase/or-filter";
 
-/** Default on: a listing that never saved the switch lets returning guests book instantly. */
+/** Default OFF (captain, Oct 20): a web request is an application the host answers; only a listing whose host ticked the switch confirms a returning guest at once. */
 export function listingBooksReturningGuestsInstantly(submission: { shortStayInstantBookReturning?: boolean } | null | undefined): boolean {
-  return submission?.shortStayInstantBookReturning !== false;
+  return submission?.shortStayInstantBookReturning === true;
 }
 
 export type GuestIdentity = {

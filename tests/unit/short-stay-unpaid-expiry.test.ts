@@ -5,6 +5,8 @@ const emitActionEvent = vi.fn(async (..._args: unknown[]) => ({}));
 vi.mock("@/lib/action-events.server", () => ({ emitActionEvent: (...args: unknown[]) => emitActionEvent(...args) }));
 const enqueueOwnerSms = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({ enqueueOwnerSms: (...args: unknown[]) => enqueueOwnerSms(...args) }));
+const deliverInbox = vi.fn(async (..._args: unknown[]) => ({ ok: true }));
+vi.mock("@/lib/portal-inbox-delivery", () => ({ deliverPortalInboxMessage: (...args: unknown[]) => deliverInbox(...args) }));
 vi.mock("@/lib/resend-delivery.server", () => ({ postResendEmail: vi.fn(async () => new Response("{}", { status: 200 })) }));
 vi.mock("@/lib/manager-outbound-identity.server", () => ({ managerOutboundFromHeader: async () => "PropLane <work@proplane.test>" }));
 const stripeSession = vi.hoisted(() => ({ get: { id: "cs_1", status: "open", payment_status: "unpaid" } as Record<string, unknown>, expired: [] as string[] }));
@@ -95,6 +97,18 @@ describe("a confirmed stay left unpaid for 24 hours", () => {
     expect(again).toMatchObject({ checked: 0, released: 0 });
     expect(enqueueOwnerSms).toHaveBeenCalledTimes(1);
     expect(emitActionEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("a stay made in the portal is told in the portal and by email, with the Stays address and no text", async () => {
+    const db = seeded([confirmedRow("blk-1", {}, { source: "guest_portal" })], [charge("blk-1", "pending")]);
+    expect(await releaseUnpaidConfirmedStays(db as never, NOW)).toMatchObject({ released: 1, failed: 0 });
+    expect(enqueueOwnerSms).not.toHaveBeenCalled();
+    const notice = deliverInbox.mock.calls[0]![1] as { subject: string; text: string; toUserIds: string[]; suppressSms: boolean };
+    expect(notice).toMatchObject({ toUserIds: [GUEST], suppressSms: true });
+    expect(notice.subject).toBe("Released, unpaid: Attic Nook at Cedar Court");
+    expect(notice.text).toContain("https://proplane.ai/resident/stays/upcoming");
+    expect(notice.text).not.toContain("/l/");
+    expect(emitActionEvent.mock.calls.map((c) => (c[1] as { event: string }).event)).toEqual(["short_stay_unpaid_expired"]);
   });
 
   it("keeps the stay when the guest pays in the window: the charge CAS finds no unpaid row", async () => {

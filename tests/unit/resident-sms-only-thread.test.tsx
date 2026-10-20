@@ -98,15 +98,11 @@ describe("resident text-only conversation", () => {
     expect(screen.queryByText("Property manager")).toBeNull();
   });
 
-  it("replaces the composer with a Text <work number> sms link", async () => {
+  it("draws no composer and no sms: link (the portal is the web channel)", async () => {
     mount();
-    const action = await waitFor(() => {
-      const el = document.querySelector("[data-attr=resident-inbox-text-manager]");
-      expect(el).toBeTruthy();
-      return el as HTMLAnchorElement;
-    });
-    expect(action.getAttribute("href")).toBe("sms:+15103098345");
-    expect(action.textContent).toMatch(/Text\s*\+?1?\s*\(?510\)?\s*309-8345/);
+    await screen.findAllByText("Dana Whitfield");
+    expect(document.querySelector("[data-attr=resident-inbox-text-manager]")).toBeNull();
+    expect(document.querySelector("a[href^='sms:']")).toBeNull();
     expect(screen.queryByPlaceholderText(/reply/i)).toBeNull();
     expect(document.querySelector("[data-attr=resident-inbox-reply]")).toBeNull();
   });
@@ -114,7 +110,7 @@ describe("resident text-only conversation", () => {
   it("offers no mark-unread or archive on a derived row", async () => {
     mount();
     await screen.findAllByText("Dana Whitfield");
-    expect(document.querySelector("[data-attr=inbox-thread-text-manager]")).toBeTruthy();
+    expect(document.querySelector("[data-attr=inbox-thread-text-manager]")).toBeNull();
     expect(document.querySelector("[data-attr=inbox-thread-mark-unread]")).toBeNull();
     expect(document.querySelector("[data-attr=inbox-thread-archive]")).toBeNull();
   });

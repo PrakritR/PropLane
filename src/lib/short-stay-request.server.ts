@@ -45,6 +45,7 @@ import { pacificTodayKey } from "@/lib/room-availability-range";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 import { ensureGuestLogin } from "@/lib/short-stay/guest-login.server";
+import type { StayApplicationAnswers } from "@/lib/short-stay/stay-application";
 import { offerFromQuote, withPriceFloor, type StayAddOnOffer } from "@/lib/short-stay/stay-add-ons";
 import { StayAddOnReadError, loadRoomOtherStays } from "@/lib/short-stay/stay-add-ons.server";
 import {
@@ -374,6 +375,8 @@ export async function createShortStayRows(
     estimatedArrival?: string | null;
     /** Add-ons the guest ticked; each is stored `requested` only when it is available for these exact nights. */
     addOns?: readonly StayAddOnKind[];
+    /** The booking application's answers (resident portal request): stored on `stayDetails.application`, shown to the host on the hold. */
+    application?: StayApplicationAnswers | null;
   },
 ): Promise<ShortStayRowResult[]> {
   const { actor, listing, guests, status } = input;
@@ -460,6 +463,7 @@ export async function createShortStayRows(
         guests,
         ...(holdExpiresAt ? { holdExpiresAt } : { confirmedAt: now }),
         ...(arrival ? { estimatedArrival: arrival } : {}),
+        ...(input.application ? { application: input.application } : {}),
         ...(Object.keys(requestedAddOns).length ? { addOns: requestedAddOns } : {}),
       },
       // The dates stay authoritative; the property's standard times ride beside them as real instants.
