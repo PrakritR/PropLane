@@ -76,8 +76,7 @@ function useJsonFetch<T>(url: string | null): FetchState<T> {
 }
 
 /**
- * Whether the signed-in account may open Owner payouts: the owner of record of a PropLane-managed workspace (or someone
- * with a fee agreement waiting to sign). The server answers 403 for everyone else, so the tab simply never shows.
+ * Whether the signed-in account may open Owner payouts: the owner of record of a PropLane-managed workspace. The server answers 403 for everyone else, so the tab simply never shows.
  */
 export function useOwnerPayoutsAllowed(): boolean {
   const [allowed, setAllowed] = useState(false);
@@ -107,8 +106,7 @@ function StatementBand({ children, label, count }: { children?: ReactNode; label
 }
 
 type WorkspaceListItem = { id: string; name: string; status: string; feeLine: string };
-type WaitingAgreement = { id: string; workspaceId: string; feeLine: string; terms: unknown; effectiveFrom: string; termsSha256: string };
-type WorkspaceList = { workspaces: WorkspaceListItem[]; waiting: WaitingAgreement[] };
+type WorkspaceList = { workspaces: WorkspaceListItem[] };
 
 type SendResult = { ok: boolean; error?: string; code?: string; data: Record<string, unknown> };
 
@@ -210,7 +208,6 @@ export function OwnerPayoutsPanel() {
   const params = useSearchParams();
   const paramWorkspace = params?.get("workspace") ?? "";
   const paramMonth = params?.get("month") ?? "";
-  const reviewId = params?.get("review") ?? "";
   const approveId = params?.get("approve") ?? "";
 
   const workspaceContext = useWorkspaces();
@@ -219,7 +216,6 @@ export function OwnerPayoutsPanel() {
   const [currentMonth] = useState(() => pacificCalendarMonthKey(Date.now()));
 
   const workspaces = list.data?.workspaces ?? [];
-  const waiting = list.data?.waiting ?? [];
   // A link that names a workspace wins, then the workspace the switcher is on (when PropLane holds its funds), then the first one
   // that is held: Finances never dead-ends on a workspace with nothing to show.
   const workspaceId =
@@ -241,18 +237,6 @@ export function OwnerPayoutsPanel() {
     invalidateSharedGets(OWNER_PAYOUTS_LIST_URL);
     list.reload();
     viewFetch.reload();
-  };
-
-  // Sign an agreement that was sent for signature. The hash of the terms THIS page rendered rides along, so an
-  // agreement edited and re-sent behind an open page is refused rather than signed.
-  const sign = async (policyId: string, termsSha256: string) => {
-    setActionError(null);
-    const r = await send(`/api/owner/finances/policy/${encodeURIComponent(policyId)}/sign`, "POST", { termsSha256 });
-    if (!r.ok) {
-      setActionError(r.error ?? "Could not record your signature.");
-      return;
-    }
-    reloadAll();
   };
 
   // Withdraw.
@@ -365,10 +349,6 @@ export function OwnerPayoutsPanel() {
     setConfirmId(null);
     setDismissedApprove(approveId);
   };
-  const reviewRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    reviewRef.current?.scrollIntoView?.({ block: "center" });
-  }, [reviewId, waiting.length]);
   const confirming = view?.pendingApprovals.find((p) => p.id === confirmTarget) ?? null;
 
   const downloadStatement = () => {
@@ -384,7 +364,7 @@ export function OwnerPayoutsPanel() {
     </div>
   ) : null;
 
-  const noneAtAll = !list.loading && !list.error && list.data !== null && workspaces.length === 0 && waiting.length === 0;
+  const noneAtAll = !list.loading && !list.error && list.data !== null && workspaces.length === 0;
 
   return (
     <div data-attr="owner-finances" className="min-w-0 space-y-4 max-lg:space-y-3">
@@ -398,26 +378,6 @@ export function OwnerPayoutsPanel() {
         <PortalRecordListSurface isEmpty emptyCard={{ title: "No managed workspaces yet" }} dataAttr="owner-finances-empty" />
       ) : (
         <>
-          {waiting.map((w) => (
-            <div
-              key={w.id}
-              ref={reviewId === w.id ? reviewRef : undefined}
-              className={cn("flex items-center justify-between gap-3 rounded-xl border bg-card p-4", reviewId === w.id ? "border-primary ring-2 ring-primary/20" : "border-border")}
-              data-attr="owner-finances-agreement"
-            >
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-muted">Management agreement</p>
-                <p className="mt-0.5 text-sm font-semibold text-foreground">{w.feeLine}</p>
-                <p className="mt-1 inline-flex items-center gap-1 text-[13px] text-muted">
-                  <CalendarDays className="size-3.5" aria-hidden /> Starts {shortDate(w.effectiveFrom)}
-                </p>
-              </div>
-              <Button data-attr="owner-finances-sign" onClick={() => sign(w.id, w.termsSha256)}>
-                Sign
-              </Button>
-            </div>
-          ))}
-
           {notice ? (
             <p role="status" className="text-sm font-medium text-foreground" data-attr="owner-finances-notice">
               {notice}
@@ -443,6 +403,7 @@ export function OwnerPayoutsPanel() {
                   { id: "balance", label: "Balance", value: formatManagedUsd(view.balance.balanceCents), dataAttr: "owner-finances-balance" },
                   { id: "available", label: "Available to withdraw", value: formatManagedUsd(view.balance.availableCents), tone: "ok", dataAttr: "owner-finances-available" },
                   { id: "pending", label: "Pending", value: formatManagedUsd(view.balance.pendingCents), dataAttr: "owner-finances-pending" },
+                  { id: "fee", label: "Management fee", value: `${(10_000 - view.policy.terms.ownerShareBps) / 100}%`, dataAttr: "owner-finances-fee" },
                   ...(view.occupancy ? [{ id: "rooms", label: "Rooms occupied", value: `${view.occupancy.occupied} of ${view.occupancy.units}` }] : []),
                 ]}
               />

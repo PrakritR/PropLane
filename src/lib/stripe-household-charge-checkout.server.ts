@@ -337,8 +337,8 @@ export async function createHouseholdChargeCheckout(
     // house with no workspace) would need two allocations, so it is refused before any money moves.
     const managedProblem = await managedCartProblem(db, loaded.map((row) => row.charge.propertyId));
     if (managedProblem) return { ok: false, status: 422, code: "MIXED_PAYMENT_SETUP", error: managedProblem };
-    // A PropLane Service workspace whose fee agreement is not signed is not managed yet: its rent must not be captured for the
-    // manager of record's personal payout account. Refuse until the agreement is signed.
+    // A PropLane Service workspace with no management fee is not managed yet: its rent must not be captured for the manager of
+    // record's personal payout account. It is given its automatic fee here and proceeds; refused only if that cannot be done.
     const setupProblem = await serviceSetupPendingProblem(db, loaded.map((row) => row.charge.propertyId));
     if (setupProblem) return { ok: false, status: 422, code: "SERVICE_SETUP_PENDING", error: setupProblem };
 

@@ -2,15 +2,17 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingSchemaError } from "@/lib/one-number/config.server";
-import { loadActivePolicyForWorkspace } from "@/lib/owner-management/policies.server";
-import { resolveManagedForProperties } from "@/lib/managed-finance/resolve.server";
+import { ensureServiceFeePolicy, loadActivePolicyForWorkspace } from "@/lib/owner-management/policies.server";
+import { managedCartProblem, resolveManagedForProperties } from "@/lib/managed-finance/resolve.server";
 
 /**
- * A PropLane Service workspace (`portal_workspaces.is_service`) that has no ACTIVE, signed fee policy is not yet "managed":
+ * A PropLane Service workspace (`portal_workspaces.is_service`) that has no ACTIVE fee policy is not yet "managed":
  * `resolveManagedForProperties` returns null for it, so its rent would be captured and credited to the manager of record's hold
- * and transferred to that person's own Connect account, instead of the owner / PropLane party ledger. Until the fee agreement is
- * signed this module (a) refuses new resident checkouts for the workspace, (b) freezes hold releases for its manager of record,
- * and (c) raises an admin attention item. docs/agents/owner-management.md § Unsigned service workspace.
+ * and transferred to that person's own Connect account, instead of the owner / PropLane party ledger. No one signs anything:
+ * the first time a workspace is found without one, `ensureServiceFeePolicy` creates the automatic management fee and the
+ * workspace is managed from then on. Only when that cannot be done (unreadable, or no owner of record to name) does this module
+ * fall back, fail closed, to (a) refusing new resident checkouts, (b) freezing hold releases for the manager of record, and
+ * (c) raising an admin attention item. docs/agents/owner-management.md § Unsigned service workspace.
  */
 
 export const SERVICE_SETUP_PENDING_MESSAGE =
@@ -18,7 +20,7 @@ export const SERVICE_SETUP_PENDING_MESSAGE =
 
 export type UnpoliciedServiceWorkspace = { workspaceId: string; workspaceName: string };
 
-/** Of these workspace ids, the `is_service` ones with no active signed policy. A failed read throws (callers fail closed). */
+/** Of these workspace ids, the `is_service` ones with no active policy after the automatic fee was tried. A failed read throws (callers fail closed). */
 export async function unpoliciedServiceWorkspaces(
   db: SupabaseClient,
   workspaceIds: ReadonlyArray<string | null | undefined>,
@@ -35,7 +37,11 @@ export async function unpoliciedServiceWorkspaces(
   for (const row of (data ?? []) as Array<{ id: string; name?: string | null; is_service?: boolean | null }>) {
     if (row.is_service !== true) continue;
     const policy = await loadActivePolicyForWorkspace(db, row.id, onDate);
-    if (!policy) out.push({ workspaceId: row.id, workspaceName: String(row.name ?? "").trim() || "Service workspace" });
+    if (policy) continue;
+    // The automatic management fee: created here, once, instead of refusing. Anything short of an active policy stays pending.
+    const ensured = await ensureServiceFeePolicy(db, row.id);
+    if (ensured.status === "exists" || ensured.status === "created") continue;
+    out.push({ workspaceId: row.id, workspaceName: String(row.name ?? "").trim() || "Service workspace" });
   }
   return out;
 }
@@ -78,14 +84,14 @@ export async function unpoliciedServiceForManager(db: SupabaseClient, managerUse
   return unpoliciedServiceWorkspaces(db, ids);
 }
 
-/** The admin attention item: one flag per workspace per day, shown in Admin > Finances > Flags. Never throws. */
+/** The admin attention item when the automatic fee could not be set: one flag per workspace per day, in Admin > Finances > Flags. Never throws. */
 export async function flagUnsignedFeeAgreement(db: SupabaseClient, ws: UnpoliciedServiceWorkspace, reason: "checkout_refused" | "hold_frozen"): Promise<void> {
   try {
     await db.from("owner_ledger_flags").upsert(
       {
         check_name: "fee_agreement_unsigned",
         subject: ws.workspaceId,
-        detail: { message: `Sign the fee agreement for ${ws.workspaceName}`, reason, workspace: ws.workspaceName },
+        detail: { message: `Could not set the management fee for ${ws.workspaceName}: name its owner of record`, reason, workspace: ws.workspaceName },
       },
       { onConflict: "check_name,subject,day", ignoreDuplicates: true },
     );
@@ -95,8 +101,10 @@ export async function flagUnsignedFeeAgreement(db: SupabaseClient, ws: Unpolicie
 }
 
 /**
- * Checkout-time guard, next to `managedCartProblem`: a resident cannot pay a house in a service workspace whose fee agreement is
- * not signed. Returns the message to show, or null. A failed read refuses (never "assume self-serve").
+ * Checkout-time guard, next to `managedCartProblem`: a resident cannot pay a house in a service workspace that has no management
+ * fee and could not be given one. A workspace without one gets its automatic fee here and the checkout proceeds; the cart is then
+ * re-checked, because the workspace just became managed (a cart that mixes it with another payment setup is refused). Returns the
+ * message to show, or null. A failed read refuses (never "assume self-serve").
  */
 export async function serviceSetupPendingProblem(
   db: SupabaseClient,
@@ -105,7 +113,7 @@ export async function serviceSetupPendingProblem(
 ): Promise<string | null> {
   try {
     const pending = await unpoliciedServiceForProperties(db, propertyIds, now.toISOString().slice(0, 10));
-    if (pending.length === 0) return null;
+    if (pending.length === 0) return await managedCartProblem(db, propertyIds, now);
     for (const ws of pending) await flagUnsignedFeeAgreement(db, ws, "checkout_refused");
     return SERVICE_SETUP_PENDING_MESSAGE;
   } catch {
@@ -115,16 +123,17 @@ export async function serviceSetupPendingProblem(
 
 /**
  * Must this house's resident money be captured on PropLane's platform balance (never a destination charge to the manager of record's
- * own Connect account)? True for a PropLane-managed workspace and for a service workspace whose fee agreement is not signed yet.
+ * own Connect account)? True for a PropLane-managed workspace and for a service workspace that could not be given its automatic fee.
  * A read that fails answers true: the platform capture is the safe side (the hold is frozen / allocated, never paid out).
  */
 export async function platformCaptureRequiredForProperty(db: SupabaseClient, propertyId: string | null | undefined): Promise<boolean> {
   const id = propertyId?.trim() ?? "";
   if (!id) return false;
   try {
-    const managed = await resolveManagedForProperties(db, [id], new Date().toISOString());
-    if (managed) return true;
-    return (await unpoliciedServiceForProperties(db, [id])).length > 0;
+    // Give a service workspace its automatic fee BEFORE resolving, so the first payment is captured on the platform balance and
+    // allocated, not left to a destination charge because the policy appeared a moment too late.
+    if ((await unpoliciedServiceForProperties(db, [id])).length > 0) return true;
+    return (await resolveManagedForProperties(db, [id], new Date().toISOString())) !== null;
   } catch {
     return true;
   }

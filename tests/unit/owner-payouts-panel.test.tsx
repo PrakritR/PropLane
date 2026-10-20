@@ -180,17 +180,16 @@ describe("OwnerPayoutsPanel", () => {
     });
   });
 
-  it("shows a waiting agreement and signs it", async () => {
-    search = "review=pol-9";
+  it("never asks the owner to sign: a leftover waiting agreement renders nothing, and the fee shows in the strip", async () => {
     installFetch({
       workspaces: [{ id: "ws-1", name: "Maple Court", status: "active", feeLine: "x" }],
       waiting: [{ id: "pol-9", workspaceId: "ws-2", feeLine: "You receive 90%, PropLane keeps 10% of rent", terms: TERMS, effectiveFrom: "2026-10-18" }],
     });
     render(<OwnerPayoutsPanel />);
-    expect(await screen.findByText("You receive 90%, PropLane keeps 10% of rent")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Sign" }));
-    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
-    expect(calls.find((c) => c.method === "POST")?.url).toBe("/api/owner/finances/policy/pol-9/sign");
+    expect(await screen.findByText("Management fee")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Sign" })).toBeNull();
+    expect(screen.queryByText("You receive 90%, PropLane keeps 10% of rent")).toBeNull();
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
 
   it("moves between months through the chevrons", async () => {

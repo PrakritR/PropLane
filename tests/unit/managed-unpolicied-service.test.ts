@@ -42,7 +42,7 @@ function world(over: Record<string, FakeRow[]> = {}) {
   });
 }
 
-describe("service workspace without a signed fee policy", () => {
+describe("service workspace whose automatic fee could not be created (fail-closed fallback)", () => {
   it("is found for an unsigned service house only", async () => {
     const f = world();
     expect(await unpoliciedServiceForProperties(f.db, ["p-svc"])).toEqual([{ workspaceId: "ws-svc", workspaceName: "Maple Court" }]);
@@ -61,7 +61,8 @@ describe("service workspace without a signed fee policy", () => {
     const flags = f.rows.owner_ledger_flags ?? [];
     expect(flags).toHaveLength(1);
     expect(flags[0]).toMatchObject({ check_name: "fee_agreement_unsigned", subject: "ws-svc" });
-    expect((flags[0]!.detail as { message: string }).message).toBe("Sign the fee agreement for Maple Court");
+    expect((flags[0]!.detail as { message: string }).message).toContain("Maple Court");
+    expect((flags[0]!.detail as { message: string }).message).not.toMatch(/sign/i);
     await serviceSetupPendingProblem(f.db, ["p-svc"]);
     expect(f.rows.owner_ledger_flags).toHaveLength(1); // one flag per workspace per day
   });
@@ -97,7 +98,76 @@ describe("service workspace without a signed fee policy", () => {
   });
 });
 
-describe("hold release is frozen for an unsigned service workspace", () => {
+/** Mirrors `activate_managed_policy` closely enough for the callers: end the old active row, activate the draft. */
+const activateRpc = (args: Record<string, unknown>, f: { rows: Record<string, FakeRow[]> }) => {
+  const rows = f.rows.managed_workspace_fee_policies!;
+  const row = rows.find((r) => r.id === args.p_id)!;
+  for (const other of rows) if (other.workspace_id === row.workspace_id && other.status === "active") other.status = "ended";
+  Object.assign(row, { status: "active", signed_at: "2026-10-20T00:00:00Z", accepted_via: args.p_via, terms_sha256: args.p_hash });
+  return { status: "active" };
+};
+function autoWorld() {
+  return fakeOwnerDb(
+    {
+      portal_workspaces: [{ id: "ws-svc", name: "Maple Court", is_service: true, owner_user_id: "client-1" }],
+      platform_service_settings: [{ singleton: true, owner_user_id: "svc-owner" }],
+      manager_property_records: [{ id: "p-svc", manager_user_id: "client-1", workspace_id: "ws-svc" }],
+      managed_workspace_fee_policies: [],
+    },
+    { rpc: { activate_managed_policy: activateRpc } },
+  );
+}
+
+describe("a service workspace without a policy gets its automatic fee instead of a refusal", () => {
+  it("the first checkout creates the policy and proceeds, with no admin flag", async () => {
+    const f = autoWorld();
+    expect(await serviceSetupPendingProblem(f.db, ["p-svc"])).toBeNull();
+    const policies = f.rows.managed_workspace_fee_policies!;
+    expect(policies).toHaveLength(1);
+    expect(policies[0]).toMatchObject({ status: "active", owner_user_id: "client-1", owner_share_bps: 9000, accepted_via: "admin_attested" });
+    expect(f.rows.owner_ledger_flags ?? []).toHaveLength(0);
+    // The next checkout reuses it.
+    expect(await serviceSetupPendingProblem(f.db, ["p-svc"])).toBeNull();
+    expect(f.rpcCalls.filter((c) => c.name === "activate_managed_policy")).toHaveLength(1);
+  });
+
+  it("the first payment is captured on the platform balance, never a destination charge", async () => {
+    const f = autoWorld();
+    expect(await platformCaptureRequiredForProperty(f.db, "p-svc")).toBe(true);
+    expect(f.rows.managed_workspace_fee_policies).toHaveLength(1);
+  });
+
+  it("a hold release is no longer frozen once the policy exists (it proceeds to verification)", async () => {
+    const f = autoWorld();
+    Object.assign(f.rows, {
+      platform_payment_holds: [{
+        id: "hold-1", owner_user_id: "client-1", owner_role: "manager", source: "household_charge", source_id: "cs_1", amount_cents: 5000,
+        status: "classified_held", stripe_charge_id: "ch_1", original_amount_cents: 5000, source_charge_gross_cents: 5000,
+        source_payment_intent_id: "pi_1", source_verified_at: "2026-10-01T00:00:00Z",
+      }],
+      platform_hold_transfer_attempts: [],
+    });
+    const charges = { retrieve: vi.fn(async () => { throw new Error("verification reached"); }) };
+    await expect(releaseVerifiedPlatformHoldsForOwner(f.db, { ownerUserId: "client-1", stripe: { charges, accounts: {}, transfers: {} } as never })).rejects.toThrow();
+    expect(charges.retrieve).toHaveBeenCalled();
+  });
+
+  it("a workspace with no owner of record is still refused (fail closed) and flagged", async () => {
+    const f = fakeOwnerDb(
+      {
+        portal_workspaces: [{ id: "ws-svc", name: "Maple Court", is_service: true, owner_user_id: "svc-owner" }],
+        platform_service_settings: [{ singleton: true, owner_user_id: "svc-owner" }],
+        manager_property_records: [{ id: "p-svc", manager_user_id: "svc-owner", workspace_id: "ws-svc" }],
+        managed_workspace_fee_policies: [],
+      },
+      { rpc: { activate_managed_policy: activateRpc } },
+    );
+    expect(await serviceSetupPendingProblem(f.db, ["p-svc"])).toBe(SERVICE_SETUP_PENDING_MESSAGE);
+    expect(f.rows.owner_ledger_flags).toHaveLength(1);
+  });
+});
+
+describe("hold release is frozen when a service workspace could not be given its fee", () => {
   const verifiedHold = {
     id: "hold-1", owner_user_id: MANAGER, owner_role: "manager", source: "household_charge", source_id: "cs_1", amount_cents: 5000,
     status: "classified_held", stripe_charge_id: "ch_1", original_amount_cents: 5000, source_charge_gross_cents: 5000,

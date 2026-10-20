@@ -182,6 +182,35 @@ export async function isWorkspaceMember(db: SupabaseClient, workspaceId: string,
   return (data ?? []).length > 0;
 }
 
+/**
+ * The platform service owner, read fail-closed: an unreadable settings row throws, because "not the service owner" is the
+ * answer that would let PropLane's own account become an owner of record. A missing table or no row means none is set.
+ */
+async function loadPlatformServiceOwnerId(db: SupabaseClient): Promise<string | null> {
+  const { data, error } = await db.from("platform_service_settings").select("owner_user_id").eq("singleton", true).maybeSingle();
+  if (error) {
+    if (isMissingSchemaError(error) || ["42P01", "42703", "PGRST204", "PGRST205"].includes(String(error.code))) return null;
+    throw new PolicyError(500, "Could not check the PropLane service owner.");
+  }
+  return str((data as Row | null)?.owner_user_id) || null;
+}
+
+/**
+ * May this person be the owner of record of the workspace? The workspace's own owner is the owner of record of a CLIENT-owned
+ * (attached) workspace, never of one the platform service owner owns (that would pay PropLane its own owner share). Anyone else
+ * must be an accepted member of the workspace team.
+ */
+export async function assertOwnerOfRecordAllowed(db: SupabaseClient, workspaceId: string, ownerUserId: string, workspaceOwner: string | null): Promise<void> {
+  if (workspaceOwner && ownerUserId === workspaceOwner) {
+    const serviceOwner = await loadPlatformServiceOwnerId(db);
+    if (serviceOwner && serviceOwner === workspaceOwner) {
+      throw new PolicyError(422, "The property owner must be a person added to the workspace, not its PropLane manager.");
+    }
+    return;
+  }
+  if (!(await isWorkspaceMember(db, workspaceId, ownerUserId))) throw new PolicyError(422, "Add the owner to the workspace team first.");
+}
+
 function validateEffective(effectiveFrom: string, now: Date): void {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom)) throw new PolicyError(400, "Choose a start date.");
   if (effectiveFrom > pacificDayKey(now)) throw new PolicyError(400, "The start date cannot be in the future. A policy starts when it is accepted.");
@@ -194,11 +223,9 @@ export async function createDraftPolicy(db: SupabaseClient, _admin: AdminActor, 
   validateEffective(input.effectiveFrom, now);
   const workspaceOwner = await loadWorkspaceOwnerId(db, input.workspaceId);
   if (!workspaceOwner) throw new PolicyError(404, "Workspace not found.");
-  // PropLane's own workspace owner is never the owner of record: that would pay PropLane its own owner share.
-  if (input.ownerUserId === workspaceOwner) throw new PolicyError(422, "The property owner must be a person added to the workspace, not its PropLane manager.");
-  if (!(await isWorkspaceMember(db, input.workspaceId, input.ownerUserId))) {
-    throw new PolicyError(422, "Add the owner to the workspace team first.");
-  }
+  // PropLane's own account is never the owner of record (it would pay PropLane its own owner share); a client who owns an
+  // attached workspace is.
+  await assertOwnerOfRecordAllowed(db, input.workspaceId, input.ownerUserId, workspaceOwner);
   const open = (await listPoliciesForWorkspace(db, input.workspaceId)).find((p) => p.status === "draft");
   if (open) throw new PolicyError(409, "This workspace already has a draft fee policy. Edit or end it.");
   const { data, error } = await db
@@ -238,9 +265,7 @@ export async function updateDraftPolicy(
   if (problem) throw new PolicyError(400, problem);
   validateEffective(effectiveFrom, now);
   if (ownerUserId !== current.ownerUserId) {
-    const workspaceOwner = await loadWorkspaceOwnerId(db, current.workspaceId);
-    if (ownerUserId === workspaceOwner) throw new PolicyError(422, "The property owner must be a person added to the workspace, not its PropLane manager.");
-    if (!(await isWorkspaceMember(db, current.workspaceId, ownerUserId))) throw new PolicyError(422, "Add the owner to the workspace team first.");
+    await assertOwnerOfRecordAllowed(db, current.workspaceId, ownerUserId, await loadWorkspaceOwnerId(db, current.workspaceId));
   }
   const { data, error } = await db
     .from("managed_workspace_fee_policies")
@@ -281,9 +306,7 @@ export async function sendPolicyForSignature(
   }
   const problem = validateManagedFeeTerms(current.terms);
   if (problem) throw new PolicyError(400, problem);
-  if (!(await isWorkspaceMember(db, current.workspaceId, current.ownerUserId))) {
-    throw new PolicyError(422, "This person is no longer on the workspace team.");
-  }
+  await assertCurrentOwnerSeated(db, current);
   const { data, error } = await db
     .from("managed_workspace_fee_policies")
     .update({ sent_at: now.toISOString(), updated_at: now.toISOString() })
@@ -330,7 +353,7 @@ async function activate(
   db: SupabaseClient,
   policy: PolicyRow,
   via: "owner_signature" | "admin_attested",
-  role: "owner" | "admin",
+  role: "owner" | "admin" | "system",
   note: string | null,
 ): Promise<PolicyRow> {
   const canonical = canonicalPolicyTerms({ workspaceId: policy.workspaceId, ownerUserId: policy.ownerUserId, terms: policy.terms, effectiveFrom: policy.effectiveFrom });
@@ -363,6 +386,16 @@ async function activate(
   return fresh;
 }
 
+/** The policy's owner of record is still seated: the workspace's own (client) owner, or an accepted team member. */
+async function assertCurrentOwnerSeated(db: SupabaseClient, policy: PolicyRow, status = 422, message = "This person is no longer on the workspace team."): Promise<void> {
+  try {
+    await assertOwnerOfRecordAllowed(db, policy.workspaceId, policy.ownerUserId, await loadWorkspaceOwnerId(db, policy.workspaceId));
+  } catch (e) {
+    if (e instanceof PolicyError && e.status === 422) throw new PolicyError(status, message);
+    throw e;
+  }
+}
+
 /** SHA-256 of the canonical fee terms of a policy as it stands: what the owner's signature is taken against. */
 export function policyTermsHash(policy: PolicyRow): string {
   return policyTermsSha256(
@@ -384,7 +417,7 @@ export async function signPolicy(db: SupabaseClient, ownerUserId: string, id: st
   const presented = String(termsSha256 ?? "").trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(presented)) throw new PolicyError(400, "Reload the agreement and sign it again.");
   if (presented !== policyTermsHash(current)) throw new PolicyError(409, "This agreement changed. Reload it and read the new terms before signing.");
-  if (!(await isWorkspaceMember(db, current.workspaceId, ownerUserId))) throw new PolicyError(403, "You are no longer on this workspace.");
+  await assertCurrentOwnerSeated(db, current, 403, "You are no longer on this workspace.");
   return activate(db, current, "owner_signature", "owner", null);
 }
 
@@ -396,7 +429,7 @@ export async function attestPolicy(db: SupabaseClient, _admin: AdminActor, id: s
   if (!current) throw new PolicyError(404, "Fee policy not found.");
   if (current.status === "active") return current;
   if (current.status !== "draft") throw new PolicyError(409, "Only a draft can be recorded.");
-  if (!(await isWorkspaceMember(db, current.workspaceId, current.ownerUserId))) throw new PolicyError(422, "This person is no longer on the workspace team.");
+  await assertCurrentOwnerSeated(db, current);
   return activate(db, current, "admin_attested", "admin", trimmed.slice(0, 300));
 }
 
@@ -453,4 +486,138 @@ export async function setOwnerPreferences(
     .maybeSingle();
   if (error || !data) throw new PolicyError(409, "The fee policy changed. Reload and try again.");
   return mapPolicyRow(data as Row);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The automatic management fee. A PropLane Service workspace needs no signature: it carries an ACTIVE, admin-attested policy
+// created for it the first time anything needs one (attach, create, a checkout, a hold release). docs/agents/owner-management.md.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export const AUTO_FEE_NOTE = "Automatic PropLane management fee";
+/** PropLane's default cut of rent, in percent (ownerShareBps 9000). */
+export const DEFAULT_MANAGEMENT_FEE_PERCENT = 10;
+export const MAX_MANAGEMENT_FEE_PERCENT = 30;
+
+export const DEFAULT_MANAGEMENT_FEE_TERMS: ManagedFeeTerms = {
+  ownerShareBps: 10_000 - DEFAULT_MANAGEMENT_FEE_PERCENT * 100,
+  appliesTo: "rent",
+  leasingFeeBps: 0,
+  minFeeCents: 0,
+  reserveTargetCents: 0,
+  repairApprovalThresholdCents: 25_000,
+};
+
+export type FeeActor = AdminActor | { role: "system" };
+
+export type EnsureServiceFeePolicyResult =
+  | { status: "exists" | "created"; policy: PolicyRow }
+  | { status: "not_service" | "no_owner" | "unavailable" };
+
+/** The owner of record of a service workspace: its client owner when attached, else the team member flagged as one. */
+async function resolveOwnerOfRecord(db: SupabaseClient, workspaceId: string, workspaceOwner: string): Promise<string | null> {
+  const serviceOwner = await loadPlatformServiceOwnerId(db);
+  if (!serviceOwner || serviceOwner !== workspaceOwner) return workspaceOwner;
+  const { data, error } = await db
+    .from("account_link_invites")
+    .select("invitee_user_id")
+    .eq("workspace_id", workspaceId)
+    .eq("is_owner_of_record", true)
+    .eq("status", "accepted")
+    .limit(1);
+  if (error) throw new PolicyError(500, "Could not read the workspace owner of record.");
+  return str(((data ?? []) as Row[])[0]?.invitee_user_id) || null;
+}
+
+async function endOpenDrafts(db: SupabaseClient, admin: AdminActor, workspaceId: string, now: Date): Promise<void> {
+  for (const draft of (await listPoliciesForWorkspace(db, workspaceId)).filter((p) => p.status === "draft")) await endPolicy(db, admin, draft.id, now);
+}
+
+/** Draft + admin-attest in one step, with the active policy's owner of record. The database function ends the old active row atomically. */
+async function activateNewTerms(
+  db: SupabaseClient,
+  actor: FeeActor,
+  workspaceId: string,
+  ownerUserId: string,
+  terms: ManagedFeeTerms,
+  now: Date,
+): Promise<PolicyRow> {
+  const admin: AdminActor = { role: "admin", userId: actor.role === "admin" ? actor.userId : "system" };
+  await endOpenDrafts(db, admin, workspaceId, now);
+  const draft = await createDraftPolicy(db, admin, { workspaceId, ownerUserId, terms, effectiveFrom: pacificDayKey(now) }, now);
+  return activate(db, draft, "admin_attested", actor.role === "admin" ? "admin" : "system", AUTO_FEE_NOTE);
+}
+
+/**
+ * Every PropLane Service workspace has a management fee that applies on its own. Idempotent: an active policy is left alone;
+ * otherwise the default (PropLane keeps 10% of rent) is created and activated, admin-attested, no signature. The owner of record
+ * is the workspace's owner when a client owns it (attached), or its flagged owner-of-record member when the service owner does.
+ * Never throws: anything unreadable answers `unavailable` and the callers' fail-closed refusal / hold freeze stays in force.
+ */
+export async function ensureServiceFeePolicy(
+  db: SupabaseClient,
+  workspaceId: string,
+  actor: FeeActor = { role: "system" },
+  now: Date = new Date(),
+): Promise<EnsureServiceFeePolicyResult> {
+  const id = workspaceId.trim();
+  if (!id) return { status: "not_service" };
+  try {
+    const active = await loadActivePolicyForWorkspace(db, id);
+    if (active) return { status: "exists", policy: active };
+    const { data, error } = await db.from("portal_workspaces").select("id, owner_user_id, is_service").eq("id", id).maybeSingle();
+    if (error) return isMissingSchemaError(error) ? { status: "not_service" } : { status: "unavailable" };
+    const ws = data as Row | null;
+    if (!ws || ws.is_service !== true) return { status: "not_service" };
+    const workspaceOwner = str(ws.owner_user_id);
+    if (!workspaceOwner) return { status: "no_owner" };
+    const ownerUserId = await resolveOwnerOfRecord(db, id, workspaceOwner);
+    if (!ownerUserId) return { status: "no_owner" };
+    try {
+      const policy = await activateNewTerms(db, actor, id, ownerUserId, { ...DEFAULT_MANAGEMENT_FEE_TERMS }, now);
+      return { status: "created", policy };
+    } catch (e) {
+      // A concurrent request may have created it first (one active policy per workspace): that is the answer.
+      const raced = await loadActivePolicyForWorkspace(db, id).catch(() => null);
+      if (raced) return { status: "exists", policy: raced };
+      if (e instanceof PolicyError && e.status === 422) return { status: "no_owner" };
+      return { status: "unavailable" };
+    }
+  } catch {
+    return { status: "unavailable" };
+  }
+}
+
+/** Percent PropLane keeps -> the policy's owner share in basis points. 0 to 30 percent, at most two decimals. */
+export function ownerShareBpsForFeePercent(percent: unknown): number | null {
+  const n = typeof percent === "number" ? percent : typeof percent === "string" && percent.trim() !== "" ? Number(percent) : NaN;
+  if (!Number.isFinite(n) || n < 0 || n > MAX_MANAGEMENT_FEE_PERCENT) return null;
+  const feeBps = Math.round(n * 100);
+  if (Math.abs(feeBps - n * 100) > 1e-6) return null;
+  return 10_000 - feeBps;
+}
+
+/**
+ * Admin changes a service workspace's management fee. A new policy version at the new rate is activated by the same database
+ * function that ends the old active one, in one transaction: there is never a moment without a policy, and the old row stays as
+ * history. Only the fee share moves; the owner of record and the other terms carry over.
+ */
+export async function setServiceManagementFee(
+  db: SupabaseClient,
+  admin: AdminActor,
+  workspaceId: string,
+  percent: unknown,
+  now: Date = new Date(),
+): Promise<PolicyRow> {
+  const ownerShareBps = ownerShareBpsForFeePercent(percent);
+  if (ownerShareBps === null) throw new PolicyError(400, `Enter a fee between 0 and ${MAX_MANAGEMENT_FEE_PERCENT}%.`);
+  const ensured = await ensureServiceFeePolicy(db, workspaceId, admin, now);
+  if (ensured.status !== "exists" && ensured.status !== "created") {
+    throw new PolicyError(
+      ensured.status === "not_service" ? 404 : 409,
+      ensured.status === "no_owner" ? "Name the workspace's owner of record first." : ensured.status === "not_service" ? "Service workspace not found." : "Could not read the workspace fee. Try again.",
+    );
+  }
+  const current = ensured.policy;
+  if (current.terms.ownerShareBps === ownerShareBps) return current;
+  return activateNewTerms(db, admin, current.workspaceId, current.ownerUserId, { ...current.terms, ownerShareBps }, now);
 }
