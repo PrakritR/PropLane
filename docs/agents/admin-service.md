@@ -17,3 +17,7 @@ PropLane Service is a FLAG on a workspace plus memberships, never ownership.
 - Work number column: the workspace's own active work number, else nothing.
 - Vendors tab (the roster) and Manager phone: [`one-number.md`](one-number.md) § W27. `platform_service_settings.manager_phone_e164` /
   `manager_phone_verified_at` are the service manager's identity; `profiles.phone` is never consulted for it.
+- Network tab (`?tab=network&bucket=leads|managers|roster`, `admin-service-network.tsx`): Vendor leads (`sms_vendor_leads`; Add to roster =
+  `convertVendorLead`, the roster rules unchanged, lead marked approved only after the roster write; Dismiss = decline), Free managers
+  (the Subscribers "Free" bucket, `GET /api/admin/service-network`; Message opens the account record, Invite as helper = the usual
+  `team-invite`), Roster (read view). Rows are glyph facts, never pills.
