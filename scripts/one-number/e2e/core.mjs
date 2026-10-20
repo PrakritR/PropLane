@@ -80,6 +80,7 @@ export class Harness {
       PROSPECT_SMS_BURST_CALLBACK_URL: `${this.base}/api/internal/prospect-sms-burst`,
       PROSPECT_SMS_BURST_CALLBACK_SECRET: "e2e-burst-secret-not-real",
       NEXT_TELEMETRY_DISABLED: "1",
+      NODE_OPTIONS: `${this.env.NODE_OPTIONS ?? ""} --require ${new URL("./no-h2-preload.cjs", import.meta.url).pathname}`.trim(),
     };
     delete env.VERCEL;
     delete env.VERCEL_ENV;
