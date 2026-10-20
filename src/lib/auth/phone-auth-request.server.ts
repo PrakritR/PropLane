@@ -1,6 +1,19 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { PHONE_AUTH_ERROR } from "@/lib/auth/phone-auth.server";
+import { rateLimit } from "@/lib/rate-limit";
+
+const HOUR_MS = 60 * 60 * 1000;
+/** Whole-endpoint hourly send budget for phone codes. A text costs money, so pumping stops here. */
+export const PHONE_START_GLOBAL_PER_HOUR = 300;
+
+/**
+ * The ONE endpoint-wide budget every door that texts a sign-in code must take from, so a second door (the
+ * "finish setup" link) cannot spend SMS outside the ceiling the main one enforces.
+ */
+export async function allowPhoneStartGlobalBudget(): Promise<boolean> {
+  return (await rateLimit("phone-auth-start-global", PHONE_START_GLOBAL_PER_HOUR, HOUR_MS)).ok;
+}
 
 export function phoneAuthResponse(body: object, status = 200) {
   return NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });

@@ -14,7 +14,6 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const FILES = [
-  join("src", "app", "(public)", "pricing", "page.tsx"),
   join("src", "components", "marketing", "site", "home-faq-items.tsx"),
   join("src", "components", "auth", "manager-plan-tier-cards.tsx"),
   join("src", "components", "marketing", "manager-start-page.tsx"),

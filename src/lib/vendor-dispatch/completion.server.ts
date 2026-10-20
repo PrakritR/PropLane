@@ -21,6 +21,7 @@ import {
   toGsm7,
 } from "@/lib/vendor-dispatch/text";
 import type { DispatchRunRow } from "@/lib/vendor-dispatch/types";
+import { applyApprovedDispatchInvoice, setServiceVendorCost, type ApprovedInvoiceOutcome } from "@/lib/vendor-dispatch/invoice-managed.server";
 
 /**
  * After the accept: DONE, "is it fixed?", and the invoice (vendor-dispatch-1018).
@@ -282,6 +283,22 @@ export async function recordVendorInvoice(
 
   const contacts = await loadVendorContacts(db, run.owner_user_id, [attempt.vendor_directory_id]);
   const contact = contacts.get(attempt.vendor_directory_id);
+  // Claim the run BEFORE the invoice row exists. The read above is not atomic, so two quick "INVOICE $240"
+  // texts both passed it; inserting first left the loser's submitted invoice live on the vendor-invoice rails,
+  // approvable later as a second bill against the owner and invisible to `details.invoiceId`.
+  const { data: claimed } = await db
+    .from("vendor_dispatch_runs")
+    .update({
+      pending_invoice_cents: input.amountCents,
+      details: { ...run.details, invoiceId: null },
+      approval_reminded_at: null,
+      updated_at: now.toISOString(),
+    })
+    .eq("id", run.id)
+    .is("pending_invoice_cents", null)
+    .select("id");
+  if (!claimed || (claimed as unknown[]).length === 0) return "already_pending";
+
   let invoiceId: string | null = null;
   if (contact?.vendorUserId) {
     try {
@@ -302,18 +319,12 @@ export async function recordVendorInvoice(
       console.error("vendor dispatch invoice not filed", error instanceof Error ? error.message : "unknown");
     }
   }
-  const { data: claimed } = await db
-    .from("vendor_dispatch_runs")
-    .update({
-      pending_invoice_cents: input.amountCents,
-      details: { ...run.details, invoiceId },
-      approval_reminded_at: null,
-      updated_at: now.toISOString(),
-    })
-    .eq("id", run.id)
-    .is("pending_invoice_cents", null)
-    .select("id");
-  if (!claimed || (claimed as unknown[]).length === 0) return "already_pending";
+  if (invoiceId) {
+    await db
+      .from("vendor_dispatch_runs")
+      .update({ details: { ...run.details, invoiceId }, updated_at: now.toISOString() })
+      .eq("id", run.id);
+  }
   await recordDispatchEvent(db, { ownerUserId: run.owner_user_id, runId: run.id, handle: run.handle, event: "invoice_asked", key: attempt.id, detail: { amountCents: input.amountCents, invoiceId }, now });
   await notifyApprovers(db, { ...run, details: { ...run.details, invoiceId } }, {
     audience: "everyone",
@@ -327,7 +338,7 @@ export async function recordVendorInvoice(
 export async function decideRunInvoice(
   db: SupabaseClient,
   input: { ownerUserId: string; actorUserId: string; runId: string; approve: boolean; rawText?: string | null; now?: Date },
-): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_allowed" | "wrong_state" | "tier" | "unavailable" }> {
+): Promise<{ ok: true; settled?: ApprovedInvoiceOutcome } | { ok: false; reason: "not_found" | "not_allowed" | "wrong_state" | "tier" | "unavailable" }> {
   const now = input.now ?? new Date();
   const run = await loadRun(db, input.runId);
   if (!run || run.owner_user_id !== input.ownerUserId) return { ok: false, reason: "not_found" };
@@ -339,6 +350,8 @@ export async function decideRunInvoice(
     const gate = await assertFinancialsTier(run.owner_user_id);
     if (!gate.ok) return { ok: false, reason: "tier" };
   }
+  let approvedAmountCents = Number(run.pending_invoice_cents);
+  let invoiceVendorUserId: string | null = null;
   if (invoiceId) {
     const { data: updated } = await db
       .from("vendor_invoices")
@@ -354,10 +367,22 @@ export async function decideRunInvoice(
       .select("id, vendor_user_id, total_cents, work_order_id");
     const row = ((updated ?? []) as Array<{ id: string; vendor_user_id: string; total_cents: number; work_order_id: string | null }>)[0];
     if (!row) return { ok: false, reason: "wrong_state" };
+    invoiceVendorUserId = row.vendor_user_id || null;
+    // The invoice row's own total is recomputed server side from its line items; the texted figure is only the fallback.
+    if (Number.isSafeInteger(Number(row.total_cents)) && Number(row.total_cents) >= 100) approvedAmountCents = Number(row.total_cents);
     if (input.approve) {
       try {
         await createBillFromVendorInvoice(db, run.owner_user_id, invoiceId);
       } catch {
+        // Bill creation needs the invoice to be `approved` already, so the flip above cannot wait for it. Put the
+        // invoice back to `submitted` instead: the manager's next Y finds it again rather than being told the
+        // invoice is "already handled" with no bill ever created. Bill creation is idempotent on the invoice id.
+        await db
+          .from("vendor_invoices")
+          .update({ status: "submitted", decided_at: null, decided_by: null, updated_at: now.toISOString() })
+          .eq("id", invoiceId)
+          .eq("manager_user_id", run.owner_user_id)
+          .eq("status", "approved");
         return { ok: false, reason: "unavailable" };
       }
     }
@@ -370,11 +395,33 @@ export async function decideRunInvoice(
       decision: input.approve ? "approved" : "rejected",
     }).catch(() => undefined);
   }
+  let settled: ApprovedInvoiceOutcome | undefined;
+  if (input.approve) {
+    // What the manager approved is what the service costs; Approve + pay reads it, never the earlier agreed price.
+    await setServiceVendorCost(db, run, approvedAmountCents, now.toISOString());
+    const contacts = run.accepted_vendor_directory_id
+      ? await loadVendorContacts(db, run.owner_user_id, [run.accepted_vendor_directory_id]).catch(() => null)
+      : null;
+    const contact = run.accepted_vendor_directory_id ? contacts?.get(run.accepted_vendor_directory_id) : undefined;
+    settled = await applyApprovedDispatchInvoice(db, {
+      run,
+      amountCents: approvedAmountCents,
+      invoiceId,
+      vendorUserId: invoiceVendorUserId ?? contact?.vendorUserId ?? null,
+      vendorDirectoryId: run.accepted_vendor_directory_id,
+      vendorName: contact?.name ?? "Vendor",
+      now,
+    });
+    if (settled === "posted" && !invoiceVendorUserId && !contact?.vendorUserId && run.accepted_vendor_directory_id) {
+      const { textUnclaimedDirectoryBalance } = await import("@/lib/managed-finance/directory-vendor.server");
+      await textUnclaimedDirectoryBalance(db, { directoryId: run.accepted_vendor_directory_id, workspaceId: run.workspace_id, now });
+    }
+  }
   await db
     .from("vendor_dispatch_runs")
     .update({
       pending_invoice_cents: null,
-      ...(input.approve ? { agreed_cents: run.pending_invoice_cents } : {}),
+      ...(input.approve ? { agreed_cents: approvedAmountCents } : {}),
       updated_at: now.toISOString(),
     })
     .eq("id", run.id);
@@ -386,10 +433,10 @@ export async function decideRunInvoice(
     actorUserId: input.actorUserId,
     channel: "sms",
     reply: input.rawText ?? null,
-    detail: { amountCents: run.pending_invoice_cents, invoiceId },
+    detail: { amountCents: approvedAmountCents, invoiceId, ...(settled ? { settled } : {}) },
     now,
   });
-  return { ok: true };
+  return { ok: true, ...(settled ? { settled } : {}) };
 }
 
 /** Attempts of a run, for the portal. */

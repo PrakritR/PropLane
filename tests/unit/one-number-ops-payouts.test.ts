@@ -133,6 +133,8 @@ describe("textPayoutsReady: the confirmation after Stripe onboarding", () => {
       body: "Payouts are set up to the account ending 4417.",
       role: "manager",
       idempotencyKey: "payouts-ready:acct_1:link-1",
+      // A manager's confirmation uses the manager-recipient purpose (their verified phone is the grant).
+      basis: { kind: "manager_notice", topic: "payouts_ready", recipientUserId: "u1" },
     });
   });
 
@@ -143,7 +145,12 @@ describe("textPayoutsReady: the confirmation after Stripe onboarding", () => {
       payout_destinations_cache: [{ owner_user_id: "u1", last4: "9911", is_default: true, updated_at: "2026-10-01" }],
     });
     await textPayoutsReady(db as never, {} as never, { userId: "u1", accountId: "acct_1", now: NOW });
-    expect(mocks.sendText.mock.calls[0]![1]).toMatchObject({ role: "vendor", body: "Payouts are set up to the account ending 9911." });
+    expect(mocks.sendText.mock.calls[0]![1]).toMatchObject({
+      role: "vendor",
+      body: "Payouts are set up to the account ending 9911.",
+      // The vendor asked for the link by text: that request is the opt-in to this one reply.
+      basis: { kind: "vendor_notice", recipientUserId: "u1", requestLinkId: "link-1" },
+    });
   });
 
   it("stays quiet for someone who set payouts up in the app (no payouts link was texted to them)", async () => {

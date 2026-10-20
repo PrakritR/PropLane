@@ -323,22 +323,8 @@ export async function removeServiceVendor(db: SupabaseClient, adminUserId: strin
 }
 
 /**
- * The dispatch path's roster hook (`on/paycore` plugs into this exact name and signature): the reachable PropLane Service
- * roster vendors for a job of `trade` in `workspaceId`, best fit first. `[]` for any workspace that is not a PropLane
- * Service workspace, when nobody on the roster takes the trade, or when the roster cannot be read - the caller then
- * offers the workspace's own vendors only. The dispatch engine itself reads the same roster through `matchDispatchRule`.
+ * The dispatch path's roster hook (`on/paycore` added the call site in `fallbackChain`): the reachable PropLane Service roster
+ * vendors for a job of `trade` in `workspaceId`; `[]` for any workspace that is not a service workspace. The body lives with
+ * the dispatch engine (`vendor-dispatch/service-roster.server.ts`); it is re-exported here, the roster's own module.
  */
-export async function serviceRosterVendorsForTrade(
-  db: SupabaseClient,
-  workspaceId: string,
-  trade: string,
-): Promise<import("@/lib/vendor-dispatch/types").ChainVendor[]> {
-  try {
-    const roster = await import("@/lib/vendor-dispatch/service-roster.server");
-    const serviceOwnerId = await roster.serviceOwnerForWorkspace(db, workspaceId);
-    if (!serviceOwnerId) return [];
-    return await roster.loadServiceRosterChain(db, { serviceOwnerId, trade });
-  } catch {
-    return [];
-  }
-}
+export { serviceRosterVendorsForTrade } from "@/lib/vendor-dispatch/service-roster.server";

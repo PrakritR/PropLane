@@ -1,3 +1,4 @@
+import { stripeWebhookSecrets, verifyStripeWebhookEvent, isConnectedAccountEvent } from "@/lib/stripe/webhook-verify";
 import { COMMS_CREDIT_PURPOSE } from "@/lib/comms-billing/credit-packs";
 import {
   CommsCreditValidationError,
@@ -55,7 +56,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { invalidateManagerTierCache } from "@/lib/manager-tier-sync-cache";
 import { reconcileManagerSmsEntitlement } from "@/lib/sms/manager-sms-entitlement.server";
 import { fulfillApplicationFeePayment, promoteClaimedApplicationAfterFee } from "@/lib/application-fee-fulfillment.server";
-import { LINKED_FORM_FEE_PURPOSE, markLinkedFormFeePaidFromStripeSession } from "@/lib/linked-form-fee.server";
+import { LINKED_FORM_FEE_PURPOSE, creditManagedLinkedFormFee, markLinkedFormFeePaidFromStripeSession } from "@/lib/linked-form-fee.server";
 import {
   householdChargeCheckoutProcessing,
   isHouseholdChargeCheckoutSession,
@@ -99,6 +100,7 @@ import {
   handleStripeTransferReversed,
 } from "@/lib/stripe-webhook-financials";
 import { handleVendorBankingDispute } from "@/lib/vendor-banking/disputes.server";
+import { settlePhoneBoundRentLinks } from "@/lib/one-number/links.server";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
 export const runtime = "nodejs";
@@ -254,8 +256,8 @@ export async function POST(req: Request) {
 }
 
 async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!secret) {
+  const secrets = stripeWebhookSecrets();
+  if (secrets.length === 0) {
     return NextResponse.json({ error: "Missing STRIPE_WEBHOOK_SECRET" }, { status: 500 });
   }
 
@@ -266,15 +268,21 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
   }
 
   const stripe = getStripe();
-  let event: Stripe.Event;
-  try {
-    event = stripe.webhooks.constructEvent(body, signature, secret);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Invalid signature";
-    return NextResponse.json({ error: msg }, { status: 400 });
+  // The platform endpoint and the separate Connect endpoint each have their own signing secret; try each, accept neither
+  // on a mismatch (docs/stripe-go-live.md § Webhooks).
+  const verified = verifyStripeWebhookEvent(stripe, body, signature, secrets);
+  if (!verified.ok) {
+    return NextResponse.json({ error: verified.error }, { status: 400 });
   }
+  const event: Stripe.Event = verified.event;
   ctx.verified = true;
   invalidateManagerTierCache();
+
+  // An event signed ONLY by the Connect endpoint's secret is a connected-account event: it must name its account and be one of
+  // the types this app handles for connected accounts. Anything else is acknowledged and ignored, never run as a platform event.
+  if (verified.source === "connect" && !isConnectedAccountEvent(event)) {
+    return NextResponse.json({ received: true, ignored: true }, { status: 200 });
+  }
 
   const db = createSupabaseServiceRoleClient();
 
@@ -298,6 +306,11 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
   try {
     if (event.type === "account.updated") {
       const account = event.data.object as Stripe.Account;
+      // A connected-account event is routed by `event.account`: its object must be that account.
+      if (event.account && account.id !== event.account) {
+        console.error("[stripe webhook] account.updated object does not match event.account");
+        return NextResponse.json({ received: true, ignored: true }, { status: 200 });
+      }
       await handleStripeAccountUpdated(db, account).catch((e) => {
         console.error("[stripe webhook] account.updated", e);
         throw e;
@@ -374,7 +387,7 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
           await enrichCheckoutLedgerFees(stripe, session);
           // Not swallowed: a captured fee whose recipient hold could not be booked fails the
           // delivery so Stripe retries (the credit is idempotent per session).
-          await creditHoldFromPaidSession(db, session);
+          if (!(await creditManagedLinkedFormFee(db, stripe, session))) await creditHoldFromPaidSession(db, session);
           track("linked_form_fee_paid", session.client_reference_id ?? session.id, { session_id: session.id });
         }
       } else if (session.metadata?.purpose === SCREENING_CHECKOUT_PURPOSE) {
@@ -429,6 +442,9 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
               stripe,
               paymentIntentId: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null,
             });
+            // A paid rent link ends here, on the confirmed payment (never on `processing`). Best effort:
+            // the link page re-derives the same answer when it is next opened.
+            await settlePhoneBoundRentLinks(db, householdChargeIdsFromMetadata(session.metadata)).catch(() => undefined);
             const distinctId = session.client_reference_id ?? session.id;
             track("household_charge_paid", distinctId, { session_id: session.id });
           }

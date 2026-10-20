@@ -131,6 +131,27 @@ export async function loadMarketplaceVendorUserIds(
   return filterMarketplaceVendorUserIds((data ?? []) as DirectoryProfileRow[], input);
 }
 
+/**
+ * The zip of many services in ONE property read (`.in("id", ids)`), keyed by the service's index in `rows`. Same rule as
+ * `resolveWorkOrderPropertyZip` (the service's own address first, then the property record), without a read per service.
+ */
+export async function resolveWorkOrderPropertyZips(
+  db: SupabaseClient,
+  rows: DemoManagerWorkOrderRow[],
+): Promise<(string | null)[]> {
+  const idOf = (row: DemoManagerWorkOrderRow) => row.assignedPropertyId?.trim() || row.propertyId?.trim() || "";
+  const ids = [...new Set(rows.filter((row) => !extractZipFromAddress(row.propertyAddress)).map(idOf).filter(Boolean))];
+  const byId = new Map<string, string | null>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await db.from("manager_property_records").select("id, row_data").in("id", ids.slice(i, i + 200));
+    for (const record of (data ?? []) as { id: unknown; row_data: unknown }[]) {
+      const rowData = (record.row_data ?? {}) as { zip?: string; address?: string; submission?: { zip?: string } };
+      byId.set(String(record.id), rowData.zip?.trim() || rowData.submission?.zip?.trim() || extractZipFromAddress(rowData.address) || null);
+    }
+  }
+  return rows.map((row) => extractZipFromAddress(row.propertyAddress) ?? (byId.get(idOf(row)) || null));
+}
+
 export async function resolveWorkOrderPropertyZip(
   db: SupabaseClient,
   row: DemoManagerWorkOrderRow,

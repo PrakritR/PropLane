@@ -100,7 +100,11 @@ branch, and `db:push` applies it only once merged):
 | 20261018310000 | `withdrawal_reserve_exists_stored_values` | `reserve_party_withdrawal` answers a reused key with the stored reservation, never the new request |
 | 20261018310100 | `phone_auth_failure_cap` | lifetime failed-code cap for phone sign-in (10 wrong codes in 24 hours locks the phone) |
 | 20261019130000 | `vendor_line_history` | two partial unique indexes on `agent_sessions` (PropLane-line vendor chat, personal-line carry-over) and `agent_sessions_directory_identity_check` restated with `vendor_line_sms`; no table (branch: `on/smsvendor`) |
+| 20261019150000 | `phone_first_accounts` | `sms_runtime_config.phone_required` (default FALSE on every row; production flips it deliberately), `phone_otp_challenges.purpose` gains `sms_signup`, `sms_signup_sessions` (sign-up by text state, service role only) (branch: `on/smssignup`) |
 | 20261019010000 | `burst_original_shared_line` | `resolve_sms_completed_receipt_original` also proves the shared PropLane line (live config, shared number, router-stamped workspace); needed before durable prospect bursts (`PROSPECT_SMS_BURSTS_ENABLED=1`) are on for the shared line (branch: `on/msge2e`) |
+| 20261019150100 | `phone_auth_failure_cap_per_purpose` | the 24-hour failed-code cap is counted per purpose (renamed from a duplicate 20261019150000 version) |
+| 20261019160000 | `phone_auth_send_budget_per_purpose` | `phone_auth_start` send budget per purpose under the phone-wide ceiling |
+| 20261019170000 | `sms_stay_offers` | the options a texter was quoted for a short stay and the one they picked (service role only, RLS on, no client grants); additive, inert until the leasing agent calls `quote_short_stays` (branch: `on/smsstay`; applied to dev only) |
 | 20261019160100 | `service_vendors_and_manager_phone` | `platform_service_settings.manager_phone_e164` / `manager_phone_verified_at`, `phone_otp_challenges.purpose` gains `service_manager` (rebuilt as the union of the live list), partial index on roster vendor rows (branch: `on/adminops`) |
 
 Check after the push (SQL editor, read-only):
@@ -383,3 +387,11 @@ order by last_inbound nulls first;
   right; but nothing restores scoped grants after a START on the shared line, which is why the backfill copies only
   scoped-only revokes and skips phones the global ledger already blocks.
 - The staging rehearsal (step 0.5) has not been done: no staging service-role key was available.
+
+## Apple Pay and Google Pay on the payment link
+
+The in-page form on `/l/<token>` is Stripe embedded checkout. The wallet buttons show only on a domain Stripe knows: add `proplane.ai`
+(and any other host the links are served from) under Dashboard > Settings > Payment methods > Payment method domains, in the live account
+for production and in test mode for dev and staging. Nothing in the repo registers it. Until it is added the form still offers card and
+"Pay from bank".
+

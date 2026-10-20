@@ -68,6 +68,32 @@ describe("prospect link recovery", () => {
     expect(complete.mock.calls[2][0].tools).toEqual([]);
   });
 
+  it("relinks: an apply link the model typed without a lookup is redone with the home's verified links", async () => {
+    const APPLY = "https://proplane.ai/rent/apply?propertyId=home-1&phone=%2B12065550142";
+    const relink = vi.fn(async () => ({ urls: [APPLY], context: JSON.stringify({ applyUrl: APPLY }) }));
+    complete
+      .mockResolvedValueOnce(final("Apply here: https://proplane.ai/rent/apply?propertyId=made-up"))
+      .mockResolvedValueOnce(final(`Apply here: ${APPLY}`));
+    const result = await runAgentTurn({
+      ctx, registry: listTool(), model, linkRecovery: { ...recovery, relink },
+      messages: [{ role: "assistant", content: `Home: ${LISTING_URL}` }, { role: "user", content: "how do I apply?" }],
+    });
+    expect(result.reply).toBe(`Apply here: ${APPLY}`);
+    expect(relink).toHaveBeenCalledTimes(1);
+    expect(complete.mock.calls[1][0].tools).toEqual([]);
+    expect(JSON.stringify(complete.mock.calls[1][0].messages)).toContain("verified links");
+  });
+
+  it("relink that still carries an unverified link falls through to the no-links retry", async () => {
+    const relink = vi.fn(async () => ({ urls: ["https://proplane.ai/rent/apply?propertyId=home-1"], context: "{}" }));
+    complete
+      .mockResolvedValueOnce(final("Apply: https://evil.example/x"))
+      .mockResolvedValueOnce(final("Apply: https://evil.example/y"))
+      .mockResolvedValueOnce(final("You can apply through PropLane."));
+    const result = await runAgentTurn({ ctx, registry: listTool(), model, linkRecovery: { ...recovery, relink }, messages: [{ role: "user", content: "how do I apply?" }] });
+    expect(result.reply).toBe("You can apply through PropLane.");
+  });
+
   it("falls back to a summary built from the tool result when the retry still has a link, and never the canned sentence", async () => {
     complete
       .mockResolvedValueOnce(listCall)

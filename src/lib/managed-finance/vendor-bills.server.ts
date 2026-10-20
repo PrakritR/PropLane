@@ -51,7 +51,8 @@ export function approvalText(input: { title: string; house: string; amountCents:
     s.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, "-").replace(/[^\x20-\x7e]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
   const dollars = `$${(input.amountCents / 100).toFixed(input.amountCents % 100 === 0 ? 0 : 2)}`;
   const vendor = clean(input.vendorLabel, 28);
-  return `${clean(input.title, 36)} at ${clean(input.house, 30)}, ${dollars}${vendor ? ` from ${vendor}` : ""}. Approve? Y/N`;
+  // The word, not a bare Y: an "ok" to any other PropLane text must never charge the owner for a repair.
+  return `${clean(input.title, 36)} at ${clean(input.house, 30)}, ${dollars}${vendor ? ` from ${vendor}` : ""}. Reply APPROVE or N`;
 }
 
 export function vendorPartyFor(input: Pick<VendorBillInput, "vendorUserId" | "vendorDirectoryId">): string {
@@ -174,6 +175,7 @@ async function askOwnerToApprove(db: SupabaseClient, policy: PolicyRow, input: V
   if (phoneKey) {
     const sent = await sendWorkspacePhoneText(db, {
       workspaceId: policy.workspaceId, phoneKey, body, role: "manager", idempotencyKey: `owner-expense-ask:${expenseId}`,
+      basis: { kind: "manager_notice", topic: "repair_approval", recipientUserId: policy.ownerUserId },
     }).catch(() => false);
     if (sent) {
       await db.from("owner_expenses").update({ approval_phone_key: phoneKey, approval_sent_at: now.toISOString() }).eq("id", expenseId);

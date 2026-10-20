@@ -1116,6 +1116,21 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["user_id"] },
   },
   {
+    // Sign-up by text: the finished session names the login it made (its typed answers are dropped at completion).
+    table: "sms_signup_sessions",
+    phase: 1,
+    manager: { ids: ["user_id"] },
+    vendor: { ids: ["user_id"] },
+    resident: { ids: ["user_id"] },
+  },
+  {
+    // Short stays by text: the options quoted to a texter for one manager's listing, held until a YES books them.
+    // The manager owns the row; the texter is a bare phone key with no login, so there is nothing to detach.
+    table: "sms_stay_offers",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     // Shared-line shadow log: what the router would have decided vs the real owner.
     table: "sms_line_shadow_decisions",
     phase: 1,

@@ -117,6 +117,12 @@ export type MintPhoneBoundLinkInput = {
   now?: Date;
   /** Override the link origin (a localhost lane server). */
   origin?: string;
+  /**
+   * Default true: a newer link for the same phone + purpose + target replaces the older one. A reminder text
+   * passes false so the link in yesterday's text still works today (each has its own expiry and a payment ends
+   * them all); the per-phone mint limit still applies.
+   */
+  supersede?: boolean;
 };
 
 export class PhoneBoundLinkError extends Error {
@@ -170,18 +176,20 @@ export async function mintPhoneBoundLink(
   const policy = PHONE_BOUND_LINK_POLICY[input.purpose];
   const expires = phoneBoundLinkExpiry(input.purpose, now);
 
-  // Replace, never stack: one live link per phone + purpose + target.
-  const { error: supersedeError } = await db
-    .from("phone_bound_links")
-    .update({ revoked_at: now.toISOString() })
-    .eq("phone_key", phoneKey)
-    .eq("purpose", input.purpose)
-    .eq("target_type", targetType)
-    .eq("target_id", targetId)
-    .is("revoked_at", null)
-    .is("used_at", null);
-  if (supersedeError && !isMissingSchemaError(supersedeError)) {
-    throw new PhoneBoundLinkError("unavailable", "Could not issue the link.");
+  // Replace, never stack: one live link per phone + purpose + target (unless the caller keeps earlier ones alive).
+  if (input.supersede !== false) {
+    const { error: supersedeError } = await db
+      .from("phone_bound_links")
+      .update({ revoked_at: now.toISOString() })
+      .eq("phone_key", phoneKey)
+      .eq("purpose", input.purpose)
+      .eq("target_type", targetType)
+      .eq("target_id", targetId)
+      .is("revoked_at", null)
+      .is("used_at", null);
+    if (supersedeError && !isMissingSchemaError(supersedeError)) {
+      throw new PhoneBoundLinkError("unavailable", "Could not issue the link.");
+    }
   }
 
   const token = generatePhoneBoundToken();
@@ -267,6 +275,52 @@ export async function markPhoneBoundLinkUsed(db: SupabaseClient, linkId: string,
     .update({ used_at: now.toISOString() })
     .eq("id", str(linkId))
     .is("used_at", null);
+}
+
+/**
+ * A rent link ends when the charges it names are PAID, not when someone merely opens or starts paying.
+ * Called from the Stripe webhook once a charge is confirmed paid (never on `processing`: a bank debit can
+ * still fail, and the person must be able to come back to the same link). A link that names several
+ * charges ends only when every one is paid; a part-paid link stays open for the balance.
+ * Best effort by design: the link page re-derives the same answer on its next open.
+ */
+export async function settlePhoneBoundRentLinks(
+  db: SupabaseClient,
+  chargeIds: readonly string[],
+  now: Date = new Date(),
+): Promise<number> {
+  const ids = [...new Set(chargeIds.map((id) => str(id)).filter((id) => /^[A-Za-z0-9_.:-]{1,120}$/.test(id)))];
+  if (ids.length === 0) return 0;
+  const candidates = new Map<string, { id: string; targetId: string }>();
+  for (const id of ids) {
+    const { data, error } = await db
+      .from("phone_bound_links")
+      .select("id, target_id")
+      .eq("purpose", "rent")
+      .is("used_at", null)
+      .is("revoked_at", null)
+      .like("target_id", `%${id}%`);
+    if (error) {
+      if (isMissingSchemaError(error)) return 0;
+      throw new Error("Could not read rent links.");
+    }
+    for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+      const targets = str(row.target_id).split(",").map((t) => t.trim());
+      if (targets.includes(id)) candidates.set(str(row.id), { id: str(row.id), targetId: str(row.target_id) });
+    }
+  }
+  let settled = 0;
+  for (const link of candidates.values()) {
+    const named = [...new Set(link.targetId.split(",").map((t) => t.trim()).filter(Boolean))];
+    const { data, error } = await db.from("portal_household_charge_records").select("id, status").in("id", named);
+    if (error) continue;
+    const paid = new Set(((data ?? []) as Array<Record<string, unknown>>).filter((r) => str(r.status) === "paid").map((r) => str(r.id)));
+    if (named.every((id) => paid.has(id))) {
+      await markPhoneBoundLinkUsed(db, link.id, now);
+      settled += 1;
+    }
+  }
+  return settled;
 }
 
 // ---------------------------------------------------------------------------------------------

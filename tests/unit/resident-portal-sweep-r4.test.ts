@@ -159,11 +159,9 @@ describe("R10 Lease and Forms open on the first tab with rows", () => {
 
 describe("R13 no group heading repeats its first row", () => {
   it("every resident group heading differs from the label of its first row", () => {
-    // The one named exception: the captain's #28 grouping heads the Lease group "Lease" over its "Lease" row.
-    const CAPTAIN_EXCEPTIONS = new Set(["lease"]);
     for (const group of PORTAL_NAV_GROUPS.resident) {
       const first = RESIDENT_UNIFIED_PORTAL_SECTIONS.find((section) => section.section === group.sections[0]);
-      if (!group.label || !first || CAPTAIN_EXCEPTIONS.has(group.id)) continue;
+      if (!group.label || !first) continue;
       expect(group.label.toLowerCase()).not.toBe(first.label.toLowerCase());
     }
     // The case the audit caught: "My home" over the "My home" row. The group is headed "Home" now (#28).

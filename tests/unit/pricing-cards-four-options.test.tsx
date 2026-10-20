@@ -6,7 +6,6 @@ import {
   ServicePricingCard,
   TIER_CTA,
 } from "@/components/marketing/site/pricing-cards";
-import PricingPage from "@/app/(public)/pricing/page";
 import { RATE_CARD, formatRateCardUsd } from "@/lib/billing/rate-card";
 import {
   MANAGER_PLAN_TIERS,
@@ -118,43 +117,7 @@ describe("all four pricing options", () => {
     ).toEqual(MANAGED_INCLUDES.map((item) => item.title));
   });
 
-  it("shows all four options for an old service-tab URL and preserves billing and comparison", async () => {
-    render(
-      await PricingPage({
-        searchParams: Promise.resolve({ view: "service", billing: "annual" }),
-      }),
-    );
-    const row = screen.getByRole("region", { name: "Pricing options" });
-    expect(
-      within(row)
-        .getAllByRole("article")
-        .map((article) => article.getAttribute("aria-label")),
-    ).toEqual(optionNames);
-    expect(
-      within(row).getByText(formatRateCardUsd(RATE_CARD.pro.floorAnnualCents)),
-    ).toBeVisible();
-    expect(screen.getByRole("link", { name: "Monthly" })).toHaveAttribute(
-      "href",
-      "/pricing",
-    );
-    expect(screen.getByRole("link", { name: /Annual/ })).toHaveAttribute(
-      "href",
-      "/pricing?billing=annual",
-    );
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
-      "We manage it for you.",
-    );
-    expect(
-      document.querySelector('[data-attr="pricing-sticky-cta-link"]'),
-    ).toHaveAttribute("href", "/#contact");
-    expect(
-      document.querySelector('[data-attr="pricing-sticky-cta-link"]'),
-    ).toHaveTextContent("Talk to us");
-    expect(screen.getByText("Compare every feature")).toBeInTheDocument();
-    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
-  });
-
-  it("preserves the detailed service card for the long service page", () => {
+  it("preserves the detailed service card the home page's service section renders", () => {
     render(<ServicePricingCard />);
     expect(screen.getByRole("link", { name: "Talk to us" })).toHaveAttribute(
       "href",

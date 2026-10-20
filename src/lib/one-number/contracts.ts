@@ -160,6 +160,17 @@ export type SharedLineSend = {
   mediaUrls?: string[];
   /** Stable key so a retry never double-sends. */
   idempotencyKey: string;
+  /**
+   * How the consent gate reads this text. Default `transactional` / `shared_line_message`. A one-time code
+   * the person just asked for is `control`; a notice to a signed-in manager or vendor carries that person's
+   * own purpose, conversation key and user id so their consent (never an application's) vouches for it.
+   */
+  delivery?: {
+    sendClass?: "control" | "transactional" | "automated";
+    purpose?: string;
+    conversationKey?: string | null;
+    recipientUserId?: string | null;
+  };
 };
 
 export type SharedLineSendResult =
@@ -200,7 +211,14 @@ export const SHARED_LINE_OTP_RULES = {
   codeLength: 6,
   ttlMinutes: 10,
   maxAttempts: 5,
+  /** Sends per phone per rolling hour FOR ONE PURPOSE. */
   maxSendsPerHour: 3,
+  /**
+   * Sends per phone per rolling hour across every purpose. Higher than the per-purpose budget so that abusing
+   * one door (the public-bind code anyone holding a printed entry code can aim at any number) cannot spend the
+   * allowance a rent link or a phone sign-in needs.
+   */
+  maxSendsPerPhonePerHour: 8,
   moneySessionMinutes: 30,
   otherSessionDays: 7,
 } as const;

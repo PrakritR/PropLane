@@ -386,7 +386,7 @@ describe("resident portal nav — Inspections lives inside My home", () => {
  * that rides on a form must be decided on the server.
  */
 describe("resident portal nav — the Forms section is consistent across every table", () => {
-  it("is registered, grouped under Lease right after the Lease row, rendered, and on the native bar in the same place", async () => {
+  it("is registered, grouped under Paperwork right after the Lease row, rendered, and on the native bar in the same place", async () => {
     const sections = await import("@/lib/portals/resident-sections");
     const groups = await import("@/lib/portals/nav-groups");
     const native = await import("@/lib/native/portal-bottom-nav");
@@ -395,7 +395,7 @@ describe("resident portal nav — the Forms section is consistent across every t
     }
     expect(sections.RESIDENT_RENDERED_SECTION_IDS as readonly string[]).toContain("forms");
     expect(sections.RESIDENT_FREE_TIER_SECTION_IDS as readonly string[]).toContain("forms");
-    // Captain #28: the Lease group is Lease, Forms, Documents; My home heads its own Home group
+    // Captain #28: the Paperwork group is Lease, Forms, Documents; My home heads its own Home group
     // (the phone bar below keeps its own order: Forms sits just before My home).
     const lease = groups.PORTAL_NAV_GROUPS.resident.find((g) => g.id === "lease")!.sections;
     expect(lease.indexOf("forms")).toBe(lease.indexOf("lease") + 1);

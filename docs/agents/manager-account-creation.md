@@ -63,3 +63,12 @@ cosmetic gap — it 400s every email/password signup.
 `src/lib/twilio.ts` re-exports it for the server callers that already import it
 from there; client components must import from `phone-e164` so the Twilio SDK and
 the Supabase service-role client stay out of the browser bundle.
+
+## A phone on every account, and sign-up by text
+
+Every sign-up door (manager, resident, vendor, the role-agnostic hub) requires the phone, and with
+`sms_runtime_config.phone_required` on, any signed-in account (email, Google, Apple) without a verified phone is sent
+to `/auth/verify-phone` before a portal. A manager can also create the same account by TEXT: the PropLane line asks
+name, business, homes and an optional email, then texts a code the person must text back before
+`ensureFreeManagerPortalAccess` runs on the Free plan. The email typed there is an unverified claim, never the login.
+Details and invariants: `one-number.md` section W26.

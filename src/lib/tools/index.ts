@@ -131,6 +131,8 @@ import { managerServicesWriteTools } from "./domains/services-write";
 import { managerDispatchTools } from "./domains/vendor-dispatch";
 import { managerAnnounceTools } from "./domains/announce";
 import { confirmTourInquiryTool } from "./domains/tours-write";
+import { prepareShortStayTool, quoteShortStaysTool, requestShortStayTool } from "./domains/short-stay-sms";
+import { leasingSendPaymentLinkTool } from "./domains/payment-link-sms";
 import {
   bookTourTool,
   cancelTourTool,
@@ -429,6 +431,20 @@ export const leasingSmsAutonomousTourRegistry = buildRegistry([
 ]);
 
 /**
+ * Short stays and payment links by text. Added to the leasing registry for SMS turns only (the tools refuse any
+ * other channel anyway). `request_short_stay` is the third inline write: it writes the same 24-hour hold the host
+ * answers (or an instant confirm for a returning guest) through the ONE stay core, from a stored option the
+ * texter picked and then affirmed with YES; it charges nothing.
+ */
+export const LEASING_SMS_STAY_TOOLS = [quoteShortStaysTool, prepareShortStayTool, requestShortStayTool, leasingSendPaymentLinkTool];
+export const LEASING_SMS_STAY_WRITE_TOOLS: readonly string[] = [requestShortStayTool.name];
+export function withLeasingSmsStayTools(registry: ToolRegistry<AgentContext>): ToolRegistry<AgentContext> {
+  const next: ToolRegistry<AgentContext> = new Map(registry);
+  for (const tool of LEASING_SMS_STAY_TOOLS) if (!next.has(tool.name)) next.set(tool.name, tool);
+  return next;
+}
+
+/**
  * Write tools the prospect-facing leasing SMS agent may run inline.
  *
  * A texting prospect is anonymous: there is no `user_id` for a pending action
@@ -437,6 +453,8 @@ export const leasingSmsAutonomousTourRegistry = buildRegistry([
  * class — each files a request and notifies the manager, and neither changes
  * anything the manager has not then seen and acted on. Nothing that books,
  * charges, sends on the manager's behalf, or reads personal data may join them.
+ * (The one captain-directed exception, `request_short_stay`, is a separate list above: it writes a
+ * hold the host answers, from a stored option and a YES, and charges nothing.)
  */
 export const LEASING_SMS_INLINE_WRITE_TOOLS: readonly string[] = [
   escalateLeasingToManagerTool.name,

@@ -1,3 +1,4 @@
+import { stripSmsMarkdown } from "@/lib/agent/conversation-style-rules";
 import { randomUUID } from "node:crypto";
 import { mirrorManagerOwnOutboxToAssistantThread } from "@/lib/sms/manager-assistant-thread-mirror.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -276,7 +277,7 @@ export async function enqueueOwnerSms(
   | { ok: true; outboxId: string; status: string; deduplicated: boolean }
   | { ok: false; error: string }
 > {
-  const body = input.body.trim();
+  const body = stripSmsMarkdown(input.body.trim());
   if (body && captureSmsTestDelivery({
     kind: "sms",
     summary: "Queued SMS delivery captured in the test conversation.",

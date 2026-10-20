@@ -1,5 +1,5 @@
 /**
- * PropLane Service dispatch (W26, per_workspace mode, what production runs): a resident of a service workspace files a leak
+ * PropLane Service dispatch (W27, per_workspace mode, what production runs): a resident of a service workspace files a leak
  * by text; the job goes to the service ROSTER (a vendor an admin added), the approval goes to the verified SERVICE MANAGER
  * phone, the manager approves from that phone on the PropLane line, the roster vendor's YES arrives on the same line and
  * assigns the job in the client's workspace, and the manager phone hears the outcome. Nothing is sent: the transport capture

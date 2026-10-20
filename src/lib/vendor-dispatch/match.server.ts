@@ -235,6 +235,22 @@ export async function loadRuleChain(
   return toChain(db, rule.owner_user_id, ordered, records, at);
 }
 
+/**
+ * The subset of these roster entries that may be texted right now, in the order given: the SAME busy-window and
+ * opt-out rules the first wave applies. A re-offer must go through this, never straight off the attempt rows.
+ */
+export async function reachableVendorDirectoryIds(
+  db: SupabaseClient,
+  input: { ownerUserId: string; vendorDirectoryIds: readonly string[]; at?: Date },
+): Promise<string[]> {
+  const ordered = [...new Set(input.vendorDirectoryIds.filter(Boolean))];
+  if (ordered.length === 0) return [];
+  const records = await loadRecords(db, ordered);
+  const chain = await toChain(db, input.ownerUserId, ordered, records, input.at ?? new Date());
+  const reachable = new Set(chain.map((vendor) => vendor.vendorDirectoryId));
+  return ordered.filter((id) => reachable.has(id));
+}
+
 /** Every reachable vendor of the trade on this manager's roster (the "offer all cleaners at once" set). */
 export async function loadTradeRoster(
   db: SupabaseClient,
@@ -297,12 +313,13 @@ async function withServiceRoster(
 
 /** The existing fairness ranking, restricted to vendors whose trades include the job's trade; a service workspace adds the roster. */
 async function fallbackChain(db: SupabaseClient, input: MatchInput, at: Date): Promise<ChainVendor[]> {
-  const own = await ownFallbackChain(db, input, at);
-  return withServiceRoster(db, { workspaceId: input.workspaceId, trade: input.trade, area: input.area, at }, own);
-}
-
-async function ownFallbackChain(db: SupabaseClient, input: MatchInput, at: Date): Promise<ChainVendor[]> {
-  const roster = await loadOwnTradeRoster(db, { ownerUserId: input.ownerUserId, trade: input.trade, propertyId: input.propertyId, at });
+  const ownRoster = await loadTradeRoster(db, { ownerUserId: input.ownerUserId, trade: input.trade, propertyId: input.propertyId, at });
+  // A service workspace's chain continues into the service-wide roster (admin Service > Vendors): own vendors first.
+  const serviceExtra = await import("@/lib/vendor-dispatch/service-roster.server")
+    .then((m) => m.serviceRosterVendorsForTrade(db, { workspaceId: input.workspaceId, trade: input.trade, area: input.area, at }))
+    .catch(() => []);
+  const ownIds = new Set(ownRoster.map((vendor) => vendor.vendorDirectoryId));
+  const roster = [...ownRoster, ...serviceExtra.filter((vendor) => !ownIds.has(vendor.vendorDirectoryId))] as typeof ownRoster;
   const workOrder = input.workOrder;
   if (!workOrder?.category || roster.length === 0) return roster.map((vendor, index) => ({ ...vendor, position: index }));
   const records = await loadRecords(db, roster.map((vendor) => vendor.vendorDirectoryId));

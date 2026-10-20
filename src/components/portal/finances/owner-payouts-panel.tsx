@@ -107,7 +107,7 @@ function StatementBand({ children, label, count }: { children?: ReactNode; label
 }
 
 type WorkspaceListItem = { id: string; name: string; status: string; feeLine: string };
-type WaitingAgreement = { id: string; workspaceId: string; feeLine: string; terms: unknown; effectiveFrom: string };
+type WaitingAgreement = { id: string; workspaceId: string; feeLine: string; terms: unknown; effectiveFrom: string; termsSha256: string };
 type WorkspaceList = { workspaces: WorkspaceListItem[]; waiting: WaitingAgreement[] };
 
 type SendResult = { ok: boolean; error?: string; code?: string; data: Record<string, unknown> };
@@ -243,10 +243,11 @@ export function OwnerPayoutsPanel() {
     viewFetch.reload();
   };
 
-  // Sign an agreement that was sent for signature.
-  const sign = async (policyId: string) => {
+  // Sign an agreement that was sent for signature. The hash of the terms THIS page rendered rides along, so an
+  // agreement edited and re-sent behind an open page is refused rather than signed.
+  const sign = async (policyId: string, termsSha256: string) => {
     setActionError(null);
-    const r = await send(`/api/owner/finances/policy/${encodeURIComponent(policyId)}/sign`, "POST");
+    const r = await send(`/api/owner/finances/policy/${encodeURIComponent(policyId)}/sign`, "POST", { termsSha256 });
     if (!r.ok) {
       setActionError(r.error ?? "Could not record your signature.");
       return;
@@ -278,7 +279,7 @@ export function OwnerPayoutsPanel() {
       return;
     }
     setWithdrawOpen(false);
-    setNotice(r.data.payoutPending === true ? "Your bank payout is being set up" : null);
+    setNotice(r.data.payoutAutomatic === true ? "On its way with your next automatic payout" : r.data.payoutPending === true ? "Your bank payout is being set up" : null);
     reloadAll();
   };
 
@@ -403,7 +404,7 @@ export function OwnerPayoutsPanel() {
                   <CalendarDays className="size-3.5" aria-hidden /> Starts {shortDate(w.effectiveFrom)}
                 </p>
               </div>
-              <Button data-attr="owner-finances-sign" onClick={() => sign(w.id)}>
+              <Button data-attr="owner-finances-sign" onClick={() => sign(w.id, w.termsSha256)}>
                 Sign
               </Button>
             </div>

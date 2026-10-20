@@ -9,6 +9,7 @@ import { decideFromCandidates } from "@/lib/one-number/router.server";
 import { findResidentCandidates, findVerifiedProfileByPhone } from "@/lib/one-number/router-lookups.server";
 import { loadSharedLineSession, saveSharedLinePending, saveSharedLineRoute } from "@/lib/one-number/session.server";
 import { toGsm7 } from "@/lib/one-number/segments";
+import { formatSmsLinks } from "@/lib/sms/link-format";
 import { resolveResidentSmsAgentContext } from "@/lib/tools/resident-sms-context";
 import { residentSendMyLinkTool } from "@/lib/tools/domains/one-number-links";
 
@@ -74,7 +75,7 @@ export async function handleLineResidentText(
     return {
       handled: true,
       residentUserId: profile.id,
-      reply: toGsm7(`Here is your secure payment link for ${where.label}: ${result.url} We will text a code to this number when you open it. It works for ${result.expires}.`),
+      reply: formatSmsLinks(toGsm7(`Here is your secure payment link for ${where.label}: ${result.url} We will text a code to this number when you open it. It works for ${result.expires}.`), resolveEmailLinkBaseUrl()),
     };
   }
   const fallback: Record<string, string> = {

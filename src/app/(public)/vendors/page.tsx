@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { VENDOR_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
+import { MANAGED_CONTACT_HREF } from "@/lib/marketing/managed-service";
 import { SiteFinalCta } from "@/components/marketing/site/final-cta";
 import {
   MockChip,
@@ -95,7 +96,7 @@ export default function VendorsPage() {
             primaryHref={VENDOR_GET_STARTED_HREF}
             primaryLabel="Join as a vendor"
             primaryAttr="vendors-hero-get-started"
-            secondaryHref="/contact"
+            secondaryHref={MANAGED_CONTACT_HREF}
             secondaryLabel="Ask a manager to invite you"
             secondaryAttr="vendors-hero-contact"
           />
@@ -135,7 +136,7 @@ export default function VendorsPage() {
         primaryHref={VENDOR_GET_STARTED_HREF}
         primaryLabel="Join as a vendor"
         primaryAttr="vendors-closing-get-started"
-        secondaryHref="/contact"
+        secondaryHref={MANAGED_CONTACT_HREF}
         secondaryLabel="Talk to us"
         secondaryAttr="vendors-closing-contact"
       />

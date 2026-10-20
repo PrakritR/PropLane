@@ -23,6 +23,8 @@ import {
 
 export const MIN_WITHDRAWAL_CENTS = 100;
 export const WEEKLY_BATCH_MIN_CENTS = 2500;
+const VENDOR_PARTY_PAGE_SIZE = 1000;
+const VENDOR_PARTY_MAX_PAGES = 1000;
 
 export type WithdrawInput = {
   kind: "owner" | "vendor";
@@ -37,7 +39,7 @@ export type WithdrawInput = {
 };
 
 export type WithdrawResult =
-  | { ok: true; withdrawalId: string; transferId: string; payoutId: string | null; payoutPending: boolean; payoutError?: string }
+  | { ok: true; withdrawalId: string; transferId: string; payoutId: string | null; payoutPending: boolean; payoutError?: string; payoutAutomatic?: true }
   | { ok: false; status: 400 | 402 | 403 | 409 | 422 | 500 | 503; error: string; code?: string };
 
 function idOf(v: string | { id: string } | null | undefined): string | null {
@@ -222,7 +224,11 @@ export async function carryOutWithdrawal(stripe: Stripe, db: SupabaseClient, w: 
 
   let payoutId: string | null = null;
   let payoutError: string | undefined;
-  try {
+  // An account on Stripe's AUTOMATIC payout schedule pays itself out: asking for a manual payout on it errors after the transfer
+  // landed. Read the schedule from the account and, when it is automatic, create no payout (the money leaves with its next one).
+  const schedule = await payoutScheduleOf(stripe, w.destinationAccountId);
+  const payoutAutomatic = schedule === "automatic";
+  if (!payoutAutomatic) try {
     const payout = await stripe.payouts.create(
       { amount: w.amountCents, currency: "usd", method: "standard", metadata: { withdrawal_id: w.withdrawalId, transfer_id: transfer.id } },
       { stripeAccount: w.destinationAccountId, idempotencyKey: `party-withdrawal-payout:${w.withdrawalId}:${w.amountCents}` },
@@ -241,7 +247,22 @@ export async function carryOutWithdrawal(stripe: Stripe, db: SupabaseClient, w: 
     await flag(db, "withdrawal_not_recorded", w.withdrawalId, { transfer: transfer.id });
     return { ok: false, status: 503, code: "VERIFYING", error: "The withdrawal is being recorded. Do not submit it again." };
   }
-  return { ok: true, withdrawalId: w.withdrawalId, transferId: transfer.id, payoutId, payoutPending: payoutId === null, ...(payoutError ? { payoutError } : {}) };
+  return {
+    ok: true, withdrawalId: w.withdrawalId, transferId: transfer.id, payoutId, payoutPending: payoutId === null,
+    ...(payoutError ? { payoutError } : {}), ...(payoutAutomatic ? { payoutAutomatic: true as const } : {}),
+  };
+}
+
+/** The connected account's payout schedule: `manual` (we create the payout), `automatic` (Stripe does), or `unknown` (read failed). */
+export async function payoutScheduleOf(stripe: Stripe, accountId: string): Promise<"manual" | "automatic" | "unknown"> {
+  try {
+    const account = await stripe.accounts.retrieve(accountId);
+    const interval = account.settings?.payouts?.schedule?.interval;
+    if (interval === "manual") return "manual";
+    return interval ? "automatic" : "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 async function flag(db: SupabaseClient, check: string, subject: string, detail: Record<string, unknown>): Promise<void> {
@@ -313,12 +334,25 @@ export function batchWeekKey(now: Date): string {
  * Idempotent per (vendor, week) through the withdrawal key, so a re-run of the cron pays nobody twice.
  */
 export async function runWeeklyVendorBatch(stripe: Stripe, db: SupabaseClient, now: Date = new Date()): Promise<{ paid: number; skipped: number; failed: number }> {
-  const { data, error } = await db.from("party_ledger_lines").select("party_id").eq("account", "vendor_payable").limit(5000);
-  if (error) {
-    if (String(error.code) === "42P01" || String(error.code) === "PGRST205") return { paid: 0, skipped: 0, failed: 0 };
-    throw new LedgerError(500, "Could not read vendor balances.");
+  // Paged: the cap was on LINES, not distinct vendors, so a vendor whose lines fell past it was never paid.
+  const parties = new Set<string>();
+  for (let page = 0; page < VENDOR_PARTY_MAX_PAGES; page += 1) {
+    const { data, error } = await db
+      .from("party_ledger_lines")
+      .select("party_id, created_at")
+      .eq("account", "vendor_payable")
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(page * VENDOR_PARTY_PAGE_SIZE, page * VENDOR_PARTY_PAGE_SIZE + VENDOR_PARTY_PAGE_SIZE - 1);
+    if (error) {
+      if (String(error.code) === "42P01" || String(error.code) === "PGRST205") return { paid: 0, skipped: 0, failed: 0 };
+      throw new LedgerError(500, "Could not read vendor balances.");
+    }
+    const batch = (data ?? []) as Array<{ party_id: string | null }>;
+    for (const row of batch) parties.add(row.party_id ?? "");
+    if (batch.length < VENDOR_PARTY_PAGE_SIZE) break;
   }
-  const vendors = [...new Set(((data ?? []) as Array<{ party_id: string | null }>).map((r) => r.party_id ?? "").filter((p) => p.startsWith("vendor:")))];
+  const vendors = [...parties].filter((p) => p.startsWith("vendor:"));
   const week = batchWeekKey(now);
   let paid = 0, skipped = 0, failed = 0;
   for (const party of vendors) {

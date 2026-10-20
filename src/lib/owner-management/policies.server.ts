@@ -319,6 +319,7 @@ export async function sendPolicyForSignature(
       body: `Your PropLane management agreement is ready to sign: ${link}`,
       role: "manager",
       idempotencyKey: `managed-policy-sent:${policy.id}:${stamp}`,
+      basis: { kind: "manager_notice", topic: "fee_policy", recipientUserId: policy.ownerUserId },
     }).catch(() => false);
   }
   return { policy, emailed: email.status === "sent", texted };
@@ -334,6 +335,7 @@ async function activate(
 ): Promise<PolicyRow> {
   const canonical = canonicalPolicyTerms({ workspaceId: policy.workspaceId, ownerUserId: policy.ownerUserId, terms: policy.terms, effectiveFrom: policy.effectiveFrom });
   const hash = policyTermsSha256(canonical);
+
   const { data, error } = await db.rpc("activate_managed_policy", {
     p_id: policy.id,
     p_via: via,
@@ -355,12 +357,27 @@ async function activate(
   return fresh;
 }
 
-/** The owner of record signs the version they were sent. Identity is the session; the membership is read fresh. */
-export async function signPolicy(db: SupabaseClient, ownerUserId: string, id: string): Promise<PolicyRow> {
+/** SHA-256 of the canonical fee terms of a policy as it stands: what the owner's signature is taken against. */
+export function policyTermsHash(policy: PolicyRow): string {
+  return policyTermsSha256(
+    canonicalPolicyTerms({ workspaceId: policy.workspaceId, ownerUserId: policy.ownerUserId, terms: policy.terms, effectiveFrom: policy.effectiveFrom }),
+  );
+}
+
+/**
+ * The owner of record signs the version they were sent. Identity is the session; the membership is read fresh; and
+ * the request carries the hash of the terms the page RENDERED, so a draft edited and re-sent under an open page
+ * cannot take the owner's signature on terms they never saw. This is a fee agreement: the same per-signature rule
+ * the lease pipeline holds.
+ */
+export async function signPolicy(db: SupabaseClient, ownerUserId: string, id: string, termsSha256: string): Promise<PolicyRow> {
   const current = await loadPolicy(db, id);
   if (!current || current.ownerUserId !== ownerUserId) throw new PolicyError(404, "Fee policy not found.");
   if (current.status === "active" && current.signedAt) return current;
   if (current.status !== "draft" || !current.sentAt) throw new PolicyError(409, "This agreement is not waiting for your signature.");
+  const presented = String(termsSha256 ?? "").trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(presented)) throw new PolicyError(400, "Reload the agreement and sign it again.");
+  if (presented !== policyTermsHash(current)) throw new PolicyError(409, "This agreement changed. Reload it and read the new terms before signing.");
   if (!(await isWorkspaceMember(db, current.workspaceId, ownerUserId))) throw new PolicyError(403, "You are no longer on this workspace.");
   return activate(db, current, "owner_signature", "owner", null);
 }

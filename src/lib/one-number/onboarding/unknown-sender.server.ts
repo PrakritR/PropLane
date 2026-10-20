@@ -6,9 +6,11 @@ import { runDemoTurn } from "@/lib/one-number/demo/run-demo-turn.server";
 import { isDemoStartText } from "@/lib/one-number/demo/script";
 import { hasLiveDemo } from "@/lib/one-number/demo/store.server";
 import { toGsm7, WELCOME } from "@/lib/one-number/lead-qualifying";
+import { classifyLineText } from "@/lib/one-number/line-intent";
 import { asksForJobs } from "@/lib/one-number/vendor-jobs/intent";
 import { handlePropLaneVendorText, isPropLaneLineVendorLead } from "@/lib/one-number/vendor-jobs/vendor-line.server";
 import { readPlatformServiceOwnerId } from "@/lib/service/service-catalog.server";
+import { handleSmsSignupText } from "@/lib/one-number/signup/flow.server";
 import { handleVendorIntake } from "@/lib/one-number/onboarding/vendor-intake.server";
 import {
   extractHouseHints,
@@ -119,6 +121,10 @@ export async function handleUnknownSenderInbound(db: SupabaseClient, inbound: Sh
 
 async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbound, deps: UnknownSenderDeps): Promise<UnknownSenderTurn> {
   const leadPath = () => handleUnassignedLeadInbound(db, inbound, deps.lead);
+  // on/smssignup: "I want to sign up as a manager" (or a sign-up already in progress) is answered by the sign-up
+  // conversation, which ends in a real account after the sender texts back the code we sent. Not a sign-up: unchanged.
+  const signup = await handleSmsSignupText(db, { phoneE164: inbound.fromPhone, body: inbound.body, messageSid: inbound.messageSid }, { now: deps.now, origin: deps.origin }).catch(() => ({ handled: false as const }));
+  if (signup.handled) return single(signup.reply);
   const { available, state } = await readOnboardingState(db, inbound.phoneKey);
   if (!available) return leadPath();
   const now = deps.now?.();
@@ -155,6 +161,8 @@ async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbou
 
   if (role === "landlord") return landlordTurn(db, inbound, state ?? { phoneKey: inbound.phoneKey, role: "landlord", askedAt: null, stage: null, hints: extractHouseHints(inbound.body) }, firstReply, deps);
   if (role === "vendor") {
+    // Per message, not per phone: someone saved as a vendor who asks for a room is a prospect for THIS text.
+    if (classifyLineText(inbound.body).kind === "housing_search") return leadPath();
     // on/smsvendor (W24): "any jobs available in the area" gets the open jobs and the sign-up link, and a vendor who
     // came in that way stays in that flow; "I do cleaning in Seattle" still gets the intake questions.
     if (asksForJobs(inbound.body) || (await isPropLaneLineVendorLead(db, inbound.phoneKey))) {

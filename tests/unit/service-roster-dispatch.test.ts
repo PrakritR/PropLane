@@ -229,8 +229,8 @@ describe("who a service workspace's job is offered to", () => {
 
   it("the paycore hook returns the reachable roster for a service workspace and [] for any other", async () => {
     const db = world();
-    expect((await serviceRosterVendorsForTrade(db as never, WS_A, "plumber")).map((v) => v.vendorDirectoryId)).toEqual(["svcv-pat", "svcv-stop"]);
-    expect(await serviceRosterVendorsForTrade(db as never, WS_P, "plumber")).toEqual([]);
+    expect((await serviceRosterVendorsForTrade(db as never, { workspaceId: WS_A, trade: "plumber" })).map((v) => v.vendorDirectoryId)).toEqual(["svcv-pat", "svcv-stop"]);
+    expect(await serviceRosterVendorsForTrade(db as never, { workspaceId: WS_P, trade: "plumber" })).toEqual([]);
   });
 });
 

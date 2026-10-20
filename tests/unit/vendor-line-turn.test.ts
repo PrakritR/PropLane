@@ -225,7 +225,8 @@ describe("a known vendor on the PropLane line", () => {
     expect(turn.reply).toContain("Request jobs in Find work: https://proplane.ai/vendor/work-orders/find-work");
     expect(turn.reply).not.toContain("/start/");
     expect(turn.reply).toContain("Plumbing");
-    expect(turn.reply).toContain("(98115)");
+    expect(turn.reply).toContain("Plumbing, Ravenna");
+    expect(turn.reply).not.toMatch(/\d{5}/);
     expect(turn.reply).not.toContain("Cleaning");
     expect(fake.tables.sms_vendor_leads).toHaveLength(0);
     expect(fake.tables.sms_setup_links).toHaveLength(0);
@@ -275,5 +276,27 @@ describe("shared mode", () => {
     seed();
     const forced = await say("ok", { mode: "shared", force: true });
     expect(forced.handled).toBe(true);
+  });
+});
+
+describe("a housing search always escapes the vendor flow", () => {
+  it("a phone with a live vendor lead still gets the catalog search when it asks for a room", async () => {
+    // One "handyman here" opens a lead that never expires. Without a per-message escape that phone could never
+    // reach the catalog again: it was answered "text me what work you do" for good.
+    await say("handyman here");
+    expect(fake.tables.sms_vendor_leads!.length).toBe(1);
+
+    const housing = await say("looking for a room near UW");
+    expect(housing).toEqual({ handled: false, reply: null, vendorUserId: null, leadId: null });
+  });
+
+  it("escapes even when the caller already decided this sender is a vendor", async () => {
+    const forced = await say("any houses available near Ballard", { force: true });
+    expect(forced.handled).toBe(false);
+  });
+
+  it("a vendor's own jobs question is untouched", async () => {
+    const jobs = await say("any jobs available near Ballard");
+    expect(jobs.handled).toBe(true);
   });
 });

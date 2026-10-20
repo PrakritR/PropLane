@@ -22,6 +22,7 @@ import {
   handleVendorDispatchReply,
 } from "@/lib/vendor-dispatch/inbound.server";
 import { handlePropLaneLineVendorInbound } from "@/lib/sms/vendor-line-inbound.server";
+import { handlePropLaneLineSignupInbound } from "@/lib/sms/signup-line-inbound.server";
 import { recordVendorInboundReplyConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 import {
@@ -1231,7 +1232,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   // topic, falls through below unchanged. The reply is deterministic, so a webhook retry re-derives the same text and the
   // MessageSid dedupe key stops a second send.
   if (!managerInbound && !(saved?.sharedLine || input.sharedLine)) {
-    const lineAnswer = await answerPropLaneLineText(db, { lineOwnerUserId: managerId, toPhone, fromPhone, body }).catch((error: unknown) => {
+    const lineAnswer = await answerPropLaneLineText(db, { lineOwnerUserId: managerId, toPhone, fromPhone, body, messageSid }).catch((error: unknown) => {
       console.error("propline line answer failed", error instanceof Error ? error.name : "unknown");
       return null;
     });
@@ -1688,6 +1689,32 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     }
     return twimlOk();
   }
+
+  // === on/smssignup: sign up by text on the PropLane line. A sign-up ask ("I want to sign up as a manager") or a sign-up in
+  // progress is answered here, one question per text, ending in a real account after the person texts back the code we
+  // sent. Anything that is not a sign-up falls through to the vendor branch and the leasing fallback unchanged.
+  {
+    const signupLine = await handlePropLaneLineSignupInbound(db, {
+      managerUserId: managerId,
+      workspaceId,
+      fromPhone,
+      toPhone,
+      messageSid,
+      body,
+    });
+    if (signupLine.handled) {
+      mark("route:signup-line");
+      if (!signupLine.sent) {
+        await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+        return NextResponse.json({ error: "Sign-up reply not delivered." }, { status: 503 });
+      }
+      if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+        return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+      }
+      return twimlOk();
+    }
+  }
+  // === end on/smssignup ===
 
   // === on/smsvendor (W24): the vendor branch for the PropLane line. One block; the manager / resident forks above and
   // the leasing fallback below are untouched. A vendor asking for work (or a known vendor / lead) is answered with the

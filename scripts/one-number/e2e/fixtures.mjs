@@ -173,7 +173,7 @@ export class World {
         managerSignature: { name: "Morgan Manager", signedAtIso: signedAt }, residentSignature: { name: fullName, signedAtIso: signedAt }, signatureName: fullName, signedAtIso: signedAt, testRunId: this.runId },
     }, { onConflict: "id" }), `lease ${label}`);
     const day = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
-    const label2 = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    const label2 = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
     const charges = [{ id: `e2e-chg-${this.runId}-${label}-now`, title: "October rent", due: day(5), amount: room.monthlyRent }];
     if (overdue) charges.push({ id: `e2e-chg-${this.runId}-${label}-late`, title: "September rent", due: day(-18), amount: room.monthlyRent });
     for (const c of charges) {
@@ -191,7 +191,7 @@ export class World {
   async createRosterVendor({ ownerId, name, trade, phone }) {
     const id = `e2e-vendor-${this.runId}-${hex(5)}`;
     this.phones.push(phone);
-    await must(() => this.db.from("manager_vendor_records").upsert({ id, manager_user_id: ownerId, row_data: { id, name, trade, trades: [trade], phone, email: "", notes: "", active: true, testRunId: this.runId } }, { onConflict: "id" }), `vendor ${name}`);
+    await must(() => this.db.from("manager_vendor_records").upsert({ id, manager_user_id: ownerId, row_data: { id, managerUserId: ownerId, name, trade, trades: [trade], phone, email: "", notes: "", active: true, testRunId: this.runId } }, { onConflict: "id" }), `vendor ${name}`);
     return { id, name, trade, phone };
   }
 

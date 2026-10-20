@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     });
     if (!result.ok) return NextResponse.json({ error: result.error, code: result.code }, { status: result.status });
     await noteOwnerWithdrawal(ctx.db, { workspaceId: String(body.workspaceId), amountCents, withdrawalId: result.withdrawalId }).catch(() => undefined);
-    return NextResponse.json({ ok: true, withdrawalId: result.withdrawalId, payoutPending: result.payoutPending });
+    return NextResponse.json({ ok: true, withdrawalId: result.withdrawalId, payoutPending: result.payoutPending, payoutAutomatic: result.payoutAutomatic === true });
   } catch (e) {
     return financeErrorResponse(e, "Could not start the withdrawal.");
   }

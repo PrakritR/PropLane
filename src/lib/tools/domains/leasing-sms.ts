@@ -659,6 +659,33 @@ function areaFactsOf(rec: RawPropertyRecord) {
   return { lat: num("mapLat"), lng: num("mapLng"), neighborhood: str(src, "neighborhood"), zip: str(src, "zip") };
 }
 
+/**
+ * The homes a texter can book a short stay in, nearest first when they named a place. On the PropLane line
+ * (and the shared catalog line) that is the PropLane-managed `is_service` catalog only; on a workspace's own
+ * number it is that workspace's own live listings. Whether a home really takes short stays, and at what
+ * nightly rate, is decided later from the stored listing (`loadShortStayListing`), never from this projection.
+ */
+export async function loadShortStayHomes(
+  ctx: AgentContext,
+  input: { area?: string | null },
+): Promise<{ homes: { id: string; name: string; area: AreaMatch | null }[]; area?: Record<string, unknown> }> {
+  const rows = isServiceCatalog(ctx) || isCrossCatalog(ctx) ? await loadServiceCatalogRows() : await loadBrowsableListings(ctx);
+  const areaText = (input.area ?? "").trim();
+  const place: ResolvedPlace | null = areaText ? resolveSeattlePlace(areaText) : null;
+  let homes = rows.map((rec) => ({
+    id: rec.id,
+    name: propertyLabel(propertySource(rec)) ?? "the house",
+    area: place ? matchHomeToPlace(areaFactsOf(rec), place) : null,
+  }));
+  if (place) {
+    const measured = homes.filter((home) => home.area !== null) as { id: string; name: string; area: AreaMatch }[];
+    const near = measured.filter((home) => home.area.near).sort((a, b) => compareAreaMatches(a.area, b.area));
+    homes = near.length > 0 ? near : measured.sort((a, b) => compareAreaMatches(a.area, b.area)).slice(0, 3);
+    return { homes, area: { resolved: true, place: place.label, nearCount: near.length } };
+  }
+  return { homes, ...(areaText ? { area: { resolved: false, requested: areaText } } : {}) };
+}
+
 type ListedHome = { listing: ReturnType<typeof summarizeListingRecord>; rec: RawPropertyRecord; rank: number; area: AreaMatch | null };
 
 export const listLiveListingsTool = defineTool({
@@ -768,10 +795,52 @@ export const suppressRedundantLeasingReplyTool = defineTool({
   },
 });
 
+/** Dollars for a text: "$45" or "$45.50". */
+function feeDollars(cents: number): string {
+  const dollars = cents / 100;
+  return Number.isInteger(dollars) ? `$${dollars}` : `$${dollars.toFixed(2)}`;
+}
+
+/**
+ * The application fee a prospect would pay for this listing, as the same server resolver the apply wizard uses
+ * (room / template / listing / account chain), so a text never quotes a number the checkout will not charge.
+ * `null` when it cannot be resolved: the agent then says it is unknown.
+ */
+export function applicationFeeFactsForSms(
+  resolved: { applicationFeeCents: number; feeSource: string },
+  itemization: { serviceFeeCents: number; totalCents: number; feePayer: string } | null,
+): { amount: string; free: boolean; source: string; cardTotal: string | null; cardServiceFee: string | null } {
+  const free = resolved.applicationFeeCents <= 0;
+  return {
+    amount: free ? "$0" : feeDollars(resolved.applicationFeeCents),
+    free,
+    source: resolved.feeSource,
+    cardServiceFee: !free && itemization && itemization.serviceFeeCents > 0 ? feeDollars(itemization.serviceFeeCents) : null,
+    cardTotal: !free && itemization && itemization.serviceFeeCents > 0 ? feeDollars(itemization.totalCents) : null,
+  };
+}
+
+async function loadApplicationFeeFactsForSms(ctx: AgentContext, propertyId: string) {
+  try {
+    const { resolveApplicationFeeProperty, resolveApplicationFeeItemization } = await import("@/lib/application-fee-checkout.server");
+    const resolved = await resolveApplicationFeeProperty(ctx.db, { propertyId, managerUserId: "" }, { allowZeroFee: true });
+    if (!resolved.ok) return null;
+    let itemization: Awaited<ReturnType<typeof resolveApplicationFeeItemization>> | null = null;
+    try {
+      itemization = await resolveApplicationFeeItemization(ctx.db, resolved.value.managerUserId, resolved.value.applicationFeeCents, resolved.value.listing, propertyId);
+    } catch {
+      itemization = null;
+    }
+    return applicationFeeFactsForSms(resolved.value, itemization);
+  } catch {
+    return null;
+  }
+}
+
 export const getListingDetailsTool = defineTool({
   name: "get_listing_details",
   description:
-    "Full prospect-safe details for one live listing: address, rooms and their published prices, verified current availability when the occupancy read succeeds, furnishing and amenities, available lease terms, nullable pet policy, deposits, and utilities. A failed occupancy read leaves current availability unknown. Call before answering specifics about a house or room.",
+    "Full prospect-safe details for one live listing: address, rooms and their published prices, verified current availability when the occupancy read succeeds, furnishing and amenities, available lease terms, nullable pet policy, deposits, utilities, and the application fee (applicationFee.amount; null means unknown). A failed occupancy read leaves current availability unknown. Call before answering specifics about a house or room.",
   kind: "read",
   inputSchema: z
     .object({
@@ -829,6 +898,7 @@ export const getListingDetailsTool = defineTool({
     } catch {
       // Malformed legacy room data cannot support a complete listing total.
     }
+    const applicationFee = await loadApplicationFeeFactsForSms(ctx, rec.id);
     const roomNeedle = (input.roomQuery ?? "").trim().toLowerCase();
     const matchedRooms = roomNeedle
       ? rooms.filter(
@@ -875,6 +945,8 @@ export const getListingDetailsTool = defineTool({
         leaseTerms: facts.leaseTerms,
         securityDeposit: facts.securityDeposit,
         utilities: facts.utilities,
+        /** What applying costs, from the checkout's own resolver. Null = unknown: never guess a fee. */
+        applicationFee,
       },
     };
   },

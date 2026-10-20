@@ -15,8 +15,14 @@ vi.mock("@/lib/co-manager-notification-recipients.server", () => ({
   notifyPropertyScopedManagersFromAgent: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({
-  enqueueOwnerSms: vi.fn().mockResolvedValue({ ok: true, outboxId: "outbox-1", status: "queued", deduplicated: false }),
+vi.mock("@/lib/payments/rent-text-send.server", () => ({
+  sendResidentRentText: vi.fn().mockResolvedValue({ ok: true, outboxId: "outbox-1" }),
+}));
+
+const PHONE_LINK = "https://proplane.ai/l/Zk3T9v1q8mY2nB7cX4wR6pD0sL5hJ1aF3gU9eO8iKt";
+vi.mock("@/lib/payments/rent-reminder-links.server", () => ({
+  mintRentReminderPayLink: vi.fn(async () => ({ kind: "phone_bound", url: "https://proplane.ai/l/Zk3T9v1q8mY2nB7cX4wR6pD0sL5hJ1aF3gU9eO8iKt" })),
+  residentPaymentsPortalUrl: () => "https://proplane.ai/resident/payments/pending",
 }));
 
 vi.mock("@/lib/payment-reminder-occurrence.server", () => ({
@@ -65,7 +71,8 @@ vi.mock("@/lib/notification-preferences", async (importOriginal) => {
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import { notifyPropertyScopedManagersFromAgent } from "@/lib/co-manager-notification-recipients.server";
 import { traceSystemNotification } from "@/lib/observability/langfuse";
-import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
+import { sendResidentRentText } from "@/lib/payments/rent-text-send.server";
+import { mintRentReminderPayLink } from "@/lib/payments/rent-reminder-links.server";
 import { claimPaymentReminderChannel, resolvePaymentReminderChannel } from "@/lib/payment-reminder-occurrence.server";
 import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-reminder-delivery";
@@ -97,7 +104,7 @@ describe("deliverPaymentReminder", () => {
     vi.unstubAllEnvs();
     vi.mocked(claimPaymentReminderChannel).mockResolvedValue({ outcome: "claimed", token: "claim-1" });
     vi.mocked(resolvePaymentReminderChannel).mockResolvedValue(undefined);
-    vi.mocked(enqueueOwnerSms).mockResolvedValue({ ok: true, outboxId: "outbox-1", status: "queued", deduplicated: false });
+    vi.mocked(sendResidentRentText).mockResolvedValue({ ok: true, outboxId: "outbox-1" });
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }),
@@ -229,7 +236,7 @@ describe("deliverPaymentReminder", () => {
     });
   });
 
-  it("adds the resident's in-app Payments link to payment reminder SMS — never a hosted Stripe URL", async () => {
+  it("every payment reminder text carries a fresh phone-bound pay link on its own line, never a hosted Stripe URL", async () => {
     const upsert = vi.fn().mockResolvedValue({ error: null });
     const maybeSingle = vi.fn().mockResolvedValue({
       data: { id: "user-res-1", phone: "+12065550113", phone_verified_at: "2026-07-01T00:00:00.000Z" },
@@ -246,24 +253,23 @@ describe("deliverPaymentReminder", () => {
       managerId: "mgr-1",
       dedupId: "payment_reminder_sms_link",
       managerName: "Manager",
-      managerSmsFromNumber: "+12065550111",
       apiKey: "",
       from: "PropLane <test@example.com>",
       subject: "Rent due",
-      text: "Your July rent is due.",
+      text: "Your July rent is due.\n\nHow to sign in to PropLane:\n• Open: https://proplane.ai/login",
       html: "<p>test</p>",
       slotLabel: "due_date",
       managerDeliverViaSms: true,
     });
 
-    expect(enqueueOwnerSms).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.stringContaining("Pay in PropLane: http://localhost:3000/resident/payments/pending"),
-      }),
+    expect(mintRentReminderPayLink).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ ownerUserId: "mgr-1", phone: "+12065550113", phoneVerifiedAt: "2026-07-01T00:00:00.000Z" }),
     );
-    const smsCall = vi.mocked(enqueueOwnerSms).mock.calls[0]![0];
-    expect(smsCall.body).not.toMatch(/checkout\.stripe\.com/i);
-    expect(smsCall.body).not.toMatch(/connect\.stripe\.com/i);
+    const sms = vi.mocked(sendResidentRentText).mock.calls[0]![1];
+    expect(sms.body).toBe(`Your July rent is due.\nPay here:\n${PHONE_LINK}`);
+    expect(sms.body).not.toMatch(/stripe\.com/i);
+    expect(sms).toMatchObject({ ownerUserId: "mgr-1", propertyId: "prop-1", purpose: "payment_reminder", sendClass: "transactional", residentUserId: "user-res-1" });
     expect(traceSystemNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         domain: "payment_reminder",
@@ -273,6 +279,67 @@ describe("deliverPaymentReminder", () => {
         cadence: "due_date",
       }),
     );
+  });
+
+  it("a workspace on the PropLane line still texts: no number on the manager's own row is needed", async () => {
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const maybeSingle = vi.fn().mockResolvedValue({
+      data: { id: "user-res-1", phone: "+12065550113", phone_verified_at: "2026-07-01T00:00:00.000Z" },
+    });
+    const from = vi.fn().mockImplementation((table: string) =>
+      table === "profiles" ? { select: () => ({ eq: () => ({ maybeSingle }) }) } : { upsert },
+    );
+    const result = await deliverPaymentReminder({
+      db: { from } as never,
+      charge: makeCharge(),
+      managerId: "mgr-1",
+      dedupId: "payment_reminder_no_owner_number",
+      managerName: "Manager",
+      managerSmsFromNumber: "",
+      apiKey: "",
+      from: "PropLane <test@example.com>",
+      subject: "Rent due",
+      text: "Your July rent is due.",
+      html: "<p>test</p>",
+      slotLabel: "due_date",
+      managerDeliverViaSms: true,
+    });
+    expect(result.sent).toBe(true);
+    expect(sendResidentRentText).toHaveBeenCalledTimes(1);
+  });
+
+  it("without a verified phone the text carries the resident's Payments page instead", async () => {
+    vi.mocked(mintRentReminderPayLink).mockResolvedValueOnce({ kind: "portal", url: "https://proplane.ai/resident/payments/pending" });
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const maybeSingle = vi.fn().mockResolvedValue({ data: { id: "user-res-1", phone: "+12065550113", phone_verified_at: null } });
+    const from = vi.fn().mockImplementation((table: string) =>
+      table === "profiles" ? { select: () => ({ eq: () => ({ maybeSingle }) }) } : { upsert },
+    );
+    await deliverPaymentReminder({
+      db: { from } as never, charge: makeCharge(), managerId: "mgr-1", dedupId: "payment_reminder_portal_fallback", managerName: "Manager",
+      apiKey: "", from: "PropLane <test@example.com>", subject: "Rent due", text: "Your July rent is due.", html: "<p>test</p>",
+      slotLabel: "due_date", managerDeliverViaSms: true,
+    });
+    expect(vi.mocked(sendResidentRentText).mock.calls[0]![1].body).toBe("Your July rent is due.\nPay here:\nhttps://proplane.ai/resident/payments/pending");
+  });
+
+  it("fills {pay_link} for real: the Payments page in the inbox copy, the phone-bound link in the text", async () => {
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const maybeSingle = vi.fn().mockResolvedValue({
+      data: { id: "user-res-1", phone: "+12065550113", phone_verified_at: "2026-07-01T00:00:00.000Z" },
+    });
+    const from = vi.fn().mockImplementation((table: string) =>
+      table === "profiles" ? { select: () => ({ eq: () => ({ maybeSingle }) }) } : { upsert },
+    );
+    await deliverPaymentReminder({
+      db: { from } as never, charge: makeCharge(), managerId: "mgr-1", dedupId: "payment_reminder_token", managerName: "Manager",
+      apiKey: "", from: "PropLane <test@example.com>", subject: "Rent due", text: "Rent is due Nov 1. Pay here: {pay_link}", html: "<p>test</p>",
+      slotLabel: "due_date", managerDeliverViaSms: true,
+    });
+    expect(vi.mocked(sendResidentRentText).mock.calls[0]![1].body).toBe(`Rent is due Nov 1.\nPay here:\n${PHONE_LINK}`);
+    const inboxBody = vi.mocked(deliverPortalMessageThreadSide).mock.calls[0]![1].body;
+    expect(inboxBody).toBe("Rent is due Nov 1. Pay here: https://proplane.ai/resident/payments/pending");
+    expect(inboxBody).not.toContain("{pay_link}");
   });
 
   it("omits the pay link for a non-payments reminder category", async () => {
@@ -292,7 +359,6 @@ describe("deliverPaymentReminder", () => {
       managerId: "mgr-1",
       dedupId: "payment_reminder_sms_lease",
       managerName: "Manager",
-      managerSmsFromNumber: "+12065550111",
       apiKey: "",
       from: "PropLane <test@example.com>",
       subject: "Lease reminder",
@@ -303,9 +369,8 @@ describe("deliverPaymentReminder", () => {
       eventCategory: "leases",
     });
 
-    expect(enqueueOwnerSms).toHaveBeenCalledWith(
-      expect.objectContaining({ body: "(Lease reminder)\nYour lease needs attention." }),
-    );
+    expect(mintRentReminderPayLink).not.toHaveBeenCalled();
+    expect(vi.mocked(sendResidentRentText).mock.calls[0]![1].body).toBe("Your lease needs attention.");
   });
 
   it("resumes only a confirmed failed SMS channel after email and inbox submitted", async () => {
@@ -319,9 +384,9 @@ describe("deliverPaymentReminder", () => {
     vi.mocked(resolvePaymentReminderChannel).mockImplementation(async (_db, _id, channel, _token, status) => {
       statuses.set(channel, status);
     });
-    vi.mocked(enqueueOwnerSms)
+    vi.mocked(sendResidentRentText)
       .mockResolvedValueOnce({ ok: false, error: "recipient_opted_out" })
-      .mockResolvedValueOnce({ ok: true, outboxId: "outbox-2", status: "queued", deduplicated: false });
+      .mockResolvedValueOnce({ ok: true, outboxId: "outbox-2" });
     const upsert = vi.fn().mockResolvedValue({ error: null });
     const maybeSingle = vi.fn().mockResolvedValue({
       data: { id: "user-res-1", phone: "+12065550113", phone_verified_at: "2026-07-01T00:00:00.000Z" },
@@ -351,10 +416,10 @@ describe("deliverPaymentReminder", () => {
     expect(first).toEqual({ sent: true, error: "partial_delivery" });
     expect(second).toEqual({ sent: true });
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(enqueueOwnerSms).toHaveBeenCalledTimes(2);
-    expect(enqueueOwnerSms).toHaveBeenCalledWith(expect.objectContaining({
+    expect(sendResidentRentText).toHaveBeenCalledTimes(2);
+    expect(sendResidentRentText).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
       purpose: "payment_reminder",
-      dedupeKey: "payment:mgr-1:payment_reminder_retry:sms",
+      idempotencyKey: "payment:mgr-1:payment_reminder_retry:sms",
     }));
     const aliases = upsert.mock.calls.filter((call) => Array.isArray(call[0]));
     expect(aliases[0]?.[0]?.[0]?.row_data.deliveryComplete).toBe(false);

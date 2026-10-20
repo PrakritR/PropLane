@@ -7,6 +7,7 @@ import {
   feeAppliesToKind,
   isLeasingFeeKind,
   pacificMonthKey,
+  spreadByWeight,
   splitManagedCart,
   type CartComponent,
 } from "@/lib/owner-management/fee-math";
@@ -54,7 +55,13 @@ export async function creditManagedCapture(
   if (!input.components.length) throw new LedgerError(500, "A managed capture needs charges.");
   const principal = input.components.reduce((s, c) => s + c.principalCents, 0);
   const distributable = input.components.reduce((s, c) => s + c.recipientNetCents, 0);
-  if (!Number.isSafeInteger(input.grossCents) || input.grossCents < principal || distributable > principal || distributable <= 0) {
+  // Gross above principal is the processing fee the resident added at checkout. It can never be more than the
+  // principal itself, and a capture that claims it is cannot be refunded in full later, so it is refused here.
+  const residentAdded = input.grossCents - principal;
+  if (
+    !Number.isSafeInteger(input.grossCents) || input.grossCents < principal || distributable > principal ||
+    distributable <= 0 || residentAdded > principal
+  ) {
     throw new LedgerError(500, "Managed capture amounts do not reconcile.");
   }
 
@@ -93,6 +100,14 @@ export async function creditManagedCapture(
   }
   const leasingBase = applicable.filter((c) => leasingEligible.has(c.id)).reduce((s, c) => s + c.distributableCents, 0);
 
+  // The resident-added fee is recorded PER charge so that a full Stripe refund (which returns the gross, not the
+  // principal) can be reversed in the ledger instead of being refused for exceeding the allocation's principal.
+  const addedByCharge = new Map<string, number>(
+    residentAdded > 0
+      ? spreadByWeight(comps.map((c) => ({ id: c.id, weight: c.principalCents })), residentAdded).map((p) => [p.id, p.cents])
+      : [],
+  );
+
   for (let attempt = 0; attempt < CONFLICT_RETRIES; attempt += 1) {
     const { data: totalsData, error: totalsError } = await db.rpc("managed_month_totals", { p_policy: policy.id, p_month: monthKey });
     const totals = (Array.isArray(totalsData) ? totalsData[0] : totalsData) as Totals | null;
@@ -111,7 +126,7 @@ export async function creditManagedCapture(
         resident_email: s.residentEmail,
         property_id: source.propertyId ?? "",
         principal_cents: s.principalCents,
-        resident_added_cents: 0,
+        resident_added_cents: addedByCharge.get(s.id) ?? 0,
         owner_borne_cents: s.ownerBornCents,
         distributable_cents: s.distributableCents,
         fee_cents: s.feeCents,

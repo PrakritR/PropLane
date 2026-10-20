@@ -28,6 +28,7 @@ import {
 import { householdChargeAmountCents, HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE } from "@/lib/stripe-household-charge";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 import { managedCartProblem } from "@/lib/managed-finance/resolve.server";
+import { serviceSetupPendingProblem } from "@/lib/managed-finance/unpolicied-service.server";
 import { assertResidentCheckoutAttemptTerms, assertResidentCheckoutSession,
   type ResidentCheckoutAttempt } from "@/lib/resident-checkout-claim.server";
 
@@ -158,7 +159,8 @@ export async function loadHouseholdChargesForCheckout(
 
     const charge = row.row_data as HouseholdCharge | null;
     if (!charge?.id) return { ok: false, status: 500, error: "Invalid charge record." };
-    if (!["pending", "failed", "processing"].includes(row.status ?? charge.status)) {
+    // A part-paid charge is payable for its balance (`householdChargeAmountCents` reads the balance).
+    if (!["pending", "failed", "processing", "partially_paid"].includes(row.status ?? charge.status)) {
       return { ok: false, status: 409, error: "One or more selected charges are no longer available for payment." };
     }
     if (!chargeOwnedByUser(charge, input.userId, userEmail)) {
@@ -335,6 +337,10 @@ export async function createHouseholdChargeCheckout(
     // house with no workspace) would need two allocations, so it is refused before any money moves.
     const managedProblem = await managedCartProblem(db, loaded.map((row) => row.charge.propertyId));
     if (managedProblem) return { ok: false, status: 422, code: "MIXED_PAYMENT_SETUP", error: managedProblem };
+    // A PropLane Service workspace whose fee agreement is not signed is not managed yet: its rent must not be captured for the
+    // manager of record's personal payout account. Refuse until the agreement is signed.
+    const setupProblem = await serviceSetupPendingProblem(db, loaded.map((row) => row.charge.propertyId));
+    if (setupProblem) return { ok: false, status: 422, code: "SERVICE_SETUP_PENDING", error: setupProblem };
 
     const feePayerResolved = await resolveHouseholdChargeFeePayer(db, managerUserId, loaded);
     if (!feePayerResolved.ok) return feePayerResolved;

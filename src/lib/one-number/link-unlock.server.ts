@@ -39,6 +39,7 @@ export async function requestLinkUnlockCode(
         body: otpMessageBody(code),
         role: roleForLinkPurpose(link.purpose),
         idempotencyKey: `phone-code:${challengeId}`,
+        basis: { kind: "code" },
       }),
   });
 }

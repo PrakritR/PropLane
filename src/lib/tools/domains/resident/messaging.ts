@@ -15,6 +15,7 @@ import {
   type ScheduledInboxMessageRecord,
 } from "@/lib/scheduled-inbox-messages.server";
 import { contentHash, linkedManagerContacts, type LinkedManagerContact } from "./load-resident-rows";
+import { managerLabelForPreview } from "@/lib/tools/manager-label";
 
 const PAGE_SIZE = 1000;
 
@@ -144,9 +145,9 @@ export const sendMessageToManagerTool = defineWriteTool({
     return {
       kind: "send_message_to_manager",
       title: "Send message to manager",
-      summary: `Send "${input.subject.trim()}" to ${resolved.targets.map((t) => t.name).join(", ")}.`,
+      summary: `Send "${input.subject.trim()}" to ${resolved.targets.map((t) => managerLabelForPreview(t.name)).join(", ")}.`,
       fields: [
-          ...resolved.targets.map((t) => ({ label: "To", value: `${t.name} (${t.email})` })),
+          ...resolved.targets.map((t) => ({ label: "To", value: managerLabelForPreview(t.name) })),
           { label: "Subject", value: input.subject.trim() },
           { label: "Message", value: input.body.trim() },
         ],
@@ -212,7 +213,7 @@ export const sendMessageToManagerTool = defineWriteTool({
         /* the learning loop never blocks a message */
       }
     }
-    return { reply: `Sent "${subject}" to ${resolved.targets.map((t) => t.name).join(", ")}.`, resultSummary: { recipientCount: result.recipientCount } };
+    return { reply: `Sent "${subject}" to ${resolved.targets.map((t) => managerLabelForPreview(t.name)).join(", ")}.`, resultSummary: { recipientCount: result.recipientCount } };
   },
 });
 

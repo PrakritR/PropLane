@@ -58,6 +58,9 @@ export function HomeSoftwareDemoPlayer({ id = "dashboard" }: { id?: string } = {
   const [reduced, setReduced] = useState<boolean | null>(null);
   const [paused, setPaused] = useState(false);
   const [hovered, setHovered] = useState(false);
+  /** Hover may pause the journey only on a pointer that can actually hover: a tap emits mouse events with no
+   * matching mouseleave, which left the journey paused for good on a phone or a hybrid laptop. */
+  const hoverCapable = useRef(true);
   const [focused, setFocused] = useState(false);
   const [scale, setScale] = useState(0.7);
   const [view, setView] = useState<"phone" | "portal">("phone");
@@ -74,11 +77,18 @@ export function HomeSoftwareDemoPlayer({ id = "dashboard" }: { id?: string } = {
 
   useEffect(() => {
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const hover = window.matchMedia("(hover: hover)");
     const sync = () => setReduced(motion.matches);
+    const syncHover = () => {
+      hoverCapable.current = hover.matches;
+      if (!hover.matches) setHovered(false);
+    };
     const syncVisibility = () => setVisible(!document.hidden);
     sync();
+    syncHover();
     syncVisibility();
     motion.addEventListener("change", sync);
+    hover.addEventListener("change", syncHover);
     document.addEventListener("visibilitychange", syncVisibility);
     const element = root.current;
     let preload: IntersectionObserver | undefined;
@@ -94,6 +104,7 @@ export function HomeSoftwareDemoPlayer({ id = "dashboard" }: { id?: string } = {
     }
     return () => {
       motion.removeEventListener("change", sync);
+      hover.removeEventListener("change", syncHover);
       document.removeEventListener("visibilitychange", syncVisibility);
       preload?.disconnect();
       playback?.disconnect();
@@ -208,6 +219,10 @@ export function HomeSoftwareDemoPlayer({ id = "dashboard" }: { id?: string } = {
     frame.current?.blur();
   }, []);
 
+  const markHovered = useCallback(() => {
+    if (hoverCapable.current) setHovered(true);
+  }, []);
+
   const motionUnknown = reduced === null;
   const src = useMemo(() => {
     const params = new URLSearchParams();
@@ -231,7 +246,7 @@ export function HomeSoftwareDemoPlayer({ id = "dashboard" }: { id?: string } = {
       data-playing={!holding && reduced === false}
       data-reduced-motion={reduced === null ? "unknown" : reduced}
       data-view={view}
-      onMouseEnter={() => setHovered(true)}
+      onMouseEnter={markHovered}
       onMouseLeave={release}
       onFocusCapture={(event) => { if (!(event.target as Element).closest?.('[role="tablist"]')) setFocused(true); }}
       onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}
@@ -267,7 +282,7 @@ export function HomeSoftwareDemoPlayer({ id = "dashboard" }: { id?: string } = {
         <button type="button" aria-pressed={view === "phone"} onClick={() => setView("phone")}>Phone</button>
         <button type="button" aria-pressed={view === "portal"} onClick={() => setView("portal")}>Portal</button>
       </div>
-      <div className="home-software-demo-body" onMouseMove={() => setHovered(true)}>
+      <div className="home-software-demo-body" onMouseMove={markHovered}>
         <div className="home-software-demo-phone">
           <HomeIphonePhone items={items} typing={typing} label={phoneLabel} />
           <p className="home-software-demo-phone-label">{phoneLabel}</p>

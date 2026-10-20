@@ -34,6 +34,7 @@ import {
   isShortStayRequestSource,
 } from "@/lib/short-stay/guest-stays";
 import { ensureGuestStayCharge } from "@/lib/short-stay/stay-charge.server";
+import { mintStayPayLink } from "@/lib/short-stay/stay-pay-link.server";
 import { raiseRequestedStayAddOnCharges } from "@/lib/short-stay/stay-add-ons.server";
 import { loadOwnerIdentity, loadStayLabels } from "@/lib/short-stay/stay-labels.server";
 import { shortStayRangeLabel } from "@/lib/short-stay-request";
@@ -154,9 +155,15 @@ async function notifyOfDecision(
   const total = Number.isFinite(Number(row.quotedTotal)) ? Number(row.quotedTotal) : null;
   const portalUrl = residentPortalUrl("stays");
   const stay = { ...labels, checkIn, checkOut, nights, total };
+  const guestPhone = typeof row.residentPhone === "string" ? row.residentPhone : "";
+  // An approved stay is paid from a phone-bound link texted to the guest: the charge was just raised.
+  const payUrl =
+    decision === "approve" && guestPhone
+      ? await mintStayPayLink(db, { blockId, ownerId, propertyId, phone: guestPhone }).catch(() => null)
+      : null;
   const text =
     decision === "approve"
-      ? guestStayApprovedText(stay, portalUrl)
+      ? guestStayApprovedText(stay, portalUrl, payUrl)
       : decision === "decline"
         ? guestStayDeclinedText(stay, portalUrl)
         : guestStayExpiredText(stay, portalUrl);
@@ -189,7 +196,8 @@ async function notifyOfDecision(
         from: await managerOutboundFromHeader(db, ownerId),
         to: [email],
         subject: `${decision === "approve" ? "Confirmed" : decision === "decline" ? "Not confirmed" : "Request expired"}: ${labels.roomLabel} at ${labels.propertyLabel}`,
-        text,
+        // The pay link is texted to the phone it is bound to, never emailed.
+        text: payUrl ? text.replace(payUrl, portalUrl) : text,
       },
       effectSummary: "Short-stay answer email was captured for SMS test mode.",
       metadata: { recipients: 1 },
@@ -211,7 +219,7 @@ async function notifyOfDecision(
 export async function emitShortStayTeamNotice(
   db: SupabaseClient,
   input: {
-    event: "short_stay_confirmed" | "short_stay_declined" | "short_stay_expired";
+    event: "short_stay_confirmed" | "short_stay_declined" | "short_stay_expired" | "short_stay_unpaid_expired";
     headline: string;
     blockId: string;
     ownerId: string;

@@ -170,10 +170,10 @@ describe("sidebar grouping (the redesigned shell)", () => {
   it("draws the manager sidebar as the original headed groups, like the real shell", () => {
     const { container } = mount("manager");
     const groups = Array.from(container.querySelector("nav")!.children);
-    expect(groups).toHaveLength(5);
+    expect(groups).toHaveLength(6);
     expect(groups[0]!.querySelector("p")).toBeNull();
     expect(Array.from(groups[0]!.querySelectorAll("button")).map((b) => b.getAttribute("data-demo-tab"))).toEqual(["dashboard", "tasks", "calendar", "communication"]);
-    expect(groups.slice(1).map((group) => group.querySelector("p")?.textContent)).toEqual(["Portfolio", "Leasing", "People", "Money"]);
+    expect(groups.slice(1).map((group) => group.querySelector("p")?.textContent)).toEqual(["Portfolio", "Leasing", "People", "Operations", "Money"]);
     expect(Array.from(container.querySelectorAll("nav [data-demo-tab]")).map((b) => b.getAttribute("aria-label"))).toEqual(
       DEMO_TABS.manager.map((tab) => tab.label),
     );

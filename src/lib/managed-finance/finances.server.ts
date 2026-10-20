@@ -208,7 +208,7 @@ export type PlatformFinancesView = {
   revenueByMonth: Array<{ workspaceId: string | null; workspaceName: string; month: string; revenueCents: number }>;
   stripeAvailableCents: number | null;
   stripePendingCents: number | null;
-  flags: Array<{ check: string; subject: string; day: string }>;
+  flags: Array<{ check: string; subject: string; day: string; message?: string }>;
   balanced: boolean;
 };
 
@@ -216,7 +216,7 @@ export async function loadPlatformFinances(db: SupabaseClient, stripe: Stripe | 
   const [totals, revenue, flags, unbalanced] = await Promise.all([
     db.rpc("platform_ledger_totals"),
     db.rpc("platform_fee_revenue_by_month"),
-    db.from("owner_ledger_flags").select("check_name, subject, day").order("day", { ascending: false }).limit(20),
+    db.from("owner_ledger_flags").select("check_name, subject, day, detail").order("day", { ascending: false }).limit(20),
     db.rpc("party_ledger_unbalanced_journals"),
   ]);
   const t = new Map(((totals.data ?? []) as Array<{ account: string; total: number | string }>).map((r) => [r.account, Number(r.total)]));
@@ -248,7 +248,10 @@ export async function loadPlatformFinances(db: SupabaseClient, stripe: Stripe | 
       .sort((a, b) => b.month.localeCompare(a.month) || a.workspaceName.localeCompare(b.workspaceName)),
     stripeAvailableCents: stripeAvailable,
     stripePendingCents: stripePending,
-    flags: ((flags.data ?? []) as Array<{ check_name: string; subject: string; day: string }>).map((f) => ({ check: f.check_name, subject: f.subject, day: f.day })),
+    flags: ((flags.data ?? []) as Array<{ check_name: string; subject: string; day: string; detail?: { message?: unknown } | null }>).map((f) => ({
+      check: f.check_name, subject: f.subject, day: f.day,
+      ...(typeof f.detail?.message === "string" && f.detail.message ? { message: f.detail.message } : {}),
+    })),
     balanced: ((unbalanced.data ?? []) as unknown[]).length === 0,
   };
 }

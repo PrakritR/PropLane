@@ -25,6 +25,13 @@ const BUSINESS_ANNUAL_USD = formatRateCardUsd(
 );
 const BUSINESS_ANNUAL_DISCOUNT = annualDiscountPercent("business");
 
+/**
+ * The processing-fee line every tier carries. Exported because the homepage compare note prints exactly this
+ * sentence: reading it out of a tier by array index silently changed the note when the list was reordered, and
+ * threw in a server component (taking the whole homepage with it) if the list got shorter.
+ */
+export const PROCESSING_FEES_FEATURE_TEXT = "Processing fees separate; account approval required for coverage";
+
 export type PlanTierId = "free" | "pro" | "business";
 
 export function isPlanTierId(tier: string): tier is PlanTierId {
@@ -73,7 +80,7 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
       { text: "1 workspace", included: true },
       { text: commsAllowanceFeatureText("free"), included: false },
       {
-        text: "Processing fees separate; account approval required for coverage",
+        text: PROCESSING_FEES_FEATURE_TEXT,
         included: true,
       },
       { text: "Priority admin support", included: false },
@@ -105,7 +112,7 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
       { text: "1 workspace · extras $15/mo", included: true },
       { text: commsAllowanceFeatureText("pro"), included: true },
       {
-        text: "Processing fees separate; account approval required for coverage",
+        text: PROCESSING_FEES_FEATURE_TEXT,
         included: true,
       },
       { text: "Priority admin support", included: false },
@@ -140,7 +147,7 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
       },
       { text: commsAllowanceFeatureText("business"), included: true },
       {
-        text: "Processing fees separate; account approval required for coverage",
+        text: PROCESSING_FEES_FEATURE_TEXT,
         included: true,
       },
       { text: "Priority admin support", included: true },

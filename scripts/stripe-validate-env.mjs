@@ -50,6 +50,9 @@ function ok(msg) {
 if (!secret?.startsWith("sk_")) fail("STRIPE_SECRET_KEY missing or invalid");
 if (!publishable?.startsWith("pk_")) fail("NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY missing or invalid");
 if (!webhook?.startsWith("whsec_")) fail("STRIPE_WEBHOOK_SECRET missing or invalid");
+const connectWebhook = process.env.STRIPE_CONNECT_WEBHOOK_SECRET?.trim();
+if (connectWebhook && !connectWebhook.startsWith("whsec_")) fail("STRIPE_CONNECT_WEBHOOK_SECRET invalid");
+else if (!connectWebhook) console.warn("! STRIPE_CONNECT_WEBHOOK_SECRET not set: connected-account events (account.updated, payout.*) will be rejected. See docs/stripe-go-live.md section 5.");
 
 const secretMode = modeFromSecret(secret);
 const publishableMode = modeFromPublishable(publishable);

@@ -22,6 +22,10 @@ vi.mock("@/lib/platform-owner-recovery.server", () => ({
   settleClearedPlatformOwnerRecovery: settleRecovery,
   verifiedCapturedChargeAvailability: sourceAvailability,
 }));
+const managedResolution = vi.hoisted(() => ({ value: null as unknown }));
+const creditManaged = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/managed-finance/resolve.server", () => ({ resolveManagedForProperties: async () => managedResolution.value }));
+vi.mock("@/lib/managed-finance/capture.server", () => ({ creditManagedCapture: creditManaged }));
 const recordSourceReview = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/household-source-review.server", () => ({
   recordHouseholdSourceReviewNeeded: recordSourceReview,
@@ -61,6 +65,8 @@ describe("claimed application fee fulfillment", () => {
   let deletionGuard: Record<string, unknown> | null;
   beforeEach(() => {
     vi.clearAllMocks();
+    managedResolution.value = null;
+    creditManaged.mockResolvedValue({ status: "created", journalId: "j-1" });
     syncLedger.mockResolvedValue(undefined);
     syncCharge.mockResolvedValue(undefined);
     attestDestination.mockResolvedValue({ destinationAccountId: "acct_owned",
@@ -406,5 +412,57 @@ describe("claimed application fee fulfillment", () => {
     expect(syncLedger).not.toHaveBeenCalled();
     expect(syncCharge).not.toHaveBeenCalled();
     expect(creditSource).not.toHaveBeenCalled();
+  });
+
+  describe("on a PropLane-managed workspace", () => {
+    const managed = { workspaceId: "ws-1", policy: { id: "pol-1", status: "active", signedAt: "2026-01-01T00:00:00Z", terms: { appliesTo: "all" } } };
+
+    it("allocates the fee in the party ledger and credits NO manager hold", async () => {
+      managedResolution.value = managed;
+      const result = await fulfillClaimedApplicationFeePayment(db as never, stripe as never, session as never);
+      expect(result).toMatchObject({ chargeId: "hc_app_paid", alreadyPaid: false });
+      expect(creditManaged).toHaveBeenCalledTimes(1);
+      expect(creditManaged).toHaveBeenCalledWith(db, stripe, expect.objectContaining({
+        policy: managed.policy, paymentIntentId: "pi_paid", stripeChargeId: "ch_paid", grossCents: 544,
+        components: [expect.objectContaining({
+          id: "hc_app_paid", kind: "application_fee", liabilityClass: "income",
+          principalCents: 500, recipientNetCents: 500, propertyId: "property-1", residentEmail: "resident@example.com",
+        })],
+      }));
+      expect(creditSource).not.toHaveBeenCalled();
+      expect(releaseSource).not.toHaveBeenCalled();
+      expect(syncLedger).toHaveBeenCalledTimes(1); // the manager's own books still see the payment
+    });
+
+    it("a redelivery allocates again under the same PaymentIntent key (the ledger makes it a no-op) and never a hold", async () => {
+      managedResolution.value = managed;
+      await fulfillClaimedApplicationFeePayment(db as never, stripe as never, session as never);
+      state = { ...state, status: "settled" };
+      await fulfillClaimedApplicationFeePayment(db as never, stripe as never, session as never);
+      expect(creditManaged).toHaveBeenCalledTimes(2);
+      expect(creditManaged.mock.calls[0]![2]).toEqual(creditManaged.mock.calls[1]![2]);
+      expect(creditSource).not.toHaveBeenCalled();
+    });
+
+    it("a fee already credited as a hold stays a hold", async () => {
+      managedResolution.value = managed;
+      persistedHold = { id: "hold-paid", ownerUserId: "manager-1", ownerRole: "manager", source: "application_fee", sourceId: "cs_paid", status: "held", amountCents: 500, stripeChargeId: "ch_paid" };
+      await fulfillClaimedApplicationFeePayment(db as never, stripe as never, session as never);
+      expect(creditManaged).not.toHaveBeenCalled();
+    });
+
+    it("a capture that cannot be allocated fails the delivery (Stripe redelivers); it never falls back to a hold", async () => {
+      managedResolution.value = managed;
+      creditManaged.mockRejectedValueOnce(new Error("The payment could not be allocated."));
+      await expect(fulfillClaimedApplicationFeePayment(db as never, stripe as never, session as never)).rejects.toThrow(/could not be allocated/);
+      expect(creditSource).not.toHaveBeenCalled();
+    });
+
+    it("a self-serve workspace keeps the hold path", async () => {
+      managedResolution.value = null;
+      await fulfillClaimedApplicationFeePayment(db as never, stripe as never, session as never);
+      expect(creditManaged).not.toHaveBeenCalled();
+      expect(creditSource).toHaveBeenCalledTimes(1);
+    });
   });
 });

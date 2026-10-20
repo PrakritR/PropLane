@@ -137,3 +137,21 @@ export async function ensureGuestLogin(
   await ensureProfileRoleRow(db, userId, "resident");
   return { userId, loginEmail, created: true, signInUrl: await mintSignInUrl(db, loginEmail).catch(() => null) };
 }
+
+/**
+ * The resident login this phone PROVABLY owns, found without creating or signing anything in: the
+ * placeholder this flow minted for the number, else the single account whose `profiles.phone` is VERIFIED
+ * and which holds the resident role. Same two rules as `ensureGuestLogin`, so "send me the payment link"
+ * can never open an account a bare, unverified phone match merely names.
+ */
+export async function findPhoneOwnedResidentId(db: SupabaseClient, phone: string): Promise<string | null> {
+  if (!phone) return null;
+  const { data: minted } = await db.from("profiles").select("id").eq("email", guestPlaceholderEmail(phone)).maybeSingle();
+  const mintedUserId = String((minted as { id?: string } | null)?.id ?? "").trim();
+  if (mintedUserId) return (await holdsResidentRole(db, mintedUserId)) ? mintedUserId : null;
+  const { data: matches } = await db.from("profiles").select("id, phone_verified_at").eq("phone", phone).limit(3);
+  const verified = ((matches ?? []) as Array<{ id?: string; phone_verified_at?: string | null }>).filter((row) => Boolean(row.phone_verified_at));
+  if (verified.length !== 1) return null;
+  const userId = String(verified[0]!.id ?? "");
+  return userId && (await holdsResidentRole(db, userId)) ? userId : null;
+}

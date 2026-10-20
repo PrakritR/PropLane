@@ -159,8 +159,7 @@ reserve target shown against available, year-end tax package (Schedule E-ready t
 record, for example a tour host fee or a cleaning; idempotent on a client key, same owner-approval gate).
 Listed, not built: document vault with expiry reminders, maintenance history with photos,
 rent / vacancy recommendations from market data, annual inspection link, owner card-on-file expense collection, per-owner payout
-schedule and instant payouts, trust-account adoption (see below), application and linked-form fees on managed workspaces (they
-still follow the manager-hold path), tour-host / cleaning fee triggers beyond the generic vendor-charge API, autopay-specific tests.
+schedule and instant payouts, trust-account adoption (see below), tour-host / cleaning fee triggers beyond the generic vendor-charge API, autopay-specific tests.
 
 ## Legal and compliance flag (read before any production use)
 
@@ -184,3 +183,60 @@ capture crediting, refunds, disputes, vendor bills, balances, withdrawals, recon
 
 - A manual withdrawal's stored key is bound to (client key, party, workspace, amount) in `withdrawalKey`; a weekly batch key is server-made and amount-free. When `reserve_party_withdrawal` answers `exists`, only the STORED amount, party and destination decide: a mismatch is a 409 (`KEY_REUSED`) with no Stripe call, a completed row returns its stored transfer, and a reservation older than 20h (or `unknown`) is left to `reconcileWithdrawals`, never re-sent. The Stripe transfer key carries the withdrawal id, party and amount. Reconcile flags (never fails) a reservation when any transfer sits in its group without matching it.
 - `POST /api/portal/managed-finance/vendor-charge` needs a target holding the vendor role in `profile_roles`, on the workspace manager's `manager_vendor_records` roster, and not the caller. Auto-approved bills per workspace are capped at 4 repair thresholds per 24h; past it the owner is asked.
+
+
+## Unsigned service workspace (`is_service`, no active policy)
+
+A workspace is PropLane-managed only while an ACTIVE, signed `managed_workspace_fee_policies` row exists; `is_service` alone is
+not enough. A service workspace whose fee agreement is not signed yet is therefore NOT managed, and without a guard its rent would
+be captured for the manager of record and transferred to that person's personal Connect account. Until the agreement is signed
+(`src/lib/managed-finance/unpolicied-service.server.ts`):
+
+- **New resident checkouts are refused** (`serviceSetupPendingProblem`, next to `managedCartProblem`; 422 `SERVICE_SETUP_PENDING`):
+  "Payments for this home are being set up. Your manager will text you a link shortly." A failed read refuses too.
+- **Hold releases are frozen** for the manager of record (`releaseVerifiedPlatformHoldsForOwner`): a NEW release stays held and
+  visible (counted pending); an attempt that was already reserved may finish, because its transfer may already exist at Stripe.
+  Owner-wide on purpose (a hold row does not name its house): a manager who also runs a self-serve house is delayed, never
+  misdirected, until the agreement is signed.
+- **Application, linked-form and other destination-capable checkouts capture on the platform balance**
+  (`platformCaptureRequiredForProperty`: managed or unsigned-service houses never get a destination charge to the manager's account).
+- **An admin attention item** is raised: an `owner_ledger_flags` row `fee_agreement_unsigned` per workspace per day with the message
+  "Sign the fee agreement for <workspace>", shown under Admin > Finances > Flags.
+
+## Application and form fees (decision)
+
+On a PropLane-managed workspace an application fee (and a paid linked-form fee) is captured on the platform balance and allocated
+through `creditManagedCapture`, exactly like rent, keyed on its PaymentIntent (a replay is a no-op), never credited to the manager's
+hold. The split follows the policy: the fee is **fee-applicable only when the policy's `applies_to` is `all`**; then PropLane's
+share is taken by the same monthly percentage / minimum math. With `applies_to = rent` (the default) the **owner gets the whole
+fee** (owner payable). Application fees are income (`liability_class = income`), never deposits. A fee already credited as a hold
+stays a hold; a capture that cannot be allocated throws so Stripe redelivers (never a hold fallback). The lease-signing fee still
+follows its own destination path and is a listed gap.
+
+## Vendors without a login
+
+A vendor texted by dispatch may be only a manager directory row (`manager_vendor_records.vendor_user_id` null). On a managed
+workspace Approve + pay (and the manager's Y on a texted invoice) still posts the vendor bill, to `vendor_dir:<directory id>`, under
+the work order's key (`vendor-bill:work_order:<id>`), so a repeat posts nothing twice; the service is marked paid without a
+`vendor_payouts` row (that table needs a user). Money waiting there is never paid out. Then
+(`src/lib/managed-finance/directory-vendor.server.ts`):
+
+1. the vendor is texted once per Pacific day, from the workspace number, "You have $X waiting from PropLane. Create your account to
+   get paid: <link>" (the live vendor invite when the row has an email, else the vendor sign-up page);
+2. at sign-up (`provisionVendorAccountByEmail`) the invited directory row's balance, and any row whose email or phone matches a
+   PROVEN contact of the new account, is linked to the account and re-keyed: one `directory_claim` journal per workspace (DR the
+   directory payable, CR the vendor's payable, same workspace, key `directory-claim:<dir>:<user>:<workspace>:<cents>`), so a
+   replay or a second run moves nothing;
+3. the weekly batch (and a manual withdrawal) pays the re-keyed balance like any vendor balance. It still skips `vendor_dir:`.
+
+## Withdrawals and automatic payout schedules
+
+A withdrawal Transfers to the person's Express account, then creates a bank payout only when that account is on a **manual** payout
+schedule. On Stripe's **automatic** schedule no payout is created (it would error after the transfer landed); the response carries
+`payoutAutomatic: true` and the UI says "On its way with your next automatic payout". An unreadable schedule falls back to trying the
+payout, and a payout failure after a landed transfer is recorded, never an error to the person.
+
+## Stripe webhook endpoints
+
+Two endpoints (platform events and connected-account events), two signing secrets, one route; and a 15-minute backstop cron
+`/api/cron/release-ready-holds`. See `docs/stripe-go-live.md` section 5.

@@ -8,6 +8,7 @@ import { isAllowedPhoneAuthDestination, normalizeE164 } from "@/lib/phone-e164";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
 import { phoneAuthHookEnabled } from "@/lib/auth/phone-hook-flag";
 import { sendPhoneAuthCode } from "@/lib/auth/phone-otp-delivery.server";
+import { isAdminAccount, loadPhoneRequired, phoneSkipActive, PhoneSendFailedError } from "@/lib/auth/phone-required.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const PHONE_AUTH_ERROR = "We couldn't verify this number. Try again or contact your manager.";
@@ -48,10 +49,35 @@ export async function readPhoneIdentity(db: SupabaseClient, userId: string) {
   return { phone, verified: false };
 }
 
-/** No new-schema dependency is read when shared mode is off. */
+/**
+ * Phone verification (codes for a SIGNED-IN account) is available on the shared line AND whenever `phone_required` is
+ * on. Phone SIGN-IN (a code to someone with no session) stays shared-line only (`phoneAuthEnabled`).
+ */
+export async function phoneVerificationEnabled(db = createSupabaseServiceRoleClient()): Promise<boolean> {
+  return (await phoneAuthEnabled(db)) || (await loadPhoneRequired(db));
+}
+
+/**
+ * Must this account verify a phone before it enters a portal?
+ *  - Shared mode: always, until verified (the older gate, unchanged).
+ *  - Otherwise only when `sms_runtime_config.phone_required` is on, for any account (email, Google, Apple) without a
+ *    verified phone, except admins, and except an account that skipped the step on its CURRENT sign-in because a code
+ *    could not be sent (`phoneSkipActive`). View-as sessions are exempted by the caller.
+ * Nothing new is read when both switches are off.
+ */
 export async function needsPhoneVerification(userId: string, db = createSupabaseServiceRoleClient()): Promise<boolean> {
-  if (!(await phoneAuthEnabled(db))) return false;
-  return !(await readPhoneIdentity(db, userId)).verified;
+  if (await phoneAuthEnabled(db)) return !(await readPhoneIdentity(db, userId)).verified;
+  if (!(await loadPhoneRequired(db))) return false;
+  if (await isAdminAccount(db, userId)) return false;
+  let verified = false;
+  try {
+    verified = (await readPhoneIdentity(db, userId)).verified;
+  } catch {
+    // Cannot read the phone state: never lock an account out over it.
+    return false;
+  }
+  if (verified) return false;
+  return !(await phoneSkipActive(db, userId));
 }
 
 export async function phoneOwners(db: SupabaseClient, phone: string): Promise<string[]> {
@@ -72,7 +98,10 @@ export async function startPhoneChallenge(input: {
   db: SupabaseClient; userId: string | null; browser: string; phone: unknown; purpose: PhonePurpose;
 }) {
   const { db, userId, browser, purpose } = input;
-  if (!(await phoneAuthEnabled(db))) throw new Error(PHONE_AUTH_ERROR);
+  // Sign-in by phone is shared-line only; verifying or changing a SIGNED-IN account's phone also works when phone_required is on.
+  if (purpose === "sign_in" || !(await phoneVerificationEnabled(db))) {
+    if (!(await phoneAuthEnabled(db))) throw new Error(PHONE_AUTH_ERROR);
+  }
   if (purpose !== "sign_in" && !userId) throw new Error(PHONE_AUTH_ERROR);
   const current = userId ? await readPhoneIdentity(db, userId) : null;
   const phone = purpose === "change_number_old" ? current?.phone : normalizeE164(input.phone);
@@ -109,7 +138,7 @@ export async function startPhoneChallenge(input: {
   if (!sent) {
     // Retain the row for the rolling send cap, but no delivered proof exists.
     await db.from("phone_otp_challenges").update({ consumed_at: new Date().toISOString() }).eq("id", id);
-    throw new Error(PHONE_AUTH_ERROR);
+    throw new PhoneSendFailedError(PHONE_AUTH_ERROR);
   }
   return { challengeId: id };
 }
@@ -155,7 +184,7 @@ export async function verifyPhoneChallenge(input: {
   db: SupabaseClient; userId: string | null; browser: string; challengeId: string; code: string; oldChallengeId?: string;
 }) {
   const { db, userId, browser, challengeId, code } = input;
-  if (!(await phoneAuthEnabled(db)) || !/^\d{6}$/.test(code) || !/^[\da-f-]{36}$/i.test(challengeId)) throw new Error(PHONE_AUTH_ERROR);
+  if (!/^\d{6}$/.test(code) || !/^[\da-f-]{36}$/i.test(challengeId)) throw new Error(PHONE_AUTH_ERROR);
   // Determine the actor from our own challenge. An unauthenticated sign-in
   // remains a sign-in even if a browser already happens to have a session.
   const { data: row, error: readError } = await db.from("phone_otp_challenges").select("auth_user_id, browser_hash")
@@ -163,6 +192,8 @@ export async function verifyPhoneChallenge(input: {
   const browserHash = phoneBrowserHash(browser);
   if (readError || !row || row.browser_hash !== browserHash || (row.auth_user_id && row.auth_user_id !== userId)) throw new Error(PHONE_AUTH_ERROR);
   const actor = row.auth_user_id as string | null;
+  // A code for someone with no session (sign-in) is shared-line only; a signed-in account's code also works under phone_required.
+  if (!(await phoneAuthEnabled(db)) && !(actor && (await loadPhoneRequired(db)))) throw new Error(PHONE_AUTH_ERROR);
   const { data, error } = await db.rpc("phone_auth_consume", {
     p_id: challengeId, p_user: actor, p_browser_hash: browserHash, p_code_hash: phoneCodeHash(challengeId, code),
   });

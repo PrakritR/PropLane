@@ -550,7 +550,7 @@ export async function POST(req: Request) {
         const allowed =
           ids !== null &&
           ids.length > 0 &&
-          ids.every((id) => managedReadOnlyInboxThreadAllowed(id, active.id, active.ownerUserId));
+          ids.every((id) => managedReadOnlyInboxThreadAllowed(id, active.id, active.ownerUserId, ctx.user.id));
         if (!allowed) return NextResponse.json({ ...MANAGED_READ_ONLY_BODY }, { status: 403 });
       }
     }

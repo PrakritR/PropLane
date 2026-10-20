@@ -221,12 +221,14 @@ describe("managed read-only policy", () => {
     expect(managedReadOnlyInboxLockApplies("upsert", "axis_portal_inbox_resident_v1", M)).toBe(false);
   });
   it("inbox: only the workspace Team chat and her Assistant thread", () => {
-    expect(managedReadOnlyInboxThreadAllowed(`team-thread:client:ws:${WS}`, WS, "client")).toBe(true);
-    expect(managedReadOnlyInboxThreadAllowed("agent_notice_client", WS, "client")).toBe(true);
-    expect(managedReadOnlyInboxThreadAllowed(`team-thread:client:ws:${WS2}`, WS, "client")).toBe(false);
-    expect(managedReadOnlyInboxThreadAllowed("team-thread:client", WS, "client")).toBe(false);
-    expect(managedReadOnlyInboxThreadAllowed("resident-thread-1", WS, "client")).toBe(false);
-    expect(managedReadOnlyInboxThreadAllowed("", WS, "client")).toBe(false);
+    expect(managedReadOnlyInboxThreadAllowed(`team-thread:client:ws:${WS}`, WS, "client", "client")).toBe(true);
+    expect(managedReadOnlyInboxThreadAllowed("agent_notice_client", WS, "client", "client")).toBe(true);
+    // The bare `agent_notice_` prefix used to pass for ANY id, including a staff member's own Assistant.
+    expect(managedReadOnlyInboxThreadAllowed("agent_notice_staff", WS, "client", "client")).toBe(false);
+    expect(managedReadOnlyInboxThreadAllowed(`team-thread:client:ws:${WS2}`, WS, "client", "client")).toBe(false);
+    expect(managedReadOnlyInboxThreadAllowed("team-thread:client", WS, "client", "client")).toBe(false);
+    expect(managedReadOnlyInboxThreadAllowed("resident-thread-1", WS, "client", "client")).toBe(false);
+    expect(managedReadOnlyInboxThreadAllowed("", WS, "client", "client")).toBe(false);
     expect(managedReadOnlyInboxWrites({ action: "upsert", row: { id: "r1" } })).toEqual(["r1"]);
     expect(managedReadOnlyInboxWrites({ action: "replace", rows: [{ id: "a" }, {}] })).toEqual(["a", ""]);
     expect(managedReadOnlyInboxWrites({ action: "dismissContacts" })).toBeNull();

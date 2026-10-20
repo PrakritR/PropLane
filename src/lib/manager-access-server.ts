@@ -285,10 +285,16 @@ export async function getManagerPortalNavSubscriptionTier(
   return getManagerPortalNavSubscriptionTierCached(userId);
 }
 
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const getManagerSubscriptionTierByManagerIdCached = cache(
   async (managerId: string): Promise<ManagerSubscriptionTier> => {
     const normalized = managerId.trim();
     if (!normalized) return null;
+    // Some callers hold the manager's USER id (resident SMS and inbox agents resolve the owner of a work number), not the manager
+    // code ("MGR-..."). A user id matched no purchase row, read as "free", and hid the Services and Documents tools from every
+    // resident who texted. A uuid is a user id: answer from the user's own plan.
+    if (UUID_SHAPE.test(normalized)) return getManagerNavLockTierCached(normalized);
     try {
       const supabase = createSupabaseServiceRoleClient();
       const { data } = await supabase

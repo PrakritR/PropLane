@@ -6,6 +6,7 @@ import { isMissingSchemaError } from "@/lib/one-number/config.server";
 import { redactSensitiveNumbers } from "@/lib/one-number/redact";
 import { mintSetupLink } from "@/lib/one-number/onboarding/setup-links.server";
 import { appendLineTurn, findOrCreateLineSession, loadLineHistory } from "@/lib/one-number/vendor-jobs/history.server";
+import { classifyLineText } from "@/lib/one-number/line-intent";
 import { asksForJobs, CONTROL_ONLY_RE, readVendorJobsAsk, tradeLabelFor, type VendorJobsAsk } from "@/lib/one-number/vendor-jobs/intent";
 import { composeVendorAnswerReply, composeVendorHelpReply, composeVendorJobsReply, type VendorLineLink } from "@/lib/one-number/vendor-jobs/reply";
 import { normalizeE164 } from "@/lib/phone-e164";
@@ -140,6 +141,11 @@ export async function handlePropLaneVendorText(
   if (!phone || !body.trim() || CONTROL_ONLY_RE.test(body)) return NOT_HANDLED;
   const now = (deps.now ?? (() => new Date()))();
   const phoneKey = phoneKeyOf(phone);
+
+  // Looking for a place to live is never a vendor turn, however this phone was read before. Intent is decided per
+  // MESSAGE (captain, Oct 19): a live `sms_vendor_leads` row has no expiry, so without this escape one "handyman
+  // here" locked that phone out of the catalog search for good.
+  if (classifyLineText(body).kind === "housing_search") return NOT_HANDLED;
 
   const ask = readVendorJobsAsk(body);
   const [account, lead] = await Promise.all([resolveVendorAccountByPhone(db, phone), findLiveLead(db, phoneKey)]);

@@ -287,7 +287,7 @@ export default function McpDocsPage() {
             <p className="text-[14px]">
               Found a problem?{" "}
               <Link
-                href="/support"
+                href="/#contact"
                 data-attr="mcp-docs-support-link"
                 className="text-primary underline-offset-2 hover:underline"
               >

@@ -289,3 +289,59 @@ describe("a reused idempotency key never moves money for a different request", (
     expect(stripe.transfers.create).not.toHaveBeenCalled();
   });
 });
+
+
+describe("payout schedule of the destination account", () => {
+  const withSchedule = (interval: string | undefined) => {
+    const stripe = makeStripe() as never as ReturnType<typeof makeStripe> & { accounts: { retrieve: ReturnType<typeof vi.fn> } };
+    (stripe as unknown as { accounts: unknown }).accounts = {
+      retrieve: vi.fn(async () => ({ id: ACCT, settings: { payouts: { schedule: interval ? { interval } : {} } } })),
+    };
+    return stripe;
+  };
+
+  it("an automatic-payout account gets the transfer and NO manual payout; the owner is told it is on its way", async () => {
+    const f = setup();
+    const stripe = withSchedule("daily");
+    const r = await withdrawFromManagedFunds(stripe as never, f.db, owner);
+    expect(r).toMatchObject({ ok: true, transferId: "tr_1", payoutId: null, payoutPending: true, payoutAutomatic: true });
+    expect((r as { payoutError?: string }).payoutError).toBeUndefined();
+    expect(stripe.payouts.create).not.toHaveBeenCalled();
+    const complete = f.rpcCalls.find((c) => c.name === "complete_party_withdrawal")!.args;
+    expect(complete).toMatchObject({ p_transfer: "tr_1", p_payout: null, p_payout_error: null });
+    expect(f.rpcCalls.some((c) => c.name === "fail_party_withdrawal")).toBe(false);
+  });
+
+  it("a manual-schedule account still gets its payout", async () => {
+    const f = setup();
+    const stripe = withSchedule("manual");
+    const r = await withdrawFromManagedFunds(stripe as never, f.db, owner);
+    expect(r).toMatchObject({ ok: true, payoutId: "po_1", payoutPending: false });
+    expect((r as { payoutAutomatic?: boolean }).payoutAutomatic).toBeUndefined();
+    expect(stripe.payouts.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("an unreadable schedule falls back to trying the payout, and a payout error after the transfer never fails the withdrawal", async () => {
+    const f = setup();
+    const stripe = makeStripe({ payout: () => { throw new Error("You cannot create manual payouts on an automatic schedule"); } });
+    (stripe as unknown as { accounts: unknown }).accounts = { retrieve: vi.fn(async () => { throw new Error("rate limited"); }) };
+    const r = await withdrawFromManagedFunds(stripe as never, f.db, owner);
+    expect(r).toMatchObject({ ok: true, transferId: "tr_1", payoutId: null, payoutPending: true });
+    expect(f.rpcCalls.some((c) => c.name === "fail_party_withdrawal")).toBe(false);
+  });
+});
+
+describe("weekly batch and vendors without a login", () => {
+  it("never pays a vendor_dir party (no account to pay) but pays a re-keyed balance under the vendor's own party", async () => {
+    account.value = { id: "acct_ven1", metadata: { axis_user_id: "ven-1" } };
+    const f = setup(
+      { party_balance: () => [{ owed: 80_000, matured: 80_000, pending: 0 }] },
+      { party_ledger_lines: [{ account: "vendor_payable", party_id: "vendor_dir:vendor-abc" }, { account: "vendor_payable", party_id: "vendor:ven-1" }] },
+    );
+    const out = await runWeeklyVendorBatch(makeStripe() as never, f.db, new Date("2026-10-19T15:00:00Z"));
+    expect(out).toEqual({ paid: 1, skipped: 0, failed: 0 });
+    const reserves = f.rpcCalls.filter((c) => c.name === "reserve_party_withdrawal");
+    expect(reserves).toHaveLength(1);
+    expect(reserves[0]!.args).toMatchObject({ p_party: "vendor:ven-1", p_source: "weekly_batch" });
+  });
+});

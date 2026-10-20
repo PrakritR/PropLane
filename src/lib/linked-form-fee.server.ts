@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
+import { findPlatformHoldByPaymentIntent } from "@/lib/stripe-platform-hold.server";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
   resolveApplicationFeeItemization,
@@ -21,6 +22,9 @@ import {
   createAxisAchCheckoutSession,
 } from "@/lib/stripe-axis-ach-checkout";
 import { resolveConnectDestinationIfReady } from "@/lib/stripe-connect";
+import { platformCaptureRequiredForProperty } from "@/lib/managed-finance/unpolicied-service.server";
+import { creditManagedCapture } from "@/lib/managed-finance/capture.server";
+import { resolveManagedForProperties } from "@/lib/managed-finance/resolve.server";
 
 /**
  * A linked form's own fee, charged to whoever submits it.
@@ -227,7 +231,10 @@ export async function createLinkedFormFeeCheckout(
     resolved.listing,
     resolved.propertyId,
   );
-  const destinationAccountId = await resolveConnectDestinationIfReady(stripe, db, resolved.managerUserId);
+  // Managed (or awaiting-agreement service) workspaces are captured on the platform balance, never destination-charged.
+  const destinationAccountId = (await platformCaptureRequiredForProperty(db, resolved.propertyId))
+    ? null
+    : await resolveConnectDestinationIfReady(stripe, db, resolved.managerUserId);
   const path = `/f/open/${encodeURIComponent(request.id)}`;
   const session = await createAxisAchCheckoutSession(stripe, {
     residentEmail: payer.email,
@@ -289,4 +296,50 @@ export async function verifyLinkedFormFeePayment(
     paidCents,
   });
   return { ok: true, paid: true };
+}
+
+/**
+ * A paid linked-form fee on a PropLane-managed workspace is allocated in the party ledger (owner payable, or PropLane's fee when
+ * the policy applies it to all charges), never credited to the manager of record's hold. Returns true when the managed path took
+ * the payment (the caller must then NOT credit a hold); false for every other workspace. Idempotent on the PaymentIntent.
+ * A payment that cannot be allocated throws, so Stripe redelivers (never a hold fallback).
+ */
+export async function creditManagedLinkedFormFee(
+  db: SupabaseClient,
+  stripe: Stripe,
+  session: Stripe.Checkout.Session,
+): Promise<boolean> {
+  const meta = session.metadata ?? {};
+  if (meta.purpose !== LINKED_FORM_FEE_PURPOSE) return false;
+  if (session.status !== "complete" || session.payment_status !== "paid") return false;
+  const propertyId = meta.property_id?.trim() ?? "";
+  if (!propertyId) return false;
+  const paidAt = new Date().toISOString();
+  const managed = await resolveManagedForProperties(db, [propertyId], paidAt);
+  if (!managed) return false;
+  const piId = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? "";
+  if (!piId) throw new Error("Paid linked-form fee has no PaymentIntent.");
+  if (await findPlatformHoldByPaymentIntent(db, piId)) return false; // already credited as a hold: stays a hold
+  const pi = await stripe.paymentIntents.retrieve(piId);
+  const chargeId = typeof pi.latest_charge === "string" ? pi.latest_charge : pi.latest_charge?.id ?? "";
+  if (!chargeId || pi.status !== "succeeded") throw new Error("Paid linked-form fee has no captured Charge.");
+  const principal = Number(meta.fee_cents);
+  const net = Number(meta.hold_amount_cents ?? meta.manager_payout_cents);
+  const gross = Number(session.amount_total);
+  if (!Number.isSafeInteger(principal) || principal <= 0 || !Number.isSafeInteger(net) || net <= 0 || net > principal ||
+      !Number.isSafeInteger(gross) || gross < principal) {
+    throw new Error("Linked-form fee amounts do not reconcile.");
+  }
+  await creditManagedCapture(db, stripe, {
+    policy: managed.policy,
+    paymentIntentId: piId,
+    stripeChargeId: chargeId,
+    grossCents: gross,
+    components: [{
+      id: `hc_linked_form_fee_${session.id}`, kind: "other_cost", liabilityClass: "income",
+      principalCents: principal, recipientNetCents: net, propertyId,
+      residentEmail: (meta.resident_email ?? "").toLowerCase(), paidAt,
+    }],
+  });
+  return true;
 }

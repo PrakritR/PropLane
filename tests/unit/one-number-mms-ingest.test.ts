@@ -58,6 +58,20 @@ describe("inbound MMS", () => {
     expect(inboundMediaItems({})).toEqual([]);
   });
 
+  it("accepts a loopback http photo only while the e2e capture transport is on", () => {
+    const loop = { NumMedia: "1", MediaUrl0: "http://127.0.0.1:3013/leak.png", MediaContentType0: "image/png" };
+    const before = process.env.SMS_E2E_CAPTURE_FILE;
+    try {
+      delete process.env.SMS_E2E_CAPTURE_FILE;
+      expect(inboundMediaItems(loop)).toEqual([]);
+      process.env.SMS_E2E_CAPTURE_FILE = "/tmp/captured-sms.jsonl";
+      expect(inboundMediaItems(loop)).toEqual([{ index: 0, url: "http://127.0.0.1:3013/leak.png", declaredType: "image/png" }]);
+      expect(inboundMediaItems({ ...loop, MediaUrl0: "http://evil.example/leak.png" })).toEqual([]);
+    } finally {
+      if (before === undefined) delete process.env.SMS_E2E_CAPTURE_FILE; else process.env.SMS_E2E_CAPTURE_FILE = before;
+    }
+  });
+
   it("downloads each item into the private bucket and indexes it with workspace and sender", async () => {
     const stored = await ingestInboundMedia(db(), {
       messageSid: SID, ownerUserId: "owner-1", workspaceId: "ws-1", senderPhone: "+12065551234",

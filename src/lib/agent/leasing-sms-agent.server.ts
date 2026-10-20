@@ -21,7 +21,8 @@ import { leasingSmsSystemPromptForWorkNumberOwner } from "@/lib/agent/leasing-sm
 import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { traceAgentTurn, traceProspectShadowComparison, type TraceActor } from "@/lib/observability/langfuse";
 import { buildLeasingSmsAgentContext } from "@/lib/tools/context";
-import { leasingSmsAgentRegistry, leasingSmsAutonomousTourRegistry, LEASING_SMS_AUTONOMOUS_TOUR_WRITE_TOOLS, LEASING_SMS_INLINE_WRITE_TOOLS } from "@/lib/tools";
+import { LEASING_SMS_STAY_PROMPT } from "@/lib/agent/leasing-sms-stay-prompt";
+import { leasingSmsAgentRegistry, leasingSmsAutonomousTourRegistry, LEASING_SMS_AUTONOMOUS_TOUR_WRITE_TOOLS, LEASING_SMS_INLINE_WRITE_TOOLS, LEASING_SMS_STAY_WRITE_TOOLS, withLeasingSmsStayTools } from "@/lib/tools";
 import { leasingSendMyLinkTool, withSharedLineTools } from "@/lib/tools/domains/one-number-links";
 import { leasingSendListingPhotosTool } from "@/lib/tools/domains/one-number-photos";
 import { toAnthropicTools } from "@/lib/tools/registry";
@@ -39,7 +40,7 @@ import {
 } from "@/lib/prospect-tour-scheduling-context.server";
 import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
 import { summarizeLeasingEvidence } from "@/lib/agent/leasing-sms-fallback";
-import { proplaneSiteLinks, publicOrigin } from "@/lib/tools/domains/leasing-sms";
+import { buildProspectLinksTool, proplaneSiteLinks, publicOrigin } from "@/lib/tools/domains/leasing-sms";
 import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
 
 type Db = SupabaseClient;
@@ -561,6 +562,7 @@ export async function runLeasingSmsAgentTurn(
     if (serviceLine) {
       system += `\n\nYou are answering on the PropLane line. The only homes you know are the ones list_live_listings returns: homes PropLane manages. Never name or suggest a home a tool did not return. For any place the prospect names (a campus, a landmark, a neighborhood, a zip, "near downtown"), call list_live_listings ONCE with area set to their words, then answer from that one result: list up to three homes with name, rent and the distance the tool gave, and put each home's own listingUrl from the tool next to it. Use the tool's browseUrl for "see everything". If the tool says no home is in the area, say so and give the closest ones it returned. If the lookup fails, say a teammate will follow up. When they pick a home, call build_prospect_links and send the tour or apply link.`;
     }
+    if (channel === "sms" && !args.testActor) system += `\n\n${LEASING_SMS_STAY_PROMPT}`;
     shadowSystem = system;
     turnPromptMeta = resolvePromptMeta(PROMPT_IDS.leasingSmsAgent, system);
     let inlineActionAuthorized = false;
@@ -616,14 +618,17 @@ export async function runLeasingSmsAgentTurn(
           registry: await (async () => {
             const base = args.prospectBurst && channel === "sms" ? leasingSmsAutonomousTourRegistry : leasingSmsAgentRegistry;
             // "send me the application" and "send me photos" exist only while the line is shared (one-number build).
-            return channel === "sms" ? withSharedLineTools(ctx.db, base, [leasingSendMyLinkTool, leasingSendListingPhotosTool]) : base;
+            return channel === "sms" ? withSharedLineTools(ctx.db, args.testActor ? base : withLeasingSmsStayTools(base), [leasingSendMyLinkTool, leasingSendListingPhotosTool]) : base;
           })(),
           messages: history,
           observer: forwardingObserver,
           system,
           model: smsTaskModel(session.landlord_id, channel),
           readOnly: true,
-          allowWriteTools: args.prospectBurst && channel === "sms" ? LEASING_SMS_AUTONOMOUS_TOUR_WRITE_TOOLS : LEASING_SMS_INLINE_WRITE_TOOLS,
+          allowWriteTools: [
+            ...(args.prospectBurst && channel === "sms" ? LEASING_SMS_AUTONOMOUS_TOUR_WRITE_TOOLS : LEASING_SMS_INLINE_WRITE_TOOLS),
+            ...(channel === "sms" && !args.testActor ? LEASING_SMS_STAY_WRITE_TOOLS : []),
+          ],
           suppressionTools: ["suppress_redundant_reply"],
           // A prospect never receives the portal's "I can't verify that link" sentence: a link no lookup returned is redone
           // once without links, then answered from the tool results alone. The site links are constants, so always allowed.
@@ -632,6 +637,23 @@ export async function runLeasingSmsAgentTurn(
                 linkRecovery: {
                   allowedUrls: Object.values(proplaneSiteLinks(publicOrigin())).filter((value) => value.startsWith("http")),
                   summarize: summarizeLeasingEvidence,
+                  // "How do I apply?" must come back with the apply link. When the draft carried a link the model never looked up,
+                  // the home this conversation is about (its last listing link) gets its real links from the same tool.
+                  relink: async () => {
+                    try {
+                      const text = history.map((m) => (typeof m.content === "string" ? m.content : "")).join("\n");
+                      const ids = [...text.matchAll(/\/rent\/listings\/([A-Za-z0-9_.~-]+)/g)].map((m) => m[1]);
+                      const propertyId = ids[ids.length - 1];
+                      if (!propertyId) return null;
+                      const links = await buildProspectLinksTool.handler(ctx, { propertyId });
+                      if (!links || (links as { ok?: unknown }).ok !== true) return null;
+                      const l = links as { listingUrl?: string; tourUrl?: string; applyUrl?: string };
+                      const urls = [l.listingUrl, l.tourUrl, l.applyUrl].filter((u): u is string => typeof u === "string" && u.startsWith("http"));
+                      return urls.length ? { urls, context: JSON.stringify({ listingUrl: l.listingUrl, tourUrl: l.tourUrl, applyUrl: l.applyUrl }) } : null;
+                    } catch {
+                      return null;
+                    }
+                  },
                   replaceWhen: (trace: { tool: string; ok: boolean }[]) => {
                     if (!serviceLine) return false;
                     const lists = trace.filter((entry) => entry.tool === "list_live_listings");

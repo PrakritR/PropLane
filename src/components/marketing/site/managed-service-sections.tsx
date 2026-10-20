@@ -16,7 +16,7 @@ const CARD = "rounded-2xl border border-[#d6d7d2] bg-white/85 shadow-[0_18px_44p
 
 /** Software | Managed service as two real links, so each tab is a URL a visitor can share. */
 export function PricingTabs({ active, tabHrefs }: { active: "software" | "service"; tabHrefs?: { software: string; service: string } }) {
-  const hrefs = tabHrefs ?? { software: "/pricing", service: MANAGED_SERVICE_HREF };
+  const hrefs = tabHrefs ?? { software: "/#pricing", service: MANAGED_SERVICE_HREF };
   const pill = (on: boolean) =>
     cn(
       "inline-flex min-h-[40px] items-center rounded-full px-5 text-[13.5px] font-bold transition-colors",

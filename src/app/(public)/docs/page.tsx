@@ -102,7 +102,7 @@ export default function DocsPage() {
             </DocList>
             <p>
               Choose Free, Pro, or Business when you are ready. Annual billing is 20% less. {" "}
-              <Link href="/pricing" className="text-primary underline-offset-2 hover:underline">
+              <Link href="/#pricing" className="text-primary underline-offset-2 hover:underline">
                 Compare plans
               </Link>
               .
@@ -324,7 +324,7 @@ export default function DocsPage() {
           <div className="mt-14 border-t border-border pt-6 text-[13px] text-muted/60">
             Still stuck?{" "}
             <Link
-              href="/support"
+              href="/#contact"
               data-attr="docs-footer-support"
               className="text-muted underline-offset-2 hover:text-foreground hover:underline"
             >

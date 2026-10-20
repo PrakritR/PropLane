@@ -18,3 +18,14 @@ export function stripLongDashes<T extends string | null | undefined>(text: T): T
     .replace(/(?<!\s)\s+[–—]\s+/g, ", ")
     .replace(/[–—]/g, "-") as T;
 }
+
+/**
+ * A text message has no markdown: "**4966**" arrives with literal asterisks. Unwraps bold and drops heading marks;
+ * nothing else is touched (a lone * or underscore in a name or address is left alone). Applied at the SMS outbox.
+ */
+export function stripSmsMarkdown<T extends string | null | undefined>(text: T): T {
+  if (typeof text !== "string") return text;
+  return text
+    .replace(/\*\*([^*\n]+?)\*\*/g, "$1")
+    .replace(/^#{1,3}[ \t]+/gm, "") as T;
+}

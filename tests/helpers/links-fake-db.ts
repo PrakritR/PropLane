@@ -27,7 +27,8 @@ export function linksFakeDb(
 
   const db = {
     from(table: string) {
-      let op: "select" | "insert" | "update" | "delete" = "select";
+      let op: "select" | "insert" | "update" | "delete" | "upsert" = "select";
+      let conflict: string[] = [];
       let patch: Row = {};
       let inserted: Row[] = [];
       let wantsReturn = false;
@@ -58,6 +59,14 @@ export function linksFakeDb(
           }
           return { data: list.slice(-inserted.length), error: null };
         }
+        if (op === "upsert") {
+          for (const row of inserted) {
+            const existing = conflict.length ? list.find((r) => conflict.every((c) => r[c] === row[c])) : undefined;
+            if (existing) Object.assign(existing, row);
+            else list.push({ id: randomUUID(), created_at: new Date().toISOString(), ...row });
+          }
+          return { data: list.slice(-inserted.length), error: null };
+        }
         const matched = list.filter((row) => predicates.every((p) => p(row)));
         if (op === "update") {
           for (const row of matched) Object.assign(row, patch);
@@ -84,13 +93,23 @@ export function linksFakeDb(
       };
       const query: Record<string, unknown> = {
         select(columns?: string) {
-          if (op === "insert" || op === "update" || op === "delete") wantsReturn = true;
+          if (op === "insert" || op === "update" || op === "delete" || op === "upsert") wantsReturn = true;
           if (typeof columns === "string") for (const c of columns.split(",")) touch(c.trim());
           return query;
         },
         insert(value: Row | Row[]) {
           op = "insert";
           inserted = Array.isArray(value) ? value : [value];
+          for (const row of inserted) {
+            writes.push({ table, op: "insert", value: row });
+            for (const key of Object.keys(row)) touch(key);
+          }
+          return query;
+        },
+        upsert(value: Row | Row[], options?: { onConflict?: string }) {
+          op = "upsert";
+          inserted = Array.isArray(value) ? value : [value];
+          conflict = (options?.onConflict ?? "").split(",").map((c) => c.trim()).filter(Boolean);
           for (const row of inserted) {
             writes.push({ table, op: "insert", value: row });
             for (const key of Object.keys(row)) touch(key);
@@ -109,11 +128,16 @@ export function linksFakeDb(
           return query;
         },
         eq: (column: string, value: unknown) => where(column, (v) => v === value),
+        like: (column: string, pattern: string) => {
+          const re = new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".")}$`);
+          return where(column, (v) => re.test(String(v ?? "")));
+        },
         in: (column: string, values: unknown[]) => where(column, (v) => values.includes(v)),
         is: (column: string, value: unknown) => where(column, (v) => (value === null ? v == null : v === value)),
         not: (column: string, _op: string, value: unknown) => where(column, (v) => (value === null ? v != null : v !== value)),
         gte: (column: string, value: unknown) => where(column, (v) => String(v ?? "") >= String(value)),
         gt: (column: string, value: unknown) => where(column, (v) => String(v ?? "") > String(value)),
+        lte: (column: string, value: unknown) => where(column, (v) => String(v ?? "") <= String(value)),
         lt: (column: string, value: unknown) => where(column, (v) => String(v ?? "") < String(value)),
         order(column: string, opts?: { ascending?: boolean }) {
           orderBy = { column, ascending: opts?.ascending !== false };

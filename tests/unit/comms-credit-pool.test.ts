@@ -101,7 +101,10 @@ describe("loadOrderedPoolFunders", () => {
           select: () => chain,
           eq: () => chain,
           order: async () => ({ data: [], error: null }),
-          upsert: async (row: unknown, options: unknown) => { upserts.push({ row, options }); return { error: null }; },
+          upsert: (row: unknown, options: unknown) => {
+            upserts.push({ row, options });
+            return { select: async () => ({ data: [{ funder_user_id: OWNER }], error: null }) };
+          },
         };
         return chain;
       },
@@ -111,10 +114,11 @@ describe("loadOrderedPoolFunders", () => {
     expect(upserts).toEqual([{ row: { funder_user_id: OWNER, workspace_id: WORKSPACE, enabled: true }, options: { onConflict: "funder_user_id,workspace_id", ignoreDuplicates: true } }]);
   });
 
-  it("an owner who switched the workspace off keeps it off (a disabled row is never re-enabled)", async () => {
+  it("an owner who scoped funding to workspace A is not charged for a turn in workspace B (a disabled row is never re-enabled or used)", async () => {
     mocks.tier.mockResolvedValue({ ok: true, tier: "business" });
-    // The query filters enabled rows, so a disabled owner row reads as absent here; ignoreDuplicates leaves it untouched.
-    const upsert = vi.fn(async () => ({ error: null }));
+    // The read filters enabled rows, so the disabled owner row reads as absent. The ignore-duplicates upsert
+    // inserts nothing (the disabled row exists), so .select() returns no rows and the owner is not a funder.
+    const upsert = vi.fn(() => ({ select: async () => ({ data: [], error: null }) }));
     const db = {
       from: (table: string) => {
         if (table === "portal_workspaces") return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: WORKSPACE, owner_user_id: OWNER }, error: null }) }) }) };
@@ -122,8 +126,9 @@ describe("loadOrderedPoolFunders", () => {
         return chain;
       },
     };
-    await loadOrderedPoolFunders(db as never, WORKSPACE);
+    const funders = await loadOrderedPoolFunders(db as never, WORKSPACE);
     expect(upsert).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ ignoreDuplicates: true }));
+    expect(funders).toEqual([]);
   });
 
   it("drops a funder whose plan tier cannot be verified rather than guessing", async () => {

@@ -1,99 +1,57 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 
-// Per-test control of the "signed-in role" the navbar resolves. The navbar's
-// syncAuth() reads a session, then the profile role from `profiles`.
-let mockRole: "resident" | "manager" | "vendor" | "admin" | null = null;
-
+/**
+ * The public bar used to resolve a Supabase session and point "Portal" at the signed-in role's home. The live
+ * bar (`HomeNavbar`, behind `PublicNavbar`) deliberately does not: it is one static link to sign-in, so the
+ * marketing pages never boot auth. This pins that — a reintroduced role lookup fails on the mocked client.
+ */
 vi.mock("@/lib/supabase/browser", () => ({
-  createSupabaseBrowserClient: () => ({
-    auth: {
-      getSession: async () => ({
-        data: { session: mockRole ? { user: { id: "u1", user_metadata: {} } } : null },
-      }),
-      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
-    },
-    from: () => ({
-      select: () => ({
-        // profiles.select("role").eq("id").maybeSingle()
-        // profile_roles.select("role").eq("user_id") — awaited directly
-        eq: () => ({
-          maybeSingle: async () => ({ data: mockRole ? { role: mockRole } : null }),
-          then: (resolve: (v: { data: null }) => unknown) => resolve({ data: null }),
-        }),
-      }),
-    }),
-  }),
+  createSupabaseBrowserClient: () => {
+    throw new Error("Public navigation must not initialize auth");
+  },
 }));
+vi.mock("@/components/marketing/fonts/home-swiss-font", () => ({ homeSwissFont: { variable: "swiss-font" } }));
 
-class ResizeObserverStub {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-vi.stubGlobal("ResizeObserver", ResizeObserverStub);
-
-// jsdom throws on native localStorage for opaque origins; install an in-memory
-// store the navbar's readSignedInFromStorage()/persistSignedIn() can use.
-const store = new Map<string, string>();
-const fakeLocalStorage = {
-  getItem: (k: string) => store.get(k) ?? null,
-  setItem: (k: string, v: string) => void store.set(k, String(v)),
-  removeItem: (k: string) => void store.delete(k),
-  clear: () => store.clear(),
-};
-vi.stubGlobal("localStorage", fakeLocalStorage);
-
+let mockPathname = "/";
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/",
+  usePathname: () => mockPathname,
   useRouter: () => ({ push: () => {}, replace: () => {}, prefetch: () => {} }),
 }));
 
-import { LegacyPublicNavbar as PublicNavbar } from "@/components/layout/legacy-public-navbar";
+import { PublicNavbar } from "@/components/layout/public-navbar";
+import { publicTextingConfig } from "@/lib/marketing/public-texting";
 
-const ROLE_HOME: Record<NonNullable<typeof mockRole>, string> = {
-  resident: "/resident",
-  manager: "/portal/dashboard",
-  vendor: "/vendor/dashboard",
-  admin: "/admin/dashboard",
-};
+const texting = publicTextingConfig("+12065550123");
 
-describe("public navbar signed-in portal link", () => {
-  beforeEach(() => {
-    localStorage.setItem("axis:signed_in", "1");
+beforeEach(() => {
+  mockPathname = "/";
+  vi.stubGlobal("IntersectionObserver", class {
+    observe() {}
+    disconnect() {}
   });
-  afterEach(() => {
-    cleanup();
-    localStorage.clear();
-    mockRole = null;
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+describe("public navbar portal link", () => {
+  it("reads \"Portal\" and goes to sign-in, on the homepage and on every other public page", () => {
+    for (const pathname of ["/", "/blog", "/about"]) {
+      mockPathname = pathname;
+      render(<PublicNavbar texting={texting} />);
+      const links = screen.getAllByRole("link", { name: "Portal" });
+      expect(links.length).toBeGreaterThan(0);
+      for (const link of links) expect(link).toHaveAttribute("href", "/auth/sign-in");
+      cleanup();
+    }
   });
 
-  for (const role of ["resident", "manager", "vendor", "admin"] as const) {
-    it(`reads "Portal" and links straight to the ${role} portal home`, async () => {
-      mockRole = role;
-      render(<PublicNavbar />);
-
-      const portalLink = await waitFor(() => {
-        const link = screen.getAllByRole("link", { name: /^portal$/i })[0];
-        expect(link).toBeTruthy();
-        return link;
-      });
-
-      expect(portalLink).toHaveTextContent(/^Portal$/);
-      expect(portalLink).toHaveAttribute("href", ROLE_HOME[role]);
-    });
-  }
-
-  it("shows no portal link and keeps Log in / Start free when signed out", async () => {
-    mockRole = null;
-    localStorage.removeItem("axis:signed_in");
-    render(<PublicNavbar />);
-
-    await waitFor(() => {
-      expect(screen.getAllByRole("link", { name: /log in/i }).length).toBeGreaterThan(0);
-    });
-    expect(screen.getAllByRole("link", { name: /start free/i }).length).toBeGreaterThan(0);
-    expect(screen.queryByRole("link", { name: /^portal$/i })).toBeNull();
+  it("carries no signed-out Log in / Start free pair any more", () => {
+    render(<PublicNavbar texting={texting} />);
+    expect(screen.queryByRole("link", { name: /log in/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /start free/i })).toBeNull();
   });
 });

@@ -61,7 +61,8 @@ describe("a resident of another workspace asks the PropLane line for their rent 
     const result = await ask(world, "hey can you send me my rent link");
     expect(result).toMatchObject({ handled: true, residentUserId: "res-1" });
     const reply = result.handled ? result.reply : "";
-    expect(reply).toMatch(/^Here is your secure payment link for 12 Maple: https?:\/\/\S+\/l\/[A-Za-z0-9_-]{43} We will text a code to this number when you open it\./);
+    // The link sits on its own line, on the canonical host, with nothing glued to it.
+    expect(reply).toMatch(/^Here is your secure payment link for 12 Maple:\nhttps:\/\/proplane\.ai\/l\/[A-Za-z0-9_-]{43}\nWe will text a code to this number when you open it\./);
     // Bound to the texting phone, the lease's workspace and the open charge; a code is required.
     expect(world.rows.phone_bound_links).toHaveLength(1);
     expect(world.rows.phone_bound_links![0]).toMatchObject({

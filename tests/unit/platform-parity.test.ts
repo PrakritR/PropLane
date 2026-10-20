@@ -8,7 +8,8 @@ import {
   isNativeDeepLinkPath,
   REGISTERED_PUSH_DEEP_LINKS,
 } from "@/lib/platform/parity";
-import { isNativeAppAllowedPath } from "@/lib/auth/native-entry-paths";
+import { isNativeAppAllowedPath, shouldNativeRedirectToWelcome } from "@/lib/auth/native-entry-paths";
+import { MARKETING_REDIRECTS } from "@/lib/seo/marketing-routes";
 import { RESIDENT_FREE_MANAGER_SECTIONS } from "@/lib/manager-access";
 import {
   RESIDENT_APPROVED_PORTAL_SECTIONS,
@@ -43,12 +44,24 @@ describe("platform parity (web + native WebView)", () => {
     expect(IN_APP_PATH_PREFIXES).toContain("/portal/");
   });
 
-  it("public /contact page is an in-app route reachable from inside the native app", () => {
-    // Linked from the admin portal ("Contact us") and the marketing footer/CTA,
-    // so it must load inside the WebView instead of kicking out to a browser.
-    expect(isInAppPath("/contact")).toBe(true);
-    expect(isNativeDeepLinkPath("/contact")).toBe(true);
-    expect(isNativeAppAllowedPath("/contact")).toBe(true);
+  it.each(MARKETING_REDIRECTS.map(({ source }) => source).filter((source) => !source.includes(":")))(
+    "retired marketing route %s is not an in-app path and sends the native shell to the in-app home",
+    (source) => {
+      // The home page owns this content and the route only redirects to one of its anchors. Allowing it in the
+      // native shell let the page load, follow the redirect, and land on "/" — which the shell does not serve,
+      // so the visitor was bounced to the welcome screen a step late. Now the gate redirects immediately.
+      expect(isInAppPath(source)).toBe(false);
+      expect(isNativeDeepLinkPath(source)).toBe(false);
+      expect(isNativeAppAllowedPath(source)).toBe(false);
+      expect(shouldNativeRedirectToWelcome(source)).toBe(true);
+    },
+  );
+
+  it("the native shell still serves no marketing home, so a retired route cannot resolve to one", () => {
+    // `/` loads in a browser tab and in the WebView, but the native shell has no marketing site: that is what
+    // makes a redirect to a home anchor the wrong destination for a native open.
+    expect(isInAppPath("/")).toBe(true);
+    expect(isNativeAppAllowedPath("/")).toBe(false);
   });
 
   it("public /app download page is an in-app route reachable from marketing and auth promos", () => {

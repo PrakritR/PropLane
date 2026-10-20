@@ -61,6 +61,14 @@ const slotsInputSchema = z
 
 type SlotsInput = z.infer<typeof slotsInputSchema>;
 
+/**
+ * A slot label as a prospect should read it in a text: the stored label ends "· 2026-10-22 Pacific" (a date key and a middle
+ * dot, which turns the whole text into UCS-2 and costs extra segments). The range already names the day.
+ */
+export function smsTourLabel(label: string): string {
+  return label.replace(/\s*[·•]\s*\d{4}-\d{2}-\d{2}\s+Pacific\s*$/i, "").replace(/[·•]/g, "-").trim();
+}
+
 type OfferedSlot = { slotKey: string; start: string; end: string; label: string; hostUserId: string; hostLabel: string };
 type OfferedSlotsResult = { slots: OfferedSlot[]; timeZone: string; resolution: "resolved" | "unavailable"; total: number; returned: number; complete: boolean; nextOffset: number | null; generatedAt: string; currentPacificDate: string; currentPacificWeekday: string; publishedOnly: boolean };
 
@@ -360,7 +368,7 @@ const confirmProspectSmsTourInputSchema = z.object({
   email: z.string().email().optional(),
 }).strict();
 
-function unambiguousOfferAffirmative(text: string): boolean {
+export function unambiguousOfferAffirmative(text: string): boolean {
   const body = text.toLowerCase().replace(/[’]/g, "'").replace(/[.!?,]+/g, " ").replace(/\s+/g, " ").trim();
   if (/\b(no|not|cannot|can't|dont|don't|do not|change|instead|different|other|wrong|cancel)\b/.test(body)) return false;
   // This is intentionally an allowlist of standalone affirmations. A reply
@@ -370,7 +378,7 @@ function unambiguousOfferAffirmative(text: string): boolean {
   return /^(?:yes(?: please)?|confirm(?:ed)?|book (?:it|that)(?: please)?|that works(?: for me)?|works for me|take it(?: please)?|sounds good|perfect)$/.test(body);
 }
 
-async function deriveAgreementSource(ctx: AgentContext, burst: NonNullable<NonNullable<AgentContext["leasingScope"]>["prospectBurst"]>): Promise<{ agreementSourceMessageId: string; claimedSourceIds: string[] } | null> {
+export async function deriveAgreementSource(ctx: AgentContext, burst: NonNullable<NonNullable<AgentContext["leasingScope"]>["prospectBurst"]>): Promise<{ agreementSourceMessageId: string; claimedSourceIds: string[] } | null> {
   if (burst.claimedSourceIds.length === 0) return null;
   const claimedSourceIds = [...new Set(burst.claimedSourceIds.map((id) => id.trim()).filter(Boolean))];
   // The queue owns this ordered snapshot. A duplicate or blank source id is a
@@ -449,7 +457,7 @@ export const prepareProspectTourConfirmationTool = defineWriteTool<z.infer<typeo
       workerId: burst.workerId,
     });
     if (!result.ok) throw new Error(result.reason);
-    const reply = `Please confirm ${offered.label} for ${input.propertyTitle?.trim() || "the tour"} by replying YES.`;
+    const reply = `Please confirm ${smsTourLabel(offered.label)} for ${input.propertyTitle?.trim() || "the tour"} by replying YES.`;
     return { reply, terminalInlineReply: reply, preparedOffer };
   },
 });
@@ -478,7 +486,7 @@ export const confirmProspectSmsTourTool = defineWriteTool<z.infer<typeof confirm
     if (existing) {
       const sideEffects = await recoverProspectTourBookingSideEffects(ctx.db, existing);
       const label = typeof existing.offer_snapshot?.label === "string" ? existing.offer_snapshot.label : input.start;
-      const reply = `That tour is already confirmed for ${label}.`;
+      const reply = `That tour is already confirmed for ${smsTourLabel(label)}.`;
       return {
         reply,
         terminalInlineReply: reply,
@@ -554,7 +562,7 @@ export const confirmProspectSmsTourTool = defineWriteTool<z.infer<typeof confirm
     });
     if (!persistedBooking) throw new Error("Tour booked, but its recovery record could not be loaded.");
     const { calendarSync, managerNotification } = await recoverProspectTourBookingSideEffects(ctx.db, persistedBooking);
-    const reply = result.idempotent ? `That tour is already confirmed for ${offered.label}.` : `Tour confirmed for ${offered.label}.`;
+    const reply = result.idempotent ? `That tour is already confirmed for ${smsTourLabel(offered.label)}.` : `Tour confirmed for ${smsTourLabel(offered.label)}.`;
     return {
       reply,
       terminalInlineReply: reply,

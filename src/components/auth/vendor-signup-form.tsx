@@ -100,6 +100,10 @@ export function VendorSignupForm({
       setError("Password must be at least 8 characters.");
       return;
     }
+    if (phone.replace(/\D/g, "").length < 10) {
+      setError("Enter a valid phone number.");
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch("/api/auth/vendor-register", {
@@ -230,6 +234,8 @@ export function VendorSignupForm({
         if (patch.password !== undefined) setPassword(patch.password);
       }}
       disabled={locked}
+      phonePlaceholder="Phone number"
+      phoneRequired
       // An invite pins the address it was sent to.
       emailDisabled={Boolean(inviteToken)}
       onSubmit={() => void submit()}

@@ -136,7 +136,7 @@ export default function PartnerLandingPage() {
             <p className="mt-4 max-w-[44ch] text-[16px] leading-relaxed text-muted">
               Start at $0. Upgrade when the portfolio earns it. Pro and Business begin with a 14-day trial, no card.
             </p>
-            <Link href="/pricing" data-attr="partner-see-pricing" className="mt-6 inline-flex items-center gap-1.5 text-[15px] font-bold text-primary hover:underline">
+            <Link href="/#pricing" data-attr="partner-see-pricing" className="mt-6 inline-flex items-center gap-1.5 text-[15px] font-bold text-primary hover:underline">
               See pricing <span aria-hidden>→</span>
             </Link>
           </div>

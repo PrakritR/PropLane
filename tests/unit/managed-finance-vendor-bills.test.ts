@@ -47,14 +47,21 @@ function setup(threshold = 25_000, extra: Record<string, FakeRow[]> = {}) {
 beforeEach(() => { text.mockClear(); email.mockClear(); });
 
 describe("approvalText", () => {
+  // It asks for the WORD, not a bare Y: "ok" is the ordinary reply to any text PropLane sends, and the owner
+  // line refuses an unnamed affirmative so one cannot charge the owner for a repair.
   it("reads like the captain's example and stays plain", () => {
     expect(approvalText({ title: "Leak repair", house: "5259 Brooklyn", amountCents: 24_000, vendorLabel: "Mike's Plumbing" }))
-      .toBe("Leak repair at 5259 Brooklyn, $240 from Mike's Plumbing. Approve? Y/N");
+      .toBe("Leak repair at 5259 Brooklyn, $240 from Mike's Plumbing. Reply APPROVE or N");
   });
   it("strips emoji and curly quotes, and shows cents when there are some", () => {
     const t = approvalText({ title: "Fix “door” \u{1F6AA}", house: "House", amountCents: 12_345, vendorLabel: "Joe’s" });
-    expect(t).toBe('Fix "door" at House, $123.45 from Joe\'s. Approve? Y/N');
+    expect(t).toBe('Fix "door" at House, $123.45 from Joe\'s. Reply APPROVE or N');
     expect(/^[\x20-\x7e]+$/.test(t)).toBe(true);
+  });
+  it("never asks for a bare Y, which would not approve anything", () => {
+    const t = approvalText({ title: "Leak repair", house: "5259 Brooklyn", amountCents: 24_000, vendorLabel: "Mike's" });
+    expect(t).not.toContain("Y/N");
+    expect(t).toContain("APPROVE");
   });
 });
 
@@ -91,7 +98,8 @@ describe("a bill above the owner's repair amount", () => {
     expect(r.status).toBe("pending_owner");
     expect(posted).toHaveLength(0);
     expect(text).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(text.mock.calls[0])).toContain("Approve? Y/N");
+    expect(JSON.stringify(text.mock.calls[0])).toContain("Reply APPROVE or N");
+    expect((text.mock.calls[0] as unknown[])[1]).toMatchObject({ role: "manager", basis: { kind: "manager_notice", topic: "repair_approval" } });
     expect(email).toHaveBeenCalledTimes(1);
     expect(f.rows.owner_expenses![0]).toMatchObject({ status: "pending_owner", approval_phone_key: "+12065550100" });
   });

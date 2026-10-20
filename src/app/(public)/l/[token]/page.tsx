@@ -9,6 +9,7 @@ import {
   resolvePhoneBoundLink,
   verifyLinkSession,
 } from "@/lib/one-number/links.server";
+import { createRealIdentitySupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const dynamic = "force-dynamic";
@@ -49,8 +50,19 @@ export default async function PhoneBoundLinkPage({
   const destination = await resolveLinkDestination(db, link);
   switch (destination.kind) {
     case "redirect":
-    case "portal":
       redirect(destination.href);
+    case "portal": {
+      // Already signed in as the resident this link is for (the code step opened that session): go straight
+      // there. Anyone else, or no session, goes through sign-in as before.
+      if (destination.directHref && destination.signedInAs) {
+        const signedIn = await createRealIdentitySupabaseServerClient()
+          .then((client) => client.auth.getUser())
+          .then((result) => result.data.user?.id ?? null)
+          .catch(() => null);
+        if (signedIn === destination.signedInAs) redirect(destination.directHref);
+      }
+      redirect(destination.href);
+    }
     case "rent":
       // Back from Stripe: show the outcome, not the Pay button, while the webhook settles the charge.
       if (query.ach_checkout === "success") return <LinkMessageView title="Payment received" line="You can close this page." />;
@@ -58,6 +70,12 @@ export default async function PhoneBoundLinkPage({
     case "paid":
       await markPhoneBoundLinkUsed(db, link.id);
       return <LinkMessageView title="Payment received" line="You can close this page." />;
+    // A bank debit that has not settled is not a receipt, and the link stays live: if the debit fails the charge
+    // is payable again and this is the only link the resident has.
+    case "processing":
+      return <LinkMessageView title="Payment processing" line="Your bank transfer is still clearing. We will text you when it settles." />;
+    case "phone_changed":
+      return <LinkMessageView title="This link is for a different number" line="Text us for a new link." />;
     default:
       return <LinkExpiredView />;
   }

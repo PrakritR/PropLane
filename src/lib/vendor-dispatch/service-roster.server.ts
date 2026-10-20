@@ -131,3 +131,24 @@ export async function rosterSenderFor(
     return null;
   }
 }
+
+export type ServiceRosterVendor = Omit<ChainVendor, "position">;
+
+/**
+ * The dispatch path's hook for the service-wide roster (called from `fallbackChain`; `on/paycore` added the call site and
+ * a stub, this is the body). The reachable roster vendors for a job of `trade` in `workspaceId`, best fit first. `[]` for any
+ * workspace that is not a PropLane Service workspace, when nobody on the roster takes the trade, or when the roster cannot be
+ * read: the caller then offers the workspace's own vendors only.
+ */
+export async function serviceRosterVendorsForTrade(
+  db: SupabaseClient,
+  input: { workspaceId: string; trade: string; area?: string | null; at?: Date },
+): Promise<ServiceRosterVendor[]> {
+  try {
+    const serviceOwnerId = await serviceOwnerForWorkspace(db, input.workspaceId);
+    if (!serviceOwnerId) return [];
+    return await loadServiceRosterChain(db, { serviceOwnerId, trade: input.trade, area: input.area, at: input.at });
+  } catch {
+    return [];
+  }
+}
