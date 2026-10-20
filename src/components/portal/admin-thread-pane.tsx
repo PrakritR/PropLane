@@ -24,6 +24,7 @@ import {
 } from "@/components/portal/portal-inbox-ui";
 import { InboxComposerScheduleMenu } from "@/components/portal/inbox-composer-tools";
 import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
+import { AdminLeadThread, AdminWorkspaceBar } from "@/components/portal/admin-workspace-thread-bar";
 import { ManagerSmsPanel } from "@/components/portal/pro-sms-panel";
 import {
   useThreadScheduledCards,
@@ -265,7 +266,21 @@ function AdminEmailThread(ctx: InboxThreadPaneContext) {
 
 export function AdminThreadPane(ctx: InboxThreadPaneContext) {
   if (ctx.selection.channel === "sms") {
-    return (
+    const resident = ctx.smsResidents[0] ?? null;
+    // A PropLane-line lead no workspace holds yet: read-only transcript + the Assign action (no composer, no number).
+    if (resident?.unassignedLeadId) {
+      return (
+        <AdminLeadThread
+          resident={resident}
+          onBack={ctx.closeThread}
+          onAssigned={() => {
+            ctx.closeThread();
+            ctx.onSmsProjectionStateChanged();
+          }}
+        />
+      );
+    }
+    const panel = (
       <ManagerSmsPanel
         endpoint="/api/admin/sms-conversations"
         allowInlineCompose={false}
@@ -281,6 +296,13 @@ export function AdminThreadPane(ctx: InboxThreadPaneContext) {
         smsUiEnabled={ctx.smsUiEnabled}
         listSegment={ctx.listSegment}
       />
+    );
+    if (!resident || resident.workspaceId === undefined) return panel;
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <AdminWorkspaceBar placement={resident} />
+        <div className="min-h-0 flex-1">{panel}</div>
+      </div>
     );
   }
   return <AdminEmailThread key={ctx.selection.threadId} {...ctx} />;

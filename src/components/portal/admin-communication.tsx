@@ -26,6 +26,7 @@ import { ManagerUnifiedInbox } from "@/components/portal/pro-unified-inbox";
 import { useCommunicationListSegment } from "@/hooks/use-communication-list-segment";
 import { useCommunicationThreadId } from "@/hooks/use-communication-thread-id";
 import { refreshAdminScheduled } from "@/lib/admin-inbox-source";
+import { ADMIN_SMS_UNASSIGNED_FILTER, useAdminSmsWorkspaces } from "@/lib/admin-sms-workspaces";
 import {
   EMPTY_COMMUNICATION_THREAD_FILTERS,
   type CommunicationThreadFilters,
@@ -52,7 +53,18 @@ export function AdminCommunication({
    */
   smsUiEnabled?: boolean;
 }) {
-  const adapter = useMemo(() => createAdminInboxAdapter({ smsUiEnabled }), [smsUiEnabled]);
+  // The Filter popover's Workspace value: "" = every workspace, "unassigned", or one service workspace id. The adapter
+  // reads the text stream with it, so a new value is a new adapter and a fresh read.
+  const [workspaceFilter, setWorkspaceFilter] = useState("");
+  const adapter = useMemo(() => createAdminInboxAdapter({ smsUiEnabled, workspaceFilter }), [smsUiEnabled, workspaceFilter]);
+  const serviceWorkspaces = useAdminSmsWorkspaces();
+  const workspaceOptions = useMemo(
+    () => [
+      { value: ADMIN_SMS_UNASSIGNED_FILTER, label: "Unassigned" },
+      ...serviceWorkspaces.map((workspace) => ({ value: workspace.id, label: workspace.name })),
+    ],
+    [serviceWorkspaces],
+  );
   const { activeThreadId, setActiveThreadId } = useCommunicationThreadId(ADMIN_COMM_BASE, threadId);
   // Client-tracked segment, as on the manager page: a plain-click tab switch is a
   // history push, never a remount, so the already-loaded list does not refetch.
@@ -114,7 +126,8 @@ export function AdminCommunication({
     };
   }, [composeOpen, recipientsLoaded]);
 
-  const filterTouchCount = (filters.status && filters.status !== "active" ? 1 : 0) + (listSort !== "recent" ? 1 : 0);
+  const filterTouchCount =
+    (filters.status && filters.status !== "active" ? 1 : 0) + (listSort !== "recent" ? 1 : 0) + (workspaceFilter ? 1 : 0);
 
   const activeFilterChips = useMemo((): PortalActiveFilterChip[] => {
     const chips: PortalActiveFilterChip[] = [];
@@ -125,6 +138,13 @@ export function AdminCommunication({
         onRemove: () => setFilters((f) => ({ ...f, status: "active" })),
       });
     }
+    if (workspaceFilter) {
+      chips.push({
+        id: "workspace",
+        label: workspaceOptions.find((option) => option.value === workspaceFilter)?.label ?? "Workspace",
+        onRemove: () => setWorkspaceFilter(""),
+      });
+    }
     if (listSort !== "recent") {
       chips.push({
         id: "sort",
@@ -133,7 +153,7 @@ export function AdminCommunication({
       });
     }
     return chips;
-  }, [filters, listSort]);
+  }, [filters, listSort, workspaceFilter, workspaceOptions]);
 
   // Unread lives in Filter. House, Role and About are the manager's dimensions -
   // admin has no houses and its conversations carry no record link.
@@ -141,13 +161,14 @@ export function AdminCommunication({
     <PortalFilterSortSheet
       activeCount={filterTouchCount}
       compactPanel
-      filterFieldCount={2}
+      filterFieldCount={3}
       constrainDropdownToTitleBand={false}
       commandStripTrigger
       mobileFlushBody
       onReset={() => {
         setFilters({ ...EMPTY_COMMUNICATION_THREAD_FILTERS, status: "active" });
         setListSort("recent");
+        setWorkspaceFilter("");
       }}
       dataAttr="communication-filter-sheet-open"
     >
@@ -162,6 +183,9 @@ export function AdminCommunication({
         hideHouse
         hideRole
         hideAbout
+        workspaceOptions={smsUiEnabled ? workspaceOptions : undefined}
+        workspaceValue={workspaceFilter}
+        onWorkspaceChange={setWorkspaceFilter}
       />
     </PortalFilterSortSheet>
   );

@@ -4,7 +4,11 @@ import {
   resolveAdminForwardPhone,
   resolveManagerUserIdForPhone,
 } from "@/lib/claw-resident-messaging.server";
-import { fetchAdminSmsConversations } from "@/lib/manager-sms-messages.server";
+import {
+  ADMIN_SMS_UNASSIGNED_FILTER,
+  fetchAdminSmsConversations,
+  loadServiceInboxScope,
+} from "@/lib/manager-sms-messages.server";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -29,12 +33,31 @@ async function requireAdmin() {
  * agent line across the mapped-manager cohort — so admin can choose a specific
  * conversation rather than reading one flat stream.
  */
-export async function GET() {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * `?workspaceId=` narrows the list to ONE PropLane Service workspace, or to `unassigned` (texts no service workspace
+ * holds yet). The value is a name, never authorization: it must be `unassigned` or a service workspace this admin
+ * surface already reads, else 400 (not an id) / 404 (not a service workspace).
+ */
+export async function GET(req: Request) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
 
   try {
-    const payload = await fetchAdminSmsConversations(auth.db);
+    const requested = new URL(req.url).searchParams.get("workspaceId")?.trim() ?? "";
+    let workspaceId: string | null = null;
+    if (requested) {
+      if (requested !== ADMIN_SMS_UNASSIGNED_FILTER) {
+        if (!UUID.test(requested)) return NextResponse.json({ error: "Invalid workspace." }, { status: 400 });
+        const scope = await loadServiceInboxScope(auth.db);
+        if (!scope.workspaceIds.includes(requested.toLowerCase()) && !scope.workspaceIds.includes(requested)) {
+          return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
+        }
+      }
+      workspaceId = requested === ADMIN_SMS_UNASSIGNED_FILTER ? requested : requested.toLowerCase();
+    }
+    const payload = await fetchAdminSmsConversations(auth.db, { workspaceId, includeLeads: true });
     return NextResponse.json(payload, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load SMS conversations.";

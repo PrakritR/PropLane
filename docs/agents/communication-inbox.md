@@ -147,6 +147,20 @@ admin:
   `allowArchive={false}` - archive state is the manager's
   (`/api/manager/tour-follow-ups`), admin oversight of the shared line has none, so
   admin text rows have no row menu. `smsUiEnabled` off = the stream is not read.
+- **Workspace placement (PropLane Service, Oct 20).** Every text thread carries `workspaceId` / `workspaceName`: the
+  `is_service` workspace the router stamped on its messages (`placeAdminSmsConversations`), else "Unassigned" - a stamp on
+  any other workspace is never named. The row draws it as one plain line under the preview (`placeLine`, no pill); the
+  Filter popover has a Workspace field (All · Unassigned · each service workspace) that re-reads the stream with
+  `?workspaceId=` (`unassigned` or a service workspace this surface already reads, else 400/404; admin gate first).
+  The thread header names the workspace with an "Open in workspace" icon action (the Admin > Service `open` action, then
+  `/portal/communication/active/<key>`).
+- **PropLane-line leads** (strangers no workspace holds yet, `sms_unassigned_leads`) are read-only threads in the same list
+  (`lead:<id>`, number masked, no composer) with an Assign control: `PATCH /api/admin/unassigned-leads/<id>`
+  `{action:"assign", workspaceId}` runs `assignLeadToHouse` (no house; the workspace must be `is_service`) and writes one
+  `admin_lead_assign_workspace` audit row.
+- **Inside a service workspace** a PropLane-line thread routed to it (`sms_projection_conversations.workspace_id` of an
+  `is_service` workspace) is placed by that stamp alone (`placedWorkspaceIdOf`, the shared-line placement rule): visible
+  in that workspace with no house tag, in no other. Another owner's thread still needs the viewer's house grant.
 - **Identity boxes** are the support address (`PUBLIC_SUPPORT_EMAIL`, the mailbox
   inbound mail is routed from - `docs/agents/inbound-email-inbox.md`) and, when the
   text stream reported one, its number (`AdminWorkIdentityCard`). No "set up" prompt:

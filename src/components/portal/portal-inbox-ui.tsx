@@ -1043,6 +1043,7 @@ function inboxAvatarGlyph(name: string): ReactNode {
 export function InboxConversationRow({
   name,
   subtitle,
+  placeLine,
   preview,
   time,
   unread = false,
@@ -1062,6 +1063,8 @@ export function InboxConversationRow({
 }: {
   name: string;
   subtitle?: string;
+  /** Admin Communication: the workspace a text was routed to, one plain line under the preview. */
+  placeLine?: string;
   preview: string;
   time: string;
   /** A row named only by an email address reads as the person ("Manager"), not the address. */
@@ -1160,6 +1163,11 @@ export function InboxConversationRow({
                 >
                   {previewPrefix ?? ""}
                   {preview}
+                </p>
+              ) : null}
+              {placeLine ? (
+                <p className="mt-0.5 min-w-0 truncate text-xs text-muted" data-attr="inbox-row-place">
+                  {placeLine}
                 </p>
               ) : null}
             </div>
