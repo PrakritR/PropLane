@@ -140,6 +140,7 @@ Service > Vendors. A roster vendor is a `manager_vendor_records` row OWNED BY TH
 - The approver of a service run is the service owner (`resolveApprovers`); the client who owns it is view only. The
   approval, price holds and outcomes are texted to the verified manager phone (`sendTeamMemberDispatchText` ->
   `sendToServiceManager`). Job numbers for service runs come from the service owner's counter, so "Y 7" names one job.
+- A service workspace's OWN (non-roster) vendor, when the workspace has no attached work number of its own, is texted the same way (`sendOwnVendorViaServiceLine`: as the service owner from the PropLane line, under the service owner's vendor consent ledger; the first text carries the sender line and STOP; a STOP is final); a workspace with a line of its own keeps it. Their replies route back to the run (`replyScope`).
 - `workspaceHasMatchingRule` is true for a service workspace while the roster holds someone for the trade.
 - `serviceRosterVendorsForTrade(db, { workspaceId, trade })` (`service-roster.server.ts`, re-exported from `src/lib/service/service-vendors.server.ts`) is
   the hook `fallbackChain` calls (`on/paycore`'s call site); `[]` for any workspace that is not a service workspace.

@@ -41,8 +41,10 @@ async function ensureServiceDispatch(h, world) {
       serviceRoster: true, dispatchTrades: ["plumber"], serviceArea: "Wedgwood", dispatchAvailable: true, consentBasis: "added_by_admin_prior_relationship", testRunId: world.runId };
     const v = await db.from("manager_vendor_records").upsert({ id: vendorId, manager_user_id: fx.owner.id, row_data: rosterRow }, { onConflict: "id" });
     if (v.error) throw new Error(`roster vendor: ${v.error.message}`);
+    // The CLIENT'S OWN vendor (on her list, not the roster): with no work number of its own, the workspace texts it from the PropLane line.
+    const ownVendor = await world.createRosterVendor({ ownerId: client.id, name: "Client Own Plumber", trade: "Plumber", phone: world.phone() });
     const managerPhone = world.phone();
-    return { fx, client, workspaceId, house, clientLine, clientNumberId: ins.data[0].id, resident, residentPhone, vendorId, vendorPhone, managerPhone };
+    return { fx, client, ownVendor, workspaceId, house, clientLine, clientNumberId: ins.data[0].id, resident, residentPhone, vendorId, vendorPhone, managerPhone };
   })());
 }
 
@@ -114,11 +116,16 @@ export const SERVICE_DISPATCH_SCENARIOS = [
         if (!run) return;
         check("the run waits for approval", run.status === "awaiting_approval", run.status);
         const { data: attempts } = await db.from("vendor_dispatch_attempts").select("vendor_directory_id, status").eq("run_id", run.id);
-        check("the chain is the service roster (the roster vendor is offered, nobody else)", (attempts ?? []).map((a) => a.vendor_directory_id).join() === sd.vendorId, JSON.stringify(attempts));
+        const chain = (attempts ?? []).map((a) => a.vendor_directory_id);
+        check("the chain is the workspace's own vendor first, then the service roster, nobody else", chain.join() === [sd.ownVendor.id, sd.vendorId].join() || chain.slice().sort().join() === [sd.ownVendor.id, sd.vendorId].sort().join(), JSON.stringify(attempts));
         const ask = toPhone(sd.managerPhone).map((m) => m.body).join("\n");
         check("the SERVICE MANAGER phone was asked to approve, with the job number", new RegExp(`#${run.handle}\\b`).test(ask), ask || "(nothing sent to the manager phone)");
         check("the client owner was not texted for the approval", toPhone(sd.client.phone ?? "0000000000").every((m) => !new RegExp(`#${run.handle}\\b`).test(m.body)), "client texted");
-        check("the roster vendor was NOT texted before approval", toPhone(sd.vendorPhone).length === 0, JSON.stringify(toPhone(sd.vendorPhone)));
+        check("no vendor was texted before approval", toPhone(sd.vendorPhone).length === 0 && toPhone(sd.ownVendor.phone).length === 0, JSON.stringify([...toPhone(sd.vendorPhone), ...toPhone(sd.ownVendor.phone)]));
+
+        // The workspace's own number was only for the resident's texts: with it gone the workspace has no attached line, so its own
+        // vendor is texted from the PropLane line (a roster vendor always is).
+        await db.from("manager_sms_numbers").delete().eq("id", sd.clientNumberId);
 
         // 3. The manager phone approves on the PropLane line - with the 4-digit code the ask carried, because the
         //    inbound caller ID on that line proves nothing (a bare Y only re-asks).
@@ -129,8 +136,13 @@ export const SERVICE_DISPATCH_SCENARIOS = [
         const code = new RegExp(`\\bY ${run.handle} (\\d{4})`, "i").exec(bare.all)?.[1] ?? askedCode;
         const approve = await say(sd.managerPhone, fx.line, `Y ${run.handle} ${code}`);
         check("the manager's coded Y on the PropLane line approves the job", /approved/i.test(approve.all), approve.all);
+        // The workspace's own vendor is offered first, from the PropLane line (the client has a work number only for her residents).
+        const ownOffer = await waitFor(async () => toPhone(sd.ownVendor.phone)[0] ?? null, 45_000);
+        check("the client's own vendor (no line of the workspace for vendors) is offered the job FROM THE PROPLANE LINE", Boolean(ownOffer) && last10(ownOffer.from) === last10(fx.line), JSON.stringify(ownOffer));
+        const ownDecline = await say(sd.ownVendor.phone, fx.line, "NO");
+        check("the own vendor's NO on the PropLane line routes back to the dispatch run", /(thanks|no problem|ok|got it)/i.test(ownDecline.all) || ownDecline.status === 200, ownDecline.all);
         const offer = await waitFor(async () => toPhone(sd.vendorPhone).map((m) => m.body).join("\n") || null, 45_000);
-        check("the roster vendor is offered the job from the PropLane line: general area only, no street address", Boolean(offer) && !/Brooklyn Ave/i.test(offer ?? "") && /plumb|leak|sink/i.test(offer ?? ""), offer ?? "(no offer sent)");
+        check("then the roster vendor is offered the job from the PropLane line: general area only, no street address", Boolean(offer) && !/Brooklyn Ave/i.test(offer ?? "") && /plumb|leak|sink/i.test(offer ?? ""), offer ?? "(no offer sent)");
 
         // 4. The vendor's YES arrives on the PropLane line and assigns the job.
         const yes = await say(sd.vendorPhone, fx.line, "YES");

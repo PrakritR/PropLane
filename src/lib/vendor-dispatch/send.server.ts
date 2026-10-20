@@ -13,6 +13,13 @@ import { memberPhoneEligibility } from "@/lib/team-comms.server";
 import { userDefaultWorkspaceId } from "@/lib/communication/manager-assistant-workspace.server";
 import { rosterSenderFor, serviceOwnerForWorkspace } from "@/lib/vendor-dispatch/service-roster.server";
 import { toGsm7 } from "@/lib/vendor-dispatch/text";
+import {
+  VENDOR_CONVERSATION_PURPOSE,
+  buildVendorSenderLine,
+  carryVendorConsentToKey,
+  readVendorTextConsent,
+  recordManagerAttestedVendorConsent,
+} from "@/lib/sms/vendor-conversation-consent.server";
 
 /**
  * Every outbound text of the dispatch engine goes through these four doors, so the
@@ -46,6 +53,68 @@ async function enqueueAndDispatch(
     return { ok: false, reason: String((outbox as { blocked_reason?: unknown } | null)?.blocked_reason ?? status) };
   }
   return { ok: true, outboxId: queued.outboxId };
+}
+
+/**
+ * A service workspace's own (non-roster) vendor with no work number to text from: send AS the service owner on the PropLane
+ * line, under the service owner's vendor consent ledger (so the vendor's STOP and replies live there, exactly like a
+ * roster vendor). Returns null when this does not apply (not a service workspace, or the workspace has a line of its own):
+ * the caller then uses the workspace's own path. A STOP is final. The approval of the run, by the service manager, is the
+ * relationship attestation; the first text carries the sender line and "Reply STOP to opt out".
+ */
+async function sendOwnVendorViaServiceLine(
+  db: SupabaseClient,
+  input: { ownerUserId: string; workspaceId: string; vendorDirectoryId: string; phone: string; vendorUserId?: string | null; text: string; idempotencyKey: string },
+): Promise<DispatchSendResult | null> {
+  const serviceOwnerId = await serviceOwnerForWorkspace(db, input.workspaceId);
+  if (!serviceOwnerId) return null;
+  const ownLine = await resolveWorkspaceSendLine(db, input.ownerUserId, input.workspaceId).catch(() => null);
+  if (ownLine) return null;
+
+  const vendorUserId = input.vendorUserId ?? null;
+  const consent = await readVendorTextConsent(db, { managerUserId: serviceOwnerId, vendorUserId, phone: input.phone }).catch(() => null);
+  if (!consent?.ok) return { ok: false, reason: "consent_unavailable" };
+  if (consent.state === "opted_out" || consent.state === "revoked") return { ok: false, reason: "recipient_opted_out" };
+
+  let text = input.text;
+  if (consent.state === "none") {
+    const { data: profile } = await db.from("profiles").select("full_name").eq("id", serviceOwnerId).maybeSingle();
+    const senderLine = buildVendorSenderLine({
+      managerFirstName: String((profile as { full_name?: unknown } | null)?.full_name ?? "").trim().split(/\s+/)[0] || null,
+      workspaceName: "PropLane",
+    });
+    const recorded = await recordManagerAttestedVendorConsent(db, {
+      managerUserId: serviceOwnerId,
+      actorUserId: serviceOwnerId,
+      phone: input.phone,
+      conversationKey: consent.conversationKey,
+      vendorRecordId: input.vendorDirectoryId,
+      senderLine,
+    });
+    if (!recorded.ok) return { ok: false, reason: "consent_unavailable" };
+    text = `${text} ${senderLine}`;
+  } else if (consent.grantedUnder && consent.grantedUnder !== consent.conversationKey) {
+    const carried = await carryVendorConsentToKey(db, { managerUserId: serviceOwnerId, phone: input.phone, conversationKey: consent.conversationKey, fromKey: consent.grantedUnder });
+    if (!carried.ok) return { ok: false, reason: "consent_unavailable" };
+  }
+
+  const ownerWorkspaceId = await userDefaultWorkspaceId(db, serviceOwnerId);
+  const { sendFromManagerWorkNumber } = await import("@/lib/proplane-sms-transport.server");
+  const sent = await sendFromManagerWorkNumber({
+    managerUserId: serviceOwnerId,
+    workspaceId: ownerWorkspaceId || null,
+    to: input.phone,
+    text,
+    source: "automated",
+    sendClass: "transactional",
+    purpose: VENDOR_CONVERSATION_PURPOSE,
+    counterpartyRole: "vendor",
+    conversationKey: consent.conversationKey,
+    ...(vendorUserId ? { recipientUserId: vendorUserId } : {}),
+    dedupeKey: input.idempotencyKey.replace(/[^A-Za-z0-9_-]/g, "_").padEnd(16, "_").slice(0, 128),
+  });
+  if (sent.ok || sent.durablyAccepted) return { ok: true, outboxId: typeof sent.outboxId === "string" ? sent.outboxId : null };
+  return { ok: false, reason: sent.error ?? "send_failed" };
 }
 
 /**
@@ -104,6 +173,11 @@ export async function sendVendorDispatchText(
     }
     return { ok: false, reason: String(sent.body.error ?? sent.body.code ?? `status_${sent.status}`) };
   }
+
+  // A PropLane Service workspace's OWN vendor, when the workspace has no attached work number of its own: the text leaves
+  // from the PropLane line (the service owner's number). The workspace's own line, when it has one, still wins.
+  const viaServiceLine = await sendOwnVendorViaServiceLine(db, { ...input, phone, text });
+  if (viaServiceLine) return viaServiceLine;
 
   const key = /^[A-Za-z0-9_-]{16,128}$/.test(input.idempotencyKey)
     ? input.idempotencyKey
