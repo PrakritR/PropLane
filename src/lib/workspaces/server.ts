@@ -122,7 +122,7 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
     ...standingByWorkspace.keys(),
   ])];
   const shared = sharedIds.length
-    ? await db.from("portal_workspaces").select("id,name,owner_user_id,is_default").in("id", sharedIds).order("created_at")
+    ? await db.from("portal_workspaces").select("id,name,owner_user_id,is_default,is_service").in("id", sharedIds).order("created_at")
     : { data: [], error: null };
   if (shared.error) throw new Error("Could not load shared workspaces. Please retry.");
   const properties = [...(ownedProperties.data ?? []), ...linkedPropertiesResolved];
@@ -275,6 +275,7 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
       canAddProperties: !readOnly && (ownedHere || Boolean(standing?.rights.houses)),
       canManageMembers,
       ...(readOnly ? { readOnly: true } : {}),
+      ...((w as { is_service?: boolean | null }).is_service === true ? { isService: true } : {}),
     };
   });
 }

@@ -644,24 +644,33 @@ async function hasOwnerOfRecord(db: SupabaseClient, workspaceId: string, exceptL
 export async function inviteServiceClient(
   db: SupabaseClient,
   operatorUserId: string,
-  input: { id: string; proplaneId: unknown; ownerOfRecord?: unknown },
+  input: { id: string; proplaneId?: unknown; email?: unknown; ownerOfRecord?: unknown },
 ): Promise<ServiceResult<{ linkId: string }>> {
-  const raw = typeof input.proplaneId === "string" ? input.proplaneId.trim() : "";
-  if (!raw || raw.length > 40) return fail(400, "Enter the PropLane ID of the person to invite.");
+  const rawId = typeof input.proplaneId === "string" ? input.proplaneId.trim() : "";
+  const rawEmail = typeof input.email === "string" ? input.email.trim() : "";
+  // A helper is named by email or by PropLane ID; the Team pane's one box sends whichever was typed.
+  if (rawEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) return fail(400, "Enter a valid email address.");
+  const raw = rawEmail || rawId;
+  if (!raw || raw.length > 120) return fail(400, "Enter the email or PropLane ID of the person to invite.");
   const who = await operatorStanding(db, operatorUserId, input.id);
   if (!who.ok) return who;
   if (!who.standing.rights.members) return fail(403, "Only the owner or an admin of this workspace can invite people.");
 
-  const variants = proplaneIdLookupVariants(raw);
-  const profile = await db
-    .from("profiles")
-    .select("id, email")
-    .in("manager_id", variants.length ? variants : [raw])
-    .limit(1)
-    .maybeSingle();
-  if (profile.error) return fail(503, "Could not look up that PropLane ID. Please retry.");
+  const lookup = rawEmail
+    ? db.from("profiles").select("id, email").in("email", [...new Set([rawEmail, rawEmail.toLowerCase()])]).limit(1).maybeSingle()
+    : db
+        .from("profiles")
+        .select("id, email")
+        .in("manager_id", (() => {
+          const variants = proplaneIdLookupVariants(raw);
+          return variants.length ? variants : [raw];
+        })())
+        .limit(1)
+        .maybeSingle();
+  const profile = await lookup;
+  if (profile.error) return fail(503, "Could not look up that person. Please retry.");
   const target = String((profile.data as { id?: unknown } | null)?.id ?? "");
-  if (!target) return fail(404, "No account found with this PropLane ID.");
+  if (!target) return fail(404, rawEmail ? "No account found with this email." : "No account found with this PropLane ID.");
   if (target === who.workspace.ownerUserId) return fail(409, "That account already owns this workspace.");
   if (!(await userIsPropertyPortalManager(db, target))) {
     return fail(400, "That account needs a property portal to join this workspace.");

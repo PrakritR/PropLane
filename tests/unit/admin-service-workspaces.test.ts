@@ -387,6 +387,25 @@ describe("one workspace per owner client (per city, owner of record, invite)", (
     expect(db.tables.account_link_invites.find((l) => l.invitee_user_id === CLIENT)).toMatchObject({ team_role: "admin", house_scope: "all", is_owner_of_record: false });
   });
 
+  it("invites a helper by email: an Admin seat pinned to this workspace, pending until they accept", async () => {
+    const id = await made();
+    const res = await svc.inviteServiceClient(client(), ADMIN_A, { id, email: " Name.AAAA@Example.com " });
+    expect(res).toMatchObject({ ok: false, status: 404 });
+    db.tables.profiles.find((p) => p.id === CLIENT)!.email = "helper@example.com";
+    expect((await svc.inviteServiceClient(client(), ADMIN_A, { id, email: "Helper@Example.com" })).ok).toBe(true);
+    expect(db.tables.account_link_invites.find((l) => l.invitee_user_id === CLIENT)).toMatchObject({
+      inviter_user_id: OWNER,
+      workspace_id: id,
+      team_role: "admin",
+      status: "pending",
+      is_owner_of_record: false,
+    });
+    // No platform admin role is granted by a seat.
+    expect(admins.has(CLIENT)).toBe(false);
+    expect(await svc.inviteServiceClient(client(), ADMIN_A, { id, email: "not-an-email" })).toMatchObject({ ok: false, status: 400 });
+    expect(await svc.inviteServiceClient(client(), ADMIN_A, { id, email: "helper@example.com" })).toMatchObject({ ok: false, status: 409 });
+  });
+
   it("never makes a PropLane admin the owner of record, on invite or on flag", async () => {
     const id = await made();
     db.tables.profiles.find((p) => p.id === ADMIN_B)!.manager_id = "AX-BBBB";

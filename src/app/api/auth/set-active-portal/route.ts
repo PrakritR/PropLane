@@ -3,6 +3,10 @@ import type { AuthRole } from "@/components/auth/portal-switcher";
 import { LEGACY_PREVIEW_UID_COOKIE_NAME, PREVIEW_PORTAL_COOKIE, PREVIEW_UID_COOKIE } from "@/lib/auth/admin-preview";
 import { ACTIVE_PORTAL_COOKIE, getPortalAccessContext, isPortalRoleReachable } from "@/lib/auth/portal-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { loadPropertyPortalWorkspaceId, loadServiceStaffIds } from "@/lib/service/service-mode.server";
+import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
+import { cookies } from "next/headers";
 
 export const runtime = "nodejs";
 
@@ -20,7 +24,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    const { role } = (await req.json()) as { role?: string };
+    const { role, keepWorkspace } = (await req.json()) as { role?: string; keepWorkspace?: boolean };
     if (!role || !isAuthRole(role)) {
       return NextResponse.json({ error: "Invalid role." }, { status: 400 });
     }
@@ -34,6 +38,20 @@ export async function POST(req: Request) {
 
     const res = NextResponse.json({ ok: true });
     const secure = process.env.NODE_ENV === "production";
+    // Cookie hazard: the workspace cookie may still name a PropLane Service workspace this account is staff of (left
+    // by Admin > Service > Open). Landing in the Property portal on it would render service mode, so a plain switch to
+    // the manager portal drops that selection (the portal then falls to the account's own workspace). Opening a service
+    // workspace itself passes `keepWorkspace` because the cookie was just set on purpose.
+    if (role === "manager" && keepWorkspace !== true) {
+      const selected = (await cookies()).get(WORKSPACE_COOKIE)?.value?.trim();
+      const db = createSupabaseServiceRoleClient();
+      if (selected && (await loadServiceStaffIds(db, user.id)).has(selected)) {
+        const own = await loadPropertyPortalWorkspaceId(db, user.id);
+        res.cookies.set(WORKSPACE_COOKIE, own ?? "", {
+          httpOnly: true, sameSite: "lax", path: "/", secure, maxAge: own ? 60 * 60 * 24 * 365 : 0,
+        });
+      }
+    }
     res.cookies.set(ACTIVE_PORTAL_COOKIE, role, {
       httpOnly: true,
       sameSite: "lax",

@@ -42,6 +42,8 @@ import {
 import { useWorkspaces } from "./workspace-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ProAccountLinksPanel, type WorkspaceTeamApi } from "@/components/portal/pro-account-links-panel";
+import { ServiceTeamSection } from "@/components/portal/service-team-section";
+import { useServiceMode } from "@/components/portal/service-mode-context";
 
 function PlanCard({ plan }: { plan: WorkspacePlan }) {
   const tierLabel = plan.unknown ? "Unavailable" : plan.tier ? WORKSPACE_PLAN_ENTITLEMENTS[plan.tier].label : "Legacy";
@@ -77,15 +79,16 @@ function WorkspaceCard({ workspace, canManage, atWorkspaceCap, onRename, onDelet
       })}
       {!workspace.propertyIds.length ? <PortalSettingsRow label="No properties" /> : null}
     </PortalSettingsGroup></PortalSettingsSection>
-    {workspace.owned && plan ? <PlanCard plan={plan} /> : null}
-    {workspace.owned ? <PortalSettingsGroup>
+    {workspace.owned && plan && !workspace.isService ? <PlanCard plan={plan} /> : null}
+    {workspace.owned && !workspace.isService ? <PortalSettingsGroup>
       <button type="button" className="flex min-h-12 w-full items-center gap-2 px-4 text-left text-[15px] font-semibold text-primary disabled:opacity-50" disabled={atWorkspaceCap} onClick={onNew} data-attr="workspace-new">
         <Plus className="size-4" aria-hidden /> New workspace
       </button>
     </PortalSettingsGroup> : null}
-    <PortalSettingsGroup className="border-danger/30">
+    {/* A PropLane Service workspace is renamed, attached and removed from Admin > Service, never from here. */}
+    {workspace.isService ? null : <PortalSettingsGroup className="border-danger/30">
       <button type="button" className="flex min-h-12 w-full items-center px-4 text-left text-[15px] text-danger" onClick={workspace.owned ? onDelete : () => void onLeave()} data-attr={workspace.owned ? "workspace-delete" : "workspace-leave"}>{workspace.owned ? "Delete workspace" : "Leave workspace"}</button>
-    </PortalSettingsGroup>
+    </PortalSettingsGroup>}
   </div>;
 }
 
@@ -101,6 +104,7 @@ function WorkspaceCards({ userId, children }: { userId: string | null; children:
 
 export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {}) {
   const ctx = useWorkspaces();
+  const serviceMode = useServiceMode();
   const { userId } = useManagerUserId();
   const confirm = useConfirm();
   const pathname = usePathname();
@@ -224,7 +228,11 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
                 await deleteWorkspace(workspace);
               }
             }}
-            teamSection={team ? team.section(workspace) : null}
+            teamSection={
+              workspace.isService
+                ? <ServiceTeamSection workspace={workspace} isAdmin={serviceMode.isAdmin} onChanged={ctx.refresh} />
+                : team ? team.section(workspace) : null
+            }
           />
           ))}
         </WorkspaceCards>

@@ -1,6 +1,6 @@
 "use client";
 
-import { HelpCircle, Settings } from "lucide-react";
+import { HelpCircle, Settings, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -37,12 +37,18 @@ export function PortalAccountMenu({
   name,
   email,
   onOpenHelp,
+  propertyPortal,
+  serviceEntries,
 }: {
   kind: PortalKind;
   basePath: string;
   name: string | null;
   email: string | null;
   onOpenHelp?: () => void;
+  /** Service mode only: the account also owns a workspace of its own, so it can go back to the Property portal. */
+  propertyPortal?: { onSwitch: () => void };
+  /** Property portal, a service helper: one row per PropLane Service workspace they can open. */
+  serviceEntries?: { workspaces: { id: string; name: string }[]; onOpen: (id: string) => void };
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -98,6 +104,35 @@ export function PortalAccountMenu({
 
         <div className="px-0">
           <PortalRoleSwitcher currentKind={kind} onSwitched={() => setOpen(false)} />
+          {serviceEntries?.workspaces.map((workspace) => (
+            <button
+              key={workspace.id}
+              type="button"
+              data-attr="portal-account-open-service-workspace"
+              onClick={() => {
+                setOpen(false);
+                serviceEntries.onOpen(workspace.id);
+              }}
+              className="flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-[13.5px] font-medium text-foreground outline-none transition hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0 lg:rounded-[var(--radius-control)] lg:px-[9px] lg:py-[7px] lg:text-[14px] lg:font-normal"
+            >
+              <Users aria-hidden className="h-[16px] w-[16px] shrink-0 text-muted" />
+              Open {workspace.name}
+            </button>
+          ))}
+          {propertyPortal ? (
+            <button
+              type="button"
+              data-attr="portal-account-switch-property"
+              onClick={() => {
+                setOpen(false);
+                propertyPortal.onSwitch();
+              }}
+              className="flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-[13.5px] font-medium text-foreground outline-none transition hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0 lg:rounded-[var(--radius-control)] lg:px-[9px] lg:py-[7px] lg:text-[14px] lg:font-normal"
+            >
+              <Users aria-hidden className="h-[16px] w-[16px] shrink-0 text-muted" />
+              Switch to Property portal
+            </button>
+          ) : null}
         </div>
 
         {onOpenHelp ? (

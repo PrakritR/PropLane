@@ -81,6 +81,7 @@ export function PortalTopBar({
   subscriptionTier,
   residentNavStage,
   initialSidebarCollapsed = false,
+  serviceLabel,
 }: {
   kind: PortalKind;
   basePath: string;
@@ -88,6 +89,8 @@ export function PortalTopBar({
   subscriptionTier?: ManagerPortalNavTier;
   residentNavStage?: ResidentPortalNavStage;
   initialSidebarCollapsed?: boolean;
+  /** Service mode: "Admin · <workspace>" beside the sidebar toggle. */
+  serviceLabel?: string;
   /** Retained for call-site compatibility; the account menu now lives in the rail. */
   name?: string | null;
   email?: string | null;
@@ -153,6 +156,16 @@ export function PortalTopBar({
       >
         <PanelLeft className="size-4" strokeWidth={1.75} aria-hidden />
       </button>
+
+      {serviceLabel ? (
+        <span
+          className="max-w-[260px] shrink-0 truncate text-[13px] font-semibold text-white"
+          data-attr="portal-service-label"
+          title={serviceLabel}
+        >
+          {serviceLabel}
+        </span>
+      ) : null}
 
       <button
         type="button"

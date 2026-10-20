@@ -21,8 +21,8 @@ import {
 export const runtime = "nodejs";
 
 const NO_STORE = { "Cache-Control": "private, no-store" };
-/** Where "Open" lands: the manager property portal, scoped to the workspace by the switcher cookie. */
-const SERVICE_OPEN_HREF = "/portal/properties";
+/** Where "Open" lands: the service-mode dashboard of that workspace (/portal reads the workspace cookie set below). */
+const SERVICE_OPEN_HREF = "/portal/dashboard";
 
 function failure(result: ServiceFailure) {
   return NextResponse.json({ error: result.error }, { status: result.status, headers: NO_STORE });
@@ -111,7 +111,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, linkId: result.linkId }, { status: 201, headers: NO_STORE });
     }
     case "team-invite": {
-      const result = await inviteServiceClient(db, admin.userId, { id, proplaneId: body.proplaneId, ownerOfRecord: body.ownerOfRecord });
+      const result = await inviteServiceClient(db, admin.userId, { id, proplaneId: body.proplaneId, email: body.email, ownerOfRecord: body.ownerOfRecord });
       if (!result.ok) return failure(result);
       return NextResponse.json({ ok: true, linkId: result.linkId }, { status: 201, headers: NO_STORE });
     }

@@ -1,7 +1,7 @@
 "use client";
 
 import { HelpCircle, Plus } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AxisLogoGlyph } from "@/components/brand/axis-logo";
 import { PortalAccountMenu } from "@/components/portal/portal-account-menu";
@@ -9,6 +9,10 @@ import { PortalHelpPanel } from "@/components/portal/portal-help-panel";
 import { WorkspaceCreateJoinDialog } from "@/components/portal/workspace-create-join-dialog";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { usePortalSession } from "@/hooks/use-portal-session";
+import { switchToPropertyPortal } from "@/lib/service/open-service-workspace";
+import { openServiceWorkspace } from "@/lib/service/open-service-workspace";
+import type { ServiceRailWorkspace, ServiceShellData } from "@/lib/service/service-mode";
+import { ServiceRailTiles } from "@/components/portal/service-rail-tiles";
 import type { PortalKind } from "@/lib/portal-types";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
 import { cn } from "@/lib/utils";
@@ -40,13 +44,20 @@ export function PortalWorkspaceRail({
   basePath,
   name,
   email,
+  service,
+  serviceEntries,
 }: {
   kind: PortalKind;
   basePath: string;
   name: string | null;
   email: string | null;
+  /** The admin portal and service mode: PropLane logo, the service workspaces the viewer can open, then +. */
+  service?: ServiceShellData;
+  /** Property portal, a helper who is not an admin: the service workspaces they can open from the account menu. */
+  serviceEntries?: ServiceRailWorkspace[];
 }) {
   const ctx = useWorkspaces();
+  const router = useRouter();
   const pathname = usePathname();
   const { showToast } = useAppUi();
   const session = usePortalSession();
@@ -63,7 +74,7 @@ export function PortalWorkspaceRail({
     const query = params.toString();
     window.history.replaceState(null, "", query ? `${window.location.pathname}?${query}` : window.location.pathname);
   }, []);
-  const isWorkspacePortal = kind === "manager" || kind === "pro";
+  const isWorkspacePortal = (kind === "manager" || kind === "pro") && !service;
   // Settings follows the workspace picked here, so switching while in Settings stays in Settings.
   const inSettings = /\/profile(\/|$)/.test(pathname ?? "");
 
@@ -124,7 +135,9 @@ export function PortalWorkspaceRail({
         data-slot="portal-workspace-rail"
         className="hidden w-[60px] shrink-0 flex-col items-center gap-2.5 bg-[var(--portal-strip-bg,#0c0d10)] py-2.5 text-[var(--portal-strip-fg,#c7ccd6)] lg:flex"
       >
-        {isWorkspacePortal ? (
+        {service ? (
+          <ServiceRailTiles service={service} onCreated={() => router.refresh()} />
+        ) : isWorkspacePortal ? (
           <>
             {workspaceTiles}
             <button
@@ -170,6 +183,27 @@ export function PortalWorkspaceRail({
           name={name}
           email={email}
           onOpenHelp={() => setHelpOpen(true)}
+          serviceEntries={
+            serviceEntries?.length
+              ? {
+                  workspaces: serviceEntries,
+                  onOpen: (id) =>
+                    void openServiceWorkspace(id, undefined, { isAdmin: false }).then((error) => {
+                      if (error) showToast(error);
+                    }),
+                }
+              : undefined
+          }
+          propertyPortal={
+            service?.propertyPortalWorkspaceId
+              ? {
+                  onSwitch: () =>
+                    void switchToPropertyPortal(service.propertyPortalWorkspaceId!).then((error) => {
+                      if (error) showToast(error);
+                    }),
+                }
+              : undefined
+          }
         />
       </nav>
 

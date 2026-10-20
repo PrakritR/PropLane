@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, Home, Phone, Plug, Settings, Users } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { openServiceWorkspace } from "@/lib/service/open-service-workspace";
 import { PortalListGroup } from "@/components/portal/portal-list-group";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -110,6 +111,7 @@ async function post<T extends Record<string, unknown>>(body: Record<string, unkn
 export function AdminServicePanel() {
   const { showToast } = useAppUi();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const tabParam = searchParams?.get("tab");
   const tab: "workspaces" | "vendors" | "network" = tabParam === "vendors" ? "vendors" : tabParam === "network" ? "network" : "workspaces";
   const networkBucket = networkBucketFromParam(searchParams?.get("bucket"));
@@ -165,34 +167,19 @@ export function AdminServicePanel() {
   const reload = useCallback(() => {
     setState({ status: "loading" });
     setReloadTick((n) => n + 1);
-  }, []);
+    // The rail lists these workspaces: a create, attach, rename or team change reaches it now.
+    router.refresh();
+  }, [router]);
 
   const rows = useMemo(() => (state.status === "ready" ? state.rows : []), [state]);
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
   const open = async (row: ServiceRow) => {
     setBusy(true);
-    try {
-      const { ok, json } = await post<{ href?: string }>({ action: "open", id: row.id });
-      if (!ok || !json.href) {
-        showToast(json.error ?? "Could not open this workspace.");
-        return;
-      }
-      // Land in the property portal itself: a multi-role account would otherwise stop at the portal chooser.
-      // Best effort and re-checked server-side (reachability); the workspace cookie is already set.
-      await fetchWithTimeout("/api/auth/set-active-portal", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: "manager" }),
-      }, FETCH_TIMEOUT_MS).catch(() => undefined);
-      // A full navigation: the property portal reads the workspace cookie the route just set.
-      window.location.assign(json.href);
-    } catch {
-      showToast("Could not open this workspace.");
-    } finally {
-      setBusy(false);
-    }
+    // Lands in service mode: the admin-style shell under /portal, scoped to this workspace by the cookie the route sets.
+    const error = await openServiceWorkspace(row.id);
+    if (error) showToast(error);
+    setBusy(false);
   };
 
   const loadTeam = useCallback(async (id: string) => {

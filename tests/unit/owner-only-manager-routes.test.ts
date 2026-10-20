@@ -51,6 +51,8 @@ const REASONS = {
 const EXEMPT: Record<string, keyof typeof REASONS> = {
   "pro/account-links/redeem/route.ts": "ownerUpgradePath",
   "admin/portal-users/route.ts": "notManagerSurface",
+  // The portal switch: it sets which portal is active (and drops a stale service-workspace cookie), and reads no manager data.
+  "auth/set-active-portal/route.ts": "notManagerSurface",
   "linked-form-requests/[id]/route.ts": "notManagerSurface",
   "public/cosigner-submissions/route.ts": "notManagerSurface",
   // Reviewed: the manager role appears only as a refusal (403) - message credit is for vendor and resident numbers, so an owner-only account is refused too.
