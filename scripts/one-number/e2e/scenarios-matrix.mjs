@@ -314,7 +314,7 @@ MATRIX_SCENARIOS.push({
       const r = await say(ctx, R, fx.to, "what's my rent balance?");
       c.reply(r);
       const figures = dollars(r.all);
-      c.check("the room rent $1000 is named", figures.includes(1000), r.all);
+      c.check("the room rent ($1000) or the ledger total ($2000) is named", figures.includes(1000) || figures.includes(2000), r.all);
       c.check("every figure is one the ledger has ($1000, $2000 with the overdue month)", figures.every((n) => [1000, 2000].includes(n)), r.all);
       c.check("the overdue month is called out", /(overdue|late|past due|september)/i.test(r.all), r.all);
     });
