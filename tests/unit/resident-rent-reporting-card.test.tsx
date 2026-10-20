@@ -2,8 +2,8 @@
 //
 // The "Report my rent to credit bureaus" card on the resident Payments page:
 // off shows a toggle, turning it on opens the consent sheet, agreeing sends
-// legal name + DOB to the server, and a manager on Free shows an Upgrade lock
-// instead of a working toggle.
+// legal name + DOB to the server, and a manager on Free shows a static
+// "Ask your manager" note instead of a working toggle.
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { vi } from "vitest";
@@ -180,7 +180,7 @@ describe("resident rent reporting card", () => {
     expect(screen.getByText("Experian · TransUnion · Equifax")).toBeTruthy();
   });
 
-  it("a manager on Free shows an Upgrade lock instead of a working toggle", async () => {
+  it("a manager on Free shows a static Ask your manager note instead of a working toggle", async () => {
     rentReportingState = {
       eligible: true,
       addonAvailable: false,
@@ -193,7 +193,9 @@ describe("resident rent reporting card", () => {
     render(<ResidentPaymentsPanel bucket="pending" />);
     await waitFor(() => expect(screen.getByText("Report my rent to credit bureaus")).toBeTruthy());
 
-    expect(screen.getByRole("link", { name: "Upgrade" })).toBeTruthy();
+    // A resident cannot upgrade a manager's plan: the lock is plain text, not a link or button.
+    expect(screen.getByText("Ask your manager")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Upgrade" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Report my rent to credit bureaus" })).toBeNull();
   });
 
