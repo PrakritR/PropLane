@@ -116,6 +116,7 @@ export async function requestServiceManagerPhoneCode(
         body: otpMessageBody(code, "PropLane"),
         role: "manager",
         idempotencyKey: `service-manager-code:${challengeId}`,
+        basis: { kind: "code" },
       }),
   });
   if (result.ok) return { ok: true };
