@@ -433,7 +433,9 @@ MATRIX_SCENARIOS.push({
       const send = await say(ctx, fx.managerPhone, fx.to, `send a plumber to the bathroom faucet leak at ${fx.house.name}`, { agentUser: fx.manager.id, traceOutput: true });
       c.reply(send, "manager dispatches");
       let confirm = send;
-      if (/yes/i.test(send.all)) confirm = await say(ctx, fx.managerPhone, fx.to, "YES");
+      // The manager agent may ask "assign directly or dispatch?" before it proposes the dispatch: answer like a manager would.
+      if (!/reply yes/i.test(confirm.all) && /dispatch|assign|which|would you like/i.test(confirm.all)) confirm = await say(ctx, fx.managerPhone, fx.to, "Dispatch Pat Plumber, send him the offer text");
+      if (/reply yes/i.test(confirm.all)) confirm = await say(ctx, fx.managerPhone, fx.to, "YES");
       c.reply(confirm, "manager confirms");
       await sleep(3000);
       const offers = h.captured().filter((m) => String(m.to).replace(/\D/g, "").endsWith(V.slice(-10))).map((m) => m.body);
@@ -470,7 +472,8 @@ MATRIX_SCENARIOS.push({
       const V2 = (await world.createRosterVendor({ ownerId: fx.manager.id, name: "Eli Electric", trade: "Electrician", phone: world.phone() })).phone;
       const send = await say(ctx, fx.managerPhone, fx.to, `send an electrician to the hallway light out at ${fx.house.name}`);
       let confirm = send;
-      if (/yes/i.test(send.all)) confirm = await say(ctx, fx.managerPhone, fx.to, "YES");
+      if (!/reply yes/i.test(confirm.all) && /dispatch|assign|which|would you like/i.test(confirm.all)) confirm = await say(ctx, fx.managerPhone, fx.to, "Dispatch Eli Electric, send him the offer text");
+      if (/reply yes/i.test(confirm.all)) confirm = await say(ctx, fx.managerPhone, fx.to, "YES");
       c.reply(confirm, "manager dispatches");
       const offerText = h.captured().filter((m) => String(m.to).replace(/\D/g, "").endsWith(V2.slice(-10))).map((m) => m.body).join("\n");
       c.check("the electrician was offered the job", /job #|PropLane job/i.test(offerText), offerText || "(no offer sent)");
