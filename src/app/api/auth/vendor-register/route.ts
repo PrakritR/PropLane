@@ -72,11 +72,13 @@ export async function POST(req: Request) {
     const token = typeof body.token === "string" ? body.token.trim() : "";
     const password = typeof body.password === "string" ? body.password : "";
     const fullName = typeof body.fullName === "string" ? body.fullName.trim() : "";
-    // Optional for a vendor, unlike a resident — an invited vendor may only
-    // have the email their manager sent the invite to. Normalised so a stored
+    // Required (phone-first accounts): every account, invited or self-serve, puts its number in. Normalised so a stored
     // number is always E.164, never whatever the keypad produced.
     const phone = normalizeE164(typeof body.phone === "string" ? body.phone : "") ?? "";
 
+    if (!phone) {
+      return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
+    }
     if (password.length < 8) {
       return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
     }

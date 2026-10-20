@@ -11,6 +11,8 @@ type Purpose = "sign_in" | "verify_phone" | "change_number_old" | "change_number
 type PhoneStatus = { enabled: boolean; verified: boolean; phone: string | null; needsOldNumber: boolean };
 type PhoneResponse = {
   error?: string;
+  /** The code could not be sent (a provider problem), so the screen may offer "Skip for now". */
+  sendFailed?: boolean;
   challengeId?: string;
   ok?: boolean;
   next?: string;
@@ -24,11 +26,14 @@ export function PhoneAuthForm({
   mode = "sign_in",
   nextPath = "",
   disabled = false,
+  allowSkip = false,
   onBusyChange,
 }: {
   mode?: "sign_in" | "verify_phone";
   nextPath?: string;
   disabled?: boolean;
+  /** phone_required (not the shared line): when a code cannot be sent, offer "Skip for now" so an outage never locks anyone out. */
+  allowSkip?: boolean;
   onBusyChange?: (busy: boolean) => void;
 }) {
   // /auth/verify-phone has no other client component to mark the document, so without this the auth shell
@@ -42,6 +47,7 @@ export function PhoneAuthForm({
   const [statusFailed, setStatusFailed] = useState(false);
   const [statusVersion, setStatusVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [canSkip, setCanSkip] = useState(false);
   const inFlight = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -78,7 +84,10 @@ export function PhoneAuthForm({
       body: JSON.stringify(body),
     });
     const result = await response.json() as PhoneResponse;
-    if (!response.ok || result.error) throw new Error(result.error || REQUEST_ERROR);
+    if (!response.ok || result.error) {
+      if (allowSkip && path === "/api/auth/phone/start" && result.sendFailed) setCanSkip(true);
+      throw new Error(result.error || REQUEST_ERROR);
+    }
     return result;
   };
 
@@ -133,6 +142,21 @@ export function PhoneAuthForm({
     }
   };
 
+  const skip = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/auth/phone/skip", { method: "POST" });
+      if (!response.ok) throw new Error(REQUEST_ERROR);
+      window.location.replace(oauthContinuePath(nextPath));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : REQUEST_ERROR);
+      inFlight.current = false;
+      setBusy(false);
+    }
+  };
+
   const locked = disabled || busy || loading || statusFailed;
   const phoneLabel = purpose === "change_number_old" ? "Current phone number" : purpose === "change_number_new" ? "New phone number" : "Phone number";
   return (
@@ -164,6 +188,9 @@ export function PhoneAuthForm({
           {challengeId ? "Verify code" : purpose === "sign_in" ? "Continue with phone" : purpose === "change_number_old" ? "Verify current number" : "Send code"}
         </Button>
       )}
+      {canSkip ? (
+        <Button type="button" variant="ghost" className="w-full" disabled={busy} onClick={() => void skip()} data-attr="auth-phone-skip">Skip for now</Button>
+      ) : null}
       {challengeId ? (
         <div className="flex items-center justify-between gap-3">
           <Button type="button" variant="ghost" disabled={locked} onClick={() => submit(true)}>Resend code</Button>
