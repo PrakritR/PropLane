@@ -342,7 +342,7 @@ Quiet elsewhere.
 - Primary CTA: **Partner with Axis** → `/partner`
 - No eyebrow/badge pill above the headline — public marketing heroes open on the headline itself. The eyebrow pill primitives stay for non-marketing surfaces (listing detail modals, rental-application wizard, auth pages, portal paywalls).
 
-**Partner:** Hero CTA pair; four glass capability cards; plan-tier price list linking to `/pricing`. No trailing CTA band.
+**Partner:** Hero CTA pair; four glass capability cards; plan-tier price list linking to the homepage `/#pricing` section. No trailing CTA band.
 
 ---
 
@@ -421,7 +421,7 @@ Inherits portal shell. Differentiators:
 - **Page frame:** `.axis-page-frame` — light gradient stack or dark solid
 - **Portal sidebar:** 266px fixed; content scrolls independently
 - **Border radius scale:** 14px nav/cards, 18px cards/photo, 24px auth card, 9999px pills/buttons
-- **Grid gaps:** 14–18px component gaps; 40–54px section padding on marketing pages. Exception: the home hero + its portfolio stats strip run a deliberately tighter desktop-only rhythm (`lg:` padding, `lg:py-9`/36px on the stats strip, and a 32px `.landing-hero-bridge` at ≥1024px) so both fit one ~900px viewport.
+- **Grid gaps:** 14–18px component gaps; 40–54px section padding on marketing pages. (The old home hero's tighter desktop-only rhythm and its `.landing-hero-bridge` went with that hero — see § Homepage hero background; the homepage's own rhythm is [`docs/agents/marketing-mocks.md`](agents/marketing-mocks.md) § Public homepage.)
 
 ---
 

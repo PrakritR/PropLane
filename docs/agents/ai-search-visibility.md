@@ -66,7 +66,7 @@ still serve `Disallow: /` (see deployment-workflow § Search indexing).
 
 ## `sitemap.xml` carries the live listings
 
-Canonical marketing paths from `src/lib/seo/marketing-routes.ts` (also the source of the exact 308 consolidation redirects in `next.config.ts`), `/blog` plus one entry per post (clamped `lastModified`
+Canonical marketing paths from `src/lib/seo/marketing-routes.ts` (also the source of the consolidation redirects `next.config.ts` serves), `/blog` plus one entry per post (clamped `lastModified`
 — blog.md § Serving the pages), and **one URL per live public listing** read
 through `getCrawlPublicListings()`. A catalog that fails — or stalls past the
 read's deadline below — is caught: the sitemap still lists every static page
@@ -77,7 +77,7 @@ indexing), so the only URLs worth advertising are canonical ones.
 
 ## JSON-LD
 
-The homepage owns `#how`, `#dashboard`, `#service`, `#pricing` and `#contact`. Legacy feature, service, Why PropLane, pricing and contact pages redirect directly to their home anchors with 308s and are excluded from the sitemap. Both plain-text crawl surfaces and software offer JSON-LD link those same sections. The unattributed reviews page redirects home. `src/lib/marketing/product-faq.ts` preserves reusable product questions for a future FAQ surface; it does not publish FAQ structured data without visible answers.
+The homepage owns `#how`, `#dashboard`, `#service`, `#pricing` and `#contact`. Legacy feature, service, Why PropLane, pricing and contact pages redirect directly to their home anchors and are excluded from the sitemap. Those redirects are **307, deliberately not 308** (`MARKETING_REDIRECTS`): a permanent redirect is cached hard by browsers and crawlers, so giving any of these its own page again would never reach anyone who had already followed it. Both plain-text crawl surfaces and software offer JSON-LD link those same sections. The unattributed reviews page redirects home. `src/lib/marketing/product-faq.ts` preserves reusable product questions for a future FAQ surface; it does not publish FAQ structured data without visible answers.
 
 - Home (`src/app/(public)/page.tsx`): one `@graph` with `Organization` and
   `SoftwareApplication`, three `Offer`s built from the rate card. `sameAs`

@@ -160,10 +160,11 @@ does not — § Communication on a trial below); the monthly retail credit
 per plan is `COMMS_INCLUDED_ALLOWANCE_CENTS` (`src/lib/comms-billing/allowances.ts`),
 manual top-ups carry forward, and a saved card never authorizes an automatic
 charge. Quotas read only the effective SKU (`getEffectiveManagerSkuTier`).
-Customer-facing copy (pricing cards and FAQ, `src/data/manager-plan-tiers.ts`
-and `src/app/(public)/pricing/page.tsx`) is DERIVED from that constant through
-`commsAllowanceFeatureText`, so the page cannot promise a number the code does
-not enforce. Coverage: `tests/unit/plan-comms-allowance-copy.test.ts`.
+Customer-facing copy is DERIVED from that constant through
+`commsAllowanceFeatureText` in `src/data/manager-plan-tiers.ts` — the one list
+the homepage `#pricing` cards and FAQ read, there being no separate pricing page
+any more — so the page cannot promise a number the code does not enforce.
+Coverage: `tests/unit/plan-comms-allowance-copy.test.ts`.
 
 No subscription grants payment-processing coverage; only the staff-owned
 account override does — [resident-payments.md](resident-payments.md).

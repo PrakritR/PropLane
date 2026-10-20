@@ -8,7 +8,7 @@ type PublicPageAuthFooterProps = {
   getStartedLabel?: string;
   getStartedDataAttr?: string;
   signInDataAttr?: string;
-  /** Optional secondary CTA (defaults to Book a demo → /contact). */
+  /** Optional secondary CTA (defaults to Book a demo → the homepage Contact form). */
   secondaryHref?: string;
   secondaryLabel?: string;
   secondaryDataAttr?: string;

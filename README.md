@@ -6,15 +6,14 @@ Property management software for listing units, screening applicants, signing le
 
 | Surface | Path | Who |
 | --- | --- | --- |
-| **Marketing** | `/`, `/partner`, `/pricing`, `/contact` | Prospective property managers |
-| **Manager workspace** | `/portal` | Property managers (Free, Pro, Business tiers) |
+| **Marketing** | `/` (the one scroll page: how it works, software, service, pricing, contact), `/partner` | Prospective property managers |
+| **Property portal** | `/portal` | Property managers and house owners (Free, Pro, Business tiers) |
 | **Resident portal** | `/resident` | Tenants linked to a manager |
 | **Vendor portal** | `/vendor` | Contractors a manager invites to services |
-| **Property owner view** | `/portal/owner` | Investors a manager shares a house with |
 | **Admin portal** | `/admin` | Platform operators |
 | **Public apply & tour flows** | `/rent/apply`, `/rent/tours`, `/rent/listings/[id]` | Applicants (manager-shared links) |
 
-### Manager workspace (`/portal`)
+### Property portal (`/portal`)
 
 Properties, tour scheduling, rental applications, resident & lease management, move-in / move-out inspections, household charges, Stripe Connect payouts, services & vendors, inbox, documents & tax reporting, co-managers, and subscription billing (Free / Pro / Business).
 
@@ -29,9 +28,9 @@ Deleting the default passes its label to the oldest remaining workspace.
 Deleting the last empty workspace returns to **Create your first workspace**;
 adding a house with no workspace still creates **My workspace** automatically.
 
-### Property owner view (`/portal/owner`)
+### House owners
 
-A read-only view a manager grants per house from **Settings → Workspaces**, by inviting a member with Role → **Property owner**: Overview and Properties figures, owner statements, documents the manager marked *Share with owners*, and — only when the manager turns it on — a message thread with that manager. It is a team role inside the manager's workspace, not a portal of its own, so an owner never sees residents, applicants or vendors. Contract: [`docs/agents/co-manager-access.md`](docs/agents/co-manager-access.md) § Property owner.
+There is no separate owner portal: an owner opens the **Property portal** like everyone else, and the old `/portal/owner/*` URLs redirect into it. A house owner who should only look is invited as a **Viewer** from **Settings → Workspaces** (the `Property owner` role has left the invite picker; existing owner rows keep working). An owner of a PropLane-managed workspace sees the portal **view-only** — no create, edit, archive or delete — under a “Managed by PropLane · View only” strip, with their money in **Finances → Owner payouts**. Contracts: [`docs/agents/co-manager-access.md`](docs/agents/co-manager-access.md) § Property owner and [`docs/agents/owner-management.md`](docs/agents/owner-management.md).
 
 ### Resident portal (`/resident`)
 

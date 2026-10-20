@@ -776,9 +776,11 @@ Do not "fix" these without asking:
   take over a workspace.") in `transferWorkspaceOwnership`, before the RPC — the
   role is a read-only statements reader, never a manager.
 - **A revoked owner is not an error.** `loadOwnerGrants` returns no houses on the
-  next request and the shell shows *No properties are shared with you*
-  (`owner-overview.tsx`), so losing the last grant reads as an empty state, not
-  a lockout.
+  next request, so `/api/owner/*` 403s and Owner payouts simply hides itself —
+  losing the last grant reads as a surface that is not there, not a lockout: the
+  account keeps its own Property portal, which never depended on the grant. The
+  owner shell that used to carry an empty state is retired (see the retirement
+  note above).
 
 ## Row note: view-only seats and managed workspaces
 
