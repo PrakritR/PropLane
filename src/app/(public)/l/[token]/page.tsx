@@ -58,6 +58,10 @@ export default async function PhoneBoundLinkPage({
     case "paid":
       await markPhoneBoundLinkUsed(db, link.id);
       return <LinkMessageView title="Payment received" line="You can close this page." />;
+    // A bank debit that has not settled is not a receipt, and the link stays live: if the debit fails the charge
+    // is payable again and this is the only link the resident has.
+    case "processing":
+      return <LinkMessageView title="Payment processing" line="Your bank transfer is still clearing. We will text you when it settles." />;
     default:
       return <LinkExpiredView />;
   }

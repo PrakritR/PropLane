@@ -43,9 +43,15 @@ export function buildTaxPackage(
   vendorLines: ReadonlyArray<StatementLine & { partyId: string }>,
   vendorNames: ReadonlyMap<string, string>,
   defaultPropertyId = "",
+  /**
+   * The year's window as UTC instants. The filing year is a PACIFIC calendar year, so the caller passes the
+   * Pacific boundaries it already resolved; `${year}-01-01` as a UTC string would cut the last eight hours of
+   * December 31 Pacific out of every total.
+   */
+  window?: { fromIso: string; toIso: string },
 ): TaxPackage {
-  const start = `${year}-01-01`;
-  const end = `${year + 1}-01-01`;
+  const start = window?.fromIso ?? `${year}-01-01`;
+  const end = window?.toIso ?? `${year + 1}-01-01`;
   const houses = new Map<string, TaxHouseRow>();
   const row = (id: string): TaxHouseRow => {
     const key = id || defaultPropertyId;

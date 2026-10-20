@@ -130,13 +130,24 @@ describe("rent destination", () => {
     expect(await resolveLinkDestination(db, rent({ targetId: "missing" }))).toEqual({ kind: "gone" });
   });
 
-  it("a paid or clearing charge reads as paid; a cancelled one as gone", async () => {
-    for (const status of ["paid", "processing"]) {
-      const { db } = world({ portal_household_charge_records: [{ id: "chg-1", status, row_data: charge({ status }) }] });
-      expect(await resolveLinkDestination(db, rent())).toEqual({ kind: "paid" });
-    }
-    const cancelled = world({ portal_household_charge_records: [{ id: "chg-1", status: "cancelled", row_data: charge({ status: "cancelled" }) }] });
-    expect(await resolveLinkDestination(cancelled.db, rent())).toEqual({ kind: "gone" });
+  it("a paid charge reads as paid, a clearing one as processing, a cancelled one as gone", async () => {
+    // A bank debit in `processing` can still FAIL and become payable again, so it is not a receipt and the page
+    // must not burn the link for it — this is the only link the resident has.
+    const forStatus = (status: string) =>
+      world({ portal_household_charge_records: [{ id: "chg-1", status, row_data: charge({ status }) }] });
+    expect(await resolveLinkDestination(forStatus("paid").db, rent())).toEqual({ kind: "paid" });
+    expect(await resolveLinkDestination(forStatus("processing").db, rent())).toEqual({ kind: "processing" });
+    expect(await resolveLinkDestination(forStatus("cancelled").db, rent())).toEqual({ kind: "gone" });
+  });
+
+  it("a cart with one settled and one clearing charge still has nothing to pay, and still keeps the link", async () => {
+    const { db } = world({
+      portal_household_charge_records: [
+        { id: "chg-1", status: "paid", row_data: charge({ status: "paid" }) },
+        { id: "chg-2", status: "processing", row_data: charge({ id: "chg-2", status: "processing" }) },
+      ],
+    });
+    expect(await resolveLinkDestination(db, rent({ targetId: "chg-1,chg-2" }))).toEqual({ kind: "processing" });
   });
 
   it("offers only the charges still owed when some are paid", async () => {

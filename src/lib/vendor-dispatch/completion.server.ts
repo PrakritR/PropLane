@@ -282,6 +282,22 @@ export async function recordVendorInvoice(
 
   const contacts = await loadVendorContacts(db, run.owner_user_id, [attempt.vendor_directory_id]);
   const contact = contacts.get(attempt.vendor_directory_id);
+  // Claim the run BEFORE the invoice row exists. The read above is not atomic, so two quick "INVOICE $240"
+  // texts both passed it; inserting first left the loser's submitted invoice live on the vendor-invoice rails,
+  // approvable later as a second bill against the owner and invisible to `details.invoiceId`.
+  const { data: claimed } = await db
+    .from("vendor_dispatch_runs")
+    .update({
+      pending_invoice_cents: input.amountCents,
+      details: { ...run.details, invoiceId: null },
+      approval_reminded_at: null,
+      updated_at: now.toISOString(),
+    })
+    .eq("id", run.id)
+    .is("pending_invoice_cents", null)
+    .select("id");
+  if (!claimed || (claimed as unknown[]).length === 0) return "already_pending";
+
   let invoiceId: string | null = null;
   if (contact?.vendorUserId) {
     try {
@@ -302,18 +318,12 @@ export async function recordVendorInvoice(
       console.error("vendor dispatch invoice not filed", error instanceof Error ? error.message : "unknown");
     }
   }
-  const { data: claimed } = await db
-    .from("vendor_dispatch_runs")
-    .update({
-      pending_invoice_cents: input.amountCents,
-      details: { ...run.details, invoiceId },
-      approval_reminded_at: null,
-      updated_at: now.toISOString(),
-    })
-    .eq("id", run.id)
-    .is("pending_invoice_cents", null)
-    .select("id");
-  if (!claimed || (claimed as unknown[]).length === 0) return "already_pending";
+  if (invoiceId) {
+    await db
+      .from("vendor_dispatch_runs")
+      .update({ details: { ...run.details, invoiceId }, updated_at: now.toISOString() })
+      .eq("id", run.id);
+  }
   await recordDispatchEvent(db, { ownerUserId: run.owner_user_id, runId: run.id, handle: run.handle, event: "invoice_asked", key: attempt.id, detail: { amountCents: input.amountCents, invoiceId }, now });
   await notifyApprovers(db, { ...run, details: { ...run.details, invoiceId } }, {
     audience: "everyone",
@@ -358,6 +368,15 @@ export async function decideRunInvoice(
       try {
         await createBillFromVendorInvoice(db, run.owner_user_id, invoiceId);
       } catch {
+        // Bill creation needs the invoice to be `approved` already, so the flip above cannot wait for it. Put the
+        // invoice back to `submitted` instead: the manager's next Y finds it again rather than being told the
+        // invoice is "already handled" with no bill ever created. Bill creation is idempotent on the invoice id.
+        await db
+          .from("vendor_invoices")
+          .update({ status: "submitted", decided_at: null, decided_by: null, updated_at: now.toISOString() })
+          .eq("id", invoiceId)
+          .eq("manager_user_id", run.owner_user_id)
+          .eq("status", "approved");
         return { ok: false, reason: "unavailable" };
       }
     }

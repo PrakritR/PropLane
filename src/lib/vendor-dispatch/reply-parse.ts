@@ -45,6 +45,9 @@ const INVOICE_WORDS = new Set(["invoice", "bill", "total"]);
 
 export const DEFAULT_BUSY_MINUTES = 120;
 
+/** A clock time or a price in the rest of a reply: the marks of a vendor taking the job, not refusing it. */
+const ACCEPTANCE_SIGNAL = /\$\s*\d|\b\d{1,2}\s*:\s*\d{2}\b|\b\d{1,2}\s*(?:am|pm|a\.m\.?|p\.m\.?)\b/i;
+
 /** "2h", "30m", "2 hours", "90 min" -> minutes. */
 export function parseBusyMinutes(text: string): number | null {
   const match = /(\d+(?:\.\d+)?)\s*(h|hr|hrs|hour|hours|m|min|mins|minute|minutes|d|day|days)\b/i.exec(text);
@@ -88,10 +91,16 @@ export function parseVendorDispatchReply(body: string): VendorDispatchReply | nu
   }
   if (NO_WORDS.has(verb)) {
     const taken = takeHandle(remainder);
+    // "No problem, I can do 3pm" is an acceptance whose first word is NO. Rather than guess which one it is, a
+    // leading NO carrying a time or a price is not ours at all: it falls through to the agents, so neither a
+    // wrongful decline (which hands the job to the next vendor) nor a wrongful accept is recorded.
+    if (ACCEPTANCE_SIGNAL.test(taken.rest)) return null;
     return { kind: "no", handle: taken.handle };
   }
   if (BUSY_WORDS.has(verb)) {
     const taken = takeHandle(remainder);
+    // Same shape: "Booked it for 2pm" took the job; it must not park the vendor for two hours.
+    if (ACCEPTANCE_SIGNAL.test(taken.rest)) return null;
     return { kind: "busy", handle: taken.handle, minutes: parseBusyMinutes(taken.rest) ?? DEFAULT_BUSY_MINUTES };
   }
   if (INVOICE_WORDS.has(verb)) {

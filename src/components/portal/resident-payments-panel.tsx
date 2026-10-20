@@ -1431,9 +1431,9 @@ export function ResidentPaymentsPanel({
           <div className="flex items-center justify-between gap-4">
             <span className="text-sm font-bold text-foreground">Report my rent to credit bureaus</span>
             {rentReporting.upgradeRequired ? (
-              <Link href="/pricing" className="text-sm font-semibold text-primary hover:underline" data-attr="resident-rent-reporting-upgrade">
-                Upgrade
-              </Link>
+              <span className="text-sm font-semibold text-muted" data-attr="resident-rent-reporting-upgrade">
+                Ask your manager
+              </span>
             ) : (
               <FieldSingleSelect
                 label="Report my rent to credit bureaus"

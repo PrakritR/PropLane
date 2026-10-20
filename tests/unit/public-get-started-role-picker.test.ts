@@ -19,15 +19,13 @@ describe("the generic Get started CTA lands on the role picker", () => {
     expect(GET_STARTED_HREF).not.toContain("role=");
   });
 
-  it("the navbar fallback is role-less, and audience pages carry the role", () => {
-    const navbar = read("src/components/layout/legacy-public-navbar.tsx");
-    // The /rent branch is deliberate: a visitor browsing homes has already
-    // told us what they are.
-    expect(navbar).toContain('"/auth/create-account?mode=create&role=resident"');
-    expect(navbar).toContain("MANAGER_GET_STARTED_HREF");
-    expect(navbar).toContain("VENDOR_GET_STARTED_HREF");
-    // The fallback — every other page, including the landing page — must not.
-    expect(navbar).toContain('return "/auth/create-account"');
+  it("the navbar's own signup fallback is role-less, and audience pages carry the role", () => {
+    // The live bar has one fallback and it is the generic one: it reads GET_STARTED_HREF and never a role.
+    const navbar = read("src/components/layout/home-navbar.tsx");
+    expect(navbar).toContain("GET_STARTED_HREF");
+    expect(navbar).not.toContain("role=manager");
+    expect(navbar).not.toContain("role=vendor");
+    expect(navbar).not.toContain("role=resident");
   });
 
   it("PRP-313: manager and vendor entry pages skip the role picker on signup CTAs", () => {
@@ -41,7 +39,7 @@ describe("the generic Get started CTA lands on the role picker", () => {
       "src/components/marketing/site/primitives.tsx",
       "src/components/marketing/site/final-cta.tsx",
       "src/app/(public)/docs/page.tsx",
-      "src/app/(public)/reviews/page.tsx",
+      "src/components/marketing/home-pricing-compare.tsx",
     ]) {
       expect(read(file), file).not.toContain("role=manager");
     }
@@ -54,9 +52,9 @@ describe("the generic Get started CTA lands on the role picker", () => {
     const cards = read("src/components/marketing/site/pricing-cards.tsx");
     expect(cards).toContain("const CTA_BASE = MANAGER_GET_STARTED_HREF");
     expect(cards).toContain("export const TIER_CTA");
-    const pricing = read("src/app/(public)/pricing/page.tsx");
-    expect(pricing).toMatch(/import \{[^}]*PricingCards[^}]*TIER_CTA[^}]*\} from "@\/components\/marketing\/site\/pricing-cards"/);
-    expect(pricing).toContain("<PricingCards annual={annual} />");
-    expect(pricing).toContain("primaryHref={TIER_CTA.free.href}");
+    // The home page's pricing section is the one plan surface now, and it takes the same tier CTAs.
+    const home = read("src/components/marketing/home-pricing-compare-data.ts");
+    expect(home).toContain('from "@/components/marketing/site/pricing-cards"');
+    expect(home).toContain("TIER_CTA");
   });
 });

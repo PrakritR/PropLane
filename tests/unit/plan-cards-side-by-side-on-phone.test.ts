@@ -13,19 +13,13 @@ describe("four public pricing choices", () => {
     expect(css).not.toContain("scroll-snap-type: x mandatory");
     expect(css).toContain("grid-template-columns: repeat(4, minmax(0, 1fr))");
     expect(css).toMatch(/@media \(max-width: 639px\)\s*\{\s*\.pl-pricing-options\s*\{[^}]*grid-template-columns: 1fr/);
-    expect(readFileSync("src/app/(public)/pricing/page.tsx", "utf8")).toContain("<PricingCards annual={annual} />");
   });
 
-  it("phone gets a per-plan compare accordion; desktop keeps the single table", () => {
-    const source = readFileSync("src/app/(public)/pricing/page.tsx", "utf8");
-    expect(source).toContain("ComparePlanAccordion");
-    expect(source).toContain('data-attr="pricing-compare-phone"');
-  });
-
-  it("phone shows a sticky managed-service contact bar", () => {
-    const source = readFileSync("src/app/(public)/pricing/page.tsx", "utf8");
-    expect(source).toContain('data-attr="pricing-sticky-cta"');
-    expect(source).toContain("MobileStickyCta");
+  it("the home page's compare table stacks on a phone and keeps one row per plan on desktop", () => {
+    // The standalone /pricing page is gone; the home page's pricing section is the one plan surface.
+    const css = readFileSync("src/components/marketing/home-h1.css", "utf8");
+    expect(readFileSync("src/components/marketing/home-pricing-compare.tsx", "utf8")).toContain("home-compare-row");
+    expect(css).toContain("home-compare-row");
   });
 
   it("the Adjust plan sheet lists both paid tiers as rows, not a card grid", () => {

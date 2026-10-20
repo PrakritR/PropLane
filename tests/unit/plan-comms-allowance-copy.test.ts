@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { MANAGER_PLAN_TIERS } from "@/data/manager-plan-tiers";
 import {
@@ -8,7 +7,7 @@ import {
   commsAllowanceFeatureText,
 } from "@/lib/comms-billing/allowances";
 import { formatUsdFromCents } from "@/lib/comms-billing/rates";
-import PricingPage from "@/app/(public)/pricing/page";
+import { COMPARE } from "@/components/marketing/site/pricing-compare-data";
 
 /**
  * PRP-282: what a plan includes for texting, calling and the assistant is
@@ -42,25 +41,21 @@ describe("plan communication allowance copy (PRP-282)", () => {
     expect(msg).toMatch(/does not enable automatic charges/i);
   });
 
-  it("the public pricing page explains the allowance with the same three amounts", async () => {
-    const src = readFileSync("src/app/(public)/pricing/page.tsx", "utf8");
-    // Its own block on the page, not a 90-word FAQ answer.
-    expect(src).toContain("Texting, calling and AI use");
-
-    // The guarantee is that the page's copy is DERIVED from
-    // COMMS_INCLUDED_ALLOWANCE_CENTS, not retyped — proven by actually
-    // rendering the page and looking for the live constant's formatted
-    // dollar amounts, rather than grepping source for one particular
-    // indexing spelling (`.pro` vs generic `[tier]`).
-    const jsx = await PricingPage({ searchParams: Promise.resolve({}) });
-    const html = renderToStaticMarkup(jsx);
-
-    expect(html).toContain(formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.pro!));
-    expect(html).toContain(formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.business!));
-
-    // Free's enforced allowance is zero, and the page states that in words
-    // rather than retyping a "$0.00" — confirm both halves of that guarantee.
+  it("the public compare table states the same three amounts, derived not retyped", () => {
+    // The standalone /pricing page is gone; `COMPARE` is the one public feature table left (the home page's
+    // pricing section reads it through `pickCompareRows`). The guarantee is unchanged: the amounts shown are
+    // the live `COMMS_INCLUDED_ALLOWANCE_CENTS` values, formatted, never typed into the copy.
+    const row = COMPARE.flatMap((group) => group.rows).find((entry) => /included credit/i.test(entry.label));
+    expect(row, "the compare table should carry an included-credit row").toBeTruthy();
+    expect(row!.cells).toEqual([
+      formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.free!),
+      formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.pro!),
+      formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.business!),
+    ]);
+    const source = readFileSync("src/components/marketing/site/pricing-compare-data.tsx", "utf8");
+    expect(source).toContain("COMMS_INCLUDED_ALLOWANCE_CENTS");
+    expect(source).not.toContain('"$25"');
+    expect(source).not.toContain('"$150"');
     expect(COMMS_INCLUDED_ALLOWANCE_CENTS.free).toBe(0);
-    expect(html).toMatch(/free includes none/i);
   });
 });

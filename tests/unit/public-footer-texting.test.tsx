@@ -11,7 +11,7 @@ describe("quiet public footer", () => {
     render(<PublicFooter />);
     const nav = screen.getByRole("navigation", { name: "Footer navigation" });
     expect(within(nav).getAllByRole("link").map((link) => link.getAttribute("href"))).toEqual([
-      "/blog", "/privacy", "/tos", iosAppDownloadUrl(), "/auth/sign-in", "/#contact",
+      "/blog", "/privacy", "/tos", "/security", iosAppDownloadUrl(), "/auth/sign-in", "/#contact",
     ]);
     expect(screen.getByRole("link", { name: "App Store" })).toHaveAttribute("data-attr", "footer-app-store");
     expect(screen.queryByText("Reviews")).not.toBeInTheDocument();

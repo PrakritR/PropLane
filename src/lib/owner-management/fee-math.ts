@@ -162,6 +162,32 @@ export function spreadByWeight(
   return sorted.map((p, index) => ({ id: p.id, cents: shares[index]!.base }));
 }
 
+/**
+ * Spread a total like `spreadByWeight`, but never hand a part more than its own `cap`. Cents a cap frees go to the
+ * parts that still have room, so the result is the largest total the caps allow and never more than `total`.
+ */
+export function spreadByWeightCapped(
+  parts: ReadonlyArray<{ id: string; weight: number; cap: number }>,
+  total: number,
+): Array<{ id: string; cents: number }> {
+  const sorted = [...parts].sort((a, b) => a.id.localeCompare(b.id));
+  if (!nonNegativeInt(total)) throw new Error("Cannot spread a negative amount.");
+  if (total === 0 || sorted.length === 0) return sorted.map((p) => ({ id: p.id, cents: 0 }));
+  const capOf = new Map(sorted.map((p) => [p.id, nonNegativeInt(p.cap) ? p.cap : 0] as const));
+  const base = new Map(spreadByWeight(sorted.map((p) => ({ id: p.id, weight: p.weight })), total).map((p) => [p.id, p.cents]));
+  const out = sorted.map((p) => ({ id: p.id, cents: Math.min(base.get(p.id) ?? 0, capOf.get(p.id) ?? 0) }));
+  let residue = total - out.reduce((sum, p) => sum + p.cents, 0);
+  for (const part of out) {
+    if (residue <= 0) break;
+    const room = (capOf.get(part.id) ?? 0) - part.cents;
+    if (room <= 0) continue;
+    const take = Math.min(room, residue);
+    part.cents += take;
+    residue -= take;
+  }
+  return out;
+}
+
 export type CartComponent = {
   id: string;
   kind: string;
@@ -192,8 +218,17 @@ export function splitManagedCart(
   const monthly = new Map(spreadByWeight(applicable.map((c) => ({ id: c.id, weight: c.distributableCents })), cart.monthlyFeeCents).map((p) => [p.id, p.cents]));
   const leasingParts = applicable.filter((c) => leasingEligibleIds.has(c.id));
   if (cart.leasingFeeCents > 0 && leasingParts.length === 0) throw new Error("A leasing fee has no first-payment charge.");
+  // `credit_managed_capture` caps EACH row's leasing fee at `floor(row.distributable * bps / 10000)`, and a floor of
+  // the aggregate can exceed the sum of those floors, so the spread respects the per-row cap the database enforces.
   const leasing = new Map(
-    spreadByWeight(leasingParts.map((c) => ({ id: c.id, weight: c.distributableCents })), cart.leasingFeeCents).map((p) => [p.id, p.cents]),
+    spreadByWeightCapped(
+      leasingParts.map((c) => ({
+        id: c.id,
+        weight: c.distributableCents,
+        cap: floorDiv(c.distributableCents * terms.leasingFeeBps, 10_000),
+      })),
+      cart.leasingFeeCents,
+    ).map((p) => [p.id, p.cents]),
   );
   return [...components].sort((a, b) => a.id.localeCompare(b.id)).map((c) => {
     const feeApplies = c.liabilityClass === "income" && feeAppliesToKind(terms, c.kind);

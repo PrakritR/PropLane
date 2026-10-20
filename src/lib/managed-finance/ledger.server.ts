@@ -125,6 +125,10 @@ export type LedgerLineRow = {
 
 type Raw = Record<string, unknown>;
 
+/** Rows per page and the page budget for a party's ledger history (1,000,000 lines is far past any real workspace). */
+const LEDGER_PAGE_SIZE = 1000;
+const LEDGER_MAX_PAGES = 1000;
+
 /**
  * A party's payable lines joined to their journals, oldest first, within a posted-at window. The statement folds these; nothing
  * else computes a party's history.
@@ -133,18 +137,32 @@ export async function readPartyLines(
   db: SupabaseClient,
   input: { account: "owner_payable" | "vendor_payable"; partyId: string; workspaceId?: string | null; fromIso?: string; toIso?: string },
 ): Promise<LedgerLineRow[]> {
-  let q = db
-    .from("party_ledger_lines")
-    .select("journal_id, account, party_id, workspace_id, amount_cents, available_on, party_ledger_journals!inner(kind, posted_at, detail, source_type, source_id)")
-    .eq("account", input.account)
-    .eq("party_id", input.partyId);
-  if (input.workspaceId) q = q.eq("workspace_id", input.workspaceId);
-  const { data, error } = await q.limit(5000);
-  if (error) {
-    if (isMissingSchemaError(error)) return [];
-    throw new LedgerError(500, "Could not read the ledger.");
+  // The window is applied in SQL and the read is PAGED in a stable order: a bare `.limit()` truncated a long
+  // history to an arbitrary 5000 rows BEFORE the window narrowed it, so a balance, a statement total or a
+  // vendor's 1099 silently came out short once a workspace crossed that many lines.
+  const page = (from: number) => {
+    let q = db
+      .from("party_ledger_lines")
+      .select("journal_id, account, party_id, workspace_id, amount_cents, available_on, created_at, party_ledger_journals!inner(kind, posted_at, detail, source_type, source_id)")
+      .eq("account", input.account)
+      .eq("party_id", input.partyId);
+    if (input.workspaceId) q = q.eq("workspace_id", input.workspaceId);
+    if (input.fromIso) q = q.gte("party_ledger_journals.posted_at", input.fromIso);
+    if (input.toIso) q = q.lt("party_ledger_journals.posted_at", input.toIso);
+    return q.order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, from + LEDGER_PAGE_SIZE - 1);
+  };
+  const raw: Raw[] = [];
+  for (let pageIndex = 0; pageIndex < LEDGER_MAX_PAGES; pageIndex += 1) {
+    const { data, error } = await page(pageIndex * LEDGER_PAGE_SIZE);
+    if (error) {
+      if (isMissingSchemaError(error)) return [];
+      throw new LedgerError(500, "Could not read the ledger.");
+    }
+    const batch = (data ?? []) as Raw[];
+    raw.push(...batch);
+    if (batch.length < LEDGER_PAGE_SIZE) break;
   }
-  const rows: LedgerLineRow[] = ((data ?? []) as Raw[]).map((r) => {
+  const rows: LedgerLineRow[] = raw.map((r) => {
     const j = (Array.isArray(r.party_ledger_journals) ? r.party_ledger_journals[0] : r.party_ledger_journals) as Raw;
     return {
       journalId: String(r.journal_id),
@@ -160,7 +178,5 @@ export async function readPartyLines(
       sourceId: (j?.source_id as string | null) ?? null,
     };
   });
-  return rows
-    .filter((r) => (!input.fromIso || r.postedAt >= input.fromIso) && (!input.toIso || r.postedAt < input.toIso))
-    .sort((a, b) => a.postedAt.localeCompare(b.postedAt) || a.journalId.localeCompare(b.journalId));
+  return rows.sort((a, b) => a.postedAt.localeCompare(b.postedAt) || a.journalId.localeCompare(b.journalId));
 }

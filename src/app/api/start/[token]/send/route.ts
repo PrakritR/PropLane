@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { newPhoneBrowserSecret, PHONE_BROWSER_COOKIE, startPhoneChallenge } from "@/lib/auth/phone-auth.server";
-import { assertPhoneRequestOrigin, phoneAuthFailure, phoneAuthResponse, phoneProofCookieOptions } from "@/lib/auth/phone-auth-request.server";
+import { allowPhoneStartGlobalBudget, assertPhoneRequestOrigin, phoneAuthFailure, phoneAuthResponse, phoneProofCookieOptions } from "@/lib/auth/phone-auth-request.server";
 import { allowLinkRequest, expiredLinkResponse } from "@/lib/one-number/link-http.server";
 import { resolveSetupLink } from "@/lib/one-number/onboarding/setup-links.server";
 import { e164FromPhoneKey } from "@/lib/one-number/unassigned-leads.server";
@@ -21,6 +21,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     if (!(await allowLinkRequest(req, token, "setup-send", 10, 6))) {
       return NextResponse.json({ error: "Too many tries. Wait a few minutes." }, { status: 429, headers: { "Cache-Control": "no-store" } });
     }
+    // This door reaches the same code sender as /api/auth/phone/start, including the branch that texts a
+    // caller-supplied number, so it takes from the SAME endpoint-wide hourly budget.
+    if (!(await allowPhoneStartGlobalBudget())) return phoneAuthFailure();
     const body = (await req.json().catch(() => null)) as { phone?: unknown } | null;
     const db = createSupabaseServiceRoleClient();
     const link = await resolveSetupLink(db, token);

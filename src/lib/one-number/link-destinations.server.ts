@@ -27,6 +27,8 @@ export type LinkDestination =
   | { kind: "rent"; chargeIds: string[]; charges: RentChargeView[]; residentUserId: string; residentEmail: string }
   /** Everything linked here is already paid. */
   | { kind: "paid" }
+  /** Nothing is payable from here YET: a bank debit is still clearing and may still fail. */
+  | { kind: "processing" }
   | { kind: "gone" };
 
 const GONE: LinkDestination = { kind: "gone" };
@@ -154,6 +156,7 @@ async function rentDestination(db: SupabaseClient, link: PhoneBoundLink): Promis
   if (ids.length === 0) return GONE;
   const charges: RentChargeView[] = [];
   let paid = 0;
+  let processing = 0;
   let residentUserId = "";
   let residentEmail = "";
   for (const id of ids) {
@@ -173,9 +176,14 @@ async function rentDestination(db: SupabaseClient, link: PhoneBoundLink): Promis
     residentUserId = owner;
     residentEmail = str(charge.residentEmail).toLowerCase();
     const status = str((data as Row).status) || str(charge.status);
-    // Paid, or a bank debit already clearing: nothing left to pay from here.
-    if (status === "paid" || status === "processing") {
+    // Paid, or a bank debit already clearing: nothing left to pay from here. They are NOT the same answer: a
+    // debit in `processing` can still fail and become payable again, so the link must not be burned for it.
+    if (status === "paid") {
       paid += 1;
+      continue;
+    }
+    if (status === "processing") {
+      processing += 1;
       continue;
     }
     // Only a charge the checkout core would accept is payable; cancelled, refunded or part-paid is not.
@@ -188,6 +196,7 @@ async function rentDestination(db: SupabaseClient, link: PhoneBoundLink): Promis
     });
   }
   if (!(await residentPhoneMatches(db, residentUserId, link.phoneKey))) return GONE;
+  if (charges.length === 0 && processing > 0) return { kind: "processing" };
   if (charges.length === 0 && paid > 0) return { kind: "paid" };
   if (charges.length === 0) return GONE;
   return { kind: "rent", chargeIds: charges.map((c) => c.id), charges, residentUserId, residentEmail };

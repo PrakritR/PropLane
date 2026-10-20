@@ -231,7 +231,8 @@ texts a receipt. "send my rent link" / "resend application" resend.
 (proplane.ai/apply/brooklyn5 — asks for phone, texts a code, then bound); all by
 text where no form is needed.
 
-**Code rules:** 10-minute expiry, 5 attempts, ≤3 sends/hour/phone, stored hashed.
+**Code rules:** 10-minute expiry, 5 attempts, ≤3 sends/hour/phone per purpose under a
+phone-wide ceiling of 8/hour, stored hashed.
 Verified page session: 30 minutes for money, 7 days otherwise. Reuse the existing
 phone verification table.
 

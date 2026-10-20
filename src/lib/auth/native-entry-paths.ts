@@ -20,8 +20,12 @@ const NATIVE_APP_ALLOWED_PREFIXES = [
   "/vendor",
 ] as const;
 
-/** Public pages reachable from inside the app (auth legal footers, admin contact, etc.). */
-const NATIVE_APP_ALLOWED_EXACT = ["/contact", "/tos", "/privacy", "/app"] as const;
+/**
+ * Public pages reachable from inside the app (the auth legal footers, the app download page). `/contact` is not
+ * one: the page is gone and the route redirects to a home-page anchor the native shell does not serve, so a
+ * native open goes to the in-app home through `redirectNativeFromMarketing` instead.
+ */
+const NATIVE_APP_ALLOWED_EXACT = ["/tos", "/privacy", "/app"] as const;
 
 export function isNativeAppAllowedPath(pathname: string): boolean {
   if (!pathname.startsWith("/")) return false;

@@ -6,6 +6,7 @@ import { runDemoTurn } from "@/lib/one-number/demo/run-demo-turn.server";
 import { isDemoStartText } from "@/lib/one-number/demo/script";
 import { hasLiveDemo } from "@/lib/one-number/demo/store.server";
 import { toGsm7, WELCOME } from "@/lib/one-number/lead-qualifying";
+import { classifyLineText } from "@/lib/one-number/line-intent";
 import { asksForJobs } from "@/lib/one-number/vendor-jobs/intent";
 import { handlePropLaneVendorText, isPropLaneLineVendorLead } from "@/lib/one-number/vendor-jobs/vendor-line.server";
 import { readPlatformServiceOwnerId } from "@/lib/service/service-catalog.server";
@@ -155,6 +156,8 @@ async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbou
 
   if (role === "landlord") return landlordTurn(db, inbound, state ?? { phoneKey: inbound.phoneKey, role: "landlord", askedAt: null, stage: null, hints: extractHouseHints(inbound.body) }, firstReply, deps);
   if (role === "vendor") {
+    // Per message, not per phone: someone saved as a vendor who asks for a room is a prospect for THIS text.
+    if (classifyLineText(inbound.body).kind === "housing_search") return leadPath();
     // on/smsvendor (W24): "any jobs available in the area" gets the open jobs and the sign-up link, and a vendor who
     // came in that way stays in that flow; "I do cleaning in Seattle" still gets the intake questions.
     if (asksForJobs(inbound.body) || (await isPropLaneLineVendorLead(db, inbound.phoneKey))) {

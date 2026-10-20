@@ -18,6 +18,7 @@ export function PublicFooter({
     ["/blog", "Blog"],
     ["/privacy", "Privacy"],
     ["/tos", "Terms"],
+    ["/security", "Security"],
     [iosAppDownloadUrl(), "App Store"],
     ["/auth/sign-in", "Portal"],
     ["/#contact", "Contact"],

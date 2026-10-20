@@ -411,6 +411,32 @@ describe("the vendor's answer", () => {
     expect(sent.vendor.filter((v) => v.text.startsWith("PropLane job")).map((v) => v.vendorDirectoryId).sort()).toEqual(["v1", "v2", "v3"]);
   });
 
+  it("R re-offers only vendors it may actually text: a BUSY window and an opt-out both survive it", async () => {
+    const db = world();
+    const run = await newRun(db);
+    await approve(db, run.id);
+    // v1 says BUSY for two hours; v2 and v3 decline; the chain is exhausted.
+    const first = attemptsOf(db, run.id).find((a) => a.status === "offered")!;
+    await recordVendorBusy(db as never, { ownerUserId: OWNER, attemptId: String(first.id), minutes: 120, now: T0 });
+    for (let i = 0; i < 2; i += 1) {
+      const attempt = attemptsOf(db, run.id).find((a) => a.status === "offered")!;
+      await recordVendorNo(db as never, { ownerUserId: OWNER, attemptId: String(attempt.id), now: T0 });
+    }
+    expect(runById(db, run.id)).toMatchObject({ status: "exhausted" });
+
+    sent.optedOut.add("+12065550102");
+    sent.vendor.length = 0;
+    const retried = await retryDispatchRun(db as never, { ownerUserId: OWNER, actorUserId: OWNER, channel: "sms", runId: run.id, broadcast: false, now: T0 });
+    expect(retried.ok).toBe(true);
+    // v1 was told "we will not text you for 2h" a minute ago, and v2 has opted out: only v3 is re-offered.
+    const roster = attemptsOf(db, run.id).filter((a) => a.wave === 1).map((a) => a.vendor_directory_id).sort();
+    expect(roster).toEqual(["v3"]);
+    expect(sent.vendor.map((v) => v.vendorDirectoryId)).not.toContain("v1");
+    expect(sent.vendor.map((v) => v.vendorDirectoryId)).not.toContain("v2");
+    // The busy window is left standing rather than cleared by the re-offer.
+    expect(attemptsOf(db, run.id).find((a) => a.vendor_directory_id === "v1")!.busy_until).toBeTruthy();
+  });
+
   it("a YES with a time accepts, assigns the service as Scheduled and tells everyone", async () => {
     const db = world();
     const run = await newRun(db);

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { loadOwnerFinances } from "@/lib/managed-finance/finances.server";
 import { financeErrorResponse, requireManagedOwner, stripeOrNull } from "@/lib/managed-finance/routes.server";
 import { describeManagedFee } from "@/lib/owner-management/fee-math";
-import { loadPolicy } from "@/lib/owner-management/policies.server";
+import { loadPolicy, policyTermsHash } from "@/lib/owner-management/policies.server";
 
 export const runtime = "nodejs";
 
@@ -22,7 +22,12 @@ export async function GET(req: Request) {
       for (const id of ctx.waitingPolicyIds) {
         const p = await loadPolicy(ctx.db, id);
         if (p && p.ownerUserId === ctx.userId && p.status === "draft" && p.sentAt) {
-          waiting.push({ id: p.id, workspaceId: p.workspaceId, feeLine: describeManagedFee(p.terms), terms: p.terms, effectiveFrom: p.effectiveFrom });
+          waiting.push({
+            id: p.id, workspaceId: p.workspaceId, feeLine: describeManagedFee(p.terms), terms: p.terms,
+            effectiveFrom: p.effectiveFrom,
+            // The owner signs THESE terms: the client echoes the hash back and the sign route refuses a mismatch.
+            termsSha256: policyTermsHash(p),
+          });
         }
       }
       return NextResponse.json({

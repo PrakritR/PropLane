@@ -16,6 +16,7 @@ import {
   loadActivePolicyForWorkspace,
   sendPolicyForSignature,
   setOwnerPreferences,
+  policyTermsHash,
   signPolicy,
   updateDraftPolicy,
 } from "@/lib/owner-management/policies.server";
@@ -84,7 +85,7 @@ describe("drafting", () => {
     await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
     const edited = await updateDraftPolicy(f.db, admin, d.id, { terms: { ...terms, ownerShareBps: 8500 } });
     expect(edited.sentAt).toBeNull();
-    await expect(signPolicy(f.db, OWNER, d.id)).rejects.toMatchObject({ status: 409 });
+    await expect(signPolicy(f.db, OWNER, d.id, policyTermsHash(edited))).rejects.toMatchObject({ status: 409 });
   });
 });
 
@@ -93,7 +94,7 @@ describe("sending and signing", () => {
     const f = seed();
     const d = await createDraftPolicy(f.db, admin, input);
     await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
-    return { f, id: d.id };
+    return { f, id: d.id, hash: policyTermsHash(d) };
   }
   it("emails and texts the owner a sign-in link", async () => {
     const f = seed();
@@ -110,28 +111,48 @@ describe("sending and signing", () => {
     await expect(sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:30:00Z"))).rejects.toMatchObject({ status: 429 });
   });
   it("only the named owner can sign, and it makes the workspace managed", async () => {
-    const { f, id } = await sent();
-    await expect(signPolicy(f.db, "intruder", id)).rejects.toMatchObject({ status: 404 });
+    const { f, id, hash } = await sent();
+    await expect(signPolicy(f.db, "intruder", id, hash)).rejects.toMatchObject({ status: 404 });
     expect(await loadActivePolicyForWorkspace(f.db, WS)).toBeNull();
-    const signed = await signPolicy(f.db, OWNER, id);
+    const signed = await signPolicy(f.db, OWNER, id, hash);
     expect(signed).toMatchObject({ status: "active", acceptedVia: "owner_signature" });
     expect(signed.termsSha256).toMatch(/^[0-9a-f]{64}$/);
     expect(await loadActivePolicyForWorkspace(f.db, WS)).toMatchObject({ id });
   });
   it("is idempotent, and refuses once the owner left the team", async () => {
-    const { f, id } = await sent();
-    await signPolicy(f.db, OWNER, id);
-    expect((await signPolicy(f.db, OWNER, id)).status).toBe("active");
+    const { f, id, hash } = await sent();
+    await signPolicy(f.db, OWNER, id, hash);
+    expect((await signPolicy(f.db, OWNER, id, hash)).status).toBe("active");
     const g = seed();
     const d = await createDraftPolicy(g.db, admin, input);
     await sendPolicyForSignature(g.db, admin, d.id);
     g.rows.account_link_invites = [];
-    await expect(signPolicy(g.db, OWNER, d.id)).rejects.toMatchObject({ status: 403 });
+    await expect(signPolicy(g.db, OWNER, d.id, policyTermsHash(d))).rejects.toMatchObject({ status: 403 });
   });
   it("refuses a draft that was never sent", async () => {
     const f = seed();
     const d = await createDraftPolicy(f.db, admin, input);
-    await expect(signPolicy(f.db, OWNER, d.id)).rejects.toMatchObject({ status: 409 });
+    await expect(signPolicy(f.db, OWNER, d.id, policyTermsHash(d))).rejects.toMatchObject({ status: 409 });
+  });
+  it("refuses a signature taken against terms the owner was not shown", async () => {
+    // The owner opens the draft at 10%; an admin edits it to 30% and re-sends. The still-open page's POST must
+    // not activate the new terms with the owner's signature on them. This is a fee agreement.
+    const f = seed();
+    const d = await createDraftPolicy(f.db, admin, input);
+    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
+    const shownToOwner = policyTermsHash(d);
+    const edited = await updateDraftPolicy(f.db, admin, d.id, { terms: { ...terms, ownerShareBps: 7000 } });
+    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T22:00:00Z"));
+    await expect(signPolicy(f.db, OWNER, d.id, shownToOwner)).rejects.toMatchObject({ status: 409 });
+    expect(await loadActivePolicyForWorkspace(f.db, WS)).toBeNull();
+    // The hash of what is actually on the page signs it.
+    expect((await signPolicy(f.db, OWNER, d.id, policyTermsHash(edited))).status).toBe("active");
+  });
+  it("refuses a missing or malformed hash rather than signing whatever is stored", async () => {
+    const { f, id } = await sent();
+    for (const bad of ["", "nope", "a".repeat(63)]) {
+      await expect(signPolicy(f.db, OWNER, id, bad)).rejects.toMatchObject({ status: 400 });
+    }
   });
 });
 

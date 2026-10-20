@@ -3,13 +3,12 @@ import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createRealIdentitySupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { newPhoneBrowserSecret, PHONE_BROWSER_COOKIE, startPhoneChallenge, type PhonePurpose } from "@/lib/auth/phone-auth.server";
-import { assertPhoneRequestOrigin, phoneAuthFailure, phoneAuthResponse, phoneProofCookieOptions } from "@/lib/auth/phone-auth-request.server";
+import { allowPhoneStartGlobalBudget, assertPhoneRequestOrigin, phoneAuthFailure, phoneAuthResponse, phoneProofCookieOptions } from "@/lib/auth/phone-auth-request.server";
 
 export const runtime = "nodejs";
 const HOUR_MS = 60 * 60 * 1000;
-/** Per-IP and whole-endpoint hourly send budgets: a text costs money, so pumping stops here. */
+/** Per-IP hourly send budget; the whole-endpoint one is shared with every other door that texts a code. */
 const START_PER_IP_PER_HOUR = 5;
-const START_GLOBAL_PER_HOUR = 300;
 const PURPOSES: PhonePurpose[] = ["sign_in", "verify_phone", "change_number_old", "change_number_new"];
 
 export async function POST(req: Request) {
@@ -20,8 +19,7 @@ export async function POST(req: Request) {
     // Same generic refusal as every other failure: a throttled caller learns nothing about a number.
     const byIp = await rateLimit(`phone-auth-start-ip:${clientIpFrom(req)}`, START_PER_IP_PER_HOUR, HOUR_MS);
     if (!byIp.ok) return phoneAuthFailure();
-    const global = await rateLimit("phone-auth-start-global", START_GLOBAL_PER_HOUR, HOUR_MS);
-    if (!global.ok) return phoneAuthFailure();
+    if (!(await allowPhoneStartGlobalBudget())) return phoneAuthFailure();
     const jar = await cookies();
     const browser = jar.get(PHONE_BROWSER_COOKIE)?.value || newPhoneBrowserSecret();
     const client = await createRealIdentitySupabaseServerClient();

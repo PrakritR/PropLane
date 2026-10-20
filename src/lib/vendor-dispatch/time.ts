@@ -68,9 +68,13 @@ export function parseVendorProposedTime(text: string | null | undefined, now: Da
   if (meridiem) {
     if (hour < 1 || hour > 12) return null;
     hour = (hour % 12) + (meridiem === "p" ? 12 : 0);
-  } else if (!clock[2] && hour <= 12 && !/\bat\b/.test(raw) && !/(today|tomorrow|tonight)/.test(raw)) {
+  } else {
+    const anchored = Boolean(clock[2]) || /\bat\b/.test(raw) || /(today|tomorrow|tonight)/.test(raw);
     // A bare small number with nothing around it is not obviously a time.
-    return null;
+    if (!anchored && hour <= 12) return null;
+    // An anchored hour with no am/pm reads as the working afternoon: "YES at 3" is 3 PM, never 3 AM, and a job
+    // must not be scheduled in the middle of the night off a missing meridiem.
+    if (hour >= 1 && hour <= 7) hour += 12;
   }
   const minutesIntoDay = hour * 60 + minute;
 

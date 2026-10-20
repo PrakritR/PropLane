@@ -23,19 +23,33 @@ import { pacificMonthKey } from "@/lib/owner-management/fee-math";
 export type OwnerLineResult = { handled: false } | { handled: true; reply: string };
 
 export type OwnerIntent =
-  | { kind: "approve"; approve: boolean; index: number | null; all: boolean }
+  | { kind: "approve"; approve: boolean; index: number | null; all: boolean; explicit: boolean }
   | { kind: "statement" }
   | { kind: "status" }
   | { kind: "help" }
   | { kind: "none" };
 
-/** What an owner's text means. Conservative: a bare Y or N counts only because the caller checks an approval is waiting. */
+/**
+ * How long after the approval text a reply still answers it. Past that the owner is asked which repair they mean
+ * rather than having an old prompt answered by a stray word.
+ */
+export const OWNER_APPROVAL_VALIDITY_MS = 72 * 60 * 60 * 1000;
+
+/**
+ * What an owner's text means. A BARE affirmative ("y", "yes", "ok", "okay") is `explicit: false`: it never
+ * approves a repair on its own (captain, Oct 19), because "ok" is the most ordinary reply to any text PropLane
+ * sends. Spending the owner's money needs the word APPROVE, or a yes that names the repair ("Y2", "Y all").
+ */
 export function classifyOwnerText(body: string): OwnerIntent {
   const t = body.trim().toLowerCase().replace(/[.!?]+$/g, "").replace(/\s+/g, " ");
-  const yn = /^(y|yes|approve|approved|ok|okay)(?: ?(\d{1,2}|all))?$/.exec(t);
-  if (yn) return { kind: "approve", approve: true, index: yn[2] && yn[2] !== "all" ? Number(yn[2]) : null, all: yn[2] === "all" };
+  const yn = /^(y|yes|yeah|yep|approve|approved|ok|okay)(?: ?(\d{1,2}|all))?$/.exec(t);
+  if (yn) {
+    const named = Boolean(yn[2]);
+    const word = yn[1] === "approve" || yn[1] === "approved";
+    return { kind: "approve", approve: true, index: yn[2] && yn[2] !== "all" ? Number(yn[2]) : null, all: yn[2] === "all", explicit: named || word };
+  }
   const nn = /^(n|no|decline|declined|deny)(?: ?(\d{1,2}))?$/.exec(t);
-  if (nn) return { kind: "approve", approve: false, index: nn[2] ? Number(nn[2]) : null, all: false };
+  if (nn) return { kind: "approve", approve: false, index: nn[2] ? Number(nn[2]) : null, all: false, explicit: true };
   if (/^(statement|my statement|send (me )?(my |the )?statement|statements)$/.test(t)) return { kind: "statement" };
   if (/(how'?s|how is|hows) (my |the )?(house|home|property|place|rental|properties)( doing| going)?$/.test(t) ||
       /^(balance|my balance|status|how much (do i have|can i withdraw)|what('?s| is) my balance)$/.test(t)) return { kind: "status" };
@@ -89,8 +103,19 @@ export async function handleOwnerLine(
 
   if (intent.kind === "approve") {
     const pending = await listPendingExpensesForOwner(db, profile.id).catch(() => []);
-    // A bare Y or N means nothing unless a repair is waiting on this person: it falls through to normal routing otherwise.
+    // An approval word means nothing unless a repair is waiting on this person: it falls through to normal routing otherwise.
     if (pending.length === 0) return { handled: false };
+    const askWhich = (): OwnerLineResult => {
+      const list = pending.slice(0, 4).map((e, i) => `${i + 1}) ${e.title.slice(0, 30)} ${usd(e.amountCents)}`).join(" ");
+      return {
+        handled: true,
+        reply: pending.length === 1
+          ? `Which one? ${list}. Reply APPROVE 1 to approve it or N1 to decline.`
+          : `You have ${pending.length} repairs waiting: ${list}. Reply APPROVE 1 or N1, APPROVE 2 or N2, or APPROVE all.`,
+      };
+    };
+    // An unnamed "ok" is an acknowledgement, not authority to spend. Ask which repair instead of charging one.
+    if (intent.approve && !intent.explicit) return askWhich();
     if (intent.all) {
       let done = 0;
       for (const e of pending) {
@@ -101,11 +126,14 @@ export async function handleOwnerLine(
     }
     let target = pending[0]!;
     if (pending.length > 1) {
-      if (intent.index === null || intent.index < 1 || intent.index > pending.length) {
-        const list = pending.slice(0, 4).map((e, i) => `${i + 1}) ${e.title.slice(0, 30)} ${usd(e.amountCents)}`).join(" ");
-        return { handled: true, reply: `You have ${pending.length} repairs waiting: ${list}. Reply Y1 or N1, Y2 or N2, or Y all.` };
-      }
+      if (intent.index === null || intent.index < 1 || intent.index > pending.length) return askWhich();
       target = pending[intent.index - 1]!;
+    }
+    // Past its validity window the prompt is no longer what an unnamed reply is answering: name the repair.
+    const askedAt = Date.parse(target.requestedAt);
+    const named = intent.index !== null;
+    if (intent.approve && !named && Number.isFinite(askedAt) && now.getTime() - askedAt > OWNER_APPROVAL_VALIDITY_MS) {
+      return askWhich();
     }
     const result = await decideOwnerExpense(db, { expenseId: target.id, ownerUserId: profile.id, approve: intent.approve, via: "sms" }, now);
     if (result.status === "approved") return { handled: true, reply: `Approved: ${target.title.slice(0, 40)}, ${usd(target.amountCents)}. Thank you.` };
@@ -118,7 +146,7 @@ export async function handleOwnerLine(
     return { handled: true, reply: `Your statements and balance: ${financeLink(w.workspaceId)}` };
   }
   if (intent.kind === "help") {
-    return { handled: true, reply: "Text BALANCE for your balance, STATEMENT for your statements, or Y / N to answer a repair approval." };
+    return { handled: true, reply: "Text BALANCE for your balance, STATEMENT for your statements, or APPROVE 1 / N1 to answer a repair approval." };
   }
   const replies: string[] = [];
   for (const w of workspaces.slice(0, 3)) replies.push(await statusReply(db, profile.id, w, now));
