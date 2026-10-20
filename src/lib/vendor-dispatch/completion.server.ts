@@ -21,6 +21,7 @@ import {
   toGsm7,
 } from "@/lib/vendor-dispatch/text";
 import type { DispatchRunRow } from "@/lib/vendor-dispatch/types";
+import { applyApprovedDispatchInvoice, setServiceVendorCost, type ApprovedInvoiceOutcome } from "@/lib/vendor-dispatch/invoice-managed.server";
 
 /**
  * After the accept: DONE, "is it fixed?", and the invoice (vendor-dispatch-1018).
@@ -327,7 +328,7 @@ export async function recordVendorInvoice(
 export async function decideRunInvoice(
   db: SupabaseClient,
   input: { ownerUserId: string; actorUserId: string; runId: string; approve: boolean; rawText?: string | null; now?: Date },
-): Promise<{ ok: true } | { ok: false; reason: "not_found" | "not_allowed" | "wrong_state" | "tier" | "unavailable" }> {
+): Promise<{ ok: true; settled?: ApprovedInvoiceOutcome } | { ok: false; reason: "not_found" | "not_allowed" | "wrong_state" | "tier" | "unavailable" }> {
   const now = input.now ?? new Date();
   const run = await loadRun(db, input.runId);
   if (!run || run.owner_user_id !== input.ownerUserId) return { ok: false, reason: "not_found" };
@@ -339,6 +340,8 @@ export async function decideRunInvoice(
     const gate = await assertFinancialsTier(run.owner_user_id);
     if (!gate.ok) return { ok: false, reason: "tier" };
   }
+  let approvedAmountCents = Number(run.pending_invoice_cents);
+  let invoiceVendorUserId: string | null = null;
   if (invoiceId) {
     const { data: updated } = await db
       .from("vendor_invoices")
@@ -354,6 +357,9 @@ export async function decideRunInvoice(
       .select("id, vendor_user_id, total_cents, work_order_id");
     const row = ((updated ?? []) as Array<{ id: string; vendor_user_id: string; total_cents: number; work_order_id: string | null }>)[0];
     if (!row) return { ok: false, reason: "wrong_state" };
+    invoiceVendorUserId = row.vendor_user_id || null;
+    // The invoice row's own total is recomputed server side from its line items; the texted figure is only the fallback.
+    if (Number.isSafeInteger(Number(row.total_cents)) && Number(row.total_cents) >= 100) approvedAmountCents = Number(row.total_cents);
     if (input.approve) {
       try {
         await createBillFromVendorInvoice(db, run.owner_user_id, invoiceId);
@@ -370,11 +376,33 @@ export async function decideRunInvoice(
       decision: input.approve ? "approved" : "rejected",
     }).catch(() => undefined);
   }
+  let settled: ApprovedInvoiceOutcome | undefined;
+  if (input.approve) {
+    // What the manager approved is what the service costs; Approve + pay reads it, never the earlier agreed price.
+    await setServiceVendorCost(db, run, approvedAmountCents, now.toISOString());
+    const contacts = run.accepted_vendor_directory_id
+      ? await loadVendorContacts(db, run.owner_user_id, [run.accepted_vendor_directory_id]).catch(() => null)
+      : null;
+    const contact = run.accepted_vendor_directory_id ? contacts?.get(run.accepted_vendor_directory_id) : undefined;
+    settled = await applyApprovedDispatchInvoice(db, {
+      run,
+      amountCents: approvedAmountCents,
+      invoiceId,
+      vendorUserId: invoiceVendorUserId ?? contact?.vendorUserId ?? null,
+      vendorDirectoryId: run.accepted_vendor_directory_id,
+      vendorName: contact?.name ?? "Vendor",
+      now,
+    });
+    if (settled === "posted" && !invoiceVendorUserId && !contact?.vendorUserId && run.accepted_vendor_directory_id) {
+      const { textUnclaimedDirectoryBalance } = await import("@/lib/managed-finance/directory-vendor.server");
+      await textUnclaimedDirectoryBalance(db, { directoryId: run.accepted_vendor_directory_id, workspaceId: run.workspace_id, now });
+    }
+  }
   await db
     .from("vendor_dispatch_runs")
     .update({
       pending_invoice_cents: null,
-      ...(input.approve ? { agreed_cents: run.pending_invoice_cents } : {}),
+      ...(input.approve ? { agreed_cents: approvedAmountCents } : {}),
       updated_at: now.toISOString(),
     })
     .eq("id", run.id);
@@ -386,10 +414,10 @@ export async function decideRunInvoice(
     actorUserId: input.actorUserId,
     channel: "sms",
     reply: input.rawText ?? null,
-    detail: { amountCents: run.pending_invoice_cents, invoiceId },
+    detail: { amountCents: approvedAmountCents, invoiceId, ...(settled ? { settled } : {}) },
     now,
   });
-  return { ok: true };
+  return { ok: true, ...(settled ? { settled } : {}) };
 }
 
 /** Attempts of a run, for the portal. */

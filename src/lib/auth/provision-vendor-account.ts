@@ -7,6 +7,7 @@ import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { generateAxisId } from "@/lib/manager-id";
 import { makeVendorId } from "@/lib/manager-vendors-storage";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { claimWaitingDirectoryBalances, rekeyDirectoryBalances } from "@/lib/managed-finance/directory-vendor.server";
 
 /** Opaque, unguessable, single-use invite token — stored on the row, never derived from the email. */
 export function generateVendorInviteToken(): string {
@@ -315,6 +316,10 @@ export async function provisionVendorAccountByEmail(
         .update({ vendor_user_id: opts.userId, updated_at: new Date().toISOString() })
         .eq("vendor_directory_id", invite.vendor_directory_id)
         .is("vendor_user_id", null);
+      // Money that was posted to this directory row while the vendor had no login now belongs to the account.
+      await rekeyDirectoryBalances(supabase, { directoryId: invite.vendor_directory_id, vendorUserId: opts.userId }).catch((e) =>
+        console.error("[vendor signup] directory balance move failed", e instanceof Error ? e.message : "unknown"),
+      );
     } else {
       const directoryId = makeVendorId();
       await supabase.from("manager_vendor_records").upsert(
@@ -347,6 +352,12 @@ export async function provisionVendorAccountByEmail(
       .eq("id", invite.id)
       .eq("status", "accepted");
   }
+
+  // A directory vendor texted by a manager before they had a login: claim by the account's own email, proven only when this
+  // path confirmed it (an invite link or a verified password), never by a typed-in address.
+  await claimWaitingDirectoryBalances(supabase, {
+    userId: opts.userId, email: normalEmail, emailProven: opts.confirmEmail !== false,
+  }).catch((e) => console.error("[vendor signup] waiting balance claim failed", e instanceof Error ? e.message : "unknown"));
 
   return { ok: true, axisId, linkedManagerId, unlinkedReason };
 }

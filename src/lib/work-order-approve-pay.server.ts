@@ -50,6 +50,8 @@ import { emitVendorBankingEvent } from "@/lib/vendor-banking/events.server";
 import { recordVendorServiceFeeRevenue } from "@/lib/vendor-banking/platform-revenue.server";
 import { gateAndPostManagedVendorBill, type VendorBillInput } from "@/lib/managed-finance/vendor-bills.server";
 import { resolveManagedForProperties } from "@/lib/managed-finance/resolve.server";
+import { textUnclaimedDirectoryBalance } from "@/lib/managed-finance/directory-vendor.server";
+import { mergeDirectoryVendorPaidRow } from "@/lib/managed-finance/directory-vendor-paid";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -312,13 +314,27 @@ export async function approveAndPayWorkOrder(
 
   const vendorUserId = String(existing.vendor_user_id ?? "").trim();
   const invoiceCents = Math.round(acceptedVendorCostCents ?? 0);
-  if (!vendorUserId || invoiceCents < 100) {
+  // A vendor texted by dispatch may have no login: on a managed workspace the bill posts to their directory row and waits there
+  // (docs/agents/owner-management.md § Vendors without a login). Self-serve workspaces still need a vendor account to pay.
+  let directoryPayeeId = "";
+  if (!vendorUserId && managedWorkspace) {
+    const candidate = String(acceptedVendorId ?? "").trim();
+    if (candidate) {
+      const { data: directoryRow } = await db
+        .from("manager_vendor_records").select("id, manager_user_id, vendor_user_id")
+        .eq("id", candidate).maybeSingle();
+      const dr = directoryRow as { manager_user_id?: string | null; vendor_user_id?: string | null } | null;
+      if (dr && dr.manager_user_id === ownerManagerUserId && !dr.vendor_user_id) directoryPayeeId = candidate;
+    }
+  }
+  if ((!vendorUserId && !directoryPayeeId) || invoiceCents < 100) {
     return { ok: false, status: 400, error: "Service payment needs an assigned vendor and accepted labor cost of at least $1.00." };
   }
 
   const managedBill: VendorBillInput | null = managedWorkspace ? {
     workspaceId: managedWorkspace.workspaceId,
-    vendorUserId,
+    vendorUserId: vendorUserId || null,
+    vendorDirectoryId: directoryPayeeId || null,
     amountCents: invoiceCents,
     title: existingRow.title || workOrder.title || "Service",
     vendorLabel: String((existingRow as { vendorName?: string }).vendorName ?? "Vendor"),
@@ -362,12 +378,13 @@ export async function approveAndPayWorkOrder(
     if (!managedBill && !proplaneBalanceEnabled()) {
       return { ok: false, status: 400, error: "The PropLane balance is not enabled." };
     }
-    if (!vendorUserId || invoiceCents < 100) {
+    if ((!vendorUserId && !directoryPayeeId) || invoiceCents < 100) {
       return { ok: false, status: 400, error: "Balance payment needs a vendor and a cost of at least $1.00." };
     }
     // The unique work-order payout index claims this service before any ledger
-    // move. A concurrent ACH Checkout cannot also start after this insert.
-    const { error: claimError } = await db.rpc("claim_work_order_vendor_payment", {
+    // move. A concurrent ACH Checkout cannot also start after this insert. A vendor without a login has no payout row (it needs
+    // a user); the managed bill's own key (vendor-bill:work_order:<id>) is what makes a repeat a no-op.
+    const { error: claimError } = directoryPayeeId ? { error: null } : await db.rpc("claim_work_order_vendor_payment", {
       p_work_order: workOrder.id, p_manager: ownerManagerUserId, p_vendor: vendorUserId,
       p_amount: invoiceCents, p_channel: "balance", p_pending: null,
     });
@@ -473,7 +490,26 @@ export async function approveAndPayWorkOrder(
     expenseEntryIds,
   );
   const paidPatch = markWorkOrderPaid(completed, existingRow.paidAt || new Date().toISOString(), { channel: paymentChannel });
-  const { data: paidRaw, error } = await db.rpc("mark_work_order_payment_paid", {
+  let directoryPaidRow: Record<string, unknown> | null = null;
+  if (directoryPayeeId) {
+    // The paid RPC is bound to a vendor account and its payout row; a directory vendor has neither, so apply the same allowed
+    // keys to the freshly read row under the manager and "no account yet" guards. The ledger post above is the money event.
+    const fresh = await db.from("portal_work_order_records").select("row_data")
+      .eq("id", workOrder.id).eq("manager_user_id", ownerManagerUserId).is("vendor_user_id", null).maybeSingle();
+    if (fresh.error || !fresh.data) return { ok: false, status: 409, error: "This service changed while it was being paid. Open it and try again." };
+    const merged = mergeDirectoryVendorPaidRow(
+      (fresh.data.row_data ?? {}) as Record<string, unknown>, paidPatch as unknown as Record<string, unknown>,
+    );
+    const { error: paidError } = await db.from("portal_work_order_records")
+      .update({ row_data: merged, updated_at: new Date().toISOString() })
+      .eq("id", workOrder.id).eq("manager_user_id", ownerManagerUserId).is("vendor_user_id", null);
+    if (paidError) return { ok: false, status: 500, error: "Could not mark service paid." };
+    directoryPaidRow = merged;
+    await textUnclaimedDirectoryBalance(db, { directoryId: directoryPayeeId, workspaceId: managedWorkspace!.workspaceId });
+  }
+  const { data: paidRaw, error } = directoryPaidRow
+    ? { data: directoryPaidRow as unknown, error: null }
+    : await db.rpc("mark_work_order_payment_paid", {
     p_work_order: workOrder.id,
     p_manager: ownerManagerUserId,
     p_vendor: vendorUserId,
