@@ -26,8 +26,9 @@ async function ensureServiceDispatch(h, world) {
     world.workspaceIds.push(workspaceId);
     const house = await world.createHouse({ ownerId: client.id, workspaceId, name: `E2E Client House ${world.runId}`, street: "5257 Brooklyn Ave NE" });
     const clientLine = world.phone();
-    const numberRow = { manager_user_id: client.id, workspace_id: workspaceId, phone_number: clientLine, phone_number_sid: `PNe2e${hex(28)}`, messaging_service_sid: `MGe2e${hex(28)}`,
-      provider: "twilio", provision_state: "active", registration_state: "approved", requested_at: NOW(), provisioned_at: NOW() };
+    const numberRow = { manager_user_id: client.id, workspace_id: workspaceId, phone_number: clientLine, phone_number_sid: `PNe2e${hex(28)}`,
+      messaging_service_sid: h.env.TWILIO_MESSAGING_SERVICE_SID ?? `MGe2e${hex(28)}`, campaign_sid: h.env.TWILIO_CAMPAIGN_SID,
+      provider: "twilio", provision_state: "active", registration_state: "approved", attachment_state: "attached", number_registration_state: "registered", requested_at: NOW(), provisioned_at: NOW() };
     const ins = await db.from("manager_sms_numbers").insert(numberRow).select("id");
     if (ins.error) throw new Error(`client number: ${ins.error.message}`);
     const residentPhone = world.phone();
@@ -48,6 +49,7 @@ async function ensureServiceDispatch(h, world) {
 export const SERVICE_DISPATCH_SCENARIOS = [
   {
     id: "service-dispatch",
+    modes: ["per_workspace"],
     title: "PropLane Service: resident files a leak -> roster vendor texted -> manager phone approves on the PropLane line -> YES -> assigned -> manager phone told",
     async setup(h, world) {
       h.fx ??= {};
@@ -60,6 +62,10 @@ export const SERVICE_DISPATCH_SCENARIOS = [
       const sd = await h.fx.sdReady;
       const { fx } = sd;
       const restorePerWorkspace = await enterPerWorkspace(db, fx);
+      // The dev campaign has a deployment-wide daily segment cap that shared e2e runs exhaust; the capture transport sends nothing, so
+      // lift it for this run (dev only, the harness refuses any other project) and put it back after, like the pay proof does.
+      const { data: capBefore } = await db.from("sms_runtime_config").select("campaign_daily_segment_limit").eq("singleton", true).maybeSingle();
+      await db.from("sms_runtime_config").update({ campaign_daily_segment_limit: Math.max(Number(capBefore?.campaign_daily_segment_limit ?? 500), 5000) }).eq("singleton", true);
       const { data: settingsBefore } = await db.from("platform_service_settings").select("manager_phone_e164, manager_phone_verified_at").eq("singleton", true).maybeSingle();
       const { data: runtime } = await db.from("sms_runtime_config").select("pilot_manager_user_ids").eq("singleton", true).maybeSingle();
       const pilotBefore = runtime?.pilot_manager_user_ids ?? [];
@@ -67,6 +73,7 @@ export const SERVICE_DISPATCH_SCENARIOS = [
       const setManager = await db.from("platform_service_settings").update({ manager_phone_e164: sd.managerPhone, manager_phone_verified_at: NOW() }).eq("singleton", true);
       if (setManager.error) throw new Error(`manager phone: ${setManager.error.message}`);
       const restore = async () => {
+        await db.from("sms_runtime_config").update({ campaign_daily_segment_limit: capBefore?.campaign_daily_segment_limit ?? 500 }).eq("singleton", true);
         await db.from("platform_service_settings").update({ manager_phone_e164: settingsBefore?.manager_phone_e164 ?? null, manager_phone_verified_at: settingsBefore?.manager_phone_verified_at ?? null }).eq("singleton", true);
         await db.from("sms_runtime_config").update({ pilot_manager_user_ids: pilotBefore }).eq("singleton", true);
         await db.from("manager_sms_numbers").delete().eq("id", sd.clientNumberId);
@@ -92,10 +99,10 @@ export const SERVICE_DISPATCH_SCENARIOS = [
         // 1. The resident files a leak on the client's own number; the assistant triages like a person would.
         const filed = async () => ((await db.from("portal_work_order_records").select("id, row_data").eq("manager_user_id", sd.client.id).eq("resident_email", sd.resident.email)).data ?? []);
         let r = await say(sd.residentPhone, sd.clientLine, "my kitchen sink is leaking", { media: [{ url: h.mediaUrl("leak"), type: "image/png" }] });
-        const answers = ["Clean water, nothing electrical nearby, and I already closed the shutoff valve under the sink. Please file it now.", "Yes, file it please."];
-        for (let i = 0; i < answers.length && (await filed()).length === 0; i += 1) {
+        const answers = ["Clean water, nothing electrical nearby, and I already closed the shutoff valve under the sink. Please file it now.", "Yes they can enter if I am not home, any time works. Please file it."];
+        for (let step = 0, next = 0; step < 6 && (await filed()).length === 0; step += 1) {
           if (/reply yes to confirm/i.test(r.all)) r = await say(sd.residentPhone, sd.clientLine, "YES");
-          if ((await filed()).length === 0) r = await say(sd.residentPhone, sd.clientLine, answers[i]);
+          else r = await say(sd.residentPhone, sd.clientLine, answers[Math.min(next++, answers.length - 1)]);
         }
         const orders = await filed();
         check("the resident's leak is filed as a service in the client's workspace", orders.length === 1, JSON.stringify(orders.map((o) => o.id)));
@@ -131,6 +138,13 @@ export const SERVICE_DISPATCH_SCENARIOS = [
         check("the client's service is assigned to the roster vendor", after?.row_data?.vendorId === sd.vendorId, JSON.stringify({ vendorId: after?.row_data?.vendorId }));
         const outcomes = toPhone(sd.managerPhone).length;
         check("the manager phone was told the outcome (more than the approval ask)", outcomes >= 2, String(outcomes));
+        // 5. The manager phone is the manager of EVERY service workspace: with several, it is asked which one; naming one answers
+        //    from that workspace's own data (the leak filed above), as the full manager agent.
+        const which = await say(sd.managerPhone, fx.line, "any tours this week?");
+        check("with several service workspaces the manager phone is asked which one", /^Is this about .+ or .+\?$/i.test(which.all.trim()), which.all);
+        const services = await say(sd.managerPhone, fx.line, `list every service at E2E 1. ClientAmbika, assigned or open, ${world.runId}`);
+        check("naming a workspace answers from that workspace's data (the kitchen sink leak)", /sink|leak|kitchen/i.test(services.all), services.all);
+        check("the manager agent's reply says 'service', never 'work order'", !/work order/i.test(services.all), services.all);
         check("no text uses the word 'work order'", h.captured().every((m) => !/work order/i.test(m.body)), h.captured().filter((m) => /work order/i.test(m.body)).map((m) => m.body).join(" | "));
       } finally {
         await restore();

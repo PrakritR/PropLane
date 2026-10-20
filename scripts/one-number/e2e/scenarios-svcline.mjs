@@ -49,8 +49,9 @@ export async function ensureServiceLine(h, world) {
     await relocate(db, control, { address: "4300 15th Ave NE, Seattle, WA 98105", neighborhood: "University District", zip: "98105", lat: 47.6620, lng: -122.3120 });
 
     const line = world.phone();
-    const row = { manager_user_id: owner.id, workspace_id: ownDefault, phone_number: line, phone_number_sid: `PNe2e${hex(28)}`, messaging_service_sid: `MGe2e${hex(28)}`,
-      provider: "twilio", provision_state: "active", registration_state: "approved", requested_at: NOW(), provisioned_at: NOW() };
+    const row = { manager_user_id: owner.id, workspace_id: ownDefault, phone_number: line, phone_number_sid: `PNe2e${hex(28)}`,
+      messaging_service_sid: h.env.TWILIO_MESSAGING_SERVICE_SID ?? `MGe2e${hex(28)}`, campaign_sid: h.env.TWILIO_CAMPAIGN_SID,
+      provider: "twilio", provision_state: "active", registration_state: "approved", attachment_state: "attached", number_registration_state: "registered", requested_at: NOW(), provisioned_at: NOW() };
     const ins = await db.from("manager_sms_numbers").insert(row).select("id");
     if (ins.error) throw new Error(`service line number: ${ins.error.message}`);
     return { owner, ownDefault, ownHouse, service, brooklyn, ballard, other, control, line, numberId: ins.data[0].id };
