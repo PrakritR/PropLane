@@ -143,6 +143,15 @@ describe("manager SMS prospect proposal lifecycle", () => {
     const stored = String((assistant.at(-1) as { content?: string }).content);
     expect(stored).toContain("<<<EXTERNAL_MESSAGE from prospect>>>");
     expect(stored).toContain("<<<END EXTERNAL_MESSAGE>>>");
+    // A provider retry replays the stored reply back to the person: unfenced again.
+    const replay = await runManagerSmsAgentTurn(ctx.db as never, {
+      ctx,
+      managerPhoneE164: "+12065550999",
+      inboundText: "Reply to the prospect",
+      inboundMessageSid: "SM-fence",
+    });
+    expect(replay?.reply).not.toMatch(/EXTERNAL_|<<<|>>>/);
+    expect(mocks.runAgentTurn).toHaveBeenCalledTimes(1);
   });
 
   it("replays the persisted reply for a duplicate provider SID without rerunning the model", async () => {

@@ -644,7 +644,8 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
         throw new Error("sms_inbound_projection_cleanup_failed");
       }
       return {
-        reply: String(existingReply.content),
+        // The transcript keeps third-party text fenced; a replay goes back out to a person, so it is unfenced here too.
+        reply: unfenceUntrustedText(String(existingReply.content)),
         sessionId: session.id,
         inboundMessageId,
         assistantMessageId: String(existingReply.id),
