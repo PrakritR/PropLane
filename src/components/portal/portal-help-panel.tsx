@@ -11,7 +11,6 @@
  */
 
 import { useEffect } from "react";
-import Link from "next/link";
 import { ChevronRight, LifeBuoy } from "lucide-react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import {
@@ -19,6 +18,7 @@ import {
   PortalFeedbackFormFooterButton,
   usePortalFeedbackForm,
 } from "@/components/portal/portal-feedback-form";
+import { PUBLIC_SUPPORT_EMAIL } from "@/lib/marketing/public-contact";
 import type { BugFeedbackReporterRole } from "@/lib/portal-bug-feedback";
 
 /** How long the success confirmation shows before this panel closes itself. */
@@ -78,8 +78,8 @@ export function PortalHelpPanel({
       }
     >
       <div className="space-y-5">
-        <Link
-          href="/support"
+        <a
+          href={`mailto:${PUBLIC_SUPPORT_EMAIL}`}
           onClick={handleClose}
           data-attr="portal-help-center-link"
           className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3.5 text-sm font-semibold text-foreground transition hover:border-primary/30 hover:bg-accent/20 active:scale-[0.99]"
@@ -87,9 +87,9 @@ export function PortalHelpPanel({
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
             <LifeBuoy className="h-[18px] w-[18px]" aria-hidden />
           </span>
-          <span className="min-w-0 flex-1">Visit our help center</span>
+          <span className="min-w-0 flex-1">Email {PUBLIC_SUPPORT_EMAIL}</span>
           <ChevronRight className="h-4 w-4 shrink-0 text-muted" aria-hidden />
-        </Link>
+        </a>
 
         <div>
           <p className="mb-3 text-sm font-semibold text-foreground">Send us feedback</p>

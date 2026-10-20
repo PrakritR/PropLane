@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { hashOtpCode, normalizeOtpInput, otpMessageBody, requestPhoneOtp, verifyPhoneOtp } from "@/lib/one-number/phone-otp.server";
+import { SHARED_LINE_OTP_RULES } from "@/lib/one-number/contracts";
 import { linksFakeDb } from "../helpers/links-fake-db";
 
 const PHONE = "2065550100";
@@ -221,5 +222,52 @@ describe("the failed-code cap is scoped to its PURPOSE", () => {
     const { result, code } = await request(db, { now: later });
     expect(result.ok).toBe(true);
     expect(await verify(db, code, new Date(later.getTime() + 1000))).toEqual({ ok: true });
+  });
+});
+
+describe("the hourly SEND budget is scoped to its PURPOSE under a phone-wide ceiling", () => {
+  const sendFor = (db: never, purpose: "public_bind" | "link_unlock" | "sign_in", offset: number) =>
+    requestPhoneOtp(db, {
+      phoneKey: PHONE,
+      purpose,
+      subjectId: `${purpose}-subject`,
+      now: new Date(T0.getTime() + offset),
+      send: async () => true,
+    });
+
+  it("gives each purpose its own allowance, so public-bind sends cannot spend a rent link's", async () => {
+    const { db } = linksFakeDb();
+    // The public-bind door takes an arbitrary phone from whoever holds a printed entry code.
+    for (let i = 0; i < SHARED_LINE_OTP_RULES.maxSendsPerHour; i += 1) {
+      expect((await sendFor(db, "public_bind", i)).ok, `public_bind ${i}`).toBe(true);
+    }
+    expect(await sendFor(db, "public_bind", 50)).toEqual({ ok: false, reason: "rate_limited" });
+
+    // The victim's own doors still answer: this is the lockout the per-purpose budget exists to stop.
+    expect((await sendFor(db, "link_unlock", 100)).ok).toBe(true);
+    expect((await sendFor(db, "sign_in", 200)).ok).toBe(true);
+  });
+
+  it("still holds a phone-wide ceiling above the per-purpose budgets", async () => {
+    const { db } = linksFakeDb();
+    expect(SHARED_LINE_OTP_RULES.maxSendsPerPhonePerHour).toBeGreaterThan(SHARED_LINE_OTP_RULES.maxSendsPerHour);
+    const purposes = ["public_bind", "link_unlock", "sign_in"] as const;
+    let sent = 0;
+    for (const purpose of purposes) {
+      for (let i = 0; i < SHARED_LINE_OTP_RULES.maxSendsPerHour; i += 1) {
+        const result = await sendFor(db, purpose, sent * 10);
+        if (result.ok) sent += 1;
+      }
+    }
+    // Three purposes at three each is nine, so the eight-text ceiling is what stopped it, not the budgets.
+    expect(sent).toBe(SHARED_LINE_OTP_RULES.maxSendsPerPhonePerHour);
+    expect(await sendFor(db, "change_number_new", 9_000)).toEqual({ ok: false, reason: "rate_limited" });
+  });
+
+  it("lets the budget age out of the rolling hour", async () => {
+    const { db } = linksFakeDb();
+    for (let i = 0; i < SHARED_LINE_OTP_RULES.maxSendsPerHour; i += 1) await sendFor(db, "link_unlock", i);
+    expect(await sendFor(db, "link_unlock", 60)).toEqual({ ok: false, reason: "rate_limited" });
+    expect((await sendFor(db, "link_unlock", HOUR + 10_000)).ok).toBe(true);
   });
 });

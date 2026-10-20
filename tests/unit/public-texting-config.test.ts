@@ -206,14 +206,32 @@ describe("public texting configuration", () => {
       );
       const { getPublicTextingConfig, PUBLIC_TEXTING_COLD_START_BUDGET_MS } =
         await import("@/lib/marketing/public-texting.server");
-      // Far under the read's own five-second deadline, which the page used to wait out.
-      expect(PUBLIC_TEXTING_COLD_START_BUDGET_MS).toBeLessThanOrEqual(1_000);
+      // Long enough that a cold Supabase round trip normally wins the race (a 400 ms budget lost it routinely
+      // and left the hero on the env fallback), and still far under the read's own five-second deadline.
+      expect(PUBLIC_TEXTING_COLD_START_BUDGET_MS).toBeGreaterThanOrEqual(1_500);
+      expect(PUBLIC_TEXTING_COLD_START_BUDGET_MS).toBeLessThan(5_000);
       const started = Date.now();
       expect((await getPublicTextingConfig()).phone).toBe("+12065550199");
-      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(Date.now() - started).toBeLessThan(PUBLIC_TEXTING_COLD_START_BUDGET_MS + 1_000);
       // The read it started is still the one that fills the snapshot for the next request.
       release!();
       await vi.waitFor(async () => expect((await getPublicTextingConfig()).phone).toBe("+12065550123"));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("serves a read that is slower than 400 ms but inside the budget, not the env fallback", async () => {
+    vi.stubEnv("PROPLANE_PUBLIC_SMS_NUMBER", "+12065550199");
+    try {
+      // The shape of a real cold round trip: TCP + TLS + query, past the old 400 ms budget.
+      mocks.read.mockImplementation(
+        () => new Promise((resolve) => {
+          setTimeout(() => resolve({ data: { line_mode: "shared", shared_number_e164: "+12065550123" }, error: null }), 700);
+        }),
+      );
+      const { getPublicTextingConfig } = await import("@/lib/marketing/public-texting.server");
+      expect((await getPublicTextingConfig()).phone).toBe("+12065550123");
     } finally {
       vi.unstubAllEnvs();
     }

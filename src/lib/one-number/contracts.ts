@@ -200,7 +200,14 @@ export const SHARED_LINE_OTP_RULES = {
   codeLength: 6,
   ttlMinutes: 10,
   maxAttempts: 5,
+  /** Sends per phone per rolling hour FOR ONE PURPOSE. */
   maxSendsPerHour: 3,
+  /**
+   * Sends per phone per rolling hour across every purpose. Higher than the per-purpose budget so that abusing
+   * one door (the public-bind code anyone holding a printed entry code can aim at any number) cannot spend the
+   * allowance a rent link or a phone sign-in needs.
+   */
+  maxSendsPerPhonePerHour: 8,
   moneySessionMinutes: 30,
   otherSessionDays: 7,
 } as const;

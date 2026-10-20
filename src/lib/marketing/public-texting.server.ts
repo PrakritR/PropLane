@@ -50,8 +50,13 @@ async function readSnapshot(): Promise<PublicTextingConfig> {
   return config;
 }
 
-/** How long the first request on an instance will wait for the live read before the configured number answers. */
-export const PUBLIC_TEXTING_COLD_START_BUDGET_MS = 400;
+/**
+ * How long the first request on an instance waits for the live read before the configured number answers. A cold
+ * Supabase round trip (TCP + TLS + query) routinely passes half a second, and the instance can be frozen right
+ * after the response, so nothing may ever fill `lastGood`: the budget has to be long enough that the real number
+ * normally wins, while staying far under the read's own five-second timeout.
+ */
+export const PUBLIC_TEXTING_COLD_START_BUDGET_MS = 1_500;
 
 /** The read's answer if it lands inside the budget, else null. The read itself keeps going and fills `lastGood`. */
 async function withColdStartBudget(read: Promise<PublicTextingConfig>): Promise<PublicTextingConfig | null> {

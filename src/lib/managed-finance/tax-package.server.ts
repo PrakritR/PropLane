@@ -52,14 +52,14 @@ export async function loadOwnerTaxPackage(db: SupabaseClient, input: { ownerUser
       postedAt: String(j?.posted_at ?? ""), kind: String(j?.kind ?? ""), detail: (j?.detail as Record<string, unknown>) ?? {},
       sourceType: (j?.source_type as string | null) ?? null, sourceId: (j?.source_id as string | null) ?? null,
     };
-  }).filter((l) => l.postedAt >= fromIso && l.postedAt < toIso);
+  });
   const vendorUserIds = [...new Set(vendorLines.map((l) => l.partyId).filter((p) => p.startsWith("vendor:")).map((p) => p.slice(7)))];
   const { data: profiles } = vendorUserIds.length ? await db.from("profiles").select("id, full_name, email").in("id", vendorUserIds) : { data: [] };
   const names = new Map<string, string>(((profiles ?? []) as Array<{ id: string; full_name?: string; email?: string }>).map((p) => [`vendor:${p.id}`, String(p.full_name || p.email || "Vendor")]));
 
   const pkg = buildTaxPackage(
     input.year,
-    ownerRows.filter((l) => l.postedAt >= fromIso && l.postedAt < toIso).map(toLine),
+    ownerRows.map(toLine),
     vendorLines as Array<StatementLine & { partyId: string }>,
     names,
     "",
