@@ -3,6 +3,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const nav = vi.hoisted(() => ({ refresh: vi.fn(), push: vi.fn() }));
+vi.mock("@/components/stripe-embedded-checkout", () => ({
+  StripeEmbeddedCheckout: ({ clientSecret, onComplete }: { clientSecret: string; onComplete?: () => void }) => (
+    <div data-testid="embedded-checkout" data-secret={clientSecret}>
+      <button onClick={onComplete}>finish-payment</button>
+    </div>
+  ),
+}));
+vi.mock("@/components/portal/resident-bank-account-form", () => ({
+  ResidentBankAccountForm: ({ endpoint, intentId, amountCents }: { endpoint?: string; intentId: string; amountCents?: number }) => (
+    <div data-testid="bank-form" data-endpoint={endpoint} data-intent={intentId} data-amount={amountCents} />
+  ),
+}));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: nav.refresh, push: nav.push }) }));
 
 import { PublicTextingProvider } from "@/components/marketing/public-texting-context";
@@ -87,6 +99,48 @@ describe("RentLinkCard", () => {
     expect(fetchMock.mock.calls[0]![0]).toBe(`/api/l/${"R".repeat(43)}/rent-checkout`);
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({});
     expect(screen.getByText("Sign in to PropLane").closest("a")?.getAttribute("href")).toBe("/auth/sign-in?next=%2Fresident%2Fpayments");
+  });
+});
+
+describe("RentLinkCard in-page payment", () => {
+  const charges = [{ id: "c1", title: "3 nights at $120/night", amountLabel: "$360.00", propertyLabel: "Maple House" }];
+
+  it("opens the payment form on the page and never leaves it", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    const fetchMock = vi.fn().mockResolvedValue(json(200, { clientSecret: "cs_test_abc" }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RentLinkCard token={"S".repeat(43)} charges={charges} />);
+    fireEvent.click(screen.getByText("Pay $360.00"));
+    const form = await screen.findByTestId("embedded-checkout");
+    expect(form.getAttribute("data-secret")).toBe("cs_test_abc");
+    expect(assign).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("finish-payment"));
+    await screen.findByText("Payment received");
+  });
+});
+
+describe("RentLinkCard bank option", () => {
+  const charges = [{ id: "c1", title: "3 nights at $120/night", amountLabel: "$360.00", propertyLabel: "Maple House" }];
+
+  it("opens the bank form on the page, reading and verifying through this link's own route", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json(200, { bank: { clientSecret: "pi_s", paymentIntentId: "pi_1", bankStatus: "entry", totalCents: 36000 } }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RentLinkCard token={"B".repeat(43)} charges={charges} />);
+    fireEvent.click(screen.getByText("Pay from bank"));
+    const form = await screen.findByTestId("bank-form");
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ method: "bank" });
+    expect(form.getAttribute("data-endpoint")).toBe(`/api/l/${"B".repeat(43)}/bank-payment`);
+    expect(form.getAttribute("data-intent")).toBe("pi_1");
+    expect(form.getAttribute("data-amount")).toBe("36000");
+  });
+
+  it("a charge that cannot be paid from a bank says so and keeps the card button", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(422, { error: "Bank payment is not available for this charge. Pay by card instead." })));
+    render(<RentLinkCard token={"B".repeat(43)} charges={charges} />);
+    fireEvent.click(screen.getByText("Pay from bank"));
+    await screen.findByText("Bank payment is not available for this charge. Pay by card instead.");
+    expect(screen.getByText("Pay $360.00")).toBeTruthy();
   });
 });
 

@@ -18,6 +18,7 @@ export function ResidentBankAccountForm({
   initialStatus = "entry",
   onComplete,
   onStatusChange,
+  endpoint: endpointOverride,
 }: {
   clientSecret: string;
   intentId: string;
@@ -26,6 +27,8 @@ export function ResidentBankAccountForm({
   initialStatus?: BankStatus;
   onComplete?: () => void;
   onStatusChange?: (status: BankStatus) => void;
+  /** A payment made from a phone-bound link reads and verifies through the link's own route (same answers, link session as the actor). */
+  endpoint?: string;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const onCompleteRef = useRef(onComplete);
@@ -41,7 +44,7 @@ export function ResidentBankAccountForm({
   const [accountType, setAccountType] = useState("checking");
   const [verificationKind, setVerificationKind] = useState<"code" | "amounts">("code");
 
-  const endpoint = kind === "payment" ? "/api/stripe/resident-ach-payment" : "/api/stripe/resident-bank-setup";
+  const endpoint = endpointOverride ?? (kind === "payment" ? "/api/stripe/resident-ach-payment" : "/api/stripe/resident-bank-setup");
   const intentParam = kind === "payment" ? "payment_intent_id" : "setup_intent_id";
 
   const loadStatus = useCallback(async () => {

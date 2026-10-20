@@ -50,6 +50,7 @@ import { StayAddOnReadError, loadRoomOtherStays } from "@/lib/short-stay/stay-ad
 import {
   GUEST_PORTAL_SHORT_STAY_SOURCE,
   PUBLIC_SHORT_STAY_SOURCE,
+  SMS_SHORT_STAY_SOURCE,
   shortStayHoldExpiresAt,
   withGuestSignInLink,
 } from "@/lib/short-stay/guest-stays";
@@ -324,7 +325,7 @@ export async function loadShortStayListing(
 }
 
 export type ShortStayActor = {
-  source: typeof PUBLIC_SHORT_STAY_SOURCE | typeof GUEST_PORTAL_SHORT_STAY_SOURCE;
+  source: typeof PUBLIC_SHORT_STAY_SOURCE | typeof GUEST_PORTAL_SHORT_STAY_SOURCE | typeof SMS_SHORT_STAY_SOURCE;
   name: string;
   phone: string;
   email: string;

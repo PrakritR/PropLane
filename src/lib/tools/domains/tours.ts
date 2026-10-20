@@ -368,7 +368,7 @@ const confirmProspectSmsTourInputSchema = z.object({
   email: z.string().email().optional(),
 }).strict();
 
-function unambiguousOfferAffirmative(text: string): boolean {
+export function unambiguousOfferAffirmative(text: string): boolean {
   const body = text.toLowerCase().replace(/[’]/g, "'").replace(/[.!?,]+/g, " ").replace(/\s+/g, " ").trim();
   if (/\b(no|not|cannot|can't|dont|don't|do not|change|instead|different|other|wrong|cancel)\b/.test(body)) return false;
   // This is intentionally an allowlist of standalone affirmations. A reply
@@ -378,7 +378,7 @@ function unambiguousOfferAffirmative(text: string): boolean {
   return /^(?:yes(?: please)?|confirm(?:ed)?|book (?:it|that)(?: please)?|that works(?: for me)?|works for me|take it(?: please)?|sounds good|perfect)$/.test(body);
 }
 
-async function deriveAgreementSource(ctx: AgentContext, burst: NonNullable<NonNullable<AgentContext["leasingScope"]>["prospectBurst"]>): Promise<{ agreementSourceMessageId: string; claimedSourceIds: string[] } | null> {
+export async function deriveAgreementSource(ctx: AgentContext, burst: NonNullable<NonNullable<AgentContext["leasingScope"]>["prospectBurst"]>): Promise<{ agreementSourceMessageId: string; claimedSourceIds: string[] } | null> {
   if (burst.claimedSourceIds.length === 0) return null;
   const claimedSourceIds = [...new Set(burst.claimedSourceIds.map((id) => id.trim()).filter(Boolean))];
   // The queue owns this ordered snapshot. A duplicate or blank source id is a

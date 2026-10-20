@@ -354,3 +354,5 @@ import { MATRIX_SCENARIOS } from "./scenarios-matrix.mjs";
 SCENARIOS.push(...MATRIX_SCENARIOS);
 import { SMSSIGNUP_SCENARIOS } from "./scenarios-smssignup.mjs";
 SCENARIOS.push(...SMSSIGNUP_SCENARIOS);
+import { SHORT_STAY_SCENARIOS } from "./scenarios-short-stay.mjs";
+SCENARIOS.push(...SHORT_STAY_SCENARIOS);
