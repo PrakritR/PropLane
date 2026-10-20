@@ -174,6 +174,7 @@ async function askOwnerToApprove(db: SupabaseClient, policy: PolicyRow, input: V
   if (phoneKey) {
     const sent = await sendWorkspacePhoneText(db, {
       workspaceId: policy.workspaceId, phoneKey, body, role: "manager", idempotencyKey: `owner-expense-ask:${expenseId}`,
+      basis: { kind: "manager_notice", topic: "repair_approval", recipientUserId: policy.ownerUserId },
     }).catch(() => false);
     if (sent) {
       await db.from("owner_expenses").update({ approval_phone_key: phoneKey, approval_sent_at: now.toISOString() }).eq("id", expenseId);

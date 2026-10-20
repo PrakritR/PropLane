@@ -80,7 +80,7 @@ describe("public phone-bind", () => {
     const { result, code } = await sendCode(db);
     expect(result.ok).toBe(true);
     expect(code).toMatch(/^\d{6}$/);
-    expect(mocks.send.mock.calls[0]![1]).toMatchObject({ workspaceId: WS, phoneKey: "2065550142", role: "prospect" });
+    expect(mocks.send.mock.calls[0]![1]).toMatchObject({ workspaceId: WS, phoneKey: "2065550142", role: "prospect", basis: { kind: "code" } });
   });
 
   it("a correct code binds the phone: application link, verified session, note on the thread", async () => {

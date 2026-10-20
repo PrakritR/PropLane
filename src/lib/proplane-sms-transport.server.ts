@@ -324,6 +324,8 @@ export async function sendFromManagerWorkNumber(args: {
   skipLog?: boolean;
   /** The workspace the text is about (stamped on the outbox; names the paying wallet on the shared line). */
   workspaceId?: string | null;
+  /** The recipient's PropLane account when they have one (a teammate, an owner, a vendor): consent reads that profile. */
+  recipientUserId?: string | null;
   /** Outbound MMS media (https URLs); carried on the outbox row to the provider call. */
   mediaUrls?: string[] | null;
 }): Promise<PropLaneSmsResult> {
@@ -348,6 +350,7 @@ export async function sendFromManagerWorkNumber(args: {
     prospectTourBookingConfirmationId: args.prospectTourBookingConfirmationId,
     suppressConversationLog: args.skipLog === true,
     ...(args.workspaceId?.trim() ? { workspaceId: args.workspaceId.trim() } : {}),
+    ...(args.recipientUserId?.trim() ? { recipientUserId: args.recipientUserId.trim() } : {}),
     ...(args.mediaUrls?.length ? { mediaUrls: args.mediaUrls } : {}),
     log: {
       managerUserId,

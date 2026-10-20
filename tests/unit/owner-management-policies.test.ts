@@ -102,6 +102,7 @@ describe("sending and signing", () => {
     expect(r.emailed).toBe(true);
     expect(r.texted).toBe(true);
     expect(JSON.stringify(text.mock.calls[0])).toContain("/auth/sign-in?next=");
+    expect((text.mock.calls[0] as unknown[])[1]).toMatchObject({ role: "manager", basis: { kind: "manager_notice", topic: "fee_policy" } });
   });
   it("does not resend inside the hour", async () => {
     const f = seed();
