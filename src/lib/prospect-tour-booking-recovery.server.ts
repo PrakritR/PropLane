@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
+import { smsTourLabel } from "@/lib/sms/tour-label";
 import { runPlannedTourCalendarSync } from "@/lib/google-calendar/planned-tour-sync.server";
 import {
   syncPlannedTourToGoogleCalendarAttempt,
@@ -124,7 +125,7 @@ export async function recoverProspectTourBookingSideEffects(
           text(event.attendeePhone) ? `Phone: ${text(event.attendeePhone)}` : null,
           text(event.attendeeEmail) ? `Email: ${text(event.attendeeEmail)}` : null,
         ].filter(Boolean).join("\n"),
-        externalText: `A prospect tour was confirmed for ${text(offer.label) || "the selected time"}.`,
+        externalText: `A prospect tour was confirmed for ${smsTourLabel(text(offer.label)) || "the selected time"}.`,
         threadType: "prospect_tour_confirmed",
         url: "/portal/calendar",
         category: "leasing",
