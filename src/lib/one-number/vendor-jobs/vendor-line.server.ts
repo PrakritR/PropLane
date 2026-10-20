@@ -6,8 +6,8 @@ import { isMissingSchemaError } from "@/lib/one-number/config.server";
 import { redactSensitiveNumbers } from "@/lib/one-number/redact";
 import { mintSetupLink } from "@/lib/one-number/onboarding/setup-links.server";
 import { appendLineTurn, findOrCreateLineSession, loadLineHistory } from "@/lib/one-number/vendor-jobs/history.server";
-import { CONTROL_ONLY_RE, readVendorJobsAsk, tradeLabelFor, type VendorJobsAsk } from "@/lib/one-number/vendor-jobs/intent";
-import { composeVendorHelpReply, composeVendorJobsReply, type VendorLineLink } from "@/lib/one-number/vendor-jobs/reply";
+import { asksForJobs, CONTROL_ONLY_RE, readVendorJobsAsk, tradeLabelFor, type VendorJobsAsk } from "@/lib/one-number/vendor-jobs/intent";
+import { composeVendorAnswerReply, composeVendorHelpReply, composeVendorJobsReply, type VendorLineLink } from "@/lib/one-number/vendor-jobs/reply";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { resolveSeattlePlace } from "@/lib/places/seattle-places";
 import { profilePhoneVariants } from "@/lib/sms-consent";
@@ -147,6 +147,8 @@ export async function handlePropLaneVendorText(
   const triggered =
     input.force === true ||
     ask.vendorish ||
+    // On the PropLane line a stranger naming a trade ("handyman here", "cleaner") is a vendor: answered, never silently listed.
+    (input.mode === "service_line" && ask.tradeSelfId) ||
     (known && (input.mode === "service_line" || ask.wantsJobs || ask.wantsLink));
   if (!triggered) return NOT_HANDLED;
 
@@ -179,12 +181,17 @@ export async function handlePropLaneVendorText(
   }
 
   const ctx = buildVendorLineContext(db, { landlordId: input.ownerUserId ?? "", senderPhone: phone, vendorUserId: account?.userId ?? null });
-  const wantsList = ask.wantsJobs || ask.vendorish || Boolean(boardTrade) || Boolean(areaText);
+  // A question about PropLane itself ("how do I get paid?") is answered, unless the text also asks for jobs or names a place.
+  const answerTopic = ask.question && !asksForJobs(body) && !ask.areaText ? ask.question : null;
+  const wantsList = !answerTopic && (ask.wantsJobs || ask.vendorish || Boolean(boardTrade) || Boolean(areaText));
   let reply: string;
   const link = await chooseLink(db, {
     account, phoneKey, lead: savedLead, wantsLink: ask.wantsLink, now, origin: deps.origin,
   });
-  if (wantsList) {
+  if (answerTopic) {
+    const origin = (deps.origin ?? resolveEmailLinkBaseUrl()).replace(/\/$/, "");
+    reply = composeVendorAnswerReply({ firstReply, topic: answerTopic, link: link.link, payoutsUrl: `${origin}/vendor/financials/payouts` });
+  } else if (wantsList) {
     let listed: Awaited<ReturnType<typeof listOpenJobsNearTool.handler>> | null = null;
     try {
       listed = await listOpenJobsNearTool.handler(ctx, { ...(boardTrade ? { trade: boardTrade as (typeof VENDOR_TRADE_OPTIONS)[number] } : {}), ...(areaText ? { area: areaText } : {}) });

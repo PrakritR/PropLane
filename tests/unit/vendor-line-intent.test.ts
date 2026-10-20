@@ -2,7 +2,7 @@
 // forms, and the texts that must NOT read as a vendor (a searcher who mentions a job, a clean room).
 import { describe, expect, it } from "vitest";
 import { inferSenderRole } from "@/lib/one-number/onboarding/role-detect";
-import { asksForJobs, readVendorJobsAsk, tradeLabelFor } from "@/lib/one-number/vendor-jobs/intent";
+import { asksForJobs, readVendorJobsAsk, readVendorQuestion, tradeLabelFor } from "@/lib/one-number/vendor-jobs/intent";
 
 describe("a vendor asking for work reads as a vendor", () => {
   it.each([
@@ -79,5 +79,34 @@ describe("readVendorJobsAsk", () => {
     expect(tradeLabelFor("hvac")).toBe("HVAC");
     expect(tradeLabelFor("roofing")).toBe("Other");
     expect(tradeLabelFor(null)).toBeNull();
+  });
+});
+
+describe("a trade word alone", () => {
+  it.each(["I do plumbing", "handyman here", "cleaner", "Plumber", "electrician in Ballard", "we are a cleaning company", "I need a quote"])("%s names a trade", (text) => {
+    expect(readVendorJobsAsk(text).tradeSelfId).toBe(true);
+  });
+  it.each(["Is Room 3 available?", "is the room clean", "Do you have any rooms open", "can I tour tomorrow"])("%s does not", (text) => {
+    expect(readVendorJobsAsk(text).tradeSelfId).toBe(false);
+  });
+});
+
+describe("readVendorQuestion", () => {
+  it.each([
+    ["how does it work?", "how"],
+    ["how do I get started", "how"],
+    ["what is this", "how"],
+    ["how do I get paid?", "pay"],
+    ["when do I get paid", "pay"],
+    ["how are payouts handled", "pay"],
+    ["what areas do you cover", "areas"],
+    ["where do you work", "areas"],
+    ["is it free to join", "cost"],
+  ] as const)("%s -> %s", (text, topic) => {
+    expect(readVendorQuestion(text)).toBe(topic);
+  });
+  it("is null for a jobs ask or small talk", () => {
+    expect(readVendorQuestion("any jobs available")).toBeNull();
+    expect(readVendorQuestion("ok thanks")).toBeNull();
   });
 });

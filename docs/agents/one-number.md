@@ -935,6 +935,10 @@ vendor list, is offered a vendor-account link, and the chat is kept; if they tak
   filtered by the Seattle place or zip the text names (`resolveSeattlePlace`, nearest first) and by trade; a known vendor's saved trades / service area
   apply when the text names none. The text shows trade, a general area (zip neighborhood), when and a published budget; the title is scrubbed of any street
   (`titleWithoutAddress`). An area the table does not hold is named back, never answered with other places' jobs. Dispatch jobs appear only if published.
+- **Bare trade word.** On the PropLane line (per_workspace) a stranger who only names a trade ("handyman here", "cleaner", "I do plumbing") enters the same flow: jobs, sign-up link, pending lead,
+  never the old silent `manager_vendor_records` add. Other workspaces' numbers and the shared number's unknown-sender intake are unchanged.
+- **Questions.** "How does it work?", "how do I get paid?", "what areas?", "is it free?" get a templated answer (`VENDOR_ANSWERS`: jobs offered in Find work, payout through the vendor account, Seattle area by neighborhood or zip)
+  plus the right link (sign-up for a stranger, Find work / Payouts for a vendor), unless the text also asks for jobs or names a place.
 - **The link.** One per text. A vendor with an account gets `/vendor/work-orders/find-work`; a stranger gets `mintSetupLink({kind:"vendor"})` bound to the phone,
   minted at most once per 6 hours (`SIGNUP_LINK_WINDOW_MS`; later texts say it is in the earlier text) unless they ask for LINK; minting is also rate limited per phone.
 - **History.** `agent_sessions` kind `vendor_line_sms` (one per service owner + phone, unique index) with `agent_messages` keyed on the MessageSid; the next text reloads

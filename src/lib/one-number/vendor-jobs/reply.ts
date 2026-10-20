@@ -16,6 +16,14 @@ export const VENDOR_LINE_COPY = {
   linkBusy: "Too many links just now. Try again in a bit.",
 } as const;
 
+/** Short answers to what vendors ask about PropLane itself. Facts only: how jobs are offered, payout, coverage, cost. */
+export const VENDOR_ANSWERS = {
+  how: "Property managers publish jobs on PropLane. You see the ones for your trade and area in Find work, request the ones you want, and the manager picks. Text me your trade and neighborhood and I will show open jobs.",
+  pay: "You are paid through your PropLane vendor account: after a manager approves a finished job, the payout goes to the bank you link under Payouts.",
+  areas: "We cover the Seattle area, by neighborhood or zip (Ballard, Capitol Hill, U District, 98115 and more). Text me a neighborhood or zip and I will show open jobs there.",
+  cost: "Creating a vendor account is free. You can browse open jobs and request them from your account.",
+} as const;
+
 const MAX_REPLY_CHARS = 460;
 
 function jobLine(n: number, job: OpenJobNear): string {
@@ -64,6 +72,24 @@ export function composeVendorJobsReply(input: {
     text = toGsm7(lines.join("\n"));
   }
   return text;
+}
+
+export function composeVendorAnswerReply(input: {
+  firstReply: boolean;
+  topic: keyof typeof VENDOR_ANSWERS;
+  link: VendorLineLink;
+  /** A vendor with an account asking about pay is sent to Payouts, not Find work. */
+  payoutsUrl?: string;
+}): string {
+  const lines: string[] = [];
+  if (input.firstReply) lines.push(VENDOR_LINE_COPY.welcome);
+  lines.push(VENDOR_ANSWERS[input.topic]);
+  if (input.link.kind === "signup") lines.push(`${VENDOR_LINE_COPY.signUp} ${input.link.url}`);
+  else if (input.link.kind === "findwork") {
+    lines.push(input.topic === "pay" && input.payoutsUrl ? `Set up payouts: ${input.payoutsUrl}` : `${VENDOR_LINE_COPY.findWork} ${input.link.url}`);
+  } else if (input.link.kind === "earlier") lines.push(VENDOR_LINE_COPY.linkSent);
+  else if (input.link.kind === "busy") lines.push(VENDOR_LINE_COPY.linkBusy);
+  return toGsm7(lines.join("\n"));
 }
 
 export function composeVendorHelpReply(input: { firstReply: boolean; link: VendorLineLink }): string {

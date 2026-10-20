@@ -102,6 +102,13 @@ describe("per_workspace PropLane line (production today)", () => {
     expect(project).not.toHaveBeenCalled();
   });
 
+  it("a stranger's bare trade word is answered on the PropLane line, not silently listed", async () => {
+    const out = await run("handyman here");
+    expect(out).toMatchObject({ handled: true, sent: true });
+    expect(String(m.sent[0]!.text)).toContain("/start/");
+    expect(fake.tables.sms_vendor_leads).toHaveLength(1);
+  });
+
   it("another workspace's own number is untouched", async () => {
     m.serviceLine = false;
     expect(await run("any jobs available", "+12065557777")).toEqual({ handled: false });

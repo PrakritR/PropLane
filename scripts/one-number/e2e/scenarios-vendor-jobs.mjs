@@ -98,6 +98,18 @@ export const VENDOR_JOBS_SCENARIOS = [
         const outbox = (await db.from("sms_outbox").select("counterparty_role").eq("manager_user_id", fx.owner.id).eq("recipient_phone", stranger)).data ?? [];
         check("history: the service owner's inbox has both directions as a vendor", inboundLog.length >= 2 && inboundLog.every((m) => m.counterparty_role === "vendor") && outbox.length >= 2 && outbox.every((m) => m.counterparty_role === "vendor"), JSON.stringify({ inboundLog, outbox }));
 
+        const asked = await say(stranger, "how do I get paid?");
+        check("question: a short answer about payout through the vendor account", /paid through your PropLane vendor account/.test(asked.all) && !/1\. /.test(asked.all), asked.all);
+
+        const tradeOnly = world.phone();
+        const bare = await say(tradeOnly, "handyman here");
+        check("trade word alone: answered with a sign-up link", bare.replies.length > 0 && /\/start\//.test(bare.all), bare.all);
+        const bareKey = tradeOnly.replace(/\D/g, "").slice(-10);
+        const bareLead = (await db.from("sms_vendor_leads").select("status").eq("phone_key", bareKey)).data ?? [];
+        check("trade word alone: a pending lead", bareLead.length === 1 && bareLead[0].status === "pending", JSON.stringify(bareLead));
+        const bareRoster = (await db.from("manager_vendor_records").select("id").eq("manager_user_id", fx.owner.id)).data ?? [];
+        check("trade word alone: never silently added to the service owner's roster", bareRoster.length === 0, JSON.stringify(bareRoster));
+
         const known = await say(vendorPhone, "any jobs available?");
         check("known vendor: answered with their job", /1\. Plumbing/.test(known.all), known.all);
         check("known vendor: gets the Find work page, no sign-up link", /\/vendor\/work-orders\/find-work/.test(known.all) && !/\/start\//.test(known.all), known.all);

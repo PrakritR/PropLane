@@ -45,9 +45,31 @@ export type VendorJobsAsk = {
   tradeLabel: VendorTradeLabel | null;
   /** The text itself when it names a Seattle place or zip (what `resolveSeattlePlace` reads), else null. */
   areaText: string | null;
+  /** The text names a trade as who they are or what they do ("handyman here", "cleaner", "I do plumbing"), the PropLane line's vendor signal. */
+  tradeSelfId: boolean;
+  /** A general question a vendor asks about PropLane itself, or null. */
+  question: VendorQuestion | null;
   /** An area the text names that the Seattle table does not hold ("Tacoma"), so the reply can say so. */
   unknownArea: string | null;
 };
+
+export type VendorQuestion = "how" | "pay" | "areas" | "cost";
+
+const TRADE_SELF_ID_RE =
+  /\b(plumb\w*|electrician|electric\w*|handyman|handy man|handymen|handyperson|hvac|locksmith|contractor|roofer|painter|landscap\w*|pest control|exterminator|vendor|quote|estimate|bid|cleaner|cleaners|cleaning (?:service|company|crew|business)|housekeeper|janitor|maid|carpenter|appliance repair|junk removal)\b/i;
+
+const QUESTION_PATTERNS: [VendorQuestion, RegExp][] = [
+  ["pay", /\b(get paid|getting paid|how (?:do|will|does) (?:i|you|we) pay|when (?:do|will) (?:i|we) (?:get )?paid|payouts?|payments?|pay rates?|do you pay|how much (?:do|can|will) (?:i|we|you)[^.?!]{0,20}(?:make|earn|pay|get))\b/i],
+  ["cost", /\b(is it free|free to (?:join|sign)|(?:cost|fees?|charge|price)[^.?!]{0,25}(?:join|sign|account|vendor)|(?:join|sign)[^.?!]{0,25}(?:cost|fee|free))\b/i],
+  ["areas", /\b(what|which) (?:areas?|cities|neighborhoods|zip codes?)\b|\bwhere (?:do|are) (?:you|we|y'all)[^.?!]{0,15}(?:work|operate|cover|located)|\b(?:do you|you) cover\b|\bcoverage\b|\bservice areas?\b/i],
+  ["how", /\bhow (?:does|do|would) (?:it|this|that|propline|that work|this work)[^.?!]{0,12}work\b|\bhow (?:do|can) (?:i|we) (?:get|find|start|begin|sign|join|use)\b|\bhow does\b[^.?!]{0,30}\bwork\b|\bwhat is (?:this|propline)\b|\bwhat do you do\b|\bwho (?:are you|is this)\b|\bhow (?:are )?(?:jobs|work) (?:offered|assigned|posted|given)\b/i],
+];
+
+export function readVendorQuestion(text: string): VendorQuestion | null {
+  const t = String(text ?? "");
+  for (const [topic, re] of QUESTION_PATTERNS) if (re.test(t)) return topic;
+  return null;
+}
 
 const JOBS_RE = /\b(jobs?|gigs?|work|leads?|openings?|opportunit(?:y|ies)|available|anything)\b/i;
 const LINK_RE = /\b(link|sign ?up|sign me up|register|create (an? )?(account|profile)|join|get started|account|profile)\b/i;
@@ -65,6 +87,8 @@ export function readVendorJobsAsk(text: string): VendorJobsAsk {
     vendorish,
     wantsJobs: vendorish || JOBS_RE.test(body) || Boolean(place) || Boolean(trade),
     wantsLink: LINK_RE.test(body),
+    tradeSelfId: TRADE_SELF_ID_RE.test(body),
+    question: readVendorQuestion(body),
     trade,
     tradeLabel: tradeLabelFor(trade),
     areaText: place ? body : null,
