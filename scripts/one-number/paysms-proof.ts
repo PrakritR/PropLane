@@ -10,11 +10,11 @@
  * starts `next dev --webpack`, and restores the config and removes its fixtures at the end.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquireE2eLock, waitHealthy } from "./e2e/health.mjs";
-import { CRON_SECRET, FAKE_ACCOUNT_SID, FAKE_AUTH_TOKEN, Harness, createDb, hex, loadDevEnv, sleep } from "./e2e/core.mjs";
+import { CRON_SECRET, FAKE_ACCOUNT_SID, FAKE_AUTH_TOKEN, Harness, createDb, hex, loadDevEnv } from "./e2e/core.mjs";
 import { restoreBaseline } from "./e2e/baseline.mjs";
 import { cleanup } from "./e2e/cleanup.mjs";
 import { World } from "./e2e/fixtures.mjs";

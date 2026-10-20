@@ -1008,3 +1008,7 @@ and `--mode shared`. `MX_ITEMS=5,9` limits a run to those items. Each run ends w
 - **Open product decisions.** A roster vendor's free-text question (address, payout) is recorded in the manager's inbox with NO automatic reply
   (by design today); an SMS-booked tour sends the prospect no reminder text (the sweep reminds the manager); a resident's "tell my manager" needs a
   YES; the maintenance triage asks up to four questions before filing; phone-bound links (`send_my_link`, OTP unlock) exist only in `shared` mode.
+
+## paysms (Oct 19) - texted codes, rent reminders and the pay link
+
+See [`resident-payments.md`](resident-payments.md) § Pay by text link and [`sms-system.md`](sms-system.md) § Consent basis of a texted code. In short: a code is `control` class, owner / vendor notices use their own consent purposes, every rent reminder carries a fresh phone-bound `/l/<token>` (works in `per_workspace` too), reminders leave from the line of the workspace that holds the house, links in any text sit on their own line on the canonical host, OTP sends are budgeted per purpose, and lease / move-in links open a portal session after the code for a verified phone.
