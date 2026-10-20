@@ -9,6 +9,7 @@
  * says where they come from and how they are archived, replied to and scheduled
  * (`CommunicationInboxAdapter`, `docs/agents/communication-inbox.md`).
  */
+import { adminSmsConversationsUrl, publishAdminSmsWorkspaces } from "@/lib/admin-sms-workspaces";
 import { ADMIN_UI_EVENT } from "@/lib/demo-admin-ui";
 import { AdminThreadPane } from "@/components/portal/admin-thread-pane";
 import { AdminWorkIdentityCard, publishAdminWorkNumber } from "@/components/portal/admin-work-identity-card";
@@ -20,8 +21,6 @@ import {
   syncAdminThreads,
 } from "@/lib/admin-inbox-source";
 
-const ADMIN_SMS_ENDPOINT = "/api/admin/sms-conversations";
-
 /** A successful, empty answer: the text stream is switched off, so there are no rows to read. */
 function emptySmsResponse(): Response {
   return new Response(JSON.stringify({ residents: [], nextCursor: null }), {
@@ -30,7 +29,14 @@ function emptySmsResponse(): Response {
   });
 }
 
-export function createAdminInboxAdapter({ smsUiEnabled }: { smsUiEnabled: boolean }): CommunicationInboxAdapter {
+export function createAdminInboxAdapter({
+  smsUiEnabled,
+  workspaceFilter = "",
+}: {
+  smsUiEnabled: boolean;
+  /** The Filter popover's Workspace value: "" = every workspace, "unassigned", or one service workspace id. */
+  workspaceFilter?: string;
+}): CommunicationInboxAdapter {
   return {
     kind: "admin",
 
@@ -48,12 +54,13 @@ export function createAdminInboxAdapter({ smsUiEnabled }: { smsUiEnabled: boolea
 
     loadSmsConversations: async () => {
       if (!smsUiEnabled) return emptySmsResponse();
-      const res = await fetch(ADMIN_SMS_ENDPOINT, { credentials: "include", cache: "no-store" });
+      const res = await fetch(adminSmsConversationsUrl(workspaceFilter), { credentials: "include", cache: "no-store" });
       if (res.ok) {
-        // The identity box reads the line off the same answer - no second request.
+        // The identity box reads the line off the same answer - no second request; the Workspace filter reads its list.
         try {
-          const body = (await res.clone().json()) as { workNumber?: string | null };
+          const body = (await res.clone().json()) as { workNumber?: string | null; workspaces?: unknown };
           publishAdminWorkNumber(body.workNumber ?? null);
+          publishAdminSmsWorkspaces(body.workspaces);
         } catch {
           /* the list reads its own copy */
         }

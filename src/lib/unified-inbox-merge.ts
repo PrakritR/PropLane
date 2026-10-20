@@ -13,6 +13,11 @@ export type UnifiedInboxListItem = {
   threadId: string;
   name: string;
   subtitle?: string;
+  /**
+   * Admin Communication: the PropLane Service workspace this text conversation was routed to ("Unassigned" when none),
+   * drawn as a plain line under the preview. Unset everywhere else.
+   */
+  placeLine?: string;
   preview: string;
   previewPrefix?: string;
   time: string;
@@ -212,6 +217,7 @@ export function mergeUnifiedInboxItems(
       // that is just the address again.
       name: pickDisplayName(ordered),
       subtitle: ordered.find((row) => row.subtitle?.trim())?.subtitle,
+      placeLine: winner.placeLine ?? ordered.find((row) => row.placeLine)?.placeLine,
       unread: ordered.some((row) =>
         row.unread &&
         !(row.smsNotice && ordered.some((other) => other.channel === "sms" && !other.smsNotice))),

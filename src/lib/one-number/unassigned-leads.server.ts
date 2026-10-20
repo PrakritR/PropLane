@@ -406,7 +406,7 @@ function profileLine(profile: LeadProfile): string {
  */
 export async function assignLeadToHouse(
   db: SupabaseClient,
-  input: { leadId: string; propertyId: string; excludeTurnIds?: string[]; by: "prospect" | "admin" },
+  input: { leadId: string; propertyId?: string; workspaceId?: string; excludeTurnIds?: string[]; by: "prospect" | "admin" },
   depsIn: Pick<LeadDeps, "now"> = {},
 ): Promise<AssignResult> {
   const now = depsIn.now ?? (() => new Date());
@@ -415,25 +415,38 @@ export async function assignLeadToHouse(
   if (!leadRes.data || str((leadRes.data as Row).status) !== "open") return { ok: false, error: "lead_not_open" };
   const lead = toLead(leadRes.data as Row);
 
-  const houseRes = await db
-    .from("manager_property_records")
-    .select("id, workspace_id, manager_user_id, status, property_data, row_data")
-    .eq("id", input.propertyId)
-    .maybeSingle();
-  const house = houseRes.data as Row | null;
-  if (houseRes.error || !house || str(house.status) !== "live") return { ok: false, error: "house_not_found" };
-  let workspaceId = str(house.workspace_id);
-  if (!workspaceId) {
-    // A legacy row not stamped yet belongs to its manager's default workspace.
-    const owned = await db.from("portal_workspaces").select("id").eq("owner_user_id", str(house.manager_user_id)).eq("is_default", true).maybeSingle();
-    workspaceId = str((owned.data as Row | null)?.id);
+  let workspaceId = "";
+  let houseLabel = "";
+  const propertyId = str(input.propertyId);
+  if (propertyId) {
+    const houseRes = await db
+      .from("manager_property_records")
+      .select("id, workspace_id, manager_user_id, status, property_data, row_data")
+      .eq("id", propertyId)
+      .maybeSingle();
+    const house = houseRes.data as Row | null;
+    if (houseRes.error || !house || str(house.status) !== "live") return { ok: false, error: "house_not_found" };
+    workspaceId = str(house.workspace_id);
+    if (!workspaceId) {
+      // A legacy row not stamped yet belongs to its manager's default workspace.
+      const owned = await db.from("portal_workspaces").select("id").eq("owner_user_id", str(house.manager_user_id)).eq("is_default", true).maybeSingle();
+      workspaceId = str((owned.data as Row | null)?.id);
+    }
+    houseLabel = propertyLabel(house.property_data) || propertyLabel(house.row_data);
+  } else {
+    // Admin placing a stranger's thread straight into a PropLane Service workspace (no house yet).
+    workspaceId = str(input.workspaceId);
+    if (input.by !== "admin" || !workspaceId) return { ok: false, error: "house_not_found" };
   }
   // A prospect on the PropLane line is only ever handed to a PropLane-managed workspace: the offers they picked from
   // are drawn from the `is_service` catalog alone, so a pick that names anything else did not come from this flow.
-  if (input.by === "prospect" && !(await workspaceIsService(db, workspaceId))) return { ok: false, error: "house_not_found" };
+  // A workspace named without a house is a service workspace by definition of that admin action.
+  if ((input.by === "prospect" || !propertyId) && !(await workspaceIsService(db, workspaceId))) {
+    return { ok: false, error: propertyId ? "house_not_found" : "workspace_not_found" };
+  }
   const prospect = workspaceId ? await findWorkspaceProspectCandidate(db, workspaceId) : null;
   if (!prospect) return { ok: false, error: "workspace_not_found" };
-  const label = propertyLabel(house.property_data) || propertyLabel(house.row_data) || prospect.label;
+  const label = houseLabel || prospect.label;
 
   const at = now().toISOString();
   const claimed = await db
@@ -441,7 +454,7 @@ export async function assignLeadToHouse(
     .update({
       status: "assigned",
       assigned_workspace_id: prospect.workspaceId,
-      assigned_property_id: input.propertyId,
+      assigned_property_id: propertyId || null,
       assigned_at: at,
       profile: { ...lead.profile, stage: "assigned", asked: null },
       updated_at: at,
@@ -497,7 +510,7 @@ export async function assignLeadToHouse(
     kind: "new_lead",
     urgent: false,
     text: `New lead for ${label}${summary ? `: ${summary}` : ""}`,
-    propertyId: input.propertyId,
+    propertyId: propertyId || null,
     idempotencyKey: `lead-assigned:${lead.id}`,
   }).catch(() => undefined);
 
@@ -556,4 +569,52 @@ export async function listOpenLeads(db: SupabaseClient, opts: { limit?: number; 
     };
   });
   return { items, total: count ?? items.length };
+}
+
+/**
+ * One open lead as an admin Communication text thread: every turn of the stranger's conversation with the PropLane line,
+ * before any workspace holds it. The number is never sent to the browser (masked, like the queue), so the thread is
+ * read-only until it is assigned.
+ */
+export type UnassignedLeadThread = {
+  leadId: string;
+  phoneMasked: string;
+  lastMessageAt: string | null;
+  turns: Array<{ id: string; direction: "inbound" | "outbound"; body: string; createdAt: string }>;
+};
+
+export async function listOpenLeadThreads(db: SupabaseClient, opts: { limit?: number } = {}): Promise<UnassignedLeadThread[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
+  const { data, error } = await db
+    .from("sms_unassigned_leads")
+    .select(LEAD_COLUMNS)
+    .eq("status", "open")
+    .order("last_inbound_at", { ascending: false, nullsFirst: false })
+    .limit(limit);
+  if (error || !data?.length) return [];
+  const leads = (data as Row[]).map(toLead);
+  const turnsRes = await db
+    .from("sms_unassigned_lead_turns")
+    .select("id, lead_id, direction, body, created_at")
+    .in("lead_id", leads.map((lead) => lead.id))
+    .order("created_at", { ascending: true })
+    .limit(2000);
+  const byLead = new Map<string, UnassignedLeadThread["turns"]>();
+  for (const turn of (turnsRes.error ? [] : (turnsRes.data ?? [])) as Row[]) {
+    const leadId = str(turn.lead_id);
+    const list = byLead.get(leadId) ?? [];
+    list.push({
+      id: str(turn.id),
+      direction: str(turn.direction) === "inbound" ? "inbound" : "outbound",
+      body: str(turn.body),
+      createdAt: str(turn.created_at),
+    });
+    byLead.set(leadId, list);
+  }
+  return leads.map((lead) => ({
+    leadId: lead.id,
+    phoneMasked: maskPhoneKey(lead.phoneKey),
+    lastMessageAt: lead.lastInboundAt,
+    turns: byLead.get(lead.id) ?? [],
+  }));
 }

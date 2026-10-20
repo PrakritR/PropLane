@@ -118,6 +118,7 @@ import {
   normalizeManagerSmsConversationsPayload,
   smsConversationDisplayName,
   smsConversationSubtitle,
+  ADMIN_UNASSIGNED_WORKSPACE_LABEL,
   smsThreadHasUnread,
   type ManagerSmsContactsChangedDetail,
   type ManagerSmsResidentConversation,
@@ -931,6 +932,10 @@ export function ManagerUnifiedInbox({
           // Prefer person name / unit / email; fall back to a readable phone.
           name: smsConversationDisplayName(resident),
           subtitle: smsConversationSubtitle(resident) || undefined,
+          // Admin only: the service workspace this text was routed to (the manager's rows never carry one).
+          ...(resident.workspaceId !== undefined
+            ? { placeLine: resident.workspaceName?.trim() || ADMIN_UNASSIGNED_WORKSPACE_LABEL }
+            : {}),
           preview: communicationInboxListPreview(
             lastMessage ? lastMessage.body : "No messages yet",
             listSegment,
@@ -1594,6 +1599,7 @@ export function ManagerUnifiedInbox({
               appearance="flat"
               trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} manager={adapter.smsArchivable} onArchivePlaceholder={handleArchivePlaceholder} />}
               name={row.name}
+              placeLine={row.placeLine}
               preview={row.preview}
               previewPrefix={row.previewPrefix}
               time={row.time}

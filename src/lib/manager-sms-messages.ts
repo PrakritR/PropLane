@@ -131,6 +131,15 @@ export type ManagerSmsResidentConversation = {
    */
   personConversationKey?: string;
   personWorkspaceId?: string;
+  /**
+   * Admin Communication only: the PropLane Service workspace this thread was routed to (the workspace the router
+   * stamped on its messages). Null = not routed anywhere yet ("Unassigned"); absent outside admin.
+   */
+  workspaceId?: string | null;
+  /** Admin Communication only: the name of {@link workspaceId}. */
+  workspaceName?: string | null;
+  /** Admin Communication only: set on a stranger's thread that is still a PropLane-line lead (no workspace yet). */
+  unassignedLeadId?: string | null;
   messages: ManagerSmsMessageRow[];
 };
 
@@ -166,6 +175,9 @@ export function isPhoneLikeLabel(value: string | null | undefined): boolean {
   if (!/^[+()\d\s.\-]+$/.test(t)) return false;
   return t.replace(/\D/g, "").length >= 7;
 }
+
+/** What admin Communication calls a text that has not been routed to a PropLane Service workspace yet. */
+export const ADMIN_UNASSIGNED_WORKSPACE_LABEL = "Unassigned";
 
 /** What {@link smsConversationDisplayName} and its subtitle read from a row. */
 export type SmsConversationLabelSource = Pick<
@@ -237,6 +249,8 @@ export type ManagerSmsConversationsPayload = {
   residents: ManagerSmsResidentConversation[];
   /** Cursor for the next (older) conversation-summary page. */
   nextCursor?: string | null;
+  /** Admin Communication only: every PropLane Service workspace, for the Workspace filter. */
+  workspaces?: { id: string; name: string }[];
 };
 
 /** @deprecated Kept for route redirects from old SMS folder URLs. */
@@ -300,6 +314,10 @@ export function normalizeManagerSmsConversationsPayload(
           ? resident.memberKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
           : undefined,
         ownerManagerUserId: resident?.ownerManagerUserId ?? null,
+        // Admin Communication's workspace placement; absent elsewhere, so it is only copied when the server sent it.
+        ...(resident && "workspaceId" in resident ? { workspaceId: trimmedText(resident.workspaceId) || null } : {}),
+        ...(trimmedText(resident?.workspaceName) ? { workspaceName: trimmedText(resident?.workspaceName) } : {}),
+        ...(trimmedText(resident?.unassignedLeadId) ? { unassignedLeadId: trimmedText(resident?.unassignedLeadId) } : {}),
         houses: Array.isArray(resident?.houses)
           ? resident.houses.filter((house) => house && typeof house.propertyId === "string" && typeof house.label === "string")
           : undefined,

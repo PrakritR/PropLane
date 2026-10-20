@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ADMIN_SMS_UNASSIGNED_FILTER } from "@/lib/admin-sms-workspaces";
 import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import type {
   ConversationHouse,
@@ -746,6 +747,11 @@ export async function fetchManagerSmsConversations(
      * so none of the client's other workspaces is ever shown. Owners not listed are read in full, as before.
      */
     workspaceRestriction?: { ownerIds: string[]; workspaceIds: string[] };
+    /**
+     * Admin oversight: read the stamped `workspace_id` of every message and put the newest one on the conversation
+     * (`workspaceId`), so admin can place a thread in the PropLane Service workspace it was routed to.
+     */
+    stampWorkspace?: boolean;
   },
 ): Promise<ManagerSmsConversationsPayload> {
   const restriction = options?.workspaceRestriction && options.workspaceRestriction.ownerIds.length > 0
@@ -822,6 +828,14 @@ export async function fetchManagerSmsConversations(
   };
   const messagesByKey = new Map<string, ManagerSmsMessageRow[]>();
   const metaByKey = new Map<string, GroupMeta>();
+  // The newest stamped workspace of each key (rows are read newest first, so the first stamp seen wins).
+  const readWorkspaceStamp = Boolean(restriction) || options?.stampWorkspace === true;
+  const workspaceByKey = new Map<string, string>();
+  const noteWorkspace = (key: string, row: unknown): void => {
+    if (!options?.stampWorkspace || !key || workspaceByKey.has(key)) return;
+    const id = String((row as { workspace_id?: unknown }).workspace_id ?? "").trim();
+    if (id) workspaceByKey.set(key, id);
+  };
 
   const pushToKey = (key: string, meta: GroupMeta, msg: ManagerSmsMessageRow): void => {
     if (!key) return;
@@ -836,7 +850,7 @@ export async function fetchManagerSmsConversations(
     .from("inbound_sms_log")
     .select(
       ("id, manager_user_id, from_phone, to_phone, body, message_sid, matched_sender_user_id, counterparty_role, conversation_key, created_at" +
-        (restriction ? ", workspace_id" : "")) as "*",
+        (readWorkspaceStamp ? ", workspace_id" : "")) as "*",
     )
     .in("manager_user_id", scopeManagerIds)
     .order("created_at", { ascending: false })
@@ -854,6 +868,7 @@ export async function fetchManagerSmsConversations(
     const key =
       String(row.conversation_key ?? "").trim() ||
       buildConversationKey({ ownerManagerUserId: ownerId, role, counterpartyUserId, counterpartyPhone: from });
+    noteWorkspace(key, row);
     pushToKey(
       key,
       { ownerId, role, counterpartyUserId, phoneRef: conversationPhoneRef(from), phoneDisplay: from },
@@ -875,7 +890,7 @@ export async function fetchManagerSmsConversations(
     .from("manager_sms_messages")
     .select(
       ("id, manager_user_id, resident_user_id, resident_phone, body, from_phone, to_phone, message_sid, source, created_at, direction, counterparty_role, conversation_key" +
-        (restriction ? ", workspace_id" : "")) as "*",
+        (readWorkspaceStamp ? ", workspace_id" : "")) as "*",
     )
     .in("manager_user_id", scopeManagerIds)
     .order("created_at", { ascending: false })
@@ -906,6 +921,7 @@ export async function fetchManagerSmsConversations(
     const key =
       String(row.conversation_key ?? "").trim() ||
       buildConversationKey({ ownerManagerUserId: ownerId, role, counterpartyUserId, counterpartyPhone: phone });
+    noteWorkspace(key, row);
     pushToKey(
       key,
       { ownerId, role, counterpartyUserId, phoneRef: conversationPhoneRef(phone), phoneDisplay: phone },
@@ -1023,6 +1039,7 @@ export async function fetchManagerSmsConversations(
     // delete has to cover all of them — the canonical key alone would leave the
     // rest of the thread stored and still visible elsewhere.
     const memberKeys = new Set<string>([canonicalKey]);
+    let mergedWorkspaceId: string | null = workspaceByKey.get(canonicalKey) ?? null;
     for (const [key, meta] of [...metaByKey.entries()]) {
       if (meta.ownerId !== ownerId) continue;
       if (meta.role === "prospect") continue;
@@ -1030,6 +1047,7 @@ export async function fetchManagerSmsConversations(
       const phoneMatch = Boolean(phoneRef) && meta.phoneRef === phoneRef;
       if (!idMatch && !phoneMatch) continue;
       memberKeys.add(key);
+      mergedWorkspaceId = mergedWorkspaceId ?? workspaceByKey.get(key) ?? null;
       merged.push(...takeMessages(key));
     }
     merged.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -1045,6 +1063,7 @@ export async function fetchManagerSmsConversations(
       conversationKey: canonicalKey,
       memberKeys: [...memberKeys],
       ownerManagerUserId: ownerId,
+      ...(options?.stampWorkspace ? { workspaceId: mergedWorkspaceId } : {}),
       messages: merged,
     });
   }
@@ -1067,6 +1086,7 @@ export async function fetchManagerSmsConversations(
       conversationKey: key,
       memberKeys: [key],
       ownerManagerUserId: meta.ownerId,
+      ...(options?.stampWorkspace ? { workspaceId: workspaceByKey.get(key) ?? null } : {}),
       messages,
     });
   }
@@ -1381,8 +1401,18 @@ export async function fetchVendorSmsConversation(
  * specific conversation on the shared line (the whole point of explicit
  * conversation identity) and reply/compose into it.
  */
+export { ADMIN_SMS_UNASSIGNED_FILTER };
+
+export type AdminSmsOptions = {
+  /** A PropLane Service workspace id, or {@link ADMIN_SMS_UNASSIGNED_FILTER}; the route validates it before it gets here. */
+  workspaceId?: string | null;
+  /** Add the PropLane line's open leads (strangers no workspace holds yet) as read-only threads. The list route only. */
+  includeLeads?: boolean;
+};
+
 export async function fetchAdminSmsConversations(
   db: SupabaseClient,
+  options: AdminSmsOptions = {},
 ): Promise<ManagerSmsConversationsPayload> {
   const { resolveMappedManagerContacts } = await import("@/lib/claw-resident-messaging.server");
   const cohortIds = [
@@ -1405,18 +1435,116 @@ export async function fetchAdminSmsConversations(
       forwardInbound: true,
       smsConfigured,
       residents: [],
+      workspaces: [],
     };
   }
   // `managerIds[0]` is only a threading anchor, NOT the person at the keyboard,
   // so it must never be treated as a viewer who consented to buying a number.
-  return fetchManagerSmsConversations(db, managerIds[0], {
+  const payload = await fetchManagerSmsConversations(db, managerIds[0], {
     scopeManagerIdsOverride: managerIds,
     provisionWorkNumber: false,
     // Admin oversight is not a viewer of this inbox (the option's own contract): every owner in the scope is read, or
     // the anchor's per-house visibility would hide all but the anchor's own threads.
     visibility: "none",
+    stampWorkspace: true,
     ...(clientOwnerIds.length > 0 ? { workspaceRestriction: { ownerIds: clientOwnerIds, workspaceIds: service.workspaceIds } } : {}),
   });
+  const names = await loadServiceWorkspaceNames(db, service.workspaceIds);
+  return placeAdminSmsConversations(payload, {
+    names,
+    leads: options.includeLeads ? await loadAdminLeadConversations(db, service.serviceOwnerIds[0] ?? null) : [],
+    workspaceId: options.workspaceId ?? null,
+  });
+}
+
+/** Service workspace id -> name. A failed read names nothing (a thread then reads "Unassigned" rather than a guess). */
+async function loadServiceWorkspaceNames(db: SupabaseClient, workspaceIds: string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  if (workspaceIds.length === 0) return names;
+  try {
+    const { data, error } = await db.from("portal_workspaces").select("id, name").in("id", workspaceIds);
+    if (error) return names;
+    for (const row of (data ?? []) as Array<{ id?: unknown; name?: unknown }>) {
+      const id = String(row.id ?? "").trim();
+      if (id) names.set(id, String(row.name ?? "").trim() || "Workspace");
+    }
+  } catch {
+    /* names are a label; the thread is still listed */
+  }
+  return names;
+}
+
+/** The PropLane line's open leads as read-only admin threads. A failed or absent lead store adds nothing. */
+async function loadAdminLeadConversations(db: SupabaseClient, serviceOwnerId: string | null): Promise<ManagerSmsResidentConversation[]> {
+  try {
+    const { listOpenLeadThreads } = await import("@/lib/one-number/unassigned-leads.server");
+    const threads = await listOpenLeadThreads(db);
+    return threads
+      .filter((thread) => thread.turns.length > 0)
+      .map((thread) => {
+        const key = `lead:${thread.leadId}`;
+        return {
+          residentUserId: null,
+          residentEmail: null,
+          name: `Lead ${thread.phoneMasked}`,
+          directoryName: null,
+          phone: null,
+          propertyLabel: null,
+          tenancyStatus: "applicant" as const,
+          counterpartyRole: "prospect" as const,
+          conversationKey: key,
+          memberKeys: [key],
+          ownerManagerUserId: serviceOwnerId,
+          workspaceId: null,
+          unassignedLeadId: thread.leadId,
+          messages: thread.turns.map((turn) => ({
+            id: `lead-turn:${turn.id}`,
+            direction: turn.direction,
+            body: turn.body,
+            fromPhone: null,
+            toPhone: "",
+            messageSid: null,
+            source: "work_number" as const,
+            createdAt: turn.createdAt,
+          })),
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Pure. Puts every admin text on its PropLane Service workspace (or "Unassigned"), adds the open leads, narrows to the
+ * requested workspace and orders newest first. Only a SERVICE workspace counts as a placement: a stamp on any other
+ * workspace (the service owner's own, say) reads as unassigned, never as a workspace admin has no business naming.
+ */
+export function placeAdminSmsConversations(
+  payload: ManagerSmsConversationsPayload,
+  args: { names: Map<string, string>; leads: ManagerSmsResidentConversation[]; workspaceId: string | null },
+): ManagerSmsConversationsPayload {
+  const placed = payload.residents.map((resident) => {
+    const id = String(resident.workspaceId ?? "").trim();
+    const known = id && args.names.has(id);
+    return { ...resident, workspaceId: known ? id : null, workspaceName: known ? args.names.get(id)! : null };
+  });
+  const wanted = String(args.workspaceId ?? "").trim();
+  const all = [...placed, ...args.leads];
+  const residents = !wanted
+    ? all
+    : all.filter((resident) =>
+        wanted === ADMIN_SMS_UNASSIGNED_FILTER ? !resident.workspaceId : resident.workspaceId === wanted,
+      );
+  residents.sort((a, b) => {
+    const aLast = a.messages[a.messages.length - 1]?.createdAt ?? "";
+    const bLast = b.messages[b.messages.length - 1]?.createdAt ?? "";
+    return bLast.localeCompare(aLast);
+  });
+  return {
+    ...payload,
+    residents,
+    workspaces: [...args.names].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+  };
 }
 
 /** Who admin Communication reads for PropLane Service. Empty when no service is configured or a read fails (nothing is added). */

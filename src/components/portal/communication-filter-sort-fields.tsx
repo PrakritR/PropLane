@@ -25,6 +25,35 @@ const SORT_OPTIONS: { value: CommunicationListSort; label: string }[] = [
   { value: "resident", label: "Resident (A–Z)" },
 ];
 
+/**
+ * Admin Communication's Workspace field: which PropLane Service workspace a text was routed to. Its own component so the
+ * draft hook only exists on a surface that has the field.
+ */
+function WorkspaceFilterSection({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const [draft, setDraft] = usePortalFilterDraft(value, onChange, "");
+  const all = [{ value: "", label: "All workspaces" }, ...options];
+  return (
+    <FilterCollapsibleSection
+      sectionId="workspace"
+      label="Workspace"
+      summary={filterSingleSelectSummary(draft, all, "All workspaces")}
+      empty={draft === ""}
+      menuOptionCount={all.length}
+      dataAttr="communication-filter-workspace-trigger"
+    >
+      <FilterSingleSelectList options={all} value={draft} onChange={setDraft} dataAttr="communication-filter-workspace" />
+    </FilterCollapsibleSection>
+  );
+}
+
 export function CommunicationFilterSortFields({
   propertyOptions,
   roleOptions,
@@ -37,6 +66,9 @@ export function CommunicationFilterSortFields({
   hideRole = false,
   hideAbout = false,
   showScheduled = false,
+  workspaceOptions,
+  workspaceValue = "",
+  onWorkspaceChange,
 }: {
   propertyOptions: { value: string; label: string }[];
   roleOptions: { value: CommunicationFilterRole; label: string }[];
@@ -53,6 +85,10 @@ export function CommunicationFilterSortFields({
   hideAbout?: boolean;
   /** Phone-only Scheduled list view in the Status filter. */
   showScheduled?: boolean;
+  /** Admin only: the PropLane Service workspaces a text can be routed to (the Workspace filter). Absent = no such field. */
+  workspaceOptions?: { value: string; label: string }[];
+  workspaceValue?: string;
+  onWorkspaceChange?: (next: string) => void;
 }) {
   const [draftFilters, setDraftFilters] = usePortalFilterDraft(
     filters,
@@ -72,6 +108,9 @@ export function CommunicationFilterSortFields({
         hideArchived={hideArchived}
         showScheduled={showScheduled}
       />
+      {workspaceOptions && onWorkspaceChange ? (
+        <WorkspaceFilterSection options={workspaceOptions} value={workspaceValue} onChange={onWorkspaceChange} />
+      ) : null}
       {hideHouse ? null : <FilterCollapsibleSection
         sectionId="house"
         label="House"
