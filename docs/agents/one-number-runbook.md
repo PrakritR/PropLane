@@ -106,6 +106,18 @@ branch, and `db:push` applies it only once merged):
 | 20261019160000 | `phone_auth_send_budget_per_purpose` | `phone_auth_start` send budget per purpose under the phone-wide ceiling |
 | 20261019170000 | `sms_stay_offers` | the options a texter was quoted for a short stay and the one they picked (service role only, RLS on, no client grants); additive, inert until the leasing agent calls `quote_short_stays` (branch: `on/smsstay`; applied to dev only) |
 | 20261019160100 | `service_vendors_and_manager_phone` | `platform_service_settings.manager_phone_e164` / `manager_phone_verified_at`, `phone_otp_challenges.purpose` gains `service_manager` (rebuilt as the union of the live list), partial index on roster vendor rows (branch: `on/adminops`) |
+| 20261019100000 | `managed_read_only` | `managed_read_only_workspace_ids()` - a PropLane-managed client's own workspace is view-only unless she pays for a plan herself (staff keep write). Superseded by v2 and v3 below; all three land, in order, and the migration goes BEFORE the code (a missing function refuses every non-allowlisted write) |
+| 20261019120000 | `managed_read_only_v2` | restates that rule: self-paid is a `manager_purchases` row matched by `user_id` alone, tier pro/business, with a Stripe subscription id or an Apple anchor - a free-tier row written before payment no longer counts |
+| 20261019140000 | `managed_refund_gross` | a full refund of a managed capture may reverse principal PLUS the processing fee the resident added at checkout (one defaulted column, create-or-replace) |
+| 20261020100000 | `managed_read_only_v3` | the final view-only rule: admin is `profile_roles`, never the legacy `profiles.role` column |
+| 20261020100100 | `phone_required_skip_cap` | "Skip for now" on `/auth/verify-phone` is capped per account (7-day cooldown, 3 in a lifetime), because the person chooses the number whose failed send is the skip's own proof |
+| 20261020100200 | `sms_confirmation_codes` | the hashed 4-digit code a manager phone repeats to confirm a write on the PropLane line, with its attempt count (three wrong codes cancel the proposal) |
+| 20261020100300 | `sms_confirmation_code_proposal` | `proposal_id` on that row: a NEW proposal on the same run resets the guess budget, a re-ask of the open one does not |
+| 20261020100400 | `manager_plan_reconcile_retry` | the daily plan reconciler stamps every outcome and backs a failed provider off, so an outage cannot hold the head of the queue |
+| 20261020110000 | `phone_required_skip_atomic` | `record_phone_required_skip`: the skip cap's count and insert in ONE transaction under a per-account advisory lock |
+| 20261020110100 | `sms_confirmation_failures_and_stay_request` | `sms_confirmation_failures` (a keyed hash of the phone, never the number: ten wrong codes in 24 hours pause the coded path for it) and `subject_kind` gains `stay_request` |
+| 20261020120000 | `sms_confirmation_phone_reserve` | that per-phone budget reserved atomically (count + insert under a per-phone advisory lock), so a burst of guesses cannot walk past it |
+| 20261020130000 | `manager_purchase_subscription_status` | `manager_purchases.subscription_status`: a `trialing` Checkout subscription is not a self-paid plan, so a card-on-file trial does not lift the managed view-only lock |
 
 Check after the push (SQL editor, read-only):
 

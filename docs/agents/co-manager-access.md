@@ -104,6 +104,17 @@ with an empty map grants nothing. Catalog: `src/lib/co-manager-team-roles.ts`.
 Column: `account_link_invites.team_role` (copied from
 `manager_invite_links.team_role` on redeem, with `house_scope`).
 
+**Accepting a seat stamps the account-wide `manager` role.** Both accept paths - the
+direct invite (`PATCH /api/pro/account-links/[inviteId]`, action `accept`) and the open-link
+redeem - write a `profile_roles` row for the invitee for every seat but `property_owner`
+(`ensureProfileRoleRow`; a failed stamp fails the accept). Without it a teammate whose
+account was created as a resident read as resident-only to everything downstream - including
+the SMS-proof rule, which would then mint a session on an inbound text alone
+([`one-number.md`](one-number.md) § W5). The role is one row per ACCOUNT, not per seat, so
+rolling an invite back never removes it while any other accepted non-owner seat stands
+(`holdsAcceptedManagerSeat`, `src/lib/auth/team-seat-manager-role.server.ts`; an unreadable
+answer counts as justified - leaving a role in place is recoverable, taking it away is not).
+
 **Shareable invite links do not need a PropLane ID.** Houses default to every
 house currently in the workspace. See `docs/agents/send-message-compose.md`
 for how Send resolves a channel. The accept screen sits in the sign-in split shell
@@ -671,13 +682,9 @@ its Property-portal home (`src/lib/property-owner/legacy-redirects.ts`, read by 
   `DropdownMenuItem`, `resolveAddPropertyWorkspaceAction`), `data-read-only="managed"` on the root, and one strip under the top
   bar: "Managed by PropLane · View only" with Message the team (Team chat) and Get a plan (Billing & plan).
   `tests/unit/managed-read-only-ui.test.tsx`.
-- What lifts the lock is a plan the client pays for herself: tier pro|business plus an Apple anchor, or a Stripe
-  subscription whose `manager_purchases.subscription_status` is `active` / `past_due`. A card-on-file TRIAL
-  (`trialing`, from manager Checkout's `trial_period_days`), an admin grant, a waiver and an unwritten status do not -
-  one rule in `hasSelfPaidPlan` and its SQL mirror `managed_read_only_owned_locked_ids`
-  (`supabase/migrations/20261020130000_manager_purchase_subscription_status.sql`); the status is written by the Stripe
-  subscription webhook, the plan reconciler and checkout fulfillment. Staff (platform admin via `profile_roles`, the
-  platform service owner) are never locked.
+- Which workspaces are locked, what lifts the lock (a plan the client pays for herself; a card-on-file trial does not)
+  and who is never locked (platform staff) are ONE rule, owned by [`owner-management.md`](owner-management.md)
+  § Invariants 8 - `hasSelfPaidPlan` and its SQL mirror `managed_read_only_owned_locked_ids`. Do not restate it here.
 - Owner money lives in Finances › Owner payouts (`financials/owner-payouts`, `OwnerPayoutsPanel` over `/api/owner/finances/*`),
   shown only when `GET /api/owner/finances` answers (403 hides the tab).
 

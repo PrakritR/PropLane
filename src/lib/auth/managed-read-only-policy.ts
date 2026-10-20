@@ -2,7 +2,7 @@
  * Managed (PropLane Service) workspaces are view-only for their client. Pure policy, edge-safe
  * (no server imports): the middleware, the inbox route and the tests all read it from here.
  * The rule itself (which workspaces are locked) lives in `managed_read_only_workspace_ids()` and
- * its TS mirror `managed-read-only.server.ts`; docs/agents/owner-management.md § View-only.
+ * its TS mirror `managed-read-only.server.ts`; docs/agents/owner-management.md § Invariants 8.
  */
 
 export const MANAGED_READ_ONLY_CODE = "read_only_managed";

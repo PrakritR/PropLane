@@ -47,9 +47,14 @@ from a request. A workspace with no policy is not managed.
    managed / nothing there" (production runs code before migrations).
 
 8. **A PropLane-managed workspace is view-only for its client.** `portal_workspaces.is_service` + owner = client, no
-   SELF-PAID plan (a Stripe subscription id, monthly/annual billing or an Apple anchor; admin grants, trials and waivers do
-   not count), and the client is neither a platform admin nor the platform service owner. The rule is
-   `public.managed_read_only_workspace_ids()` (migration `20261019100000`), mirrored in
+   SELF-PAID plan, and the client is neither a platform admin (by `profile_roles`, never the legacy `profiles.role`
+   column) nor the platform service owner. Self-paid is tier pro|business plus EITHER an Apple anchor OR a Stripe
+   subscription whose `manager_purchases.subscription_status` is `active` / `past_due`; a card-on-file TRIAL
+   (`trialing`, from manager Checkout's `trial_period_days`), an admin grant, a waiver and an unwritten status do not
+   count. The status is written by the Stripe subscription webhook, the plan reconciler and checkout fulfillment. The
+   rule is `public.managed_read_only_workspace_ids()` (for `auth.uid()`, driving the UI flag and the tools) and
+   `public.managed_read_only_owned_locked_ids(uid)` (service role), migrations `20261019100000` -> `20261019120000` ->
+   `20261020100000`, with `20261020130000` for the status column; mirrored in `hasSelfPaidPlan` /
    `src/lib/auth/managed-read-only.server.ts`; it also locks an accepted `property_owner` seat. Enforced in the middleware
    (non-allowlisted `/api/*` writes: `403 read_only_managed`, a failed lookup `503`; allowlist in
    `managed-read-only-policy.ts`), `scopeManagerTool` (every write tool), `/api/portal-inbox-threads` (Team chat and the
@@ -233,8 +238,14 @@ the work order's key (`vendor-bill:work_order:<id>`), so a repeat posts nothing 
 
 A withdrawal Transfers to the person's Express account, then creates a bank payout only when that account is on a **manual** payout
 schedule. On Stripe's **automatic** schedule no payout is created (it would error after the transfer landed); the response carries
-`payoutAutomatic: true` and the UI says "On its way with your next automatic payout". An unreadable schedule falls back to trying the
-payout, and a payout failure after a landed transfer is recorded, never an error to the person.
+`payoutAutomatic: true` and the UI says "On its way with your next automatic payout". A payout failure after a landed transfer is
+recorded, never an error to the person.
+
+A schedule that could not be READ starts no payout and promises none: the withdrawal keeps
+`PAYOUT_SCHEDULE_UNVERIFIED_ERROR` as its `payout_error` (the marker `reconcileWithdrawals` matches, not just displays) and the
+response carries `payoutScheduleUnknown: true`. The reconciler re-reads the schedule on its next run - `manual` gets the payout then
+under the same idempotency key, `automatic` is recorded as Stripe's own job, and a schedule still unreadable is left for the run
+after. Without that pass the transfer would sit in a manual-schedule recipient's Stripe balance for ever.
 
 ## Stripe webhook endpoints
 
