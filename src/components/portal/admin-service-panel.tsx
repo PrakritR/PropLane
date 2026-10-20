@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, Home, Phone, Plug, Users } from "lucide-react";
+import { Building2, Home, Phone, Plug, Settings, Users } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { PortalListGroup } from "@/components/portal/portal-list-group";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -10,6 +11,8 @@ import { PortalEntryRow, type PortalEntryRowFact } from "@/components/portal/por
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { AdminNewServiceWorkspace } from "@/components/portal/admin-new-service-workspace";
+import { AdminServiceManagerPhone } from "@/components/portal/admin-service-manager-phone";
+import { AdminServiceVendorsList } from "@/components/portal/admin-service-vendors-list";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -104,6 +107,10 @@ async function post<T extends Record<string, unknown>>(body: Record<string, unkn
  */
 export function AdminServicePanel() {
   const { showToast } = useAppUi();
+  const searchParams = useSearchParams();
+  const tab: "workspaces" | "vendors" = searchParams?.get("tab") === "vendors" ? "vendors" : "workspaces";
+  const [vendorAddOpen, setVendorAddOpen] = useState(false);
+  const [managerPhoneOpen, setManagerPhoneOpen] = useState(false);
   const [state, setState] = useState<State>({ status: "loading" });
   const [reloadTick, setReloadTick] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -383,28 +390,50 @@ export function AdminServicePanel() {
         className="mb-2"
         variant="command"
         stickyDestinations={false}
-        destinations={[]}
-        activeDestinationId=""
+        destinations={[
+          { id: "workspaces", label: "Workspaces", href: "/admin/service", dataAttr: "admin-service-tab-workspaces" },
+          { id: "vendors", label: "Vendors", href: "/admin/service?tab=vendors", dataAttr: "admin-service-tab-vendors" },
+        ]}
+        activeDestinationId={tab}
         destinationAriaLabel="Service"
         actions={
-          <PortalIconAction
-            icon={Plug}
-            label="Attach existing workspace"
-            ariaLabel="Attach existing workspace"
-            data-attr="admin-service-attach"
-            disabled={notConfigured || state.status === "loading"}
-            onClick={() => { setFormError(null); setAttachQuery(""); setAttachId(""); setAttachCity(""); setAttachLabel(""); setAttachReason(""); setAttachCandidates([]); setAttachOpen(true); }}
-          />
+          <>
+            <PortalIconAction
+              icon={Settings}
+              label="Manager phone"
+              ariaLabel="Manager phone"
+              data-attr="admin-service-settings"
+              onClick={() => setManagerPhoneOpen(true)}
+            />
+            {tab === "workspaces" ? (
+              <PortalIconAction
+                icon={Plug}
+                label="Attach existing workspace"
+                ariaLabel="Attach existing workspace"
+                data-attr="admin-service-attach"
+                disabled={notConfigured || state.status === "loading"}
+                onClick={() => { setFormError(null); setAttachQuery(""); setAttachId(""); setAttachCity(""); setAttachLabel(""); setAttachReason(""); setAttachCandidates([]); setAttachOpen(true); }}
+              />
+            ) : null}
+          </>
         }
         primary={
-          <PortalPrimaryIconAction
-            label="Add workspace"
-            data-attr="admin-service-add"
-            disabled={notConfigured || state.status === "loading"}
-            onClick={() => setAddOpen(true)}
-          />
+          tab === "vendors" ? (
+            <PortalPrimaryIconAction label="Add vendor" data-attr="admin-service-vendor-add" onClick={() => setVendorAddOpen(true)} />
+          ) : (
+            <PortalPrimaryIconAction
+              label="Add workspace"
+              data-attr="admin-service-add"
+              disabled={notConfigured || state.status === "loading"}
+              onClick={() => setAddOpen(true)}
+            />
+          )
         }
       />
+      <AdminServiceManagerPhone open={managerPhoneOpen} onClose={() => setManagerPhoneOpen(false)} />
+      {tab === "vendors" ? (
+        <AdminServiceVendorsList addOpen={vendorAddOpen} onAddClose={() => setVendorAddOpen(false)} />
+      ) : (
       <PortalRecordListSurface
         loading={state.status === "loading"}
         loadError={state.status === "error" ? state.message : undefined}
@@ -442,6 +471,7 @@ export function AdminServicePanel() {
           </PortalListGroup>
         ))}
       </PortalRecordListSurface>
+      )}
 
       <AdminNewServiceWorkspace
         open={addOpen}
