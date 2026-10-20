@@ -61,6 +61,14 @@ const slotsInputSchema = z
 
 type SlotsInput = z.infer<typeof slotsInputSchema>;
 
+/**
+ * A slot label as a prospect should read it in a text: the stored label ends "· 2026-10-22 Pacific" (a date key and a middle
+ * dot, which turns the whole text into UCS-2 and costs extra segments). The range already names the day.
+ */
+export function smsTourLabel(label: string): string {
+  return label.replace(/\s*[·•]\s*\d{4}-\d{2}-\d{2}\s+Pacific\s*$/i, "").replace(/[·•]/g, "-").trim();
+}
+
 type OfferedSlot = { slotKey: string; start: string; end: string; label: string; hostUserId: string; hostLabel: string };
 type OfferedSlotsResult = { slots: OfferedSlot[]; timeZone: string; resolution: "resolved" | "unavailable"; total: number; returned: number; complete: boolean; nextOffset: number | null; generatedAt: string; currentPacificDate: string; currentPacificWeekday: string; publishedOnly: boolean };
 
@@ -449,7 +457,7 @@ export const prepareProspectTourConfirmationTool = defineWriteTool<z.infer<typeo
       workerId: burst.workerId,
     });
     if (!result.ok) throw new Error(result.reason);
-    const reply = `Please confirm ${offered.label} for ${input.propertyTitle?.trim() || "the tour"} by replying YES.`;
+    const reply = `Please confirm ${smsTourLabel(offered.label)} for ${input.propertyTitle?.trim() || "the tour"} by replying YES.`;
     return { reply, terminalInlineReply: reply, preparedOffer };
   },
 });
@@ -478,7 +486,7 @@ export const confirmProspectSmsTourTool = defineWriteTool<z.infer<typeof confirm
     if (existing) {
       const sideEffects = await recoverProspectTourBookingSideEffects(ctx.db, existing);
       const label = typeof existing.offer_snapshot?.label === "string" ? existing.offer_snapshot.label : input.start;
-      const reply = `That tour is already confirmed for ${label}.`;
+      const reply = `That tour is already confirmed for ${smsTourLabel(label)}.`;
       return {
         reply,
         terminalInlineReply: reply,
@@ -554,7 +562,7 @@ export const confirmProspectSmsTourTool = defineWriteTool<z.infer<typeof confirm
     });
     if (!persistedBooking) throw new Error("Tour booked, but its recovery record could not be loaded.");
     const { calendarSync, managerNotification } = await recoverProspectTourBookingSideEffects(ctx.db, persistedBooking);
-    const reply = result.idempotent ? `That tour is already confirmed for ${offered.label}.` : `Tour confirmed for ${offered.label}.`;
+    const reply = result.idempotent ? `That tour is already confirmed for ${smsTourLabel(offered.label)}.` : `Tour confirmed for ${smsTourLabel(offered.label)}.`;
     return {
       reply,
       terminalInlineReply: reply,

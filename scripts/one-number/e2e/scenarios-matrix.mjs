@@ -98,7 +98,7 @@ export function notRun(ctx, n, title, why) {
 }
 
 /** Every listing link in `text` names a house that really exists in this run. */
-function listingIds(text) { return [...String(text).matchAll(/\/rent\/listings\/([A-Za-z0-9_.-]+)/g)].map((m) => m[1]); }
+function listingIds(text) { return [...String(text).matchAll(/\/rent\/listings\/([A-Za-z0-9_-]+)/g)].map((m) => m[1]); }
 
 /** GET a PropLane link against the local dev server (the same path on 127.0.0.1) and report the status. */
 async function resolveLink(h, url) {
