@@ -118,6 +118,44 @@ describe("manager-purchase-from-session", () => {
     expect((await patchFor("active")).subscription_status).toBe("active");
   });
 
+  it("stamps first_paid_at only when the session collected money (not a trial or a 100%-off session)", async () => {
+    const stamped = async (amountTotal: number) => {
+      const markEq = vi.fn().mockResolvedValue({ error: null });
+      const markIs = vi.fn(() => ({ eq: markEq }));
+      const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }), is: markIs }));
+      const query = {
+        eq: vi.fn(),
+        maybeSingle: vi.fn().mockResolvedValue({
+          data: { id: "purchase-1", user_id: null, manager_id: "MGR-TEST", email: "manager@example.com" },
+          error: null,
+        }),
+      };
+      query.eq.mockReturnValue(query);
+      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
+        from: vi.fn(() => ({ select: vi.fn(() => query), update })),
+      } as never);
+      await recordPaidManagerCheckoutSession(
+        mockCheckoutSession({
+          id: `cs_test_paid_${amountTotal}`,
+          customer_email: "manager@example.com",
+          amount_total: amountTotal,
+          metadata: { tier: "pro", billing: "monthly", manager_id: "MGR-TEST" },
+        }),
+      );
+      return { markIs, markEq, calls: update.mock.calls as unknown as Array<[Record<string, unknown>]> };
+    };
+
+    const paid = await stamped(4900);
+    expect(paid.calls[0]![0]).not.toHaveProperty("first_paid_at");
+    expect(paid.calls[1]![0]).toEqual({ first_paid_at: expect.any(String) });
+    expect(paid.markIs).toHaveBeenCalledWith("first_paid_at", null);
+    expect(paid.markEq).toHaveBeenCalledWith("id", "purchase-1");
+
+    const free = await stamped(0);
+    expect(free.markIs).not.toHaveBeenCalled();
+    expect(free.calls).toHaveLength(1);
+  });
+
   it("records a redeemed FREEFIRST in stripe_promotion_code and never in the waiver column", async () => {
     const update = vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) }));
     const query = {

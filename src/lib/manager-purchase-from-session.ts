@@ -2,7 +2,7 @@ import type Stripe from "stripe";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 import { getStripe } from "@/lib/stripe";
-import { writeManagerPurchasePatch } from "@/lib/manager-purchase-subscription-status";
+import { markManagerPurchaseFirstPaid, writeManagerPurchasePatch } from "@/lib/manager-purchase-subscription-status";
 import { resolveCheckoutSessionPromoCodeResult } from "@/lib/stripe/checkout-promo-code.server";
 
 type ManagerPurchaseDb = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -264,4 +264,9 @@ export async function recordPaidManagerCheckoutSession(session: Stripe.Checkout.
     (next) => supabase.from("manager_purchases").update(next).eq("id", stored.id),
   );
   if (verifiedUpdateError) throw new Error(verifiedUpdateError.message);
+  // Money actually moved: a trial or a 100%-off session has amount_total 0 and never counts toward the lock's
+  // "self-paid" proof. Stamped only while null, in its own write so a retry never rewrites the first payment.
+  if (session.payment_status === "paid" && (session.amount_total ?? 0) > 0) {
+    await markManagerPurchaseFirstPaid(supabase, { column: "id", value: stored.id });
+  }
 }

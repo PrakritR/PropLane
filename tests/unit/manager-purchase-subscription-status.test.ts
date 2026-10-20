@@ -8,7 +8,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
-import { isMissingSubscriptionStatusColumn, writeManagerPurchasePatch } from "@/lib/manager-purchase-subscription-status";
+import { isMissingSubscriptionStatusColumn, markManagerPurchaseFirstPaid, writeManagerPurchasePatch } from "@/lib/manager-purchase-subscription-status";
 
 const missing = { code: "PGRST204", message: "Could not find the 'subscription_status' column of 'manager_purchases' in the schema cache" };
 
@@ -63,5 +63,48 @@ describe("writeManagerPurchasePatch", () => {
     const run = vi.fn(async () => ({ error: missing }));
     await writeManagerPurchasePatch({ tier: "pro" }, run);
     expect(run).toHaveBeenCalledTimes(1);
+  });
+});
+
+const missingPaid = { code: "PGRST204", message: "Could not find the 'first_paid_at' column of 'manager_purchases' in the schema cache" };
+
+describe("first_paid_at is an optional column too (migration 20261020140000)", () => {
+  it("drops first_paid_at, keeps subscription_status, and drops both when both are missing", async () => {
+    const patch = { tier: "free", subscription_status: null, first_paid_at: null };
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const one = vi.fn(async (p: Record<string, unknown>) => ("first_paid_at" in p ? { error: missingPaid } : { error: null }));
+    expect(await writeManagerPurchasePatch(patch, one)).toEqual({ error: null });
+    expect(one.mock.calls[1]![0]).toEqual({ tier: "free", subscription_status: null });
+
+    const both = vi.fn(async (p: Record<string, unknown>) =>
+      "first_paid_at" in p ? { error: missingPaid } : "subscription_status" in p ? { error: missing } : { error: null },
+    );
+    expect(await writeManagerPurchasePatch(patch, both)).toEqual({ error: null });
+    expect(both.mock.calls.at(-1)![0]).toEqual({ tier: "free" });
+    logged.mockRestore();
+  });
+});
+
+describe("markManagerPurchaseFirstPaid", () => {
+  const fake = (error: unknown) => {
+    const eq = vi.fn(async () => ({ error }));
+    const is = vi.fn(() => ({ eq }));
+    const update = vi.fn(() => ({ is }));
+    return { db: { from: vi.fn(() => ({ update })) }, update, is, eq };
+  };
+
+  it("stamps only while null, on the matched row", async () => {
+    const f = fake(null);
+    await markManagerPurchaseFirstPaid(f.db, { column: "stripe_subscription_id", value: "sub_1" }, new Date("2026-10-20T00:00:00Z"));
+    expect(f.update).toHaveBeenCalledWith({ first_paid_at: "2026-10-20T00:00:00.000Z" });
+    expect(f.is).toHaveBeenCalledWith("first_paid_at", null);
+    expect(f.eq).toHaveBeenCalledWith("stripe_subscription_id", "sub_1");
+  });
+
+  it("tolerates a missing column (logs, lock stays closed) but throws any other error", async () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await expect(markManagerPurchaseFirstPaid(fake(missingPaid).db, { column: "id", value: "p1" })).resolves.toBeUndefined();
+    await expect(markManagerPurchaseFirstPaid(fake({ code: "40P01", message: "deadlock" }).db, { column: "id", value: "p1" })).rejects.toThrow("deadlock");
+    logged.mockRestore();
   });
 });

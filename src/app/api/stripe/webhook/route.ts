@@ -43,7 +43,7 @@ import {
   recordPaidManagerCheckoutSession,
   resolveManagerCheckoutPurchase,
 } from "@/lib/manager-purchase-from-session";
-import { writeManagerPurchasePatch } from "@/lib/manager-purchase-subscription-status";
+import { markManagerPurchaseFirstPaid, writeManagerPurchasePatch } from "@/lib/manager-purchase-subscription-status";
 import { recordAutoExpense } from "@/lib/reports/auto-expense";
 import {
   inferPaidTierFromStripePriceId,
@@ -569,6 +569,11 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
         if (await refuseWebhookOwner(db, invoiceOwner, "invoice_paid")) {
           return NextResponse.json({ received: true }, { status: 200 });
         }
+        // Real money moved on this subscription: the managed view-only lock's proof of a self-paid plan. A $0 invoice
+        // (trial, 100%-off promotion) never counts. Throws on a write error so Stripe retries the delivery.
+        if (inv.amount_paid > 0) {
+          await markManagerPurchaseFirstPaid(db, { column: "stripe_subscription_id", value: subId });
+        }
         try {
           await applyScheduledDowngradeAfterInvoicePaid(subId, inv.billing_reason ?? null);
         } catch (e) {
@@ -632,7 +637,7 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
       try {
         if (event.type === "customer.subscription.deleted") {
           const { error: downgradeError } = await writeManagerPurchasePatch(
-            { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null },
+            { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null, first_paid_at: null },
             (patch) => db.from("manager_purchases").update(patch).eq("stripe_subscription_id", sub.id),
           );
           if (downgradeError) throw new Error(downgradeError.message || "Could not downgrade the cancelled plan.");

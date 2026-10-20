@@ -21,6 +21,7 @@ import {
 } from "@/lib/auth/managed-read-only-policy";
 
 type Row = Record<string, unknown>;
+const PAID = "2026-10-01T00:00:00Z";
 
 /** A tiny PostgREST-shaped fake: select / eq / in / ilike / maybeSingle over in-memory tables. */
 function fakeDb(tables: Record<string, Row[]>, failTable?: string): SupabaseClient {
@@ -72,14 +73,14 @@ describe("hasSelfPaidPlan", () => {
     expect(hasSelfPaidPlan(null)).toBe(false);
   });
   it("a free-tier row never counts, even with a subscription id or an apple anchor", () => {
-    expect(hasSelfPaidPlan([{ tier: "free", stripe_subscription_id: "sub_1", subscription_status: "active" }])).toBe(false);
+    expect(hasSelfPaidPlan([{ tier: "free", stripe_subscription_id: "sub_1", subscription_status: "active", first_paid_at: PAID }])).toBe(false);
     expect(hasSelfPaidPlan([{ tier: "free", apple_original_transaction_id: "2000001" }])).toBe(false);
-    expect(hasSelfPaidPlan([{ tier: null, stripe_subscription_id: "sub_1", subscription_status: "active" }])).toBe(false);
+    expect(hasSelfPaidPlan([{ tier: null, stripe_subscription_id: "sub_1", subscription_status: "active", first_paid_at: PAID }])).toBe(false);
   });
   it("a pro or business row with an ACTIVE stripe subscription or an apple anchor is self-paid", () => {
-    expect(hasSelfPaidPlan([{ tier: "pro", stripe_subscription_id: "sub_1", subscription_status: "active" }])).toBe(true);
+    expect(hasSelfPaidPlan([{ tier: "pro", stripe_subscription_id: "sub_1", subscription_status: "active", first_paid_at: PAID }])).toBe(true);
     expect(hasSelfPaidPlan([{ tier: "Business", apple_original_transaction_id: "2000001" }])).toBe(true);
-    expect(hasSelfPaidPlan([{ tier: "free" }, { tier: "pro", stripe_subscription_id: "sub_2", subscription_status: "ACTIVE" }])).toBe(true);
+    expect(hasSelfPaidPlan([{ tier: "free" }, { tier: "pro", stripe_subscription_id: "sub_2", subscription_status: "ACTIVE", first_paid_at: PAID }])).toBe(true);
   });
   it("a card-on-file TRIAL is not self-paid: manager checkout carries trial_period_days", () => {
     // `trialing` is what fulfillment records for a Pro/Business checkout that has paid nothing. Treating the
@@ -95,7 +96,7 @@ describe("hasSelfPaidPlan", () => {
     expect(hasSelfPaidPlan([{ tier: "pro", stripe_subscription_id: "sub_1", subscription_status: null }])).toBe(false);
     expect(hasSelfPaidPlan([{ tier: "pro", stripe_subscription_id: "sub_1", subscription_status: "  " }])).toBe(false);
     // Money has been paid and Stripe is retrying the card: a billing problem, not a revoked plan.
-    expect(hasSelfPaidPlan([{ tier: "pro", stripe_subscription_id: "sub_1", subscription_status: "past_due" }])).toBe(true);
+    expect(hasSelfPaidPlan([{ tier: "pro", stripe_subscription_id: "sub_1", subscription_status: "past_due", first_paid_at: PAID }])).toBe(true);
     // An Apple anchor needs no Stripe status at all.
     expect(hasSelfPaidPlan([{ tier: "pro", apple_original_transaction_id: "2000001", subscription_status: null }])).toBe(true);
   });
@@ -114,13 +115,13 @@ describe("managedReadOnlyWorkspaceIds (mirror of the SQL rule)", () => {
     expect(await managedReadOnlyWorkspaceIds(world({ purchases: purchasesFor({ tier: "pro", billing: "annual" }) }), "client")).toEqual([WS]);
   });
   it("never matches a purchase by email: an unauthenticated insert cannot unlock", async () => {
-    const db = world({ purchases: [{ user_id: null, email: "AMBIKA@example.com", tier: "pro", stripe_subscription_id: "sub_x", subscription_status: "active" }] });
+    const db = world({ purchases: [{ user_id: null, email: "AMBIKA@example.com", tier: "pro", stripe_subscription_id: "sub_x", subscription_status: "active", first_paid_at: PAID }] });
     expect(await managedReadOnlyWorkspaceIds(db, "client")).toEqual([WS]);
-    const wild = world({ profile: { id: "client", email: "%@example.com", role: "manager" }, purchases: [{ user_id: "other", email: "x@example.com", tier: "pro", stripe_subscription_id: "sub_x", subscription_status: "active" }] });
+    const wild = world({ profile: { id: "client", email: "%@example.com", role: "manager" }, purchases: [{ user_id: "other", email: "x@example.com", tier: "pro", stripe_subscription_id: "sub_x", subscription_status: "active", first_paid_at: PAID }] });
     expect(await managedReadOnlyWorkspaceIds(wild, "client")).toEqual([WS]);
   });
   it("an active stripe subscription on a pro row, or an apple anchor on a business row, unlocks", async () => {
-    expect(await managedReadOnlyWorkspaceIds(world({ purchases: purchasesFor({ tier: "pro", stripe_subscription_id: "sub_9", subscription_status: "active" }) }), "client")).toEqual([]);
+    expect(await managedReadOnlyWorkspaceIds(world({ purchases: purchasesFor({ tier: "pro", stripe_subscription_id: "sub_9", subscription_status: "active", first_paid_at: PAID }) }), "client")).toEqual([]);
     expect(await managedReadOnlyWorkspaceIds(world({ purchases: purchasesFor({ tier: "business", apple_original_transaction_id: "2000009" }) }), "client")).toEqual([]);
   });
   it("the Stripe TRIAL stays locked: a card on file that has paid nothing is not a self-paid plan", async () => {
@@ -279,7 +280,7 @@ describe("managed read-only policy", () => {
 describe("managedReadOnlyOwnerLocked (mirror of managed_read_only_owner_locked)", () => {
   it("true for the owner of a locked service workspace, false once she pays, is admin or owns none", async () => {
     expect(await managedReadOnlyOwnerLocked(world({}), "client")).toBe(true);
-    expect(await managedReadOnlyOwnerLocked(world({ purchases: [{ user_id: "client", tier: "pro", stripe_subscription_id: "sub_1", subscription_status: "active" }] }), "client")).toBe(false);
+    expect(await managedReadOnlyOwnerLocked(world({ purchases: [{ user_id: "client", tier: "pro", stripe_subscription_id: "sub_1", subscription_status: "active", first_paid_at: PAID }] }), "client")).toBe(false);
     expect(await managedReadOnlyOwnerLocked(world({ roles: [{ user_id: "client", role: "admin" }] }), "client")).toBe(false);
     expect(await managedReadOnlyOwnerLocked(world({ workspaces: [{ id: WS, owner_user_id: "client", is_service: false }] }), "client")).toBe(false);
   });
@@ -307,6 +308,48 @@ describe("the SQL mirror (migration v3)", () => {
     expect(sql).toContain("lower(btrim(coalesce(mp.tier, ''))) in ('pro', 'business')");
     expect(sql).toContain("mp.stripe_subscription_id");
     expect(sql).toContain("mp.apple_original_transaction_id");
+  });
+});
+
+describe("self-paid needs money that actually moved (first_paid_at)", () => {
+  const purchasesFor = (row: Row) => [{ user_id: "client", email: "ambika@example.com", ...row }];
+  it("a trial that rolled to past_due with no paid invoice is NOT self-paid", () => {
+    expect(hasSelfPaidPlan([{ tier: "pro", stripe_subscription_id: "sub_1", subscription_status: "past_due", first_paid_at: null }])).toBe(false);
+    expect(hasSelfPaidPlan([{ tier: "pro", stripe_subscription_id: "sub_1", subscription_status: "past_due" }])).toBe(false);
+  });
+  it("a 100%-off promotion that is `active` at $0 is NOT self-paid", () => {
+    expect(hasSelfPaidPlan([{ tier: "business", stripe_subscription_id: "sub_1", subscription_status: "active", first_paid_at: null }])).toBe(false);
+    expect(hasSelfPaidPlan([{ tier: "business", stripe_subscription_id: "sub_1", subscription_status: "active", first_paid_at: "  " }])).toBe(false);
+  });
+  it("a real paid invoice, then past_due, is self-paid; an Apple anchor needs no payment stamp", () => {
+    expect(hasSelfPaidPlan([{ tier: "pro", stripe_subscription_id: "sub_1", subscription_status: "past_due", first_paid_at: PAID }])).toBe(true);
+    expect(hasSelfPaidPlan([{ tier: "pro", apple_original_transaction_id: "2000001", first_paid_at: null }])).toBe(true);
+  });
+  it("the workspace lock follows: past_due with no payment is view-only, with a payment it is not", async () => {
+    const trial = purchasesFor({ tier: "pro", stripe_subscription_id: "sub_9", subscription_status: "past_due" });
+    expect(await managedReadOnlyWorkspaceIds(world({ purchases: trial }), "client")).toEqual([WS]);
+    const free100 = purchasesFor({ tier: "pro", stripe_subscription_id: "sub_9", subscription_status: "active", first_paid_at: null });
+    expect(await managedReadOnlyWorkspaceIds(world({ purchases: free100 }), "client")).toEqual([WS]);
+    const paid = purchasesFor({ tier: "pro", stripe_subscription_id: "sub_9", subscription_status: "past_due", first_paid_at: PAID });
+    expect(await managedReadOnlyWorkspaceIds(world({ purchases: paid }), "client")).toEqual([]);
+    const apple = purchasesFor({ tier: "business", apple_original_transaction_id: "2000009" });
+    expect(await managedReadOnlyWorkspaceIds(world({ purchases: apple }), "client")).toEqual([]);
+  });
+});
+
+describe("the SQL mirror: first_paid_at (migration 20261020140000)", () => {
+  const sql = readFileSync("supabase/migrations/20261020140000_manager_purchase_first_paid.sql", "utf8");
+  it("adds the column idempotently, replaces the lock function and keeps the revoke", () => {
+    expect(sql).toContain("add column if not exists first_paid_at timestamptz");
+    expect(sql).toContain("create or replace function public.managed_read_only_owned_locked_ids(uid uuid)");
+    expect(sql).toContain("revoke all on function public.managed_read_only_owned_locked_ids(uuid) from public, anon, authenticated;");
+  });
+  it("requires first_paid_at inside the Stripe branch only", () => {
+    const stripeIdx = sql.indexOf("btrim(coalesce(mp.stripe_subscription_id, '')) <> ''");
+    const paidIdx = sql.indexOf("mp.first_paid_at is not null");
+    expect(paidIdx).toBeGreaterThan(stripeIdx);
+    expect(sql.indexOf("btrim(coalesce(mp.apple_original_transaction_id, '')) <> ''")).toBeLessThan(stripeIdx);
+    expect(sql).toContain("lower(btrim(coalesce(mp.subscription_status, ''))) in ('active', 'past_due')");
   });
 });
 

@@ -4,7 +4,7 @@ import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 
 /**
  * TS mirror of `public.managed_read_only_workspace_ids()` / `managed_read_only_owner_locked()`
- * (migrations 20261020100000 v3 and 20261020130000), for code that holds a service-role client. Keep the rules
+ * (migrations 20261020100000 v3, 20261020130000 and 20261020140000), for code that holds a service-role client. Keep the rules
  * identical.
  */
 export type PurchaseRowForPlan = {
@@ -12,9 +12,15 @@ export type PurchaseRowForPlan = {
   stripe_subscription_id?: string | null;
   subscription_status?: string | null;
   apple_original_transaction_id?: string | null;
+  /** Stamped when real money first moved (an invoice with amount_paid > 0, a paid checkout). Null = never paid. */
+  first_paid_at?: string | null;
 };
 
-/** The Stripe subscription states that are a plan the client is PAYING for: `past_due` is a retry, not a revocation. */
+/**
+ * The Stripe subscription states that can be a plan the client is PAYING for: `past_due` is a retry, not a
+ * revocation. A status alone proves nothing (a trial that fails its first charge goes `past_due`; a 100%-off
+ * promotion is `active` at $0), so it also needs `first_paid_at`.
+ */
 const SELF_PAID_SUBSCRIPTION_STATUSES = new Set(["active", "past_due"]);
 
 function text(value: unknown): string {
@@ -23,7 +29,7 @@ function text(value: unknown): string {
 
 /**
  * A plan the client is paying for herself RIGHT NOW: a pro / business row carrying an Apple anchor, or a Stripe
- * subscription whose own status is `active` / `past_due`. The `billing` column is NOT evidence (checkout intents
+ * subscription whose own status is `active` / `past_due` AND that has actually collected money (`first_paid_at`). The `billing` column is NOT evidence (checkout intents
  * write monthly / annual for tier free before any payment), and admin grants, trials and waivers carry no
  * subscription id.
  *
@@ -44,7 +50,8 @@ export function hasSelfPaidPlan(rows: readonly PurchaseRowForPlan[] | null | und
     if (text(row.apple_original_transaction_id) !== "") return true;
     return (
       text(row.stripe_subscription_id) !== "" &&
-      SELF_PAID_SUBSCRIPTION_STATUSES.has(text(row.subscription_status).toLowerCase())
+      SELF_PAID_SUBSCRIPTION_STATUSES.has(text(row.subscription_status).toLowerCase()) &&
+      text(row.first_paid_at) !== ""
     );
   });
 }
@@ -79,7 +86,7 @@ export async function lockedOwnedServiceWorkspaceIds(
   // Matched by user_id only: an email match is satisfied by unauthenticated inserts.
   const purchases = await db
     .from("manager_purchases")
-    .select("tier, stripe_subscription_id, subscription_status, apple_original_transaction_id")
+    .select("tier, stripe_subscription_id, subscription_status, apple_original_transaction_id, first_paid_at")
     .eq("user_id", uid);
   if (purchases.error) throw new Error("managed read-only plan lookup failed");
   if (hasSelfPaidPlan((purchases.data ?? []) as PurchaseRowForPlan[])) return [];

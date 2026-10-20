@@ -76,7 +76,7 @@ describe("POST /api/portal-inbox-threads — managed view-only lock covers delet
   });
 
   it("once she holds a self-paid plan the same delete is not refused by the lock", async () => {
-    state.db = seed([{ user_id: CLIENT, tier: "pro", stripe_subscription_id: "sub_1", subscription_status: "active" }]);
+    state.db = seed([{ user_id: CLIENT, tier: "pro", stripe_subscription_id: "sub_1", subscription_status: "active", first_paid_at: "2026-10-01T00:00:00Z" }]);
     const res = await post({ action: "delete", id: "resident-thread-1" });
     expect(res.status).toBe(200);
   });

@@ -53,7 +53,8 @@ vi.mock("@/lib/supabase/service", () => ({
         update: (patch: Record<string, unknown>) => {
           state.updates.push({ table, ...patch });
           const result = { error: table === "manager_purchases" ? state.downgradeError : null };
-          return { eq: () => result, then: (resolve: (v: unknown) => unknown) => resolve(result) };
+          const matched = { eq: () => result, then: (resolve: (v: unknown) => unknown) => resolve(result) };
+          return { eq: () => result, is: () => matched, then: (resolve: (v: unknown) => unknown) => resolve(result) };
         },
         then: (resolve: (v: unknown) => unknown) => resolve({ data: [], error: null }),
       };
@@ -91,12 +92,44 @@ describe("customer.subscription.deleted", () => {
   it("downgrades the purchase row to free and acknowledges", async () => {
     const res = await webhook(signed(deleted));
     expect(res.status).toBe(200);
-    expect(state.updates).toContainEqual({ table: "manager_purchases", tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null });
+    expect(state.updates).toContainEqual({ table: "manager_purchases", tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null, first_paid_at: null });
   });
 
   it("answers 500 so Stripe retries when the downgrade cannot be written", async () => {
     state.downgradeError = { message: "deadlock detected" };
     const res = await webhook(signed(deleted));
+    expect(res.status).toBe(500);
+  });
+});
+
+describe("invoice.paid records the first real payment (the lock's proof that money moved)", () => {
+  const invoice = (amountPaid: number) => ({
+    id: "evt_inv_paid",
+    object: "event",
+    type: "invoice.paid",
+    data: {
+      object: {
+        id: "in_1", object: "invoice", amount_paid: amountPaid, billing_reason: "subscription_create", subscription: "sub_live_1",
+        parent: { subscription_details: { subscription: "sub_live_1" } },
+      },
+    },
+  });
+
+  it("stamps first_paid_at when the invoice collected money", async () => {
+    const res = await webhook(signed(invoice(4900)));
+    expect(res.status).toBe(200);
+    expect(state.updates).toContainEqual({ table: "manager_purchases", first_paid_at: expect.any(String) });
+  });
+
+  it("never stamps for a $0 invoice (trial or a 100%-off promotion)", async () => {
+    const res = await webhook(signed(invoice(0)));
+    expect(res.status).toBe(200);
+    expect(state.updates.some((u) => "first_paid_at" in u)).toBe(false);
+  });
+
+  it("answers 500 so Stripe retries when the stamp cannot be written", async () => {
+    state.downgradeError = { message: "deadlock detected" };
+    const res = await webhook(signed(invoice(4900)));
     expect(res.status).toBe(500);
   });
 });

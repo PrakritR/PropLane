@@ -515,6 +515,7 @@ describe("Stripe subscription billing", () => {
       billing: "free",
       stripe_subscription_id: null,
       subscription_status: null,
+      first_paid_at: null,
     });
     expect(eq).toHaveBeenCalledWith("stripe_subscription_id", "sub_deleted_1");
   });

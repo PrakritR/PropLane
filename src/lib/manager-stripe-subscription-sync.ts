@@ -1,7 +1,7 @@
 import type Stripe from "stripe";
 import { resolveRateCardVersionMetadataPatch, syncManagerDoorQuantity } from "@/lib/billing/quantity-sync.server";
 import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
-import { writeManagerPurchasePatch } from "@/lib/manager-purchase-subscription-status";
+import { markManagerPurchaseFirstPaid, writeManagerPurchasePatch } from "@/lib/manager-purchase-subscription-status";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { assertManagerPriceMatchesRateCard } from "@/lib/stripe/resolve-manager-price";
@@ -179,7 +179,7 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
     // (transient / non-authoritative) error, keep the last known DB state.
     if (isDefinitiveStripeSubscriptionMissingError(err)) {
       await writeManagerPurchasePatch(
-        { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null },
+        { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null, first_paid_at: null },
         (patch) => supabase.from("manager_purchases").update(patch).eq("user_id", userId),
       );
     }
@@ -188,7 +188,7 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
 
   if (sub.status === "canceled" || sub.status === "incomplete_expired") {
     await writeManagerPurchasePatch(
-      { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null },
+      { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null, first_paid_at: null },
       (patch) => supabase.from("manager_purchases").update(patch).eq("user_id", userId),
     );
     return;
@@ -198,7 +198,7 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
   const cancelAtPeriodEnd = Boolean((sub as { cancel_at_period_end?: boolean }).cancel_at_period_end);
   if (cancelAtPeriodEnd && periodEndSec && periodEndSec * 1000 <= Date.now()) {
     await writeManagerPurchasePatch(
-      { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null },
+      { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null, first_paid_at: null },
       (patch) => supabase.from("manager_purchases").update(patch).eq("user_id", userId),
     );
     return;
@@ -222,4 +222,36 @@ export async function reconcileManagerPurchaseWithStripe(userId: string): Promis
     },
     (patch) => supabase.from("manager_purchases").update(patch).eq("user_id", userId),
   );
+
+  if (sub.status === "active" || sub.status === "past_due") {
+    await stampFirstPaidFromInvoices(supabase, stripe, userId, sub.id);
+  }
+}
+
+/**
+ * The managed view-only lock calls a Stripe plan self-paid only once money has actually moved (`first_paid_at`).
+ * The `invoice.paid` webhook stamps it live; this is the slow path for a delivery that never arrived and for rows
+ * from before the column: look for a paid invoice with `amount_paid > 0` on the subscription (a trial or a
+ * 100%-off promotion only ever bills $0). Best-effort - any failure leaves the column null, which keeps the lock
+ * closed, and the next daily sweep asks again.
+ */
+async function stampFirstPaidFromInvoices(
+  supabase: ReturnType<typeof createSupabaseServiceRoleClient>,
+  stripe: Stripe,
+  userId: string,
+  subscriptionId: string,
+): Promise<void> {
+  try {
+    const { data, error } = await supabase
+      .from("manager_purchases")
+      .select("first_paid_at")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error || (data as { first_paid_at?: string | null } | null)?.first_paid_at) return;
+    const invoices = await stripe.invoices.list({ subscription: subscriptionId, status: "paid", limit: 20 });
+    if (!(invoices.data ?? []).some((invoice) => (invoice.amount_paid ?? 0) > 0)) return;
+    await markManagerPurchaseFirstPaid(supabase, { column: "user_id", value: userId });
+  } catch (e) {
+    console.error("[manager-stripe-sync] could not record the first payment", e);
+  }
 }

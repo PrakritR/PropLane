@@ -47,7 +47,7 @@ export async function revokeUnauthorizedManagerPaidTier(userId: string): Promise
   if (isAppleBilledManagerPurchase(billing, data.apple_original_transaction_id)) return false;
 
   const { error } = await writeManagerPurchasePatch(
-    { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null },
+    { tier: "free", billing: "free", stripe_subscription_id: null, subscription_status: null, first_paid_at: null },
     (patch) => supabase.from("manager_purchases").update(patch).eq("id", data.id),
   );
 
