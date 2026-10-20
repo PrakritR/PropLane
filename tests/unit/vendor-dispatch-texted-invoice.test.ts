@@ -129,7 +129,7 @@ describe("the manager's Y on a texted invoice", () => {
     const { runId, attemptId } = await acceptedRun(db);
     await recordVendorInvoice(db as never, { ownerUserId: OWNER, attemptId, amountCents: 24_000, now: T0 });
 
-    expect(await decideRunInvoice(db as never, { ownerUserId: OWNER, actorUserId: OWNER, runId, approve: true, now: T0 })).toEqual({ ok: true });
+    expect(await decideRunInvoice(db as never, { ownerUserId: OWNER, actorUserId: OWNER, runId, approve: true, now: T0 })).toEqual({ ok: true, settled: "not_managed" });
     expect(state.billCalls).toBe(1);
     expect(state.invoices[0]!.status).toBe("approved");
     expect((db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === runId)!.pending_invoice_cents).toBeNull();
@@ -148,7 +148,7 @@ describe("the manager's Y on a texted invoice", () => {
     expect((db.__tables.vendor_dispatch_runs ?? []).find((r) => r.id === runId)!.pending_invoice_cents).toBe(24_000);
 
     state.billFails = false;
-    expect(await decideRunInvoice(db as never, { ownerUserId: OWNER, actorUserId: OWNER, runId, approve: true, now: T0 })).toEqual({ ok: true });
+    expect(await decideRunInvoice(db as never, { ownerUserId: OWNER, actorUserId: OWNER, runId, approve: true, now: T0 })).toEqual({ ok: true, settled: "not_managed" });
     expect(state.invoices[0]!.status).toBe("approved");
   });
 });
