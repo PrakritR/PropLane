@@ -20,6 +20,8 @@ import { quietHoursBlocks, type SmsSendClass } from "@/lib/sms/number-registrati
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
+import { formatSmsLinks } from "@/lib/sms/link-format";
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
 export type { SmsSendClass };
 
@@ -337,6 +339,9 @@ export async function sendFromManagerWorkNumber(args: {
 }): Promise<PropLaneSmsResult> {
   const managerUserId = args.managerUserId.trim();
   if (!managerUserId) return { ok: false, error: "missing_manager" };
+  // Every text that leaves has each link on its own line on the canonical host, whoever wrote it (an agent, a template, a
+  // sign-up flow). Idempotent, so the senders that already format (`sendWorkspaceText`) are unchanged.
+  args = { ...args, text: formatSmsLinks(args.text, resolveEmailLinkBaseUrl()) };
 
   let from: string | null = null;
   if (isClawTransportEnabled() || isClawSharedLineBridgeEnabled()) {

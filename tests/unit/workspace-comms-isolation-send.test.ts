@@ -47,6 +47,15 @@ describe("resolveOwnerSendNumberRow: a workspace sends only from its own number"
     expect(WORKSPACE_NO_WORK_NUMBER_MESSAGE).toBe("This workspace has no work number.");
   });
 
+  it("a house in one of PropLane's own service workspaces (is_service) sends from the owner's default line; a customer workspace never does", async () => {
+    const service = [workspaces[0], { ...workspaces[1], is_service: true }];
+    const db = createWorkspaceMemoryDb({ portal_workspaces: service, manager_property_records: houses, manager_sms_numbers: [numberA] });
+    const viaService = await resolveOwnerSendNumberRow<{ phone_number: string }>(db as never, owner, cols, { propertyId: "house-b" });
+    expect(viaService.data?.phone_number).toBe("+12065550001");
+    const customer = seed({ manager_sms_numbers: [numberA] });
+    expect((await resolveOwnerSendNumberRow(customer as never, owner, cols, { propertyId: "house-b" })).error?.code).toBe(WORKSPACE_NO_WORK_NUMBER_CODE);
+  });
+
   it("a house-less send goes to the DEFAULT workspace's number, never another workspace's", async () => {
     const db = seed({ manager_sms_numbers: [numberB] });
     const result = await resolveOwnerSendNumberRow(db as never, owner, cols, {});

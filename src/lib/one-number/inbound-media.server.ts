@@ -247,13 +247,23 @@ export async function linkClaimedMedia(
 const MAX_JOB_PHOTOS = 8;
 
 /**
+ * PostgREST `or` filter for files stored under any of these managers' bucket paths. A file is stored under the manager whose
+ * number received the text; the job's owner is the first, and a PropLane Service roster job adds the service owner (whose
+ * PropLane line the vendor texted while the service belongs to the client).
+ */
+export function bucketPathFilter(ownerUserIds: string[]): string {
+  const ids = [...new Set(ownerUserIds.map((id) => String(id ?? "").trim()).filter((id) => /^[A-Za-z0-9_-]+$/.test(id)))];
+  return ids.map((id) => `storage_path.like.manager/${id}/*`).join(",") || "storage_path.like.manager/none/*";
+}
+
+/**
  * A vendor texted a photo on an open job: link it to the job (`vendor_job`) and
  * add it to the work order's completion photos so the record page shows it.
  * Scoped to the job's own manager; a job that is not this owner's is untouched.
  */
 export async function attachVendorJobMedia(
   db: SupabaseClient,
-  args: { ownerUserId: string; workOrderId: string | null | undefined; messageSid: string },
+  args: { ownerUserId: string; workOrderId: string | null | undefined; messageSid: string; mediaOwnerUserIds?: string[] },
 ): Promise<{ linked: number }> {
   const workOrderId = String(args.workOrderId ?? "").trim();
   if (!workOrderId) return { linked: 0 };
@@ -262,7 +272,7 @@ export async function attachVendorJobMedia(
       .from("sms_media_files")
       .select(FILE_COLUMNS)
       .eq("message_sid", args.messageSid)
-      .like("storage_path", `manager/${args.ownerUserId}/%`)
+      .or(bucketPathFilter([args.ownerUserId, ...(args.mediaOwnerUserIds ?? [])]))
       .is("linked_type", null);
     if (error || !files?.length) return { linked: 0 };
     const rows = files as SmsMediaFileRow[];
@@ -302,14 +312,14 @@ export async function attachVendorJobMedia(
  */
 export async function linkVendorRunMedia(
   db: SupabaseClient,
-  args: { ownerUserId: string; runId: string; messageSid: string },
+  args: { ownerUserId: string; runId: string; messageSid: string; mediaOwnerUserIds?: string[] },
 ): Promise<number> {
   try {
     const { data, error } = await db
       .from("sms_media_files")
       .select("id")
       .eq("message_sid", args.messageSid)
-      .like("storage_path", `manager/${args.ownerUserId}/%`)
+      .or(bucketPathFilter([args.ownerUserId, ...(args.mediaOwnerUserIds ?? [])]))
       .is("linked_type", null);
     if (error || !data?.length) return 0;
     const ids = (data as Array<{ id: string }>).map((row) => row.id);

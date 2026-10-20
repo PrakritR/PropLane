@@ -65,13 +65,13 @@ async function main() {
 
   // The dev database and the sms_runtime_config / platform_service_settings rows are shared: one run at a time, by lock.
   const needsLock = !flags.sweep && !(flags.reap && !flags.restoreConfig);
-  const releaseLock = needsLock ? await acquireE2eLock(console.log) : () => {};
+  const releaseLock = needsLock ? await acquireE2eLock(console.log, { branch: process.env.E2E_BRANCH || "on/finale2e" }) : () => {};
   process.once("SIGINT", () => { releaseLock(); });
   process.once("SIGTERM", () => { releaseLock(); });
-  try { return await mainLocked(flags, { env, resolved, db }); } finally { releaseLock(); }
+  try { return await mainLocked(flags, { env, resolved, db, needsLockHeld: needsLock }); } finally { releaseLock(); }
 }
 
-async function mainLocked(flags, { env, resolved, db }) {
+async function mainLocked(flags, { env, resolved, db, needsLockHeld = false }) {
   // The dev database is shared and fragile: nothing below starts until it answers fast.
   await waitHealthy(resolved, env, console.log);
 
@@ -105,7 +105,9 @@ async function mainLocked(flags, { env, resolved, db }) {
     return 0;
   }
 
-  await waitForOtherRuns(console.log);
+  // The e2e lock (taken in main) already serialises runs; waiting here for "no other e2e-scenarios process" deadlocks with a run that is
+  // only queued for that lock (the holder waits for the queued run, the queued run waits for the lock). Only a run that holds no lock waits.
+  if (!needsLockHeld) await waitForOtherRuns(console.log);
   // No other run is alive now, so a non-baseline config is a dead run's leftover (--keep, a kill): put it back before snapshotting.
   await restoreBaseline(db, console.log);
   const runId = hex(6);
@@ -124,7 +126,7 @@ async function mainLocked(flags, { env, resolved, db }) {
   let cfg = null;
   let cfgError = null;
   for (let attempt = 0; attempt < 6 && !cfg; attempt += 1) {
-    ({ data: cfg, error: cfgError } = await db.from("sms_runtime_config").select("line_mode, shared_number_e164, shared_messaging_service_sid, shared_pilot_workspace_ids, pilot_manager_user_ids").eq("singleton", true).maybeSingle());
+    ({ data: cfg, error: cfgError } = await db.from("sms_runtime_config").select("line_mode, shared_number_e164, shared_messaging_service_sid, shared_pilot_workspace_ids, pilot_manager_user_ids, campaign_daily_segment_limit").eq("singleton", true).maybeSingle());
     if (!cfg) await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
   }
   if (cfgError || !cfg) throw new Error(`cannot read sms_runtime_config: ${cfgError?.message ?? "no row"}`);
@@ -152,7 +154,9 @@ async function mainLocked(flags, { env, resolved, db }) {
     writeLedger();
     // Shared line on for this run only, limited to this run's workspaces (a pilot list), and restored below.
     const pilot = world.workspaceIds;
-    const { error } = await db.from("sms_runtime_config").update({ line_mode: flags.mode, shared_pilot_workspace_ids: flags.mode === "shared" ? pilot : (configSnapshot.shared_pilot_workspace_ids ?? []), pilot_manager_user_ids: [...new Set([...(configSnapshot.pilot_manager_user_ids ?? []), ...world.ownerIds])] }).eq("singleton", true);
+    // The dev campaign has one deployment-wide daily segment allowance (500) that every lane's capture-only runs exhaust ("campaign_segment_budget_exhausted"
+    // defers every reply); nothing is sent here, so this run lifts it for its own duration and restoreConfig puts the snapshot value back.
+    const { error } = await db.from("sms_runtime_config").update({ campaign_daily_segment_limit: Math.max(Number(configSnapshot.campaign_daily_segment_limit ?? 500), 5000), line_mode: flags.mode, shared_pilot_workspace_ids: flags.mode === "shared" ? pilot : (configSnapshot.shared_pilot_workspace_ids ?? []), pilot_manager_user_ids: [...new Set([...(configSnapshot.pilot_manager_user_ids ?? []), ...world.ownerIds])] }).eq("singleton", true);
     if (error) throw new Error(`cannot switch the line: ${error.message}`);
     console.log(`e2e: line_mode=${flags.mode} pilot=[${flags.mode === "shared" ? pilot.length : 0} workspaces] number=${h.sharedNumber}`);
     await h.startServer();

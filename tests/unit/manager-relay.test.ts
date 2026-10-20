@@ -38,7 +38,7 @@ describe("phone helpers", () => {
     expect(samePhone("", "2065550100")).toBe(false);
   });
   it("maskedTexterLabel never leaks the full number", () => {
-    expect(maskedTexterLabel("+12065550100")).toBe("Texter ····0100");
+    expect(maskedTexterLabel("+12065550100")).toBe("Texter ...0100");
   });
 });
 

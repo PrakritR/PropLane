@@ -41,7 +41,7 @@ export const VENDOR_INBOUND_CONSENT_SOURCE = "recipient_initiated_inbound";
 export function buildVendorSenderLine(input: { managerFirstName?: string | null; workspaceName?: string | null }): string {
   const first = String(input.managerFirstName ?? "").trim().split(/\s+/)[0] || "Your property manager";
   const workspace = String(input.workspaceName ?? "").trim() || "PropLane";
-  return `— ${first} at ${workspace} via PropLane. Reply STOP to opt out.`;
+  return `- ${first} at ${workspace} via PropLane. Reply STOP to opt out.`;
 }
 
 /** Every key this vendor's thread may have carried: the account's, then the phone's. */

@@ -74,7 +74,7 @@ export const VENDOR_JOBS_SCENARIOS = [
         const key = stranger.replace(/\D/g, "").slice(-10);
         const first = await say(stranger, "hey is there any available jobs in the area to do");
         check("stranger: answered", first.replies.length > 0, "no reply");
-        check("stranger: lists the published Ballard plumbing job", /1\. Plumbing, [^\n]*98107/.test(first.all), first.all);
+        check("stranger: lists the published Ballard plumbing job", /1\. Plumbing, Ballard/.test(first.all), first.all);
         check("stranger: the unpublished job, the street, the resident and the budget-less rows never appear", !/Unpublished|5400 22nd|SECRET|22nd Ave/i.test(first.all), first.all);
         check("stranger: shows the published budget", /Up to \$250/.test(first.all), first.all);
         check("stranger: offers ONE vendor sign-up link", (first.all.match(/\/start\//g) ?? []).length === 1, first.all);

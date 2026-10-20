@@ -381,6 +381,18 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
     // sharing is still ITS line; nothing else is.
     const held = await resolveHeldNumberRow<T>(db, columns, targetWorkspaceId);
     if (held) return { data: held, error: null };
+    // PropLane's own service (`is_service`) has no line per workspace: a house in one of the service owner's service workspaces is
+    // texted from the service owner's default workspace line, the PropLane line (the same rule `sendWorkspaceText` applies). It is
+    // still the SAME owner's number; a customer's workspace never borrows another's.
+    const { data: target } = await db.from("portal_workspaces").select("is_service").eq("id", targetWorkspaceId).maybeSingle();
+    if ((target as { is_service?: unknown } | null)?.is_service === true) {
+      const defaultId = await loadDefaultWorkspaceId();
+      if (defaultId && defaultId !== targetWorkspaceId) {
+        const fallback = rows.filter((r) => String(r.workspace_id ?? "") === defaultId);
+        const line = fallback.find((r) => !r.released_at) ?? fallback[0];
+        if (line) return { data: line, error: null };
+      }
+    }
   }
 
   // A legacy row the migration could not place answers for the owner's

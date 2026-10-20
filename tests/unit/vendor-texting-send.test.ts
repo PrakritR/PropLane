@@ -40,7 +40,7 @@ const OWNER = "mgr-1";
 const ACTOR = "mgr-1";
 const VENDOR_ROW = "vendor-sms-aaaa";
 const PHONE = "+14255550199";
-const LINE_FOOTER = "— Sam at Alder Property Co via PropLane. Reply STOP to opt out.";
+const LINE_FOOTER = "- Sam at Alder Property Co via PropLane. Reply STOP to opt out.";
 
 function seed(overrides: { phone?: string; vendorUserId?: string | null; active?: boolean } = {}) {
   const db = createMemoryDb({
