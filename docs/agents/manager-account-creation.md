@@ -1,10 +1,13 @@
 # Manager account creation ("Get started")
 
-The marketing **Get started** CTA (`MANAGER_GET_STARTED_HREF` in
-`src/lib/marketing/public-contact.ts`) opens
-`/auth/create-account?mode=create&role=manager`. That surface exists to create a
-**new** manager account, so it never treats an existing session as a reason to go
-somewhere else.
+The marketing CTAs that have already declared the role (pricing plans, the
+homepage "Join free" Manager row) use `MANAGER_GET_STARTED_HREF` in
+`src/lib/marketing/public-contact.ts` and open
+`/auth/create-account?mode=create&role=manager`; a plain **Get started** that has
+not asked yet — the public top bar's signed-out button — uses `GET_STARTED_HREF`
+and lands on the role chooser. Either way that surface exists to create a **new**
+account, so it never treats an existing session as a reason to go somewhere
+else.
 
 ## Where it lives
 

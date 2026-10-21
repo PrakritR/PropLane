@@ -30,12 +30,20 @@ const admin = { role: "admin" as const, userId: "admin-1" };
 let dbClockIso = "2026-10-15T19:00:00Z";
 const dbNow = () => new Date(dbClockIso);
 
-/** Mirrors `activate_managed_policy` (migration 20261020170000): end the active version and activate the draft, atomically. */
+/**
+ * Mirrors `activate_managed_policy` (migrations 20261020170000 + 20261020200000): activate the draft and end the
+ * version it replaces, atomically - unless the caller is the system, which only ever fills a gap.
+ */
 function activateRpc(args: Record<string, unknown>, f: OwnerFakeDb) {
   const rows = f.rows.managed_workspace_fee_policies!;
   const row = rows.find((r) => r.id === args.p_id);
   if (!row) return { status: "refused", reason: "not_found" };
   if (row.status !== "draft") return { status: "refused", reason: "not_draft" };
+  // Migration 20261020200000: the automatic fee only fills a GAP, so a system activation refuses when the
+  // workspace already has an accepted version - checked here, under this function's own row lock.
+  if (args.p_actor_role === "system" && rows.some((r) => r.workspace_id === row.workspace_id && r.status === "active" && r.signed_at && r.id !== row.id)) {
+    return { status: "refused", reason: "already_active" };
+  }
   const utcDay = dbNow().toISOString().slice(0, 10);
   for (const other of rows) {
     if (other.workspace_id !== row.workspace_id || other.status !== "active") continue;
@@ -160,5 +168,57 @@ describe("evidence: the automatic PropLane management fee", () => {
     expect(flags[0]).toMatchObject({ check_name: "fee_agreement_unsigned", subject: "ws-ownerless" });
     expect((flags[0]!.detail as { cause: string }).cause).toBe("no_owner");
     expect((flags[0]!.detail as { message: string }).message).not.toMatch(/sign/i);
+  });
+
+  it("stands aside when an admin recorded a rate of their own in the meantime, and leaves nothing behind", async () => {
+    dbClockIso = "2026-10-15T19:00:00Z";
+    const f = world();
+    say("\n6. A resident's checkout drafts the automatic 10%. In the moment between reading \"no fee yet\" and");
+    say("   activating it, an admin records 12% by hand in Admin > Managed finance:");
+    const db = {
+      ...f.db,
+      rpc: (name: string, args: Record<string, unknown>) => {
+        if (name === "activate_managed_policy") {
+          // The admin's own version lands first, between this module's read and its activation.
+          f.rows.managed_workspace_fee_policies!.push({
+            id: "by-the-admin", workspace_id: WS, owner_user_id: OWNER, status: "active", owner_share_bps: 8800,
+            applies_to: "rent", leasing_fee_bps: 0, min_fee_cents: 0, reserve_target_cents: 0,
+            repair_approval_threshold_cents: 25_000, effective_from: "2026-10-15", created_at: "2026-10-15",
+            signed_at: "2026-10-15T19:00:00Z", accepted_via: "admin_attested",
+            attestation_note: "Hand-authored rate agreed with the owner", terms_sha256: "a".repeat(64),
+          });
+        }
+        return f.db.rpc(name, args);
+      },
+    } as typeof f.db;
+
+    const problem = await serviceSetupPendingProblem(db, ["house-1"], new Date("2026-10-15T12:00:00-07:00"));
+    say(`   checkout guard answered: ${problem === null ? "no problem - the payment goes through" : JSON.stringify(problem)}`);
+    expect(problem).toBeNull();
+
+    const versions = (await listPoliciesForWorkspace(f.db, WS)).map((p) =>
+      `${p.status} ${feePercentForOwnerShareBps(p.terms.ownerShareBps)}%`);
+    say(`   the rate in force: ${feePercentForOwnerShareBps((await loadActivePolicyForWorkspace(f.db, WS))!.terms.ownerShareBps)}% (the admin's)`);
+    say(`   every fee version this workspace has: ${JSON.stringify(versions)} - the automatic draft took itself back out`);
+    expect(versions).toEqual(["active 12%"]);
+    expect(f.rows.owner_ledger_flags ?? []).toHaveLength(0);
+  });
+
+  it("reads the rate by the Pacific day a resident is paying on, not the UTC one", async () => {
+    dbClockIso = "2026-10-01T19:00:00Z";
+    const f = world();
+    await ensureServiceFeePolicy(f.db, WS, admin, new Date("2026-10-01T12:00:00-07:00"));
+    // A retired version whose `ends_on` was stamped from the database's UTC clock, so it reads a day long.
+    const row = f.rows.managed_workspace_fee_policies![0]!;
+    Object.assign(row, { effective_from: "2026-10-01", ends_on: "2026-10-21", ended_at: null, status: "ended" });
+
+    say("\n7. A resident pays at 18:00 Pacific on Oct 20 - which is already Oct 21 in UTC.");
+    const problem = await serviceSetupPendingProblem(f.db, ["house-1"], new Date("2026-10-21T01:00:00Z"));
+    say(`   checkout guard answered: ${problem === null ? "no problem - the payment goes through" : JSON.stringify(problem)}`);
+    say(`   fee versions after the checkout: ${(await listPoliciesForWorkspace(f.db, WS)).length} (the version in force was found,` +
+      " so nothing was drafted and no operator was paged)");
+    expect(problem).toBeNull();
+    expect(f.rows.managed_workspace_fee_policies).toHaveLength(1);
+    expect(f.rows.owner_ledger_flags ?? []).toHaveLength(0);
   });
 });

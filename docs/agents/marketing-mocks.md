@@ -7,7 +7,7 @@ approves), pays (resident Payments, manager Incoming payments), signs the lease 
 resident sidebar unlocks by stage for real), then a service goes to the vendor (vendor Services, manager Services
 Assigned). It is an iframe of `/demo/home-embed` at a fixed 1280x800 logical size, scaled to fit, with the phone of
 whoever is acting beside it and a Resident · Property · Vendor switcher top right (no "Sample …" captions anywhere on
-the homepage: captain #24/#25). The
+the homepage: captain #24/#25; a phone caption names the ROLE - "Resident's phone" - never the person, captain #30). The
 phone is drawn from what the iframe reports (`HomeIphonePhone`, plus listing cards and photos from
 `home-demo-phone-items.tsx`), so the two never disagree. A visible cursor, labelled with the acting portal, clicks
 the real controls; inbound events (a text, a YES, a payment) are store writes, applied at the press that opens the
@@ -39,7 +39,9 @@ The public front is one page with four distinct stories: the number (cover +
 `#how`), the software (`#dashboard`), the managed service (`#service`), and
 software plans (`#pricing`), followed by the contact form. The cover says
 “Your Housing Assistant”. The top bar links to How it works, Software, Service, Pricing
-and Contact, with the configured number and Portal at the right. Phones get
+and Contact, with the configured number at the right and then one button: **Get started** (the role chooser) signed
+out, **Portal** once this browser shows a session (`hasBrowserSessionHint`, a hint for which link to draw, never
+authorization). Phones draw the same button, plus
 an accessible menu and a sticky text action after the cover. There is no QR. `HomeScrollStage` uses native scroll and midpoint sentinels; rail links
 scroll to scenes, with no wheel interception. Reduced motion and no JavaScript
 keep the conversations readable.
