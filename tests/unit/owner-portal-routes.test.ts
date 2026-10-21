@@ -72,15 +72,18 @@ describe("owner-only accounts get the one manager shell", () => {
 
   it("an accepted owner invite and every emailed owner link land in the Property portal", () => {
     expect(read("src/app/invite/[token]/invite-link-client.tsx")).not.toContain("/portal/owner");
-    for (const file of [
-      "src/lib/owner-management/policies.server.ts",
+    const senders = [
       "src/lib/owner-management/owner-line.server.ts",
       "src/lib/owner-management/monthly-statements.server.ts",
       "src/lib/managed-finance/vendor-bills.server.ts",
-    ]) {
-      const source = read(file);
-      expect(source, file).not.toContain("/portal/owner");
-      expect(source, file).toContain("/portal/financials/owner-payouts");
+    ];
+    // policies.server.ts sends the owner nothing since the fee agreement stopped being signed (captain, Oct 20):
+    // it must still never name an owner-portal path, but it has no link of its own to check.
+    for (const file of [...senders, "src/lib/owner-management/policies.server.ts"]) {
+      expect(read(file), file).not.toContain("/portal/owner");
+    }
+    for (const file of senders) {
+      expect(read(file), file).toContain("/portal/financials/owner-payouts");
     }
   });
 });

@@ -4,7 +4,7 @@
  * the guest's login and never on a booking id), the hold that only records the request until the host
  * confirms, and the PAID side (the stay's time moves, or the money goes back automatically, exactly once).
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -698,6 +698,16 @@ describe("checkout never starts for an add-on that would be refunded", () => {
 });
 
 describe("the webhook's one call", () => {
+  // The webhook's call takes no clock of its own, so pin the one every other case passes: read off the real
+  // clock, the seeded stay's check-in day (Oct 20) is past and the paid add-on reads as unhonored.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("settles only the add-on charges among a payment's ids and rethrows a failure after the others ran", async () => {
     const db = seeded();
     await ask(db, "early_check_in");
