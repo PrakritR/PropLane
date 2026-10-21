@@ -272,6 +272,9 @@ export function usePortalNavCounts(
   // so it costs no extra request when that page is open, and it refreshes on the page's own
   // change event and on refocus rather than a timer. A refusal (a plan without the section)
   // stops asking for the rest of the session.
+  // The unread number belongs to one workspace's forms: the scope names it, so a count read in
+  // another workspace never shows (and the effect below reads again on a switch).
+  const formsScope = `${userId ?? ""}:${smsWorkspaceId ?? ""}`;
   const [moveInUnread, setMoveInUnread] = useState<{ scope: string; unread: number }>({ scope: "", unread: 0 });
   useEffect(() => {
     if (!(kind === "manager" || kind === "pro") || !userId) return;
@@ -281,7 +284,7 @@ export function usePortalNavCounts(
       if (halted) return;
       try {
         const list = await loadMoveInForms(userId, "manager", {}, force);
-        if (!cancelled) setMoveInUnread({ scope: userId, unread: list.unread });
+        if (!cancelled) setMoveInUnread({ scope: formsScope, unread: list.unread });
       } catch {
         halted = true;
       }
@@ -298,7 +301,7 @@ export function usePortalNavCounts(
       window.removeEventListener(MOVE_IN_FORMS_CHANGED, onChange);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [kind, userId]);
+  }, [kind, userId, formsScope]);
 
   const counts = useMemo(() => {
     void tick;
@@ -393,7 +396,13 @@ export function usePortalNavCounts(
           ).length,
       );
       const leaseTabs = safeState(() => {
-        const tabs = countManagerLeaseTabs(readLeasePipeline(userId));
+        // Narrowed to the active workspace like the Leases page and the dashboard: the
+        // pipeline cache holds every lease the account can read, across workspaces.
+        const tabs = countManagerLeaseTabs(
+          readLeasePipeline(userId).filter((lease) =>
+            workspaceContainsProperty(lease.propertyId?.trim() || lease.application?.propertyId?.trim() || undefined),
+          ),
+        );
         return countState(tabs.resident + tabs.signed, "muted");
       });
       return {
@@ -404,7 +413,7 @@ export function usePortalNavCounts(
         tasks: countState(openTasks, tasksOverdue > 0 ? "alert" : "muted"),
         services: countState(servicesOpen),
         communication: countState(inbox, "alert"),
-        forms: countState(moveInUnread.scope === userId ? moveInUnread.unread : 0),
+        forms: countState(moveInUnread.scope === formsScope ? moveInUnread.unread : 0),
       };
     }
 
@@ -437,7 +446,7 @@ export function usePortalNavCounts(
     }
 
     return {};
-  }, [kind, ready, isClient, tick, userId, email, smsUiEnabled, smsConversations, moveInUnread]);
+  }, [kind, ready, isClient, tick, userId, email, smsUiEnabled, smsConversations, moveInUnread, formsScope]);
 
   // Publish the Communication number so the assistant's attention row and the
   // dashboard show this very count instead of a second one of their own.

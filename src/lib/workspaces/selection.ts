@@ -68,6 +68,24 @@ export function workspaceContainsProperty(propertyId: string | null | undefined)
   return active.propertyIds.some((known) => known.trim() === id);
 }
 
+/**
+ * A row that can name its house in more than one column (a work order's
+ * `propertyId` / `assignedPropertyId`) is in the active workspace when ANY named
+ * house is held by it — the same either-column rule the server's workspace row
+ * scope applies. A row naming no house is account-level (see above).
+ */
+export function rowInActiveWorkspace(ids: ReadonlyArray<string | null | undefined>): boolean {
+  const named = ids.map((id) => id?.trim() ?? "").filter(Boolean);
+  if (named.length === 0) {
+    // Same answer the server gives (`untaggedOwnedVisible`): a service naming no house lives in the
+    // viewer's own default workspace, however many workspaces the account has.
+    if (!selection || !selection.activeWorkspaceId) return true;
+    const active = activeWorkspace();
+    return Boolean(active && active.owned && active.isDefault);
+  }
+  return named.some((id) => workspaceContainsProperty(id));
+}
+
 /** Application / lease rows carry the property id in one of several fields. */
 export function workspacePropertyIdFromRow(row: {
   assignedPropertyId?: string | null;

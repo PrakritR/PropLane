@@ -187,6 +187,9 @@ export async function GET(req: Request) {
             "",
         ).trim();
         if (legacyPropertyId && !linkedPropertyIds.has(legacyPropertyId)) continue;
+        // Claimed by no manager yet, but still only ever shown in the workspace that holds its
+        // house (an account with several workspaces would otherwise read it in all of them).
+        if (!rowInWorkspaceScope(legacyPropertyId || null, workspaceScope)) continue;
         byId.set(record.id, record);
       }
       const rows = [...byId.values()]

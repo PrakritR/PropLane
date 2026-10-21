@@ -21,6 +21,7 @@
  */
 import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
 import type { DocumentExpirationSummary } from "@/lib/documents/document-expiration";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
 
 const EXPIRY_SUMMARY_TTL_MS = 15_000;
 
@@ -61,7 +62,9 @@ export async function loadDocumentExpirationSummary(opts?: {
   userId?: string | null;
   force?: boolean;
 }): Promise<DocumentExpirationSummary | null> {
-  const entry = entryFor(opts?.userId?.trim() ?? "");
+  // The summary is the ACTIVE workspace's (the route narrows by the workspace cookie), so the
+  // workspace is part of the cache key: switching workspaces never serves the other one's counts.
+  const entry = entryFor(`${opts?.userId?.trim() ?? ""}:${selectedWorkspaceId() ?? ""}`);
   const force = opts?.force === true;
   if (!force && entry.lastLoadedAt > 0 && Date.now() - entry.lastLoadedAt < EXPIRY_SUMMARY_TTL_MS) {
     return entry.summary;
