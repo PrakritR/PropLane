@@ -27,13 +27,17 @@ import type {
 } from "@/lib/channel-calendar/types";
 import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { parseReservationDescription } from "@/lib/channel-calendar/reservation-details";
-import { diffChannelReservations } from "@/lib/channel-calendar/channel-booking-diff";
+import {
+  diffChannelReservations,
+  reservationIdentitiesElsewhere,
+  withoutMovedReservations,
+} from "@/lib/channel-calendar/channel-booking-diff";
 import { emitChannelBookingEvent } from "@/lib/channel-booking-events.server";
 import { parseIcsCalendar } from "@/lib/ical/parse";
 import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 import type { MockProperty } from "@/data/types";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { releaseAirbnbResidentsAbsentFromFeed, upsertAirbnbResidentsFromImportedRanges } from "@/lib/channel-calendar/airbnb-residents.server";
+import { releaseAirbnbResidentsAbsentFromFeed } from "@/lib/channel-calendar/airbnb-residents.server";
 import { importedRangeUid, pruneTombstonedRanges } from "@/lib/channel-calendar/stay-tombstones";
 import {
   clearChannelStayTombstonesForRoom,
@@ -493,21 +497,33 @@ export async function persistConnectionImportedRanges(
       .eq("row_data->>icalSourceUid", uid)
       .like("resident_email", "%@import.proplane.local");
   }
-  if (opts.restoredRanges?.length) {
-    const room = submission?.rooms.find((item) => item.id === connection.room_id);
-    try {
-      await upsertAirbnbResidentsFromImportedRanges(db, {
-        managerUserId: connection.manager_user_id,
-        propertyId: connection.property_id,
-        propertyLabel: record?.property?.buildingName?.trim() || record?.property?.title?.trim() || connection.property_id,
-        roomId: connection.room_id,
-        roomLabel: room?.name?.trim() || connection.label?.trim() || connection.room_id,
-        connectionId: connection.id,
-        ranges: opts.restoredRanges,
-      });
-    } catch {
-      // A resident row must never fail the restore — Bookings still paints.
-    }
+  // An Undo no longer files a resident for the stay it brings back: a channel guest is DERIVED from the booking
+  // rows (the Residents list's `channelGuestRows`), so there is nothing to place and no capacity trigger to trip.
+}
+
+async function withoutMoves(
+  db: SupabaseClient,
+  connection: ChannelCalendarConnectionRow,
+  diff: ReturnType<typeof diffChannelReservations>,
+): Promise<ReturnType<typeof diffChannelReservations>> {
+  if (diff.created.length === 0 && diff.cancelled.length === 0) return diff;
+  try {
+    const { data, error } = await db
+      .from("external_calendar_connections")
+      .select("id, imported_ranges")
+      .eq("manager_user_id", connection.manager_user_id)
+      .neq("id", connection.id);
+    // An unreadable neighbour set is "no moves known": the alert goes out as it always did.
+    if (error || !Array.isArray(data)) return diff;
+    const elsewhere = reservationIdentitiesElsewhere(
+      (data as Array<{ imported_ranges?: unknown }>).map((row) =>
+        Array.isArray(row.imported_ranges) ? (row.imported_ranges as ChannelCalendarImportedRange[]) : [],
+      ),
+    );
+    const { created, cancelled } = withoutMovedReservations(diff, elsewhere);
+    return { created, cancelled };
+  } catch {
+    return diff;
   }
 }
 
@@ -565,23 +581,9 @@ export async function syncChannelCalendarConnection(
       imported,
     );
     await persistListingSubmission(db, connection.property_id, record.property, updatedSubmission);
-    try {
-      const room = updatedSubmission.rooms.find((item) => item.id === connection.room_id);
-      await upsertAirbnbResidentsFromImportedRanges(db, {
-        managerUserId: connection.manager_user_id,
-        propertyId: connection.property_id,
-        propertyLabel:
-          record.property.buildingName?.trim() ||
-          record.property.title?.trim() ||
-          connection.property_id,
-        roomId: connection.room_id,
-        roomLabel: room?.name?.trim() || connection.label?.trim() || connection.room_id,
-        connectionId: connection.id,
-        ranges: imported,
-      });
-    } catch {
-      // A resident row must never fail the calendar sync — Bookings still paints.
-    }
+    // No resident is filed for an imported stay. The import's own room block already holds those nights, so a
+    // placement for the same dates is refused by `assert_room_placement_capacity` ("This room is blocked for the
+    // requested dates") on every run; the Residents list derives channel guests from the booking rows instead.
 
     const { data: saved, error: saveError } = await db
       .from("external_calendar_connections")
@@ -627,7 +629,7 @@ export async function syncChannelCalendarConnection(
     // Best-effort: an alert that cannot be sent must never fail a calendar sync.
     try {
       const room = updatedSubmission.rooms.find((item) => item.id === connection.room_id);
-      const diff = diffChannelReservations({
+      const rawDiff = diffChannelReservations({
         previous: connection.imported_ranges ?? [],
         next: recheck.kept,
         // Never synced = the first read of this channel: record what is there, announce nothing.
@@ -636,6 +638,9 @@ export async function syncChannelCalendarConnection(
         // already tomorrow after 17:00 PT, which filed today's stays as history.
         today,
       });
+      // A relink moves the same stays between rooms of this workspace: a stay the workspace's other rooms also
+      // hold (same UID or reservation code) is moved, never "new" in one room and "cancelled" in the other.
+      const diff = await withoutMoves(db, connection, rawDiff);
       const base = {
         connectionId: connection.id,
         managerUserId: connection.manager_user_id,

@@ -210,12 +210,45 @@ function isTourPlannedEvent(event: PlannedEventValue): boolean {
   return typeof event.kind === "string" && event.kind.trim() === "tour";
 }
 
+/** Property ids that are safe to put inside a PostgREST filter list; anything else is simply not matched. */
+function filterSafeIds(ids: readonly string[]): string[] {
+  return ids.map((id) => id.trim()).filter((id) => /^[A-Za-z0-9_.:-]+$/.test(id));
+}
+
+/**
+ * Service STAFF of the open workspace run its bookings, including the ones the workspace owner typed by hand
+ * (stamped to the OWNER, so the owner column alone hides them). The scope is the workspace's own houses and
+ * room-block rows only, derived server-side from membership (`loadServiceStaffScope`).
+ */
+function serviceScopeIds(user: { serviceScope?: { propertyIds: string[] } | null }): string[] {
+  return filterSafeIds(user.serviceScope?.propertyIds ?? []);
+}
+
+function staffMayRunBlocksOn(user: { serviceScope?: { propertyIds: string[] } | null }, propertyId: string): boolean {
+  return Boolean(propertyId) && Boolean(user.serviceScope?.propertyIds.includes(propertyId));
+}
+
+/** The viewer may write room blocks on this house: a Calendar grant, or service staff of the workspace that holds it. */
+async function mayWriteBlocksOn(
+  db: Parameters<typeof managerCanWriteCalendarForProperty>[0],
+  user: { id: string; serviceScope?: { propertyIds: string[] } | null },
+  propertyId: string,
+): Promise<boolean> {
+  if (staffMayRunBlocksOn(user, propertyId)) return true;
+  return Boolean(propertyId) && (await managerCanWriteCalendarForProperty(db, user.id, propertyId));
+}
+
 function scheduleRecordScope(
   query: unknown,
-  user: { id: string; role: string },
+  user: { id: string; role: string; serviceScope?: { propertyIds: string[] } | null },
 ): unknown {
   const q = query as { or: (filters: string) => unknown };
   if (user.role === "admin") return query;
+  const staffIds = serviceScopeIds(user);
+  const staffBranch =
+    staffIds.length > 0
+      ? `,and(property_id.in.(${staffIds.join(",")}),record_type.in.(${ROOM_DATE_BLOCK_RECORD_TYPE},${CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE}))`
+      : "";
   if (user.role === "vendor") {
     return q.or(
       `manager_user_id.eq.${user.id},id.eq.axis_vendor_avail_slots_v2_${user.id},id.eq.axis_vendor_flex_prefs_${user.id}`,
@@ -225,7 +258,7 @@ function scheduleRecordScope(
   // hide a co-manager's own block from the Remove they just created it with. Their blocks carry
   // their id in the record id and an insert cannot claim anyone else's prefix.
   return q.or(
-    `manager_user_id.eq.${user.id},id.like.axis_mgr_avail_slots_v2_${user.id}%,id.like.axis_calendar_share_avail_${user.id}_prop_%,id.like.${roomDateBlockRecordIdPrefix(user.id)}%,id.eq.axis_manager_tasks_v1_${user.id},id.eq.axis_admin_partner_inquiries_v1,id.eq.axis_admin_planned_events_v1`,
+    `manager_user_id.eq.${user.id},id.like.axis_mgr_avail_slots_v2_${user.id}%,id.like.axis_calendar_share_avail_${user.id}_prop_%,id.like.${roomDateBlockRecordIdPrefix(user.id)}%,id.eq.axis_manager_tasks_v1_${user.id},id.eq.axis_admin_partner_inquiries_v1,id.eq.axis_admin_planned_events_v1${staffBranch}`,
   );
 }
 
@@ -235,6 +268,7 @@ function scheduleUserHasRole(user: { role: string; roles?: string[] }, role: str
 
 const route = createJsonRecordRoute({
   table: "portal_schedule_records",
+  resolveServiceScope: true,
   // An admin in their own manager portal reads and writes like any manager; the all-owners schedule
   // read is admin oversight (`?oversight=admin`, sent by admin pages).
   explicitAdminOversight: true,
@@ -309,6 +343,20 @@ const route = createJsonRecordRoute({
         );
       }
     }
+    // Service staff: every room block of the open workspace's houses, whoever wrote it. Its own bounded
+    // read, so a busy workspace's newest rows cannot be crowded out by the viewer's own.
+    const staffIds = isManagerViewer ? serviceScopeIds(user) : [];
+    if (staffIds.length > 0) {
+      reads.push(
+        db
+          .from("portal_schedule_records")
+          .select(select)
+          .in("property_id", staffIds)
+          .in("record_type", [ROOM_DATE_BLOCK_RECORD_TYPE, CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE])
+          .order("updated_at", { ascending: false })
+          .limit(500),
+      );
+    }
     const results = await Promise.all(reads);
     const records = new Map<string, Record<string, unknown>>();
     for (const result of results) {
@@ -345,7 +393,21 @@ const route = createJsonRecordRoute({
       error: results.find((result) => result.error)?.error ?? null,
     };
   },
-  projectRead: async ({ db, user, records }) => projectScheduleRecordsForViewer(db, user, records),
+  projectRead: async ({ db, user, records }) => {
+    const projected = await projectScheduleRecordsForViewer(db, user, records);
+    // Service staff also see the open workspace's room blocks (the projection above keeps only rows the
+    // viewer wrote or may see through a grant). Only room-block rows of the workspace's own houses, only staff.
+    const staffHouses = new Set(serviceScopeIds(user));
+    if (staffHouses.size === 0) return projected;
+    const seen = new Set(projected.map((record) => String(record.id ?? "")));
+    const extra = records.filter(
+      (record) =>
+        !seen.has(String(record.id ?? "")) &&
+        isRoomDateBlockRecordType(String(record.record_type ?? "")) &&
+        staffHouses.has(String(record.property_id ?? "").trim()),
+    );
+    return [...projected, ...extra];
+  },
   scope: scheduleRecordScope,
   buildUpsert: (row, user) => {
     const recordType = String(row.recordType ?? row.record_type ?? "event");
@@ -423,8 +485,7 @@ const route = createJsonRecordRoute({
       const storedOwner = String(existing.manager_user_id ?? "").trim();
       const blockPropertyId = String(existing.property_id ?? record.property_id ?? "").trim();
       if (storedOwner && storedOwner !== user.id && !scheduleUserHasRole(user, "admin")) {
-        const allowed =
-          Boolean(blockPropertyId) && (await managerCanWriteCalendarForProperty(db, user.id, blockPropertyId));
+        const allowed = await mayWriteBlocksOn(db, user, blockPropertyId);
         if (!allowed) {
           return { handled: true, error: "You need Calendar edit access on this property to change its room blocks.", status: 403 };
         }
@@ -458,7 +519,7 @@ const route = createJsonRecordRoute({
           const allowed =
             owner === user.id ||
             scheduleUserHasRole(user, "admin") ||
-            (await managerCanWriteCalendarForProperty(db, user.id, blockPropertyId));
+            (await mayWriteBlocksOn(db, user, blockPropertyId));
           if (!allowed) {
             return { handled: true, error: "You need Calendar edit access on this property to block its rooms.", status: 403 };
           }
@@ -624,7 +685,7 @@ const route = createJsonRecordRoute({
         const storedOwner = String(record.manager_user_id ?? "").trim();
         if (!storedOwner || storedOwner === user.id) continue;
         const propertyId = String(record.property_id ?? "").trim();
-        if (!propertyId || !(await managerCanWriteCalendarForProperty(db, user.id, propertyId))) {
+        if (!propertyId || !(await mayWriteBlocksOn(db, user, propertyId))) {
           return { ok: false, error: "You need Calendar edit access on this property to remove its room blocks.", status: 403 };
         }
       }

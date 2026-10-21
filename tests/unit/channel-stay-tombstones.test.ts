@@ -130,9 +130,9 @@ describe("Remove stay -> next sync -> Undo", () => {
     // And the dates he held are not re-closed on the listing.
     const listing = (tables.manager_property_records[0]!.property_data as { listingSubmission: { rooms: Array<{ manualUnavailableRanges: Array<{ start: string }> }> } }).listingSubmission;
     expect(listing.rooms[0]!.manualUnavailableRanges.map((r) => r.start)).toEqual(["2026-10-20"]);
-    // No resident is filed for the removed reservation.
-    const filed = (mocks.upsertResidents.mock.calls as unknown as Array<[unknown, { ranges: ChannelCalendarImportedRange[] }]>)[0]![1].ranges;
-    expect(filed.map((r) => r.sourceUid)).toEqual(["uid-priya"]);
+    // No resident is filed for ANY imported stay (the Residents list derives channel guests from the booking rows,
+    // and a placement over the import's own block is refused by the capacity trigger on every run).
+    expect(mocks.upsertResidents).not.toHaveBeenCalled();
   });
 
   it("a second Remove of the same stay is the same tombstone, not a clone", async () => {

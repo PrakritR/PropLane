@@ -223,7 +223,12 @@ import {
   residentDirectoryStage,
   type ResidentDirectoryStage,
 } from "@/lib/current-resident";
-import { getPropertyById, getBundleOptionsForProperty, isEntireHomeProperty, isPropertyRentedByRoom, getRoomChoiceLabel, LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
+import { getPropertyById, getBundleOptionsForProperty, isEntireHomeProperty, isPropertyRentedByRoom, getRoomChoiceLabel, LISTING_ROOM_CHOICE_SEP, parseRoomChoiceValue } from "@/lib/rental-application/data";
+import { useChannelGuestStays } from "@/hooks/use-channel-guest-stays";
+import { toMs } from "@/lib/dashboard-kpis";
+import type { ManagerResidentListRow } from "@/lib/manager-resident-list";
+import { channelGuestRows, channelStayCoverageKey } from "@/lib/channel-calendar/channel-guest-rows";
+import { pacificTodayKey } from "@/lib/room-availability-range";
 import { computeLeaseEndDate, shouldAutoComputeLeaseEnd } from "@/lib/rental-application/lease-dates";
 import { resolveManualResidentAssignment, resolveManualResidentPlacementValues } from "@/lib/rental-application/placement-values";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -1082,6 +1087,47 @@ export function ManagerResidents({
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
   }, [residents, userId, propertyTick]);
 
+  // Channel guests (Airbnb, Booking.com, Vrbo, other calendars) are people under the manager's roof, so
+  // they sit in Current beside the residents. Derived from the booking rows: no login, nothing written.
+  const channelGuestStays = useChannelGuestStays({
+    enabled: authReady && Boolean(userId) && !isDemoModeActive(),
+    propertyIds: propertyOptions.map((option) => option.id),
+    propertyLabelForId: (propertyId) => propertyOptions.find((option) => option.id === propertyId)?.label ?? propertyId,
+    roomLabelForId: (propertyId, roomId) => {
+      const submission = getPropertyById(propertyId)?.listingSubmission;
+      if (!submission || submission.v !== 1) return "Room";
+      const rooms = normalizeManagerListingSubmissionV1(submission).rooms;
+      const index = rooms.findIndex((room) => room.id === roomId);
+      return rooms[index]?.name?.trim() || (index >= 0 ? `Room ${index + 1}` : "Room");
+    },
+  });
+  const channelGuestListRows = useMemo<ManagerResidentListRow[]>(() => {
+    void hcTick;
+    void propertyTick;
+    if (channelGuestStays.entries.length === 0) return [];
+    // A reservation the sync already filed a placeholder resident for is that resident's row, not a second one.
+    const coveredByResident = new Set<string>();
+    const residentStayShapes = new Set<string>();
+    for (const row of readManagerApplicationRows()) {
+      const ical = row as { icalConnectionId?: string; icalSourceUid?: string };
+      if (ical.icalConnectionId && ical.icalSourceUid) {
+        coveredByResident.add(channelStayCoverageKey(ical.icalConnectionId, ical.icalSourceUid));
+      }
+      if (row.bucket !== "approved" || !row.manuallyAdded) continue;
+      const propId = (row.assignedPropertyId || row.propertyId || "").trim();
+      const roomId = parseRoomChoiceValue(row.assignedRoomChoice || row.application?.roomChoice1 || "").listingRoomId ?? "";
+      const start = row.manualResidentDetails?.moveInDate?.trim() || row.application?.leaseStart?.trim() || "";
+      const end = row.manualResidentDetails?.moveOutDate?.trim() || row.application?.leaseEnd?.trim() || "";
+      if (propId && start) residentStayShapes.add(`${propId}\0${roomId}\0${start}\0${end}`);
+    }
+    return channelGuestRows(channelGuestStays.entries, {
+      today: pacificTodayKey(),
+      coveredByResident,
+      residentStayShapes,
+      basePath: portalBase,
+    });
+  }, [channelGuestStays.entries, hcTick, propertyTick, portalBase]);
+
   const erRoomOptions = useMemo(() => {
     void propertyTick;
     if (!erPropertyId) return [];
@@ -1229,26 +1275,40 @@ export function ManagerResidents({
         residentDirectoryRows.filter((row) => row.stage === stage),
       ).length;
     }
+    // Guests in the house tonight or arriving are part of who is here, so Current counts them too.
+    counts.current += channelGuestListRows.length;
     return counts;
-  }, [residentDirectoryRows]);
+  }, [residentDirectoryRows, channelGuestListRows]);
 
   // The rows the list draws: the filtered, sorted residents as the row shape the table takes.
-  const residentListRows = useMemo(
-    () =>
-      filtered.map((res) => ({
-        id: res.id,
-        name: res.name,
-        email: res.email,
-        propertyId: res.propertyId,
-        propertyLabel: res.propertyLabel,
-        roomLabel: res.roomLabel,
-        leaseStart: res.leaseStart,
-        groupId: res.groupId,
-        statusLabel: res.stage === "potential" ? res.statusLabel : "",
-        residentSlotFact: res.residentSlotFact,
-      })),
-    [filtered],
-  );
+  const residentListRows = useMemo(() => {
+    const residentRows: ManagerResidentListRow[] = filtered.map((res) => ({
+      id: res.id,
+      name: res.name,
+      email: res.email,
+      propertyId: res.propertyId,
+      propertyLabel: res.propertyLabel,
+      roomLabel: res.roomLabel,
+      leaseStart: res.leaseStart,
+      groupId: res.groupId,
+      statusLabel: res.stage === "potential" ? res.statusLabel : "",
+      residentSlotFact: res.residentSlotFact,
+    }));
+    if (residentsTab !== "current" || channelGuestListRows.length === 0) return residentRows;
+    // Same narrowing the residents get: the house filter and the search box.
+    const guests = channelGuestListRows
+      .filter((g) => propertyFilters.length === 0 || propertyFilters.includes(g.propertyId))
+      .filter((g) =>
+        matchesPortalListSearch(residentSearch, g.name, g.propertyLabel, g.roomLabel, g.channelStay?.sourceLabel ?? ""),
+      );
+    if (guests.length === 0) return residentRows;
+    // Guests ride the same sort as residents. House sort keeps each house's people A to Z inside its header.
+    return sortHouseListItems([...residentRows, ...guests], sortMode, {
+      name: (r) => r.name,
+      updatedMs: (r) => (r.channelStay ? (toMs(r.channelStay.start) ?? 0) : 0),
+      tieBreak: (r) => String(parseInt(r.roomLabel.match(/\d+/)?.[0] ?? "0", 10)).padStart(6, "0") + r.id,
+    });
+  }, [filtered, channelGuestListRows, residentsTab, propertyFilters, residentSearch, sortMode]);
 
   const propertyFilterLabel = useMemo(() => {
     const id = propertyFilters[0];
@@ -4251,7 +4311,8 @@ export function ManagerResidents({
           selectedIds={selectedIds}
           onToggleSelected={toggleSelected}
           onOpenResident={(res) =>
-            navigate(residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
+            // A channel guest opens its booking record; a resident opens the resident record.
+            navigate(res.channelStay ? res.channelStay.href : residentDetailHref(portalBase, residentsTab, res.id, resolvedDetailTab))
           }
         />
       </PortalRecordListSurface>

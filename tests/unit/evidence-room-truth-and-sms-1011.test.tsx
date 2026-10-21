@@ -165,7 +165,10 @@ const HELD_BY: Record<string, string> = {
 /** Rooms with no bed free on TODAY. r-shared keeps a bed, so it is NOT here. */
 const CLOSED_TODAY = ["r-signed", "r-approved", "r-airbnb", "r-block", "r-listing"];
 const BEDS_TOTAL = ROOMS.reduce((n, r) => n + r.capacity, 0);
-const OCCUPIED_BEDS_TODAY = 6; // five full rooms + one of the shared room's two beds
+/** Beds with NO bed free to rent today: five full rooms (two of them closed, not lived in) + one of the shared room's two beds. */
+const OCCUPIED_BEDS_TODAY = 6;
+/** Beds with a PERSON in them today (Oct 20 2026: the dashboard counts who is here; a room block and the listing's blocked dates close a bed but are nobody's home). */
+const PEOPLE_TODAY = 4; // signed lease, approved applicant, the hand-added resident, the Airbnb guest
 
 function listing(): ManagerListingSubmissionV1 {
   const sub = createDefaultListingSubmission();
@@ -421,7 +424,7 @@ describe("evidence · one occupancy rule, four surfaces", () => {
     say();
     for (const room of ROOMS) say(`  ${room.name.padEnd(26)} held by ${HELD_BY[room.id]}`);
     say();
-    say("Expected from the one rule: 6 of 8 beds taken today. Room 3 keeps a bed because");
+    say("Expected from the one rule: 6 of 8 beds taken today, 4 of them with a person in them (the dashboard counts people). Room 3 keeps a bed because");
     say("PropLane's own \"CLOSED - Not available\" export echoing back is not a second occupant.");
     say();
 
@@ -430,15 +433,18 @@ describe("evidence · one occupancy rule, four surfaces", () => {
     const dayKeys = dashboardOccupancyDayKeys(TODAY, periods);
     const snapshot = await realSnapshot(dayKeys);
     const shaped = dashboardOccupancyFromSnapshot(snapshot, TODAY, periods)!;
-    expect(shaped.occupiedToday).toBe(OCCUPIED_BEDS_TODAY);
-    expect(shaped.byProperty.get(HOUSE)).toBe(OCCUPIED_BEDS_TODAY);
+    expect(shaped.occupiedToday).toBe(PEOPLE_TODAY);
+    expect(shaped.byProperty.get(HOUSE)).toBe(PEOPLE_TODAY);
+    expect(shaped.bedsToday).toBe(BEDS_TOTAL);
+    // The calendar's busy beds (people + closures) are still the rooms every OTHER surface calls taken.
+    expect(snapshot.days.find((d) => d.dayKey === TODAY)?.occupied).toBe(OCCUPIED_BEDS_TODAY);
     const kpiPct = Math.round((shaped.occupiedToday / BEDS_TOTAL) * 100);
 
     say("A · MANAGER DASHBOARD  (real occupancySnapshotForManager -> the card and the KPI)");
     say(`    GET ${dashboardOccupancyUrl([HOUSE], TODAY, periods)}`);
     say(`    ${dayKeys.length} day keys asked for, not the ${periods.length * 31}+ cells the month range would have cost`);
     say(`    property card  "${shaped.occupiedToday} / ${BEDS_TOTAL} occupied"`);
-    say(`    Occupancy KPI  ${kpiPct}%  ("Rooms occupied over rentable spaces")`);
+    say(`    Occupancy KPI  ${kpiPct}%  ("Beds with someone in them today")`);
     say();
 
     /* ---- B. the property room rows, from the same snapshot through the route shape ---- */
@@ -537,7 +543,7 @@ describe("evidence · one occupancy rule, four surfaces", () => {
 
     /* ---- the agreement itself ---- */
     const occupiedFrom = {
-      "dashboard card / KPI": `${shaped.occupiedToday} of ${BEDS_TOTAL} beds`,
+      "dashboard card / KPI": `${shaped.occupiedToday} of ${BEDS_TOTAL} beds with a person in them`,
       "room rows": ROOMS.filter((r) => rowText.get(r.id)!.startsWith("Occupied")).map((r) => r.id).join(", "),
       "public listing / wizard": ROOMS.filter((r) => (bedsToday.get(r.id) ?? 0) >= r.capacity).map((r) => r.id).join(", "),
       "leasing bots": ROOMS.filter((r) => botVerdict.get(r.id) === false).map((r) => r.id).join(", "),
@@ -574,17 +580,17 @@ describe("evidence · one occupancy rule, four surfaces", () => {
         ).map(([label, map, state]) => (
           <div key={state}>
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">{label}</p>
-            <PortfolioPropertiesSection cards={cards} basePath="/manager" occupiedByProperty={map} occupancyState={state} />
+            <PortfolioPropertiesSection cards={cards} basePath="/manager" occupiedByProperty={map} bedsByProperty={shaped.bedsByProperty} occupancyState={state} />
           </div>
         ))}
       </div>,
     );
-    expect(dash.container.querySelector('[aria-label="6 of 8 spaces occupied"]')).toBeTruthy();
+    expect(dash.container.querySelector('[aria-label="4 of 8 spaces occupied"]')).toBeTruthy();
     expect(dash.container.querySelector('[aria-label="Loading occupancy"]')).toBeTruthy();
     expect(dash.container.querySelector('[aria-label="Occupancy unavailable"]')).toBeTruthy();
     writeShot(
       "room-truth-dashboard-cards",
-      `A · Manager dashboard property card. "${shaped.occupiedToday} / ${BEDS_TOTAL} occupied" is the occupancy snapshot's own count for today — a signed lease, an approved applicant, a hand-added resident, an Airbnb stay, a room block and the listing's blocked dates. Occupancy KPI reads ${kpiPct}%.\nMiddle / right: the read is not yet answered and the read failed — "—", never a confident "0 / 8".`,
+      `A · Manager dashboard property card. "${shaped.occupiedToday} / ${BEDS_TOTAL} occupied" is the occupancy snapshot's own count for today — a signed lease, an approved applicant, a hand-added resident, and an Airbnb guest (a room block and the listing's blocked dates close a bed but are nobody's home). Occupancy KPI reads ${kpiPct}%.\nMiddle / right: the read is not yet answered and the read failed — "—", never a confident "0 / 8".`,
       dash.container.innerHTML,
     );
     cleanup();

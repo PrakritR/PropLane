@@ -54,65 +54,66 @@ function renderRoom(room: ListingRoomRow) {
   );
 }
 
-/** The stat card whose uppercase label is exactly `label`. */
-function statCard(label: string): HTMLElement {
-  const labelNode = screen.getByText(label);
-  const card = labelNode.parentElement;
-  expect(card).not.toBeNull();
-  return card as HTMLElement;
+/** The rent figure in the popup's header (room name left, figure right). */
+function rentFigure(): HTMLElement {
+  const node = document.querySelector('[data-attr="listing-room-rent"]');
+  expect(node).not.toBeNull();
+  return node as HTMLElement;
 }
 
 describe("room detail modal — rent", () => {
   it("shows the room's rent, formatted like roomHeadlinePriceLabel everywhere else", () => {
     renderRoom(roomRow());
-    expect(within(statCard("Rent")).getByText("$1,150/mo")).toBeTruthy();
+    expect(rentFigure().textContent).toBe("$1,150/mo");
   });
 
   it("uses the daily suffix for a daily-priced room", () => {
     renderRoom(
       roomRow({ price: "$40.50/day", pricePeriod: "day", priceHeadlineAmount: 40.5 }),
     );
-    expect(within(statCard("Rent")).getByText("$40.50/day")).toBeTruthy();
+    expect(rentFigure().textContent).toBe("$40.50/day");
   });
 
-  it("leads the stat grid, so utilities can never read as the price of the room", () => {
+  it("leads the popup in its header, so utilities can never read as the price of the room", () => {
     renderRoom(roomRow());
-    const labels = screen
-      .getAllByText(/^(Rent|Floor|Utilities)$/)
-      .map((n) => n.textContent);
-    expect(labels).toEqual(["Rent", "Floor", "Utilities"]);
+    const header = screen.getByText("Room 1").closest("header") as HTMLElement;
+    expect(header.contains(rentFigure())).toBe(true);
+    const facts = document.querySelector('[data-attr="listing-room-facts"]') as HTMLElement;
+    expect(Array.from(facts.querySelectorAll("dt")).map((n) => n.textContent)).toEqual(["Floor", "Bathroom", "Utilities (est.)", "Status"]);
+    expect(within(facts).getByText("$150/mo est.")).toBeTruthy();
+    expect(facts.textContent).not.toContain("$1,150");
   });
 
   it("says 'Not set' rather than '$0' when the room has no rent", () => {
     renderRoom(roomRow({ price: "$0", priceHeadlineAmount: undefined }));
-    const card = statCard("Rent");
-    expect(within(card).getByText("Not set")).toBeTruthy();
-    expect(card.textContent).not.toContain("$0");
+    const figure = rentFigure();
+    expect(within(figure).getByText("Not set")).toBeTruthy();
+    expect(figure.textContent).not.toContain("$0");
   });
 
   it.each(["$0.00", "$0/mo", "—", "   "])(
     "says 'Not set' for the meaningless price label %j",
     (price) => {
       renderRoom(roomRow({ price, priceHeadlineAmount: undefined }));
-      expect(within(statCard("Rent")).getByText("Not set")).toBeTruthy();
+      expect(within(rentFigure()).getByText("Not set")).toBeTruthy();
     },
   );
 
   it("falls back to the row's own price when the row carries no headline amount", () => {
     renderRoom(roomRow({ price: "$775/month", priceHeadlineAmount: undefined }));
-    const card = statCard("Rent");
-    expect(within(card).getByText("$775/month")).toBeTruthy();
-    expect(card.textContent).not.toContain("Not set");
+    const figure = rentFigure();
+    expect(within(figure).getByText("$775/month")).toBeTruthy();
+    expect(figure.textContent).not.toContain("Not set");
   });
 
   it("keeps an entire-home room's descriptive label instead of reporting it as unset", () => {
     renderRoom(roomRow({ price: "Included", priceHeadlineAmount: undefined }));
-    expect(within(statCard("Rent")).getByText("Included")).toBeTruthy();
+    expect(within(rentFigure()).getByText("Included")).toBeTruthy();
   });
 
   it("renders a single-month availability calendar with month navigation in the room modal", () => {
     renderRoom(roomRow());
-    expect(screen.getByText("Availability timeline")).toBeTruthy();
+    expect(screen.getByText("Availability")).toBeTruthy();
     expect(screen.queryByText(/Green dates are open and red dates are unavailable/)).toBeNull();
     expect(screen.getByLabelText("Previous month")).toBeTruthy();
     expect(screen.getByLabelText("Next month")).toBeTruthy();

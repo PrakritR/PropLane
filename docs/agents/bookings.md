@@ -59,6 +59,46 @@ sitting at the read cap, no row the route had to skip, same workspace). A partia
 answer is missing rows that still exist, so absence there proves nothing. Coverage:
 `tests/unit/bookings-residents-from-occupancy.test.tsx`.
 
+## Who is in the house today (captain, Oct 20 2026)
+
+`occupancyForDay` returns two numbers per day and house, and they are not the same question. `occupied` is the
+beds that are not free (the calendar's busy beds): a person, or a closure. `inHouse` is the beds with a PERSON in
+them: a lease or approved placement, a PropLane stay with a guest's name (a booking the manager typed by hand
+counts: the Add sheet never sets a status, so it reads "Hold"; a guest's own short-stay request still waiting on
+the host does not, `isShortStayRequestSource`), a channel reservation. A channel host block
+(`isHostBlockSummary`), a manager's Closed room, a block with nobody attached and the listing's own blocked dates
+take a bed out of `occupied` but are nobody's home. Sanity shape (Ambika's three houses, Oct 20 2026): 22 of 28
+people, 25 busy beds (`tests/unit/occupancy-ambika-shape.test.ts`). `isPersonOccupant` (`src/lib/occupancy/snapshot.ts`) is the one
+classifier; a privacy-stripped "CLOSED - Not available" from Booking.com / VRBO stays a person, because that is how
+those channels write a real reservation. Check-out is exclusive (an entry's `end` is its last night).
+
+The dashboard reads `inHouse` and nothing else (`dashboardOccupancyFromSnapshot`): the Occupancy KPI is TODAY's
+people over the beds of the same snapshot cell, each property card is that house's people over that house's beds,
+and the KPI draws no "vs last month" because no daily history of channel stays exists to compare against (an
+import that arrived last week would read as a jump that never happened). Demo mode keeps its local history. The
+public listing is the other half: a closure still makes a room "Not available" there (`occupiedBedSpans`), so a
+room with an Airbnb guest tonight is never "Available now" and a future block is red in the room popup's calendar.
+Coverage: `tests/unit/occupancy-today-resolver.test.ts`.
+
+**The sync files no resident for a channel stay.** `upsertAirbnbResidentsFromImportedRanges` is no longer called by
+the sync or by Undo: the import's own `room_date_block` already holds those nights, so a placement for the same dates
+was refused by `assert_room_placement_capacity` ("This room is blocked for the requested dates") on every run. Placeholder
+residents filed earlier still leave with their reservation (`releaseAirbnbResidentsAbsentFromFeed`, Remove stay).
+
+**A relink is a move, not a cancel plus a new booking.** Re-pointing a room's import URL moves the same stays between rooms
+of one workspace. `withoutMovedReservations` (`channel-booking-diff.ts`) drops a reservation another of the manager's channel
+connections also holds (same iCal UID or reservation code) from both the new and the cancelled alert, whichever room synced first;
+a stay with neither identity is never presumed a move. Coverage: `tests/unit/channel-booking-alerts.test.ts`.
+
+**Channel guests are in the Residents list.** Current lists everyone who is or will be at the house: the residents
+as before, plus one row per current or upcoming confirmed channel booking (`channelGuestRows`,
+`src/lib/channel-calendar/channel-guest-rows.ts`, read through `useChannelGuestStays`). The row is DERIVED from the
+booking rows: no login, no application, nothing written. It is named by the guest name on the stay, else
+"<Channel> guest"; its facts are the dates and the source (a glyph, never a pill); it has no checkbox; opening it
+opens the booking record. A past stay, a cancelled one, a host block and a reservation a placeholder resident
+already stands in for (`icalConnectionId` + `icalSourceUid`, or the same room and dates) never get a row. The
+Current count includes them. Coverage: `tests/unit/channel-guest-rows.test.ts`.
+
 ## Five reads; one that fails never blanks the screen
 
 `useManagerBookingEntries` (`src/hooks/use-manager-booking-entries.ts`) builds

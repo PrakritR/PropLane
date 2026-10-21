@@ -66,6 +66,27 @@ export function decideServiceMode(
 }
 
 /**
+ * The houses a STAFF viewer may read and write bookings on while a service workspace is open: the workspace's own
+ * houses, never anything else. `null` unless service mode holds (the active workspace is a service workspace the
+ * viewer is staff of), so a stranger, a client owner and a staff member browsing their own workspace get nothing here.
+ * Bookings a workspace owner typed by hand are stamped to the OWNER, so without this the staff member sees only the
+ * rows they wrote themselves.
+ */
+export type ServiceStaffScope = { workspaceId: string; propertyIds: string[] };
+
+export function serviceStaffScope(
+  workspaces: PortalWorkspace[],
+  staffIds: ReadonlySet<string>,
+  cookieId: string | null | undefined,
+): ServiceStaffScope | null {
+  const decision = decideServiceMode(workspaces, staffIds, cookieId);
+  if (decision.mode !== "service" || !decision.activeId) return null;
+  const active = workspaces.find((w) => w.id === decision.activeId);
+  if (!active) return null;
+  return { workspaceId: active.id, propertyIds: [...new Set(active.propertyIds.map((id) => id.trim()).filter(Boolean))] };
+}
+
+/**
  * The workspaces payload the Property portal draws: a service workspace the viewer is staff of belongs to the service
  * rail, so it is left out here, and `activeWorkspaceId` is re-resolved on what remains. In service mode nothing is left
  * out (the portal is scoped to that workspace and the client needs it). A client owner's workspace always stays.

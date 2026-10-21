@@ -42,6 +42,13 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   ACTIVE workspace (the cookie's, else the first, exactly what the scope readers narrow to) is a service workspace the
   viewer is staff of. The top bar reads `Admin · <workspace>`, the sidebar subtitle `PropLane Service`, the plan banner
   is off and nav locks follow the service, not the viewer's own plan.
+- **Bookings are the workspace's, not the viewer's.** A booking the workspace owner typed by hand is stamped to the OWNER,
+  so `/api/portal-schedule-records` showed staff only their own rows. In service mode the route (opt-in
+  `resolveServiceScope`, `loadServiceStaffScope`, pure `serviceStaffScope`) lets staff read, edit, cancel and delete the
+  room blocks of the open workspace's houses and nothing else: the scope is re-derived server-side from membership and the
+  cookie (never a body id), is null for a stranger, a client owner and staff on their own non-service workspace, and fails
+  closed on a read error. The occupancy, channel and lease reads were already by property grant (the Admin seat carries one).
+  Coverage: `tests/unit/schedule-records-service-staff.test.ts`.
 - **Property portal list**: `GET /api/workspaces` leaves staff service workspaces out of its payload (and re-resolves
   `activeWorkspaceId`) unless the portal is in service mode. `loadWorkspaces` itself is untouched (about ten scope readers
   use it). A plain switch to the manager portal (`set-active-portal`, no `keepWorkspace`) repoints a cookie that still

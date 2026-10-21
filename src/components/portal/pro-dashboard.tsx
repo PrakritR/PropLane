@@ -927,8 +927,13 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     // (hand-added, approved or signed), an Airbnb / channel stay and a room block all take a room,
     // so "signed leases" undercounts. Demo mode has no server to ask and keeps the local lease mirror.
     const signed = data.leases.filter((l) => l.status === "Fully Signed");
-    const occupiedSeries = liveOccupancy
-      ? liveOccupancy.occupiedByPeriod
+    // Live, the KPI is TODAY: people in beds right now (residents, confirmed channel and PropLane
+    // stays; a closed room is nobody's home) over the beds the same snapshot cell counted. There is
+    // no daily history of channel stays to compare against, so a "vs last month" drawn from stays
+    // that were imported recently would read as a jump that never happened: live draws no delta.
+    // Demo mode has no server to ask and keeps the local lease mirror and its history.
+    const demoSeries = liveOccupancy
+      ? []
       : stockSeries(
           signed,
           periods,
@@ -936,9 +941,13 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
           (l) => toMs(l.application?.leaseEnd) ?? toMs(l.voidedAt),
           nowMs,
         );
-    const occupiedNow = occupiedSeries[occupiedSeries.length - 1] ?? 0;
-    const spaces = Math.max(data.portfolio.rentableSpaces, occupiedNow, 1);
-    const occupancyPct = occupiedSeries.map((n) => Math.round((n / spaces) * 100));
+    const occupiedNow = liveOccupancy ? liveOccupancy.occupiedToday : (demoSeries[demoSeries.length - 1] ?? 0);
+    const spaces = liveOccupancy
+      ? Math.max(liveOccupancy.bedsToday, occupiedNow, 1)
+      : Math.max(data.portfolio.rentableSpaces, occupiedNow, 1);
+    const occupancyPct = liveOccupancy ? [] : demoSeries.map((n) => Math.round((n / spaces) * 100));
+    const occupancyTodayPct = Math.round((occupiedNow / spaces) * 100);
+    const hasSpaces = liveOccupancy ? liveOccupancy.bedsToday > 0 : data.portfolio.rentableSpaces > 0;
     // Not yet answered (or the read failed): unknown, never a confident zero.
     const occupancyUnknown = occupancyIsLive && !liveOccupancy;
 
@@ -973,12 +982,12 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
             delta: null,
           }
         : {
-        value: `${occupancyPct[occupancyPct.length - 1] ?? 0}%`,
-        // One population for the card: the same series the figure comes from.
+        value: `${liveOccupancy ? occupancyTodayPct : (occupancyPct[occupancyPct.length - 1] ?? 0)}%`,
+        // One population for the card: figure and total come from the same cell.
         // A portfolio with nothing rentable yet says so, rather than "0 / 1".
-        unit: data.portfolio.rentableSpaces > 0 ? `${occupiedNow} / ${spaces}` : "No spaces yet",
+        unit: hasSpaces ? `${occupiedNow} / ${spaces}` : "No spaces yet",
         series: occupancyPct,
-        delta: kpiDelta(occupancyPct, (n) => `${n} pts`, previous),
+        delta: liveOccupancy ? null : kpiDelta(occupancyPct, (n) => `${n} pts`, previous),
       },
       collected: {
         value: usdWhole(collectedSeries[collectedSeries.length - 1] ?? 0),
@@ -1110,8 +1119,10 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
   // Rooms occupied today per property, for the occupancy bar on each card. Live: the occupancy
   // snapshot (a house it did not answer for is absent, so the card says unknown, not 0). Demo: signed leases.
   const occupiedByProperty = new Map<string, number>();
+  const bedsByProperty = new Map<string, number>();
   if (occupancyIsLive) {
     for (const [key, occupied] of liveOccupancy?.byProperty ?? []) occupiedByProperty.set(key, occupied);
+    for (const [key, beds] of liveOccupancy?.bedsByProperty ?? []) bedsByProperty.set(key, beds);
   } else {
     for (const card of portfolio.cards) occupiedByProperty.set(card.key, 0);
     for (const lease of activeResidents) {
@@ -1414,7 +1425,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
             label="Occupancy"
             value={kpis?.occupancy.value ?? "0%"}
             unit={kpis?.occupancy.unit}
-            detail="Rooms occupied over rentable spaces"
+            detail="Beds with someone in them today"
             delta={kpis?.occupancy.delta ?? null}
             series={kpis?.occupancy.series}
             seriesLabels={kpis?.labels}
@@ -1472,6 +1483,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
           loading={!dashboardSynced && portfolio.cards.length === 0}
           basePath={BASE}
           occupiedByProperty={occupiedByProperty}
+          bedsByProperty={bedsByProperty}
           occupancyState={occupancyState}
           addPropertyAction={
             <PortalPrimaryIconAction

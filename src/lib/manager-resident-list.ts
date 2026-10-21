@@ -8,6 +8,7 @@ import { roomPricesPerResident, roomResidentPriceForSlot } from "@/lib/room-pric
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { sharedRoomApplicationFact } from "@/lib/shared-room-display";
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import type { ChannelGuestFacts } from "@/lib/channel-calendar/channel-guest-rows";
 
 export type ManagerResidentListRow = {
   id: string;
@@ -27,6 +28,12 @@ export type ManagerResidentListRow = {
    * Shared-room fact (PLAN-0924-0718): same rent each resident pays.
    */
   residentSlotFact?: string;
+  /**
+   * Set on a row that is a channel guest (Airbnb, Booking.com, Vrbo, another calendar) derived from a
+   * booking, not a resident record: the row opens the booking, shows its dates and source, and has
+   * no selection or resident actions.
+   */
+  channelStay?: ChannelGuestFacts;
 };
 
 export type ManagerResidentListCluster = ResidentCluster<ManagerResidentListRow>;

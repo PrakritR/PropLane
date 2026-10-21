@@ -73,7 +73,7 @@ function redDays(): string[] {
 describe("room modal availability timeline", () => {
   it("drops the explanatory sentences and keeps the heading, key and calendar", () => {
     renderRoom(roomRow());
-    expect(screen.getByText("Availability timeline")).toBeTruthy();
+    expect(screen.getByText("Availability")).toBeTruthy();
     expect(screen.queryByText(/No blocked ranges/)).toBeNull();
     expect(screen.queryByText(/Green dates are open/)).toBeNull();
     expect(screen.getByLabelText("Calendar key")).toBeTruthy();
@@ -99,5 +99,61 @@ describe("room modal availability timeline", () => {
     renderRoom(roomRow());
     expect(screen.getByText("Available now")).toBeTruthy();
     expect(redDays()).toEqual([]);
+  });
+});
+
+
+describe("room modal layout (popup standard)", () => {
+  function richRoom() {
+    return roomRow({
+      modal: {
+        setupLine: "",
+        bathroomShortLabel: "Shared bathroom",
+        bathroomAccessLines: ["Shared with Room 2"],
+        tourEyebrow: "Room tour",
+        tourTitle: "Video tour",
+        tourSubtitle: "",
+        includedTags: ["Desk", "Wardrobe", "Shared bath", "Bright corner room facing the garden."],
+        roomAmenityLabels: ["Wi-Fi"],
+        roomNotes: "Bright corner room facing the garden.",
+        furnishingDetail: "Bright corner room facing the garden.",
+        floorLine: "2nd floor",
+      } as ListingRoomRow["modal"],
+      utilitiesEstimate: "$90/mo",
+    });
+  }
+
+  it("heads the popup with the room name and the rent figure", () => {
+    renderRoom(richRoom());
+    const header = document.querySelector('[data-attr="listing-room-modal-header"]')!;
+    expect(header.textContent).toContain("Room 1");
+    expect(header.textContent).toContain("$1,150");
+    expect(header.textContent).toContain("/mo");
+  });
+
+  it("lists floor, bathroom, utilities and status as flat label/value rows with no bordered box or pill", () => {
+    renderRoom(richRoom());
+    const facts = document.querySelector('[data-attr="listing-room-facts"]')!;
+    const labels = Array.from(facts.querySelectorAll("dt")).map((n) => n.textContent);
+    expect(labels).toEqual(["Floor", "Bathroom", "Utilities (est.)", "Status"]);
+    expect(facts.textContent).toContain("2nd floor");
+    expect(facts.textContent).toContain("Shared with Room 2");
+    expect(facts.textContent).toContain("$90/mo");
+    expect(facts.querySelector(".rounded-full.ring-1")).toBeNull();
+    expect(facts.querySelector('[class*="rounded-xl"]')).toBeNull();
+  });
+
+  it("prints Included as one plain comma list and the description once", () => {
+    renderRoom(richRoom());
+    expect(document.querySelector('[data-attr="listing-room-included"]')!.textContent).toBe("Desk, Wardrobe, Wi-Fi");
+    expect(document.querySelectorAll('[data-attr="listing-room-description"]')).toHaveLength(1);
+    expect(screen.getAllByText("Bright corner room facing the garden.")).toHaveLength(1);
+  });
+
+  it("keeps the existing actions: Apply and Schedule tour, no phone number or text link", () => {
+    renderRoom(richRoom());
+    expect(document.querySelector('[data-attr="listing-room-apply"]')).toBeTruthy();
+    expect(document.querySelector('[data-attr="listing-room-tour"]')).toBeTruthy();
+    expect(document.querySelector('a[href^="sms:"]')).toBeNull();
   });
 });

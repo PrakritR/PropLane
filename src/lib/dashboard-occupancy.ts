@@ -42,13 +42,26 @@ export function dashboardOccupancyUrl(
 }
 
 export type DashboardOccupancy = {
-  /** Rooms (beds) occupied today, per house. A house the snapshot did not answer for is absent. */
+  /** Beds with a person in them today, per house. A house the snapshot did not answer for is absent. */
   byProperty: ReadonlyMap<string, number>;
-  /** Occupied today across every house asked about. */
+  /** Beds in each house, from the same snapshot cell as `byProperty`, so a figure and its total share one population. */
+  bedsByProperty: ReadonlyMap<string, number>;
+  /** People-held beds today across every house asked about. */
   occupiedToday: number;
+  /** Beds across every house asked about, same cell as `occupiedToday`. */
+  bedsToday: number;
   /** Occupied at the end of each period (today for the current one), same order as `periods`. */
   occupiedByPeriod: number[];
 };
+
+/**
+ * Who is in the beds of a snapshot cell. `inHouse` counts people; a closed room (a host block, a
+ * manager's closure) is `occupied` on the calendar but nobody's home, so the dashboard never reads
+ * `occupied`. A payload from before `inHouse` existed falls back to `occupied`.
+ */
+function peopleHeld(cell: { occupied: number; inHouse?: number }): number {
+  return typeof cell.inHouse === "number" ? cell.inHouse : cell.occupied;
+}
 
 /**
  * Null when the response is not a snapshot, or does not carry every day the card reads: a day the
@@ -65,14 +78,24 @@ export function dashboardOccupancyFromSnapshot(
   const todayCell = byDay.get(today);
   if (!todayCell) return null;
   const byProperty = new Map<string, number>();
-  for (const house of todayCell.houses ?? []) byProperty.set(house.propertyId, house.occupied);
+  const bedsByProperty = new Map<string, number>();
+  for (const house of todayCell.houses ?? []) {
+    byProperty.set(house.propertyId, peopleHeld(house));
+    bedsByProperty.set(house.propertyId, house.total);
+  }
   const occupiedByPeriod: number[] = [];
   for (const period of periods) {
     const cell = byDay.get(dashboardOccupancyPeriodDayKey(period, today));
     if (!cell) return null;
-    occupiedByPeriod.push(cell.occupied);
+    occupiedByPeriod.push(peopleHeld(cell));
   }
-  return { byProperty, occupiedToday: todayCell.occupied, occupiedByPeriod };
+  return {
+    byProperty,
+    bedsByProperty,
+    occupiedToday: peopleHeld(todayCell),
+    bedsToday: todayCell.total,
+    occupiedByPeriod,
+  };
 }
 
 /**

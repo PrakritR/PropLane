@@ -153,9 +153,11 @@ function DetailsButton({ onClick, className = "" }: { onClick: () => void; class
 function RoomAvailabilityTimelineCalendar({
   ranges,
   loading,
+  flat = false,
 }: {
   ranges: RoomUnavailableRange[];
   loading: boolean;
+  flat?: boolean;
 }) {
   // Every range a renter sees is simply "not open" — one colour.
   const spans: RoomCalendarSpan[] = ranges.map((r) => ({
@@ -163,7 +165,7 @@ function RoomAvailabilityTimelineCalendar({
     end: localDateFromDateKey(r.end),
     tone: "occupied",
   }));
-  return <RoomAvailabilityMonthCalendar spans={spans} loading={loading} legend />;
+  return <RoomAvailabilityMonthCalendar spans={spans} loading={loading} legend flat={flat} />;
 }
 
 const LISTING_MODAL_LABEL = "text-xs font-semibold uppercase tracking-wide text-muted";
@@ -226,11 +228,24 @@ function ListingModalSection({ label, children }: { label: string; children: Rea
   );
 }
 
-function truncateModalText(text: string | undefined, max = 100): string {
-  const t = text?.trim();
-  if (!t) return "—";
-  if (t.length <= max) return t;
-  return `${t.slice(0, max - 1)}…`;
+/** A room popup section: a quiet label over a hairline, no box. */
+function RoomModalSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <section className="border-t border-border pt-4">
+      <h3 className={LISTING_MODAL_LABEL}>{label}</h3>
+      <div className="mt-2 text-sm leading-relaxed text-foreground">{children}</div>
+    </section>
+  );
+}
+
+/** One fact of the room popup: label left, value right, a hairline between rows. */
+function RoomModalFact({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-6 border-b border-border py-2.5 text-sm">
+      <dt className="shrink-0 text-muted">{label}</dt>
+      <dd className="min-w-0 text-right font-medium text-foreground [overflow-wrap:anywhere]">{children}</dd>
+    </div>
+  );
 }
 
 function ListingModalStatGrid({
@@ -556,139 +571,109 @@ export function ListingDetailModal({
               );
               // The timeline reads the same spans the status above does, so the two cannot disagree.
               const timelineRanges = roomUnavailableRanges(state.room, occ?.spans ?? [], pacificTodayKey());
+              const rentLabel = roomRentLabel(state.room);
+              const rentParts = rentLabel ? /^(.*?)(\/[a-z]+)$/i.exec(rentLabel) : null;
+              const rentFallback = rentLabel ? null : roomRentFallbackLabel(state.room);
+              const bathLines = state.room.modal.bathroomAccessLines ?? [];
+              const bathroomValue =
+                bathLines.length > 0
+                  ? bathLines.map((line) => (
+                      <span key={line} className="block">
+                        {line}
+                      </span>
+                    ))
+                  : state.room.modal.bathroomShortLabel?.trim() || "—";
+              const bathTagPattern = /^(private|shared|house hall)\s+bath$/i;
+              const highlightTags = state.room.modal.includedTags.filter((t) => !bathTagPattern.test(t));
+              const amenityLabels = state.room.modal.roomAmenityLabels ?? [];
+              // The description is said once: the manager's room note, else the furnishing line.
+              const description = state.room.modal.roomNotes?.trim() || state.room.modal.furnishingDetail?.trim() || "";
+              // Included is a list of things, never the description again ("Queen bed and reading nook." is the
+              // furnishing sentence, not an amenity), and never the same thing twice.
+              const bare = (value: string) => value.trim().replace(/[.\s]+$/, "").toLowerCase();
+              const seenIncluded = new Set<string>([bare(description)]);
+              const included = [...highlightTags, ...amenityLabels].filter((tag) => {
+                const key = bare(tag);
+                if (!key || seenIncluded.has(key)) return false;
+                seenIncluded.add(key);
+                return true;
+              });
+              const statusTone = statusDisplay?.tone ?? "neutral";
               return (
                 <>
-                  <ListingModalHeader title={state.room.name} />
+                  <header className="flex items-start justify-between gap-4 pr-10" data-attr="listing-room-modal-header">
+                    <h2 className="min-w-0 text-xl font-bold tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-2xl">
+                      {state.room.name}
+                    </h2>
+                    <div className="shrink-0 text-right" data-attr="listing-room-rent">
+                      {rentLabel ? (
+                        <span className="inline-flex items-baseline gap-1.5">
+                          {capacity >= 2 ? (
+                            <ColumnHelp
+                              title={RENT_PER_RESIDENT_HELP.title}
+                              text={RENT_PER_RESIDENT_HELP.text}
+                              dataAttr="listing-room-rent-per-resident-help"
+                            />
+                          ) : null}
+                          <span className="text-xl font-bold tabular-nums text-foreground sm:text-2xl">
+                            {rentParts ? rentParts[1] : rentLabel}
+                          </span>
+                          {rentParts ? <span className="text-sm font-medium text-muted">{rentParts[2]}</span> : null}
+                          {capacity >= 2 ? <span className="sr-only">{rentPerResidentSubLabel(capacity)}</span> : null}
+                        </span>
+                      ) : rentFallback ? (
+                        <span className="text-base font-semibold text-foreground">{rentFallback}</span>
+                      ) : (
+                        <span className="text-base font-semibold text-muted">Not set</span>
+                      )}
+                    </div>
+                  </header>
                   <ListingModalMedia photoUrls={state.room.modal.photoUrls} videoSrc={state.room.modal.videoSrc} />
-                  <ListingModalStatGrid
-                    columns={2}
-                    items={[
-                      {
-                        key: "rent",
-                        label:
-                          roomOccupancyCapacity(state.room) >= 2 ? (
-                            <span className="inline-flex items-center gap-1.5">
-                              Rent
-                              <ColumnHelp
-                                title={RENT_PER_RESIDENT_HELP.title}
-                                text={RENT_PER_RESIDENT_HELP.text}
-                                dataAttr="listing-room-rent-per-resident-help"
-                              />
-                            </span>
-                          ) : (
-                            "Rent"
-                          ),
-                        value: (() => {
-                          const rent = roomRentLabel(state.room);
-                          if (rent) {
-                            return (
-                              <span className="block" data-attr="listing-room-rent">
-                                <span className="text-base font-bold tabular-nums text-foreground sm:text-lg">
-                                  {rent}
-                                </span>
-                                {roomOccupancyCapacity(state.room) >= 2 ? (
-                                  <span className="sr-only">{rentPerResidentSubLabel(roomOccupancyCapacity(state.room))}</span>
-                                ) : null}
-                              </span>
-                            );
-                          }
-                          const fallback = roomRentFallbackLabel(state.room);
-                          if (fallback) {
-                            return <span className="text-sm font-semibold text-foreground">{fallback}</span>;
-                          }
-                          return <span className="text-sm font-semibold text-muted">Not set</span>;
-                        })(),
-                      },
-                      {
-                        key: "floor",
-                        label: "Floor",
-                        value: state.room.modal.floorLine?.trim() || state.floorLabel || "—",
-                      },
-                      {
-                        key: "bathroom",
-                        label: "Bathroom",
-                        value:
-                          (state.room.modal.bathroomAccessLines?.length ?? 0) > 0 ? (
-                            <ul className="space-y-1">
-                              {state.room.modal.bathroomAccessLines!.map((line) => (
-                                <li key={line} className="font-semibold text-foreground">
-                                  {line}
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            state.room.modal.bathroomShortLabel?.trim() || "—"
-                          ),
-                      },
-                      ...(state.room.utilitiesEstimate
-                        ? [{ key: "utilities", label: "Utilities", value: state.room.utilitiesEstimate }]
-                        : []),
-                      ...(roomOccupancyCapacity(state.room) >= 2
-                        ? [
-                            {
-                              key: "occupancy",
-                              label: "Occupancy",
-                              value: (
-                                <span data-attr="listing-room-occupancy" className="font-semibold text-foreground">
-                                  Up to {roomOccupancyCapacity(state.room)} residents
-                                </span>
-                              ),
-                            },
-                          ]
-                        : []),
-                      {
-                        key: "status",
-                        label: "Status",
-                        value: statusDisplay ? (
-                          <AvailabilityPill text={statusDisplay.text} variant="room" tone={statusDisplay.tone} />
-                        ) : (
-                          <RoomAvailabilityLoading />
-                        ),
-                      },
-                      ...(state.room.modal.roomNotes?.trim()
-                        ? [
-                            {
-                              key: "details",
-                              label: "Details",
-                              value: (
-                                <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-relaxed">
-                                  {truncateModalText(state.room.modal.roomNotes, 160)}
-                                </p>
-                              ),
-                            },
-                          ]
-                        : []),
-                    ]}
-                  />
+                  <dl className="border-t border-border" data-attr="listing-room-facts">
+                    <RoomModalFact label="Floor">{state.room.modal.floorLine?.trim() || state.floorLabel || "—"}</RoomModalFact>
+                    <RoomModalFact label="Bathroom">{bathroomValue}</RoomModalFact>
+                    {state.room.utilitiesEstimate ? (
+                      <RoomModalFact label="Utilities (est.)">{state.room.utilitiesEstimate}</RoomModalFact>
+                    ) : null}
+                    {capacity >= 2 ? (
+                      <RoomModalFact label="Occupancy">
+                        <span data-attr="listing-room-occupancy">Up to {capacity} residents</span>
+                      </RoomModalFact>
+                    ) : null}
+                    <RoomModalFact label="Status">
+                      {statusDisplay ? (
+                        <span
+                          className={`inline-flex items-center justify-end gap-1.5 font-semibold ${roomAvailabilityTextClasses(statusTone)}`}
+                          data-attr="listing-room-status"
+                        >
+                          <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${roomAvailabilityPillClasses(statusTone).dot}`} />
+                          {statusDisplay.text}
+                        </span>
+                      ) : (
+                        <RoomAvailabilityLoading className="ml-auto h-3 w-24" />
+                      )}
+                    </RoomModalFact>
+                  </dl>
                   {bedSlots.length > 0 ? (
-                    <ListingModalSection label="Beds">
+                    <RoomModalSection label="Beds">
                       <ListingSharedRoomBeds slots={bedSlots} />
-                    </ListingModalSection>
+                    </RoomModalSection>
                   ) : null}
-                  {(() => {
-                    const bathTagPattern = /^(private|shared|house hall)\s+bath$/i;
-                    const highlightTags = state.room.modal.includedTags.filter((t) => !bathTagPattern.test(t));
-                    const furnishingLine = state.room.modal.furnishingDetail?.trim();
-                    const amenityLabels = state.room.modal.roomAmenityLabels ?? [];
-                    const tags = [...highlightTags, ...amenityLabels.filter((t) => !highlightTags.includes(t))];
-                    return (
-                      <>
-                        {tags.length > 0 ? (
-                          <ListingModalSection label="Included">
-                            <ListingModalTags tags={tags} />
-                            {furnishingLine ? <p className="mt-3 text-muted">{furnishingLine}</p> : null}
-                          </ListingModalSection>
-                        ) : furnishingLine ? (
-                          <ListingModalSection label="Included">
-                            <p className="text-muted">{furnishingLine}</p>
-                          </ListingModalSection>
-                        ) : null}
-                      </>
-                    );
-                  })()}
-                  <ListingModalSection label="Availability timeline">
-                    <RoomAvailabilityTimelineCalendar ranges={timelineRanges} loading={occupancyLoading} />
-                  </ListingModalSection>
+                  {included.length > 0 ? (
+                    <RoomModalSection label="Included">
+                      <p data-attr="listing-room-included">{included.join(", ")}</p>
+                    </RoomModalSection>
+                  ) : null}
+                  {description ? (
+                    <RoomModalSection label="Details">
+                      <p className="whitespace-pre-wrap text-muted" data-attr="listing-room-description">
+                        {description}
+                      </p>
+                    </RoomModalSection>
+                  ) : null}
+                  <RoomModalSection label="Availability">
+                    <RoomAvailabilityTimelineCalendar ranges={timelineRanges} loading={occupancyLoading} flat />
+                  </RoomModalSection>
                 </>
               );
             })()}

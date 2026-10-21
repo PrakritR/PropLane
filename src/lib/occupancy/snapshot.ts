@@ -12,13 +12,23 @@
 
 import { addDaysToDateKey, bookingSourceLabel } from "@/lib/channel-calendar/bookings-ui";
 import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
+import { isShortStayRequestSource } from "@/lib/short-stay/guest-stays";
 import { bookingEntriesForDayKey, isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 
 export type OccupancyDayCell = {
+  /** Beds unavailable on the day: a person in them OR closed with nobody in them (the calendar's busy beds). */
   occupied: number;
   total: number;
   checkIns: number;
   checkOuts: number;
+  /**
+   * Beds with a PERSON in them on the day: a resident or lease, an approved placement, a named PropLane stay,
+   * a channel guest. A closed room (host block, manager closure, the listing's own blocked dates) takes a bed
+   * out of `occupied` but is nobody's home, so it is not here. The dashboard KPI, the property cards and the
+   * owner's "rooms occupied" read this; `occupied - inHouse` is the beds that are closed. Optional only so a
+   * cell rebuilt from an older payload still types; the server always sets it.
+   */
+  inHouse?: number;
 };
 
 export type OccupancyCapacities = {
@@ -248,6 +258,32 @@ export function isIcalAvailabilityBlock(summary: string | null | undefined): boo
   return raw.includes("not available") || /\bblocked\b/.test(raw);
 }
 
+/**
+ * Whether an entry puts a PERSON in a bed (as opposed to closing it). One answer for every reader
+ * of "who is here": a lease or approved placement, a PropLane block held for a named guest, and a
+ * channel reservation are people; a manager's closed room, a block with nobody attached, a guest's
+ * short-stay request still waiting on the host, a channel host block ("Airbnb (Not available)", "Blocked") and the listing's own
+ * blocked dates are not.
+ *
+ * A channel's privacy-stripped "CLOSED - Not available" is deliberately a person: Booking.com and
+ * VRBO write real reservations that way, and reading one as a closure would show an occupied room
+ * as empty (see `host-block.ts`).
+ */
+export function isPersonOccupant(
+  entry: Pick<PropertyBookingEntry, "source" | "summary" | "residentName" | "blockKind" | "bookingStatus" | "stayDetails">,
+): boolean {
+  if (entry.source === "proplane" || entry.source === "hold") return true;
+  if (entry.source === "block") {
+    if (entry.blockKind === "closed" || !entry.residentName?.trim()) return false;
+    // A guest's short-stay REQUEST still waiting on the host reserves the room but nobody is in it yet. A booking
+    // the manager typed by hand is a stay whatever its status reads (the Add sheet never sets one), so it counts.
+    return !(entry.bookingStatus !== "confirmed" && isShortStayRequestSource(entry.stayDetails?.source));
+  }
+  const raw = String(entry.summary ?? "").trim().toLowerCase();
+  if (isHostBlockSummary(raw)) return false;
+  return !/\bblocked\b/.test(raw);
+}
+
 export function occupancyStayKind(entry: Pick<PropertyBookingEntry, "source" | "summary" | "residentName">): OccupancyStayKind {
   if (entry.source === "proplane") return "lease";
   if (entry.source === "hold") return "hold";
@@ -276,13 +312,18 @@ function propertyDayOccupiedBeds(
     );
   });
   let wholeHome = false;
+  let wholeHomePerson = false;
   const bedsByRoom = new Map<string, number>();
+  const peopleByRoom = new Map<string, number>();
   let checkIns = 0;
   for (const entry of countable) {
+    const person = isPersonOccupant(entry);
     if (!entry.roomId) {
       wholeHome = true;
+      if (person) wholeHomePerson = true;
     } else {
       bedsByRoom.set(entry.roomId, (bedsByRoom.get(entry.roomId) ?? 0) + 1);
+      if (person) peopleByRoom.set(entry.roomId, (peopleByRoom.get(entry.roomId) ?? 0) + 1);
     }
     if (entry.start === dayKey && !isIcalAvailabilityBlock(entry.summary)) checkIns += 1;
   }
@@ -291,15 +332,20 @@ function propertyDayOccupiedBeds(
     if (entry.openEnded || isIcalAvailabilityBlock(entry.summary)) continue;
     if (addDaysToDateKey(entry.end, 1) === dayKey) checkOuts += 1;
   }
+  let inHouse = 0;
+  for (const [roomId, personCount] of peopleByRoom) {
+    const capacity = Math.max(1, capacities.roomCapacity(propertyId, roomId));
+    inHouse += Math.min(personCount, capacity);
+  }
   if (wholeHome) {
-    return { occupied: total, total, checkIns, checkOuts };
+    return { occupied: total, total, checkIns, checkOuts, inHouse: wholeHomePerson ? total : Math.min(inHouse, total) };
   }
   let occupied = 0;
   for (const [roomId, stayCount] of bedsByRoom) {
     const capacity = Math.max(1, capacities.roomCapacity(propertyId, roomId));
     occupied += Math.min(stayCount, capacity);
   }
-  return { occupied: Math.min(occupied, total), total, checkIns, checkOuts };
+  return { occupied: Math.min(occupied, total), total, checkIns, checkOuts, inHouse: Math.min(inHouse, total) };
 }
 
 /** Beds occupied across the houses in scope for one day. */
@@ -315,17 +361,19 @@ export function occupancyForDay(
   // an extra full pass and copy on each one.
   const deduped = dedupedForOccupancy(entries);
   let occupied = 0;
+  let inHouse = 0;
   let total = 0;
   let checkIns = 0;
   let checkOuts = 0;
   for (const propertyId of propertyIds) {
     const cell = propertyDayOccupiedBeds(deduped, dayKey, propertyId, capacities);
     occupied += cell.occupied;
+    inHouse += cell.inHouse ?? 0;
     total += cell.total;
     checkIns += cell.checkIns;
     checkOuts += cell.checkOuts;
   }
-  return { occupied, total, checkIns, checkOuts };
+  return { occupied, total, checkIns, checkOuts, inHouse };
 }
 
 /** Drop duplicate stay rows from two sources (iCal + imported block) so a 2-bed room is not counted twice. */

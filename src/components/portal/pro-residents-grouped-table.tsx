@@ -18,7 +18,7 @@
  * Sort by Name or Recently updated is the same rows as one flat list.
  */
 
-import { CalendarDays, Mail, Users } from "lucide-react";
+import { CalendarDays, Mail, Plane, Users } from "lucide-react";
 import { PortalGroupedRecordList } from "@/components/portal/portal-grouped-record-list";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import {
@@ -38,6 +38,16 @@ export const RESIDENT_NO_HOUSE_LABEL = "No house";
 export const residentHouseLabel = (row: ManagerResidentListRow) => row.propertyLabel;
 /** Two houses that share a name stay two groups when they have different ids. */
 export const residentHouseId = (row: ManagerResidentListRow) => row.propertyId || row.propertyLabel;
+
+/** "Oct 20 – Oct 23": the dates of a short stay, check-in to check-out. */
+function stayDatesLabel(start: string, checkOut: string): string {
+  const fmt = (iso: string) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    if (!y || !m || !d) return iso;
+    return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+  return checkOut ? `${fmt(start)} – ${fmt(checkOut)}` : `${fmt(start)} onward`;
+}
 
 function shortDateLabel(iso: string): string {
   const parts = iso.trim().split("-").map(Number);
@@ -102,6 +112,29 @@ export function ManagerResidentsGroupedTable({
     // title, so repeating it as a fact would print the same string twice.
     const email = row.email.trim().toLowerCase() === name.toLowerCase() ? "" : row.email.trim();
     const status = row.statusLabel?.trim() ?? "";
+    const stay = row.channelStay;
+    // A channel guest is a booking, not a resident record: dates and source instead of an email and
+    // a lease start, and no checkbox (there is nothing to approve, edit or delete here).
+    if (stay) {
+      return (
+        <PortalApplicantRecordRow
+          name={row.name}
+          address={residentHousingMeta(row, includeProperty)}
+          facts={
+            <>
+              <PortalRowFact icon={CalendarDays} srLabel="Stay">
+                {stayDatesLabel(stay.start, stay.checkOut)}
+              </PortalRowFact>
+              <PortalRowFact icon={Plane} srLabel="Source">
+                {stay.sourceLabel}
+              </PortalRowFact>
+            </>
+          }
+          onOpen={() => onOpenResident(row)}
+          dataAttr="resident-list-row"
+        />
+      );
+    }
     return (
       <PortalApplicantRecordRow
         name={row.name}
