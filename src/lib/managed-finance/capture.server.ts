@@ -11,7 +11,8 @@ import {
   splitManagedCart,
   type CartComponent,
 } from "@/lib/owner-management/fee-math";
-import type { PolicyRow } from "@/lib/owner-management/policies.server";
+import { pacificDayKey } from "@/lib/house-groups/time";
+import { policyEndBoundary, type PolicyRow } from "@/lib/owner-management/policies.server";
 import { verifiedCapturedChargeAvailability } from "@/lib/platform-owner-recovery.server";
 import { LedgerError } from "@/lib/managed-finance/ledger.server";
 
@@ -99,6 +100,23 @@ export async function managedCaptureExistsForPaymentIntent(db: SupabaseClient, p
   return ((data ?? []) as unknown[]).length > 0;
 }
 
+/**
+ * May this policy version settle these charges? An ACTIVE version is open-ended. An ENDED one is the version in force
+ * for a payment taken before a rate change or an End (the dated resolver returns it), so it settles exactly the charges
+ * whose own Pacific payment day lies inside its window `[effective_from, policyEndBoundary)` - the same boundary the
+ * resolver and `credit_managed_capture` use, never a second rule. A draft covers nothing.
+ */
+function policyCoversCapture(policy: PolicyRow, components: ReadonlyArray<{ paidAt: string }>): boolean {
+  if (policy.status === "active") return true;
+  if (policy.status !== "ended") return false;
+  const endsAfter = policyEndBoundary(policy);
+  if (endsAfter === null) return false;
+  return components.every((c) => {
+    const day = pacificDayKey(new Date(c.paidAt));
+    return day >= policy.effectiveFrom && day < endsAfter;
+  });
+}
+
 type Totals = { cum_base: number | string; monthly_fee: number | string };
 
 export async function creditManagedCapture(
@@ -107,7 +125,7 @@ export async function creditManagedCapture(
   input: ManagedCaptureInput,
 ): Promise<{ status: "created" | "exists"; journalId: string }> {
   const { policy } = input;
-  if (policy.status !== "active" || !policy.signedAt) throw new LedgerError(409, "This workspace has no accepted fee policy.");
+  if (!policy.signedAt || !policyCoversCapture(policy, input.components)) throw new LedgerError(409, "This workspace has no accepted fee policy.");
   if (!input.components.length) throw new LedgerError(500, "A managed capture needs charges.");
   const principal = input.components.reduce((s, c) => s + c.principalCents, 0);
   const distributable = input.components.reduce((s, c) => s + c.recipientNetCents, 0);

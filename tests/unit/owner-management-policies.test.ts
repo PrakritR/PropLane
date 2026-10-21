@@ -449,6 +449,51 @@ describe("the automatic management fee", () => {
     expect(f.rows.owner_ledger_flags ?? []).toHaveLength(0);
   });
 
+  // An admin's End in Admin > Managed finance is a decision. The lazy callers (checkout, autopay, capture, hold release)
+  // used to see "no active policy" and quietly bring the default 10% back.
+  describe("an admin who ended management", () => {
+    const now = new Date("2026-10-20T19:00:00Z");
+    async function adminEnded() {
+      const f = clientOwned();
+      const first = (await ensureServiceFeePolicy(f.db, WS, admin, now)) as { policy: { id: string } };
+      await endPolicy(f.db, admin, first.policy.id, now);
+      return { f, firstId: first.policy.id };
+    }
+    it("is not revived by the lazy fee: nothing is created and the attention item names why", async () => {
+      const { f } = await adminEnded();
+      const before = f.rows.managed_workspace_fee_policies!.length;
+      expect(await ensureServiceFeePolicy(f.db, WS, { role: "system" }, now)).toEqual({ status: "ended_by_admin" });
+      expect(f.rows.managed_workspace_fee_policies).toHaveLength(before);
+      expect(await loadActivePolicyForWorkspace(f.db, WS)).toBeNull();
+      expect(f.rows.owner_ledger_flags).toHaveLength(1);
+      expect(f.rows.owner_ledger_flags![0]!.detail).toMatchObject({ cause: "ended_by_admin" });
+    });
+    it("an admin rate change (old ended by the system, new active) is unaffected", async () => {
+      const f = clientOwned();
+      await ensureServiceFeePolicy(f.db, WS, admin, now);
+      await setServiceManagementFee(f.db, admin, WS, 15, now);
+      expect(await ensureServiceFeePolicy(f.db, WS, { role: "system" }, now)).toMatchObject({ status: "exists", policy: { status: "active" } });
+      expect(f.rows.owner_ledger_flags ?? []).toHaveLength(0);
+    });
+    it("an ended DRAFT never governed a day, so it does not stop the default", async () => {
+      const f = clientOwned();
+      const d = await createDraftPolicy(f.db, admin, { ...input, ownerUserId: CLIENT });
+      await endPolicy(f.db, admin, d.id, now);
+      expect((await ensureServiceFeePolicy(f.db, WS, { role: "system" }, now)).status).toBe("created");
+    });
+    it("setServiceManagementFee is the explicit admin action that creates a new active version", async () => {
+      const { f, firstId } = await adminEnded();
+      const r = await setServiceManagementFee(f.db, admin, WS, 12, now);
+      expect(r).toMatchObject({ feePercent: 12, changed: true });
+      const inForce = await loadActivePolicyForWorkspace(f.db, WS);
+      expect(inForce).toMatchObject({ status: "active", acceptedVia: "admin_attested" });
+      expect(inForce?.id).not.toBe(firstId);
+      expect(inForce?.terms.ownerShareBps).toBe(8800);
+      // With a version in force again the lazy fee leaves it alone.
+      expect(await ensureServiceFeePolicy(f.db, WS, { role: "system" }, now)).toMatchObject({ status: "exists" });
+    });
+  });
+
   // Review fix (L5), on the admin rate-change path: a refused activation must not leave a row behind at all.
   it("a refused rate change deletes its own draft instead of ending it", async () => {
     const now = new Date("2026-10-20T19:00:00Z");

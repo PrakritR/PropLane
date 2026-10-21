@@ -54,6 +54,12 @@ describe("service workspace whose automatic fee could not be created (fail-close
     expect((await unpoliciedServiceForProperties(f.db, ["p-svc"])).pending).toHaveLength(1);
   });
 
+  it("an admin-ended service workspace stays pending with its own cause, and no policy is created", async () => {
+    const f = world({ managed_workspace_fee_policies: [{ ...activePolicy("ws-svc"), status: "ended", ended_by_role: "admin", ended_at: "2026-10-19T20:00:00Z", ends_on: "2026-10-19" }] });
+    expect((await unpoliciedServiceForProperties(f.db, ["p-svc"])).pending).toEqual([{ workspaceId: "ws-svc", workspaceName: "Maple Court", cause: "ended_by_admin" }]);
+    expect(f.rows.managed_workspace_fee_policies).toHaveLength(1);
+  });
+
   it("refuses the resident checkout with the setup message and raises one admin flag", async () => {
     const f = world();
     expect(await serviceSetupPendingProblem(f.db, ["p-svc"])).toEqual({ code: "SERVICE_SETUP_PENDING", message: SERVICE_SETUP_PENDING_MESSAGE });

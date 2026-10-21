@@ -181,6 +181,42 @@ describe("creditManagedCapture", () => {
     expect(f.rpcCalls.filter((c) => c.name === "managed_month_totals" && c.args.p_policy === "pol-1")).toHaveLength(2);
   });
 
+  // The dated resolver returns the ENDED version for a payment taken before a rate change / End; it must settle.
+  describe("an ended version", () => {
+    const ended = (): PolicyRow => ({ ...policy(), status: "ended", endsOn: "2026-10-19", endedAt: "2026-10-19T20:00:00.000Z", endedByRole: "system" });
+    const input = (paidAt: string) => ({ policy: ended(), paymentIntentId: "pi_e", stripeChargeId: "ch_e", grossCents: 100_000, components: [comp("c1", "rent", 100_000, { paidAt })] });
+
+    it("settles a capture dated inside its window and reaches the database with that policy id", async () => {
+      const { f, calls } = db();
+      const out = await creditManagedCapture(f.db, stripe, input("2026-10-18T17:00:00.000Z"));
+      expect(out).toEqual({ status: "created", journalId: "j1" });
+      expect(calls[0]).toMatchObject({ p_policy: "pol-1" });
+    });
+    it("refuses a capture dated on or after the day it ended, and one before it started", async () => {
+      const { f, calls } = db();
+      await expect(creditManagedCapture(f.db, stripe, input("2026-10-20T17:00:00.000Z"))).rejects.toMatchObject({ status: 409 });
+      await expect(creditManagedCapture(f.db, stripe, input("2025-12-31T17:00:00.000Z"))).rejects.toMatchObject({ status: 409 });
+      expect(calls).toHaveLength(0);
+    });
+    it("refuses when ANY component falls outside the window, and an ended version with no end date at all", async () => {
+      const { f } = db();
+      const mixed = { ...input("2026-10-18T17:00:00.000Z"), components: [comp("c1", "rent", 50_000, { paidAt: "2026-10-18T17:00:00.000Z" }), comp("c2", "rent", 50_000, { paidAt: "2026-10-21T17:00:00.000Z" })] };
+      await expect(creditManagedCapture(f.db, stripe, mixed)).rejects.toMatchObject({ status: 409 });
+      const open = { ...input("2026-10-18T17:00:00.000Z"), policy: { ...ended(), endsOn: null, endedAt: null } };
+      await expect(creditManagedCapture(f.db, stripe, open)).rejects.toMatchObject({ status: 409 });
+    });
+    it("still refuses an unsigned one", async () => {
+      const { f } = db();
+      await expect(creditManagedCapture(f.db, stripe, { ...input("2026-10-18T17:00:00.000Z"), policy: { ...ended(), signedAt: null } })).rejects.toMatchObject({ status: 409 });
+    });
+  });
+
+  it("an active policy is open-ended whatever day the charge was paid", async () => {
+    const { f, calls } = db();
+    await creditManagedCapture(f.db, stripe, { policy: policy(), paymentIntentId: "pi_a", stripeChargeId: "ch_a", grossCents: 100_000, components: [comp("c1", "rent", 100_000, { paidAt: "2030-01-01T17:00:00.000Z" })] });
+    expect(calls).toHaveLength(1);
+  });
+
   it("refuses a policy that is not accepted, and a charge that differs from the PaymentIntent", async () => {
     const { f } = db();
     await expect(creditManagedCapture(f.db, stripe, { policy: { ...policy(), status: "draft", signedAt: null }, paymentIntentId: "pi", stripeChargeId: "ch", grossCents: 100, components: [comp("c1", "rent", 100)] }))

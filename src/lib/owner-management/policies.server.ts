@@ -39,6 +39,8 @@ export type PolicyRow = {
   endsOn: string | null;
   /** When the version actually stopped. The Pacific day of THIS is the window's end - see `policyEndBoundary`. */
   endedAt: string | null;
+  /** Who stopped it. `activate_managed_policy` (a rate change) stamps 'system'; only `endPolicy` stamps 'admin'. */
+  endedByRole?: "admin" | "owner" | "system" | null;
   sentAt: string | null;
   signedAt: string | null;
   acceptedVia: "owner_signature" | "admin_attested" | null;
@@ -55,7 +57,7 @@ export class PolicyError extends Error {
 export type AdminActor = { role: "admin"; userId: string };
 
 export const POLICY_COLUMNS =
-  "id, workspace_id, owner_user_id, status, owner_share_bps, applies_to, leasing_fee_bps, min_fee_cents, reserve_target_cents, repair_approval_threshold_cents, effective_from, ends_on, ended_at, sent_at, signed_at, accepted_via, terms_sha256, created_at";
+  "id, workspace_id, owner_user_id, status, owner_share_bps, applies_to, leasing_fee_bps, min_fee_cents, reserve_target_cents, repair_approval_threshold_cents, effective_from, ends_on, ended_at, ended_by_role, sent_at, signed_at, accepted_via, terms_sha256, created_at";
 
 type Row = Record<string, unknown>;
 const str = (v: unknown): string => (typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim());
@@ -81,6 +83,7 @@ export function mapPolicyRow(raw: Row): PolicyRow {
     effectiveFrom: str(raw.effective_from),
     endsOn: str(raw.ends_on) || null,
     endedAt: str(raw.ended_at) || null,
+    endedByRole: (str(raw.ended_by_role) || null) as PolicyRow["endedByRole"],
     sentAt: str(raw.sent_at) || null,
     signedAt: str(raw.signed_at) || null,
     acceptedVia: (str(raw.accepted_via) || null) as PolicyRow["acceptedVia"],
@@ -492,6 +495,8 @@ export type EnsureServiceFeePolicyResult =
   | { status: "exists"; policy: PolicyRow }
   | { status: "created"; policy: PolicyRow }
   | { status: "not_service" }
+  /** An admin ENDED management and nothing replaced it. Nothing is created; only an explicit admin action revives it. */
+  | { status: "ended_by_admin" }
   | { status: "unavailable"; reason: EnsureFeeFailure };
 
 const OWNER_UNREADABLE = "Could not read the workspace owner of record.";
@@ -590,6 +595,21 @@ async function activateNewVersion(
 }
 
 /**
+ * Did an admin END this workspace's management, with nothing replacing it? The newest SIGNED version decides: a rate
+ * change leaves the old version ended by 'system' (`activate_managed_policy`) AND a newer version in force, while an End
+ * (`endPolicy`) is the only thing that stamps 'admin' and leaves no successor. An unsigned draft that was ended never
+ * governed a day, so it does not count.
+ */
+async function endedByAdmin(db: SupabaseClient, workspaceId: string): Promise<boolean> {
+  const versions = await listPoliciesForWorkspace(db, workspaceId);
+  const signed = versions
+    .filter((p) => p.signedAt)
+    .sort((a, b) => (b.effectiveFrom === a.effectiveFrom ? b.createdAt.localeCompare(a.createdAt) : b.effectiveFrom.localeCompare(a.effectiveFrom)));
+  const newest = signed[0];
+  return !!newest && newest.status === "ended" && newest.endedByRole === "admin";
+}
+
+/**
  * Every PropLane Service workspace has a management fee that applies on its own. Idempotent, and it never touches an
  * admin's work: a policy in force is left exactly as it is, and with none in force the default (PropLane keeps 10% of
  * rent) is created and activated, admin-attested, no signature. A draft open in Admin > Managed finance does NOT hold
@@ -606,6 +626,7 @@ export async function ensureServiceFeePolicy(
   workspaceId: string,
   actor: FeeActor = { role: "system" },
   now: Date = new Date(),
+  options: { reviveEndedByAdmin?: boolean } = {},
 ): Promise<EnsureServiceFeePolicyResult> {
   const id = workspaceId.trim();
   if (!id) return { status: "not_service" };
@@ -621,6 +642,13 @@ export async function ensureServiceFeePolicy(
     const ws = data as Row | null;
     if (!ws || ws.is_service !== true) return { status: "not_service" };
     name = str(ws.name) || null;
+    // An admin who ENDED management meant it: the lazy callers (checkout, autopay, capture, hold release) must not bring
+    // the default 10% back. Only an explicit admin action (`setServiceManagementFee`, Managed finance activate) does.
+    if (!options.reviveEndedByAdmin && (await endedByAdmin(db, id))) {
+      console.error("[managed-fee]", JSON.stringify({ workspaceId: id, reason: "ended_by_admin" }));
+      await flagManagedFeeProblem(db, { workspaceId: id, workspaceName: name, cause: "ended_by_admin", reason: "fee_unavailable" });
+      return { status: "ended_by_admin" };
+    }
     try {
       const workspaceOwner = str(ws.owner_user_id);
       const ownerUserId = workspaceOwner ? await resolveOwnerOfRecord(db, id, workspaceOwner) : null;
@@ -666,9 +694,10 @@ export async function setServiceManagementFee(
 ): Promise<ServiceManagementFee> {
   const ownerShareBps = ownerShareBpsForFeePercent(percent);
   if (ownerShareBps === null) throw new PolicyError(400, MANAGEMENT_FEE_RANGE_MESSAGE);
-  const ensured = await ensureServiceFeePolicy(db, workspaceId, admin, now);
+  const ensured = await ensureServiceFeePolicy(db, workspaceId, admin, now, { reviveEndedByAdmin: true });
   if (ensured.status !== "exists" && ensured.status !== "created") {
     if (ensured.status === "not_service") throw new PolicyError(404, "Service workspace not found.");
+    if (ensured.status === "ended_by_admin") throw new PolicyError(409, "Could not read the workspace fee. Try again.");
     throw new PolicyError(409, ensured.reason === "no_owner" ? "Name the workspace's owner of record first." : "Could not read the workspace fee. Try again.");
   }
   const current = ensured.policy;

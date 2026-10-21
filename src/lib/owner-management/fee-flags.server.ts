@@ -20,7 +20,8 @@ export type FeeFlagCause =
   | "workspace_unreadable"
   | "owner_unreadable"
   | "activation_refused"
-  | "read_failed";
+  | "read_failed"
+  | "ended_by_admin";
 
 /** Where the refusal was felt. Context for the operator, not the cause. */
 export type FeeFlagReason = "checkout_refused" | "hold_frozen" | "fee_unavailable";
@@ -31,6 +32,7 @@ const WHAT_TO_DO: Record<FeeFlagCause, string> = {
   owner_unreadable: "the owner of record could not be read",
   activation_refused: "the fee policy could not be activated",
   read_failed: "the fee policy could not be read",
+  ended_by_admin: "an admin ended its management fee, so rent is paused until the fee is set again in Admin > Service",
 };
 
 export function feeFlagMessage(workspaceName: string, cause: FeeFlagCause): string {

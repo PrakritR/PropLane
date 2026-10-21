@@ -222,6 +222,13 @@ closed: with no `platform_service_settings` row there is no way to tell a client
   `toISOString().slice(0, 10)`. **A payment collected while the workspace
   was managed settles on the version in force on its payment date even if management has since ended** - that fee was
   earned - and only an ACTIVE version is open-ended.
+- **An admin's End is a decision, never lazily undone.** When no version is active and the newest SIGNED version was ended
+  with `ended_by_role = 'admin'` (only `endPolicy` stamps that; a rate change's `activate_managed_policy` stamps 'system'
+  and leaves a successor), `ensureServiceFeePolicy` answers `ended_by_admin`, creates nothing and raises the
+  `fee_agreement_unsigned` attention item with cause `ended_by_admin`; the callers treat it like the paused/no-policy case.
+  Only an explicit admin action (`setServiceManagementFee`, Managed finance activate) creates a version again.
+  `credit_managed_capture`'s TypeScript guard (`policyCoversCapture`, `capture.server.ts`) accepts an ENDED version only when
+  every component's Pacific paid day lies in `[effective_from, policyEndBoundary)`.
 - Admin changes the rate in Admin > Service > Management fee (0 to `MAX_MANAGEMENT_FEE_PERCENT`, `fee-percent.ts` - one
   parse, one range, shared by the server and the modal). The new rate is a new version **activated at once**: the one
   atomic database function ends the previous one in the same transaction, so the change reaches every payment settled

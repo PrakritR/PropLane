@@ -49,7 +49,9 @@ export async function unpoliciedServiceWorkspaces(
     const ensured = await ensureServiceFeePolicy(db, row.id);
     if (ensured.status === "created") created = true;
     if (ensured.status === "exists" || ensured.status === "created" || ensured.status === "not_service") continue;
-    pending.push({ workspaceId: row.id, workspaceName: String(row.name ?? "").trim() || "Service workspace", cause: ensured.reason });
+    // An admin-ended workspace is paused exactly like one with no policy: no checkout, frozen holds, and the flag names why.
+    const cause: EnsureFeeFailure = ensured.status === "ended_by_admin" ? "ended_by_admin" : ensured.reason;
+    pending.push({ workspaceId: row.id, workspaceName: String(row.name ?? "").trim() || "Service workspace", cause });
   }
   return { pending, created };
 }
