@@ -266,7 +266,13 @@ export async function POST(req: Request) {
     const rowData = target.rowData as ThreadRowData;
 
     // The team chat is people talking to each other, never a resident to answer.
-    if (target.threadType === "team" || target.threadId.startsWith("team-thread:")) {
+    // The house chat is the same: housemates and the team talking, nothing for a model to answer.
+    if (
+      target.threadType === "team" ||
+      target.threadId.startsWith("team-thread:") ||
+      target.threadType === "house" ||
+      target.threadId.startsWith("house-thread:")
+    ) {
       return NextResponse.json({ ok: true, skip: true, reason: "team-thread" });
     }
 
