@@ -1,15 +1,19 @@
 import "server-only";
+import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isPlatformServiceOwner } from "@/lib/service/service-owner.server";
 import {
   decideServiceMode,
   firstPropertyWorkspaceId,
   isStaffTeamRole,
+  serviceStaffScope,
+  type ServiceStaffScope,
   type ServiceModeDecision,
   type ServiceRailWorkspace,
   type ServiceShellData,
 } from "@/lib/service/service-mode";
 import { loadWorkspaces } from "@/lib/workspaces/server";
+import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 
 /**
  * Which PropLane Service workspaces the viewer is STAFF of. Staff is membership, never a role on the account:
@@ -68,6 +72,24 @@ export async function loadServiceStaffIds(db: SupabaseClient, userId: string): P
   } catch (error) {
     console.error("[service-mode] staff workspaces unreadable", error);
     return new Set();
+  }
+}
+
+/**
+ * The houses this viewer may run bookings on as service STAFF, re-derived on the server from membership and the
+ * selection cookie (a request body never names it). Null when the viewer is not staff of the active service
+ * workspace, and on any read failure: a scope that cannot be resolved never widens access.
+ */
+export async function loadServiceStaffScope(db: SupabaseClient, userId: string): Promise<ServiceStaffScope | null> {
+  try {
+    const staff = await loadServiceStaffWorkspaces(db, userId);
+    if (staff.length === 0) return null;
+    const workspaces = await loadWorkspaces(db, userId);
+    const cookieId = (await cookies()).get(WORKSPACE_COOKIE)?.value;
+    return serviceStaffScope(workspaces, new Set(staff.map((w) => w.id)), cookieId);
+  } catch (error) {
+    console.error("[service-mode] staff scope unreadable", error);
+    return null;
   }
 }
 

@@ -115,12 +115,15 @@ export type OccupancySnapshotResponse = {
   days: Array<{
     dayKey: string;
     occupied: number;
+    /** Beds with a person in them (see `OccupancyDayCell.inHouse`); absent on an older payload. */
+    inHouse?: number;
     total: number;
     checkIns: number;
     checkOuts: number;
     houses?: Array<{
       propertyId: string;
       occupied: number;
+      inHouse?: number;
       total: number;
       checkIns: number;
       checkOuts: number;

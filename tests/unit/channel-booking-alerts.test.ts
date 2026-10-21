@@ -14,7 +14,7 @@ vi.mock("@/lib/channel-calendar/airbnb-residents.server", () => ({
 }));
 vi.mock("@/lib/channel-calendar/stay-tombstones.server", () => ({ loadChannelStayTombstoneKeys: async () => new Set<string>() }));
 
-import { diffChannelReservations } from "@/lib/channel-calendar/channel-booking-diff";
+import { diffChannelReservations, reservationIdentitiesElsewhere, withoutMovedReservations } from "@/lib/channel-calendar/channel-booking-diff";
 import { channelBookingStay, emitChannelBookingEvent, renderChannelBookingEvent } from "@/lib/channel-booking-events.server";
 import { syncChannelCalendarConnection } from "@/lib/channel-calendar/sync.server";
 import type { ChannelCalendarImportedRange } from "@/lib/channel-calendar/types";
@@ -65,6 +65,28 @@ describe("diffChannelReservations", () => {
   });
 });
 
+describe("moved reservations (relinking a room's import URL)", () => {
+  const code = (uid: string, reservationCode: string) => ({ ...range(uid, "2026-10-12", "2026-10-14"), reservationCode });
+  it("drops a stay another room holds, by UID or by reservation code, from both created and cancelled", () => {
+    const elsewhere = reservationIdentitiesElsewhere([[range("same-uid", "2026-10-12", "2026-10-14"), code("x", "HMCODE")]]);
+    const diff = {
+      created: [range("same-uid", "2026-10-12", "2026-10-14"), code("new-uid", "HMCODE"), range("really-new", "2026-10-13", "2026-10-15")],
+      cancelled: [range("same-uid", "2026-10-12", "2026-10-14")],
+    };
+    const result = withoutMovedReservations(diff, elsewhere);
+    expect(result.created.map((r) => r.sourceUid)).toEqual(["really-new"]);
+    expect(result.cancelled).toEqual([]);
+    expect(result.moved).toHaveLength(3);
+  });
+  it("never treats a host block elsewhere as the same booking, nor a UID-less stay as provably the same", () => {
+    const hostBlock = { ...range("blk", "2026-10-12", "2026-10-14", "Airbnb (Not available)") };
+    expect(reservationIdentitiesElsewhere([[hostBlock]]).size).toBe(0);
+    const noUid = { ...range("", "2026-10-12", "2026-10-14"), sourceUid: "" };
+    const elsewhere = reservationIdentitiesElsewhere([[noUid]]);
+    expect(withoutMovedReservations({ created: [noUid], cancelled: [] }, elsewhere).created).toHaveLength(1);
+  });
+});
+
 describe("channel booking event copy", () => {
   it("counts nights from the inclusive last night and shows the check-out day", () => {
     expect(channelBookingStay("2026-10-12", "2026-10-14")).toEqual({ label: "Oct 12 – Oct 15 (3 nights)", nights: 3 });
@@ -109,13 +131,16 @@ function ics(events: Array<{ uid: string; start: string; end: string; summary: s
   return `BEGIN:VCALENDAR\nVERSION:2.0\n${body}\nEND:VCALENDAR`;
 }
 
-function syncDb(connection: Record<string, unknown>) {
+function syncDb(connection: Record<string, unknown>, others: Array<{ id: string; imported_ranges: unknown[] }> = []) {
   const stored = { ...connection };
   const from = (table: string) => {
     let patch: Record<string, unknown> | null = null;
+    let readingOthers = false;
     const chain: Record<string, unknown> = {
       select: () => chain,
       eq: () => chain,
+      // The workspace's OTHER channel connections (the move check).
+      neq: () => { readingOthers = true; return chain; },
       update: (value: Record<string, unknown>) => { patch = value; if (table === "external_calendar_connections") Object.assign(stored, value); return chain; },
       maybeSingle: async () => table === "external_calendar_connections"
         ? { data: stored, error: null }
@@ -123,7 +148,7 @@ function syncDb(connection: Record<string, unknown>) {
           ? { data: { email: "m@example.com", full_name: "Mgr" }, error: null }
           : { data: { manager_user_id: "m1", property_data: { id: "p1", title: "5259 Brooklyn Ave", buildingName: "5259 Brooklyn Ave", listingSubmission: { rooms: [{ id: "r1", name: "Room 3", manualUnavailableRanges: [] }] } }, row_data: {} }, error: null },
       single: async () => ({ data: stored, error: null }),
-      then: (resolve: (value: unknown) => void) => resolve({ error: null, data: patch }),
+      then: (resolve: (value: unknown) => void) => resolve({ error: null, data: readingOthers ? others : patch }),
     };
     return chain;
   };
@@ -178,5 +203,50 @@ describe("syncChannelCalendarConnection alerts", () => {
     stubFeed(ics([{ uid: "new", start: "2026-10-12", end: "2026-10-15", summary: "Reserved" }]));
     const { db } = syncDb({ ...baseConnection, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [] });
     await expect(syncChannelCalendarConnection(db, "c1")).resolves.toMatchObject({ id: "c1" });
+  });
+
+  describe("relinking a room moves its stays instead of cancelling and re-announcing them", () => {
+    const moved = { id: "uid-moved", sourceUid: "uid-moved", summary: "Reserved", start: "2026-10-12", end: "2026-10-15", reservationCode: "HMMOVED123" };
+
+    it("the room that TOOK the stays does not announce them as new when another room of the workspace still holds them", async () => {
+      stubFeed(ics([{ uid: "uid-moved", start: "2026-10-12", end: "2026-10-15", summary: "Reserved" }]));
+      const { db } = syncDb(
+        { ...baseConnection, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [] },
+        [{ id: "c2", imported_ranges: [moved] }],
+      );
+      await syncChannelCalendarConnection(db, "c1");
+      expect(emitActionEvent).not.toHaveBeenCalled();
+    });
+
+    it("the room that LOST the stays does not announce a cancellation when another room now holds them", async () => {
+      stubFeed(ics([{ uid: "other", start: "2026-11-02", end: "2026-11-04", summary: "Reserved" }]));
+      const { db } = syncDb(
+        { ...baseConnection, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [moved] },
+        [{ id: "c2", imported_ranges: [moved] }],
+      );
+      await syncChannelCalendarConnection(db, "c1");
+      // Only the genuinely new booking is news; the moved stay is neither new nor cancelled.
+      expect(eventsOf()).toEqual(["channel_booking_created"]);
+    });
+
+    it("a stay with a different UID and no reservation code in the feed is not provably a move, so it still alerts", async () => {
+      stubFeed(ics([{ uid: "fresh-uid", start: "2026-10-12", end: "2026-10-15", summary: "Reserved" }]));
+      const { db } = syncDb(
+        { ...baseConnection, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [] },
+        [{ id: "c2", imported_ranges: [{ ...moved, sourceUid: "old-uid", id: "old-uid" }] }],
+      );
+      await syncChannelCalendarConnection(db, "c1");
+      expect(eventsOf()).toEqual(["channel_booking_created"]);
+    });
+
+    it("a genuinely new booking, with nothing like it anywhere else, still alerts", async () => {
+      stubFeed(ics([{ uid: "brand-new", start: "2026-10-12", end: "2026-10-15", summary: "Reserved" }]));
+      const { db } = syncDb(
+        { ...baseConnection, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [] },
+        [{ id: "c2", imported_ranges: [moved] }],
+      );
+      await syncChannelCalendarConnection(db, "c1");
+      expect(eventsOf()).toEqual(["channel_booking_created"]);
+    });
   });
 });

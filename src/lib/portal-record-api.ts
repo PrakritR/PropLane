@@ -6,8 +6,17 @@ import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { preserveStoredSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
+import { loadServiceStaffScope } from "@/lib/service/service-mode.server";
+import type { ServiceStaffScope } from "@/lib/service/service-mode";
 
-type RecordUser = { id: string; email?: string | null; role: string; roles?: string[] };
+type RecordUser = {
+  id: string;
+  email?: string | null;
+  role: string;
+  roles?: string[];
+  /** Service STAFF only, and only on routes that opt in (`resolveServiceScope`): the houses of the open service workspace. */
+  serviceScope?: ServiceStaffScope | null;
+};
 type AtomicWriteResult = { handled: boolean; error?: string; status?: number };
 
 type RecordConfig = {
@@ -19,6 +28,11 @@ type RecordConfig = {
    * on every read and write. Leave unset for tables that are admin-wide by design (bug feedback).
    */
   explicitAdminOversight?: boolean;
+  /**
+   * Resolve `user.serviceScope` (service staff of the open workspace) before any hook runs. The route
+   * decides what the scope may reach; the record API only derives it, from membership, never from a request.
+   */
+  resolveServiceScope?: boolean;
   select?: string;
   orderColumn?: string;
   /**
@@ -119,7 +133,7 @@ type RecordConfig = {
   }) => Promise<AtomicWriteResult>;
 };
 
-async function getUserContext(req?: Request, explicitAdminOversight = false) {
+async function getUserContext(req?: Request, explicitAdminOversight = false, resolveServiceScope = false) {
   const portalCtx = await getPortalAccessContext();
   if (!portalCtx.user) return null;
   const db = createSupabaseServiceRoleClient();
@@ -139,6 +153,8 @@ async function getUserContext(req?: Request, explicitAdminOversight = false) {
     roles = roles.filter((r) => String(r).toLowerCase() !== "admin");
     if (role === "manager" && !roles.includes("manager")) roles = [...roles, "manager"];
   }
+  const serviceScope =
+    resolveServiceScope && !asAdmin && role === "manager" ? await loadServiceStaffScope(db, portalCtx.user.id) : null;
   return {
     db,
     user: {
@@ -146,6 +162,7 @@ async function getUserContext(req?: Request, explicitAdminOversight = false) {
       email: (portalCtx.profile?.email ?? portalCtx.user.email ?? "").trim().toLowerCase(),
       role,
       roles,
+      ...(resolveServiceScope ? { serviceScope } : {}),
     },
   };
 }
@@ -154,7 +171,7 @@ export function createJsonRecordRoute(config: RecordConfig) {
   return {
     GET: async (req?: Request) => {
       try {
-        const ctx = await getUserContext(req, config.explicitAdminOversight);
+        const ctx = await getUserContext(req, config.explicitAdminOversight, config.resolveServiceScope);
         if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
         let data: Record<string, unknown>[] | null;
         let error: { message: string } | null;
@@ -198,7 +215,7 @@ export function createJsonRecordRoute(config: RecordConfig) {
     },
     POST: async (req: Request) => {
       try {
-        const ctx = await getUserContext(req, config.explicitAdminOversight);
+        const ctx = await getUserContext(req, config.explicitAdminOversight, config.resolveServiceScope);
         if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
         const body = (await req.json()) as {
           action?: "upsert" | "delete" | "deleteIds" | "replace";

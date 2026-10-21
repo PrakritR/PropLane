@@ -193,6 +193,10 @@ function roomDateBlockFromRecord(row: { id?: unknown; property_id?: unknown; row
     ...(str(data.residentEmail) ? { residentEmail: str(data.residentEmail) } : {}),
     ...(str(data.residentPhone) ? { residentPhone: str(data.residentPhone) } : {}),
     ...(data.isBookingResidency === true ? { isBookingResidency: true } : {}),
+    // Where a stay came from (a guest's short-stay request is not yet a person in the house).
+    ...(data.stayDetails && typeof data.stayDetails === "object" && !Array.isArray(data.stayDetails)
+      ? { stayDetails: data.stayDetails as RoomDateBlock["stayDetails"] }
+      : {}),
     createdAt: str(data.createdAt),
   };
 }

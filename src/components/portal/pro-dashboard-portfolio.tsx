@@ -111,18 +111,21 @@ export function PortfolioPropertyCard({
   card,
   basePath,
   occupied = null,
+  beds = null,
   occupancyLoading = false,
 }: {
   card: PortfolioPropertyCardData;
   basePath: string;
-  /** Rooms occupied on this property today, from the occupancy snapshot. Null = not known (loading or the read failed), never zero. */
+  /** Beds with a person in them on this property today, from the occupancy snapshot. Null = not known (loading or the read failed), never zero. */
   occupied?: number | null;
+  /** Beds in this property from the same snapshot cell as `occupied`, so the figure and its total share one population. Null falls back to the card's rentable spaces. */
+  beds?: number | null;
   /** The occupancy read is still in flight. */
   occupancyLoading?: boolean;
 }) {
   const href = propertyDetailHref(basePath, card.stage, card.key, "preview");
   const known = occupied !== null;
-  const spaces = Math.max(card.spaces, occupied ?? 0, 1);
+  const spaces = Math.max(beds ?? card.spaces, occupied ?? 0, 1);
   const filled = Math.min(occupied ?? 0, spaces);
   return (
     <Link
@@ -196,14 +199,17 @@ export function PortfolioPropertiesSection({
   cards,
   basePath,
   occupiedByProperty,
+  bedsByProperty,
   occupancyState = "ok",
   addPropertyAction,
   loading = false,
 }: {
   cards: PortfolioPropertyCardData[];
   basePath: string;
-  /** Rooms occupied today per property key, for the occupancy bar. A key that is absent is unknown, not zero. */
+  /** Beds with a person in them today per property key, for the occupancy bar. A key that is absent is unknown, not zero. */
   occupiedByProperty?: ReadonlyMap<string, number>;
+  /** Beds per property key from the same snapshot, the bar's total. */
+  bedsByProperty?: ReadonlyMap<string, number>;
   occupancyState?: "loading" | "failed" | "ok";
   /** Primary add-home control (dashboard moved it off the page hero). */
   addPropertyAction?: ReactNode;
@@ -256,6 +262,7 @@ export function PortfolioPropertiesSection({
               card={card}
               basePath={basePath}
               occupied={occupiedByProperty?.get(card.key) ?? null}
+              beds={bedsByProperty?.get(card.key) ?? null}
               occupancyLoading={occupancyState === "loading"}
             />
           ))}

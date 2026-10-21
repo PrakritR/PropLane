@@ -58,6 +58,18 @@ function monthTonePillClasses(tone: MonthAvailabilityTone): string {
   }
 }
 
+/** The month's status as plain coloured text with a dot, for the flat (popup) variant. */
+function monthToneTextClasses(tone: MonthAvailabilityTone): { text: string; dot: string } {
+  switch (tone) {
+    case "available":
+      return { text: "text-emerald-700 [html[data-theme=dark]_&]:text-emerald-300", dot: "bg-emerald-500" };
+    case "unavailable":
+      return { text: "text-rose-700 [html[data-theme=dark]_&]:text-rose-300", dot: "bg-rose-500" };
+    case "mixed":
+      return { text: "text-amber-700 [html[data-theme=dark]_&]:text-amber-300", dot: "bg-amber-500" };
+  }
+}
+
 const DAY_OPEN = "bg-emerald-100 text-emerald-950 ring-1 ring-inset ring-emerald-300 [html[data-theme=dark]_&]:portal-calendar-open-slot";
 const DAY_OCCUPIED =
   "bg-rose-100 text-rose-950 ring-1 ring-inset ring-rose-300 [html[data-theme=dark]_&]:bg-rose-950/40 [html[data-theme=dark]_&]:text-rose-100 [html[data-theme=dark]_&]:ring-rose-700/60";
@@ -204,8 +216,11 @@ export function RoomAvailabilityMonthCalendar({
   dataAttr,
   interactive,
   loading = false,
+  flat = false,
 }: {
   spans: readonly RoomCalendarSpan[];
+  /** No card around the grid and the month's status as plain text: for a popup section that already has its own heading. */
+  flat?: boolean;
   /** Print the three-colour key under the grid (the editor); the public page explains it in its own words. */
   legend?: boolean;
   dataAttr?: string;
@@ -358,7 +373,7 @@ export function RoomAvailabilityMonthCalendar({
 
   return (
     <div
-      className={`rounded-xl border border-border bg-card p-3 sm:p-4 ${drag ? "select-none" : ""} ${interactive ? "touch-pan-y" : ""}`}
+      className={`${flat ? "" : "rounded-xl border border-border bg-card p-3 sm:p-4"} ${drag ? "select-none" : ""} ${interactive ? "touch-pan-y" : ""}`}
       data-attr={dataAttr}
       style={drag ? { touchAction: "none" } : undefined}
     >
@@ -376,7 +391,14 @@ export function RoomAvailabilityMonthCalendar({
           <p className="text-sm font-semibold text-foreground">
             {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
           </p>
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${monthTonePillClasses(tone)}`}>{monthToneLabel(tone)}</span>
+          {flat ? (
+            <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${monthToneTextClasses(tone).text}`}>
+              <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${monthToneTextClasses(tone).dot}`} />
+              {monthToneLabel(tone)}
+            </span>
+          ) : (
+            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${monthTonePillClasses(tone)}`}>{monthToneLabel(tone)}</span>
+          )}
         </div>
         <button
           type="button"

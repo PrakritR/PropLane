@@ -46,3 +46,48 @@ export function diffChannelReservations(input: {
     cancelled: [...before].filter(([key]) => !after.has(key)).map(([, range]) => range),
   };
 }
+
+/** The identities a reservation can be recognised by in another room's feed: its UID and its Airbnb reservation code. */
+function movedIdentities(range: ChannelCalendarImportedRange): string[] {
+  const ids: string[] = [];
+  const uid = (range.sourceUid || "").trim();
+  if (uid) ids.push(`uid:${uid}`);
+  const code = (range.reservationCode || "").trim();
+  if (code) ids.push(`code:${code}`);
+  return ids;
+}
+
+/** Every reservation identity stored on the workspace's OTHER channel connections. */
+export function reservationIdentitiesElsewhere(
+  otherConnectionRanges: readonly (readonly ChannelCalendarImportedRange[])[],
+): Set<string> {
+  const out = new Set<string>();
+  for (const ranges of otherConnectionRanges) {
+    for (const range of ranges) {
+      if (isHostBlockRange(range)) continue;
+      for (const id of movedIdentities(range)) out.add(id);
+    }
+  }
+  return out;
+}
+
+/**
+ * Re-pointing a room's import URL at another listing moves the SAME stays between rooms of one workspace: the
+ * room that took them reads them as new, the room that lost them reads them as cancelled. Neither is news. A
+ * reservation (same iCal UID or reservation code) that the workspace's other connections also hold is a move, so
+ * it is dropped from `created` (it was already there) and from `cancelled` (it is still there), whichever room
+ * synced first. A stay with neither a UID nor a code is never treated as a move: two unnamed "Reserved" stays on
+ * the same dates in two rooms are not provably one booking.
+ */
+export function withoutMovedReservations(
+  diff: ChannelBookingDiff,
+  elsewhere: ReadonlySet<string>,
+): ChannelBookingDiff & { moved: ChannelCalendarImportedRange[] } {
+  if (elsewhere.size === 0) return { ...diff, moved: [] };
+  const isMove = (range: ChannelCalendarImportedRange) => movedIdentities(range).some((id) => elsewhere.has(id));
+  return {
+    created: diff.created.filter((range) => !isMove(range)),
+    cancelled: diff.cancelled.filter((range) => !isMove(range)),
+    moved: [...diff.created, ...diff.cancelled].filter(isMove),
+  };
+}
