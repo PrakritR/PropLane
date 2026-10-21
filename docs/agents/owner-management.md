@@ -212,16 +212,24 @@ closed: with no `platform_service_settings` row there is no way to tell a client
   which is an ENDED row once a newer version has replaced it. An ACH debit is days old by the time it settles, so this
   is what keeps a payment in flight across a rate change on the split it was taken under instead of reading as "not
   managed" and falling to a manager hold. `credit_managed_capture` accepts that ended version for rows whose own
-  `paid_at` falls inside its `[effective_from, ends_on)` window (migration 20261020190000). The window's end is read
-  off `ended_at` (`policyEndBoundary`), never `ends_on` alone: `activate_managed_policy` stamps `ends_on` from the
-  database's UTC `current_date`, which after 17:00 Pacific is already the next Pacific day. An ENDED version with no
-  end date at all covers nothing, which is what the database decides too. **A payment collected while the workspace
+  `paid_at` falls inside its window (migration 20261020190000). That window is
+  `[effective_from, least(ends_on, the Pacific day of ended_at))` on BOTH sides - `policyEndBoundary` in the
+  application, the same `least` in the function: `activate_managed_policy` stamps `ends_on` from the database's UTC
+  `current_date`, which after 17:00 Pacific is already the next Pacific day, so reading it alone would leave one
+  Pacific day covered by two versions. An ENDED version with no end date at all covers nothing, which is what the
+  database decides too. Every day handed to a dated read is a PACIFIC day (`pacificDayKey`), never
+  `toISOString().slice(0, 10)`. **A payment collected while the workspace
   was managed settles on the version in force on its payment date even if management has since ended** - that fee was
   earned - and only an ACTIVE version is open-ended.
 - Admin changes the rate in Admin > Service > Management fee (0 to `MAX_MANAGEMENT_FEE_PERCENT`, `fee-percent.ts` - one
   parse, one range, shared by the server and the modal). The new rate is a new version **activated at once**: the one
   atomic database function ends the previous one in the same transaction, so the change reaches every payment settled
-  from that moment on and a payment already settled keeps the split it was settled with. Only the fee share moves - the
+  from that moment on and a payment already settled keeps the split it was settled with. Ending the version in force
+  is an ADMIN's power only: a SYSTEM activation - `ensureServiceFeePolicy`'s automatic fee, which follows a read older
+  than its own transaction - is refused when a version is already in force (migration 20261020200000) and the caller
+  answers with the version that won, so an admin recording a hand-authored version in that window keeps her rate. A
+  refused activation DELETES its own unsigned draft rather than ending it: nothing was signed and nothing settled on
+  it, so it must not leave a version behind whose window a dated read could claim. Only the fee share moves - the
   owner of record and every other term are copied from the version it replaces. The modal states the rate in force and
   the toast says whether the save moved it; there is no scheduled change and no effective date anywhere. Setting the
   first policy counts as a change even at the default rate - the workspace went from no fee to one in force today.
@@ -231,7 +239,10 @@ closed: with no `platform_service_settings` row there is no way to tell a client
   fee earlier versions already took that Pacific month, and it pays the floor down) and the once-per-resident leasing
   fee (`capture.server.ts` looks the resident up by `workspace_id`, never `policy_id`). That prior-version total is
   summed by `managed_month_totals` once per other version, re-read on every conflict retry - never a plain select of
-  the month's allocation rows, which PostgREST's `max-rows` would silently truncate on a busy workspace.
+  the month's allocation rows, which PostgREST's `max-rows` would silently truncate on a busy workspace. It is also
+  passed to `credit_managed_capture` as `p_prior_fee`, which re-sums it under a per-workspace advisory lock and
+  answers `conflict` (retried) when it moved: two captures settling under two different versions lock two different
+  policy rows, so without that lock neither sees the other and both would charge the floor.
 - Fail-closed fallback, only when the automatic fee cannot be created: new resident checkouts are refused
   (`serviceSetupPendingProblem`, 422 `SERVICE_SETUP_PENDING`; a cart that mixes the just-created managed workspace with
   another payment setup comes back as `MIXED_PAYMENT_SETUP`, never mislabelled), hold releases for the manager of record

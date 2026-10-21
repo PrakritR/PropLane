@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { pacificDayKey } from "@/lib/house-groups/time";
 import { isMissingSchemaError } from "@/lib/one-number/config.server";
 import { ensureServiceFeePolicy, loadActivePolicyForWorkspace, type EnsureFeeFailure } from "@/lib/owner-management/policies.server";
 import { feeFlagMessage, flagManagedFeeProblem } from "@/lib/owner-management/fee-flags.server";
@@ -109,6 +110,10 @@ export type ServiceSetupProblem = { code: "SERVICE_SETUP_PENDING" | "MIXED_PAYME
  * was JUST created is the cart re-checked, because that workspace became managed a moment ago and a cart that mixes it with
  * another payment setup can no longer be allocated. Returns the problem to show, or null. A failed read refuses (never "assume
  * self-serve").
+ *
+ * The day the policy window is read against is the PACIFIC day (`pacificDayKey`), the same one `policyEndBoundary` and
+ * `credit_managed_capture` compare: a UTC date is already tomorrow after 17:00 Pacific, and that evening a checkout
+ * would read past the end of the version actually in force and refuse the payment.
  */
 export async function serviceSetupPendingProblem(
   db: SupabaseClient,
@@ -116,7 +121,7 @@ export async function serviceSetupPendingProblem(
   now: Date = new Date(),
 ): Promise<ServiceSetupProblem | null> {
   try {
-    const { pending, created } = await unpoliciedServiceForProperties(db, propertyIds, now.toISOString().slice(0, 10));
+    const { pending, created } = await unpoliciedServiceForProperties(db, propertyIds, pacificDayKey(now));
     if (pending.length === 0) {
       if (!created) return null;
       const mixed = await managedCartProblem(db, propertyIds, now);

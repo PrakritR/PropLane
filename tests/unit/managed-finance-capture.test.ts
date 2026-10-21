@@ -159,6 +159,26 @@ describe("creditManagedCapture", () => {
     const fresh = db({ policyId: "pol-2" });
     await creditManagedCapture(fresh.f.db, stripe, { policy: p, paymentIntentId: "pi_13", stripeChargeId: "ch_13", grossCents: 100_000, components: [comp("a", "rent", 100_000)] });
     expect((fresh.calls[0]!.p_rows as Array<Record<string, number>>)[0]!.fee_cents).toBe(50_000);
+    // Review fix (L3): the figure is handed to the function too. It bounds the floor the same way there, and two
+    // captures settling under two versions at once each lock their own policy row - so the function re-sums this
+    // under a per-workspace lock and answers `conflict` when it moved, rather than letting both charge the floor.
+    expect(calls[0]!.p_prior_fee).toBe(50_000);
+    expect(fresh.calls[0]!.p_prior_fee).toBe(0);
+  });
+
+  // Review fix (L3): a `conflict` on that figure is retried, not refused - the money still has to land.
+  it("re-reads the other versions' month total on a conflict and retries", async () => {
+    const p = { ...policy({ minFeeCents: 50_000 }), id: "pol-2" };
+    const { f, calls } = db({
+      policyId: "pol-2",
+      otherVersions: [{ id: "pol-1", monthlyFee: 50_000 }],
+      results: [{ status: "conflict", prior_fee: 50_000 }, { status: "created", journal_id: "j2" }],
+    });
+    const out = await creditManagedCapture(f.db, stripe, { policy: p, paymentIntentId: "pi_14", stripeChargeId: "ch_14", grossCents: 100_000, components: [comp("a", "rent", 100_000)] });
+    expect(out.journalId).toBe("j2");
+    expect(calls.map((c) => c.p_prior_fee)).toEqual([50_000, 50_000]);
+    // Counted again inside the retry: the other version may have taken more between the two attempts.
+    expect(f.rpcCalls.filter((c) => c.name === "managed_month_totals" && c.args.p_policy === "pol-1")).toHaveLength(2);
   });
 
   it("refuses a policy that is not accepted, and a charge that differs from the PaymentIntent", async () => {

@@ -132,6 +132,30 @@ describe("a service workspace without a policy gets its automatic fee instead of
     expect(f.rpcCalls.filter((c) => c.name === "activate_managed_policy")).toHaveLength(1);
   });
 
+  // Review fix (L4): the checkout guard asked for the version in force on `now.toISOString()`'s day - the UTC one,
+  // which after 17:00 Pacific is already tomorrow. A version whose window still covered that Pacific evening read as
+  // gone, and the guard went off to create a SECOND policy for a workspace that already had one in force.
+  it("reads the version in force on the PACIFIC day, not the UTC one, at 18:00 Pacific", async () => {
+    // A legacy retired row: `ends_on` stamped from the database's UTC `current_date` and no `ended_at` to correct it,
+    // so its window runs to Oct 21 and still covers the Pacific evening of Oct 20.
+    const f = autoWorld();
+    f.rows.managed_workspace_fee_policies!.push({
+      ...activePolicy("ws-svc"), status: "ended", ends_on: "2026-10-21", ended_at: null,
+      effective_from: "2026-10-01", owner_user_id: "client-1",
+    });
+    // 18:00 Pacific on Oct 20 is already Oct 21 in UTC.
+    const evening = new Date("2026-10-21T01:00:00Z");
+    expect(await serviceSetupPendingProblem(f.db, ["p-svc"], evening)).toBeNull();
+    // The version in force was found, so nothing was created and no operator was paged.
+    expect(f.rows.managed_workspace_fee_policies).toHaveLength(1);
+    expect(f.rpcCalls.filter((c) => c.name === "activate_managed_policy")).toHaveLength(0);
+    expect(f.rows.owner_ledger_flags ?? []).toHaveLength(0);
+    // The day after that window really does close: the workspace needs a fee again.
+    const next = new Date("2026-10-21T19:00:00Z");
+    expect(await serviceSetupPendingProblem(f.db, ["p-svc"], next)).toBeNull();
+    expect(f.rpcCalls.filter((c) => c.name === "activate_managed_policy")).toHaveLength(1);
+  });
+
   it("the first payment is captured on the platform balance, never a destination charge", async () => {
     const f = autoWorld();
     expect(await platformCaptureRequiredForProperty(f.db, "p-svc")).toBe(true);

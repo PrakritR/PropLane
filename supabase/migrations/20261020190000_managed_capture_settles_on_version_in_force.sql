@@ -3,23 +3,40 @@
 --
 -- An ACH debit is days old by the time `payment_intent.succeeded` arrives, and an admin's rate change in
 -- Admin > Service activates a new version TODAY and ends the previous one. The application resolver
--- (`loadActivePolicyForWorkspace`) answers a dated read with the version whose [effective_from, ends_on) window
--- covers that day - which is an ENDED row once it has been replaced - so that a payment in flight keeps the split
--- it was taken under instead of reading as "not managed" and falling through to a manager hold.
+-- (`loadActivePolicyForWorkspace`) answers a dated read with the version whose window covers that day - which is an
+-- ENDED row once it has been replaced - so that a payment in flight keeps the split it was taken under instead of
+-- reading as "not managed" and falling through to a manager hold.
 --
 -- This function refused every non-active version, so that capture would 409 forever. It now accepts an ended
--- version, and ONLY for rows whose own `paid_at` falls inside that version's window. Every other guard - the
--- workspace match, the signature, the month-totals conflict check, the per-row leasing cap, the monthly fee bound
--- and the balanced journal - is unchanged.
+-- version, and ONLY for rows whose own `paid_at` falls inside that version's window. That window's end is
+-- `least(ends_on, the Pacific day of ended_at)`, the same boundary `policyEndBoundary` computes: `ends_on` is
+-- stamped from the DATABASE's `current_date`, which is UTC, so a rate change made after 17:00 Pacific leaves it a
+-- day later than the day the next version actually started, and reading it alone would let two windows overlap.
+--
+-- It also counts the monthly minimum ACROSS the workspace's versions. `managed_month_totals` is scoped to one
+-- `policy_id` - which is what keeps a rate change off rent already collected - so a mid-month rate change used to
+-- let the floor be charged a second time under the new version. The caller passes the total the OTHER versions had
+-- taken when it did its arithmetic, and that total is re-summed here under a per-workspace lock, so two captures
+-- settling under two different versions at the same moment cannot each believe they are the first.
+--
+-- Every other guard - the workspace match, the signature, the month-totals conflict check, the per-row leasing cap,
+-- the monthly fee bound and the balanced journal - is unchanged.
 -- ---------------------------------------------------------------------------------------------
+
+-- The 11-argument signature goes, so two functions cannot disagree about the monthly minimum. `p_prior_fee` defaults
+-- to NULL, which means "the caller did not count the other versions": the tighter bound below still applies (it is
+-- computed here), but there is nothing to compare against, so code that predates this migration keeps working while
+-- the deploy catches up.
+drop function if exists public.credit_managed_capture(uuid, uuid, text, text, text, text, timestamptz, bigint, bigint, bigint, jsonb);
+
 create or replace function public.credit_managed_capture(
   p_policy uuid, p_workspace uuid, p_key text, p_pi text, p_stripe_charge text, p_month text, p_available_on timestamptz,
-  p_gross bigint, p_expect_base bigint, p_expect_fee bigint, p_rows jsonb
+  p_gross bigint, p_expect_base bigint, p_expect_fee bigint, p_rows jsonb, p_prior_fee bigint default null
 ) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_pol public.managed_workspace_fee_policies%rowtype;
   v_existing public.party_ledger_journals%rowtype;
-  v_row jsonb; v_cum bigint; v_taken bigint;
+  v_row jsonb; v_cum bigint; v_taken bigint; v_prior bigint := 0; v_window_end date;
   v_sum_dist bigint := 0; v_sum_owner bigint := 0; v_sum_fee bigint := 0; v_sum_leasing bigint := 0; v_sum_deposit bigint := 0;
   v_sum_base_new bigint := 0; v_sum_monthly_new bigint := 0; v_processing bigint;
   v_after bigint; v_base bigint; v_floor bigint; v_target bigint; v_fee_bps integer;
@@ -28,29 +45,48 @@ begin
   select * into v_existing from public.party_ledger_journals where idempotency_key = p_key;
   if found then return jsonb_build_object('status', 'exists', 'journal_id', v_existing.id); end if;
 
+  -- Every capture of this workspace settles one at a time. Two captures under two DIFFERENT versions lock two
+  -- different policy rows, so without this neither sees the other's uncommitted allocation rows and the month's
+  -- cross-version sum below would read zero in both. The lock belongs to the workspace, which is whose month it is.
+  perform pg_advisory_xact_lock(hashtextextended('managed-capture:' || p_workspace::text, 0));
+
   select * into v_pol from public.managed_workspace_fee_policies where id = p_policy for update;
   if not found or v_pol.workspace_id is distinct from p_workspace or v_pol.signed_at is null
      or v_pol.status not in ('active', 'ended') then
     return jsonb_build_object('status', 'refused', 'reason', 'policy_not_active');
   end if;
   -- An ENDED version may still take a payment that was made while it was in force: the window it covers is
-  -- [effective_from, ends_on), the same one the application resolver reads, in Pacific days.
+  -- [effective_from, least(ends_on, Pacific day of ended_at)), the same one the application resolver reads.
+  -- `least` ignores a NULL argument, so a row carrying only one of the two still answers with that one.
   if v_pol.status = 'ended' then
-    if v_pol.ends_on is null then
+    v_window_end := least(v_pol.ends_on, (v_pol.ended_at at time zone 'America/Los_Angeles')::date);
+    if v_window_end is null then
       return jsonb_build_object('status', 'refused', 'reason', 'policy_not_active');
     end if;
     if exists (
       select 1 from jsonb_array_elements(p_rows) r
       where ((coalesce((r->>'paid_at')::timestamptz, now()) at time zone 'America/Los_Angeles')::date < v_pol.effective_from
-          or (coalesce((r->>'paid_at')::timestamptz, now()) at time zone 'America/Los_Angeles')::date >= v_pol.ends_on)
+          or (coalesce((r->>'paid_at')::timestamptz, now()) at time zone 'America/Los_Angeles')::date >= v_window_end)
     ) then
       return jsonb_build_object('status', 'refused', 'reason', 'policy_not_active');
     end if;
   end if;
 
+  -- The monthly minimum is the WORKSPACE's for the month, not each version's: what another version already took
+  -- this month pays it down. Only a policy that HAS a floor pays to count it, which is also what the caller does.
+  if v_pol.min_fee_cents > 0 then
+    select coalesce(sum(greatest(t.monthly_fee, 0)), 0)::bigint into v_prior
+      from public.managed_workspace_fee_policies p
+      cross join lateral public.managed_month_totals(p.id, p_month) t
+     where p.workspace_id = v_pol.workspace_id and p.id <> p_policy;
+  end if;
+
   select t.cum_base, t.monthly_fee into v_cum, v_taken from public.managed_month_totals(p_policy, p_month) t;
-  if v_cum is distinct from p_expect_base or v_taken is distinct from p_expect_fee then
-    return jsonb_build_object('status', 'conflict', 'cum_base', v_cum, 'monthly_fee', v_taken);
+  -- The caller's arithmetic was done against all three of these. Any one of them having moved is a `conflict`, which
+  -- the caller retries on fresh numbers - never a refusal, because the money still has to land.
+  if v_cum is distinct from p_expect_base or v_taken is distinct from p_expect_fee
+     or (p_prior_fee is not null and v_prior is distinct from p_prior_fee) then
+    return jsonb_build_object('status', 'conflict', 'cum_base', v_cum, 'monthly_fee', v_taken, 'prior_fee', v_prior);
   end if;
 
   for v_row in select * from jsonb_array_elements(p_rows) loop
@@ -73,11 +109,13 @@ begin
     end if;
   end loop;
 
-  -- Hard bound: the month's monthly fee never exceeds the policy's target for the month's cumulative base.
+  -- Hard bound: the month's monthly fee never exceeds the policy's target for the month's cumulative base. The floor
+  -- is the policy's own minimum LESS what the workspace's other versions already took this month, so a rate change
+  -- mid-month cannot charge it twice - the same arithmetic as `targetMonthlyFeeCents`.
   v_fee_bps := 10000 - v_pol.owner_share_bps;
   v_after := v_cum + v_sum_base_new;
   v_base := (v_after * v_fee_bps) / 10000;
-  v_floor := least(v_pol.min_fee_cents, v_after);
+  v_floor := least(greatest(v_pol.min_fee_cents - v_prior, 0), v_after);
   v_target := least(greatest(v_base, v_floor), v_after);
   if v_taken + v_sum_monthly_new > v_target then
     return jsonb_build_object('status', 'refused', 'reason', 'fee_over_policy');
@@ -130,5 +168,5 @@ begin
 end;
 $$;
 
-revoke all on function public.credit_managed_capture(uuid, uuid, text, text, text, text, timestamptz, bigint, bigint, bigint, jsonb) from public, anon, authenticated;
-grant execute on function public.credit_managed_capture(uuid, uuid, text, text, text, text, timestamptz, bigint, bigint, bigint, jsonb) to service_role;
+revoke all on function public.credit_managed_capture(uuid, uuid, text, text, text, text, timestamptz, bigint, bigint, bigint, jsonb, bigint) from public, anon, authenticated;
+grant execute on function public.credit_managed_capture(uuid, uuid, text, text, text, text, timestamptz, bigint, bigint, bigint, jsonb, bigint) to service_role;

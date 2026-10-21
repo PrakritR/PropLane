@@ -553,6 +553,16 @@ function adminOf(actor: FeeActor): AdminActor {
 }
 
 /**
+ * The draft this module just wrote, taken back out when its activation refused. DELETED, not ended: nobody signed it and
+ * nothing settled on it, so an ended row would only add a version to the workspace's history that never covered a day -
+ * and `policyEndBoundary` would read it as a real window. Scoped to `status = 'draft'` so a version that did activate
+ * (the activation refused on the way back, say) is never removed. Best effort: the activation's own error is the answer.
+ */
+async function discardDraftPolicy(db: SupabaseClient, draftId: string): Promise<void> {
+  await db.from("managed_workspace_fee_policies").delete().eq("id", draftId).eq("status", "draft");
+}
+
+/**
  * Draft the terms and activate them in one step. `activate_managed_policy` ends the previous version atomically, and a
  * refused activation takes its own draft back out rather than leaving one lying next to an admin's.
  */
@@ -574,7 +584,7 @@ async function activateNewVersion(
   try {
     return await activate(db, draft, "admin_attested", actor.role === "admin" ? "admin" : "system", note);
   } catch (e) {
-    await endPolicy(db, admin, draft.id, now).catch(() => undefined);
+    await discardDraftPolicy(db, draft.id).catch(() => undefined);
     throw e;
   }
 }

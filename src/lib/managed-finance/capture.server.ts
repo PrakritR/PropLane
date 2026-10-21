@@ -211,6 +211,10 @@ export async function creditManagedCapture(
       p_expect_base: cum,
       p_expect_fee: taken,
       p_rows: rows,
+      // What the workspace's OTHER versions had taken this month when the fee above was worked out. The function
+      // re-sums it under its per-workspace lock and answers `conflict` if it moved, so two captures settling under
+      // two versions at the same moment cannot each charge the monthly minimum.
+      p_prior_fee: priorVersionFeeCents,
     });
     const result = data as { status?: string; reason?: string; journal_id?: string } | null;
     if (error || !result) throw new LedgerError(500, "Could not allocate the payment.");

@@ -55,6 +55,15 @@ function activateRpc(args: Record<string, unknown>, f: OwnerFakeDb) {
   if (row.status === "active") return { status: "exists" };
   if (row.status !== "draft") return { status: "refused", reason: "not_draft" };
   if (args.p_via === "owner_signature" && !row.sent_at) return { status: "refused", reason: "not_sent" };
+  // Migration 20261020200000: the automatic fee only fills a GAP. A SYSTEM activation re-checks, under the row lock,
+  // that nothing is in force - the caller's own "no policy" read is older than this transaction - and refuses rather
+  // than ending a version an admin committed in between. Ending one stays an admin's own power.
+  if (
+    args.p_actor_role === "system" &&
+    rows.some((r) => r.workspace_id === row.workspace_id && r.status === "active" && r.signed_at && r.id !== row.id)
+  ) {
+    return { status: "refused", reason: "already_active" };
+  }
   const snapshot = (args.p_snapshot ?? {}) as Record<string, unknown>;
   const same =
     String(snapshot.workspaceId) === String(row.workspace_id) &&
@@ -402,6 +411,63 @@ describe("the automatic management fee", () => {
     }
     expect(f.rows.managed_workspace_fee_policies).toHaveLength(before);
   });
+
+  // Review fix (L1): `ensureServiceFeePolicy` reads "nothing in force", then drafts and activates the default 10% -
+  // and the activation ended whatever was active by the time it ran. An admin recording a hand-authored version
+  // inside that window had her rate silently replaced by the automatic one, on PropLane's own revenue.
+  it("a lazy system activation refuses rather than ending a version an admin committed in the meantime", async () => {
+    const now = new Date("2026-10-20T19:00:00Z");
+    let landed = false;
+    const f = seed(
+      { portal_workspaces: [{ id: WS, owner_user_id: CLIENT, name: "1. Ambika", is_service: true }] },
+      {
+        activate_managed_policy: (args, ff) => {
+          // The admin's own version commits between the resolver's read and this call.
+          if (!landed && args.p_actor_role === "system") {
+            landed = true;
+            ff.rows.managed_workspace_fee_policies!.push({
+              id: "by-hand", workspace_id: WS, owner_user_id: CLIENT, status: "active", owner_share_bps: 8000,
+              applies_to: "rent", leasing_fee_bps: 0, min_fee_cents: 0, reserve_target_cents: 0,
+              repair_approval_threshold_cents: 25_000, effective_from: "2026-10-20", created_at: "2026-10-20",
+              signed_at: now.toISOString(), accepted_via: "admin_attested",
+            });
+          }
+          return activateRpc(args, ff);
+        },
+      },
+    );
+    // The caller is told which version won, so rent keeps flowing on the admin's 20%.
+    expect(await ensureServiceFeePolicy(f.db, WS, { role: "system" }, now)).toMatchObject({
+      status: "exists",
+      policy: { id: "by-hand", status: "active" },
+    });
+    expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(8000);
+    // Review fix (L5): the draft the refused activation left behind is DELETED, not ended. It was never signed and
+    // nothing settled on it, so an ended row would only add a version whose window `policyEndBoundary` would read.
+    expect(f.rows.managed_workspace_fee_policies!.map((r) => r.id)).toEqual(["by-hand"]);
+    // Nothing is wrong here, so no operator is paged.
+    expect(f.rows.owner_ledger_flags ?? []).toHaveLength(0);
+  });
+
+  // Review fix (L5), on the admin rate-change path: a refused activation must not leave a row behind at all.
+  it("a refused rate change deletes its own draft instead of ending it", async () => {
+    const now = new Date("2026-10-20T19:00:00Z");
+    const inForce = {
+      id: "in-force", workspace_id: WS, owner_user_id: CLIENT, status: "active", owner_share_bps: 9000,
+      applies_to: "rent", leasing_fee_bps: 0, min_fee_cents: 0, reserve_target_cents: 0,
+      repair_approval_threshold_cents: 25_000, effective_from: "2026-10-01", created_at: "2026-10-01",
+      signed_at: "2026-10-01T00:00:00Z", accepted_via: "admin_attested",
+    };
+    const f = seed(
+      { portal_workspaces: [{ id: WS, owner_user_id: CLIENT, name: "1. Ambika", is_service: true }], managed_workspace_fee_policies: [inForce] },
+      // The new version's activation refuses: its terms moved between the load and the call.
+      { activate_managed_policy: () => ({ status: "refused", reason: "terms_changed" }) },
+    );
+    await expect(setServiceManagementFee(f.db, admin, WS, 15, now)).rejects.toMatchObject({ status: 409 });
+    // One row left: the version that was in force all along. No ended, unsigned stub beside it.
+    expect(f.rows.managed_workspace_fee_policies!.map((r) => [r.id, r.status])).toEqual([["in-force", "active"]]);
+    expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(9000);
+  });
 });
 
 describe("activating a draft (nothing is ever signed)", () => {
@@ -642,6 +708,46 @@ describe("the SQL mirror: the activation terms guard (migration 20261020170000)"
   });
 });
 
+// Review fix (L1): the automatic fee is drafted and activated lazily, after a read that said nothing was in force.
+// Ending the version in force is therefore an ADMIN-only power; a system activation refuses instead.
+describe("the SQL mirror: a system activation never ends another version (migration 20261020200000)", () => {
+  const sql = readFileSync("supabase/migrations/20261020200000_managed_policy_system_activation_never_ends_another.sql", "utf8");
+
+  it("replaces the function on the same signature and keeps the grant fail-closed", () => {
+    expect(sql).toContain("create or replace function public.activate_managed_policy(");
+    expect(sql).toContain("p_id uuid, p_via text, p_note text, p_hash text, p_snapshot jsonb, p_actor_role text");
+    expect(sql).toContain("revoke all on function public.activate_managed_policy(uuid, text, text, text, jsonb, text) from public, anon, authenticated;");
+    expect(sql).toContain("grant execute on function public.activate_managed_policy(uuid, text, text, text, jsonb, text) to service_role;");
+  });
+
+  it("refuses a system activation when the workspace already has an accepted version, under the row lock", () => {
+    const lockIdx = sql.indexOf("for update");
+    const guardIdx = sql.indexOf("if p_actor_role = 'system' and exists (");
+    expect(lockIdx).toBeGreaterThan(-1);
+    expect(guardIdx).toBeGreaterThan(lockIdx);
+    expect(sql).toContain("where workspace_id = v_pol.workspace_id and status = 'active' and signed_at is not null and id <> p_id");
+    expect(sql).toContain("'already_active'");
+    // The refusal comes BEFORE the step that ends the version in force, so nothing has moved by then.
+    expect(sql.indexOf("set status = 'ended'")).toBeGreaterThan(guardIdx);
+  });
+
+  it("keeps every guard the activation already had", () => {
+    for (const guard of [
+      "p_actor_role not in ('admin', 'owner', 'system')",
+      "p_hash !~ '^[0-9a-f]{64}$'",
+      "'future_effective_from'",
+      "'not_draft'",
+      "'not_sent'",
+      "'terms_changed'",
+      "c_reserve_default constant integer := 0;",
+      "c_threshold_default constant integer := 25000;",
+      "to_char(v_pol.effective_from, 'YYYY-MM-DD')",
+    ]) {
+      expect(sql).toContain(guard);
+    }
+  });
+});
+
 describe("the SQL mirror: the atomic phone-code start (migration 20261020160000)", () => {
   const sql = readFileSync("supabase/migrations/20261020160000_phone_otp_start_caps_from_app.sql", "utf8");
 
@@ -684,16 +790,51 @@ describe("the SQL mirror: a capture settles on the version in force (migration 2
   it("replaces the function on the same signature and keeps the grant fail-closed", () => {
     expect(sql).toContain("create or replace function public.credit_managed_capture(");
     expect(sql).toContain("p_policy uuid, p_workspace uuid, p_key text, p_pi text, p_stripe_charge text, p_month text, p_available_on timestamptz,");
-    expect(sql).toContain("revoke all on function public.credit_managed_capture(uuid, uuid, text, text, text, text, timestamptz, bigint, bigint, bigint, jsonb) from public, anon, authenticated;");
-    expect(sql).toContain("grant execute on function public.credit_managed_capture(uuid, uuid, text, text, text, text, timestamptz, bigint, bigint, bigint, jsonb) to service_role;");
+    expect(sql).toContain("revoke all on function public.credit_managed_capture(uuid, uuid, text, text, text, text, timestamptz, bigint, bigint, bigint, jsonb, bigint) from public, anon, authenticated;");
+    expect(sql).toContain("grant execute on function public.credit_managed_capture(uuid, uuid, text, text, text, text, timestamptz, bigint, bigint, bigint, jsonb, bigint) to service_role;");
+    // The 11-argument function goes, so two copies cannot disagree about the monthly minimum; the new argument has a
+    // default, so code that predates this migration still resolves to it while the deploy catches up.
+    expect(sql).toContain("drop function if exists public.credit_managed_capture(uuid, uuid, text, text, text, text, timestamptz, bigint, bigint, bigint, jsonb);");
+    expect(sql).toContain("p_prior_fee bigint default null");
   });
 
   it("accepts an ended version only for rows paid inside its own window, in Pacific days", () => {
     expect(sql).toContain("v_pol.status not in ('active', 'ended')");
     expect(sql).toContain("if v_pol.status = 'ended' then");
-    expect(sql).toContain("if v_pol.ends_on is null then");
     expect(sql).toContain("at time zone 'America/Los_Angeles')::date < v_pol.effective_from");
-    expect(sql).toContain("at time zone 'America/Los_Angeles')::date >= v_pol.ends_on");
+  });
+
+  // Review fix (L2): `ends_on` alone is the DATABASE's UTC `current_date`, a day ahead of the Pacific day the next
+  // version started after 17:00 Pacific - so reading it alone lets two windows overlap and the SAME payment settle
+  // under both. The window's end is the EARLIER of the two, which is exactly what `policyEndBoundary` computes.
+  it("ends the window at least(ends_on, the Pacific day of ended_at), the boundary the app computes", () => {
+    expect(sql).toContain("v_window_end := least(v_pol.ends_on, (v_pol.ended_at at time zone 'America/Los_Angeles')::date);");
+    expect(sql).toContain("if v_window_end is null then");
+    expect(sql).toContain("at time zone 'America/Los_Angeles')::date >= v_window_end");
+    // `ends_on` is never the end on its own any more.
+    expect(sql).not.toContain(">= v_pol.ends_on");
+    // A row with neither column covers nothing - the same answer `policyEndBoundary` gives.
+    const nullIdx = sql.indexOf("if v_window_end is null then");
+    expect(sql.slice(nullIdx, nullIdx + 200)).toContain("'policy_not_active'");
+  });
+
+  // Review fix (L3): `managed_month_totals` is scoped to ONE policy_id, so the monthly minimum has to be counted
+  // across the workspace's versions - and two captures settling under two different versions lock two different
+  // policy rows, so without a workspace-wide lock each sees nothing of the other and both charge that floor.
+  it("counts the monthly minimum across the workspace's versions, under a per-workspace lock", () => {
+    const lockIdx = sql.indexOf("perform pg_advisory_xact_lock(hashtextextended('managed-capture:' || p_workspace::text, 0));");
+    expect(lockIdx).toBeGreaterThan(-1);
+    const sumIdx = sql.indexOf("select coalesce(sum(greatest(t.monthly_fee, 0)), 0)::bigint into v_prior");
+    expect(sumIdx).toBeGreaterThan(lockIdx);
+    expect(sql).toContain("where p.workspace_id = v_pol.workspace_id and p.id <> p_policy;");
+    // Counted only where there IS a floor, the same condition the caller uses.
+    expect(sql).toContain("if v_pol.min_fee_cents > 0 then");
+    // The floor is the policy's minimum LESS what the other versions took - `targetMonthlyFeeCents`'s arithmetic.
+    expect(sql).toContain("v_floor := least(greatest(v_pol.min_fee_cents - v_prior, 0), v_after);");
+    // A total that moved under the lock is a conflict the caller retries on, never a refusal.
+    expect(sql).toContain("or (p_prior_fee is not null and v_prior is distinct from p_prior_fee) then");
+    const conflictIdx = sql.indexOf("'conflict', 'cum_base', v_cum, 'monthly_fee', v_taken, 'prior_fee', v_prior");
+    expect(conflictIdx).toBeGreaterThan(sumIdx);
   });
 
   it("keeps every other guard the capture already had", () => {
