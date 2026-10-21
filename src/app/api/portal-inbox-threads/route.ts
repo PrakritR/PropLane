@@ -38,6 +38,13 @@ import { ensureManagerAgentNoticeThread } from "@/lib/agent-notify.server";
 import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
 import { isTeamThreadId, updateTeamThreadMailboxState } from "@/lib/team-comms.server";
 import { teamThreadRowForViewer } from "@/lib/team-thread-view";
+import { isHouseInboxThread } from "@/lib/house-thread-id";
+import {
+  applyHouseMailboxState,
+  houseRowsForResident,
+  houseRowsForTeamViewer,
+  splitHouseIds,
+} from "@/lib/house-chat/mailbox.server";
 import { asNoticeMarker, reduceSmsNoticeRow, type NoticeMarker } from "@/lib/sms-notice-reduction";
 import { ensureResidentAgentThread } from "@/lib/agent/resident-inbox-agent.server";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
@@ -331,7 +338,11 @@ export async function GET(request: Request) {
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    const fetched = (Array.isArray(data) ? data : []) as PortalInboxReadRecord[];
+    // House chats are one shared row read by many people: they are listed below, per viewer, by their own
+    // membership rule - never through the person-conversation visibility rules.
+    const fetched = ((Array.isArray(data) ? data : []) as PortalInboxReadRecord[]).filter(
+      (record) => !isHouseInboxThread({ id: String(record.id ?? ""), thread_type: record.thread_type }),
+    );
     const records: (PortalInboxReadRecord & { houses?: { propertyId: string; label: string }[] })[] = communicationScope
       ? await filterVisibleInboxThreadRecords(ctx.db, communicationScope, fetched)
       : fetched;
@@ -434,6 +445,32 @@ export async function GET(request: Request) {
       return { ...normalizeInboxRow({ ...row, id: record.id, ownerUserId: record.owner_user_id, threadType: record.thread_type, ...(record.houses ? { houses: record.houses } : {}) }), readSources: [{ id: record.id, observation: portalInboxReadObservation(record), unread: row?.unread === true }], readSourcesComplete: true };
     });
 
+    // The viewer's house chats (manager: the active workspace's, by team access; resident: the houses they
+    // live in today). Best effort: the rest of the inbox must still list if this read fails.
+    let houseRows: Record<string, unknown>[] = [];
+    if (!viewAsOpen && (scopeParam === MANAGER_INBOX_SCOPE || scopeParam === RESIDENT_INBOX_SCOPE) && ctx.user.id) {
+      try {
+        const raw =
+          scopeParam === MANAGER_INBOX_SCOPE && communicationScope
+            ? await houseRowsForTeamViewer(ctx.db, {
+                userId: ctx.user.id,
+                email: ctx.user.email ?? "",
+                scope: communicationScope,
+                inboxScope: scopeParam,
+              })
+            : scopeParam === RESIDENT_INBOX_SCOPE
+              ? await houseRowsForResident(ctx.db, { userId: ctx.user.id, email: ctx.user.email ?? "", inboxScope: scopeParam })
+              : [];
+        houseRows = raw.map((row) => ({
+          ...normalizeInboxRow(row),
+          readSources: [{ id: String(row.id), observation: String(row.updatedAt ?? ""), unread: row.unread === true }],
+          readSourcesComplete: true,
+        }));
+      } catch (e) {
+        console.error("house chat list failed", e instanceof Error ? e.message : "unknown");
+      }
+    }
+
     const collapsed =
       scopeParam === MANAGER_INBOX_SCOPE
         ? collapsePersonInboxThreads(rows, { mergeFolders: true })
@@ -458,7 +495,7 @@ export async function GET(request: Request) {
           },
           collapsed,
         );
-        return NextResponse.json({ rows: extras.rows, residentPhone: extras.phone });
+        return NextResponse.json({ rows: [...extras.rows, ...houseRows], residentPhone: extras.phone });
       } catch (e) {
         console.error("resident conversation extras failed", e instanceof Error ? e.message : "unknown");
       }
@@ -479,17 +516,17 @@ export async function GET(request: Request) {
           },
           collapsed,
         );
-        return NextResponse.json({ rows: extras.rows, vendorPhone: extras.phone });
+        return NextResponse.json({ rows: [...extras.rows, ...houseRows], vendorPhone: extras.phone });
       } catch (e) {
         console.error("vendor conversation extras failed", e instanceof Error ? e.message : "unknown");
       }
     }
 
     return NextResponse.json({
-      rows:
-        scopeParam === MANAGER_INBOX_SCOPE
-          ? collapseAssistantInboxThreads(collapsed)
-          : collapsed,
+      rows: [
+        ...(scopeParam === MANAGER_INBOX_SCOPE ? collapseAssistantInboxThreads(collapsed) : collapsed),
+        ...houseRows,
+      ],
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load records.";
@@ -558,6 +595,60 @@ export async function POST(req: Request) {
           ids.length > 0 &&
           ids.every((id) => managedReadOnlyInboxThreadAllowed(id, active.id, active.ownerUserId, ctx.user.id));
         if (!allowed) return NextResponse.json({ ...MANAGED_READ_ONLY_BODY }, { status: 403 });
+      }
+    }
+
+    // House chats are one shared row: archive, restore and read are the VIEWER's own state, applied only on
+    // chats the viewer may read right now (membership re-derived), and never touch anyone else's. The ids
+    // are stripped from the batch so the person-conversation paths below never see them.
+    {
+      const mailbox = { userId: ctx.user.id, email: ctx.user.email ?? "" };
+      if (body.action === "markRead" && Array.isArray(body.sources)) {
+        const named = body.sources.map((source) => (typeof source?.id === "string" ? source.id.trim() : ""));
+        const { house } = splitHouseIds(named);
+        if (house.length > 0) {
+          await applyHouseMailboxState(ctx.db, mailbox, house, { read: true });
+          body.sources = body.sources.filter((source) => !house.includes(typeof source?.id === "string" ? source.id.trim() : ""));
+          if (body.sources.length === 0) {
+            return NextResponse.json({ ok: true, results: house.map((id) => ({ id, status: "read", unread: false })) });
+          }
+        }
+      }
+      if (body.action === "changeFolder" && Array.isArray(body.ids)) {
+        const { house, other } = splitHouseIds(body.ids.map((id) => String(id).trim()).filter(Boolean));
+        if (house.length > 0) {
+          await applyHouseMailboxState(ctx.db, mailbox, house, { folder: body.folderAction === "restore" ? "inbox" : "trash", read: body.folderAction === "restore" ? undefined : true });
+          if (other.length === 0) return NextResponse.json({ ok: true });
+          body.ids = other;
+        }
+      }
+      if (body.action === "delete" || body.action === "deleteIds") {
+        const named = body.action === "deleteIds" ? (Array.isArray(body.ids) ? body.ids.map(String) : []) : [body.id?.trim() ?? ""];
+        const { house, other } = splitHouseIds(named.map((id) => id.trim()).filter(Boolean));
+        if (house.length > 0) {
+          // A house chat belongs to the house: "delete" is the same per-viewer archive the Team chat's soft delete is.
+          await applyHouseMailboxState(ctx.db, mailbox, house, { folder: "trash", read: true });
+          if (other.length === 0) return NextResponse.json({ ok: true, deleted: house.length });
+          if (body.action === "deleteIds") body.ids = other;
+        }
+      }
+      if (body.action === "upsert" || body.action === "replace") {
+        const candidates = body.action === "replace" ? body.rows ?? [] : body.row ? [body.row] : [];
+        const houseRowsInBody = candidates.filter((row) => isHouseInboxThread({ id: String(row?.id ?? "").trim() }));
+        if (houseRowsInBody.length > 0) {
+          for (const row of houseRowsInBody) {
+            const id = String(row.id).trim();
+            const patch: { folder?: "inbox" | "trash"; read?: boolean } = {};
+            if (row.folder === "trash") patch.folder = "trash";
+            else if (row.folder === "inbox") patch.folder = "inbox";
+            if (row.unread === false) patch.read = true;
+            if (patch.folder || patch.read) await applyHouseMailboxState(ctx.db, mailbox, [id], patch);
+          }
+          const rest = candidates.filter((row) => !houseRowsInBody.includes(row));
+          if (rest.length === 0) return NextResponse.json({ ok: true });
+          if (body.action === "replace") body.rows = rest;
+          else body.row = rest[0];
+        }
       }
     }
 

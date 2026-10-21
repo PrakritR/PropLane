@@ -7,6 +7,7 @@ import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access"
 import { autoFileLeaseDocument, type AutoFileLeaseRow } from "@/lib/documents/document-auto-file-hooks.server";
 import { buildDurableLeaseTransitionEnvelope } from "@/lib/domain-action-events.server";
 import { dispatchMoveInFormsForSignedLeaseAfterResponse } from "@/lib/move-in-forms/server";
+import { queueHouseChatSyncForProperty } from "@/lib/house-chat/sync.server";
 import { leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
 import { normalizeLeasePipelineRow, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { syncLeaseLifecycleTasks } from "@/lib/manager-default-tasks.server";
@@ -248,6 +249,8 @@ export async function POST(req: Request) {
     if (managerUserId) {
       void syncLeaseLifecycleTasks(db, managerUserId, stored, next as LeasePipelineRow).catch(() => undefined);
     }
+    // A signed lease puts a resident in the house: the house chat welcomes them.
+    queueHouseChatSyncForProperty(db, record.property_id);
 
     return NextResponse.json({ ok: true, row: next });
   } catch (e) {

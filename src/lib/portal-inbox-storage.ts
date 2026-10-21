@@ -656,7 +656,8 @@ export function invalidatePersistedInboxCache(key: string): void {
  * that mailbox state.
  */
 function isSharedTeamThread(thread: Pick<PersistedInboxThread, "id" | "threadType">): boolean {
-  return thread.threadType === "team" || thread.id.startsWith("team-thread:");
+  // A house chat is one shared row too (server-appended, per-viewer mailbox state): never part of a wholesale replace.
+  return thread.threadType === "team" || thread.id.startsWith("team-thread:") || thread.threadType === "house" || thread.id.startsWith("house-thread:");
 }
 
 async function postInboxRows(

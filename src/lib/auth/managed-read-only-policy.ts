@@ -129,6 +129,7 @@ export function managedReadOnlyInboxLockApplies(action: string | undefined, scop
 }
 
 const TEAM_THREAD_PREFIX = "team-thread:";
+const HOUSE_THREAD_PREFIX = "house-thread:";
 
 const AGENT_NOTICE_PREFIX = "agent_notice_";
 
@@ -148,7 +149,10 @@ export function managedReadOnlyInboxThreadAllowed(
   const viewer = viewerUserId.trim();
   if (!t || !viewer) return false;
   if (t === `${AGENT_NOTICE_PREFIX}${viewer}` || t === `${AGENT_NOTICE_PREFIX}${viewer}__${workspaceId.trim()}`) return true;
-  return t === `${TEAM_THREAD_PREFIX}${ownerUserId.trim()}:ws:${workspaceId.trim()}`;
+  if (t === `${TEAM_THREAD_PREFIX}${ownerUserId.trim()}:ws:${workspaceId.trim()}`) return true;
+  // A house chat of THIS workspace: the client talks with her residents there (mailbox state only; the
+  // post itself is authorized by the send route's membership check).
+  return t.startsWith(`${HOUSE_THREAD_PREFIX}${ownerUserId.trim()}:ws:${workspaceId.trim()}:prop:`);
 }
 
 /**

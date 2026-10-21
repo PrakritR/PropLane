@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { FINISH_FORMS_FIRST_MESSAGE, RESIDENT_FORMS_CHECK_FAILED_MESSAGE, leaseApplicationIds, loadResidentBlockingForms } from "@/lib/move-in-forms/blocking";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { NextResponse } from "next/server";
+import { queueHouseChatSyncForProperty } from "@/lib/house-chat/sync.server";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 import {
   fetchLeasesForManagerUser,
@@ -1680,6 +1681,8 @@ export async function POST(req: Request) {
           managerUserId: plan.record.manager_user_id ?? null,
           propertyId: plan.record.property_id ?? null,
         });
+        // A signed lease puts a resident in the house: the house chat welcomes them (best-effort, after the response).
+        queueHouseChatSyncForProperty(ctx.db, plan.record.property_id);
       }
 
       if (managerUserId) {

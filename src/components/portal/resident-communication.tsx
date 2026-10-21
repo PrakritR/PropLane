@@ -71,6 +71,7 @@ import {
   type ManagerSmsMessageRow,
 } from "@/lib/manager-sms-messages";
 import { formatInboxStamp, type PersistedInboxThread } from "@/lib/portal-inbox-storage";
+import { houseThreadDisplayName, isHouseInboxThread, isHouseThreadId } from "@/lib/house-thread-id";
 import {
   EMPTY_COMMUNICATION_THREAD_FILTERS,
   RECORD_KIND_FILTER_OPTIONS,
@@ -289,6 +290,20 @@ function ResidentUnifiedInbox({
         const lastMsg = msgs[msgs.length - 1];
         // Every row names the MANAGER it is with, and that manager's home.
         const manager = resolveResidentThreadManager(t, managerContacts);
+        // The house chat is its own row: titled by the house, with no manager workspace to join or fold into.
+        if (isHouseInboxThread(t)) {
+          return {
+            key: unifiedInboxKey("email", t.id),
+            channel: "email" as const,
+            threadId: t.id,
+            name: t.from || houseThreadDisplayName(null),
+            preview: communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", segment, 80),
+            previewPrefix: inboxThreadLastTurnDirection(t) === "outbound" ? "You: " : undefined,
+            time: t.time,
+            unread: t.folder === "inbox" && t.unread,
+            sortMs: inboxThreadSortMs(t.id, t.time),
+          };
+        }
         return {
           key: unifiedInboxKey("email", t.id),
           channel: "email" as const,
@@ -310,7 +325,10 @@ function ResidentUnifiedInbox({
           sortMs: inboxThreadSortMs(t.id, t.time),
         };
       });
-      const filteredEmailItems = segment === "unread" ? emailItems.filter((item) => item.unread) : emailItems;
+      const visibleEmailItems = segment === "unread" ? emailItems.filter((item) => item.unread) : emailItems;
+      // House chats sit at the top of the list as a group and never take part in the one-workspace text fold.
+      const houseItems = visibleEmailItems.filter((item) => isHouseThreadId(item.threadId));
+      const filteredEmailItems = visibleEmailItems.filter((item) => !isHouseThreadId(item.threadId));
 
       let smsItems: UnifiedInboxListItem[] = [];
       if (smsUiEnabled && segment !== "archived" && smsMessages.length > 0) {
@@ -337,10 +355,13 @@ function ResidentUnifiedInbox({
           }
         }
       }
-      return mergeUnifiedInboxItems(
-        [...filteredEmailItems, ...foldTextRowIntoSoleWorkspace(filteredEmailItems, smsItems)],
-        "recent",
-      );
+      return [
+        ...mergeUnifiedInboxItems(houseItems, "recent"),
+        ...mergeUnifiedInboxItems(
+          [...filteredEmailItems, ...foldTextRowIntoSoleWorkspace(filteredEmailItems, smsItems)],
+          "recent",
+        ),
+      ];
     },
     [filteredEmail, managerContacts, smsMessages, smsOpened, smsUiEnabled],
   );

@@ -4,7 +4,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { isPhoneOptedOut, normalizeConsentPhone } from "@/lib/sms-consent";
 import { loadPreferences } from "./store.server";
+import { LONG_TERM_MIN_DAYS, dayDiff, firstNameOf, stayCoversDay, type OccupancyStayLike } from "./stay-members";
 import type { ResidentCandidate } from "./types";
+
+export { LONG_TERM_MIN_DAYS, firstNameOf, type OccupancyStayLike };
 
 /**
  * Who lives in a house today, as group candidates. The occupancy snapshot is the one reader the
@@ -13,28 +16,7 @@ import type { ResidentCandidate } from "./types";
  * payload, and any stay shorter than a month is treated as a short stay as well.
  */
 
-/** A stay at least this long is a long-term resident (the short-stay product caps at 28 nights). */
-export const LONG_TERM_MIN_DAYS = 30;
-
-export type OccupancyStayLike = {
-  propertyId: string;
-  roomLabel: string;
-  start: string;
-  end: string;
-  openEnded?: boolean;
-  resident?: { residentName?: string; residentEmail?: string; residentPhone?: string; source: string } | undefined;
-};
-
 export type ProfileLike = { id: string; email: string; phone: string | null; verified: boolean; fullName: string };
-
-function dayDiff(a: string, b: string): number {
-  return Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86_400_000);
-}
-
-export function firstNameOf(name: string | null | undefined): string {
-  const first = String(name ?? "").trim().split(/\s+/)[0] ?? "";
-  return first.replace(/[^\p{L}'-]/gu, "").slice(0, 40);
-}
 
 /** Stays covering `today` (inclusive), one candidate per resident stay. Pure. */
 export function candidatesFromStays(
@@ -50,7 +32,7 @@ export function candidatesFromStays(
   const out: ResidentCandidate[] = [];
   for (const stay of stays) {
     if (stay.propertyId !== input.propertyId || !stay.resident) continue;
-    if (stay.start > input.today || (!stay.openEnded && stay.end < input.today)) continue;
+    if (!stayCoversDay(stay, input.today)) continue;
     const email = String(stay.resident.residentEmail ?? "").trim().toLowerCase();
     const profile = email ? input.profilesByEmail.get(email) : undefined;
     const e164 = normalizeE164(profile?.phone ?? stay.resident.residentPhone ?? "");

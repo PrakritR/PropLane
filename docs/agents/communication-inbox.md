@@ -785,6 +785,62 @@ the append is a compare-and-set on `updated_at` (`upsertKeyedThreadRow`'s
 duplicates fold with `scripts/merge-assistant-team-threads.mjs` (dry run by
 default; `--project-ref` required; backs up every touched row first).
 
+## House chat (in-app)
+
+**Captain, Oct 20:** every house in a workspace gets ONE group chat with everyone in it, and a resident who moves
+out is moved to Archived automatically. This is the in-app chat; the SMS group MMS house group (one-number.md § W10)
+is separate, off by default, and untouched.
+
+- **One chat per house per workspace**, shown as "House · <house name or address>", for any house with at least
+  one current long-term resident. Stored once: `thread_type: "house"`, id
+  `house-thread:<owner>:ws:<workspace>:prop:<propertyId>` (`src/lib/house-thread-id.ts`), conversation key
+  `house:<propertyId>`. It is created ONLY through `createKeyedThreadRow` -> `resolve_or_create_conversation`
+  (`ensureHouseThread`), so two simultaneous creators make one row. No migration: the key column and unique index
+  already carry any key.
+- **Members are read from occupancy, never from the stored roster.** Residents = the house's current long-term stays
+  from the Bookings occupancy snapshot (`houseResidentsFromStays` over the same stays W10's `candidatesFromStays`
+  reads; both share `house-groups/stay-members.ts`): covers today, open-ended or 30+ days, resident with an email.
+  In-app needs no SMS consent, no verified phone and has no nine-member cap. Team = the owner, plus an accepted member
+  of THAT workspace who also holds Communication on THAT house (`teamScopeAllowsHouseThread`; a Viewer reads, never
+  posts; in a PropLane-managed workspace the staff are those same memberships).
+- **One gate, re-derived on every read and write:** `assertHouseThreadAccess` (`house-chat/access.server.ts`) parses
+  the id, checks the house belongs to the workspace, then team scope, then a fresh occupancy read for the session's
+  own login email. A moved-out resident, a short-stay guest or a stranger gets 403 the moment the stay ends, not at
+  the next sweep. A failed occupancy read refuses. The stored roster (`row_data.houseChat.residents`) only narrows
+  which chats a resident's list checks and who gets a "Welcome" line.
+- **Authorize then append.** `send-inbox-message` sends a house-thread id to `handleHouseChatPost` before any
+  person-send path: membership check (edit level, fresh), then `appendHouseLine` (CAS on `updated_at`, idempotent on
+  the message id). Text only (files answer 400), 4000 characters. Nothing is texted or emailed onward; unread and the
+  list row are the notification for the web channel. The stored message id is a digest (`houseReplyMessageId`) so no
+  account id reaches a housemate.
+- **Privacy by allowlist.** `houseThreadRowForViewer` is the only projection: a resident is named "First · Room" at
+  post time, a teammate by account name, a house line "PropLane". No email, phone, user id, amount or the roster ever
+  reaches another viewer. Tests: `tests/unit/house-chat-model.test.ts`, `house-chat-access.test.ts`.
+- **Mailbox state is the viewer's own** (`houseChat.viewerState[userId]`): archive, restore, delete (= archive) and
+  read never touch another member's view; a new line pulls the chat out of Archived for everyone. The inbox POST
+  strips house ids from every batch (`applyHouseMailboxState`) before the person-conversation paths see them, and the
+  GET lists house chats separately (`houseRowsForTeamViewer` for the active workspace, `houseRowsForResident` for a
+  resident) so they never go through `conversationVisible` or the client's person collapse. The list puts the
+  Assistant first, then Team, then house chats.
+- **Sync** (`house-chat/sync.server.ts`): `syncHouseChat` recomputes a house's residents from the snapshot, saves the
+  roster, posts ONE "Welcome <first name>" line for the joiners of a run ("Welcome Maya and Noah"), and drops leavers
+  silently. Runs on lease signing (`portal-lease-pipeline` save and `mark-signed`), on an early move-out
+  (`amend-lease` decrease), and daily in `/api/cron/house-group-sync` (independent of the SMS flags, after the SMS
+  step).
+- **Move-out archives the one-on-one conversations.** `planMoveOutArchives` (pure) lists residents whose latest
+  long-term stay in the workspace ended in the last 90 days and who have NO stay that is current, open-ended or
+  upcoming anywhere in the workspace. `archiveMovedOutConversations` finds their conversations by key (manager side
+  `acct:<uid>` / `mail:<email>`, resident side `ws:<workspace>`; never the Assistant, Team or a house chat) and archives
+  them with the existing `change_portal_inbox_thread_folders` function (Archived is the `trash` folder; no second
+  flag). It stamps `autoArchivedEndedOn` so a conversation the manager restores is not archived again for the same
+  move-out, only for a later one. If the resident messages again, the existing rule reopens it:
+  `deliverPortalMessageThreadSide`'s `reopens` (an archived conversation returns to Active on an inbound turn, never
+  on an outbound one; `tests/unit/one-conversation-per-person.test.ts`). Text-message (SMS projection) conversations
+  are not archived by this step.
+- **Account deletion.** No new table. A deleted resident's lines stay in the house thread under "First · Room" (it is
+  the house's record); the roster email is rewritten from the snapshot by the next sync.
+- Coverage: `tests/unit/house-chat-model.test.ts`, `house-chat-sync.test.ts`, `house-chat-access.test.ts`.
+
 ## One PropLane Assistant per person per workspace
 
 - The chat is `agent_notice_<uid>` for the user's REAL default workspace and
