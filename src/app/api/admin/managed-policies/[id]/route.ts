@@ -5,14 +5,15 @@ import {
   attestPolicy,
   endPolicy,
   loadPolicy,
-  sendPolicyForSignature,
   updateDraftPolicy,
 } from "@/lib/owner-management/policies.server";
 import { parseTermsBody, policyErrorResponse, presentPolicy } from "@/lib/owner-management/policies-api.server";
 
 export const runtime = "nodejs";
 
-/** PATCH { action: "update" | "send" | "attest" | "end", ... }. Admin only; the workspace comes from the stored row. */
+/** PATCH { action: "update" | "attest" | "end", ... }. Admin only; the workspace comes from the stored row. Nothing is ever
+ * sent for signature: a fee policy is PropLane's own rate, recorded by an admin or activated automatically for a service
+ * workspace (docs/agents/owner-management.md). */
 export async function PATCH(req: Request, context: { params: Promise<{ id: string }> }) {
   const admin = await requirePlatformAdmin();
   if ("status" in admin) return NextResponse.json({ error: admin.status === 401 ? "Unauthorized." : "Forbidden." }, { status: admin.status });
@@ -26,10 +27,6 @@ export async function PATCH(req: Request, context: { params: Promise<{ id: strin
   }
   const db = createSupabaseServiceRoleClient();
   try {
-    if (body.action === "send") {
-      const result = await sendPolicyForSignature(db, actor, id);
-      return NextResponse.json({ policy: presentPolicy(result.policy), emailed: result.emailed, texted: result.texted });
-    }
     if (body.action === "attest") {
       return NextResponse.json({ policy: presentPolicy(await attestPolicy(db, actor, id, String(body.note ?? ""))) });
     }

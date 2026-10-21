@@ -21,15 +21,40 @@ const comp = (id: string, kind: string, principal: number, over: Partial<Managed
 });
 
 type Call = Record<string, unknown>;
-function db(opts: { totals?: Array<{ cum_base: number; monthly_fee: number }>; results?: Array<Call>; prior?: string[] } = {}) {
+type PriorAllocation = { email?: string; leasingCents?: number; feeCents?: number; policyId?: string };
+
+function db(opts: {
+  totals?: Array<{ cum_base: number; monthly_fee: number }>;
+  results?: Array<Call>;
+  prior?: Array<string | PriorAllocation>;
+  /** Other fee versions of the same workspace, and the monthly fee each already took this month. */
+  otherVersions?: Array<{ id: string; monthlyFee: number }>;
+  policyId?: string;
+} = {}) {
+  const self = opts.policyId ?? "pol-1";
   const totals = [...(opts.totals ?? [{ cum_base: 0, monthly_fee: 0 }])];
   const results = [...(opts.results ?? [{ status: "created", journal_id: "j1" }])];
+  const others = new Map((opts.otherVersions ?? []).map((v) => [v.id, v.monthlyFee] as const));
   const calls: Call[] = [];
   const f = fakeOwnerDb(
-    { managed_rent_allocations: (opts.prior ?? []).map((email) => ({ policy_id: "pol-1", resident_email: email, leasing_cents: 100 })) },
+    {
+      managed_workspace_fee_policies: [self, ...others.keys()].map((id) => ({ id, workspace_id: "ws-1" })),
+      managed_rent_allocations: (opts.prior ?? []).map((raw) => {
+        const a: PriorAllocation = typeof raw === "string" ? { email: raw } : raw;
+        return {
+          policy_id: a.policyId ?? "pol-1", workspace_id: "ws-1", month_key: "2026-10", fee_applies: true,
+          resident_email: a.email ?? "r@x.test", leasing_cents: a.leasingCents ?? 100,
+          fee_cents: a.feeCents ?? 0, refunded_fee_cents: 0,
+        };
+      }),
+    },
     {
       rpc: {
-        managed_month_totals: () => [totals.length > 1 ? totals.shift() : totals[0]],
+        managed_month_totals: (args) => {
+          const id = String(args.p_policy);
+          if (others.has(id)) return [{ cum_base: 0, monthly_fee: others.get(id)! }];
+          return [totals.length > 1 ? totals.shift() : totals[0]];
+        },
         credit_managed_capture: (args) => { calls.push(args); return results.length > 1 ? results.shift() : results[0]; },
       },
     },
@@ -111,6 +136,87 @@ describe("creditManagedCapture", () => {
     await creditManagedCapture(again.f.db, stripe, { policy: p, paymentIntentId: "pi_10", stripeChargeId: "ch_10", grossCents: 100_000, components: [comp("a", "first_month_rent", 100_000)] });
     expect((again.calls[0]!.p_rows as Array<Record<string, number>>)[0]!.leasing_cents).toBe(0);
   });
+  // Review fix, Oct 20: the month's accounting is per policy VERSION, which is what keeps a rate change off rent
+  // already collected - but the leasing fee and the monthly minimum are the WORKSPACE's, so an admin changing the
+  // rate mid-month must not charge either of them a second time under the new version.
+  it("a rate change does not let the same resident be charged a second leasing fee", async () => {
+    const p = { ...policy({ leasingFeeBps: 5000 }), id: "pol-2" };
+    const { f, calls } = db({ prior: [{ email: "r@x.test", policyId: "pol-1", leasingCents: 25_000 }] });
+    await creditManagedCapture(f.db, stripe, { policy: p, paymentIntentId: "pi_11", stripeChargeId: "ch_11", grossCents: 100_000, components: [comp("a", "first_month_rent", 100_000)] });
+    expect((calls[0]!.p_rows as Array<Record<string, number>>)[0]!.leasing_cents).toBe(0);
+  });
+
+  it("a rate change does not charge the monthly minimum a second time", async () => {
+    const p = { ...policy({ minFeeCents: 50_000 }), id: "pol-2" };
+    // The version this one replaced already took $500 of minimum this month, on its own cumulative base. It is
+    // summed through `managed_month_totals`, the same SQL aggregate the current version's own total comes from.
+    const { f, calls } = db({ policyId: "pol-2", otherVersions: [{ id: "pol-1", monthlyFee: 50_000 }] });
+    await creditManagedCapture(f.db, stripe, { policy: p, paymentIntentId: "pi_12", stripeChargeId: "ch_12", grossCents: 100_000, components: [comp("a", "rent", 100_000)] });
+    // 10% of this version's own base, not the $500 floor all over again.
+    expect((calls[0]!.p_rows as Array<Record<string, number>>)[0]!.fee_cents).toBe(10_000);
+
+    // With nothing taken earlier this month the floor still applies in full.
+    const fresh = db({ policyId: "pol-2" });
+    await creditManagedCapture(fresh.f.db, stripe, { policy: p, paymentIntentId: "pi_13", stripeChargeId: "ch_13", grossCents: 100_000, components: [comp("a", "rent", 100_000)] });
+    expect((fresh.calls[0]!.p_rows as Array<Record<string, number>>)[0]!.fee_cents).toBe(50_000);
+    // Review fix (L3): the figure is handed to the function too. It bounds the floor the same way there, and two
+    // captures settling under two versions at once each lock their own policy row - so the function re-sums this
+    // under a per-workspace lock and answers `conflict` when it moved, rather than letting both charge the floor.
+    expect(calls[0]!.p_prior_fee).toBe(50_000);
+    expect(fresh.calls[0]!.p_prior_fee).toBe(0);
+  });
+
+  // Review fix (L3): a `conflict` on that figure is retried, not refused - the money still has to land.
+  it("re-reads the other versions' month total on a conflict and retries", async () => {
+    const p = { ...policy({ minFeeCents: 50_000 }), id: "pol-2" };
+    const { f, calls } = db({
+      policyId: "pol-2",
+      otherVersions: [{ id: "pol-1", monthlyFee: 50_000 }],
+      results: [{ status: "conflict", prior_fee: 50_000 }, { status: "created", journal_id: "j2" }],
+    });
+    const out = await creditManagedCapture(f.db, stripe, { policy: p, paymentIntentId: "pi_14", stripeChargeId: "ch_14", grossCents: 100_000, components: [comp("a", "rent", 100_000)] });
+    expect(out.journalId).toBe("j2");
+    expect(calls.map((c) => c.p_prior_fee)).toEqual([50_000, 50_000]);
+    // Counted again inside the retry: the other version may have taken more between the two attempts.
+    expect(f.rpcCalls.filter((c) => c.name === "managed_month_totals" && c.args.p_policy === "pol-1")).toHaveLength(2);
+  });
+
+  // The dated resolver returns the ENDED version for a payment taken before a rate change / End; it must settle.
+  describe("an ended version", () => {
+    const ended = (): PolicyRow => ({ ...policy(), status: "ended", endsOn: "2026-10-19", endedAt: "2026-10-19T20:00:00.000Z", endedByRole: "system" });
+    const input = (paidAt: string) => ({ policy: ended(), paymentIntentId: "pi_e", stripeChargeId: "ch_e", grossCents: 100_000, components: [comp("c1", "rent", 100_000, { paidAt })] });
+
+    it("settles a capture dated inside its window and reaches the database with that policy id", async () => {
+      const { f, calls } = db();
+      const out = await creditManagedCapture(f.db, stripe, input("2026-10-18T17:00:00.000Z"));
+      expect(out).toEqual({ status: "created", journalId: "j1" });
+      expect(calls[0]).toMatchObject({ p_policy: "pol-1" });
+    });
+    it("refuses a capture dated on or after the day it ended, and one before it started", async () => {
+      const { f, calls } = db();
+      await expect(creditManagedCapture(f.db, stripe, input("2026-10-20T17:00:00.000Z"))).rejects.toMatchObject({ status: 409 });
+      await expect(creditManagedCapture(f.db, stripe, input("2025-12-31T17:00:00.000Z"))).rejects.toMatchObject({ status: 409 });
+      expect(calls).toHaveLength(0);
+    });
+    it("refuses when ANY component falls outside the window, and an ended version with no end date at all", async () => {
+      const { f } = db();
+      const mixed = { ...input("2026-10-18T17:00:00.000Z"), components: [comp("c1", "rent", 50_000, { paidAt: "2026-10-18T17:00:00.000Z" }), comp("c2", "rent", 50_000, { paidAt: "2026-10-21T17:00:00.000Z" })] };
+      await expect(creditManagedCapture(f.db, stripe, mixed)).rejects.toMatchObject({ status: 409 });
+      const open = { ...input("2026-10-18T17:00:00.000Z"), policy: { ...ended(), endsOn: null, endedAt: null } };
+      await expect(creditManagedCapture(f.db, stripe, open)).rejects.toMatchObject({ status: 409 });
+    });
+    it("still refuses an unsigned one", async () => {
+      const { f } = db();
+      await expect(creditManagedCapture(f.db, stripe, { ...input("2026-10-18T17:00:00.000Z"), policy: { ...ended(), signedAt: null } })).rejects.toMatchObject({ status: 409 });
+    });
+  });
+
+  it("an active policy is open-ended whatever day the charge was paid", async () => {
+    const { f, calls } = db();
+    await creditManagedCapture(f.db, stripe, { policy: policy(), paymentIntentId: "pi_a", stripeChargeId: "ch_a", grossCents: 100_000, components: [comp("c1", "rent", 100_000, { paidAt: "2030-01-01T17:00:00.000Z" })] });
+    expect(calls).toHaveLength(1);
+  });
+
   it("refuses a policy that is not accepted, and a charge that differs from the PaymentIntent", async () => {
     const { f } = db();
     await expect(creditManagedCapture(f.db, stripe, { policy: { ...policy(), status: "draft", signedAt: null }, paymentIntentId: "pi", stripeChargeId: "ch", grossCents: 100, components: [comp("c1", "rent", 100)] }))

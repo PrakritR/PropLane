@@ -27,8 +27,10 @@ export const GET_STARTED_HREF = "/auth/create-account";
 
 /**
  * Manager signup with the role already decided. Only for surfaces where the
- * visitor HAS declared it — the pricing plan CTAs, which also carry a tier.
- * Do not use this for a plain "Get started" button.
+ * visitor HAS declared it — the pricing plan CTAs, which also carry a tier, and
+ * the homepage "Join free" Manager row.
+ * Do not use this for a plain "Get started" button (that is GET_STARTED_HREF,
+ * which the public top bar uses).
  */
 export const MANAGER_GET_STARTED_HREF =
   "/auth/create-account?mode=create&role=manager";

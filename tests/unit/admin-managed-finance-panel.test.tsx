@@ -105,22 +105,21 @@ describe("AdminManagedFinancePanel", () => {
     expect(post.body).toMatchObject({ ownerUserId: "u9", ownerShareBps: 8500, appliesTo: "rent", leasingFeeBps: 0, minFeeCents: 0 });
   });
 
-  it("sends a draft for signature and needs a real note to record a signed contract", async () => {
+  // Review fix, Oct 20: a draft is never sent anywhere. It is recorded by an admin, with a real note, or activated
+  // automatically for a service workspace.
+  it("offers no Send for signature, and needs a real note to record a signed contract", async () => {
     install();
     render(<AdminManagedFinancePanel />);
-    await pick("Cedar Place", "Send for signature");
-    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
-    expect(calls.find((c) => c.method === "PATCH")).toMatchObject({ url: "/api/admin/managed-policies/pol-3", body: { action: "send" } });
-
     await pick("Cedar Place", "Record signed contract");
+    expect(screen.queryByRole("menuitem", { name: "Send for signature" })).toBeNull();
     fireEvent.change(await screen.findByRole("textbox"), { target: { value: "short" } });
     fireEvent.click(screen.getByRole("button", { name: "Record" }));
     expect(await screen.findByText("Write at least 8 characters.")).toBeTruthy();
-    expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1);
+    expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(0);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "Signed paper copy on file" } });
     fireEvent.click(screen.getByRole("button", { name: "Record" }));
-    await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(2));
-    expect(calls.filter((c) => c.method === "PATCH")[1]).toMatchObject({ body: { action: "attest", note: "Signed paper copy on file" } });
+    await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1));
+    expect(calls.filter((c) => c.method === "PATCH")[0]).toMatchObject({ body: { action: "attest", note: "Signed paper copy on file" } });
   });
 
   it("warns that rent will no longer be held before ending a policy", async () => {
@@ -136,6 +135,7 @@ describe("AdminManagedFinancePanel", () => {
   it("names each policy state with a glyph and a few words", () => {
     expect(managedStateFact(null).label).toBe("Not managed");
     expect(managedStateFact({ ...POLICY, status: "ended" } as never).label).toBe("Ended");
-    expect(managedStateFact({ ...POLICY, status: "draft", sentAt: "x" } as never).label).toBe("Sent for signature");
+    // Nothing is sent for signature any more: a legacy row that still carries a sent stamp is just a draft.
+    expect(managedStateFact({ ...POLICY, status: "draft", sentAt: "x" } as never).label).toBe("Draft");
   });
 });

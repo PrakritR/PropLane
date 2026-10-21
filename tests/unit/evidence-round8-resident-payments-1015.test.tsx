@@ -15,7 +15,7 @@
  *
  * Mock harness copied from `resident-payments-dashboard-shortcut.test.tsx`.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 import type { HouseholdCharge } from "@/lib/household-charges";
@@ -141,6 +141,19 @@ vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
 
 import { ResidentPaymentsPanel } from "@/components/portal/resident-payments-panel";
 import { resetResidentLedgerCache } from "@/lib/resident-ledger-client";
+
+/**
+ * Which tab a charge sits in is read against today, so the clock is pinned to the
+ * round-8 landing date: the Oct 20 charge is still Upcoming, the Oct 7 one is Due.
+ * Only `Date` is faked so `waitFor` keeps running on real timers.
+ */
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-15T19:00:00.000Z")); // noon Pacific
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 afterEach(() => {
   cleanup();

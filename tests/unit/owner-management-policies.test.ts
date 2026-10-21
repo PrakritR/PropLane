@@ -14,16 +14,17 @@ import {
   createDraftPolicy,
   endPolicy,
   ensureServiceFeePolicy,
+  HAND_AUTHORED_DRAFT_MESSAGE,
   setServiceManagementFee,
   listManagedWorkspacesForOwner,
   loadActivePolicyForWorkspace,
   loadPolicy,
-  sendPolicyForSignature,
+  policyEndBoundary,
+  readServiceManagementFee,
   setOwnerPreferences,
-  policyTermsHash,
-  signPolicy,
   updateDraftPolicy,
 } from "@/lib/owner-management/policies.server";
+import { flagManagedFeeProblem } from "@/lib/owner-management/fee-flags.server";
 import type { ManagedFeeTerms } from "@/lib/owner-management/fee-math";
 
 const WS = "ws-1";
@@ -32,6 +33,10 @@ const OWNER = "own-1";
 const admin = { role: "admin" as const, userId: "admin-1" };
 const terms: ManagedFeeTerms = { ownerShareBps: 9000, appliesTo: "rent", leasingFeeBps: 0, minFeeCents: 0, reserveTargetCents: 0, repairApprovalThresholdCents: 25_000 };
 const input = { workspaceId: WS, ownerUserId: OWNER, terms, effectiveFrom: "2020-01-01" };
+
+/** The database's own clock, as `activate_managed_policy` sees it. A test that cares sets it before acting. */
+let dbClockIso = "2026-10-19T00:00:00Z";
+const dbNow = () => new Date(dbClockIso);
 
 /** The `not null default` values migration 20261018270000 gives the two v3 columns. */
 const POLICY_COLUMN_DEFAULTS = { reserve_target_cents: 0, repair_approval_threshold_cents: 25_000 };
@@ -50,6 +55,15 @@ function activateRpc(args: Record<string, unknown>, f: OwnerFakeDb) {
   if (row.status === "active") return { status: "exists" };
   if (row.status !== "draft") return { status: "refused", reason: "not_draft" };
   if (args.p_via === "owner_signature" && !row.sent_at) return { status: "refused", reason: "not_sent" };
+  // Migration 20261020200000: the automatic fee only fills a GAP. A SYSTEM activation re-checks, under the row lock,
+  // that nothing is in force - the caller's own "no policy" read is older than this transaction - and refuses rather
+  // than ending a version an admin committed in between. Ending one stays an admin's own power.
+  if (
+    args.p_actor_role === "system" &&
+    rows.some((r) => r.workspace_id === row.workspace_id && r.status === "active" && r.signed_at && r.id !== row.id)
+  ) {
+    return { status: "refused", reason: "already_active" };
+  }
   const snapshot = (args.p_snapshot ?? {}) as Record<string, unknown>;
   const same =
     String(snapshot.workspaceId) === String(row.workspace_id) &&
@@ -74,8 +88,16 @@ function activateRpc(args: Record<string, unknown>, f: OwnerFakeDb) {
       return { status: "refused", reason: "terms_changed" };
     }
   }
-  for (const other of rows) if (other.workspace_id === row.workspace_id && other.status === "active") other.status = "ended";
-  Object.assign(row, { status: "active", signed_at: "2026-10-19T00:00:00Z", accepted_via: args.p_via, terms_sha256: args.p_hash, terms_snapshot: args.p_snapshot });
+  // `ends_on = greatest(current_date, effective_from), ended_at = now()` in SQL - and `current_date` is the
+  // DATABASE's UTC date, which after 17:00 Pacific is already tomorrow. Modelled exactly, because that skew is the
+  // reason `policyEndBoundary` reads the window's end off `ended_at` instead of trusting `ends_on`.
+  const utcDay = dbNow().toISOString().slice(0, 10);
+  for (const other of rows) {
+    if (other.workspace_id !== row.workspace_id || other.status !== "active") continue;
+    const endsOn = utcDay > String(other.effective_from) ? utcDay : other.effective_from;
+    Object.assign(other, { status: "ended", ends_on: endsOn, ended_at: dbNow().toISOString(), ended_by_role: "system" });
+  }
+  Object.assign(row, { status: "active", signed_at: dbNow().toISOString(), accepted_via: args.p_via, terms_sha256: args.p_hash, terms_snapshot: args.p_snapshot, attestation_note: args.p_note });
   return { status: "active" };
 }
 
@@ -96,6 +118,7 @@ function seed(extra: Record<string, FakeRow[]> = {}, rpc: Record<string, (args: 
 beforeEach(() => {
   email.mockClear();
   text.mockClear();
+  dbClockIso = "2026-10-19T00:00:00Z";
 });
 
 describe("drafting", () => {
@@ -118,13 +141,13 @@ describe("drafting", () => {
     await createDraftPolicy(f.db, admin, input);
     await expect(createDraftPolicy(f.db, admin, input)).rejects.toMatchObject({ status: 409 });
   });
-  it("editing a draft clears the send so the owner never signs terms they were not shown", async () => {
+  it("editing a draft rewrites its terms and clears any legacy sent stamp", async () => {
     const f = seed();
     const d = await createDraftPolicy(f.db, admin, input);
-    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
+    f.rows.managed_workspace_fee_policies![0]!.sent_at = "2026-10-18T20:00:00Z";
     const edited = await updateDraftPolicy(f.db, admin, d.id, { terms: { ...terms, ownerShareBps: 8500 } });
     expect(edited.sentAt).toBeNull();
-    await expect(signPolicy(f.db, OWNER, d.id, policyTermsHash(edited))).rejects.toMatchObject({ status: 409 });
+    expect(edited.terms.ownerShareBps).toBe(8500);
   });
 });
 
@@ -169,11 +192,30 @@ describe("the automatic management fee", () => {
 
   it("a service-owner-owned workspace uses its flagged owner-of-record member, and says no_owner without one", async () => {
     const none = seed();
-    expect((await ensureServiceFeePolicy(none.db, WS)).status).toBe("no_owner");
+    expect(await ensureServiceFeePolicy(none.db, WS)).toEqual({ status: "unavailable", reason: "no_owner" });
     expect(none.rows.managed_workspace_fee_policies).toHaveLength(0);
     const f = seed({ account_link_invites: [{ id: "i1", workspace_id: WS, invitee_user_id: OWNER, status: "accepted", is_owner_of_record: true }] });
     const r = await ensureServiceFeePolicy(f.db, WS);
     expect(r).toMatchObject({ status: "created", policy: { ownerUserId: OWNER } });
+  });
+
+  // Review fix, Oct 20: with no `platform_service_settings` row there is no way to tell a client-owned workspace
+  // from PropLane's own, and naming PropLane as owner of record would pay PropLane its own owner share.
+  it("fails closed when the platform service owner is not configured, rather than naming the workspace owner", async () => {
+    const f = clientOwned({ platform_service_settings: [] });
+    expect(await ensureServiceFeePolicy(f.db, WS)).toEqual({ status: "unavailable", reason: "no_owner" });
+    expect(f.rows.managed_workspace_fee_policies).toHaveLength(0);
+  });
+
+  it("an unreadable settings or membership read is `owner_unreadable`, never `no_owner`", async () => {
+    const f = clientOwned();
+    const broken = fakeOwnerDb(
+      { portal_workspaces: [{ id: WS, owner_user_id: CLIENT, name: "1. Ambika", is_service: true }], managed_workspace_fee_policies: [] },
+      { broken: ["platform_service_settings"], rpc: { activate_managed_policy: activateRpc } },
+    );
+    // A table that is simply not there yet reads as "no row" (no_owner); a real read failure is its own reason.
+    expect((await ensureServiceFeePolicy(broken.db, WS)).status).toBe("unavailable");
+    void f;
   });
 
   it("skips a workspace that is not a service workspace, and never throws on an unreadable one", async () => {
@@ -186,71 +228,314 @@ describe("the automatic management fee", () => {
     expect((await ensureServiceFeePolicy(broken, WS)).status).toBe("unavailable");
   });
 
-  it("replaces a stale unsent draft rather than leaving it signable", async () => {
-    const f = clientOwned({ managed_workspace_fee_policies: [{ id: "old", workspace_id: WS, owner_user_id: CLIENT, status: "draft", owner_share_bps: 8000, applies_to: "rent", leasing_fee_bps: 0, min_fee_cents: 0, reserve_target_cents: 0, repair_approval_threshold_cents: 25_000, effective_from: "2026-01-01", sent_at: "2026-01-02T00:00:00Z" }] });
+  // Review fix, Oct 20: rent must flow. An admin's open draft is a human still deciding, not a reason a resident
+  // cannot pay: the default is activated beside it and the draft is left exactly where it is.
+  it("activates the default beside an admin's draft rather than holding rent up, and leaves the draft alone", async () => {
+    const draft = { id: "old", workspace_id: WS, owner_user_id: CLIENT, status: "draft", owner_share_bps: 8000, applies_to: "rent", leasing_fee_bps: 5000, min_fee_cents: 20_000, reserve_target_cents: 0, repair_approval_threshold_cents: 25_000, effective_from: "2026-01-01", created_at: "2026-01-01" };
+    const f = clientOwned({ managed_workspace_fee_policies: [draft] });
     expect((await ensureServiceFeePolicy(f.db, WS)).status).toBe("created");
-    expect((await loadPolicy(f.db, "old"))?.status).toBe("ended");
+    expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(9000);
+    expect(await loadPolicy(f.db, "old")).toMatchObject({ status: "draft", terms: { ownerShareBps: 8000, leasingFeeBps: 5000, minFeeCents: 20_000 } });
+    expect(f.rows.owner_ledger_flags ?? []).toHaveLength(0);
+    // Recording the admin's draft later ends the default through the ordinary activation path.
+    await attestPolicy(f.db, admin, "old", "Signed PDF in the owners drive");
+    expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(8000);
+    expect(f.rows.managed_workspace_fee_policies!.filter((r) => r.status === "active")).toHaveLength(1);
+  });
+
+  it("creates the 10% default when the workspace has no policy in force", async () => {
+    const f = clientOwned();
+    expect((await ensureServiceFeePolicy(f.db, WS)).status).toBe("created");
     expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(9000);
   });
 
-  it("the admin fee change versions the policy: new rate active, the old one ended, one active at a time", async () => {
+  // Every failure reaches an operator in Admin > Finances > Flags, with the cause - never only a console line.
+  it("raises the attention item with the cause on every failure, not just a log line", async () => {
+    const none = seed();
+    expect(await ensureServiceFeePolicy(none.db, WS)).toEqual({ status: "unavailable", reason: "no_owner" });
+    expect((none.rows.owner_ledger_flags ?? [])[0]).toMatchObject({ check_name: "fee_agreement_unsigned", subject: WS });
+    expect(((none.rows.owner_ledger_flags ?? [])[0]!.detail as { cause: string }).cause).toBe("no_owner");
+
+    // An unreadable membership read is its own cause: an operator is never told to name an owner for a blinked read.
+    const unreadable = fakeOwnerDb(
+      {
+        portal_workspaces: [{ id: WS, owner_user_id: PL, name: "PropLane Seattle", is_service: true }],
+        platform_service_settings: [{ singleton: true, owner_user_id: PL }],
+        managed_workspace_fee_policies: [],
+      },
+      { broken: ["account_link_invites"], rpc: { activate_managed_policy: activateRpc } },
+    );
+    expect(await ensureServiceFeePolicy(unreadable.db, WS)).toEqual({ status: "unavailable", reason: "owner_unreadable" });
+    const flag = (unreadable.rows.owner_ledger_flags ?? [])[0];
+    expect(flag).toMatchObject({ check_name: "fee_agreement_unsigned", subject: WS });
+    expect((flag!.detail as { cause: string; message: string }).cause).toBe("owner_unreadable");
+    expect((flag!.detail as { message: string }).message).not.toContain("name its owner of record");
+  });
+
+  // Review fix, Oct 20: the day's attention item is UPDATED, so the last writer's context lands on it instead of
+  // being dropped as a duplicate - `fee_unavailable` from the ensure call, then where the refusal was actually felt.
+  it("keeps one attention item a day and lets the money path name where the refusal was felt", async () => {
+    const f = seed();
+    await ensureServiceFeePolicy(f.db, WS);
+    expect(f.rows.owner_ledger_flags).toHaveLength(1);
+    expect((f.rows.owner_ledger_flags![0]!.detail as { reason: string }).reason).toBe("fee_unavailable");
+    await flagManagedFeeProblem(f.db, { workspaceId: WS, workspaceName: "PropLane Seattle", cause: "no_owner", reason: "checkout_refused" });
+    expect(f.rows.owner_ledger_flags).toHaveLength(1);
+    expect((f.rows.owner_ledger_flags![0]!.detail as { reason: string }).reason).toBe("checkout_refused");
+  });
+
+  // Review fix, Oct 20: a rate change is immediate. `targetMonthlyFeeCents` prices against the month's cumulative base,
+  // and a settlement records its own split, so a new rate reaches payments settled from this moment on and no further.
+  it("an admin fee change activates a new version now and ends the previous one, one active at a time", async () => {
     const f = clientOwned();
-    const first = (await ensureServiceFeePolicy(f.db, WS)) as { policy: { id: string } };
-    const next = await setServiceManagementFee(f.db, admin, WS, 15);
-    expect(next).toMatchObject({ status: "active", ownerUserId: CLIENT, acceptedVia: "admin_attested" });
-    expect(next.terms.ownerShareBps).toBe(8500);
-    expect(next.id).not.toBe(first.policy.id);
+    const now = new Date("2026-10-20T19:00:00Z");
+    const first = (await ensureServiceFeePolicy(f.db, WS, admin, now)) as { policy: { id: string } };
+    const change = await setServiceManagementFee(f.db, admin, WS, 15, now);
+    expect(change).toMatchObject({ feePercent: 15, changed: true });
+    expect(change.policyId).not.toBe(first.policy.id);
+
+    const inForce = await loadActivePolicyForWorkspace(f.db, WS);
+    expect(inForce).toMatchObject({ id: change.policyId, status: "active", acceptedVia: "admin_attested", ownerUserId: CLIENT });
+    expect(inForce?.terms.ownerShareBps).toBe(8500);
+    expect(inForce?.effectiveFrom).toBe("2026-10-20");
     expect((await loadPolicy(f.db, first.policy.id))?.status).toBe("ended");
     expect(f.rows.managed_workspace_fee_policies!.filter((r) => r.status === "active")).toHaveLength(1);
-    // Same rate again: nothing new.
-    expect((await setServiceManagementFee(f.db, admin, WS, 15)).id).toBe(next.id);
-    // 0% and 30% are the ends of the range; 31% and nonsense are refused before anything is written.
-    expect((await setServiceManagementFee(f.db, admin, WS, 0)).terms.ownerShareBps).toBe(10_000);
-    expect((await setServiceManagementFee(f.db, admin, WS, "30")).terms.ownerShareBps).toBe(7000);
+    expect(f.rows.managed_workspace_fee_policies!.filter((r) => r.status === "draft")).toHaveLength(0);
+    expect(await readServiceManagementFee(f.db, WS)).toMatchObject({ feePercent: 15 });
+  });
+
+  // Review fix, Oct 20: a dated read used to answer "not managed" for any payment older than the version in force,
+  // and `resolveManagedForProperties` turns that into a manager hold - the owner's 90% never allocated at all. An ACH
+  // debit is days old when it settles, so a rate change would strand every payment in flight.
+  it("a payment settles on the version in force the day it was taken, not the one in force now", async () => {
+    const f = clientOwned();
+    const started = new Date("2026-10-10T19:00:00Z");
+    const first = (await ensureServiceFeePolicy(f.db, WS, admin, started)) as { policy: { id: string } };
+    const changed = new Date("2026-10-20T19:00:00Z");
+    await setServiceManagementFee(f.db, admin, WS, 15, changed);
+
+    // Today: the new rate. A payment taken before the change: the rate it was taken under, never null.
+    expect((await loadActivePolicyForWorkspace(f.db, WS, "2026-10-20"))?.terms.ownerShareBps).toBe(8500);
+    const earlier = await loadActivePolicyForWorkspace(f.db, WS, "2026-10-15");
+    expect(earlier).toMatchObject({ id: first.policy.id, status: "ended" });
+    expect(earlier?.terms.ownerShareBps).toBe(9000);
+    // Before any policy existed the workspace really was not managed.
+    expect(await loadActivePolicyForWorkspace(f.db, WS, "2026-10-01")).toBeNull();
+    // An undated read is still just the version in force now.
+    expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(8500);
+  });
+
+  // Review fix, Oct 20: `activate_managed_policy` stamps the retired row's `ends_on` from the DATABASE's UTC date,
+  // so a rate change after 17:00 Pacific left it a day LATER than the day its successor started - two versions
+  // covering the same Pacific day. The window's end is read off `ended_at` instead, which is the honest instant.
+  it("a rate change made at 18:00 Pacific leaves no day covered by two versions", async () => {
+    const f = clientOwned();
+    const started = new Date("2026-10-10T19:00:00Z");
+    const first = (await ensureServiceFeePolicy(f.db, WS, admin, started)) as { policy: { id: string } };
+
+    // 18:00 Pacific on Oct 20 is already Oct 21 in UTC.
+    const evening = new Date("2026-10-21T01:00:00Z");
+    dbClockIso = evening.toISOString();
+    const change = await setServiceManagementFee(f.db, admin, WS, 15, evening);
+    const retired = (await loadPolicy(f.db, first.policy.id))!;
+    expect(retired.endsOn).toBe("2026-10-21");
+    expect(policyEndBoundary(retired)).toBe("2026-10-20");
+    expect((await loadActivePolicyForWorkspace(f.db, WS, "2026-10-20"))?.id).toBe(change.policyId);
+
+    // Once the successor is itself ended, the retired one must not come back and claim that same day.
+    await endPolicy(f.db, admin, change.policyId, evening);
+    expect(await loadActivePolicyForWorkspace(f.db, WS, "2026-10-20")).toBeNull();
+    // The day before the change still belongs to the version that was in force then.
+    expect((await loadActivePolicyForWorkspace(f.db, WS, "2026-10-19"))?.id).toBe(first.policy.id);
+  });
+
+  // The two sides have to agree: `credit_managed_capture` refuses an ended version with no `ends_on`, so a resolver
+  // that claimed one would 409 the capture on every webhook retry and leave the money unallocated.
+  it("an ended version with no end date covers nothing; only an active one is open-ended", () => {
+    const base = { status: "ended" as const, endsOn: null, endedAt: null };
+    expect(policyEndBoundary(base)).toBeNull();
+    expect(policyEndBoundary({ ...base, endsOn: "2026-10-21" })).toBe("2026-10-21");
+    expect(policyEndBoundary({ status: "active", endsOn: null, endedAt: null })).toBeNull();
+  });
+
+  it("a workspace whose management ended still settles a payment taken while it was managed", async () => {
+    const f = clientOwned();
+    const started = new Date("2026-10-10T19:00:00Z");
+    const first = (await ensureServiceFeePolicy(f.db, WS, admin, started)) as { policy: { id: string } };
+    await endPolicy(f.db, admin, first.policy.id, new Date("2026-10-25T19:00:00Z"));
+    // An ACH taken Oct 20 and settling in November: the fee was earned while the workspace was managed.
+    const earned = await loadActivePolicyForWorkspace(f.db, WS, "2026-10-20");
+    expect(earned).toMatchObject({ id: first.policy.id, status: "ended" });
+    expect(earned?.terms.ownerShareBps).toBe(9000);
+    // From the day management ended the workspace is not managed, and there is no version in force now.
+    expect(await loadActivePolicyForWorkspace(f.db, WS, "2026-10-25")).toBeNull();
+    expect(await loadActivePolicyForWorkspace(f.db, WS)).toBeNull();
+  });
+
+  it("the same rate again changes nothing, but setting the FIRST policy is a change", async () => {
+    const f = clientOwned();
+    const now = new Date("2026-10-20T19:00:00Z");
+    // No policy yet: saving the default rate still put one in force today.
+    const firstSave = await setServiceManagementFee(f.db, admin, WS, 10, now);
+    expect(firstSave).toMatchObject({ feePercent: 10, changed: true });
+    expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(9000);
+    // Saving it again moves nothing.
+    expect(await setServiceManagementFee(f.db, admin, WS, 10, now)).toEqual({ feePercent: 10, changed: false, policyId: firstSave.policyId });
+    expect(f.rows.managed_workspace_fee_policies).toHaveLength(1);
+  });
+
+  // Review fix, Oct 20: `openDraftForWorkspace` returns ANY draft, so Admin > Service used to overwrite or end a draft
+  // hand-authored in Admin > Managed finance, silently losing its leasing fee / minimum / reserve.
+  it("refuses to touch a draft Admin > Service did not author", async () => {
+    const f = clientOwned();
+    const now = new Date("2026-10-20T19:00:00Z");
+    await ensureServiceFeePolicy(f.db, WS, admin, now);
+    const byHand = await createDraftPolicy(f.db, admin, { workspaceId: WS, ownerUserId: CLIENT, terms: { ...terms, leasingFeeBps: 5000, minFeeCents: 20_000 }, effectiveFrom: "2026-10-01" }, now);
+    await expect(setServiceManagementFee(f.db, admin, WS, 15, now)).rejects.toMatchObject({ status: 409, message: HAND_AUTHORED_DRAFT_MESSAGE });
+    const untouched = await loadPolicy(f.db, byHand.id);
+    expect(untouched).toMatchObject({ status: "draft", effectiveFrom: "2026-10-01" });
+    expect(untouched?.terms).toMatchObject({ leasingFeeBps: 5000, minFeeCents: 20_000 });
+    // The rate in force is untouched too, and the draft is still the admin's to record or end.
+    expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(9000);
+  });
+
+  it("the range is one answer: 0 and 30 are the ends, anything else is refused before a row is written", async () => {
+    const f = clientOwned();
+    const now = new Date("2026-10-20T19:00:00Z");
+    await ensureServiceFeePolicy(f.db, WS, admin, now);
+    expect(await setServiceManagementFee(f.db, admin, WS, 0, now)).toMatchObject({ feePercent: 0, changed: true });
+    expect(await setServiceManagementFee(f.db, admin, WS, "30", now)).toMatchObject({ feePercent: 30, changed: true });
+    const before = f.rows.managed_workspace_fee_policies!.length;
     for (const bad of [31, -1, "abc", 12.345, null]) {
-      await expect(setServiceManagementFee(f.db, admin, WS, bad)).rejects.toMatchObject({ status: 400 });
+      await expect(setServiceManagementFee(f.db, admin, WS, bad, now)).rejects.toMatchObject({ status: 400 });
     }
+    expect(f.rows.managed_workspace_fee_policies).toHaveLength(before);
+  });
+
+  // Review fix (L1): `ensureServiceFeePolicy` reads "nothing in force", then drafts and activates the default 10% -
+  // and the activation ended whatever was active by the time it ran. An admin recording a hand-authored version
+  // inside that window had her rate silently replaced by the automatic one, on PropLane's own revenue.
+  it("a lazy system activation refuses rather than ending a version an admin committed in the meantime", async () => {
+    const now = new Date("2026-10-20T19:00:00Z");
+    let landed = false;
+    const f = seed(
+      { portal_workspaces: [{ id: WS, owner_user_id: CLIENT, name: "1. Ambika", is_service: true }] },
+      {
+        activate_managed_policy: (args, ff) => {
+          // The admin's own version commits between the resolver's read and this call.
+          if (!landed && args.p_actor_role === "system") {
+            landed = true;
+            ff.rows.managed_workspace_fee_policies!.push({
+              id: "by-hand", workspace_id: WS, owner_user_id: CLIENT, status: "active", owner_share_bps: 8000,
+              applies_to: "rent", leasing_fee_bps: 0, min_fee_cents: 0, reserve_target_cents: 0,
+              repair_approval_threshold_cents: 25_000, effective_from: "2026-10-20", created_at: "2026-10-20",
+              signed_at: now.toISOString(), accepted_via: "admin_attested",
+            });
+          }
+          return activateRpc(args, ff);
+        },
+      },
+    );
+    // The caller is told which version won, so rent keeps flowing on the admin's 20%.
+    expect(await ensureServiceFeePolicy(f.db, WS, { role: "system" }, now)).toMatchObject({
+      status: "exists",
+      policy: { id: "by-hand", status: "active" },
+    });
+    expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(8000);
+    // Review fix (L5): the draft the refused activation left behind is DELETED, not ended. It was never signed and
+    // nothing settled on it, so an ended row would only add a version whose window `policyEndBoundary` would read.
+    expect(f.rows.managed_workspace_fee_policies!.map((r) => r.id)).toEqual(["by-hand"]);
+    // Nothing is wrong here, so no operator is paged.
+    expect(f.rows.owner_ledger_flags ?? []).toHaveLength(0);
+  });
+
+  // An admin's End in Admin > Managed finance is a decision. The lazy callers (checkout, autopay, capture, hold release)
+  // used to see "no active policy" and quietly bring the default 10% back.
+  describe("an admin who ended management", () => {
+    const now = new Date("2026-10-20T19:00:00Z");
+    async function adminEnded() {
+      const f = clientOwned();
+      const first = (await ensureServiceFeePolicy(f.db, WS, admin, now)) as { policy: { id: string } };
+      await endPolicy(f.db, admin, first.policy.id, now);
+      return { f, firstId: first.policy.id };
+    }
+    it("is not revived by the lazy fee: nothing is created and the attention item names why", async () => {
+      const { f } = await adminEnded();
+      const before = f.rows.managed_workspace_fee_policies!.length;
+      expect(await ensureServiceFeePolicy(f.db, WS, { role: "system" }, now)).toEqual({ status: "ended_by_admin" });
+      expect(f.rows.managed_workspace_fee_policies).toHaveLength(before);
+      expect(await loadActivePolicyForWorkspace(f.db, WS)).toBeNull();
+      expect(f.rows.owner_ledger_flags).toHaveLength(1);
+      expect(f.rows.owner_ledger_flags![0]!.detail).toMatchObject({ cause: "ended_by_admin" });
+    });
+    it("an admin rate change (old ended by the system, new active) is unaffected", async () => {
+      const f = clientOwned();
+      await ensureServiceFeePolicy(f.db, WS, admin, now);
+      await setServiceManagementFee(f.db, admin, WS, 15, now);
+      expect(await ensureServiceFeePolicy(f.db, WS, { role: "system" }, now)).toMatchObject({ status: "exists", policy: { status: "active" } });
+      expect(f.rows.owner_ledger_flags ?? []).toHaveLength(0);
+    });
+    it("an ended DRAFT never governed a day, so it does not stop the default", async () => {
+      const f = clientOwned();
+      const d = await createDraftPolicy(f.db, admin, { ...input, ownerUserId: CLIENT });
+      await endPolicy(f.db, admin, d.id, now);
+      expect((await ensureServiceFeePolicy(f.db, WS, { role: "system" }, now)).status).toBe("created");
+    });
+    it("setServiceManagementFee is the explicit admin action that creates a new active version", async () => {
+      const { f, firstId } = await adminEnded();
+      const r = await setServiceManagementFee(f.db, admin, WS, 12, now);
+      expect(r).toMatchObject({ feePercent: 12, changed: true });
+      const inForce = await loadActivePolicyForWorkspace(f.db, WS);
+      expect(inForce).toMatchObject({ status: "active", acceptedVia: "admin_attested" });
+      expect(inForce?.id).not.toBe(firstId);
+      expect(inForce?.terms.ownerShareBps).toBe(8800);
+      // With a version in force again the lazy fee leaves it alone.
+      expect(await ensureServiceFeePolicy(f.db, WS, { role: "system" }, now)).toMatchObject({ status: "exists" });
+    });
+  });
+
+  // Review fix (L5), on the admin rate-change path: a refused activation must not leave a row behind at all.
+  it("a refused rate change deletes its own draft instead of ending it", async () => {
+    const now = new Date("2026-10-20T19:00:00Z");
+    const inForce = {
+      id: "in-force", workspace_id: WS, owner_user_id: CLIENT, status: "active", owner_share_bps: 9000,
+      applies_to: "rent", leasing_fee_bps: 0, min_fee_cents: 0, reserve_target_cents: 0,
+      repair_approval_threshold_cents: 25_000, effective_from: "2026-10-01", created_at: "2026-10-01",
+      signed_at: "2026-10-01T00:00:00Z", accepted_via: "admin_attested",
+    };
+    const f = seed(
+      { portal_workspaces: [{ id: WS, owner_user_id: CLIENT, name: "1. Ambika", is_service: true }], managed_workspace_fee_policies: [inForce] },
+      // The new version's activation refuses: its terms moved between the load and the call.
+      { activate_managed_policy: () => ({ status: "refused", reason: "terms_changed" }) },
+    );
+    await expect(setServiceManagementFee(f.db, admin, WS, 15, now)).rejects.toMatchObject({ status: 409 });
+    // One row left: the version that was in force all along. No ended, unsigned stub beside it.
+    expect(f.rows.managed_workspace_fee_policies!.map((r) => [r.id, r.status])).toEqual([["in-force", "active"]]);
+    expect((await loadActivePolicyForWorkspace(f.db, WS))?.terms.ownerShareBps).toBe(9000);
   });
 });
 
-describe("sending and signing", () => {
-  async function sent() {
+describe("activating a draft (nothing is ever signed)", () => {
+  // Review fix, Oct 20: the fee agreement signature is gone from the product. A fee policy is PropLane's own rate,
+  // recorded by an admin or created automatically for a service workspace. The activation guard below is the same
+  // one the signature used to run through, so it is exercised on the path that survives.
+  it("an admin records a draft and the workspace becomes managed", async () => {
     const f = seed();
     const d = await createDraftPolicy(f.db, admin, input);
-    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
-    return { f, id: d.id, hash: policyTermsHash(d) };
-  }
-  it("emails and texts the owner a sign-in link", async () => {
-    const f = seed();
-    const d = await createDraftPolicy(f.db, admin, input);
-    const r = await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
-    expect(r.emailed).toBe(true);
-    expect(r.texted).toBe(true);
-    expect(JSON.stringify(text.mock.calls[0])).toContain("/auth/sign-in?next=");
-    expect((text.mock.calls[0] as unknown[])[1]).toMatchObject({ role: "manager", basis: { kind: "manager_notice", topic: "fee_policy" } });
-  });
-  it("does not resend inside the hour", async () => {
-    const f = seed();
-    const d = await createDraftPolicy(f.db, admin, input);
-    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
-    await expect(sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:30:00Z"))).rejects.toMatchObject({ status: 429 });
-  });
-  it("only the named owner can sign, and it makes the workspace managed", async () => {
-    const { f, id, hash } = await sent();
-    await expect(signPolicy(f.db, "intruder", id, hash)).rejects.toMatchObject({ status: 404 });
     expect(await loadActivePolicyForWorkspace(f.db, WS)).toBeNull();
-    const signed = await signPolicy(f.db, OWNER, id, hash);
-    expect(signed).toMatchObject({ status: "active", acceptedVia: "owner_signature" });
-    expect(signed.termsSha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(await loadActivePolicyForWorkspace(f.db, WS)).toMatchObject({ id });
+    const row = await attestPolicy(f.db, admin, d.id, "Signed PDF in the owners drive");
+    expect(row).toMatchObject({ status: "active", acceptedVia: "admin_attested" });
+    expect(row.termsSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(await loadActivePolicyForWorkspace(f.db, WS)).toMatchObject({ id: d.id });
+    expect(email).not.toHaveBeenCalled();
+    expect(text).not.toHaveBeenCalled();
   });
-  // Review fix, Oct 20. `signPolicy` compares the presented hash against the row it loads, then calls the function.
-  // The window between the two was unguarded, so an admin edit landing inside it activated a fee the owner never
-  // saw - with a stored snapshot that said otherwise, and billing reading the live columns.
-  it("an admin edit landing between the owner's load and the activate refuses, and nothing is activated", async () => {
+
+  // Review fix, Oct 20. `attestPolicy` compares the row it loads, then calls the function. The window between the
+  // two was unguarded, so an edit landing inside it activated terms the admin never read.
+  it("an edit landing between the load and the activate refuses, and nothing is activated", async () => {
     let edited = false;
     const f = seed({}, {
-      // The edit lands in the window: after signPolicy read the row, before the function runs.
       activate_managed_policy: (args, ff) => {
         if (!edited) {
           edited = true;
@@ -261,57 +546,35 @@ describe("sending and signing", () => {
       },
     });
     const d = await createDraftPolicy(f.db, admin, input);
-    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
-    await expect(signPolicy(f.db, OWNER, d.id, policyTermsHash(d))).rejects.toMatchObject({ status: 409 });
+    await expect(attestPolicy(f.db, admin, d.id, "Signed PDF in the owners drive")).rejects.toMatchObject({ status: 409 });
     expect(await loadActivePolicyForWorkspace(f.db, WS)).toBeNull();
     expect(f.rows.managed_workspace_fee_policies![0]!.status).toBe("draft");
     expect(f.rows.managed_workspace_fee_policies![0]!.signed_at ?? null).toBeNull();
-    // Reloading shows her the new terms, and signing THOSE works.
-    const fresh = await loadPolicy(f.db, d.id);
-    const signed = await signPolicy(f.db, OWNER, d.id, policyTermsHash(fresh!));
-    expect(signed).toMatchObject({ status: "active" });
-    expect(signed.terms.ownerShareBps).toBe(5_000);
+    // Reloading shows the new terms, and recording THOSE works.
+    const row = await attestPolicy(f.db, admin, d.id, "Signed PDF in the owners drive");
+    expect(row).toMatchObject({ status: "active" });
+    expect(row.terms.ownerShareBps).toBe(5_000);
   });
 
-  // Review fix, Oct 20: canonical v3 brought the repair threshold and the reserve inside the signature. The
-  // threshold is what decides whether a vendor bill is posted against the owner WITHOUT asking her, so an admin
-  // raising it in the window between her page's load and her signature must refuse like any other term change.
-  it("an admin raising the no-ask repair threshold in that window refuses too", async () => {
-    let edited = false;
-    const f = seed({}, {
-      activate_managed_policy: (args, ff) => {
-        if (!edited) {
-          edited = true;
-          const row = ff.rows.managed_workspace_fee_policies!.find((r) => r.id === args.p_id)!;
-          row.repair_approval_threshold_cents = 500_000;
-        }
-        return activateRpc(args, ff);
-      },
-    });
-    const d = await createDraftPolicy(f.db, admin, input);
-    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
-    await expect(signPolicy(f.db, OWNER, d.id, policyTermsHash(d))).rejects.toMatchObject({ status: 409 });
-    expect(await loadActivePolicyForWorkspace(f.db, WS)).toBeNull();
-    // Reloading shows her the raised threshold, and signing THAT works.
-    const fresh = await loadPolicy(f.db, d.id);
-    expect((await signPolicy(f.db, OWNER, d.id, policyTermsHash(fresh!))).terms.repairApprovalThresholdCents).toBe(500_000);
-  });
-
-  it("the reserve target is inside the signature as well", async () => {
-    let edited = false;
-    const f = seed({}, {
-      activate_managed_policy: (args, ff) => {
-        if (!edited) {
-          edited = true;
-          const row = ff.rows.managed_workspace_fee_policies!.find((r) => r.id === args.p_id)!;
-          row.reserve_target_cents = 250_000;
-        }
-        return activateRpc(args, ff);
-      },
-    });
-    const d = await createDraftPolicy(f.db, admin, input);
-    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
-    await expect(signPolicy(f.db, OWNER, d.id, policyTermsHash(d))).rejects.toMatchObject({ status: 409 });
+  // Canonical v3 brought the repair threshold and the reserve inside the hash. The threshold decides whether a
+  // vendor bill posts against the owner WITHOUT asking her, so a change in that window must refuse like any other.
+  it("the repair threshold and the reserve are inside the activation hash too", async () => {
+    for (const edit of [{ repair_approval_threshold_cents: 500_000 }, { reserve_target_cents: 250_000 }]) {
+      let edited = false;
+      const f = seed({}, {
+        activate_managed_policy: (args, ff) => {
+          if (!edited) {
+            edited = true;
+            Object.assign(ff.rows.managed_workspace_fee_policies!.find((r) => r.id === args.p_id)!, edit);
+          }
+          return activateRpc(args, ff);
+        },
+      });
+      const d = await createDraftPolicy(f.db, admin, input);
+      await expect(attestPolicy(f.db, admin, d.id, "Signed PDF in the owners drive")).rejects.toMatchObject({ status: 409 });
+      expect(await loadActivePolicyForWorkspace(f.db, WS)).toBeNull();
+      expect((await attestPolicy(f.db, admin, d.id, "Signed PDF in the owners drive")).status).toBe("active");
+    }
   });
 
   /** A canonical-v2 snapshot: what code that has not deployed yet still builds. */
@@ -328,16 +591,15 @@ describe("sending and signing", () => {
 
   // Review fix, Oct 20. This repo applies the migration BEFORE the code on each rung, so between the v3 guard
   // landing and the Vercel build there is a window where the running code still builds a v2 snapshot. Comparing
-  // the two new columns unconditionally made every signature in that window 409 "This agreement changed", and
-  // reloading could not help - which would freeze a managed workspace mid-signing during the climb itself.
+  // the two new columns unconditionally made every activation in that window 409, which would freeze a managed
+  // workspace during the climb itself.
   it("accepts a v2 snapshot while the row still carries the v3 defaults", async () => {
     const f = seed();
     const d = await createDraftPolicy(f.db, admin, input);
-    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
     const row = f.rows.managed_workspace_fee_policies![0]!;
     expect([row.reserve_target_cents, row.repair_approval_threshold_cents]).toEqual([0, 25_000]);
     expect(activateRpc(
-      { p_id: d.id, p_via: "owner_signature", p_snapshot: v2Snapshot(d), p_hash: "h" },
+      { p_id: d.id, p_via: "admin_attested", p_snapshot: v2Snapshot(d), p_hash: "h" },
       f,
     )).toMatchObject({ status: "active" });
   });
@@ -347,10 +609,9 @@ describe("sending and signing", () => {
     for (const edit of [{ reserve_target_cents: 250_000 }, { repair_approval_threshold_cents: 500_000 }]) {
       const f = seed();
       const d = await createDraftPolicy(f.db, admin, input);
-      await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
       Object.assign(f.rows.managed_workspace_fee_policies![0]!, edit);
       expect(activateRpc(
-        { p_id: d.id, p_via: "owner_signature", p_snapshot: v2Snapshot(d), p_hash: "h" },
+        { p_id: d.id, p_via: "admin_attested", p_snapshot: v2Snapshot(d), p_hash: "h" },
         f,
       )).toMatchObject({ reason: "terms_changed" });
     }
@@ -359,60 +620,29 @@ describe("sending and signing", () => {
   it("a v3 snapshot is still compared on both new terms, default or not", async () => {
     const f = seed();
     const d = await createDraftPolicy(f.db, admin, { ...input, terms: { ...terms, repairApprovalThresholdCents: 400_000 } });
-    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
-    // Named and matching: accepted even though it is not the column default.
-    expect(await signPolicy(f.db, OWNER, d.id, policyTermsHash(d))).toMatchObject({ status: "active" });
-    // Named and NOT matching: refused.
+    expect(await attestPolicy(f.db, admin, d.id, "Signed PDF in the owners drive")).toMatchObject({ status: "active" });
     const g = seed();
     const e = await createDraftPolicy(g.db, admin, input);
-    await sendPolicyForSignature(g.db, admin, e.id, new Date("2026-10-18T20:00:00Z"));
     expect(activateRpc(
-      { p_id: e.id, p_via: "owner_signature", p_hash: "h", p_snapshot: { ...v2Snapshot(e), reserveTargetCents: 99, repairApprovalThresholdCents: 25_000 } },
+      { p_id: e.id, p_via: "admin_attested", p_hash: "h", p_snapshot: { ...v2Snapshot(e), reserveTargetCents: 99, repairApprovalThresholdCents: 25_000 } },
       g,
     )).toMatchObject({ reason: "terms_changed" });
   });
 
-  it("an unsent draft cannot take an owner signature, even past the TypeScript check", async () => {
+  it("the SQL still refuses an owner signature on a draft that was never sent", () => {
     const f = seed();
-    const d = await createDraftPolicy(f.db, admin, input);
-    // The row was never sent: the function refuses whatever the caller believed.
-    expect(activateRpc({ p_id: d.id, p_via: "owner_signature", p_snapshot: {} }, f)).toMatchObject({ reason: "not_sent" });
+    expect(activateRpc({ p_id: "nope", p_via: "owner_signature", p_snapshot: {} }, f)).toMatchObject({ reason: "not_found" });
   });
 
-  it("is idempotent, and refuses once the owner left the team", async () => {
-    const { f, id, hash } = await sent();
-    await signPolicy(f.db, OWNER, id, hash);
-    expect((await signPolicy(f.db, OWNER, id, hash)).status).toBe("active");
+  it("is idempotent, and refuses once the owner of record left the team", async () => {
+    const f = seed();
+    const d = await createDraftPolicy(f.db, admin, input);
+    await attestPolicy(f.db, admin, d.id, "Signed PDF in the owners drive");
+    expect((await attestPolicy(f.db, admin, d.id, "Signed PDF in the owners drive")).status).toBe("active");
     const g = seed();
-    const d = await createDraftPolicy(g.db, admin, input);
-    await sendPolicyForSignature(g.db, admin, d.id);
+    const e = await createDraftPolicy(g.db, admin, input);
     g.rows.account_link_invites = [];
-    await expect(signPolicy(g.db, OWNER, d.id, policyTermsHash(d))).rejects.toMatchObject({ status: 403 });
-  });
-  it("refuses a draft that was never sent", async () => {
-    const f = seed();
-    const d = await createDraftPolicy(f.db, admin, input);
-    await expect(signPolicy(f.db, OWNER, d.id, policyTermsHash(d))).rejects.toMatchObject({ status: 409 });
-  });
-  it("refuses a signature taken against terms the owner was not shown", async () => {
-    // The owner opens the draft at 10%; an admin edits it to 30% and re-sends. The still-open page's POST must
-    // not activate the new terms with the owner's signature on them. This is a fee agreement.
-    const f = seed();
-    const d = await createDraftPolicy(f.db, admin, input);
-    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T20:00:00Z"));
-    const shownToOwner = policyTermsHash(d);
-    const edited = await updateDraftPolicy(f.db, admin, d.id, { terms: { ...terms, ownerShareBps: 7000 } });
-    await sendPolicyForSignature(f.db, admin, d.id, new Date("2026-10-18T22:00:00Z"));
-    await expect(signPolicy(f.db, OWNER, d.id, shownToOwner)).rejects.toMatchObject({ status: 409 });
-    expect(await loadActivePolicyForWorkspace(f.db, WS)).toBeNull();
-    // The hash of what is actually on the page signs it.
-    expect((await signPolicy(f.db, OWNER, d.id, policyTermsHash(edited))).status).toBe("active");
-  });
-  it("refuses a missing or malformed hash rather than signing whatever is stored", async () => {
-    const { f, id } = await sent();
-    for (const bad of ["", "nope", "a".repeat(63)]) {
-      await expect(signPolicy(f.db, OWNER, id, bad)).rejects.toMatchObject({ status: 400 });
-    }
+    await expect(attestPolicy(g.db, admin, e.id, "Signed PDF in the owners drive")).rejects.toMatchObject({ status: 422 });
   });
 });
 
@@ -446,7 +676,12 @@ describe("attesting, versions, ending", () => {
   });
   it("a read that fails is an error, never 'not managed'", async () => {
     const f = fakeOwnerDb({}, { broken: [] });
-    f.db = { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ not: () => ({ limit: () => ({ maybeSingle: async () => ({ data: null, error: { code: "XX000" } }) }) }) }) }) }) }) } as never;
+    const failing = { data: null, error: { code: "XX000" } };
+    const chain: Record<string, unknown> = {};
+    for (const key of ["select", "eq", "in", "not", "order", "limit"]) chain[key] = () => chain;
+    chain.maybeSingle = async () => failing;
+    chain.then = (resolve: (r: unknown) => void) => resolve(failing);
+    f.db = { from: () => chain } as never;
     await expect(loadActivePolicyForWorkspace(f.db, WS)).rejects.toBeInstanceOf(PolicyError);
   });
   it("a database without the table is simply not managed", async () => {
@@ -518,6 +753,46 @@ describe("the SQL mirror: the activation terms guard (migration 20261020170000)"
   });
 });
 
+// Review fix (L1): the automatic fee is drafted and activated lazily, after a read that said nothing was in force.
+// Ending the version in force is therefore an ADMIN-only power; a system activation refuses instead.
+describe("the SQL mirror: a system activation never ends another version (migration 20261020200000)", () => {
+  const sql = readFileSync("supabase/migrations/20261020200000_managed_policy_system_activation_never_ends_another.sql", "utf8");
+
+  it("replaces the function on the same signature and keeps the grant fail-closed", () => {
+    expect(sql).toContain("create or replace function public.activate_managed_policy(");
+    expect(sql).toContain("p_id uuid, p_via text, p_note text, p_hash text, p_snapshot jsonb, p_actor_role text");
+    expect(sql).toContain("revoke all on function public.activate_managed_policy(uuid, text, text, text, jsonb, text) from public, anon, authenticated;");
+    expect(sql).toContain("grant execute on function public.activate_managed_policy(uuid, text, text, text, jsonb, text) to service_role;");
+  });
+
+  it("refuses a system activation when the workspace already has an accepted version, under the row lock", () => {
+    const lockIdx = sql.indexOf("for update");
+    const guardIdx = sql.indexOf("if p_actor_role = 'system' and exists (");
+    expect(lockIdx).toBeGreaterThan(-1);
+    expect(guardIdx).toBeGreaterThan(lockIdx);
+    expect(sql).toContain("where workspace_id = v_pol.workspace_id and status = 'active' and signed_at is not null and id <> p_id");
+    expect(sql).toContain("'already_active'");
+    // The refusal comes BEFORE the step that ends the version in force, so nothing has moved by then.
+    expect(sql.indexOf("set status = 'ended'")).toBeGreaterThan(guardIdx);
+  });
+
+  it("keeps every guard the activation already had", () => {
+    for (const guard of [
+      "p_actor_role not in ('admin', 'owner', 'system')",
+      "p_hash !~ '^[0-9a-f]{64}$'",
+      "'future_effective_from'",
+      "'not_draft'",
+      "'not_sent'",
+      "'terms_changed'",
+      "c_reserve_default constant integer := 0;",
+      "c_threshold_default constant integer := 25000;",
+      "to_char(v_pol.effective_from, 'YYYY-MM-DD')",
+    ]) {
+      expect(sql).toContain(guard);
+    }
+  });
+});
+
 describe("the SQL mirror: the atomic phone-code start (migration 20261020160000)", () => {
   const sql = readFileSync("supabase/migrations/20261020160000_phone_otp_start_caps_from_app.sql", "utf8");
 
@@ -548,5 +823,76 @@ describe("the SQL mirror: the atomic phone-code start (migration 20261020160000)
     expect(sql).toContain("grant execute on function public.phone_otp_start(uuid, text, text, text, text, integer, integer, integer, integer, timestamptz) to service_role;");
     // The old signature goes, so two functions cannot disagree about the caps.
     expect(sql).toContain("drop function if exists public.phone_otp_start(uuid, text, text, text, text, integer, timestamptz);");
+  });
+});
+
+// Review fix, Oct 20: an ACH debit is days old when it settles, so a rate change used to strand every payment in
+// flight - the resolver answered "not managed" and the capture fell to a manager hold. The resolver now answers with
+// the version in force that day, and the database function has to accept that version even though it has ended.
+describe("the SQL mirror: a capture settles on the version in force (migration 20261020190000)", () => {
+  const sql = readFileSync("supabase/migrations/20261020190000_managed_capture_settles_on_version_in_force.sql", "utf8");
+
+  it("replaces the function on the same signature and keeps the grant fail-closed", () => {
+    expect(sql).toContain("create or replace function public.credit_managed_capture(");
+    expect(sql).toContain("p_policy uuid, p_workspace uuid, p_key text, p_pi text, p_stripe_charge text, p_month text, p_available_on timestamptz,");
+    expect(sql).toContain("revoke all on function public.credit_managed_capture(uuid, uuid, text, text, text, text, timestamptz, bigint, bigint, bigint, jsonb, bigint) from public, anon, authenticated;");
+    expect(sql).toContain("grant execute on function public.credit_managed_capture(uuid, uuid, text, text, text, text, timestamptz, bigint, bigint, bigint, jsonb, bigint) to service_role;");
+    // The 11-argument function goes, so two copies cannot disagree about the monthly minimum; the new argument has a
+    // default, so code that predates this migration still resolves to it while the deploy catches up.
+    expect(sql).toContain("drop function if exists public.credit_managed_capture(uuid, uuid, text, text, text, text, timestamptz, bigint, bigint, bigint, jsonb);");
+    expect(sql).toContain("p_prior_fee bigint default null");
+  });
+
+  it("accepts an ended version only for rows paid inside its own window, in Pacific days", () => {
+    expect(sql).toContain("v_pol.status not in ('active', 'ended')");
+    expect(sql).toContain("if v_pol.status = 'ended' then");
+    expect(sql).toContain("at time zone 'America/Los_Angeles')::date < v_pol.effective_from");
+  });
+
+  // Review fix (L2): `ends_on` alone is the DATABASE's UTC `current_date`, a day ahead of the Pacific day the next
+  // version started after 17:00 Pacific - so reading it alone lets two windows overlap and the SAME payment settle
+  // under both. The window's end is the EARLIER of the two, which is exactly what `policyEndBoundary` computes.
+  it("ends the window at least(ends_on, the Pacific day of ended_at), the boundary the app computes", () => {
+    expect(sql).toContain("v_window_end := least(v_pol.ends_on, (v_pol.ended_at at time zone 'America/Los_Angeles')::date);");
+    expect(sql).toContain("if v_window_end is null then");
+    expect(sql).toContain("at time zone 'America/Los_Angeles')::date >= v_window_end");
+    // `ends_on` is never the end on its own any more.
+    expect(sql).not.toContain(">= v_pol.ends_on");
+    // A row with neither column covers nothing - the same answer `policyEndBoundary` gives.
+    const nullIdx = sql.indexOf("if v_window_end is null then");
+    expect(sql.slice(nullIdx, nullIdx + 200)).toContain("'policy_not_active'");
+  });
+
+  // Review fix (L3): `managed_month_totals` is scoped to ONE policy_id, so the monthly minimum has to be counted
+  // across the workspace's versions - and two captures settling under two different versions lock two different
+  // policy rows, so without a workspace-wide lock each sees nothing of the other and both charge that floor.
+  it("counts the monthly minimum across the workspace's versions, under a per-workspace lock", () => {
+    const lockIdx = sql.indexOf("perform pg_advisory_xact_lock(hashtextextended('managed-capture:' || p_workspace::text, 0));");
+    expect(lockIdx).toBeGreaterThan(-1);
+    const sumIdx = sql.indexOf("select coalesce(sum(greatest(t.monthly_fee, 0)), 0)::bigint into v_prior");
+    expect(sumIdx).toBeGreaterThan(lockIdx);
+    expect(sql).toContain("where p.workspace_id = v_pol.workspace_id and p.id <> p_policy;");
+    // Counted only where there IS a floor, the same condition the caller uses.
+    expect(sql).toContain("if v_pol.min_fee_cents > 0 then");
+    // The floor is the policy's minimum LESS what the other versions took - `targetMonthlyFeeCents`'s arithmetic.
+    expect(sql).toContain("v_floor := least(greatest(v_pol.min_fee_cents - v_prior, 0), v_after);");
+    // A total that moved under the lock is a conflict the caller retries on, never a refusal.
+    expect(sql).toContain("or (p_prior_fee is not null and v_prior is distinct from p_prior_fee) then");
+    const conflictIdx = sql.indexOf("'conflict', 'cum_base', v_cum, 'monthly_fee', v_taken, 'prior_fee', v_prior");
+    expect(conflictIdx).toBeGreaterThan(sumIdx);
+  });
+
+  it("keeps every other guard the capture already had", () => {
+    for (const guard of [
+      "v_pol.workspace_id is distinct from p_workspace",
+      "v_pol.signed_at is null",
+      "'conflict', 'cum_base'",
+      "'leasing_over_policy'",
+      "'fee_over_policy'",
+      "'split_mismatch'",
+      "'bad_gross'",
+    ]) {
+      expect(sql).toContain(guard);
+    }
   });
 });

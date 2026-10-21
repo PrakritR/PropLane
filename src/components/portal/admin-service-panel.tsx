@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, Home, Phone, Plug, Settings, Users } from "lucide-react";
+import { Building2, Home, Percent, Phone, Plug, Settings, Users } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { openServiceWorkspace } from "@/lib/service/open-service-workspace";
 import { PortalListGroup } from "@/components/portal/portal-list-group";
@@ -24,6 +24,7 @@ import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { fetchWithTimeout, FetchTimeoutError } from "@/lib/auth/fetch-with-timeout";
 import { cleanOwnerOfRecord, cleanServiceCity, cleanServiceName } from "@/lib/service/service-input";
 import { serviceWorkspaceFinancesHref } from "@/lib/service/service-links";
+import { DEFAULT_MANAGEMENT_FEE_PERCENT, MAX_MANAGEMENT_FEE_PERCENT, ownerShareBpsForFeePercent } from "@/lib/owner-management/fee-percent";
 import { Trash2 } from "lucide-react";
 
 const FETCH_TIMEOUT_MS = 25_000;
@@ -43,6 +44,21 @@ export type ServiceRow = {
   canManage: boolean;
   feePercent?: number | null;
 };
+
+/** The rate in force, as the row states it. */
+export function feeFactLabel(row: Pick<ServiceRow, "feePercent">): string {
+  return row.feePercent == null ? "No fee yet" : `${row.feePercent}% fee`;
+}
+
+/** The one line in the fee modal: what the workspace is on today. A new rate replaces it the moment it is saved. */
+export function currentFeeLine(row: Pick<ServiceRow, "feePercent"> | null): string {
+  return row?.feePercent == null ? "No fee yet" : `Current fee ${row.feePercent}%`;
+}
+
+/** What the save did: the rate it put in force, or that the rate typed was the one already running. */
+export function feeOutcomeToast(result: { feePercent?: number; changed?: boolean }): string {
+  return result.changed ? `Fee set to ${result.feePercent}%.` : "No change.";
+}
 
 type TeamState = {
   members: {
@@ -65,10 +81,15 @@ type State =
   | { status: "ready"; configured: boolean; rows: ServiceRow[] }
   | { status: "error"; message: string };
 
-/** The glyph facts on a service workspace row: houses, work number, team. */
+/**
+ * The glyph facts on a service workspace row: houses, the management fee, the work number. A row draws only its
+ * first three facts (`PortalEntryRow`), so the rate in force comes before the number and the team count rides last
+ * — it is already on the row's ⋯ > Team.
+ */
 export function serviceRowFacts(row: ServiceRow): PortalEntryRowFact[] {
   const facts: PortalEntryRowFact[] = [
     { icon: Home, label: `${row.houseCount} ${row.houseCount === 1 ? "house" : "houses"}`, srLabel: "Houses" },
+    { icon: Percent, label: feeFactLabel(row), srLabel: "Management fee" },
     { icon: Phone, label: row.workNumber ?? "No number", srLabel: "Work number" },
     { icon: Users, label: row.viewerRole ? `${row.teamCount} on team` : "Not on team", srLabel: "Team" },
   ];
@@ -105,8 +126,9 @@ async function post<T extends Record<string, unknown>>(body: Record<string, unkn
 
 /**
  * Admin > Accounts > Service: every workspace on PropLane Service (a flag on the workspace, whoever owns it), per
- * city. A row is name - city - houses - work number; the per-row menu opens the workspace in the property portal,
- * renames it and manages its team. The plug attaches an existing client workspace; the + creates a new one.
+ * city. A row is name - city - houses - management fee - work number; the per-row menu opens the workspace in the
+ * property portal, renames it, sets its fee and manages its team. The plug attaches an existing client workspace;
+ * the + creates a new one.
  */
 export function AdminServicePanel() {
   const { showToast } = useAppUi();
@@ -267,7 +289,7 @@ export function AdminServicePanel() {
         return;
       }
       setFeeOpen(false);
-      showToast("Management fee updated.");
+      showToast(feeOutcomeToast(json as { feePercent?: number; changed?: boolean }));
       reload();
     } catch {
       setFormError("Could not change the management fee.");
@@ -390,7 +412,7 @@ export function AdminServicePanel() {
             variant="outline"
             className={PORTAL_BULK_BAR_BTN}
             data-attr="admin-service-fee"
-            onClick={() => { setFormError(null); setFeeDraft(String(selected.feePercent ?? 10)); setFeeOpen(true); }}
+            onClick={() => { setFormError(null); setFeeDraft(String(selected.feePercent ?? DEFAULT_MANAGEMENT_FEE_PERCENT)); setFeeOpen(true); }}
           >
             Management fee
           </Button>
@@ -594,15 +616,18 @@ export function AdminServicePanel() {
         dataAttr="admin-service-fee-modal"
         footer={
           <ModalFooter>
-            <Button type="button" disabled={busy || !(Number(feeDraft) >= 0 && Number(feeDraft) <= 30) || feeDraft.trim() === ""} data-attr="admin-service-fee-save" onClick={() => void saveFee()}>
+            <Button type="button" disabled={busy || ownerShareBpsForFeePercent(feeDraft.trim()) === null} data-attr="admin-service-fee-save" onClick={() => void saveFee()}>
               Save
             </Button>
           </ModalFooter>
         }
       >
+        <p className="mb-3 text-[13px] font-semibold text-foreground" data-attr="admin-service-fee-current">
+          {currentFeeLine(selected)}
+        </p>
         <label className="block text-[13px] font-semibold text-foreground">
-          <span className="mb-1 block">Percent of rent (0 to 30)</span>
-          <Input type="number" inputMode="decimal" min={0} max={30} step={0.5} value={feeDraft} onChange={(e) => setFeeDraft(e.target.value)} data-attr="admin-service-fee-percent" />
+          <span className="mb-1 block">Percent of rent (0 to {MAX_MANAGEMENT_FEE_PERCENT})</span>
+          <Input type="number" inputMode="decimal" min={0} max={MAX_MANAGEMENT_FEE_PERCENT} step={0.5} value={feeDraft} onChange={(e) => setFeeDraft(e.target.value)} data-attr="admin-service-fee-percent" />
         </label>
         {formError ? <p className="mt-2 text-[13px] text-[var(--status-overdue-fg)]" role="alert">{formError}</p> : null}
       </Modal>

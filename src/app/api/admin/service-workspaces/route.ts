@@ -81,7 +81,7 @@ export async function POST(request: Request) {
     case "fee": {
       const result = await setServiceWorkspaceFee(db, admin.userId, { id, percent: body.percent });
       if (!result.ok) return failure(result);
-      return NextResponse.json({ ok: true, feePercent: result.feePercent }, { headers: NO_STORE });
+      return NextResponse.json({ ok: true, feePercent: result.feePercent, changed: result.changed }, { headers: NO_STORE });
     }
     case "open": {
       const result = await authorizeOpenServiceWorkspace(db, admin.userId, id);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { CalendarDays, CheckCircle2, Circle, FilePen, Flag, Landmark, Percent, Send, UserRound, XCircle, type LucideIcon } from "lucide-react";
+import { CalendarDays, CheckCircle2, Circle, FilePen, Flag, Landmark, Percent, UserRound, XCircle, type LucideIcon } from "lucide-react";
 import { PortalStatStrip } from "@/components/portal/portal-stat-strip";
 import { formatManagedUsd, managedMonthLabel } from "@/lib/managed-finance/format";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
@@ -47,7 +47,7 @@ export function managedStateFact(policy: ManagedPolicyState | null): { icon: Luc
   if (!policy) return { icon: Circle, label: "Not managed" };
   if (policy.status === "active") return { icon: CheckCircle2, label: "Active" };
   if (policy.status === "ended") return { icon: XCircle, label: "Ended" };
-  return policy.sentAt ? { icon: Send, label: "Sent for signature" } : { icon: FilePen, label: "Draft" };
+  return { icon: FilePen, label: "Draft" };
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<{ ok: boolean; data: T & { error?: string } }> {
@@ -110,7 +110,6 @@ export function AdminManagedFinancePanel() {
   const [workspaces, setWorkspaces] = useState<Load<{ workspaces: ManagedWorkspaceRow[] }>>({ status: "loading" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -193,7 +192,7 @@ export function AdminManagedFinancePanel() {
     }
   };
 
-  // Send / attest / end.
+  // Attest / end.
   const patchPolicy = async (body: Record<string, unknown>): Promise<string | null> => {
     if (!policy) return "Nothing selected.";
     try {
@@ -209,17 +208,6 @@ export function AdminManagedFinancePanel() {
     }
   };
 
-  const send = async () => {
-    setBusy(true);
-    setNotice(null);
-    const error = await patchPolicy({ action: "send" });
-    setBusy(false);
-    if (error) return void setNotice(error);
-    setNotice("Sent for signature");
-    setSelectedId(null);
-    reload();
-  };
-
   const [attestOpen, setAttestOpen] = useState(false);
   const [attestNote, setAttestNote] = useState("");
   const [attestError, setAttestError] = useState<string | null>(null);
@@ -232,6 +220,7 @@ export function AdminManagedFinancePanel() {
     setAttestOpen(false);
     setAttestNote("");
     setSelectedId(null);
+    setNotice("Fee policy recorded");
     reload();
   };
 
@@ -243,6 +232,7 @@ export function AdminManagedFinancePanel() {
     if (error) return void setEndError(error);
     setEndOpen(false);
     setSelectedId(null);
+    setNotice("Fee policy ended");
     reload();
   };
 
@@ -258,14 +248,9 @@ export function AdminManagedFinancePanel() {
         </Button>
       )}
       {policy?.status === "draft" ? (
-        <>
-          <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-managed-send" disabled={busy} onClick={() => send()}>
-            Send for signature
-          </Button>
-          <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-managed-attest" onClick={() => { setAttestError(null); setAttestOpen(true); }}>
-            Record signed contract
-          </Button>
-        </>
+        <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-managed-attest" onClick={() => { setAttestError(null); setAttestOpen(true); }}>
+          Record signed contract
+        </Button>
       ) : null}
       {policy?.status === "active" ? (
         <Button type="button" variant="danger" className={PORTAL_BULK_BAR_BTN} data-attr="admin-managed-end" onClick={() => { setEndError(null); setEndOpen(true); }}>

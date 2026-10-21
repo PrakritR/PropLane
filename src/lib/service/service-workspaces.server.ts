@@ -13,7 +13,8 @@ import { proplaneIdLookupVariants } from "@/lib/manager-id";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { loadSharedLineConfig, workspaceHasDedicatedNumber, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { isPlatformServiceOwner, loadServiceWorkspace, resolveServiceOwner } from "@/lib/service/service-owner.server";
-import { ensureServiceFeePolicy, setServiceManagementFee, PolicyError, type PolicyRow } from "@/lib/owner-management/policies.server";
+import { ensureServiceFeePolicy, setServiceManagementFee, PolicyError, type ServiceManagementFee } from "@/lib/owner-management/policies.server";
+import { MANAGEMENT_FEE_RANGE_MESSAGE, feePercentForOwnerShareBps, ownerShareBpsForFeePercent } from "@/lib/owner-management/fee-percent";
 
 /**
  * PropLane Service workspaces (admin Service tab). Ordinary `portal_workspaces`
@@ -153,8 +154,7 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
   const ids = rows.map((r) => r.id);
   if (ids.length === 0) return { ok: true, payload: { configured, ownerUserId, workspaces: [] } };
 
-  const feePercents = await serviceFeePercents(db, ids);
-  const [houses, numbers, links, sharedLine] = await Promise.all([
+  const [houses, numbers, links, sharedLine, feePercents] = await Promise.all([
     db.from("manager_property_records").select("id, workspace_id, manager_user_id").in("workspace_id", ids),
     db.from("manager_sms_numbers").select("workspace_id, phone_number, provision_state, released_at").in("workspace_id", ids),
     db
@@ -163,6 +163,7 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
       .in("workspace_id", ids)
       .in("status", ["accepted", "pending"]),
     loadSharedLineConfig(db),
+    serviceFeePercents(db, ids),
   ]);
   if (houses.error || numbers.error || links.error) return fail(503, "Could not load service workspaces. Please retry.");
   // The owner of record's name for an ACCEPTED flagged member comes from their profile; a pending one is shown
@@ -424,20 +425,22 @@ export async function attachWorkspaceToService(
 }
 
 /**
- * Admin > Service > Management fee: the percent PropLane keeps of a service workspace's rent (0 to 30). A new policy version at
- * that rate replaces the active one atomically (`setServiceManagementFee`). The operator must be a platform admin and the
- * workspace must carry the service flag; the audit row is written before the change, so no audit row means no change.
+ * Admin > Service > Management fee: the percent PropLane keeps of a service workspace's rent. The range and the parse are
+ * `ownerShareBpsForFeePercent`'s single answer, surfaced by `setServiceManagementFee`, which activates the new rate at once
+ * so it applies to every payment settled from that moment on. The operator must be a platform admin and the workspace must
+ * carry the service flag; the audit row is written before the change, so no audit row means no change.
  */
 export async function setServiceWorkspaceFee(
   db: SupabaseClient,
   operatorUserId: string,
   input: { id: string; percent: unknown },
-): Promise<ServiceResult<{ feePercent: number }>> {
+): Promise<ServiceResult<ServiceManagementFee>> {
   if (!(await userHoldsAdminRole(db, operatorUserId))) return fail(403, "Only a PropLane admin can change the management fee.");
   const workspace = await loadServiceWorkspace(db, input.id);
   if (!workspace) return fail(404, "Service workspace not found.");
-  const percent = typeof input.percent === "number" ? input.percent : typeof input.percent === "string" && input.percent.trim() !== "" ? Number(input.percent) : NaN;
-  if (!Number.isFinite(percent) || percent < 0 || percent > 30) return fail(400, "Enter a fee between 0 and 30%.");
+  const ownerShareBps = ownerShareBpsForFeePercent(input.percent);
+  if (ownerShareBps === null) return fail(400, MANAGEMENT_FEE_RANGE_MESSAGE);
+  const percent = feePercentForOwnerShareBps(ownerShareBps);
   const auditKey = `admin_service_fee:${workspace.id}:${Date.now()}`;
   const actor = { db, landlordId: workspace.ownerUserId, userId: operatorUserId };
   const audit = await writeAuditLog(actor, {
@@ -448,19 +451,19 @@ export async function setServiceWorkspaceFee(
     dedupeKey: auditKey,
   });
   if (!audit.recorded) return fail(503, "Could not record the audit entry, so nothing was changed. Please retry.");
-  let policy: PolicyRow;
+  let fee: ServiceManagementFee;
   try {
-    policy = await setServiceManagementFee(db, { role: "admin", userId: operatorUserId }, workspace.id, percent);
+    fee = await setServiceManagementFee(db, { role: "admin", userId: operatorUserId }, workspace.id, percent);
   } catch (e) {
     await updateAuditResult(actor, auditKey, { applied: false, error: "refused" });
     if (e instanceof PolicyError) return fail(e.status, e.message);
     return fail(503, "Could not change the management fee. Please retry.");
   }
-  await updateAuditResult(actor, auditKey, { applied: true, policyId: policy.id });
-  return { ok: true, feePercent: (10_000 - policy.terms.ownerShareBps) / 100 };
+  await updateAuditResult(actor, auditKey, { applied: fee.changed, policyId: fee.policyId });
+  return { ok: true, ...fee };
 }
 
-/** The percent PropLane keeps for each service workspace right now (null: no active policy yet). Never throws. */
+/** The percent PropLane keeps for each service workspace right now (absent: no policy in force yet). Never throws. */
 export async function serviceFeePercents(db: SupabaseClient, workspaceIds: string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (workspaceIds.length === 0) return out;
@@ -470,7 +473,9 @@ export async function serviceFeePercents(db: SupabaseClient, workspaceIds: strin
     .in("workspace_id", workspaceIds)
     .eq("status", "active");
   if (error) return out;
-  for (const r of (data ?? []) as { workspace_id: string; owner_share_bps: number }[]) out.set(String(r.workspace_id), (10_000 - Number(r.owner_share_bps)) / 100);
+  for (const r of (data ?? []) as { workspace_id: string; owner_share_bps: number }[]) {
+    out.set(String(r.workspace_id), feePercentForOwnerShareBps(Number(r.owner_share_bps)));
+  }
   return out;
 }
 

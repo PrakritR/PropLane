@@ -15,6 +15,11 @@ PropLane Service is a FLAG on a workspace plus memberships, never ownership.
 - Opening a workspace sets the portal workspace cookie after `authorizeOpenServiceWorkspace` re-derives membership.
 - Every `/api/admin/service-workspaces` verb starts with `requireAdminRoute()`; a body id is a name, never a grant.
 - Work number column: the workspace's own active work number, else nothing.
+- Management fee: every service workspace gets PropLane's automatic fee, never signed; attach and create ask for it,
+  and a workspace created before it has an owner of record gets it the first time anything needs one. The row states
+  the rate in force and the per-row **Management fee** action (`action: "fee"`, audit row written before the change)
+  moves it. The rule, the range and what a change does to payments in flight:
+  [`owner-management.md`](owner-management.md) § Automatic management fee.
 - Vendors tab (the roster) and Manager phone: [`one-number.md`](one-number.md) § W27. `platform_service_settings.manager_phone_e164` /
   `manager_phone_verified_at` are the service manager's identity; `profiles.phone` is never consulted for it.
 - Network tab (`?tab=network&bucket=leads|managers|roster`, `admin-service-network.tsx`): Vendor leads (`sms_vendor_leads`; Add to roster =

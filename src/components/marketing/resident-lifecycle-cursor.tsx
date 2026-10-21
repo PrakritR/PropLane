@@ -182,11 +182,14 @@ export function DemoCursor({ label, apiRef }: { label: string; apiRef: Ref<DemoC
 
   /**
    * Keep aiming at the current target until the drawn arrow sits on it: re-measured every frame, re-found when it was
-   * replaced, bounded so a control that never stops moving cannot stall the journey. Resolves the element it is on.
+   * replaced, bounded so a control that never stops moving cannot stall the journey. Resolves the element it is on, or
+   * null when there is nothing to settle on (the cursor was hidden): the same guard `press` applies, held here instead of
+   * in each caller.
    */
-  const settleOn = useCallback(async (): Promise<HTMLElement> => {
+  const settleOn = useCallback(async (fallback?: HTMLElement): Promise<HTMLElement | null> => {
     const start = Date.now();
-    let el = currentTarget() ?? targetRef.current!.el;
+    let el = currentTarget() ?? fallback ?? targetRef.current?.el ?? null;
+    if (!el) return null;
     for (;;) {
       el = currentTarget() ?? el;
       const want = placement(el);
@@ -252,10 +255,10 @@ export function DemoCursor({ label, apiRef }: { label: string; apiRef: Ref<DemoC
         await sleep(MOVE_MS);
         // The glide was aimed at where the control was when it started. Follow the real element (a tab strip that
         // re-measured, a list that re-rendered, a resize) until the arrow is resting on it.
-        const landed = await settleOn();
-        landed.setAttribute("data-demo-hover", "");
+        const landed = await settleOn(el);
+        landed?.setAttribute("data-demo-hover", "");
         await sleep(HOVER_MS);
-        return settleOn();
+        return (await settleOn(el)) ?? el;
       },
       async press() {
         const cursor = cursorRef.current;

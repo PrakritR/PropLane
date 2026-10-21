@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /** The management fee is automatic: the owner is never asked to sign, and no admin flag says "sign the fee agreement". */
@@ -12,8 +12,27 @@ describe("no fee agreement signing in the UI", () => {
     const unpolicied = readFileSync("src/lib/managed-finance/unpolicied-service.server.ts", "utf8");
     expect(unpolicied).not.toMatch(/Sign the fee agreement/);
   });
-  it("the admin Service row offers the management fee", () => {
+  it("the admin Service row offers the management fee, stating the rate in force and no effective date", () => {
     const admin = readFileSync("src/components/portal/admin-service-panel.tsx", "utf8");
     expect(admin).toContain("admin-service-fee");
+    expect(admin).toContain("admin-service-fee-current");
+    expect(admin).not.toMatch(/Takes effect/);
+  });
+
+  // Review fix, Oct 20: the owner-facing Sign card was removed but the admin side still sent the link that opened
+  // it, so the email/text led to a dead page. Signing is gone end to end.
+  it("no admin Send for signature action, no route action, no sign route", () => {
+    const adminPanel = readFileSync("src/components/portal/admin-managed-finance-panel.tsx", "utf8");
+    expect(adminPanel).not.toMatch(/Send for signature|admin-managed-send/);
+    const route = readFileSync("src/app/api/admin/managed-policies/[id]/route.ts", "utf8");
+    expect(route).not.toMatch(/sendPolicyForSignature|"send"/);
+    expect(existsSync("src/app/api/owner/finances/policy/[id]/sign")).toBe(false);
+  });
+
+  it("the policy library has no send or sign entry point left", () => {
+    const lib = readFileSync("src/lib/owner-management/policies.server.ts", "utf8");
+    expect(lib).not.toMatch(/export async function (signPolicy|sendPolicyForSignature)/);
+    const gate = readFileSync("src/lib/managed-finance/routes.server.ts", "utf8");
+    expect(gate).not.toMatch(/waitingPolicyIds/);
   });
 });
