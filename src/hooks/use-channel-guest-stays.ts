@@ -17,8 +17,8 @@ import {
  * other calendars) plus the stays a manager imported into the calendar. The Residents list derives
  * its guest rows from these; nothing here writes.
  *
- * Two reads, each capped, and a failure is silent on purpose: the list is still the residents, and
- * a guest row that does not load is a missing convenience, not a wrong answer. Keyed on WHICH houses
+ * Two reads, each capped. A failure is silent on purpose (the list is still the residents; a guest row that does
+ * not load is a missing convenience, not a wrong answer) and is retried twice, 15s apart. Keyed on WHICH houses
  * are in scope (the sorted ids), never on the array carrying them, so a portfolio refresh that
  * rebuilds an identical array does not blank the rows and re-ask.
  */
@@ -41,19 +41,27 @@ export function useChannelGuestStays({
     const ids = key.split("\u0000");
     const scoped = new Set(ids);
     let cancelled = false;
-    void Promise.all([
-      withTimeout(fetchManagerChannelBookings(ids), PORTAL_READ_TIMEOUT_MS).catch(() => []),
-      withTimeout(fetchRoomDateBlocks(), PORTAL_READ_TIMEOUT_MS).catch(() => []),
-    ]).then(([bookings, blocks]) => {
-      if (cancelled) return;
-      const imported = importedChannelStayEntries(
-        blocks.filter((block) => scoped.has(block.propertyId) && isImportedChannelBlock(block)),
-        { propertyLabelForId, roomLabelForId },
-      );
-      setState({ key, entries: [...airbnbBookingEntries(bookings), ...imported] });
-    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = (attempt: number) => {
+      void Promise.all([
+        withTimeout(fetchManagerChannelBookings(ids), PORTAL_READ_TIMEOUT_MS).catch(() => null),
+        withTimeout(fetchRoomDateBlocks(), PORTAL_READ_TIMEOUT_MS).catch(() => null),
+      ]).then(([bookings, blocks]) => {
+        if (cancelled) return;
+        const imported = importedChannelStayEntries(
+          (blocks ?? []).filter((block) => scoped.has(block.propertyId) && isImportedChannelBlock(block)),
+          { propertyLabelForId, roomLabelForId },
+        );
+        setState({ key, entries: [...airbnbBookingEntries(bookings ?? []), ...imported] });
+        // A read that timed out is asked once more shortly after, so a slow first answer does not leave the
+        // list without its guests until the next visit. What did load is drawn in the meantime.
+        if ((bookings === null || blocks === null) && attempt < 2) timer = setTimeout(() => load(attempt + 1), 15_000);
+      });
+    };
+    load(0);
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
     // The label resolvers are read when the answer lands; their identity is not a reason to re-ask.
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -586,9 +586,18 @@ export function ListingDetailModal({
               const bathTagPattern = /^(private|shared|house hall)\s+bath$/i;
               const highlightTags = state.room.modal.includedTags.filter((t) => !bathTagPattern.test(t));
               const amenityLabels = state.room.modal.roomAmenityLabels ?? [];
-              const included = [...highlightTags, ...amenityLabels.filter((t) => !highlightTags.includes(t))];
               // The description is said once: the manager's room note, else the furnishing line.
               const description = state.room.modal.roomNotes?.trim() || state.room.modal.furnishingDetail?.trim() || "";
+              // Included is a list of things, never the description again ("Queen bed and reading nook." is the
+              // furnishing sentence, not an amenity), and never the same thing twice.
+              const bare = (value: string) => value.trim().replace(/[.\s]+$/, "").toLowerCase();
+              const seenIncluded = new Set<string>([bare(description)]);
+              const included = [...highlightTags, ...amenityLabels].filter((tag) => {
+                const key = bare(tag);
+                if (!key || seenIncluded.has(key)) return false;
+                seenIncluded.add(key);
+                return true;
+              });
               const statusTone = statusDisplay?.tone ?? "neutral";
               return (
                 <>

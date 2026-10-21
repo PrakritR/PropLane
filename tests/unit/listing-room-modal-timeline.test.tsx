@@ -113,7 +113,7 @@ describe("room modal layout (popup standard)", () => {
         tourEyebrow: "Room tour",
         tourTitle: "Video tour",
         tourSubtitle: "",
-        includedTags: ["Desk", "Wardrobe", "Shared bath"],
+        includedTags: ["Desk", "Wardrobe", "Shared bath", "Bright corner room facing the garden."],
         roomAmenityLabels: ["Wi-Fi"],
         roomNotes: "Bright corner room facing the garden.",
         furnishingDetail: "Bright corner room facing the garden.",

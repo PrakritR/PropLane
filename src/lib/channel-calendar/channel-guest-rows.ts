@@ -55,6 +55,8 @@ export function channelGuestName(entry: PropertyBookingEntry): string {
     !label ||
     /^booked \(/i.test(label) ||
     /^reserved$/i.test(label) ||
+    // A stay a manager imported into the calendar is filed under its channel's own name ("Airbnb", "Booking").
+    /^(airbnb|booking(\.com)?|vrbo)$/i.test(label) ||
     /not available|^closed\b/i.test(label) ||
     isHostBlockSummary(label);
   if (!generic) return label;

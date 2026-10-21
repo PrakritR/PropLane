@@ -52,6 +52,9 @@ describe("channelGuestRows", () => {
     expect(channelGuestName(stay({}))).toBe("Airbnb guest");
     expect(channelGuestName(stay({ source: "booking_com", summary: "CLOSED - Not available" }))).toBe("Booking.com guest");
     expect(channelGuestName(stay({ source: "vrbo", summary: "" }))).toBe("Vrbo guest");
+    // A stay imported into the calendar carries its channel's name as its summary.
+    expect(channelGuestName(stay({ summary: "Airbnb" }))).toBe("Airbnb guest");
+    expect(channelGuestName(stay({ source: "booking_com", summary: "Booking" }))).toBe("Booking.com guest");
   });
 
   it("opens the booking record", () => {
