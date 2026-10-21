@@ -41,6 +41,7 @@ import {
   resolveCommunicationPersonThreadReplyChannels,
 } from "@/lib/manager-inbox-reply-channels";
 import { sendPropLaneAssistantInboxMessage } from "@/lib/assistant-inbox-reply";
+import { isHouseInboxThread } from "@/lib/house-thread-id";
 import {
   InboxSendRefusal,
   inboxReplySentToastMessage as residentReplySentToastMessage,
@@ -837,6 +838,46 @@ export const ResidentInboxPanel = forwardRef<
     ) => {
       const thread = localRef.current.find((t) => t.id === row.id);
       if (!thread) return;
+      // The house chat is one shared group conversation: a post as this resident, in-app only, authorized by the
+      // server from their current tenancy. The server owns the thread, so nothing is written to the store here.
+      if (isHouseInboxThread(thread)) {
+        const houseReplyId = `reply-${Date.now().toString(36)}`;
+        const houseReply: InboxThreadMessage = {
+          id: houseReplyId,
+          from: "Resident",
+          body: text,
+          at: formatInboxStamp(new Date()),
+          outbound: true,
+          delivery: "sending",
+        };
+        persistInboxRef.current = false;
+        setLocal((cur) => cur.map((t) => (t.id === thread.id ? appendReplyToInboxThread(t, houseReply) : t)));
+        try {
+          const result = await sendPropLaneAssistantInboxMessage({
+            threadId: thread.id,
+            subject: thread.subject,
+            text,
+            fromName: "Resident",
+            senderPortal: "resident",
+            attachmentUrls,
+            messageId: houseReplyId,
+          });
+          if (!result.ok) throw new InboxSendRefusal(result.error?.trim() || null);
+        } catch (e) {
+          setLocal((cur) =>
+            cur.map((t) =>
+              t.id === thread.id
+                ? { ...t, messages: (t.messages ?? []).filter((m) => m.id !== houseReplyId), preview: thread.preview, time: thread.time }
+                : t,
+            ),
+          );
+          throw e;
+        } finally {
+          persistInboxRef.current = true;
+        }
+        void syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY, { force: true }).catch(() => {});
+        return { emailRequested: false, smsRequested: false, proplaneRequested: true, emailOk: false, smsOk: false, proplaneOk: true };
+      }
       const replyToEmail = resolveResidentReplyRecipientEmail(thread.email, eligibleContacts);
       const portalRecipient = !replyToEmail.includes("@")
         ? null
@@ -1188,6 +1229,7 @@ export const ResidentInboxPanel = forwardRef<
   );
 
   const activeProplaneAvailable = Boolean(activeThread);
+  const activeIsHouseThread = Boolean(activeThread && isHouseInboxThread(activeThread));
   const showReplyChannelPicker = Boolean(activeThread);
 
   // The manager this conversation is with: name, home and how to reach them.
@@ -1280,6 +1322,13 @@ export const ResidentInboxPanel = forwardRef<
 
   useEffect(() => {
     if (!embeddedInCommunication) return;
+    // A house chat is in-app only: no email, no text.
+    if (activeThread && isHouseInboxThread(activeThread)) {
+      setReplyViaProplane(true);
+      setReplyViaEmail(false);
+      setReplyViaSms(false);
+      return;
+    }
     const person = resolveCommunicationPersonThreadReplyChannels({
       emailAvailable: true,
       smsAvailable: activeSmsAvailable,
@@ -1308,7 +1357,9 @@ export const ResidentInboxPanel = forwardRef<
   // "Property manager · Cascade Lofts · work@email" — the manager's header
   // line (Resident · House, Room · email) turned around: who they are to the
   // resident, the home it is about, and the address they write from.
-  const activeThreadSubtitle = activeManager
+  const activeThreadSubtitle = activeIsHouseThread
+    ? undefined
+    : activeManager
     ? [
         activeManager.workspaceName ?? "Property manager",
         activeManager.homeLabel,
@@ -1461,8 +1512,8 @@ export const ResidentInboxPanel = forwardRef<
       onViaProplaneChange={setReplyViaProplane}
       onViaEmailChange={setReplyViaEmail}
       onViaSmsChange={setReplyViaSms}
-      emailAvailable
-      smsAvailable={activeSmsAvailable}
+      emailAvailable={!activeIsHouseThread}
+      smsAvailable={activeSmsAvailable && !activeIsHouseThread}
       proplaneAvailable={activeProplaneAvailable}
     />
   );
@@ -1475,8 +1526,12 @@ export const ResidentInboxPanel = forwardRef<
       .map((a) => a.uploadUrl!);
     if (!text && attachmentUrls.length === 0) return;
     const viaProplane = replyViaProplane && activeProplaneAvailable;
-    const viaEmail = replyViaEmail || !activeSmsAvailable;
-    const viaSms = replyViaSms && activeSmsAvailable;
+    const viaEmail = activeIsHouseThread ? false : replyViaEmail || !activeSmsAvailable;
+    const viaSms = activeIsHouseThread ? false : replyViaSms && activeSmsAvailable;
+    if (activeIsHouseThread && scheduleLater) {
+      showToast("House chat messages send right away.");
+      return;
+    }
     if (!hasInboxReplyChannelSelected({ viaEmail, viaSms, viaProplane })) {
       showToast("Choose In-app, Email, Text, or a combination.");
       return;
@@ -1581,6 +1636,7 @@ export const ResidentInboxPanel = forwardRef<
       setReplySending(false);
     }
   }, [
+    activeIsHouseThread,
     activeManager,
     activeProplaneAvailable,
     activeSmsAvailable,

@@ -17,9 +17,26 @@ export type GroupFakeDb = {
 
 const read = (row: GroupRow, column: string): unknown => row[column];
 
+/** jsonb `@>`: every key of `subset` is in `value`; arrays match when each wanted element is contained in some element. */
+function jsonContains(value: unknown, subset: unknown): boolean {
+  if (subset && typeof subset === "object" && !Array.isArray(subset)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    return Object.entries(subset as Record<string, unknown>).every(([k, v]) => jsonContains((value as Record<string, unknown>)[k], v));
+  }
+  if (Array.isArray(subset)) {
+    return Array.isArray(value) && subset.every((want) => value.some((have) => jsonContains(have, want)));
+  }
+  return value === subset;
+}
+
 export function groupFakeDb(
   seed: Record<string, GroupRow[]> = {},
-  options: { constraints?: Record<string, Constraint>; broken?: string[] } = {},
+  options: {
+    constraints?: Record<string, Constraint>;
+    broken?: string[];
+    /** Database functions by name: `(args, rows) => { data, error }`. */
+    rpc?: Record<string, (args: Record<string, unknown>, rows: Record<string, GroupRow[]>) => { data: unknown; error: { code: string; message: string } | null }>;
+  } = {},
 ): GroupFakeDb {
   const rows: Record<string, GroupRow[]> = structuredClone(seed);
   const log: GroupFakeDb["log"] = [];
@@ -27,6 +44,12 @@ export function groupFakeDb(
   const tick = () => new Date(Date.UTC(2026, 9, 18, 10, 0, counter++)).toISOString();
 
   const db = {
+    async rpc(name: string, args: Record<string, unknown>) {
+      log.push({ table: `rpc:${name}`, op: "select" });
+      const handler = options.rpc?.[name];
+      if (!handler) return { data: null, error: { code: "42883", message: `function ${name} does not exist` } };
+      return handler(args, rows);
+    },
     from(table: string) {
       const filters: ((row: GroupRow) => boolean)[] = [];
       let mode: "select" | "insert" | "update" | "upsert" | "delete" = "select";
@@ -118,6 +141,7 @@ export function groupFakeDb(
         gte(column: string, value: unknown) { filters.push((r) => String(read(r, column) ?? "") >= String(value)); return q; },
         lte(column: string, value: unknown) { filters.push((r) => String(read(r, column) ?? "") <= String(value)); return q; },
         eq(column: string, value: unknown) { filters.push((r) => read(r, column) === value); return q; },
+        contains(column: string, subset: unknown) { filters.push((r) => jsonContains(read(r, column), subset)); return q; },
         in(column: string, values: unknown[]) { filters.push((r) => values.includes(read(r, column))); return q; },
         is(column: string, value: unknown) { filters.push((r) => (value === null ? read(r, column) == null : read(r, column) === value)); return q; },
         not(column: string, _op: string, value: unknown) { filters.push((r) => (value === null ? read(r, column) != null : read(r, column) !== value)); return q; },

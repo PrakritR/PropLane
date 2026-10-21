@@ -75,6 +75,7 @@ import {
   buildManagerAssistantPlaceholderThread,
   communicationInboxListPreview,
   ensurePinnedManagerAssistantUnifiedItems,
+  groupWorkspaceChatsAfterAssistant,
   pinPropLaneAssistantUnifiedItems,
   propLaneAssistantListPreview,
   propLaneAssistantListSubtitle,
@@ -1131,13 +1132,13 @@ export function ManagerUnifiedInbox({
     // (docs/agents/communication-inbox.md).
     if (listSegment === "archived") return merged;
     if (!assistantThreadId || !viewerId) {
-      return pinPropLaneAssistantUnifiedItems(merged, assistantThreadId);
+      return groupWorkspaceChatsAfterAssistant(pinPropLaneAssistantUnifiedItems(merged, assistantThreadId), assistantThreadId);
     }
     const live =
       emailThreads.find((thread) => thread.id === assistantThreadId) ??
       buildManagerAssistantPlaceholderThread(viewerId, assistantWorkspace);
     const item = assistantUnifiedListItemFromThread({ ...live, folder: "inbox" }, listSegment);
-    return ensurePinnedManagerAssistantUnifiedItems(merged, item);
+    return groupWorkspaceChatsAfterAssistant(ensurePinnedManagerAssistantUnifiedItems(merged, item), assistantThreadId);
   }, [
     assistantThreadId,
     assistantWorkspace,

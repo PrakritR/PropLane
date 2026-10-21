@@ -80,6 +80,8 @@ import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.serv
 import { assertManagerCommunicationAllowedForWorkspace } from "@/lib/manager-communication-access.server";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
+import { isHouseThreadId } from "@/lib/house-thread-id";
+import { handleHouseChatPost, houseReplyMessageId } from "@/lib/house-chat/post.server";
 
 export const runtime = "nodejs";
 
@@ -319,6 +321,22 @@ export async function POST(req: Request) {
       String((senderNameRow as { full_name?: string | null } | null)?.full_name ?? "").trim() ||
       senderEmail.split("@")[0] ||
       "PropLane Portal";
+
+    // A house chat is a post into one shared group conversation as this person: membership is re-derived from
+    // the thread id and the occupancy snapshot (never from the body), nothing is texted or emailed onward, and
+    // a moved-out resident or a stranger is refused. It never reaches the person-send paths below.
+    if (threadId && isHouseThreadId(threadId)) {
+      return handleHouseChatPost(db, {
+        threadId,
+        userId: user.id,
+        email: senderEmail,
+        fromName,
+        text: storedText,
+        hasAttachments: attachmentUrls.length > 0,
+        // Opaque on purpose: every housemate reads this id, and it must not carry the poster's account id.
+        messageId: houseReplyMessageId(user.id, replyMessageId || sendId || crypto.randomUUID()),
+      });
+    }
 
     // Resolving the thread authorizes the sender against it but writes NOTHING
     // yet: the recipient-scope gate below can still refuse this send with a 403,

@@ -1,3 +1,4 @@
+import { isHouseInboxThread } from "@/lib/house-thread-id";
 import {
   RESIDENT_AGENT_THREAD_TYPE,
   canonicalResidentAgentThreadId,
@@ -33,7 +34,9 @@ export function isPropLaneAssistantInboxThread(thread: PersistedInboxThread): bo
  * SMS mirror.
  */
 export function isTeamInboxThread(thread: Pick<PersistedInboxThread, "id"> & { threadType?: string | null }): boolean {
-  return thread.threadType === "team" || thread.id.startsWith("team-thread:");
+  // A house chat is the same kind of shared, people-to-people, in-app-only conversation (no counterparty to
+  // email or text, never an AI draft), so every surface that asks "is this the team's chat?" answers it alike.
+  return thread.threadType === "team" || thread.id.startsWith("team-thread:") || isHouseInboxThread(thread);
 }
 
 /** True when this list row is the canonical PropLane Assistant thread (not a person the assistant spoke in). */

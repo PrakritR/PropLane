@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { syncHouseGroupForProperty } from "@/lib/house-groups/manager.server";
+import { syncHouseChatForPropertyId } from "@/lib/house-chat/sync.server";
 import {
   amendLeaseMoveOutDate,
   checkMoveOutAvailabilityForLease,
@@ -107,6 +108,8 @@ export async function POST(req: NextRequest) {
     if (result.direction === "decrease" && movedOutProperty) {
       after(async () => {
         await syncHouseGroupForProperty(db, movedOutProperty);
+        // The in-app house chat drops the leaver and their one-on-one conversation moves to Archived.
+        await syncHouseChatForPropertyId(db, movedOutProperty);
       });
     }
     return NextResponse.json({
