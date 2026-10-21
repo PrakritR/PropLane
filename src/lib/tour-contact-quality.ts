@@ -1,5 +1,5 @@
 import { normalizePhoneE164 } from "@/lib/communication-other-recipients";
-import { validateEmail } from "@/app/(public)/rent/apply/apply-validation";
+import { validateEmail } from "@/app/(rent)/rent/apply/apply-validation";
 
 export type TourContactFields = {
   name: string;

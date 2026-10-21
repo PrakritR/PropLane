@@ -15,9 +15,9 @@ describe("auth shell wears the homepage look (concept A)", () => {
     expect(shell).not.toContain("siteDisplayFont");
   });
 
-  it("reads the PropLane number on the server and never hard-codes one", () => {
-    expect(shell).toContain("getPublicTextingConfig");
-    expect(panel).toContain("phone: string | null");
+  it("never carries the PropLane number (the website channel; only the homepage shows the line)", () => {
+    expect(shell).not.toContain("getPublicTextingConfig");
+    expect(panel).not.toContain("phone: string | null");
     expect(panel).not.toMatch(/\(\d{3}\)\s?\d{3}-\d{4}|\+1\d{10}/);
   });
 

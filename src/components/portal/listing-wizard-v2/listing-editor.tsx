@@ -25,7 +25,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { WorkspaceFileCard, WorkspaceHeaderUploadPresent, type WorkspaceHeaderUploadProps } from "@/components/portal/add-workspace/upload-action";
 import { Input, Textarea } from "@/components/ui/input";
-import { validateStateAbbrev } from "@/app/(public)/rent/apply/apply-validation";
+import { validateStateAbbrev } from "@/app/(rent)/rent/apply/apply-validation";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { BlockedDatesSection } from "@/components/portal/listing-room-editor/blocked-dates-section";
 import { RoomBathroomFields } from "@/components/portal/listing-room-editor/room-bathroom-fields";

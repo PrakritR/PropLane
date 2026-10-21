@@ -12,6 +12,12 @@
 import type { OpenResidentSlot } from "@/lib/rental-application/room-occupancy";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
 
+/** A stored price is often already "$175.00": show it once, never "$$175.00". */
+export function withDollar(value: string | number): string {
+  const text = String(value).trim();
+  return text.startsWith("$") ? text : `$${text}`;
+}
+
 export type ApplicationResidentSlotPickerProps = {
   /** From `openResidentSlots` — one entry per slot, ordered. */
   slots: OpenResidentSlot[];
@@ -71,10 +77,10 @@ export function ApplicationResidentSlotPicker({
                 Bed {String.fromCharCode(64 + slot.slot)} · {rentLabel}
               </span>
               {slot.price.utilitiesEstimate ? (
-                <span className="text-muted"> · +${slot.price.utilitiesEstimate} utilities</span>
+                <span className="text-muted"> · +{withDollar(slot.price.utilitiesEstimate)} utilities</span>
               ) : null}
               {slot.price.securityDeposit ? (
-                <span className="text-muted"> · ${slot.price.securityDeposit} deposit</span>
+                <span className="text-muted"> · {withDollar(slot.price.securityDeposit)} deposit</span>
               ) : null}
             </span>
             <span className={`shrink-0 text-xs font-semibold ${taken ? "text-muted" : "text-emerald-600"}`}>

@@ -128,10 +128,12 @@ export function ResidentProfilePanel({
           .reverse()
           .find((row) => row.email?.trim().toLowerCase() === normalizedEmail);
 
+        const metaName = (authUser?.user?.user_metadata as Record<string, unknown> | undefined)?.full_name;
         const resolvedName =
           profile?.full_name?.trim() ||
           matchingApplication?.application?.fullLegalName?.trim() ||
           matchingApplication?.name?.trim() ||
+          (typeof metaName === "string" ? metaName.trim() : "") ||
           "";
         const resolvedPhone =
           profile?.phone?.trim() ||

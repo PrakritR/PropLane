@@ -79,9 +79,13 @@ export async function POST(req: Request) {
     // Best-effort: the account exists either way, so a failed profile write
     // must not fail the signup. Mirrors manager-register, which writes the same
     // column after creating the user.
+    // No profile row exists yet for a brand-new login (the role step creates it, and `profiles.role` is not null), so
+    // this write is a no-op until then. The name and number live in auth metadata above; the phone gate prefills the
+    // number from there and `ensureSignedInResidentAccount` writes both onto the profile when the role is provisioned.
     const newUserId = created?.user?.id;
-    if (phone && newUserId) {
-      await supabase.from("profiles").update({ phone }).eq("id", newUserId);
+    const patch = { ...(phone ? { phone } : {}), ...(fullName ? { full_name: fullName } : {}) };
+    if (newUserId && Object.keys(patch).length > 0) {
+      await supabase.from("profiles").update(patch).eq("id", newUserId);
     }
 
     return NextResponse.json({ ok: true, existingAccount: false });

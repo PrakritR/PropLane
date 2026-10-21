@@ -53,7 +53,7 @@ function randomGroupIdSuffix(): string {
 /**
  * Generate a shareable Group ID for the first applicant of a group application.
  * Format `PROPLANE-XXXXXXXX` — satisfies `validateAxisGroupId`
- * (prefix + length ≥ 12) in `../../app/(public)/rent/apply/apply-validation`.
+ * (prefix + length ≥ 12) in `../../app/(rent)/rent/apply/apply-validation`.
  */
 export function makeApplicationGroupId(): string {
   return `${GROUP_ID_PREFIX}${randomGroupIdSuffix()}`;

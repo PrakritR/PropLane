@@ -87,7 +87,7 @@ describe("listing page structured data", () => {
     expect(data.offers.availability).toBe("https://schema.org/InStock");
     expect(data.address.postalCode).toBe("98105");
     expect(text).not.toMatch(/5551234567|example\.com|u-secret/);
-    const src = readFileSync("src/app/(public)/rent/listings/[id]/page.tsx", "utf8");
+    const src = readFileSync("src/app/(rent)/rent/listings/[id]/page.tsx", "utf8");
     expect(src).toContain('type="application/ld+json"');
   });
 });

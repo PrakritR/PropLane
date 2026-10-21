@@ -19,7 +19,7 @@ import { linkedFormFeeOwed, resolveUnresolvedLinkedFormFee } from "@/lib/linked-
 import { resolveCosignerTemplateForApplication } from "@/lib/rental-application/cosigner-template.server";
 import { listingCustomApplicationFields, validateCustomFieldAnswers } from "@/lib/rental-application/custom-fields";
 import type { RentalCustomFieldAnswer } from "@/lib/rental-application/types";
-import { validateDateRequired, validateEmail, validateFullName, validatePhone10, validateSsn } from "@/app/(public)/rent/apply/apply-validation";
+import { validateDateRequired, validateEmail, validateFullName, validatePhone10, validateSsn } from "@/app/(rent)/rent/apply/apply-validation";
 import { loadApplicantAccountIdentity } from "@/lib/rental-application/applicant-identity.server";
 import { isWizardFormFieldEnabled, isWizardFormFieldRequired } from "@/lib/rental-application/application-field-catalog";
 

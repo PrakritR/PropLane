@@ -45,6 +45,13 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
 const BUNDLE_FACT_ICONS = { rooms: BedDouble, price: DollarSign, stay: CalendarDays } as const;
 
+/** Scrolls to the visible short-stay card. A class/data hook, not an id: the listing renders in more than one shell, and a duplicate id made the jump land on a hidden copy. */
+function scrollToShortStayCard() {
+  const cards = Array.from(document.querySelectorAll<HTMLElement>("[data-short-stay-card]"));
+  const visible = cards.find((card) => card.getClientRects().length > 0) ?? cards[0];
+  visible?.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
 function formatBoldSegments(text: string) {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
   return parts.map((part, i) => {
@@ -213,7 +220,7 @@ function PhoneDock({ property, newTab }: { property: MockProperty; newTab: boole
             type="button"
             className="ps-btn ps-btn-line"
             data-attr="listing-sticky-request"
-            onClick={() => document.getElementById("short-stay-card")?.scrollIntoView({ block: "start", behavior: "smooth" })}
+            onClick={() => scrollToShortStayCard()}
           >
             Request to book
           </button>
@@ -259,7 +266,7 @@ function StickyBar({
       type="button"
       className={`ps-btn ps-btn-blue ${compact}`}
       data-attr="listing-sticky-request"
-      onClick={() => document.getElementById("short-stay-card")?.scrollIntoView({ block: "start", behavior: "smooth" })}
+      onClick={() => scrollToShortStayCard()}
     >
       Request to book
     </button>
@@ -593,7 +600,7 @@ function ListingDetailBody({
             ) : null}
 
             {/* Phone: the pickers (and short-stay booking) in the page, between the title and the sections. */}
-            <div className="mb-10 empty:hidden lg:hidden @min-[900px]:hidden" id="short-stay-card" data-attr="listing-phone-price-card">
+            <div className="mb-10 empty:hidden lg:hidden @min-[900px]:hidden" data-short-stay-card data-attr="listing-phone-price-card">
               <ListingPriceCard property={property} rich={rich} newTab={embeddedPreview} variant="inline" showActions={!phoneDock} />
             </div>
             <div className="mb-10 hidden lg:block @min-[900px]:hidden" data-listing-price-card-stack>

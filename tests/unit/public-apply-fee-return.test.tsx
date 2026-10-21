@@ -20,7 +20,7 @@ vi.mock("@/lib/property-application-template-sync", () => ({ propertyAcceptingOn
 vi.mock("@/components/marketing/public-apply-account-prompt", () => ({ PublicApplyAccountPrompt: () => <div>Account required</div> }));
 vi.mock("@/components/marketing/signed-in-resident-account-prompt", () => ({ SignedInResidentAccountPrompt: () => <div>Resident role required</div> }));
 
-import { PublicApplyClient } from "@/app/(public)/rent/apply/public-apply-client";
+import { PublicApplyClient } from "@/app/(rent)/rent/apply/public-apply-client";
 import { ApplicationFeeReturnPanel } from "@/components/marketing/application-fee-return-panel";
 
 function response(body: unknown, status = 200) {

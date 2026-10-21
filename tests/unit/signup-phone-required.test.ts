@@ -32,7 +32,7 @@ describe("website sign-up collects the phone", () => {
   it("Google / Apple sign-ups land on the portal gate, which sends an unverified account to verify-phone", () => {
     const access = read("src/lib/auth/portal-access.ts");
     expect(access).toContain("needsPhoneVerification");
-    expect(access).toContain('redirect("/auth/verify-phone")');
+    expect(access).toContain("redirect(phoneGateHref(requested))");
     // The gate is not shared-mode only any more.
     const gate = read("src/lib/auth/phone-auth.server.ts");
     expect(gate).toContain("loadPhoneRequired");

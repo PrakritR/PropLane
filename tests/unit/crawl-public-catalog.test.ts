@@ -43,7 +43,7 @@ describe("the crawl catalog is read once per hour, not once per URL", () => {
     const { resetCrawlPublicListingsCache } = await import("@/lib/seo/public-catalog.server");
     resetCrawlPublicListingsCache();
     const sitemap = (await import("@/app/sitemap")).default;
-    const page = (await import("@/app/(public)/rent/listings/[id]/page")).default;
+    const page = (await import("@/app/(rent)/rent/listings/[id]/page")).default;
 
     const entries = await sitemap();
     expect(entries.some((e) => e.url.endsWith("/rent/listings/listing-1"))).toBe(true);

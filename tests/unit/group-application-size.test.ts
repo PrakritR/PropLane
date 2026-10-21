@@ -11,7 +11,7 @@
  *     size, so with no value there is nothing to split by.
  */
 import { describe, expect, it } from "vitest";
-import { validateGroupSize } from "@/app/(public)/rent/apply/apply-validation";
+import { validateGroupSize } from "@/app/(rent)/rent/apply/apply-validation";
 import { buildApplicationGroups } from "@/lib/rental-application/application-groups";
 
 describe("validateGroupSize", () => {

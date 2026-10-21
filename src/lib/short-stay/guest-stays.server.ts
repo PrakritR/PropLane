@@ -64,6 +64,7 @@ import {
   shortStayRoomNightly,
   validateShortStayDates,
 } from "@/lib/short-stay-request";
+import { resolveProfileFullName } from "@/lib/auth/profile-name.server";
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 
@@ -324,7 +325,7 @@ export async function bookGuestStays(
 
   // The guest is who the session says: name, mobile and login address come from the profile.
   const { data: profile } = await db.from("profiles").select("full_name, email, phone, phone_verified_at").eq("id", input.userId).maybeSingle();
-  const name = String(profile?.full_name ?? "").trim() || "Guest";
+  const name = (await resolveProfileFullName(db, input.userId, profile?.full_name)) || "Guest";
   const email = String(profile?.email ?? "").trim().toLowerCase();
   const phone = normalizeE164(String(profile?.phone ?? "")) ?? "";
   // Settings lets a resident retype this number (and clears the verification with it), so it stands

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CosignerApplyFlow } from "@/app/(public)/rent/apply/cosigner-flow";
+import { CosignerApplyFlow } from "@/app/(rent)/rent/apply/cosigner-flow";
 import { applicationConfigForVariant } from "@/lib/rental-application/application-field-catalog";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 

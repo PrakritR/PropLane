@@ -47,7 +47,10 @@ export async function readPhoneIdentity(db: SupabaseClient, userId: string) {
   if (auth.error || !auth.data.user) throw new Error(PHONE_AUTH_ERROR);
   const authPhone = auth.data.user.phone ? normalizeE164(`+${auth.data.user.phone.replace(/^\+/, "")}`) : null;
   if (authPhone && auth.data.user.phone_confirmed_at) return { phone: authPhone, verified: true };
-  return { phone, verified: false };
+  // Not verified: show the number typed at signup (auth metadata, since a roleless login has no profile row yet) so the
+  // verify screen is prefilled. It proves nothing - only the code does - and nothing else here reads an unverified phone.
+  const typedAtSignup = normalizeE164(typeof auth.data.user.user_metadata?.phone === "string" ? auth.data.user.user_metadata.phone : "");
+  return { phone: phone ?? typedAtSignup, verified: false };
 }
 
 /**

@@ -17,7 +17,7 @@ const wizard = readFileSync(
   "utf8",
 );
 const applyClient = readFileSync(
-  path.join(process.cwd(), "src/app/(public)/rent/apply/public-apply-client.tsx"),
+  path.join(process.cwd(), "src/app/(rent)/rent/apply/public-apply-client.tsx"),
   "utf8",
 );
 

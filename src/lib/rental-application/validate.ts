@@ -14,7 +14,7 @@ import {
   validateSsn,
   validateStateAbbrev,
   validateZip,
-} from "@/app/(public)/rent/apply/apply-validation";
+} from "@/app/(rent)/rent/apply/apply-validation";
 import type { MockProperty } from "@/data/types";
 import {
   isEntireHomeListing,

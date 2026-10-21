@@ -1,5 +1,5 @@
 import type { MockProperty } from "@/data/types";
-import { US_STATE_ABBREVS } from "@/app/(public)/rent/apply/apply-validation";
+import { US_STATE_ABBREVS } from "@/app/(rent)/rent/apply/apply-validation";
 
 export type GeocodeCoords = { lat: number; lng: number };
 

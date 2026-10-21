@@ -105,7 +105,7 @@ describe("a /rent listing is the web channel", () => {
 
   it("keeps the source free of text links: no sms:/tel:, no prefilled drafts, no public texting number", () => {
     const files = [
-      ...walk("src/app/(public)/rent"),
+      ...walk("src/app/(rent)/rent"),
       ...[
         "application-unavailable-contact-manager",
         "public-listing-page-client",

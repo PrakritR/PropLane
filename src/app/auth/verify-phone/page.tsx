@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { AuthCard } from "@/components/auth/auth-card";
 import { PhoneAuthForm } from "@/components/auth/phone-auth-form";
+import { safeNextPath } from "@/lib/auth/safe-next-path";
 import { oauthContinuePath } from "@/lib/auth/oauth-redirect";
 import { phoneAuthEnabled, phoneVerificationEnabled, readPhoneIdentity } from "@/lib/auth/phone-auth.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -9,7 +10,9 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 export default async function VerifyPhonePage({ searchParams }: {
   searchParams: Promise<{ next?: string }>;
 }) {
-  const { next = "" } = await searchParams;
+  const { next: rawNext = "" } = await searchParams;
+  // A destination is only ever a same-origin relative path, never an off-site URL.
+  const next = safeNextPath(rawNext) ?? "";
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect(`/auth/sign-in?next=${encodeURIComponent(next || "/auth/continue")}`);

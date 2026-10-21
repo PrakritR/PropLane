@@ -10,6 +10,7 @@ import {
   type GuestBookBody,
 } from "@/lib/short-stay/guest-stays.server";
 import { checkStayApplication, type StayApplicationAnswers } from "@/lib/short-stay/stay-application";
+import { resolveProfileFullName } from "@/lib/auth/profile-name.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -33,7 +34,7 @@ async function requireResident() {
     email: String(profile?.email ?? user.email ?? "").trim().toLowerCase(),
     phone: normalizeE164(String(profile?.phone ?? "")) ?? "",
     phoneVerified: Boolean(profile?.phone_verified_at),
-    name: String(profile?.full_name ?? "").trim(),
+    name: await resolveProfileFullName(db, user.id, profile?.full_name),
   };
 }
 

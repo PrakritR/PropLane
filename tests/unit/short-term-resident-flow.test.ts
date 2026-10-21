@@ -72,7 +72,7 @@ describe("listing apply doors", () => {
     expect(source).not.toContain("Apply long term");
     expect(readFileSync("src/lib/listing-prospect-cta-labels.ts", "utf8")).not.toContain("export function listingTermCtas");
     expect(readFileSync("src/components/marketing/listing-contact-card.tsx", "utf8")).not.toContain("export function ListingContactCard");
-    const stay = readFileSync("src/app/(public)/rent/stay/page.tsx", "utf8");
+    const stay = readFileSync("src/app/(rent)/rent/stay/page.tsx", "utf8");
     expect(stay).toContain("redirect(");
     expect(stay).toContain('rentalType: "short_term"');
   });

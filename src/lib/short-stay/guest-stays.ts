@@ -22,6 +22,15 @@ export function isShortStayRequestSource(source: unknown): boolean {
   return typeof source === "string" && SHORT_STAY_REQUEST_SOURCES.includes(source);
 }
 
+/** What a manager reads for a stay's recorded source: the stored token is never shown raw. */
+export function shortStaySourceLabel(source: unknown): string {
+  const value = typeof source === "string" ? source.trim() : "";
+  if (value === GUEST_PORTAL_SHORT_STAY_SOURCE) return "PropLane portal";
+  if (value === SMS_SHORT_STAY_SOURCE) return "Text";
+  if (value === PUBLIC_SHORT_STAY_SOURCE) return "Public request";
+  return value;
+}
+
 /** A confirmed stay that is not paid frees its nights this many hours after it was confirmed. */
 export const SHORT_STAY_PAY_HOURS = 24;
 

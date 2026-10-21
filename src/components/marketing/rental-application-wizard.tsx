@@ -1346,13 +1346,18 @@ function RentalApplicationWizardInner({
         // Entire-home listings apply for the whole place — never pre-select a
         // bedroom, even when the listing page passed a room id for display.
         const entireHome = isEntireHomeProperty(pid);
-        let room1 = entireHome ? pid : opts[0]?.value ?? "";
+        // Only a room the applicant (or the link) actually named is pre-selected. This used to default to the first
+        // room of a by-room listing, so the applicant started on a room they never chose, and a reload put it back
+        // over the room they had picked. A whole-place listing with a single unit has nothing to choose.
+        let room1 = entireHome ? pid : !isPropertyRentedByRoom(pid) && opts.length <= 1 ? opts[0]?.value ?? "" : "";
         const lr = listingRoomId.trim();
         if (lr && !entireHome) {
           const composite = `${pid}${LISTING_ROOM_CHOICE_SEP}${lr}`;
           const hit = opts.find((o) => o.value === composite);
           if (hit) room1 = hit.value;
         }
+        // The applicant's own saved pick for THIS property stays: a link's room never overwrites it on reload.
+        if (prev.propertyId.trim() === pid && prev.roomChoice1.trim()) room1 = "";
 
         // "Apply for this bundle" — pre-select the bundle when it matches a
         // manager-defined bundle on this listing. A bundle application on a
@@ -1782,14 +1787,19 @@ function RentalApplicationWizardInner({
 
   // The card form on the last step opens only once every answer and the signature would pass the submit
   // gate: a fee paid for an application the server then refuses has to be refunded by hand.
-  const paymentReady = useMemo(() => {
-    if (step !== RENTAL_WIZARD_STEP_COUNT) return true;
+  const paymentGate = useMemo((): { ready: boolean; reason: string | null } => {
+    if (step !== RENTAL_WIZARD_STEP_COUNT) return { ready: true, reason: null };
     const storedProperty = form.propertyId.trim() ? getPropertyById(form.propertyId) : undefined;
     const property = storedProperty && templatePreview && templatePreviewSubmission
       ? { ...storedProperty, listingSubmission: { ...templatePreviewSubmission, propertyApplicationTemplates: [] } }
       : storedProperty;
-    return validateResidentApplicationSubmit({ application: form, property, inProgress: false }).ok;
+    const result = validateResidentApplicationSubmit({ application: form, property, inProgress: false });
+    if (result.ok) return { ready: true, reason: null };
+    // A room or bed problem is not the signature: say so, instead of "Finish the signature above".
+    const roomProblem = result.fieldErrors?.roomChoice1;
+    return { ready: false, reason: roomProblem ? `${roomProblem.replace(/\.$/, "")}. Go back to Lease to fix it.` : null };
   }, [form, step, templatePreview, templatePreviewSubmission, extrasTick]);
+  const paymentReady = paymentGate.ready;
 
   const applicationFeeGate = useMemo(() => {
     void chargeTick;
@@ -2942,6 +2952,7 @@ function RentalApplicationWizardInner({
                 }}
                 applyReturnPath={wizardApplyPath}
                 paymentReady={paymentReady}
+                paymentBlockedReason={paymentGate.reason}
                 occupancySyncEpoch={occupancySyncEpoch}
                 showAvailabilityWarnings={showAvailabilityWarnings}
                 setPhone={setPhone}
