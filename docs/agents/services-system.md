@@ -38,6 +38,15 @@ custom row an `appliesTo` (absent = both). The assistant reads them through
 the shared text; a long-term prospect gets the shared text only (short-term text is never mixed in); an
 unknown stay gets both, labelled. `get_listing_details` takes an optional `stay` for this.
 
+## A service belongs to the active workspace, not to the viewer (wsiso-1020)
+
+One account can own several workspaces, so "the rows this manager owns" is not "the rows in this workspace".
+Every manager-side service reader (dashboard Services needed, Services list, sidebar badge, Calendar, Tasks)
+goes through `moduleRowVisibleToPortalUser`, which checks the active workspace FIRST
+(`rowInActiveWorkspace`: either house column, a houseless row only in the owned default workspace) and only then
+the viewer's own rows or a co-manager grant. A browser cache or sync TTL keyed on the viewer alone (move-in forms,
+document-expiry summary) is keyed on the workspace too. Test: `tests/unit/workspace-isolation-services-1020.test.tsx`.
+
 ## One vocabulary (services-vendors-1004)
 
 Every service-REQUEST list - the manager Services page, a vendor record's Services tab, the resident

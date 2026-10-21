@@ -8,6 +8,7 @@
 import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadBlobFile } from "@/lib/portal-document-download";
+import { selectedWorkspaceId } from "@/lib/workspaces/selection";
 import { fitImageForUpload } from "./fit-image";
 import type { MoveInFormAnswer, MoveInFormBlocks, MoveInFormQuestion, MoveInFormRecord, MoveInFormSummary, MoveInFormTemplate } from "./types";
 
@@ -54,7 +55,9 @@ const lists = new Map<string, ListEntry>();
 /** Keyed on viewer + portal + filters so two different lists never share a cached answer. */
 export async function loadMoveInForms(userId: string, portal: MoveInFormPortal, query: ListQuery = {}, force = false): Promise<MoveInFormList> {
   if (isDemoModeActive()) return { forms: [], unread: 0 };
-  const key = JSON.stringify([userId, portal, query.status ?? "", query.propertyId ?? "", query.applicationId ?? ""]);
+  // The workspace is part of the answer (the server narrows the list to the active workspace's
+  // houses), so it is part of the key: a cached list from another workspace is never served.
+  const key = JSON.stringify([userId, portal, selectedWorkspaceId() ?? "", query.status ?? "", query.propertyId ?? "", query.applicationId ?? ""]);
   let entry = lists.get(key);
   if (!entry) {
     if (lists.size > 50) lists.clear();

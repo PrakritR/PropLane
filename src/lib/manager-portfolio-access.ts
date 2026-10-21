@@ -25,6 +25,7 @@ import { readCachedAccountLinkInvites } from "@/lib/portal-data-store";
 import {
   activeWorkspacePropertyOptions,
   ownedWorkspacePropertyIds,
+  rowInActiveWorkspace,
   workspaceContainsProperty,
 } from "@/lib/workspaces/selection";
 import {
@@ -226,6 +227,11 @@ export function moduleRowVisibleToPortalUser(
   module: CoManagerPermissionId,
 ): boolean {
   if (!userId) return false;
+  // The active workspace comes first: one account can own several workspaces, and a row
+  // attributed to this manager is still only that workspace's when its house is held there.
+  // Without this the dashboard "Services needed" list, the Services list and the sidebar badge
+  // showed another workspace's services (workspace isolation, Oct 20).
+  if (!rowInActiveWorkspace([row.propertyId, row.assignedPropertyId])) return false;
   // A row attributed to this manager is always theirs — even when its property
   // is missing from the local owned/linked cache (deleted/archived property, or
   // cache not hydrated yet on first paint). The server already scoped the list.

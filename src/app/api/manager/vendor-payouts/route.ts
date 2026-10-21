@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
+import { resolveManagerWorkspaceRowScope, rowInWorkspaceScope } from "@/lib/auth/co-manager-module-scope";
 
 export const runtime = "nodejs";
 
@@ -45,7 +46,7 @@ export async function GET() {
       .limit(500);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    const rows = (payouts ?? []) as {
+    let rows = (payouts ?? []) as {
       id: string;
       vendor_user_id: string;
       work_order_id: string;
@@ -54,9 +55,41 @@ export async function GET() {
       created_at: string;
     }[];
 
-    const vendorUserIds = [...new Set(rows.map((r) => r.vendor_user_id).filter(Boolean))];
+    // The payout report belongs to the ACTIVE workspace: a payout is placed by the house its
+    // work order names, never by the paying manager alone (one account can own several
+    // workspaces). A payout whose work order cannot be placed is left out while narrowed.
+    const workspaceScope = await resolveManagerWorkspaceRowScope(db, managerUserId);
     const workOrderIds = [...new Set(rows.map((r) => r.work_order_id).filter(Boolean))];
+    const referenceByWorkOrderId = new Map<string, string | null>();
+    const workOrderInScope = new Map<string, boolean>();
+    if (workOrderIds.length > 0) {
+      const { data: woRows, error: woError } = await db
+        .from("portal_work_order_records")
+        .select("id, property_id, assigned_property_id, row_data")
+        .in("id", workOrderIds);
+      if (woError) return NextResponse.json({ error: woError.message }, { status: 500 });
+      for (const r of (woRows ?? []) as {
+        id: string;
+        property_id: string | null;
+        assigned_property_id: string | null;
+        row_data: unknown;
+      }[]) {
+        const rowData = r.row_data as { reference?: string; title?: string } | null;
+        referenceByWorkOrderId.set(r.id, rowData?.reference || rowData?.title || null);
+        const named = [r.property_id, r.assigned_property_id].map((id) => (id ?? "").trim()).filter(Boolean);
+        workOrderInScope.set(
+          r.id,
+          named.length === 0
+            ? rowInWorkspaceScope(null, workspaceScope)
+            : named.some((id) => rowInWorkspaceScope(id, workspaceScope)),
+        );
+      }
+    }
+    if (workspaceScope.propertyIds !== null) {
+      rows = rows.filter((r) => workOrderInScope.get(r.work_order_id) === true);
+    }
 
+    const vendorUserIds = [...new Set(rows.map((r) => r.vendor_user_id).filter(Boolean))];
     const vendorNameByUserId = new Map<string, string>();
     if (vendorUserIds.length > 0) {
       const { data: vendorRows } = await db
@@ -68,18 +101,6 @@ export async function GET() {
         if (!r.vendor_user_id) continue;
         const name = (r.row_data as ManagerVendorRow | null)?.name;
         if (name) vendorNameByUserId.set(r.vendor_user_id, name);
-      }
-    }
-
-    const referenceByWorkOrderId = new Map<string, string | null>();
-    if (workOrderIds.length > 0) {
-      const { data: woRows } = await db
-        .from("portal_work_order_records")
-        .select("id, row_data")
-        .in("id", workOrderIds);
-      for (const r of (woRows ?? []) as { id: string; row_data: unknown }[]) {
-        const rowData = r.row_data as { reference?: string; title?: string } | null;
-        referenceByWorkOrderId.set(r.id, rowData?.reference || rowData?.title || null);
       }
     }
 

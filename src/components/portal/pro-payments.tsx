@@ -1,5 +1,6 @@
 "use client";
 
+import { rowInActiveWorkspace, workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { airbnbPayoutLedgerRow, isAirbnbPayoutLedgerRow } from "@/lib/channel-calendar/airbnb-payouts";
 import { fetchAirbnbPayouts, type AirbnbPayoutRow } from "@/lib/channel-calendar/client";
 import { useEffect, useMemo, useState, useCallback, type ComponentProps } from "react";
@@ -607,8 +608,14 @@ export function ManagerPayments({
     const vendorNameById = new Map([...vendorById.entries()].map(([id, vendor]) => [id, vendor.name]));
     return buildManagerOutgoingPaymentRows({
       managerUserId: userId,
-      expenses: readManagerOutgoingExpenses(),
-      workOrders: readManagerWorkOrderRows(),
+      // Narrowed to the active workspace like the dashboard's expenses: both stores cache what the
+      // account can read across every workspace it owns. An expense naming no house is account-level.
+      expenses: readManagerOutgoingExpenses().filter(
+        (expense) => !expense.propertyId?.trim() || workspaceContainsProperty(expense.propertyId.trim()),
+      ),
+      workOrders: readManagerWorkOrderRows().filter((workOrder) =>
+        rowInActiveWorkspace([workOrder.propertyId, workOrder.assignedPropertyId]),
+      ),
       propertyLabelById,
       vendorNameById,
       vendorById,
