@@ -261,6 +261,9 @@ closed: with no `platform_service_settings` row there is no way to tell a client
   record, the rest are a failure to investigate - and the day's row is updated rather than skipped, so `reason` ends up
   naming where the refusal was felt (a checkout, a frozen hold). Nothing is only logged.
 - Rent already held for a manager of record before the policy existed is released to that manager without the fee once the policy exists.
+- Pinned by `tests/unit/evidence-managed-fee-automatic.test.ts` (the fee put in place by a resident's own checkout, a
+  rate change against rent already taken, the dated settle, the hand-authored draft left alone, the Pacific day) and
+  `tests/unit/owner-payouts-no-signing.test.ts` (no signing step, no Send for signature, no sign route anywhere).
 
 ## Application and form fees (decision)
 
