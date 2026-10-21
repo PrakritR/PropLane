@@ -138,7 +138,8 @@ vendors from their own balance through the existing rails.
 
 ## Owner experience
 
-Finances › Owner payouts in the Property portal, `/portal/financials/owner-payouts` (owner of record of a managed workspace; the tab is hidden on a 403): Balance, Available to withdraw, Pending, History; statement by
+Finances › Owner payouts in the Property portal, `/portal/financials/owner-payouts` (owner of record of a managed workspace; the tab is hidden on a 403): Balance, Available to withdraw, Pending, **Management fee** (the rate in force, read from the
+policy the page already loaded), History; statement by
 period (rent collected gross, PropLane fee, vendor charges each with job link, refunds and adjustments, net to owner,
 withdrawals, ending balance), PDF through the existing PDF path, Withdraw. Monthly statement on the 1st (Pacific) by email and
 text. On the PropLane line: "how's my house", "balance", "statement", Y/N repair approvals (pre-routing owner lane in the
