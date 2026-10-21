@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { Building2 } from "lucide-react";
+import { PortalEntryRow } from "@/components/portal/portal-entry-row";
 import { currentFeeLine, feeOutcomeToast, groupServiceByCity, serviceRowFacts, type ServiceRow } from "@/components/portal/admin-service-panel";
 import { serviceWorkspaceFinancesHref } from "@/lib/service/service-links";
+
+vi.mock("next/navigation", () => ({ usePathname: () => "/portal/admin/accounts", useSearchParams: () => new URLSearchParams() }));
 
 const row = (over: Partial<ServiceRow>): ServiceRow => ({
   id: "1",
@@ -34,15 +40,40 @@ describe("Service list sections", () => {
     ]);
   });
 
-  it("row facts: houses, the number it texts from, team, the management fee", () => {
+  it("row facts: houses, the management fee, the number it texts from, then team", () => {
     expect(serviceRowFacts(row({ houseCount: 2, workNumber: "+12065550100", teamCount: 3, feePercent: 10 })).map((f) => (typeof f === "string" ? f : f.label))).toEqual([
       "2 houses",
+      "10% fee",
       "+12065550100",
       "3 on team",
-      "10% fee",
     ]);
     expect(serviceRowFacts(row({ viewerRole: null })).map((f) => (typeof f === "string" ? f : f.label))).toContain("Not on team");
     expect(serviceRowFacts(row({})).map((f) => (typeof f === "string" ? f : f.label))).toContain("No fee yet");
+  });
+
+  // Review fix, Oct 20: a row draws only its first three facts, so asserting the helper's array is not enough —
+  // the fee has to survive into the rendered row, ahead of the team count.
+  it("the rendered row shows the rate in force", () => {
+    render(
+      <PortalEntryRow
+        tile={{ kind: "glyph", icon: Building2 }}
+        title="Ballard Service"
+        facts={serviceRowFacts(row({ houseCount: 2, workNumber: "+12065550100", teamCount: 3, feePercent: 10 }))}
+        onOpen={() => {}}
+      />,
+    );
+    const rendered = screen.getByRole("button", { name: /Ballard Service/ });
+    expect(rendered.textContent).toContain("10% fee");
+    expect(rendered.textContent).toContain("2 houses");
+    expect(rendered.textContent).toContain("+12065550100");
+    expect(rendered.textContent).not.toContain("3 on team");
+  });
+
+  it("the rendered row says so when no fee is in force yet", () => {
+    render(
+      <PortalEntryRow tile={{ kind: "glyph", icon: Building2 }} title="Fremont Service" facts={serviceRowFacts(row({}))} onOpen={() => {}} />,
+    );
+    expect(screen.getByRole("button", { name: /Fremont Service/ }).textContent).toContain("No fee yet");
   });
 
   // Review fix, Oct 20: a rate change is immediate, so the modal states the rate in force and nothing about a date,

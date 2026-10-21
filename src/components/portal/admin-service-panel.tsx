@@ -79,13 +79,17 @@ type State =
   | { status: "ready"; configured: boolean; rows: ServiceRow[] }
   | { status: "error"; message: string };
 
-/** The glyph facts on a service workspace row: houses, work number, team. */
+/**
+ * The glyph facts on a service workspace row: houses, the management fee, the work number. A row draws only its
+ * first three facts (`PortalEntryRow`), so the rate in force comes before the number and the team count rides last
+ * — it is already on the row's ⋯ > Team.
+ */
 export function serviceRowFacts(row: ServiceRow): PortalEntryRowFact[] {
   const facts: PortalEntryRowFact[] = [
     { icon: Home, label: `${row.houseCount} ${row.houseCount === 1 ? "house" : "houses"}`, srLabel: "Houses" },
+    { icon: Percent, label: feeFactLabel(row), srLabel: "Management fee" },
     { icon: Phone, label: row.workNumber ?? "No number", srLabel: "Work number" },
     { icon: Users, label: row.viewerRole ? `${row.teamCount} on team` : "Not on team", srLabel: "Team" },
-    { icon: Percent, label: feeFactLabel(row), srLabel: "Management fee" },
   ];
   return facts;
 }
@@ -120,8 +124,9 @@ async function post<T extends Record<string, unknown>>(body: Record<string, unkn
 
 /**
  * Admin > Accounts > Service: every workspace on PropLane Service (a flag on the workspace, whoever owns it), per
- * city. A row is name - city - houses - work number; the per-row menu opens the workspace in the property portal,
- * renames it and manages its team. The plug attaches an existing client workspace; the + creates a new one.
+ * city. A row is name - city - houses - management fee - work number; the per-row menu opens the workspace in the
+ * property portal, renames it, sets its fee and manages its team. The plug attaches an existing client workspace;
+ * the + creates a new one.
  */
 export function AdminServicePanel() {
   const { showToast } = useAppUi();
