@@ -60,7 +60,7 @@ describe("evidence · /sitemap.xml advertises every live listing", () => {
 
 describe("evidence · a listing page carries Accommodation JSON-LD", () => {
   it("emits the public facts and none of the manager's", async () => {
-    const page = (await import("@/app/(public)/rent/listings/[id]/page")).default;
+    const page = (await import("@/app/(rent)/rent/listings/[id]/page")).default;
     const tree = (await page({ params: Promise.resolve({ id: LISTING.id }) })) as {
       props: { children: { props?: { dangerouslySetInnerHTML?: { __html: string } } }[] };
     };
@@ -79,7 +79,7 @@ describe("evidence · a listing page carries Accommodation JSON-LD", () => {
   });
 
   it("renders without structured data when the catalog read fails", async () => {
-    const page = (await import("@/app/(public)/rent/listings/[id]/page")).default;
+    const page = (await import("@/app/(rent)/rent/listings/[id]/page")).default;
     const tree = (await page({ params: Promise.resolve({ id: "not-a-listing" }) })) as {
       props: { children: unknown[] };
     };

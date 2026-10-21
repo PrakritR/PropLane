@@ -19,8 +19,8 @@ import {
   applicationFeeReviewNote,
   applicationFeeWaiverExplanation,
 } from "@/lib/rental-application/application-fee-display";
-import { ApplyFieldRow } from "@/app/(public)/rent/apply/apply-field-row";
-import { GROUP_SIZE_MAX, GROUP_SIZE_MIN, normalizeGroupSize } from "@/app/(public)/rent/apply/apply-validation";
+import { ApplyFieldRow } from "@/app/(rent)/rent/apply/apply-field-row";
+import { GROUP_SIZE_MAX, GROUP_SIZE_MIN, normalizeGroupSize } from "@/app/(rent)/rent/apply/apply-validation";
 import {
   LEASE_TERM_CHOICES,
   SHORT_TERM_LEASE_TERM,
@@ -201,6 +201,8 @@ export type WizardStepsProps = {
    * application the server would then refuse.
    */
   paymentReady?: boolean;
+  /** Why the card form is closed when it is not the signature (a room or bed to fix); null means the signature. */
+  paymentBlockedReason?: string | null;
   /** Waiver-code entry (a named part of the fee step, not a buried field). */
   waiverCodeBusy?: boolean;
   waiverCodeError?: string | null;
@@ -751,6 +753,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     onApplyWaiverCode,
     applyReturnPath,
     paymentReady = true,
+    paymentBlockedReason = null,
     resolvedManagerUserId = "",
     onEnsureApplicationId,
     savedApplicationId = "",
@@ -2513,7 +2516,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
             // Payment opens once every answer and the signature above are valid, so a fee is never paid
             // for an application the server would then refuse to take.
             <div className="rounded-2xl border px-4 py-4 text-sm portal-banner-info" data-attr="application-fee-awaiting-signature">
-              Finish the signature above to pay the application fee.
+              {paymentBlockedReason ?? "Finish the signature above to pay the application fee."}
             </div>
           ) : mode !== "editor" && form.propertyId && form.email.includes("@") && managerUserIdForPay ? (
             // Inline (embedded) card payment for BOTH apply surfaces (public

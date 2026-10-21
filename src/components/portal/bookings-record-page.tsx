@@ -21,6 +21,7 @@ import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-date
 import type { StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { bookingConflictsFor, isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { bookingDatesLabel, bookingEntryKey, bookingLegacyEntryKey, bookingOpenTarget, bookingPlaceLine, bookingResidentHref, bookingSourceLabel, formatBookingStayRange } from "@/lib/channel-calendar/bookings-ui";
+import { shortStaySourceLabel } from "@/lib/short-stay/guest-stays";
 import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { bookingRateLabel, bookingRemovalActions, bookingStatusLabel } from "@/lib/channel-calendar/booking-presentation";
 import { airbnbOpenUrlForEntry } from "@/lib/channel-calendar/reservation-code";
@@ -100,7 +101,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
     if (action === "message") navigate(bookingRecordHref(basePath, bookingId, "communication"));
   };
   const place = bookingPlaceLine(entry.propertyLabel, entry.roomLabel);
-  const channelLabel = channel ? [bookingSourceLabel(entry.source, entry.channelLabel), entry.sourceUid].filter(Boolean).join(" · ") : sourceTarget ? "" : entry.stayDetails?.source || (entry.source === "block" ? "Direct" : bookingSourceLabel(entry.source, entry.channelLabel));
+  const channelLabel = channel ? [bookingSourceLabel(entry.source, entry.channelLabel), entry.sourceUid].filter(Boolean).join(" · ") : sourceTarget ? "" : shortStaySourceLabel(entry.stayDetails?.source) || (entry.source === "block" ? "Direct" : bookingSourceLabel(entry.source, entry.channelLabel));
   const stayDetailRows = (["linen", "baggage"] as const).flatMap((key) => (typeof entry.stayDetails?.[key] === "string" && entry.stayDetails[key] ? [[key, entry.stayDetails[key]] as const] : []));
   // Check-in and check-out are a date AND a time (the stay's own, else the property's defaults).
   const moments = entryMoments(entry, entryStayTimes(entry, propertyStayTimesFor(entry.propertyId)));

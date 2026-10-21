@@ -16,7 +16,7 @@ import { bookingCancelLabel, bookingRoomRate, canCancelBooking, canDeleteReserva
 import { stayMetaRefOf, type StayMeta } from "@/lib/channel-calendar/stay-meta";
 import { ROOM_DATE_BLOCKS_CHANGED } from "@/lib/channel-calendar/room-date-blocks";
 import { ROOM_BLOCK_KIND_CLOSED, roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
-import { isShortStayRequestSource } from "@/lib/short-stay/guest-stays";
+import { isShortStayRequestSource, shortStaySourceLabel } from "@/lib/short-stay/guest-stays";
 import { stayApplicationFacts } from "@/lib/short-stay/stay-application";
 import { stayTimeOptions } from "@/lib/bookings/stay-time-options";
 import { DEFAULT_PROPERTY_STAY_TIMES, normalizePropertyStayTimes, resolveStayTimes } from "@/lib/bookings/stay-times";
@@ -241,7 +241,7 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
         <label><span className={POPUP_FIELD_LABEL_CLASS}>Rate / {rateUnit}</span><Input type="number" min="0" step="0.01" disabled={locked || busy} value={rate} onChange={(event) => setRate(event.target.value)} /></label>
       </EditSection>
       <EditSection id="details" label="Stay details">
-        <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Source" dataAttr="select-booking-edit-source" disabled={locked || busy || decidable} value={details.source ?? "Direct"} onChange={(next) => setDetails({ ...details, source: next })} options={[...["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((value) => ({ value, label: value })), ...(isShortStayRequestSource(details.source) ? [{ value: details.source as string, label: details.source === "guest_portal" ? "Guest portal" : details.source === "sms_short_stay" ? "Text" : "Public request" }] : [])]} />
+        <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Source" dataAttr="select-booking-edit-source" disabled={locked || busy || decidable} value={details.source ?? "Direct"} onChange={(next) => setDetails({ ...details, source: next })} options={[...["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((value) => ({ value, label: value })), ...(isShortStayRequestSource(details.source) ? [{ value: details.source as string, label: shortStaySourceLabel(details.source) }] : [])]} />
         <label><span className={POPUP_FIELD_LABEL_CLASS}>Notes</span><Input disabled={lockedDetails || busy} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
         {(["linen", "baggage"] as const).map((key) => <FieldSingleSelect key={key} labelClassName={POPUP_FIELD_LABEL_CLASS} label={key === "linen" ? "Linen" : "Baggage"} dataAttr={`select-booking-edit-${key}`} disabled={lockedDetails || busy} value={details[key] ?? ""} onChange={(next) => setDetails({ ...details, [key]: next })} options={[{ value: "", label: "Not set" }, ...(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => ({ value, label: value }))]} />)}
         {metaOnly ? null : <>

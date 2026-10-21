@@ -45,7 +45,7 @@ const NOT_YET_SWEPT = new Set([
   "src/components/marketing/rental-wizard-steps.tsx",
   "src/components/marketing/tour-schedule-flow.tsx",
   "src/components/rental-application/custom-question-field.tsx",
-  "src/app/(public)/rent/apply/apply-field-row.tsx",
+  "src/app/(rent)/rent/apply/apply-field-row.tsx",
 ]);
 
 describe("no field label ends (optional)", () => {

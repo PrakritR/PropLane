@@ -75,6 +75,9 @@ export function ManagerLeases({
   const [updatedWindow, setUpdatedWindow] = useState<LeaseUpdatedWindow>("any");
   const [listSearch, setListSearch] = useState("");
   const [clientReady, setClientReady] = useState(false);
+  // False until the first server read of applications + leases settles: an empty tab before that is "loading", not
+  // "Nothing to review".
+  const [serverSynced, setServerSynced] = useState(false);
   const [addLeaseOpen, setAddLeaseOpen] = useState(false);
   // `Date.now()` cannot be called during render (react-hooks/purity) — a lazy
   // `useState` initializer is the established pattern here (pro-task-list.tsx).
@@ -90,7 +93,10 @@ export function ManagerLeases({
     void Promise.all([
       syncManagerApplicationsFromServer({ managerUserId: userId }),
       syncLeasePipelineFromServer(userId),
-    ]).then(on);
+    ])
+      .then(on)
+      .catch(() => undefined)
+      .finally(() => setServerSynced(true));
     const onAgentActions = () => {
       void syncLeasePipelineFromServer(userId, { force: true }).then(on);
     };
@@ -227,6 +233,7 @@ export function ManagerLeases({
       <>
         <ManagerLeasesPipelinePanel
           rows={rows}
+          loading={!clientReady || !authReady || !serverSynced}
           tab={tab}
           refreshKey={tick}
           managerUserId={userId}

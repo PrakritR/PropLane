@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { CosignerApplyFlow } from "@/app/(public)/rent/apply/cosigner-flow";
+import { CosignerApplyFlow } from "@/app/(rent)/rent/apply/cosigner-flow";
 import { Button } from "@/components/ui/button";
 import type { LinkedFormRequestView } from "@/lib/application-linked-form-requests";
 import { linkedFormFacts } from "@/lib/application-linked-form-requests";

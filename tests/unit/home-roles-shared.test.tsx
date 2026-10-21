@@ -22,7 +22,7 @@ describe("one shared list of the people who text PropLane (captain #27)", () => 
   });
 
   it("draws the auth panel's strip from it, names and short lines in order", () => {
-    const { container } = render(<AuthBrandPanel phone={null} />);
+    const { container } = render(<AuthBrandPanel />);
     const items = [...container.querySelectorAll(".auth-who > li")];
     expect(items.map((li) => li.querySelector("strong")?.textContent)).toEqual(LABELS);
     expect(items.map((li) => li.querySelector(".auth-who-line")?.textContent)).toEqual(HOME_ROLES.map((role) => role.caption));

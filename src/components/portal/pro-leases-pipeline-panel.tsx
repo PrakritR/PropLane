@@ -161,8 +161,11 @@ export function ManagerLeasesPipelinePanel({
   emptyCard,
   searchQuery = "",
   onClearSearch,
+  loading = false,
 }: {
   rows: LeasePipelineRow[];
+  /** The first server read has not settled: an empty list shows its loading state, never an empty-tab title. */
+  loading?: boolean;
   tab: ManagerLeaseTab;
   refreshKey: number;
   managerUserId?: string | null;
@@ -1035,6 +1038,7 @@ export function ManagerLeasesPipelinePanel({
       {leaseModals}
       <PortalRecordListSurface
         isEmpty={searchedRows.length === 0}
+        loading={loading && searchedRows.length === 0}
         emptyCard={
           searchHidesAll
             ? {

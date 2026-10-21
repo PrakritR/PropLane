@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizePortalRoles } from "@/lib/auth/portal-roles";
 import { primaryRoleWhenAddingResident } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
+import { normalizeE164 } from "@/lib/phone-e164";
 import {
   linkAllTourInquiriesForEmail,
   reconcileProspectInboxThreadsForResident,
@@ -21,12 +22,12 @@ export type EnsureSignedInResidentResult =
  */
 export async function ensureSignedInResidentAccount(
   service: SupabaseClient,
-  user: { id: string; email?: string | null },
+  user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> | null },
   options?: { contactEmail?: string | null; phone?: string | null },
 ): Promise<EnsureSignedInResidentResult> {
   const { data: existingProfile } = await service
     .from("profiles")
-    .select("role, email")
+    .select("role, email, full_name, phone")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -38,6 +39,13 @@ export async function ensureSignedInResidentAccount(
   const contactEmail =
     requestedContact && requestedContact === authEmail ? requestedContact : authEmail;
 
+  // The name and number typed at signup live only in auth metadata until a profile row exists (the role step
+  // creates it). Carry them over so holds, notices and Profile do not say "Guest" / "—". The phone stays
+  // unverified until its code is entered.
+  const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+  const signupName = typeof meta.full_name === "string" ? meta.full_name.trim().slice(0, 200) : "";
+  const signupPhone = normalizeE164(typeof meta.phone === "string" ? meta.phone : "");
+
   const { data: existingRoleRows } = await service.from("profile_roles").select("role").eq("user_id", user.id);
   const currentRoles = normalizePortalRoles(existingRoleRows, existingProfile?.role as string | undefined);
   const hadResidentRole = currentRoles.includes("resident");
@@ -47,7 +55,7 @@ export async function ensureSignedInResidentAccount(
     if (!existingProfile) {
       const { error } = await service
         .from("profiles")
-        .insert({ id: user.id, email: contactEmail, role: nextPrimaryRole });
+        .insert({ id: user.id, email: contactEmail, role: nextPrimaryRole, ...(signupName ? { full_name: signupName } : {}) });
       if (error) return { ok: false, error: error.message };
     } else if (nextPrimaryRole !== existingProfile.role) {
       const { error } = await service.from("profiles").update({ role: nextPrimaryRole }).eq("id", user.id);
@@ -60,6 +68,14 @@ export async function ensureSignedInResidentAccount(
       }
     }
     await ensureProfileRoleRow(service, user.id, "resident");
+  }
+
+  // Best-effort backfill onto a row that already existed without them; never overwrites a value.
+  const backfill: Record<string, string> = {};
+  if (existingProfile && !String(existingProfile.full_name ?? "").trim() && signupName) backfill.full_name = signupName;
+  if (signupPhone && !String(existingProfile?.phone ?? "").trim()) backfill.phone = signupPhone;
+  if (Object.keys(backfill).length > 0) {
+    await service.from("profiles").update(backfill).eq("id", user.id).is(backfill.phone ? "phone" : "full_name", null);
   }
 
   await linkAllTourInquiriesForEmail(service, { userId: user.id, email: contactEmail });

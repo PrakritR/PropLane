@@ -1,3 +1,4 @@
+import { resolveProfileFullName } from "@/lib/auth/profile-name.server";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getUserOrRejection } from "@/lib/auth/session-rejection";
@@ -36,7 +37,7 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      fullName: profile?.full_name ?? null,
+      fullName: (await resolveProfileFullName(db, user.id, profile?.full_name)) || null,
       phone: profile?.phone ?? null,
       email: profile?.email ?? user.email ?? null,
     });

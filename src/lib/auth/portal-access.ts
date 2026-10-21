@@ -1,4 +1,4 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import type { AuthRole } from "@/components/auth/portal-switcher";
@@ -6,6 +6,7 @@ import { normalizePortalRoles } from "@/lib/auth/portal-roles";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getServerSessionProfile, type ServerProfile } from "@/lib/auth/server-profile";
 import { needsPhoneVerification } from "@/lib/auth/phone-auth.server";
+import { phoneGateHref } from "@/lib/auth/phone-gate-href";
 
 export const ACTIVE_PORTAL_COOKIE = "axis_active_portal";
 
@@ -48,7 +49,14 @@ export const getPortalAccessContext = cache(async (): Promise<PortalAccessContex
   // The verification screen uses direct session auth to avoid a redirect loop.
   // View-as is a read-only operator session, not a new login for the target.
   if (!base.viewAs && await needsPhoneVerification(base.user.id)) {
-    redirect("/auth/verify-phone");
+    // Carry the page the person was heading to (Request to book, Apply, Book a tour), so verifying lands there.
+    let requested: string | null = null;
+    try {
+      requested = (await headers()).get("x-requested-path");
+    } catch {
+      requested = null;
+    }
+    redirect(phoneGateHref(requested));
   }
 
   const fallbackRole = base.profile?.role ?? null;

@@ -41,6 +41,14 @@ describe("phone authentication form", () => {
     expect(await screen.findByLabelText("Verification code")).toBeEnabled();
   });
 
+  it("prefills the number typed at signup (unverified) on the verify screen, and lands on the carried destination", async () => {
+    fetchMock.mockResolvedValueOnce(response({ enabled: true, verified: false, needsOldNumber: false, phone: "+12065550177" }));
+    render(<PhoneAuthForm mode="verify_phone" nextPath="/resident/stays/request?listing=h1&room=r1" />);
+    await waitFor(() => expect((screen.getByLabelText("Phone number") as HTMLInputElement).value).toBe("+12065550177"));
+    // Still sends a code: the prefill proves nothing.
+    expect(screen.getByRole("button", { name: "Send code" })).toBeEnabled();
+  });
+
   it("offers a status retry without allowing a verification request before the status succeeds", async () => {
     fetchMock.mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValueOnce(response({ enabled: true, verified: false, needsOldNumber: false, phone: null }));

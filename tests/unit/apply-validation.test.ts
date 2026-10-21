@@ -8,7 +8,7 @@ import {
   validateSsn,
   validateStateAbbrev,
   validateZip,
-} from "@/app/(public)/rent/apply/apply-validation";
+} from "@/app/(rent)/rent/apply/apply-validation";
 
 describe("apply-validation", () => {
   it("validates full name", () => {

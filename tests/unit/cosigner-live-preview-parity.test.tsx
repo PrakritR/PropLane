@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { CosignerApplyFlow } from "@/app/(public)/rent/apply/cosigner-flow";
+import { CosignerApplyFlow } from "@/app/(rent)/rent/apply/cosigner-flow";
 import { applicationConfigForVariant } from "@/lib/rental-application/application-field-catalog";
 import { encodeMultiSelectAnswer, parseMultiSelectAnswer } from "@/lib/rental-application/custom-fields";
 

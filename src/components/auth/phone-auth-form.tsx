@@ -64,6 +64,9 @@ export function PhoneAuthForm({
           if (!status.phone) throw new Error(REQUEST_ERROR);
           setPurpose("change_number_old");
           setPhone(status.phone);
+        } else if (status.phone && !status.verified) {
+          // The number typed at signup is already on the profile, unverified until the code is entered: prefill it.
+          setPhone((current) => current || status.phone!);
         }
         setStatusFailed(false);
       } catch {

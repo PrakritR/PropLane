@@ -21,6 +21,8 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
 import { isLegitimateEmail } from "@/lib/email-address";
 import { postResendEmail } from "@/lib/resend-delivery.server";
+import { noticeChannelFor } from "@/lib/notice-channel";
+import { deliverApplicationSubmittedPortalNotice } from "@/lib/application-submitted-portal-notice.server";
 import {
   resolveTestWorkspaceClassification,
   resolveTestWorkspaceRequestScope,
@@ -180,7 +182,11 @@ export async function POST(req: Request) {
     const rowData = (match.row_data ?? {}) as {
       application?: { phone?: string; smsConsent?: boolean };
       name?: string;
+      residentUserId?: string;
     };
+    // Web vs Messages (notice-channel.ts): an application made in the portal / website is answered by email and
+    // in the resident inbox, never by text. Only a text-made (or older, unrecorded) application is texted.
+    const portalChannel = noticeChannelFor(match.row_data) === "portal";
     const applicantPhone = String(rowData.application?.phone ?? "").trim() || null;
     let smsSent = false;
     let smsAccepted = false;
@@ -190,7 +196,7 @@ export async function POST(req: Request) {
     // wrote a separate "sent" marker BEFORE calling the provider, which made a
     // failed attempt permanent and hid the reason. Only applicants who checked
     // the stored consent box are eligible for this confirmation.
-    if (applicantPhone && managerUserId && rowData.application?.smsConsent === true) {
+    if (!portalChannel && applicantPhone && managerUserId && rowData.application?.smsConsent === true) {
       try {
         const sms = await notifyApplicantApplicationSms(db, {
           event: "submitted",
@@ -217,6 +223,17 @@ export async function POST(req: Request) {
           manager: managerUserId,
         })(error);
       }
+    }
+
+    // The resident inbox copy of "application submitted" (the email below is the rich one with the sign-in link,
+    // so this is inbox only). Idempotent per application; the login comes from the stored row, never the request.
+    if (portalChannel && managerUserId) {
+      await deliverApplicationSubmittedPortalNotice(db, {
+        managerUserId,
+        applicationId: ensuredAxisId,
+        residentUserId: typeof rowData.residentUserId === "string" ? rowData.residentUserId : "",
+        propertyTitle: propertyTitle || "",
+      }).catch(bestEffortFailed("application-submitted portal notice", { application: ensuredAxisId }));
     }
 
     // A setup token is an account-claim capability. The caller may receive it

@@ -10,7 +10,8 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
  *    so the emailed link matches the one already shown on the finish screen.
  */
 
-const { ensureMock, serviceRows, smsMock, workspaceClassification } = vi.hoisted(() => ({
+const { ensureMock, serviceRows, smsMock, workspaceClassification, portalNoticeMock } = vi.hoisted(() => ({
+  portalNoticeMock: vi.fn(),
   ensureMock: vi.fn(),
   serviceRows: [] as Array<{ id: string; resident_email: string; row_data: unknown; manager_user_id: string | null }>,
   smsMock: vi.fn(),
@@ -21,6 +22,10 @@ vi.mock("@/lib/auth/resident-setup-token", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/auth/resident-setup-token")>();
   return { ...actual, ensureResidentSetupTokenForApplication: ensureMock };
 });
+
+vi.mock("@/lib/application-submitted-portal-notice.server", () => ({
+  deliverApplicationSubmittedPortalNotice: portalNoticeMock,
+}));
 
 vi.mock("@/lib/application-lifecycle-sms.server", () => ({
   notifyApplicantApplicationSms: smsMock,
@@ -82,6 +87,8 @@ describe("POST /api/portal/send-application-submitted — setup handoff", () => 
   beforeEach(() => {
     ensureMock.mockReset();
     smsMock.mockReset();
+    portalNoticeMock.mockReset();
+    portalNoticeMock.mockResolvedValue({ ok: true });
     smsMock.mockResolvedValue({ sent: true, accepted: true });
     workspaceClassification.mockResolvedValue({ kind: "normal" });
     serviceRows.length = 0;
@@ -168,5 +175,47 @@ describe("POST /api/portal/send-application-submitted — setup handoff", () => 
     expect(res.status).toBe(403);
     expect(ensureMock).not.toHaveBeenCalled();
     expect(smsMock).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("POST /api/portal/send-application-submitted - web vs Messages", () => {
+  beforeEach(() => {
+    ensureMock.mockReset();
+    smsMock.mockReset();
+    smsMock.mockResolvedValue({ sent: true, accepted: true });
+    portalNoticeMock.mockReset();
+    portalNoticeMock.mockResolvedValue({ ok: true });
+    workspaceClassification.mockResolvedValue({ kind: "normal" });
+    serviceRows.length = 0;
+    vi.stubEnv("RESEND_API_KEY", "");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("never texts an application made in the portal, even with SMS consent, and files the resident inbox row", async () => {
+    const { row, token } = attachResidentSetupToken({
+      ...baseRow(),
+      noticeChannel: "portal",
+      residentUserId: "res-1",
+    } as DemoApplicantRow);
+    serviceRows.push({ id: row.id, resident_email: row.email!, row_data: row, manager_user_id: "mgr-1" });
+
+    await POST(post({ email: row.email, axisId: row.id, setupToken: token, propertyTitle: "Cedar House" }));
+
+    expect(smsMock).not.toHaveBeenCalled();
+    expect(portalNoticeMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ managerUserId: "mgr-1", residentUserId: "res-1", applicationId: row.id, propertyTitle: "Cedar House" }),
+    );
+  });
+
+  it("still texts an application made by text (no recorded channel is sms) and files no portal notice", async () => {
+    const { row, token } = attachResidentSetupToken(baseRow());
+    serviceRows.push({ id: row.id, resident_email: row.email!, row_data: row, manager_user_id: "mgr-1" });
+
+    await POST(post({ email: row.email, axisId: row.id, setupToken: token }));
+
+    expect(smsMock).toHaveBeenCalledOnce();
+    expect(portalNoticeMock).not.toHaveBeenCalled();
   });
 });

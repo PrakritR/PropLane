@@ -47,7 +47,8 @@ describe("PRP-186: the hub signup form collects a phone", () => {
   it("accepts and normalizes the phone server-side without requiring one", () => {
     const route = read(ROUTE);
     expect(route).toContain("normalizeE164");
-    expect(route).toContain('.from("profiles").update({ phone })');
+    expect(route).toContain('.from("profiles").update(patch)');
+    expect(route).toContain("phone ? { phone } : {}");
     // Role-agnostic route: a resident signing up must not be blocked on it.
     expect(route).not.toContain('Enter a valid phone number.');
   });
