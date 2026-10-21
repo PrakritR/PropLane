@@ -6,8 +6,8 @@ const dir = join(process.cwd(), "supabase", "migrations");
 const read = (name: string) => readFileSync(join(dir, name), "utf8");
 const fnOf = (sql: string) => sql.slice(sql.indexOf("create or replace function public.managed_read_only_owned_locked_ids"));
 
-describe("20261020190000_first_paid_search_path", () => {
-  const next = read("20261020190000_first_paid_search_path.sql");
+describe("20261020190100_first_paid_search_path", () => {
+  const next = read("20261020190100_first_paid_search_path.sql");
   const prev = read("20261020140000_manager_purchase_first_paid.sql");
 
   it("re-creates the security definer function with pg_temp pinned last", () => {
