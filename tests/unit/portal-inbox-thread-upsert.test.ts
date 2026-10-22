@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPortalInboxThreadUpsert } from "@/lib/portal-inbox-thread-upsert";
+import { buildPortalInboxThreadUpsert, isServerReservedInboxThreadId } from "@/lib/portal-inbox-thread-upsert";
 
 const user = { id: "mgr-1", email: "manager@example.com" };
 
@@ -49,5 +49,22 @@ describe("buildPortalInboxThreadUpsert", () => {
     );
     expect(record.owner_user_id).toBe("mgr-1");
     expect(record.participant_email).toBe("manager@example.com");
+  });
+});
+
+describe("isServerReservedInboxThreadId", () => {
+  it("reserves every id the server derives, the house chat alias and house thread included", () => {
+    for (const id of [
+      "agent_notice_x",
+      "property_mgr_x",
+      "team-thread:o:ws:w",
+      "house-thread:o:ws:w:prop:p",
+      "house-chat:AbCdEf123456",
+      "resident_sms_x",
+      "vendor_sms_x",
+    ]) {
+      expect(isServerReservedInboxThreadId(id)).toBe(true);
+    }
+    expect(isServerReservedInboxThreadId("msg_mgr-1_123_abcd")).toBe(false);
   });
 });

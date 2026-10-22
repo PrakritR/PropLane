@@ -735,6 +735,18 @@ export async function syncChannelCalendarConnection(
     throw new Error(`Stored import URL is not a valid ${channelCalendarProviderLabel(connection.provider, connection.label)} calendar link.`);
   }
 
+  // The row names a property, and a sync writes room blocks onto it. Connections are written only by the
+  // server routes (which stamp the property's own owner), but this stays the backstop: a row whose manager is
+  // not the property's owner (hand-written, or left over from an ownership move) is skipped, never synced.
+  const owning = await loadPropertyRecord(db, connection.property_id);
+  if (!owning?.managerUserId || owning.managerUserId !== connection.manager_user_id) {
+    console.warn("[channel-calendar] channel_sync_foreign_property", {
+      connectionId: connection.id,
+      propertyId: connection.property_id,
+    });
+    throw new Error("channel_sync_foreign_property");
+  }
+
   const now = new Date().toISOString();
   try {
     const icsText = await fetchChannelIcs(importUrl, connection.provider, { label: connection.label });

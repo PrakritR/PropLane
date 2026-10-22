@@ -251,6 +251,23 @@ describe("syncChannelCalendarConnection alerts", () => {
     expect(emitActionEvent).not.toHaveBeenCalled();
   });
 
+  it("skips a connection whose manager does not own its property, and logs channel_sync_foreign_property", async () => {
+    const fetched = vi.fn(async () => new Response(ics([]), { status: 200, headers: { "content-type": "text/calendar" } }));
+    vi.stubGlobal("fetch", fetched);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const { db, stored } = syncDb({ ...baseConnection, manager_user_id: "attacker", imported_ranges: [], last_synced_at: null });
+      await expect(syncChannelCalendarConnection(db, "c1")).rejects.toThrow("channel_sync_foreign_property");
+      expect(warn.mock.calls.map((c) => String(c[0])).join(" ")).toContain("channel_sync_foreign_property");
+      // Nothing was fetched and nothing was written onto the (foreign) property or the connection row.
+      expect(fetched).not.toHaveBeenCalled();
+      expect(stored.last_synced_at).toBeNull();
+      expect(emitActionEvent).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("a failing alert never fails the sync", async () => {
     emitActionEvent.mockRejectedValueOnce(new Error("bus down"));
     stubFeed(ics([{ uid: "new", start: "2026-10-12", end: "2026-10-15", summary: "Reserved" }]));

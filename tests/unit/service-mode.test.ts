@@ -58,10 +58,16 @@ describe("serviceSeatVerdict", () => {
     expect(serviceSeatVerdict(seatRow({ teamRole: null }), { ownerUserId: CLIENT }, SERVICE_OWNER)).toBe("no");
   });
 
-  it("is staff on a workspace PropLane created, whatever the seat says: the client grants nothing there", () => {
+  it("on a workspace PropLane created, an Admin / Full seat is staff and a Viewer / Custom seat is not", () => {
     const own = { ownerUserId: SERVICE_OWNER };
-    expect(serviceSeatVerdict(seatRow({ inviterUserId: SERVICE_OWNER, isServiceSeat: false }), own, SERVICE_OWNER)).toBe("staff");
-    expect(serviceSeatVerdict(seatRow({ inviterUserId: SERVICE_OWNER, teamRole: "property_manager", isServiceSeat: false }), own, SERVICE_OWNER)).toBe("staff");
+    for (const teamRole of ["admin", "full", " Admin "]) {
+      expect(serviceSeatVerdict(seatRow({ inviterUserId: SERVICE_OWNER, teamRole, isServiceSeat: false }), own, SERVICE_OWNER)).toBe("staff");
+    }
+    for (const teamRole of ["viewer", "custom", "property_manager"]) {
+      for (const isServiceSeat of [false, true]) {
+        expect(serviceSeatVerdict(seatRow({ inviterUserId: SERVICE_OWNER, teamRole, isServiceSeat }), own, SERVICE_OWNER)).toBe("no");
+      }
+    }
   });
 
   it("on an ATTACHED workspace only PropLane's own seat counts; anything else needs a PropLane person", () => {
@@ -271,6 +277,16 @@ describe("who is staff of a service workspace", () => {
     expect(await ids(PLAIN)).toEqual([]);
     admins.add(PLAIN);
     expect(await ids(PLAIN)).toEqual(["Client homes"]);
+  });
+});
+
+describe("a limited seat on a workspace PropLane created", () => {
+  it("is not staff and gets no staff scope: it keeps only its per-house grants", async () => {
+    db.tables.account_link_invites.push(seat(PLAIN, AMBIKA, "viewer", OWNER, "accepted", { serviceSeat: false }));
+    db.tables.account_link_invites.push(seat(HELPER, AMBIKA, "custom", OWNER, "accepted", { serviceSeat: true }));
+    expect((await mode.loadServiceStaffWorkspaces(db as never, PLAIN)).map((w) => w.name)).toEqual([]);
+    expect((await mode.loadServiceStaffWorkspaces(db as never, HELPER)).map((w) => w.name)).toEqual(["Vinod"]);
+    expect(await mode.loadServiceStaffScope(db as never, PLAIN)).toBeNull();
   });
 });
 
