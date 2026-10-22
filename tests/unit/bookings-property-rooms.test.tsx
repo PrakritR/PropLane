@@ -94,6 +94,22 @@ describe("Bookings rooms come from the saved record", () => {
     expect(propertyRooms("unknown-house", [])).toEqual([{ id: "", label: "Whole home", rent: "" }]);
   });
 
+  it("a house the viewer's listing store lacks takes the server's saved rooms, empty ones included, before any booking rows", () => {
+    const server = [{ id: "r1", label: "Room 1" }, { id: "r2", label: "Room 2" }, { id: "r3", label: "Room 3" }];
+    const entry = { source: "hold", propertyId: "service-view-house", propertyLabel: "House", roomId: "r2", roomLabel: "Room", summary: "Riko", start: "2026-10-01", end: "2026-10-31" } as never;
+    expect(propertyRooms("service-view-house", [entry], server).map((r) => r.label)).toEqual(["Room 1", "Room 2", "Room 3"]);
+    // Old payload (no server rooms): falls back to rows built from the bookings, as before.
+    expect(propertyRooms("service-view-house", [entry]).map((r) => r.id)).toEqual(["r2"]);
+    // An entire-home listing sends an empty list: still the whole-home row.
+    expect(propertyRooms("service-view-house", [], [])).toEqual([{ id: "", label: "Whole home", rent: "" }]);
+  });
+
+  it("the local listing wins over the server list when the house is in the store", () => {
+    seedDemoManagerProperties("z-manager", [saved(fiveRooms())]);
+    const rows = propertyRooms(ID, [], [{ id: "x", label: "Server room" }]);
+    expect(rows.map((r) => r.id)).toEqual(["r1", "r2", "r3", "r4", "r5"]);
+  });
+
   it("/demo keeps resolving its own seeded copy first", () => {
     window.history.pushState({}, "", "/demo");
     seedDemoManagerProperties("a-seed", [base]);

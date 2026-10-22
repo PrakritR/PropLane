@@ -435,7 +435,7 @@ export function useManagerBookingEntries({
             };
           }
         }
-        setOccupancyDays({ overall, houses });
+        setOccupancyDays({ overall, houses, rooms: snapshot.rooms });
         setOccupancyStays(snapshot.stays ?? []);
         markSource("occupancy", "ok");
       },

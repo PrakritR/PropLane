@@ -29,7 +29,7 @@ import { listingSubmissionFromProperty } from "@/lib/channel-calendar/connection
 import { isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { isChannelImportedRangeId } from "@/lib/room-availability-timeline";
-import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import { UNASSIGNED_ROOM_LABEL, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { ROOM_DATE_BLOCK_RECORD_TYPE } from "@/lib/portal-schedule-record-scope";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
@@ -45,6 +45,7 @@ import {
   occupancyStayResident,
   occupancyStayResidentWithoutIdentifiers,
   type OccupancyCapacities,
+  type OccupancyRoomOption,
   type OccupancyStayResident,
   type OccupancyDayCell,
 } from "@/lib/occupancy/snapshot";
@@ -234,7 +235,7 @@ export async function occupancyCapacitiesForProperties(
 }
 
 export type OccupancyPropertyMeta = {
-  properties: { id: string; label: string; entireHomeListing: boolean }[];
+  properties: { id: string; label: string; entireHomeListing: boolean; /** Saved rooms in saved order; empty for an entire-home listing. */ rooms?: OccupancyRoomOption[] }[];
   roomLabelForId: (propertyId: string, roomId: string) => string;
   /**
    * The listing's own blocked dates (a room's manager-typed occupied dates), as block entries: they
@@ -245,7 +246,7 @@ export type OccupancyPropertyMeta = {
 };
 
 async function occupancyPropertyMeta(db: SupabaseClient, propertyIds: string[]): Promise<OccupancyPropertyMeta> {
-  const properties: { id: string; label: string; entireHomeListing: boolean }[] = [];
+  const properties: OccupancyPropertyMeta["properties"] = [];
   const labels = new Map<string, string>();
   const listingBlockEntries: PropertyBookingEntry[] = [];
   for (const propertyId of propertyIds) {
@@ -279,15 +280,17 @@ async function occupancyPropertyMeta(db: SupabaseClient, propertyIds: string[]):
         });
       }
     });
+    const entireHomeListing = submission ? isEntireHomeListing(submission) : rooms.length === 0;
     properties.push({
       id: propertyId,
       label: building,
-      entireHomeListing: submission ? isEntireHomeListing(submission) : rooms.length === 0,
+      entireHomeListing,
+      rooms: entireHomeListing ? [] : rooms.map((room, index) => ({ id: room.id, label: room.name?.trim() || `Room ${index + 1}` })),
     });
   }
   return {
     properties,
-    roomLabelForId: (propertyId, roomId) => labels.get(`${propertyId}:${roomId}`) ?? "Room",
+    roomLabelForId: (propertyId, roomId) => labels.get(`${propertyId}:${roomId}`) ?? UNASSIGNED_ROOM_LABEL,
     listingBlockEntries,
   };
 }
@@ -605,9 +608,12 @@ export async function occupancySnapshotForManager(
         : {}),
     };
   });
+  const rooms: Record<string, OccupancyRoomOption[]> = {};
+  for (const property of meta.properties) rooms[property.id] = property.rooms ?? [];
   return {
     days,
     stays,
+    rooms,
     version: new Date().toISOString(),
   };
 }

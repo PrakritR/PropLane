@@ -239,6 +239,8 @@ export function bookingVisualSource(entry: Pick<PropertyBookingEntry, "source" |
 }
 
 /** Calendar Airbnb import — stored as a room-date block with this reason, drawn as `source: "airbnb"`. */
+/** A room id the property's saved rooms do not name: never a bare "Room". */
+export const UNASSIGNED_ROOM_LABEL = "Unassigned room";
 export const IMPORTED_AIRBNB_REASON = "Airbnb";
 /** Sheet / calendar Booking.com import — drawn as `source: "booking_com"`. */
 export const IMPORTED_BOOKING_REASON = "Booking";
@@ -666,7 +668,7 @@ export function leaseBookingEntriesForProperties(
       ...leaseBookingEntries(rows, {
         propertyId: property.id,
         propertyLabel: property.label,
-        roomLabelForId: (roomId) => opts.roomLabelForId?.(property.id, roomId) ?? "Room",
+        roomLabelForId: (roomId) => opts.roomLabelForId?.(property.id, roomId) ?? UNASSIGNED_ROOM_LABEL,
         openEndedHorizonKey: opts.openEndedHorizonKey,
         entireHomeListing: property.entireHomeListing,
         isResidentLinked: opts.isResidentLinked,

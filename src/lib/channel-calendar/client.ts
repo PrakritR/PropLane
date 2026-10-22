@@ -130,6 +130,8 @@ export type OccupancySnapshotResponse = {
     }>;
   }>;
   stays?: unknown[];
+  /** Each property's saved rooms in saved order (empty for an entire-home listing); absent on an older payload. */
+  rooms?: Record<string, Array<{ id: string; label: string }>>;
   version?: string;
 };
 

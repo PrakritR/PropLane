@@ -18,10 +18,10 @@ export const BAR_VISUAL_HEIGHT = 32;
 /** A room row is never shorter than this, even empty. */
 export const ROOM_ROW_MIN_HEIGHT = 52;
 export const HOUSE_ROW_HEIGHT = 56;
-/** Below this many px a bar draws no text inside; its name sits to its right instead. */
+/** Below this many px a bar draws no name; it shows its source glyph (from `NARROW_GLYPH_PX`) or nothing. Text never leaves the bar. */
 export const NARROW_BAR_PX = 56;
-/** Free room needed beside a narrow bar before its name is drawn at all. */
-export const MIN_OUTSIDE_LABEL_PX = 28;
+/** A narrow bar at least this wide shows its source glyph, centred. */
+export const NARROW_GLYPH_PX = 20;
 /** Rows are windowed only from this many on, so a small portfolio always renders every row. */
 export const WINDOW_MIN_ROWS = 60;
 /** Rows kept rendered beyond the viewport on each side, in px. */
@@ -244,18 +244,15 @@ export function turnoverStripPx(turnover: Pick<TurnoverSpec, "start" | "end">, c
   return { left: x0, width: x1 - x0 };
 }
 
-export type PixelBar = PlacedBarSpec & { left: number; width: number; top: number; narrow: boolean; labelWidth: number };
-
-/** Rough width of a 12px label, used only to size the click target beside a narrow bar. */
-const estimateLabelPx = (text: string) => Math.ceil(text.length * 6.5) + 8;
+export type PixelBar = PlacedBarSpec & { left: number; width: number; top: number; narrow: boolean };
 
 export const barDisplayName = (entry: PropertyBookingEntry) => entry.residentName || bookingEntryNamedLabel(entry) || entry.summary;
 
 /**
- * Bars in px. A bar under `NARROW_BAR_PX` draws no text; its name goes right of it in the same lane, up to the
- * next bar's start (or the track's end), and is dropped when under `MIN_OUTSIDE_LABEL_PX` is free.
+ * Bars in px. A bar under `NARROW_BAR_PX` is `narrow`: it draws no name (a glyph at most), and no bar ever draws
+ * text outside itself.
  */
-export function placeBars(bars: readonly PlacedBarSpec[], colPx: number, trackWidth: number, turnovers: readonly TurnoverSpec[] = []): PixelBar[] {
+export function placeBars(bars: readonly PlacedBarSpec[], colPx: number, turnovers: readonly TurnoverSpec[] = []): PixelBar[] {
   // A whole-day edge keeps a 2px inset; a mid-cell edge (a half-day check-in / check-out) a 1px one.
   const edges = bars.map(bar => ({ left: bar.start * colPx + (Number.isInteger(bar.start) ? 2 : 1), right: bar.end * colPx - (Number.isInteger(bar.end) ? 2 : 1) }));
   // At a turnover the two bars give way to the cleaning block: it fills checkout x -> next check-in x (min 6px, centred on the boundary).
@@ -272,25 +269,11 @@ export function placeBars(bars: readonly PlacedBarSpec[], colPx: number, trackWi
       edges[to]!.left = strip.left + strip.width;
     }
   }
-  const laneStarts = new Map<number, number[]>();
-  bars.forEach((bar, index) => {
-    const starts = laneStarts.get(bar.lane) ?? [];
-    starts.push(edges[index]!.left);
-    laneStarts.set(bar.lane, starts);
-  });
-  for (const starts of laneStarts.values()) starts.sort((a, b) => a - b);
   return bars.map((bar, index) => {
     const { left } = edges[index]!;
     const width = Math.max(4, edges[index]!.right - left);
-    const narrow = width < NARROW_BAR_PX;
-    let labelWidth = 0;
-    if (narrow) {
-      const right = left + width;
-      const nextStart = (laneStarts.get(bar.lane) ?? []).find(start => start >= right - 2) ?? trackWidth;
-      const free = nextStart - right - 8;
-      if (free >= MIN_OUTSIDE_LABEL_PX) labelWidth = Math.min(free, estimateLabelPx(barDisplayName(bar.entry)));
-    }
-    return { ...bar, left, width, top: 4 + bar.lane * LANE_PITCH, narrow, labelWidth };
+    // A narrow bar draws no text; its name is never drawn outside it (see `BookingBar`).
+    return { ...bar, left, width, top: 4 + bar.lane * LANE_PITCH, narrow: width < NARROW_BAR_PX };
   });
 }
 
