@@ -148,17 +148,32 @@ const SEED: Rec[] = [
 describe("/api/portal-work-orders security", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("GET scopes a manager to their own (+ legacy) work orders, not other landlords'", async () => {
+  /**
+   * A legacy row (no `manager_user_id`) is attributed by the house it names, or - when it names
+   * none - by the manager its own payload names. `WO-legacy` names neither, so it is no longer
+   * broadcast to every manager; `WO-legacy-mine` names mgr-a and still reads.
+   */
+  it("GET scopes a manager to their own (+ attributable legacy) work orders, not other landlords'", async () => {
     asUser("mgr-a", "a@test.com");
-    const { client } = mockDb(SEED, { email: "a@test.com", role: "manager" });
+    const seed: Rec[] = [
+      ...SEED,
+      {
+        id: "WO-legacy-mine",
+        manager_user_id: null,
+        resident_email: null,
+        row_data: { id: "WO-legacy-mine", title: "LM", managerUserId: "mgr-a" },
+      },
+    ];
+    const { client } = mockDb(seed, { email: "a@test.com", role: "manager" });
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
 
     const res = await GET();
     const { status, data } = await parseJsonResponse<{ rows: { id: string }[] }>(res);
     expect(status).toBe(200);
     const ids = data.rows.map((r) => r.id).sort();
-    expect(ids).toEqual(["WO-a", "WO-legacy"]);
+    expect(ids).toEqual(["WO-a", "WO-legacy-mine"]);
     expect(ids).not.toContain("WO-b");
+    expect(ids).not.toContain("WO-legacy");
   });
 
   it("POST requires authentication", async () => {

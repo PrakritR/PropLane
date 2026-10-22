@@ -14,8 +14,13 @@
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/gi;
 /** Nothing after the last link but sentence punctuation. */
 const TRAILING_ONLY = /^[.,;:!?)\]}>'"\s]+$/;
-/** Characters that end a sentence or close a bracket, never a part of the address. */
-const TRAILING = /[.,;:!?)\]}>'"]+$/;
+/**
+ * Characters that end a sentence or close a bracket, never a part of the address. Held as a set and
+ * scanned backwards rather than matched with an end-anchored `/[...]+$/`: the text these links are cut
+ * out of is message body a sender controls, and that pattern backtracks quadratically over a long run
+ * of punctuation that never reaches the end of the string.
+ */
+const TRAILING = new Set([".", ",", ";", ":", "!", "?", ")", "]", "}", ">", "'", '"']);
 
 /** Hosts that are PropLane's own pages under another name. */
 function isOwnPageHost(host: string, canonicalHost: string): boolean {
@@ -25,9 +30,10 @@ function isOwnPageHost(host: string, canonicalHost: string): boolean {
 }
 
 export function trimLinkTail(url: string): { url: string; tail: string } {
-  const match = TRAILING.exec(url);
-  if (!match) return { url, tail: "" };
-  return { url: url.slice(0, match.index), tail: match[0] };
+  let end = url.length;
+  while (end > 0 && TRAILING.has(url[end - 1]!)) end -= 1;
+  if (end === url.length) return { url, tail: "" };
+  return { url: url.slice(0, end), tail: url.slice(end) };
 }
 
 /** Rewrite one of our own non-canonical hosts onto the canonical origin; any other URL passes through. */

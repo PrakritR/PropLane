@@ -35,6 +35,35 @@ const LONG_DASH = /[–—]/;
 const NON_GSM = /[^\x20-\x7E\n]/;
 const MARKDOWN = [/\*\*[^*\n]+\*\*/, /`[^`\n]+`/, /^\s{0,3}#{1,6}\s/m, /\[[^\]\n]+\]\(https?:/, /(^|\s)__[^_\n]+__(\s|$)/, /^\s*\*\s+\S/m];
 
+/**
+ * The visible text of a page we just fetched: script bodies dropped, then tags, then runs of space.
+ * Script bodies go by a literal scan rather than a `<script>...</script>` regex - such a pattern
+ * silently misses `<SCRIPT>`, `</script >` and `</script foo>`, so a JSON payload inside a script
+ * would leak into the text an assertion below reads (and CodeQL's js/bad-tag-filter flags it).
+ */
+function visibleText(html) {
+  const source = String(html);
+  const lower = source.toLowerCase();
+  let out = "";
+  let cursor = 0;
+  for (;;) {
+    const open = lower.indexOf("<script", cursor);
+    if (open < 0) break;
+    const openEnd = source.indexOf(">", open);
+    if (openEnd < 0) break;
+    out += `${source.slice(cursor, open)} `;
+    const close = lower.indexOf("</script", openEnd);
+    const closeEnd = close < 0 ? -1 : source.indexOf(">", close);
+    if (closeEnd < 0) {
+      cursor = source.length;
+      break;
+    }
+    cursor = closeEnd + 1;
+  }
+  out += source.slice(cursor);
+  return out.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+}
+
 /** Every text any party got must read like a text: no markdown, no long dashes, plain GSM-7, links alone on a line, canonical host. */
 function hygiene(ctx, label, bodies) {
   const { check } = ctx;
@@ -104,7 +133,7 @@ async function payLinkFlow(ctx, { label, url, phone, chargeId, title, amountCent
   check(`${label}: the right code is accepted and opens a session`, verify.status === 200 && /^pbl_/.test(cookie), `${verify.status} ${cookie}`);
   const page = await fetch(`${h.base}${path}`, { headers: { cookie }, redirect: "manual" });
   const html = await page.text();
-  const text = html.replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const text = visibleText(html);
   const dollars = `$${(amountCents / 100).toFixed(2)}`;
   check(`${label}: the embedded payment page renders (HTTP 200) with the charge, the exact amount and the Pay button`, page.status === 200 && text.includes(title) && text.includes(dollars) && /phone-link-pay/.test(html), `${page.status} ${text.slice(0, 300)}`);
   if (!stripe) { check(`${label}: the local Stripe key is a test key`, false, "STRIPE_SECRET_KEY is not sk_test"); return { token, cookie }; }
@@ -209,7 +238,7 @@ async function payCardInBrowserAndSettle(ctx, { label, token, cookie, sessionId,
   check(`${label}: the charge is marked paid`, row?.status === "paid", JSON.stringify({ status: row?.status, bal: row?.row_data?.balanceLabel }));
   const after = await fetch(`${h.base}/l/${token}`, { headers: { cookie }, redirect: "manual" });
   const afterHtml = await after.text();
-  const afterText = afterHtml.replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const afterText = visibleText(afterHtml);
   check(`${label}: the settled link no longer offers to pay (spent, or 'Payment received')`, !/phone-link-pay/.test(afterHtml) && /Payment received|expired/i.test(afterText), afterText.slice(0, 300));
 }
 

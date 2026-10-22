@@ -44,6 +44,99 @@ function likeMatches(value: unknown, pattern: string, caseInsensitive: boolean):
   return new RegExp(`^${source}$`).test(text);
 }
 
+/** Split a PostgREST filter list on top-level commas (nested `and(...)` / `or(...)` keep theirs). */
+function splitTopLevel(filter: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < filter.length; i += 1) {
+    const ch = filter[i];
+    if (ch === "(") depth += 1;
+    else if (ch === ")") depth -= 1;
+    else if (ch === "," && depth === 0) {
+      parts.push(filter.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(filter.slice(start));
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
+/**
+ * One `.or()` / nested member of a PostgREST filter string as a predicate:
+ * `col.op.value`, `col.not.op.value`, `col.in.(a,b)`, or a nested
+ * `and(...)` / `or(...)` group. An unparseable term matches nothing, so a
+ * filter form this double does not model fails CLOSED rather than silently
+ * admitting every row (which is how a scoping filter stopped being tested).
+ */
+function filterPredicate(term: string): (r: Row) => boolean {
+  const group = /^(and|or)\((.*)\)$/s.exec(term);
+  if (group) {
+    const members = splitTopLevel(group[2]!).map(filterPredicate);
+    return group[1] === "and"
+      ? (r) => members.every((m) => m(r))
+      : (r) => members.some((m) => m(r));
+  }
+  const dot = term.indexOf(".");
+  if (dot < 0) return () => false;
+  const col = term.slice(0, dot);
+  let rest = term.slice(dot + 1);
+  let negate = false;
+  if (rest.startsWith("not.")) {
+    negate = true;
+    rest = rest.slice(4);
+  }
+  const opEnd = rest.indexOf(".");
+  if (opEnd < 0) return () => false;
+  const op = rest.slice(0, opEnd);
+  let raw = rest.slice(opEnd + 1);
+  if (raw.startsWith('"') && raw.endsWith('"') && raw.length >= 2) raw = raw.slice(1, -1);
+  const text = (r: Row) => String(cell(r, col) ?? "");
+  const blank = (r: Row) => cell(r, col) === null || cell(r, col) === undefined;
+  let test: (r: Row) => boolean;
+  switch (op) {
+    case "eq":
+      test = (r) => text(r) === raw;
+      break;
+    case "neq":
+      test = (r) => text(r) !== raw;
+      break;
+    case "gt":
+      test = (r) => text(r) > raw;
+      break;
+    case "gte":
+      test = (r) => text(r) >= raw;
+      break;
+    case "lt":
+      test = (r) => text(r) < raw;
+      break;
+    case "lte":
+      test = (r) => text(r) <= raw;
+      break;
+    case "is":
+      test = raw === "null" ? blank : (r) => text(r) === raw;
+      break;
+    case "like":
+    case "ilike": {
+      // PostgREST accepts `*` in place of `%` inside a filter string.
+      const pattern = raw.replace(/\*/g, "%");
+      test = (r) => likeMatches(cell(r, col), pattern, op === "ilike");
+      break;
+    }
+    case "in": {
+      const inner = raw.replace(/^\(/, "").replace(/\)$/, "");
+      const set = new Set(
+        splitTopLevel(inner).map((v) => (v.startsWith('"') && v.endsWith('"') ? v.slice(1, -1) : v)),
+      );
+      test = (r) => set.has(text(r));
+      break;
+    }
+    default:
+      return () => false;
+  }
+  return negate ? (r) => !test(r) : test;
+}
+
 interface Builder extends PromiseLike<{ data: Row[] | Row | null; error: null }> {
   select: (..._a: unknown[]) => Builder;
   eq: (col: string, val: unknown) => Builder;
@@ -58,7 +151,7 @@ interface Builder extends PromiseLike<{ data: Row[] | Row | null; error: null }>
   is: (col: string, val: unknown) => Builder;
   not: (col: string, op: string, val: unknown) => Builder;
   in: (col: string, vals: unknown[]) => Builder;
-  or: (..._a: unknown[]) => Builder;
+  or: (filter: string) => Builder;
   order: (col: string, opts?: { ascending?: boolean }) => Builder;
   limit: (n: number) => Builder;
   update: (patch: Row) => Builder;
@@ -188,7 +281,9 @@ export function createMemoryDb(seed: Record<string, Row[]> = {}): MemoryDb {
         filters.push((r) => set.has(String(cell(r, col) ?? "")));
         return builder;
       },
-      or() {
+      or(filter: string) {
+        const members = splitTopLevel(String(filter ?? "")).map(filterPredicate);
+        filters.push((r) => members.some((m) => m(r)));
         return builder;
       },
       order(col: string, opts?: { ascending?: boolean }) {

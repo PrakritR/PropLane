@@ -5,6 +5,17 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
+// The route reads the selected-workspace cookie through `next/headers` and only touches the
+// service-role client when one is set. A plain `Request` never enters a Next request scope, so
+// both have to be stood in for here.
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ get: () => undefined }),
+}));
+
+vi.mock("@/lib/supabase/service", () => ({
+  createSupabaseServiceRoleClient: () => ({}),
+}));
+
 vi.mock("@/lib/auth/portal-access", () => ({
   getPortalAccessContext: vi.fn(),
   hasRole: vi.fn(),
