@@ -40,9 +40,12 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   A tile = the admin `open` action (sets the cookie), `set-active-portal manager` with `keepWorkspace`, then
   `/portal/dashboard`. A helper (not an admin) sees only their workspaces, no logo, no `+`, and opens through the
   ordinary workspace switch.
-- **Who is staff** (`loadServiceStaffWorkspaces`): the platform service owner for the workspaces they own, or an
-  accepted team seat on the workspace that is not the Property owner role (granted by the workspace's own owner). The
-  client who owns an attached workspace is **not** staff: they keep the view-only Property portal.
+- **Who is staff** (`loadServiceStaffWorkspaces`, decided per seat by `serviceSeatVerdict`): the platform service owner
+  for the workspaces they own, or an accepted team seat at an OPERATOR role (Admin / Full), granted by the workspace's
+  own owner. A Viewer / Custom / Property manager seat is never staff - on a workspace PropLane created or an attached
+  one, and being a platform admin does not change that; such a seat keeps only its per-house grants. On an attached
+  workspace an operator seat also needs PropLane's own provenance (`is_service_seat`) unless the holder is a PropLane
+  person. The client who owns an attached workspace is **not** staff: they keep the view-only Property portal.
 - **The gate** (`decideServiceMode`, used by the `/portal` layout and `GET /api/workspaces`): service mode iff the
   ACTIVE workspace (the cookie's, else the first, exactly what the scope readers narrow to) is a service workspace the
   viewer is staff of. The top bar reads `Admin · <workspace>`, the sidebar subtitle `PropLane Service`, the plan banner

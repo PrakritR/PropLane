@@ -54,8 +54,8 @@ export type ServiceSeat = {
  *   * `staff` - an operator role (admin / full) on a workspace PropLane CREATED (the service owner owns it, so
  *     the client grants nothing there), or an operator role carrying PropLane's own provenance: that is what
  *     makes a helper invited by email or PropLane ID staff of an ATTACHED workspace too. A Viewer / Custom
- *     seat on a created workspace is `no` (it keeps only its per-house grants);
- *   * `platform_person_only` - a seat on an attached workspace with no provenance marker (written before the
+ *     seat is `no` on either kind of workspace (it keeps only its per-house grants);
+ *   * `platform_person_only` - an operator seat on an attached workspace with no provenance marker (written before the
  *     column, or granted by the client herself). It counts only for a PropLane person, which keeps a client
  *     from minting staff by inviting a second account of her own.
  */
@@ -68,11 +68,13 @@ export function serviceSeatVerdict(
 ): ServiceSeatVerdict {
   if (!isStaffTeamRole(seat.teamRole)) return "no";
   if (seat.inviterUserId !== workspace.ownerUserId) return "no";
-  const operatorRole = PROPLANE_SEAT_ROLES.has((seat.teamRole ?? "").trim().toLowerCase());
-  // A workspace PropLane created: the client grants nothing there, but a Viewer / Custom / Property manager seat is
-  // still a limited seat that keeps only its per-house grants, so only the operator roles are staff.
-  if (serviceOwnerId && workspace.ownerUserId === serviceOwnerId) return operatorRole ? "staff" : "no";
-  if (seat.isServiceSeat && operatorRole) return "staff";
+  // A Viewer / Custom / Property manager seat is a limited seat that keeps only its per-house grants, on a workspace
+  // PropLane CREATED and on an ATTACHED one alike. Decided before either branch so a platform admin holding such a
+  // seat is not staff through it either (they keep staff only through the rules that name them a PropLane person).
+  if (!PROPLANE_SEAT_ROLES.has((seat.teamRole ?? "").trim().toLowerCase())) return "no";
+  // A workspace PropLane created: the client grants nothing there, so the operator seat alone is staff.
+  if (serviceOwnerId && workspace.ownerUserId === serviceOwnerId) return "staff";
+  if (seat.isServiceSeat) return "staff";
   return "platform_person_only";
 }
 

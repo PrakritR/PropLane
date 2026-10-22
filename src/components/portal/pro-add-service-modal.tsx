@@ -59,6 +59,7 @@ import {
 } from "@/lib/manager-scheduled-work-tasks";
 import {
   readManagerWorkOrderRows,
+  upsertManagerWorkOrderToServer,
   writeManagerWorkOrderRows,
 } from "@/lib/manager-work-orders-storage";
 import type { WorkAssignee } from "@/lib/work-assignment";
@@ -66,7 +67,7 @@ import type { ManagerWorkOrderBucket } from "@/data/demo-portal";
 import { ServiceTasksField } from "@/components/portal/service-tasks-field";
 import { buildServiceAssignmentMessage } from "@/lib/service-assignment-message";
 import { parseResidentChargeCents } from "@/lib/service-tasks";
-import { createManagerCharge } from "@/lib/household-charges";
+import { createManagerCharge, deleteHouseholdCharge } from "@/lib/household-charges";
 
 /** Who the assignment message goes to, resolved from the directory the picker used. */
 type AssigneeContact = { name: string; email: string; phone?: string };
@@ -463,7 +464,17 @@ export function ManagerAddServiceModal({
           residentChargeCents: chargeCents ?? undefined,
           residentChargeId: charge?.id,
         };
-        writeManagerWorkOrderRows([row, ...readManagerWorkOrderRows()]);
+        // The server decides, and it is AWAITED before anything enters the list: a refused write — PropLane
+        // manages this workspace, so it is view-only — surfaces the server's own message and leaves nothing
+        // behind. The fire-and-forget mirror inside `writeManagerWorkOrderRows` swallowed that 403, so the
+        // manager was shown a service that was never created until the next reload.
+        const saved = await upsertManagerWorkOrderToServer(row);
+        if (!saved.ok) {
+          if (charge) deleteHouseholdCharge(charge.id, managerUserId);
+          showToast(saved.error);
+          return;
+        }
+        writeManagerWorkOrderRows([saved.row, ...readManagerWorkOrderRows()], { mirror: false });
         if (assigned) {
           void createScheduledWorkTask(managerUserId, {
             title: scheduledTaskTitleForService(title, selectedResident?.residentName),

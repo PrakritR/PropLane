@@ -75,9 +75,15 @@ describe("serviceSeatVerdict", () => {
     // The helper invite the admin Service path wrote.
     expect(serviceSeatVerdict(seatRow(), attached, SERVICE_OWNER)).toBe("staff");
     expect(serviceSeatVerdict(seatRow({ teamRole: "full" }), attached, SERVICE_OWNER)).toBe("staff");
-    // The client's own co-manager invite, and a marked seat at a non-operator role.
+    // The client's own co-manager invite at an operator role: only a PropLane person.
     expect(serviceSeatVerdict(seatRow({ isServiceSeat: false }), attached, SERVICE_OWNER)).toBe("platform_person_only");
-    expect(serviceSeatVerdict(seatRow({ teamRole: "property_manager" }), attached, SERVICE_OWNER)).toBe("platform_person_only");
+    // A non-operator seat is no seat at all here either, marked or not: being a platform admin does not
+    // turn a Viewer / Custom / Property manager seat into staff.
+    for (const teamRole of ["viewer", "custom", "property_manager"]) {
+      for (const isServiceSeat of [false, true]) {
+        expect(serviceSeatVerdict(seatRow({ teamRole, isServiceSeat }), attached, SERVICE_OWNER), teamRole).toBe("no");
+      }
+    }
     // An unknown service owner reads every workspace as attached: fail closed.
     expect(serviceSeatVerdict(seatRow({ inviterUserId: SERVICE_OWNER, isServiceSeat: false }), { ownerUserId: SERVICE_OWNER }, null)).toBe(
       "platform_person_only",

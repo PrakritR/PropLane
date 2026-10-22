@@ -134,9 +134,10 @@ export type PortalWorkspace = {
   /** Viewer may invite, edit and remove members here (owner or admin). */
   canManageMembers?: boolean;
   /**
-   * The viewer sees this workspace view-only: they own it, PropLane Service manages it
-   * (`is_service`), and they have no self-paid plan. Server-derived (`managedReadOnlyFor`);
-   * the UI hides every create/edit action, and the middleware and tool layer refuse the writes.
+   * The viewer sees this workspace view-only. Server-derived: true on EVERY workspace of a client who owns a
+   * PropLane Service workspace (`is_service`) without a self-paid plan, because that lock is account-wide
+   * (`managed_read_only_owner_locked()`), plus any workspace held through the retired Property owner seat.
+   * The UI hides every create/edit action, and the middleware and tool layer refuse the writes.
    */
   readOnly?: boolean;
   /** PropLane Service: a workspace PropLane manages (`portal_workspaces.is_service`). Absent = an ordinary workspace. */

@@ -149,6 +149,12 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
   } catch {
     lockedOwnedService = new Set(ownedServiceIds);
   }
+  // The write lock itself is ACCOUNT-WIDE for the owner of a locked service workspace
+  // (`managedReadOnlyOwnerLocked` / `managed_read_only_owner_locked()`): the middleware refuses every /api
+  // write she makes, in her own non-service workspaces too. This flag is the UI half of that same lock, so it
+  // has to say the same thing — a workspace marked writable here drew create chrome (the round +) whose write
+  // then 403'd, which read as a service that had been created.
+  const ownerLocked = lockedOwnedService.size > 0;
 
   // Memberships of every workspace the viewer runs: their own, and any shared
   // one where their role carries the members right. One row per (person,
@@ -190,7 +196,7 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
     ];
     const ownedHere = w.owner_user_id === userId;
     const standing = standingByWorkspace.get(w.id) ?? null;
-    const readOnly = (ownedHere && lockedOwnedService.has(w.id)) || (!ownedHere && standing?.role === "property_owner");
+    const readOnly = ownerLocked || (!ownedHere && standing?.role === "property_owner");
     const seesMembers = ownedHere || Boolean(standing?.rights.members);
     const canManageMembers = !readOnly && seesMembers;
     const members: WorkspaceMember[] = seesMembers

@@ -132,4 +132,20 @@ describe("an owner or a co-manager with calendar edit can", () => {
     const writable = await getConnections(new Request(`http://localhost/api/portal/channel-calendar/connections?writableFor=${PROPERTY},other-property`));
     expect(await writable.json()).toEqual({ writablePropertyIds: [PROPERTY] });
   });
+
+  // Sync all is scoped by the HOUSE, not by who typed the link: the connection below belongs to OWNER, and the
+  // co-manager with Calendar at edit (and service-mode staff, by the same check) must still be able to sync it.
+  it.each([OWNER, EDITOR])("sync every calendar linked on a house they may write, whoever typed the link, as %s", async (userId) => {
+    state.userId = userId;
+    const res = await syncAll(json("POST", { propertyIds: [PROPERTY] }));
+    expect(await res.json()).toMatchObject({ synced: 1, failed: 0 });
+    expect(state.syncs).toBe(1);
+  });
+
+  it("syncs nothing for someone with no calendar write on the house they named", async () => {
+    state.userId = "stranger";
+    const res = await syncAll(json("POST", { propertyIds: [PROPERTY] }));
+    expect(await res.json()).toMatchObject({ synced: 0 });
+    expect(state.syncs).toBe(0);
+  });
 });

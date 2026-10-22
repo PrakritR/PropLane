@@ -196,6 +196,24 @@ describe("the Managed by PropLane strip", () => {
   });
 });
 
+describe("a refused create leaves nothing behind", () => {
+  /**
+   * The lock is account-wide, so a locked client's create can also be refused by the SERVER after the UI let
+   * her through (an unsynced payload, a plan that lapsed mid-session). Add service therefore asks the server
+   * FIRST and awaits it: `writeManagerWorkOrderRows`' own mirror is fire-and-forget, so the 403 used to be
+   * swallowed and the service sat in the list until a reload.
+   */
+  it("Add service awaits the server, surfaces its message and never inserts the row optimistically", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("src/components/portal/pro-add-service-modal.tsx", "utf8");
+    expect(source).toContain("const saved = await upsertManagerWorkOrderToServer(row);");
+    expect(source).toContain("showToast(saved.error);");
+    // Nothing enters the local list before that answer, and the row it writes is the saved one.
+    expect(source).not.toMatch(/writeManagerWorkOrderRows\(\[row,/);
+    expect(source).toContain("writeManagerWorkOrderRows([saved.row, ...readManagerWorkOrderRows()], { mirror: false });");
+  });
+});
+
 describe("source guards for the strip and the Owner payouts tab", () => {
   it("draws no pill and no subtext sentence, and uses the shared Button without a size prop", async () => {
     const { readFileSync } = await import("node:fs");

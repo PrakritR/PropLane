@@ -59,8 +59,10 @@ from a request. A workspace with no policy is not managed.
    (non-allowlisted `/api/*` writes: `403 read_only_managed`, a failed lookup `503`; allowlist in
    `managed-read-only-policy.ts`), `scopeManagerTool` (every write tool), `/api/portal-inbox-threads` (Team chat and the
    Assistant thread only), `/api/workspaces` (rename/delete/move) and `resolveWorkspaceFromSettingsRequest`. The seated
-   admin member and platform staff keep write. Never hide it in the UI alone; deploy the migration BEFORE the code (a
-   missing function refuses every non-allowlisted write).
+   admin member and platform staff keep write. The middleware's lock is ACCOUNT-WIDE for such an owner
+   (`managed_read_only_owner_locked()`), so `loadWorkspaces` marks EVERY workspace in her payload `readOnly` - her own
+   non-service ones included - or the portal draws create chrome whose write then 403s. Never hide it in the UI alone;
+   deploy the migration BEFORE the code (a missing function refuses every non-allowlisted write).
 
 ## Stripe model (docs.stripe.com, read Oct 18 2026)
 
