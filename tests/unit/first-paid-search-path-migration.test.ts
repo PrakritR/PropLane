@@ -69,20 +69,23 @@ describe("20261021090100_service_seat_and_move_memory", () => {
     expect(statements()).not.toMatch(/\b(delete from|drop column|drop table)\b/i);
   });
 
-  it("backfills only an ACCEPTED operator seat on a service workspace whose PropLane provenance is readable", () => {
+  it("backfills an operator seat PropLane itself issued - accepted or still pending - and nothing else", () => {
     const backfill = statements().slice(statements().indexOf("update public.account_link_invites"));
     expect(backfill).toContain("set is_service_seat = true");
-    // Re-runnable, and never widens: only unmarked, accepted, operator-role seats on a service workspace.
+    // Re-runnable, and never widens: only unmarked operator-role seats on a service workspace. A seat a
+    // helper has not accepted yet is still one PropLane issued, so `pending` is marked with `accepted`.
     expect(backfill).toContain("l.is_service_seat = false");
-    expect(backfill).toContain("l.status = 'accepted'");
+    expect(backfill).toContain("l.status in ('accepted', 'pending')");
     expect(backfill).toContain("in ('admin', 'full')");
     expect(backfill).toContain("from public.portal_workspaces w");
     expect(backfill).toContain("w.is_service");
-    // The provenance an already-written row can still carry: a PropLane person, or the admin Service
-    // route's own audit entry naming that invitee on that workspace.
-    expect(backfill).toContain("from public.profile_roles r");
-    expect(backfill).toContain("from public.platform_service_settings s");
+    // The ONE provenance an already-written row carries: the admin Service route's own audit entry naming
+    // that invitee on that workspace. The holder being a platform admin or the service owner is
+    // deliberately not a reason - they are staff through their own rule at read time, and a seat the
+    // client granted herself must stay false.
     expect(backfill).toContain("'admin_service_team_invite', 'admin_service_team_add'");
+    expect(backfill).not.toContain("from public.profile_roles");
+    expect(backfill).not.toContain("from public.platform_service_settings");
     expect(backfill).toContain("a.input_summary ->> 'inviteeUserId' = l.invitee_user_id::text");
     expect(backfill).toContain("a.input_summary ->> 'workspaceId' = l.workspace_id::text");
     // Only one write, and it only ever sets the flag TRUE: a client's own seat is left as it is.
