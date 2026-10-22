@@ -79,6 +79,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                   definition={adminPortal}
                   name={profile?.full_name ?? null}
                   email={profile?.email ?? null}
+                  service={serviceShell}
                 />
                 <AdminSectionTabs definition={adminPortal} />
                 {children}

@@ -2,12 +2,10 @@
 
 import { Plus } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
 import { AxisLogoGlyph } from "@/components/brand/axis-logo";
 import { AdminNewServiceWorkspace } from "@/components/portal/admin-new-service-workspace";
 import { workspaceTileLabels } from "@/components/portal/workspace-switcher";
-import { useAppUi } from "@/components/providers/app-ui-provider";
-import { openServiceWorkspace } from "@/lib/service/open-service-workspace";
+import { useServiceWorkspaceOpen } from "@/components/portal/use-service-workspace-open";
 import { serviceTileTitle, type ServiceShellData } from "@/lib/service/service-mode";
 import { cn } from "@/lib/utils";
 
@@ -21,21 +19,10 @@ const RING = "shadow-[0_0_0_2px_#0c0d10,0_0_0_4px_#fff]";
  * runs the existing admin "open" (it sets the workspace cookie) and lands on that workspace's dashboard. Helpers see
  * only their own workspaces: no logo, no +.
  */
-export function ServiceRailTiles({ service, onCreated }: { service: ServiceShellData; onCreated?: () => void }) {
-  const { showToast } = useAppUi();
-  const [createOpen, setCreateOpen] = useState(false);
-  const [busyId, setBusyId] = useState<string | null>(null);
+export function ServiceRailTiles({ service, onCreated: onCreatedProp }: { service: ServiceShellData; onCreated?: () => void }) {
+  const { createOpen, setCreateOpen, busyId, open, onCreated } = useServiceWorkspaceOpen(service, onCreatedProp);
   const labels = workspaceTileLabels(service.workspaces.map((w) => w.name));
   const onAdminPage = service.activeId === null;
-
-  const open = async (id: string) => {
-    setBusyId(id);
-    const error = await openServiceWorkspace(id, undefined, { isAdmin: service.isAdmin });
-    if (error) {
-      setBusyId(null);
-      showToast(error);
-    }
-  };
 
   return (
     <>
@@ -94,12 +81,7 @@ export function ServiceRailTiles({ service, onCreated }: { service: ServiceShell
           <AdminNewServiceWorkspace
             open={createOpen}
             onClose={() => setCreateOpen(false)}
-            onCreated={(id, name) => {
-              setCreateOpen(false);
-              showToast(`${name} created.`);
-              onCreated?.();
-              void open(id);
-            }}
+            onCreated={onCreated}
           />
         </>
       ) : null}
