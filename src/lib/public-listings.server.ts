@@ -644,7 +644,8 @@ export async function getPublicListings(opts?: {
 
   const workContacts = new Map<string, { phone: string | null; email: string | null }>();
   const workContactRows = [...new Map((data ?? []).filter((row) => row.manager_user_id).map((row) => [`${row.manager_user_id}:${row.workspace_id ?? ""}`, row])).entries()];
-  // One number rule for Browse and the share link (`resolveListingTextNumbers`); one `portal_workspaces` read for the whole catalog.
+  // One number rule for every caller that publishes one (`resolveListingTextNumbers`, the syndication feeds);
+  // one `portal_workspaces` read for the whole catalog. A public response drops it again (PUBLIC_PROPERTY_KEYS).
   const textNumbers = await resolveListingTextNumbers(
     db,
     workContactRows.map(([, row]) => ({ ownerUserId: row.manager_user_id!, workspaceId: row.workspace_id })),

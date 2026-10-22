@@ -395,8 +395,9 @@ PropLane exports its residents, holds and blocks to Airbnb as unavailable, and A
   second announcement of the same block a no-op). A guest's confirmed short stay gets the same owner
   mail, raised once from `emitShortStayTeamNotice`'s `short_stay_confirmed`, which covers both the
   instant confirm and the host's Approve. The guest a channel event names is `bookingEntryGuestLabel`
-  over the feed range — the same label the sync files the reservation's resident under ("Airbnb guest ·
-  HM…" when the code is all the feed gave), never a bare "Booked (Airbnb)" the Bookings list disagrees with.
+  over the feed range — the same label the Residents list's derived channel guest row carries ("Airbnb
+  guest · HM…" when the code is all the feed gave), never a bare "Booked (Airbnb)" the Bookings list
+  disagrees with.
 - The listing room editor's "Blocked dates" list is manager-closed rooms only: a named booking and
   an imported channel stay share the `hold` status, so it filters them out (`managerBlocksForRoom`) -
   saving one from that list would re-file it as a Closed room and drop the guest's name, email and phone.

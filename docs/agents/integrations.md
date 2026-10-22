@@ -184,6 +184,16 @@ Airbnb has no public write API, so the two directions are not equally fast:
 
 ### A channel calendar is a WRITE on the house
 
+**`external_calendar_connections` is server-only.** The row holds the import URL (a
+secret) and NAMES the property the cron sync writes room blocks onto, and RLS
+constrains the row's `manager_user_id`, never which property it names — so a client
+that could insert or update one could aim its own iCal at another landlord's house.
+`anon` / `authenticated` hold SELECT of their own rows and nothing else
+(`20261021090200_channel_calendar_connections_server_only`); every write goes through
+the `/api/portal/channel-calendar/*` routes on the service-role client, which re-check
+the Calendar-at-edit rule below. No `"use client"` module may name the table.
+Guard: `tests/unit/channel-calendar-connections-server-only.test.ts`.
+
 **Linking, unlinking and syncing a channel calendar need the Calendar module at
 `edit`** — `managerCanWriteCalendarForProperty` (and
 `managerCanWriteCalendarForProperties` for a whole portfolio in two round
@@ -193,7 +203,11 @@ path counts as a write too**: `GET …/connections?roomId=` mints a connection r
 with its secret public export token, so it is gated at `edit` like the rest.
 `GET …/connections?writableFor=<ids>` is how the popup lists only writable
 houses (and scopes "Entire workspace" to them) — that is a **hint for the UI**;
-every write re-checks on the server. **Blocking a room is the same write**: a
+every write re-checks on the server. **Sync all picks its connections by HOUSE, not
+by who typed the link**: filtering on `manager_user_id` reported 0 for a co-manager
+holding Calendar at `edit` and for service-mode staff, who sync the owner's
+connections; each row it finds still passes the same per-property write check.
+**Blocking a room is the same write**: a
 `room_date_block` belongs to the HOUSE, and the capacity trigger only accepts a
 row stamped with the property owner, so `/api/portal-schedule-records` (and MCP
 `block_room_dates`) stamps `manager_user_id` with the owner and keeps the author

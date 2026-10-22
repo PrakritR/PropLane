@@ -5,14 +5,19 @@ import { getPublicTextingConfig } from "@/lib/marketing/public-texting.server";
 import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
 
 /**
- * The ONE answer to "which number does the public listing page tell a prospect to text".
+ * The ONE answer to "which number does a listing PUBLISH as its text number".
+ *
+ * Not the public listing PAGE: nothing under /rent shows a number any more (`public-journey.md`), and
+ * `publicListingProjection` drops `contactSmsPhone`. This answers for the server-only callers that still
+ * publish one - the syndication feeds, which opt in with `{ workNumber: true }` - so two feeds of the same
+ * catalog can never quote different numbers.
  *
  * - A listing on a PropLane-managed workspace (`portal_workspaces.is_service`) texts the PropLane line.
  * - A listing on a software customer's own workspace texts that workspace's own active work number; a
  *   workspace with none texts the PropLane line.
  *
- * The PropLane line is what the public pages already use (`getPublicTextingConfig`). The single-listing
- * route and the catalog both resolve through here, so Browse and a share link can never disagree.
+ * The PropLane line is what the homepage already uses (`getPublicTextingConfig`). The single-listing route
+ * and the catalog both resolve through here.
  *
  * Fail-safe: a failed `is_service` read is treated as NOT managed (own number, else the PropLane line),
  * never as managed, so one hiccup cannot hide a customer's own number behind the shared line.

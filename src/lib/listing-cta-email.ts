@@ -8,7 +8,8 @@
  * never actually be reached. This is the door.
  *
  * Pure and client-safe: the address is resolved server-side and arrives on the
- * public listing payload, exactly like `contactSmsPhone`.
+ * public listing payload. The work NUMBER no longer does — nothing a prospect sees
+ * shows one — so the email is the only contact on that payload.
  */
 
 export type ListingCtaEmailIntent = "tour" | "apply" | "question";

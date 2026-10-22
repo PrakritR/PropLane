@@ -7,8 +7,9 @@
  * the lowest room rent; never a dash or "$0"), a Monthly | Short stay segmented control when the listing
  * has a nightly rate, and under the segment only what that stay needs. Monthly: move-in, room, one primary
  * (Quick apply for a signed-in resident with saved answers, Continue application when those answers do not
- * cover the listing, Apply otherwise), Schedule tour, and the work number as a text link. Short stay:
- * the booking block, whose primary is Request to book (Quick book for the same resident).
+ * cover the listing, Apply otherwise) and Schedule tour. Short stay: the booking block, whose primary is
+ * Request to book. No phone number and no text link: /rent is the web channel, so every action goes
+ * through a resident account into the portal (captain, Oct 20).
  *
  * `ListingActionsProvider` decides the primary once for the whole page, so the card (drawn twice by width)
  * and the phone's sticky bar always agree and the read-only server check runs once.

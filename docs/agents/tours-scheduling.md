@@ -127,7 +127,8 @@ it, and a key that names no slot is refused as `slot_unavailable`. Coverage:
 The public scheduler's **"today"** is Pacific too (`pacificCalendarDateYmd`): a prospect
 east of Pacific whose own date has rolled over was shown today's open slots as past and
 told there were none. The grid says **"No tour times yet"** (with a "Message the manager"
-link when the listing publishes a text number) only when no published slot is today or
+link into the resident portal — never an `sms:` link: `/rent` is the web channel, see
+[`public-journey.md`](public-journey.md)) only when no published slot is today or
 later — `tourAvailabilityHasUpcoming` — because a grid whose every slot has passed looks
 identical to an empty one. A FAILED availability read is still never rendered as either
 (see the doc comment in `tour-schedule-flow.tsx`).
@@ -254,6 +255,13 @@ canonical append is a notification failure. Manager tour-request notices remain
 portal messages; an exact existing prospect/applicant SMS identity may be
 recorded for unified Communication only after owner, phone, work number, and
 role all match. Never invent an SMS row or provider SID for a portal-only notice.
+
+**Which channel a guest notice leaves on is the tour's own, recorded when it was made.**
+`createTourInquiry` stamps a server-owned `noticeChannel` (`portal` unless the request came in over the
+leasing SMS or a text-channel tool), and every guest notice — received, confirmed, rescheduled, cancelled,
+removed — follows it: a portal tour skips `textTourGuest` entirely and is answered by email plus the
+resident inbox with a `/resident/tour` link. The rule and its call sites are owned by
+[`bookings.md`](bookings.md) § Guest portal stays; do not restate them here.
 
 A PENDING request is moved with a different route:
 `POST /api/portal-tour-inquiries/propose-reschedule` rewrites the requested

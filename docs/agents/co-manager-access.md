@@ -498,19 +498,29 @@ manager-vendors-storage, service-requests) stay dependency-free: panels pass
 the precomputed sets as OPTIONAL PARAMS (avoids the
 portal-data-store↔household-charges import cycle). Copy that pattern.
 
-**Every client visibility mirror is attribution-first, then property-scoped.**
-`moduleRowVisibleToPortalUser`, `applicationVisibleToPortalUser`, and
-`leaseVisibleToPortalUser` all return true immediately on
-`row.managerUserId === userId`, and only fall through to the owned/linked
-property sets otherwise. That ordering is load-bearing, not a shortcut: those
-sets come from a module-level cache React cannot see, so a row whose property
+**Every client visibility mirror is attribution-first, then property-scoped —
+inside the active workspace.** `moduleRowVisibleToPortalUser`,
+`applicationVisibleToPortalUser`, and `leaseVisibleToPortalUser` all return true
+immediately on `row.managerUserId === userId`, and only fall through to the
+owned/linked property sets otherwise. That ordering is load-bearing, not a
+shortcut: those sets come from a module-level cache React cannot see, so a row whose property
 has not hydrated yet (or an archived/unlisted own listing) is otherwise dropped
 from the manager's OWN list — that race is what hid a resident's freshly
 submitted application from its manager. It cannot widen a co-manager's scope,
 because a linked row is attributed to the OWNER and still takes the
 property-scoped path, so unlink/delete scoping stays intact. Do not "tighten"
-the check by removing the attribution branch. Panels that filter with these
-helpers must also depend on their portfolio tick
+the check by removing the attribution branch.
+
+`moduleRowVisibleToPortalUser` runs ONE check AHEAD of that attribution branch:
+`rowInActiveWorkspace` (`workspaces/selection.ts`, the client twin of the server's
+narrowing — either house column, a houseless row only in the owned default
+workspace). An account can own several workspaces, so a row this manager authored is
+still only THAT workspace's; without it the dashboard "Services needed" list, the
+Services list and the sidebar badge showed another workspace's rows
+([`services-system.md`](services-system.md) § A service belongs to the active
+workspace). It only ever narrows, so the attribution rule above still holds.
+
+Panels that filter with these helpers must also depend on their portfolio tick
 (`MANAGER_PORTFOLIO_REFRESH_EVENTS`) so the list re-filters once that cache
 hydrates. Coverage: `tests/unit/manager-portfolio-access.test.ts`,
 `tests/unit/manager-applications-cold-cache.test.tsx`.

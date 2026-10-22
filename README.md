@@ -130,7 +130,7 @@ For Stripe webhooks locally, use `node scripts/stripe-listen.mjs` (see `docs/str
 | `npm run test:unit` | Vitest unit tests |
 | `npm run test:integration` | Vitest API integration tests |
 | `npm run test:e2e` | Playwright browser tests (full 158-case suite) |
-| `npm run test:e2e:smoke` | Bounded 9-case public smoke — the browser gate CI runs on `main` |
+| `npm run test:e2e:smoke` | Bounded 14-case public smoke — the browser gate CI runs on `main` |
 | `npm run test:all` | All Vitest + Playwright |
 | `npm run db:apply-sql` | Apply `supabase/migrations/` to Postgres |
 | `npm run cap:sync` / `cap:ios` / `cap:android` | Capacitor sync & open native IDEs |
