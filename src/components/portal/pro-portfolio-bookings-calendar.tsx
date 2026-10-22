@@ -500,7 +500,7 @@ export function ManagerBookingsHub({
 
   const shellClass =
     calendarOnly
-      ? "flex min-h-[38rem] flex-1 flex-col gap-3"
+      ? "portal-calendar-page-body flex min-h-0 flex-1 flex-col gap-3"
       : variant === "standalone"
         ? "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
         : "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden";
