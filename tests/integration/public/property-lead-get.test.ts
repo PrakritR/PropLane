@@ -11,7 +11,6 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({
 
 const geocode = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/listing-geocode.server", () => ({ geocodeListingAddressWithin: geocode }));
-vi.mock("@/lib/listing-text-number.server", () => ({ resolveListingTextNumber: vi.fn().mockResolvedValue("+12065550100") }));
 
 let propertyExtras: Record<string, unknown> = {};
 
@@ -85,7 +84,7 @@ describe("GET /api/public/property-lead", () => {
     expect(data.property?.adminPublishLive).toBe(true);
   });
 
-  it("sets the map pin from the ZIP-verified geocode and the text number from the one resolver", async () => {
+  it("sets the map pin from the ZIP-verified geocode, and carries no phone number at all", async () => {
     propertyExtras = { zip: "98105", state: "WA" };
     geocode.mockResolvedValue({ lat: 47.66, lng: -122.31 });
     const response = await getPropertyLead(
@@ -94,7 +93,10 @@ describe("GET /api/public/property-lead", () => {
     const { data } = await parseJsonResponse<{ property?: { mapLat?: number; mapLng?: number; contactSmsPhone?: string } }>(response);
 
     expect(geocode).toHaveBeenCalledWith(expect.objectContaining({ address: "123 Main St", zip: "98105", state: "WA" }));
-    expect(data.property).toMatchObject({ mapLat: 47.66, mapLng: -122.31, contactSmsPhone: "+12065550100" });
+    expect(data.property).toMatchObject({ mapLat: 47.66, mapLng: -122.31 });
+    // Nothing a prospect reads shows a phone, so the payload carries none and the route resolves none.
+    expect(data.property?.contactSmsPhone).toBeUndefined();
+    expect(JSON.stringify(data)).not.toMatch(/\+1\d{10}/);
   });
 
   it("ships without a pin when the geocode gives none; a geocoded pin beats a stored one, which is only the fallback", async () => {

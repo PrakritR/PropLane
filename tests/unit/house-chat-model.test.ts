@@ -152,6 +152,7 @@ describe("houseThreadRowForViewer", () => {
       houseChat: {
         version: 1,
         houseLabel: "12 Pine St",
+        publicId: "a".repeat(32),
         residents: [
           { email: "maya@example.com", firstName: "Maya", roomLabel: "Room 1", moveIn: "2026-06-01", joinedAt: "x" },
           { email: "noah@example.com", firstName: "Noah", roomLabel: "Room 2", moveIn: "2026-06-02", joinedAt: "x" },
@@ -163,7 +164,7 @@ describe("houseThreadRowForViewer", () => {
   const maya: HouseViewer = { userId: "user-maya", email: "maya@example.com", scope: "axis_portal_inbox_resident_v1", kind: "resident" };
 
   it("draws the viewer's own lines on their side and everyone else by first name and room", () => {
-    const row = houseThreadRowForViewer(stored, maya) as { messages: { id: string; from: string; outbound: boolean }[]; subject: string };
+    const row = houseThreadRowForViewer(stored, maya) as unknown as { messages: { id: string; from: string; outbound: boolean }[]; subject: string };
     expect(row.subject).toBe("House · 12 Pine St");
     expect(row.messages.map((m) => [m.id, m.from, m.outbound])).toEqual([
       ["w1", "PropLane", false],
@@ -175,13 +176,21 @@ describe("houseThreadRowForViewer", () => {
 
   it("gives a RESIDENT the opaque house id, never the stored one that names the owner's account", () => {
     const publicId = "a".repeat(32);
-    const withPublic = { ...stored, row_data: { ...stored.row_data, houseChat: { ...stored.row_data.houseChat, publicId } } };
-    const row = houseThreadRowForViewer(withPublic, maya);
+    const row = houseThreadRowForViewer(stored, maya)!;
     expect(row.id).toBe(`house-chat:${publicId}`);
     expect(row.rootMessageId).toBe(`house-root:house-chat:${publicId}`);
     expect(JSON.stringify(row)).not.toContain("owner-1");
     // The team addresses the stored row directly, so they keep the stored id.
-    expect(houseThreadRowForViewer(withPublic, { ...maya, kind: "team" }).id).toBe(stored.id);
+    expect(houseThreadRowForViewer(stored, { ...maya, kind: "team" })!.id).toBe(stored.id);
+  });
+
+  it("has NO row for a resident when the chat carries no opaque id: the stored id is never a fallback", () => {
+    const { publicId: _dropped, ...houseChat } = stored.row_data.houseChat;
+    void _dropped;
+    const legacy = { ...stored, row_data: { ...stored.row_data, houseChat } };
+    expect(houseThreadRowForViewer(legacy, maya)).toBeNull();
+    // The team still reads it: their id is the stored one either way.
+    expect(houseThreadRowForViewer(legacy, { ...maya, kind: "team" })!.id).toBe(stored.id);
   });
 
   it("hands back the newest lines only, so one shared row never grows into the whole history", () => {
@@ -193,7 +202,7 @@ describe("houseThreadRowForViewer", () => {
       atMs: 1_000 + i,
       actorUserId: "user-noah",
     }));
-    const row = houseThreadRowForViewer({ ...stored, row_data: { ...stored.row_data, messages: many } }, maya) as {
+    const row = houseThreadRowForViewer({ ...stored, row_data: { ...stored.row_data, messages: many } }, maya) as unknown as {
       messages: { id: string }[];
     };
     expect(row.messages).toHaveLength(HOUSE_LIST_MESSAGE_LIMIT);

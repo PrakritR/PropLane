@@ -8,10 +8,10 @@ import {
   classifyLeasingIntent,
   clawLeasingAgentPhoneE164,
   extractPropertyLabelHint,
-  isClawMessagingPubliclyEnabled,
   isClawSharedLineBridgeEnabled,
   looksLikeProspectLeasingCta,
   managerContactSmsPhoneForPublicCta,
+  usableCtaSmsPhone,
   type SmsDeepLinkIntent,
 } from "@/lib/claw-leasing-links";
 import { replyForIntent } from "@/lib/claw-leasing-bot.server";
@@ -109,10 +109,10 @@ describe("retired Claw shared-number safeguards", () => {
     expect(managerContactSmsPhoneForPublicCta("+14258909021")).toBe("+14258909021");
     expect(managerContactSmsPhoneForPublicCta("+12065550199")).toBeNull();
     expect(clawLeasingAgentPhoneE164()).toBe(AGENT);
-    // A public CTA, by contrast, needs a number resolved for that listing —
+    // A manager-side CTA, by contrast, needs a number resolved for that listing —
     // the browser never falls back to the shared line on its own.
-    expect(isClawMessagingPubliclyEnabled()).toBe(false);
-    expect(isClawMessagingPubliclyEnabled(AGENT)).toBe(false);
+    expect(usableCtaSmsPhone(undefined)).toBeNull();
+    expect(usableCtaSmsPhone(AGENT)).toBeNull();
     if (prev === undefined) delete process.env.NEXT_PUBLIC_CLAW_MESSENGER_ENABLED;
     else process.env.NEXT_PUBLIC_CLAW_MESSENGER_ENABLED = prev;
   });

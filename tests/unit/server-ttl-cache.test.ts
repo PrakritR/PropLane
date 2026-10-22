@@ -51,6 +51,23 @@ describe("createTtlCache", () => {
     expect(await cache.get("k", async () => "third")).toBe("after-clear");
   });
 
+  it("bounds a wide key space as an LRU: the least recently used answer is the one dropped", async () => {
+    // A per-address answer (the listing geocode) is keyed on caller-shaped data, so the map must not grow
+    // without end; the fixed-key snapshots pass no cap and keep one entry per key.
+    const cache = createTtlCache<string>(60_000, () => 1_000, { maxEntries: 2 });
+    const load = (value: string) => async () => value;
+    expect(await cache.get("a", load("A"))).toBe("A");
+    expect(await cache.get("b", load("B"))).toBe("B");
+    // Reading "a" makes "b" the least recently used, so "c" evicts "b".
+    expect(await cache.get("a", load("A2"))).toBe("A");
+    expect(await cache.get("c", load("C"))).toBe("C");
+    // Re-reading "b" is a miss now (it was the one dropped) and it evicts "a", the oldest of the two left.
+    expect(await cache.get("b", load("B2"))).toBe("B2");
+    expect(await cache.get("a", load("A3"))).toBe("A3");
+    // Two entries at most, always: "c" was the least recently used by then, so it was recomputed too.
+    expect(await cache.get("c", load("C2"))).toBe("C2");
+  });
+
   it("is switched off under test so route tests read their mocks live", () => {
     expect(serverSnapshotCacheEnabled()).toBe(false);
   });

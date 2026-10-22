@@ -90,12 +90,18 @@ export type AdminOverview = {
 };
 
 /**
- * How long one SLOW source (the live Stripe read, the Subscribers population, the newest-signups window, the feedback
- * count) may take before the Dashboard stops waiting for it. The route answers once, so one source that hangs held the
- * whole page on "Loading…" until the browser gave up; a source that misses its budget reads as `null` and its card is
- * left out (the same contract as an unreadable source), and the rest of the page draws.
+ * How long the Dashboard waits for its sources, END TO END. The route answers once, so one source that hangs
+ * held the whole page on "Loading…" until the browser gave up; a source that misses the budget reads as
+ * `null` and its card is left out (the same contract as an unreadable source), and the rest of the page
+ * draws. The figures are read in two stages (the account ids, then every count derived from them), and they
+ * share ONE deadline: two full budgets in a row would be an 18 second page.
  */
 export const OVERVIEW_SOURCE_BUDGET_MS = 9_000;
+
+/** What is left of a shared deadline, never negative (a passed deadline budgets nothing). */
+function msUntil(deadline: number, now = Date.now()): number {
+  return Math.max(0, deadline - now);
+}
 
 /** Pure: the promise's value, or `fallback` when it rejects or has not settled within `ms`. Exported for the tests. */
 export async function withBudget<T>(work: PromiseLike<T>, ms: number, fallback: T): Promise<T> {
@@ -196,6 +202,9 @@ function emptyAdminOverview(): AdminOverview {
 
 export async function loadAdminOverview(db: SupabaseClient, now = new Date()): Promise<AdminOverview> {
   const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  // One deadline for the whole page: the id read below and every figure derived from it share it, so a slow
+  // first stage shortens the second rather than adding to it.
+  const deadline = Date.now() + OVERVIEW_SOURCE_BUDGET_MS;
 
   // One paged id read per role (one column, every kind resolved in that pass),
   // then the numbers are counted in the database: the dashboard never
@@ -204,7 +213,7 @@ export async function loadAdminOverview(db: SupabaseClient, now = new Date()): P
   // would hold the whole page rather than one card.
   const base = await withBudget(
     Promise.all([listAccountIdsForEveryKind(db), listSandboxAccountIds(db)]),
-    OVERVIEW_SOURCE_BUDGET_MS,
+    msUntil(deadline),
     null,
   );
   if (!base) return emptyAdminOverview();
@@ -219,6 +228,8 @@ export async function loadAdminOverview(db: SupabaseClient, now = new Date()): P
   for (const id of realResidents) if (!kindById.has(id)) kindById.set(id, "resident");
   for (const id of realVendors) if (!kindById.has(id)) kindById.set(id, "vendor");
 
+  // Whatever the first stage left of the shared deadline is what every figure below gets.
+  const left = msUntil(deadline);
   const [
     activeManagers,
     activeResidents,
@@ -233,32 +244,32 @@ export async function loadAdminOverview(db: SupabaseClient, now = new Date()): P
     earnings,
     expensesCents,
   ] = await Promise.all([
-    withBudget(countActiveAccounts(db, realManagers), OVERVIEW_SOURCE_BUDGET_MS, null),
-    withBudget(countActiveAccounts(db, realResidents), OVERVIEW_SOURCE_BUDGET_MS, null),
-    withBudget(countActiveAccounts(db, realVendors), OVERVIEW_SOURCE_BUDGET_MS, null),
-    withBudget(countActiveAccountsWithPayouts(db, realManagers), OVERVIEW_SOURCE_BUDGET_MS, null),
-    withBudget(countOpenFeedback(db), OVERVIEW_SOURCE_BUDGET_MS, null),
+    withBudget(countActiveAccounts(db, realManagers), left, null),
+    withBudget(countActiveAccounts(db, realResidents), left, null),
+    withBudget(countActiveAccounts(db, realVendors), left, null),
+    withBudget(countActiveAccountsWithPayouts(db, realManagers), left, null),
+    withBudget(countOpenFeedback(db), left, null),
     withBudget(countOrNull(() =>
       db
         .from("sms_delivery_log")
         .select("id", { count: "exact", head: true })
         .in("status", SMS_FAILED_STATUSES)
         .gte("created_at", since),
-    ), OVERVIEW_SOURCE_BUDGET_MS, null),
+    ), left, null),
     withBudget(countOrNull(() =>
       db
         .from("sms_delivery_attempts")
         .select("id", { count: "exact", head: true })
         .in("state", SMS_ATTEMPT_FAILED_STATES)
         .gte("started_at", since),
-    ), OVERVIEW_SOURCE_BUDGET_MS, null),
+    ), left, null),
     withBudget(countOrNull(() =>
       db.from("stripe_disputes").select("id", { count: "exact", head: true }).not("status", "in", CLOSED_DISPUTE_STATUSES_FILTER),
-    ), OVERVIEW_SOURCE_BUDGET_MS, null),
-    withBudget(recentSignupsOf(db, kindById), OVERVIEW_SOURCE_BUDGET_MS, null),
-    withBudget(loadAdminSubscriberFigures(db, now.getTime()), OVERVIEW_SOURCE_BUDGET_MS, null),
-    withBudget(loadAdminMonthEarnings(db, { now: () => now.getTime() }), OVERVIEW_SOURCE_BUDGET_MS, null),
-    withBudget(loadMonthExpensesCents(db, currentRevenueMonth(now.getTime())), OVERVIEW_SOURCE_BUDGET_MS, null),
+    ), left, null),
+    withBudget(recentSignupsOf(db, kindById), left, null),
+    withBudget(loadAdminSubscriberFigures(db, now.getTime()), left, null),
+    withBudget(loadAdminMonthEarnings(db, { now: () => now.getTime() }), left, null),
+    withBudget(loadMonthExpensesCents(db, currentRevenueMonth(now.getTime())), left, null),
   ]);
 
   const smsFailures24h = smsLog === null && smsAttempts === null ? null : (smsLog ?? 0) + (smsAttempts ?? 0);

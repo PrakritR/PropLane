@@ -5,7 +5,7 @@ import type { CommunicationScope } from "@/lib/communication/conversation-visibi
 import { HOUSE_THREAD_TYPE, houseThreadId, isHouseThreadId, parseHouseThreadId } from "@/lib/house-thread-id";
 import { assertHouseThreadAccess, teamScopeAllowsHouseThread } from "./access.server";
 import { houseThreadRowForViewer, type HouseViewer } from "./model";
-import { ensureHousePublicId, listWorkspaceHouseThreads, loadHouseThread, setHouseViewerState } from "./store.server";
+import { listWorkspaceHouseThreads, loadHouseThread, setHouseViewerState, withHousePublicId } from "./store.server";
 
 /**
  * What an inbox LIST and an inbox MAILBOX write (archive, restore, mark read) do with house chats. The house
@@ -35,11 +35,9 @@ export async function houseRowsForTeamViewer(
     if (!teamScopeAllowsHouseThread(input.scope, parsed).allowed) continue;
     // A house that left the workspace takes its chat out of the list.
     if (input.scope.workspaceHouseIds && !input.scope.workspaceHouseIds.has(parsed.propertyId)) continue;
-    rows.push({
-      ...houseThreadRowForViewer({ id: thread.id, row_data: thread.rowData }, viewer),
-      ownerUserId: thread.ownerUserId,
-      updatedAt: thread.updatedAt,
-    });
+    const row = houseThreadRowForViewer({ id: thread.id, row_data: thread.rowData }, viewer);
+    if (!row) continue;
+    rows.push({ ...row, ownerUserId: thread.ownerUserId, updatedAt: thread.updatedAt });
   }
   return rows;
 }
@@ -68,15 +66,19 @@ export async function houseRowsForResident(
     const id = String(candidate.id ?? "");
     const access = await assertHouseThreadAccess(db, { threadId: id, userId: input.userId, email, level: "read", kinds: ["resident"] }, deps);
     if (!access.ok) continue;
-    // Mint the opaque id for a chat created before it existed, so the resident's row never falls back
-    // to the stored id (which names the owner's account).
-    await ensureHousePublicId(db, id).catch(() => null);
     const stored = await loadHouseThread(db, id);
     if (!stored) continue;
-    rows.push({
-      ...houseThreadRowForViewer({ id: stored.id, row_data: stored.rowData }, viewer),
-      updatedAt: stored.updatedAt,
-    });
+    // The resident is given the opaque house id and nothing else. A chat created before that id existed
+    // gets one minted here; a chat that cannot have one is LEFT OUT rather than listed under the stored
+    // id, which names the owner's account.
+    const ready = await withHousePublicId(db, stored).catch(() => null);
+    if (!ready) {
+      console.error("[house-chat] no opaque id for a resident's chat; row omitted", { threadId: id });
+      continue;
+    }
+    const row = houseThreadRowForViewer({ id: ready.id, row_data: ready.rowData }, viewer);
+    if (!row) continue;
+    rows.push({ ...row, updatedAt: ready.updatedAt });
   }
   return rows;
 }

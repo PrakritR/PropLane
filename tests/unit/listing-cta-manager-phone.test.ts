@@ -6,13 +6,11 @@
  * manager's personal cell are never used.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildSmsDeepLink, isClawMessagingPubliclyEnabled, usableCtaSmsPhone } from "@/lib/claw-leasing-links";
-import { withListingContactSmsPhone } from "@/lib/listing-contact-sms";
+import { buildSmsDeepLink, usableCtaSmsPhone } from "@/lib/claw-leasing-links";
 import {
   listingCtaSendsToManagerOwnPhone,
   resolveListingCtaSmsPhone,
 } from "@/lib/listing-cta-phone.server";
-import type { MockProperty } from "@/data/types";
 
 const CLAW_LINE = "+12053690702";
 const ALICE_WORK = "+14258909100";
@@ -116,7 +114,7 @@ describe("listing CTA rendering", () => {
   it("shows a well-formed sms: link only when a work number resolved", () => {
     setRuntime("production");
     const managerPhone = resolveListingCtaSmsPhone(ALICE);
-    expect(isClawMessagingPubliclyEnabled(managerPhone)).toBe(true);
+    expect(usableCtaSmsPhone(managerPhone)).toBe(ALICE_WORK);
     for (const intent of ["tour", "apply"] as const) {
       const href = buildSmsDeepLink({ intent, propertyLabel: "The Pioneer", toPhone: managerPhone });
       expect(href).toMatch(/^sms:\+1\d{10}\?&body=\S+$/);
@@ -127,17 +125,8 @@ describe("listing CTA rendering", () => {
 
     const noPhone = resolveListingCtaSmsPhone({ ...ALICE, sms_from_number: null });
     expect(noPhone).toBeNull();
-    expect(isClawMessagingPubliclyEnabled(noPhone)).toBe(false);
+    expect(usableCtaSmsPhone(noPhone)).toBeNull();
     expect(buildSmsDeepLink({ intent: "tour", propertyLabel: "The Pioneer", toPhone: noPhone })).toBe("#");
-  });
-
-  it("never leaves a stale stored number on a preview when none resolved", () => {
-    setRuntime("production");
-    const stored = { id: "mgr-1", contactSmsPhone: "+19995551234" } as unknown as MockProperty;
-    expect(withListingContactSmsPhone(stored, resolveListingCtaSmsPhone(ALICE)).contactSmsPhone).toBe(
-      ALICE_WORK,
-    );
-    expect(withListingContactSmsPhone(stored, null).contactSmsPhone).toBeUndefined();
   });
 
   it("rejects the shared Claw line and fictional 555 numbers from client CTA guard", () => {

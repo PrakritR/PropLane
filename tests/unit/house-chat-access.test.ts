@@ -215,6 +215,37 @@ describe("what a housemate sees and per-viewer mailbox state", () => {
     expect(await houseRowsForResident(db.db, { ...asMaya, userId: "user-x", email: "stranger@example.com" }, live([MAYA, NOAH]))).toEqual([]);
   });
 
+  it("mints the opaque id for an older chat, and leaves the chat OUT when it cannot be minted", async () => {
+    const db = chatDb();
+    await syncHouseChat(db.db, { workspaceId: WS, ownerUserId: OWNER, propertyId: HOUSE, houseLabel: "12 Pine St" }, { stays: [MAYA], now: () => NOON });
+    const asMaya = { userId: "user-maya", email: "maya@example.com", inboxScope: "axis_portal_inbox_resident_v1" };
+    const live = { residents: async () => residentsOf([MAYA]), houseExists: async () => true };
+
+    // A chat created before the opaque id existed: the list mints one rather than falling back.
+    const row = threadRows(db).find((r) => r.id === THREAD)!;
+    const chat = (row.row_data as { houseChat: Record<string, unknown> }).houseChat;
+    delete chat.publicId;
+    const minted = await houseRowsForResident(db.db, asMaya, live);
+    expect(String(minted[0]!.id)).toMatch(/^house-chat:[0-9a-f]{32}$/);
+
+    // A chat whose id cannot be minted is omitted: the stored id names the owner and is never handed over.
+    const second = chatDb();
+    await syncHouseChat(second.db, { workspaceId: WS, ownerUserId: OWNER, propertyId: HOUSE, houseLabel: "12 Pine St" }, { stays: [MAYA], now: () => NOON });
+    const stale = threadRows(second).find((r) => r.id === THREAD)!;
+    delete (stale.row_data as { houseChat: Record<string, unknown> }).houseChat.publicId;
+    // Every compare-and-set on the thread row loses (a concurrent writer, or an unwritable row).
+    const neverWrites = {
+      from: (table: string) => {
+        const real = (second.db as unknown as { from: (t: string) => Record<string, unknown> }).from(table);
+        if (table !== "portal_inbox_thread_records") return real;
+        const dead = { maybeSingle: async () => ({ data: null, error: null }) };
+        const chain: Record<string, unknown> = { select: () => chain, eq: () => chain, ...dead };
+        return { ...real, update: () => chain };
+      },
+    } as never;
+    expect(await houseRowsForResident(neverWrites, asMaya, live)).toEqual([]);
+  });
+
   it("archive and read are the viewer's own and never touch another member's view", async () => {
     const db = chatDb();
     await ensureHouseThread(db.db, { workspaceId: WS, ownerUserId: OWNER, propertyId: HOUSE, houseLabel: "12 Pine St" });

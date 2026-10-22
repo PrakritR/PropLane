@@ -13,7 +13,7 @@ export function ListingLocationBlock({
   embedded = false,
   shortOnPhone = false,
 }: {
-  property: Pick<MockProperty, "address" | "zip" | "neighborhood" | "unitLabel" | "mapLat" | "mapLng"> &
+  property: Pick<MockProperty, "id" | "address" | "zip" | "neighborhood" | "unitLabel" | "mapLat" | "mapLng"> &
     Partial<Pick<MockProperty, "state" | "listingSubmission">>;
   /** When true, render map + address only (parent supplies section chrome). */
   embedded?: boolean;

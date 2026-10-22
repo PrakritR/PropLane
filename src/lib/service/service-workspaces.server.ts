@@ -209,7 +209,11 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
   return { ok: true, payload: { configured, ownerUserId, workspaces: out } };
 }
 
-/** Add a membership of `workspaceId` for `userId`, under the service owner: Admin, or Property owner for the owner of record. */
+/**
+ * Add a membership of `workspaceId` for `userId`, under the workspace's owner: Admin, or Property owner for
+ * the owner of record. Every seat written here is stamped `is_service_seat` (bar the owner-of-record one):
+ * it is the one path PropLane seats service staff through.
+ */
 async function insertAdminMembership(
   db: SupabaseClient,
   ownerUserId: string,
@@ -257,6 +261,10 @@ async function insertAdminMembership(
       responded_at: opts.pending ? null : now,
       status: opts.pending ? "pending" : "accepted",
       is_owner_of_record: opts.ownerOfRecord === true,
+      // Provenance: PropLane issued this seat (create / attach / team-invite), which is what makes its
+      // holder service STAFF even on an attached workspace the client still owns. The client's own
+      // co-manager invites never come through here, so they are never marked.
+      is_service_seat: !asOwner,
     })
     .select("id")
     .maybeSingle();

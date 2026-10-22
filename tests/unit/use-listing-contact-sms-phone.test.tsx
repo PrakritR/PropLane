@@ -69,9 +69,8 @@ describe("useListingContactSmsPhone", () => {
   });
 
   it("never stamps the viewer's own phone onto another manager's listing when the viewer is unknown", async () => {
-    // Admin/cross-manager previews pass ownerManagerUserId with no viewer id.
-    // A public-catalog miss (draft listing, or an owner with no verified phone)
-    // must resolve to null, not to whoever happens to be signed in.
+    // Admin/cross-manager previews pass ownerManagerUserId with no viewer id: the number must resolve to
+    // null, not to whoever happens to be signed in.
     const spy = stubFetch((url) =>
       url.startsWith("/api/manager/messaging-number")
         ? { ok: true, json: async () => ({ lineReady: true, number: { phoneNumber: OTHER_MANAGER_PHONE } }) }

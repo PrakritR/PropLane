@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
 /**
- * Both listing CTA hooks (SMS phone, work email) read the public catalog. Each
- * used to cache it separately with no in-flight guard, so a page that mounted
- * both hooks twice downloaded the whole catalog four times on first paint.
+ * The listing work-email hook reads the public catalog through one TTL cache with an in-flight guard: the
+ * hooks used to cache it separately, so a page that mounted both twice downloaded the whole catalog four
+ * times on first paint. The catalog carries no phone number any more, so neither does this projection.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { publicListingContact, resetPublicListingContactsCache } from "@/lib/public-listing-contacts";
 
 const catalog = {
   listings: [
-    { id: "mgr-a", contactSmsPhone: "+12065550100", contactWorkEmail: "a@prop-lane.space" },
-    { id: "mgr-b", contactSmsPhone: "+12065550101" },
+    { id: "mgr-a", contactWorkEmail: "a@prop-lane.space" },
+    { id: "mgr-b" },
   ],
 };
 
@@ -35,7 +35,8 @@ describe("public listing contacts", () => {
       publicListingContact("mgr-missing"),
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(results[0]).toEqual({ contactSmsPhone: "+12065550100", contactWorkEmail: "a@prop-lane.space" });
+    expect(results[0]).toEqual({ contactWorkEmail: "a@prop-lane.space" });
+    expect(results[0]).not.toHaveProperty("contactSmsPhone");
     expect(results[2]?.contactWorkEmail).toBeUndefined();
     expect(results[3]).toBeNull();
   });
@@ -50,6 +51,6 @@ describe("public listing contacts", () => {
     resetPublicListingContactsCache();
     fetchMock.mockImplementationOnce(async () => ({ ok: false, status: 500, json: async () => ({}) }) as unknown as Response);
     expect(await publicListingContact("mgr-a")).toBeNull();
-    expect((await publicListingContact("mgr-a"))?.contactSmsPhone).toBe("+12065550100");
+    expect((await publicListingContact("mgr-a"))?.contactWorkEmail).toBe("a@prop-lane.space");
   });
 });

@@ -16,7 +16,11 @@ import { createTtlCache } from "@/lib/server-ttl-cache";
  *       its neutral fallback centre rather than an unverified pin.
  * A success is kept 30 days (an address's coordinates do not change); a miss - "nothing found" or a request
  * failure - is remembered for an hour, so a page reloaded in a tight loop does not re-ask Nominatim for an
- * address it just failed to place. Every call goes through the shared Nominatim queue and User-Agent.
+ * address it just failed to place. Both stores are bounded: the key is one listing's address, so a wide key
+ * space must never grow the process. Every call goes through the shared Nominatim queue and User-Agent.
+ *
+ * Callers pass an address read from a stored listing (the page payload, or `/api/listing-geocode` resolving a
+ * property id), never a string straight off a request.
  */
 
 export type ListingGeocodeInput = {
@@ -34,11 +38,13 @@ export const LISTING_GEOCODE_WAIT_MS = 2_500;
 
 type NominatimRow = { lat?: string; lon?: string; address?: { postcode?: string } };
 
-const cache = createTtlCache<GeocodeCoords>(CACHE_TTL_MS);
+/** How many answers either store keeps: a few hundred listings is the whole public catalog. */
+const CACHE_MAX_ENTRIES = 500;
+const cache = createTtlCache<GeocodeCoords>(CACHE_TTL_MS, Date.now, { maxEntries: CACHE_MAX_ENTRIES });
 
 /** How long a miss (nothing found, or a failed request) is remembered, and how many are kept. */
 const MISS_TTL_MS = 60 * 60 * 1000;
-const MISS_MAX_KEYS = 500;
+const MISS_MAX_KEYS = CACHE_MAX_ENTRIES;
 const misses = new Map<string, number>();
 
 function missRemembered(key: string): boolean {

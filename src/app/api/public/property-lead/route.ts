@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { MockProperty } from "@/data/types";
 import { isPropertyActiveForLeads } from "@/lib/demo-property-pipeline";
-import { resolveListingTextNumber } from "@/lib/listing-text-number.server";
 import { geocodeListingAddressWithin } from "@/lib/listing-geocode.server";
 import { publicListingProjection, resolvePublicSigningContext } from "@/lib/public-listings.server";
 import { resolveListingAttributionByOwnerWorkspace } from "@/lib/listing-attribution.server";
@@ -73,12 +72,9 @@ export async function GET(req: Request) {
       id: property.id || propertyId,
       managerUserId: property.managerUserId ?? data.manager_user_id ?? undefined,
       managerContactEmail: managerEmail?.trim() || undefined,
-      // Same per-property rule as the public catalog, and the stored blob number is never trusted: a
-      // PropLane-managed workspace texts the PropLane line, a customer's own workspace its own work number
-      // (else the PropLane line). See `resolveListingTextNumber`.
-      contactSmsPhone: data.manager_user_id
-        ? (await resolveListingTextNumber(db, { ownerUserId: data.manager_user_id, workspaceId: data.workspace_id ?? null })) ?? undefined
-        : undefined,
+      // No work NUMBER is resolved here: nothing a prospect reads shows a phone, so `publicListingProjection`
+      // drops `contactSmsPhone` and only the syndication feeds opt back in (`{ workNumber: true }`). The
+      // stored blob's own number never survives the projection either.
       contactWorkEmail:
         (await resolveListingCtaEmail(db, data.manager_user_id ?? null)) ?? undefined,
     };

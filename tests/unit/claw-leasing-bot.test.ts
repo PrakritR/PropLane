@@ -4,9 +4,9 @@ import {
   classifyLeasingIntent,
   extractBundleIdHint,
   extractPropertyIdHint,
-  isClawMessagingPubliclyEnabled,
   isLegacyClawSharedSmsNumber,
   managerContactSmsPhoneForPublicCta,
+  usableCtaSmsPhone,
 } from "@/lib/claw-leasing-links";
 import { catalogHomeMayAnswerHint, replyForIntent } from "@/lib/claw-leasing-bot.server";
 
@@ -90,13 +90,13 @@ describe("claw leasing intent", () => {
     for (const flag of ["0", "1"]) {
       const prev = process.env.NEXT_PUBLIC_CLAW_MESSENGER_ENABLED;
       process.env.NEXT_PUBLIC_CLAW_MESSENGER_ENABLED = flag;
-      expect(isClawMessagingPubliclyEnabled("+12065550199"), flag).toBe(false);
-      expect(isClawMessagingPubliclyEnabled(null), flag).toBe(false);
-      expect(isClawMessagingPubliclyEnabled(""), flag).toBe(false);
-      expect(isClawMessagingPubliclyEnabled("not a phone"), flag).toBe(false);
+      expect(usableCtaSmsPhone("+12065550199"), flag).toBeNull();
+      expect(usableCtaSmsPhone(null), flag).toBeNull();
+      expect(usableCtaSmsPhone(""), flag).toBeNull();
+      expect(usableCtaSmsPhone("not a phone"), flag).toBeNull();
       // The retired shared agent line is recognized only so it can be rejected.
       expect(isLegacyClawSharedSmsNumber("+12053690702"), flag).toBe(true);
-      expect(isClawMessagingPubliclyEnabled("+12053690702"), flag).toBe(false);
+      expect(usableCtaSmsPhone("+12053690702"), flag).toBeNull();
       if (prev === undefined) delete process.env.NEXT_PUBLIC_CLAW_MESSENGER_ENABLED;
       else process.env.NEXT_PUBLIC_CLAW_MESSENGER_ENABLED = prev;
     }

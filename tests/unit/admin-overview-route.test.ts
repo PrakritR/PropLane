@@ -176,6 +176,39 @@ describe("GET /api/admin/overview", () => {
     }
   });
 
+  it("holds ONE deadline across both stages: a slow id read shortens the figures, it does not add to them", async () => {
+    getUser.mockResolvedValue({ data: { user: { id: "admin-1" } } });
+    isAdminUser.mockResolvedValue(true);
+    const real = createAdminFakeDb(seed());
+    // `profile_roles` is read in the FIRST stage only; `stripe_disputes` in the second, and it never answers.
+    const slowFirstStage = (table: string) => {
+      const builder = real.from(table) as Record<string, unknown>;
+      if (table === "profile_roles") {
+        const then = builder.then as (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => unknown;
+        builder.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
+          new Promise((resolve) => setTimeout(resolve, OVERVIEW_SOURCE_BUDGET_MS - 1_000)).then(() => then.call(builder, res, rej));
+      }
+      if (table === "stripe_disputes") {
+        builder.then = () => new Promise(() => undefined);
+      }
+      return builder;
+    };
+    serviceRoleFactory.mockImplementation(() => ({ ...real, from: slowFirstStage }));
+
+    vi.useFakeTimers();
+    try {
+      const pending = GET();
+      // The whole page answers inside ONE budget, not two in a row.
+      await vi.advanceTimersByTimeAsync(OVERVIEW_SOURCE_BUDGET_MS + 10);
+      const body = await (await pending).json();
+      // The id read landed, so the account figures are real; the hung source is the only card omitted.
+      expect(body.activeManagers).toBe(2);
+      expect(body.openDisputes).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not read email delivery or listing review, which have no honest source", async () => {
     getUser.mockResolvedValue({ data: { user: { id: "admin-1" } } });
     isAdminUser.mockResolvedValue(true);

@@ -2,15 +2,9 @@
 
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { useEffect, useState } from "react";
-import { publicListingContact } from "@/lib/public-listing-contacts";
 import { listingCtaSmsPhone } from "@/lib/claw-leasing-links";
-import { isLiveListingIdForContactSms } from "@/lib/listing-contact-sms";
 import { workspaceWorkNumber, type WorkspaceWorkNumberSource } from "@/lib/sms/manager-messaging-number";
 import { sharedGet } from "@/lib/shared-get-cache";
-
-async function contactSmsFromPublicCatalog(listingId: string): Promise<string | null> {
-  return listingCtaSmsPhone((await publicListingContact(listingId))?.contactSmsPhone);
-}
 
 /** The selected workspace’s operational work number, never a personal phone or shared platform line. */
 async function ownManagerListingCtaPhone(workspaceId?: string): Promise<string | null> {
@@ -29,15 +23,15 @@ async function ownManagerListingCtaPhone(workspaceId?: string): Promise<string |
 }
 
 /**
- * Resolves the SMS number shown on listing CTAs — same source as the public browse page.
- * Live listings use the public catalog; drafts use the signed-in manager's own number,
- * but ONLY when the viewer is provably the listing's owner. A known `ownerManagerUserId`
- * with an unknown or different viewer (admin previews, cross-manager previews) resolves
- * to `null` rather than stamping the viewer's own phone onto someone else's listing.
+ * The workspace's own work number, for the MANAGER-side surfaces that print it: the Promotion panels' work
+ * contact line and the listing wizard's contact section. It is resolved only when the viewer is provably the
+ * listing's owner - a known `ownerManagerUserId` with an unknown or different viewer (admin previews,
+ * cross-manager previews) resolves to `null` rather than showing the viewer's own number for someone else's
+ * home.
  *
- * Returns `null` when there is none (e.g. a production manager with no verified
- * phone); callers must render the web "Schedule a tour / apply online" links
- * rather than an `sms:` link.
+ * The public catalog is NOT a source any more: nothing a renter sees carries a phone number, so
+ * `publicListingProjection` no longer publishes one. Returns `null` when the workspace has no live work
+ * number.
  */
 export function useListingContactSmsPhone(opts: {
   listingId?: string | null;
@@ -60,13 +54,6 @@ export function useListingContactSmsPhone(opts: {
     }
     let cancelled = false;
     void (async () => {
-      if (listingId && isLiveListingIdForContactSms(listingId)) {
-        const fromCatalog = await contactSmsFromPublicCatalog(listingId);
-        if (!cancelled && fromCatalog) {
-          setPhone(fromCatalog);
-          return;
-        }
-      }
       const viewerIsOwner = !ownerId || (Boolean(viewerId) && ownerId === viewerId);
       if (viewerIsOwner) {
         const own = await ownManagerListingCtaPhone(workspaceId);

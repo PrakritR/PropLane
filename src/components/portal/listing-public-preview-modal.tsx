@@ -8,9 +8,8 @@ import { Modal } from "@/components/ui/modal";
 import { ExternalLink } from "lucide-react";
 import { getListingRichContent } from "@/data/listing-rich-content";
 import type { MockProperty } from "@/data/types";
-import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
-import { withListingContactSmsPhone, withListingContactWorkEmail } from "@/lib/listing-contact-sms";
+import { withListingContactWorkEmail } from "@/lib/listing-contact-sms";
 
 /**
  * Full listing UI exactly as renters see on /rent/listings/[id], in a scrollable overlay.
@@ -30,11 +29,6 @@ export function ListingPublicPreviewModal({
   /** When set, shows “Open public page” next to Close. */
   publicHref?: string | null;
 }) {
-  const contactSmsPhone = useListingContactSmsPhone({
-    listingId: property?.id,
-    ownerManagerUserId: property?.managerUserId,
-    enabled: open && Boolean(property),
-  });
   const contactWorkEmail = useListingContactWorkEmail({
     listingId: property?.id,
     ownerManagerUserId: property?.managerUserId,
@@ -43,10 +37,7 @@ export function ListingPublicPreviewModal({
 
   if (!open || !property) return null;
 
-  const previewProperty = withListingContactWorkEmail(
-    withListingContactSmsPhone(property, contactSmsPhone),
-    contactWorkEmail,
-  );
+  const previewProperty = withListingContactWorkEmail(property, contactWorkEmail);
   const rich = getListingRichContent(previewProperty);
 
   return (

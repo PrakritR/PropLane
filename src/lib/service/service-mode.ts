@@ -33,6 +33,45 @@ export function isStaffTeamRole(role: string | null | undefined): boolean {
   return value.length > 0 && value !== "property_owner";
 }
 
+/** The roles a PropLane-issued service seat may carry (`insertAdminMembership` writes Admin). */
+const PROPLANE_SEAT_ROLES = new Set(["admin", "full"]);
+
+/** One accepted team seat, as the staff decision reads it. */
+export type ServiceSeat = {
+  workspaceId: string;
+  /** Who granted it; only the workspace's own owner can. */
+  inviterUserId: string;
+  teamRole: string | null;
+  /** `account_link_invites.is_service_seat`: PropLane issued this seat through the admin Service path. */
+  isServiceSeat: boolean;
+};
+
+/**
+ * Is this seat PropLane Service STAFF?
+ *
+ *   * `no` - it is not a membership of that workspace at all (someone other than its owner granted it), or
+ *     it is the client-side Property owner role;
+ *   * `staff` - the workspace is one PropLane CREATED (the service owner owns it, so the client grants
+ *     nothing there), or the seat carries PropLane's own provenance at an operator role: that is what makes
+ *     a helper invited by email or PropLane ID staff of an ATTACHED workspace too;
+ *   * `platform_person_only` - a seat on an attached workspace with no provenance marker (written before the
+ *     column, or granted by the client herself). It counts only for a PropLane person, which keeps a client
+ *     from minting staff by inviting a second account of her own.
+ */
+export type ServiceSeatVerdict = "staff" | "platform_person_only" | "no";
+
+export function serviceSeatVerdict(
+  seat: ServiceSeat,
+  workspace: { ownerUserId: string },
+  serviceOwnerId: string | null,
+): ServiceSeatVerdict {
+  if (!isStaffTeamRole(seat.teamRole)) return "no";
+  if (seat.inviterUserId !== workspace.ownerUserId) return "no";
+  if (serviceOwnerId && workspace.ownerUserId === serviceOwnerId) return "staff";
+  if (seat.isServiceSeat && PROPLANE_SEAT_ROLES.has((seat.teamRole ?? "").trim().toLowerCase())) return "staff";
+  return "platform_person_only";
+}
+
 /** The workspace the server scopes a request to: the cookie's workspace when the viewer can see it, else the first. */
 export function resolveActiveWorkspace<T extends { id: string }>(workspaces: T[], cookieId: string | null | undefined): T | null {
   const selected = (cookieId ?? "").trim();

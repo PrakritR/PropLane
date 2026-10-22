@@ -92,7 +92,6 @@ import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import {
@@ -167,7 +166,7 @@ import {
   normalizeManagerListingSubmissionV1,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
-import { withListingContactSmsPhone, withListingContactWorkEmail } from "@/lib/listing-contact-sms";
+import { withListingContactWorkEmail } from "@/lib/listing-contact-sms";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 
 function submissionForListedEdit(p: MockProperty): ManagerListingSubmissionV1 {
@@ -379,14 +378,9 @@ function ManagerPropertyInlineDetails({
   const detailPathname = usePathname();
   const detailSearchParams = useSearchParams();
   const mock = useMemo(() => (row ? resolveAdminPropertyRowPreview(row) : null), [row]);
-  const contactSmsPhone = useListingContactSmsPhone({
-    listingId: row?.listingId,
-    ownerManagerUserId: row?.managerUserId,
-    viewerManagerUserId: managerUserId,
-  });
-  // The preview shows BOTH of the manager's doors — the work number and the
-  // work email — resolved the way the public page resolves them, so a manager
-  // checking "how renters see this home" sees the same Text / Email buttons.
+  // The preview shows the manager's work EMAIL door, resolved the way the public page resolves it, so a
+  // manager checking "how renters see this home" sees the same Email button. There is no number door: no
+  // public listing surface carries a phone any more.
   const contactWorkEmail = useListingContactWorkEmail({
     listingId: row?.listingId,
     ownerManagerUserId: row?.managerUserId,
@@ -398,11 +392,11 @@ function ManagerPropertyInlineDetails({
     () =>
       mock
         ? withListingSigningContext(
-            withListingContactWorkEmail(withListingContactSmsPhone(mock, contactSmsPhone), contactWorkEmail),
+            withListingContactWorkEmail(mock, contactWorkEmail),
             signingContext,
           )
         : null,
-    [mock, contactSmsPhone, contactWorkEmail, signingContext],
+    [mock, contactWorkEmail, signingContext],
   );
   const rich = useMemo(() => (previewProperty ? getListingRichContent(previewProperty) : null), [previewProperty]);
   const hasPreview = Boolean(previewProperty && rich);

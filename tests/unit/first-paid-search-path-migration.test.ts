@@ -51,3 +51,24 @@ describe("20261021090000_managed_read_only_search_path_siblings", () => {
     }
   });
 });
+
+describe("20261021090100_service_seat_and_move_memory", () => {
+  const sql = read("20261021090100_service_seat_and_move_memory.sql");
+
+  it("adds both columns idempotently, with a default, and touches no data", () => {
+    expect(sql).toContain("alter table public.account_link_invites\n  add column if not exists is_service_seat boolean not null default false;");
+    expect(sql).toContain(
+      "alter table public.external_calendar_connections\n  add column if not exists released_identities jsonb not null default '{}'::jsonb;",
+    );
+    const statements = sql
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("--"))
+      .join("\n");
+    expect(statements).not.toMatch(/\b(update|delete from|drop column)\b/i);
+  });
+
+  it("documents what each column is for, so neither reads as a spare field", () => {
+    expect(sql).toContain("comment on column public.account_link_invites.is_service_seat is");
+    expect(sql).toContain("comment on column public.external_calendar_connections.released_identities is");
+  });
+});

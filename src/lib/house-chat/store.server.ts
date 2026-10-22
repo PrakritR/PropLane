@@ -82,20 +82,25 @@ export async function resolveHouseThreadAlias(db: Db, aliasId: string): Promise<
   return String((data as { id?: unknown }).id ?? "") || null;
 }
 
-/** The house's opaque resident-facing id, minted on first use for a chat created before it existed. */
-export async function ensureHousePublicId(db: Db, threadId: string): Promise<string | null> {
-  const stored = await loadHouseThread(db, threadId);
-  if (!stored) return null;
-  const existing = readHouseChatState(stored.rowData).publicId;
-  if (existing) return existing;
+/**
+ * The already-loaded chat with its opaque resident-facing id guaranteed, minting one for a chat created
+ * before the id existed. `null` when none could be minted: the caller must then leave the chat out of a
+ * resident's payload rather than fall back to the stored id, which names the owner's account.
+ */
+export async function withHousePublicId(db: Db, stored: StoredHouseThread): Promise<StoredHouseThread | null> {
+  const state = readHouseChatState(stored.rowData);
+  if (state.publicId) return stored;
   const minted = newHousePublicId();
-  const saved = await mutateHouseThread(db, threadId, (rowData) => {
-    const state = readHouseChatState(rowData);
-    if (state.publicId) return null;
-    return { ...rowData, houseChat: { ...state, publicId: minted } };
+  const saved = await mutateHouseThread(db, stored.id, (rowData) => {
+    const current = readHouseChatState(rowData);
+    if (current.publicId) return null;
+    return { ...rowData, houseChat: { ...current, publicId: minted } };
   });
   if (!saved) return null;
-  return readHouseChatState((await loadHouseThread(db, threadId))?.rowData ?? {}).publicId ?? null;
+  // A concurrent writer may have minted a different one; the row decides.
+  const after = await loadHouseThread(db, stored.id);
+  const publicId = after ? readHouseChatState(after.rowData).publicId : undefined;
+  return publicId && after ? after : null;
 }
 
 /** Every house chat of one workspace (the manager list reads this; membership is filtered by the caller). */

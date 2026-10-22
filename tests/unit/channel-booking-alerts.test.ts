@@ -16,7 +16,7 @@ vi.mock("@/lib/channel-calendar/stay-tombstones.server", () => ({ loadChannelSta
 
 import { diffChannelReservations, reservationIdentitiesElsewhere, withoutMovedReservations } from "@/lib/channel-calendar/channel-booking-diff";
 import { channelBookingStay, emitChannelBookingEvent, renderChannelBookingEvent } from "@/lib/channel-booking-events.server";
-import { clearChannelMoveMemory, syncChannelCalendarConnection } from "@/lib/channel-calendar/sync.server";
+import { syncChannelCalendarConnection } from "@/lib/channel-calendar/sync.server";
 import type { ChannelCalendarImportedRange } from "@/lib/channel-calendar/types";
 
 const range = (uid: string, start: string, end: string, summary = "Reserved"): ChannelCalendarImportedRange => ({ id: uid, sourceUid: uid, summary, start, end });
@@ -131,7 +131,17 @@ function ics(events: Array<{ uid: string; start: string; end: string; summary: s
   return `BEGIN:VCALENDAR\nVERSION:2.0\n${body}\nEND:VCALENDAR`;
 }
 
-type Sibling = { id: string; imported_ranges: unknown[]; property_id?: string; provider?: string; label?: string | null; import_url?: string | null };
+type Sibling = {
+  id: string;
+  imported_ranges: unknown[];
+  property_id?: string;
+  provider?: string;
+  label?: string | null;
+  import_url?: string | null;
+  /** What that connection recorded as having LEFT its feed (`{ identity: iso }`). */
+  released_identities?: Record<string, string>;
+  last_synced_at?: string | null;
+};
 
 /** Which workspace each house belongs to: the move check only looks inside the connection's own workspace. */
 const HOUSE_WORKSPACES = [
@@ -142,7 +152,15 @@ const HOUSE_WORKSPACES = [
 
 function syncDb(connection: Record<string, unknown>, others: Sibling[] = []) {
   const stored = { ...connection };
-  const siblings = others.map((row) => ({ property_id: "p2", provider: "airbnb", label: null, import_url: null, ...row }));
+  const siblings = others.map((row) => ({
+    property_id: "p2",
+    provider: "airbnb",
+    label: null,
+    import_url: null,
+    released_identities: {},
+    last_synced_at: null,
+    ...row,
+  }));
   const from = (table: string) => {
     let patch: Record<string, unknown> | null = null;
     let readingOthers = false;
@@ -190,7 +208,7 @@ function stubFeeds(byUrlFragment: Record<string, string>) {
 }
 
 describe("syncChannelCalendarConnection alerts", () => {
-  beforeEach(() => { emitActionEvent.mockClear(); clearChannelMoveMemory(); vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-09T12:00:00Z")); });
+  beforeEach(() => { emitActionEvent.mockClear(); vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-09T12:00:00Z")); });
   const eventsOf = () => emitActionEvent.mock.calls.map((call) => (call[1] as { event: string }).event);
 
   it("stays silent on the first sync (baseline) even with reservations in the feed", async () => {
@@ -264,7 +282,7 @@ describe("syncChannelCalendarConnection alerts", () => {
       expect(eventsOf()).toEqual(["channel_booking_created"]);
     });
 
-    it("is quiet in EITHER sync order: the losing room reads the other room's live feed, and the gaining room remembers", async () => {
+    it("is quiet in EITHER sync order: the losing room reads the live feed, and records what it released", async () => {
       // Room A (c1) loses the stay and syncs FIRST - before room B has stored anything. Only B's live
       // feed can say the stay moved there.
       const bUrl = "https://www.airbnb.com/calendar/ical/room-b.ics?s=abc";
@@ -280,16 +298,40 @@ describe("syncChannelCalendarConnection alerts", () => {
       );
       await syncChannelCalendarConnection(a.db, "c1");
       expect(emitActionEvent).not.toHaveBeenCalled();
+      // A wrote what left ITS feed onto its own row, so any instance running B's sync can read it.
+      const released = (a.stored as { released_identities?: Record<string, string> }).released_identities ?? {};
+      expect(Object.keys(released).sort()).toEqual(["code:HMMOVED123", "uid:uid-moved"]);
 
-      // Then room B syncs and sees the stay as new. A no longer holds it, so only the memory of what A
-      // released keeps this quiet.
+      // Then room B syncs and sees the stay as new. A no longer holds it, so only what A recorded keeps
+      // this quiet - and B is a different process here: it reads A's stored row, not a shared map.
       stubFeeds({ "room-b.ics": ics([{ uid: "uid-moved", start: "2026-10-12", end: "2026-10-15", summary: "Reserved" }]) });
       const b = syncDb(
         { ...baseConnection, id: "c2", room_id: "r2", property_id: "p2", import_url: bUrl, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [] },
-        [{ id: "c1", property_id: "p1", imported_ranges: [], import_url: baseConnection.import_url }],
+        [{ id: "c1", property_id: "p1", imported_ranges: [], import_url: baseConnection.import_url, released_identities: released }],
       );
       await syncChannelCalendarConnection(b.db, "c2");
       expect(emitActionEvent).not.toHaveBeenCalled();
+    });
+
+    it("forgets what another room released more than six hours ago: a stay that comes back is news again", async () => {
+      stubFeeds({ "123.ics": ics([{ uid: "uid-moved", start: "2026-10-12", end: "2026-10-15", summary: "Reserved" }]) });
+      const stale = new Date(Date.now() - 7 * 60 * 60_000).toISOString();
+      const { db } = syncDb(
+        { ...baseConnection, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [] },
+        [{ id: "c2", property_id: "p2", imported_ranges: [], released_identities: { "uid:uid-moved": stale } }],
+      );
+      await syncChannelCalendarConnection(db, "c1");
+      expect(eventsOf()).toEqual(["channel_booking_created"]);
+    });
+
+    it("a stay released in ANOTHER workspace of the same manager never suppresses this one's alert", async () => {
+      stubFeeds({ "123.ics": ics([{ uid: "uid-moved", start: "2026-10-12", end: "2026-10-15", summary: "Reserved" }]) });
+      const { db } = syncDb(
+        { ...baseConnection, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [] },
+        [{ id: "c9", property_id: "p-elsewhere", imported_ranges: [], released_identities: { "uid:uid-moved": new Date().toISOString() } }],
+      );
+      await syncChannelCalendarConnection(db, "c1");
+      expect(eventsOf()).toEqual(["channel_booking_created"]);
     });
 
     it("still announces a real cancellation: no other room of the workspace has the stay, stored or live", async () => {

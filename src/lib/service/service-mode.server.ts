@@ -7,6 +7,7 @@ import {
   decideServiceMode,
   firstPropertyWorkspaceId,
   isStaffTeamRole,
+  serviceSeatVerdict,
   serviceStaffScope,
   type ServiceStaffScope,
   type ServiceModeDecision,
@@ -19,14 +20,14 @@ import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 /**
  * Which PropLane Service workspaces the viewer is STAFF of. Staff is membership, never a role on the account:
  *   * the platform service owner, for the workspaces they own;
- *   * an accepted team seat, granted by the workspace's own owner, that is not the client-side Property owner role.
+ *   * an accepted team seat, granted by the workspace's own owner, that `serviceSeatVerdict` calls staff.
  *
- * A seat alone is not provenance on an ATTACHED workspace: the client stays its owner there (`attachWorkspaceToService`
- * never moves `owner_user_id`), so every seat on it - PropLane's own and the co-managers the client invites herself -
- * is granted by the same account. On such a workspace a seat therefore counts only for a PropLane person: the platform
- * service owner or a platform admin, which is exactly who the attach path seats. On a workspace PropLane CREATED (owned
- * by the service owner) the client grants nothing, so any seat there is PropLane-issued and an invited helper is staff.
- * Either way the client who owns an attached workspace keeps the view-only Property portal.
+ * An ATTACHED workspace keeps its CLIENT as the owner (`attachWorkspaceToService` never moves `owner_user_id`), so
+ * "the owner granted it" cannot tell PropLane's own helper invite from a co-manager the client invited herself. The
+ * seat's own provenance does: `is_service_seat`, written only by the admin Service path. A seat without it on an
+ * attached workspace (a row from before the column, or the client's own invite) counts only for a PropLane person -
+ * the platform service owner or a platform admin. Either way the client who owns an attached workspace keeps the
+ * view-only Property portal.
  *
  * Read-only and cheap for an ordinary manager: one membership read that comes back empty, one settings read.
  * Throws on a read failure; callers decide what a failure means (the layouts fail to the Property portal).
@@ -37,14 +38,13 @@ export async function loadServiceStaffWorkspaces(
 ): Promise<(ServiceRailWorkspace & { ownerUserId: string })[]> {
   const links = await db
     .from("account_link_invites")
-    .select("workspace_id, inviter_user_id, team_role")
+    .select("workspace_id, inviter_user_id, team_role, is_service_seat")
     .eq("invitee_user_id", userId)
     .eq("status", "accepted")
     .not("workspace_id", "is", null);
   if (links.error) throw new Error("Could not read workspace seats.");
-  const seats = ((links.data ?? []) as { workspace_id: string; inviter_user_id: string; team_role: string | null }[]).filter((l) =>
-    isStaffTeamRole(l.team_role),
-  );
+  type SeatRow = { workspace_id: string; inviter_user_id: string; team_role: string | null; is_service_seat?: boolean | null };
+  const seats = ((links.data ?? []) as SeatRow[]).filter((l) => isStaffTeamRole(l.team_role));
   const seatIds = [...new Set(seats.map((l) => l.workspace_id))];
   // One settings read answers both questions. Fail closed: an unknown service owner makes every seated
   // workspace read as "attached", so only a PropLane person is staff of it.
@@ -61,18 +61,28 @@ export async function loadServiceStaffWorkspaces(
   ]);
   if (bySeat.error || byOwner.error) throw new Error("Could not read service workspaces.");
   type Row = { id: string; name: string; city: string | null; owner_user_id: string; created_at: string | null };
-  const seatOwners = new Map(seats.map((l) => [l.workspace_id, l.inviter_user_id]));
+  const seatByWorkspace = new Map(seats.map((l) => [l.workspace_id, l]));
   const rows = new Map<string, Row>();
   for (const row of (byOwner.data ?? []) as Row[]) rows.set(row.id, row);
   let platformPerson: boolean | null = owner ? true : null;
   for (const row of (bySeat.data ?? []) as Row[]) {
-    // The seat must have been granted by the workspace's own owner.
-    if (seatOwners.get(row.id) !== row.owner_user_id) continue;
-    if (serviceOwnerId && row.owner_user_id === serviceOwnerId) {
+    const seat = seatByWorkspace.get(row.id);
+    if (!seat) continue;
+    const verdict = serviceSeatVerdict(
+      {
+        workspaceId: seat.workspace_id,
+        inviterUserId: seat.inviter_user_id,
+        teamRole: seat.team_role,
+        isServiceSeat: seat.is_service_seat === true,
+      },
+      { ownerUserId: row.owner_user_id },
+      serviceOwnerId,
+    );
+    if (verdict === "no") continue;
+    if (verdict === "staff") {
       rows.set(row.id, row);
       continue;
     }
-    // An attached workspace: the client owns it and grants its seats, so only a PropLane person is staff.
     platformPerson ??= await userHoldsAdminRole(db, userId);
     if (platformPerson) rows.set(row.id, row);
   }

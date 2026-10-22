@@ -502,47 +502,56 @@ export async function persistConnectionImportedRanges(
   // rows (the Residents list's `channelGuestRows`), so there is nothing to place and no capacity trigger to trip.
 }
 
-/** How many of the workspace's other feeds one sync may read to tell a move from a cancellation. */
-const MAX_MOVE_FEED_READS = 4;
-/** How long an identity this process released stays "moved, not new". */
-const RELEASED_MEMORY_MS = 15 * 60_000;
-const releasedIdentities = new Map<string, number>();
-
-function releaseKey(managerUserId: string, identity: string): string {
-  return `${managerUserId}\u0000${identity}`;
-}
-
 /**
- * Remember the reservations that just left this feed. A relink moves them to another room of the same
- * workspace, which syncs afterwards and would otherwise read them as brand-new bookings: the room that lost
- * them is the only place that knows they were not new. Scoped to this process (one "Sync all" run, the cron
- * pass, or two syncs minutes apart) and to one manager.
+ * How long a reservation that LEFT a feed is remembered, so the room that gains it reads a move rather than a
+ * new booking. Stored on the losing connection's own row (`released_identities`), not in process memory: a
+ * "Sync all" or the cron can land the two syncs on different serverless instances.
  */
-function rememberReleased(managerUserId: string, ranges: readonly ChannelCalendarImportedRange[]): void {
-  const now = Date.now();
-  for (const [key, at] of releasedIdentities) if (now - at >= RELEASED_MEMORY_MS) releasedIdentities.delete(key);
-  for (const range of ranges) {
-    for (const identity of reservationIdentities(range)) releasedIdentities.set(releaseKey(managerUserId, identity), now);
-  }
-}
+const RELEASED_MEMORY_MS = 6 * 60 * 60_000;
 
-function recentlyReleased(managerUserId: string): Set<string> {
-  const out = new Set<string>();
-  const now = Date.now();
-  for (const [key, at] of releasedIdentities) {
-    if (now - at >= RELEASED_MEMORY_MS) {
-      releasedIdentities.delete(key);
-      continue;
-    }
-    const [manager, identity] = key.split("\u0000");
-    if (manager === managerUserId && identity) out.add(identity);
+type ReleasedIdentities = Record<string, string>;
+
+function readReleasedIdentities(raw: unknown, now: number): ReleasedIdentities {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: ReleasedIdentities = {};
+  for (const [identity, at] of Object.entries(raw as Record<string, unknown>)) {
+    const releasedAt = Date.parse(String(at ?? ""));
+    if (!identity || !Number.isFinite(releasedAt) || now - releasedAt >= RELEASED_MEMORY_MS) continue;
+    out[identity] = new Date(releasedAt).toISOString();
   }
   return out;
 }
 
-/** Test seam: forget what this process released. */
-export function clearChannelMoveMemory(): void {
-  releasedIdentities.clear();
+/**
+ * Record what just left THIS feed, for the room of the same workspace that gains it. Best-effort and pruned
+ * to {@link RELEASED_MEMORY_MS} on every write; a failure only means the next sync may alert.
+ */
+async function rememberReleased(
+  db: SupabaseClient,
+  connection: ChannelCalendarConnectionRow,
+  released: readonly ChannelCalendarImportedRange[],
+  storedRaw: unknown,
+): Promise<void> {
+  const now = Date.now();
+  const kept = readReleasedIdentities(storedRaw, now);
+  const storedCount = storedRaw && typeof storedRaw === "object" && !Array.isArray(storedRaw) ? Object.keys(storedRaw).length : 0;
+  const pruned = Object.keys(kept).length !== storedCount;
+  const at = new Date(now).toISOString();
+  let added = false;
+  for (const range of released) {
+    for (const identity of reservationIdentities(range)) {
+      if (!kept[identity]) added = true;
+      kept[identity] = at;
+    }
+  }
+  if (!added && !pruned) return;
+  const { error } = await db
+    .from("external_calendar_connections")
+    .update({ released_identities: kept })
+    .eq("id", connection.id);
+  if (error) {
+    console.warn("[channel-calendar] released identities not stored", { connectionId: connection.id, message: error.message });
+  }
 }
 
 type SiblingConnection = {
@@ -550,13 +559,15 @@ type SiblingConnection = {
   provider: ChannelCalendarProvider;
   label: string | null;
   import_url: string | null;
+  last_synced_at: string | null;
   imported_ranges: ChannelCalendarImportedRange[];
+  released: ReleasedIdentities;
 };
 
 /**
- * The manager's other channel connections in the SAME workspace as this one. A relink moves stays between
- * rooms of one workspace, so a UID held in another of the manager's workspaces is a different booking and
- * must never suppress its alert.
+ * The manager's other channel connections in the SAME workspace as this one, most recently synced first. A
+ * relink moves stays between rooms of one workspace, so a UID held in another of the manager's workspaces is
+ * a different booking and must never suppress its alert.
  */
 async function workspaceSiblingConnections(
   db: SupabaseClient,
@@ -564,7 +575,7 @@ async function workspaceSiblingConnections(
 ): Promise<SiblingConnection[]> {
   const others = await db
     .from("external_calendar_connections")
-    .select("id, property_id, provider, label, import_url, imported_ranges")
+    .select("id, property_id, provider, label, import_url, imported_ranges, released_identities, last_synced_at")
     .eq("manager_user_id", connection.manager_user_id)
     .neq("id", connection.id);
   if (others.error || !Array.isArray(others.data)) return [];
@@ -575,6 +586,8 @@ async function workspaceSiblingConnections(
     label: unknown;
     import_url: unknown;
     imported_ranges: unknown;
+    released_identities: unknown;
+    last_synced_at: unknown;
   }>;
   const propertyIds = [...new Set([connection.property_id, ...rows.map((row) => String(row.property_id ?? ""))].filter(Boolean))];
   const houses = await db.from("manager_property_records").select("id, workspace_id").in("id", propertyIds);
@@ -586,6 +599,7 @@ async function workspaceSiblingConnections(
     ]),
   );
   const ownWorkspace = workspaceByProperty.get(connection.property_id) ?? "";
+  const now = Date.now();
   return rows
     .filter((row) => (workspaceByProperty.get(String(row.property_id ?? "")) ?? "") === ownWorkspace)
     .map((row) => ({
@@ -593,14 +607,32 @@ async function workspaceSiblingConnections(
       provider: String(row.provider ?? "airbnb") as ChannelCalendarProvider,
       label: typeof row.label === "string" ? row.label : null,
       import_url: typeof row.import_url === "string" ? row.import_url : null,
+      last_synced_at: typeof row.last_synced_at === "string" ? row.last_synced_at : null,
       imported_ranges: Array.isArray(row.imported_ranges) ? (row.imported_ranges as ChannelCalendarImportedRange[]) : [],
-    }));
+      released: readReleasedIdentities(row.released_identities, now),
+    }))
+    .sort((a, b) => String(b.last_synced_at ?? "").localeCompare(String(a.last_synced_at ?? "")));
 }
 
-/** Reservation identities in the LIVE feeds of up to `MAX_MOVE_FEED_READS` sibling rooms. A failed read is skipped. */
-async function freshSiblingIdentities(siblings: readonly SiblingConnection[]): Promise<Set<string>> {
+/** Identities the workspace's other rooms released recently: a stay that left one of them is not new here. */
+function releasedElsewhere(siblings: readonly SiblingConnection[]): Set<string> {
   const out = new Set<string>();
-  for (const sibling of siblings.slice(0, MAX_MOVE_FEED_READS)) {
+  for (const sibling of siblings) for (const identity of Object.keys(sibling.released)) out.add(identity);
+  return out;
+}
+
+/**
+ * Reservation identities in the LIVE feeds of the workspace's other rooms on the SAME channel, most recently
+ * synced first (a relink moves a stay between rooms of one listing on one channel; there are a handful of
+ * them). A feed that cannot be read is skipped.
+ */
+async function freshSiblingIdentities(
+  siblings: readonly SiblingConnection[],
+  provider: ChannelCalendarProvider,
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (const sibling of siblings) {
+    if (sibling.provider !== provider) continue;
     const url = sibling.import_url?.trim();
     if (!url || !isValidChannelImportUrl(sibling.provider, url)) continue;
     try {
@@ -616,9 +648,10 @@ async function freshSiblingIdentities(siblings: readonly SiblingConnection[]): P
 /**
  * Drop the created / cancelled pair a relink produces, whichever room syncs first:
  *   * a stay another room of the workspace already HOLDS is still there (stored ranges);
- *   * a stay another room's LIVE feed now carries has moved there, even though that room has not stored it yet;
- *   * a stay this process just released from another room is not new here.
- * An unreadable neighbour set is "no moves known": the alert goes out as it always did.
+ *   * a stay another room RELEASED in the last six hours is not new here (its own stored memory);
+ *   * a stay another room's LIVE feed now carries has moved there, even though that room has not stored it yet.
+ * Everything is scoped to this connection's workspace. An unreadable neighbour set is "no moves known": the
+ * alert goes out as it always did.
  */
 async function withoutMoves(
   db: SupabaseClient,
@@ -629,10 +662,10 @@ async function withoutMoves(
   try {
     const siblings = await workspaceSiblingConnections(db, connection);
     const elsewhere = reservationIdentitiesElsewhere(siblings.map((sibling) => sibling.imported_ranges));
-    for (const identity of recentlyReleased(connection.manager_user_id)) elsewhere.add(identity);
+    for (const identity of releasedElsewhere(siblings)) elsewhere.add(identity);
     let narrowed = withoutMovedReservations(diff, elsewhere);
     if (narrowed.cancelled.length > 0 && siblings.length > 0) {
-      const fresh = await freshSiblingIdentities(siblings);
+      const fresh = await freshSiblingIdentities(siblings, connection.provider);
       if (fresh.size > 0) narrowed = withoutMovedReservations({ created: narrowed.created, cancelled: narrowed.cancelled }, fresh);
     }
     return { created: narrowed.created, cancelled: narrowed.cancelled };
@@ -756,9 +789,10 @@ export async function syncChannelCalendarConnection(
       // hold, or whose live feed now carries it, is moved - never "new" in one room and "cancelled" in the
       // other, in either sync order.
       const diff = await withoutMoves(db, connection, rawDiff);
-      // Then remember what left THIS feed, for the room that gains it when it syncs next. Recorded after
-      // the diff above, so a stay this sync released never suppresses its own cancellation.
-      rememberReleased(connection.manager_user_id, rawDiff.cancelled);
+      // Then remember what left THIS feed, for the room of this workspace that gains it. Recorded after the
+      // diff above, so a stay this sync released never suppresses its own cancellation, and on the row
+      // itself, so any instance running the other room's sync can read it.
+      await rememberReleased(db, connection, rawDiff.cancelled, (row as Record<string, unknown>).released_identities);
       const base = {
         connectionId: connection.id,
         managerUserId: connection.manager_user_id,

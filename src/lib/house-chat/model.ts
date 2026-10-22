@@ -190,13 +190,16 @@ export function houseThreadUnreadFor(rowData: Record<string, unknown>, viewer: H
 
 /**
  * The row as ONE viewer may see it: an allowlist projection. A resident sees housemates by first name
- * and room only; no email, phone, user id or amount of anyone rides along, whoever the viewer is - the
- * stored id names the owner's account, so a resident is given the opaque alias instead.
+ * and room only; no email, phone, user id or amount of anyone rides along, whoever the viewer is.
+ *
+ * `null` for a RESIDENT viewer when the chat has no opaque `publicId`: the stored id names the owner's
+ * account, so there is no id a resident may be handed and the caller leaves the chat out. A team viewer
+ * addresses the stored row directly and always gets a projection.
  */
 export function houseThreadRowForViewer(
   stored: { id: string; row_data: Record<string, unknown> | null },
   viewer: HouseViewer,
-): Record<string, unknown> {
+): Record<string, unknown> | null {
   const row = stored.row_data ?? {};
   const state = readHouseChatState(row);
   const title = houseThreadDisplayName(state.houseLabel);
@@ -214,7 +217,8 @@ export function houseThreadRowForViewer(
     }));
   const last = messages[messages.length - 1];
   const folder = state.viewerState[viewer.userId]?.folder === "trash" ? "trash" : "inbox";
-  const id = viewer.kind === "resident" && state.publicId ? houseThreadAliasId(state.publicId) : stored.id;
+  if (viewer.kind === "resident" && !state.publicId) return null;
+  const id = viewer.kind === "resident" ? houseThreadAliasId(state.publicId!) : stored.id;
   return {
     id,
     folder,

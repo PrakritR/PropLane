@@ -7,6 +7,7 @@ import {
   decideServiceMode,
   firstPropertyWorkspaceId,
   isStaffTeamRole,
+  serviceSeatVerdict,
   resolveActiveWorkspace,
   serviceTileTitle,
   serviceTopBarLabel,
@@ -38,6 +39,43 @@ describe("isStaffTeamRole", () => {
     expect(isStaffTeamRole("property_owner")).toBe(false);
     expect(isStaffTeamRole(null)).toBe(false);
     expect(isStaffTeamRole("")).toBe(false);
+  });
+});
+
+describe("serviceSeatVerdict", () => {
+  const SERVICE_OWNER = OWNER;
+  const seatRow = (over: Partial<Parameters<typeof serviceSeatVerdict>[0]> = {}) => ({
+    workspaceId: AMBIKA,
+    inviterUserId: CLIENT,
+    teamRole: "admin",
+    isServiceSeat: true,
+    ...over,
+  });
+
+  it("is no membership at all unless the workspace's own owner granted it, at an operator role", () => {
+    expect(serviceSeatVerdict(seatRow({ inviterUserId: "stranger" }), { ownerUserId: CLIENT }, SERVICE_OWNER)).toBe("no");
+    expect(serviceSeatVerdict(seatRow({ teamRole: "property_owner" }), { ownerUserId: CLIENT }, SERVICE_OWNER)).toBe("no");
+    expect(serviceSeatVerdict(seatRow({ teamRole: null }), { ownerUserId: CLIENT }, SERVICE_OWNER)).toBe("no");
+  });
+
+  it("is staff on a workspace PropLane created, whatever the seat says: the client grants nothing there", () => {
+    const own = { ownerUserId: SERVICE_OWNER };
+    expect(serviceSeatVerdict(seatRow({ inviterUserId: SERVICE_OWNER, isServiceSeat: false }), own, SERVICE_OWNER)).toBe("staff");
+    expect(serviceSeatVerdict(seatRow({ inviterUserId: SERVICE_OWNER, teamRole: "property_manager", isServiceSeat: false }), own, SERVICE_OWNER)).toBe("staff");
+  });
+
+  it("on an ATTACHED workspace only PropLane's own seat counts; anything else needs a PropLane person", () => {
+    const attached = { ownerUserId: CLIENT };
+    // The helper invite the admin Service path wrote.
+    expect(serviceSeatVerdict(seatRow(), attached, SERVICE_OWNER)).toBe("staff");
+    expect(serviceSeatVerdict(seatRow({ teamRole: "full" }), attached, SERVICE_OWNER)).toBe("staff");
+    // The client's own co-manager invite, and a marked seat at a non-operator role.
+    expect(serviceSeatVerdict(seatRow({ isServiceSeat: false }), attached, SERVICE_OWNER)).toBe("platform_person_only");
+    expect(serviceSeatVerdict(seatRow({ teamRole: "property_manager" }), attached, SERVICE_OWNER)).toBe("platform_person_only");
+    // An unknown service owner reads every workspace as attached: fail closed.
+    expect(serviceSeatVerdict(seatRow({ inviterUserId: SERVICE_OWNER, isServiceSeat: false }), { ownerUserId: SERVICE_OWNER }, null)).toBe(
+      "platform_person_only",
+    );
   });
 });
 
@@ -124,8 +162,24 @@ vi.mock("@/lib/workspaces/server", () => ({ loadWorkspaces: async () => loadWork
 
 const mode = await import("@/lib/service/service-mode.server");
 
-function seat(invitee: string, workspace: string, role: string, inviter = OWNER, status = "accepted") {
-  return { id: `${invitee}-${workspace}`, inviter_user_id: inviter, invitee_user_id: invitee, workspace_id: workspace, team_role: role, status };
+function seat(
+  invitee: string,
+  workspace: string,
+  role: string,
+  inviter = OWNER,
+  status = "accepted",
+  opts: { serviceSeat?: boolean } = {},
+) {
+  return {
+    id: `${invitee}-${workspace}`,
+    inviter_user_id: inviter,
+    invitee_user_id: invitee,
+    workspace_id: workspace,
+    team_role: role,
+    status,
+    // `insertAdminMembership` stamps every seat PropLane issues; a client's own co-manager invite has none.
+    is_service_seat: opts.serviceSeat ?? true,
+  };
 }
 
 beforeEach(() => {
@@ -178,15 +232,31 @@ describe("who is staff of a service workspace", () => {
     expect(await mode.loadServiceStaffIds(db as never, ADMIN)).toEqual({ ids: new Set(), failed: true });
   });
 
-  it("a seat the CLIENT granted on their own attached workspace is not staff: only a PropLane person is", async () => {
+  it("a seat the CLIENT granted on their own attached workspace is not staff: only PropLane's own seat is", async () => {
     db.tables.portal_workspaces.push({ id: ATTACHED, name: "Client homes", owner_user_id: CLIENT, is_service: true, created_at: "2026-10-03T00:00:00Z" });
     // The client invites a second account of their own as a co-manager of the workspace they still own.
-    db.tables.account_link_invites.push(seat(PLAIN, ATTACHED, "admin", CLIENT));
+    // It is granted by the workspace's owner and carries an operator role, so only the missing provenance
+    // marker tells it apart from a PropLane seat.
+    db.tables.account_link_invites.push(seat(PLAIN, ATTACHED, "admin", CLIENT, "accepted", { serviceSeat: false }));
     expect(await ids(PLAIN)).toEqual([]);
     // PropLane's own seats on the same workspace (the attach path seats the service owner and a platform admin).
     db.tables.account_link_invites.push(seat(ADMIN, ATTACHED, "admin", CLIENT), seat(OWNER, ATTACHED, "admin", CLIENT));
     expect(await ids(ADMIN)).toContain("Client homes");
     expect(await ids(OWNER)).toContain("Client homes");
+  });
+
+  it("a HELPER invited through the admin Service path is staff of an attached workspace too", async () => {
+    db.tables.portal_workspaces.push({ id: ATTACHED, name: "Client homes", owner_user_id: CLIENT, is_service: true, created_at: "2026-10-03T00:00:00Z" });
+    // `inviteServiceClient` writes the seat under the workspace's owner with the service marker; the helper
+    // holds no platform admin role at all.
+    db.tables.account_link_invites.push(seat(HELPER, ATTACHED, "admin", CLIENT));
+    expect(admins.has(HELPER)).toBe(false);
+    expect(await ids(HELPER)).toEqual(["Vinod", "Client homes"]);
+    // A legacy PropLane seat written before the marker existed still works for a PropLane person only.
+    db.tables.account_link_invites.push(seat(PLAIN, ATTACHED, "full", CLIENT, "accepted", { serviceSeat: false }));
+    expect(await ids(PLAIN)).toEqual([]);
+    admins.add(PLAIN);
+    expect(await ids(PLAIN)).toEqual(["Client homes"]);
   });
 });
 

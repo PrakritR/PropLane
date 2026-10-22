@@ -117,11 +117,6 @@ export function listingCtaSmsPhone(contactSmsPhone: string | null | undefined): 
   return usableCtaSmsPhone(contactSmsPhone);
 }
 
-/** Whether a listing may show "Text to …" CTAs — i.e. it has a real number. */
-export function isClawMessagingPubliclyEnabled(contactSmsPhone?: string | null): boolean {
-  return Boolean(listingCtaSmsPhone(contactSmsPhone));
-}
-
 export type LeasingIntent =
   | "tour"
   | "apply"
