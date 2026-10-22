@@ -17,6 +17,9 @@ import {
 import { loadWorkspaces } from "@/lib/workspaces/server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 
+/** PostgREST / Postgres codes for "that column or table is not there yet" (the migration has not run here). */
+const MISSING_SCHEMA_CODES = new Set(["42703", "42P01", "PGRST204", "PGRST205"]);
+
 /**
  * Which PropLane Service workspaces the viewer is STAFF of. Staff is membership, never a role on the account:
  *   * the platform service owner, for the workspaces they own;
@@ -42,7 +45,17 @@ export async function loadServiceStaffWorkspaces(
     .eq("invitee_user_id", userId)
     .eq("status", "accepted")
     .not("workspace_id", "is", null);
-  if (links.error) throw new Error("Could not read workspace seats.");
+  if (links.error) {
+    // The provenance column is what tells PropLane's own seat from one the client granted herself, so a
+    // database that does not have it yet cannot answer the staff question at all: nobody is staff until
+    // migration 20261021090100 lands, and the callers fail closed on the error.
+    if (MISSING_SCHEMA_CODES.has(String(links.error.code ?? ""))) {
+      console.error(
+        "[service-mode] account_link_invites.is_service_seat is missing: run migration 20261021090100. No seat counts as PropLane Service staff until it does.",
+      );
+    }
+    throw new Error("Could not read workspace seats.");
+  }
   type SeatRow = { workspace_id: string; inviter_user_id: string; team_role: string | null; is_service_seat?: boolean | null };
   const seats = ((links.data ?? []) as SeatRow[]).filter((l) => isStaffTeamRole(l.team_role));
   const seatIds = [...new Set(seats.map((l) => l.workspace_id))];

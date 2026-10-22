@@ -55,16 +55,39 @@ describe("20261021090000_managed_read_only_search_path_siblings", () => {
 describe("20261021090100_service_seat_and_move_memory", () => {
   const sql = read("20261021090100_service_seat_and_move_memory.sql");
 
-  it("adds both columns idempotently, with a default, and touches no data", () => {
+  const statements = () =>
+    sql
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("--"))
+      .join("\n");
+
+  it("adds both columns idempotently, with a default, and drops nothing", () => {
     expect(sql).toContain("alter table public.account_link_invites\n  add column if not exists is_service_seat boolean not null default false;");
     expect(sql).toContain(
       "alter table public.external_calendar_connections\n  add column if not exists released_identities jsonb not null default '{}'::jsonb;",
     );
-    const statements = sql
-      .split("\n")
-      .filter((line) => !line.trimStart().startsWith("--"))
-      .join("\n");
-    expect(statements).not.toMatch(/\b(update|delete from|drop column)\b/i);
+    expect(statements()).not.toMatch(/\b(delete from|drop column|drop table)\b/i);
+  });
+
+  it("backfills only an ACCEPTED operator seat on a service workspace whose PropLane provenance is readable", () => {
+    const backfill = statements().slice(statements().indexOf("update public.account_link_invites"));
+    expect(backfill).toContain("set is_service_seat = true");
+    // Re-runnable, and never widens: only unmarked, accepted, operator-role seats on a service workspace.
+    expect(backfill).toContain("l.is_service_seat = false");
+    expect(backfill).toContain("l.status = 'accepted'");
+    expect(backfill).toContain("in ('admin', 'full')");
+    expect(backfill).toContain("from public.portal_workspaces w");
+    expect(backfill).toContain("w.is_service");
+    // The provenance an already-written row can still carry: a PropLane person, or the admin Service
+    // route's own audit entry naming that invitee on that workspace.
+    expect(backfill).toContain("from public.profile_roles r");
+    expect(backfill).toContain("from public.platform_service_settings s");
+    expect(backfill).toContain("'admin_service_team_invite', 'admin_service_team_add'");
+    expect(backfill).toContain("a.input_summary ->> 'inviteeUserId' = l.invitee_user_id::text");
+    expect(backfill).toContain("a.input_summary ->> 'workspaceId' = l.workspace_id::text");
+    // Only one write, and it only ever sets the flag TRUE: a client's own seat is left as it is.
+    expect(statements().match(/\bupdate\b/gi)).toHaveLength(1);
+    expect(backfill).not.toContain("is_service_seat = false;");
   });
 
   it("documents what each column is for, so neither reads as a spare field", () => {

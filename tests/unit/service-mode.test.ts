@@ -232,6 +232,20 @@ describe("who is staff of a service workspace", () => {
     expect(await mode.loadServiceStaffIds(db as never, ADMIN)).toEqual({ ids: new Set(), failed: true });
   });
 
+  it("fails closed when the provenance column is not there yet, and says which migration is missing", async () => {
+    const logged: unknown[][] = [];
+    const error = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => void logged.push(args));
+    try {
+      db.failOn.account_link_invites = { code: "42703", message: 'column account_link_invites.is_service_seat does not exist' };
+      // Nobody is staff: no rail, no service mode, and the Property portal list fails closed on `failed`.
+      expect(await mode.loadServiceStaffIds(db as never, ADMIN)).toEqual({ ids: new Set(), failed: true });
+      expect(await mode.resolvePortalServiceShell(db as never, ADMIN, VINOD, true)).toEqual({ mode: "property", staff: [] });
+      expect(JSON.stringify(logged)).toContain("20261021090100");
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   it("a seat the CLIENT granted on their own attached workspace is not staff: only PropLane's own seat is", async () => {
     db.tables.portal_workspaces.push({ id: ATTACHED, name: "Client homes", owner_user_id: CLIENT, is_service: true, created_at: "2026-10-03T00:00:00Z" });
     // The client invites a second account of their own as a co-manager of the workspace they still own.

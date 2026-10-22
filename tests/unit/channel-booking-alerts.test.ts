@@ -198,13 +198,23 @@ function stubFeed(text: string) {
 
 /** Per-feed responses, matched on a fragment of the import URL; anything else answers an empty calendar. */
 function stubFeeds(byUrlFragment: Record<string, string>) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url: unknown) => {
-      const hit = Object.keys(byUrlFragment).find((fragment) => String(url).includes(fragment));
-      return new Response(hit ? byUrlFragment[hit]! : ics([]), { status: 200, headers: { "content-type": "text/calendar" } });
-    }),
-  );
+  const spy = vi.fn(async (url: unknown) => {
+    const hit = Object.keys(byUrlFragment).find((fragment) => String(url).includes(fragment));
+    return new Response(hit ? byUrlFragment[hit]! : ics([]), { status: 200, headers: { "content-type": "text/calendar" } });
+  });
+  vi.stubGlobal("fetch", spy);
+  return spy;
+}
+
+/** `count` sibling rooms of the same workspace and channel, most recently synced first. */
+function manyRooms(count: number): Sibling[] {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `c-room-${i}`,
+    property_id: "p2",
+    imported_ranges: [],
+    import_url: `https://www.airbnb.com/calendar/ical/room-${i}.ics?s=abc`,
+    last_synced_at: `2026-10-09T1${9 - Math.min(9, i)}:00:00Z`,
+  }));
 }
 
 describe("syncChannelCalendarConnection alerts", () => {
@@ -313,9 +323,9 @@ describe("syncChannelCalendarConnection alerts", () => {
       expect(emitActionEvent).not.toHaveBeenCalled();
     });
 
-    it("forgets what another room released more than six hours ago: a stay that comes back is news again", async () => {
+    it("forgets what another room released over an hour ago: a stay that comes back is news again", async () => {
       stubFeeds({ "123.ics": ics([{ uid: "uid-moved", start: "2026-10-12", end: "2026-10-15", summary: "Reserved" }]) });
-      const stale = new Date(Date.now() - 7 * 60 * 60_000).toISOString();
+      const stale = new Date(Date.now() - 61 * 60_000).toISOString();
       const { db } = syncDb(
         { ...baseConnection, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [] },
         [{ id: "c2", property_id: "p2", imported_ranges: [], released_identities: { "uid:uid-moved": stale } }],
@@ -332,6 +342,36 @@ describe("syncChannelCalendarConnection alerts", () => {
       );
       await syncChannelCalendarConnection(db, "c1");
       expect(eventsOf()).toEqual(["channel_booking_created"]);
+    });
+
+    it("stops sweeping sibling feeds as soon as the vanished stay is accounted for", async () => {
+      // Ten rooms, and the FIRST one the sweep reads (most recently synced) carries the stay.
+      const feeds = stubFeeds({
+        "123.ics": ics([{ uid: "blk", start: "2026-10-20", end: "2026-10-22", summary: "Airbnb (Not available)" }]),
+        "room-0.ics": ics([{ uid: "uid-moved", start: "2026-10-12", end: "2026-10-15", summary: "Reserved" }]),
+      });
+      const { db } = syncDb(
+        { ...baseConnection, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [moved] },
+        manyRooms(10),
+      );
+      await syncChannelCalendarConnection(db, "c1");
+      expect(emitActionEvent).not.toHaveBeenCalled();
+      const roomReads = feeds.mock.calls.filter(([url]) => String(url).includes("/room-")).length;
+      expect(roomReads).toBeGreaterThan(0);
+      // One parallel round at most: it never walks the rest of the workspace once it has its answer.
+      expect(roomReads).toBeLessThanOrEqual(4);
+    });
+
+    it("never reads more than eight sibling feeds in one sync, and still alerts when none carries the stay", async () => {
+      const feeds = stubFeeds({ "123.ics": ics([{ uid: "other", start: "2026-11-02", end: "2026-11-04", summary: "Reserved" }]) });
+      const { db } = syncDb(
+        { ...baseConnection, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [moved] },
+        manyRooms(12),
+      );
+      await syncChannelCalendarConnection(db, "c1");
+      const roomReads = feeds.mock.calls.filter(([url]) => String(url).includes("/room-")).length;
+      expect(roomReads).toBe(8);
+      expect(eventsOf().sort()).toEqual(["channel_booking_cancelled", "channel_booking_created"]);
     });
 
     it("still announces a real cancellation: no other room of the workspace has the stay, stored or live", async () => {

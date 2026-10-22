@@ -506,8 +506,11 @@ export async function persistConnectionImportedRanges(
  * How long a reservation that LEFT a feed is remembered, so the room that gains it reads a move rather than a
  * new booking. Stored on the losing connection's own row (`released_identities`), not in process memory: a
  * "Sync all" or the cron can land the two syncs on different serverless instances.
+ *
+ * One hour: long enough for the other rooms of the workspace to sync after a relink, short enough that a stay
+ * genuinely cancelled in one room cannot quietly swallow a later booking's alert in another.
  */
-const RELEASED_MEMORY_MS = 6 * 60 * 60_000;
+const RELEASED_MEMORY_MS = 60 * 60_000;
 
 type ReleasedIdentities = Record<string, string>;
 
@@ -621,34 +624,69 @@ function releasedElsewhere(siblings: readonly SiblingConnection[]): Set<string> 
   return out;
 }
 
+/** The sibling-feed sweep: how many feeds at once, how many in one run, and how long the whole sweep may take. */
+const MOVE_FEED_CONCURRENCY = 4;
+const MOVE_FEED_READS_PER_RUN = 8;
+const MOVE_FEED_SWEEP_BUDGET_MS = 10_000;
+
 /**
- * Reservation identities in the LIVE feeds of the workspace's other rooms on the SAME channel, most recently
- * synced first (a relink moves a stay between rooms of one listing on one channel; there are a handful of
- * them). A feed that cannot be read is skipped.
+ * Which identities of the stays still in question the LIVE feeds of the workspace's other rooms on the SAME
+ * channel carry (a relink moves a stay between rooms of one listing on one channel). `questioned` is one group
+ * of identities per stay - its UID and its reservation code - and a stay is accounted for as soon as ANY of
+ * its identities turns up, since a feed carries whichever of them it knows.
+ *
+ * Most recently synced first, four feeds at a time, at most {@link MOVE_FEED_READS_PER_RUN} in one sync and
+ * never past {@link MOVE_FEED_SWEEP_BUDGET_MS}: this runs on the sync request, after the calendar itself is
+ * already saved, so it must never spend the whole function budget. It stops the moment every stay in question
+ * is accounted for. A feed that cannot be read is skipped - an unread feed says nothing about a move, so the
+ * alert goes out as it always did.
  */
 async function freshSiblingIdentities(
   siblings: readonly SiblingConnection[],
   provider: ChannelCalendarProvider,
+  questioned: readonly (readonly string[])[],
 ): Promise<Set<string>> {
-  const out = new Set<string>();
-  for (const sibling of siblings) {
-    if (sibling.provider !== provider) continue;
-    const url = sibling.import_url?.trim();
-    if (!url || !isValidChannelImportUrl(sibling.provider, url)) continue;
-    try {
-      const ranges = icalEventsToImportedRanges(parseIcsCalendar(await fetchChannelIcs(url, sibling.provider, { label: sibling.label })));
-      for (const identity of reservationIdentitiesElsewhere([ranges])) out.add(identity);
-    } catch {
-      /* a feed that cannot be read says nothing about a move: the alert goes out as it always did */
+  const found = new Set<string>();
+  const groups = questioned.filter((group) => group.length > 0);
+  if (groups.length === 0) return found;
+  const wanted = new Set(groups.flat());
+  const queue = siblings
+    .filter((sibling) => sibling.provider === provider)
+    .filter((sibling) => {
+      const url = sibling.import_url?.trim();
+      return Boolean(url) && isValidChannelImportUrl(sibling.provider, url!);
+    })
+    .slice(0, MOVE_FEED_READS_PER_RUN);
+  if (queue.length === 0) return found;
+
+  const deadline = Date.now() + MOVE_FEED_SWEEP_BUDGET_MS;
+  const answered = () => groups.every((group) => group.some((identity) => found.has(identity)));
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (!answered() && Date.now() < deadline) {
+      const sibling = queue[next++];
+      if (!sibling) return;
+      try {
+        const text = await fetchChannelIcs(sibling.import_url!.trim(), sibling.provider, {
+          label: sibling.label,
+          timeoutMs: Math.max(0, deadline - Date.now()),
+        });
+        for (const identity of reservationIdentitiesElsewhere([icalEventsToImportedRanges(parseIcsCalendar(text))])) {
+          if (wanted.has(identity)) found.add(identity);
+        }
+      } catch {
+        /* a feed that cannot be read says nothing about a move: the alert goes out as it always did */
+      }
     }
-  }
-  return out;
+  };
+  await Promise.all(Array.from({ length: Math.min(MOVE_FEED_CONCURRENCY, queue.length) }, worker));
+  return found;
 }
 
 /**
  * Drop the created / cancelled pair a relink produces, whichever room syncs first:
  *   * a stay another room of the workspace already HOLDS is still there (stored ranges);
- *   * a stay another room RELEASED in the last six hours is not new here (its own stored memory);
+ *   * a stay another room RELEASED within {@link RELEASED_MEMORY_MS} is not new here (its own stored memory);
  *   * a stay another room's LIVE feed now carries has moved there, even though that room has not stored it yet.
  * Everything is scoped to this connection's workspace. An unreadable neighbour set is "no moves known": the
  * alert goes out as it always did.
@@ -665,7 +703,9 @@ async function withoutMoves(
     for (const identity of releasedElsewhere(siblings)) elsewhere.add(identity);
     let narrowed = withoutMovedReservations(diff, elsewhere);
     if (narrowed.cancelled.length > 0 && siblings.length > 0) {
-      const fresh = await freshSiblingIdentities(siblings, connection.provider);
+      // Only the stays still in question are worth a feed read, and the sweep stops once it has them all.
+      const questioned = [...narrowed.cancelled, ...narrowed.created].map((range) => reservationIdentities(range));
+      const fresh = await freshSiblingIdentities(siblings, connection.provider, questioned);
       if (fresh.size > 0) narrowed = withoutMovedReservations({ created: narrowed.created, cancelled: narrowed.cancelled }, fresh);
     }
     return { created: narrowed.created, cancelled: narrowed.cancelled };
