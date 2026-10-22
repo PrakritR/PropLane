@@ -83,7 +83,14 @@ export function asProperty(value: unknown, id: string): MockProperty | null {
 // is a deliberate act with a reviewer, not a side effect.
 // ---------------------------------------------------------------------------
 
-/** Fields of `MockProperty` a prospect's browse and detail pages need. */
+/**
+ * Fields of `MockProperty` a prospect's browse and detail pages need.
+ *
+ * `contactSmsPhone` is deliberately NOT here: nothing a prospect reads shows a phone number any more (every
+ * listing action goes through the resident portal), so the workspace's work number is not in the payload a
+ * public page asks for. A server-only caller that genuinely posts the number - the Zillow feed, which holds a
+ * listing without one - opts in with `{ workNumber: true }`.
+ */
 const PUBLIC_PROPERTY_KEYS = [
   "id",
   "title",
@@ -102,7 +109,6 @@ const PUBLIC_PROPERTY_KEYS = [
   "mapLat",
   "mapLng",
   "managerUserId",
-  "contactSmsPhone",
   "contactWorkEmail",
   "managerContactEmail",
   "adminPublishLive",
@@ -536,11 +542,14 @@ export function publicListingProjection(
   signingContext?: PublicSigningContext | null,
   /** Server-resolved "Listed with PropLane" visibility; omitted or false adds nothing. */
   showAttribution?: boolean,
+  /** `workNumber`: keep the workspace's work number. Server-only callers (the syndication feeds) only. */
+  opts?: { workNumber?: boolean },
 ): MockProperty {
   const sub = property.listingSubmission;
   const resolvedSub = sub && sub.v === 1 ? applyEffectiveApplicationForm(sub, workspaceForm ?? null) : sub;
   return {
     ...pick(property, PUBLIC_PROPERTY_KEYS),
+    ...(opts?.workNumber === true && property.contactSmsPhone ? { contactSmsPhone: property.contactSmsPhone } : {}),
     ...(resolvedSub && resolvedSub.v === 1 ? { listingSubmission: publicSubmission(resolvedSub) } : {}),
     ...(signingContext
       ? {
@@ -597,7 +606,12 @@ async function loadWorkspaceApplicationFormsByWorkspaceId(
  * housing-search tool (server-side, no HTTP round-trip). Keep both callers on
  * this function so "what the search sees" never drifts from "what the AI sees".
  */
-export async function getPublicListings(opts?: { testWorkspaceId?: string | null; workspaceIds?: readonly string[] }): Promise<MockProperty[]> {
+export async function getPublicListings(opts?: {
+  testWorkspaceId?: string | null;
+  workspaceIds?: readonly string[];
+  /** Keep each listing's work number in the projection: the syndication feeds, never a public response. */
+  workNumber?: boolean;
+}): Promise<MockProperty[]> {
   const db = createSupabaseServiceRoleClient();
   let query = db
     .from("manager_property_records")
@@ -718,6 +732,7 @@ export async function getPublicListings(opts?: { testWorkspaceId?: string | null
         listing.id,
       ),
       attributionByOwnerWorkspace.get(`${listing.managerUserId ?? ""}:${listing.workspaceId ?? ""}`) ?? false,
+      { workNumber: opts?.workNumber === true },
     ),
   );
 }

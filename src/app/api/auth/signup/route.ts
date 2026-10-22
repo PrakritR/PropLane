@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     }
 
     const supabase = createSupabaseServiceRoleClient();
-    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
+    const { error: createErr } = await supabase.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
@@ -76,18 +76,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, existingAccount: true });
     }
 
-    // Best-effort: the account exists either way, so a failed profile write
-    // must not fail the signup. Mirrors manager-register, which writes the same
-    // column after creating the user.
-    // No profile row exists yet for a brand-new login (the role step creates it, and `profiles.role` is not null), so
-    // this write is a no-op until then. The name and number live in auth metadata above; the phone gate prefills the
-    // number from there and `ensureSignedInResidentAccount` writes both onto the profile when the role is provisioned.
-    const newUserId = created?.user?.id;
-    const patch = { ...(phone ? { phone } : {}), ...(fullName ? { full_name: fullName } : {}) };
-    if (newUserId && Object.keys(patch).length > 0) {
-      await supabase.from("profiles").update(patch).eq("id", newUserId);
-    }
-
+    // Nothing is written to `profiles` here: no profile row exists yet for a brand-new login (the role step
+    // creates it, and `profiles.role` is not null). The name and number live in the auth metadata above; the
+    // phone gate prefills the number from there and `ensureSignedInResidentAccount` writes both onto the
+    // profile when the role is provisioned.
     return NextResponse.json({ ok: true, existingAccount: false });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not create your account.";

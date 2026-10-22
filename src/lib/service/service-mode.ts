@@ -90,12 +90,21 @@ export function serviceStaffScope(
  * The workspaces payload the Property portal draws: a service workspace the viewer is staff of belongs to the service
  * rail, so it is left out here, and `activeWorkspaceId` is re-resolved on what remains. In service mode nothing is left
  * out (the portal is scoped to that workspace and the client needs it). A client owner's workspace always stays.
+ *
+ * `staffUnreadable` is the fail-closed answer for a staff read that threw: the portal is never claimed to be in service
+ * mode on a guess, and every service workspace the viewer does not OWN is left out (it would otherwise be drawn in
+ * Property chrome). The client owner's own managed workspace stays - it is view-only, not hidden.
  */
 export function workspacesForPortalPayload(
   workspaces: PortalWorkspace[],
   staffIds: ReadonlySet<string>,
   cookieId: string | null | undefined,
+  opts: { staffUnreadable?: boolean } = {},
 ): { workspaces: PortalWorkspace[]; activeWorkspaceId: string | null } {
+  if (opts.staffUnreadable === true) {
+    const own = workspaces.filter((w) => !(w.isService === true && w.owned !== true));
+    return { workspaces: own, activeWorkspaceId: resolveActiveWorkspace(own, cookieId)?.id ?? null };
+  }
   const decision = decideServiceMode(workspaces, staffIds, cookieId);
   if (decision.mode === "service") return { workspaces, activeWorkspaceId: decision.activeId };
   const visible = workspaces.filter((w) => !(w.isService === true && staffIds.has(w.id)));

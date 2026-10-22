@@ -2,9 +2,19 @@
 
 import { useEffect, useState } from "react";
 import type { MockProperty } from "@/data/types";
-import { listingGeocodeQuery, parseGeocodeResult } from "@/lib/geocode-address";
+import { parseGeocodeResult } from "@/lib/geocode-address";
 import { listingFallbackMapCenter } from "@/lib/listing-map";
 
+/**
+ * The listing map's pin. The server resolves it with the listing payload (ZIP-verified,
+ * `listing-geocode.server`), so a stored `mapLat` / `mapLng` is used as it stands.
+ *
+ * Without one the page shipped before that bounded lookup landed, so the SAME ZIP-verified lookup is asked
+ * again here through `/api/listing-geocode` (it reads the cache the first one is filling). There is
+ * deliberately no free-text `/api/geocode` fallback: that path matched a street name in the wrong
+ * neighbourhood, which is the regression the server lookup exists to fix. With no ZIP there is nothing to
+ * verify a hit against, so the map draws its neutral fallback centre.
+ */
 export function useListingMapCoords(
   property: Pick<MockProperty, "address" | "zip" | "neighborhood" | "unitLabel" | "mapLat" | "mapLng"> &
     Partial<Pick<MockProperty, "state" | "listingSubmission">>,
@@ -29,14 +39,8 @@ export function useListingMapCoords(
       return;
     }
 
-    // Street + city/state + ZIP when the listing carries them, so a street name shared with another part of the
-    // metro cannot win over the right one.
-    const query = listingGeocodeQuery({
-      ...property,
-      city: property.listingSubmission?.city,
-      state: property.state ?? property.listingSubmission?.state,
-    });
-    if (!query) {
+    const zip = property.zip?.trim() ?? "";
+    if (!/^\d{5}(?:-\d{4})?$/.test(zip)) {
       setCoords(listingFallbackMapCenter(property as MockProperty));
       setLoading(false);
       setGeocoded(false);
@@ -46,8 +50,14 @@ export function useListingMapCoords(
     let cancelled = false;
     setLoading(true);
 
-    const params = new URLSearchParams({ q: query });
-    void fetch(`/api/geocode?${params.toString()}`, { cache: "force-cache" })
+    const params = new URLSearchParams({ zip });
+    if (property.address?.trim()) params.set("address", property.address.trim());
+    const city = property.listingSubmission?.city?.trim();
+    if (city) params.set("city", city);
+    const state = (property.state ?? property.listingSubmission?.state)?.trim();
+    if (state) params.set("state", state);
+
+    void fetch(`/api/listing-geocode?${params.toString()}`, { cache: "force-cache" })
       .then(async (res) => {
         if (!res.ok) return null;
         return (await res.json()) as unknown;

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createKeyedThreadRow } from "@/lib/communication/conversation-thread.server";
 import { formatPacificDateTime } from "@/lib/pacific-time";
@@ -8,6 +9,7 @@ import {
   HOUSE_ROOT_TEXT,
   HOUSE_THREAD_TYPE,
   houseConversationKey,
+  houseThreadAliasToken,
   houseThreadDisplayName,
   houseThreadId,
 } from "@/lib/house-thread-id";
@@ -29,6 +31,12 @@ import {
 
 type Db = SupabaseClient;
 const ATTEMPTS = 5;
+/** How many lines one house chat keeps; a list load hands back `HOUSE_LIST_MESSAGE_LIMIT` of them. */
+export const HOUSE_HISTORY_LIMIT = 500;
+
+function newHousePublicId(): string {
+  return randomBytes(16).toString("hex");
+}
 
 export type StoredHouseThread = {
   id: string;
@@ -54,6 +62,40 @@ export async function loadHouseThread(db: Db, threadId: string): Promise<StoredH
     workspaceId: (row.workspace_id as string | null) ?? null,
     updatedAt: (row.updated_at as string | null) ?? null,
   };
+}
+
+/**
+ * The stored thread id behind a resident's opaque alias (`house-chat:<publicId>`); `null` when the token
+ * names no house chat. The token is a lookup key, never a grant: the caller still authorizes the thread.
+ */
+export async function resolveHouseThreadAlias(db: Db, aliasId: string): Promise<string | null> {
+  const token = houseThreadAliasToken(aliasId);
+  if (!token) return null;
+  const { data, error } = await db
+    .from("portal_inbox_thread_records")
+    .select("id")
+    .eq("thread_type", HOUSE_THREAD_TYPE)
+    .eq("row_data->houseChat->>publicId", token)
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  return String((data as { id?: unknown }).id ?? "") || null;
+}
+
+/** The house's opaque resident-facing id, minted on first use for a chat created before it existed. */
+export async function ensureHousePublicId(db: Db, threadId: string): Promise<string | null> {
+  const stored = await loadHouseThread(db, threadId);
+  if (!stored) return null;
+  const existing = readHouseChatState(stored.rowData).publicId;
+  if (existing) return existing;
+  const minted = newHousePublicId();
+  const saved = await mutateHouseThread(db, threadId, (rowData) => {
+    const state = readHouseChatState(rowData);
+    if (state.publicId) return null;
+    return { ...rowData, houseChat: { ...state, publicId: minted } };
+  });
+  if (!saved) return null;
+  return readHouseChatState((await loadHouseThread(db, threadId))?.rowData ?? {}).publicId ?? null;
 }
 
 /** Every house chat of one workspace (the manager list reads this; membership is filtered by the caller). */
@@ -132,7 +174,7 @@ export async function ensureHouseThread(
   }
   const title = houseThreadDisplayName(input.houseLabel);
   const when = formatPacificDateTime(new Date());
-  const state: HouseChatState = { version: 1, houseLabel: input.houseLabel, residents: [], viewerState: {} };
+  const state: HouseChatState = { version: 1, houseLabel: input.houseLabel, publicId: newHousePublicId(), residents: [], viewerState: {} };
   const key = houseConversationKey(propertyId);
   const created = await createKeyedThreadRow(
     db,
@@ -184,6 +226,9 @@ export async function appendHouseLine(
     if (messages.some((m) => m?.id === message.id)) return null;
     const now = new Date();
     messages.push({ ...message, at: formatPacificDateTime(now), atMs: now.getTime() });
+    // One row holds the chat, so the history is capped: the oldest lines fall off rather than growing a
+    // row every member downloads without bound.
+    if (messages.length > HOUSE_HISTORY_LIMIT) messages.splice(0, messages.length - HOUSE_HISTORY_LIMIT);
     const state = readHouseChatState(rowData);
     const viewerState: Record<string, HouseViewerState> = {};
     for (const [userId, value] of Object.entries(state.viewerState)) {

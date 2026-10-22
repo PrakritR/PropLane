@@ -25,3 +25,29 @@ describe("20261020190100_first_paid_search_path", () => {
     expect(prev).not.toContain("pg_temp");
   });
 });
+
+describe("20261021090000_managed_read_only_search_path_siblings", () => {
+  const next = read("20261021090000_managed_read_only_search_path_siblings.sql");
+  const prev = read("20261019120000_managed_read_only_v2.sql");
+  /** One `create or replace function ... $$;` block by name. */
+  const bodyOf = (sql: string, name: string) => {
+    const at = sql.indexOf(`create or replace function public.${name}`);
+    const end = sql.indexOf("$$;", at);
+    return sql.slice(at, end + 3);
+  };
+
+  it("pins pg_temp last on BOTH siblings of the family", () => {
+    for (const name of ["managed_read_only_workspace_ids", "managed_read_only_owner_locked"]) {
+      expect(bodyOf(next, name)).toContain("set search_path = public, pg_temp");
+    }
+    expect(next).not.toMatch(/set search_path = public\s*\n/);
+  });
+
+  it("keeps each body and its grants identical to the applied definition", () => {
+    for (const name of ["managed_read_only_workspace_ids", "managed_read_only_owner_locked"]) {
+      expect(bodyOf(next, name).replace("public, pg_temp", "public")).toBe(bodyOf(prev, name));
+      expect(next).toContain(`revoke all on function public.${name}() from public, anon;`);
+      expect(next).toContain(`grant execute on function public.${name}() to authenticated;`);
+    }
+  });
+});

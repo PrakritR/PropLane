@@ -15,7 +15,20 @@ export type GroupFakeDb = {
   log: { table: string; op: "select" | "insert" | "update" | "upsert" | "delete" }[];
 };
 
-const read = (row: GroupRow, column: string): unknown => row[column];
+/**
+ * A column, or a PostgREST JSON path on one (`row_data->houseChat->>publicId`): `->` walks into the
+ * object, `->>` reads the leaf as text.
+ */
+const read = (row: GroupRow, column: string): unknown => {
+  if (!column.includes("->")) return row[column];
+  const [head, ...rest] = column.split(/->>?/);
+  let value: unknown = row[head!.trim()];
+  for (const key of rest) {
+    if (!value || typeof value !== "object") return undefined;
+    value = (value as Record<string, unknown>)[key.trim()];
+  }
+  return column.includes("->>") && value != null ? String(value) : value;
+};
 
 /** jsonb `@>`: every key of `subset` is in `value`; arrays match when each wanted element is contained in some element. */
 function jsonContains(value: unknown, subset: unknown): boolean {

@@ -20,8 +20,14 @@ describe("noticeChannelFor: where a request was made decides how it is answered"
     expect(noticeChannelFor({ noticeChannel: "portal" })).toBe("portal");
     expect(noticeChannelFor({ source_channel: "resident_portal" })).toBe("sms");
     expect(noticeChannelFor({ channel: "sms" })).toBe("sms");
-    // An explicit channel wins over a source.
-    expect(noticeChannelFor({ noticeChannel: "sms", stayDetails: { source: "guest_portal" } })).toBe("sms");
+  });
+
+  it("a STAY is read from stayDetails.source alone: a top-level channel on a booking row is a different fact", () => {
+    // `channel` on a booking row is the listing channel it came from, and nothing writes a stay's
+    // top-level `noticeChannel`: a portal stay stays a portal stay.
+    expect(noticeChannelFor({ noticeChannel: "sms", stayDetails: { source: "guest_portal" } })).toBe("portal");
+    expect(noticeChannelFor({ channel: "airbnb", stayDetails: { source: "guest_portal" } })).toBe("portal");
+    expect(noticeChannelFor({ noticeChannel: "portal", stayDetails: { source: "sms_short_stay" } })).toBe("sms");
   });
 });
 
@@ -78,5 +84,21 @@ describe("the booking application's answers", () => {
       { stayDetails: { linen: "Requested" } },
     );
     expect((merged!.stayDetails as { application: unknown }).application).toEqual(application);
+  });
+
+  it("a manager's save cannot move a portal stay onto the text path: channel fields are server-owned", () => {
+    const merged = carryGuestStayFields(
+      { residentUserId: "u1", stayDetails: { source: "guest_portal" } },
+      { channel: "airbnb", noticeChannel: "sms", stayDetails: {} },
+    );
+    expect(merged).not.toHaveProperty("channel");
+    expect(merged).not.toHaveProperty("noticeChannel");
+    expect(noticeChannelFor(merged)).toBe("portal");
+    // What the stored row carried is kept.
+    const kept = carryGuestStayFields(
+      { residentUserId: "u1", channel: "airbnb", stayDetails: { source: "guest_portal" } },
+      { channel: "direct", stayDetails: {} },
+    );
+    expect(kept!.channel).toBe("airbnb");
   });
 });

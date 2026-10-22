@@ -383,6 +383,9 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     // created non-SMS inquiry must not become "legacy" merely by being
     // confirmed into the planned-event payload.
     ...(typeof row.smsOrigin === "string" ? { smsOrigin: row.smsOrigin } : {}),
+    // The channel the tour was ASKED on, carried onto the confirmed event: without it a later cancel or
+    // reschedule reads "no channel recorded" and falls back to texting a guest who asked in the portal.
+    ...(row.noticeChannel === "portal" || row.noticeChannel === "sms" ? { noticeChannel: row.noticeChannel } : {}),
     notes: textField(row, "notes") || undefined,
     instructions: instructions || undefined,
     assignee: assignee ?? undefined,

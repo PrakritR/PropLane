@@ -67,8 +67,12 @@ export async function GET() {
     // A PropLane Service workspace the viewer is staff of lives on the service rail, not in the Property portal's
     // list: left out here unless the portal is in service mode (then it is the active workspace). The list the
     // scope readers use (`loadWorkspaces`) is untouched. An ordinary manager has no staff seat: nothing changes.
-    const staffIds = workspaces.some((w) => w.isService === true) ? await loadServiceStaffIds(ctx.db, ctx.user.id) : new Set<string>();
-    const shown = workspacesForPortalPayload(workspaces, staffIds, selected);
+    const staff = workspaces.some((w) => w.isService === true)
+      ? await loadServiceStaffIds(ctx.db, ctx.user.id)
+      : { ids: new Set<string>(), failed: false };
+    // A staff read that failed fails CLOSED: a service workspace the viewer does not own is left out
+    // rather than drawn in the Property portal (`loadServiceStaffIds` logged the failure).
+    const shown = workspacesForPortalPayload(workspaces, staff.ids, selected, { staffUnreadable: staff.failed });
     return NextResponse.json({
       workspaces: shown.workspaces,
       activeWorkspaceId: shown.activeWorkspaceId,

@@ -6,7 +6,7 @@
  * `house-groups/stay-members.ts`), re-derived on every read and write. The stored roster only narrows
  * which threads to look at and who gets a "Welcome" line; it is never the authority.
  */
-import { HOUSE_ROOT_TEXT, houseThreadDisplayName } from "@/lib/house-thread-id";
+import { HOUSE_ROOT_TEXT, houseThreadAliasId, houseThreadDisplayName } from "@/lib/house-thread-id";
 import {
   firstNameOf,
   stayCoversDay,
@@ -136,9 +136,14 @@ export type HouseChatMessage = {
 
 export type HouseViewerState = { folder?: "trash"; readAtMs?: number };
 
+/** How many of a house chat's lines one list load hands back (the newest; the row keeps more). */
+export const HOUSE_LIST_MESSAGE_LIMIT = 100;
+
 export type HouseChatState = {
   version: 1;
   houseLabel: string;
+  /** Opaque per-house id the RESIDENT side is given, so no resident payload carries the owner's account id. */
+  publicId?: string;
   /** Last synced roster (narrowing + welcome lines only; occupancy is the authority). */
   residents: (HouseResident & { joinedAt: string })[];
   viewerState: Record<string, HouseViewerState>;
@@ -162,6 +167,7 @@ export function readHouseChatState(rowData: Record<string, unknown>): HouseChatS
   return {
     version: 1,
     houseLabel: typeof raw.houseLabel === "string" ? raw.houseLabel : "",
+    ...(typeof raw.publicId === "string" && raw.publicId.trim() ? { publicId: raw.publicId.trim() } : {}),
     residents: residents.filter((r) => r && typeof r.email === "string"),
     viewerState: asRecord(raw.viewerState) as Record<string, HouseViewerState>,
   };
@@ -184,7 +190,8 @@ export function houseThreadUnreadFor(rowData: Record<string, unknown>, viewer: H
 
 /**
  * The row as ONE viewer may see it: an allowlist projection. A resident sees housemates by first name
- * and room only; no email, phone, user id or amount of anyone rides along, whoever the viewer is.
+ * and room only; no email, phone, user id or amount of anyone rides along, whoever the viewer is - the
+ * stored id names the owner's account, so a resident is given the opaque alias instead.
  */
 export function houseThreadRowForViewer(
   stored: { id: string; row_data: Record<string, unknown> | null },
@@ -193,20 +200,23 @@ export function houseThreadRowForViewer(
   const row = stored.row_data ?? {};
   const state = readHouseChatState(row);
   const title = houseThreadDisplayName(state.houseLabel);
-  const messages = messagesOf(row).map((m) => ({
-    id: m.id,
-    from: m.system ? "PropLane" : m.from,
-    body: m.body,
-    at: m.at,
-    outbound: !m.system && sameViewer(m, viewer),
-    channel: "proplane" as const,
-    ...(m.system ? { automated: true } : {}),
-    ...(m.attachments?.length ? { attachments: m.attachments } : {}),
-  }));
+  const messages = messagesOf(row)
+    .slice(-HOUSE_LIST_MESSAGE_LIMIT)
+    .map((m) => ({
+      id: m.id,
+      from: m.system ? "PropLane" : m.from,
+      body: m.body,
+      at: m.at,
+      outbound: !m.system && sameViewer(m, viewer),
+      channel: "proplane" as const,
+      ...(m.system ? { automated: true } : {}),
+      ...(m.attachments?.length ? { attachments: m.attachments } : {}),
+    }));
   const last = messages[messages.length - 1];
   const folder = state.viewerState[viewer.userId]?.folder === "trash" ? "trash" : "inbox";
+  const id = viewer.kind === "resident" && state.publicId ? houseThreadAliasId(state.publicId) : stored.id;
   return {
-    id: stored.id,
+    id,
     folder,
     from: title,
     email: "",
@@ -218,7 +228,7 @@ export function houseThreadRowForViewer(
     rootOutbound: false,
     unread: houseThreadUnreadFor(row, viewer),
     scope: viewer.scope,
-    rootMessageId: typeof row.rootMessageId === "string" ? row.rootMessageId : `house-root:${stored.id}`,
+    rootMessageId: viewer.kind === "resident" ? `house-root:${id}` : typeof row.rootMessageId === "string" ? row.rootMessageId : `house-root:${stored.id}`,
     workspaceId: typeof row.workspaceId === "string" ? row.workspaceId : undefined,
     houseId: typeof row.houseId === "string" ? row.houseId : undefined,
     houseLabel: state.houseLabel || undefined,

@@ -24,6 +24,7 @@ const PLAIN = "44444444-4444-4444-8444-444444444444";
 const AMBIKA = "a0000000-0000-4000-8000-00000000000a";
 const VINOD = "b0000000-0000-4000-8000-00000000000b";
 const MINE = "c0000000-0000-4000-8000-00000000000c";
+const ATTACHED = "d0000000-0000-4000-8000-00000000000d";
 
 function ws(id: string, name: string, over: Partial<PortalWorkspace> = {}): PortalWorkspace {
   return { id, name, ownerUserId: OWNER, owned: false, isDefault: false, propertyIds: [], propertyPermissions: {}, ...over };
@@ -170,11 +171,22 @@ describe("who is staff of a service workspace", () => {
   });
 
   it("an attached workspace's own client owner is not staff (no seat, not the service owner)", async () => {
-    db.tables.portal_workspaces.push({ id: "d0000000-0000-4000-8000-00000000000d", name: "Client homes", owner_user_id: CLIENT, is_service: true, created_at: "2026-10-03T00:00:00Z" });
+    db.tables.portal_workspaces.push({ id: ATTACHED, name: "Client homes", owner_user_id: CLIENT, is_service: true, created_at: "2026-10-03T00:00:00Z" });
     expect(await ids(CLIENT)).toEqual([]);
-    // ...and a read failure reads as "no staff ids", so the workspaces route changes nothing.
+    // ...and a read failure is REPORTED, so the callers can fail closed instead of reading "not staff".
     db.failOn.account_link_invites = { code: "XX000", message: "down" };
-    expect(await mode.loadServiceStaffIds(db as never, ADMIN)).toEqual(new Set());
+    expect(await mode.loadServiceStaffIds(db as never, ADMIN)).toEqual({ ids: new Set(), failed: true });
+  });
+
+  it("a seat the CLIENT granted on their own attached workspace is not staff: only a PropLane person is", async () => {
+    db.tables.portal_workspaces.push({ id: ATTACHED, name: "Client homes", owner_user_id: CLIENT, is_service: true, created_at: "2026-10-03T00:00:00Z" });
+    // The client invites a second account of their own as a co-manager of the workspace they still own.
+    db.tables.account_link_invites.push(seat(PLAIN, ATTACHED, "admin", CLIENT));
+    expect(await ids(PLAIN)).toEqual([]);
+    // PropLane's own seats on the same workspace (the attach path seats the service owner and a platform admin).
+    db.tables.account_link_invites.push(seat(ADMIN, ATTACHED, "admin", CLIENT), seat(OWNER, ATTACHED, "admin", CLIENT));
+    expect(await ids(ADMIN)).toContain("Client homes");
+    expect(await ids(OWNER)).toContain("Client homes");
   });
 });
 
@@ -214,6 +226,20 @@ describe("the /portal layout's service-mode gate", () => {
     if (res.mode !== "service") return;
     expect(res.shell).toMatchObject({ isAdmin: false, activeId: VINOD, propertyPortalWorkspaceId: null });
     expect(res.shell.workspaces).toEqual([{ id: VINOD, name: "Vinod", city: "Seattle" }]);
+  });
+
+  it("fails closed for the Property portal list when the staff read is unreadable", () => {
+    const out = workspacesForPortalPayload(
+      [ws(MINE, "My homes", { owned: true, isDefault: true, ownerUserId: ADMIN }), ws(AMBIKA, "Ambika", { isService: true })],
+      new Set(),
+      AMBIKA,
+      { staffUnreadable: true },
+    );
+    expect(out.workspaces.map((w) => w.id)).toEqual([MINE]);
+    expect(out.activeWorkspaceId).toBe(MINE);
+    // The client owner's own managed workspace is view-only, not hidden.
+    const client = ws(AMBIKA, "Ambika", { isService: true, owned: true, ownerUserId: CLIENT, readOnly: true });
+    expect(workspacesForPortalPayload([client], new Set(), AMBIKA, { staffUnreadable: true }).workspaces).toEqual([client]);
   });
 
   it("the client owner and a plain manager stay in the Property portal after one cheap read", async () => {

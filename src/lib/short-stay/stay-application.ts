@@ -60,6 +60,11 @@ export type StayApplicationCheck = { ok: true; application: StayApplicationAnswe
  * head-count and stamps the agreement time. The agreement is required: a request without it is refused.
  */
 export function checkStayApplication(raw: unknown, guests: number, now: Date = new Date()): StayApplicationCheck {
+  // The head-count decides how many names are asked for, so it is checked BEFORE the list is built: an
+  // unreadable or out-of-range count would otherwise ask for NaN names (or a thousand of them).
+  if (!Number.isInteger(guests) || guests < 1 || guests > SHORT_STAY_MAX_GUESTS) {
+    return { ok: false, error: "Choose how many guests." };
+  }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, error: "Tell us about the stay." };
   const value = raw as Record<string, unknown>;
   const purpose = STAY_PURPOSES.find((candidate) => candidate.value === value.purpose)?.value;

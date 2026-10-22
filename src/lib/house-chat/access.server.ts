@@ -2,9 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CommunicationScope } from "@/lib/communication/conversation-visibility.server";
+import type { LeaseScopeRecord } from "@/lib/auth/manager-lease-scope";
 import { pacificDayKey } from "@/lib/house-groups/time";
 import type { OccupancyStayLike } from "@/lib/house-groups/stay-members";
-import { parseHouseThreadId, type ParsedHouseThreadId } from "@/lib/house-thread-id";
+import { houseThreadAliasToken, parseHouseThreadId, type ParsedHouseThreadId } from "@/lib/house-thread-id";
 import { propertyLabel } from "@/lib/one-number/router-lookups.server";
 import { serverSnapshotCacheEnabled } from "@/lib/server-ttl-cache";
 import { houseResidentsFromStays, type HouseResident } from "./model";
@@ -45,14 +46,25 @@ export async function loadWorkspaceHouse(
     if (!row) return null;
     const ws = String(row.workspace_id ?? "").trim();
     const owner = String(row.manager_user_id ?? "").trim();
-    if (ws ? ws !== input.workspaceId : owner !== input.ownerUserId) return null;
+    // BOTH halves of the id are checked: a workspace that holds the house does not make the owner segment
+    // true, so a forged id naming someone else's workspace (or someone else's owner) is refused here and
+    // never reaches the grant check.
+    if (owner !== input.ownerUserId) return null;
+    if (ws && ws !== input.workspaceId) return null;
     return { label: propertyLabel(row.row_data) || "your house" };
   } catch {
     return null;
   }
 }
 
-/** Every stay of these houses as the owner sees them (the Bookings snapshot). A failed read throws. */
+/**
+ * Every stay of these houses (the Bookings snapshot). A failed read throws.
+ *
+ * The long-term stays are built from the HOUSES' own leases, not from the owner's lease scope: a lease is
+ * stamped to whoever filed it, so a teammate's lease would otherwise leave that resident out of their own
+ * house chat. `propertyIds` is always a set the caller already proved belongs to the workspace, so reading
+ * every lease on those houses is the house's own occupancy, never a widening.
+ */
 export async function loadOwnerStays(db: Db, ownerUserId: string, propertyIds: readonly string[]): Promise<OccupancyStayLike[]> {
   if (propertyIds.length === 0) return [];
   const { occupancySnapshotForManager } = await import("@/lib/occupancy/snapshot.server");
@@ -62,8 +74,25 @@ export async function loadOwnerStays(db: Db, ownerUserId: string, propertyIds: r
     from: today,
     to: today,
     days: [today],
+    leaseRecords: await housesLeaseRecords(db, propertyIds),
   });
   return withLeaseResidentIdentity(db, snapshot.stays as unknown as SnapshotStay[]);
+}
+
+/** Every lease row filed under these houses, whoever filed it. A failed read throws (the caller refuses). */
+async function housesLeaseRecords(db: Db, propertyIds: readonly string[]): Promise<LeaseScopeRecord[]> {
+  const ids = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
+  const out: LeaseScopeRecord[] = [];
+  for (let at = 0; at < ids.length; at += 100) {
+    const { data, error } = await db
+      .from("portal_lease_pipeline_records")
+      .select("id, row_data, updated_at, manager_user_id, property_id, resident_email")
+      .in("property_id", ids.slice(at, at + 100))
+      .limit(500);
+    if (error) throw new Error("house leases unreadable");
+    out.push(...((data ?? []) as LeaseScopeRecord[]));
+  }
+  return out;
 }
 
 type SnapshotStay = OccupancyStayLike & { name?: string; resident?: OccupancyStayLike["resident"] & { leaseId?: string } };
@@ -135,14 +164,16 @@ export function clearHouseResidentsCache(): void {
  * Pure: may this Communication scope read (or post in) the house chat? The owner always (in the active
  * workspace); anyone else needs an accepted membership of the thread's workspace AND the house grant at
  * the scope's level; posting also needs the membership to allow posting (not a Viewer).
+ *
+ * The active-workspace rule holds for a POST exactly as it does for a read: write access is never wider
+ * than read access, so a chat this scope may not read is a chat it may not post into either.
  */
 export function teamScopeAllowsHouseThread(
   scope: CommunicationScope,
   parsed: ParsedHouseThreadId,
-  options: { forPost?: boolean } = {},
 ): { allowed: boolean; canPost: boolean } {
   if (scope.closed) return { allowed: false, canPost: false };
-  if (scope.activeWorkspaceId && scope.activeWorkspaceId !== parsed.workspaceId && !options.forPost) {
+  if (scope.activeWorkspaceId && scope.activeWorkspaceId !== parsed.workspaceId) {
     return { allowed: false, canPost: false };
   }
   if (scope.viewerId === parsed.ownerManagerUserId) return { allowed: true, canPost: true };
@@ -164,9 +195,17 @@ export async function assertHouseThreadAccess(
     resolveScope?: (level: "read" | "edit") => Promise<CommunicationScope>;
     residents?: (parsed: ParsedHouseThreadId) => Promise<HouseResident[]>;
     houseExists?: (parsed: ParsedHouseThreadId) => Promise<boolean>;
+    resolveAlias?: (aliasId: string) => Promise<string | null>;
   } = {},
 ): Promise<HouseAccess> {
-  const parsed = parseHouseThreadId(input.threadId);
+  // A resident holds the opaque alias; it is a lookup key only - the stored id it names is then authorized
+  // from scratch, exactly like one typed in full.
+  const storedId = houseThreadAliasToken(input.threadId)
+    ? await (deps.resolveAlias ?? (async (aliasId: string) => (await import("./store.server")).resolveHouseThreadAlias(db, aliasId)))(
+        input.threadId,
+      ).catch(() => null)
+    : input.threadId;
+  const parsed = storedId ? parseHouseThreadId(storedId) : null;
   const userId = input.userId.trim();
   const email = input.email.trim().toLowerCase();
   if (!parsed || !userId) return DENIED;
@@ -184,9 +223,16 @@ export async function assertHouseThreadAccess(
     const scope = deps.resolveScope
       ? await deps.resolveScope(input.level)
       : await (await import("@/lib/communication/conversation-visibility.server")).resolveCommunicationScope(db, userId, input.level);
-    const team = teamScopeAllowsHouseThread(scope, parsed, { forPost: input.level === "edit" });
-    if (team.allowed && (input.level === "read" || team.canPost)) {
-      return { ok: true, kind: "team", parsed, canPost: team.canPost };
+    const team = teamScopeAllowsHouseThread(scope, parsed);
+    // A PropLane-managed workspace is view-only for its client: she reads the house chat with her
+    // residents and posts nothing, the same lock the rest of her Property portal wears. Asked only on a
+    // POST, and fail-closed (an unreadable lock answers "locked").
+    const canPost =
+      team.canPost && input.level === "edit"
+        ? !(await (await import("@/lib/auth/managed-read-only.server")).isManagedReadOnly(db, userId, parsed.workspaceId))
+        : team.canPost;
+    if (team.allowed && (input.level === "read" || canPost)) {
+      return { ok: true, kind: "team", parsed, canPost };
     }
   } catch {
     /* an unreadable grant shares nothing; fall through to the resident check */

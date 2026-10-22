@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
   cookie: undefined as string | undefined,
   workspaces: [] as Array<Record<string, unknown>>,
   staff: new Set<string>(),
+  staffFailed: false,
   propertyWorkspace: null as string | null,
   roles: ["admin", "manager"] as string[],
 }));
@@ -29,7 +30,7 @@ vi.mock("@/lib/workspaces/server", () => ({
   loadWorkspacePlan: async () => ({ tier: "pro", unknown: false, workspaceLimit: 1, usage: { workspaces: 1 } }),
 }));
 vi.mock("@/lib/service/service-mode.server", () => ({
-  loadServiceStaffIds: async () => state.staff,
+  loadServiceStaffIds: async () => ({ ids: state.staff, failed: state.staffFailed }),
   loadPropertyPortalWorkspaceId: async () => state.propertyWorkspace,
 }));
 vi.mock("@/lib/property-owner/route-auth.server", () => ({ refuseOwnerOnly: async () => null }));
@@ -61,6 +62,7 @@ const ws = (id: string, name: string, over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   state.cookie = undefined;
   state.staff = new Set();
+  state.staffFailed = false;
   state.propertyWorkspace = null;
   state.roles = ["admin", "manager"];
   state.workspaces = [ws(MINE, "My homes", { isDefault: true }), ws(AMBIKA, "Ambika", { isService: true, owned: false })];
@@ -92,6 +94,22 @@ describe("GET /api/workspaces", () => {
     expect(body.workspaces.map((w) => w.id)).toEqual([MINE, AMBIKA]);
     expect(body.activeWorkspaceId).toBe(AMBIKA);
   });
+
+  it("a staff read that failed fails closed: a service workspace the viewer does not own is left out", async () => {
+    state.staffFailed = true;
+    state.cookie = AMBIKA;
+    const body = await get();
+    expect(body.workspaces.map((w) => w.id)).toEqual([MINE]);
+    expect(body.activeWorkspaceId).toBe(MINE);
+  });
+
+  it("...and the client owner's OWN managed workspace still stays (view-only, not hidden)", async () => {
+    state.staffFailed = true;
+    state.workspaces = [ws(AMBIKA, "Ambika", { isService: true, owned: true, readOnly: true })];
+    state.cookie = AMBIKA;
+    const body = await get();
+    expect(body.workspaces.map((w) => w.id)).toEqual([AMBIKA]);
+  });
 });
 
 describe("POST /api/auth/set-active-portal: the workspace cookie hazard", () => {
@@ -119,6 +137,13 @@ describe("POST /api/auth/set-active-portal: the workspace cookie hazard", () => 
     state.staff = new Set([AMBIKA]);
     state.cookie = AMBIKA;
     expect(workspaceCookie(await post({ role: "manager", keepWorkspace: true }))).toBeUndefined();
+  });
+
+  it("a staff read that failed drops the selection too (it cannot be proved not to be a service workspace)", async () => {
+    state.staffFailed = true;
+    state.cookie = AMBIKA;
+    state.propertyWorkspace = MINE;
+    expect(workspaceCookie(await post({ role: "manager" }))).toContain(`proplane-workspace=${MINE}`);
   });
 
   it("an ordinary cookie, or the admin role, is left alone", async () => {

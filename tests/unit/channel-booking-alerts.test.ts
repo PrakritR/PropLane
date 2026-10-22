@@ -16,7 +16,7 @@ vi.mock("@/lib/channel-calendar/stay-tombstones.server", () => ({ loadChannelSta
 
 import { diffChannelReservations, reservationIdentitiesElsewhere, withoutMovedReservations } from "@/lib/channel-calendar/channel-booking-diff";
 import { channelBookingStay, emitChannelBookingEvent, renderChannelBookingEvent } from "@/lib/channel-booking-events.server";
-import { syncChannelCalendarConnection } from "@/lib/channel-calendar/sync.server";
+import { clearChannelMoveMemory, syncChannelCalendarConnection } from "@/lib/channel-calendar/sync.server";
 import type { ChannelCalendarImportedRange } from "@/lib/channel-calendar/types";
 
 const range = (uid: string, start: string, end: string, summary = "Reserved"): ChannelCalendarImportedRange => ({ id: uid, sourceUid: uid, summary, start, end });
@@ -131,14 +131,27 @@ function ics(events: Array<{ uid: string; start: string; end: string; summary: s
   return `BEGIN:VCALENDAR\nVERSION:2.0\n${body}\nEND:VCALENDAR`;
 }
 
-function syncDb(connection: Record<string, unknown>, others: Array<{ id: string; imported_ranges: unknown[] }> = []) {
+type Sibling = { id: string; imported_ranges: unknown[]; property_id?: string; provider?: string; label?: string | null; import_url?: string | null };
+
+/** Which workspace each house belongs to: the move check only looks inside the connection's own workspace. */
+const HOUSE_WORKSPACES = [
+  { id: "p1", workspace_id: "ws-1" },
+  { id: "p2", workspace_id: "ws-1" },
+  { id: "p-elsewhere", workspace_id: "ws-2" },
+];
+
+function syncDb(connection: Record<string, unknown>, others: Sibling[] = []) {
   const stored = { ...connection };
+  const siblings = others.map((row) => ({ property_id: "p2", provider: "airbnb", label: null, import_url: null, ...row }));
   const from = (table: string) => {
     let patch: Record<string, unknown> | null = null;
     let readingOthers = false;
+    let readingHouses = false;
     const chain: Record<string, unknown> = {
       select: () => chain,
       eq: () => chain,
+      // The houses of this manager's connections, with their workspace (the move check's scope).
+      in: () => { readingHouses = true; return chain; },
       // The workspace's OTHER channel connections (the move check).
       neq: () => { readingOthers = true; return chain; },
       update: (value: Record<string, unknown>) => { patch = value; if (table === "external_calendar_connections") Object.assign(stored, value); return chain; },
@@ -148,7 +161,8 @@ function syncDb(connection: Record<string, unknown>, others: Array<{ id: string;
           ? { data: { email: "m@example.com", full_name: "Mgr" }, error: null }
           : { data: { manager_user_id: "m1", property_data: { id: "p1", title: "5259 Brooklyn Ave", buildingName: "5259 Brooklyn Ave", listingSubmission: { rooms: [{ id: "r1", name: "Room 3", manualUnavailableRanges: [] }] } }, row_data: {} }, error: null },
       single: async () => ({ data: stored, error: null }),
-      then: (resolve: (value: unknown) => void) => resolve({ error: null, data: readingOthers ? others : patch }),
+      then: (resolve: (value: unknown) => void) =>
+        resolve({ error: null, data: readingOthers ? siblings : readingHouses ? HOUSE_WORKSPACES : patch }),
     };
     return chain;
   };
@@ -164,8 +178,19 @@ function stubFeed(text: string) {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(text, { status: 200, headers: { "content-type": "text/calendar" } })));
 }
 
+/** Per-feed responses, matched on a fragment of the import URL; anything else answers an empty calendar. */
+function stubFeeds(byUrlFragment: Record<string, string>) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: unknown) => {
+      const hit = Object.keys(byUrlFragment).find((fragment) => String(url).includes(fragment));
+      return new Response(hit ? byUrlFragment[hit]! : ics([]), { status: 200, headers: { "content-type": "text/calendar" } });
+    }),
+  );
+}
+
 describe("syncChannelCalendarConnection alerts", () => {
-  beforeEach(() => { emitActionEvent.mockClear(); vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-09T12:00:00Z")); });
+  beforeEach(() => { emitActionEvent.mockClear(); clearChannelMoveMemory(); vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-09T12:00:00Z")); });
   const eventsOf = () => emitActionEvent.mock.calls.map((call) => (call[1] as { event: string }).event);
 
   it("stays silent on the first sync (baseline) even with reservations in the feed", async () => {
@@ -237,6 +262,54 @@ describe("syncChannelCalendarConnection alerts", () => {
       );
       await syncChannelCalendarConnection(db, "c1");
       expect(eventsOf()).toEqual(["channel_booking_created"]);
+    });
+
+    it("is quiet in EITHER sync order: the losing room reads the other room's live feed, and the gaining room remembers", async () => {
+      // Room A (c1) loses the stay and syncs FIRST - before room B has stored anything. Only B's live
+      // feed can say the stay moved there.
+      const bUrl = "https://www.airbnb.com/calendar/ical/room-b.ics?s=abc";
+      // A's own feed still carries an event (a host block), so the "empty feed cancels nothing" rule is
+      // not what keeps this quiet.
+      stubFeeds({
+        "123.ics": ics([{ uid: "blk", start: "2026-10-20", end: "2026-10-22", summary: "Airbnb (Not available)" }]),
+        "room-b.ics": ics([{ uid: "uid-moved", start: "2026-10-12", end: "2026-10-15", summary: "Reserved" }]),
+      });
+      const a = syncDb(
+        { ...baseConnection, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [moved] },
+        [{ id: "c2", property_id: "p2", imported_ranges: [], import_url: bUrl }],
+      );
+      await syncChannelCalendarConnection(a.db, "c1");
+      expect(emitActionEvent).not.toHaveBeenCalled();
+
+      // Then room B syncs and sees the stay as new. A no longer holds it, so only the memory of what A
+      // released keeps this quiet.
+      stubFeeds({ "room-b.ics": ics([{ uid: "uid-moved", start: "2026-10-12", end: "2026-10-15", summary: "Reserved" }]) });
+      const b = syncDb(
+        { ...baseConnection, id: "c2", room_id: "r2", property_id: "p2", import_url: bUrl, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [] },
+        [{ id: "c1", property_id: "p1", imported_ranges: [], import_url: baseConnection.import_url }],
+      );
+      await syncChannelCalendarConnection(b.db, "c2");
+      expect(emitActionEvent).not.toHaveBeenCalled();
+    });
+
+    it("still announces a real cancellation: no other room of the workspace has the stay, stored or live", async () => {
+      stubFeeds({ "123.ics": ics([{ uid: "other", start: "2026-11-02", end: "2026-11-04", summary: "Reserved" }]) });
+      const { db } = syncDb(
+        { ...baseConnection, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [moved] },
+        [{ id: "c2", property_id: "p2", imported_ranges: [], import_url: "https://www.airbnb.com/calendar/ical/room-b.ics?s=abc" }],
+      );
+      await syncChannelCalendarConnection(db, "c1");
+      expect(eventsOf().sort()).toEqual(["channel_booking_cancelled", "channel_booking_created"]);
+    });
+
+    it("a stay held by a connection in ANOTHER workspace of the same manager is a different booking", async () => {
+      stubFeeds({ "123.ics": ics([{ uid: "other", start: "2026-11-02", end: "2026-11-04", summary: "Reserved" }]) });
+      const { db } = syncDb(
+        { ...baseConnection, last_synced_at: "2026-10-09T11:45:00Z", imported_ranges: [moved] },
+        [{ id: "c9", property_id: "p-elsewhere", imported_ranges: [moved] }],
+      );
+      await syncChannelCalendarConnection(db, "c1");
+      expect(eventsOf()).toContain("channel_booking_cancelled");
     });
 
     it("a genuinely new booking, with nothing like it anywhere else, still alerts", async () => {

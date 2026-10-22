@@ -17,7 +17,9 @@ export async function resolveProfileFullName(
     const meta = (data?.user?.user_metadata ?? {}) as Record<string, unknown>;
     const raw = typeof meta.full_name === "string" ? meta.full_name : typeof meta.name === "string" ? meta.name : "";
     const name = raw.trim().slice(0, 200);
-    if (name) await db.from("profiles").update({ full_name: name }).eq("id", userId).is("full_name", null);
+    // Empty is as nameless as null here (the read above treats them alike), so the cache fills for both
+    // rather than paying for an auth lookup on every read of a row holding "".
+    if (name) await db.from("profiles").update({ full_name: name }).eq("id", userId).or("full_name.is.null,full_name.eq.");
     return name;
   } catch {
     return "";

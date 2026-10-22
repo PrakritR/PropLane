@@ -304,8 +304,15 @@ export function carryGuestStayFields(existing: unknown, next: unknown): Record<s
   }
   if (isShortStayRequestSource(priorDetails.source)) details.source = priorDetails.source;
   else if (details.source === undefined && priorDetails.source !== undefined) details.source = priorDetails.source;
+  // `channel` / `noticeChannel` are server-owned provenance like `residentUserId`: the stored row's values
+  // win and the editor's copy is dropped, so a manager's save can never move a portal stay onto the text path.
+  const { channel: _channel, noticeChannel: _noticeChannel, ...withoutChannel } = incoming;
+  void _channel;
+  void _noticeChannel;
   return {
-    ...incoming,
+    ...withoutChannel,
+    ...(prior.channel !== undefined ? { channel: prior.channel } : {}),
+    ...(prior.noticeChannel !== undefined ? { noticeChannel: prior.noticeChannel } : {}),
     ...(prior.residentUserId && !incoming.residentUserId ? { residentUserId: prior.residentUserId } : {}),
     ...(prior.guests !== undefined && incoming.guests === undefined ? { guests: prior.guests } : {}),
     stayDetails: details,

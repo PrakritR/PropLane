@@ -165,8 +165,10 @@ export async function GET(req: Request) {
       for (const record of records) {
         if (record.id) byId.set(record.id, record);
       }
-      // Legacy unassigned rows stay visible to managers (previously included via
-      // `manager_user_id.is.null` in the .or filter).
+      // Legacy rows with no `manager_user_id`: visible to the manager who holds the house the row itself
+      // names, and - when it names no house - only to the manager its own payload names. There is nothing
+      // else to attribute such a row by, and broadcasting it showed one landlord's work orders to every
+      // other manager; a platform admin still reads them all through the oversight read above.
       const { data: legacyRows, error: legacyError } = await db
         .from("portal_work_order_records")
         .select("id, row_data, updated_at")
@@ -178,15 +180,18 @@ export async function GET(req: Request) {
         if (!record.id || byId.has(record.id)) continue;
         // A legacy row that names a property belongs to whoever holds that
         // property — showing it to every manager leaked one landlord's work
-        // orders to all the others. A row that names no property at all stays
-        // broadcast, because there is nothing to attribute it by and hiding it
-        // would strand data its real owner can still only find here.
+        // orders to all the others.
         const legacyPropertyId = String(
           (record.row_data as DemoManagerWorkOrderRow | null)?.assignedPropertyId ??
             (record.row_data as DemoManagerWorkOrderRow | null)?.propertyId ??
             "",
         ).trim();
         if (legacyPropertyId && !linkedPropertyIds.has(legacyPropertyId)) continue;
+        if (!legacyPropertyId) {
+          // No house to attribute it by: only the manager the payload itself names reads it.
+          const named = String((record.row_data as DemoManagerWorkOrderRow | null)?.managerUserId ?? "").trim();
+          if (named !== user.id) continue;
+        }
         // Claimed by no manager yet, but still only ever shown in the workspace that holds its
         // house (an account with several workspaces would otherwise read it in all of them).
         if (!rowInWorkspaceScope(legacyPropertyId || null, workspaceScope)) continue;

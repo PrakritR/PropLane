@@ -80,16 +80,26 @@ describe("geocodeListingAddress", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("does not cache a failure or a miss", async () => {
+  it("keeps a failure out of the 30-day cache but remembers the miss, so the same address is not re-asked", async () => {
     fetchMock.mockResolvedValueOnce({ ok: false, status: 503 } as unknown as Response);
     await expect(geocodeListingAddress(LISTING)).rejects.toThrow();
+    // The remembered miss answers null without another request (a page reloading in a loop cannot hammer
+    // Nominatim), and it is a MISS, not a cached success: nothing wrong is ever drawn as a pin.
+    fetchMock.mockReset();
+    await expect(geocodeListingAddress(LISTING)).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+    // "Nothing found" is remembered the same way.
+    clearListingGeocodeCache();
     fetchMock.mockResolvedValue(reply([]));
     await expect(geocodeListingAddress(LISTING)).resolves.toBeNull();
-    const before = fetchMock.mock.calls.length;
+    const asked = fetchMock.mock.calls.length;
+    await expect(geocodeListingAddress(LISTING)).resolves.toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(asked);
+    // Once forgotten, the address is looked up again.
+    clearListingGeocodeCache();
     fetchMock.mockReset();
     fetchMock.mockResolvedValueOnce(reply([EXACT]));
     await expect(geocodeListingAddress(LISTING)).resolves.toEqual({ lat: 47.6641, lng: -122.3185 });
-    expect(before).toBeGreaterThan(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

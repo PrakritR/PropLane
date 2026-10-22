@@ -28,11 +28,19 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-/** Where a request was made, from the stored row (a stay, an application, a tour inquiry). */
+/**
+ * Where a request was made, from the stored row (a stay, an application, a tour inquiry).
+ *
+ * A STAY is read from `stayDetails.source` alone: that is the field the stay core owns, while a booking
+ * row's top-level `channel` is the listing channel it came from ("airbnb") and its top-level
+ * `noticeChannel` is not written by anything (a manager's save cannot smuggle one in - see
+ * `carryGuestStayFields`).
+ */
 export function noticeChannelFor(row: unknown): NoticeChannel {
   const record = asRecord(row);
   const details = asRecord(record.stayDetails);
-  for (const candidate of [record.noticeChannel, record.channel, details.source]) {
+  const candidates = record.stayDetails !== undefined ? [details.source] : [record.noticeChannel, record.channel];
+  for (const candidate of candidates) {
     if (typeof candidate !== "string" || !candidate.trim()) continue;
     const value = candidate.trim().toLowerCase();
     if (value === "sms" || value === "text") return "sms";

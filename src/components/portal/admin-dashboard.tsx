@@ -67,7 +67,7 @@ export function buildAdminAttentionRows(overview: AdminOverview): AttentionRow[]
       tone: "danger",
     });
   }
-  if (overview.managersWithoutPayouts > 0) {
+  if (overview.managersWithoutPayouts !== null && overview.managersWithoutPayouts > 0) {
     rows.push({
       id: "payouts",
       title: `${plural(overview.managersWithoutPayouts, "manager")} without payouts set up`,
@@ -180,27 +180,33 @@ export function AdminDashboard() {
                   dataAttr="admin-dashboard-kpi-promo"
                 />
               ) : null}
-              <KpiCard
-                label="Managers"
-                value={String(overview.activeManagers)}
-                detail="Active"
-                href="/admin/axis-users?category=management"
-                dataAttr="admin-dashboard-kpi-managers"
-              />
-              <KpiCard
-                label="Residents"
-                value={String(overview.activeResidents)}
-                detail="Active"
-                href="/admin/axis-users?category=resident"
-                dataAttr="admin-dashboard-kpi-residents"
-              />
-              <KpiCard
-                label="Vendors"
-                value={String(overview.activeVendors)}
-                detail="Active"
-                href="/admin/axis-users?category=vendor"
-                dataAttr="admin-dashboard-kpi-vendors"
-              />
+              {overview.activeManagers !== null ? (
+                <KpiCard
+                  label="Managers"
+                  value={String(overview.activeManagers)}
+                  detail="Active"
+                  href="/admin/axis-users?category=management"
+                  dataAttr="admin-dashboard-kpi-managers"
+                />
+              ) : null}
+              {overview.activeResidents !== null ? (
+                <KpiCard
+                  label="Residents"
+                  value={String(overview.activeResidents)}
+                  detail="Active"
+                  href="/admin/axis-users?category=resident"
+                  dataAttr="admin-dashboard-kpi-residents"
+                />
+              ) : null}
+              {overview.activeVendors !== null ? (
+                <KpiCard
+                  label="Vendors"
+                  value={String(overview.activeVendors)}
+                  detail="Active"
+                  href="/admin/axis-users?category=vendor"
+                  dataAttr="admin-dashboard-kpi-vendors"
+                />
+              ) : null}
               {overview.openFeedback !== null ? (
                 <KpiCard
                   label="Open feedback"

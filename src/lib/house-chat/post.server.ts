@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { houseThreadId } from "@/lib/house-thread-id";
 import { assertHouseThreadAccess, type HouseAccess } from "./access.server";
 import { housemateLabel } from "./model";
 import { appendHouseLine, loadHouseThread } from "./store.server";
@@ -53,11 +54,13 @@ export async function postToHouseChat(
     : await assertHouseThreadAccess(db, { threadId: input.threadId, userId: input.userId, email: input.email, level: "edit", fresh: true });
   if (!access.ok || !access.canPost) return { ok: false, status: 403, error: "You cannot post to this house chat." };
 
-  const stored = await loadHouseThread(db, input.threadId);
+  // The STORED id, rebuilt from what the gate authorized: a resident posts with the opaque alias.
+  const threadId = houseThreadId(access.parsed.ownerManagerUserId, access.parsed.workspaceId, access.parsed.propertyId);
+  const stored = await loadHouseThread(db, threadId);
   if (!stored) return { ok: false, status: 404, error: "House chat not found." };
 
   const from = access.kind === "resident" ? housemateLabel(access.resident) : input.fromName.trim() || "Team";
-  const appended = await appendHouseLine(db, input.threadId, {
+  const appended = await appendHouseLine(db, threadId, {
     id: input.messageId,
     from,
     body: text,

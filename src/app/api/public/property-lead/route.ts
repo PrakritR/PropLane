@@ -90,9 +90,10 @@ export async function GET(req: Request) {
     }
 
     // The map pin: geocoded on read, ZIP-verified and cached (`listing-geocode.server`), started now so it runs
-    // beside the reads below. It is bounded: past ~2.5s the page ships without a fresh pin and the client keeps its
-    // own geocode path. A stored mapLat/mapLng is only the fallback: nothing in the product writes one, so a stored
-    // pin is a seed's or an import's and is never trusted over the address it should match.
+    // beside the reads below. It is bounded: past ~2.5s the page ships without a fresh pin and the map asks the
+    // SAME ZIP-verified lookup again through `/api/listing-geocode` (never the free-text one). A stored
+    // mapLat/mapLng is only the fallback: nothing in the product writes one, so a stored pin is a seed's or an
+    // import's and is never trusted over the address it should match.
     const pinPromise = geocodeListingAddressWithin({
       address: resolved.address,
       zip: resolved.zip,

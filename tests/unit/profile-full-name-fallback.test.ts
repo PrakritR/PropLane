@@ -7,9 +7,18 @@ import { resolveProfileFullName } from "@/lib/auth/profile-name.server";
 vi.mock("server-only", () => ({}));
 
 function client(meta: Record<string, unknown> | null) {
-  const update = vi.fn(() => ({ eq: () => ({ is: () => Promise.resolve({ error: null }) }) }));
+  const filters: string[] = [];
+  const update = vi.fn(() => ({
+    eq: () => ({
+      or: (clause: string) => {
+        filters.push(clause);
+        return Promise.resolve({ error: null });
+      },
+    }),
+  }));
   return {
     update,
+    filters,
     db: {
       auth: { admin: { getUserById: async () => ({ data: { user: meta ? { user_metadata: meta } : null }, error: null }) } },
       from: () => ({ update }),
@@ -25,9 +34,12 @@ describe("a resident's name survives signup (profiles.full_name was left null)",
   });
 
   it("falls back to the name typed at signup and writes it back to the profile", async () => {
-    const { db, update } = client({ full_name: "Wanda Webfix" });
+    const { db, update, filters } = client({ full_name: "Wanda Webfix" });
     await expect(resolveProfileFullName(db, "u1", null)).resolves.toBe("Wanda Webfix");
     expect(update).toHaveBeenCalledWith({ full_name: "Wanda Webfix" });
+    // A row holding "" is as nameless as a null one: the cache fills for both, so neither pays for an
+    // auth lookup on every read.
+    expect(filters).toEqual(["full_name.is.null,full_name.eq."]);
   });
 
   it("is empty when no name exists anywhere", async () => {

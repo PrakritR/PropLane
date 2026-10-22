@@ -72,8 +72,10 @@ async function ids() {
 }
 
 describe("GET /api/manager/vendor-payouts is the ACTIVE workspace's report", () => {
-  it("lists the payout on A's house while A is active, and leaves the unplaceable one out", async () => {
-    expect(await ids()).toEqual(["p1"]);
+  it("lists the payout on A's house while A is active, with the unplaceable one as an account-level row", async () => {
+    // A payout whose work order is gone (or that names none) has no house to place it by: it is treated
+    // like any other account-level row - shown in the account's own default workspace, never dropped.
+    expect(await ids()).toEqual(["p1", "p2"]);
   });
 
   it("lists nothing from A while the empty workspace B is active", async () => {

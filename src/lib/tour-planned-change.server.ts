@@ -62,6 +62,9 @@ function inquiryFromPlannedEvent(event: Record<string, unknown>): Record<string,
     managerUserId: textField(event, "managerUserId"),
     smsConsent: event.smsConsent,
     ...(typeof event.smsOrigin === "string" ? { smsOrigin: event.smsOrigin } : {}),
+    // The recorded channel rides along too (`noticeChannelFor`): a tour asked for in the portal is
+    // cancelled and rescheduled by email plus the resident inbox, never by text.
+    ...(event.noticeChannel === "portal" || event.noticeChannel === "sms" ? { noticeChannel: event.noticeChannel } : {}),
   };
 }
 

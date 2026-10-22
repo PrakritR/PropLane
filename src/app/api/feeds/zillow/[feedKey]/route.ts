@@ -66,7 +66,9 @@ export async function GET(_req: Request, context: { params: Promise<{ feedKey: s
 
   try {
     const [listings, enabledIds] = await Promise.all([
-      getPublicListings(),
+      // The feed is the one public surface that still carries the work number: a listing without one is
+      // held out of it rather than published with no way to reach the manager.
+      getPublicListings({ workNumber: true }),
       zillowEnabledPropertyIds(db, feed.manager_user_id, feed.workspace_id),
     ]);
     const scoped = listings.filter(

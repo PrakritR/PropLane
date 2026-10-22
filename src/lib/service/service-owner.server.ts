@@ -89,6 +89,18 @@ export async function resolveServiceOwner(
 }
 
 /**
+ * The stored service owner's id, or null. Read-only and fail-closed (an unreadable table, a missing
+ * migration or no row all answer null), and it never seeds the row the way `resolveServiceOwner` may.
+ */
+export async function platformServiceOwnerId(db: SupabaseClient): Promise<string | null> {
+  try {
+    return await readStoredOwner(db);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Whether `userId` is the stored service owner. Read-only and fail-closed: an
  * unreadable table, a missing migration or no row all answer false.
  */

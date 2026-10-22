@@ -18,7 +18,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   if (body?.action === "convert") {
     const result = await convertVendorLead(createSupabaseServiceRoleClient(), admin.userId, id, body);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
-    return NextResponse.json({ ok: true, intro: result.intro });
+    return NextResponse.json({ ok: true, intro: result.intro, leadApproved: result.leadApproved });
   }
   if (body?.action !== "approve" && body?.action !== "decline") return NextResponse.json({ error: "Unsupported action." }, { status: 400 });
   const ok = await setVendorLeadStatus(createSupabaseServiceRoleClient(), id, body.action === "approve" ? "approved" : "declined");

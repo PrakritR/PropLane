@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   diffHouseResidents,
   houseResidentsFromStays,
+  HOUSE_LIST_MESSAGE_LIMIT,
   houseThreadRowForViewer,
   houseThreadUnreadFor,
   housemateLabel,
@@ -172,6 +173,33 @@ describe("houseThreadRowForViewer", () => {
     ]);
   });
 
+  it("gives a RESIDENT the opaque house id, never the stored one that names the owner's account", () => {
+    const publicId = "a".repeat(32);
+    const withPublic = { ...stored, row_data: { ...stored.row_data, houseChat: { ...stored.row_data.houseChat, publicId } } };
+    const row = houseThreadRowForViewer(withPublic, maya);
+    expect(row.id).toBe(`house-chat:${publicId}`);
+    expect(row.rootMessageId).toBe(`house-root:house-chat:${publicId}`);
+    expect(JSON.stringify(row)).not.toContain("owner-1");
+    // The team addresses the stored row directly, so they keep the stored id.
+    expect(houseThreadRowForViewer(withPublic, { ...maya, kind: "team" }).id).toBe(stored.id);
+  });
+
+  it("hands back the newest lines only, so one shared row never grows into the whole history", () => {
+    const many = Array.from({ length: HOUSE_LIST_MESSAGE_LIMIT + 10 }, (_, i) => ({
+      id: `m-${i}`,
+      from: "Noah · Room 2",
+      body: `line ${i}`,
+      at: "Oct 4, 9:00 AM",
+      atMs: 1_000 + i,
+      actorUserId: "user-noah",
+    }));
+    const row = houseThreadRowForViewer({ ...stored, row_data: { ...stored.row_data, messages: many } }, maya) as {
+      messages: { id: string }[];
+    };
+    expect(row.messages).toHaveLength(HOUSE_LIST_MESSAGE_LIMIT);
+    expect(row.messages[0]!.id).toBe("m-10");
+  });
+
   it("never carries another person's email, phone, user id, amount or the roster to a viewer", () => {
     const json = JSON.stringify(houseThreadRowForViewer(stored, maya));
     for (const secret of ["maya@example.com", "noah@example.com", "user-noah", "user-maya", "actorUserId", "residents", "joinedAt", "+1206", "$"]) {
@@ -216,6 +244,15 @@ describe("teamScopeAllowsHouseThread", () => {
   it("lets the owner in, in the active workspace only", () => {
     expect(teamScopeAllowsHouseThread(scope({ viewerId: "owner-1" }), parsed)).toEqual({ allowed: true, canPost: true });
     expect(teamScopeAllowsHouseThread(scope({ viewerId: "owner-1", activeWorkspaceId: "ws-2" }), parsed).allowed).toBe(false);
+  });
+
+  it("holds the active-workspace rule for a POST too: write access is never wider than read", () => {
+    const other = scope({ viewerId: "owner-1", activeWorkspaceId: "ws-2" });
+    expect(teamScopeAllowsHouseThread(other, parsed)).toEqual({ allowed: false, canPost: false });
+    const member = new Map([["owner-1", new Map([["ws-1", { canPost: true }]])]]);
+    const granted = new Map([["owner-1", new Set(["prop-a"])]]);
+    const mate = scope({ teamWorkspacesByOwner: member, grantedHousesByOwner: granted, activeWorkspaceId: "ws-2" });
+    expect(teamScopeAllowsHouseThread(mate, parsed)).toEqual({ allowed: false, canPost: false });
   });
 
   it("needs the workspace membership AND the house grant for a teammate; a Viewer reads but cannot post", () => {

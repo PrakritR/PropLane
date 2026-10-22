@@ -132,6 +132,22 @@ describe("the booking application", () => {
     });
   });
 
+  it("says what the server actually answered: a confirmed stay owes payment, it was not left with the host", async () => {
+    mount({ guests: 1, room: "r1", checkIn: "2026-10-23", checkOut: "2026-10-24" });
+    client.postGuestStays.mockResolvedValue(dry());
+    await waitFor(() => expect(client.postGuestStays).toHaveBeenCalled());
+    await next();
+    await next();
+    fireEvent.click(document.querySelector('[data-attr="stay-request-purpose"] button, [data-attr="stay-request-purpose"]')!);
+    fireEvent.click(await screen.findByRole("option", { name: "Travel or vacation" }));
+    fireEvent.click(document.querySelector('[data-attr="stay-request-rules-agree"]')!);
+    await next();
+    client.postGuestStays.mockResolvedValueOnce({ ok: true, dryRun: false, action: "confirm", summary: "1 confirmed", results: [{ outcome: "confirmed" }] });
+    fireEvent.click(document.querySelector('[data-attr="stay-request-finish"]')!);
+    expect(await screen.findByText(/Confirmed\. Pay within 24 hours\./)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Payments" })).toBeTruthy();
+  });
+
   it("a 409 race sends the guest back to Stay with a plain message", async () => {
     mount({ guests: 1, room: "r1", checkIn: "2026-10-23", checkOut: "2026-10-24" });
     client.postGuestStays.mockResolvedValue(dry());

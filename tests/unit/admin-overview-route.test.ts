@@ -10,6 +10,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createAdminFakeDb, type AdminFakeDb, type Row } from "../helpers/admin-fake-db";
+import { OVERVIEW_SOURCE_BUDGET_MS } from "@/lib/admin/admin-overview.server";
 
 const isAdminUser = vi.fn();
 const getUser = vi.fn();
@@ -141,6 +142,38 @@ describe("GET /api/admin/overview", () => {
     expect(ids).not.toContain("mSandbox");
     expect(ids).not.toContain("rSandbox");
     expect(body.recentSignups[0]).toMatchObject({ kind: "manager", name: "Manager Three" });
+  });
+
+  it("stops waiting for a source that never answers: the page draws with that figure unknown, not at 0", async () => {
+    getUser.mockResolvedValue({ data: { user: { id: "admin-1" } } });
+    isAdminUser.mockResolvedValue(true);
+    // Every account figure is derived from the id read, so a hung `profiles` holds the whole page: it is
+    // budgeted like the rest, and the dashboard answers with the figures unknown (the cards are omitted).
+    const real = createAdminFakeDb(seed());
+    const never = () => {
+      const chain: Record<string, unknown> = {};
+      for (const verb of ["select", "eq", "neq", "in", "not", "is", "gte", "lt", "ilike", "or", "order", "limit", "range"]) {
+        chain[verb] = () => chain;
+      }
+      chain.maybeSingle = () => new Promise(() => undefined);
+      chain.then = () => new Promise(() => undefined);
+      return chain;
+    };
+    serviceRoleFactory.mockImplementation(() => ({ ...real, from: (table: string) => (table === "profiles" ? never() : real.from(table)) }));
+
+    vi.useFakeTimers();
+    try {
+      const pending = GET();
+      await vi.advanceTimersByTimeAsync(OVERVIEW_SOURCE_BUDGET_MS + 10);
+      const res = await pending;
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.activeManagers).toBeNull();
+      expect(body.managersWithoutPayouts).toBeNull();
+      expect(body.recentSignups).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not read email delivery or listing review, which have no honest source", async () => {

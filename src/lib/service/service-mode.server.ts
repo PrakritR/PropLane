@@ -1,7 +1,8 @@
 import "server-only";
 import { cookies } from "next/headers";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isPlatformServiceOwner } from "@/lib/service/service-owner.server";
+import { userHoldsAdminRole } from "@/lib/auth/admin-role";
+import { platformServiceOwnerId } from "@/lib/service/service-owner.server";
 import {
   decideServiceMode,
   firstPropertyWorkspaceId,
@@ -18,10 +19,14 @@ import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 /**
  * Which PropLane Service workspaces the viewer is STAFF of. Staff is membership, never a role on the account:
  *   * the platform service owner, for the workspaces they own;
- *   * an accepted team seat on the workspace that is not the client-side Property owner role (a platform admin is
- *     seated as an Admin member of every service workspace; an invited helper is an Admin seat on one).
- * The client who owns an attached workspace is not staff (no seat, not the service owner), so they keep the
- * view-only Property portal. A membership row only counts when the workspace's own owner granted it.
+ *   * an accepted team seat, granted by the workspace's own owner, that is not the client-side Property owner role.
+ *
+ * A seat alone is not provenance on an ATTACHED workspace: the client stays its owner there (`attachWorkspaceToService`
+ * never moves `owner_user_id`), so every seat on it - PropLane's own and the co-managers the client invites herself -
+ * is granted by the same account. On such a workspace a seat therefore counts only for a PropLane person: the platform
+ * service owner or a platform admin, which is exactly who the attach path seats. On a workspace PropLane CREATED (owned
+ * by the service owner) the client grants nothing, so any seat there is PropLane-issued and an invited helper is staff.
+ * Either way the client who owns an attached workspace keeps the view-only Property portal.
  *
  * Read-only and cheap for an ordinary manager: one membership read that comes back empty, one settings read.
  * Throws on a read failure; callers decide what a failure means (the layouts fail to the Property portal).
@@ -41,7 +46,10 @@ export async function loadServiceStaffWorkspaces(
     isStaffTeamRole(l.team_role),
   );
   const seatIds = [...new Set(seats.map((l) => l.workspace_id))];
-  const owner = await isPlatformServiceOwner(db, userId);
+  // One settings read answers both questions. Fail closed: an unknown service owner makes every seated
+  // workspace read as "attached", so only a PropLane person is staff of it.
+  const serviceOwnerId = await platformServiceOwnerId(db);
+  const owner = serviceOwnerId !== null && serviceOwnerId === userId;
 
   const [bySeat, byOwner] = await Promise.all([
     seatIds.length
@@ -56,22 +64,35 @@ export async function loadServiceStaffWorkspaces(
   const seatOwners = new Map(seats.map((l) => [l.workspace_id, l.inviter_user_id]));
   const rows = new Map<string, Row>();
   for (const row of (byOwner.data ?? []) as Row[]) rows.set(row.id, row);
+  let platformPerson: boolean | null = owner ? true : null;
   for (const row of (bySeat.data ?? []) as Row[]) {
     // The seat must have been granted by the workspace's own owner.
-    if (seatOwners.get(row.id) === row.owner_user_id) rows.set(row.id, row);
+    if (seatOwners.get(row.id) !== row.owner_user_id) continue;
+    if (serviceOwnerId && row.owner_user_id === serviceOwnerId) {
+      rows.set(row.id, row);
+      continue;
+    }
+    // An attached workspace: the client owns it and grants its seats, so only a PropLane person is staff.
+    platformPerson ??= await userHoldsAdminRole(db, userId);
+    if (platformPerson) rows.set(row.id, row);
   }
   return [...rows.values()]
     .sort((a, b) => String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")) || a.name.localeCompare(b.name))
     .map((r) => ({ id: r.id, name: r.name, city: r.city?.trim() || null, ownerUserId: r.owner_user_id }));
 }
 
-/** The staff workspace ids, or an empty set when the read failed (the caller then changes nothing). */
-export async function loadServiceStaffIds(db: SupabaseClient, userId: string): Promise<Set<string>> {
+/**
+ * The staff workspace ids, and whether the read failed. A failure is reported, never flattened into "no
+ * staff seats": the callers fail CLOSED on it (a service workspace is kept out of the Property portal and
+ * the workspace selection is dropped), because reading as "not staff" would draw a service workspace in
+ * Property chrome.
+ */
+export async function loadServiceStaffIds(db: SupabaseClient, userId: string): Promise<{ ids: Set<string>; failed: boolean }> {
   try {
-    return new Set((await loadServiceStaffWorkspaces(db, userId)).map((w) => w.id));
+    return { ids: new Set((await loadServiceStaffWorkspaces(db, userId)).map((w) => w.id)), failed: false };
   } catch (error) {
     console.error("[service-mode] staff workspaces unreadable", error);
-    return new Set();
+    return { ids: new Set(), failed: true };
   }
 }
 

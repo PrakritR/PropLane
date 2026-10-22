@@ -22,7 +22,7 @@ describe("vendor lead conversion", () => {
   it("adds the lead's own phone to the roster, then marks the lead approved", async () => {
     addServiceVendor.mockResolvedValueOnce({ ok: true, intro: "sent", vendor: {} });
     const out = await convertVendorLead(leadDb({ id: "l1", phone_key: "+12065550142", status: "pending" }), "admin-1", "l1", { name: "Ana", trades: ["cleaner"], area: "Seattle" });
-    expect(out).toEqual({ ok: true, intro: "sent" });
+    expect(out).toEqual({ ok: true, intro: "sent", leadApproved: true });
     expect(addServiceVendor).toHaveBeenCalledWith(expect.anything(), "admin-1", { name: "Ana", phone: "+12065550142", trades: ["cleaner"], area: "Seattle" });
     expect(setVendorLeadStatus).toHaveBeenCalledWith(expect.anything(), "l1", "approved");
   });

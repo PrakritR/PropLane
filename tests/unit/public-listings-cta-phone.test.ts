@@ -1,10 +1,12 @@
 /**
- * Catalog-level coverage for listing CTA phone routing: `getPublicListings()`
+ * Catalog-level coverage for listing work-number routing: `getPublicListings()`
  * must stamp EACH listing with ITS OWN manager's work number, never a personal
  * cell and never a catalog-wide default.
  *
- * This is the cross-routing guard — a multi-manager fleet must never send a
- * prospect looking at Bob's house to Alice's phone.
+ * This is the cross-routing guard — a syndicated post for Bob's house must never
+ * carry Alice's phone. The number is opt-in (`{ workNumber: true }`): a PUBLIC
+ * response carries none at all, so the catalog is asked for it here the way the
+ * syndication feeds do.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -85,6 +87,9 @@ function byBuilding(listings: Awaited<ReturnType<typeof getPublicListings>>) {
   return new Map(listings.map((l) => [l.buildingName, l.contactSmsPhone]));
 }
 
+/** The catalog as a syndication feed reads it: the one caller allowed the work number. */
+const withWorkNumber = () => getPublicListings({ workNumber: true });
+
 let priorVercelEnv: string | undefined;
 let priorClawFlag: string | undefined;
 
@@ -118,7 +123,7 @@ describe("getPublicListings — CTA phone per listing", () => {
   it("gives every production listing its OWN manager's work number", async () => {
     process.env.VERCEL_ENV = "production";
     seedCatalog();
-    const phones = byBuilding(await getPublicListings());
+    const phones = byBuilding(await withWorkNumber());
     expect(phones.get("Alder Row")).toBe(ALICE_WORK);
     expect(phones.get("Birch House")).toBe(BOB_WORK);
   });
@@ -126,9 +131,16 @@ describe("getPublicListings — CTA phone per listing", () => {
   it("keeps each listing on its own manager's work number outside production", async () => {
     process.env.VERCEL_ENV = "preview";
     seedCatalog();
-    const phones = byBuilding(await getPublicListings());
+    const phones = byBuilding(await withWorkNumber());
     expect(phones.get("Alder Row")).toBe(ALICE_WORK);
     expect(phones.get("Birch House")).toBe(BOB_WORK);
+  });
+
+  it("carries no number at all unless the caller asks: a public response has none", async () => {
+    process.env.VERCEL_ENV = "preview";
+    seedCatalog();
+    const phones = byBuilding(await getPublicListings());
+    expect([...phones.values()]).toEqual([undefined, undefined]);
   });
 
   it("uses each listing's workspace even when the owner is the same", async () => {
@@ -138,7 +150,7 @@ describe("getPublicListings — CTA phone per listing", () => {
       { ...listingRow("lst-b", "mgr-alice", "Birch House"), workspace_id: "ws-b" },
     ], error: null });
     queryQueue.push({ data: [{ id: "mgr-alice", email: "private@example.com" }], error: null });
-    const rows = await getPublicListings();
+    const rows = await withWorkNumber();
     expect(byBuilding(rows).get("Alder Row")).toBe(ALICE_WORK);
     expect(byBuilding(rows).get("Birch House")).toBe(BOB_WORK);
     expect(JSON.stringify(rows)).not.toContain("private@example.com");
@@ -161,9 +173,8 @@ describe("getPublicListings — CTA phone per listing", () => {
       ],
       error: null,
     });
-    const [listing] = await getPublicListings();
-    // Not the personal cell, not the stored blob, not the shared line —
-    // nothing, so the CTA falls back to "Schedule a tour" / "Apply".
+    const [listing] = await withWorkNumber();
+    // Not the personal cell, not the stored blob, not the shared line — nothing at all.
     expect(listing.contactSmsPhone).toBeUndefined();
   });
 

@@ -93,6 +93,13 @@ describe("POST /api/resident/stays", () => {
     expect((await post({ ...bare, dryRun: true })).status).toBe(200);
   });
 
+  it("refuses a head-count outside 1..max before any guest list is built", async () => {
+    for (const guests of [0, -1, 2.5, 999, "many"]) {
+      expect((await post({ ...body, guests, application: { ...application, guestNames: [] } })).status).toBe(400);
+    }
+    expect(bookGuestStays).not.toHaveBeenCalled();
+  });
+
   it("hands the validated application (with the agreement time stamped by the server) to the writer", async () => {
     bookGuestStays.mockResolvedValue({ ok: true, dryRun: false, results: [{ outcome: "pending" }], action: "request", summary: "1 pending" });
     const res = await post({ ...body, guests: 2, application: { ...application, guestNames: ["Sam Lee"], rulesAgreedAt: "1999-01-01" } });

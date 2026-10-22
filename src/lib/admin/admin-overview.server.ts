@@ -69,13 +69,14 @@ export function buildAdminMoneyOverview(input: {
 
 export type AdminOverview = {
   money: AdminMoneyOverview;
-  activeManagers: number;
-  activeResidents: number;
-  activeVendors: number;
+  /** Null when the source could not be read inside its budget, so the card is omitted (never drawn as 0). */
+  activeManagers: number | null;
+  activeResidents: number | null;
+  activeVendors: number | null;
   openFeedback: number | null;
   smsFailures24h: number | null;
   openDisputes: number | null;
-  managersWithoutPayouts: number;
+  managersWithoutPayouts: number | null;
   /** Null when the read failed, so the card is omitted instead of reading as "no sign-ups yet". */
   recentSignups:
     | {
@@ -178,13 +179,36 @@ async function recentSignupsOf(
   }
 }
 
+/** Every figure unknown: what the dashboard draws when even the account-id read missed its budget. */
+function emptyAdminOverview(): AdminOverview {
+  return {
+    money: buildAdminMoneyOverview({ subscribers: null, earnings: null, expensesCents: null }),
+    activeManagers: null,
+    activeResidents: null,
+    activeVendors: null,
+    openFeedback: null,
+    smsFailures24h: null,
+    openDisputes: null,
+    managersWithoutPayouts: null,
+    recentSignups: null,
+  };
+}
+
 export async function loadAdminOverview(db: SupabaseClient, now = new Date()): Promise<AdminOverview> {
   const since = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
   // One paged id read per role (one column, every kind resolved in that pass),
   // then the numbers are counted in the database: the dashboard never
-  // materializes the account table to count it.
-  const [idsByKind, sandboxIds] = await Promise.all([listAccountIdsForEveryKind(db), listSandboxAccountIds(db)]);
+  // materializes the account table to count it. Budgeted like every other
+  // source: every figure below is derived from these ids, so a read that hangs
+  // would hold the whole page rather than one card.
+  const base = await withBudget(
+    Promise.all([listAccountIdsForEveryKind(db), listSandboxAccountIds(db)]),
+    OVERVIEW_SOURCE_BUDGET_MS,
+    null,
+  );
+  if (!base) return emptyAdminOverview();
+  const [idsByKind, sandboxIds] = base;
   const real = (ids: string[]) => ids.filter((id) => !sandboxIds.has(id));
   const realManagers = real(idsByKind.manager);
   const realResidents = real(idsByKind.resident);
@@ -209,28 +233,28 @@ export async function loadAdminOverview(db: SupabaseClient, now = new Date()): P
     earnings,
     expensesCents,
   ] = await Promise.all([
-    countActiveAccounts(db, realManagers),
-    countActiveAccounts(db, realResidents),
-    countActiveAccounts(db, realVendors),
-    countActiveAccountsWithPayouts(db, realManagers),
+    withBudget(countActiveAccounts(db, realManagers), OVERVIEW_SOURCE_BUDGET_MS, null),
+    withBudget(countActiveAccounts(db, realResidents), OVERVIEW_SOURCE_BUDGET_MS, null),
+    withBudget(countActiveAccounts(db, realVendors), OVERVIEW_SOURCE_BUDGET_MS, null),
+    withBudget(countActiveAccountsWithPayouts(db, realManagers), OVERVIEW_SOURCE_BUDGET_MS, null),
     withBudget(countOpenFeedback(db), OVERVIEW_SOURCE_BUDGET_MS, null),
-    countOrNull(() =>
+    withBudget(countOrNull(() =>
       db
         .from("sms_delivery_log")
         .select("id", { count: "exact", head: true })
         .in("status", SMS_FAILED_STATUSES)
         .gte("created_at", since),
-    ),
-    countOrNull(() =>
+    ), OVERVIEW_SOURCE_BUDGET_MS, null),
+    withBudget(countOrNull(() =>
       db
         .from("sms_delivery_attempts")
         .select("id", { count: "exact", head: true })
         .in("state", SMS_ATTEMPT_FAILED_STATES)
         .gte("started_at", since),
-    ),
-    countOrNull(() =>
+    ), OVERVIEW_SOURCE_BUDGET_MS, null),
+    withBudget(countOrNull(() =>
       db.from("stripe_disputes").select("id", { count: "exact", head: true }).not("status", "in", CLOSED_DISPUTE_STATUSES_FILTER),
-    ),
+    ), OVERVIEW_SOURCE_BUDGET_MS, null),
     withBudget(recentSignupsOf(db, kindById), OVERVIEW_SOURCE_BUDGET_MS, null),
     withBudget(loadAdminSubscriberFigures(db, now.getTime()), OVERVIEW_SOURCE_BUDGET_MS, null),
     withBudget(loadAdminMonthEarnings(db, { now: () => now.getTime() }), OVERVIEW_SOURCE_BUDGET_MS, null),
@@ -247,7 +271,8 @@ export async function loadAdminOverview(db: SupabaseClient, now = new Date()): P
     openFeedback,
     smsFailures24h,
     openDisputes: disputes,
-    managersWithoutPayouts: Math.max(0, activeManagers - managersWithPayouts),
+    managersWithoutPayouts:
+      activeManagers === null || managersWithPayouts === null ? null : Math.max(0, activeManagers - managersWithPayouts),
     recentSignups,
   };
 }

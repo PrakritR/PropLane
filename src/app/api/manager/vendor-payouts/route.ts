@@ -86,7 +86,13 @@ export async function GET() {
       }
     }
     if (workspaceScope.propertyIds !== null) {
-      rows = rows.filter((r) => workOrderInScope.get(r.work_order_id) === true);
+      rows = rows.filter((r) => {
+        const key = (r.work_order_id ?? "").trim();
+        const placed = key ? workOrderInScope.get(key) : undefined;
+        // A payout naming no work order, or one whose work order is gone, is placed like any other
+        // account-level row - never dropped from the report because its house cannot be read.
+        return placed === undefined ? rowInWorkspaceScope(null, workspaceScope) : placed;
+      });
     }
 
     const vendorUserIds = [...new Set(rows.map((r) => r.vendor_user_id).filter(Boolean))];

@@ -25,6 +25,8 @@ const { getUser, resolveResidentScopedActorRole, linkedPropertyIdsForModule, res
 );
 
 let STORED_ROW: Record<string, unknown> | null;
+/** Rows with no `manager_user_id` the GET's legacy query finds. */
+let LEGACY_ROWS: Record<string, unknown>[];
 let OWNED_PROPERTY_IDS: string[];
 let UPSERTS: unknown[];
 let DELETES: string[];
@@ -67,7 +69,7 @@ vi.mock("@/lib/resident-work-order-lifecycle.server", () => ({
   },
 }));
 
-import { POST as workOrdersPost } from "@/app/api/portal-work-orders/route";
+import { GET as workOrdersGet, POST as workOrdersPost } from "@/app/api/portal-work-orders/route";
 
 function makeDb() {
   return {
@@ -91,6 +93,9 @@ function makeDb() {
         const builder: Record<string, unknown> = {
           select: vi.fn(() => builder),
           eq: vi.fn(() => builder),
+          is: vi.fn(() => builder),
+          order: vi.fn(() => builder),
+          limit: async () => ({ data: LEGACY_ROWS, error: null }),
           maybeSingle: async () => ({ data: STORED_ROW, error: null }),
           upsert: vi.fn((row: unknown) => {
             UPSERTS.push(row);
@@ -117,6 +122,7 @@ beforeEach(() => {
   UPSERTS = [];
   DELETES = [];
   OWNED_PROPERTY_IDS = [];
+  LEGACY_ROWS = [];
   STORED_ROW = null;
   getUser.mockResolvedValue({ data: { user: { id: "mgr-1", email: "caller@test.proplane.local" } } });
   resolveResidentScopedActorRole.mockResolvedValue("manager");
@@ -205,5 +211,26 @@ describe("the legacy unassigned-claim bucket stays outside workspace narrowing",
 
     expect(res.status).toBe(200);
     expect(UPSERTS).toHaveLength(1);
+  });
+});
+
+describe("GET — a legacy row that names no house is not broadcast to every manager", () => {
+  async function listedIds() {
+    resolveManagerWorkspaceRowScope.mockResolvedValue({ propertyIds: null, untaggedOwnedVisible: true });
+    const res = await workOrdersGet(jsonRequest("http://localhost/api/portal-work-orders", { method: "GET" }));
+    const body = (await res.json()) as { rows: { id: string }[] };
+    return body.rows.map((row) => row.id);
+  }
+
+  it("keeps the one its own payload names, and the one on a house this manager holds", async () => {
+    linkedPropertyIdsForModule.mockResolvedValue(new Set(["prop-mine"]));
+    LEGACY_ROWS = [
+      { id: "wo-house-mine", row_data: { id: "wo-house-mine", propertyId: "prop-mine" }, updated_at: "2026-01-04" },
+      { id: "wo-nohouse-mine", row_data: { id: "wo-nohouse-mine", managerUserId: "mgr-1" }, updated_at: "2026-01-03" },
+      { id: "wo-nohouse-other", row_data: { id: "wo-nohouse-other", managerUserId: "mgr-2" }, updated_at: "2026-01-02" },
+      { id: "wo-nohouse-anonymous", row_data: { id: "wo-nohouse-anonymous" }, updated_at: "2026-01-01" },
+      { id: "wo-house-theirs", row_data: { id: "wo-house-theirs", propertyId: "prop-theirs" }, updated_at: "2026-01-05" },
+    ];
+    expect(await listedIds()).toEqual(["wo-house-mine", "wo-nohouse-mine"]);
   });
 });

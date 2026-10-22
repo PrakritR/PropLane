@@ -45,7 +45,7 @@ import {
   postGuestStays,
   type BookableListing,
 } from "@/lib/short-stay/guest-stays-client";
-import type { GuestRangeResult } from "@/lib/short-stay/guest-stays";
+import { SHORT_STAY_HOLD_HOURS, SHORT_STAY_PAY_HOURS, type GuestRangeResult } from "@/lib/short-stay/guest-stays";
 import { STAY_MESSAGE_MAX, STAY_PURPOSES, stayPurposeLabel } from "@/lib/short-stay/stay-application";
 import type { StayRequestPrefill } from "@/lib/short-stay/stay-request-link";
 import {
@@ -213,7 +213,7 @@ export function ResidentStayRequest({ basePath = "/resident", prefill }: { baseP
     setBusy(true);
     setError("");
     try {
-      await postGuestStays({
+      const response = await postGuestStays({
         propertyId,
         roomId,
         ranges: [{ checkIn, checkOut }],
@@ -223,7 +223,16 @@ export function ResidentStayRequest({ basePath = "/resident", prefill }: { baseP
         application: { purpose, message: message.trim(), guestNames: otherNames.map((name) => name.trim()), rulesAgreed },
       });
       window.dispatchEvent(new Event(GUEST_STAYS_CHANGED));
-      showToast("Request sent. The host has 24 hours to answer.");
+      // A host who ticked instant confirm for returning guests answers at once, and the nights are then
+      // held on payment: say what actually happened rather than promising an answer that already came.
+      if (response.results[0]?.outcome === "confirmed") {
+        showToast(`Confirmed. Pay within ${SHORT_STAY_PAY_HOURS} hours.`, {
+          actionLabel: "Payments",
+          undo: () => navigate(`${basePath}/payments`),
+        });
+      } else {
+        showToast(`Request sent. The host has ${SHORT_STAY_HOLD_HOURS} hours to answer.`);
+      }
       navigate(staysHref, { replace: true });
     } catch (caught) {
       if (caught instanceof GuestStaysError && caught.status === 409) setError("Someone just booked those nights. Pick other dates.");

@@ -45,7 +45,10 @@ export async function POST(req: Request) {
     if (role === "manager" && keepWorkspace !== true) {
       const selected = (await cookies()).get(WORKSPACE_COOKIE)?.value?.trim();
       const db = createSupabaseServiceRoleClient();
-      if (selected && (await loadServiceStaffIds(db, user.id)).has(selected)) {
+      const staff = selected ? await loadServiceStaffIds(db, user.id) : { ids: new Set<string>(), failed: false };
+      // A staff read that failed drops the selection too: it cannot be proved NOT to name a service
+      // workspace, and landing in the Property portal on one would render service mode.
+      if (selected && (staff.failed || staff.ids.has(selected))) {
         const own = await loadPropertyPortalWorkspaceId(db, user.id);
         res.cookies.set(WORKSPACE_COOKIE, own ?? "", {
           httpOnly: true, sameSite: "lax", path: "/", secure, maxAge: own ? 60 * 60 * 24 * 365 : 0,

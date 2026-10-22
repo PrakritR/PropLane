@@ -242,13 +242,32 @@ describe("what the server's dry run tells the sheet", () => {
 });
 
 describe("request limits", () => {
-  it("refuses more than five ranges, too many guests for the room, and a guest with no mobile number", async () => {
+  it("refuses more than five ranges and too many guests for the room", async () => {
     const db = seedInstant({ history: [completedStay()] });
     const many = Array.from({ length: 6 }, (_, i) => ({ checkIn: `2026-11-0${i + 1}`, checkOut: `2026-11-0${i + 2}` }));
     expect(await book(db, { ranges: many })).toMatchObject({ ok: false, status: 400 });
     expect(await book(db, { ranges: [tomorrow], guests: 2 })).toMatchObject({ ok: false, status: 400, error: "That's more guests than the room sleeps." });
+  });
+
+  it("needs no mobile number for a PORTAL stay (it is answered by email and the resident inbox)", async () => {
+    const noPhone = seedInstant({ guestPhone: null, history: [completedStay()] });
+    expect(await book(noPhone, { ranges: [tomorrow] })).toMatchObject({ ok: true });
+    // A stay booked by TEXT is answered by text, so that path still needs one.
+    const texted = seedInstant({ guestPhone: null });
+    expect(
+      await bookGuestStays(texted as never, {
+        userId: GUEST,
+        today: TODAY,
+        via: "sms",
+        body: { propertyId: PROPERTY, roomId: "r1", guests: 1, ranges: [tomorrow] },
+      }),
+    ).toMatchObject({ ok: false, status: 400 });
+  });
+
+  it("answers a dry run before any profile check: the Stay step's availability probe is never a profile error", async () => {
     const noPhone = seedInstant({ guestPhone: null });
-    expect(await book(noPhone, { ranges: [tomorrow] })).toMatchObject({ ok: false, status: 400 });
+    const dry = await book(noPhone, { ranges: [tomorrow], dryRun: true });
+    expect(dry).toMatchObject({ ok: true, dryRun: true });
   });
 
   it("caps open requests per guest", async () => {

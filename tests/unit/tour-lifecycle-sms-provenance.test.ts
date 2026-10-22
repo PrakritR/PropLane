@@ -275,6 +275,31 @@ describe("tour lifecycle SMS provenance", () => {
     ]));
   });
 
+  it("a tour asked for in the PORTAL is cancelled in the portal: the channel survives confirmation", async () => {
+    // The guest consented to texts, so only the recorded channel keeps this out of SMS.
+    const store = makeDb({ inquiry: inquiry({ smsConsent: true, smsOrigin: "non_sms", noticeChannel: "portal" }) });
+    const confirmed = await confirmTourInquiry(store.db, {
+      inquiryId: "inq-tour-lifecycle",
+      actorUserId: MANAGER,
+      notifyTenant: false,
+    });
+    expect(confirmed.ok).toBe(true);
+    const planned = store.plannedRows().at(-1)!;
+    expect(planned).toMatchObject({ noticeChannel: "portal" });
+
+    const canceled = await cancelPlannedTour(store.db, {
+      plannedEventId: String(planned.id),
+      actorUserId: MANAGER,
+      notifyGuest: true,
+      notificationChannels: { viaEmail: true, viaSms: true },
+    });
+    expect(canceled.ok).toBe(true);
+    expect(sendResidentOutboundSms).not.toHaveBeenCalled();
+    // ...and the guest still gets the resident-inbox copy with a /resident link.
+    const inboxRow = store.inboxRows.find((row) => row.scope === "axis_portal_inbox_resident_v1");
+    expect(JSON.stringify(inboxRow?.row_data ?? {})).toContain("/resident/tour");
+  });
+
   it("runs confirm -> planned reschedule through legacy conversation evidence and records the reply proposal", async () => {
     const store = makeDb({
       inquiry: inquiry({ smsOrigin: "leasing_sms" }),

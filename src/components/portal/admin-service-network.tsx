@@ -127,7 +127,7 @@ export function AdminServiceNetwork({ bucket }: { bucket: NetworkBucket }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }, FETCH_TIMEOUT_MS);
-    const json = (await res.json().catch(() => ({}))) as { error?: string; intro?: string };
+    const json = (await res.json().catch(() => ({}))) as { error?: string; intro?: string; leadApproved?: boolean };
     return { ok: res.ok, json };
   };
 
@@ -166,7 +166,9 @@ export function AdminServiceNetwork({ bucket }: { bucket: NetworkBucket }) {
         return;
       }
       setConvert(null);
-      showToast(json.intro === "opted_out" ? "Added. That number opted out, so no text was sent." : json.intro === "sent" ? "Added. We texted them an intro." : "Added.");
+      const added = json.intro === "opted_out" ? "Added. That number opted out, so no text was sent." : json.intro === "sent" ? "Added. We texted them an intro." : "Added.";
+      // The roster add cannot be retried, so a lead the status write left pending is said out loud.
+      showToast(json.leadApproved === false ? `${added} The lead is still pending: dismiss it by hand.` : added);
       reload();
     } catch {
       setFormError("Could not add the vendor.");

@@ -75,12 +75,39 @@ describe("assertHouseThreadAccess", () => {
     expect(await access({ userId: "mate", email: "mate@example.com" }, { scope: mate({ grantedHousesByOwner: granted }), stays: [] })).toEqual({ ok: false });
   });
 
+  it("keeps the client of a PropLane-managed workspace view-only: she reads the house chat and posts nothing", async () => {
+    // Her workspace carries the service flag and she has no self-paid plan, so the managed read-only lock
+    // holds - the same lock the rest of her Property portal wears.
+    const managed = chatDb({ portal_workspaces: [{ id: WS, owner_user_id: OWNER, name: "Seattle Homes", is_default: true, is_service: true }] });
+    const ask = (level: "read" | "edit") =>
+      assertHouseThreadAccess(
+        managed.db,
+        { threadId: THREAD, userId: OWNER, email: "owner@example.com", level },
+        { resolveScope: async () => scopeFor(OWNER), residents: async () => [], houseExists: async () => true },
+      );
+    // The lock is asked on the WRITE (a read pays nothing for it): she reads, and the post is refused.
+    expect(await ask("read")).toMatchObject({ ok: true, kind: "team" });
+    expect(await ask("edit")).toEqual({ ok: false });
+  });
+
   it("lets a Viewer-role teammate read but not post", async () => {
     const viewer = new Map([[OWNER, new Map([[WS, { canPost: false }]])]]);
     const granted = new Map([[OWNER, new Set([HOUSE])]]);
     const scope = scopeFor("mate", { teamWorkspacesByOwner: viewer, grantedHousesByOwner: granted });
     expect(await access({ userId: "mate", email: "mate@example.com", level: "read" }, { scope, stays: [] })).toMatchObject({ ok: true });
     expect(await access({ userId: "mate", email: "mate@example.com", level: "edit" }, { scope, stays: [] })).toEqual({ ok: false });
+  });
+});
+
+describe("loadWorkspaceHouse", () => {
+  it("needs BOTH halves of the thread id: a house of this workspace under this owner", async () => {
+    const { db } = chatDb();
+    const { loadWorkspaceHouse } = await import("@/lib/house-chat/access.server");
+    expect(await loadWorkspaceHouse(db, { workspaceId: WS, ownerUserId: OWNER, propertyId: HOUSE })).toEqual({ label: "12 Pine St" });
+    // A forged id naming someone else's workspace, or someone else's owner, is refused by the gate itself.
+    expect(await loadWorkspaceHouse(db, { workspaceId: "ws-other", ownerUserId: OWNER, propertyId: HOUSE })).toBeNull();
+    expect(await loadWorkspaceHouse(db, { workspaceId: WS, ownerUserId: "attacker", propertyId: HOUSE })).toBeNull();
+    expect(await loadWorkspaceHouse(db, { workspaceId: WS, ownerUserId: OWNER, propertyId: "prop-gone" })).toBeNull();
   });
 });
 
@@ -128,6 +155,18 @@ describe("postToHouseChat", () => {
     expect(id).not.toBe(houseReplyMessageId("user-noah", "reply-abc"));
   });
 
+  it("caps the stored history: the oldest lines fall off rather than growing the row without bound", async () => {
+    const db = await seeded();
+    const { appendHouseLine, HOUSE_HISTORY_LIMIT } = await import("@/lib/house-chat/store.server");
+    for (let i = 0; i < HOUSE_HISTORY_LIMIT + 5; i += 1) {
+      await appendHouseLine(db.db, THREAD, { id: `m-${i}`, from: "Maya · Room 2", body: `line ${i}`, actorUserId: "user-maya" });
+    }
+    const messages = (await loadHouseThread(db.db, THREAD))!.rowData.messages as { id: string }[];
+    expect(messages).toHaveLength(HOUSE_HISTORY_LIMIT);
+    expect(messages[0]!.id).toBe("m-5");
+    expect(messages[messages.length - 1]!.id).toBe(`m-${HOUSE_HISTORY_LIMIT + 4}`);
+  });
+
   it("sends nothing by text or email: the only writes are to the thread table", async () => {
     const db = await seeded();
     await post(db);
@@ -150,10 +189,26 @@ describe("what a housemate sees and per-viewer mailbox state", () => {
 
     const rows = await houseRowsForResident(db.db, asMaya, live([MAYA, NOAH]));
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ id: THREAD, subject: "House · 12 Pine St", unread: true });
+    expect(rows[0]).toMatchObject({ subject: "House · 12 Pine St", unread: true });
+    // The resident is given the opaque house id, never the stored one (which names the owner's account),
+    // and the row carries no ownerUserId either.
+    const residentId = String(rows[0]!.id);
+    expect(residentId).toMatch(/^house-chat:[0-9a-f]{32}$/);
+    expect(rows[0]).not.toHaveProperty("ownerUserId");
     const json = JSON.stringify(rows);
-    for (const secret of ["noah@example.com", "maya@example.com", "user-noah", "actorUserId", "residents"]) expect(json).not.toContain(secret);
+    for (const secret of ["noah@example.com", "maya@example.com", "user-noah", "actorUserId", "residents", OWNER]) expect(json).not.toContain(secret);
     expect(json).toContain("· Room");
+
+    // That id is what the resident writes with: the gate resolves it back to the stored chat, and a token
+    // naming no chat resolves to nothing at all.
+    const asAlias = (threadId: string) =>
+      assertHouseThreadAccess(
+        db.db,
+        { threadId, userId: "user-maya", email: "maya@example.com", level: "edit" },
+        { residents: async () => residentsOf([MAYA, NOAH]), houseExists: async () => true },
+      );
+    expect(await asAlias(residentId)).toMatchObject({ ok: true, kind: "resident", parsed: { ownerManagerUserId: OWNER, propertyId: HOUSE } });
+    expect(await asAlias(`house-chat:${"f".repeat(32)}`)).toEqual({ ok: false });
 
     const moved = leaseStay("maya@example.com", "Maya Lopez", { roomLabel: "Room 2", end: "2026-10-19" });
     expect(await houseRowsForResident(db.db, asMaya, live([moved, NOAH]))).toEqual([]);

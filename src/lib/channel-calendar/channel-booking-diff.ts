@@ -48,6 +48,10 @@ export function diffChannelReservations(input: {
 }
 
 /** The identities a reservation can be recognised by in another room's feed: its UID and its Airbnb reservation code. */
+export function reservationIdentities(range: ChannelCalendarImportedRange): string[] {
+  return movedIdentities(range);
+}
+
 function movedIdentities(range: ChannelCalendarImportedRange): string[] {
   const ids: string[] = [];
   const uid = (range.sourceUid || "").trim();
@@ -74,10 +78,16 @@ export function reservationIdentitiesElsewhere(
 /**
  * Re-pointing a room's import URL at another listing moves the SAME stays between rooms of one workspace: the
  * room that took them reads them as new, the room that lost them reads them as cancelled. Neither is news. A
- * reservation (same iCal UID or reservation code) that the workspace's other connections also hold is a move, so
- * it is dropped from `created` (it was already there) and from `cancelled` (it is still there), whichever room
- * synced first. A stay with neither a UID nor a code is never treated as a move: two unnamed "Reserved" stays on
- * the same dates in two rooms are not provably one booking.
+ * reservation (same iCal UID or reservation code) that is known `elsewhere` in the same workspace is a move, so
+ * it is dropped from `created` (it was already there) and from `cancelled` (it is still there).
+ *
+ * `elsewhere` must not be only what the other rooms have STORED, or the answer depends on which room syncs
+ * first: the room that loses the stay syncs before the room that gains it has stored anything, and then both
+ * alerts fire anyway. The caller therefore also reads the other rooms' live feeds and remembers what this run
+ * has released - see `withoutMoves` in `sync.server.ts`.
+ *
+ * A stay with neither a UID nor a code is never treated as a move: two unnamed "Reserved" stays on the same
+ * dates in two rooms are not provably one booking.
  */
 export function withoutMovedReservations(
   diff: ChannelBookingDiff,

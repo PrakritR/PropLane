@@ -12,9 +12,11 @@ import { createTtlCache } from "@/lib/server-ttl-cache";
  *   (a) street + city + state + ZIP, postcode must match;
  *   (b) a house number with a letter suffix ("4709A") retries as the bare number ("4709");
  *   (c) else the ZIP's own centroid. Never a city centre when a ZIP exists;
- *   (d) no ZIP at all returns null, so the client keeps its own `/api/geocode` path.
- * A request failure throws and "nothing found" returns null; neither is cached (an address's coordinates do not
- * change, so a success is kept 30 days). Every call goes through the shared Nominatim queue and User-Agent.
+ *   (d) no ZIP at all returns null (there is nothing to verify a street hit against), and the map then draws
+ *       its neutral fallback centre rather than an unverified pin.
+ * A success is kept 30 days (an address's coordinates do not change); a miss - "nothing found" or a request
+ * failure - is remembered for an hour, so a page reloaded in a tight loop does not re-ask Nominatim for an
+ * address it just failed to place. Every call goes through the shared Nominatim queue and User-Agent.
  */
 
 export type ListingGeocodeInput = {
@@ -34,9 +36,28 @@ type NominatimRow = { lat?: string; lon?: string; address?: { postcode?: string 
 
 const cache = createTtlCache<GeocodeCoords>(CACHE_TTL_MS);
 
+/** How long a miss (nothing found, or a failed request) is remembered, and how many are kept. */
+const MISS_TTL_MS = 60 * 60 * 1000;
+const MISS_MAX_KEYS = 500;
+const misses = new Map<string, number>();
+
+function missRemembered(key: string): boolean {
+  const at = misses.get(key);
+  if (at === undefined) return false;
+  if (Date.now() - at < MISS_TTL_MS) return true;
+  misses.delete(key);
+  return false;
+}
+
+function rememberMiss(key: string): void {
+  if (misses.size >= MISS_MAX_KEYS) misses.clear();
+  misses.set(key, Date.now());
+}
+
 /** Test hook: drop every kept answer. */
 export function clearListingGeocodeCache(): void {
   cache.clear();
+  misses.clear();
 }
 
 function zip5(zip: string | null | undefined): string | null {
@@ -101,19 +122,24 @@ async function lookup(input: ListingGeocodeInput, zip: string): Promise<GeocodeC
   return firstInZip(centroid, zip, true);
 }
 
-/** Coordinates for the listing, or null when none could be found (or there is no ZIP). Throws on a request failure. */
+/**
+ * Coordinates for the listing, or null when none could be found (or there is no ZIP). Throws on a request
+ * failure the first time; for the next hour the same address answers null from the remembered miss.
+ */
 export async function geocodeListingAddress(input: ListingGeocodeInput): Promise<GeocodeCoords | null> {
   const zip = zip5(input.zip);
   if (!zip) return null;
   const key = [input.address ?? "", input.city ?? "", input.state ?? "", zip].join("|").toLowerCase().replace(/\s+/g, " ").trim();
+  if (missRemembered(key)) return null;
   try {
     return await cache.get(key, async () => {
       const found = await lookup(input, zip);
-      // Throwing keeps "not found" out of the cache; it is turned back into null below.
+      // Throwing keeps "not found" out of the 30-day cache; it is turned back into null below.
       if (!found) throw new NotFound();
       return found;
     });
   } catch (error) {
+    rememberMiss(key);
     if (error instanceof NotFound) return null;
     throw error;
   }

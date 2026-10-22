@@ -10,6 +10,13 @@
  */
 const HOUSE_THREAD_PREFIX = "house-thread:";
 const HOUSE_THREAD_PATTERN = /^house-thread:([^:]+):ws:([^:]+):prop:(.+)$/;
+/**
+ * The id a RESIDENT is given for the same chat: an opaque per-house token (`houseChat.publicId`) instead of
+ * the stored id, which names the owner's account. Residents read and write through it; the server resolves it
+ * back to the stored id on every call (`resolveHouseThreadAlias`).
+ */
+const HOUSE_ALIAS_PREFIX = "house-chat:";
+const HOUSE_ALIAS_PATTERN = /^house-chat:([A-Za-z0-9_-]{8,64})$/;
 
 export const HOUSE_THREAD_TYPE = "house";
 
@@ -26,7 +33,17 @@ export function houseConversationKey(propertyId: string): string {
 }
 
 export function isHouseThreadId(id: string): boolean {
-  return id.startsWith(HOUSE_THREAD_PREFIX);
+  return id.startsWith(HOUSE_THREAD_PREFIX) || id.startsWith(HOUSE_ALIAS_PREFIX);
+}
+
+/** The resident-facing id for a house chat: `house-chat:<publicId>`, which names nobody. */
+export function houseThreadAliasId(publicId: string): string {
+  return `${HOUSE_ALIAS_PREFIX}${publicId.trim()}`;
+}
+
+/** The token an alias id carries, or `null` for any other id. */
+export function houseThreadAliasToken(id: string): string | null {
+  return HOUSE_ALIAS_PATTERN.exec(id.trim())?.[1] ?? null;
 }
 
 export type ParsedHouseThreadId = { ownerManagerUserId: string; workspaceId: string; propertyId: string };

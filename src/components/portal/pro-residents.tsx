@@ -2,7 +2,7 @@
 
 import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-storage";
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
-import { isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
+import { filterPropertyOptionsForActiveWorkspace, isActiveWorkspaceId, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
@@ -1089,9 +1089,11 @@ export function ManagerResidents({
 
   // Channel guests (Airbnb, Booking.com, Vrbo, other calendars) are people under the manager's roof, so
   // they sit in Current beside the residents. Derived from the booking rows: no login, nothing written.
+  // Only the ACTIVE workspace's houses are asked for: an owner of several workspaces must never read one
+  // workspace's guests in another (the filter passes everything through until the selection has loaded).
   const channelGuestStays = useChannelGuestStays({
     enabled: authReady && Boolean(userId) && !isDemoModeActive(),
-    propertyIds: propertyOptions.map((option) => option.id),
+    propertyIds: filterPropertyOptionsForActiveWorkspace(propertyOptions).map((option) => option.id),
     propertyLabelForId: (propertyId) => propertyOptions.find((option) => option.id === propertyId)?.label ?? propertyId,
     roomLabelForId: (propertyId, roomId) => {
       const submission = getPropertyById(propertyId)?.listingSubmission;

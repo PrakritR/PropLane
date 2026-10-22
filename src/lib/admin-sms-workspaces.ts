@@ -77,11 +77,13 @@ export async function openAdminWorkspaceThread(
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     if (!res.ok) return { ok: false, error: body.error ?? "Could not open this workspace." };
     // A multi-role account would otherwise stop at the portal chooser; best effort, re-checked server-side.
+    // `keepWorkspace`: the Open action above just set the workspace cookie on purpose, and a plain switch
+    // would drop it again and land the operator on their own workspace instead of this one.
     await doFetch("/api/auth/set-active-portal", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: "manager" }),
+      body: JSON.stringify({ role: "manager", keepWorkspace: true }),
     }).catch(() => undefined);
     const href = adminWorkspaceThreadHref(args.conversationKey);
     (deps.navigate ?? ((to: string) => window.location.assign(to)))(href);

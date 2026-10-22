@@ -63,13 +63,21 @@ export async function listFreeManagers(db: SupabaseClient): Promise<NetworkFreeM
 }
 
 export type ConvertVendorLeadResult =
-  | { ok: true; intro: Extract<AddServiceVendorResult, { ok: true }>["intro"] }
+  | {
+      ok: true;
+      intro: Extract<AddServiceVendorResult, { ok: true }>["intro"];
+      /** False when the roster write landed but the lead could not be marked approved (it is still pending). */
+      leadApproved: boolean;
+    }
   | { ok: false; status: number; error: string };
 
 /**
  * Add a vendor lead to the service roster: the roster rules apply unchanged (`addServiceVendor`: one entry per phone, one
  * intro text as the service owner, a STOPped number is never texted). Only after the roster write succeeds is the lead marked
  * approved, so a failed add leaves the lead pending. The phone comes from the lead row, never from the request.
+ *
+ * The status write is reported, never discarded: the roster add cannot be retried (one entry per phone), so a lead left
+ * pending has to be visible to the operator rather than looking like an ordinary success.
  */
 export async function convertVendorLead(
   db: SupabaseClient,
@@ -86,6 +94,7 @@ export async function convertVendorLead(
   if (!phone) return { ok: false, status: 400, error: "That lead has no usable phone number." };
   const added = await addServiceVendor(db, adminUserId, { name: input.name, phone, trades: input.trades, area: input.area });
   if (!added.ok) return { ok: false, status: added.status, error: added.error };
-  await setVendorLeadStatus(db, leadId, "approved");
-  return { ok: true, intro: added.intro };
+  const leadApproved = await setVendorLeadStatus(db, leadId, "approved");
+  if (!leadApproved) console.error("[service-network] vendor added but the lead stayed pending", { leadId });
+  return { ok: true, intro: added.intro, leadApproved };
 }

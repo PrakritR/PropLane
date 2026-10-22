@@ -2,10 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CommunicationScope } from "@/lib/communication/conversation-visibility.server";
-import { HOUSE_THREAD_TYPE, isHouseThreadId, parseHouseThreadId } from "@/lib/house-thread-id";
+import { HOUSE_THREAD_TYPE, houseThreadId, isHouseThreadId, parseHouseThreadId } from "@/lib/house-thread-id";
 import { assertHouseThreadAccess, teamScopeAllowsHouseThread } from "./access.server";
 import { houseThreadRowForViewer, type HouseViewer } from "./model";
-import { listWorkspaceHouseThreads, loadHouseThread, setHouseViewerState } from "./store.server";
+import { ensureHousePublicId, listWorkspaceHouseThreads, loadHouseThread, setHouseViewerState } from "./store.server";
 
 /**
  * What an inbox LIST and an inbox MAILBOX write (archive, restore, mark read) do with house chats. The house
@@ -44,7 +44,10 @@ export async function houseRowsForTeamViewer(
   return rows;
 }
 
-/** House chats a resident is in: candidates from the stored roster, each one re-checked against occupancy. */
+/**
+ * House chats a resident is in: candidates from the stored roster, each one re-checked against occupancy.
+ * A resident's row carries the opaque house id and no owner: nothing in it names the manager's account.
+ */
 export async function houseRowsForResident(
   db: Db,
   input: { userId: string; email: string; inboxScope: string },
@@ -65,11 +68,13 @@ export async function houseRowsForResident(
     const id = String(candidate.id ?? "");
     const access = await assertHouseThreadAccess(db, { threadId: id, userId: input.userId, email, level: "read", kinds: ["resident"] }, deps);
     if (!access.ok) continue;
+    // Mint the opaque id for a chat created before it existed, so the resident's row never falls back
+    // to the stored id (which names the owner's account).
+    await ensureHousePublicId(db, id).catch(() => null);
     const stored = await loadHouseThread(db, id);
     if (!stored) continue;
     rows.push({
       ...houseThreadRowForViewer({ id: stored.id, row_data: stored.rowData }, viewer),
-      ownerUserId: stored.ownerUserId,
       updatedAt: stored.updatedAt,
     });
   }
@@ -97,7 +102,9 @@ export async function applyHouseMailboxState(
   for (const id of [...new Set(ids)].slice(0, 100)) {
     const access = await assertHouseThreadAccess(db, { threadId: id, userId: input.userId, email: input.email, level: "read" });
     if (!access.ok) continue;
-    if (await setHouseViewerState(db, id, input.userId, patch)) applied += 1;
+    // The STORED id, rebuilt from what the gate authorized: a resident names the chat by its alias.
+    const storedId = houseThreadId(access.parsed.ownerManagerUserId, access.parsed.workspaceId, access.parsed.propertyId);
+    if (await setHouseViewerState(db, storedId, input.userId, patch)) applied += 1;
   }
   return applied;
 }

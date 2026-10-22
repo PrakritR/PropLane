@@ -2,7 +2,11 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { collectLinkedPropertyPermissionsForUser, fetchLeasesForManagerUser } from "@/lib/auth/manager-lease-scope";
+import {
+  collectLinkedPropertyPermissionsForUser,
+  fetchLeasesForManagerUser,
+  type LeaseScopeRecord,
+} from "@/lib/auth/manager-lease-scope";
 import { hasCoManagerPermissionLevelForProperty } from "@/lib/co-manager-permissions";
 import {
   airbnbBookingEntries,
@@ -530,6 +534,13 @@ export async function occupancySnapshotForManager(
      * figures should not pay for a cell per house per day it never reads. */
     days?: readonly string[];
     browserOrigin?: string;
+    /**
+     * Lease rows to build the long-term stays from, instead of this manager's own lease scope. The house
+     * chat passes the HOUSES' leases (a lease a teammate filed is stamped to that teammate, so an
+     * owner-scoped read misses the resident it placed). Only ever rows the caller already placed inside
+     * `propertyIds`.
+     */
+    leaseRecords?: readonly LeaseScopeRecord[];
   },
 ) {
   const propertyIds = [...new Set(input.propertyIds.map((id) => id.trim()).filter(Boolean))];
@@ -538,9 +549,10 @@ export async function occupancySnapshotForManager(
     occupancyCapacitiesForProperties(db, propertyIds),
     occupancyPropertyMeta(db, propertyIds),
   ]);
-  const leaseRecords = await fetchLeasesForManagerUser(db as Parameters<typeof fetchLeasesForManagerUser>[0], userId);
+  const leaseRecords =
+    input.leaseRecords ?? (await fetchLeasesForManagerUser(db as Parameters<typeof fetchLeasesForManagerUser>[0], userId));
   const scoped = new Set(propertyIds);
-  const leaseRows = leaseRecords.map(leaseBookingRowFromScope).filter((row) => scoped.has((row.propertyId ?? "").trim()));
+  const leaseRows = [...leaseRecords].map(leaseBookingRowFromScope).filter((row) => scoped.has((row.propertyId ?? "").trim()));
   const leaseEntries = leaseBookingEntriesForProperties(leaseRows, {
     properties: meta.properties,
     roomLabelForId: meta.roomLabelForId,

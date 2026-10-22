@@ -56,7 +56,8 @@ describe("Open in workspace", () => {
     expect(result).toEqual({ ok: true, href: "/portal/communication/active/k1" });
     expect(calls).toEqual([
       ["/api/admin/service-workspaces", { action: "open", id: WS }],
-      ["/api/auth/set-active-portal", { role: "manager" }],
+      // `keepWorkspace`: Open just set the workspace cookie on purpose, and a plain switch would drop it.
+      ["/api/auth/set-active-portal", { role: "manager", keepWorkspace: true }],
     ]);
     expect(navigate).toHaveBeenCalledWith("/portal/communication/active/k1");
   });

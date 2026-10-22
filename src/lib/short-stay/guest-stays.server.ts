@@ -331,7 +331,18 @@ export async function bookGuestStays(
   // Settings lets a resident retype this number (and clears the verification with it), so it stands
   // in for identity only once it is verified - see `rowMatchesGuest` in instant-book.server.ts.
   const phoneVerified = Boolean(profile?.phone_verified_at);
-  if (!phone) return { ok: false, status: 400, error: "Add a mobile number in Settings so we can text you." };
+  // A stay made in the PORTAL is answered by email and the resident inbox (`notice-channel.ts`), so it needs
+  // no mobile number; one booked by TEXT is answered by text, so that path still does. A dry run writes
+  // nothing and only answers "are these nights free", so it is never refused on the profile at all - it is
+  // the Stay step's availability probe, and a refusal here reads to the guest as a problem with the dates.
+  if (!dryRun) {
+    if (input.via === "sms" && !phone) {
+      return { ok: false, status: 400, error: "Add a mobile number in Settings so we can text you." };
+    }
+    if (input.via !== "sms" && !email.includes("@")) {
+      return { ok: false, status: 400, error: "Add an email address in Settings so we can send you the confirmation." };
+    }
+  }
 
   const loaded = await loadShortStayListing(db, { propertyId, roomId, guests });
   if (!loaded.ok) return { ok: false, status: loaded.status, error: loaded.error };
