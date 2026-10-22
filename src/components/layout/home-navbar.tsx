@@ -24,7 +24,7 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
   const [activeSection, setActiveSection] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   // Signed out (the server's and the first paint's answer) the bar's second button is Get started, to the portal
-  // chooser; once the browser shows a session it is Portal, to sign-in (which sends a signed-in visitor on to theirs).
+  // chooser; once the browser shows a session it is Portal, straight to /auth/continue, which drops a signed-in visitor into their own portal (and sends a stale cookie to sign-in).
   const [signedIn, setSignedIn] = useState(false);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const phone = formatPublicPhone(texting.phone);
@@ -181,7 +181,7 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
             </a>
             {signedIn ? (
               <Link
-                href="/auth/sign-in"
+                href="/auth/continue"
                 prefetch={false}
                 className={styles.portal}
                 data-attr="home-nav-portal"
@@ -209,7 +209,7 @@ export function HomeNavbar({ texting }: { texting: HomeTextingConfig }) {
               Book a demo
             </a>
             <Link
-              href={signedIn ? "/auth/sign-in" : GET_STARTED_HREF}
+              href={signedIn ? "/auth/continue" : GET_STARTED_HREF}
               prefetch={false}
               className={`${styles.portal} ${styles.phonePortal}`}
               data-attr={signedIn ? "home-nav-portal-phone" : "home-nav-get-started-phone"}
