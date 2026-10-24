@@ -53,14 +53,14 @@ describe("public navbar portal link", () => {
     }
   });
 
-  it("reads \"Portal\" and goes to sign-in once the browser holds a session cookie", async () => {
+  it("reads \"Portal\" and goes straight to /auth/continue once the browser holds a session cookie", async () => {
     document.cookie = "sb-emstjswhotsnyksqhqyf-auth-token.0=base64-abc; path=/";
     for (const pathname of ["/", "/blog"]) {
       mockPathname = pathname;
       render(<PublicNavbar texting={texting} />);
       const links = await screen.findAllByRole("link", { name: /^Portal/ });
       expect(links).toHaveLength(2);
-      for (const link of links) expect(link).toHaveAttribute("href", "/auth/sign-in");
+      for (const link of links) expect(link).toHaveAttribute("href", "/auth/continue");
       expect(screen.queryByRole("link", { name: /^Get started/ })).toBeNull();
       cleanup();
     }

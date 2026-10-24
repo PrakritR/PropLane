@@ -699,7 +699,7 @@ export function ManagerBookings({
     >
       {controlStack}
       {modals}
-      <PortalPageScrollBody>{content}</PortalPageScrollBody>
+      <PortalPageScrollBody className={dayKey || !isListBucket(bucket) ? "flex flex-col" : undefined}>{content}</PortalPageScrollBody>
       {dayKey ? (
         <BookingsDayPage
           dayKey={dayKey}

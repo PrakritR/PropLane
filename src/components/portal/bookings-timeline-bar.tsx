@@ -4,7 +4,7 @@ import { memo, useState, useSyncExternalStore, type CSSProperties, type Keyboard
 import { ArrowUpRight, Ban, Clock3, Pencil, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { BookingsAirbnbIcon } from "@/components/portal/bookings-airbnb-icon";
-import { barDisplayName, BAR_VISUAL_HEIGHT, LANE_PITCH, dayDiff } from "@/components/portal/bookings-timeline-layout";
+import { barDisplayName, BAR_VISUAL_HEIGHT, LANE_PITCH, NARROW_GLYPH_PX, dayDiff } from "@/components/portal/bookings-timeline-layout";
 import { entryMoments, paidAddOnGlyphLabel, paidAddOnRows, stayTitleLine, type EntryStayTimes } from "@/components/portal/bookings-stay-times";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { VaulBottomSheet } from "@/components/ui/vaul-bottom-sheet";
@@ -40,8 +40,8 @@ export function useIsPhoneWidth(): boolean {
   );
 }
 
-function channelGlyph(entry: PropertyBookingEntry) {
-  return entry.source === "airbnb" ? <BookingsAirbnbIcon aria-label="Airbnb" role="img" className="mr-1 inline h-3 w-3 align-[-1px]" strokeWidth={1.7} /> : null;
+function channelGlyph(entry: PropertyBookingEntry, inline = true) {
+  return entry.source === "airbnb" ? <BookingsAirbnbIcon aria-label="Airbnb" role="img" className={inline ? "mr-1 inline h-3 w-3 align-[-1px]" : "h-3 w-3 shrink-0"} strokeWidth={1.7} /> : null;
 }
 
 /** A paid early check-in / late checkout: a small clock before the guest's name. */
@@ -66,7 +66,7 @@ export type BookingBarProps = {
   entry: PropertyBookingEntry;
   today: string;
   /** Position inside the track, in px. Omit for an in-flow bar (Day view). */
-  placement?: { left: number; top: number; width: number; /** Px of the bar hidden under the label column; the name starts after it so it is never cut. */ nameInset: number; narrow: boolean; labelWidth: number };
+  placement?: { left: number; top: number; width: number; /** Px of the bar hidden under the label column; the name starts after it so it is never cut. */ nameInset: number; narrow: boolean };
   conflict?: boolean;
   /** The stay's resolved check-in / check-out times (its own, else the property's); absent = the 3 pm / 11 am defaults. */
   times?: EntryStayTimes;
@@ -88,12 +88,11 @@ export const BookingBar = memo(function BookingBar({ entry, today, placement, co
   const removal = bookingRemovalActions(entry, today, canRemove ? canRemove(entry) : true);
   const { status, dates, room, moments, timeRows } = barFacts(entry, today, times);
   const name = barDisplayName(entry);
-  const style: CSSProperties | undefined = placement ? { position: "absolute", left: placement.left, top: placement.top, width: placement.width + (placement.narrow ? placement.labelWidth + 4 : 0), height: LANE_PITCH } : undefined;
+  const style: CSSProperties | undefined = placement ? { position: "absolute", left: placement.left, top: placement.top, width: placement.width, height: LANE_PITCH } : undefined;
   const visual = `${calendarStatusClass(status)} ${conflict ? "ring-2 ring-red-500" : ""}`;
   const face = placement?.narrow ? (
     <>
-      <span data-bar-visual="" className={`block shrink-0 rounded-lg ${visual}`} style={{ width: placement.width, height: BAR_VISUAL_HEIGHT }} />
-      {placement.labelWidth ? <span className="ml-1 block truncate text-xs font-medium text-foreground" style={{ width: placement.labelWidth }}>{channelGlyph(entry)}{addOnGlyph(entry)}{name}</span> : <span className="sr-only">{name}</span>}
+      <span data-bar-visual="" className={`flex shrink-0 items-center justify-center overflow-clip rounded-lg text-[13px] font-semibold ${visual}`} style={{ width: placement.width, height: BAR_VISUAL_HEIGHT }}>{placement.width >= NARROW_GLYPH_PX ? channelGlyph(entry, false) : null}<span className="sr-only">{name}</span></span>
     </>
   ) : (
     <span data-bar-visual="" className={`flex min-w-0 flex-1 flex-col justify-center overflow-clip rounded-lg text-left text-[13px] ${placement ? "" : "min-h-8 py-1"} ${visual}`} style={placement ? { height: BAR_VISUAL_HEIGHT } : undefined}>
@@ -102,7 +101,7 @@ export const BookingBar = memo(function BookingBar({ entry, today, placement, co
     </span>
   );
   const buttonClass = `group flex items-center text-left outline-none focus-visible:[&_[data-bar-visual]]:ring-2 focus-visible:[&_[data-bar-visual]]:ring-primary ${className ?? ""}`;
-  const trigger = (extra: { onPointerDown?: (event: PointerEvent<HTMLButtonElement>) => void; onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void; onClick?: () => void } = {}) => <button type="button" style={style} className={buttonClass} data-attr="bookings-calendar-bar" aria-label={`${name}, ${status}, in ${moments.inLabel}${moments.outLabel ? `, out ${moments.outLabel}` : ""}`} {...extra}>{face}</button>;
+  const trigger = (extra: { onPointerDown?: (event: PointerEvent<HTMLButtonElement>) => void; onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void; onClick?: () => void } = {}) => <button type="button" style={style} className={buttonClass} data-attr="bookings-calendar-bar" title={name} aria-label={`${name}, ${status}, in ${moments.inLabel}${moments.outLabel ? `, out ${moments.outLabel}` : ""}`} {...extra}>{face}</button>;
   if (onOpenSheet) return trigger({ onClick: () => onOpenSheet(entry) });
   // A Radix menu per bar costs ~6ms each to mount (dev), which is what made a screenful of rows slow. The bar is a
   // plain button until it is first used; that first pointerdown / key press mounts the menu already open.

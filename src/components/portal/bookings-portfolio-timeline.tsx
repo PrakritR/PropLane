@@ -83,9 +83,10 @@ const dateLabel = (key: string, options: Intl.DateTimeFormatOptions = { month: "
 
 /**
  * The bookable rows of one property: a row per saved room (the room picker's
- * list, so a blank name reads "Room n"), else booked rooms, else the whole home.
+ * list, so a blank name reads "Room n"), else the server's saved room list (the viewer's listing store lacks
+ * the house: service-mode staff, a fresh device), else booked rooms, else the whole home.
  */
-export function propertyRooms(propertyId: string, entries: PropertyBookingEntry[]) {
+export function propertyRooms(propertyId: string, entries: PropertyBookingEntry[], serverRooms?: readonly { id: string; label: string }[]) {
   const property = getPropertyById(propertyId);
   const seen = new Map<string, { id: string; label: string; rent: string }>();
   const configured = property?.listingSubmission?.rooms ?? [];
@@ -96,13 +97,14 @@ export function propertyRooms(propertyId: string, entries: PropertyBookingEntry[
     const label = option.label.split(" · ").filter(part => !part.includes("$") && !part.includes("sq ft") && !part.includes("Rent TBD")).slice(0, 2).join(" · ");
     seen.set(id, { id, label, rent: room ? roomHeadlinePriceLabel(room, "") : "" });
   }
+  if (!seen.size) for (const room of serverRooms ?? []) seen.set(room.id, { id: room.id, label: room.label, rent: "" });
   if (!seen.size) for (const entry of entries) seen.set(entry.roomId, { id: entry.roomId, label: entry.roomLabel, rent: "" });
   if (!seen.size) seen.set("", { id: "", label: "Whole home", rent: "" });
   return [...seen.values()];
 }
 /** The calendar's colour key: one row that never wraps (it scrolls sideways on a phone), colour dot + name. */
 export function BookingsCalendarLegend() {
-  return <ul className="flex flex-nowrap items-center gap-x-4 overflow-x-auto whitespace-nowrap px-1 pt-1 text-xs text-muted" data-attr="bookings-calendar-legend" aria-label="Calendar colours">{["Hold", "Confirmed", "In-house", "Checked out", "Airbnb"].map(status => <li key={status} className="flex shrink-0 items-center gap-1.5"><span aria-hidden className={`h-2.5 w-2.5 rounded-full ${calendarStatusClass(status)}`} />{status === "Airbnb" ? "Airbnb / Booking.com" : status}</li>)}</ul>;
+  return <ul className="flex shrink-0 flex-nowrap items-center gap-x-4 overflow-x-auto whitespace-nowrap px-1 pt-1 text-xs text-muted" data-attr="bookings-calendar-legend" aria-label="Calendar colours">{["Hold", "Confirmed", "In-house", "Checked out", "Airbnb"].map(status => <li key={status} className="flex shrink-0 items-center gap-1.5"><span aria-hidden className={`h-2.5 w-2.5 rounded-full ${calendarStatusClass(status)}`} />{status === "Airbnb" ? "Airbnb / Booking.com" : status}</li>)}</ul>;
 }
 
 /**
@@ -187,7 +189,7 @@ const TimelineRow = memo(function TimelineRow({ row, ctx, stats, expanded }: { r
   const labelBase = `sticky left-0 z-20 flex shrink-0 flex-col justify-center border-r border-border ${OPAQUE}`;
   const house = row.house;
   const title = [house.name, house.address].filter(Boolean).join(" · ");
-  const pixelBars = useMemo(() => (row.kind === "room" ? placeBars(row.layout.bars, colPx, trackW, row.layout.turnovers) : []), [row, colPx, trackW]);
+  const pixelBars = useMemo(() => (row.kind === "room" ? placeBars(row.layout.bars, colPx, row.layout.turnovers) : []), [row, colPx]);
   if (row.kind === "house") {
     const s = stats!;
     return <div className="flex border-b border-border" style={{ height: row.height, width: labelPx + trackW }} data-attr={`bookings-timeline-property-${house.propertyId}`}>
@@ -223,7 +225,7 @@ const TimelineRow = memo(function TimelineRow({ row, ctx, stats, expanded }: { r
         const free = !!reserve && m.day >= todayKey && !layout.busy[index];
         return free ? <button type="button" key={m.day} style={{ width: colPx }} className={`${cellClass} hover:bg-primary/10 focus-visible:bg-primary/10`} data-attr="bookings-calendar-empty-cell" data-day={m.day} data-room={room.id} aria-label={`Mark ${name} reserved on ${m.longLabel}`} onClick={() => reserve({ propertyId: house.propertyId, roomId: room.id, dayKey: m.day })} /> : <div key={m.day} style={{ width: colPx }} className={cellClass} />;
       })}</div>
-      {pixelBars.map(bar => <BookingBar key={bar.key} entry={bar.entry} today={todayKey} conflict={bar.conflict} times={bar.times} onOpenSheet={ctx.onOpenSheet} {...ctx.handlers} placement={{ left: bar.left, top: bar.top, width: bar.width, nameInset: Math.max(0, Math.min(bar.width - 24, ctx.scrollLeft - bar.left)), narrow: bar.narrow, labelWidth: bar.labelWidth }} />)}
+      {pixelBars.map(bar => <BookingBar key={bar.key} entry={bar.entry} today={todayKey} conflict={bar.conflict} times={bar.times} onOpenSheet={ctx.onOpenSheet} {...ctx.handlers} placement={{ left: bar.left, top: bar.top, width: bar.width, nameInset: Math.max(0, Math.min(bar.width - 24, ctx.scrollLeft - bar.left)), narrow: bar.narrow }} />)}
       {layout.turnovers.map(turnover => { const jobKey = turnoverCleaningKey(turnover.entry); const hasJob = !!jobKey && !!ctx.cleaningKeys?.has(jobKey); return turnover.short || hasJob ? <TurnoverStrip key={`t:${turnover.key}`} turnover={turnover} colPx={colPx} hasJob={hasJob} /> : null; })}
     </div>;
   }
@@ -231,6 +233,7 @@ const TimelineRow = memo(function TimelineRow({ row, ctx, stats, expanded }: { r
 });
 
 export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps) {
+  const serverRooms = props.occupancyDays?.rooms;
   const { propertyIds, today, cleaningKeys, resolveTimes, onEditBooking, onUnblockBooking, onDeleteBlock, onUnblockChannelStay, onAddBooking, onReserveRoomDay, roomFilterId, canRemoveBooking, onOpenDay, resolveRooms, resolveHouse } = props;
   const phone = useIsPhoneWidth();
   const labelPx = labelWidthPx(phone);
@@ -285,7 +288,7 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps)
     const out: HouseModel[] = [];
     for (const propertyId of propertyIds) {
       const mine = byProperty.get(propertyId) ?? [];
-      const allRooms = (resolveRooms ?? propertyRooms)(propertyId, mine);
+      const allRooms = resolveRooms ? resolveRooms(propertyId, mine) : propertyRooms(propertyId, mine, serverRooms?.[propertyId]);
       const info = resolveHouse ? resolveHouse(propertyId, mine) : (() => { const property = getPropertyById(propertyId); return { name: mine[0]?.propertyLabel || property?.title || "Untitled listing", address: property?.address }; })();
       // A whole home (one bookable row) is a single row under its own name. Read from the house's own
       // rooms, never the filtered list: narrowing to one room of a multi-room house does not make a whole home.
@@ -297,7 +300,7 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps)
       out.push({ propertyId, name: info.name, address: info.address ?? "", single, times: (resolveTimes ?? propertyStayTimesFor)(propertyId), rooms: narrowed.rooms, entries: mine, entriesByRoom: narrowed.entriesByRoom, scopeEntries: narrowed.scopeEntries });
     }
     return out;
-  }, [propertyIds, byProperty, resolveRooms, resolveHouse, resolveTimes, roomFilterId, needle]);
+  }, [propertyIds, byProperty, resolveRooms, serverRooms, resolveHouse, resolveTimes, roomFilterId, needle]);
   const multiIds = useMemo(() => houses.filter(house => !house.single).map(house => house.propertyId), [houses]);
 
   // ---- Which houses are open. Collapsed by default past three houses; remembered per page; a filter or search opens its matches.
@@ -434,12 +437,13 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps)
   const tileValue = "text-[17px] font-semibold leading-6 tabular-nums text-foreground";
   const tileLabel = "truncate text-xs text-muted";
 
-  return <div className="flex min-w-0 flex-col gap-3" data-attr="bookings-portfolio-timeline" data-view={view}>
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+  return <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3" data-attr="bookings-portfolio-timeline" data-view={view}>
+    <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
       <div className="flex min-w-0 items-center gap-1 sm:flex-1">
         <PortalIconAction icon={ChevronLeft} label={`Previous ${view}`} onClick={() => next(-1)} />
-        <strong className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold leading-6 text-foreground sm:text-left" data-attr="bookings-calendar-title">{rangeTitle}</strong>
+        <strong className="min-w-0 truncate px-1 text-[17px] font-semibold leading-6 text-foreground" data-attr="bookings-calendar-title">{rangeTitle}</strong>
         <PortalIconAction icon={ChevronRight} label={`Next ${view}`} onClick={() => next(1)} />
+        <span aria-hidden className="min-w-0 flex-1" />
         <button type="button" data-attr="bookings-calendar-today" className="h-11 shrink-0 rounded-full border border-border px-4 text-sm font-semibold text-foreground hover:bg-accent/40 md:h-9" onClick={() => setAnchor(todayKey)}>Today</button>
       </div>
       <div className="flex min-w-0 items-center gap-1 sm:shrink-0">
@@ -447,16 +451,16 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps)
         {multiIds.length >= 2 ? <PortalIconAction icon={anyCollapsed ? ChevronsUpDown : ChevronsDownUp} label={anyCollapsed ? "Expand all" : "Collapse all"} data-attr="bookings-timeline-expand-all" onClick={toggleAll} /> : null}
       </div>
     </div>
-    <div className={`min-w-0 overflow-hidden rounded-xl border border-border ${OPAQUE}`}>
-      {empty || noMatches ? <div data-attr="bookings-empty-houses-banner" className="flex items-center justify-between border-b border-border px-4 py-3 text-sm"><span>{noMatches ? "No matches" : propertyIds.length ? "No bookings in this range" : props.emptyMessage || "No houses yet"}</span>{onAddBooking && !noMatches ? <PortalPrimaryIconAction label="Add booking" onClick={onAddBooking} /> : null}</div> : null}
-      <div className="grid grid-cols-4 divide-x divide-border border-b border-border" data-attr="bookings-calendar-summary">
+    <div className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border ${OPAQUE}`}>
+      {empty || noMatches ? <div data-attr="bookings-empty-houses-banner" className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3 text-sm"><span>{noMatches ? "No matches" : propertyIds.length ? "No bookings in this range" : props.emptyMessage || "No houses yet"}</span>{onAddBooking && !noMatches ? <PortalPrimaryIconAction label="Add booking" onClick={onAddBooking} /> : null}</div> : null}
+      <div className="grid shrink-0 grid-cols-4 divide-x divide-border border-b border-border" data-attr="bookings-calendar-summary">
         <div className="flex min-w-0 flex-col items-center py-2"><span className={tileValue}>{kpis.staying}</span><span className={tileLabel}>Staying</span></div>
         <div className="flex min-w-0 flex-col items-center py-2"><span className={tileValue}>{kpis.checkIns}</span><span className={tileLabel}>Check-ins</span></div>
         <div className="flex min-w-0 flex-col items-center py-2"><span className={tileValue}>{kpis.checkOuts}</span><span className={tileLabel}>Check-outs</span></div>
         <div className="flex min-w-0 flex-col items-center py-2"><span className={tileValue}>{kpis.occupied.occupied}/{kpis.occupied.beds}</span><span className={tileLabel}>{focusDay === todayKey ? "Tonight" : dateLabel(focusDay)}</span></div>
       </div>
-      <div ref={scrollRef} onScroll={onScroll} className="relative min-w-0 overflow-auto overscroll-contain max-h-[max(22rem,calc(100dvh-17rem))] sm:max-h-[calc(100dvh-15rem)]" data-attr="bookings-calendar-scroll">
-        <div className="relative" style={{ width: labelPx + trackW, minWidth: "100%" }}>
+      <div ref={scrollRef} onScroll={onScroll} className="relative min-h-[22rem] min-w-0 flex-1 overflow-auto overscroll-contain" data-attr="bookings-calendar-scroll">
+        <div className="relative pb-2" style={{ width: labelPx + trackW, minWidth: "100%" }}>
           <div className={`sticky top-0 z-30 flex border-b border-border ${OPAQUE}`} style={{ height: 56, width: labelPx + trackW }}>
             <div className={`sticky left-0 z-40 flex shrink-0 items-center border-r border-border px-2 text-xs font-medium text-muted sm:px-3 ${OPAQUE}`} style={{ width: labelPx }}>{houseCount} {houseCount === 1 ? "house" : "houses"}</div>
             <div className="flex" style={{ width: trackW }}>{meta.map(m => <button type="button" key={m.day} data-attr={`portfolio-booking-day-${m.day}`} aria-label={m.openLabel} onClick={() => view === "year" ? drill(m.day) : openDay(m.day)} style={{ width: colPx }} className={`flex flex-none flex-col items-center justify-center gap-1 border-r border-border/50 ${m.today ? "bg-primary/10" : m.weekend ? "bg-muted/5" : ""}`}><span className="text-[11px] uppercase leading-none text-muted">{m.top}</span><strong className={`flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[15px] font-semibold leading-none ${m.today ? "bg-primary text-white" : "text-foreground"}`}>{m.bottom}</strong></button>)}</div>

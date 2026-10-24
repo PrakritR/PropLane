@@ -10,6 +10,7 @@ import { useAssistantLauncher } from "@/components/portal/use-assistant-launcher
 import { PortalSignOutButton } from "@/components/portal/portal-sign-out-button";
 import { PortalRoleSwitcher } from "@/components/portal/portal-role-switcher";
 import { AxisLogoMark } from "@/components/brand/axis-logo";
+import { ServiceWorkspaceMenu } from "@/components/portal/service-workspace-menu";
 import { WorkspaceSwitcher } from "@/components/portal/workspace-switcher";
 import {
   DropdownMenu,
@@ -25,6 +26,7 @@ import {
 } from "@/lib/portal-mobile-back";
 import { syncPortalMobileTopChrome } from "@/lib/portal-mobile-top-chrome";
 import type { PortalDefinition } from "@/lib/portal-types";
+import type { ServiceShellData } from "@/lib/service/service-mode";
 
 function ChevronLeftIcon() {
   return (
@@ -60,10 +62,13 @@ export function PortalMobileNavBar({
   definition,
   name,
   email,
+  service,
 }: {
   definition: PortalDefinition;
   name: string | null;
   email: string | null;
+  /** Admin portal / service mode: the phone's workspace menu takes the left slot (the desktop rail is hidden below lg). */
+  service?: ServiceShellData | null;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -124,7 +129,11 @@ export function PortalMobileNavBar({
       >
         <AxisLogoMark size="compact" />
       </Link>
-      {(definition.kind === "pro" || definition.kind === "manager") && !showBack ? (
+      {service && !showBack ? (
+        <div className="min-w-0 flex-1">
+          <ServiceWorkspaceMenu service={service} />
+        </div>
+      ) : (definition.kind === "pro" || definition.kind === "manager") && !showBack ? (
         <div className="min-w-0 flex-1">
           <WorkspaceSwitcher variant="mobile" />
         </div>

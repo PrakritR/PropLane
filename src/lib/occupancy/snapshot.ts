@@ -31,6 +31,9 @@ export type OccupancyDayCell = {
   inHouse?: number;
 };
 
+/** One saved room of a property, in saved order: what the Bookings calendar draws a row for. */
+export type OccupancyRoomOption = { id: string; label: string };
+
 export type OccupancyCapacities = {
   bedsTotal: (propertyId: string) => number;
   roomCapacity: (propertyId: string, roomId: string) => number;

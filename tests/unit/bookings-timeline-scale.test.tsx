@@ -211,22 +211,48 @@ describe("bars: readable, and a narrow one names itself beside it", () => {
     expect(moved.style.maxWidth).toBe(`${barWidth - 40}px`);
   });
 
-  it("a bar under 56px draws no text inside; its name is a plain label right of it, and no single-letter prefixes remain", () => {
+  it("a bar under 56px never draws its name: no outside label, no text inside, the full name stays in title + aria-label", () => {
     mount(1, { entries: [stay({ start: "2026-10-20", end: "2026-10-20", summary: "Short Stay", residentName: "Short Stay", source: "ical", channelLabel: "Houfy" })] });
-    const bar = document.querySelector('[data-attr="bookings-calendar-bar"]')!;
+    const bar = document.querySelector('[data-attr="bookings-calendar-bar"]') as HTMLElement;
     const visual = bar.querySelector("[data-bar-visual]")!;
-    expect(visual.textContent).toBe("");
-    expect(bar.textContent).toBe("Short Stay");
+    expect(visual.textContent).toBe("Short Stay"); // sr-only inside the bar only
+    expect(visual.querySelector(".sr-only")).not.toBeNull();
+    expect(bar.children).toHaveLength(1); // nothing beside the bar
+    expect(bar.title).toBe("Short Stay");
+    expect(bar.getAttribute("aria-label")).toContain("Short Stay");
     expect(bar.textContent).not.toContain("H · ");
-    expect(bar.lastElementChild!.className).toContain("text-xs");
+    expect(parseFloat(bar.style.width)).toBe(parseFloat((visual as HTMLElement).style.width));
   });
 
-  it("placeBars drops the outside name when under 28px is free before the next bar", () => {
+  it("a narrow Airbnb bar shows its glyph centred inside, a bar under 20px shows nothing", () => {
+    mount(1, { entries: [stay({ start: "2026-10-20", end: "2026-10-20", summary: "Airbnb guest", residentName: "Airbnb guest", source: "airbnb" })] });
+    const visual = document.querySelector('[data-attr="bookings-calendar-bar"] [data-bar-visual]') as HTMLElement;
+    expect(visual.className).toContain("justify-center");
+    expect(visual.querySelector('[aria-label="Airbnb"]')).not.toBeNull();
+  });
+
+  it("placeBars marks a bar under 56px narrow and never produces an outside label", () => {
     const spec = (start: number, end: number, summary: string) => ({ entry: stay({ summary, residentName: summary }), key: summary, lane: 0, start, end, conflict: false });
-    const placed = placeBars([spec(2, 3, "Alpha Person"), spec(4, 5, "Beta Person"), spec(10, 11, "Gamma Person")], 26, 31 * 26);
-    expect(placed.every(bar => bar.narrow)).toBe(true);
-    expect(placed[0]!.labelWidth).toBe(0); // the next bar starts 26px later
-    expect(placed[2]!.labelWidth).toBeGreaterThanOrEqual(28);
+    const placed = placeBars([spec(2, 3, "Alpha Person"), spec(4, 5, "Beta Person"), spec(10, 11, "Gamma Person"), spec(14, 20, "Wide Person")], 26, []);
+    expect(placed.slice(0, 3).every(bar => bar.narrow)).toBe(true);
+    expect(placed[3]!.narrow).toBe(false);
+    expect(placed.every(bar => !("labelWidth" in bar))).toBe(true);
+  });
+
+  it("the date arrows hug the title (‹ title ›) and Today sits apart; the scroller fills its parent instead of a viewport formula", () => {
+    mount(1);
+    const title = document.querySelector('[data-attr="bookings-calendar-title"]') as HTMLElement;
+    expect(title.className).not.toContain("flex-1");
+    const prev = screen.getByRole("button", { name: "Previous month" });
+    const nextButton = screen.getByRole("button", { name: "Next month" });
+    expect(title.previousElementSibling).toBe(prev);
+    expect(title.nextElementSibling).toBe(nextButton);
+    expect(nextButton.nextElementSibling!.className).toContain("flex-1"); // the spacer before Today
+    expect(nextButton.nextElementSibling!.nextElementSibling).toBe(document.querySelector('[data-attr="bookings-calendar-today"]'));
+    const scroller = document.querySelector('[data-attr="bookings-calendar-scroll"]') as HTMLElement;
+    expect(scroller.className).toContain("flex-1");
+    expect(scroller.className).toContain("min-h-[22rem]");
+    expect(scroller.className).not.toContain("dvh");
   });
 
   it("columnPx: Week fits a phone, Month scrolls, nothing measured falls back to the floor", () => {

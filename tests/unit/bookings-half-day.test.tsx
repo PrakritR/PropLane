@@ -46,7 +46,7 @@ describe("half-day bar spans", () => {
 
   it("placeBars leaves a gap of at least 6px at a turnover, and the cleaning block fills exactly that gap", () => {
     const result = layout([stay("a", "2026-10-14", "2026-10-15"), stay("b", "2026-10-16", "2026-10-18")]);
-    const [first, second] = placeBars(result.bars, 40, DAYS.length * 40, result.turnovers);
+    const [first, second] = placeBars(result.bars, 40, result.turnovers);
     const gap = second!.left - (first!.left + first!.width);
     expect(gap).toBeGreaterThanOrEqual(TURNOVER_MIN_GAP_PX);
     const strip = turnoverStripPx(result.turnovers[0]!, 40);
@@ -56,7 +56,7 @@ describe("half-day bar spans", () => {
 
   it("a longer gap (4 h, or one spanning cells) makes the block span checkout x to the next check-in x", () => {
     const result = layout([stay("a", "2026-10-14", "2026-10-15"), stay("b", "2026-10-17", "2026-10-18", { checkInTime: "09:00" })]); // out Oct 16 11 am, in Oct 17 9 am
-    const [first, second] = placeBars(result.bars, 40, DAYS.length * 40, result.turnovers);
+    const [first, second] = placeBars(result.bars, 40, result.turnovers);
     const strip = turnoverStripPx(result.turnovers[0]!, 40);
     expect(strip.width).toBeGreaterThan(TURNOVER_MIN_GAP_PX);
     expect(strip.left).toBeCloseTo(first!.left + first!.width, 5);
