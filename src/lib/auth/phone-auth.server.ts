@@ -11,11 +11,17 @@ import { sendPhoneAuthCode } from "@/lib/auth/phone-otp-delivery.server";
 import { phoneCodeSignInAllowed } from "@/lib/auth/sms-proven-session.server";
 import { isAdminAccount, loadPhoneRequired, phoneSkipActive, PhoneSendFailedError } from "@/lib/auth/phone-required.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { PhoneOwnFlowError } from "@/lib/auth/phone-own-errors";
 
 export const PHONE_AUTH_ERROR = "We couldn't verify this number. Try again or contact your manager.";
 export const PHONE_BROWSER_COOKIE = "proplane_phone_browser";
 export const PHONE_OLD_COOKIE = "proplane_phone_old";
-export type PhonePurpose = "sign_in" | "verify_phone" | "change_number_old" | "change_number_new";
+/**
+ * `verify_own_phone` is the Settings > Profile "Verify" flow: a SIGNED-IN person proving the number already saved on
+ * their own profile. It works whatever the rollout switches say (see `startPhoneChallenge`); every other purpose keeps
+ * its switch behaviour.
+ */
+export type PhonePurpose = "sign_in" | "verify_phone" | "verify_own_phone" | "change_number_old" | "change_number_new";
 export type PhoneProof = { id: string; phone: string; purpose: string; provider: "local" | "supabase" };
 
 export function phoneCodeHash(id: string, code: string): string {
@@ -102,17 +108,25 @@ export async function startPhoneChallenge(input: {
   db: SupabaseClient; userId: string | null; browser: string; phone: unknown; purpose: PhonePurpose;
 }) {
   const { db, userId, browser, purpose } = input;
+  const ownPhone = purpose === "verify_own_phone";
   // Sign-in by phone is shared-line only; verifying or changing a SIGNED-IN account's phone also works when phone_required is on.
-  if (purpose === "sign_in" || !(await phoneVerificationEnabled(db))) {
+  // The Settings "Verify" flow (own phone, signed in) is the one door that does not wait for either switch.
+  if (!ownPhone && (purpose === "sign_in" || !(await phoneVerificationEnabled(db)))) {
     if (!(await phoneAuthEnabled(db))) throw new Error(PHONE_AUTH_ERROR);
   }
   if (purpose !== "sign_in" && !userId) throw new Error(PHONE_AUTH_ERROR);
   const current = userId ? await readPhoneIdentity(db, userId) : null;
-  const phone = purpose === "change_number_old" ? current?.phone : normalizeE164(input.phone);
+  // Own-phone flow: the number is the one saved on the session user's profile, never one named in the request.
+  const phone = purpose === "change_number_old" || ownPhone ? current?.phone : normalizeE164(input.phone);
   if (!phone || !/^\+[1-9]\d{7,14}$/.test(phone)) throw new Error(PHONE_AUTH_ERROR);
   // SMS pumping guard: texts go only to allowed countries (+1 by default), before any send budget.
   if (!isAllowedPhoneAuthDestination(phone)) throw new Error(PHONE_AUTH_ERROR);
   if (purpose === "change_number_old" && !current?.verified) throw new Error(PHONE_AUTH_ERROR);
+  if (ownPhone) {
+    if (current?.verified) throw new Error(PHONE_AUTH_ERROR);
+    // A number verified (or bound) on another account is refused before any text is sent; it never moves silently.
+    if ((await phoneOwners(db, phone)).some((id) => id !== userId)) throw new PhoneOwnFlowError("taken");
+  }
   if (purpose === "verify_phone" && current?.verified && current.phone !== phone) throw new Error(PHONE_AUTH_ERROR);
   if (purpose === "change_number_new" && (!current?.verified || current.phone === phone)) throw new Error(PHONE_AUTH_ERROR);
 
@@ -138,7 +152,7 @@ export async function startPhoneChallenge(input: {
   const actor = purpose === "sign_in" ? null : userId;
   const { data, error } = await db.rpc("phone_auth_start", {
     p_id: id, p_phone: phone, p_phone_key: normalizeConsentPhone(phone),
-    p_purpose: purpose === "verify_phone" ? "sign_in" : purpose,
+    p_purpose: purpose === "verify_phone" || ownPhone ? "sign_in" : purpose,
     p_user: actor, p_browser_hash: phoneBrowserHash(browser), p_code_hash: phoneCodeHash(id, code), p_provider: provider,
   });
   if (error || data !== true) throw new Error(PHONE_AUTH_ERROR);
@@ -190,10 +204,27 @@ export async function mintPhoneSession(db: SupabaseClient, user: User) {
   return { access_token: data.session.access_token, refresh_token: data.session.refresh_token };
 }
 
+/**
+ * Own-phone verification finishes only a live sign_in-shaped challenge, for THIS user, aimed at the number now saved on
+ * their profile. A spent, expired or exhausted challenge is "expired" (send a new one); anything else is refused generically.
+ */
+async function assertOwnPhoneChallenge(db: SupabaseClient, challengeId: string, userId: string) {
+  const { data, error } = await db.from("phone_otp_challenges")
+    .select("purpose, phone_e164, expires_at, consumed_at, attempts").eq("id", challengeId).maybeSingle();
+  if (error || !data || data.purpose !== "sign_in") throw new Error(PHONE_AUTH_ERROR);
+  const saved = await readPhoneIdentity(db, userId);
+  if (!saved.phone || saved.phone !== data.phone_e164) throw new Error(PHONE_AUTH_ERROR);
+  const expired = data.consumed_at || new Date(String(data.expires_at)).getTime() <= Date.now() || Number(data.attempts) >= 5;
+  if (expired) throw new PhoneOwnFlowError("expired");
+}
+
 export async function verifyPhoneChallenge(input: {
   db: SupabaseClient; userId: string | null; browser: string; challengeId: string; code: string; oldChallengeId?: string;
+  /** Settings "Verify" flow: finishes only a challenge for the signed-in user's own saved phone, and answers in plain words. */
+  ownPhone?: boolean;
 }) {
   const { db, userId, browser, challengeId, code } = input;
+  const ownFlow = input.ownPhone === true;
   if (!/^\d{6}$/.test(code) || !/^[\da-f-]{36}$/i.test(challengeId)) throw new Error(PHONE_AUTH_ERROR);
   // Determine the actor from our own challenge. An unauthenticated sign-in
   // remains a sign-in even if a browser already happens to have a session.
@@ -202,11 +233,19 @@ export async function verifyPhoneChallenge(input: {
   const browserHash = phoneBrowserHash(browser);
   if (readError || !row || row.browser_hash !== browserHash || (row.auth_user_id && row.auth_user_id !== userId)) throw new Error(PHONE_AUTH_ERROR);
   const actor = row.auth_user_id as string | null;
-  // A code for someone with no session (sign-in) is shared-line only; a signed-in account's code also works under phone_required.
-  if (!(await phoneAuthEnabled(db)) && !(actor && (await loadPhoneRequired(db)))) throw new Error(PHONE_AUTH_ERROR);
+  if (ownFlow) {
+    // Signed in, and the challenge is that same user's own: never a sign-in code, never another user's.
+    if (!userId || actor !== userId) throw new Error(PHONE_AUTH_ERROR);
+    await assertOwnPhoneChallenge(db, challengeId, userId);
+  } else if (!(await phoneAuthEnabled(db)) && !(actor && (await loadPhoneRequired(db)))) {
+    // A code for someone with no session (sign-in) is shared-line only; a signed-in account's code also works under phone_required.
+    throw new Error(PHONE_AUTH_ERROR);
+  }
   const { data, error } = await db.rpc("phone_auth_consume", {
     p_id: challengeId, p_user: actor, p_browser_hash: browserHash, p_code_hash: phoneCodeHash(challengeId, code),
   });
+  // The challenge was live and ours (checked above), so a refusal here is the code itself.
+  if (ownFlow && !error && !data) throw new PhoneOwnFlowError("wrong");
   if (error || !data) throw new Error(PHONE_AUTH_ERROR);
   const proof = data as PhoneProof;
   let nativeUser: User | null = null;
@@ -223,7 +262,9 @@ export async function verifyPhoneChallenge(input: {
   if (claimed.error || claimed.data !== true) throw new Error(PHONE_AUTH_ERROR);
   try {
     const owners = await phoneOwners(db, proof.phone);
-    if (owners.length > 1 || (actor && owners.some((id) => id !== actor))) throw new Error(PHONE_AUTH_ERROR);
+    if (owners.length > 1 || (actor && owners.some((id) => id !== actor))) {
+      throw ownFlow ? new PhoneOwnFlowError("taken") : new Error(PHONE_AUTH_ERROR);
+    }
     let user: User;
     if (actor) {
       const result = await db.auth.admin.getUserById(actor);
