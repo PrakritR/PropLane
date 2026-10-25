@@ -190,7 +190,7 @@ describe("opaque sticky chrome", () => {
   });
 });
 
-describe("bars: readable, and a narrow one names itself beside it", () => {
+describe("bars: readable, and a narrow one keeps its text inside the bar", () => {
   it("a wide bar's name starts after the part scrolled under the label column, so it truncates instead of being cut at the front", async () => {
     mount(1, { entries: [stay()] });
     const bar = document.querySelector('[data-attr="bookings-calendar-bar"]') as HTMLElement;

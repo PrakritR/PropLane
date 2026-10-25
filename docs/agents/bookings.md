@@ -141,10 +141,12 @@ Coverage: `tests/unit/bookings-timeline-scale.test.tsx`.
   `occupancyPropertyMeta` beside the room labels and sent as `snapshot.rooms`), then rows built from the bookings,
   then the whole home. The server list is what draws `Room 1..n` for a house the local store lacks - service-mode
   staff, a fresh device - and an entire-home listing sends `[]`, so it still draws one whole-home row.
-- **An unknown room id reads `UNASSIGNED_ROOM_LABEL` ("Unassigned room"), never a bare "Room"** - on the server
-  (`roomLabelForId`) and on the client (`bookingsRoomLabels` in `use-manager-booking-entries`, which seeds from
-  `occupancyDays.rooms` and lets the local listing win), so the bar sheet, the day pop-up and the booking record
-  never disagree with the row beside them.
+- **On the calendar an unknown room id reads `UNASSIGNED_ROOM_LABEL` ("Unassigned room"), never a bare "Room"** -
+  on the occupancy server (`roomLabelForId`) and on the client (`bookingsRoomLabels` in
+  `use-manager-booking-entries`, which seeds from `occupancyDays.rooms` and lets the local listing win), so the bar
+  sheet, the day pop-up and the booking record never disagree with the row beside them. This is the calendar's
+  invariant, not the product's: the agent booking tools (`src/lib/tools/domains/bookings.ts`) still read `"Room"`
+  for a block whose room is gone, so change the two together or neither.
 - **Date header**: the arrows hug the month title (`< October 2026 >`); a spacer pushes **Today** apart. The title
   never takes `flex-1`.
 - **The scroller owns vertical scroll** (`bookings-calendar-scroll`: `flex-1`, no `dvh` formula) and fills the
