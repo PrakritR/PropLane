@@ -18,7 +18,7 @@ export type ChartAccount = ChartAccountRow;
  */
 export const SYSTEM_CHART_ACCOUNTS: ChartAccount[] = SYSTEM_CHART_ACCOUNTS_FALLBACK;
 
-export type WorkOrderCategory = "cleaning" | "plumbing" | "mold" | "electrical" | "hvac" | "general" | "appliance" | "access";
+export type WorkOrderCategory = "cleaning" | "plumbing" | "mold" | "electrical" | "hvac" | "general" | "appliance" | "access" | "tours";
 
 export const WORK_ORDER_CATEGORY_TO_EXPENSE: Record<WorkOrderCategory, string> = {
   cleaning: "cleaning",
@@ -29,6 +29,7 @@ export const WORK_ORDER_CATEGORY_TO_EXPENSE: Record<WorkOrderCategory, string> =
   general: "maintenance",
   appliance: "maintenance",
   access: "maintenance",
+  tours: "maintenance",
 };
 
 /**

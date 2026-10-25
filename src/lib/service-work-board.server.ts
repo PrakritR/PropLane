@@ -101,8 +101,8 @@ function newPublishRef(): string {
 export async function publishServiceToBoard(
   db: Db,
   actor: PublishActor,
-  input: { workOrderId: string; budgetCents?: number | null; sharePhotos?: boolean },
-): Promise<{ ok: true; patch: Pick<DemoManagerWorkOrderRow, "published" | "publishedAt" | "publishRef" | "publishBudgetCents" | "publishSharePhotos" | "biddingOpen" | "biddingOpenedAt"> } | BoardActionFailure> {
+  input: { workOrderId: string; budgetCents?: number | null; sharePhotos?: boolean; category?: DemoManagerWorkOrderRow["category"] },
+): Promise<{ ok: true; patch: Pick<DemoManagerWorkOrderRow, "published" | "publishedAt" | "publishRef" | "publishBudgetCents" | "publishSharePhotos" | "biddingOpen" | "biddingOpenedAt"> & { category?: DemoManagerWorkOrderRow["category"] } } | BoardActionFailure> {
   const loaded = await loadOwnedService(db, actor, input.workOrderId);
   if (!loaded.ok) return loaded;
   const { record, row } = loaded;
@@ -134,6 +134,8 @@ export async function publishServiceToBoard(
     // Publishing opens bidding: a vendor can only answer while it is open (`resolveVendorWorkOrderAccess`).
     biddingOpen: true,
     biddingOpenedAt: row.biddingOpenedAt ?? now,
+    // A category the manager chose when publishing (a tour-host job posts under Tours) is stored on the row.
+    ...(input.category ? { category: input.category } : {}),
   };
   const next = { ...row, ...patch };
   const { error } = await db

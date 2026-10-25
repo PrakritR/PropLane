@@ -79,6 +79,7 @@ const TRADE_LABEL: Record<NonNullable<DemoManagerWorkOrderRow["category"]>, stri
   general: "General maintenance",
   appliance: "Appliance",
   access: "Locks and access",
+  tours: "Tours",
 };
 
 export function publicServiceTradeLabel(category: DemoManagerWorkOrderRow["category"] | undefined): string {

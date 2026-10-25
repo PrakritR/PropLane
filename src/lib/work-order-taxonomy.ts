@@ -65,6 +65,7 @@ const VENDOR_TRADE_TO_WORK_ORDER_CATEGORIES: Record<string, WorkOrderCategory[]>
   "Appliance repair": ["appliance"],
   Landscaping: [],
   Cleaning: ["cleaning"],
+  Tours: ["tours"],
   "Pest control": [],
   Other: [],
 };
@@ -102,6 +103,7 @@ export const VENDOR_TRADE_OPTIONS = [
   "Appliance repair",
   "Landscaping",
   "Cleaning",
+  "Tours",
   "Pest control",
   "Other",
 ] as const;

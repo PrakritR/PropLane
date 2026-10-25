@@ -327,7 +327,7 @@ export type DemoManagerWorkOrderRow = {
   /** Amount billed to the resident for this service, and the household charge it created. */
   residentChargeCents?: number;
   residentChargeId?: string;
-  category?: "cleaning" | "plumbing" | "mold" | "electrical" | "hvac" | "general" | "appliance" | "access";
+  category?: "cleaning" | "plumbing" | "mold" | "electrical" | "hvac" | "general" | "appliance" | "access" | "tours";
   vendorCostCents?: number;
   /** ISO timestamp when the vendor set labor cost via set-vendor-price (locks manager edits). */
   vendorPriceSetAt?: string;
