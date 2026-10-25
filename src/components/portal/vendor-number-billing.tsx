@@ -94,7 +94,7 @@ function priceLabel(cents: number): string {
 }
 
 /**
- * Not subscribed: "Your own work number & email · $5 / month · Subscribe". Right after Checkout (`activating`) the
+ * Not subscribed: "Your own work number & email · $5/month + usage · Subscribe". Right after Checkout (`activating`) the
  * webhook may not have landed yet, so it reads "Activating" instead of offering a second purchase. When a number
  * cannot be provisioned yet it reads "Unavailable" with no button, so no $5 is taken for a number that cannot be
  * delivered.
@@ -140,7 +140,7 @@ export function VendorNumberSubscribeRow({
       <span className="inline-flex flex-col items-end gap-1">
         <span className="inline-flex items-center gap-3">
           <span className="text-sm font-medium text-foreground" data-attr="vendor-number-price">
-            {priceLabel(billing.priceCents)} / month
+            {priceLabel(billing.priceCents)}/month + usage
           </span>
           <Button variant="primary" onClick={subscribe} data-attr="vendor-number-subscribe">
             Subscribe
@@ -158,7 +158,7 @@ export function VendorNumberSubscribeRow({
 
 function planLine(billing: VendorNumberBilling): string {
   const sub = billing.subscription;
-  const price = `${priceLabel(billing.priceCents)}/month`;
+  const price = `${priceLabel(billing.priceCents)}/month + usage`;
   if (!sub) return `PropLane Number · ${price}`;
   if (sub.status === "past_due") return `PropLane Number · ${price} · payment failed`;
   if (!sub.currentPeriodEnd) return `PropLane Number · ${price}`;

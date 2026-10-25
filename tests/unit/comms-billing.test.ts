@@ -9,7 +9,9 @@ const snapshot = {allowance_cents:200,included_remaining_cents:200,purchased_rem
 beforeEach(()=>{vi.unstubAllEnvs();plan.mockResolvedValue({ok:true,tier:"free"});});
 const WORKSPACE="11111111-1111-4111-8111-111111111111";
 // Credit is per-workspace, so every wallet read first resolves the owner's default workspace.
-function database(data: unknown = snapshot) {return {rpc:vi.fn().mockImplementation(async(fn:string)=>fn==="ensure_default_portal_workspace"?{data:WORKSPACE,error:null}:{data,error:null})};}
+/** No reservation lives on the number ledger or elsewhere: every key lookup is empty. */
+const noRows={select:()=>noRows,eq:()=>noRows,maybeSingle:async()=>({data:null,error:null})};
+function database(data: unknown = snapshot) {return {from:()=>noRows,rpc:vi.fn().mockImplementation(async(fn:string)=>fn==="ensure_default_portal_workspace"?{data:WORKSPACE,error:null}:{data,error:null})};}
 describe("prepaid communication boundary",()=>{
  it("verifies the exact required amount and never uses saved-card eligibility",async()=>{
   const db=database({...snapshot,included_remaining_cents:2});

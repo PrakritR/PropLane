@@ -55,6 +55,13 @@ describe("isCommsCreditPoolEnabled", () => {
   });
 });
 
+/** No reservation lives on the manager-number ledger: every key lookup is empty. */
+const emptyRows: Record<string, unknown> = {
+  select: () => emptyRows,
+  eq: () => emptyRows,
+  maybeSingle: async () => ({ data: null, error: null }),
+};
+
 function fundingDb(rows: { funder_user_id: string; created_at: string }[], ownerId = OWNER) {
   return {
     from: (table: string) => {
@@ -284,7 +291,7 @@ describe("wallet.server dispatch on COMMS_CREDIT_POOL_ENABLED", () => {
 
   it("flag unset (default ON, captain 2026-09-28): reserveCommsCredit refuses rather than defaulting when no workspace is named", async () => {
     vi.stubEnv("COMMS_CREDIT_POOL_ENABLED", undefined);
-    const result = await reserveCommsCredit({} as never, {
+    const result = await reserveCommsCredit({ from: () => emptyRows } as never, {
       managerUserId: OWNER,
       meter: "sms_outbound_segment",
       idempotencyKey: "pool-key-unset",
@@ -294,7 +301,7 @@ describe("wallet.server dispatch on COMMS_CREDIT_POOL_ENABLED", () => {
 
   it("flag on: reserveCommsCredit refuses rather than defaulting when no workspace is named", async () => {
     vi.stubEnv("COMMS_CREDIT_POOL_ENABLED", "1");
-    const result = await reserveCommsCredit({} as never, {
+    const result = await reserveCommsCredit({ from: () => emptyRows } as never, {
       managerUserId: OWNER,
       meter: "sms_outbound_segment",
       idempotencyKey: "pool-key",
@@ -305,7 +312,7 @@ describe("wallet.server dispatch on COMMS_CREDIT_POOL_ENABLED", () => {
   it("flag on: finishCommsCredit reconciles through the pool function", async () => {
     vi.stubEnv("COMMS_CREDIT_POOL_ENABLED", "1");
     const rpc = vi.fn(async () => ({ data: true, error: null }));
-    await finishCommsCredit({ rpc } as never, OWNER, "pool-key-2", false);
+    await finishCommsCredit({ rpc, from: () => emptyRows } as never, OWNER, "pool-key-2", false);
     expect(rpc).toHaveBeenCalledWith("finish_comms_credit_pool", { p_manager_context: OWNER, p_key: "pool-key-2", p_release: false });
   });
 

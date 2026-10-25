@@ -27,7 +27,7 @@ describe("ResidentAgentSettings", () => {
     const assign = vi.fn();
     vi.stubGlobal("location", { ...window.location, assign });
     render(<ResidentAgentSettings snapshot={base} reload={async () => undefined} />);
-    expect(screen.getByText("Your own PropLane agent · $5 / month")).toBeTruthy();
+    expect(screen.getByText("Your own PropLane agent · $5/month + usage")).toBeTruthy();
     expect(screen.queryByText("Buy credit")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Subscribe" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
@@ -39,7 +39,7 @@ describe("ResidentAgentSettings", () => {
 
   it("not subscribed while numbers cannot be provisioned: Unavailable, no Subscribe", () => {
     render(<ResidentAgentSettings snapshot={{ ...base, available: false }} reload={async () => undefined} />);
-    expect(screen.getByText("Your own PropLane agent · $5 / month")).toBeTruthy();
+    expect(screen.getByText("Your own PropLane agent · $5/month + usage")).toBeTruthy();
     expect(screen.getByText("Unavailable")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Subscribe" })).toBeNull();
   });
@@ -101,7 +101,7 @@ describe("ResidentAgentSettings", () => {
     expect(screen.getByText("Number")).toBeTruthy();
     expect(screen.getByText(/555-0177/)).toBeTruthy();
     expect(screen.getByLabelText("Copy number")).toBeTruthy();
-    expect(screen.getByText("PropLane Number · $5 / month")).toBeTruthy();
+    expect(screen.getByText("PropLane Number · $5/month + usage")).toBeTruthy();
     expect(screen.getByLabelText("Manage plan")).toBeTruthy();
     expect(screen.getByText("Credit · $2.41")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Buy credit" })).toBeTruthy();

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Vendor Settings > Work number & email with the PropLane Number subscription: not subscribed ("Your own work
-// number $5 / month Subscribe"), subscribed (plan line + Manage, Credit + Buy credit), out of credit, paused.
+// number $5/month + usage Subscribe"), subscribed (plan line + Manage, Credit + Buy credit), out of credit, paused.
 // With the subscription off the page is exactly the free claim it always was.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
@@ -80,11 +80,11 @@ describe("subscription off", () => {
 });
 
 describe("not subscribed", () => {
-  it("shows 'Your own work number & email', '$5 / month' and Subscribe instead of the claim", async () => {
+  it("shows 'Your own work number & email', '$5/month + usage' and Subscribe instead of the claim", async () => {
     mockFetch(noNumberLocked, unsubscribed);
     const { findByText, queryByText } = render(<VendorWorkNumberSettings />);
     expect(await findByText("Your own work number & email")).toBeTruthy();
-    expect(await findByText("$5 / month")).toBeTruthy();
+    expect(await findByText("$5/month + usage")).toBeTruthy();
     expect(await findByText("Subscribe")).toBeTruthy();
     expect(queryByText("Find numbers")).toBeNull();
     expect(queryByText("Buy credit")).toBeNull();
@@ -161,7 +161,7 @@ describe("subscribed", () => {
     mockFetch(withNumber, subscribed);
     const { findByText, queryByText } = render(<VendorWorkNumberSettings />);
     expect(await findByText("+1 (206) 555-0142")).toBeTruthy();
-    expect(await findByText("PropLane Number · $5/month · renews Nov 8")).toBeTruthy();
+    expect(await findByText("PropLane Number · $5/month + usage · renews Nov 8")).toBeTruthy();
     expect(await findByText("$2.41 left this month · $10.00 bought")).toBeTruthy();
     expect(await findByText("Buy credit")).toBeTruthy();
     expect(queryByText("Subscribe")).toBeNull();
@@ -170,13 +170,13 @@ describe("subscribed", () => {
   it("a subscription set to end says when", async () => {
     mockFetch(withNumber, { ...subscribed, subscription: { ...subscribed.subscription!, cancelAtPeriodEnd: true } });
     const { findByText } = render(<VendorWorkNumberSettings />);
-    expect(await findByText("PropLane Number · $5/month · ends Nov 8")).toBeTruthy();
+    expect(await findByText("PropLane Number · $5/month + usage · ends Nov 8")).toBeTruthy();
   });
 
   it("a failed payment is said plainly", async () => {
     mockFetch(withNumber, { ...subscribed, subscription: { ...subscribed.subscription!, status: "past_due" } });
     const { findByText } = render(<VendorWorkNumberSettings />);
-    expect(await findByText("PropLane Number · $5/month · payment failed")).toBeTruthy();
+    expect(await findByText("PropLane Number · $5/month + usage · payment failed")).toBeTruthy();
   });
 
   it("Manage opens the billing portal", async () => {
@@ -191,7 +191,7 @@ describe("subscribed", () => {
     mockFetch(noNumber, subscribed);
     const { findByText } = render(<VendorWorkNumberSettings />);
     expect(await findByText("Find numbers")).toBeTruthy();
-    expect(await findByText("PropLane Number · $5/month · renews Nov 8")).toBeTruthy();
+    expect(await findByText("PropLane Number · $5/month + usage · renews Nov 8")).toBeTruthy();
   });
 });
 

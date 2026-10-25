@@ -120,7 +120,7 @@ export function ResidentAgentSettings({ snapshot, reload }: { snapshot: Resident
   const status = snapshot.subscription?.status;
   const entitled = status === "active" || status === "past_due";
   const number = snapshot.number;
-  const priceLabel = `$${((snapshot.priceCents ?? 500) / 100).toFixed(0)} / month`;
+  const priceLabel = `$${((snapshot.priceCents ?? 500) / 100).toFixed(0)}/month + usage`;
 
   // Back from Stripe Checkout (`?number=success`): the webhook that records the subscription and buys the number
   // can land a few seconds after the redirect, so poll quietly instead of offering a second Subscribe.
