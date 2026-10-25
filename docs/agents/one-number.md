@@ -1147,9 +1147,12 @@ gets "For <street, city>, text <number>."; anything else gets a reply that names
 
 ## W29 - Who the PropLane line serves (`on/lineserves`, Oct 25)
 
-One rule set for the PropLane line (the 206 number; production `line_mode` stays `per_workspace`). **Fail closed everywhere**: an unreadable
+One rule set for the PropLane line (the 206 number), in TWO modes. Production `line_mode` is `per_workspace` until the captain flips it to
+`shared` himself (Admin > Service > PropLane line > Mode); code never flips it. **Fail closed everywhere**: an unreadable
 table, a phone two verified accounts hold, an unverified phone or a missing entitlement is LESS access, never more. A "managed" workspace is
 `portal_workspaces.is_service` (attached client workspaces included) or one the line's own owner holds.
+
+### Mode `per_workspace` (the PropLane service owner's own number: homes PropLane manages only)
 
 | Who texts the line | Gets | Where |
 | --- | --- | --- |
@@ -1164,8 +1167,39 @@ table, a phone two verified accounts hold, an unverified phone or a missing enti
 | Self-serve manager, their team, residents, vendors with an open job | Not served: "This line is for homes PropLane manages. Text your work number <number>." (paid) else "...A personal work number comes with Pro: proplane.ai/pricing". A housing search, a jobs ask, STOP/HUMAN/emergency are not redirected | `line-member-status.server.ts`, `line-inbound.server.ts`, `self-serve-line.server.ts` |
 | Anyone texting a manager's own work number | Unchanged (it answers only for that workspace), plus the unclear-first-text question above | `inbound-pipeline.server.ts` |
 
+### Mode `shared` (Oct 25: the 206 is every free or trial manager's work number, with full service)
+
+`line_mode = shared` makes the 206 the work number of every workspace WITHOUT a personal number (`workspaceOnSharedLine`: not dedicated, inside
+the pilot list when there is one). Everything the per_workspace table says about "self-serve is not served" is per_workspace only; the
+"This line is for homes PropLane manages" / "I can only help with homes PropLane manages" replies never appear in shared mode.
+
+| Who texts the 206 | Gets | Where |
+| --- | --- | --- |
+| Free or trial manager (owner) / their teammate | The manager SMS assistant for THEIR workspace (as if they texted their own work number); every text they send to residents, vendors and leads goes out from the 206 | router `findTeamMemberCandidates` -> pipeline (`handleSharedLineInbound` `continue`) |
+| Their residents, vendors, applicants | Their normal flows for that workspace (resident assistant, vendor job flow, leasing) | router, same seam |
+| Prospect (stranger, or a resident searching) | The lead agent over the LINE catalog: managed homes plus every home without a personal number; a pick is handed to that home's workspace, which owns tours | `line-catalog.server.ts` (`getLineCatalogListings`), `unassigned-leads.server.ts` (`assignLeadToHouse` accepts a service workspace OR `workspaceOnSharedLine`) |
+| Prospect asking about a home WITH a personal number | "For 12 Elm St, Louisville, text (502) 555-0142." Nothing else. When that number cannot be named, nothing is said here (the lead flow answers) | `house-redirect.server.ts` (`deps.shared`) |
+| Anyone whose workspaces ALL have a personal number | The dedicated redirect: "<house> texts from (XXX) XXX-XXXX. Please text that number." | `dedicated-redirect.server.ts` (unchanged) |
+| Unknown number, UNCLEAR first text | The same role question; "manage my own" answers "Set up your homes here: https://proplane.ai/auth/create-account?role=manager You'll text from this number until you get your own." (the link stays bare: nothing glued to it) | `unknown-sender.server.ts`, `MANAGE_OWN_SHARED_REPLY` |
+| Admin, service-seat holders, owner of record, managed residents/vendors | As in § per_workspace (the pipeline's service-manager recognition and `handleLineMemberText` `shared_line` are mode independent) | unchanged |
+
+### Personal-number redirects (both modes, before any routing)
+
+`personalNumberRedirectFor` (`personal-number-redirect.server.ts`) runs first on the 206: in the shared seam (`handleSharedLineInbound`, before the
+member/owner/router steps) and on the per_workspace line (`answerPropLaneLineText`, after the sign-up intent check). A sender whose VERIFIED, unique
+profile phone owns:
+
+- an active resident PropLane Number with an entitled subscription (`NUMBER_SUBSCRIPTION_ENABLED` and `numberServiceEntitled`): "You have your own
+  PropLane number, (425) 555-0110. Text it to find homes, book tours and reach your manager."
+- a ROUTABLE vendor number (`getRoutableVendorNumber`: active and entitled): "Text your PropLane number (206) 555-0177 for jobs and messages."
+  (A person with both gets the vendor number for a work ask, the resident number otherwise.)
+
+is pointed at it. Lapsed, unreadable, unverified or shared phone = no redirect (they are served normally). Never redirected: STOP / HELP / START,
+HUMAN, emergencies (`isLineKeywordOrUrgentText`), a dispatch answer (`parseVendorDispatchReply`), "is it fixed?" answers, and any account that holds a
+manager-side role or a workspace seat (their texts here run houses). Reads only.
+
 Invariants: the first-text question is asked once per number (nothing was ever sent to it, `sms_outbox`, AND no `asked_at` inside the window - so a
 burst of unclear texts is asked once), its answer is read only within 24 hours of `asked_at` and only when no role is chosen, the answer carries the
 opt-out notice the fixed question cannot, and a webhook retry answers once (`dedupe_key line_role_<sid>`). A seat's admin-ness is never inferred:
-the legacy `profiles.role` and the ops email are not evidence for the phone door. Shared-line mode is untouched and stays off. Tests:
-`tests/unit/{propline-line-policy,propline-first-text-classifier,propline-first-text,one-number-house-redirect,one-number-line-status,one-number-line-resident,service-manager,service-manager-pipeline-wiring,one-number-unknown-sender}.test.ts`.
+the legacy `profiles.role` and the ops email are not evidence for the phone door. Shared mode (above) is code-complete but OFF in production until the captain flips `line_mode`; per_workspace behaviour is unchanged by it. Tests:
+`tests/unit/{propline-shared-mode,propline-personal-number-redirect,propline-line-policy,propline-first-text-classifier,propline-first-text,one-number-house-redirect,one-number-line-status,one-number-line-resident,service-manager,service-manager-pipeline-wiring,one-number-unknown-sender}.test.ts`.

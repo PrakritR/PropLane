@@ -149,3 +149,27 @@ Service > Vendors. A roster vendor is a `manager_vendor_records` row OWNED BY TH
 - `serviceRosterVendorsForTrade(db, { workspaceId, trade })` (`service-roster.server.ts`, re-exported from `src/lib/service/service-vendors.server.ts`) is
   the hook `fallbackChain` calls (`on/paycore`'s call site); `[]` for any workspace that is not a service workspace.
 Files: `src/lib/vendor-dispatch/service-roster.server.ts`, `tests/unit/service-roster-dispatch.test.ts`.
+
+## Vendor work on their own number, Message vendor, Post to the board, Tours (Oct 25)
+
+- **"Any work?" on the vendor's OWN number.** `routeVendorOwnText` (`vendor-work-identity-inbound.server.ts`) first offers a short work ask from the vendor's
+  verified phone (`asksForWorkOnOwnNumber`, deterministic, <= 80 chars; control words never) to `handleOwnNumberWorkText`
+  (`one-number/vendor-jobs/own-number-work.server.ts`). Reply: ONE numbered list, jobs offered to THIS vendor first (`vendor_dispatch_attempts` still
+  `offered`, found through the vendor's own `manager_vendor_records`; "sent to you by <first name>"), then the public board through the same
+  `list_open_jobs_near` read the 206 uses ("open to all"), a job on both shown once, max 5, <= 2 GSM-7 segments, general area only (never a street, unit
+  or resident). The list is saved on the vendor's own-number chat session (45 minute TTL); "2" / "see 2" shows it, "bid 2 $120" bids: a public job through
+  `requestBoardJob` (the Find work offer), a job sent to them through `recordVendorYes` (the SMS `YES $price` call). The "Reply to" manager prompt retires
+  the list so a later bare number still picks a manager. Every other text keeps the relay; any failure falls through to it. A client texting the number is
+  unchanged.
+- **`message_vendor`** (manager registries: portal + manager SMS, confirm-first, not destructive; `tools/domains/vendor-message.ts`). The vendor is matched
+  against the manager's OWN roster (`manager_vendor_records` by `ctx.landlordId`, id first then exact then partial name; none or several = refused, nothing
+  sent) at preview AND execute, then sent through `sendManagerConversationSms` -> `sendRosterVendorText`: the workspace's send line (the 206 in shared mode
+  for a free manager) to the vendor's dedicated number when routable, else their saved phone (`providerDestinationFor`). It is in
+  `COMMUNICATION_SENDING_TOOLS` (a trial owner cannot use it) and NOT in `CO_MANAGER_SCOPED_TOOLS` (a delegated co-manager does not get it: neither the
+  roster SMS path nor the tool can enforce per-module edit access for a delegated actor). The confirmed card is the "I work with this vendor" attestation
+  on a first text.
+- **`post_service_to_board`** (same registries, confirm-first; `tools/domains/service-board.ts`) wraps `publishServiceToBoard` with the same checks as
+  `POST /api/portal/service-publish` (business access normal; the service loaded by `manager_user_id`, workspace-scoped, open) and refuses a delegated
+  actor. Vendors see the trade, title and general area only.
+- **Tours** is a board category (`tours`, "Tours" vendor trade): a tour-host job (`vendor-dispatch/trades.ts` `tour_host`) can be PUBLISHED, not only
+  privately dispatched. Cleaning was already a category. Tests: `tests/unit/{vendor-own-number-work-ask,message-vendor-tool,post-service-to-board-tool}.test.ts`.

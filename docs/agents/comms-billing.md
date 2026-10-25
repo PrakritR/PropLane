@@ -123,6 +123,21 @@ The free vendor number above becomes the subscription; flag off, the "Vendor wor
 - **Account deletion cancels the subscription** before its rows are purged ([vendor-portal.md](vendor-portal.md)
   § PropLane Number). Unspent credit is forfeited with the account.
 
+### Manager side (Oct 25): the Free manager's add-on bills the number credit, not the empty wallet
+
+A Free manager who holds the standalone $5/month + usage PropLane Number (`number_subscriptions.owner_role = 'manager'`, entitled = `active | past_due`;
+one answer: `managerPersonalNumberEntitlement` reports `via: "add_on"`) has no plan credit and an empty workspace wallet. Their message credit
+(sms out/in segments, AI turns: the same rate card) is therefore reserved, settled and refunded on the SUBSCRIPTION's ledger ($3 included each UTC month,
+`NUMBER_INCLUDED_CREDIT_CENTS`, then bought credit) through the same `reserveNumberCredit` / `finishNumberCredit` / `settleNumberCreditQuantity` triple the
+vendor and resident numbers use. `src/lib/comms-billing/manager-number-credit.server.ts` decides the source ONCE per reservation key (a key already on
+the number ledger stays there; a new key follows the entitlement), so reserve, settle and refund can never land on different ledgers even if the add-on
+lapses mid-flight. `reserveCommsCredit`, `finishCommsCredit` and `settleCommsCreditQuantity` (`wallet.server.ts`) are the only switch points, so every
+caller (SMS dispatcher, AI turns, received texts, house groups, leasing/vendor agents, email auto-reply) follows. `evaluateManagerCommsBillingGate`
+(and so `evaluateWorkspaceSendReadiness`) reads the number credit balance for such a manager; an unreadable balance, plan or ledger lookup is a refusal,
+never a free send. Pro / Business keep their plan credit, a Free manager without the add-on and a lapsed add-on are unchanged, an unreadable plan stays on
+the wallet path. Not covered: voice calls (`reserveBoundedVoiceCall` still sizes from the wallet), and a routed manager does not fall back to leftover wallet
+credit when the number credit runs out. Tests: `tests/unit/manager-number-credit-routing.test.ts`.
+
 ## Add-ons
 
 Past the bundle a paying account adds units from Settings → Billing & plan
