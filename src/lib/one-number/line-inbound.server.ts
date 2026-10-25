@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { handleLineMemberText, isLineKeywordOrUrgentText } from "@/lib/one-number/line-member-status.server";
+import { personalNumberRedirectFor } from "@/lib/one-number/personal-number-redirect.server";
 import { handleLineResidentText } from "@/lib/one-number/line-resident.server";
 import { isHousingSearchText } from "@/lib/one-number/line-intent";
 import { findResidentCandidates, findVendorJobCandidates, findVerifiedProfileByPhone } from "@/lib/one-number/router-lookups.server";
@@ -24,7 +25,7 @@ import { normalizeConsentPhone } from "@/lib/sms-consent";
  * the text goes down the path it always took. Called from the inbound pipeline after the work-number manager fork
  * and before the vendor and resident forks; the shared-line seam calls `handleLineMemberText` itself.
  */
-export type PropLaneLineAnswer = { reply: string; actorUserId: string; kind: "member" | "resident" | "self_serve" };
+export type PropLaneLineAnswer = { reply: string; actorUserId: string; kind: "member" | "resident" | "self_serve" | "number_redirect" };
 
 export async function answerPropLaneLineText(
   db: SupabaseClient,
@@ -38,6 +39,11 @@ export async function answerPropLaneLineText(
   // "Sign me up as a manager" is the sign-up flow's, even from someone who already has an account: it tells them so and
   // texts a sign-in link instead of the member status ("I can only share status on this line").
   if (readSignupIntent(input.body).wantsSignup) return null;
+
+  // Someone who pays for their own PropLane number is pointed at it, in both line modes, before the line answers anything
+  // else. Lapsed or unreadable = no redirect; keywords and emergencies are never redirected.
+  const redirect = await personalNumberRedirectFor(db, { fromPhone: input.fromPhone, body: input.body });
+  if (redirect) return { reply: redirect.reply, actorUserId: redirect.actorUserId, kind: "number_redirect" };
 
   const member = await handleLineMemberText(db, {
     fromPhone: input.fromPhone,

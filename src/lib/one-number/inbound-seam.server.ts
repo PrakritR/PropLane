@@ -109,6 +109,15 @@ export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInp
       console.error("house group preference failed", error instanceof Error ? error.name : "unknown");
     }
   }
+  // Someone who pays for their own PropLane number (a resident's, or a vendor's routable one) is pointed at it before any
+  // routing, in both line modes (`line-inbound.server.ts` does the same on the per_workspace line). Lapsed = served here.
+  try {
+    const { personalNumberRedirectFor } = await import("@/lib/one-number/personal-number-redirect.server");
+    const redirect = await personalNumberRedirectFor(db, { fromPhone: input.fromPhone, body: input.body });
+    if (redirect) return { kind: "handled", twiml: redirect.reply };
+  } catch (error) {
+    console.error("personal number redirect failed", error instanceof Error ? error.name : "unknown");
+  }
   // The owner of a PropLane-managed workspace asking about their house, or answering a repair approval. The router's team lane
   // excludes owners and its role contracts are fixed, so this answers first, only for clearly owner questions; everything else
   // (and everyone else) falls straight through to normal routing.
