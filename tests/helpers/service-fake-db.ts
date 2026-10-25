@@ -41,7 +41,7 @@ export function makeServiceFakeDb(initial: Record<string, Row[]> = {}): ServiceF
         if (db.failOn[table] && mode === "select" && !pendingInsert) return { data: null, error: db.failOn[table]! };
         if (pendingInsert) {
           if (db.failInsertOn.has(table)) return { data: null, error: { code: "XX000", message: "insert failed" } };
-          const row = { id: newId(), ...pendingInsert };
+          const row = { id: newId(), ...(table === "manager_invite_links" ? { used_count: 0 } : {}), ...pendingInsert };
           rows().push(row);
           return { data: [row], error: null };
         }
@@ -83,6 +83,14 @@ export function makeServiceFakeDb(initial: Record<string, Row[]> = {}): ServiceF
         not: (col: string, op: string, value: unknown) => (
           filters.push((r) => (op === "is" && value === null ? r[col] != null : r[col] !== value)), q
         ),
+        lt: (col: string, value: number) => (filters.push((r) => Number(r[col]) < value), q),
+        gt: (col: string, value: number) => (filters.push((r) => Number(r[col]) > value), q),
+        neq: (col: string, value: unknown) => (filters.push((r) => r[col] !== value), q),
+        like: (col: string, pattern: string) => {
+          // Only the `prefix%` shape the service layer uses.
+          const prefix = pattern.endsWith("%") ? pattern.slice(0, -1) : pattern;
+          return (filters.push((r) => typeof r[col] === "string" && (pattern.endsWith("%") ? String(r[col]).startsWith(prefix) : r[col] === pattern)), q);
+        },
         limit: () => q,
         order: (col: string) => ((orderBy = { col }), q),
         maybeSingle: async () => {

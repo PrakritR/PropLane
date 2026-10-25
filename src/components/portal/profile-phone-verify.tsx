@@ -7,8 +7,9 @@ import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 
 const FALLBACK_ERROR = "We couldn't verify this number. Try again.";
 
-async function postPhone(path: "start" | "verify", body: Record<string, unknown>) {
-  const res = await fetch(`/api/auth/phone/${path}`, {
+async function postPhone(step: "start" | "verify", body: Record<string, unknown>) {
+  // Literal paths (not a template): the route-resolution guard reads them as written.
+  const res = await fetch(step === "start" ? "/api/auth/phone/start" : "/api/auth/phone/verify", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },

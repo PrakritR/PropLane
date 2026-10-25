@@ -159,17 +159,26 @@ function CoManagerRoleSelect({
   onChange,
   disabled,
   dataAttr = "co-manager-role",
+  ownerOption = false,
 }: {
   value: TeamRoleId;
   onChange: (next: TeamRoleId) => void;
   disabled?: boolean;
   dataAttr?: string;
+  ownerOption?: boolean;
 }) {
   return (
     <FieldSingleSelect
       label="Role"
-      // An existing Property owner row still lists as one (editing it must not blank the select); no new invite offers it.
-      options={value === "property_owner" ? [{ value: "property_owner" as const, label: TEAM_ROLE_LABELS.property_owner }, ...TEAM_ROLE_INVITE_OPTIONS] : TEAM_ROLE_INVITE_OPTIONS}
+      // An existing Property owner row still lists as one (editing it must not blank the select); no new invite offers
+      // it, except a PropLane Service workspace, where the client's owner of record is a role of its own ("Owner").
+      options={
+        ownerOption
+          ? [...TEAM_ROLE_INVITE_OPTIONS, { value: "property_owner" as const, label: "Owner" }]
+          : value === "property_owner"
+            ? [{ value: "property_owner" as const, label: TEAM_ROLE_LABELS.property_owner }, ...TEAM_ROLE_INVITE_OPTIONS]
+            : TEAM_ROLE_INVITE_OPTIONS
+      }
       // The legacy Full access stamp is the same grant as Admin and lists as it.
       value={value === "full" ? "admin" : value}
       onChange={(next) => onChange(next as TeamRoleId)}
@@ -234,7 +243,13 @@ export function WorkspacePermissionsFields({
   roleDataAttr = "co-manager-role",
   houseScopeDataAttr = "team-house-scope",
   selectedHousesDataAttr = "team-member-houses",
+  ownerOption = false,
+  hideHouses = false,
 }: {
+  /** PropLane Service: offer "Owner" (the client's owner of record) after the team roles. */
+  ownerOption?: boolean;
+  /** The Owner role sees the whole workspace, so there is no house scope to pick. */
+  hideHouses?: boolean;
   role: TeamRoleId;
   onRoleChange: (next: TeamRoleId) => void;
   houseScope: HouseScope;
@@ -251,8 +266,8 @@ export function WorkspacePermissionsFields({
 }) {
   return (
     <>
-      <CoManagerRoleSelect value={role} onChange={onRoleChange} disabled={disabled} dataAttr={roleDataAttr} />
-      {workspace ? (
+      <CoManagerRoleSelect value={role} onChange={onRoleChange} disabled={disabled} dataAttr={roleDataAttr} ownerOption={ownerOption} />
+      {workspace && !hideHouses ? (
         <HouseScopeSelect
           value={houseScope}
           disabled={disabled}
@@ -263,7 +278,7 @@ export function WorkspacePermissionsFields({
           allowAll={role !== "property_owner"}
         />
       ) : null}
-      {houseScope === "selected" || !workspace ? (
+      {!hideHouses && (houseScope === "selected" || !workspace) ? (
         <CheckboxMultiSelect
           label={workspace ? "Selected houses" : "Houses"}
           labelClassName="text-xs font-semibold text-foreground"

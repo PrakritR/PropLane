@@ -15,6 +15,7 @@ import {
   renameServiceWorkspace,
   setServiceOwnerOfRecord,
   setServiceWorkspaceFee,
+  updateServiceTeamAccess,
   type ServiceFailure,
 } from "@/lib/service/service-workspaces.server";
 
@@ -25,7 +26,10 @@ const NO_STORE = { "Cache-Control": "private, no-store" };
 const SERVICE_OPEN_HREF = "/portal/dashboard";
 
 function failure(result: ServiceFailure) {
-  return NextResponse.json({ error: result.error }, { status: result.status, headers: NO_STORE });
+  return NextResponse.json(
+    { error: result.error, ...(result.code ? { code: result.code, ownerName: result.ownerName } : {}) },
+    { status: result.status, headers: NO_STORE },
+  );
 }
 
 /**
@@ -53,9 +57,14 @@ export async function POST(request: Request) {
 
   switch (body.action) {
     case "create": {
-      const result = await createServiceWorkspace(db, admin.userId, { name: body.name, city: body.city, ownerOfRecord: body.ownerOfRecord });
+      const result = await createServiceWorkspace(db, admin.userId, {
+        name: body.name,
+        city: body.city,
+        ownerOfRecord: body.ownerOfRecord,
+        ownerContact: body.ownerContact,
+      });
       if (!result.ok) return failure(result);
-      return NextResponse.json({ id: result.id }, { status: 201, headers: NO_STORE });
+      return NextResponse.json({ id: result.id, ownerInvite: result.ownerInvite }, { status: 201, headers: NO_STORE });
     }
     case "attach-candidates": {
       const result = await listServiceAttachCandidates(db, admin.userId, body.query);
@@ -111,9 +120,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, linkId: result.linkId }, { status: 201, headers: NO_STORE });
     }
     case "team-invite": {
-      const result = await inviteServiceClient(db, admin.userId, { id, proplaneId: body.proplaneId, email: body.email, ownerOfRecord: body.ownerOfRecord });
+      // Role, houses and module levels are parsed and re-derived by the service layer (the same validators the
+      // manager invite uses); a body id or role is a request, never a grant.
+      const result = await inviteServiceClient(db, admin.userId, {
+        id,
+        proplaneId: body.proplaneId,
+        email: body.email,
+        ownerOfRecord: body.ownerOfRecord,
+        replaceOwner: body.replaceOwner,
+        inviteeName: body.inviteeName,
+        teamRole: body.teamRole,
+        houseScope: body.houseScope,
+        assignedPropertyIds: body.assignedPropertyIds,
+        propertyCoManagerPermissions: body.propertyCoManagerPermissions,
+        coManagerPermissions: body.coManagerPermissions,
+        workspacePermissions: body.workspacePermissions,
+      });
       if (!result.ok) return failure(result);
-      return NextResponse.json({ ok: true, linkId: result.linkId }, { status: 201, headers: NO_STORE });
+      return NextResponse.json(
+        { ok: true, linkId: result.linkId, delivery: result.delivery, ownerReplaced: result.ownerReplaced },
+        { status: 201, headers: NO_STORE },
+      );
+    }
+    case "team-access": {
+      const result = await updateServiceTeamAccess(db, admin.userId, {
+        id,
+        linkId: body.linkId,
+        teamRole: body.teamRole,
+        houseScope: body.houseScope,
+        assignedPropertyIds: body.assignedPropertyIds,
+        propertyCoManagerPermissions: body.propertyCoManagerPermissions,
+        coManagerPermissions: body.coManagerPermissions,
+        workspacePermissions: body.workspacePermissions,
+      });
+      if (!result.ok) return failure(result);
+      return NextResponse.json({ ok: true }, { headers: NO_STORE });
     }
     case "team-owner-of-record": {
       const result = await setServiceOwnerOfRecord(db, admin.userId, { id, linkId: body.linkId, value: body.value });
@@ -121,7 +162,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true }, { headers: NO_STORE });
     }
     case "team-remove": {
-      const result = await removeServiceTeamMember(db, admin.userId, { id, linkId: body.linkId });
+      const result = await removeServiceTeamMember(db, admin.userId, { id, linkId: body.linkId, inviteLinkId: body.inviteLinkId });
       if (!result.ok) return failure(result);
       return NextResponse.json({ ok: true }, { headers: NO_STORE });
     }
