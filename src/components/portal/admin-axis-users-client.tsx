@@ -18,6 +18,7 @@ import {
 } from "@/components/portal/filter-field-lists";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalEntryRow, type PortalEntryRowFact } from "@/components/portal/portal-entry-row";
+import type { DestinationNavItem } from "@/components/ui/destination-nav";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,41 @@ const SEARCH_DEBOUNCE_MS = 250;
 type CategoryFilter = "management" | "resident" | "vendor";
 type StatusTab = "active" | "disabled";
 type TierFilter = "all" | "free" | "pro" | "business";
+/** The Plan filter (Managers): the Paid / Trial / Promo / Free buckets the Dashboard cards count. */
+type PlanFilter = "all" | "paid" | "trial" | "promo" | "free";
+
+const PLAN_OPTIONS: { id: PlanFilter; label: string; dataAttr: string }[] = [
+  { id: "all", label: "All plans", dataAttr: "admin-accounts-plan-all" },
+  { id: "paid", label: "Paid", dataAttr: "admin-accounts-plan-paid" },
+  { id: "trial", label: "Trial", dataAttr: "admin-accounts-plan-trial" },
+  { id: "promo", label: "Promo", dataAttr: "admin-accounts-plan-promo" },
+  { id: "free", label: "Free", dataAttr: "admin-accounts-plan-free" },
+];
+
+/** `?plan=` is user-supplied (the Dashboard cards and a promo code's accounts link set it). */
+function planFromParam(raw: string | null): PlanFilter {
+  return raw === "paid" || raw === "trial" || raw === "promo" || raw === "free" ? raw : "all";
+}
+
+/**
+ * The counted role tabs of Accounts: Managers · Residents · Vendors, then Test for an operator. Test opens the
+ * Test accounts list, which draws the same strip, so the four read as one set of tabs.
+ */
+export function adminAccountRoleTabs({
+  counts,
+  showTestTab,
+}: {
+  counts?: { manager: number; resident: number; vendor: number };
+  showTestTab: boolean;
+}): DestinationNavItem[] {
+  const tabs: DestinationNavItem[] = [
+    { id: "management", label: "Managers", count: counts?.manager, href: "/admin/axis-users?category=management", dataAttr: "admin-accounts-tab-management" },
+    { id: "resident", label: "Residents", count: counts?.resident, href: "/admin/axis-users?category=resident", dataAttr: "admin-accounts-tab-resident" },
+    { id: "vendor", label: "Vendors", count: counts?.vendor, href: "/admin/axis-users?category=vendor", dataAttr: "admin-accounts-tab-vendor" },
+  ];
+  if (showTestTab) tabs.push({ id: "test", label: "Test", href: "/admin/test-accounts", dataAttr: "admin-accounts-tab-test" });
+  return tabs;
+}
 
 /**
  * The plan facts `/api/admin/manager-billing` derives (`AdminBillingRow`,
@@ -121,6 +157,38 @@ function AccountStatusFilterField({
   );
 }
 
+/** Plan (Paid, Trial, Promo, Free) — same shape as {@link AccountStatusFilterField}, shown only for the Managers tab. */
+function AccountPlanFilterField({
+  value,
+  onChange,
+}: {
+  value: PlanFilter;
+  onChange: (next: PlanFilter) => void;
+}) {
+  const closeFieldMenu = useFilterAccordionClose();
+  const selectOptions = PLAN_OPTIONS.map((opt) => ({ value: opt.id, label: opt.label }));
+  const summary = filterSingleSelectSummary(value, selectOptions, "All plans");
+
+  return (
+    <FilterCollapsibleSection
+      sectionId="account-plan"
+      label="Plan"
+      summary={summary}
+      empty={value === "all"}
+      menuOptionCount={selectOptions.length}
+      dataAttr="admin-accounts-plan-trigger"
+    >
+      <FilterSingleSelectList
+        options={selectOptions}
+        value={value}
+        onChange={(next) => onChange(next as PlanFilter)}
+        onPick={closeFieldMenu}
+        dataAttr="admin-accounts-plan"
+      />
+    </FilterCollapsibleSection>
+  );
+}
+
 /** Plan tier — same shape as {@link AccountStatusFilterField}, shown only for the Managers tab. */
 function AccountTierFilterField({
   value,
@@ -158,7 +226,8 @@ function AccountTierFilterField({
 export function AdminAxisUsersClient({
   detailId,
   detailSection,
-}: { detailId?: string; detailSection?: string } = {}) {
+  showTestTab = false,
+}: { detailId?: string; detailSection?: string; showTestTab?: boolean } = {}) {
   const navigate = usePortalNavigate();
   if (detailId) {
     const parsed = parseAdminAccountKey(detailId);
@@ -171,10 +240,10 @@ export function AdminAxisUsersClient({
       />
     );
   }
-  return <AdminAccountsList />;
+  return <AdminAccountsList showTestTab={showTestTab} />;
 }
 
-function AdminAccountsList() {
+function AdminAccountsList({ showTestTab }: { showTestTab: boolean }) {
   const { showToast } = useAppUi();
   const navigate = usePortalNavigate();
   // Category is the top-level tab, so it lives in the URL like every other
@@ -185,6 +254,8 @@ function AdminAccountsList() {
 
   const [statusTab, setStatusTab] = useState<StatusTab>("active");
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
+  // Seeded from `?plan=` so a Dashboard card (Paid / On trial / Promo users) lands on its bucket.
+  const [planFilter, setPlanFilter] = useState<PlanFilter>(() => planFromParam(searchParams.get("plan")));
   // Global per-plan messaging-credit defaults (S27) — a GLOBAL, not
   // per-account, setting, so it lives behind a header action rather than
   // inside any one row's editor. See `PlanCreditRulesSection`'s doc comment
@@ -245,6 +316,7 @@ function AdminAccountsList() {
     void (async () => {
       try {
         const params = new URLSearchParams({ kind, q: debouncedQuery });
+        if (kind === "manager" && planFilter !== "all") params.set("plan", planFilter);
         const res = await fetchWithTimeout(`/api/admin/accounts/search?${params.toString()}`, {}, ADMIN_FETCH_TIMEOUT_MS);
         const json = (await res.json().catch(() => ({}))) as Partial<AdminAccountSearchResult> & { error?: string };
         if (cancelled) return;
@@ -273,7 +345,7 @@ function AdminAccountsList() {
     return () => {
       cancelled = true;
     };
-  }, [kind, debouncedQuery, reloadTick]);
+  }, [kind, debouncedQuery, planFilter, reloadTick]);
 
   // Each manager row's plan (C167) — one bulk read, same route the retired
   // Billing list used, never a per-row fan-out. The read walks every manager in
@@ -343,15 +415,7 @@ function AdminAccountsList() {
           vendor: result.counts.vendor - result.activeCounts.vendor,
         }
     : undefined;
-  const ROLE_TABS = [
-    { id: "management", label: "Managers", count: counts?.manager },
-    { id: "resident", label: "Residents", count: counts?.resident },
-    { id: "vendor", label: "Vendors", count: counts?.vendor },
-  ].map((tab) => ({
-    ...tab,
-    href: `/admin/axis-users?category=${tab.id}`,
-    dataAttr: `admin-accounts-tab-${tab.id}`,
-  }));
+  const ROLE_TABS = adminAccountRoleTabs({ counts, showTestTab });
 
   const TIER_OPTIONS: { id: TierFilter; label: string; dataAttr: string }[] = [
     { id: "all", label: "All tiers", dataAttr: "admin-accounts-tier-all" },
@@ -464,21 +528,24 @@ function AdminAccountsList() {
             <PortalFilterSortSheet
               activeCount={portalFilterActiveCount([
                 statusTab !== "active" ? statusTab : "",
+                showTierFilter && planFilter !== "all" ? planFilter : "",
                 showTierFilter && tierFilter !== "all" ? tierFilter : "",
               ])}
               compactPanel
               commandStripTrigger
-              filterFieldCount={showTierFilter ? 2 : 1}
+              filterFieldCount={showTierFilter ? 3 : 1}
               constrainDropdownToTitleBand={false}
               mobileFlushBody
               onReset={() => {
                 setStatusTab("active");
                 setTierFilter("all");
+                setPlanFilter("all");
               }}
               dataAttr="admin-accounts-filter-sheet-open"
             >
               <FilterFieldsAccordion>
                 <AccountStatusFilterField value={statusTab} options={STATUS_TABS} onChange={setStatusTab} />
+                {showTierFilter ? <AccountPlanFilterField value={planFilter} onChange={setPlanFilter} /> : null}
                 {showTierFilter ? (
                   <AccountTierFilterField value={tierFilter} options={TIER_OPTIONS} onChange={setTierFilter} />
                 ) : null}

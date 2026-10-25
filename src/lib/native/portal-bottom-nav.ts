@@ -148,7 +148,7 @@ export const NATIVE_BOTTOM_NAV_RESIDENT_PRE_LEASE_PRIMARY = NATIVE_BOTTOM_NAV_RE
 /** Post-lease (both parties signed). */
 export const NATIVE_BOTTOM_NAV_RESIDENT_PRIMARY = residentBottomNavPrimarySections("post_lease");
 
-export const NATIVE_BOTTOM_NAV_ADMIN_PRIMARY = ["dashboard", "properties", "axis-users", "bugs-feedback"] as const;
+export const NATIVE_BOTTOM_NAV_ADMIN_PRIMARY = ["dashboard", "service", "axis-users", "bugs-feedback"] as const;
 
 // Services · Calendar · Dashboard · Communication (+ More).
 export const NATIVE_BOTTOM_NAV_VENDOR_PRIMARY = ["work-orders", "calendar", "dashboard", "communication"] as const;

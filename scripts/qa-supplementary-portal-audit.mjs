@@ -121,7 +121,7 @@ async function main() {
   const adminChecks = [
     ["/admin/communication/inbox/unopened", "Admin inbox unopened", /unopened|inbox|email|no /i],
     ["/admin/axis-users", "Admin accounts", /manager|resident|vendor|create/i],
-    ["/admin/properties", "Admin properties", /propert|address|no /i],
+    ["/admin/service", "Admin service", /service|workspace|no /i],
     ["/admin/events", "Admin meetings", /meeting|event|calendar|no /i],
   ];
   for (const [path, label, pattern] of adminChecks) {

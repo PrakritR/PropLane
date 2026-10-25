@@ -221,7 +221,7 @@ export type AdminProfileScanRow = {
   created_at: string | null;
 };
 
-const PROFILE_SCAN_SELECT = "id, email, full_name, phone, manager_id, role, application_approved, created_at";
+export const PROFILE_SCAN_SELECT = "id, email, full_name, phone, manager_id, role, application_approved, created_at";
 const PROFILE_SCAN_WINDOW = 200;
 const PROFILE_SCAN_MAX_WINDOWS = 10;
 

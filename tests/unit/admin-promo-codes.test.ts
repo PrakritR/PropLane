@@ -350,7 +350,7 @@ describe("the promo code list covers every code in use", () => {
       purchase({ user_id: "u2", email: "c@d.co", promo_code: "free100" }),
     ];
     const active = buildWaiverCodeRows(purchases, "FREE100").find((r) => r.code === "FREE100")!;
-    expect(active).toMatchObject({ kind: "waiver", accounts: 2, status: "active", accountsHref: "/admin/subscribers?tab=promo&q=FREE100" });
+    expect(active).toMatchObject({ kind: "waiver", accounts: 2, status: "active", accountsHref: "/admin/axis-users?category=management&plan=promo&q=FREE100" });
     const off = buildWaiverCodeRows(purchases, null).find((r) => r.code === "FREE100")!;
     expect(off).toMatchObject({ accounts: 2, status: "inactive" });
   });

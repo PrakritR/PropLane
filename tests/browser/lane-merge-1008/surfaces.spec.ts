@@ -90,31 +90,6 @@ const REVENUE_PAGE = {
   generatedAt: new Date().toISOString(),
 };
 
-const subscriber = (over: Record<string, unknown>) => ({
-  source: "stripe",
-  since: "2026-06-01T00:00:00.000Z",
-  trialEndsAt: null,
-  trialDaysLeft: null,
-  promoCode: null,
-  stripeSubscriptionId: "sub_1",
-  stripeCustomerId: "cus_1",
-  renewsAt: "2026-11-01T00:00:00.000Z",
-  ...over,
-});
-
-const SUBSCRIBERS_PAGE = {
-  rows: [
-    subscriber({ id: "mgr-abc", accountKey: "manager-mgr-abc", email: "mia@example.com", name: "Mia Manager", bucket: "paid", tier: "pro", planLabel: "Pro monthly", monthlyCents: 4900 }),
-    subscriber({ id: "mgr-def", accountKey: "manager-mgr-def", email: "dana@example.com", name: "Dana Owner", bucket: "trial", tier: "pro", planLabel: "Pro trial", monthlyCents: null, trialEndsAt: "2026-10-10", trialDaysLeft: 2, source: "staff" }),
-    subscriber({ id: "mgr-ghi", accountKey: "manager-mgr-ghi", email: "sam@example.com", name: "Sam Complimentary", bucket: "complimentary", tier: "business", planLabel: "Business annual", monthlyCents: null, promoCode: "FOUNDER50", source: "staff", stripeSubscriptionId: null }),
-  ],
-  counts: { all: 3, paid: 1, trial: 1, complimentary: 1, free: 0, canceled: 0 },
-  total: 3,
-  page: 1,
-  pageSize: 25,
-  generatedAt: new Date().toISOString(),
-};
-
 const pnlMonth = (month: string, over: Record<string, number> = {}) => ({
   month,
   streams: { subscriptions: 49_000, credits: 12_500, numbers: 3500, serviceFees: 8400, ...over },
@@ -239,7 +214,6 @@ test.beforeEach(async ({ page }) => {
     const json = (body: unknown) => route.fulfill({ contentType: "application/json", body: JSON.stringify(body) });
     if (url.pathname === "/api/admin/revenue") return json(REVENUE_PAGE);
     if (url.pathname === "/api/portal/sheet-link") return json(SHEET_LINKS);
-    if (url.pathname === "/api/admin/subscribers") return json(SUBSCRIBERS_PAGE);
     if (url.pathname === "/api/admin/finances") return json(PLATFORM_PNL);
     if (url.pathname === "/api/admin/expenses") return json({ expenses: EXPENSES });
     if (url.pathname === "/api/admin/growth/video-status")
@@ -354,17 +328,6 @@ test("admin Money - Payments lists the platform Stripe rows with their tabs and 
     expect(body).toContain(label);
   }
   expect(body).toContain("PropLane Number");
-  expect(errors).toEqual([]);
-});
-
-test("admin Money - Subscribers shows the plan, a live trial and a complimentary account", async ({ page }) => {
-  const errors = await open(page, "admin-subscribers");
-  await page.waitForSelector("text=Mia Manager");
-  await page.screenshot({ path: path.join(SHOTS, "admin-money-subscribers.png"), fullPage: true });
-  const body = await page.locator("body").innerText();
-  expect(body).toContain("Pro monthly");
-  expect(body).toContain("Pro trial");
-  expect(body).toContain("Sam Complimentary");
   expect(errors).toEqual([]);
 });
 

@@ -127,12 +127,11 @@ describe("admin Test accounts rows open a routed record page", () => {
   });
 });
 
-describe("admin routes forward a detail segment for properties, accounts and test workspaces", () => {
+describe("admin routes forward a detail segment for accounts and test workspaces", () => {
   const src = read("src/lib/render-portal-section.tsx");
 
-  it("properties, axis-users and test-accounts each pass detailId through", () => {
-    expect(src).toContain("<AdminPropertiesClient detailId={detailId} />");
-    expect(src).toContain("<AdminAxisUsersClient detailId={detailId} detailSection={detailSection} />");
+  it("axis-users and test-accounts each pass detailId through, and Properties is gone", () => {
+    expect(src).toContain("<AdminAxisUsersClient detailId={detailId} detailSection={detailSection} showTestTab={showTestTab} />");
     expect(src).toContain("<AdminTestWorkspacesClient detailId={detailId} />");
   });
 });

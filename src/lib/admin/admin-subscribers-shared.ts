@@ -60,8 +60,3 @@ export type SubscriberRow = {
 };
 
 export type SubscriberCounts = Record<SubscriberBucket, number>;
-
-/** A trial inside its last three days draws amber text (never a pill). */
-export function trialEndsSoon(row: Pick<SubscriberRow, "trialDaysLeft">): boolean {
-  return row.trialDaysLeft !== null && row.trialDaysLeft <= 3;
-}

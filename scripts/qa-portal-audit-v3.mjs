@@ -30,7 +30,7 @@ const ROLES = {
     password: "TestAdmin123!",
     home: "/admin/dashboard",
     paths: [
-      "/admin/dashboard", "/admin/properties", "/admin/events",
+      "/admin/dashboard", "/admin/service", "/admin/events",
       "/admin/communication/inbox/unopened", "/admin/communication/inbox/schedule",
       "/admin/axis-users", "/admin/bugs-feedback", "/admin/profile",
     ],
