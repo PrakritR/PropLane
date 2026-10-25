@@ -28,6 +28,8 @@ import {
 } from "@/lib/vendor-work-number";
 import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.server";
 import { runVendorNumberAiReply } from "@/lib/agent/vendor-number-ai.server";
+import { handleOwnNumberWorkText, retireOwnNumberJobList } from "@/lib/one-number/vendor-jobs/own-number-work.server";
+import { CONTROL_ONLY_RE } from "@/lib/one-number/vendor-jobs/intent";
 
 /** Store inbound sponsored-identity mail before any assistant/support fallback. */
 export async function ingestVendorWorkIdentityEmail(
@@ -238,17 +240,32 @@ async function routeVendorOwnText(
   now?: Date,
 ): Promise<{ handled: boolean; idempotent?: boolean }> {
   await recordInboundUsage(db, number, input.messageSid, input.text);
-  const conversations = await listVendorNumberConversations(db, number.identityId);
-  const decision = decideVendorReplyRoute(conversations, input.text, now);
   const reply = (text: string, key: string) => deliverVendorWorkIdentity(db, {
     vendorUserId: number.vendorUserId, channel: "sms", recipient: input.phone, recipientUserId: number.vendorUserId,
     subject: "Text message", text, idempotencyKey: key, sendClass: "transactional",
   }, provider);
+  // "Any work?" (and a number reply to the list that answers it) is the vendor talking to PropLane, not to a
+  // manager: answered here from the open board plus jobs offered to this vendor. Control words never reach it,
+  // and any failure falls through to the relay below, exactly as before.
+  if (!CONTROL_ONLY_RE.test(input.text)) {
+    try {
+      const work = await handleOwnNumberWorkText(db, { vendorUserId: number.vendorUserId, phone: input.phone, text: input.text, messageSid: input.messageSid, now });
+      if (work.handled) {
+        await reply(work.reply, `vendor-work-list:${input.messageSid}`);
+        return { handled: true };
+      }
+    } catch (error) {
+      console.error("vendor own-number work ask failed", error instanceof Error ? error.message : "unknown");
+    }
+  }
+  const conversations = await listVendorNumberConversations(db, number.identityId);
+  const decision = decideVendorReplyRoute(conversations, input.text, now);
   if (decision.kind === "none") {
     await reply(VENDOR_NUMBER_NO_CONVERSATION_NOTICE, `vendor-route-none:${input.messageSid}`);
     return { handled: true };
   }
   if (decision.kind === "prompt") {
+    await retireOwnNumberJobList(db, { vendorUserId: number.vendorUserId, phone: input.phone, body: input.text.slice(0, 200), messageSid: input.messageSid, now });
     await reply(replyPromptBody(decision.choices), `vendor-route-prompt:${input.messageSid}`);
     return { handled: true };
   }

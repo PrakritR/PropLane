@@ -33,6 +33,9 @@ export type OpenJobNear = {
   /** "Up to $250" when the manager published a budget, else "". */
   budget: string;
   distanceMiles: number | null;
+  /** Only when the caller asks (`includeRefs`): the board's opaque publish ref and the service id, for a numbered reply. */
+  ref?: string;
+  serviceId?: string;
 };
 
 export type OpenJobsNear = {
@@ -82,6 +85,8 @@ export async function listOpenJobsNear(
     /** A signed-in vendor: their saved trades / service area apply when the text names none, and held offers are skipped. */
     vendor?: { userId: string; profile: DirectoryProfileRow | null } | null;
     limit?: number;
+    /** Adds `ref` / `serviceId` to each job. Off for every text that shows the list to a stranger. */
+    includeRefs?: boolean;
   },
 ): Promise<OpenJobsNear> {
   const limit = Math.min(Math.max(1, input.limit ?? OPEN_JOBS_REPLY_LIMIT), 10);
@@ -127,6 +132,7 @@ export async function listOpenJobsNear(
         when: view.when,
         budget: view.budget,
         distanceMiles: distance,
+        ...(input.includeRefs && row.publishRef ? { ref: String(row.publishRef), serviceId: String(record.id) } : {}),
       },
       sort: distance ?? Number.MAX_SAFE_INTEGER,
     });
