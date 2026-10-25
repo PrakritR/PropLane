@@ -678,7 +678,7 @@ Files:
 
 Invariants:
 
-1. **Ask once.** An unknown number's first text is read by code (`inferSenderRole`, landlord outranks vendor outranks searcher). Unclear = "Hey! I'm PropLane. Are you looking for a place, renting one out, or a vendor? Reply STOP to opt out." exactly once (`sms_onboarding_state.asked_at`); a still-unclear answer makes the sender a searcher. A phone with a lead already open is a searcher and is never asked. Role is sticky; a known number never reaches this code (the router routes it).
+1. **Ask once.** An unknown number's first text is read by code (`classifyFirstText` in `src/lib/sms/propline-first-text.ts`: a signal for exactly one of resident / vendor / looking / manage is CLEAR and skips the question). Unclear = "Hi, this is PropLane. Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?" exactly once (`sms_onboarding_state.asked_at`); the answer routes (§ W29), and a still-unclear answer makes the sender a searcher. A phone with a lead already open is a searcher and is never asked. Role is sticky; a known number never reaches this code (the router routes it).
 2. **Searcher** goes to W3's qualifier unchanged. **Landlord**: "Want to try me on a sample house first? Reply DEMO." (`stage offered`), yes starts the demo, no sends the finish link. **Vendor**: trade, area, rates, insurance, one per text, volunteered facts kept; the lead waits as `sms_vendor_leads.status = pending` for platform admin (never a workspace, never a dispatch rule) and gets a phone-bound finish link. The STOP notice rides the first reply only.
 3. **The DEMO never touches a real row.** `runDemoTurn(db, { channel: "sms" | "web", sessionKey, text })` writes only `sms_demo_sessions` (the step) and, at the end, one `sms_setup_links` row (and, in the SMS door, `sms_onboarding_state`). Texting `DEMO` (whole body) or the homepage prefill "Hi PropLane, show me the demo" starts it; STOP (route) or "exit" ends it; `DEMO` mid-demo restarts; 120 idle minutes closes it. A manager's phone can run it too and, while it lasts, their texts are the demo's. SMS key = the 10-digit phone key; web key = an opaque browser id (`/^[A-Za-z0-9_-]{16,64}$/`). The web route must rate-limit. Returns `bubbles` (`agent` | `sample`), flat `messages` (sample ones prefixed "Sample text to you:"), `step`, `finished`, `ended`, `finishUrl`, `suggestions`. Every line is one GSM-7 segment (`tests/unit/one-number-demo-script.test.ts` asserts it).
 4. **Finish setup** (`/start/<token>`): the link stores only its SHA-256 and lives 7 days; a texted link is bound to the texter's phone and the code goes to THAT number only (`startPhoneChallenge`, purpose sign_in, the W5 flow); a web link has no phone and takes the visitor's. After `/api/auth/phone/verify` signs them in, `/complete` requires a VERIFIED phone that equals the link's phone, then runs `ensureFreeManagerPortalAccess` (or `provisionVendorAccountByEmail`) and, for a landlord with hints, writes the first house as a DRAFT (`mgr-text-<hash>`, deterministic per user + link, no listing-slot charge). Nothing redirects: the page ends on an explicit "Go to your portal" button (`manager-account-creation.md`). No draft exists before sign-in.
@@ -934,8 +934,8 @@ PropLane management.
 - **Links.** The Luna guard now also takes the links of earlier replies, the system prompt and the site constants. For a prospect
   (`runAgentTurn({ linkRecovery })`) a bad link is redone once without links, then answered by `summarizeLeasingEvidence` from the tool
   results; the portal sentence never reaches a prospect.
-- **First text.** A bare greeting as the first text on the line gets `PROPLANE_FIRST_TEXT_REPLY` at once, before the burst queue. A worker
-  turn that produced nothing sends a fixed line instead of failing the burst.
+- **First text.** An unclear first text gets the role question (`PROPLANE_FIRST_TEXT_REPLY`, § W29) at once, before the burst queue. A worker
+  turn that produced nothing sends a fixed line (`PROPLANE_PROSPECT_FALLBACK_REPLY`) instead of failing the burst.
 - **Latency.** `quietSecondsFor`: 5 s quiet window for a finished question or 4+ words, 10 s for a fragment.
 - **Scenario.** `svcline` in `scripts/one-number/e2e/scenarios-svcline.mjs` (flips to `per_workspace`, makes a fixture the service owner,
   restores both). No migration.
@@ -977,7 +977,8 @@ Tests: `tests/unit/vendor-line-{intent,open-jobs,turn,inbound,shared-unknown,his
 Captain, Oct 19: "residents text 'hey is there any house available' and residents text as prospects; get sent links for payments etc.
 Managers/owners text about the status of their houses." Both line modes; no migration.
 
-- **Status for people who run houses.** `src/lib/one-number/line-member-status.server.ts` (`handleLineMemberText`). A VERIFIED phone
+- **Status for people who run houses.** (Oct 25: only PropLane-MANAGED workspaces; a self-serve manager, team, resident or vendor is no longer
+  served here, § W29.) `src/lib/one-number/line-member-status.server.ts` (`handleLineMemberText`). A VERIFIED phone
   (`findVerifiedProfileByPhone`: two claimants = nobody) that is a workspace owner, an accepted teammate, or the owner of record
   (`is_owner_of_record` Property owner seat) of an `is_service` workspace gets READ-ONLY status of THEIR workspace(s) on the PropLane
   line: houses, rooms occupied, rent collected vs owed, open services, next tour, leases ending within 60 days
@@ -1117,7 +1118,9 @@ list, so `sms_signup` and any later value survive), and a partial index on roste
   stays, services and payments) calls `alertServiceManagerFromNotice` for the notice's workspace; only `is_service` workspaces, one text per
   event (the per-recipient suffix of the idempotency key is dropped), digests and reminder confirmations quiet. A new person writing to the
   PropLane line (per_workspace, or a new unassigned lead) is `alertServiceManagerOfInquiry`: once per phone per day, last four digits only.
-- **PropLane line**: `recognizeServiceManagerInbound` (before the generic identity fork in `inbound-pipeline.server.ts`) - the verified manager phone
+- **PropLane line**: `recognizeServiceManagerInbound` (before the generic identity fork in `inbound-pipeline.server.ts`) - Oct 25: a platform admin
+  (`profile_roles` admin, verified unique profile phone) or the verified Service-settings phone (kept as an alias), and, for a seat holder, the
+  delegated agent over their seats only (§ W29). The verified manager phone
   texting the PropLane line (the service owner's number, or the shared number) is the service manager: the FULL manager agent, writes behind a
   CODED yes (§ Coded confirmation on the PropLane line), over ONE service workspace at a time (landlord = the workspace's owner, actor = the service owner, access `owner`; the managed-client
   lock is the client's and never applies to the service owner). The workspace is named in the text, remembered for 6 hours (`sms_line_sessions`
@@ -1138,5 +1141,30 @@ team's number. `house-redirect.ts` (pure street-number + street-name match, one 
 homes) and `house-redirect.server.ts` (`resolveHouseRedirect`): a text naming a street address that is NOT in the service catalog but IS a live
 public listing of a non-service workspace gets `buildDedicatedRedirectReply(<street line>, <that workspace's own number>)`; with no own number
 of its own it gets the home's public link and an offer of the homes PropLane manages. A PropLane-managed home, no match or a failed read
-returns null and the existing flow answers. Seams: `claw-leasing-bot.server.ts` (per_workspace line, via `sendServiceLineReply`) and
+returns null and the existing flow answers. **Superseded Oct 25 (§ W29):** the home is matched by street, house name or title; a PAID number
+gets "For <street, city>, text <number>."; anything else gets a reply that names nothing (no street, no link, no name). Seams: `claw-leasing-bot.server.ts` (per_workspace line, via `sendServiceLineReply`) and
 `handleUnassignedLeadInbound` (shared line, `houseRedirect` dep). Tests: `tests/unit/one-number-house-redirect.test.ts`.
+
+## W29 - Who the PropLane line serves (`on/lineserves`, Oct 25)
+
+One rule set for the PropLane line (the 206 number; production `line_mode` stays `per_workspace`). **Fail closed everywhere**: an unreadable
+table, a phone two verified accounts hold, an unverified phone or a missing entitlement is LESS access, never more. A "managed" workspace is
+`portal_workspaces.is_service` (attached client workspaces included) or one the line's own owner holds.
+
+| Who texts the line | Gets | Where |
+| --- | --- | --- |
+| Platform admin (`profile_roles` admin; `profiles.phone` verified AND the only verified holder) or the verified Service-settings phone (alias) | The full manager agent over EVERY service workspace; the workspace is named in the text, remembered 6 hours, or asked ("Is this about Ambika or Vinod?"); every write behind the coded YES | `service-manager-inbound.server.ts` (`recognizeServiceManagerInbound`, `basis: "admin"`) |
+| Accepted seat on a service workspace (attached ones too) | The delegated manager agent over every managed workspace they hold a seat on, limited to that seat's houses and module grants; a Viewer seat (or one with no edit grant on the workspace's houses) is `readOnly`: the registry holds no write tool | same file (`basis: "seat"`, `buildServiceManagerAgentContext`); `ManagerSmsAccess.readOnly` in `buildManagerSmsRegistry` |
+| Resident of a managed home | Unchanged (resident assistant; the rent-link ask) | `line-resident.server.ts` (managed residencies only) |
+| Prospect | Unchanged leasing assistant, searching ONLY managed homes (`serviceCatalog`, `getServicePublicListings`) | `leasing-sms.ts` |
+| Vendor | Unchanged vendor flow over managed jobs | `vendor-line-inbound.server.ts` |
+| Unknown number, CLEAR first text ("Any rooms near UW under $1,000?", "I'm a plumber") | The flow it asked for, no question | `classifyFirstText` |
+| Unknown number, UNCLEAR first text ("hi", "who is this") | ONE question: "Hi, this is PropLane. Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?" On a manager's own number the name is the workspace's. Answers: resident -> told where to look; vendor -> the vendor flow (a manager's own number: "What trade do you do...?"); looking -> the leasing assistant; manage -> "Great, set up your homes here: proplane.ai/auth/create-account?role=manager. A personal work number comes with Pro." | `role-question-line-inbound.server.ts`; shared mode: `unknown-sender.server.ts` |
+| Asks about a SELF-SERVE home (street, house name or listing title) | Its manager's PAID number (`managerPersonalNumberEntitlement`; a trial or a lapsed plan is not paid): "For 12 Elm St, Louisville, text (502) 555-0142." Nothing else. No paid number: "I can only help with homes PropLane manages. Looking for a place in Seattle? Tell me your area, budget and move-in date." (no street, no link, no name) | `house-redirect.server.ts` |
+| Self-serve manager, their team, residents, vendors with an open job | Not served: "This line is for homes PropLane manages. Text your work number <number>." (paid) else "...A personal work number comes with Pro: proplane.ai/pricing". A housing search, a jobs ask, STOP/HUMAN/emergency are not redirected | `line-member-status.server.ts`, `line-inbound.server.ts`, `self-serve-line.server.ts` |
+| Anyone texting a manager's own work number | Unchanged (it answers only for that workspace), plus the unclear-first-text question above | `inbound-pipeline.server.ts` |
+
+Invariants: the first-text question is asked once per number (nothing was ever sent to it; `sms_outbox`), its answer is read only within 24 hours of
+`asked_at` and only when no role is chosen, and a webhook retry answers once (`dedupe_key line_role_<sid>`). A seat's admin-ness is never inferred:
+the legacy `profiles.role` and the ops email are not evidence for the phone door. Shared-line mode is untouched and stays off. Tests:
+`tests/unit/{propline-line-policy,propline-first-text-classifier,propline-first-text,one-number-house-redirect,one-number-line-status,one-number-line-resident,service-manager,service-manager-pipeline-wiring,one-number-unknown-sender}.test.ts`.

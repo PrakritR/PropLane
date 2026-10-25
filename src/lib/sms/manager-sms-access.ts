@@ -30,6 +30,11 @@ export type ManagerSmsAccess = {
   workspaceIsDefault?: boolean;
   /** Server-resolved grants, keyed by owner as well as property. Missing means deny. */
   permissionsByOwner?: Record<string, PropertyCoManagerPermissions>;
+  /**
+   * A read-only seat (a Viewer, or a seat with no edit grant on the houses it reaches): the registry for this turn holds
+   * no write tool at all, so nothing can even be proposed.
+   */
+  readOnly?: boolean;
 };
 
 /** Landlord ids to query for manager-scoped tables. */

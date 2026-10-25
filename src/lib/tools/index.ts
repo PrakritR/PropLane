@@ -373,15 +373,18 @@ export function buildManagerSmsRegistry(
         !MANAGER_SMS_DEEP_LINK_ONLY_TOOLS.includes(tool.name),
     ),
   );
-  if (access?.mode !== "delegated" && !access?.workspacePropertyIds) return managerSmsRegistry;
+  // A read-only seat gets no write tool at all (not even an inline one such as update_thread): nothing can be proposed.
+  const forAccess = (registry: ToolRegistry<AgentContext>): ToolRegistry<AgentContext> =>
+    access?.readOnly ? buildRegistry([...registry.values()].filter((tool) => tool.kind !== "write")) : registry;
+  if (access?.mode !== "delegated" && !access?.workspacePropertyIds) return forAccess(managerSmsRegistry);
   if (access?.mode !== "delegated") {
-    return buildRegistry(
+    return forAccess(buildRegistry(
       [...managerSmsRegistry.values()].filter((tool) => !delegatedSmsWithholdsTool(tool.name)),
-    );
+    ));
   }
-  return buildRegistry(
+  return forAccess(buildRegistry(
     [...managerSmsRegistry.values()].filter((tool) => CO_MANAGER_SCOPED_TOOLS.has(tool.name) && !delegatedSmsWithholdsTool(tool.name)),
-  );
+  ));
 }
 
 /**
