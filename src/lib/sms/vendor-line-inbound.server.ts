@@ -32,6 +32,8 @@ export async function handlePropLaneLineVendorInbound(
     body: string;
     /** Projects the vendor's text into the owner's thread (the pipeline's own `projectClassifiedInbound`). */
     projectInbound: (vendorUserId: string | null) => Promise<unknown>;
+    /** The sender just answered "vendor" to the first-text question: this is a vendor turn whatever the text says. */
+    force?: boolean;
   },
 ): Promise<VendorLineInboundResult> {
   const phone = normalizeE164(args.fromPhone);
@@ -53,7 +55,7 @@ export async function handlePropLaneLineVendorInbound(
     return { handled: false };
   }
 
-  const turn = await handlePropLaneVendorText(db, { ownerUserId, phoneE164: phone, body: args.body, messageSid: args.messageSid, mode });
+  const turn = await handlePropLaneVendorText(db, { ownerUserId, phoneE164: phone, body: args.body, messageSid: args.messageSid, mode, ...(args.force ? { force: true } : {}) });
   if (!turn.handled || !turn.reply) return { handled: false };
 
   await args.projectInbound(turn.vendorUserId).catch((error: unknown) =>

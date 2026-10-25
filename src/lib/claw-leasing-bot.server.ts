@@ -72,7 +72,7 @@ export {
   type LeasingIntent,
 } from "@/lib/claw-leasing-links";
 import { stripLongDashes } from "@/lib/agent/conversation-style-rules";
-import { isGreetingOnly, PROPLANE_FIRST_TEXT_REPLY } from "@/lib/sms/propline-first-text";
+import { isGreetingOnly, PROPLANE_FIRST_TEXT_REPLY, PROPLANE_PROSPECT_FALLBACK_REPLY } from "@/lib/sms/propline-first-text";
 import { TEAM_FOLLOW_UP_REPLY } from "@/lib/agent/leasing-sms-fallback";
 import { isHousingSearchText } from "@/lib/one-number/line-intent";
 
@@ -1205,8 +1205,8 @@ export async function handleClawLeasingInbound(args: {
   }
 
   // The PropLane line in per-workspace mode (a number the platform service owner holds). Its prospects are always answered:
-  // a first text that is only a greeting gets one fixed line AT ONCE (it never waits behind the burst window, where the next
-  // text superseded it and left it unanswered), and a worker turn that produced nothing falls back to a fixed line below.
+  // a first text that is only a greeting gets the role question AT ONCE (it never waits behind the burst window, where the next
+  // text superseded it and left it unanswered; the pipeline asks it first, this is the backstop), and a worker turn that produced nothing falls back to a fixed line below.
   let serviceLine = false;
   if (landlordId && scopedManagerId && workNumber && !args.routingReply) {
     const { isPropLaneServiceLine } = await import("@/lib/service/service-catalog.server");
@@ -1246,8 +1246,9 @@ export async function handleClawLeasingInbound(args: {
       .eq("recipient_phone", from);
     if (!count) return sendServiceLineReply(PROPLANE_FIRST_TEXT_REPLY);
   }
-  // A stranger asking about one specific home that PropLane does not manage: the line points to that team's own number (or the
-  // home's public page when it has none) instead of answering for it. A PropLane-managed home, or no match, falls through.
+  // A stranger asking about one specific home that PropLane does not manage (a self-serve home, by street, house name or listing
+  // title): "For <street>, text <number>." when its manager pays for a work number, else a reply that names nothing about the
+  // home. A PropLane-managed home, or no match, falls through.
   if (serviceLine && landlordId && text) {
     const { resolveHouseRedirect } = await import("@/lib/one-number/house-redirect.server");
     const redirect = await resolveHouseRedirect(createSupabaseServiceRoleClient(), text).catch(() => null);
@@ -1508,7 +1509,7 @@ export async function handleClawLeasingInbound(args: {
             .select("id", { count: "exact", head: true })
             .eq("manager_user_id", landlordId)
             .eq("recipient_phone", from);
-          return sendServiceLineReply(count ? TEAM_FOLLOW_UP_REPLY : PROPLANE_FIRST_TEXT_REPLY);
+          return sendServiceLineReply(count ? TEAM_FOLLOW_UP_REPLY : PROPLANE_PROSPECT_FALLBACK_REPLY);
         }
       }
     } catch (e) {

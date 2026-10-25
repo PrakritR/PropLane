@@ -112,7 +112,7 @@ describe("a prospect with no code", () => {
   it("is welcomed once, asked one question at a time, offered rooms from every team, and every reply is one GSM-7 text", async () => {
     const fake = world();
     const replies = await toOffers(fake);
-    expect(replies[0]).toMatch(/Are you looking for a place, renting one out, or a vendor\? Reply STOP to opt out\.$/);
+    expect(replies[0]).toBe("Hi, this is PropLane. Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?");
     expect(replies[1]).toMatch(/Reply STOP to opt out\./);
     expect(replies[1]).toMatch(/monthly budget/);
     expect(replies[2]).toMatch(/move in/i);

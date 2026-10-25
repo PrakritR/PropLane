@@ -22,12 +22,19 @@ import {
   type OnboardingRole,
 } from "@/lib/one-number/onboarding/role-detect";
 import { claimTurn, completeTurn, releaseTurn } from "@/lib/one-number/onboarding/turn-replay.server";
+import {
+  MANAGE_OWN_REPLY,
+  PROPLANE_ROLE_QUESTION,
+  RESIDENT_NOT_FOUND_REPLY,
+  classifyFirstText,
+  readRoleQuestionAnswer,
+} from "@/lib/sms/propline-first-text";
 import { mintSetupLink } from "@/lib/one-number/onboarding/setup-links.server";
 import { readOnboardingState, saveOnboardingState, type OnboardingState } from "@/lib/one-number/onboarding/state.server";
 import { handleUnassignedLeadInbound, type LeadDeps, type UnassignedLeadTurn } from "@/lib/one-number/unassigned-leads.server";
 
 export const ONBOARDING_COPY = {
-  askRole: "Hey! I'm PropLane. Are you looking for a place, renting one out, or a vendor? Reply STOP to opt out.",
+  askRole: PROPLANE_ROLE_QUESTION,
   offerDemo: "Want to try me on a sample house first? Reply DEMO. It takes about 2 minutes.",
   reofferDemo: "Reply DEMO to try a sample house, or NO to set up your own properties now.",
   setupNow: "No problem. Set up your own properties here:",
@@ -143,20 +150,31 @@ async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbou
   let firstReply = !state;
   if (!role && !state && (await hasOpenLead(db, inbound.phoneKey))) role = "searcher";
   if (!role) {
-    const inferred = inferSenderRole(inbound.body);
-    if (inferred) {
-      role = inferred;
-    } else if (!state?.askedAt) {
-      await saveOnboardingState(db, inbound.phoneKey, { askedAt: (now ?? new Date()).toISOString() }, now);
-      return single(ONBOARDING_COPY.askRole);
-    } else {
-      // Asked once already: take the answer, and when it still does not say, a searcher (the default).
-      role = readRoleAnswer(inbound.body) ?? "searcher";
+    if (state?.askedAt) {
+      // Asked once already: take the answer. Resident and "manage my own" are answered here and now; a searcher or a
+      // vendor goes to their flow; when it still does not say, a searcher (the default for an unknown number).
+      const answered = readRoleQuestionAnswer(inbound.body);
+      if (answered === "resident") return single(RESIDENT_NOT_FOUND_REPLY);
+      if (answered === "manage") {
+        await saveOnboardingState(db, inbound.phoneKey, { role: "landlord", stage: "finish_sent" }, now);
+        return single(MANAGE_OWN_REPLY);
+      }
+      role = answered === "vendor" ? "vendor" : answered === "looking" ? "searcher" : (inferSenderRole(inbound.body) ?? readRoleAnswer(inbound.body) ?? "searcher");
       firstReply = false;
+    } else {
+      // A CLEAR first text skips the question: the role-detect patterns, or the PropLane line's own classifier (a housing
+      // search, a listing question). A resident whose number no account holds is told where to look; nothing else is guessed.
+      const clarity = classifyFirstText(inbound.body);
+      if (clarity.kind === "clear" && clarity.role === "resident" && !inferSenderRole(inbound.body)) return single(RESIDENT_NOT_FOUND_REPLY);
+      const fromClarity = clarity.kind === "clear" ? ({ looking: "searcher", manage: "landlord", vendor: "vendor", resident: null } as const)[clarity.role] : null;
+      const inferred = inferSenderRole(inbound.body) ?? fromClarity;
+      if (!inferred) {
+        await saveOnboardingState(db, inbound.phoneKey, { askedAt: (now ?? new Date()).toISOString() }, now);
+        return single(ONBOARDING_COPY.askRole);
+      }
+      role = inferred;
     }
     await saveOnboardingState(db, inbound.phoneKey, { role, hints: role === "landlord" ? extractHouseHints(inbound.body) : {} }, now);
-    // The ask already carried the STOP notice; an inferred first text has not got one yet.
-    if (state?.askedAt) firstReply = false;
   }
 
   if (role === "landlord") return landlordTurn(db, inbound, state ?? { phoneKey: inbound.phoneKey, role: "landlord", askedAt: null, stage: null, hints: extractHouseHints(inbound.body) }, firstReply, deps);

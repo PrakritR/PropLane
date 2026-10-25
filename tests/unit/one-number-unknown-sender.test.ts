@@ -66,13 +66,30 @@ describe("ask once", () => {
     const f = leadFakeDb();
     const asked = await run(f.db, "hi");
     expect(asked.reply).toBe(ONBOARDING_COPY.askRole);
-    expect(asked.reply).toContain("Reply STOP");
+    expect(asked.reply).toBe("Hi, this is PropLane. Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?");
     expect(asked.reply!.length).toBeLessThanOrEqual(160);
     expect(lead).not.toHaveBeenCalled();
 
+    // "manage my own" -> the create-account link, once; no demo.
     const answered = await run(f.db, "renting one out");
-    expect(answered.reply).toBe(ONBOARDING_COPY.offerDemo);
-    expect(f.rows.sms_onboarding_state![0]).toMatchObject({ role: "landlord" });
+    expect(answered.reply).toBe("Great, set up your homes here: proplane.ai/auth/create-account?role=manager. A personal work number comes with Pro.");
+    expect(f.rows.sms_onboarding_state![0]).toMatchObject({ role: "landlord", stage: "finish_sent" });
+  });
+
+  it("a resident answer is told where to look, and nothing is saved as a role", async () => {
+    const f = leadFakeDb();
+    await run(f.db, "hello");
+    const answered = await run(f.db, "I'm a resident");
+    expect(answered.reply).toMatch(/^I cannot find a resident account for this number\./);
+    expect(lead).not.toHaveBeenCalled();
+    expect(f.rows.sms_onboarding_state![0]!.role ?? null).toBeNull();
+  });
+
+  it("a clear first text skips the question: a housing search goes straight to the lead path", async () => {
+    const f = leadFakeDb();
+    const turn = await run(f.db, "Any rooms near UW under $1,000?");
+    expect(turn.reply).not.toBe(ONBOARDING_COPY.askRole);
+    expect(lead).toHaveBeenCalledTimes(1);
   });
 
   it("never asks twice: a second unclear answer becomes a searcher", async () => {

@@ -64,14 +64,20 @@ const SEARCHER_PATTERNS: RegExp[] = [
   /\bmove[- ]in\b[^.?!]{0,30}\b(date|month|nov|dec|jan|feb|mar|apr|may|jun|jul|aug|sep|oct)\b/,
 ];
 
+/** Every role a text carries a signal for (empty when it says nothing). Landlord, vendor, searcher order. */
+export function inferSenderRoles(text: string): OnboardingRole[] {
+  const t = norm(text);
+  if (!t) return [];
+  const roles: OnboardingRole[] = [];
+  if (LANDLORD_PATTERNS.some((re) => re.test(t))) roles.push("landlord");
+  if (VENDOR_PATTERNS.some((re) => re.test(t))) roles.push("vendor");
+  if (SEARCHER_PATTERNS.some((re) => re.test(t))) roles.push("searcher");
+  return roles;
+}
+
 /** The role a first text points at, or null when it does not say. Landlord outranks vendor outranks searcher. */
 export function inferSenderRole(text: string): OnboardingRole | null {
-  const t = norm(text);
-  if (!t) return null;
-  if (LANDLORD_PATTERNS.some((re) => re.test(t))) return "landlord";
-  if (VENDOR_PATTERNS.some((re) => re.test(t))) return "vendor";
-  if (SEARCHER_PATTERNS.some((re) => re.test(t))) return "searcher";
-  return null;
+  return inferSenderRoles(text)[0] ?? null;
 }
 
 /**
