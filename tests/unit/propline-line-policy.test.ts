@@ -63,7 +63,7 @@ import { SELF_SERVE_PRICING_REPLY, buildSelfServeLineReply } from "@/lib/one-num
 import { handleRoleQuestionInbound, ROLE_ANSWER_WINDOW_MS } from "@/lib/sms/role-question-line-inbound.server";
 import { resolveHouseRedirect } from "@/lib/one-number/house-redirect.server";
 import type { MockProperty } from "@/data/types";
-import { MANAGE_OWN_REPLY, PROPLANE_ROLE_QUESTION, RESIDENT_NOT_FOUND_REPLY, VENDOR_TRADE_QUESTION } from "@/lib/sms/propline-first-text";
+import { MANAGE_OWN_REPLY, PROPLANE_ROLE_QUESTION, RESIDENT_NOT_FOUND_REPLY, VENDOR_TRADE_QUESTION, withOptOut } from "@/lib/sms/propline-first-text";
 
 const VERIFIED = "2026-10-01T00:00:00.000Z";
 const LINE = "+12066781909";
@@ -470,6 +470,16 @@ describe("rule 6: an unknown number's first text", () => {
     expect(db.tables.sms_onboarding_state).toEqual([]);
   });
 
+  it("two unclear texts that race ahead of the first reply still ask once", async () => {
+    const first = await ask("hi");
+    // The outbox row the first ask wrote is what "first text" used to read; drop it to stand for the race.
+    db.tables.sms_outbox = [];
+    const second = await ask("hello?");
+    expect(first).toEqual({ handled: true, sent: true });
+    expect(second).toEqual({ handled: false });
+    expect(state.sent).toHaveLength(1);
+  });
+
   it("a number we already texted is not a first text", async () => {
     db.tables.sms_outbox!.push({ id: "old", manager_user_id: SO, recipient_phone: PHONES.stranger });
     expect(await ask("hi")).toEqual({ handled: false });
@@ -495,13 +505,13 @@ describe("rule 6: an unknown number's first text", () => {
 
     it("resident: told where to look (the resident lookup already found nobody)", async () => {
       expect(await ask("I'm a resident")).toEqual({ handled: true, sent: true });
-      expect(state.sent[0]!.text).toBe(RESIDENT_NOT_FOUND_REPLY);
+      expect(state.sent[0]!.text).toBe(withOptOut(RESIDENT_NOT_FOUND_REPLY));
     });
 
     it("manage my own: the create-account link and the Pro line, and the role is saved", async () => {
       expect(await ask("manage my own property")).toEqual({ handled: true, sent: true });
-      expect(state.sent[0]!.text).toBe("Great, set up your homes here: proplane.ai/auth/create-account?role=manager. A personal work number comes with Pro.");
-      expect(state.sent[0]!.text).toBe(MANAGE_OWN_REPLY);
+      expect(state.sent[0]!.text).toBe(withOptOut("Great, set up your homes here: https://proplane.ai/auth/create-account?role=manager A personal work number comes with Pro."));
+      expect(state.sent[0]!.text).toBe(withOptOut(MANAGE_OWN_REPLY));
       expect(db.tables.sms_onboarding_state![0]).toMatchObject({ role: "landlord" });
     });
 
@@ -552,7 +562,7 @@ describe("rule 6: an unknown number's first text", () => {
       await askOwn("hi");
       state.sent = [];
       expect(await askOwn("vendor")).toEqual({ handled: true, sent: true });
-      expect(state.sent[0]!.text).toBe(VENDOR_TRADE_QUESTION);
+      expect(state.sent[0]!.text).toBe(withOptOut(VENDOR_TRADE_QUESTION));
       expect(await handleRoleQuestionInbound(db as never, roleArgs("Any rooms near UW?", { managerUserId: SELF, toPhone: OWN }) as never)).toEqual({ handled: false });
     });
   });

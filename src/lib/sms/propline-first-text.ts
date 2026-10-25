@@ -49,8 +49,12 @@ export function roleQuestionFor(workspaceName?: string | null): string {
   return `Hi, this is ${name}. ${QUESTION_TAIL}`;
 }
 
-/** A "manage my own" answer. The long dash of the product copy is a comma here: the send path strips it anyway. */
-export const MANAGE_OWN_REPLY = "Great, set up your homes here: proplane.ai/auth/create-account?role=manager. A personal work number comes with Pro.";
+/**
+ * A "manage my own" answer. The long dash of the product copy is a comma here: the send path strips it anyway. The link
+ * is a full `https://` URL with nothing glued to its end, so `formatSmsLinks` owns where it sits and a phone cannot
+ * swallow a sentence period into the address.
+ */
+export const MANAGE_OWN_REPLY = "Great, set up your homes here: https://proplane.ai/auth/create-account?role=manager A personal work number comes with Pro.";
 
 /** A "resident" answer from a number no account holds: the resident lookup already ran and found nobody. */
 export const RESIDENT_NOT_FOUND_REPLY =
@@ -58,6 +62,17 @@ export const RESIDENT_NOT_FOUND_REPLY =
 
 /** A "vendor" answer on a manager's own number (the PropLane line has its own vendor flow). */
 export const VENDOR_TRADE_QUESTION = "Thanks. What trade do you do, and what area do you serve?";
+
+/**
+ * The opt-out notice. The question's wording is fixed (no STOP line), so the notice rides the first reply that FOLLOWS
+ * it - the answer, or the terminal reply a clear first text gets. One place decides it for both line modes.
+ */
+export const OPT_OUT_NOTICE = "Reply STOP to opt out.";
+
+/** `text` with the opt-out notice on it, once. */
+export function withOptOut(text: string): string {
+  return /reply stop/i.test(text) ? text : `${text} ${OPT_OUT_NOTICE}`;
+}
 
 // ---------------------------------------------------------------------------
 // Greetings (kept: the leasing bot and the tests read it).

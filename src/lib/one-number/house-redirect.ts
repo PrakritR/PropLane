@@ -7,7 +7,8 @@ import type { MockProperty } from "@/data/types";
  *
  * A street match needs the street NUMBER and at least one significant word of the street NAME, so "1234" alone, or "Maple"
  * alone, never names a home. A misspelled street word (one edit away, 5+ letters) still counts. A name or title match
- * needs the WHOLE name (two or more words) said in order, so "Capitol Hill" never names the home called "Capitol Hill House".
+ * needs the WHOLE name (two or more words, one of them distinctive) said in order, so "Capitol Hill" never names the home
+ * called "Capitol Hill House" and "a private room" never names the home titled "Private Room".
  */
 
 const STREET_SUFFIXES = new Set([
@@ -89,11 +90,6 @@ export function matchListingByAddress<T extends Pick<MockProperty, "id" | "addre
   return hits.length === 1 ? hits[0]! : null;
 }
 
-/** The label a redirect names the home by: its public street line, nothing past the first comma (no unit, no door code). */
-export function generalHomeLabel(listing: Pick<MockProperty, "address">): string {
-  return streetLine(listing.address);
-}
-
 /** "12 Elm St, Louisville": the street line and the city, never a unit, a state, a ZIP or a door code. */
 export function homeLabelWithCity(listing: Pick<MockProperty, "address">): string {
   const parts = String(listing.address ?? "").split(",").map((p) => p.replace(/\s+/g, " ").trim());
@@ -105,6 +101,21 @@ export function homeLabelWithCity(listing: Pick<MockProperty, "address">): strin
 }
 
 const NAME_STOP = new Set(["the", "a", "an", "house", "home", "room", "rooms", "apartment", "apt", "unit", "studio", "place", "rental", "for", "rent", "near", "in", "at", "of", "and", "with"]);
+
+/**
+ * Words a manager describes a home WITH, never the word that tells one home from another. A title built only out of
+ * these ("Private Room", "Shared House", "2 Bedroom Apartment") names no particular home, so a prospect's ordinary
+ * question ("do you have a private room?") must not be read as naming one.
+ */
+const NAME_GENERIC = new Set([
+  "private", "shared", "share", "cozy", "cosy", "spacious", "large", "small", "big", "huge", "modern", "furnished",
+  "unfurnished", "bright", "sunny", "quiet", "clean", "new", "newly", "renovated", "remodeled", "remodelled", "updated",
+  "beautiful", "charming", "lovely", "nice", "great", "best", "luxury", "luxurious", "premium", "affordable", "cheap",
+  "available", "vacant", "bed", "beds", "bedroom", "bedrooms", "bath", "baths", "bathroom", "bathrooms", "suite",
+  "suites", "loft", "duplex", "triplex", "townhouse", "townhome", "condo", "cottage", "cabin", "villa", "flat", "floor",
+  "basement", "upstairs", "downstairs", "double", "single", "master", "living", "housing", "rooming", "listing",
+  "property", "properties", "units",
+]);
 
 /** Lowercase alphanumeric words of a name or a text. */
 const tokens = (value: string): string[] => String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean);
@@ -119,18 +130,20 @@ function containsPhrase(haystack: readonly string[], needle: readonly string[]):
 }
 
 /**
- * Does the text say this listing's house name or title in full? Two or more words, at least one that is not a filler word
- * ("house", "room"...), and not just the listing's neighborhood (a title that is only an area never names one home).
+ * Does the text say this listing's house name or title in full? Two or more words, at least one of them DISTINCTIVE (not
+ * a filler word like "house" or "room", not a descriptor like "private" or "2 bedroom"), and those distinctive words are
+ * not just the listing's neighborhood. A title that only describes or only names an area never names one home.
  */
 export function textNamesListingByName(text: string, listing: Pick<MockProperty, "title" | "buildingName" | "neighborhood">): boolean {
   const spoken = tokens(text);
   if (spoken.length === 0) return false;
-  const area = tokens(listing.neighborhood ?? "").join(" ");
+  const area = new Set(tokens(listing.neighborhood ?? ""));
   for (const name of [listing.title, listing.buildingName]) {
     const words = tokens(name ?? "");
     if (words.length < 2 || words.join(" ").length < 6) continue;
-    if (!words.some((w) => !NAME_STOP.has(w) && w.length >= 3)) continue;
-    if (area && words.join(" ") === area) continue;
+    const distinctive = words.filter((w) => w.length >= 3 && !NAME_STOP.has(w) && !NAME_GENERIC.has(w));
+    if (distinctive.length === 0) continue;
+    if (area.size > 0 && distinctive.every((w) => area.has(w))) continue;
     if (containsPhrase(spoken, words)) return true;
   }
   return false;

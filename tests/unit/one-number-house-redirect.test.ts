@@ -63,6 +63,18 @@ describe("name and title matching", () => {
     expect(textNamesListingByName("anything in capitol hill?", hill)).toBe(false);
   });
 
+  it("a title with no distinctive word in it names no home, so an ordinary prospect question is not a redirect", () => {
+    const generic = home("generic", "400 Pike St, Seattle, WA 98101", { title: "Private Room", buildingName: "Shared House", neighborhood: "Belltown" });
+    expect(textNamesListingByName("do you have a private room?", generic)).toBe(false);
+    expect(textNamesListingByName("any shared house available", generic)).toBe(false);
+    expect(matchListingsNamedIn("do you have a private room?", [generic])).toEqual({ kind: "none" });
+    const sized = home("sized", "402 Pike St, Seattle, WA 98101", { title: "2 Bedroom Apartment", buildingName: "Cozy Studio", neighborhood: "Belltown" });
+    expect(textNamesListingByName("looking for a 2 bedroom apartment", sized)).toBe(false);
+    expect(textNamesListingByName("a cozy studio would be great", sized)).toBe(false);
+    // A descriptor plus a real name still names the home.
+    expect(textNamesListingByName("is the private room at birch lane open", home("b", "9 Birch Ln", { title: "Private Room at Birch Lane", buildingName: null, neighborhood: "Fremont" }))).toBe(true);
+  });
+
   it("matches by street or by name, and says several when two homes are named", () => {
     expect(matchListingsNamedIn("12 Elm St?", [elm, hill])).toEqual({ kind: "one", listing: elm });
     expect(matchListingsNamedIn("Elm Street House", [elm, hill])).toEqual({ kind: "one", listing: elm });

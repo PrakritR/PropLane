@@ -510,3 +510,34 @@ describe("a member's request or problem is not answered with a status dump", () 
     expect(alerts).not.toHaveBeenCalled();
   });
 });
+
+describe("a workspace's team role is read over EVERY seat it holds", () => {
+  // Two accepted seat rows can land on the same workspace: one pinned to it, one legacy row with no workspace_id that
+  // resolves through the inviter's default workspace. A viewer seat among them makes the workspace a viewer.
+  const seats = (rows: Row[]) =>
+    createFakeDb({
+      profiles: [{ id: "u-mate", email: "mate@x.com", phone: FROM, phone_verified_at: VERIFIED }],
+      portal_workspaces: [{ id: "ws-1", name: "Elm Rentals", owner_user_id: "own-1", is_default: true, is_service: true }],
+      account_link_invites: rows,
+      manager_property_records: [],
+    });
+
+  const seat = (id: string, role: string, workspaceId: string | null): Row => ({
+    id,
+    inviter_user_id: "own-1",
+    invitee_user_id: "u-mate",
+    workspace_id: workspaceId,
+    status: "accepted",
+    team_role: role,
+  });
+
+  it("a viewer seat seen second still makes the workspace a viewer", async () => {
+    const db = seats([seat("i1", "property_manager", "ws-1"), seat("i2", "viewer", null)]);
+    expect((await listLineMemberships(db as never, "u-mate"))?.map((m) => [m.workspaceId, m.kind, m.teamRole])).toEqual([["ws-1", "teammate", "viewer"]]);
+  });
+
+  it("a single non-viewer seat keeps its own role", async () => {
+    const db = seats([seat("i1", "property_manager", "ws-1")]);
+    expect((await listLineMemberships(db as never, "u-mate"))?.map((m) => m.teamRole)).toEqual(["property_manager"]);
+  });
+});

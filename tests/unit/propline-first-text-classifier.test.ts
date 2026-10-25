@@ -93,8 +93,8 @@ describe("the copy", () => {
     }
   });
 
-  it("the manage-my-own answer carries the create-account link and the Pro line", () => {
-    expect(MANAGE_OWN_REPLY).toBe("Great, set up your homes here: proplane.ai/auth/create-account?role=manager. A personal work number comes with Pro.");
+  it("the manage-my-own answer carries the create-account link, last-word clean, and the Pro line", () => {
+    expect(MANAGE_OWN_REPLY).toBe("Great, set up your homes here: https://proplane.ai/auth/create-account?role=manager A personal work number comes with Pro.");
   });
 
   it("a manager's own number says its workspace's name where PropLane's would be; the last clause is kept", () => {

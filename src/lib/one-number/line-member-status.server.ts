@@ -158,7 +158,6 @@ export async function listLineMemberships(
       kind,
       viewOnly: locked.has(id),
       isService: w.is_service === true,
-      // Fail closed: a viewer seat anywhere in the workspace makes it a viewer.
       teamRole: roles.includes("viewer") ? "viewer" : (roles[0] ?? null),
     };
     const have = out.get(id);
@@ -172,6 +171,13 @@ export async function listLineMemberships(
     const w = str(invite.workspace_id) ? byId.get(str(invite.workspace_id)) : undefined;
     // Only the client of a PropLane Service workspace is an owner of record.
     if (w && w.is_service === true) add(w, "owner_of_record");
+  }
+  // Fail closed over EVERY seat the workspace holds: a viewer seat anywhere in it makes it a viewer, whichever seat row
+  // was seen first (a pinned row and a legacy unpinned one can both land on the same workspace).
+  for (const [id, m] of out) {
+    if (m.kind !== "teammate") continue;
+    const roles = seatRoles.get(id) ?? [];
+    out.set(id, { ...m, teamRole: roles.includes("viewer") ? "viewer" : (roles[0] ?? null) });
   }
   return [...out.values()].filter((m) => m.ownerUserId).sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.workspaceName.localeCompare(b.workspaceName));
 }

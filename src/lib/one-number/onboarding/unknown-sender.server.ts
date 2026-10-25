@@ -28,6 +28,7 @@ import {
   RESIDENT_NOT_FOUND_REPLY,
   classifyFirstText,
   readRoleQuestionAnswer,
+  withOptOut,
 } from "@/lib/sms/propline-first-text";
 import { mintSetupLink } from "@/lib/one-number/onboarding/setup-links.server";
 import { readOnboardingState, saveOnboardingState, type OnboardingState } from "@/lib/one-number/onboarding/state.server";
@@ -154,18 +155,20 @@ async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbou
       // Asked once already: take the answer. Resident and "manage my own" are answered here and now; a searcher or a
       // vendor goes to their flow; when it still does not say, a searcher (the default for an unknown number).
       const answered = readRoleQuestionAnswer(inbound.body);
-      if (answered === "resident") return single(RESIDENT_NOT_FOUND_REPLY);
+      if (answered === "resident") return single(withOptOut(RESIDENT_NOT_FOUND_REPLY));
       if (answered === "manage") {
         await saveOnboardingState(db, inbound.phoneKey, { role: "landlord", stage: "finish_sent" }, now);
-        return single(MANAGE_OWN_REPLY);
+        return single(withOptOut(MANAGE_OWN_REPLY));
       }
       role = answered === "vendor" ? "vendor" : answered === "looking" ? "searcher" : (inferSenderRole(inbound.body) ?? readRoleAnswer(inbound.body) ?? "searcher");
-      firstReply = false;
+      // The question carries no opt-out notice (its wording is fixed), so the reply that follows it is the first one
+      // that can: the notice rides it, not the ask.
+      firstReply = true;
     } else {
       // A CLEAR first text skips the question: the role-detect patterns, or the PropLane line's own classifier (a housing
       // search, a listing question). A resident whose number no account holds is told where to look; nothing else is guessed.
       const clarity = classifyFirstText(inbound.body);
-      if (clarity.kind === "clear" && clarity.role === "resident" && !inferSenderRole(inbound.body)) return single(RESIDENT_NOT_FOUND_REPLY);
+      if (clarity.kind === "clear" && clarity.role === "resident" && !inferSenderRole(inbound.body)) return single(withOptOut(RESIDENT_NOT_FOUND_REPLY));
       const fromClarity = clarity.kind === "clear" ? ({ looking: "searcher", manage: "landlord", vendor: "vendor", resident: null } as const)[clarity.role] : null;
       const inferred = inferSenderRole(inbound.body) ?? fromClarity;
       if (!inferred) {

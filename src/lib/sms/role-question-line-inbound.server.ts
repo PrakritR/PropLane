@@ -16,6 +16,7 @@ import {
   classifyFirstText,
   readRoleQuestionAnswer,
   roleQuestionFor,
+  withOptOut,
 } from "@/lib/sms/propline-first-text";
 import { ensureRecipientInitiatedReplyConsent } from "@/lib/sms/signup-line-inbound.server";
 import { loadWorkspaceById } from "@/lib/workspaces/active.server";
@@ -31,10 +32,11 @@ import { loadWorkspaceById } from "@/lib/workspaces/active.server";
  *                         where to look; manage -> the create-account link; looking -> the leasing assistant;
  *                         vendor -> the PropLane line's vendor flow, or the trade question on a manager's own number.
  *
- * "First text" = nothing was ever sent to this number from this line. The answer is only read when we asked (a recent
- * `sms_onboarding_state.asked_at` with no role chosen yet), so an ordinary text is never taken for an answer. Nothing
- * here reads or reveals a workspace's data: the only workspace fact in a reply is the name on the question, and only on
- * that workspace's own number.
+ * "First text" = nothing was ever sent to this number from this line AND we have not already asked it. The answer is only
+ * read when we asked (a recent `sms_onboarding_state.asked_at` with no role chosen yet), so an ordinary text is never
+ * taken for an answer. The question's own wording is fixed and carries no STOP line, so the opt-out notice rides the
+ * reply that follows it (`withOptOut`). Nothing here reads or reveals a workspace's data: the only workspace fact in a
+ * reply is the name on the question, and only on that workspace's own number.
  */
 export const ROLE_QUESTION_PURPOSE = "line_role_question";
 
@@ -108,16 +110,15 @@ export async function handleRoleQuestionInbound(
   // Unknown whether this number was ever answered: ask nothing, change nothing.
   if (sent === null) return { handled: false };
 
+  // "Have we asked?" is `sms_onboarding_state.asked_at`, not the outbox: a burst of unclear texts that arrives before the
+  // question's outbox row lands reads the same `asked_at`, so the question is asked once and only once.
+  const { available, state } = await readOnboardingState(db, phoneKey).catch(() => ({ available: false, state: null }));
+  const askedAt = state?.askedAt ? Date.parse(state.askedAt) : NaN;
+  const askedRecently = Number.isFinite(askedAt) && now.getTime() - askedAt <= ROLE_ANSWER_WINDOW_MS;
+  const awaitingAnswer = available && state !== null && !state.role && askedRecently;
+
   let reply: string | null = null;
-  if (sent === 0) {
-    // First text from this number. A clear one skips the question.
-    if (classifyFirstText(body).kind === "clear") return { handled: false };
-    reply = serviceLine ? PROPLANE_ROLE_QUESTION : roleQuestionFor(await workspaceNameOf(db, args.managerUserId, args.workspaceId));
-    await saveOnboardingState(db, phoneKey, { askedAt: now.toISOString() }, now).catch(() => false);
-  } else {
-    const { available, state } = await readOnboardingState(db, phoneKey).catch(() => ({ available: false, state: null }));
-    const askedAt = state?.askedAt ? Date.parse(state.askedAt) : NaN;
-    if (!available || !state || state.role || !Number.isFinite(askedAt) || now.getTime() - askedAt > ROLE_ANSWER_WINDOW_MS) return { handled: false };
+  if (awaitingAnswer) {
     const role = readRoleQuestionAnswer(body);
     if (!role) return { handled: false };
     if (role === "resident") reply = RESIDENT_NOT_FOUND_REPLY;
@@ -132,6 +133,15 @@ export async function handleRoleQuestionInbound(
       if (serviceLine) return { handled: false, forceVendor: true };
       reply = VENDOR_TRADE_QUESTION;
     }
+    // The question itself carries no opt-out notice (its wording is fixed), so this reply - the first one that can - does.
+    reply = withOptOut(reply);
+  } else if (sent === 0 && !askedRecently) {
+    // First text from this number. A clear one skips the question.
+    if (classifyFirstText(body).kind === "clear") return { handled: false };
+    reply = serviceLine ? PROPLANE_ROLE_QUESTION : roleQuestionFor(await workspaceNameOf(db, args.managerUserId, args.workspaceId));
+    await saveOnboardingState(db, phoneKey, { askedAt: now.toISOString() }, now).catch(() => false);
+  } else {
+    return { handled: false };
   }
 
   const conversationKey = buildConversationKey({ ownerManagerUserId: args.managerUserId, role: "prospect", counterpartyUserId: null, counterpartyPhone: phone });

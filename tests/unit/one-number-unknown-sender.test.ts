@@ -62,17 +62,18 @@ describe("role inference on the first text", () => {
 });
 
 describe("ask once", () => {
-  it("asks the role question once with the STOP notice, then takes the answer", async () => {
+  it("asks the role question once, then takes the answer with the STOP notice on it", async () => {
     const f = leadFakeDb();
     const asked = await run(f.db, "hi");
     expect(asked.reply).toBe(ONBOARDING_COPY.askRole);
     expect(asked.reply).toBe("Hi, this is PropLane. Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?");
+    expect(asked.reply).not.toContain("STOP");
     expect(asked.reply!.length).toBeLessThanOrEqual(160);
     expect(lead).not.toHaveBeenCalled();
 
     // "manage my own" -> the create-account link, once; no demo.
     const answered = await run(f.db, "renting one out");
-    expect(answered.reply).toBe("Great, set up your homes here: proplane.ai/auth/create-account?role=manager. A personal work number comes with Pro.");
+    expect(answered.reply).toBe("Great, set up your homes here: https://proplane.ai/auth/create-account?role=manager A personal work number comes with Pro. Reply STOP to opt out.");
     expect(f.rows.sms_onboarding_state![0]).toMatchObject({ role: "landlord", stage: "finish_sent" });
   });
 
@@ -81,6 +82,7 @@ describe("ask once", () => {
     await run(f.db, "hello");
     const answered = await run(f.db, "I'm a resident");
     expect(answered.reply).toMatch(/^I cannot find a resident account for this number\./);
+    expect(answered.reply).toContain("Reply STOP to opt out.");
     expect(lead).not.toHaveBeenCalled();
     expect(f.rows.sms_onboarding_state![0]!.role ?? null).toBeNull();
   });
@@ -106,7 +108,7 @@ describe("ask once", () => {
     const f = leadFakeDb();
     await run(f.db, "hello");
     const turn = await run(f.db, "vendor");
-    expect(turn.reply).toBe(VENDOR_COPY.trade);
+    expect(turn.reply).toBe(`${VENDOR_COPY.welcome} ${VENDOR_COPY.trade}`);
   });
 
   it("a phone with a lead already open is a searcher and is not asked", async () => {
