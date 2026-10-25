@@ -50,8 +50,23 @@ import {
 } from "@/lib/co-manager-permissions";
 import { actorOwnWorkspaceHouseIds, actorWorkspaceStanding, workspaceHouseIds } from "@/lib/workspaces/membership.server";
 import { primaryRoleWhenAddingVendor } from "@/lib/auth/profile-primary-role";
+import { isPlatformServiceOwner } from "@/lib/service/service-owner.server";
 
 const TOKEN_BYTES = 32;
+
+/**
+ * Whether `workspaceId` is a PropLane Service workspace that PropLane itself owns (the service owner's, created with
+ * the +). Such a workspace is PropLane's managed service, not a manager's plan: there is no Pro / Business gate in
+ * front of its team, a seat redeemed into it is PropLane-issued, and a Property owner seat in it is its owner of
+ * record. An attached CLIENT workspace is not this: its owner's own invites keep every ordinary rule. Fails closed.
+ */
+async function isPropLaneOwnedServiceWorkspace(db: SupabaseClient, workspaceId: string | null | undefined): Promise<boolean> {
+  const id = String(workspaceId ?? "").trim();
+  if (!id) return false;
+  const { data, error } = await db.from("portal_workspaces").select("owner_user_id, is_service").eq("id", id).maybeSingle();
+  if (error || !data || (data as { is_service?: boolean | null }).is_service !== true) return false;
+  return isPlatformServiceOwner(db, String((data as { owner_user_id?: unknown }).owner_user_id ?? ""));
+}
 
 /**
  * A redeemed link lands by kind:
@@ -216,12 +231,23 @@ export async function mintInviteLink(
     workspacePermissions?: unknown;
     /** When true and kind === "manager": revoke prior active links for this workspace before inserting. */
     replaceActive?: boolean;
+    /**
+     * Server-internal, never read from a request body: PropLane Service's team verbs (`inviteServiceClient`, behind
+     * `requireAdminRoute()`) mint a one-use link for a person with no account yet. In a workspace PropLane itself
+     * owns, that skips the owner-plan gate and the Property owner "pick a house" rule (the owner of record sees the
+     * whole workspace). It changes nothing for any other workspace.
+     */
+    serviceInvite?: boolean;
   },
 ): Promise<MintInviteLinkResult> {
   const actorUserId = input.actorUserId.trim();
   if (!actorUserId) return { ok: false, status: 401, error: "Sign in to create an invite link." };
 
   const kind = normalizeInviteLinkKind(input.kind);
+  const serviceOwned =
+    kind === "manager" && input.serviceInvite === true
+      ? await isPropLaneOwnedServiceWorkspace(db, input.workspaceId)
+      : false;
   let houseScope: HouseScope = kind === "manager" ? parseHouseScope(input.houseScope) : "selected";
 
   // Every kind may carry properties. A vendor link's properties are NOT a
@@ -243,7 +269,7 @@ export async function mintInviteLink(
         return { ok: false, status: 400, error: OWNER_SELECTED_ONLY_ERROR };
       }
       houseScope = "selected";
-      if (propertyIds.length === 0) return { ok: false, status: 400, error: OWNER_NEEDS_HOUSE_ERROR };
+      if (propertyIds.length === 0 && !serviceOwned) return { ok: false, status: 400, error: OWNER_NEEDS_HOUSE_ERROR };
     }
   }
   if (kind === "manager" && requestedWorkspaceId) {
@@ -291,7 +317,7 @@ export async function mintInviteLink(
   // charging for the ability to move existing tenants onto PropLane would gate
   // the migration itself. A link that cannot be redeemed is worse than a
   // refusal, because the manager only learns at the far end.
-  if (kind === "manager") {
+  if (kind === "manager" && !serviceOwned) {
     const tier = await getEffectiveManagerSkuTier(ownerUserId);
     if (!tier.ok) {
       return { ok: false, status: 500, error: "We could not verify your plan. Try again in a moment." };
@@ -1074,6 +1100,10 @@ export async function redeemInviteLink(
     });
   }
 
+  // A workspace PropLane itself owns is its managed service, not a manager's plan: no owner-plan gate, the seat is
+  // PropLane-issued (`is_service_seat`), and a Property owner seat is the workspace's owner of record.
+  const serviceOwned = await isPropLaneOwnedServiceWorkspace(db, link.workspace_id);
+
   // One membership per workspace: a second link for the SAME workspace hands
   // back the row that exists; a link for another workspace makes a new one.
   const existingInviteQuery = db
@@ -1128,13 +1158,13 @@ export async function redeemInviteLink(
   const redeemAssigned: string[] = Array.isArray(link.assigned_property_ids)
     ? link.assigned_property_ids.map((id: unknown) => String(id ?? "").trim()).filter(Boolean)
     : [];
-  if (redeemOwnerLink && redeemAssigned.length === 0) {
+  if (redeemOwnerLink && redeemAssigned.length === 0 && !serviceOwned) {
     return { ok: false, status: 400, error: OWNER_NEEDS_HOUSE_ERROR };
   }
 
   // Owner pays for co-manager seats. A Free invitee may join a Pro owner's
   // workspace; their own owned workspaces stay on their own SKU.
-  {
+  if (!serviceOwned) {
     const ownerTier = await getEffectiveManagerSkuTier(String(link.owner_user_id));
     if (!ownerTier.ok) {
       return { ok: false, status: 500, error: "We could not verify plan eligibility. Try again in a moment." };
@@ -1252,6 +1282,9 @@ export async function redeemInviteLink(
       workspace_permissions: {},
       team_role: redeemedRole,
       house_scope: redeemOwnerLink ? "selected" : parseHouseScope(link.house_scope),
+      // PropLane Service (a workspace PropLane owns): the seat is PropLane-issued, and an owner seat is THE owner of
+      // record (one per workspace, enforced by `account_link_invites_one_owner_of_record`).
+      ...(serviceOwned ? { is_service_seat: !redeemOwnerLink, is_owner_of_record: redeemOwnerLink } : {}),
     })
     .select("id, workspace_id")
     .maybeSingle();
@@ -1265,6 +1298,9 @@ export async function redeemInviteLink(
         .eq("redeemed_by_user_id", redeemerUserId);
     }
     await releaseSpentUse();
+    if (inviteError?.code === "23505" && serviceOwned && redeemOwnerLink) {
+      return { ok: false, status: 409, error: "This workspace already has an owner. Ask PropLane for a new invite." };
+    }
     return { ok: false, status: 500, error: inviteError?.message ?? "Could not create the invite." };
   }
   return {

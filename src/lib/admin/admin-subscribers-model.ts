@@ -1,5 +1,5 @@
 /**
- * Pure model for Accounts > Subscribers. Which bucket an account is in is decided
+ * Pure model for the subscriber buckets (Paid, Trial, Promo, Free) behind the Accounts > Managers Plan filter and the Dashboard cards. Which bucket an account is in is decided
  * by the SAME resolvers enforcement uses - `deriveAdminBillingRow` runs
  * `resolveEffectiveManagerSkuTier` (lapsed trial -> Free, live Stripe/Apple grant
  * authoritative) and the staff billing overrides - so this list cannot disagree
@@ -22,21 +22,19 @@ import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import type { ManagerSkuTier } from "@/lib/manager-access";
 import { RATE_CARD } from "@/lib/billing/rate-card";
-import { csvCell } from "@/lib/admin/admin-revenue-model";
 import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 import { EMPTY_MANAGER_BILLING_OVERRIDES, type ManagerBillingOverrides } from "@/lib/manager-billing-overrides";
 
 import {
   SUBSCRIBER_TABS,
   subscriberTabFromParam,
-  trialEndsSoon,
   type SubscriberBucket,
   type SubscriberCounts,
   type SubscriberRow,
   type SubscriberSource,
 } from "@/lib/admin/admin-subscribers-shared";
 
-export { SUBSCRIBER_TABS, subscriberTabFromParam, trialEndsSoon };
+export { SUBSCRIBER_TABS, subscriberTabFromParam };
 export type { SubscriberBucket, SubscriberCounts, SubscriberRow, SubscriberSource };
 
 export type SubscriberPurchase = {
@@ -234,36 +232,4 @@ export function filterSubscribers(rows: readonly SubscriberRow[], filters: Subsc
       ? (a.trialEndsAt ?? "9999").localeCompare(b.trialEndsAt ?? "9999") || a.email.localeCompare(b.email)
       : (b.since ?? "").localeCompare(a.since ?? "") || a.email.localeCompare(b.email),
   );
-}
-
-const SOURCE_LABEL: Record<SubscriberSource, string> = {
-  stripe: "Stripe",
-  app_store: "App Store",
-  proplane: "PropLane",
-};
-
-export function subscriberSourceLabel(source: SubscriberSource): string {
-  return SOURCE_LABEL[source];
-}
-
-/** The Download CSV for a filtered Subscribers list (every row, not one page). */
-export function subscribersToCsv(rows: readonly SubscriberRow[]): string {
-  const lines = ["Name,Email,Status,Plan,Since,Trial ends,Promo code,Monthly,Billing source,Stripe subscription"];
-  for (const row of rows) {
-    lines.push(
-      [
-        csvCell(row.name),
-        csvCell(row.email),
-        csvCell(row.bucket),
-        csvCell(row.planLabel),
-        csvCell(row.since ? row.since.slice(0, 10) : ""),
-        csvCell(row.trialEndsAt),
-        csvCell(row.promoCode),
-        row.monthlyCents === null ? "" : (row.monthlyCents / 100).toFixed(2),
-        csvCell(SOURCE_LABEL[row.source]),
-        csvCell(row.stripeSubscriptionId),
-      ].join(","),
-    );
-  }
-  return `${lines.join("\r\n")}\r\n`;
 }

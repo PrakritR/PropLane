@@ -15,16 +15,8 @@ import {
 } from "@/lib/auth/co-manager-team-invite.server";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
-import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type CoManagerPermissions } from "@/lib/co-manager-permissions";
-import {
-  applyRoleToPropertyPermissions,
-  flatTeamRoleGrant,
-  inferInviteTeamRole,
-  parseTeamRole,
-  permissionsMatchTeamRole,
-  stampTeamRoleOnProperties,
-  type TeamRoleId,
-} from "@/lib/co-manager-team-roles";
+import { normalizePropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
+import { stampTeamRoleOnProperties, type TeamRoleId } from "@/lib/co-manager-team-roles";
 import { maxAccountLinksForTier } from "@/lib/manager-access";
 import { addonUnitsForCap, loadManagerPlanAddonQuantities } from "@/lib/plan-addons.server";
 import { ensureProfileProplaneId, getManagerPurchaseSku } from "@/lib/manager-access-server";
@@ -40,8 +32,8 @@ import { resolveRequestOrigin } from "@/lib/app-url";
 import { assertTestWorkspacePrincipalCompatibility } from "@/lib/test-workspaces/index.server";
 
 import { asStringArray, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
-import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
-import { OWNER_NEEDS_HOUSE_ERROR, OWNER_SELECTED_ONLY_ERROR, parseHouseScope, roleAssignableBy, type HouseScope } from "@/lib/workspaces/membership";
+import { finalizeInviteGrant, parseInviteAccess, restampInviteHouses } from "@/lib/co-manager-invite-grant";
+import { roleAssignableBy, type HouseScope } from "@/lib/workspaces/membership";
 import {
   actorWorkspaceStanding,
   ownerDefaultWorkspaceId,
@@ -276,40 +268,21 @@ export async function POST(req: Request) {
     const tabKind = "manager" satisfies AccountLinkTabKind;
     void body?.tabKind;
     const skipInviteNotification = body?.skipInviteNotification === true;
-    let assignedPropertyIds = asStringArray(body?.assignedPropertyIds);
-    let houseScope: HouseScope = parseHouseScope(body?.houseScope);
     const requestedWorkspaceId = typeof body?.workspaceId === "string" ? body.workspaceId.trim() || null : null;
     let payoutPercentForManager = Math.min(
       100,
       Math.max(0, Math.round(Number(body?.payoutPercentForManager ?? 15) * 10) / 10),
     );
-    let propertyCoManagerPermissions = normalizePropertyCoManagerPermissions(
-      body?.propertyCoManagerPermissions ?? body?.coManagerPermissions,
-      assignedPropertyIds,
-    );
-    const parsedTeamRole = parseTeamRole(body?.teamRole);
-    if (!parsedTeamRole.ok) {
-      return NextResponse.json({ error: parsedTeamRole.error }, { status: 400 });
+    // Role, scope, houses and the stamped per-house map: the one translation PropLane Service's team verbs share
+    // (`co-manager-invite-grant.ts`).
+    const parsedAccess = parseInviteAccess(body);
+    if (!parsedAccess.ok) {
+      return NextResponse.json({ error: parsedAccess.error }, { status: 400 });
     }
-    let teamRole: TeamRoleId = parsedTeamRole.role ?? "custom";
-    if (teamRole === "property_owner") {
-      // An owner never follows later-added houses: reject an explicit "all",
-      // coerce a defaulted scope, and require a house somebody actually chose.
-      if (parseHouseScope(body?.houseScope) === "all") {
-        return NextResponse.json({ error: OWNER_SELECTED_ONLY_ERROR }, { status: 400 });
-      }
-      houseScope = "selected";
-      if (assignedPropertyIds.length === 0) {
-        return NextResponse.json({ error: OWNER_NEEDS_HOUSE_ERROR }, { status: 400 });
-      }
-    }
-    if (teamRole !== "custom") {
-      propertyCoManagerPermissions = stampTeamRoleOnProperties(
-        teamRole,
-        assignedPropertyIds,
-        propertyCoManagerPermissions,
-      );
-    }
+    let assignedPropertyIds = parsedAccess.access.assignedPropertyIds;
+    const houseScope: HouseScope = parsedAccess.access.houseScope;
+    let propertyCoManagerPermissions = parsedAccess.access.propertyCoManagerPermissions;
+    let teamRole: TeamRoleId = parsedAccess.access.teamRole;
 
     const openInvite = !inviteeAxisId;
 
@@ -356,14 +329,7 @@ export async function POST(req: Request) {
       if (!roleAssignableBy(actorRole, teamRole)) {
         return NextResponse.json({ error: "You cannot hand out a role above your own." }, { status: 403 });
       }
-      if (teamRole !== "custom") {
-        propertyCoManagerPermissions = stampTeamRoleOnProperties(teamRole, assignedPropertyIds, propertyCoManagerPermissions);
-      } else {
-        propertyCoManagerPermissions = normalizePropertyCoManagerPermissions(
-          body?.propertyCoManagerPermissions ?? body?.coManagerPermissions,
-          assignedPropertyIds,
-        );
-      }
+      propertyCoManagerPermissions = restampInviteHouses(body, teamRole, assignedPropertyIds, propertyCoManagerPermissions);
     } else {
       const delegate = await resolveTeamInviteDelegate(svc, user.id, assignedPropertyIds);
       if (!delegate.ok) {
@@ -425,24 +391,12 @@ export async function POST(req: Request) {
       }
       propertyCoManagerPermissions = ownerCapped.permissions;
     }
-    propertyCoManagerPermissions = applyRoleToPropertyPermissions(teamRole, propertyCoManagerPermissions);
-    if (teamRole !== "custom") {
-      const flatAfterCap = flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions);
-      if (!permissionsMatchTeamRole(flatAfterCap, teamRole)) {
-        teamRole = inferInviteTeamRole(propertyCoManagerPermissions);
-      }
-    }
-
-    // Workspace rights follow the role; only a Custom row keeps explicit flags.
-    const workspacePermissions = teamRole === "custom" ? normalizeWorkspacePermissions(body?.workspacePermissions) : {};
-    const stampedFlat = flatTeamRoleGrant(teamRole, propertyCoManagerPermissions);
-    const coManagerPermissions: CoManagerPermissions = stampedFlat
-      ? stampedFlat
-      : Object.keys(
-          body?.coManagerPermissions && typeof body.coManagerPermissions === "object" ? body.coManagerPermissions : {},
-        ).length
-        ? (body!.coManagerPermissions as CoManagerPermissions)
-        : flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions);
+    // The role decides which keys survive, a map that no longer matches reads as the role it is, and the workspace
+    // rights and flat grant follow (`finalizeInviteGrant`).
+    const finalGrant = finalizeInviteGrant(body, { teamRole, propertyCoManagerPermissions });
+    teamRole = finalGrant.teamRole;
+    propertyCoManagerPermissions = finalGrant.propertyCoManagerPermissions;
+    const { workspacePermissions, coManagerPermissions } = finalGrant;
 
     // Security: the inviter may only delegate properties they actually own.
     const ownership = await findPropertyIdsNotOwnedByManager(svc, inviterUserId, assignedPropertyIds);

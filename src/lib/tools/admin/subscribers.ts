@@ -1,8 +1,8 @@
 /**
  * Admin agent: subscriber counts and trials ending. Read-only.
  *
- * Buckets come from `classifySubscriber` - the SAME classifier `/admin/subscribers`
- * renders - so the assistant's counts can never disagree with the page staff are
+ * Buckets come from `classifySubscriber` - the SAME classifier that drives the Accounts > Managers Plan filter and
+ * the Dashboard cards - so the assistant counts can never disagree with the list staff are
  * looking at. It wraps `deriveAdminBillingRow` / `resolveEffectiveManagerSkuTier`
  * (the one answer to "what plan is this account on"), so neither can drift from
  * what the product enforces, and an account whose purchase read fails is left out
@@ -105,7 +105,7 @@ export async function loadManagerSubscribers(db: SupabaseClient, nowMs = Date.no
 
 export const subscriberCountsTool = defineTool({
   name: "subscriber_counts",
-  description: `How many manager accounts are ${SUBSCRIBER_TABS.map((tab) => tab.label).join(", ")} right now - the same buckets /admin/subscribers shows, so a staff grant (complimentary or admin-assigned) counts as Promo code and a Stripe Checkout code on a paid subscription stays Paid. Computed from the same plan resolver the product enforces; demo accounts are excluded.`,
+  description: `How many manager accounts are ${SUBSCRIBER_TABS.map((tab) => tab.label).join(", ")} right now - the same buckets as the Plan filter on Accounts > Managers, so a staff grant (complimentary or admin-assigned) counts as Promo code and a Stripe Checkout code on a paid subscription stays Paid. Computed from the same plan resolver the product enforces; demo accounts are excluded.`,
   inputSchema: z.object({}),
   async handler(ctx: AdminAgentContext) {
     const rows = await loadManagerSubscribers(ctx.db);

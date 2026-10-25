@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { createRealIdentitySupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { PHONE_BROWSER_COOKIE, PHONE_OLD_COOKIE, verifyPhoneChallenge } from "@/lib/auth/phone-auth.server";
+import { PhoneOwnFlowError } from "@/lib/auth/phone-own-errors";
 import { assertPhoneRequestOrigin, phoneAuthFailure, phoneAuthResponse, phoneProofCookieOptions } from "@/lib/auth/phone-auth-request.server";
 
 export const runtime = "nodejs";
@@ -16,8 +17,16 @@ export async function POST(req: Request) {
     if (!browser) return phoneAuthFailure();
     const client = await createRealIdentitySupabaseServerClient();
     const { data: { user } } = await client.auth.getUser();
-    const result = await verifyPhoneChallenge({ db: createSupabaseServiceRoleClient(), userId: user?.id ?? null,
-      browser, challengeId: body.challengeId, code: body.code, oldChallengeId: jar.get(PHONE_OLD_COOKIE)?.value });
+    const ownPhone = body.purpose === "verify_own_phone";
+    if (ownPhone && !user?.id) return phoneAuthFailure();
+    let result: Awaited<ReturnType<typeof verifyPhoneChallenge>>;
+    try {
+      result = await verifyPhoneChallenge({ db: createSupabaseServiceRoleClient(), userId: user?.id ?? null,
+        browser, challengeId: body.challengeId, code: body.code, oldChallengeId: jar.get(PHONE_OLD_COOKIE)?.value, ownPhone });
+    } catch (error) {
+      if (error instanceof PhoneOwnFlowError) return phoneAuthResponse({ error: error.message }, 400);
+      throw error;
+    }
     if ("oldNumberVerified" in result) {
       jar.set(PHONE_OLD_COOKIE, body.challengeId, phoneProofCookieOptions(req));
     } else {

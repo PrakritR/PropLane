@@ -332,7 +332,7 @@ async function adminFlows(page, account) {
   console.log("\n=== Admin flows ===");
   const paths = [
     ["/admin/dashboard", "Dashboard"],
-    ["/admin/properties", "Properties"],
+    ["/admin/service", "Properties"],
     ["/admin/events", "Meetings"],
     ["/admin/bugs-feedback", "Feedback"],
     ["/admin/communication/inbox/unopened", "Inbox unopened"],

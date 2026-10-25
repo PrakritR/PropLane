@@ -243,7 +243,8 @@ describe("a Property owner's flat grant is what the manager set", () => {
 
   it("all three write paths use it: invite, mint redeem and edit", () => {
     for (const file of [
-      "src/app/api/pro/account-links/route.ts",
+      // The invite route stamps through the shared grant (`finalizeInviteGrant`), which calls it.
+      "src/lib/co-manager-invite-grant.ts",
       "src/app/api/pro/account-links/[inviteId]/route.ts",
       "src/lib/invite-links/invite-links.server.ts",
     ]) {

@@ -4,11 +4,13 @@ export function AdminProfileClient({
   fullName,
   email,
   phone,
+  phoneVerified,
   adminId,
 }: {
   fullName: string;
   email: string;
   phone: string;
+  phoneVerified?: boolean;
   adminId: string;
 }) {
   return (
@@ -18,6 +20,7 @@ export function AdminProfileClient({
       initialFullName={fullName}
       initialEmail={email}
       initialPhone={phone}
+      initialPhoneVerified={phoneVerified}
       idLabel="PropLane ID"
       idValue={adminId}
     />

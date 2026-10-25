@@ -86,7 +86,6 @@ describe("the fix lives in the shared header", () => {
   it("record pages inherit it - none carries a justify/ml-auto patch of its own", () => {
     for (const page of [
       "src/components/portal/admin-account-record-page.tsx",
-      "src/components/portal/admin-property-record-page.tsx",
     ]) {
       const src = read(page);
       expect(src).toContain("iconTitleActions");

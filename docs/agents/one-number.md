@@ -771,17 +771,18 @@ set of manager-side files that use an admin gate, and forbids any of them import
 admin ROLE is still not the all-owners read. Purge: `platform_service_settings` is classified in
 `account-purge-manifest.ts` (deleting the owner clears it, so the exemption fails closed).
 
-**Admin navigation: two halves.** `ADMIN_SECTION_TABS` / `ADMIN_GROUPS` in
+**Admin navigation: one headed half (Software).** `ADMIN_SECTION_TABS` / `ADMIN_GROUPS` in
 `src/lib/portals/nav-groups.ts` are the one source. Admin Settings (`profile`) is the FIRST
 sidebar row and the `/admin` landing (captain, Oct 18) — assigning it to a group is what puts it
 in the sidebar at all, since `SIDEBAR_EXCLUDED_SECTIONS` only applies to unassigned sections; it
-is still in the account menu too, unchanged. Then Dashboard and Communication, then:
-- **Property management** (headed sidebar group, one row keyed on `properties`): tabs Properties (existing
-  all-owners oversight) · Service · PropLane line · Unassigned leads (moved here from Accounts).
-- **Software** (headed group, two rows): Accounts (Accounts · Subscribers · Test accounts) and Money
-  (Payments · Promo codes · Finances), regrouped, not rebuilt. Support and Growth follow, unheaded.
-Every section id and route is unchanged (`/admin/unassigned-leads` etc.); the row key `properties` is kept so
-the native bottom bar (`NATIVE_BOTTOM_NAV_ADMIN_PRIMARY`) still resolves.
+is still in the account menu too, unchanged. Then Dashboard and Communication, then **Software** (headed group, three
+rows): Accounts (one page; its Managers · Residents · Vendors tabs, and an operator-only Test tab, live inside it),
+Money (Payments · Promo codes · Finances · Managed funds) and **Service** (ONE row keyed on `service`: tabs Workspaces
+(`/admin/service`, with its own Workspaces · Vendors · Network tabs) · PropLane line · Unassigned leads). Support and
+Growth follow, unheaded. Oct 25: the "Property management" heading, the all-owners Properties list (`/admin/properties`,
+now a redirect to `/admin/service`) and Subscribers (`/admin/subscribers`, a redirect to Accounts) were removed.
+Every other section id and route is unchanged (`/admin/unassigned-leads` etc.); the native bottom bar
+(`NATIVE_BOTTOM_NAV_ADMIN_PRIMARY`) shows Service where it showed Properties.
 
 **The PropLane line** (`/admin/proplane-line`, `src/lib/service/proplane-line.server.ts`, route
 `/api/admin/proplane-line`): the shared number on the website is the admin account's number
@@ -1046,6 +1047,7 @@ Captain, Oct 19: texted the PropLane line "Hey I want to sign up as a manager" a
 - **The sign-in link** (`signup/sign-in-link.server.ts`) is the `token_hash` confirm link the guest portal uses (`/auth/confirm?token_hash=...&type=magiclink`, never a PKCE `code`): Supabase keeps only the hash, it is single use and short lived, and the account is re-derived from the phone's verified owner (never from a request value) and the text goes only to that phone. It is minted only where `smsProvenSessionAllowed` says a text alone may open that account (§ W5); anyone else is sent the plain `/auth/sign-in` address. 5 per phone per hour. No second link service was invented.
 - **`sms_runtime_config.phone_required`** (migration `20261019150000_phone_first_accounts`, default FALSE on every row; the live site flips it deliberately after verifying code delivery there; dev is set TRUE). With it on, `needsPhoneVerification` sends ANY signed-in account (email, Google, Apple) without a verified phone to `/auth/verify-phone` before a portal, in any line mode. Admins are exempt (View-as is exempted by `getPortalAccessContext`); shared mode keeps its older gate untouched; phone SIGN-IN stays shared-line only. `/auth/verify-phone` and the `verify_phone` / `change_number_*` codes work in per_workspace through the platform verification sender (`TWILIO_DEFAULT_FROM`). **Fail safe:** an unreadable switch is OFF, an unreadable phone state never gates; a code that cannot be SENT shows the error and "Skip for now" (`POST /api/auth/phone/skip`), allowed only with the signed `proplane_phone_send_failed` proof set by `/api/auth/phone/start` for that account, never in shared mode; the skip cookie is bound to the account AND its last sign-in, so the next sign-in is asked again. The skip is CAPPED per account - 3 in a lifetime, one a week (`PHONE_SKIP_LIFETIME_MAX` / `PHONE_SKIP_COOLDOWN_MS`), counted and inserted in one transaction under a per-account advisory lock (`record_phone_required_skip`, `20261020110000`) so parallel requests cannot both pass, and a write that fails refuses the skip - because for `verify_phone` the person picks the number, so typing an undeliverable one manufactures the very proof the skip asks for. Only a platform-wide `phone_send_outage` lifts the cap (the skip is still recorded).
 - **Website sign-up** asks for the phone on every door (manager, resident, vendor, the role-agnostic hub; `vendor-register` now refuses a missing phone). Google / Apple land on the gate above. The owner-invite hub signup posts no phone and is asked by the gate.
+- **Settings > Profile > Phone > Verify** (Oct 25, `profile-phone-verify.tsx`): when the saved phone is unverified, a Verify button texts a code and shows an inline code row with Confirm, on every portal and whatever `phoneVerificationEnabled` / `sharedPhoneAuth` say. It is the `verify_own_phone` purpose of `/api/auth/phone/start` and `/verify`: a signed-in session is required, the number is the one saved on THAT user's profile (never the request's), and a number verified on another account is refused before any text ("This number is verified on another account."); wrong and expired codes answer "That code didn't match. Try again." / "That code expired. Send a new one." (`phone-own-errors.ts`). The per-IP and endpoint-wide send budgets still apply, plus 5 sends per account per hour. Every other purpose and `needsPhoneVerification` are unchanged.
 - Migration: `sms_signup_sessions` is RLS on, service role only, classified in `account-purge-manifest.ts` (`user_id`; typed answers are dropped at completion and stale sessions pruned after 7 days).
 
 Tests: `tests/unit/sms-signup-{intent,flow,provision,sign-in-link}.test.ts`, `phone-required-skip.test.ts`, `phone-auth.test.ts` (gate), `phone-auth-routes.test.ts`, `signup-phone-required.test.ts`. Scenario: `sms-signup` in `scripts/one-number/e2e/scenarios-smssignup.mjs`.

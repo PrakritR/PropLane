@@ -8,6 +8,7 @@ import {
   VendorDefaultsSettingsSection,
 } from "@/components/portal/automations-settings-sections";
 import { RentAndFeesSettingsSection } from "@/components/portal/rent-and-fees-settings";
+import { ServiceFeeSplitCard } from "@/components/portal/service-fee-split-card";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { canGoBackInApp } from "@/lib/portal-history";
@@ -47,6 +48,11 @@ import { LeaseDocumentLibraryPanel } from "@/components/portal/lease-document-li
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
 import { workspaceInitials } from "@/components/portal/workspace-switcher";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import {
+  ProfilePhoneCodeRow,
+  ProfilePhoneVerifyButton,
+  useProfilePhoneVerify,
+} from "@/components/portal/profile-phone-verify";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
   PortalSettingsGroup,
@@ -243,6 +249,7 @@ export function PortalProfileClient({
   initialFullName,
   initialEmail,
   initialPhone,
+  initialPhoneVerified,
   idLabel,
   idValue,
 }: {
@@ -251,6 +258,8 @@ export function PortalProfileClient({
   initialFullName: string;
   initialEmail: string;
   initialPhone: string;
+  /** Whether the saved phone is verified. Omitted (demo) means the row shows no status and no Verify button. */
+  initialPhoneVerified?: boolean;
   idLabel: string;
   idValue: string;
 }) {
@@ -263,6 +272,15 @@ export function PortalProfileClient({
   const workspaces = useWorkspaces();
   const [fullName, setFullName] = useState(dashToEmpty(initialFullName));
   const [phone, setPhone] = useState(phoneDashToEmpty(initialPhone));
+  const [phoneVerified, setPhoneVerified] = useState(initialPhoneVerified);
+  // A fresh server answer replaces the local one (adjusted during render, the React-endorsed way to follow a prop).
+  const [seenPhoneVerified, setSeenPhoneVerified] = useState(initialPhoneVerified);
+  if (seenPhoneVerified !== initialPhoneVerified) {
+    setSeenPhoneVerified(initialPhoneVerified);
+    setPhoneVerified(initialPhoneVerified);
+  }
+  /** The phone the server last confirmed (what the Verify flow acts on), as opposed to one being typed. */
+  const [savedPhone, setSavedPhone] = useState(phoneDashToEmpty(initialPhone));
   const [editingField, setEditingField] = useState<ProfileField | null>(null);
   /** Per-field outcome, so a failure is reported on the row it happened to. */
   const [fieldState, setFieldState] = useState<Record<ProfileField, PortalSettingsSaveState>>({
@@ -285,7 +303,9 @@ export function PortalProfileClient({
     setFullName((current) => (current === savedRef.current.fullName ? nextName : current));
     setPhone((current) => (current === savedRef.current.phone ? nextPhone : current));
     savedRef.current = { fullName: nextName, phone: nextPhone };
+    setSavedPhone(nextPhone);
   }, [initialFullName, initialPhone]);
+
 
   useEffect(() => {
     const timers = savedTimersRef.current;
@@ -343,6 +363,11 @@ export function PortalProfileClient({
         cacheLandlordLegalName(landlordLegalNameFromAccountFullName(next.fullName));
       }
       savedRef.current = next;
+      // A different number is unverified until its own code is confirmed (the API clears phone_verified_at too).
+      if (field === "phone") {
+        setSavedPhone(next.phone);
+        setPhoneVerified((current) => (current === undefined ? current : false));
+      }
       markSaved(field);
       return true;
     } catch {
@@ -353,6 +378,9 @@ export function PortalProfileClient({
       inFlightRef.current = false;
     }
   }, [demo, fullName, phone, markSaved, variant]);
+
+  const phoneVerify = useProfilePhoneVerify({ phone: savedPhone, onVerified: () => setPhoneVerified(true) });
+  const showPhoneStatus = !demo && phoneVerified !== undefined && Boolean(savedPhone) && phone === savedPhone;
 
   const beginEdit = (field: ProfileField) => {
     setFieldError((prev) => ({ ...prev, [field]: undefined }));
@@ -373,17 +401,21 @@ export function PortalProfileClient({
   const renderEditableProfileRow = (field: ProfileField, label: string, value: string) => {
     const editing = editingField === field && editPresentation === "dialog";
     const inputId = field === "fullName" ? "pf-name" : "pf-phone";
+    const statusLabel = field === "phone" && showPhoneStatus && value ? (phoneVerified ? "Verified" : "Not verified") : null;
+    const shownValue = statusLabel ? `${value} · ${statusLabel}` : value;
+    const showVerify = field === "phone" && showPhoneStatus && phoneVerified === false && !editing;
     return (
       <div className="border-b border-border px-4 py-3.5 last:border-0" data-attr={`profile-${field}-row`}>
         <div className="flex min-h-11 items-center justify-between gap-4">
           <span className="text-sm font-medium text-foreground">{label}</span>
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
           {field === "phone" && sharedPhoneAuth ? (
             <Link
               href={`/auth/verify-phone?next=${encodeURIComponent(`${pathname}${searchParams.toString() ? `?${searchParams}` : ""}`)}`}
               className="flex min-w-0 items-center gap-2 text-right text-sm text-foreground hover:text-primary"
               data-attr="settings-edit-phone"
             >
-              <span className="max-w-[22rem] truncate">{value || "Add"}</span>
+              <span className="max-w-[22rem] truncate">{shownValue || "Add"}</span>
               <span className="text-muted">Change phone</span>
             </Link>
           ) : editing ? (
@@ -411,12 +443,17 @@ export function PortalProfileClient({
               onClick={() => beginEdit(field)}
               data-attr={`settings-edit-${field}`}
             >
-              <span className="max-w-[22rem] truncate">{value || "Add"}</span>
+              <span className="max-w-[22rem] truncate">{shownValue || "Add"}</span>
               {fieldState[field] === "saved" ? <Check className="size-4 text-emerald-600" aria-label="Saved" /> : null}
               {fieldState[field] !== "saved" ? <span aria-hidden className="text-muted">Edit</span> : null}
             </button>
           )}
+          {showVerify ? <ProfilePhoneVerifyButton onSend={phoneVerify.send} /> : null}
+          </div>
         </div>
+        {field === "phone" && showVerify && !phoneVerify.codeSent && phoneVerify.error ? (
+          <p className="mt-1 text-sm text-danger" role="alert">{phoneVerify.error}</p>
+        ) : null}
         {editing && fieldError[field] ? <p className="mt-1 text-sm text-danger" role="alert">{fieldError[field]}</p> : null}
       </div>
     );
@@ -435,6 +472,15 @@ export function PortalProfileClient({
             </div>
           </div>
           {renderEditableProfileRow("phone", "Phone", formatSmsPhoneLabel(phone) || "")}
+          {showPhoneStatus && phoneVerified === false && phoneVerify.codeSent ? (
+            <ProfilePhoneCodeRow
+              phone={savedPhone}
+              code={phoneVerify.code}
+              onCodeChange={phoneVerify.setCode}
+              error={phoneVerify.error}
+              onConfirm={phoneVerify.confirm}
+            />
+          ) : null}
           <div className="border-b border-border px-4 py-3.5 last:border-0" data-attr="profile-id-row">
             <div className="flex min-h-11 items-center justify-between gap-4">
               <span className="text-sm font-medium text-foreground">{idLabel}</span>
@@ -799,6 +845,7 @@ export function PortalProfileClient({
         return (
           <>
             <HubSettingsModulePane tab="payments" />
+            {!demo && variant === "manager" && workspaces?.active?.isService ? <ServiceFeeSplitCard key={workspaces.active.id} workspaceId={workspaces.active.id} /> : null}
             <RentAndFeesSettingsSection />
           </>
         );

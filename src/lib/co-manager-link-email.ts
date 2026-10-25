@@ -44,6 +44,55 @@ export function buildCoManagerInviteBody(params: {
   ].join("\n");
 }
 
+/**
+ * PropLane Service: the owner of a workspace PropLane manages for them is not invited to "co-manage"; they are told
+ * PropLane has set the workspace up and asked to create their account. Plain words, no long dashes. The accept link is
+ * the same one a teammate gets (Settings > Workspaces for an account that exists, the invite page for one that does
+ * not).
+ */
+export function ownerInviteSubject(workspaceName: string): string {
+  const name = workspaceName.trim() || "your workspace";
+  return `PropLane manages ${name} for you`;
+}
+
+function firstNameOf(raw: string | null | undefined): string {
+  const first = String(raw ?? "").trim().split(/\s+/)[0] ?? "";
+  // An email address is not a name: "Hi owner@example.com," reads as a form letter.
+  return first && !first.includes("@") ? first : "there";
+}
+
+export function buildOwnerInviteBody(params: { ownerName?: string | null; workspaceName: string; acceptUrl: string }): string {
+  const name = params.workspaceName.trim() || "your workspace";
+  return [
+    `Hi ${firstNameOf(params.ownerName)},`,
+    "",
+    `PropLane has set up ${name} for your homes. Create your account to see rent, payouts and services: ${params.acceptUrl}`,
+    "",
+    "PropLane",
+  ].join("\n");
+}
+
+export function buildOwnerInviteText(params: { workspaceName: string; acceptUrl: string }): string {
+  const name = params.workspaceName.trim() || "Your workspace";
+  return `PropLane: ${name} is ready. Create your account to see your homes: ${params.acceptUrl}`;
+}
+
+/** A teammate invited to a PropLane Service workspace by link (they have no account yet). */
+export function serviceTeamInviteSubject(workspaceName: string): string {
+  return `Join ${workspaceName.trim() || "a PropLane workspace"} on PropLane`;
+}
+
+export function buildServiceTeamInviteBody(params: { workspaceName: string; roleLabel: string; acceptUrl: string }): string {
+  const name = params.workspaceName.trim() || "a PropLane workspace";
+  return [
+    "Hi,",
+    "",
+    `PropLane invited you to ${name} as ${params.roleLabel}. Create your account or sign in to accept: ${params.acceptUrl}`,
+    "",
+    "PropLane",
+  ].join("\n");
+}
+
 export function coManagerLinkRemovedSubject(actorName: string): string {
   const name = actorName.trim() || "A property manager";
   return `Co-manager link update from ${name}`;

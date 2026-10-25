@@ -40,6 +40,7 @@ export async function AdminProfileSection() {
       fullName={safeLine(profile?.full_name)}
       email={safeLine(profile?.email ?? user?.email)}
       phone={safeLine(profile?.phone)}
+      phoneVerified={Boolean(profile?.phone_verified_at)}
       adminId={adminAxisIdFrom(profile?.id ?? user?.id)}
     />
   );

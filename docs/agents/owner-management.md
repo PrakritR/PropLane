@@ -231,6 +231,12 @@ closed: with no `platform_service_settings` row there is no way to tell a client
   Only an explicit admin action (`setServiceManagementFee`, Managed finance activate) creates a version again.
   `credit_managed_capture`'s TypeScript guard (`policyCoversCapture`, `capture.server.ts`) accepts an ENDED version only when
   every component's Pacific paid day lies in `[effective_from, policyEndBoundary)`.
+- **Fee split card (Oct 25).** Settings > Balance & payouts on a service workspace shows the split (`ServiceFeeSplitCard`,
+  `GET /api/workspaces/service-fee`): PropLane % stepper, owner % derived, bar, an example on $1,000 rent
+  (`managementFeeSplitCents`: the fee rounds down, the owner gets the remainder, the same arithmetic the money path uses).
+  Save is the same `action: "fee"` write as the Management fee modal (`setServiceWorkspaceFee`: new version activated at
+  once, audit row first). Editable only by a platform admin (the write is `requireAdminRoute`; `canEdit` is server-derived);
+  the workspace's owner sees "PropLane 10% · You 90%" and other seats "PropLane 10% · Owner 90%", read-only. No schema change.
 - Admin changes the rate in Admin > Service > Management fee (0 to `MAX_MANAGEMENT_FEE_PERCENT`, `fee-percent.ts` - one
   parse, one range, shared by the server and the modal). The new rate is a new version **activated at once**: the one
   atomic database function ends the previous one in the same transaction, so the change reaches every payment settled

@@ -6,7 +6,7 @@ somewhere a reviewer can read them.
 
 These tests bundle the **real** `ReelStudio`, the **real** Remotion `Reel`
 composition, the **real** `ManagerWorkOrdersPanel`, `InboxAvatar`,
-`AdminPaymentsPanel`, `AdminSubscribersPanel` and `AdminFinancesPanel` together
+`AdminPaymentsPanel` and `AdminFinancesPanel` together
 with the current Tailwind build, and drive them in Chromium through request
 interception — no dev server, accounts or database. Only the portal session,
 `next/navigation` and analytics are stubbed, so what the screenshots show is the
@@ -30,10 +30,9 @@ They cover the parts of the lane the jsdom tests can only assert as values:
   action row (attach, draft, **schedule for later**, In-app, Email, Text) measures
   44 x 44, and the chrome stays icon-only.
 - **Admin Money** — Payments live from the platform Stripe account (tabs, stat
-  strip, icon-only chrome, flat rows, no pills), Subscribers with a live trial
-  and a complimentary account, and Finances drawing the P&L from
+  strip, icon-only chrome, flat rows, no pills) and Finances drawing the P&L from
   `platform_expenses`.
 
 The admin panes are driven against the real response contracts
-(`AdminRevenuePage`, `SubscriberRow`, `PlatformPnl`, `PlatformExpense`), shaped
+(`AdminRevenuePage`, `PlatformPnl`, `PlatformExpense`), shaped
 in the spec's `page.route` handler.

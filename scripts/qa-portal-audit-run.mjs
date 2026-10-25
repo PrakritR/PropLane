@@ -53,7 +53,7 @@ const RESIDENT_PATHS = [
 
 const ADMIN_PATHS = [
   { label: "Dashboard", path: "/admin/dashboard" },
-  { label: "Properties", path: "/admin/properties" },
+  { label: "Service", path: "/admin/service" },
   { label: "Meetings", path: "/admin/events" },
   { label: "Communication unopened", path: "/admin/communication/inbox/unopened" },
   { label: "Communication schedule", path: "/admin/communication/inbox/schedule" },

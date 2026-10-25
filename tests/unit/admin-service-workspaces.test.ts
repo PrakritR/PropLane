@@ -39,6 +39,16 @@ vi.mock("@/lib/one-number/personal-number-entitlement.server", () => ({
   ),
 }));
 
+// Email delivery for someone with no account yet goes through the Resend boundary; capture it, send nothing.
+const sentEmails = vi.hoisted(() => ({ items: [] as Array<{ to: string[]; subject: string; text: string }> }));
+vi.mock("@/lib/resend-delivery.server", () => ({
+  postResendEmail: vi.fn(async (args: { payload: { to: string[]; subject: string; text: string } }) => {
+    sentEmails.items.push(args.payload);
+    return new Response(JSON.stringify({ id: "captured" }), { status: 200 });
+  }),
+}));
+process.env.RESEND_API_KEY = "re_test_key";
+
 const svc = await import("@/lib/service/service-workspaces.server");
 const owner = await import("@/lib/service/service-owner.server");
 
@@ -68,8 +78,15 @@ function seed(extra: Record<string, Record<string, unknown>[]> = {}) {
 
 beforeEach(() => {
   paid.owners.clear();
+  sentEmails.items.length = 0;
   seed();
 });
+
+/** The database trigger keeps an "all houses" seat's houses current; the fake has no triggers, so say it by hand. */
+function seatHouses(workspaceId: string) {
+  const houses = db.tables.manager_property_records.filter((h) => h.workspace_id === workspaceId).map((h) => h.id);
+  for (const l of db.tables.account_link_invites) if (l.workspace_id === workspaceId && l.house_scope === "all") l.assigned_property_ids = houses;
+}
 
 describe("service owner resolution", () => {
   it("is not configured with no row and no env", async () => {
@@ -389,8 +406,14 @@ describe("one workspace per owner client (per city, owner of record, invite)", (
 
   it("invites a helper by email: an Admin seat pinned to this workspace, pending until they accept", async () => {
     const id = await made();
+    // No account with this email: a one-use invite link is emailed (the invite page creates the account).
     const res = await svc.inviteServiceClient(client(), ADMIN_A, { id, email: " Name.AAAA@Example.com " });
-    expect(res).toMatchObject({ ok: false, status: 404 });
+    expect(res).toMatchObject({ ok: true, delivery: "link" });
+    expect(db.tables.account_link_invites.filter((l) => l.status === "pending")).toHaveLength(0);
+    expect(sentEmails.items).toHaveLength(1);
+    expect(sentEmails.items[0]!.to).toEqual(["name.aaaa@example.com"]);
+    // An unknown PropLane ID has no email to send to: that is still a 404.
+    expect(await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-NOPE" })).toMatchObject({ ok: false, status: 404 });
     db.tables.profiles.find((p) => p.id === CLIENT)!.email = "helper@example.com";
     expect((await svc.inviteServiceClient(client(), ADMIN_A, { id, email: "Helper@Example.com" })).ok).toBe(true);
     expect(db.tables.account_link_invites.find((l) => l.invitee_user_id === CLIENT)).toMatchObject({
@@ -419,6 +442,7 @@ describe("one workspace per owner client (per city, owner of record, invite)", (
   it("flagging an existing client member converts them to a Property owner of the workspace's houses", async () => {
     const id = await made();
     db.tables.manager_property_records.push({ id: "house-a", manager_user_id: OWNER, workspace_id: id });
+    seatHouses(id);
     const sent = (await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA" })) as { linkId: string };
     expect(await svc.setServiceOwnerOfRecord(client(), ADMIN_A, { id, linkId: sent.linkId, value: true })).toEqual({ ok: true });
     expect(db.tables.account_link_invites.find((l) => l.id === sent.linkId)).toMatchObject({

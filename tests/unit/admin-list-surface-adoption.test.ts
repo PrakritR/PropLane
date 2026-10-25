@@ -18,7 +18,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const FILES = {
-  properties: "src/components/portal/admin-properties-client.tsx",
   feedback: "src/components/portal/admin-bug-feedback-client.tsx",
   accounts: "src/components/portal/admin-axis-users-client.tsx",
   billing: "src/components/portal/admin-billing-client.tsx",
@@ -46,21 +45,6 @@ describe.each(LIST_FILES)("admin %s list", (_name, path) => {
 
   it("selects with a leading checkbox, via a record row", () => {
     expect(src).toContain("onSelectedChange");
-  });
-});
-
-describe("admin Properties", () => {
-  const src = read(FILES.properties);
-
-  it("keeps staff to viewing and (un)listing — never editing a manager's listing", () => {
-    expect(src).toContain('data-attr="admin-property-view-listing"');
-    expect(src).toContain('data-attr="admin-property-unlist"');
-    expect(src).toContain('data-attr="admin-property-list"');
-  });
-
-  it("offers no ADD row, because admin does not create listings", () => {
-    expect(src).not.toContain("PortalListAddRow");
-    expect(src).not.toMatch(/\badd=\{/);
   });
 });
 
@@ -137,7 +121,6 @@ describe("admin Meetings", () => {
  * manager Properties and Tours tabs use.
  */
 describe.each([
-  ["properties", "src/components/portal/admin-properties-client.tsx"],
   ["feedback", "src/components/portal/admin-bug-feedback-client.tsx"],
   ["accounts", "src/components/portal/admin-axis-users-client.tsx"],
   ["meetings", "src/components/portal/admin-events-client.tsx"],
@@ -154,7 +137,7 @@ describe.each([
     // A tab that only lives in component state cannot be shared, and comes
     // back as whatever the default is every time the page is opened.
     expect(src).toContain("useSearchParams");
-    expect(src).toMatch(/href: `\/admin\//);
+    expect(src).toMatch(/href: [`"]\/admin\//);
   });
 });
 
@@ -173,7 +156,8 @@ describe("admin Accounts", () => {
 
   it("lists Managers, Residents and Vendors from one server search", () => {
     expect(src).toContain("/api/admin/accounts/search");
-    expect(src).toContain('dataAttr: `admin-accounts-tab-${tab.id}`');
+    expect(src).toContain("dataAttr: \"admin-accounts-tab-management\"");
+    expect(src).toContain("dataAttr: \"admin-accounts-tab-vendor\"");
     expect(src).not.toContain('"All"');
   });
 

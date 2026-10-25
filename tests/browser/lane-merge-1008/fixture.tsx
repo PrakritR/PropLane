@@ -5,7 +5,6 @@ import { Thumbnail } from "@remotion/player";
 import { AppUiProvider } from "../../../src/components/providers/app-ui-provider";
 import { AdminFinancesPanel } from "../../../src/components/portal/admin-finances-panel";
 import { AdminPaymentsPanel } from "../../../src/components/portal/admin-payments-panel";
-import { AdminSubscribersPanel } from "../../../src/components/portal/admin-subscribers-panel";
 import { ReelStudio } from "../../../src/components/portal/growth-reel-studio";
 import { ManagerCommunicationComposeModal } from "../../../src/components/portal/pro-communication-compose-modal";
 import { ManagerSheetLinkPanel } from "../../../src/components/portal/manager-sheet-link-panel";
@@ -160,12 +159,6 @@ function Surface() {
     return (
       <div className="bg-background p-6">
         <AdminPaymentsPanel />
-      </div>
-    );
-  if (surface === "admin-subscribers")
-    return (
-      <div className="bg-background p-6">
-        <AdminSubscribersPanel />
       </div>
     );
   if (surface === "admin-finances")

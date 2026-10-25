@@ -1,10 +1,10 @@
 /**
- * Accounts > Subscribers: every bucket comes from the resolvers enforcement uses, so the counts here
- * are pinned against the same fixtures `resolveEffectiveManagerSkuTier` is, and the Dashboard money
- * row follows the omitted-card rule (an unknown figure is left out, never drawn as $0).
+ * The subscriber buckets behind Accounts > Managers' Plan filter and the Dashboard cards: every bucket comes
+ * from the resolvers enforcement uses, so the counts here are pinned against the same fixtures
+ * `resolveEffectiveManagerSkuTier` is, and the Dashboard money row follows the omitted-card rule (an unknown
+ * figure is left out, never drawn as $0). The Subscribers page, its CSV and its renewals read are gone (Oct 25).
  */
-import { describe, expect, it, vi } from "vitest";
-import type Stripe from "stripe";
+import { describe, expect, it } from "vitest";
 import { createAdminFakeDb } from "../helpers/admin-fake-db";
 import { resolveEffectiveManagerSkuTier } from "@/lib/manager-access";
 import {
@@ -13,18 +13,12 @@ import {
   monthlyCentsForPlan,
   subscriberCounts,
   subscriberMrrCents,
-  subscribersToCsv,
   trialDaysLeft,
   type SubscriberInput,
   type SubscriberPurchase,
 } from "@/lib/admin/admin-subscribers-model";
-import { SUBSCRIBER_TABS, subscriberTabFromParam, trialEndsSoon } from "@/lib/admin/admin-subscribers-shared";
-import {
-  enrichRenewals,
-  loadAdminSubscriberFigures,
-  loadSubscriberPopulation,
-  pageSubscribers,
-} from "@/lib/admin/admin-subscribers.server";
+import { SUBSCRIBER_TABS, subscriberTabFromParam } from "@/lib/admin/admin-subscribers-shared";
+import { loadAdminSubscriberFigures, loadSubscriberPopulation } from "@/lib/admin/admin-subscribers.server";
 import { buildAdminMoneyOverview } from "@/lib/admin/admin-overview.server";
 import { expenseOccursInMonth, loadMonthExpensesCents, sumExpensesForMonth } from "@/lib/admin/admin-expense-month.server";
 import { EMPTY_MANAGER_BILLING_OVERRIDES } from "@/lib/manager-billing-overrides";
@@ -189,13 +183,10 @@ describe("the Promo code bucket", () => {
 });
 
 describe("trials", () => {
-  it("counts calendar days to the trial end and flags the last three as soon", () => {
+  it("counts calendar days to the trial end", () => {
     expect(trialDaysLeft("2026-10-10", NOW)).toBe(2);
     expect(trialDaysLeft("2026-10-08", NOW)).toBe(0);
     expect(trialDaysLeft("2026-10-01", NOW)).toBe(0);
-    expect(trialEndsSoon({ trialDaysLeft: 3 })).toBe(true);
-    expect(trialEndsSoon({ trialDaysLeft: 4 })).toBe(false);
-    expect(trialEndsSoon({ trialDaysLeft: null })).toBe(false);
   });
 
   it("honours a staff-extended trial end (paid_at moved) and sorts the Trial tab soonest first", () => {
@@ -210,7 +201,7 @@ describe("trials", () => {
   });
 });
 
-describe("filters and CSV", () => {
+describe("filters", () => {
   const list = fixtures.map(classifySubscriber).filter((r): r is NonNullable<typeof r> => r !== null);
 
   it("filters the Paid tab by plan, source and text", () => {
@@ -221,12 +212,9 @@ describe("filters and CSV", () => {
     expect(filterSubscribers(list, { ...f, q: "STRIPE-PRO" })).toHaveLength(1);
   });
 
-  it("downloads every filtered row with safe cells", () => {
-    const csv = subscribersToCsv(list.filter((r) => r.bucket === "promo"));
-    const [head, line] = csv.trimEnd().split("\r\n");
-    expect(head).toContain("Promo code");
-    expect(line).toContain("FREE100");
-    expect(line).toContain("49.00");
+  it("finds an account by the promo code it used", () => {
+    const f = { tab: "promo" as const, q: "free100", plan: "all" as const, source: "all" as const, signup: "" };
+    expect(filterSubscribers(list, f).map((r) => r.promoCode)).toEqual(["FREE100"]);
   });
 });
 
@@ -262,8 +250,8 @@ describe("loadSubscriberPopulation (paged reads, resolvers, sandbox excluded)", 
     const bucket = Object.fromEntries(pop.rows.map((r) => [r.id, r.bucket]));
     expect(bucket).toEqual({ "m-paid": "paid", "m-trial": "trial", "m-free": "free", "m-comp": "promo" });
     expect(pop.unreadable).toBe(0);
-    const p = pageSubscribers(pop, { tab: "paid", q: "", plan: "all", source: "all", signup: "" }, 1, 50);
-    expect(p).toMatchObject({ total: 1, counts: { paid: 1, trial: 1, promo: 1, free: 1 }, mrrCents: 24_900 });
+    expect(subscriberCounts(pop.rows)).toEqual({ paid: 1, trial: 1, promo: 1, free: 1 });
+    expect(subscriberMrrCents(pop.rows)).toBe(24_900);
   });
 
   it("loads stripe_promotion_code from manager_purchases as a display-only code on a Paid account", async () => {
@@ -287,22 +275,6 @@ describe("loadSubscriberPopulation (paged reads, resolvers, sandbox excluded)", 
     } as never;
     await expect(loadSubscriberPopulation(broken, NOW)).rejects.toBeDefined();
     expect(await loadAdminSubscriberFigures(broken, NOW)).toBeNull();
-  });
-
-  it("pages in blocks and enriches the visible rows' renewal from Stripe, leaving a miss blank", async () => {
-    const pop = await loadSubscriberPopulation(db(), NOW);
-    const page = pageSubscribers(pop, { tab: "paid", q: "", plan: "all", source: "all", signup: "" }, 1, 50);
-    const stripe = {
-      subscriptions: { retrieve: vi.fn(async () => ({ status: "active", items: { data: [{ current_period_end: 1_793_000_000 }] } })) },
-    } as unknown as Stripe;
-    const [row] = await enrichRenewals(page.rows, { stripe: () => stripe });
-    expect(row!.renewsAt).toBe(new Date(1_793_000_000 * 1000).toISOString());
-    const down = await enrichRenewals(page.rows, {
-      stripe: () => {
-        throw new Error("no key");
-      },
-    });
-    expect(down[0]!.renewsAt).toBeNull();
   });
 });
 
@@ -350,9 +322,17 @@ describe("Dashboard money row: an unknown source omits its card", () => {
     for (const key of ["mrrCents", "earnedCents", "profitCents", "paidSubscribers", "onTrial", "promoUsers"]) {
       expect(src).toContain(`overview.money?.${key} != null`);
     }
-    for (const href of ["/admin/subscribers?tab=paid", "/admin/payments", "/admin/finances", "/admin/subscribers?tab=trial", "/admin/subscribers?tab=promo"]) {
+    // The cards open Accounts > Managers with the Plan filter set; the Subscribers page is gone.
+    for (const href of [
+      "/admin/axis-users?category=management&plan=paid",
+      "/admin/payments",
+      "/admin/finances",
+      "/admin/axis-users?category=management&plan=trial",
+      "/admin/axis-users?category=management&plan=promo",
+    ]) {
       expect(src).toContain(`href="${href}"`);
     }
+    expect(src).not.toContain("/admin/subscribers");
   });
 });
 

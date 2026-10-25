@@ -40,7 +40,7 @@ for (const [role, email, pass, next] of ROLES) {
     next.startsWith("/portal/") ? "/portal/properties/listed"
     : next.startsWith("/resident/") ? "/resident/payments"
     : next.startsWith("/vendor/") ? "/vendor/work-orders"
-    : next.startsWith("/admin/") ? "/admin/properties"
+    : next.startsWith("/admin/") ? "/admin/service"
     : next;
   if (warmPath !== destPath) {
     await page.goto(warmPath, { waitUntil: "domcontentloaded", timeout: 45_000 });

@@ -16,6 +16,7 @@ export async function ManagerProfile() {
       initialFullName={dash(profile?.full_name)}
       initialEmail={dash(profile?.email ?? user?.email)}
       initialPhone={dash(profile?.phone)}
+      initialPhoneVerified={Boolean(profile?.phone_verified_at)}
       idLabel="PropLane ID"
       idValue={dash(profile?.manager_id)}
     />
