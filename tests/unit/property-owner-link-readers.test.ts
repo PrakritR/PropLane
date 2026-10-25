@@ -50,6 +50,7 @@ const REVIEWED: Record<string, string> = {
   "lib/admin/admin-account-detail.server.ts": "admin record shows all accepted links, owner rows included, grants nothing",
   // Owner readers.
   "lib/property-owner/access.server.ts": "the owner readers",
+  "lib/property-owner/service-owner-seat.server.ts": "the one derivation of a service workspace's owner of record: view-only reach over its houses, read at request time, appended only by access readers",
   // Owner management: the owner of record of a managed workspace is a workspace member, owner-role members included, on purpose.
   "lib/owner-management/policies.server.ts": "membership check: the owner of record is a workspace member and may hold the Property owner role",
   // PropLane Service workspaces: admin-only (requireAdminRoute) team and workspace listing; the owner of record is a member (owner role included) and must be listed, and the read grants nothing.

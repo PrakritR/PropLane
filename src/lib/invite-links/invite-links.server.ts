@@ -135,6 +135,8 @@ type DbRow = {
   token_ciphertext?: string | null;
   team_role?: string | null;
   workspace_permissions?: unknown;
+  /** PropLane Service invite links only: the email the link was sent to (lowercase). Read by `readBoundInviteeEmail`. */
+  invitee_email?: string | null;
 };
 
 const INVITE_TOKEN_ENCRYPT_FIELD = "token";
@@ -238,12 +240,22 @@ export async function mintInviteLink(
      * whole workspace). It changes nothing for any other workspace.
      */
     serviceInvite?: boolean;
+    /**
+     * Server-internal, with `serviceInvite`: the address the link is emailed to. It is stored (lowercase) on the row
+     * and redeeming the link then requires the signed-in account's CONFIRMED email to match, so a forwarded or leaked
+     * link cannot be taken by someone else (an Owner link would hand them the owner of record's financial view).
+     */
+    inviteeEmail?: string;
   },
 ): Promise<MintInviteLinkResult> {
   const actorUserId = input.actorUserId.trim();
   if (!actorUserId) return { ok: false, status: 401, error: "Sign in to create an invite link." };
 
   const kind = normalizeInviteLinkKind(input.kind);
+  const boundInviteeEmail = normalizeInviteeEmail(input.inviteeEmail);
+  if (kind === "manager" && input.serviceInvite === true && !boundInviteeEmail) {
+    return { ok: false, status: 400, error: "A service invite needs the email it is sent to." };
+  }
   const serviceOwned =
     kind === "manager" && input.serviceInvite === true
       ? await isPropLaneOwnedServiceWorkspace(db, input.workspaceId)
@@ -487,6 +499,9 @@ export async function mintInviteLink(
       house_scope: houseScope,
       workspace_permissions: workspacePermissions,
       short_code: code,
+      // Only a service invite is bound. Written ONLY then, so every other mint works on a database that has not run
+      // the `invitee_email` migration, while a bound mint on one that has not fails closed (unknown column).
+      ...(input.serviceInvite === true && boundInviteeEmail ? { invitee_email: boundInviteeEmail } : {}),
     })
       .select(LINK_COLUMNS)
       .maybeSingle();
@@ -780,6 +795,8 @@ export type InviteLinkPreview = {
   canDo?: string | null;
   /** The same reach as one compact fact — "Edit · Delete · Alerts in every area". */
   access?: string | null;
+  /** A PropLane Service invite: the address it was sent to, so the invite page can lock its sign-up to it. */
+  inviteeEmail?: string | null;
   unusableReason: InviteLinkUnusableReason | null;
 };
 
@@ -870,6 +887,7 @@ export async function previewInviteLink(
         )
       : undefined;
 
+  const boundEmail = kind === "manager" ? await readBoundInviteeEmail(db, String(link.id)) : null;
   return {
     kind,
     ownerUserId: String(link.owner_user_id),
@@ -891,6 +909,7 @@ export async function previewInviteLink(
         : kind === "manager"
         ? describeCoManagerAccessCompact(grantedPermissions)
         : null,
+    inviteeEmail: boundEmail && boundEmail.ok ? boundEmail.email : null,
     unusableReason: inviteLinkUnusableReason(
       {
         expiresAt: link.expires_at,
@@ -971,6 +990,62 @@ async function acceptPendingMembership(
   }
   return { ok: false, status: 409, error: "This invite is no longer pending." };
 }
+export const INVITE_OTHER_EMAIL_ERROR = "This invite was sent to another email. Sign in with that email to accept it.";
+export const INVITE_EMAIL_UNCONFIRMED_ERROR = "Confirm your email first, then open this invite again.";
+
+function normalizeInviteeEmail(value: unknown): string | null {
+  const email = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return email.includes("@") ? email : null;
+}
+
+/**
+ * The email a link is bound to, or null for an ordinary link. Read on its own (not part of `LINK_COLUMNS`) so a
+ * database without the column keeps redeeming ordinary links: no bound link can exist there, since minting one
+ * writes the column and fails without it. Any OTHER read error fails closed.
+ */
+async function readBoundInviteeEmail(
+  db: SupabaseClient,
+  linkId: string,
+): Promise<{ ok: true; email: string | null } | { ok: false }> {
+  const { data, error } = await db.from("manager_invite_links").select("invitee_email").eq("id", linkId).maybeSingle();
+  if (error) {
+    if (error.code === "42703" || /invitee_email/i.test(error.message ?? "")) return { ok: true, email: null };
+    return { ok: false };
+  }
+  return { ok: true, email: normalizeInviteeEmail((data as { invitee_email?: unknown } | null)?.invitee_email) };
+}
+
+/**
+ * A bound (service) invite is redeemable only by the account whose CONFIRMED sign-in email is the one it was sent to.
+ * Refused before a use is spent, so the right person can still accept. The email comes from the auth user, never
+ * the request. (The invite page's own account creation confirms the address it is given; the link is what proves
+ * possession of the inbox, and the page locks the field to the invited address.)
+ */
+async function checkBoundInviteeEmail(
+  db: SupabaseClient,
+  linkId: string,
+  redeemerUserId: string,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const bound = await readBoundInviteeEmail(db, linkId);
+  if (!bound.ok) return { ok: false, status: 500, error: "Could not verify this invite. Try again in a moment." };
+  if (!bound.email) return { ok: true };
+  let user: { email?: string | null; email_confirmed_at?: string | null; confirmed_at?: string | null } | null = null;
+  try {
+    const res = await db.auth.admin.getUserById(redeemerUserId);
+    user = res.data?.user ?? null;
+  } catch {
+    return { ok: false, status: 500, error: "Could not verify this invite. Try again in a moment." };
+  }
+  if (!user) return { ok: false, status: 500, error: "Could not verify this invite. Try again in a moment." };
+  if (normalizeInviteeEmail(user.email) !== bound.email) {
+    return { ok: false, status: 403, error: INVITE_OTHER_EMAIL_ERROR };
+  }
+  if (!user.email_confirmed_at && !user.confirmed_at) {
+    return { ok: false, status: 403, error: INVITE_EMAIL_UNCONFIRMED_ERROR };
+  }
+  return { ok: true };
+}
+
 export async function redeemInviteLink(
   db: SupabaseClient,
   input: { token: string; redeemerUserId: string; now?: Date },
@@ -1003,6 +1078,12 @@ export async function redeemInviteLink(
     now,
   );
   if (unusable) return { ok: false, status: 410, error: inviteLinkUnusableMessage(unusable) };
+
+  // A service invite is bound to the email it was sent to. Checked before anything is spent or written.
+  if (linkKind === "manager") {
+    const bound = await checkBoundInviteeEmail(db, String(link.id), redeemerUserId);
+    if (!bound.ok) return bound;
+  }
 
   // Already redeemed by this person: hand back the invite they already have
   // rather than spending another use or creating a second link.

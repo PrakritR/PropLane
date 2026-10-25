@@ -11,6 +11,7 @@ import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
+import { loadServiceOwnerSeats } from "@/lib/property-owner/service-owner-seat.server";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -70,7 +71,8 @@ export async function collectLinkedPropertyIdsForUser(db: ServiceClient, userId:
     const { data: viewerProfile } = await db.from("profiles").select("email").eq("id", userId).maybeSingle();
     const viewerEmail = String(viewerProfile?.email ?? "").trim();
 
-    const { data: linkRows, error } = withoutOwnerLinks(await db
+    // eslint-disable-next-line prefer-const -- the owner-of-record seats are appended below
+    let { data: linkRows, error } = withoutOwnerLinks(await db
       .from("account_link_invites")
       .select("inviter_user_id, assigned_property_ids, team_role")
       .eq("status", "accepted")
@@ -81,6 +83,9 @@ export async function collectLinkedPropertyIdsForUser(db: ServiceClient, userId:
       console.error("Co-manager link membership lookup failed:", { userId, message: error.message });
       return linkedPropertyIds;
     }
+    // The owner of record of a PropLane Service workspace reaches all of its houses (derived, view only).
+    const ownerSeats = await loadServiceOwnerSeats(db, userId);
+    linkRows = [...(linkRows ?? []), ...ownerSeats];
 
     const inviterIds = [
       ...new Set(
@@ -128,7 +133,8 @@ export async function collectLinkedPropertyPermissionsForUser(
   const strict = options?.strict === true;
   const byProperty = new Map<string, PropertyCoManagerPermissions>();
   try {
-    const { data: linkRows, error } = withoutOwnerLinks(await db
+    // eslint-disable-next-line prefer-const -- the owner-of-record seats are appended below
+    let { data: linkRows, error } = withoutOwnerLinks(await db
       .from("account_link_invites")
       .select(`inviter_user_id, invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
@@ -138,6 +144,8 @@ export async function collectLinkedPropertyPermissionsForUser(
       console.error("Co-manager link permissions lookup failed:", { userId, message: error.message });
       return byProperty;
     }
+    // The owner of record of a PropLane Service workspace holds every module at view on all of its houses (derived).
+    linkRows = [...(linkRows ?? []), ...(await loadServiceOwnerSeats(db, userId, { strict }))];
     for (const row of linkRows ?? []) {
       const assigned = asStringArray((row as { assigned_property_ids?: unknown }).assigned_property_ids);
       const perms = readPropertyPermissionsFromRow(row as Parameters<typeof readPropertyPermissionsFromRow>[0]);

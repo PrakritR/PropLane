@@ -1066,6 +1066,7 @@ async function inviteByLink(
     usesOption: "1",
     expiryOption: "30d",
     serviceInvite: true,
+    inviteeEmail: email,
   });
   if (!minted.ok) return fail(minted.status >= 500 ? 503 : minted.status, minted.error);
   const sent = await sendServiceInviteLinkEmail({

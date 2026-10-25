@@ -22,6 +22,8 @@ type Preview = {
   houseCount?: number;
   canDo?: string | null;
   access?: string | null;
+  /** A PropLane Service invite is sent to one address: the sign-up below is locked to it. */
+  inviteeEmail?: string | null;
   unusableReason: InviteLinkUnusableReason | null;
 };
 
@@ -115,7 +117,9 @@ export default function InviteLinkClient({ token }: { token: string }) {
           setNotFound(true);
           return;
         }
-        setPreview((await res.json()) as Preview);
+        const loaded = (await res.json()) as Preview;
+        setPreview(loaded);
+        if (loaded.inviteeEmail) setOwnerEmail(loaded.inviteeEmail);
       } catch {
         if (!cancelled) setNotFound(true);
       }
@@ -422,7 +426,7 @@ export default function InviteLinkClient({ token }: { token: string }) {
             }}
           >
             <Input aria-label="Your name" placeholder="Your name" autoComplete="name" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
-            <Input aria-label="Email" placeholder="Email" type="email" autoComplete="email" value={ownerEmail} onChange={(e) => setOwnerEmail(e.target.value)} />
+            <Input aria-label="Email" placeholder="Email" type="email" autoComplete="email" value={ownerEmail} readOnly={Boolean(preview.inviteeEmail)} onChange={(e) => setOwnerEmail(e.target.value)} />
             <Input
               aria-label="Password"
               placeholder="Password"

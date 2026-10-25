@@ -1508,6 +1508,7 @@ export const NON_OWNERSHIP_COLUMNS: Readonly<Record<string, string>> = {
   "workspace_work_number_recipients.email": "Contact address of an \"Also notify\" person on the owner's list, not a PropLane login; the row goes with the owner.",
   "manager_payees.email": "Contact address of a payee the manager pays (lender, utility), not a PropLane login.",
   "manager_property_owners.owner_email": "Contact address for a third-party property owner, not a PropLane login.",
+  "manager_invite_links.invitee_email": "Address a PropLane Service invite was sent to: the inviting manager's own outgoing row (purged with owner_user_id), for a person who had no account when it was written. It only gates redeeming that one link and never blocks the address from signing up again.",
   "manager_sms_contacts.contact_email": "Denormalized contact address on the manager's own SMS contact row.",
   "vendor_business_profiles.work_email": "The vendor's public business mailbox, keyed by user_id; the row is deleted with the login.",
   // These columns are immutable test-effect provenance. They identify which

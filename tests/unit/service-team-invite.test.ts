@@ -56,8 +56,11 @@ const copy = await import("@/lib/co-manager-link-email");
 
 let db: ServiceFakeDb;
 const client = () => db as never;
+/** auth.users as the redeem sees it: the sign-in email and whether it is confirmed. Default: confirmed `<id4>@example.com`. */
+let authUsers: Record<string, { email: string; email_confirmed_at: string | null }> = {};
 
 function seed() {
+  authUsers = {};
   admins = new Set([OWNER, ADMIN_A, ADMIN_B]);
   db = makeServiceFakeDb({
     platform_service_settings: [{ singleton: true, owner_user_id: OWNER }],
@@ -81,7 +84,15 @@ function seed() {
   // Auth lookups the owner-only provisioning at redeem makes.
   (db as unknown as { auth: unknown }).auth = {
     admin: {
-      getUserById: async (id: string) => ({ data: { user: { email: `${id.slice(0, 4)}@example.com`, user_metadata: { full_name: "New Owner" } } } }),
+      getUserById: async (id: string) => ({
+        data: {
+          user: {
+            email: authUsers[id]?.email ?? `${id.slice(0, 4)}@example.com`,
+            email_confirmed_at: authUsers[id] ? authUsers[id]!.email_confirmed_at : "2026-10-01T00:00:00Z",
+            user_metadata: { full_name: "New Owner" },
+          },
+        },
+      }),
     },
   };
 }
@@ -420,6 +431,7 @@ describe("someone with no account yet", () => {
     const mail = sentEmails.items[0]!;
     const token = /\/invite\/([^\s]+)/.exec(mail.text)![1]!;
     // The person opens the link, creates an account on the invite page (a profile now exists), and accepts.
+    authUsers[NEWCOMER] = { email: "priya@example.com", email_confirmed_at: "2026-10-25T00:00:00Z" };
     const redeemed = await redeemInviteLink(client(), { token, redeemerUserId: NEWCOMER });
     expect(redeemed).toMatchObject({ ok: true, kind: "manager", workspaceId: id, alreadyRedeemed: false });
     const seat = db.tables.account_link_invites.find((l) => l.invitee_user_id === NEWCOMER)!;
@@ -454,6 +466,7 @@ describe("someone with no account yet", () => {
     const token = /\/invite\/([^\s]+)/.exec(sentEmails.items[0]!.text)![1]!;
     expect(sentEmails.items[0]!.subject).toBe("Join 1. Ambika on PropLane");
     db.tables.profile_roles.push({ user_id: NEWCOMER, role: "manager" });
+    authUsers[NEWCOMER] = { email: "mate@example.com", email_confirmed_at: "2026-10-25T00:00:00Z" };
     expect(await redeemInviteLink(client(), { token, redeemerUserId: NEWCOMER })).toMatchObject({ ok: true });
     expect(db.tables.account_link_invites.find((l) => l.invitee_user_id === NEWCOMER)).toMatchObject({
       team_role: "leasing",
@@ -486,5 +499,89 @@ describe("someone with no account yet", () => {
     const res = await redeemInviteLink(client(), { token: "tok-own", redeemerUserId: HELPER2 });
     expect(res).toMatchObject({ ok: false, status: 403 });
     expect(db.tables.account_link_invites.some((l) => l.invitee_user_id === HELPER2)).toBe(false);
+  });
+});
+
+describe("a service invite link is bound to the email it was sent to", () => {
+  const OTHER_MSG = "This invite was sent to another email. Sign in with that email to accept it.";
+
+  async function ownerLink() {
+    const id = await made();
+    await svc.inviteServiceClient(client(), ADMIN_A, { id, email: "Priya@Example.com", inviteeName: "Priya Nair", ownerOfRecord: true });
+    const token = /\/invite\/([^\s]+)/.exec(sentEmails.items[0]!.text)![1]!;
+    return { id, token };
+  }
+  const seatFor = (user: string) => db.tables.account_link_invites.find((l) => l.invitee_user_id === user);
+
+  it("stores the invited email, lowercase, on the minted link", async () => {
+    await ownerLink();
+    expect(db.tables.manager_invite_links[0]!.invitee_email).toBe("priya@example.com");
+  });
+
+  it("the matching confirmed account redeems it into the owner-of-record seat", async () => {
+    const { id, token } = await ownerLink();
+    authUsers[NEWCOMER] = { email: "PRIYA@example.com", email_confirmed_at: "2026-10-25T00:00:00Z" };
+    expect(await redeemInviteLink(client(), { token, redeemerUserId: NEWCOMER })).toMatchObject({ ok: true, workspaceId: id });
+    expect(seatFor(NEWCOMER)).toMatchObject({ is_owner_of_record: true, status: "accepted" });
+    expect(db.tables.manager_invite_links[0]!.used_count).toBe(1);
+  });
+
+  it("a different account is refused with the plain message and the link stays unconsumed", async () => {
+    const { token } = await ownerLink();
+    authUsers[HELPER2] = { email: "someone.else@example.com", email_confirmed_at: "2026-10-25T00:00:00Z" };
+    const res = await redeemInviteLink(client(), { token, redeemerUserId: HELPER2 });
+    expect(res).toMatchObject({ ok: false, status: 403, error: OTHER_MSG });
+    expect(seatFor(HELPER2)).toBeUndefined();
+    expect(db.tables.manager_invite_links[0]!.used_count).toBe(0);
+    expect(db.tables.manager_invite_link_redemptions).toHaveLength(0);
+    // The right person can still accept afterwards.
+    authUsers[NEWCOMER] = { email: "priya@example.com", email_confirmed_at: "2026-10-25T00:00:00Z" };
+    expect(await redeemInviteLink(client(), { token, redeemerUserId: NEWCOMER })).toMatchObject({ ok: true });
+  });
+
+  it("an unconfirmed email is refused even when it matches, and nothing is spent", async () => {
+    const { token } = await ownerLink();
+    authUsers[NEWCOMER] = { email: "priya@example.com", email_confirmed_at: null };
+    const res = await redeemInviteLink(client(), { token, redeemerUserId: NEWCOMER });
+    expect(res).toMatchObject({ ok: false, status: 403 });
+    expect(seatFor(NEWCOMER)).toBeUndefined();
+    expect(db.tables.manager_invite_links[0]!.used_count).toBe(0);
+  });
+
+  it("a teammate link is bound the same way", async () => {
+    const id = await made();
+    await svc.inviteServiceClient(client(), ADMIN_A, { id, email: "mate@example.com", teamRole: "leasing", houseScope: "selected", assignedPropertyIds: ["house-a"] });
+    const token = /\/invite\/([^\s]+)/.exec(sentEmails.items[0]!.text)![1]!;
+    db.tables.profile_roles.push({ user_id: HELPER2, role: "manager" });
+    authUsers[HELPER2] = { email: "other@example.com", email_confirmed_at: "2026-10-25T00:00:00Z" };
+    expect(await redeemInviteLink(client(), { token, redeemerUserId: HELPER2 })).toMatchObject({ ok: false, status: 403, error: OTHER_MSG });
+    expect(db.tables.manager_invite_links[0]!.used_count).toBe(0);
+  });
+
+  it("the preview names the invited address so the invite page can lock its sign-up to it", async () => {
+    const { token } = await ownerLink();
+    const { previewInviteLink } = await import("@/lib/invite-links/invite-links.server");
+    expect(await previewInviteLink(client(), token)).toMatchObject({ inviteeEmail: "priya@example.com" });
+  });
+
+  it("a link with no bound email (every non-service link) behaves exactly as before, whoever the redeemer is", async () => {
+    const id = await made();
+    db.tables.manager_invite_links.push({
+      id: "99999999-2222-4222-8222-999999999999",
+      owner_user_id: OWNER,
+      workspace_id: id,
+      kind: "manager",
+      token_hash: (await import("@/lib/invite-links/invite-links.server")).hashInviteLinkToken("tok-plain-link"),
+      assigned_property_ids: ["house-a"],
+      property_permissions: {},
+      max_uses: 1,
+      used_count: 0,
+      team_role: "viewer",
+      house_scope: "selected",
+      created_at: "2026-10-01T00:00:00Z",
+    });
+    db.tables.profile_roles.push({ user_id: HELPER2, role: "manager" });
+    authUsers[HELPER2] = { email: "anyone@example.com", email_confirmed_at: null };
+    expect(await redeemInviteLink(client(), { token: "tok-plain-link", redeemerUserId: HELPER2 })).toMatchObject({ ok: true });
   });
 });

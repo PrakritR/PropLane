@@ -86,7 +86,8 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   - *Delivery.* An account that exists gets a pending membership and the co-manager notice
     (`notifyCoManagerInviteSent`: email + inbox, a text from the workspace owner's work number only to a verified phone).
     An email with **no account** gets a **one-use invite link** by email (`manager_invite_links`, 30 days,
-    label `Service invite · <email>`; shown in Team as "Invited"; Remove turns it off). The person opens
+    label `Service invite · <email>`; bound to that email through `manager_invite_links.invitee_email`, so only the confirmed
+    account with that address can redeem it; shown in Team as "Invited"; Remove turns it off). The person opens
     `/invite/<token>`, creates their account there and the redeem writes the seat (`redeemInviteLink`). In a workspace
     PropLane itself owns (`isPropLaneOwnedServiceWorkspace`: `is_service` and owned by the platform service owner) that
     redeem skips the owner-plan gate and stamps `is_service_seat` (or, for an Owner link, `is_owner_of_record`); on a
@@ -99,7 +100,8 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
     <Workspace> for you", body "Hi <First>, PropLane has set up <Workspace> for your homes. Create your account to see rent,
     payouts and services: <link>", text "PropLane: <Workspace> is ready. Create your account to see your homes: <link>"
     (`co-manager-link-email.ts`). Accepting opens the workspace view-only (`workspaces/server.ts` `readOnly`,
-    `managed-read-only.server.ts`).
+    `managed-read-only.server.ts`) and sees every house and module of the workspace at view, derived at read time
+    ([`co-manager-access.md`](co-manager-access.md) § The owner of record of a PropLane Service workspace).
   - *New workspace* asks Name and City, then an **Owner** heading with Name and Email or PropLane ID (both optional). Name
     still fills `owner_of_record_name`; a filled-in email or ID sends the same owner invite after create (the workspace
     exists whatever happens to the invite; the pop-up says so).
