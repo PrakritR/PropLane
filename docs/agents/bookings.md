@@ -128,8 +128,8 @@ A multi-room house is a collapsible row (collapsed by default past three houses,
 search or room filter); only expanded houses lay out rooms, and rows are windowed from 60 rows up. The house line
 reads `8/10 tonight · 69% avg` (beds on the focus day, then the range average) and the KPI strip is four
 tiles - never a peak beside an average percent. Search matches house, room and guest
-(`narrowHouseBySearch`), and a hidden stay still keeps its nights busy. A bar's name is `position: sticky` inside an
-`overflow-clip` bar. Phone taps open a bottom sheet
+(`narrowHouseBySearch`), and a hidden stay still keeps its nights busy. Bar text stays inside the bar
+(§ The calendar's rows, header, scroll and bar text). Phone taps open a bottom sheet
 (`BookingBarSheet`), desktop keeps the non-modal popover, mounted on first use (a Radix menu per bar is slow).
 Dev proof: `/dev-fixtures/bookings-scale` (100 houses x 10 rooms; 404s outside `next dev`).
 Coverage: `tests/unit/bookings-timeline-scale.test.tsx`.

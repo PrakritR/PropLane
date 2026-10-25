@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { BookingBar } from "@/components/portal/bookings-timeline-bar";
 import { BookingsPortfolioTimeline } from "@/components/portal/bookings-portfolio-timeline";
 import { layoutRoom, narrowHouseBySearch, placeBars, windowRows, columnPx } from "@/components/portal/bookings-timeline-layout";
 import { calendarOccupancyOnDay, calendarStatus, calendarStatusClass } from "@/lib/channel-calendar/bookings-calendar-view";
@@ -230,6 +231,13 @@ describe("bars: readable, and a narrow one names itself beside it", () => {
     const visual = document.querySelector('[data-attr="bookings-calendar-bar"] [data-bar-visual]') as HTMLElement;
     expect(visual.className).toContain("justify-center");
     expect(visual.querySelector('[aria-label="Airbnb"]')).not.toBeNull();
+    cleanup();
+    // Under NARROW_GLYPH_PX the glyph itself would not fit: the bar is a plain block, the name stays in title/aria-label.
+    render(<BookingBar entry={stay({ summary: "Airbnb guest", residentName: "Airbnb guest", source: "airbnb" })} today={TODAY_KEY} placement={{ left: 0, top: 0, width: 14, nameInset: 0, narrow: true }} />);
+    const tiny = document.querySelector('[data-attr="bookings-calendar-bar"]') as HTMLElement;
+    const tinyVisual = tiny.querySelector("[data-bar-visual]") as HTMLElement;
+    expect(tinyVisual.querySelector('[aria-label="Airbnb"]')).toBeNull();
+    expect(tiny.title).toBe("Airbnb guest");
   });
 
   it("placeBars marks a bar under 56px narrow and never produces an outside label", () => {

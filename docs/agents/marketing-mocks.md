@@ -41,7 +41,8 @@ software plans (`#pricing`), followed by the contact form. The cover says
 “Your Housing Assistant”. The top bar links to How it works, Software, Service, Pricing
 and Contact, with the configured number at the right and then one button: **Get started** (the role chooser) signed
 out, **Portal** once this browser shows a session (`hasBrowserSessionHint`, a hint for which link to draw, never
-authorization). Phones draw the same button, plus
+authorization). **Portal** goes straight to `/auth/continue`, which lands a signed-in visitor in their own portal
+and sends a stale cookie on to sign-in. Phones draw the same button, plus
 an accessible menu and a sticky text action after the cover. There is no QR. `HomeScrollStage` uses native scroll and midpoint sentinels; rail links
 scroll to scenes, with no wheel interception. Reduced motion and no JavaScript
 keep the conversations readable.

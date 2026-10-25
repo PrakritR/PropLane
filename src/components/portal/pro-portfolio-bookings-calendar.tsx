@@ -97,10 +97,6 @@ function formatNavTitle(anchor: Date, view: BookingsCalendarView): string {
   return String(anchor.getFullYear());
 }
 
-function padDateSegment(n: number): string {
-  return String(n).padStart(2, "0");
-}
-
 function bookedDayKeyCountInRange(
   entries: PropertyBookingEntry[],
   start: Date,
