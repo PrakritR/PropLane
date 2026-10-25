@@ -23,3 +23,15 @@ export function feePercentForOwnerShareBps(ownerShareBps: number): number {
 
 export const MANAGEMENT_FEE_RANGE_MESSAGE = `Enter a fee between 0 and ${MAX_MANAGEMENT_FEE_PERCENT}%.`;
 
+/**
+ * How one amount of rent splits at a given fee percent: PropLane's fee ROUNDS DOWN to the cent and the owner gets the
+ * remainder - the same rule as `targetMonthlyFeeCents` for a month's rent with no monthly minimum (`fee-math.ts`,
+ * which is not client-safe, so the card's example lives here). Integer cents in, integer cents out.
+ */
+export function managementFeeSplitCents(rentCents: number, feePercent: number): { feeCents: number; ownerCents: number } {
+  if (!Number.isSafeInteger(rentCents) || rentCents < 0) throw new Error("Rent must be non-negative integer cents.");
+  const feeBps = Math.round(feePercent * 100);
+  const feeCents = Math.floor((rentCents * feeBps) / 10_000);
+  return { feeCents, ownerCents: rentCents - feeCents };
+}
+

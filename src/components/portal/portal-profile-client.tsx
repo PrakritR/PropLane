@@ -8,6 +8,7 @@ import {
   VendorDefaultsSettingsSection,
 } from "@/components/portal/automations-settings-sections";
 import { RentAndFeesSettingsSection } from "@/components/portal/rent-and-fees-settings";
+import { ServiceFeeSplitCard } from "@/components/portal/service-fee-split-card";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { canGoBackInApp } from "@/lib/portal-history";
@@ -799,6 +800,7 @@ export function PortalProfileClient({
         return (
           <>
             <HubSettingsModulePane tab="payments" />
+            {!demo && variant === "manager" && workspaces?.active?.isService ? <ServiceFeeSplitCard key={workspaces.active.id} workspaceId={workspaces.active.id} /> : null}
             <RentAndFeesSettingsSection />
           </>
         );
