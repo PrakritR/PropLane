@@ -14,6 +14,10 @@ PropLane Service is a FLAG on a workspace plus memberships, never ownership.
   owner access; sign-in and "Property portal" land in the Property portal, view-only (`workspace.readOnly`).
 - Opening a workspace sets the portal workspace cookie after `authorizeOpenServiceWorkspace` re-derives membership.
 - Every `/api/admin/service-workspaces` verb starts with `requireAdminRoute()`; a body id is a name, never a grant.
+- **One sidebar row (Oct 25).** Service is ONE row under Software (`ADMIN_SECTION_TABS.service`): tabs Workspaces
+  (`/admin/service`, today's panel with its inner Workspaces · Vendors · Network tabs) · PropLane line · Unassigned leads.
+  The "Property management" heading and the all-owners Properties list are gone (`/admin/properties*` redirects to
+  `/admin/service`); the phone bottom bar shows Service where it showed Properties.
 - Work number column: the workspace's own active work number, else nothing.
 - Management fee: every service workspace gets PropLane's automatic fee, never signed; attach and create ask for it,
   and a workspace created before it has an owner of record gets it the first time anything needs one. The row states
@@ -24,7 +28,7 @@ PropLane Service is a FLAG on a workspace plus memberships, never ownership.
   `manager_phone_verified_at` are the service manager's identity; `profiles.phone` is never consulted for it.
 - Network tab (`?tab=network&bucket=leads|managers|roster`, `admin-service-network.tsx`): Vendor leads (`sms_vendor_leads`; Add to roster =
   `convertVendorLead`, the roster rules unchanged, lead marked approved only after the roster write; Dismiss = decline), Free managers
-  (the Subscribers "Free" bucket, `GET /api/admin/service-network`; Message opens the account record, Invite as helper = the usual
+  (the "Free" plan bucket of the subscriber classifier, `GET /api/admin/service-network`; Message opens the account record, Invite as helper = the usual
   `team-invite`), Roster (read view). Rows are glyph facts, never pills.
 
 ## Service mode (the admin-style shell under /portal)
@@ -69,10 +73,42 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   names a service workspace at the account's own workspace (cleared when it has none), so the rail and the data never
   disagree. The account menu has **Switch to Admin portal** (admins) and **Switch to Property portal** (accounts that
   own a non-service workspace); a helper in the Property portal gets **Open `<workspace>`** rows.
-- **Team** (Settings > Workspaces, service workspace): the admin invites helpers by **email or PropLane ID**
-  (`team-invite`, `inviteServiceClient`): an Admin seat pinned to that workspace, pending until accepted, no platform
-  admin grant, no Pro / Business owner-plan gate (the workspace is PropLane's managed service). Removing is
-  `team-remove`. Both are admin-route verbs; a helper sees the team read-only.
+- **Team** (Settings > Workspaces, service workspace; `ServiceTeamSection`): the round blue + opens the Invite sheet
+  (`ServiceInviteSheet`, built from the shared `WorkspacePermissionsFields` / `CoManagerPermissionsEditor` /
+  `WorkspaceGrantFields`): **email or PropLane ID**, Role (the team roles plus **Owner**), Houses, per-module View / Edit.
+  Each seat's ⋯ has **Edit access** (the same sheet, prefilled; `team-access`) and Remove (`team-remove`). All are
+  admin-route verbs; a helper sees the team read-only. A service seat carries the permissions the sheet chose, validated by
+  the SAME functions `POST /api/pro/account-links` uses (`src/lib/co-manager-invite-grant.ts`: role parsed from the
+  allow-list, "all houses" resolved to THIS workspace's houses, a house of another workspace refused, a role above the
+  operator's own refused, the operator capped to the modules they hold). Every seat is pinned to that workspace, stamped
+  `is_service_seat`, grants no platform admin role and needs no Pro / Business plan (the workspace is PropLane's managed
+  service). A bare email or ID with no role is the original invite: Admin, every house.
+  - *Delivery.* An account that exists gets a pending membership and the co-manager notice
+    (`notifyCoManagerInviteSent`: email + inbox, a text from the workspace owner's work number only to a verified phone).
+    An email with **no account** gets a **one-use invite link** by email (`manager_invite_links`, 30 days,
+    label `Service invite · <email>`; shown in Team as "Invited"; Remove turns it off). The person opens
+    `/invite/<token>`, creates their account there and the redeem writes the seat (`redeemInviteLink`). In a workspace
+    PropLane itself owns (`isPropLaneOwnedServiceWorkspace`: `is_service` and owned by the platform service owner) that
+    redeem skips the owner-plan gate and stamps `is_service_seat` (or, for an Owner link, `is_owner_of_record`); on a
+    client-owned attached workspace every ordinary rule still applies and no service flag is set.
+  - *Owner.* Role Owner stamps `team_role = property_owner` + `is_owner_of_record`, read-only by role, and the Team list
+    labels the row "Owner" ("Invited · Owner" while pending). One per workspace: a second invite answers 409
+    `owner_exists` (the sheet asks "Replace the owner?"); confirming (`replaceOwner: true`) cancels the first owner's
+    membership (audited `admin_service_owner_replaced`) or turns their unspent link off, then invites. The client who
+    OWNS an attached workspace is its owner of record and cannot be replaced. Owner copy: email subject "PropLane manages
+    <Workspace> for you", body "Hi <First>, PropLane has set up <Workspace> for your homes. Create your account to see rent,
+    payouts and services: <link>", text "PropLane: <Workspace> is ready. Create your account to see your homes: <link>"
+    (`co-manager-link-email.ts`). Accepting opens the workspace view-only (`workspaces/server.ts` `readOnly`,
+    `managed-read-only.server.ts`).
+  - *New workspace* asks Name and City, then an **Owner** heading with Name and Email or PropLane ID (both optional). Name
+    still fills `owner_of_record_name`; a filled-in email or ID sends the same owner invite after create (the workspace
+    exists whatever happens to the invite; the pop-up says so).
+- **Fee split** (Settings > Balance & payouts on a service workspace; `ServiceFeeSplitCard`): PropLane % stepper (0 to 30),
+  owner % derived, a bar and "On $1,000 rent" example. Save writes `action: "fee"` through `setServiceWorkspaceFee`
+  (new version, audit row). Only a platform admin edits (`requireAdminRoute` on the write; `canEdit` is derived in
+  `GET /api/workspaces/service-fee`, never sent by the client); the owner and other seats see it read-only ("PropLane 10% ·
+  You 90%"). The same control stays in Service > Workspaces > ⋯ > Management fee. See
+  [`owner-management.md`](owner-management.md) § Automatic management fee.
 - **Dashboard** (`/admin/dashboard`): each slow source (Stripe earnings, Subscribers, expenses, signups, feedback) has a
   9s budget (`withBudget`); a source that misses it is `null` and its card is left out, so one hung read cannot hold the
   page on Loading. The browser still gives up at 20s with a "took too long" error and Try again.

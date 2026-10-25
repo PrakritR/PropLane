@@ -806,6 +806,19 @@ Do not "fix" these without asking:
   owner shell that used to carry an empty state is retired (see the retirement
   note above).
 
+## PropLane Service seats carry the same permissions
+
+A PropLane Service workspace's Team (admin Service route, `team-invite` / `team-access`) invites with the same Role, Houses and
+per-module levels as the manager Invite sheet, translated by the one shared `src/lib/co-manager-invite-grant.ts`
+(`parseInviteAccess`, `restampInviteHouses`, `finalizeInviteGrant`; `/api/pro/account-links` calls the same three). A
+service seat is re-derived server-side: houses must belong to that workspace, a role above the operator's is refused, the
+operator's own module grant caps what they hand out, and an Admin invited into a workspace with no houses yet stays an
+Admin (an empty map is not a Custom role). **Owner** is the one extra role there: `property_owner` + `is_owner_of_record`,
+read-only, one per workspace, replaced (never edited) by inviting another. A person with no account is invited by a one-use
+`manager_invite_links` link that `redeemInviteLink` turns into the seat; in a workspace PropLane owns it skips the owner-plan
+gate and stamps `is_service_seat` / `is_owner_of_record`, otherwise nothing about link redemption changes. Detail:
+[`admin-service.md`](admin-service.md) § Team.
+
 ## Row note: view-only seats and managed workspaces
 
 `property_owner` is being retired into a view-only seat: `loadWorkspaces` stamps `readOnly: true` (and forces

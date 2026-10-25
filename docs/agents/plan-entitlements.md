@@ -269,8 +269,8 @@ for the extra-workspace, extra-work-number and extra-seat add-ons and how
 ## Admin Billing (staff view + per-account overrides)
 
 There is no `/admin/billing` page (it 404s on purpose; see the end of this
-section). What used to be that lens is now two things: **Accounts > Subscribers**
-(`/admin/subscribers`, below) for who is paid, on a trial, on a promo code
+section). What used to be that lens is now two things: **Accounts > Managers** with its
+**Plan** filter (`/admin/axis-users?category=management&plan=...`, below) for who is paid, on a trial, on a promo code
 (staff grants included) or free, and the account record's Billing section for
 one account's plan and overrides. What PropLane itself EARNS is a third,
 separate thing: **Money > Payments** (below). The row derivation described next
@@ -444,10 +444,15 @@ resolver), `manager-property-cap-override.test.ts`, plus
 `admin-list-surface-adoption.test.ts` and `platform-parity.test.ts` for the
 section wiring.
 
-## Admin Subscribers (Accounts > Subscribers)
+## Admin plan buckets (Accounts > Managers > Plan filter)
 
-`/admin/subscribers` lists every real (non-sandbox) manager in exactly one of
-**Paid · Trial · Promo code · Free**, with counts on the tabs.
+The Subscribers page (`/admin/subscribers`, its CSV, its renewals read and `GET /api/admin/subscribers`) was removed
+on Oct 25 and redirects to Accounts. Its answer lives on as the **Plan** filter of Accounts > Managers (Paid · Trial · Promo ·
+Free, `GET /api/admin/accounts/search?kind=manager&plan=`), the three Dashboard cards (Paid subscribers, On trial, Promo
+users open Accounts > Managers with the filter set) and a promo code's "View accounts" link
+(`?plan=promo&q=CODE`, searched by the code too). The classifier below is unchanged. Every real (non-sandbox) manager is in exactly one of
+**Paid · Trial · Promo code · Free**; the Accounts list narrows to managers by role (the subscriber population also admits
+any account carrying a PropLane ID, so a resident would read as Free).
 `classifySubscriber` (`src/lib/admin/admin-subscribers-model.ts`) runs
 `deriveAdminBillingRow`, so the bucket is the plan the product ENFORCES, not a
 second opinion: a lapsed signup trial is **Free**, a live Stripe or Apple grant
@@ -463,8 +468,8 @@ display-only "Code X" fact. A Stripe subscription still inside its
 Checkout trial days is **Paid** here because that is what enforcement says; the
 Trial tab is the no-card signup trial. MRR is the sum of the Paid bucket at
 list price (`RATE_CARD` base plan, annual / 12; per-door overage is not
-included). `?q=CODE` pre-fills the search (the Promo codes page links a waiver
-row to `/admin/subscribers?tab=promo&q=CODE`).
+included). The search term matches name, email, PropLane ID, phone and the promo code the account used (the Promo
+codes page links a waiver row to `/admin/axis-users?category=management&plan=promo&q=CODE`).
 
 `classifySubscriber` is the ONLY bucket rule: the admin assistant's
 `subscriber_counts` / `trials_ending` (`src/lib/tools/admin/subscribers.ts`) call it
@@ -475,14 +480,10 @@ The Accounts list and the account Overview show the same **plan with its source*
 (`AdminBillingRow.planSource` from `adminPlanSourceLabel`): "Pro trial · ends Oct 13",
 "Pro · FREE100", "Pro · Staff grant", "Business · paid", "Free".
 
-`GET /api/admin/subscribers` reads through paged selects
+`loadSubscriberPopulation` reads through paged selects
 (`readAllPages`, stable order, a failed page throws) and id-chunked profile
-reads, never an unbounded select, then pages the answer. Stripe's period end
-("Renews Nov 12") is looked up for the visible page only and a miss leaves the
-fact out. The trial end shown honours the staff `trialEndsAt` override; a trial
-inside its last three days draws amber text, never a pill. The row ⋯ opens the
-account, and deep-links to the account record's billing section with
-`?action=promo` / `?action=extend-trial` (the popups live on that record).
+reads, never an unbounded select. The trial end honours the staff `trialEndsAt` override.
+An account record's billing section still takes `?action=promo` / `?action=extend-trial` (the popups live on that record).
 
 ## Admin Money > Payments
 
@@ -553,7 +554,7 @@ restricting one to some plans is the coupon's `applies_to` products
   zero. Kinds: Stripe promo code, Stripe coupon, Sign-up waiver, Fee waiver, Staff
   grant. Active = redeemable now (a waiver equal to `getPaymentWaiverCode()`; a
   Stripe code valid and active), Inactive = not redeemable, Expired = Stripe says
-  so. A waiver row opens `/admin/subscribers?tab=promo&q=CODE`. The `promo_code`
+  so. A waiver row opens `/admin/axis-users?category=management&plan=promo&q=CODE`. The `promo_code`
   waiver column and `stripe_promotion_code` are never conflated; the + button still
   creates only Stripe promotion codes.
 
