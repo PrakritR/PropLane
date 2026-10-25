@@ -8,7 +8,7 @@ import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import type { SharedLineCandidate } from "@/lib/one-number/contracts";
 import { resolveWorkspaceDisplayNumber } from "@/lib/one-number/display-number.server";
 import { classifySharedLineKeyword } from "@/lib/one-number/keywords";
-import { classifyLineText } from "@/lib/one-number/line-intent";
+import { classifyLineText, isHousingSearchText } from "@/lib/one-number/line-intent";
 import { portalSignInHref } from "@/lib/one-number/link-destinations.server";
 import {
   STATUS_HELP_REPLY,
@@ -19,6 +19,7 @@ import {
 import { readPortfolioStatus, type PortfolioScope } from "@/lib/one-number/portfolio-status.server";
 import { decideFromCandidates, textNamesCandidate } from "@/lib/one-number/router.server";
 import { findVerifiedProfileByPhone } from "@/lib/one-number/router-lookups.server";
+import { SELF_SERVE_PRICING_REPLY, selfServeLineReply } from "@/lib/one-number/self-serve-line.server";
 import { loadSharedLineSession, saveSharedLinePending, saveSharedLineRoute } from "@/lib/one-number/session.server";
 import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
 import { resolveManagerSmsAccess } from "@/lib/sms/manager-sms-access.server";
@@ -51,6 +52,10 @@ export type LineMembership = {
   kind: LineMembershipKind;
   /** The workspace is view only for this person everywhere (a managed client). */
   viewOnly: boolean;
+  /** `portal_workspaces.is_service`: a PropLane-managed workspace. False when the read could not say (fail closed). */
+  isService: boolean;
+  /** A teammate's team role (`viewer`, `property_manager`, ...); `viewer` if ANY accepted seat in the workspace is a viewer. */
+  teamRole: string | null;
 };
 
 export type LineMemberResult = { handled: false } | { handled: true; reply: string; actorUserId: string };
@@ -82,7 +87,7 @@ export async function listLineMemberships(
   const wants = (kind: LineMembershipKind) => !options.kinds || options.kinds.includes(kind);
   const [owned, teamInvites, recordInvites] = await Promise.all([
     wants("owner")
-      ? rows(db.from("portal_workspaces").select("id, name, owner_user_id, is_default").eq("owner_user_id", profileId).limit(50))
+      ? rows(db.from("portal_workspaces").select("id, name, owner_user_id, is_default, is_service").eq("owner_user_id", profileId).limit(50))
       : Promise.resolve([] as Row[]),
     (async () => {
       if (!wants("teammate")) return [] as Row[];
@@ -139,9 +144,12 @@ export async function listLineMemberships(
   }
 
   const out = new Map<string, LineMembership>();
-  const add = (w: Row | undefined, kind: LineMembershipKind) => {
+  const seatRoles = new Map<string, string[]>();
+  const add = (w: Row | undefined, kind: LineMembershipKind, teamRole: string | null = null) => {
     const id = str(w?.id);
     if (!w || !id) return;
+    if (teamRole) seatRoles.set(id, [...(seatRoles.get(id) ?? []), teamRole]);
+    const roles = seatRoles.get(id) ?? [];
     const next: LineMembership = {
       workspaceId: id,
       workspaceName: str(w.name) || "your property team",
@@ -149,12 +157,17 @@ export async function listLineMemberships(
       isDefault: w.is_default === true,
       kind,
       viewOnly: locked.has(id),
+      isService: w.is_service === true,
+      // Fail closed: a viewer seat anywhere in the workspace makes it a viewer.
+      teamRole: roles.includes("viewer") ? "viewer" : (roles[0] ?? null),
     };
     const have = out.get(id);
     if (!have || KIND_RANK[kind] < KIND_RANK[have.kind]) out.set(id, next);
   };
   for (const w of owned) add(w, "owner");
-  for (const invite of teamInvites) add(str(invite.workspace_id) ? byId.get(str(invite.workspace_id)) : defaultOf.get(str(invite.inviter_user_id)), "teammate");
+  for (const invite of teamInvites) {
+    add(str(invite.workspace_id) ? byId.get(str(invite.workspace_id)) : defaultOf.get(str(invite.inviter_user_id)), "teammate", str(invite.team_role) || null);
+  }
   for (const invite of recordInvites) {
     const w = str(invite.workspace_id) ? byId.get(str(invite.workspace_id)) : undefined;
     // Only the client of a PropLane Service workspace is an owner of record.
@@ -263,11 +276,27 @@ export async function handleLineMemberText(db: SupabaseClient, input: HandleLine
   // here. It keys on the membership being theirs as owner, never on the workspace's owner — a PropLane Service
   // workspace is owned by the platform service owner who holds the line, so keying on `ownerUserId` dropped
   // exactly the audience this handler exists for (the client seated as owner of record, and their teammates).
-  const memberships = all.filter((m) =>
+  const candidates = all.filter((m) =>
     input.mode === "shared_line"
       ? m.kind === "owner_of_record"
       : !(input.lineOwnerUserId && m.kind === "owner" && m.ownerUserId === input.lineOwnerUserId),
   );
+  // The PropLane line serves homes PropLane manages. A self-serve manager and their team (workspaces PropLane does not
+  // manage) get no portfolio status here: they are told where their own number is. `isService` is false when the read could
+  // not say, so an unreadable workspace is served less, never more.
+  const isManaged = (m: LineMembership) => input.mode === "shared_line" || m.isService || Boolean(input.lineOwnerUserId && m.ownerUserId === input.lineOwnerUserId);
+  const memberships = candidates.filter(isManaged);
+  const selfServe = candidates.filter((m) => !isManaged(m));
+  if (memberships.length === 0 && selfServe.length > 0) {
+    // Asking whether anything is free ("any rooms near UW?") is a prospect's question for someone with no portfolio here:
+    // the leasing assistant answers it from the managed homes. Nothing else on this line is theirs.
+    if (isHousingSearchText(input.body)) return { handled: false };
+    try {
+      return { handled: true, reply: await selfServeLineReply(db, selfServe), actorUserId: profile.id };
+    } catch {
+      return { handled: true, reply: SELF_SERVE_PRICING_REPLY, actorUserId: profile.id };
+    }
+  }
   if (memberships.length === 0) return { handled: false };
   const reply = (text: string): LineMemberResult => ({ handled: true, reply: text, actorUserId: profile.id });
 

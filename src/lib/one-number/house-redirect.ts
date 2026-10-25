@@ -1,11 +1,13 @@
 import type { MockProperty } from "@/data/types";
 
 /**
- * A stranger on the PropLane line asks about one specific street address. Pure matching only: the listings passed in are the
- * allowlisted public projection, and only a street line (never a unit or door code) is ever read from them.
+ * A stranger on the PropLane line asks about one specific home: by street address, by house name or by listing title. Pure
+ * matching only: the listings passed in are the allowlisted public projection, and only a street line and a city (never a
+ * unit or door code) are ever read from them.
  *
- * A match needs the street NUMBER and at least one significant word of the street NAME, so "1234" alone, or "Maple" alone,
- * never names a home. A misspelled street word (one edit away, 5+ letters) still counts.
+ * A street match needs the street NUMBER and at least one significant word of the street NAME, so "1234" alone, or "Maple"
+ * alone, never names a home. A misspelled street word (one edit away, 5+ letters) still counts. A name or title match
+ * needs the WHOLE name (two or more words) said in order, so "Capitol Hill" never names the home called "Capitol Hill House".
  */
 
 const STREET_SUFFIXES = new Set([
@@ -90,4 +92,73 @@ export function matchListingByAddress<T extends Pick<MockProperty, "id" | "addre
 /** The label a redirect names the home by: its public street line, nothing past the first comma (no unit, no door code). */
 export function generalHomeLabel(listing: Pick<MockProperty, "address">): string {
   return streetLine(listing.address);
+}
+
+/** "12 Elm St, Louisville": the street line and the city, never a unit, a state, a ZIP or a door code. */
+export function homeLabelWithCity(listing: Pick<MockProperty, "address">): string {
+  const parts = String(listing.address ?? "").split(",").map((p) => p.replace(/\s+/g, " ").trim());
+  const street = parts[0] ?? "";
+  const city = parts[1] ?? "";
+  // A second segment that is a unit ("Apt 3", "#4"), a ZIP or a state code is not a city.
+  const isCity = city.length >= 2 && /[a-z]{2}/i.test(city) && !/^(apt|unit|ste|suite|#|floor|fl)\b/i.test(city) && !/\d/.test(city) && !/^[A-Z]{2}$/.test(city);
+  return street && isCity ? `${street}, ${city}` : street;
+}
+
+const NAME_STOP = new Set(["the", "a", "an", "house", "home", "room", "rooms", "apartment", "apt", "unit", "studio", "place", "rental", "for", "rent", "near", "in", "at", "of", "and", "with"]);
+
+/** Lowercase alphanumeric words of a name or a text. */
+const tokens = (value: string): string[] => String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean);
+
+/** True when `needle` appears in `haystack` as a run of consecutive words. */
+function containsPhrase(haystack: readonly string[], needle: readonly string[]): boolean {
+  if (needle.length === 0 || needle.length > haystack.length) return false;
+  for (let i = 0; i + needle.length <= haystack.length; i += 1) {
+    if (needle.every((word, j) => haystack[i + j] === word)) return true;
+  }
+  return false;
+}
+
+/**
+ * Does the text say this listing's house name or title in full? Two or more words, at least one that is not a filler word
+ * ("house", "room"...), and not just the listing's neighborhood (a title that is only an area never names one home).
+ */
+export function textNamesListingByName(text: string, listing: Pick<MockProperty, "title" | "buildingName" | "neighborhood">): boolean {
+  const spoken = tokens(text);
+  if (spoken.length === 0) return false;
+  const area = tokens(listing.neighborhood ?? "").join(" ");
+  for (const name of [listing.title, listing.buildingName]) {
+    const words = tokens(name ?? "");
+    if (words.length < 2 || words.join(" ").length < 6) continue;
+    if (!words.some((w) => !NAME_STOP.has(w) && w.length >= 3)) continue;
+    if (area && words.join(" ") === area) continue;
+    if (containsPhrase(spoken, words)) return true;
+  }
+  return false;
+}
+
+export type HomeMatch<T> = { kind: "none" } | { kind: "one"; listing: T } | { kind: "several" };
+
+/** The homes a text names by street, by house name or by title. Distinct homes only; several is "several", never a guess. */
+export function matchListingsNamedIn<T extends Pick<MockProperty, "id" | "address" | "title" | "buildingName" | "neighborhood">>(
+  text: string,
+  listings: readonly T[],
+): HomeMatch<T> {
+  const hits = new Map<string, T>();
+  const byAddress = matchListingByAddress(text, listings);
+  if (byAddress) hits.set(byAddress.id, byAddress);
+  // An address that names several homes ("1234 Maple" twice) is ambiguous, but it still names a home: never fall to "none".
+  const spoken = words(text);
+  const numbers = spoken.filter((w) => /^\d{1,6}[a-z]?$/.test(w));
+  let ambiguousAddress = false;
+  if (!byAddress && numbers.length > 0) {
+    const candidates = listings.filter((listing) => {
+      const parsed = parseStreetLine(listing.address);
+      return Boolean(parsed) && numbers.some((n) => sameNumber(n, parsed!.number)) && parsed!.names.some((name) => nameInText(name, spoken));
+    });
+    ambiguousAddress = new Set(candidates.map((c) => c.id)).size > 1;
+  }
+  for (const listing of listings) if (textNamesListingByName(text, listing)) hits.set(listing.id, listing);
+  if (hits.size === 0) return ambiguousAddress ? { kind: "several" } : { kind: "none" };
+  if (hits.size > 1 || ambiguousAddress) return { kind: "several" };
+  return { kind: "one", listing: [...hits.values()][0]! };
 }
