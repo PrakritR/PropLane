@@ -56,6 +56,13 @@ export function roleQuestionFor(workspaceName?: string | null): string {
  */
 export const MANAGE_OWN_REPLY = "Great, set up your homes here: https://proplane.ai/auth/create-account?role=manager A personal work number comes with Pro.";
 
+/**
+ * A "manage my own" answer on the SHARED line (`line_mode = shared`): the 206 is every free manager's work number, so
+ * nothing about a personal number is promised; they text from it until they get their own. Same bare `https://` link rule
+ * as above: nothing is glued to the end of the address.
+ */
+export const MANAGE_OWN_SHARED_REPLY = "Set up your homes here: https://proplane.ai/auth/create-account?role=manager You'll text from this number until you get your own.";
+
 /** A "resident" answer from a number no account holds: the resident lookup already ran and found nobody. */
 export const RESIDENT_NOT_FOUND_REPLY =
   "I cannot find a resident account for this number. Text from the phone number on your PropLane account, or contact your property team.";

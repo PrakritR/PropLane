@@ -6,13 +6,14 @@ import { LEAD_CONSTRAINTS, leadFakeDb, type LeadFakeDb } from "../helpers/lead-f
 import { storedListing } from "../helpers/lead-listing-fixtures";
 
 vi.mock("server-only", () => ({}));
-// The PropLane line answers prospects from PropLane-managed (`is_service`) homes ONLY, so the follow-up's catalog
-// is the service catalog. Both are stubbed so a test can prove which one the sweep reads.
+// The PropLane line answers prospects from the homes the line serves (managed homes; in shared mode also every home
+// without a personal number), never the whole crawl catalog, so the follow-up reads the LINE catalog. Both are stubbed so a
+// test can prove which one the sweep reads.
 const serviceCatalog = vi.hoisted(() => vi.fn(async () => [] as unknown[]));
 const crawlCatalog = vi.hoisted(() => vi.fn(async () => [] as unknown[]));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/seo/public-catalog.server", () => ({ getCrawlPublicListings: crawlCatalog }));
-vi.mock("@/lib/service/service-catalog.server", () => ({ getServicePublicListings: serviceCatalog }));
+vi.mock("@/lib/one-number/line-catalog.server", () => ({ getLineCatalogListings: serviceCatalog }));
 vi.mock("@/lib/one-number/lead-send.server", () => ({ sendPlatformLeadText: vi.fn() }));
 vi.mock("@/lib/one-number/lead-extract.server", () => ({ extractLeadFieldsWithModel: vi.fn(async () => null) }));
 vi.mock("@/lib/manager-sms-messages.server", () => ({ logManagerSmsMessage: vi.fn(async () => true) }));
@@ -188,13 +189,13 @@ describe("the sweep", () => {
   });
 
   // Review fix, Oct 20: this sweep read `getCrawlPublicListings` - the WHOLE public catalog - so the one text a
-  // no-match lead ever gets could offer a room in a workspace PropLane does not manage.
-  it("reads the is_service catalog, never the whole public one", async () => {
+  // no-match lead ever gets could offer a room in a workspace the line does not serve (a home with a personal number).
+  it("reads the line catalog, never the whole public one", async () => {
     const profile: LeadProfile = { stage: "no_match", budgetMax: 1500, area: "University District", bathroom: "any", furnished: "any", household: 1, leaseMonths: 12, moveInDate: "2026-11-01" };
     const fake = db([{ id: "lead-13", quietMs: 30 * HOUR, profile }]);
     serviceCatalog.mockResolvedValue([]);
     crawlCatalog.mockResolvedValue([]);
-    // No `listings` seam: the module's own default must be the service catalog.
+    // No `listings` seam: the module's own default must be the line catalog.
     const send = vi.fn(async () => ({ ok: true as const, messageSid: "SM1" }));
     await runLeadFollowUps(fake.db, { now: () => NOW, origin: () => "https://proplane.ai", send } as FollowUpDeps);
     expect(serviceCatalog).toHaveBeenCalled();

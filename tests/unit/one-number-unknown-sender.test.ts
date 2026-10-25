@@ -73,7 +73,7 @@ describe("ask once", () => {
 
     // "manage my own" -> the create-account link, once; no demo.
     const answered = await run(f.db, "renting one out");
-    expect(answered.reply).toBe("Great, set up your homes here: https://proplane.ai/auth/create-account?role=manager A personal work number comes with Pro. Reply STOP to opt out.");
+    expect(answered.reply).toBe("Set up your homes here: https://proplane.ai/auth/create-account?role=manager You'll text from this number until you get your own. Reply STOP to opt out.");
     expect(f.rows.sms_onboarding_state![0]).toMatchObject({ role: "landlord", stage: "finish_sent" });
   });
 

@@ -3,8 +3,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MockProperty } from "@/data/types";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { isMissingSchemaError, loadSharedLineConfig } from "@/lib/one-number/config.server";
-import type { SharedLineInbound } from "@/lib/one-number/contracts";
+import { isMissingSchemaError, loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
+import type { SharedLineConfig, SharedLineInbound } from "@/lib/one-number/contracts";
 import { extractLeadFieldsWithModel } from "@/lib/one-number/lead-extract.server";
 import {
   buildOfferBubbles,
@@ -35,7 +35,7 @@ import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import { upsertManagerSmsContact } from "@/lib/sms/manager-sms-contacts.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { resolveHouseRedirect } from "@/lib/one-number/house-redirect.server";
-import { getServicePublicListings } from "@/lib/service/service-catalog.server";
+import { getLineCatalogListings } from "@/lib/one-number/line-catalog.server";
 
 export type UnassignedLeadTurn = {
   leadId: string | null;
@@ -279,14 +279,20 @@ export async function handleUnassignedLeadInbound(
   inbound: SharedLineInbound,
   depsIn: LeadDeps = {},
 ): Promise<UnassignedLeadTurn> {
-  const listings = depsIn.listings ?? (() => getServicePublicListings(db));
+  // The homes the line shows: managed homes in per_workspace mode; in shared mode (the 206 is every free manager's number)
+  // also every self-serve home without a personal number (`line-catalog.server.ts`).
+  const listings = depsIn.listings ?? (() => getLineCatalogListings(db));
   const deps: Required<LeadDeps> = {
     now: depsIn.now ?? (() => new Date()),
-    // A stranger on the PropLane line is shown the homes PropLane manages and no one else's.
+    // A stranger on the PropLane line is shown the homes the line serves (see `getLineCatalogListings`) and no one else's.
     listings,
     extract: depsIn.extract ?? extractLeadFieldsWithModel,
     origin: depsIn.origin ?? resolveEmailLinkBaseUrl,
-    houseRedirect: depsIn.houseRedirect ?? ((text: string) => resolveHouseRedirect(db, text, { serviceListings: listings })),
+    houseRedirect: depsIn.houseRedirect ??
+      (async (text: string) => {
+        const shared = await loadSharedLineConfig(db).catch(() => null);
+        return resolveHouseRedirect(db, text, { serviceListings: listings, shared });
+      }),
   };
   // Set as soon as a lead row is in hand, so the catch below can tell a first text from a conversation in progress.
   let known: LeadRow | null = null;
@@ -396,6 +402,17 @@ async function workspaceIsService(db: SupabaseClient, workspaceId: string): Prom
   return (data as Row | null)?.is_service === true;
 }
 
+/**
+ * May a prospect on the PropLane line be handed to this workspace? A PropLane-managed workspace always; in `shared` mode
+ * (the 206 is every free manager's work number) also any workspace that answers on the shared line, i.e. one without a
+ * personal number. A workspace with a personal number is never handed a lead from the 206 (its homes are not in the
+ * catalog; the router redirects). Fails closed.
+ */
+async function workspaceServedOnLine(db: SupabaseClient, workspaceId: string, config: SharedLineConfig): Promise<boolean> {
+  if (await workspaceIsService(db, workspaceId)) return true;
+  return workspaceOnSharedLine(config, workspaceId);
+}
+
 export type AssignResult =
   | { ok: true; workspaceId: string; ownerUserId: string; label: string }
   | { ok: false; error: "lead_not_open" | "house_not_found" | "workspace_not_found" | "unavailable" };
@@ -450,10 +467,15 @@ export async function assignLeadToHouse(
     workspaceId = str(input.workspaceId);
     if (input.by !== "admin" || !workspaceId) return { ok: false, error: "house_not_found" };
   }
-  // A prospect on the PropLane line is only ever handed to a PropLane-managed workspace: the offers they picked from
-  // are drawn from the `is_service` catalog alone, so a pick that names anything else did not come from this flow.
+  // A prospect on the PropLane line is only ever handed to a workspace the line serves (managed, or in shared mode one
+  // without a personal number): the offers they picked from are drawn from that catalog alone, so a pick that names
+  // anything else did not come from this flow.
   // A workspace named without a house is a service workspace by definition of that admin action.
-  if ((input.by === "prospect" || !propertyId) && !(await workspaceIsService(db, workspaceId))) {
+  // A prospect's pick of a HOUSE may also land in a workspace the shared line serves; an admin naming a workspace with no
+  // house (and a prospect trying to) is a PropLane Service workspace only.
+  const config = await loadSharedLineConfig(db);
+  const served = input.by === "prospect" && propertyId ? await workspaceServedOnLine(db, workspaceId, config) : await workspaceIsService(db, workspaceId);
+  if ((input.by === "prospect" || !propertyId) && !served) {
     return { ok: false, error: propertyId ? "house_not_found" : "workspace_not_found" };
   }
   const prospect = workspaceId ? await findWorkspaceProspectCandidate(db, workspaceId) : null;
@@ -478,7 +500,6 @@ export async function assignLeadToHouse(
   if (!claimed.data?.length) return { ok: false, error: "lead_not_open" };
 
   const phoneE164 = e164FromPhoneKey(lead.phoneKey);
-  const config = await loadSharedLineConfig(db);
   const linePhone = config.sharedNumber ?? phoneE164;
   const excluded = new Set(input.excludeTurnIds ?? []);
   const turns = await db

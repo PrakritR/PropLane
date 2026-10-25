@@ -23,7 +23,7 @@ import {
 } from "@/lib/one-number/onboarding/role-detect";
 import { claimTurn, completeTurn, releaseTurn } from "@/lib/one-number/onboarding/turn-replay.server";
 import {
-  MANAGE_OWN_REPLY,
+  MANAGE_OWN_SHARED_REPLY,
   PROPLANE_ROLE_QUESTION,
   RESIDENT_NOT_FOUND_REPLY,
   classifyFirstText,
@@ -158,7 +158,7 @@ async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbou
       if (answered === "resident") return single(withOptOut(RESIDENT_NOT_FOUND_REPLY));
       if (answered === "manage") {
         await saveOnboardingState(db, inbound.phoneKey, { role: "landlord", stage: "finish_sent" }, now);
-        return single(withOptOut(MANAGE_OWN_REPLY));
+        return single(withOptOut(MANAGE_OWN_SHARED_REPLY));
       }
       role = answered === "vendor" ? "vendor" : answered === "looking" ? "searcher" : (inferSenderRole(inbound.body) ?? readRoleAnswer(inbound.body) ?? "searcher");
       // The question carries no opt-out notice (its wording is fixed), so the reply that follows it is the first one
