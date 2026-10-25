@@ -128,11 +128,34 @@ A multi-room house is a collapsible row (collapsed by default past three houses,
 search or room filter); only expanded houses lay out rooms, and rows are windowed from 60 rows up. The house line
 reads `8/10 tonight · 69% avg` (beds on the focus day, then the range average) and the KPI strip is four
 tiles - never a peak beside an average percent. Search matches house, room and guest
-(`narrowHouseBySearch`), and a hidden stay still keeps its nights busy. A bar under 56px draws its name beside it;
-a bar's name is `position: sticky` inside an `overflow-clip` bar. Phone taps open a bottom sheet
+(`narrowHouseBySearch`), and a hidden stay still keeps its nights busy. A bar's name is `position: sticky` inside an
+`overflow-clip` bar. Phone taps open a bottom sheet
 (`BookingBarSheet`), desktop keeps the non-modal popover, mounted on first use (a Radix menu per bar is slow).
 Dev proof: `/dev-fixtures/bookings-scale` (100 houses x 10 rooms; 404s outside `next dev`).
 Coverage: `tests/unit/bookings-timeline-scale.test.tsx`.
+
+## The calendar's rows, header, scroll and bar text (captain, Oct 21 2026)
+
+- **Rows are the house's saved rooms, in saved order** - `propertyRooms` reads the viewer's local listing store
+  first, then **the occupancy snapshot's own `rooms` list** (`OccupancyRoomOption[]`, built once in
+  `occupancyPropertyMeta` beside the room labels and sent as `snapshot.rooms`), then rows built from the bookings,
+  then the whole home. The server list is what draws `Room 1..n` for a house the local store lacks - service-mode
+  staff, a fresh device - and an entire-home listing sends `[]`, so it still draws one whole-home row.
+- **An unknown room id reads `UNASSIGNED_ROOM_LABEL` ("Unassigned room"), never a bare "Room"** - on the server
+  (`roomLabelForId`) and on the client (`bookingsRoomLabels` in `use-manager-booking-entries`, which seeds from
+  `occupancyDays.rooms` and lets the local listing win), so the bar sheet, the day pop-up and the booking record
+  never disagree with the row beside them.
+- **Date header**: the arrows hug the month title (`< October 2026 >`); a spacer pushes **Today** apart. The title
+  never takes `flex-1`.
+- **The scroller owns vertical scroll** (`bookings-calendar-scroll`: `flex-1`, no `dvh` formula) and fills the
+  remaining height through the `portal-calendar-page-body` flex chain (`globals.css`), day header sticky. The
+  **22rem floor sits on the hub's calendar frame**, not on the scroller: inside the `overflow-hidden` frame a floor
+  on the scroller is clipped on a short viewport (landscape phone, split view) and the last room row becomes
+  unreachable - on the frame it overflows `.portal-list-page-scroll` instead and the page body scrolls.
+- **Bar text never renders outside its bar.** Under `NARROW_BAR_PX` (56px) a bar is `narrow`: it draws its source
+  glyph when it is at least `NARROW_GLYPH_PX` (20px) wide, otherwise nothing, and the full name lives in the bar's
+  `title`, its `aria-label`, an `sr-only` span and the tap sheet. `placeBars` has no outside label to size, so it
+  takes no track width. The smaller tap target for an isolated one-night stay is accepted.
 
 ## Exact times, half-day bars, paid early / late (Oct 18 2026)
 

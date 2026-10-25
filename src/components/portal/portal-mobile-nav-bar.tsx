@@ -131,6 +131,7 @@ export function PortalMobileNavBar({
       </Link>
       {service && !showBack ? (
         <div className="min-w-0 flex-1">
+          {sectionLabel ? <h1 className="sr-only">{sectionLabel}</h1> : null}
           <ServiceWorkspaceMenu service={service} />
         </div>
       ) : (definition.kind === "pro" || definition.kind === "manager") && !showBack ? (

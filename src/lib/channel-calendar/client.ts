@@ -6,6 +6,7 @@ import type {
   ChannelCalendarProvider,
   ManagerChannelBookingProperty,
 } from "@/lib/channel-calendar/types";
+import type { OccupancyRoomOption } from "@/lib/occupancy/snapshot";
 
 export async function fetchRoomExportCalendarUrl(input: {
   propertyId: string;
@@ -131,7 +132,7 @@ export type OccupancySnapshotResponse = {
   }>;
   stays?: unknown[];
   /** Each property's saved rooms in saved order (empty for an entire-home listing); absent on an older payload. */
-  rooms?: Record<string, Array<{ id: string; label: string }>>;
+  rooms?: Record<string, OccupancyRoomOption[]>;
   version?: string;
 };
 

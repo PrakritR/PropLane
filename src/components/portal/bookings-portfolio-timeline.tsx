@@ -35,7 +35,7 @@ import { bookingOccupancyCapacities } from "@/lib/channel-calendar/bookings-room
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { getPropertyById, getRoomOptionsForProperty, parseRoomChoiceValue } from "@/lib/rental-application/data";
 import { dateKey } from "@/lib/room-availability-calendar";
-import { occupancyStayKind, type OccupancyCapacities } from "@/lib/occupancy/snapshot";
+import { occupancyStayKind, type OccupancyCapacities, type OccupancyRoomOption } from "@/lib/occupancy/snapshot";
 import { roomHeadlinePriceLabel } from "@/lib/room-pricing";
 
 export type TimelineHouseInfo = { name: string; address?: string };
@@ -86,7 +86,7 @@ const dateLabel = (key: string, options: Intl.DateTimeFormatOptions = { month: "
  * list, so a blank name reads "Room n"), else the server's saved room list (the viewer's listing store lacks
  * the house: service-mode staff, a fresh device), else booked rooms, else the whole home.
  */
-export function propertyRooms(propertyId: string, entries: PropertyBookingEntry[], serverRooms?: readonly { id: string; label: string }[]) {
+export function propertyRooms(propertyId: string, entries: PropertyBookingEntry[], serverRooms?: readonly OccupancyRoomOption[]) {
   const property = getPropertyById(propertyId);
   const seen = new Map<string, { id: string; label: string; rent: string }>();
   const configured = property?.listingSubmission?.rooms ?? [];
@@ -459,7 +459,7 @@ export function BookingsPortfolioTimeline(props: BookingsPortfolioTimelineProps)
         <div className="flex min-w-0 flex-col items-center py-2"><span className={tileValue}>{kpis.checkOuts}</span><span className={tileLabel}>Check-outs</span></div>
         <div className="flex min-w-0 flex-col items-center py-2"><span className={tileValue}>{kpis.occupied.occupied}/{kpis.occupied.beds}</span><span className={tileLabel}>{focusDay === todayKey ? "Tonight" : dateLabel(focusDay)}</span></div>
       </div>
-      <div ref={scrollRef} onScroll={onScroll} className="relative min-h-[22rem] min-w-0 flex-1 overflow-auto overscroll-contain" data-attr="bookings-calendar-scroll">
+      <div ref={scrollRef} onScroll={onScroll} className="relative min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain" data-attr="bookings-calendar-scroll">
         <div className="relative pb-2" style={{ width: labelPx + trackW, minWidth: "100%" }}>
           <div className={`sticky top-0 z-30 flex border-b border-border ${OPAQUE}`} style={{ height: 56, width: labelPx + trackW }}>
             <div className={`sticky left-0 z-40 flex shrink-0 items-center border-r border-border px-2 text-xs font-medium text-muted sm:px-3 ${OPAQUE}`} style={{ width: labelPx }}>{houseCount} {houseCount === 1 ? "house" : "houses"}</div>

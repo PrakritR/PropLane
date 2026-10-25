@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { BookingsPortfolioTimeline } from "@/components/portal/bookings-portfolio-timeline";
@@ -251,8 +252,13 @@ describe("bars: readable, and a narrow one names itself beside it", () => {
     expect(nextButton.nextElementSibling!.nextElementSibling).toBe(document.querySelector('[data-attr="bookings-calendar-today"]'));
     const scroller = document.querySelector('[data-attr="bookings-calendar-scroll"]') as HTMLElement;
     expect(scroller.className).toContain("flex-1");
-    expect(scroller.className).toContain("min-h-[22rem]");
+    expect(scroller.className).toContain("min-h-0");
     expect(scroller.className).not.toContain("dvh");
+    // The short-viewport floor belongs on the hub's frame: inside the overflow-hidden frame a floor on the
+    // scroller is clipped and the last room row is unreachable.
+    expect(scroller.className).not.toContain("22rem");
+    const hub = readFileSync("src/components/portal/pro-portfolio-bookings-calendar.tsx", "utf8");
+    expect(hub).toMatch(/PORTAL_CALENDAR_FRAME}\s*flex min-h-\[22rem\] flex-1 flex-col/);
   });
 
   it("columnPx: Week fits a phone, Month scrolls, nothing measured falls back to the floor", () => {

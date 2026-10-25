@@ -21,6 +21,7 @@ import {
   leaseBookingEntriesForProperties,
   openEndedBookingHorizonKey,
   roomBlockEntries,
+  UNASSIGNED_ROOM_LABEL,
   withResolvedStayTimes,
   type PropertyBookingEntry,
   type RoomDateBlock,
@@ -209,9 +210,14 @@ export function useManagerBookingEntries({
     };
   }, [userId, refreshSignal]);
 
+  // The server's saved room list first (the viewer's listing store lacks the house: service-mode staff, a fresh
+  // device), then the local listing, which wins wherever it knows the room.
   const bookingsRoomLabels = useMemo(() => {
     const labels = new Map<string, string>();
     void propertyTick;
+    for (const propertyId of propertyIds) {
+      for (const room of occupancyDays.rooms?.[propertyId] ?? []) labels.set(`${propertyId}:${room.id}`, room.label);
+    }
     for (const propertyId of propertyIds) {
       const submission = getPropertyById(propertyId)?.listingSubmission;
       if (submission?.v !== 1) continue;
@@ -220,7 +226,7 @@ export function useManagerBookingEntries({
       });
     }
     return labels;
-  }, [propertyIds, propertyTick]);
+  }, [propertyIds, propertyTick, occupancyDays.rooms]);
 
   // Each house's default check-in / check-out times (`listingSubmission.stayTimes`), so every entry reads
   // the same exact times the Add/Edit sheets and the reminders do.
@@ -275,7 +281,7 @@ export function useManagerBookingEntries({
           entireHomeListing: isEntireHomeProperty(property.id),
         })),
       roomLabelForId: (propertyId, roomId) =>
-        bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
+        bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? UNASSIGNED_ROOM_LABEL,
       openEndedHorizonKey: openEndedBookingHorizonKey(),
       isResidentLinked: (email) => isLinkedToDirectoryResident(email, directoryEmails),
       applicationForLease,
@@ -305,7 +311,7 @@ export function useManagerBookingEntries({
           entireHomeListing: isEntireHomeProperty(property.id),
         })),
       roomLabelForId: (propertyId, roomId) =>
-        bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
+        bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? UNASSIGNED_ROOM_LABEL,
       isLeased: (row) => {
         if (leasedIds.has(normalizeApplicationAxisId(row.id))) return true;
         const email = row.email?.trim().toLowerCase();
@@ -323,7 +329,7 @@ export function useManagerBookingEntries({
       blocks.filter((block) => scoped.has(block.propertyId) && !isImportedChannelBlock(block)),
       {
         propertyLabelForId: (propertyId) => labels.get(propertyId) ?? propertyId,
-        roomLabelForId: (propertyId, roomId) => bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
+        roomLabelForId: (propertyId, roomId) => bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? UNASSIGNED_ROOM_LABEL,
         stayTimesForProperty,
       },
     );
@@ -490,7 +496,7 @@ export function useManagerBookingEntries({
       blocks.filter((block) => scoped.has(block.propertyId)),
       {
         propertyLabelForId: (propertyId) => labels.get(propertyId) ?? propertyId,
-        roomLabelForId: (propertyId, roomId) => bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
+        roomLabelForId: (propertyId, roomId) => bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? UNASSIGNED_ROOM_LABEL,
         stayTimesForProperty,
       },
     );

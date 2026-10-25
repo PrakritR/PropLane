@@ -12,13 +12,14 @@ import {
   occupancyForDay,
   type OccupancyCapacities,
   type OccupancyDayCell,
+  type OccupancyRoomOption,
 } from "@/lib/occupancy/snapshot";
 
 export type OccupancyDayLookup = {
   overall: Record<string, OccupancyDayCell>;
   houses: Record<string, OccupancyDayCell>;
   /** Each property's saved rooms in saved order, from the occupancy snapshot; the calendar's row source when the local listing store lacks the house. */
-  rooms?: Record<string, Array<{ id: string; label: string }>>;
+  rooms?: Record<string, OccupancyRoomOption[]>;
 };
 
 export function dayOccupancyFromLookup(

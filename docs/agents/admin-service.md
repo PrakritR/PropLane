@@ -41,8 +41,11 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   `/portal/dashboard`. A helper (not an admin) sees only their workspaces, no logo, no `+`, and opens through the
   ordinary workspace switch.
 - **Phone** (the rail is hidden below `lg`): `PortalMobileNavBar` takes a `service` prop and shows `ServiceWorkspaceMenu`
-  in its left slot - current name + chevron, rows PropLane (admins), each workspace (city as a plain fact), New workspace
-  (admins). It shares the rail's open/create logic (`useServiceWorkspaceOpen`); the server authorizes every open.
+  in its left slot - current name + chevron, rows PropLane (admins), each workspace (city as a plain fact),
+  **Switch to Property portal** while a service workspace is open (`propertyPortalWorkspaceId`; the phone's only way
+  out of service mode, since the rail that holds it in its account menu is desktop-only), New workspace
+  (admins). It shares the rail's open/create/switch logic (`useServiceWorkspaceOpen`); the server authorizes every
+  open. The menu takes the slot that held the section title, so the label stays as an `sr-only` `h1` beside it.
 - **Who is staff** (`loadServiceStaffWorkspaces`, decided per seat by `serviceSeatVerdict`): the platform service owner
   for the workspaces they own, or an accepted team seat at an OPERATOR role (Admin / Full), granted by the workspace's
   own owner. A Viewer / Custom / Property manager seat is never staff - on a workspace PropLane created or an attached

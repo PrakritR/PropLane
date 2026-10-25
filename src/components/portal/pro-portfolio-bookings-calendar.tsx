@@ -382,7 +382,6 @@ export function ManagerBookingsHub({
   entriesLoading = false,
   roomFilterId = "",
   emptyMessage,
-  variant = "embedded",
   calendarOnly = false,
   onDayClick,
   onAddBooking,
@@ -498,12 +497,9 @@ export function ManagerBookingsHub({
     );
   }
 
-  const shellClass =
-    calendarOnly
-      ? "portal-calendar-page-body flex min-h-0 flex-1 flex-col gap-3"
-      : variant === "standalone"
-        ? "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
-        : "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden";
+  const shellClass = calendarOnly
+    ? "portal-calendar-page-body flex min-h-0 flex-1 flex-col gap-3"
+    : "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden";
 
   const prevLabel =
     view === "day"
@@ -539,7 +535,7 @@ export function ManagerBookingsHub({
         {showListHub ? (
           <ManagerBookingsListPanel entries={entries} />
         ) : (
-          <div className={calendarOnly ? `${PORTAL_CALENDAR_FRAME} flex min-h-0 flex-1 flex-col` : PORTAL_CALENDAR_FRAME}>
+          <div className={calendarOnly ? `${PORTAL_CALENDAR_FRAME} flex min-h-[22rem] flex-1 flex-col` : PORTAL_CALENDAR_FRAME}>
             <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4">
               {emptyPortfolio && !calendarOnly ? (
                 <div

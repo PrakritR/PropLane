@@ -254,9 +254,11 @@ async function occupancyPropertyMeta(db: SupabaseClient, propertyIds: string[]):
     const submission = listingSubmissionFromProperty(record?.property ?? null);
     const rooms = submission?.rooms ?? [];
     const building = submission?.buildingName?.trim() || record?.property?.buildingName?.trim() || propertyId;
+    const roomOptions: OccupancyRoomOption[] = [];
     rooms.forEach((room, index) => {
       const roomLabel = room.name?.trim() || `Room ${index + 1}`;
       labels.set(`${propertyId}:${room.id}`, roomLabel);
+      roomOptions.push({ id: room.id, label: roomLabel });
       for (const range of room.manualUnavailableRanges ?? []) {
         if (isChannelImportedRangeId(String(range.id ?? "")) || isHostBlockRange(range)) continue;
         const start = normalizeBookingDateKey(range.start);
@@ -285,7 +287,7 @@ async function occupancyPropertyMeta(db: SupabaseClient, propertyIds: string[]):
       id: propertyId,
       label: building,
       entireHomeListing,
-      rooms: entireHomeListing ? [] : rooms.map((room, index) => ({ id: room.id, label: room.name?.trim() || `Room ${index + 1}` })),
+      rooms: entireHomeListing ? [] : roomOptions,
     });
   }
   return {
