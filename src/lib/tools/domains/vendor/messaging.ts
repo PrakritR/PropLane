@@ -109,7 +109,7 @@ function toManagerAttempt(result: VendorSponsoredOutboundResult): ManagerAttempt
 export const sendMessageToManagerTool = defineWriteTool({
   name: "send_message_to_manager",
   description:
-    "Send a portal inbox message (plus email when configured) from you to the manager(s) whose vendor directory lists you. Use for questions, scheduling notes, or updates that need the manager's attention.",
+    "Send a portal inbox message from you to the manager(s) whose vendor directory lists you. It lands in their PropLane inbox; no work email or number is needed. Use for questions, scheduling notes, or updates that need the manager's attention.",
   inputSchema: z
     .object({
       subject: z.string().min(1).max(200).describe("Short subject line for the message."),

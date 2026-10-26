@@ -70,7 +70,7 @@ vi.mock("@/lib/workspaces/row-scope.server", () => ({
   rowAllowedInWorkspaceScope: (scope: { propertyIds: string[] | null }, propertyId?: string | null) => scope.propertyIds === null || !propertyId || scope.propertyIds.includes(propertyId),
 }));
 
-function makeDb(invoices: Row[], profiles: Row[], work: Row[] = [], payouts: Row[] = []) {
+function makeDb(invoices: Row[], profiles: Row[], work: Row[] = [], payouts: Row[] = [], roster: Row[] = [], businesses: Row[] = []) {
   const vendorInvoices = makeFilterableTable(invoices);
   const profilesTable = makeFilterableTable(profiles);
   return {
@@ -79,6 +79,8 @@ function makeDb(invoices: Row[], profiles: Row[], work: Row[] = [], payouts: Row
       if (table === "portal_work_order_records") return makeFilterableTable(work)();
       if (table === "vendor_payouts") return makeFilterableTable(payouts)();
       if (table === "profiles") return profilesTable();
+      if (table === "manager_vendor_records") return makeFilterableTable(roster)();
+      if (table === "vendor_business_profiles") return makeFilterableTable(businesses)();
       throw new Error(`unexpected table ${table}`);
     },
   };
@@ -181,5 +183,21 @@ describe("GET /api/manager/vendor-invoices", () => {
     state.auth = null;
     const res = await get("https://example.com/api/manager/vendor-invoices");
     expect(res.status).toBe(401);
+  });
+
+  it("names a vendor by this manager's roster entry, never another manager's", async () => {
+    const db = makeDb(
+      [invoiceRow({ id: "inv-1", status: "approved" })],
+      [{ id: VENDOR_1, full_name: "Sam Lee" }],
+      [], [],
+      [
+        { id: "r1", manager_user_id: MANAGER_ID, vendor_user_id: VENDOR_1, row_data: { name: "Acme Plumbing" } },
+        { id: "r2", manager_user_id: OTHER_MANAGER_ID, vendor_user_id: VENDOR_1, row_data: { name: "Not Mine" } },
+      ],
+    );
+    state.auth = { db, userId: MANAGER_ID };
+    const body = await (await get("http://x/api/manager/vendor-invoices")).json();
+    expect(JSON.stringify(body)).toContain("Acme Plumbing");
+    expect(JSON.stringify(body)).not.toContain("Not Mine");
   });
 });

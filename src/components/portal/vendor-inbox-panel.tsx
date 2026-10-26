@@ -3,6 +3,7 @@
 import { ELIGIBLE_CONTACTS_TTL_MS } from "@/lib/inbox-eligible-contacts-ttl";
 import { consumeVendorComposePrefill } from "@/lib/vendor-compose-prefill";
 import type { ResidentComposePrefill } from "@/lib/resident-compose-prefill";
+import type { RecordRef } from "@/lib/portals/record-kinds";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Button } from "@/components/ui/button";
@@ -170,6 +171,8 @@ export const VendorInboxPanel = forwardRef<
   const [composeOpen, setComposeOpen] = useState(false);
   // Staged by a "Message manager" row action elsewhere in the portal; consumed once by the compose it opens.
   const [composeDraft, setComposeDraft] = useState<ResidentComposePrefill | null>(null);
+  // The job a staged "Message the manager" came from; the server re-checks it before stamping it.
+  const composeRecordRef = useRef<RecordRef | null>(null);
   // Threads marked read while viewing "Unopened" stay listed until the tab is
   // switched or the page is refreshed; they only move to "Opened" on reset.
   const [retainedIds, setRetainedIds] = useState<Set<string>>(() => new Set());
@@ -473,7 +476,9 @@ export const VendorInboxPanel = forwardRef<
     ref,
     () => ({
       openCompose: () => {
-        setComposeDraft(consumeVendorComposePrefill());
+        const prefill = consumeVendorComposePrefill();
+        composeRecordRef.current = prefill?.recordRef ?? null;
+        setComposeDraft(prefill);
         setComposeOpen(true);
       },
       emptyArchive,
@@ -506,14 +511,16 @@ export const VendorInboxPanel = forwardRef<
             channel: "email",
             sendId: p.sendId,
             attachmentUrls: p.attachmentUrls?.length ? p.attachmentUrls : undefined,
+            recordRef: composeRecordRef.current ?? undefined,
           }),
         });
         const data = (await res.json().catch(() => ({}))) as {
           ok?: boolean;
+          error?: string;
           delivery?: "sent" | "sending" | "failed" | "mixed" | "refused";
         };
         if (!res.ok || !data.ok) {
-          showToast("Message could not be sent.");
+          showToast(data.error?.trim() || "Couldn't send. Try again.");
           return false;
         }
         invalidatePersistedInboxCache(VENDOR_INBOX_STORAGE_KEY);
@@ -620,6 +627,7 @@ export const VendorInboxPanel = forwardRef<
       let smsOk = false;
       const authorizedDeliveries: ("sending" | "sent" | "failed")[] = [];
       let failureMessage = "";
+      let inAppOnly = false;
       try {
         if (channels.email) {
           try {
@@ -640,8 +648,10 @@ export const VendorInboxPanel = forwardRef<
               ok?: boolean;
               error?: string;
               delivery?: "sending" | "sent" | "failed";
+              inApp?: boolean;
             };
             emailOk = res.ok && data.ok === true;
+            if (emailOk && data.inApp === true) inAppOnly = true;
             if (emailOk) authorizedDeliveries.push(data.delivery ?? "sent");
             if (!emailOk) failureMessage = data.error?.trim() ?? "";
           } catch {
@@ -717,6 +727,19 @@ export const VendorInboxPanel = forwardRef<
         force: true,
       }).catch(() => null);
       if (synced) setLocal(synced as InboxThread[]);
+      // An in-app reply never went out by email or text, whatever the composer had selected.
+      if (inAppOnly) {
+        return {
+          emailRequested: false,
+          smsRequested: false,
+          emailOk: false,
+          smsOk: false,
+          proplaneRequested: true,
+          proplaneOk: true,
+          inAppOnly: true,
+          delivery: aggregateVendorSponsoredDelivery(authorizedDeliveries),
+        };
+      }
       return {
         emailRequested: channels.email,
         smsRequested: channels.sms,

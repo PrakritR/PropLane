@@ -37,6 +37,7 @@ export async function ensureManagerConnectAccountId(
     .maybeSingle();
 
   let accountId = profile?.stripe_connect_account_id?.trim() ?? null;
+  let replacedAccountId: string | null = null;
 
   if (accountId) {
     const existing = await retrieveManagerConnectAccountOrNull(stripe, accountId);
@@ -45,15 +46,25 @@ export async function ensureManagerConnectAccountId(
         throw new Error(`Stripe does not have access to account ${accountId}.`);
       }
       await clearManagerConnectAccountId(db, opts.userId);
+      replacedAccountId = accountId;
       accountId = null;
     }
   }
 
   if (!accountId) {
+    // Re-read right before creating: a concurrent request may have just saved one.
+    const { data: latest } = await db
+      .from("profiles")
+      .select("stripe_connect_account_id")
+      .eq("id", opts.userId)
+      .maybeSingle();
+    const concurrent = latest?.stripe_connect_account_id?.trim() || null;
+    if (concurrent && concurrent !== replacedAccountId) return concurrent;
     const account = await createAxisConnectAccount(stripe, {
       email: opts.email,
       axisUserId: opts.userId,
       axisPortal: opts.axisPortal,
+      idempotencySuffix: replacedAccountId ?? undefined,
     });
     accountId = account.id;
     // Service-role write pinned to this user — `profiles` UPDATE is revoked from

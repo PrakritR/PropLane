@@ -208,6 +208,52 @@ async function directoryBelongsToManager(
   return data?.manager_user_id === managerUserId;
 }
 
+/**
+ * Point a manager's vendor directory row at a vendor account and back-fill everything that was
+ * assigned to the row before the vendor had a login: offers, the manager's own service records,
+ * and money posted to the row. Strictly scoped to `managerUserId`'s rows.
+ */
+export async function linkDirectoryRowToVendor(
+  supabase: SupabaseClient,
+  opts: { directoryId: string; managerUserId: string; vendorUserId: string },
+): Promise<void> {
+  const nowIso = new Date().toISOString();
+  await supabase
+    .from("manager_vendor_records")
+    .update({ vendor_user_id: opts.vendorUserId, updated_at: nowIso })
+    .eq("id", opts.directoryId)
+    .eq("manager_user_id", opts.managerUserId);
+  await supabase
+    .from("work_order_vendor_offers")
+    .update({ vendor_user_id: opts.vendorUserId, updated_at: nowIso })
+    .eq("vendor_directory_id", opts.directoryId)
+    .is("vendor_user_id", null);
+  // A service assigned to this directory row before the vendor had a login: give the
+  // inviting manager's records the account, so it shows up in the vendor's portal.
+  // Scoped to this manager and to rows still unowned; a self-assigned row stays unowned.
+  const { data: pendingJobs } = await supabase
+    .from("portal_work_order_records")
+    .select("id, row_data")
+    .eq("manager_user_id", opts.managerUserId)
+    .is("vendor_user_id", null)
+    .eq("row_data->>vendorId", opts.directoryId);
+  const jobIds = (pendingJobs ?? [])
+    .filter((r) => (r.row_data as { selfAssigned?: unknown } | null)?.selfAssigned !== true)
+    .map((r) => String(r.id));
+  if (jobIds.length > 0) {
+    await supabase
+      .from("portal_work_order_records")
+      .update({ vendor_user_id: opts.vendorUserId, updated_at: nowIso })
+      .in("id", jobIds)
+      .eq("manager_user_id", opts.managerUserId)
+      .is("vendor_user_id", null);
+  }
+  // Money that was posted to this directory row while the vendor had no login now belongs to the account.
+  await rekeyDirectoryBalances(supabase, { directoryId: opts.directoryId, vendorUserId: opts.vendorUserId }).catch((e) =>
+    console.error("[vendor link] directory balance move failed", e instanceof Error ? e.message : "unknown"),
+  );
+}
+
 export type ProvisionVendorResult =
   | { ok: true; axisId: string; linkedManagerId: string | null; unlinkedReason: VendorUnlinkedReason | null }
   | { ok: false; status: number; error: string };
@@ -307,19 +353,11 @@ export async function provisionVendorAccountByEmail(
     linkedManagerId = invite.manager_user_id;
 
     if (invite.vendor_directory_id) {
-      await supabase
-        .from("manager_vendor_records")
-        .update({ vendor_user_id: opts.userId, updated_at: new Date().toISOString() })
-        .eq("id", invite.vendor_directory_id);
-      await supabase
-        .from("work_order_vendor_offers")
-        .update({ vendor_user_id: opts.userId, updated_at: new Date().toISOString() })
-        .eq("vendor_directory_id", invite.vendor_directory_id)
-        .is("vendor_user_id", null);
-      // Money that was posted to this directory row while the vendor had no login now belongs to the account.
-      await rekeyDirectoryBalances(supabase, { directoryId: invite.vendor_directory_id, vendorUserId: opts.userId }).catch((e) =>
-        console.error("[vendor signup] directory balance move failed", e instanceof Error ? e.message : "unknown"),
-      );
+      await linkDirectoryRowToVendor(supabase, {
+        directoryId: invite.vendor_directory_id,
+        managerUserId: invite.manager_user_id,
+        vendorUserId: opts.userId,
+      });
     } else {
       const directoryId = makeVendorId();
       await supabase.from("manager_vendor_records").upsert(

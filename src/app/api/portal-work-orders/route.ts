@@ -5,11 +5,12 @@ import { isLinkedVendorJob } from "@/lib/add-on-vendor-job";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import {
   fetchRowsForManagerWithLinked,
-  linkedPropertyIdsForModule,
   resolveManagerWorkspaceRowScope,
   rowInWorkspaceScope,
   type ManagerWorkspaceRowScope,
 } from "@/lib/auth/co-manager-module-scope";
+import { managerScopedPropertyIds } from "@/lib/work-order-record-access.server";
+import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -38,7 +39,7 @@ import {
   workOrderGoogleCalendarSyncChanged,
 } from "@/lib/google-calendar/sync.server";
 import { attachManagerNamesToWorkOrders } from "@/lib/work-order-manager-names.server";
-import { projectWorkOrderForOfferedVendor } from "@/lib/work-order-vendor-privacy";
+import { projectWorkOrderForHiredVendor, projectWorkOrderForOfferedVendor } from "@/lib/work-order-vendor-privacy";
 import { restoreServerPublishState } from "@/lib/service-publish-state";
 import { alertPhonesOf } from "@/lib/one-number/ops-alerts.server";
 
@@ -87,7 +88,7 @@ async function vendorScopedWorkOrderRows(db: Db, vendorUserId: string): Promise<
   const byId = new Map<string, DemoManagerWorkOrderRow>();
   for (const record of assigned ?? []) {
     const row = record.row_data as DemoManagerWorkOrderRow | null;
-    if (row) byId.set(record.id as string, row);
+    if (row) byId.set(record.id as string, projectWorkOrderForHiredVendor(row));
   }
 
   // Everything above is a job this vendor HOLDS (`vendor_user_id` names them), so it is served
@@ -114,6 +115,17 @@ function normalizeRow(row: DemoManagerWorkOrderRow): DemoManagerWorkOrderRow {
   };
 }
 
+/** True when a non-resident account holds the vendor role AND the request came from the vendor portal. */
+async function isVendorPortalRequest(role: string): Promise<boolean> {
+  if (role === "resident") return false;
+  try {
+    const ctx = await getPortalAccessContext();
+    return ctx.effectiveRole === "vendor" && ctx.roles.includes("vendor");
+  } catch {
+    return false;
+  }
+}
+
 export async function GET(req: Request) {
   try {
     const user = await sessionUser();
@@ -130,7 +142,9 @@ export async function GET(req: Request) {
     });
     const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
 
-    if (!oversight && role === "vendor") {
+    // A manager+vendor account resolves to "manager" above (profiles.role is the role it was
+    // created as); the portal the request came from decides, via profile_roles + the active-portal cookie.
+    if (!oversight && (role === "vendor" || (await isVendorPortalRequest(role)))) {
       const rows = await vendorScopedWorkOrderRows(db, user.id);
       return NextResponse.json({ rows });
     }
@@ -251,22 +265,6 @@ function actorOwnsRecord(actor: Actor, rec: OwnerCols | null): boolean {
   return false;
 }
 
-/** Property ids this manager may act on: the ones they own outright plus those
- * shared with them through an accepted co-manager link carrying Services
- * access. */
-async function managerScopedPropertyIds(db: Db, userId: string): Promise<Set<string>> {
-  const ids = await linkedPropertyIdsForModule(db, userId, "services");
-  const { data: ownedProps } = await db
-    .from("manager_property_records")
-    .select("id")
-    .eq("manager_user_id", userId)
-    .limit(500);
-  for (const prop of ownedProps ?? []) {
-    const id = String((prop as { id?: unknown }).id ?? "").trim();
-    if (id) ids.add(id);
-  }
-  return ids;
-}
 
 
 /** Resolve a vendor directory row's linked auth user, so the record can be scoped
@@ -443,7 +441,7 @@ export async function POST(req: Request) {
 
     // Vendors see their offered/assigned work through GET; the record itself is
     // manager-authored (assignment, scheduling, billing), so vendor writes are rejected.
-    if (!oversight && actor.role === "vendor") {
+    if (!oversight && (actor.role === "vendor" || (await isVendorPortalRequest(actor.role)))) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 

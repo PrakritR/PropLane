@@ -17,13 +17,23 @@ auth flow (`portal-access.ts`, `set-active-portal`, `resolve-oauth-portal-access
 extended in lockstep — when adding a 5th role, grep for `"resident" ===` /
 `"manager" ===` literal chains rather than assuming one canonical `isAuthRole`.
 
+**A vendor API route authorizes off `profile_roles`, never `profiles.role`.**
+`profiles.role` is only the role the account was created as, so a resident or manager who later
+added the vendor portal keeps the old value forever and was locked out of their own vendor
+screens. Vendor-only routes gate on `requireVendorApiAccess` (or `resolveVendorPortalUserId`,
+which also honours admin preview) and the mixed manager/vendor work-order routes derive the
+acting role with `resolveSessionActorRole` — all in `src/lib/auth/vendor-api-access.ts`, the
+vendor counterpart of `resident-role-access.ts` (AGENTS.md § `profiles.role` is legacy).
+`resolveChannels` does the same for a vendor notification topic.
+
 **Portal registry.** `src/lib/portals/vendor.ts` is the section list — read it
 rather than a copy here. Two naming notes that outlive any list: Services keeps
 the section key `work-orders` (relabeled from "Work Orders" in the mobile-nav-m1
-overhaul), and Tasks is `tasks`, the vendor's view of manager tasks assigned
-to them (`VendorTaskList`, `GET/PATCH /api/vendor/tasks`, tabs
-`in-progress`/`completed`; bare `/vendor/tasks` is the default in-progress view —
-legacy `/vendor/task-list/...` redirects there).
+overhaul), and Tasks is `tasks` — a LIVE section in the nav right after Services, the vendor's
+view of manager tasks assigned to them (`VendorTaskList`, `GET/PATCH /api/vendor/tasks`, tabs
+`in-progress`/`completed`). `/vendor/tasks` mounts the list and never redirects: bare is the
+default in-progress view, legacy `/vendor/task-list/...` and a stale manager-style tab slug land
+on it, and the "New task from …" email links to it.
 Routes live at `src/app/vendor/layout.tsx` +
 `src/app/vendor/[section]/[[...tab]]/page.tsx`, copied from the resident
 portal shell. Render handlers are in `render-portal-section.tsx` under
@@ -64,15 +74,15 @@ Send via PropLane / Email / SMS; the first send adds them to Your vendors
 (Every property) if they are not already there. Regular Add vendor keeps the
 six-step workspace.
 
-**Invites are server-issued and always expire.** `vendor_invites` is
+**Invites are server-issued and always expire.** A link minted for a directory row (Add vendor) carries that row's id, and redemption links THAT row instead of inserting a second one; previewing an invite reuses the unexpired pending token. `vendor_invites` is
 `SELECT`-only for `anon`/`authenticated` (owner-scoped read;
 `20260722123000_lock_role_grant_surface.sql`) — only the service-role issuing
 route writes one. Redemption turns an invite into a **pre-confirmed** account on
 its `vendor_email`, so both lookup paths in `provision-vendor-account.ts` (by
 token and by email) go through `redeemableInvite`, which fails closed on a
 missing/unparseable/elapsed `expires_at`. `expires_at` is `NOT NULL` and
-defaults to `now() + 7 days`, matching the `VENDOR_INVITE_TTL_MS` the issuing
-route stamps. Never reintroduce an expiry-optional path — a NULL expiry
+is stamped at 72 hours (`VENDOR_INVITE_TTL_MS`) by the issuing code; the column's
+7-day default is only a backstop. Never reintroduce an expiry-optional path — a NULL expiry
 previously skipped the TTL check entirely. Coverage:
 `tests/unit/vendor-invite-redemption-ttl.test.ts`.
 
@@ -108,9 +118,21 @@ uploads, but keyed off `vendor_business_profiles` instead of
 `onboarding_completed_at` is server-derived (`vendorOnboardingRequiredFieldsFilled`
 in `vendor-business-profile.server.ts`) from business name + at least one trade
 + a service area, and — once set — never un-sets, even if a field is later
-cleared. The vendor Dashboard shows a "Finish setting up" checklist (Business,
-Trades & area, License & insurance, Payout bank — the last linking to the
-existing `/vendor/financials/payouts` Connect flow) until all four are done.
+cleared. There is no "Finish setting up" checklist in code. What nudges a vendor to add a
+bank is the Dashboard balance card's Add bank flow (`vendor-dashboard-balance-card.tsx`)
+and the inbox notice sent when a held payment is returned unclaimed.
+
+Hold expiry (VD58) — a payment held 90 days because the vendor never connected a bank is
+returned to the manager, and both parties get a "returned unclaimed" notice instead of a
+"You refunded" one. The rail, the reserved attempt-key namespace and what is (and is not)
+refunded: [`financials.md`](financials.md) § Vendor refunds, disputes and notifications.
+
+**A vendor Connect account is a repair business, not a management one.** `createAxisConnectAccount`
+stamps `business_profile` MCC **1799** / "Home repair and maintenance services" for `axisPortal:
+"vendor"` and the identity step sets the same (`connectBusinessProfile`); managers keep 6513.
+Create-time only — an existing account is never rewritten. Account creation is idempotent on
+`connect-account:<portal>:<userId>` (plus the replaced id when a stale account is deliberately
+dropped), so a double click or a second tab cannot leave two Stripe accounts behind.
 
 **Manager-facing vendor directory (night/vendor-signup).** A directory-listed,
 onboarding-complete self-serve vendor (`directory_listed = true`) is now
@@ -164,6 +186,12 @@ NOT built: `mapPublicVendorReviewRow`'s `reviewerLabel` is hardcoded to "A
 PropLane manager" for every review on that route specifically so a vendor can
 never learn which manager/workspace reviewed them, and a workspace filter
 would require exposing that identity.
+
+**Vendor -> manager messages are in-app first** (`sendVendorSponsoredOutbound`): when the other end is a PropLane
+account the vendor is linked to, the reply or compose writes the vendor's copy AND the manager's side of the same
+conversation (idempotent on `sendId`), with no work identity or binding; a thread's `row_data.email` only names which
+linked account, never widens reach. The work identity (email/number) is used only for outside contacts with no
+profile. A job's "Message the manager" carries `recordRef {kind:"service"}`, which the server re-derives before stamping.
 
 Inbox scoping added a 3rd scope constant (`axis_portal_inbox_vendor_v1`,
 mirrored across `portal-inbox-delivery.ts`, `portal-inbox-thread-scope.ts`, and
@@ -280,7 +308,20 @@ to capturing the whole send. It is inert in any deployed build.
 
 Every Services tab (Open · Assigned · Scheduled · Completed · Find work) is the shared row; stage actions live only in
 the row's ⋯ (`vendorServiceActions`: Open Submit bid · Book visit · Decline; Assigned Schedule · Message the manager;
-Scheduled Reschedule (asks the manager) · Complete; Completed Send invoice). There is no bulk selection. The service
+Scheduled Reschedule (asks the manager) · Complete; Completed Send invoice). On an Assigned job (direct assignment or an approved bid with no time) the Schedule section is a
+visit-time picker: `POST /api/portal/work-orders/schedule-visit` -> `scheduleAssignedVisit` re-derives `vendor_user_id = actor`
+from the row and books with `bookedVisitPatch`, the same patch bid-accept writes, so the job moves to Scheduled. There is no
+vendor Decline on an assignment (only on an offer). Completion photos are downscaled client-side (1600px JPEG) and
+`mark-done` writes status + photos in one update (`validateCompletionPhotos`: 400 for a missing or non-image photo, 413 over
+2 MB each, 6 at most). The bytes do NOT live in `row_data`: they are uploaded to the private `manager-documents` bucket under
+`manager/<managerUserId>/service-completion/<workOrderId>/` and the row keeps only `completionPhotoPaths`
+(`completion-photo-storage.server.ts`). A photo texted in takes the same rail
+(`attachVendorJobMedia`, [`one-number.md`](one-number.md)). They are read back only as short-lived signed URLs from
+`GET /api/portal/work-orders/completion-photos`, which answers exactly who may read the record itself - owning manager,
+the vendor who did the work, or a co-manager holding the house with Services access (`mayReadWorkOrderRecord`,
+`work-order-record-access.server.ts`) - and 404s anyone else; a path outside that work order's own prefix is never signed.
+Rows written before this carry base64 `completionPhotoDataUrls` and still render; they were deliberately not migrated.
+There is no bulk selection. The service
 record uses the resident-record anatomy: header Message the manager · the primary next step · ⋯ (the other stage
 actions), the stepper under it, rail Job (Overview · Estimate & bid · Schedule), Money (Invoice · Payments), Records
 (Communication · Documents). Estimate & bid answers are underline tabs (`vendorBidTabs`: Bid · Estimate · Estimate
@@ -365,6 +406,21 @@ keys, 1000 characters each, validated in `parseVendorAiInfoPatch`; saved through
 route with the service role pinned to the signed-in vendor), plus the read-only service area and trades.
 Texts from clients and residents to the number get an answer-only AI built from those answers; managers
 never do. Rules, limits and hand-off: [`sms-system.md`](sms-system.md) § Vendor-number AI.
+
+### The vendor's own phone is verified by a code (Oct 6)
+
+The verified phone (`profiles.phone_verified_at`) is the prerequisite for the number above and the thing
+that links the vendor's text history. Verification is the user-generic `PUT /api/manager/phone` with a
+6-digit code, shown by `PortalTextNotificationsBlock` in Settings > Messaging and on the onboarding page,
+plus one compact **Dashboard attention row** ("Verify your phone") - the portal-wide banner it replaced is
+retired, so no other vendor page carries the nudge (`useVendorPhoneNeedsVerification`, cleared by
+`profiles.phone_verified_at`, never by a typed phone; `tests/unit/vendor-phone-verification-row.test.tsx`).
+Verifying also pulls in every conversation a manager already had with that phone, one per manager
+workspace: [`communication-inbox.md`](communication-inbox.md) § A vendor's texts are in their conversation
+owns that rule. A manager's text lands on the vendor's own phone whenever there is no routable PropLane
+number (never claimed, unsubscribed or lapsed) and STOP from that phone stops every text from that
+workspace: [`sms-system.md`](sms-system.md) § Vendor texting. Typed replies do not use any of this - a
+vendor's message to a linked manager is delivered in-app (§ Phase 1, `sendVendorSponsoredOutbound`).
 
 # Vendor portal (Phase 3: Stripe Connect payouts + invoices)
 
@@ -603,27 +659,6 @@ vendor's own quiet hours (default 8pm–7am; an emergency texts through only if 
 text me anytime" on), and the in-app message is never gated by any of it. Vendor texts go through
 `enqueueOwnerSms` with `purpose: "vendor_conversation"` (the same ledger as the vendor assistant),
 not the resident path that used to refuse them with `managed_sender_scope_required`.
-
-
-## Vendors text through the manager's number (Oct 6)
-
-A vendor has **no PropLane number** (the work-number claim, candidate search and
-Communication card are retired; the sponsored work email stays). Managers text the
-vendor's own saved phone from their workspace work number (`sms-system.md` § Vendor
-texting). What the vendor does:
-
-- **Verify the phone** with a 6-digit code (the user-generic `/api/manager/phone`,
-  shown by `PortalTextNotificationsBlock`): Settings > Messaging, the onboarding
-  page, and one **Dashboard attention row** ("Verify your phone") — the portal-wide
-  banner it replaced is retired, so no other vendor page carries the nudge
-  (`useVendorPhoneNeedsVerification`, cleared by `profiles.phone_verified_at`, never
-  by a typed phone; `tests/unit/vendor-phone-verification-row.test.tsx`).
-- Verifying links the history: every conversation a manager had with that number
-  appears in their Communication, one per manager workspace, earlier texts included
-  (`communication-inbox.md` § A vendor's texts are in their conversation). A number a
-  second account also verified links to neither.
-- They answer by text to that manager's work number or in the app; the manager sees
-  one conversation either way. STOP stops every text from that manager's workspace.
 
 # Vendor portal redesign: Reviews, Payments, Settings and quick replies (approved plan vendor-portal-redesign-1006)
 

@@ -386,9 +386,11 @@ export function ManagerLegacyServiceIntakeForm({
           roomLabel: selectedResident.roomLabel || undefined,
         });
         showToast(
-          result.vendorName
-            ? `Service request created. ${result.vendorName} notified.`
-            : "Service request created.",
+          result.vendorOutcomeMessage
+            ? `Service request created. ${result.vendorOutcomeMessage}`
+            : result.vendorName && !result.vendorNotifyError
+              ? `Service request created. ${result.vendorName} notified.`
+              : "Service request created.",
         );
         if (result.vendorNotifyError) {
           showToast("Request saved, but the vendor could not be notified.");
@@ -716,7 +718,7 @@ export function ManagerLegacyServiceIntakeForm({
           ) : null}
 
           <WorkAssignmentPicker
-            kind="service"
+            kind={isMaintenanceOffer ? "maintenance" : "service"}
             value={assignee}
             teamMembers={teamMembers}
             vendors={vendors}

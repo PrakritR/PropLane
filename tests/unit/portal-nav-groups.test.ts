@@ -72,8 +72,6 @@ describe("portal nav groups cover the registry exactly", () => {
         .filter((s) => {
           if (s === "profile") return sidebarShowsProfile;
           if (s === "bugs-feedback") return sidebarShowsFeedback;
-          // Vendor tasks were dropped from the portal — Services is the work list.
-          if (kind === "vendor" && s === "tasks") return false;
           // Manager Teams moved into Settings (Workspaces / Team / Vendors).
           if ((kind === "pro" || kind === "manager") && s === "teams") return false;
           // Manager Move-in is registered but has no row: Forms replaced it in the sidebar.
@@ -198,7 +196,7 @@ describe("phase 1 regroup: headings and exact order per portal", () => {
   it("vendor: home, Work, Money, Business", () => {
     expect(headings("vendor")).toEqual([
       [null, ["dashboard", "communication", "calendar"]],
-      ["Work", ["work-orders"]],
+      ["Work", ["work-orders", "tasks"]],
       ["Money", ["payments", "outgoing", "financials"]],
       ["Business", ["reviews", "documents"]],
     ]);

@@ -52,6 +52,8 @@ export async function createVendorInviteDraft(
     vendorEmail: string;
     vendorName: string;
     origin: string;
+    /** The service sent with this invite; named in the email so the vendor knows why they got it. */
+    jobLine?: string;
   },
 ): Promise<VendorInviteDraftResult> {
   const { data: vendorRow } = await db
@@ -63,23 +65,41 @@ export async function createVendorInviteDraft(
     return { ok: false, status: 403, error: "Forbidden." };
   }
 
-  await db.from("vendor_invites").delete().eq("vendor_directory_id", opts.vendorId).eq("status", "pending");
-  const inviteToken = generateVendorInviteToken();
-  const expiresAt = new Date(Date.now() + VENDOR_INVITE_TTL_MS).toISOString();
-  const { error: insertError } = await db.from("vendor_invites").insert({
-    manager_user_id: opts.managerUserId,
-    vendor_directory_id: opts.vendorId,
-    vendor_email: opts.vendorEmail,
-    vendor_name: opts.vendorName || null,
-    invite_token: inviteToken,
-    expires_at: expiresAt,
-  });
-  if (insertError) return { ok: false, status: 500, error: insertError.message };
+  // Previewing must not invalidate a link already shared: reuse this manager's unexpired
+  // pending invite for the same row + email, and mint only when there is none.
+  const nowIso = new Date().toISOString();
+  const { data: existing } = await db
+    .from("vendor_invites")
+    .select("invite_token")
+    .eq("manager_user_id", opts.managerUserId)
+    .eq("vendor_directory_id", opts.vendorId)
+    .eq("vendor_email", opts.vendorEmail)
+    .eq("status", "pending")
+    .gt("expires_at", nowIso)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  let inviteToken = typeof existing?.invite_token === "string" ? existing.invite_token : "";
+  if (!inviteToken) {
+    // Stale pending invites (expired, or for another email) are replaced.
+    await db.from("vendor_invites").delete().eq("vendor_directory_id", opts.vendorId).eq("status", "pending");
+    inviteToken = generateVendorInviteToken();
+    const expiresAt = new Date(Date.now() + VENDOR_INVITE_TTL_MS).toISOString();
+    const { error: insertError } = await db.from("vendor_invites").insert({
+      manager_user_id: opts.managerUserId,
+      vendor_directory_id: opts.vendorId,
+      vendor_email: opts.vendorEmail,
+      vendor_name: opts.vendorName || null,
+      invite_token: inviteToken,
+      expires_at: expiresAt,
+    });
+    if (insertError) return { ok: false, status: 500, error: insertError.message };
+  }
 
   const linkUrl = `${opts.origin}/auth/vendor-register?token=${encodeURIComponent(inviteToken)}`;
   const subject = vendorInviteSubject(opts.managerName);
-  const text = buildVendorInviteEmailBody({ vendorName: opts.vendorName, managerName: opts.managerName, linkUrl });
-  const html = buildVendorInviteEmailHtml({ vendorName: opts.vendorName, managerName: opts.managerName, linkUrl });
+  const text = buildVendorInviteEmailBody({ vendorName: opts.vendorName, managerName: opts.managerName, linkUrl, jobLine: opts.jobLine });
+  const html = buildVendorInviteEmailHtml({ vendorName: opts.vendorName, managerName: opts.managerName, linkUrl, jobLine: opts.jobLine });
   const mailtoHref = buildVendorInviteMailtoHref({
     to: opts.vendorEmail,
     vendorName: opts.vendorName,
@@ -110,6 +130,8 @@ export async function sendVendorInvite(
     vendorEmail: string;
     vendorName: string;
     origin: string;
+    /** The service sent with this invite; named in the email so the vendor knows why they got it. */
+    jobLine?: string;
   },
 ): Promise<SendVendorInviteResult> {
   const prepared = await createVendorInviteDraft(db, opts);

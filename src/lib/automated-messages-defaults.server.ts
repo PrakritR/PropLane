@@ -64,7 +64,7 @@ function renderDefault(domain: string, event: string, audience: AutomatedMessage
       title: "Replace the hallway smoke detector",
       propertyLabel: "5257 Brooklyn Ave NE",
       dueLabel: "Thu, Sep 18 at 4:00 PM",
-      url: "https://prop-lane.space/vendor/work-orders/pending",
+      url: "https://prop-lane.space/vendor/tasks",
     });
   }
   if (audience === "vendor") return null;

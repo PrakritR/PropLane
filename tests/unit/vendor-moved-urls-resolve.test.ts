@@ -27,6 +27,15 @@ async function landing(section: string, tabParts?: string[], searchParams?: Reco
   return "rendered";
 }
 
+describe("vendor Tasks", () => {
+  it("/vendor/tasks and its two tabs render; a stale manager slug lands on the bare list", async () => {
+    expect(await landing("tasks")).toBe("rendered");
+    expect(await landing("tasks", ["in-progress"])).toBe("rendered");
+    expect(await landing("tasks", ["completed"])).toBe("rendered");
+    expect(await landing("tasks", ["scheduled"])).toBe("/vendor/tasks");
+  });
+});
+
 describe("vendor Calendar / Settings moved URLs", () => {
   it("every retired /vendor/calendar/<tab> lands on /vendor/calendar", async () => {
     for (const tab of ["all", "services", "availability", "week", "day", "month", "list", "tasks", "tours", "anything"]) {

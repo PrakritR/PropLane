@@ -69,7 +69,7 @@ export function ServiceCommunicationPane({
     [recordIds, parties, linkedWorkOrderId, recordId, recordLabel],
   );
   const scope = useMemo(
-    () => ({ recordIds, party: party ? { email: party.email, phone: party.phone } : null }),
+    () => ({ recordIds, party: party ? { email: party.email, altEmails: party.altEmails, phone: party.phone } : null }),
     [recordIds, party],
   );
   const ref = party

@@ -460,7 +460,8 @@ describe("offer_to_vendors", () => {
     portal_work_order_records: [woRow("manager_a", { id: "wo1", title: "Leak", bucket: "open" })],
     manager_vendor_records: [
       vendorRow("v1", "manager_a", {}, "vendor_user_1"),
-      vendorRow("v2", "manager_a"),
+      // Linked: a roster vendor with no account is invited or skipped instead (vendor-ready-jobs.test.ts).
+      vendorRow("v2", "manager_a", {}, "vendor_user_2"),
       vendorRow("v_foreign", "manager_b"),
     ],
   });

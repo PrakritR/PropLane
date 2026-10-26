@@ -193,8 +193,8 @@ function provisioningDb(opts: {
     return { eq: vi.fn(() => ({ eq: vi.fn(() => ({ order, gt: vi.fn(() => ({ order })) })) })) };
   };
 
-  const plainSelect = (table: string) => ({
-    eq: vi.fn(() => ({
+  const plainSelect = (table: string) => {
+    const chain: Record<string, unknown> = {
       maybeSingle: vi.fn().mockResolvedValue({
         data:
           table === "manager_vendor_records" && opts.directoryOwner !== undefined
@@ -202,8 +202,12 @@ function provisioningDb(opts: {
             : null,
         error: null,
       }),
-    })),
-  });
+      // List reads (e.g. the J2 work-order back-fill) resolve to no rows.
+      then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve),
+    };
+    for (const m of ["eq", "is", "in"]) chain[m] = vi.fn(() => chain);
+    return chain;
+  };
 
   const from = vi.fn((table: string) => ({
     select: vi.fn((columns = "*") =>

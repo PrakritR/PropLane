@@ -57,6 +57,7 @@ export async function POST(req: Request) {
     label?: string;
     assignedPropertyIds?: unknown;
     assignedRoomId?: string;
+    vendorDirectoryId?: string;
     propertyPermissions?: unknown;
     expiry?: string;
     uses?: string;
@@ -83,6 +84,7 @@ export async function POST(req: Request) {
       ? body.assignedPropertyIds.map((id) => String(id))
       : [],
     assignedRoomId: typeof body.assignedRoomId === "string" ? body.assignedRoomId : undefined,
+    vendorDirectoryId: typeof body.vendorDirectoryId === "string" ? body.vendorDirectoryId : undefined,
     propertyPermissions: body.propertyPermissions,
     expiryOption: body.expiry,
     usesOption: body.uses,

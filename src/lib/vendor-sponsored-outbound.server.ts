@@ -22,6 +22,7 @@ import { formatInboxStamp } from "@/lib/portal-inbox-storage";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { touchVendorNumberConversation } from "@/lib/vendor-number-conversations.server";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
+import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 
 type Recipient = { userId: string | null; email: string; role: string; phone?: string | null };
 
@@ -94,12 +95,18 @@ export type VendorSponsoredOutboundRequest = {
   recipientUserId?: string;
   recipientAdmin?: boolean;
   attachmentUrls?: string[];
+  /**
+   * The job this message is about. A hint only: the server re-derives that the
+   * vendor is on that service (assigned, or holding a live offer) and that its
+   * manager is the recipient before stamping it; anything else is dropped.
+   */
+  recordRef?: RecordRef;
   /** Authorization/target resolution only; never creates an outbox or calls a provider. */
   preflight?: boolean;
 };
 
 export type VendorSponsoredOutboundResult =
-  | { ok: true; providerMessageId: string | null; delivery: "sending" | "failed" | "sent" }
+  | { ok: true; providerMessageId: string | null; delivery: "sending" | "failed" | "sent"; /** Delivered into the recipient's PropLane inbox; no provider involved. */ inApp?: true }
   | { ok: false; error: "invalid_request" | "recipient_unlinked" | "conversation_unavailable" | "delivery_refused"; reason?: string };
 
 async function profileById(db: SupabaseClient, id: string): Promise<Recipient | null> {
@@ -137,6 +144,152 @@ async function vendorMayReachManager(db: SupabaseClient, vendorUserId: string, r
 }
 
 /**
+ * The PropLane account on the other end of an existing thread, if any. A reply
+ * binding (server-written) wins; a thread the manager started has none, so the
+ * thread's own `email` names the profile. That field is display data, so it only
+ * ever picks WHICH linked account — `canReceiveInApp` still proves the link.
+ */
+async function threadCounterpartProfile(
+  db: SupabaseClient,
+  target: { rowData: Record<string, unknown> },
+  binding: ReplyBinding | null,
+): Promise<Recipient | null> {
+  if (binding) {
+    if (binding.recipient_user_id) return profileById(db, binding.recipient_user_id);
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(binding.recipient) ? profileByEmail(db, binding.recipient) : null;
+  }
+  const email = String(target.rowData.email ?? "").trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? profileByEmail(db, email) : null;
+}
+
+/** The scope a PropLane-user counterpart is delivered under, or null when the vendor may not reach them. */
+async function inAppRoleFor(db: SupabaseClient, vendorUserId: string, profile: Recipient): Promise<"manager" | "admin" | null> {
+  if (profile.email === PRIMARY_ADMIN_EMAIL.trim().toLowerCase()) return "admin";
+  return profile.userId && (await vendorMayReachManager(db, vendorUserId, profile.userId)) ? "manager" : null;
+}
+
+/**
+ * Re-derive that the vendor is on this service and that `managerUserId` owns it.
+ * `null` drops the ref (the send still goes); the property it names places the
+ * manager-side copy in that service's workspace.
+ */
+async function verifiedJobRef(
+  db: SupabaseClient,
+  vendorUserId: string,
+  managerUserId: string,
+  ref: RecordRef | undefined,
+): Promise<{ recordRef: RecordRef; propertyId?: string } | null> {
+  const recordRef = normalizeRecordRef(ref);
+  if (!recordRef || recordRef.kind !== "service") return null;
+  const { data: record } = await db
+    .from("portal_work_order_records")
+    .select("manager_user_id, vendor_user_id, row_data")
+    .eq("id", recordRef.id)
+    .maybeSingle();
+  if (!record || String(record.manager_user_id ?? "") !== managerUserId) return null;
+  if (String(record.vendor_user_id ?? "") !== vendorUserId) {
+    const { data: offer } = await db
+      .from("work_order_vendor_offers")
+      .select("id")
+      .eq("work_order_id", recordRef.id)
+      .eq("vendor_user_id", vendorUserId)
+      .eq("status", "sent")
+      .maybeSingle();
+    if (!offer) return null;
+  }
+  const row = (record.row_data ?? {}) as { propertyId?: unknown; assignedPropertyId?: unknown };
+  const propertyId = String(row.propertyId ?? row.assignedPropertyId ?? "").trim();
+  return { recordRef, ...(propertyId ? { propertyId } : {}) };
+}
+
+/**
+ * What the manager's inbox calls this vendor: the manager's own roster name for them, else the
+ * vendor's profile name. Without it a vendor with no profile name is titled by their login email,
+ * which the inbox renders as "Manager".
+ */
+export async function managerSideVendorName(
+  db: SupabaseClient,
+  input: { managerUserId: string; vendorUserId: string; fallbackName: string },
+): Promise<string> {
+  const { data } = await db
+    .from("manager_vendor_records")
+    .select("row_data")
+    .eq("manager_user_id", input.managerUserId)
+    .eq("vendor_user_id", input.vendorUserId)
+    .limit(1)
+    .maybeSingle();
+  const rosterName = String(((data?.row_data ?? {}) as { name?: unknown }).name ?? "").trim();
+  const fallback = input.fallbackName.trim();
+  return rosterName || (fallback && !fallback.includes("@") ? fallback : "PropLane vendor");
+}
+
+/**
+ * Vendor -> PropLane user is in-app: the vendor's copy and the manager's side of
+ * the SAME conversation (the resolver keys it, so no second conversation) are
+ * written here, with no work identity and no provider. Both writes are idempotent
+ * on `messageId`, so a retried send repairs a half-written pair and never doubles.
+ */
+async function deliverVendorInApp(
+  db: SupabaseClient,
+  actor: { userId: string; email: string; name: string },
+  input: {
+    recipient: Recipient;
+    role: "manager" | "admin";
+    target: Awaited<ReturnType<typeof resolveInboxThreadReplyTarget>>;
+    subject: string;
+    text: string;
+    attachments: { url: string; name?: string }[];
+    messageId: string;
+    job: { recordRef: RecordRef; propertyId?: string } | null;
+  },
+): Promise<void> {
+  const { recipient, target } = input;
+  const when = formatInboxStamp(new Date());
+  const preview = input.text.slice(0, 100).replace(/\n/g, " ");
+  const common = {
+    fromName: actor.name || "PropLane vendor", subject: input.subject, body: input.text, preview, when,
+    messageId: input.messageId, channel: "proplane" as const, messageSubject: input.subject,
+    attachments: input.attachments, delivery: "sent" as const,
+    ...(input.job ? { recordRef: input.job.recordRef } : {}),
+  };
+  const managerSideName = recipient.userId
+    ? await managerSideVendorName(db, {
+        managerUserId: recipient.userId,
+        vendorUserId: actor.userId,
+        fallbackName: actor.name,
+      }).catch(() => common.fromName)
+    : common.fromName;
+  const hints = { managerUserId: recipient.userId, propertyId: input.job?.propertyId ?? null, otherPartyUserId: actor.userId };
+  // The manager's side: same attachment paths on their thread are what let
+  // `userCanAccessInboxAttachment` serve the file to them.
+  const inboxCopy = deliverPortalMessageThreadSide(db, {
+    ...common,
+    fromName: managerSideName,
+    scope: scopeForRole(input.role), folder: "inbox", ownerUserId: recipient.userId, participantEmail: recipient.email,
+    otherPartyEmail: actor.email, fallbackId: `vendor-sponsored-inbox:${actor.userId}:${recipient.userId}`,
+    unread: true, outbound: false, conversation: hints,
+  });
+  if (target) {
+    await inboxCopy;
+    await commitInboxThreadReply(db, target, {
+      fromName: common.fromName, text: input.text, attachments: input.attachments, messageId: input.messageId,
+      channel: "proplane", subject: input.subject, outbound: true, delivery: "sent",
+      ...(input.job ? { recordRef: input.job.recordRef } : {}),
+    });
+    return;
+  }
+  await Promise.all([
+    deliverPortalMessageThreadSide(db, {
+      ...common,
+      scope: scopeForRole("vendor"), folder: "sent", ownerUserId: actor.userId, participantEmail: null,
+      otherPartyEmail: recipient.email, fallbackId: `vendor-sponsored-sent:${actor.userId}:${recipient.userId}`,
+      unread: false, outbound: true, conversation: hints,
+    }),
+    inboxCopy,
+  ]);
+}
+
+/**
  * Vendor sponsored delivery is intentionally narrow: a vendor can address an
  * existing authorized conversation or a linked manager account.  An email,
  * phone, manager id, and work-order id in a request are never destinations.
@@ -164,13 +317,29 @@ export async function sendVendorSponsoredOutbound(
     : null;
   if (threadId && !target) return { ok: false, error: "conversation_unavailable" };
 
-  // Inbox row_data is client-editable display data. Existing-thread delivery
-  // uses only the durable service-role binding created by an inbound turn or a
-  // previously authorized compose, even if row_data happens to name a profile.
+  // A reply binding is written only by an inbound turn to the vendor's work
+  // identity or by the vendor's own authorized external compose; a thread the
+  // manager started has none.
   const binding = target
     ? await replyBindingFor(db, { vendorUserId: actor.userId, threadId, channel: request.channel })
     : null;
-  if (target && !binding) return { ok: false, error: "conversation_unavailable" };
+  // In-app first: when the other end of the thread is a PropLane account the
+  // vendor is linked to, deliver into that account's inbox. Inbox row_data is
+  // client-editable display data, so it can only name which LINKED account.
+  const counterpart = target ? await threadCounterpartProfile(db, target, binding) : null;
+  const counterpartRole = counterpart ? await inAppRoleFor(db, actor.userId, counterpart) : null;
+  if (target && counterpart && !counterpartRole && !binding) return { ok: false, error: "recipient_unlinked" };
+  if (target && !binding && !counterpartRole) return { ok: false, error: "conversation_unavailable" };
+  if (target && counterpart && counterpartRole) {
+    if (request.preflight) return { ok: true, providerMessageId: null, delivery: "sending" };
+    const job = counterpart.userId ? await verifiedJobRef(db, actor.userId, counterpart.userId, request.recordRef) : null;
+    await deliverVendorInApp(db, actor, {
+      recipient: counterpart, role: counterpartRole, target, subject, text: request.text.trim(), attachments,
+      messageId: `vendor-sponsored:${request.sendId}`, job,
+    });
+    return { ok: true, providerMessageId: null, delivery: "sent", inApp: true };
+  }
+
   const boundRecipient = binding?.recipient ?? "";
   const resolvedRecipient = request.recipientAdmin && !target
     // Email has historically delivered to the primary-admin mailbox even when
@@ -233,6 +402,17 @@ export async function sendVendorSponsoredOutbound(
   }
 
   if (request.preflight) return { ok: true, providerMessageId: null, delivery: "sending" };
+
+  // A linked PropLane manager (or the admin's account) is reached in-app. Only
+  // an admin with no profile (the historic mailbox) still goes out by email.
+  if (!target && recipient.userId) {
+    const job = await verifiedJobRef(db, actor.userId, recipient.userId, request.recordRef);
+    await deliverVendorInApp(db, actor, {
+      recipient, role: request.recipientAdmin ? "admin" : "manager", target: null, subject, text: request.text.trim(),
+      attachments, messageId: `vendor-sponsored:${request.sendId}`, job,
+    });
+    return { ok: true, providerMessageId: null, delivery: "sent", inApp: true };
+  }
 
   const delivered = await deliverVendorWorkIdentity(
     db,

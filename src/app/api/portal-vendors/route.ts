@@ -1,6 +1,7 @@
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { vendorCatalogProjection } from "@/lib/vendor-catalog-projection";
 import { NextResponse } from "next/server";
+import { resolveSessionActorRole } from "@/lib/auth/vendor-api-access";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { isVendorCategorySettingsRow, managerVendorCategorySettingsRowId } from "@/lib/manager-vendors-storage";
 import { isAdminUser } from "@/lib/auth/admin-preview";
@@ -88,7 +89,10 @@ export async function GET(req: Request) {
     if (access.kind === "denied") {
       return NextResponse.json({ error: "Vendor access is unavailable for this account." }, { status: 403 });
     }
-    const role = String(profileResult.data?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+    // A multi-role account created as a vendor reads "vendor" in profiles.role forever; the portal it
+    // is acting in (profile_roles + active portal) decides, so its roster is not a 403.
+    const legacyRole = String(profileResult.data?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+    const role = legacyRole === "manager" || legacyRole === "pro" ? legacyRole : await resolveSessionActorRole(legacyRole);
     // The all-owners read is admin oversight: asked for with `?oversight=admin` AND confirmed by the
     // role. An admin in their own manager portal reads exactly what a manager does (own rows,
     // granted owners' rows, shared catalog), narrowed to the active workspace.
@@ -246,7 +250,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Vendor access is unavailable for this account." }, { status: 403 });
     }
     const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+    const legacyRole = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+    const role = legacyRole === "manager" || legacyRole === "pro" ? legacyRole : await resolveSessionActorRole(legacyRole);
     const admin = await isAdminUser(user.id);
 
     if (!admin && role !== "manager" && role !== "pro") {

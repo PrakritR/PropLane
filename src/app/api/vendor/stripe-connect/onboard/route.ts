@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { ensureVendorConnectAccountId } from "@/lib/stripe-connect-account";
@@ -40,18 +41,16 @@ export const runtime = "nodejs";
  */
 export async function POST(req: Request) {
   try {
+    // Multi-role vendors (profile_roles) pass; the legacy single profiles.role is not the gate.
+    const access = await requireVendorApiAccess();
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.status === 401 ? "Unauthorized." : "Forbidden." },
+        { status: access.status },
+      );
+    }
     const supabase = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    }
-
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    if (String(profile?.role ?? "").toLowerCase() !== "vendor") {
-      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
-    }
+    const user = { id: access.actor.userId, email: access.actor.email };
 
     const body = await req.json().catch(() => null);
     const relink = (body as { relink?: unknown } | null)?.relink === true;

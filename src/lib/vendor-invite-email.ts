@@ -43,6 +43,8 @@ export function buildVendorInviteEmailBody(params: {
   vendorName?: string;
   managerName: string;
   linkUrl: string;
+  /** The service this invite rides with ("Plumbing leak — WO-1042"), when it was sent because of one. */
+  jobLine?: string;
 }): string {
   const greeting = params.vendorName?.trim() ? `Hi ${params.vendorName.trim()},` : "Hi,";
   const managerName = params.managerName.trim() || "A property manager";
@@ -50,6 +52,9 @@ export function buildVendorInviteEmailBody(params: {
     greeting,
     "",
     `${managerName} invited you to sign up for PropLane as a vendor so you can see services offered to you, track scheduled visits, and message them directly.`,
+    ...(params.jobLine?.trim()
+      ? ["", `They also sent you a service: ${params.jobLine.trim()}. It will be waiting in your Services once you sign up.`]
+      : []),
     "",
     "Sign up for PropLane here:",
     params.linkUrl,
@@ -63,6 +68,7 @@ export function buildVendorInviteEmailHtml(params: {
   vendorName?: string;
   managerName: string;
   linkUrl: string;
+  jobLine?: string;
 }): string {
   const greeting = params.vendorName?.trim() ? `Hi ${escapeHtmlText(params.vendorName.trim())},` : "Hi,";
   const managerName = escapeHtmlText(params.managerName.trim() || "A property manager");
@@ -74,7 +80,7 @@ export function buildVendorInviteEmailHtml(params: {
 <div style="max-width:36rem;margin:0 auto;background:#ffffff;border-radius:12px;padding:28px;border:1px solid #e2e8f0">
 <p style="margin:0 0 12px 0">${greeting}</p>
 <p style="margin:0 0 16px 0"><strong>${managerName}</strong> invited you to <strong>sign up for PropLane</strong> as a vendor so you can see services offered to you, track scheduled visits, and message them directly.</p>
-<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:8px 0 16px 0">
+${params.jobLine?.trim() ? `<p style="margin:0 0 16px 0">They also sent you a service: <strong>${escapeHtmlText(params.jobLine.trim())}</strong>. It will be waiting in your Services once you sign up.</p>\n` : ""}<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:8px 0 16px 0">
 <tr><td style="border-radius:10px;background:#2563eb">
 <a href="${href}" target="_blank" rel="noopener noreferrer" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">Sign up for PropLane</a>
 </td></tr></table>

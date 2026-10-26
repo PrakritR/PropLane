@@ -42,6 +42,7 @@ import type { ResidentProfileSection } from "@/components/portal/resident-profil
 import type { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import type { VendorDashboard } from "@/components/portal/vendor-dashboard";
 import type { VendorWorkOrdersPanel } from "@/components/portal/vendor-work-orders-panel";
+import type { VendorTaskList } from "@/components/portal/vendor-task-list";
 import type { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
 import type { VendorFinancesPage, VendorWithdrawalDetail } from "@/components/portal/vendor-finances-balance";
 import type { VendorOutgoingPaymentsPanel } from "@/components/portal/vendor-outgoing-payments-panel";
@@ -119,6 +120,7 @@ export type PortalPanels = Partial<{
   PortalBugFeedbackPanel: typeof PortalBugFeedbackPanel;
   VendorDashboard: typeof VendorDashboard;
   VendorWorkOrdersPanel: typeof VendorWorkOrdersPanel;
+  VendorTaskList: typeof VendorTaskList;
   VendorFinancesPanel: typeof VendorFinancesPanel;
   VendorFinancesPage: typeof VendorFinancesPage;
   VendorWithdrawalDetail: typeof VendorWithdrawalDetail;

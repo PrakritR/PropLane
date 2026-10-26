@@ -750,6 +750,7 @@ export function ManagerVendorFormModal({
           kind: "vendor",
           label: row.trade || row.name,
           assignedPropertyIds: draft.propertyIds,
+          vendorDirectoryId: row.id,
         });
         if (!minted.ok) {
           if (current()) setError(minted.error);

@@ -155,6 +155,33 @@ describe("one composer, per-role capabilities", () => {
   });
 });
 
+// Stable identity, like the panel's state: the composer resets when the draft changes.
+const vendorContacts = [manager];
+const vendorDraft = { subject: "Leak at Maple", body: "", managerUserId: "1" } as never;
+
+describe("vendor Message the manager prefill", () => {
+  it("opens with the job subject and the manager already picked", async () => {
+    const onSend = vi.fn(async () => true);
+    render(
+      <ManagerCommunicationComposeModal
+        open
+        onClose={vi.fn()}
+        portal="vendor"
+        onSend={onSend}
+        initialDraft={vendorDraft}
+        liveContacts={vendorContacts}
+        senderName="Vic Vendor"
+        senderEmail="vic@example.com"
+      />,
+    );
+    await waitFor(() => expect((screen.getByPlaceholderText("Subject") as HTMLInputElement).value).toBe("Leak at Maple"));
+    fireEvent.change(screen.getByPlaceholderText("Write your message…"), { target: { value: "On my way" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send email" }));
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(onSend.mock.calls[0]![0]).toMatchObject({ subject: "Leak at Maple", directRecipientUserIds: ["user-mgr-1"] });
+  });
+});
+
 describe("a refused send keeps the draft and adds nothing", () => {
   it("vendor: onSend false keeps subject, message and the same sendId on retry", async () => {
     const onSend = vi.fn(async () => false);

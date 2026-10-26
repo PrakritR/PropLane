@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { csvMoneyFromCents, toCsv } from "@/lib/csv";
 import { mapVendorInvoiceRow, VENDOR_INVOICE_SELECT } from "@/lib/vendor-invoices";
@@ -26,17 +26,15 @@ function isoBound(raw: string | null): string | null {
 
 export async function GET(req: Request) {
   try {
-    const auth = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await auth.auth.getUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-
-    const db = createSupabaseServiceRoleClient();
-    const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    if (String(profile?.role ?? "").toLowerCase() !== "vendor") {
-      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    const access = await requireVendorApiAccess();
+    if (!access.ok) {
+      return NextResponse.json(
+        { error: access.status === 401 ? "Unauthorized." : "Forbidden." },
+        { status: access.status },
+      );
     }
+    const user = { id: access.actor.userId };
+    const db = createSupabaseServiceRoleClient();
 
     const { searchParams } = new URL(req.url);
     const dataset = (searchParams.get("dataset") ?? "invoices").toLowerCase();

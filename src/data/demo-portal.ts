@@ -300,6 +300,10 @@ export type DemoManagerWorkOrderRow = {
   /** Resolved server-side for vendor payout display — not persisted in row_data. */
   managerName?: string;
   photoDataUrls?: string[];
+  /** Vendor completion photos: private-bucket paths (read through signed URLs). */
+  completionPhotoPaths?: string[];
+  /** @deprecated Legacy inline completion photos; read-compat only, never written. */
+  completionPhotoDataUrls?: string[];
   vendorId?: string;
   vendorName?: string;
   /** Populated once the vendor signs up and links to manager_vendor_records. */
@@ -394,6 +398,9 @@ export type DemoManagerWorkOrderRow = {
   // ---- PLAN-0915 vendor loop stamps ----
   /** When the current offer round expires; mirrors `work_order_vendor_offers.expires_at`. */
   offerExpiresAt?: string;
+  /** Identity of the open offer round: a re-send to the same still-live vendors reuses it, so its
+   * one notification is not emitted twice, while a re-offer after a decline or expiry gets a new one. */
+  offerRoundKey?: string;
   /** Vendor tapped On my way. */
   enRouteAt?: string;
   /** The resident said "not fixed"; the vendor's done no longer stands. */

@@ -9,9 +9,13 @@ import { resolveManagerConnectAccountId } from "@/lib/stripe-connect";
 import { readVendorFrozenDisputeCents } from "@/lib/vendor-banking/disputes.server";
 import { emitVendorBankingEvent } from "@/lib/vendor-banking/events.server";
 import { recordVendorBankingLedgerEntry } from "@/lib/vendor-banking/ledger.server";
+import { notifyHoldReturnedByHoldId } from "@/lib/vendor-banking/hold-expiry-notice.server";
 import { getVendorBankingPayoutForVendor } from "@/lib/vendor-banking/payouts.server";
 import { recordVendorServiceFeeRevenueReversal } from "@/lib/vendor-banking/platform-revenue.server";
 import {
+  holdExpiryAttemptKey,
+  holdIdFromHoldExpiryAttemptKey,
+  isHoldExpiryAttemptKey,
   VENDOR_REFUND_REFUSAL_COPY,
   computeVendorRefundCap,
   refundFeeShareCents,
@@ -189,10 +193,13 @@ async function resolveManagerBooksContext(
  * `legacyDirect` is the destination-charge path, which books its own vendor statement lines in
  * `refundVendorPayout`; this then only adds the manager side.
  */
+/** Who started a refund. A hold-expiry return is PropLane's own and sends its own notices. */
+export type RefundInitiator = "vendor" | "hold_expiry";
+
 export async function settleVendorRefundBooks(
   db: SupabaseClient,
   attemptKey: string,
-  opts: { legacyDirect?: boolean } = {},
+  opts: { legacyDirect?: boolean; initiatedBy?: RefundInitiator } = {},
 ): Promise<{ settled: boolean; reason?: string }> {
   const request = await loadRequest(db, attemptKey);
   if (!request) return { settled: false, reason: "no_request" };
@@ -318,14 +325,27 @@ export async function settleVendorRefundBooks(
     await db.from("manager_bills").update({ refunded_cents: refundedCents }).eq("id", context.billId).eq("manager_user_id", payout.manager_user_id);
   }
 
-  await emitVendorBankingEvent(db, {
+  // A hold-expiry return is PropLane's own, so the vendor-initiated "You refunded..." events would
+  // be wrong; it gets the system-initiated notice instead. Sent from here, the one place every
+  // route — the cron's own call, a webhook that settles a refund that came back pending, a retry —
+  // passes through once the money really moved. Books above are identical either way.
+  const quiet = opts.initiatedBy === "hold_expiry" || isHoldExpiryAttemptKey(attemptKey);
+  if (quiet) {
+    const holdId = holdIdFromHoldExpiryAttemptKey(attemptKey);
+    if (holdId) {
+      await notifyHoldReturnedByHoldId(db, { holdId, amountCents: request.gross_cents }).catch((e) => {
+        console.error(`[vendor-banking] hold expiry notice failed for ${holdId}:`, e instanceof Error ? e.message : e);
+      });
+    }
+  }
+  if (!quiet) await emitVendorBankingEvent(db, {
     kind: "refund_sent",
     eventId: `refund:${attemptKey}:sent`,
     vendorUserId: payout.vendor_user_id,
     managerUserId: payout.manager_user_id,
     facts: { amountCents: request.gross_cents },
   });
-  await emitVendorBankingEvent(db, {
+  if (!quiet) await emitVendorBankingEvent(db, {
     kind: "refund_received",
     eventId: `refund:${attemptKey}:received`,
     vendorUserId: payout.vendor_user_id,
@@ -381,9 +401,13 @@ export async function settleVendorRefundFromWebhook(
 export async function submitVendorRefund(
   stripe: Stripe,
   db: SupabaseClient,
-  opts: { payoutId: string; vendorUserId: string; requestedGrossCents?: number; reason?: string; clientKey: string },
+  opts: { payoutId: string; vendorUserId: string; requestedGrossCents?: number; reason?: string; clientKey: string; initiatedBy?: RefundInitiator },
 ): Promise<VendorRefundSubmitResult> {
-  const attemptKey = vendorRefundAttemptKey(opts.payoutId, opts.clientKey);
+  // The cron's attempts are keyed in a reserved namespace a vendor key can never produce; its
+  // `clientKey` is the hold id. Vendor keys that try the reserved prefix get no attempt key at all.
+  const attemptKey = opts.initiatedBy === "hold_expiry"
+    ? (/^[A-Za-z0-9_-]{8,80}$/.test(opts.clientKey) ? holdExpiryAttemptKey(opts.payoutId, opts.clientKey) : null)
+    : vendorRefundAttemptKey(opts.payoutId, opts.clientKey);
   if (!attemptKey) return { ok: false, status: 400, code: "IDEMPOTENCY_KEY_REQUIRED", error: "A refund needs its Idempotency-Key." };
 
   const payout = await getVendorBankingPayoutForVendor(db, { payoutId: opts.payoutId, vendorUserId: opts.vendorUserId });
@@ -420,7 +444,7 @@ export async function submitVendorRefund(
     if (existing.status === "failed") {
       return { ok: false, status: 422, code: "REFUND_FAILED", error: "Stripe could not complete this refund. Nothing was refunded." };
     }
-    return runAndSettle(stripe, db, { attemptKey, holdId, request: existing, replay: true });
+    return runAndSettle(stripe, db, { attemptKey, holdId, request: existing, replay: true, initiatedBy: opts.initiatedBy });
   }
 
   if (payout.status !== "paid" && payout.status !== "partially_refunded") {
@@ -481,13 +505,13 @@ export async function submitVendorRefund(
   // A concurrent double-submit lost the insert race: it replays the winner's row.
   const request = (inserted as RefundRequestRow | null) ?? (await loadRequest(db, attemptKey));
   if (!request) throw new Error("Could not record the refund.");
-  return runAndSettle(stripe, db, { attemptKey, holdId, request, replay: !inserted });
+  return runAndSettle(stripe, db, { attemptKey, holdId, request, replay: !inserted, initiatedBy: opts.initiatedBy });
 }
 
 async function runAndSettle(
   stripe: Stripe,
   db: SupabaseClient,
-  input: { attemptKey: string; holdId: string; request: RefundRequestRow; replay: boolean },
+  input: { attemptKey: string; holdId: string; request: RefundRequestRow; replay: boolean; initiatedBy?: RefundInitiator },
 ): Promise<VendorRefundSubmitResult> {
   const { request } = input;
   let result: Awaited<ReturnType<typeof runReservedPlatformMoneyRefund>>;
@@ -527,7 +551,7 @@ async function runAndSettle(
     return { ok: false, status: 422, code: "REFUND_FAILED", error: "Stripe could not complete this refund. Nothing was refunded." };
   }
   if (result.status === "succeeded") {
-    await settleVendorRefundBooks(db, input.attemptKey);
+    await settleVendorRefundBooks(db, input.attemptKey, { initiatedBy: input.initiatedBy });
   } else {
     await db
       .from("vendor_payout_refunds")

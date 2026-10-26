@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
 import { isAdminUser } from "@/lib/auth/admin-preview";
+import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { deliverVendorWorkOrderPaymentNotify } from "@/lib/vendor-work-order-payment-notify.server";
@@ -10,21 +11,34 @@ export const runtime = "nodejs";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
-async function sessionActor(db: Db) {
+type Actor = { userId: string; email: string; fullName: string; admin: boolean };
+
+/**
+ * The vendor chasing their own payment, authorized off `profile_roles` - `profiles.role` alone
+ * reads a manager+vendor account as "manager" forever and 403'd it out of its own payments.
+ * A platform admin keeps the same allowance it had.
+ */
+async function sessionActor(db: Db): Promise<{ actor: Actor } | { status: 401 | 403 }> {
+  const access = await requireVendorApiAccess();
+  if (access.ok) {
+    const { userId, email, fullName, admin } = access.actor;
+    return { actor: { userId, email, fullName, admin } };
+  }
+  if (access.status === 401) return { status: 401 };
   const auth = await createSupabaseServerClient();
   const {
     data: { user },
   } = await auth.auth.getUser();
-  if (!user) return null;
-  const admin = await isAdminUser(user.id);
-  const { data: profile } = await db.from("profiles").select("email, role, full_name").eq("id", user.id).maybeSingle();
-  const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+  if (!user) return { status: 401 };
+  if (!(await isAdminUser(user.id))) return { status: 403 };
+  const { data: profile } = await db.from("profiles").select("email, full_name").eq("id", user.id).maybeSingle();
   return {
-    userId: user.id,
-    email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
-    fullName: profile?.full_name?.trim() || "",
-    admin,
-    role,
+    actor: {
+      userId: user.id,
+      email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
+      fullName: profile?.full_name?.trim() || "",
+      admin: true,
+    },
   };
 }
 
@@ -32,11 +46,14 @@ async function sessionActor(db: Db) {
 export async function POST(req: Request) {
   try {
     const db = createSupabaseServiceRoleClient();
-    const actor = await sessionActor(db);
-    if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    if (!actor.admin && actor.role !== "vendor") {
-      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    const resolved = await sessionActor(db);
+    if ("status" in resolved) {
+      return NextResponse.json(
+        { error: resolved.status === 401 ? "Unauthorized." : "Forbidden." },
+        { status: resolved.status },
+      );
     }
+    const actor = resolved.actor;
 
     const body = (await req.json().catch(() => ({}))) as {
       workOrderId?: string;

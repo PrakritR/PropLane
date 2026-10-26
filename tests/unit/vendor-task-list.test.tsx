@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
-import { fetchVendorAssignedTasks } from "@/lib/vendor-tasks.client";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fetchVendorAssignedTasks, updateVendorAssignedTask } from "@/lib/vendor-tasks.client";
 import { VendorTaskList } from "@/components/portal/vendor-task-list";
 
 vi.mock("next/navigation", () => ({
@@ -64,9 +64,8 @@ describe("VendorTaskList", () => {
 
   it("renders assigned tasks with status tabs", async () => {
     const { rerender } = render(<VendorTaskList tabId="in-progress" basePath="/vendor" />);
-    // Tasks are a tab of Services for a vendor since the redesign: the page keeps
-    // the Services heading and offers a way back to the job states.
-    expect(screen.getByRole("heading", { name: "Services" })).toBeInTheDocument();
+    // Tasks is its own vendor section again: the page is titled Tasks and links back to Jobs.
+    expect(screen.getByRole("heading", { name: "Tasks" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Jobs/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /In progress/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Completed/i })).toBeInTheDocument();
@@ -77,5 +76,15 @@ describe("VendorTaskList", () => {
     rerender(<VendorTaskList tabId="in-progress" basePath="/vendor" />);
     expect(screen.getByText("HVAC filter")).toBeInTheDocument();
     expect(fetchVendorAssignedTasks).toHaveBeenCalledTimes(1);
+  });
+
+  it("each row carries a ⋯ menu (L4), so a task can be completed without the bulk dock", async () => {
+    render(<VendorTaskList tabId="in-progress" basePath="/vendor" />);
+    await waitFor(() => expect(screen.getByText("HVAC filter")).toBeInTheDocument());
+    const complete = screen.getByRole("button", { name: "Mark completed · HVAC filter" });
+    fireEvent.click(complete);
+    await waitFor(() =>
+      expect(updateVendorAssignedTask).toHaveBeenCalledWith("vendor-user-1", { managerUserId: "mgr-1", taskId: "task-1", completed: true }),
+    );
   });
 });

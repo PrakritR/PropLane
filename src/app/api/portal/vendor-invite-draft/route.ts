@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveAppOrigin } from "@/lib/app-url";
+import { getPortalAccessContext, hasRole } from "@/lib/auth/portal-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { createVendorInviteDraft } from "@/lib/vendor-invite.server";
@@ -8,8 +9,10 @@ export const runtime = "nodejs";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
-function canSendVendorInvite(role: string | null | undefined): boolean {
-  return role === "admin" || role === "manager" || role === "owner" || role === "pro";
+/** profile_roles-aware: "owner" folds into manager; a multi-role account created as resident still qualifies. */
+async function canSendVendorInvite(): Promise<boolean> {
+  const ctx = await getPortalAccessContext();
+  return hasRole(ctx, "manager") || hasRole(ctx, "admin") || String(ctx.profile?.role ?? "").toLowerCase() === "pro";
 }
 
 /** Mint a vendor onboarding invite link + message copy without sending email. */
@@ -37,7 +40,7 @@ export async function POST(req: Request) {
 
     const db = createSupabaseServiceRoleClient();
     const { data: profile } = await db.from("profiles").select("role, full_name, email").eq("id", user.id).maybeSingle();
-    if (!canSendVendorInvite(profile?.role)) {
+    if (!(await canSendVendorInvite())) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 

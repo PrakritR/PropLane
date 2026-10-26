@@ -6,12 +6,12 @@ import { sharedGet } from "@/lib/shared-get-cache";
 import { PHONE_VERIFIED_EVENT } from "@/lib/vendor-work-number";
 
 /**
- * True while the signed-in vendor has not verified their phone. Vendors have no PropLane number
- * (Oct 6): managers text the vendor's own phone from their work number, and those conversations
- * (earlier ones included) show up in Communication once the vendor verifies that phone with a code.
+ * True while the signed-in vendor has not verified their phone. A verified phone is what a manager's
+ * text reaches when the vendor has no routable PropLane number, what the vendor's own number is
+ * claimed against, and what links earlier manager conversations into their Communication.
  * Cleared by `profiles.phone_verified_at` (`contact.phoneVerifiedAt` off /api/vendor/profile) -
  * a typed phone never counts. This feeds ONE compact Dashboard attention row (round 5): there is
- * no per-page banner on the other vendor pages, and Settings > Phone keeps its own prompt.
+ * no per-page banner on the other vendor pages, and Settings > Messaging keeps its own prompt.
  */
 export function useVendorPhoneNeedsVerification(): boolean {
   const [needsVerification, setNeedsVerification] = useState(false);

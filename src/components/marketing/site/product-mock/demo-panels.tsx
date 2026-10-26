@@ -134,6 +134,8 @@ const PANELS: Record<DemoPortal, Record<string, (props: PanelProps) => ReactNode
     ),
     calendar: ({ story }) => <VendorCalendarPanel story={story} />,
     "work-orders": ({ story }) => <VendorServicesPanel story={story} />,
+    // Tasks a manager assigned to the vendor; the demo draws the manager's task list shape.
+    tasks: () => <TasksPanel />,
     reviews: () => <VendorReviewsPanel />,
     // The Money group: Incoming payments · Outgoing payments · Finances (vendor-portal-ia-1007).
     payments: ({ story }) => <VendorPaymentsPanel story={story} />,

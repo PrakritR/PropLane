@@ -77,7 +77,7 @@ export function vendorLinkPaths() {
     dashboard: "/vendor/dashboard",
     /** Assigned and offered jobs (the product calls them services). */
     jobs: "/vendor/work-orders",
-    tasks: "/vendor/work-orders/pending",
+    tasks: "/vendor/tasks",
     calendar: "/vendor/calendar",
     inbox: "/vendor/communication/active",
     income: "/vendor/payments/pending",

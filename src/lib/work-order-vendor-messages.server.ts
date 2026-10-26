@@ -6,6 +6,7 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { emitActionEvent } from "@/lib/action-events.server";
 import type { ManagerTask } from "@/lib/manager-tasks";
 import { formatPacificDateTime } from "@/lib/pacific-time";
+import { sendVendorInvite } from "@/lib/vendor-invite.server";
 import { sendWorkOrderVendorOffers } from "@/lib/work-order-offers.server";
 import { VENDOR_TRADE_OPTIONS, categoriesForVendorTrade } from "@/lib/work-order-taxonomy";
 import { resolveOwnedVendor } from "@/lib/work-order-vendor.server";
@@ -67,6 +68,35 @@ export function vendorAssignmentAlreadyAnnounced(
   });
 }
 
+/**
+ * A roster vendor with no PropLane account has no inbox, so an inbox notice reaches nobody. With a
+ * usable email they get the sign-up invite (the one `Send invite` sends) naming the job; without
+ * one nothing can reach them and the caller says so.
+ */
+async function inviteUnlinkedVendor(
+  db: Db,
+  input: {
+    managerUserId: string;
+    managerName: string;
+    vendorDirectoryId: string;
+    vendor: { name?: string | null; email?: string | null };
+    jobLine: string;
+  },
+): Promise<{ sent: false; reason: "invited" | "no_contact" }> {
+  const email = (input.vendor.email ?? "").trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email)) return { sent: false, reason: "no_contact" };
+  const invite = await sendVendorInvite(db, {
+    managerUserId: input.managerUserId,
+    managerName: input.managerName || "Your property manager",
+    vendorId: input.vendorDirectoryId,
+    vendorEmail: email,
+    vendorName: input.vendor.name ?? "",
+    origin: resolveEmailLinkBaseUrl().replace(/\/$/, ""),
+    jobLine: input.jobLine,
+  });
+  return invite.ok ? { sent: false, reason: "invited" } : { sent: false, reason: "no_contact" };
+}
+
 export type EmitVendorAssignedInput = {
   workOrderId: string;
   /** The owning manager: the sender, and whose workspace number the text leaves from. */
@@ -82,7 +112,17 @@ export type EmitVendorAssignedInput = {
 
 export type EmitVendorAssignedResult =
   | { sent: true; duplicate: boolean }
-  | { sent: false; reason: "suppressed_already_announced" | "vendor_unavailable" | "no_manager_identity" };
+  | {
+      sent: false;
+      reason:
+        | "suppressed_already_announced"
+        | "vendor_unavailable"
+        | "no_manager_identity"
+        // No PropLane account: the vendor was emailed a sign-up invite carrying the job instead.
+        | "invited"
+        // No account and no usable email: nothing could reach them.
+        | "no_contact";
+    };
 
 /**
  * "You were assigned ..." to the vendor now on a service. One delivery key per
@@ -106,6 +146,17 @@ export async function emitVendorAssigned(db: Db, input: EmitVendorAssignedInput)
 
   const manager = await managerSender(db, input.managerUserId);
   if (!manager) return { sent: false, reason: "no_manager_identity" };
+
+  // A roster vendor with no account has no inbox: the sign-up invite (naming this job) is the notice.
+  if (!vendor.vendorUserId) {
+    return inviteUnlinkedVendor(db, {
+      managerUserId: input.managerUserId,
+      managerName: manager.name || manager.email || "",
+      vendorDirectoryId: input.vendorDirectoryId,
+      vendor,
+      jobLine: [input.row.title || "Service", input.row.reference].filter(Boolean).join(" · "),
+    });
+  }
 
   const emergency = input.row.priority === "Emergency";
   const result = await workOrderEvent(db, {
@@ -222,7 +273,7 @@ export async function offerNewServiceToPreferredVendor(
 
 export type EmitVendorTaskAssignedResult =
   | { sent: true; duplicate: boolean }
-  | { sent: false; reason: "not_a_vendor_task" | "vendor_unavailable" | "no_manager_identity" };
+  | { sent: false; reason: "not_a_vendor_task" | "vendor_unavailable" | "no_manager_identity" | "invited" | "no_contact" };
 
 /**
  * "New task from <manager>" to the vendor a task was just assigned to
@@ -242,13 +293,23 @@ export async function emitVendorTaskAssigned(
   const manager = await managerSender(db, input.managerUserId);
   if (!manager) return { sent: false, reason: "no_manager_identity" };
 
+  if (!vendor.vendorUserId) {
+    return inviteUnlinkedVendor(db, {
+      managerUserId: input.managerUserId,
+      managerName: manager.name || manager.email || "",
+      vendorDirectoryId: assignee.id.trim(),
+      vendor,
+      jobLine: input.task.title || "Task",
+    });
+  }
+
   const due = input.task.dueDate || input.task.start;
   const rendered = renderVendorTaskAssigned({
     managerName: manager.name,
     title: input.task.title,
     propertyLabel: input.task.propertyTitle,
     dueLabel: due ? formatPacificDateTime(due) : undefined,
-    url: `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/vendor/work-orders/pending`,
+    url: `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/vendor/tasks`,
   });
   const result = await emitActionEvent(db, {
     eventId: `task:${input.task.id}:task_assigned_vendor:${assignee.id.trim()}:${input.changedAt}`,
@@ -267,7 +328,7 @@ export async function emitVendorTaskAssigned(
       propertyTitle: input.task.propertyTitle ?? "",
       dueDateLabel: due ? formatPacificDateTime(due) : "",
       managerName: manager.name ?? "",
-      url: `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/vendor/work-orders/pending`,
+      url: `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/vendor/tasks`,
     },
   });
   return { sent: true, duplicate: result.duplicate };

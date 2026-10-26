@@ -97,7 +97,8 @@ export async function approveVendorJobBid(bid: Pick<WorkOrderBid, "id" | "workOr
   if (isDemoModeActive()) return DEMO_REFUSAL;
   const res = await postJson("/api/portal/work-order-bids", { action: "approve_bid", bidId: bid.id, workOrderId: bid.workOrderId });
   if (!res.ok) return { ok: false, error: errorOf(res.data, "Could not approve bid.") };
-  await syncManagerWorkOrdersFromServer({ force: true });
+  // Reconcile in the background: the approval is already saved, and the caller toasts and updates now.
+  void syncManagerWorkOrdersFromServer({ force: true }).catch(() => undefined);
   return { ok: true };
 }
 

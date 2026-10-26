@@ -60,6 +60,9 @@ vi.mock("@/lib/auth/manager-stripe-payout-access.server", () => ({
 vi.mock("@/lib/auth/co-manager-bank-account-access", () => ({
   assertCoManagerBankAccountAccess: async () => ({ ok: true }),
 }));
+vi.mock("@/lib/auth/vendor-api-access", () => ({
+  requireVendorApiAccess: async () => ({ ok: true, actor: { userId: "caller-1", email: "caller@example.com", fullName: "", admin: false, roles: ["vendor"], effectiveRole: "vendor" } }),
+}));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({
     auth: { getUser: async () => ({ data: { user: { id: "caller-1", email: "caller@example.com" } } }) },

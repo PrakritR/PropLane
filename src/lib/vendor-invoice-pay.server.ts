@@ -20,6 +20,7 @@ import { recordVendorServiceFeeRevenue } from "@/lib/vendor-banking/platform-rev
 import { createBillFromVendorInvoice } from "@/lib/manager-bills.server";
 import { assertNoCrossRailPayout, authorizeOutgoingInvoice, settleInvoicePayment } from "@/lib/vendor-invoice-settlement.server";
 import { isVendorInvoicePaymentRefusal } from "@/lib/vendor-invoices";
+import { VENDOR_INVOICE_PAY_RETURN_PATH } from "@/lib/vendor-invoice-pay-readiness";
 
 export const VENDOR_INVOICE_DIRECT_PAY_PURPOSE = "vendor_invoice_direct_pay";
 
@@ -160,7 +161,9 @@ export async function startVendorInvoicePayCheckout(
     fixedFeeBreakdown: residentServiceFeeBreakdown(invoiceCents, opts.paymentMethod, "resident"),
     feePayer: "resident",
     extraApplicationFeeCents: platformFeeCents,
-    returnUrl: `${origin}/portal/finances?invoice_pay=success&session_id={CHECKOUT_SESSION_ID}`,
+    returnUrl: `${origin}${VENDOR_INVOICE_PAY_RETURN_PATH}?invoice_pay=success&session_id={CHECKOUT_SESSION_ID}`,
+    // A card completes inside the sheet (onComplete); only a redirect-based method navigates to returnUrl.
+    redirectOnCompletion: "if_required",
   } as const;
   const { data: frozenRaw, error: freezeError } = await db.rpc("freeze_vendor_invoice_stripe_checkout_terms", {
     p_invoice: row.id, p_manager: opts.managerUserId, p_attempt: attempt,

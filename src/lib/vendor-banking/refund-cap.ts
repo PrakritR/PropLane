@@ -91,9 +91,41 @@ export const VENDOR_REFUND_REFUSAL_COPY: Record<RefundCapRefusal, string> = {
   frozen: "This money is frozen by an open dispute, so it can't be refunded right now.",
 };
 
+/**
+ * The hold-expiry cron's attempt keys live in their own namespace, `hold-expiry:<payoutId>:<holdId>`.
+ * A vendor key is always `vendor-refund:...`, and a vendor-supplied key starting with the reserved
+ * word is refused outright, so a vendor can neither pre-create nor collide with a cron attempt.
+ */
+export const HOLD_EXPIRY_ATTEMPT_PREFIX = "hold-expiry:";
+export const HOLD_EXPIRY_RESERVED_CLIENT_PREFIX = "hold-expiry";
+
+export function holdExpiryAttemptKey(payoutId: string, holdId: string): string {
+  return `${HOLD_EXPIRY_ATTEMPT_PREFIX}${payoutId}:${holdId}`;
+}
+
+/** True only for the cron namespace, by prefix (never a substring). */
+export function isHoldExpiryAttemptKey(attemptKey: string): boolean {
+  return attemptKey.startsWith(HOLD_EXPIRY_ATTEMPT_PREFIX);
+}
+
+/** The hold a cron attempt key names, so the settlement half can announce the return. */
+export function holdIdFromHoldExpiryAttemptKey(attemptKey: string): string | null {
+  if (!isHoldExpiryAttemptKey(attemptKey)) return null;
+  const parts = attemptKey.slice(HOLD_EXPIRY_ATTEMPT_PREFIX.length).split(":");
+  const holdId = parts.length === 2 ? parts[1]!.trim() : "";
+  return holdId || null;
+}
+
+/** A vendor-supplied Idempotency-Key may not impersonate the cron. */
+export function isReservedVendorClientKey(clientKey: string): boolean {
+  return clientKey.trim().toLowerCase().startsWith(HOLD_EXPIRY_RESERVED_CLIENT_PREFIX);
+}
+
 /** Stable key caps: the modal mints one per open, so a retry or double-submit replays the same attempt. */
 export function vendorRefundAttemptKey(payoutId: string, clientKey: string): string | null {
   const cleaned = clientKey.trim();
+  if (isReservedVendorClientKey(cleaned)) return null;
   if (!/^[A-Za-z0-9_-]{8,80}$/.test(cleaned)) return null;
   return `vendor-refund:${payoutId}:${cleaned}`;
 }
+

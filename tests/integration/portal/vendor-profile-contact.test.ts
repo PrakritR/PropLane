@@ -7,6 +7,8 @@ vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/vendor-own-record", () => ({ resolveOwnVendorRecord: vi.fn() }));
 vi.mock("@/lib/one-number/config.server", () => ({
   loadSharedLineConfigStrict: async () => ({ ok: true, config: { mode: "per_workspace" } }),
+  // The route now authorizes through getPortalAccessContext, whose phone gate reads the line mode.
+  loadSharedLineConfig: async () => ({ mode: "per_workspace" }),
 }));
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -29,9 +31,33 @@ const OWN = {
   },
 };
 
+/** A chainable PostgREST stub: every filter returns itself, awaiting it yields `rows`. */
+function sessionQuery(rows: unknown[], single: unknown) {
+  const chain = {
+    select: () => chain,
+    eq: () => chain,
+    in: () => chain,
+    ilike: () => chain,
+    maybeSingle: async () => ({ data: single, error: null }),
+    then: <T>(onFulfilled: (value: { data: unknown[]; error: null }) => T) =>
+      Promise.resolve({ data: rows, error: null }).then(onFulfilled),
+  };
+  return chain;
+}
+
+/**
+ * The signed-in vendor as the session client sees it: `requireVendorApiAccess` resolves the role
+ * from `profile_roles` (not legacy `profiles.role`), so the session client has to answer both reads.
+ */
 function mockVendorAuth() {
+  const profile = { id: "vendor-user-1", role: "vendor", email: "pipes@example.com" };
   vi.mocked(createSupabaseServerClient).mockResolvedValue({
     auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "vendor-user-1" } } }) },
+    from: (table: string) => {
+      if (table === "profiles") return sessionQuery([profile], profile);
+      if (table === "profile_roles") return sessionQuery([{ role: "vendor" }], null);
+      throw new Error(`unexpected session table ${table}`);
+    },
   } as never);
 }
 

@@ -61,7 +61,7 @@ describe("vendor work identity reply bindings", () => {
     expect(inbound).not.toContain("row_data: { ...");
   });
 
-  it("uses the profile phone as the one SMS destination for preflight, delivery, and binding", async () => {
+  it("delivers a linked manager in-app even on the SMS channel: no work identity, no binding", async () => {
     vi.clearAllMocks();
     deliver.mockResolvedValue({ ok: true, authorized: true, sent: true, providerMessageId: "sms-1" });
     deliverThread.mockResolvedValue({ threadId: "thread-sms", delivery: "sent" });
@@ -84,8 +84,9 @@ describe("vendor work identity reply bindings", () => {
     await expect(sendVendorSponsoredOutbound(db, actor, { ...request, preflight: true })).resolves.toMatchObject({ ok: true, delivery: "sending" });
     expect(deliver).not.toHaveBeenCalled();
     await expect(sendVendorSponsoredOutbound(db, actor, request)).resolves.toMatchObject({ ok: true, delivery: "sent" });
-    expect(deliver).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ channel: "sms", recipient: "+12065550144" }), expect.anything());
-    expect(inserts).toContainEqual(expect.objectContaining({ recipient: "+12065550144", recipient_user_id: "manager-1" }));
+    expect(deliver).not.toHaveBeenCalled();
+    expect(inserts).toHaveLength(0);
+    expect(deliverThread).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ folder: "inbox", ownerUserId: "manager-1", channel: "proplane", unread: true }));
   });
 
   it("resolves the primary admin profile before allowing a new SMS compose", async () => {

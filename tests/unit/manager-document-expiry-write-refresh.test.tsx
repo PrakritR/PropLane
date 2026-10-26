@@ -140,16 +140,31 @@ describe("document write → dashboard expiry counts", () => {
     const { container } = render(<ManagerDocumentLibrary userId={MANAGER} documentId="doc-1" />);
     await screen.findAllByText(/Boiler inspection certificate/);
 
-    const deleteBtn = await waitFor(() => {
-      const el = container.querySelector<HTMLButtonElement>('[data-attr="record-header-action-delete"]');
-      expect(el).toBeInTheDocument();
-      expect(el).toBeEnabled();
-      return el!;
-    });
-    fireEvent.click(deleteBtn);
+    // The header's action row keeps a hidden `inert` measurement copy of every
+    // icon in front of the live one (`PortalAdaptiveActionRow`), and it
+    // re-publishes the whole row through the title-actions slot on every
+    // render. Querying a button once and clicking it afterwards therefore
+    // clicked whichever copy happened to be first, at whatever point in that
+    // mount dance the query landed — on a loaded CI runner the click reached a
+    // node whose handler never ran (`confirm` was never called) while the same
+    // code was green locally. Re-query the LIVE button — the one a manager can
+    // actually click — on each attempt and keep clicking until it takes.
+    const liveDeleteButton = () => {
+      const buttons = [...container.querySelectorAll<HTMLButtonElement>('[data-attr="record-header-action-delete"]')];
+      // The live row first; the measurement copy only if this header folded
+      // delete (a danger action folds first) into its ⋯ menu.
+      return buttons.find((node) => !node.closest("[data-portal-adaptive-fit-action]")) ?? buttons[0] ?? null;
+    };
 
     await waitFor(() => {
+      const el = liveDeleteButton();
+      expect(el).toBeInTheDocument();
+      expect(el).toBeEnabled();
+      if (ui.confirm.mock.calls.length === 0) fireEvent.click(el!);
       expect(ui.confirm).toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringContaining(DOC.displayName) }));
+    });
+
+    await waitFor(() => {
       expect(requestLog).toContain("DELETE /api/manager-documents/doc-1");
     });
     await waitFor(async () => {

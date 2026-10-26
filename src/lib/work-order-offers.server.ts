@@ -24,6 +24,7 @@ import {
 } from "@/lib/work-order-marketplace-match.server";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { sendVendorInvite } from "@/lib/vendor-invite.server";
 import { workOrderGeneralArea } from "@/lib/work-order-vendor-privacy";
 
 function expiresLabel(at: Date): string {
@@ -31,6 +32,24 @@ function expiresLabel(at: Date): string {
 }
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
+
+/**
+ * The login email of each linked vendor account. A vendor's in-app job messages live in the thread
+ * under THEIR login email, which can differ from the roster's directory email; the manager's service
+ * Communication section matches parties by address, so it needs both. Callers have already scoped the
+ * offers/bids to the manager, so only the manager's own linked vendors are resolved.
+ */
+export async function vendorLoginEmailsByUserId(db: Db, userIds: Array<string | null | undefined>): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ids = [...new Set(userIds.map((id) => String(id ?? "").trim()).filter(Boolean))];
+  if (ids.length === 0) return out;
+  const { data } = await db.from("profiles").select("id, email").in("id", ids);
+  for (const row of data ?? []) {
+    const email = String((row as { email?: unknown }).email ?? "").trim().toLowerCase();
+    if (email) out.set(String((row as { id?: unknown }).id), email);
+  }
+  return out;
+}
 
 export const MAX_VENDORS_PER_SEND = 10;
 
@@ -172,11 +191,26 @@ export async function previewMarketplaceReach(
   return { ok: true, count: userIds.length, contactable: Math.min(userIds.length, MAX_VENDORS_PER_SEND) };
 }
 
+/**
+ * `sent` is every vendor an offer row now exists for. `invited` is the subset with no PropLane
+ * account yet, who were emailed a sign-up invite carrying the job instead of an inbox notice.
+ * `skipped` stays the list of ids nothing was sent to; `skippedDetails` says why, by name.
+ */
+export type SendWorkOrderVendorOffersResult = {
+  ok: true;
+  sent: string[];
+  skipped: string[];
+  invited: { id: string; name: string }[];
+  skippedDetails: { id: string; name: string; reason: string }[];
+};
+
+const INVITE_EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
+
 export async function sendWorkOrderVendorOffers(
   db: Db,
   actor: WorkOrderActor,
   body: SendWorkOrderVendorOffersBody,
-): Promise<{ ok: true; sent: string[]; skipped: string[] } | WorkOrderActionFailure> {
+): Promise<SendWorkOrderVendorOffersResult | WorkOrderActionFailure> {
   if (!actor.admin && actor.role !== "manager" && actor.role !== "pro") {
     return { ok: false, status: 403, error: "Forbidden." };
   }
@@ -261,6 +295,35 @@ export async function sendWorkOrderVendorOffers(
   const vendors = await vendorDirectoryRowsById(db, vendorIds);
   const sent: string[] = [];
   const skipped: string[] = [];
+  const invited: { id: string; name: string }[] = [];
+  const skippedDetails: { id: string; name: string; reason: string }[] = [];
+  const skip = (id: string, name: string, reason: string) => {
+    skipped.push(id);
+    skippedDetails.push({ id, name: name || "Vendor", reason });
+  };
+  // One send round, carried by the offer event id, so a re-offer after a decline or expiry notifies
+  // again instead of being deduped against the first send. A send whose vendors ALL still hold a
+  // live offer is not a new round but a replay of the open one (a double-submit, a second tab, a
+  // client retry): it reuses that round's key, so the notice is deduped as it was before rounds
+  // existed. Any vendor without a live offer opens a new round.
+  const { data: priorOffers } = await db
+    .from("work_order_vendor_offers")
+    .select("vendor_directory_id, status, expires_at")
+    .eq("work_order_id", workOrderId)
+    .in("vendor_directory_id", vendorIds);
+  const nowMs = Date.now();
+  const liveOffers = new Set(
+    ((priorOffers ?? []) as Array<{ vendor_directory_id: string; status: string; expires_at: string | null }>)
+      .filter((offer) => {
+        if (offer.status !== "sent") return false;
+        const expiry = offer.expires_at ? Date.parse(offer.expires_at) : NaN;
+        return !Number.isFinite(expiry) || expiry > nowMs;
+      })
+      .map((offer) => String(offer.vendor_directory_id)),
+  );
+  const openRound = String(rowData.offerRoundKey ?? "").trim();
+  const sendRound =
+    openRound && vendorIds.every((id) => liveOffers.has(id)) ? openRound : new Date().toISOString();
   // Offers expire on the manager's Services setting (a house with its own gets
   // it; otherwise workspace then account, phase C); a round sent now shares one deadline.
   const offerPropertyId = rowData.assignedPropertyId || rowData.propertyId || null;
@@ -271,10 +334,25 @@ export async function sendWorkOrderVendorOffers(
     const vendor = vendors.get(vendorId);
     const owned = Boolean(vendor) && (actor.admin || vendor!.managerUserId === (workOrder.manager_user_id as string) || vendor!.shared);
     if (!vendor || !owned) {
-      skipped.push(vendorId);
+      skip(vendorId, vendor?.name ?? "", "not on your roster");
       continue;
     }
 
+    // A roster vendor with no PropLane account has no inbox, so an offer reaches nobody. With an
+    // email they get the sign-up invite carrying this job; without one there is no way to reach them.
+    let inviteEmail: string | null = null;
+    if (!vendor.vendorUserId) {
+      const email = vendor.email.trim().toLowerCase();
+      if (!INVITE_EMAIL_RE.test(email)) {
+        skip(vendorId, vendor.name, "no email or account");
+        continue;
+      }
+      inviteEmail = email;
+    }
+
+    // The offer row first, the invite email second: an invite promising "it will be waiting in
+    // your Services" must never be the only thing that happened, which is what a failed upsert
+    // after a sent invite left behind.
     const now = new Date().toISOString();
     const { error: offerError } = await db.from("work_order_vendor_offers").upsert(
       {
@@ -289,10 +367,27 @@ export async function sendWorkOrderVendorOffers(
       { onConflict: "work_order_id,vendor_directory_id" },
     );
     if (offerError) {
-      skipped.push(vendorId);
+      skip(vendorId, vendor.name, "offer could not be saved");
       continue;
     }
+
+    if (inviteEmail) {
+      const inviter = await sendVendorInvite(db, {
+        managerUserId: String(workOrder.manager_user_id),
+        managerName: actor.fullName?.trim() || actor.email || "Your property manager",
+        vendorId,
+        vendorEmail: inviteEmail,
+        vendorName: vendor.name,
+        origin: resolveEmailLinkBaseUrl().replace(/\/$/, ""),
+        jobLine: [rowData.title || "Service", rowData.reference].filter(Boolean).join(" · "),
+      });
+      if (!inviter.ok) {
+        skip(vendorId, vendor.name, inviter.status === 502 || inviter.status === 503 ? "invite email could not be sent" : "invite not allowed");
+        continue;
+      }
+    }
     sent.push(vendorId);
+    if (inviteEmail) invited.push({ id: vendorId, name: vendor.name });
 
   }
 
@@ -301,6 +396,7 @@ export async function sendWorkOrderVendorOffers(
       ...rowData,
       biddingOpen: true,
       biddingOpenedAt: rowData.biddingOpenedAt ?? new Date().toISOString(),
+      offerRoundKey: sendRound,
       offerExpiresAt: expiresAt ? expiresAt.toISOString() : undefined,
       offerSharePhotos: sharePhotos,
       marketplacePublish: marketplaceEnabled
@@ -319,7 +415,12 @@ export async function sendWorkOrderVendorOffers(
       .update({ row_data: stampSmsTestProvenance(nextRowData as unknown as Record<string, unknown>), updated_at: new Date().toISOString() })
       .eq("id", workOrderId);
 
-    const offeredVendors = sent.map((id) => vendors.get(id)).filter((vendor): vendor is VendorDirectorySummary => Boolean(vendor));
+    const invitedIds = new Set(invited.map((v) => v.id));
+    // Invited vendors already got their email (the invite, with the job); the rest are notified here.
+    const offeredVendors = sent
+      .filter((id) => !invitedIds.has(id))
+      .map((id) => vendors.get(id))
+      .filter((vendor): vendor is VendorDirectorySummary => Boolean(vendor));
     const managerRecipients = await resolvePropertyScopedManagerRecipientIds(db, {
       ownerManagerUserId: String(workOrder.manager_user_id),
       propertyId: rowData.assignedPropertyId || rowData.propertyId || undefined,
@@ -327,7 +428,7 @@ export async function sendWorkOrderVendorOffers(
     });
     const newService = body.newService === true;
     const event = newService ? "vendor_new_service" : "vendor_offered";
-    const eventIdBase = `${workOrderId}:${event}:${sent.slice().sort().join(",")}`;
+    const eventIdBase = `${workOrderId}:${event}:${sendRound}:${sent.slice().sort().join(",")}`;
     // An offered vendor has not been hired, so nothing in this notification may name the site: it
     // carries the same general-area projection the vendor portal is served
     // (`projectWorkOrderForOfferedVendor`), and the unit is dropped outright. The manager's own copy
@@ -339,12 +440,8 @@ export async function sendWorkOrderVendorOffers(
       offerCount: sent.length,
       expiresLabel: expiresAt ? expiresLabel(expiresAt) : undefined,
       emergency: rowData.priority === "Emergency",
-      ...(newService
-        ? {
-            vendorName: offeredVendors[0]?.name || undefined,
-            url: `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/vendor/work-orders`,
-          }
-        : {}),
+      url: `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/vendor/work-orders`,
+      ...(newService ? { vendorName: offeredVendors[0]?.name || undefined } : {}),
     };
     const managerPropertyLabel = newService
       ? [rowData.propertyName, rowData.unit && rowData.unit !== "—" ? rowData.unit : ""].filter(Boolean).join(" · ") || undefined
@@ -390,7 +487,7 @@ export async function sendWorkOrderVendorOffers(
   }
 
   track("work_order_vendor_offer_sent", actor.userId, { work_order_id: workOrderId, vendor_count: sent.length });
-  return { ok: true, sent, skipped };
+  return { ok: true, sent, skipped, invited, skippedDetails };
 }
 
 /**

@@ -465,4 +465,5 @@ a real database, the same way this migration itself was checked before landing.
 to a roster vendor reserves workspace credit per segment on the workspace that owns
 the line it leaves on, and a vendor's reply is metered as inbound; no credit means the
 send is refused with the ordinary message and nothing leaves. The sender line and STOP
-footer on a first text count toward its segments. Vendors have no wallet and no number.
+footer on a first text count toward its segments. Vendors have no wallet; a vendor's
+OWN number is the separate PropLane Number subscription (§ PropLane Number, § Vendor side).

@@ -3,6 +3,7 @@ import { getReportsAuthContext, assertManagerFinancialsAccess } from "@/lib/repo
 import { authorizeOutgoingInvoice, claimInvoicePayment, settleInvoicePayment } from "@/lib/vendor-invoice-settlement.server";
 import { postGlBillVoided } from "@/lib/reports/gl-posting";
 import { isVendorInvoicePaymentRefusal, isVendorInvoiceRefusalSqlState, VendorInvoicePaymentRefusal } from "@/lib/vendor-invoices";
+import { vendorReadyForInvoicePayout } from "@/lib/vendor-invoice-pay-readiness";
 import { releaseInvoicePaymentClaim } from "@/lib/vendor-invoice-claim.server";
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
@@ -56,12 +57,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     const invoice = await authorizeOutgoingInvoice(auth.db, auth.userId, (await ctx.params).id);
     const { data: profile } = await auth.db.from("profiles").select("stripe_connect_account_id, stripe_connect_payouts_enabled").eq("id", invoice.vendor_user_id).single();
     let destination = "Vendor’s PropLane balance";
+    // Not ready until a live account says transfers are active and payouts are enabled.
+    let vendorPayoutsReady = false;
     if (profile?.stripe_connect_account_id && profile.stripe_connect_payouts_enabled) {
       const { getStripe } = await import("@/lib/stripe");
       const account = await getStripe().accounts.retrieve(profile.stripe_connect_account_id);
+      vendorPayoutsReady = vendorReadyForInvoicePayout(account);
       const bank = account.external_accounts?.data.find(item => item.object === "bank_account");
       if (bank?.object === "bank_account") destination = `${bank.bank_name || "Bank"} ••${bank.last4}`;
     }
-    return NextResponse.json({ destination });
+    return NextResponse.json({ destination, vendorPayoutsReady });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Could not read destination." }, { status: 400 }); }
 }

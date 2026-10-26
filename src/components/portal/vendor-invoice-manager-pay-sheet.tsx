@@ -10,7 +10,7 @@ import { PopupRecordPreview } from "@/components/portal/popup-live-preview";
  * the same PropLane fee disclosure the vendor sees on their side, then mounts
  * `StripeEmbeddedCheckout` — the card/ACH form renders INSIDE this modal.
  * The captain's "never leave the app" rule: Stripe's own `return_url`
- * navigation on completion lands back on `/portal/finances`, never
+ * navigation on completion lands back on the Outgoing list, never
  * checkout.stripe.com.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,6 +20,7 @@ import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Button } from "@/components/ui/button";
+import { vendorBankNotConnectedLine } from "@/lib/vendor-invoice-pay-readiness";
 
 export type VendorInvoicePayLineItem = { description: string; quantity: number; amountCents: number };
 
@@ -39,10 +40,17 @@ function formatMoney(cents: number): string {
 export function VendorInvoiceManagerPaySheet({
   invoice,
   onClose,
+  vendorPayoutsReady,
+  onPaid,
 }: {
   invoice: VendorInvoicePayTarget | null;
   onClose: () => void;
+  /** false = the vendor has no bank connected yet (warn once); undefined = unknown (no warning). */
+  vendorPayoutsReady?: boolean;
+  /** Embedded checkout finished in place (no redirect): the caller toasts and refreshes. */
+  onPaid?: () => void;
 }) {
+  const bankWarning = invoice ? vendorBankNotConnectedLine(invoice.vendorName, vendorPayoutsReady) : null;
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [platformFeeCents, setPlatformFeeCents] = useState(0);
   const [processingFeeCents, setProcessingFeeCents] = useState(0);
@@ -151,6 +159,7 @@ export function VendorInvoiceManagerPaySheet({
             </dl> : null}
           </div>
 
+          {bankWarning ? <p role="status" className="text-sm text-amber-900" data-attr="vendor-invoice-pay-bank-warning">{bankWarning}</p> : null}
           {!clientSecret ? <FieldSingleSelect label="Pay with" value={method} disabled={loading} onChange={(value) => setMethod(value as "card" | "ach")} options={[{ value: "card", label: "Card" }, { value: "ach", label: "Bank account" }]} /> : null}
           {!clientSecret ? <Button type="button" variant="primary" disabled={loading} onClick={() => start()} data-attr="vendor-invoice-pay-start">{loading ? "Preparing…" : "Continue to payment"}</Button> : null}
           {error ? (
@@ -166,7 +175,7 @@ export function VendorInvoiceManagerPaySheet({
               </button>
             </div>
           ) : null}
-          {clientSecret ? <StripeEmbeddedCheckout key={clientSecret} clientSecret={clientSecret} /> : null}
+          {clientSecret ? <StripeEmbeddedCheckout key={clientSecret} clientSecret={clientSecret} onComplete={onPaid ? () => { requestEpoch.current++; inFlight.current = null; onPaid(); } : undefined} /> : null}
         </div>
       ) : null}
     </Modal>

@@ -1,5 +1,6 @@
 "use client";
 
+import { VENDOR_COMPOSE_HREF, stageVendorComposePrefill } from "@/lib/vendor-compose-prefill";
 import { vendorEntryPermissionLabel } from "@/lib/work-order-entry";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
@@ -22,6 +23,7 @@ import { RowActionsMenu } from "@/components/portal/row-actions-menu";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { Button } from "@/components/ui/button";
+import { imageFileToJpegDataUrl } from "@/lib/image-downscale.client";
 import { Input } from "@/components/ui/input";
 import {
   ManagerPortalPageShell,
@@ -174,6 +176,8 @@ export function VendorWorkOrdersPanel({
   const [savingPriceId, setSavingPriceId] = useState<string | null>(null);
   const [doneNoteById, setDoneNoteById] = useState<Record<string, string>>({});
   const [markingDoneId, setMarkingDoneId] = useState<string | null>(null);
+  const [visitDraftById, setVisitDraftById] = useState<Record<string, string>>({});
+  const [schedulingId, setSchedulingId] = useState<string | null>(null);
   // N010: a completion photo is required before a job can be marked done —
   // reuses the same picker/data-URL pattern as the resident's own required
   // intake photo (ServiceIntakePhotoPicker), never a new upload mechanism.
@@ -434,14 +438,6 @@ export function VendorWorkOrdersPanel({
     }
   };
 
-  const fileToDataUrl = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ""));
-      reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-      reader.readAsDataURL(file);
-    });
-
   const openDonePhotoPicker = (rowId: string) => {
     const input = document.createElement("input");
     input.type = "file";
@@ -476,7 +472,13 @@ export function VendorWorkOrdersPanel({
         showToast("Images only.");
         return;
       }
-      next.push(await fileToDataUrl(file));
+      try {
+        // Downscaled to a ~1600px JPEG here so the request stays small and the server's 2 MB cap is not hit.
+        next.push(await imageFileToJpegDataUrl(file));
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not read that photo.");
+        return;
+      }
     }
     setDonePhotosById((prev) => ({ ...prev, [rowId]: next }));
     if (next.length > 0) setDonePhotoErrorById((prev) => ({ ...prev, [rowId]: false }));
@@ -521,6 +523,39 @@ export function VendorWorkOrdersPanel({
       showToast(e instanceof Error ? e.message : "Could not complete.");
     } finally {
       setMarkingDoneId(null);
+    }
+  };
+
+  /** The vendor on an Assigned job picks the visit time; the server books it and the job moves to Scheduled. */
+  const scheduleVisit = async (row: DemoManagerWorkOrderRow) => {
+    const picked = visitDraftById[row.id]?.trim() ?? "";
+    const when = picked ? new Date(picked) : null;
+    if (!when || Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) {
+      showToast("Pick a visit time in the future.");
+      return;
+    }
+    setSchedulingId(row.id);
+    try {
+      const res = await fetch("/api/portal/work-orders/schedule-visit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ workOrderId: row.id, visitAt: when.toISOString() }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Could not schedule the visit.");
+      await syncManagerWorkOrdersFromServer({ force: true });
+      setRows(readVendorWorkOrderRows());
+      setVisitDraftById((prev) => {
+        const next = { ...prev };
+        delete next[row.id];
+        return next;
+      });
+      showToast("Visit scheduled. Your manager has been notified.");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not schedule the visit.");
+    } finally {
+      setSchedulingId(null);
     }
   };
 
@@ -787,6 +822,13 @@ export function VendorWorkOrdersPanel({
     const hasSite = vendorCanSeeFullWorkOrderSite(row, bid);
     const placeLine = vendorPlaceLine(row, bid);
     const goTo = (section: VendorJobDetailTabId) => navigate(vendorJobDetailHref("/vendor", row.id, section));
+    // Opens a new message to this job's manager, stamped with the job (the server re-checks it). Falls back to the job's Communication tab.
+    const messageManager = () => {
+      const managerUserId = row.managerUserId?.trim();
+      if (!managerUserId) return goTo("communication");
+      stageVendorComposePrefill({ managerUserId, subject: row.title, recordRef: { kind: "service", id: row.id, label: row.title } });
+      navigate(VENDOR_COMPOSE_HREF);
+    };
 
     // ONE primary: the next step. On Estimate & bid it submits the form below under the same label.
     const primaryLabel = next ? (next.section === "bid" && reply ? reply.label : next.label) : null;
@@ -900,6 +942,27 @@ export function VendorWorkOrdersPanel({
             <p className="text-sm text-foreground">
               Visit <span className="font-medium">{row.scheduledAtIso ? vendorShortWhenLabel(row.scheduledAtIso) : row.scheduled}</span>
             </p>
+          ) : stage === "assigned" && !demo ? (
+            <div className="flex flex-wrap items-end gap-x-3 gap-y-2" data-attr="vendor-job-schedule-picker">
+              <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
+                Visit time
+                <Input
+                  type="datetime-local"
+                  value={visitDraftById[row.id] ?? ""}
+                  onChange={(e) => setVisitDraftById((prev) => ({ ...prev, [row.id]: e.target.value }))}
+                  className="h-9 w-56 rounded-md text-sm"
+                  data-attr="vendor-schedule-visit-input"
+                />
+              </label>
+              <Button
+                type="button"
+                disabled={schedulingId === row.id || !(visitDraftById[row.id] ?? "").trim()}
+                onClick={() => scheduleVisit(row)}
+                data-attr="vendor-schedule-visit"
+              >
+                Schedule visit
+              </Button>
+            </div>
           ) : (
             <PortalListEmptyCard title="Not yet scheduled" workspaceAware={false} dataAttr="vendor-job-schedule-empty" />
           )}
@@ -1025,7 +1088,7 @@ export function VendorWorkOrdersPanel({
           <PortalRecordActions>
             <div className="flex items-center justify-end gap-1">
               {/* Message the manager · the ONE primary next step · ⋯ (the other stage actions). */}
-              <PortalIconAction icon={MessageSquare} label="Message the manager" data-attr="vendor-job-message" onClick={() => goTo("communication")} />
+              <PortalIconAction icon={MessageSquare} label="Message the manager" data-attr="vendor-job-message" onClick={messageManager} />
               {next && primaryLabel ? (
                 <PortalPrimaryIconAction icon={PrimaryIcon} label={primaryLabel} data-attr="vendor-job-primary" onClick={onPrimary} />
               ) : null}

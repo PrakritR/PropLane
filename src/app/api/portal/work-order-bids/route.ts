@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { vendorLoginEmailsByUserId } from "@/lib/work-order-offers.server";
+import { resolveSessionActorRole } from "@/lib/auth/vendor-api-access";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -56,7 +58,7 @@ async function sessionActor(db: Db, req: Request) {
   if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
   const admin = await resolveAdminOversight(req, user.id);
   const { data: profile } = await db.from("profiles").select("email, role, full_name").eq("id", user.id).maybeSingle();
-  const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+  const role = await resolveSessionActorRole(profile?.role ?? user.user_metadata?.role);
   return {
     userId: user.id,
     email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
@@ -66,7 +68,8 @@ async function sessionActor(db: Db, req: Request) {
   };
 }
 
-function toJson(bid: BidRecord, vendors: Map<string, { name: string; email: string }>): BidJson {
+function toJson(bid: BidRecord, vendors: Map<string, { name: string; email: string }>, logins: Map<string, string> = new Map()): BidJson {
+  const loginEmail = logins.get(bid.vendor_user_id);
   const vendor = bid.vendor_directory_id ? vendors.get(bid.vendor_directory_id) : undefined;
   return {
     id: bid.id,
@@ -75,6 +78,7 @@ function toJson(bid: BidRecord, vendors: Map<string, { name: string; email: stri
     vendorDirectoryId: bid.vendor_directory_id,
     vendorName: vendor?.name,
     vendorEmail: vendor?.email,
+    ...(loginEmail ? { vendorLoginEmail: loginEmail } : {}),
     quoteMode: bid.quote_mode,
     consultationVisitAt: bid.consultation_visit_at,
     amountCents: bid.amount_cents,
@@ -114,7 +118,11 @@ export async function GET(req: Request) {
 
     const bids = (data ?? []) as BidRecord[];
     const vendors = await vendorNamesById(db, bids.map((b) => b.vendor_directory_id ?? ""));
-    return NextResponse.json({ bids: bids.map((b) => toJson(b, vendors)) });
+    const logins =
+      actor.role === "vendor" && !actor.admin
+        ? new Map<string, string>()
+        : await vendorLoginEmailsByUserId(db, bids.map((b) => b.vendor_user_id));
+    return NextResponse.json({ bids: bids.map((b) => toJson(b, vendors, logins)) });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load bids.";
     return NextResponse.json({ error: message }, { status: 500 });

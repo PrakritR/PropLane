@@ -92,9 +92,11 @@ export function useAddOnVendorJob({
           showToast(result.error);
           return;
         }
-        onChanged();
-        await reload(bid.workOrderId);
+        // Toast and reflect the approval from the response now; the refetch only reconciles.
         showToast("Bid approved. The visit is booked at the bid's time.");
+        setBids((prev) => prev.map((b) => (b.id === bid.id ? { ...b, status: "accepted" } : b.status === "submitted" ? { ...b, status: "declined" } : b)));
+        onChanged();
+        void reload(bid.workOrderId).catch(() => undefined);
       } finally {
         setApprovingBidId(null);
       }

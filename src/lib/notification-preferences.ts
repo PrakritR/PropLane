@@ -221,7 +221,19 @@ export async function resolveChannels(
   // A vendor's own Settings → Notifications pane decides, per topic. Before
   // PLAN-0915 those toggles were saved and read by nobody; this branch is what
   // makes them mean something. Inbox stays on as the durable record.
-  if (role === "vendor") {
+  // profiles.role is the role the account was CREATED as: a resident who later
+  // added the vendor portal keeps "resident". When the caller addressed a vendor
+  // topic explicitly, profile_roles decides.
+  let isVendor = role === "vendor";
+  if (!isVendor && (options?.vendorTopic || options?.vendorVisitReminder)) {
+    try {
+      const { data: roleRows } = await db.from("profile_roles").select("role").eq("user_id", userId);
+      isVendor = (roleRows ?? []).some((r: { role: string }) => r.role === "vendor");
+    } catch {
+      isVendor = false;
+    }
+  }
+  if (isVendor) {
     return resolveVendorChannels(db, userId, category, profile, options);
   }
 

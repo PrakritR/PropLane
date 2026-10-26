@@ -51,4 +51,11 @@ describe("vendor sponsored fanout route", () => {
     const body = await (await POST(request({ recipientUserIds: ["manager-1", "manager-2", "manager-3"] }))).json();
     expect(body).toMatchObject({ ok: true, delivery: "mixed", results: [{ state: "sent" }, { state: "sending" }, { state: "failed" }] });
   });
+
+  it("reports inApp only when every child was delivered in-app", async () => {
+    send.mockImplementation(async (_db: unknown, _actor: unknown, input: { preflight?: boolean }) => input.preflight ? { ok: true, delivery: "sending", providerMessageId: null } : { ok: true, delivery: "sent", providerMessageId: null, inApp: true });
+    expect(await (await POST(request({ recipientUserIds: ["manager-1"] }))).json()).toMatchObject({ ok: true, inApp: true });
+    send.mockImplementation(async (_db: unknown, _actor: unknown, input: { preflight?: boolean }) => input.preflight ? { ok: true, delivery: "sending", providerMessageId: null } : { ok: true, delivery: "sent", providerMessageId: "x" });
+    expect((await (await POST(request({ recipientUserIds: ["manager-1"] }))).json()).inApp).toBeUndefined();
+  });
 });

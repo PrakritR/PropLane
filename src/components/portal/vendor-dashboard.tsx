@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { upcomingVendorVisits } from "@/lib/vendor-work-order-tabs";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { PortalHomeLayout } from "@/components/portal/portal-home-layout";
 import {
@@ -84,9 +85,7 @@ export function VendorDashboard({}: { displayName: string }) {
     void tick;
     const rows = readVendorWorkOrderRows();
     const openWorkOrders = rows.filter((r) => r.bucket !== "completed");
-    const upcomingVisits = rows
-      .filter((r) => r.scheduledAtIso && r.bucket !== "completed")
-      .sort((a, b) => (a.scheduledAtIso ?? "").localeCompare(b.scheduledAtIso ?? ""));
+    const upcomingVisits = upcomingVendorVisits(rows);
     const bidsPending = rows
       .filter((r) => r.biddingOpen && !r.biddingResolvedAt)
       .sort((a, b) => (b.biddingOpenedAt ?? "").localeCompare(a.biddingOpenedAt ?? ""));

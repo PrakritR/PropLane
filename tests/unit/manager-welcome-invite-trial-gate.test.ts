@@ -59,6 +59,16 @@ function fakeDb() {
   };
 }
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => fakeDb() }));
+// send-vendor-invite authorizes through profile_roles (getPortalAccessContext / hasRole), not profiles.role.
+vi.mock("@/lib/auth/portal-access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/portal-access")>()),
+  getPortalAccessContext: async () => ({
+    user: { id: "mgr-1", email: "mgr@example.com" },
+    roles: ["manager"],
+    effectiveRole: "manager",
+    profile: { role: "manager", full_name: "Alex", email: "mgr@example.com" },
+  }),
+}));
 vi.mock("@/lib/test-workspaces/index.server", () => ({
   resolveAuthenticatedBusinessAccess: async () => ({ kind: "normal" }),
 }));

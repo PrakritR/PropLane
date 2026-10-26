@@ -9,7 +9,8 @@ import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import { PortalDialog } from "@/components/portal/portal-dialog";
-import { sendWorkOrderToVendors, type PublishMarketplaceOptions } from "@/lib/work-order-vendor-offers";
+import { useCompletionPhotoUrls } from "@/hooks/use-completion-photo-urls";
+import { describeVendorSendOutcome, sendWorkOrderToVendors, type PublishMarketplaceOptions } from "@/lib/work-order-vendor-offers";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalDataTableEmpty, PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
@@ -402,6 +403,8 @@ export function ManagerWorkOrdersPanel({
     () => (routeStoredWorkOrder ? applyAcceptedBid(routeStoredWorkOrder, routeAcceptedBids) : null),
     [routeStoredWorkOrder, routeAcceptedBids],
   );
+
+  const completionPhotoUrls = useCompletionPhotoUrls(routeWorkOrder);
 
   useEffect(() => {
     if (routeStoredWorkOrder) openExpand(routeStoredWorkOrder, { alwaysLoadBids: true });
@@ -1049,9 +1052,27 @@ export function ManagerWorkOrdersPanel({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not approve bid.");
-      await syncManagerWorkOrdersFromServer({ force: true });
-      await loadBids(bid.workOrderId);
+      // Confirm and reflect it NOW from the response we already have; the refetch below only reconciles
+      // and is never awaited (it can take many seconds, and the approval is already in the database).
       showToast("Bid approved. The visit is booked at the bid's time.");
+      setBidsByWorkOrderId((prev) => ({
+        ...prev,
+        [bid.workOrderId]: (prev[bid.workOrderId] ?? []).map((b) =>
+          b.id === bid.id ? { ...b, status: "accepted" } : b.status === "submitted" ? { ...b, status: "declined" } : b,
+        ),
+      }));
+      updateManagerWorkOrder(bid.workOrderId, (current) => ({
+        ...current,
+        vendorId: bid.vendorDirectoryId ?? current.vendorId,
+        vendorName: bid.vendorName ?? current.vendorName,
+        vendorAssignedAt: current.vendorAssignedAt ?? new Date().toISOString(),
+        selfAssigned: false,
+        biddingOpen: false,
+        ...(bid.proposedTime && current.bucket !== "completed"
+          ? { bucket: "scheduled" as const, status: "Scheduled", scheduledAtIso: bid.proposedTime }
+          : {}),
+      }));
+      void Promise.all([syncManagerWorkOrdersFromServer({ force: true }), loadBids(bid.workOrderId)]).catch(() => undefined);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not approve bid.");
     } finally {
@@ -1121,11 +1142,7 @@ export function ManagerWorkOrdersPanel({
       if (!result.ok) throw new Error(result.error ?? "Could not request bids.");
       await syncManagerWorkOrdersFromServer({ force: true });
       await loadBids(row.id);
-      showToast(
-        result.sent && result.sent.length > 0
-          ? `Requested ${result.sent.length} vendor${result.sent.length === 1 ? "" : "s"} for bids.`
-          : "No vendors could be requested.",
-      );
+      showToast(describeVendorSendOutcome(result, (id) => activeVendors.find((v) => v.id === id)?.name ?? ""));
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not request bids.");
     }
@@ -1301,7 +1318,7 @@ export function ManagerWorkOrdersPanel({
           onWithdraw={(request) => void removeRequestHandler(row, request)}
           onApprove={(request) => {
             const bid = bids.find((b) => b.id === request.bidId);
-            if (bid) void acceptBidHandler(bid);
+            return bid ? acceptBidHandler(bid) : undefined;
           }}
           onSchedule={() => setScheduleVisitRow(row)}
           onMarkDone={() => markComplete(row)}
@@ -1787,7 +1804,7 @@ export function ManagerWorkOrdersPanel({
               ],
             },
           ]}
-          photos={routeWorkOrder.photoDataUrls ?? []}
+          photos={[...(routeWorkOrder.photoDataUrls ?? []), ...completionPhotoUrls]}
           onAddPhotos={(dataUrls) =>
             updateManagerWorkOrder(routeWorkOrder.id, (r) => ({ ...r, photoDataUrls: [...(r.photoDataUrls ?? []), ...dataUrls].slice(0, 12) }))
           }

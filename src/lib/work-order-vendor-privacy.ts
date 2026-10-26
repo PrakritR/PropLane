@@ -131,12 +131,32 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
   // An add-on's vendor job carries only what the manager published. A row saved before that rule may still hold
   // the resident's own notes in `description`, so an offered vendor reads the service title and nothing more.
   const isAddOnJob = Boolean(linkedServiceRequestId?.trim());
+  // `assignedRoomChoice` is not on the typed row but can ride a work order's payload; it names a room.
+  const offered = { ...rest } as Record<string, unknown>;
+  delete offered.assignedRoomChoice;
   return {
-    ...rest,
+    ...(offered as typeof rest),
     propertyName: area,
     unit: "—",
     cost: "",
     ...(isAddOnJob ? { description: row.title } : {}),
     ...(row.offerSharePhotos === true && photoDataUrls?.length ? { photoDataUrls } : {}),
   };
+}
+
+/**
+ * What a HIRED vendor receives. They hold the job, so the site stays, but the manager's billing
+ * of the RESIDENT (charge amount and id, the expense entries that settled it, the resident's
+ * confirmation) is the manager's own ledger and never leaves the server on a vendor read.
+ */
+export function projectWorkOrderForHiredVendor(row: DemoManagerWorkOrderRow): DemoManagerWorkOrderRow {
+  const {
+    residentChargeCents: _residentChargeCents,
+    residentChargeId: _residentChargeId,
+    expenseEntryIds: _expenseEntryIds,
+    residentConfirmation: _residentConfirmation,
+    residentReminderSentAt: _residentReminderSentAt,
+    ...rest
+  } = row;
+  return rest as DemoManagerWorkOrderRow;
 }

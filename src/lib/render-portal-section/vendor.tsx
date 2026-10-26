@@ -8,6 +8,7 @@ import { VendorReviewsPanel } from "@/components/portal/vendor-reviews-panel";
 import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
 import { VendorStatementsPanel } from "@/components/portal/vendor-statements-panel";
 import { VendorTaxPanel } from "@/components/portal/vendor-tax-panel";
+import { VendorTaskList } from "@/components/portal/vendor-task-list";
 import { VendorWorkOrdersPanel } from "@/components/portal/vendor-work-orders-panel";
 import { renderPortalSectionWith, type PortalSearchParams } from "@/lib/render-portal-section";
 import type { PortalPanels } from "@/lib/render-portal-section/panels";
@@ -30,6 +31,7 @@ const panels: PortalPanels = {
   VendorStatementsPanel,
   VendorTaxPanel,
   VendorWorkOrdersPanel,
+  VendorTaskList,
   loadPortalCalendar,
 };
 

@@ -3,6 +3,7 @@ import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { sendVendorSponsoredOutbound } from "@/lib/vendor-sponsored-outbound.server";
 import { normalizeInboxAttachmentUrls } from "@/lib/inbox-attachments.server";
+import { normalizeRecordRef } from "@/lib/portals/record-kinds";
 import { vendorNumberRefusalMessage } from "@/lib/number-subscription/vendor-number.server";
 
 export const runtime = "nodejs";
@@ -48,6 +49,8 @@ export async function POST(req: Request) {
     subject: typeof body.subject === "string" ? body.subject : "",
     text: typeof body.text === "string" ? body.text : "",
     threadId,
+    // A hint only; the send re-derives that the vendor is on that job and drops it otherwise.
+    recordRef: normalizeRecordRef(body.recordRef) ?? undefined,
     attachmentUrls: normalizeInboxAttachmentUrls(Array.isArray(body.attachmentUrls) ? body.attachmentUrls : [], access.actor.userId),
   };
   const buildRequest = (recipientUserId: string | undefined, preflight = false) => ({
@@ -73,7 +76,7 @@ export async function POST(req: Request) {
     // A preflight failure prevents every child from being attempted. The
     // successful preflights are also refused, rather than pretending they were
     // delivered, while the failing child carries the durable refusal reason.
-    return NextResponse.json({ ok: false, error: refused.reason ?? refused.error, results: preflight.map((result, index) => ({ recipient: requests[index] ?? "thread", state: "refused", ...(result.ok ? {} : { reason: result.reason ?? result.error }) })) }, { status });
+    return NextResponse.json({ ok: false, error: vendorNumberRefusalMessage(refused.reason ?? refused.error), results: preflight.map((result, index) => ({ recipient: requests[index] ?? "thread", state: "refused", ...(result.ok ? {} : { reason: result.reason ?? result.error }) })) }, { status });
   }
   const results = [];
   for (const recipientUserId of requests) {
@@ -83,6 +86,8 @@ export async function POST(req: Request) {
   const deliveries = results.filter((result): result is Extract<typeof result, { ok: true }> => result.ok).map((result) => result.delivery);
   const delivery = deliveries.length === 0 ? "refused" : new Set(deliveries).size === 1 ? deliveries[0] : "mixed";
   const failure = results.find((result) => !result.ok);
-  if (failure && !failure.ok) return NextResponse.json({ ok: false, error: vendorNumberRefusalMessage(failure.reason) ?? failure.error, delivery, results: childResults }, { status: 409 });
-  return NextResponse.json({ ok: true, delivery, results: childResults });
+  if (failure && !failure.ok) return NextResponse.json({ ok: false, error: vendorNumberRefusalMessage(failure.reason ?? failure.error), delivery, results: childResults }, { status: 409 });
+  // Every child delivered in the recipient's PropLane inbox: the panel words the status "Sent in PropLane".
+  const inApp = results.length > 0 && results.every((result) => result.ok && result.inApp === true);
+  return NextResponse.json({ ok: true, delivery, ...(inApp ? { inApp: true } : {}), results: childResults });
 }
