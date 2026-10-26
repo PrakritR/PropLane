@@ -111,7 +111,7 @@ export async function listOpenJobsNear(
   const matched: { job: OpenJobNear; sort: number }[] = [];
   for (const [index, record] of open.entries()) {
     const row = (record.row_data ?? {}) as DemoManagerWorkOrderRow;
-    const category = workOrderCategoryForMarketplace(row, row.category ?? "Maintenance");
+    const category = workOrderCategoryForMarketplace(row, row.publishCategory ?? row.category ?? "Maintenance");
     if (tradeLabels.length > 0 && (!category || !vendorCapabilitiesMatchCategory(tradeLabels, category))) continue;
     const zip = zips[index] ?? null;
     let distance: number | null = null;

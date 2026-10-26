@@ -31,7 +31,7 @@ import {
   withOptOut,
 } from "@/lib/sms/propline-first-text";
 import { mintSetupLink } from "@/lib/one-number/onboarding/setup-links.server";
-import { readOnboardingState, saveOnboardingState, type OnboardingState } from "@/lib/one-number/onboarding/state.server";
+import { askedByLine, readOnboardingState, saveOnboardingState, SHARED_LINE_ASK, type OnboardingState } from "@/lib/one-number/onboarding/state.server";
 import { handleUnassignedLeadInbound, type LeadDeps, type UnassignedLeadTurn } from "@/lib/one-number/unassigned-leads.server";
 
 export const ONBOARDING_COPY = {
@@ -151,9 +151,11 @@ async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbou
   let firstReply = !state;
   if (!role && !state && (await hasOpenLead(db, inbound.phoneKey))) role = "searcher";
   if (!role) {
-    if (state?.askedAt) {
-      // Asked once already: take the answer. Resident and "manage my own" are answered here and now; a searcher or a
-      // vendor goes to their flow; when it still does not say, a searcher (the default for an unknown number).
+    if (askedByLine(state, SHARED_LINE_ASK)) {
+      // THIS line asked already: take the answer. A question some manager's own work number asked is not ours, so it
+      // never puts a sender who has told us nothing into the default role without PropLane's own question.
+      // Resident and "manage my own" are answered here and now; a searcher or a vendor goes to their flow; when it
+      // still does not say, a searcher (the default for an unknown number).
       const answered = readRoleQuestionAnswer(inbound.body);
       if (answered === "resident") return single(withOptOut(RESIDENT_NOT_FOUND_REPLY));
       if (answered === "manage") {
@@ -172,7 +174,7 @@ async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbou
       const fromClarity = clarity.kind === "clear" ? ({ looking: "searcher", manage: "landlord", vendor: "vendor", resident: null } as const)[clarity.role] : null;
       const inferred = inferSenderRole(inbound.body) ?? fromClarity;
       if (!inferred) {
-        await saveOnboardingState(db, inbound.phoneKey, { askedAt: (now ?? new Date()).toISOString() }, now);
+        await saveOnboardingState(db, inbound.phoneKey, { askedAt: (now ?? new Date()).toISOString(), askedLine: SHARED_LINE_ASK }, now);
         return single(ONBOARDING_COPY.askRole);
       }
       role = inferred;
@@ -180,7 +182,7 @@ async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbou
     await saveOnboardingState(db, inbound.phoneKey, { role, hints: role === "landlord" ? extractHouseHints(inbound.body) : {} }, now);
   }
 
-  if (role === "landlord") return landlordTurn(db, inbound, state ?? { phoneKey: inbound.phoneKey, role: "landlord", askedAt: null, stage: null, hints: extractHouseHints(inbound.body) }, firstReply, deps);
+  if (role === "landlord") return landlordTurn(db, inbound, state ?? { phoneKey: inbound.phoneKey, role: "landlord", askedAt: null, askedLine: null, stage: null, hints: extractHouseHints(inbound.body) }, firstReply, deps);
   if (role === "vendor") {
     // Per message, not per phone: someone saved as a vendor who asks for a room is a prospect for THIS text.
     if (classifyLineText(inbound.body).kind === "housing_search") return leadPath();

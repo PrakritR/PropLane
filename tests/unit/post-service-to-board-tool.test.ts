@@ -79,14 +79,17 @@ describe("post_service_to_board", () => {
     const preview = await postServiceToBoardTool.preview(ctxFor(), { workOrderId: "wo-tour" });
     expect(preview.fields).toContainEqual({ label: "Board category", value: "Tours" });
     await postServiceToBoardTool.handler(ctxFor(), { workOrderId: "wo-tour" });
-    expect(rowOf("wo-tour").category).toBe("tours");
+    expect(rowOf("wo-tour").publishCategory).toBe("tours");
     const view = publicBoardServiceProjection(rowOf("wo-tour") as never, "Alder Property Co");
     expect(view?.trade).toBe("Tours");
   });
 
-  it("an explicit category override is stored", async () => {
+  it("an explicit category override posts under it and leaves the service's own category alone", async () => {
     await postServiceToBoardTool.handler(ctxFor(), { workOrderId: "wo-1", category: "tours" });
-    expect(rowOf("wo-1").category).toBe("tours");
+    expect(rowOf("wo-1").publishCategory).toBe("tours");
+    // The Services bucket and the expense mapping read the service's OWN category: publishing never rewrites it.
+    expect(rowOf("wo-1").category).toBe("plumbing");
+    expect(publicBoardServiceProjection(rowOf("wo-1") as never, "Alder Property Co")?.trade).toBe("Tours");
   });
 
   it("Cleaning and Tours are board categories everywhere the board lists them", async () => {

@@ -16,6 +16,7 @@ import { loadSubscriberPopulation } from "@/lib/admin/admin-subscribers.server";
 import { SUBSCRIBER_TABS, type SubscriberBucket } from "@/lib/admin/admin-subscribers-shared";
 import { loadProfilesByIdChunks } from "@/lib/auth/admin-portal-manager-ids.server";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
+import { createTtlCache, serverSnapshotCacheEnabled } from "@/lib/server-ttl-cache";
 
 export type AdminAccountSearchRow = {
   id: string;
@@ -66,15 +67,27 @@ function digitsOf(value: string): string {
 }
 
 /**
- * Managers in one plan bucket, newest first. The bucket comes from the SAME classifier enforcement and the
- * Dashboard use (`loadSubscriberPopulation`); the search term matches name, email, PropLane ID, phone and the
- * promo code the account used, so a promo code's "View accounts" link lands on exactly those accounts.
+ * One plan bucket's managers, already classified: the profile rows, the promo code each account used, and
+ * which of them actually hold the manager role. The SEARCH TERM is not part of it, because the whole bucket
+ * is what a search filters down — see `managersInPlan`.
  */
-async function managersInPlan(
-  db: SupabaseClient,
-  plan: AdminAccountPlanFilter,
-  query: string,
-): Promise<AdminProfileScanRow[]> {
+type PlanBucket = {
+  profiles: AdminProfileScanRow[];
+  /** Lowercase promo code per account id, for the promo link's "View accounts". */
+  codes: Map<string, string>;
+  kinds: Map<string, AdminAccountKind[]>;
+};
+
+/**
+ * The bucket is the same answer for every operator and every keystroke, and building it costs a paged read of
+ * the whole real-manager population plus their profiles and roles. An admin typing in the search box would
+ * otherwise pay that scan per request, so one bucket is held for this long — the same stance `lastSignInFor`
+ * below takes, and never longer than the list is plausibly being typed into.
+ */
+const PLAN_BUCKET_TTL_MS = 30_000;
+const planBucketCache = createTtlCache<PlanBucket>(PLAN_BUCKET_TTL_MS, Date.now, { maxEntries: SUBSCRIBER_TABS.length });
+
+async function loadPlanBucket(db: SupabaseClient, plan: AdminAccountPlanFilter): Promise<PlanBucket> {
   const population = await loadSubscriberPopulation(db);
   const bucket = population.rows.filter((row) => row.bucket === plan);
   const codes = new Map(bucket.map((row) => [row.id, (row.promoCode ?? "").toLowerCase()]));
@@ -85,11 +98,26 @@ async function managersInPlan(
   );
   // The subscriber population admits anyone carrying a PropLane ID, so a resident or vendor would read as Free;
   // the Managers tab lists managers by role, and so does this.
-  const kindsById = await resolveAccountKinds(db, profiles);
+  const kinds = await resolveAccountKinds(db, profiles);
+  return { profiles, codes, kinds };
+}
+
+/**
+ * Managers in one plan bucket, newest first. The bucket comes from the SAME classifier enforcement and the
+ * Dashboard use (`loadSubscriberPopulation`); the search term matches name, email, PropLane ID, phone and the
+ * promo code the account used, so a promo code's "View accounts" link lands on exactly those accounts.
+ */
+async function managersInPlan(
+  db: SupabaseClient,
+  plan: AdminAccountPlanFilter,
+  query: string,
+): Promise<AdminProfileScanRow[]> {
+  const load = () => loadPlanBucket(db, plan);
+  const { profiles, codes, kinds } = serverSnapshotCacheEnabled() ? await planBucketCache.get(plan, load) : await load();
   const needle = query.trim().toLowerCase();
   const needleDigits = digitsOf(needle);
   const matches = (row: AdminProfileScanRow) => {
-    if (!kindsById.get(row.id)?.includes("manager")) return false;
+    if (!kinds.get(row.id)?.includes("manager")) return false;
     if (!needle) return true;
     const text = `${row.email ?? ""} ${row.full_name ?? ""} ${row.manager_id ?? ""} ${codes.get(row.id) ?? ""}`;
     if (text.toLowerCase().includes(needle)) return true;

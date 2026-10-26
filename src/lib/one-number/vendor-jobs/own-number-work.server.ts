@@ -166,8 +166,16 @@ async function saveList(db: SupabaseClient, input: { vendorUserId: string; phone
   await appendLineTurn(db, { sessionId, ownerUserId: input.vendorUserId, inbound: input.body, reply: input.reply, messageSid: input.sid, now: input.now, replyTrace: input.trace });
 }
 
-/** The newest assistant turn of the vendor's own-number session, when it is a live job list. */
-async function loadLiveList(db: SupabaseClient, vendorUserId: string, phone: string, now: Date): Promise<OwnNumberJobEntry[] | null> {
+type LiveList = { entries: OwnNumberJobEntry[]; issuedAtMs: number };
+
+/**
+ * The newest assistant turn of the vendor's own-number session, when it is a live job list.
+ *
+ * The 45 minutes run from when the list was ISSUED (`issued_at`, carried forward by every answer to a pick),
+ * not from the last turn: answering a pick must not buy the list another window, or a bare number stays a job
+ * pick for as long as the vendor keeps replying. Either timestamp being too old retires the list.
+ */
+async function loadLiveList(db: SupabaseClient, vendorUserId: string, phone: string, now: Date): Promise<LiveList | null> {
   try {
     const { data: session } = await db
       .from("agent_sessions").select("id")
@@ -180,10 +188,13 @@ async function loadLiveList(db: SupabaseClient, vendorUserId: string, phone: str
     const latest = ((data ?? []) as Row[])[0];
     const trace = (latest?.tool_trace ?? null) as Row | null;
     if (!latest || trace?.source !== "propline_line" || trace.list_source !== SOURCE || trace.list_kind !== "job_list") return null;
-    const age = now.getTime() - Date.parse(String(latest.created_at ?? ""));
+    const turnAt = Date.parse(String(latest.created_at ?? ""));
+    const issuedAt = trace.issued_at ? Date.parse(String(trace.issued_at)) : NaN;
+    const oldest = Number.isFinite(issuedAt) ? Math.min(issuedAt, turnAt) : turnAt;
+    const age = now.getTime() - oldest;
     if (!Number.isFinite(age) || age > OWN_NUMBER_LIST_TTL_MS || age < -60_000) return null;
     const entries = Array.isArray(trace.entries) ? (trace.entries as OwnNumberJobEntry[]) : [];
-    return entries.length > 0 ? entries : null;
+    return entries.length > 0 ? { entries, issuedAtMs: Number.isFinite(issuedAt) ? issuedAt : turnAt } : null;
   } catch {
     return null;
   }
@@ -214,7 +225,16 @@ function detailText(e: OwnNumberJobEntry): string {
 
 export async function handleOwnNumberWorkText(
   db: SupabaseClient,
-  input: { vendorUserId: string; phone: string; text: string; messageSid: string; now?: Date; origin?: string },
+  input: {
+    vendorUserId: string;
+    phone: string;
+    text: string;
+    messageSid: string;
+    now?: Date;
+    origin?: string;
+    /** Newest activity on this number's manager conversations; a number texted after the list is a reply to them. */
+    relayActivityAt?: Date | null;
+  },
 ): Promise<OwnNumberWorkTurn> {
   const now = input.now ?? new Date();
   const text = String(input.text ?? "");
@@ -226,21 +246,27 @@ export async function handleOwnNumberWorkText(
     const reply = composeOwnNumberJobList(entries);
     await saveList(db, {
       vendorUserId: input.vendorUserId, phone: input.phone, body: text.slice(0, 200), reply, sid: input.messageSid, now,
-      trace: entries.length > 0 ? { list_source: SOURCE, list_kind: "job_list", entries } : { list_source: SOURCE, list_kind: "empty" },
+      trace: entries.length > 0
+        ? { list_source: SOURCE, list_kind: "job_list", issued_at: now.toISOString(), entries }
+        : { list_source: SOURCE, list_kind: "empty" },
     });
     return { handled: true, reply };
   }
 
   const picked = parseOwnNumberJobReply(text);
   if (!picked) return { handled: false };
-  const entries = await loadLiveList(db, input.vendorUserId, input.phone, now);
-  if (!entries) return { handled: false };
+  const live = await loadLiveList(db, input.vendorUserId, input.phone, now);
+  if (!live) return { handled: false };
+  // A manager text, or the vendor's own relayed reply, after the list went out means the conversation has moved on:
+  // "2" is then an answer to that manager, not a job pick, and the relay below takes it.
+  if (input.relayActivityAt && input.relayActivityAt.getTime() > live.issuedAtMs) return { handled: false };
+  const { entries, issuedAtMs } = live;
   const entry = entries.find((e) => e.n === picked.index);
   const answer = async (reply: string): Promise<OwnNumberWorkTurn> => {
     const sessionId = await findOrCreateLineSession(db, { ownerUserId: input.vendorUserId, phoneE164: input.phone, vendorUserId: input.vendorUserId });
-    // Answering a pick keeps the list live: the vendor may ask about another number.
+    // Answering a pick keeps the list resolvable for the rest of its window: the vendor may ask about another number.
     if (sessionId) {
-      await appendLineTurn(db, { sessionId, ownerUserId: input.vendorUserId, inbound: text.slice(0, 200), reply, messageSid: input.messageSid, now, replyTrace: { list_source: SOURCE, list_kind: "job_list", entries } });
+      await appendLineTurn(db, { sessionId, ownerUserId: input.vendorUserId, inbound: text.slice(0, 200), reply, messageSid: input.messageSid, now, replyTrace: { list_source: SOURCE, list_kind: "job_list", issued_at: new Date(issuedAtMs).toISOString(), entries } });
     }
     return { handled: true, reply: toGsm7(reply) };
   };

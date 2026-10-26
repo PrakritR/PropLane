@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isMissingSchemaError } from "@/lib/one-number/config.server";
 
 /**
  * Where a manager's message credit comes from.
@@ -58,7 +59,10 @@ export async function managerCreditEntitlement(
 
 /**
  * The ledger an existing reservation key lives on, or `null` when neither has it. A failed read
- * throws: guessing the ledger could settle or refund the wrong one.
+ * throws: guessing the ledger could settle or refund the wrong one. The ONE exception is a database
+ * that has no number ledger at all (the table or column is missing, code ahead of
+ * `20261008200000_number_subscriptions`): no reservation can live on a ledger that does not exist,
+ * so that reads as `null` and every settle keeps working on the wallet, exactly as it did before.
  */
 export async function existingCreditSourceForKey(
   db: SupabaseClient,
@@ -71,7 +75,10 @@ export async function existingCreditSourceForKey(
     .eq("owner_user_id", managerUserId)
     .eq("idempotency_key", key)
     .maybeSingle();
-  if (numberRow.error) throw new Error("Communication credit source could not be verified.");
+  if (numberRow.error) {
+    if (!isMissingSchemaError(numberRow.error)) throw new Error("Communication credit source could not be verified.");
+    return null;
+  }
   if (numberRow.data) return "number";
   return null;
 }

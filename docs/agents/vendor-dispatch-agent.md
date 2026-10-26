@@ -172,4 +172,7 @@ Files: `src/lib/vendor-dispatch/service-roster.server.ts`, `tests/unit/service-r
   `POST /api/portal/service-publish` (business access normal; the service loaded by `manager_user_id`, workspace-scoped, open) and refuses a delegated
   actor. Vendors see the trade, title and general area only.
 - **Tours** is a board category (`tours`, "Tours" vendor trade): a tour-host job (`vendor-dispatch/trades.ts` `tour_host`) can be PUBLISHED, not only
-  privately dispatched. Cleaning was already a category. Tests: `tests/unit/{vendor-own-number-work-ask,message-vendor-tool,post-service-to-board-tool}.test.ts`.
+  privately dispatched. Cleaning was already a category. The chosen board category is stored PUBLISH-scoped as
+  `row_data.publishCategory` and read by `publicServiceProjection` / `listOpenJobsNear`; publishing never rewrites the service's own
+  `category`, which is what its Services bucket and `WORK_ORDER_CATEGORY_TO_EXPENSE` derive from. Tests:
+  `tests/unit/{vendor-own-number-work-ask,message-vendor-tool,post-service-to-board-tool}.test.ts`.

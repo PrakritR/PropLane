@@ -102,7 +102,7 @@ export async function publishServiceToBoard(
   db: Db,
   actor: PublishActor,
   input: { workOrderId: string; budgetCents?: number | null; sharePhotos?: boolean; category?: DemoManagerWorkOrderRow["category"] },
-): Promise<{ ok: true; patch: Pick<DemoManagerWorkOrderRow, "published" | "publishedAt" | "publishRef" | "publishBudgetCents" | "publishSharePhotos" | "biddingOpen" | "biddingOpenedAt"> & { category?: DemoManagerWorkOrderRow["category"] } } | BoardActionFailure> {
+): Promise<{ ok: true; patch: Pick<DemoManagerWorkOrderRow, "published" | "publishedAt" | "publishRef" | "publishBudgetCents" | "publishSharePhotos" | "biddingOpen" | "biddingOpenedAt"> & { publishCategory?: DemoManagerWorkOrderRow["category"] } } | BoardActionFailure> {
   const loaded = await loadOwnedService(db, actor, input.workOrderId);
   if (!loaded.ok) return loaded;
   const { record, row } = loaded;
@@ -134,8 +134,10 @@ export async function publishServiceToBoard(
     // Publishing opens bidding: a vendor can only answer while it is open (`resolveVendorWorkOrderAccess`).
     biddingOpen: true,
     biddingOpenedAt: row.biddingOpenedAt ?? now,
-    // A category the manager chose when publishing (a tour-host job posts under Tours) is stored on the row.
-    ...(input.category ? { category: input.category } : {}),
+    // The category the manager chose when publishing (a tour-host job posts under Tours) is PUBLISH-scoped: the
+    // board and "jobs near me" read it, and the service keeps its own `category`, which is what its Services bucket
+    // and the expense mapping are derived from.
+    ...(input.category ? { publishCategory: input.category } : {}),
   };
   const next = { ...row, ...patch };
   const { error } = await db

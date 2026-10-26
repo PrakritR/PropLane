@@ -704,24 +704,6 @@ export async function listServiceTeam(
   };
 }
 
-/** True when another live (pending or accepted) membership of this workspace is already the owner of record. */
-async function hasOwnerOfRecord(db: SupabaseClient, workspaceId: string, exceptLinkId?: string): Promise<boolean | null> {
-  const [members, workspace] = await Promise.all([
-    db
-      .from("account_link_invites")
-      .select("id")
-      .eq("workspace_id", workspaceId)
-      .eq("is_owner_of_record", true)
-      .in("status", ["accepted", "pending"]),
-    db.from("portal_workspaces").select("owner_user_id").eq("id", workspaceId).maybeSingle(),
-  ]);
-  if (members.error || workspace.error) return null;
-  // The owner of an attached client workspace (anyone but the service owner) IS the owner of record: then no member can also be.
-  const workspaceOwner = String((workspace.data as { owner_user_id?: unknown } | null)?.owner_user_id ?? "");
-  if (workspaceOwner && !(await isPlatformServiceOwner(db, workspaceOwner))) return true;
-  return ((members.data ?? []) as { id: string }[]).some((r) => r.id !== exceptLinkId);
-}
-
 /** The current owner of record of a workspace: the attached client who owns it, a flagged member, or an unspent owner link. */
 type OwnerOfRecordHolder =
   | { kind: "none" }
@@ -1224,9 +1206,14 @@ export async function setServiceOwnerOfRecord(
   const target = link.data as { invitee_user_id: string; team_role: string | null; status: string };
   let patch: Record<string, unknown> = { is_owner_of_record: input.value };
   if (input.value) {
-    const taken = await hasOwnerOfRecord(db, who.workspace.id, linkId);
-    if (taken === null) return fail(503, "Could not update. Please retry.");
-    if (taken) return fail(409, "This workspace already has an owner of record.");
+    // The SAME answer the owner-invite verb guards with, so an unspent owner invite LINK counts too: otherwise this
+    // flag is written behind the invited owner's back and their redeem then hits the one-owner constraint.
+    const holder = await currentOwnerOfRecord(db, who.workspace);
+    if (holder === null) return fail(503, "Could not update. Please retry.");
+    if (holder.kind === "account") return fail(409, "The workspace's own owner is its owner of record.");
+    if (holder.kind !== "none" && !(holder.kind === "member" && holder.linkId === linkId)) {
+      return fail(409, "This workspace already has an owner of record.");
+    }
     // The owner of record is a Property owner (the owner portal). An operator's seat is never converted, and a
     // member is only converted when the workspace keeps an Admin without them.
     if (target.team_role !== "property_owner") {

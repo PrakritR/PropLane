@@ -244,12 +244,20 @@ async function routeVendorOwnText(
     vendorUserId: number.vendorUserId, channel: "sms", recipient: input.phone, recipientUserId: number.vendorUserId,
     subject: "Text message", text, idempotencyKey: key, sendClass: "transactional",
   }, provider);
+  const conversations = await listVendorNumberConversations(db, number.identityId);
+  // The newest manager-conversation activity on this number. A bare "2" after it is an answer to that manager,
+  // never a pick off an older job list: the work handler below steps aside for it.
+  const relayActivityAt = conversations.reduce<Date | null>((newest, c) => {
+    const at = Date.parse(c.lastActivityAt);
+    if (!Number.isFinite(at)) return newest;
+    return !newest || at > newest.getTime() ? new Date(at) : newest;
+  }, null);
   // "Any work?" (and a number reply to the list that answers it) is the vendor talking to PropLane, not to a
   // manager: answered here from the open board plus jobs offered to this vendor. Control words never reach it,
   // and any failure falls through to the relay below, exactly as before.
   if (!CONTROL_ONLY_RE.test(input.text)) {
     try {
-      const work = await handleOwnNumberWorkText(db, { vendorUserId: number.vendorUserId, phone: input.phone, text: input.text, messageSid: input.messageSid, now });
+      const work = await handleOwnNumberWorkText(db, { vendorUserId: number.vendorUserId, phone: input.phone, text: input.text, messageSid: input.messageSid, now, relayActivityAt });
       if (work.handled) {
         await reply(work.reply, `vendor-work-list:${input.messageSid}`);
         return { handled: true };
@@ -258,7 +266,6 @@ async function routeVendorOwnText(
       console.error("vendor own-number work ask failed", error instanceof Error ? error.message : "unknown");
     }
   }
-  const conversations = await listVendorNumberConversations(db, number.identityId);
   const decision = decideVendorReplyRoute(conversations, input.text, now);
   if (decision.kind === "none") {
     await reply(VENDOR_NUMBER_NO_CONVERSATION_NOTICE, `vendor-route-none:${input.messageSid}`);

@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadSharedLineConfig, isSharedLineNumber } from "@/lib/one-number/config.server";
-import { readOnboardingState, saveOnboardingState } from "@/lib/one-number/onboarding/state.server";
+import { askedByLine, readOnboardingState, saveOnboardingState } from "@/lib/one-number/onboarding/state.server";
 import { CONTROL_ONLY_RE } from "@/lib/one-number/vendor-jobs/intent";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
@@ -32,9 +32,10 @@ import { loadWorkspaceById } from "@/lib/workspaces/active.server";
  *                         where to look; manage -> the create-account link; looking -> the leasing assistant;
  *                         vendor -> the PropLane line's vendor flow, or the trade question on a manager's own number.
  *
- * "First text" = nothing was ever sent to this number from this line AND we have not already asked it. The answer is only
- * read when we asked (a recent `sms_onboarding_state.asked_at` with no role chosen yet), so an ordinary text is never
- * taken for an answer. The question's own wording is fixed and carries no STOP line, so the opt-out notice rides the
+ * "First text" = nothing was ever sent to this number from this line AND THIS LINE has not already asked it. The answer
+ * is only read when this line asked (a recent `sms_onboarding_state.asked_at` naming this number in `asked_line`, with
+ * no role chosen yet), so an ordinary text is never taken for an answer and one workspace's question never stands in
+ * for another's. The question's own wording is fixed and carries no STOP line, so the opt-out notice rides the
  * reply that follows it (`withOptOut`). Nothing here reads or reveals a workspace's data: the only workspace fact in a
  * reply is the name on the question, and only on that workspace's own number.
  */
@@ -111,11 +112,15 @@ export async function handleRoleQuestionInbound(
   if (sent === null) return { handled: false };
 
   // "Have we asked?" is `sms_onboarding_state.asked_at`, not the outbox: a burst of unclear texts that arrives before the
-  // question's outbox row lands reads the same `asked_at`, so the question is asked once and only once.
+  // question's outbox row lands reads the same `asked_at`, so the question is asked once and only once. It is asked once
+  // per LINE, so `asked_line` has to name this number: another workspace's question is not this one's, and its answer
+  // is not addressed here either.
+  const lineKey = normalizeE164(args.toPhone) ?? String(args.toPhone ?? "").trim();
   const { available, state } = await readOnboardingState(db, phoneKey).catch(() => ({ available: false, state: null }));
   const askedAt = state?.askedAt ? Date.parse(state.askedAt) : NaN;
   const askedRecently = Number.isFinite(askedAt) && now.getTime() - askedAt <= ROLE_ANSWER_WINDOW_MS;
-  const awaitingAnswer = available && state !== null && !state.role && askedRecently;
+  const askedHere = askedRecently && askedByLine(state, lineKey);
+  const awaitingAnswer = available && state !== null && !state.role && askedHere;
 
   let reply: string | null = null;
   if (awaitingAnswer) {
@@ -135,11 +140,11 @@ export async function handleRoleQuestionInbound(
     }
     // The question itself carries no opt-out notice (its wording is fixed), so this reply - the first one that can - does.
     reply = withOptOut(reply);
-  } else if (sent === 0 && !askedRecently) {
+  } else if (sent === 0 && !askedHere) {
     // First text from this number. A clear one skips the question.
     if (classifyFirstText(body).kind === "clear") return { handled: false };
     reply = serviceLine ? PROPLANE_ROLE_QUESTION : roleQuestionFor(await workspaceNameOf(db, args.managerUserId, args.workspaceId));
-    await saveOnboardingState(db, phoneKey, { askedAt: now.toISOString() }, now).catch(() => false);
+    await saveOnboardingState(db, phoneKey, { askedAt: now.toISOString(), askedLine: lineKey }, now).catch(() => false);
   } else {
     return { handled: false };
   }

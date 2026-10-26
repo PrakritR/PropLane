@@ -149,7 +149,6 @@ export async function listLineMemberships(
     const id = str(w?.id);
     if (!w || !id) return;
     if (teamRole) seatRoles.set(id, [...(seatRoles.get(id) ?? []), teamRole]);
-    const roles = seatRoles.get(id) ?? [];
     const next: LineMembership = {
       workspaceId: id,
       workspaceName: str(w.name) || "your property team",
@@ -158,7 +157,8 @@ export async function listLineMemberships(
       kind,
       viewOnly: locked.has(id),
       isService: w.is_service === true,
-      teamRole: roles.includes("viewer") ? "viewer" : (roles[0] ?? null),
+      // Stamped by the one pass below, which is the only place that has seen every seat of the workspace.
+      teamRole: null,
     };
     const have = out.get(id);
     if (!have || KIND_RANK[kind] < KIND_RANK[have.kind]) out.set(id, next);

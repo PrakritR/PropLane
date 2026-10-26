@@ -21,6 +21,7 @@ import { workOrderGeneralArea } from "@/lib/work-order-vendor-privacy";
 export const PUBLIC_SERVICE_SOURCE_KEYS = [
   "title",
   "category",
+  "publishCategory",
   "description",
   "preferredArrival",
   "photoDataUrls",
@@ -34,7 +35,7 @@ export const PUBLIC_SERVICE_SOURCE_KEYS = [
 /** What leaves the server. */
 export type PublicServiceView = {
   title: string;
-  /** The trade, e.g. "Plumbing". */
+  /** The trade, e.g. "Plumbing" — the publish category when the manager chose one, else the service's own. */
   trade: string;
   /** City / neighbourhood only; "Nearby" when nothing safe to show. */
   area: string;
@@ -114,7 +115,7 @@ export function publicServiceProjection(row: DemoManagerWorkOrderRow, postedBy: 
       : [];
   return {
     title: String(source.title ?? "").trim() || "Service",
-    trade: publicServiceTradeLabel(source.category),
+    trade: publicServiceTradeLabel(source.publishCategory ?? source.category),
     area: workOrderGeneralArea({ propertyAddress: source.propertyAddress, propertyName: source.propertyName ?? "" }),
     description: String(source.description ?? "").trim(),
     when: String(source.preferredArrival ?? "").trim() || "Anytime",
