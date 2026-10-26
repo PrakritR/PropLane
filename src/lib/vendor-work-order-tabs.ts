@@ -283,3 +283,14 @@ export function vendorBidTabs(
     .map((choice) => ({ value: choice.value, label: BID_TAB_LABEL[choice.value], submitLabel: choice.label }))
     .sort((a, b) => BID_TAB_ORDER.indexOf(a.value) - BID_TAB_ORDER.indexOf(b.value));
 }
+
+/** The vendor Dashboard's "Upcoming visits": booked, not completed, and still ahead of `nowMs`, soonest first. */
+export function upcomingVendorVisits(rows: DemoManagerWorkOrderRow[], nowMs: number = Date.now()): DemoManagerWorkOrderRow[] {
+  return rows
+    .filter((r) => {
+      if (!r.scheduledAtIso || r.bucket === "completed") return false;
+      const at = Date.parse(r.scheduledAtIso);
+      return Number.isFinite(at) && at > nowMs;
+    })
+    .sort((a, b) => (a.scheduledAtIso ?? "").localeCompare(b.scheduledAtIso ?? ""));
+}

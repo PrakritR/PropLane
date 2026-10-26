@@ -9,6 +9,8 @@ export type InboxReplySendOutcome = {
   smsOk: boolean;
   proplaneRequested?: boolean;
   proplaneOk?: boolean;
+  /** The server delivered into the other person's PropLane inbox only (no email or text went out). */
+  inAppOnly?: boolean;
   /** Provider submission may have happened, so retrying is unsafe. */
   smsUnknown?: boolean;
   /** Durable sponsored-delivery projection; authorization is not synonymous with Sent. */
@@ -35,6 +37,7 @@ export function inboxReplySentToastMessage(
   const emailDelivered = outcome.emailRequested && outcome.emailOk;
   const smsDelivered = outcome.smsRequested && outcome.smsOk;
   const proplaneDelivered = outcome.proplaneRequested && outcome.proplaneOk;
+  if (outcome.inAppOnly && proplaneDelivered && !emailDelivered && !smsDelivered) return "Sent in PropLane.";
   if (outcome.proplaneRequested) {
     const sent = [
       ...(proplaneDelivered ? ["PropLane"] : []),

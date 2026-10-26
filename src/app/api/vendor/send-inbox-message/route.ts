@@ -87,5 +87,7 @@ export async function POST(req: Request) {
   const delivery = deliveries.length === 0 ? "refused" : new Set(deliveries).size === 1 ? deliveries[0] : "mixed";
   const failure = results.find((result) => !result.ok);
   if (failure && !failure.ok) return NextResponse.json({ ok: false, error: vendorNumberRefusalMessage(failure.reason ?? failure.error), delivery, results: childResults }, { status: 409 });
-  return NextResponse.json({ ok: true, delivery, results: childResults });
+  // Every child delivered in the recipient's PropLane inbox: the panel words the status "Sent in PropLane".
+  const inApp = results.length > 0 && results.every((result) => result.ok && result.inApp === true);
+  return NextResponse.json({ ok: true, delivery, ...(inApp ? { inApp: true } : {}), results: childResults });
 }

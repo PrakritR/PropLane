@@ -20,3 +20,12 @@ export function vendorBankNotConnectedLine(vendorName: string, vendorPayoutsRead
 
 /** The manager's real Outgoing list: where Stripe's return_url lands, with no redirect on the way. */
 export const VENDOR_INVOICE_PAY_RETURN_PATH = "/portal/outgoing/paid";
+
+/** The vendor's name as this manager knows them: their roster entry, else the profile's name, else the business name. */
+export function vendorDirectoryName(input: { rosterName?: unknown; fullName?: unknown; businessName?: unknown }): string {
+  for (const value of [input.rosterName, input.fullName, input.businessName]) {
+    const name = typeof value === "string" ? value.trim() : "";
+    if (name && name !== "__vendor_category_settings__") return name;
+  }
+  return "Vendor";
+}

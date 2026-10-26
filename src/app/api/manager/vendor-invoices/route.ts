@@ -2,6 +2,7 @@ import { resolveActiveWorkspaceRowScope, rowAllowedInWorkspaceScope } from "@/li
 import { invoiceBelongsInOutgoing, outgoingInvoiceTotals } from "@/lib/manager-outgoing-invoices";
 import { NextResponse } from "next/server";
 import { assertManagerFinancialsAccess, getReportsAuthContext } from "@/lib/reports/auth";
+import { vendorDirectoryName } from "@/lib/vendor-invoice-pay-readiness";
 import { mapVendorInvoiceRow, VENDOR_INVOICE_STATUSES, type VendorInvoiceStatus } from "@/lib/vendor-invoices";
 
 export const runtime = "nodejs";
@@ -98,12 +99,23 @@ export async function GET(req: Request) {
 
     const vendorUserIds = [...new Set(rows.map((row) => String(row.vendor_user_id ?? "")).filter(Boolean))];
     const namesById = new Map<string, string>();
-    if (vendorUserIds.length > 0) {
-      const profiles = await allRows(auth.db.from("profiles").select("id, full_name").in("id", vendorUserIds).order("id", { ascending: true }));
-      for (const profile of profiles ?? []) {
-        namesById.set(String(profile.id), String(profile.full_name ?? "").trim() || "Vendor");
+    // One resolver for invoice rows and payout rows: the manager's roster name, else profile, else business.
+    const loadVendorNames = async (ids: string[]) => {
+      if (ids.length === 0) return;
+      const [profiles, roster, businesses] = await Promise.all([
+        allRows(auth.db.from("profiles").select("id, full_name").in("id", ids).order("id", { ascending: true })),
+        allRows(auth.db.from("manager_vendor_records").select("id, vendor_user_id, row_data").eq("manager_user_id", auth.userId).in("vendor_user_id", ids).order("id", { ascending: true })),
+        allRows(auth.db.from("vendor_business_profiles").select("user_id, business_name").in("user_id", ids).order("user_id", { ascending: true })),
+      ]);
+      const rosterNames = new Map<string, unknown>();
+      for (const record of roster ?? []) rosterNames.set(String(record.vendor_user_id), (record.row_data as { name?: unknown } | null)?.name);
+      const fullNames = new Map((profiles ?? []).map((p) => [String(p.id), p.full_name] as const));
+      const businessNames = new Map((businesses ?? []).map((b) => [String(b.user_id), b.business_name] as const));
+      for (const id of ids) {
+        namesById.set(id, vendorDirectoryName({ rosterName: rosterNames.get(id), fullName: fullNames.get(id), businessName: businessNames.get(id) }));
       }
-    }
+    };
+    await loadVendorNames(vendorUserIds);
 
     const scope = await resolveActiveWorkspaceRowScope(auth.db, auth.userId);
     const workIds = [...new Set(rows.map((row) => row.work_order_id).filter(Boolean))];
@@ -138,10 +150,7 @@ export async function GET(req: Request) {
       const invoiceIds = new Set(invoices.map(invoice => invoice.id));
       const unmatched = (payouts ?? []).filter(payout => !invoiceIds.has(payout.invoice_id));
       const payoutVendorIds = [...new Set(unmatched.map(payout => payout.vendor_user_id).filter(id => !namesById.has(id)))];
-      if (payoutVendorIds.length) {
-        const profiles = await allRows(auth.db.from("profiles").select("id, full_name").in("id", payoutVendorIds).order("id", { ascending: true }));
-        for (const profile of profiles) namesById.set(profile.id, profile.full_name?.trim() || "Vendor");
-      }
+      await loadVendorNames(payoutVendorIds);
       const missingWorkIds = [...new Set(unmatched.map(payout => payout.work_order_id).filter(Boolean))];
       const payoutProperties = new Map<string, string | null>();
       if (missingWorkIds.length) {

@@ -627,6 +627,7 @@ export const VendorInboxPanel = forwardRef<
       let smsOk = false;
       const authorizedDeliveries: ("sending" | "sent" | "failed")[] = [];
       let failureMessage = "";
+      let inAppOnly = false;
       try {
         if (channels.email) {
           try {
@@ -647,8 +648,10 @@ export const VendorInboxPanel = forwardRef<
               ok?: boolean;
               error?: string;
               delivery?: "sending" | "sent" | "failed";
+              inApp?: boolean;
             };
             emailOk = res.ok && data.ok === true;
+            if (emailOk && data.inApp === true) inAppOnly = true;
             if (emailOk) authorizedDeliveries.push(data.delivery ?? "sent");
             if (!emailOk) failureMessage = data.error?.trim() ?? "";
           } catch {
@@ -724,6 +727,19 @@ export const VendorInboxPanel = forwardRef<
         force: true,
       }).catch(() => null);
       if (synced) setLocal(synced as InboxThread[]);
+      // An in-app reply never went out by email or text, whatever the composer had selected.
+      if (inAppOnly) {
+        return {
+          emailRequested: false,
+          smsRequested: false,
+          emailOk: false,
+          smsOk: false,
+          proplaneRequested: true,
+          proplaneOk: true,
+          inAppOnly: true,
+          delivery: aggregateVendorSponsoredDelivery(authorizedDeliveries),
+        };
+      }
       return {
         emailRequested: channels.email,
         smsRequested: channels.sms,

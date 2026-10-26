@@ -1130,7 +1130,7 @@ export function ManagerAllServicesPanel({
           allowMarketplace={!isDemoModeActive()}
           onSend={addOnJob.send}
           onWithdraw={(request) => void addOnJob.withdraw(request)}
-          onApprove={(request) => void addOnJob.approve(request)}
+          onApprove={(request) => addOnJob.approve(request)}
           onSchedule={() => {
             if (detailJob) setScheduleVisitRow(detailJob);
           }}

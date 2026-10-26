@@ -11,6 +11,7 @@ import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { ServiceListRowMenu } from "@/components/portal/service-list-row-menu";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalSession } from "@/hooks/use-portal-session";
@@ -108,6 +109,18 @@ export function VendorTaskList({
     [basePath, doneTasks.length, openTasks.length],
   );
 
+  /** The row's ⋯ action: complete an open task, reopen a completed one. */
+  async function setCompleted(task: VendorAssignedTask, completed: boolean) {
+    if (!userId) return;
+    try {
+      await updateVendorAssignedTask(userId, { managerUserId: task.managerUserId, taskId: task.id, completed });
+      await refresh();
+      showToast(completed ? "Marked completed." : "Reopened.");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not update the task.");
+    }
+  }
+
   async function bulkComplete(rows: VendorAssignedTask[]) {
     if (!userId || rows.length === 0) return;
     const target = !rows[0]!.completed;
@@ -153,8 +166,7 @@ export function VendorTaskList({
 
   return (
     <ManagerPortalPageShell
-      title="Services"
-
+      title="Tasks"
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
@@ -240,6 +252,17 @@ export function VendorTaskList({
                   }
                   onOpen={() => setExpandedKey((cur) => (cur === key ? null : key))}
                   dataAttr="vendor-task-row"
+                  menu={
+                    <ServiceListRowMenu
+                      title={task.title}
+                      items={[
+                        task.completed
+                          ? { id: "reopen", label: "Reopen" }
+                          : { id: "complete", label: "Mark completed" },
+                      ]}
+                      onAction={(id) => void setCompleted(task, id === "complete")}
+                    />
+                  }
                 />
                 {open ? (
                   <div className="border-b border-border/50 bg-accent/10 px-4 py-3 text-sm">

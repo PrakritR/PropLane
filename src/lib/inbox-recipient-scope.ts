@@ -653,6 +653,9 @@ export async function listEligibleInboxContacts(
         name,
         email,
         role: "vendor",
+        // The roster row's linked login. The directory email above can differ from it, so the
+        // send addresses the account and the server re-derives the roster link.
+        userId: String((row as { vendor_user_id?: unknown }).vendor_user_id ?? "").trim(),
       });
     }
     // Pre-application funnel: tour links + listing-lead inbox threads.

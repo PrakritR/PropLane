@@ -71,6 +71,7 @@ function makeDb(opts: { records: Row[]; invoices: Row[]; payouts?: Row[]; profil
       if (name === "vendor_invoices") return table(opts.invoices);
       if (name === "vendor_payouts") return table(opts.payouts ?? []);
       if (name === "profiles") return table(opts.profiles ?? []);
+      if (name === "vendor_business_profiles") return table([]);
       if (name === "portal_work_order_records") return table(opts.work ?? []);
       throw new Error(`unexpected table ${name}`);
     },

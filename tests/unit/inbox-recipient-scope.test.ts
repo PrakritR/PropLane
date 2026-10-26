@@ -281,3 +281,36 @@ describe("filterRecipientsBySenderScope", () => {
     );
   });
 });
+
+describe("a linked roster vendor is addressed by account, not directory email", () => {
+  const vendorTables = (): Tables => ({
+    manager_vendor_records: [
+      { id: "v1", manager_user_id: "mgr_1", vendor_user_id: "ven_login", row_data: { name: "Pacific Plumbing", email: "office@pacificplumbing.example" } },
+      { id: "v2", manager_user_id: "mgr_other", vendor_user_id: "ven_foreign", row_data: { name: "Foreign", email: "foreign@example.com" } },
+      { id: "v3", manager_user_id: "mgr_1", vendor_user_id: null, row_data: { name: "Unlinked", email: "unlinked@example.com" } },
+    ],
+    profiles: [
+      { id: "ven_login", email: "showcase.vendor@test.proplane.local", role: "vendor" },
+      { id: "ven_foreign", email: "foreign-login@example.com", role: "vendor" },
+    ],
+    manager_application_records: [], portal_household_charge_records: [], portal_lease_pipeline_records: [],
+    resident_tour_links: [], portal_pro_relationship_records: [], account_link_invites: [],
+  });
+  const sender = { id: "mgr_1", email: "mgr@example.com", role: "manager", isAdmin: false };
+
+  it("the picker carries the roster row's vendor_user_id", async () => {
+    const contacts = await listEligibleInboxContacts(makeDb(vendorTables()), sender);
+    expect(contacts.find((c) => c.id === "ven-v1")).toMatchObject({ userId: "ven_login", email: "office@pacificplumbing.example" });
+    expect(contacts.find((c) => c.id === "ven-v3")).toBeUndefined();
+  });
+
+  it("allows the userId even when the directory email differs, and still blocks foreign or unknown accounts", async () => {
+    const scoped = await filterRecipientsBySenderScope(makeDb(vendorTables()), sender, [
+      { email: "showcase.vendor@test.proplane.local", userId: "ven_login" },
+      { email: "foreign-login@example.com", userId: "ven_foreign" },
+      { email: "office@pacificplumbing.example", userId: null },
+    ]);
+    expect(scoped.allowed.map((r) => r.userId)).toEqual(["ven_login"]);
+    expect(scoped.blocked).toHaveLength(2);
+  });
+});

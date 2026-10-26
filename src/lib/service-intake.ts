@@ -24,7 +24,7 @@ import {
 } from "@/lib/manager-scheduled-work-tasks";
 import { CUSTOM_SERVICE_REQUEST_OFFER_ID } from "@/lib/service-requests-storage";
 import { suggestVendorsForWorkOrder } from "@/lib/work-order-auto-match";
-import { sendWorkOrderToVendors } from "@/lib/work-order-vendor-offers";
+import { describeVendorSendOutcome, sendWorkOrderToVendors } from "@/lib/work-order-vendor-offers";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import {
   RESIDENT_MAINTENANCE_CATEGORY_LABELS,
@@ -109,6 +109,8 @@ export type SubmitMaintenanceServiceIntakeResult = {
   vendorName?: string;
   composePrefill: ManagerComposePrefill | null;
   vendorNotifyError?: string;
+  /** Who the offer reached / was invited / skipped, worded for a toast (J1). */
+  vendorOutcomeMessage?: string;
 };
 
 export async function submitMaintenanceServiceIntake(
@@ -146,6 +148,7 @@ export async function submitMaintenanceServiceIntake(
   const assignedAt = new Date().toISOString();
   let vendorName: string | undefined;
   let vendorNotifyError: string | undefined;
+  let vendorOutcomeMessage: string | undefined;
 
   if (vendor) {
     vendorName = vendor.name;
@@ -160,6 +163,7 @@ export async function submitMaintenanceServiceIntake(
     if (!isDemoModeActive()) {
       const notify = await sendWorkOrderToVendors(row.id, [vendor.id]);
       if (!notify.ok) vendorNotifyError = notify.error;
+      else vendorOutcomeMessage = describeVendorSendOutcome(notify, () => vendor!.name);
     }
   }
 
@@ -217,6 +221,7 @@ export async function submitMaintenanceServiceIntake(
     vendorName,
     composePrefill,
     vendorNotifyError,
+    vendorOutcomeMessage,
   };
 }
 

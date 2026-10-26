@@ -106,7 +106,7 @@ export type VendorSponsoredOutboundRequest = {
 };
 
 export type VendorSponsoredOutboundResult =
-  | { ok: true; providerMessageId: string | null; delivery: "sending" | "failed" | "sent" }
+  | { ok: true; providerMessageId: string | null; delivery: "sending" | "failed" | "sent"; /** Delivered into the recipient's PropLane inbox; no provider involved. */ inApp?: true }
   | { ok: false; error: "invalid_request" | "recipient_unlinked" | "conversation_unavailable" | "delivery_refused"; reason?: string };
 
 async function profileById(db: SupabaseClient, id: string): Promise<Recipient | null> {
@@ -308,7 +308,7 @@ export async function sendVendorSponsoredOutbound(
       recipient: counterpart, role: counterpartRole, target, subject, text: request.text.trim(), attachments,
       messageId: `vendor-sponsored:${request.sendId}`, job,
     });
-    return { ok: true, providerMessageId: null, delivery: "sent" };
+    return { ok: true, providerMessageId: null, delivery: "sent", inApp: true };
   }
 
   const boundRecipient = binding?.recipient ?? "";
@@ -382,7 +382,7 @@ export async function sendVendorSponsoredOutbound(
       recipient, role: request.recipientAdmin ? "admin" : "manager", target: null, subject, text: request.text.trim(),
       attachments, messageId: `vendor-sponsored:${request.sendId}`, job,
     });
-    return { ok: true, providerMessageId: null, delivery: "sent" };
+    return { ok: true, providerMessageId: null, delivery: "sent", inApp: true };
   }
 
   const delivered = await deliverVendorWorkIdentity(

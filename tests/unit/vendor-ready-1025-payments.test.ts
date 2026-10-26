@@ -11,6 +11,7 @@ import { submitIdentity } from "@/lib/stripe-connect-identity.server";
 import {
   VENDOR_INVOICE_PAY_RETURN_PATH,
   vendorBankNotConnectedLine,
+  vendorDirectoryName,
   vendorReadyForInvoicePayout,
 } from "@/lib/vendor-invoice-pay-readiness";
 
@@ -117,5 +118,22 @@ describe("P3 return URL", () => {
     expect(src).toContain("${VENDOR_INVOICE_PAY_RETURN_PATH}?invoice_pay=success");
     expect(src).toContain('redirectOnCompletion: "if_required"');
     expect(src).not.toContain("/portal/finances?invoice_pay");
+  });
+});
+
+describe("L7 vendor directory name", () => {
+  it("roster name, else profile full name, else business name, else Vendor", () => {
+    expect(vendorDirectoryName({ rosterName: " Acme Plumbing ", fullName: "Sam", businessName: "Acme LLC" })).toBe("Acme Plumbing");
+    expect(vendorDirectoryName({ rosterName: "", fullName: "Sam Lee", businessName: "Acme LLC" })).toBe("Sam Lee");
+    expect(vendorDirectoryName({ fullName: null, businessName: "Acme LLC" })).toBe("Acme LLC");
+    expect(vendorDirectoryName({})).toBe("Vendor");
+    expect(vendorDirectoryName({ rosterName: "__vendor_category_settings__", fullName: "Sam" })).toBe("Sam");
+  });
+
+  it("the outgoing invoices read resolves names server-side from the manager's roster", () => {
+    const src = readFileSync("src/app/api/manager/vendor-invoices/route.ts", "utf8");
+    expect(src).toContain("vendorDirectoryName(");
+    expect(src).toContain('.from("manager_vendor_records")');
+    expect(src).toContain('.eq("manager_user_id", auth.userId).in("vendor_user_id"');
   });
 });

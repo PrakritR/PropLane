@@ -9,6 +9,7 @@ import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import { PortalDialog } from "@/components/portal/portal-dialog";
+import { useCompletionPhotoUrls } from "@/hooks/use-completion-photo-urls";
 import { describeVendorSendOutcome, sendWorkOrderToVendors, type PublishMarketplaceOptions } from "@/lib/work-order-vendor-offers";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalDataTableEmpty, PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
@@ -402,6 +403,8 @@ export function ManagerWorkOrdersPanel({
     () => (routeStoredWorkOrder ? applyAcceptedBid(routeStoredWorkOrder, routeAcceptedBids) : null),
     [routeStoredWorkOrder, routeAcceptedBids],
   );
+
+  const completionPhotoUrls = useCompletionPhotoUrls(routeWorkOrder);
 
   useEffect(() => {
     if (routeStoredWorkOrder) openExpand(routeStoredWorkOrder, { alwaysLoadBids: true });
@@ -1049,6 +1052,8 @@ export function ManagerWorkOrdersPanel({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not approve bid.");
+      // Refresh the service list and this job's bids/offers before the toast, so the screen already
+      // shows Assigned/Scheduled when the confirmation lands.
       await syncManagerWorkOrdersFromServer({ force: true });
       await loadBids(bid.workOrderId);
       showToast("Bid approved. The visit is booked at the bid's time.");
@@ -1297,7 +1302,7 @@ export function ManagerWorkOrdersPanel({
           onWithdraw={(request) => void removeRequestHandler(row, request)}
           onApprove={(request) => {
             const bid = bids.find((b) => b.id === request.bidId);
-            if (bid) void acceptBidHandler(bid);
+            return bid ? acceptBidHandler(bid) : undefined;
           }}
           onSchedule={() => setScheduleVisitRow(row)}
           onMarkDone={() => markComplete(row)}
@@ -1783,7 +1788,7 @@ export function ManagerWorkOrdersPanel({
               ],
             },
           ]}
-          photos={routeWorkOrder.photoDataUrls ?? []}
+          photos={[...(routeWorkOrder.photoDataUrls ?? []), ...completionPhotoUrls]}
           onAddPhotos={(dataUrls) =>
             updateManagerWorkOrder(routeWorkOrder.id, (r) => ({ ...r, photoDataUrls: [...(r.photoDataUrls ?? []), ...dataUrls].slice(0, 12) }))
           }

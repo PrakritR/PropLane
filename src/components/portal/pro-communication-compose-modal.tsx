@@ -287,6 +287,10 @@ export function ManagerCommunicationComposeModal({
   residentDraft?: ResidentComposePrefill | null;
 }) {
   const isManager = portal === "manager";
+  // A vendor's "Message the manager" stages its draft through `initialDraft` (the same
+  // subject / manager shape a resident's staged draft has); resident panels use `residentDraft`.
+  const nonManagerDraft: ResidentComposePrefill | null =
+    residentDraft ?? (portal === "vendor" ? (initialDraft as unknown as ResidentComposePrefill | null) : null);
   const caps = useMemo(() => roleComposeCapabilities(portal, smsUiEnabled), [portal, smsUiEnabled]);
   const { showToast } = useAppUi();
   const [directoryContacts, setDirectoryContacts] = useState<InboxScopedContact[]>([]);
@@ -300,6 +304,7 @@ export function ManagerCommunicationComposeModal({
 
   const [selectedCategories, setSelectedCategories] = useState<ComposeCategory[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<PersonKey[]>([]);
+  const [pendingDraftKey, setPendingDraftKey] = useState<PersonKey | null>(null);
   const [otherTokens, setOtherTokens] = useState<OtherRecipientToken[]>([]);
   const [attachments, setAttachments] = useState<InboxComposerAttachment[]>([]);
   const attachmentsRef = useRef(attachments);
@@ -402,13 +407,13 @@ export function ManagerCommunicationComposeModal({
     if (!open) return;
     queueMicrotask(() => {
       if (!isManager) {
-        if (residentDraft) {
-          setSubject(residentDraft.subject?.trim() || "");
-          setBody(residentDraft.body?.trim() || "");
+        if (nonManagerDraft) {
+          setSubject(nonManagerDraft.subject?.trim() || "");
+          setBody(nonManagerDraft.body?.trim() || "");
           setPropertyContext({
-            propertyId: residentDraft.propertyId?.trim() || undefined,
-            propertyTitle: residentDraft.propertyTitle?.trim() || undefined,
-            managerUserId: residentDraft.managerUserId?.trim() || undefined,
+            propertyId: nonManagerDraft.propertyId?.trim() || undefined,
+            propertyTitle: nonManagerDraft.propertyTitle?.trim() || undefined,
+            managerUserId: nonManagerDraft.managerUserId?.trim() || undefined,
           });
         } else {
           setSubject("");
@@ -476,22 +481,29 @@ export function ManagerCommunicationComposeModal({
       setSending(false);
       smsAttemptRef.current = null;
     });
-  }, [open, initialChannel, smsUiEnabled, initialDraft, channelsFor, isManager, residentDraft, caps]);
+  }, [open, initialChannel, smsUiEnabled, initialDraft, channelsFor, isManager, nonManagerDraft, caps]);
 
   // A staged resident draft names its manager: pick them once the list is here.
   useEffect(() => {
-    if (!open || isManager || !residentDraft || contacts.length === 0) return;
-    const email = residentDraft.recipientEmail?.trim().toLowerCase();
-    const managerId = residentDraft.managerUserId?.trim();
+    if (!open || isManager || !nonManagerDraft || contacts.length === 0) return;
+    const email = nonManagerDraft.recipientEmail?.trim().toLowerCase();
+    const managerId = nonManagerDraft.managerUserId?.trim();
     const hit =
       (managerId
         ? contacts.find((c) => c.id === `mgr-${managerId}` || c.id === managerId)
         : undefined) ??
       (email ? contacts.find((c) => c.email.trim().toLowerCase() === email) : undefined);
     if (!hit) return;
+    // The category goes first: the person's key is only valid once its category is selected,
+    // and the prune below would drop it if both landed in the same pass.
     setSelectedCategories([composeCategoryForContact(portal, hit)]);
-    setSelectedKeys([`id:${hit.id}` as PersonKey]);
-  }, [open, isManager, portal, residentDraft, contacts]);
+    setPendingDraftKey(`id:${hit.id}` as PersonKey);
+  }, [open, isManager, portal, nonManagerDraft, contacts]);
+  useEffect(() => {
+    if (!pendingDraftKey || !validPersonKeys.has(pendingDraftKey)) return;
+    setSelectedKeys([pendingDraftKey]);
+    setPendingDraftKey(null);
+  }, [pendingDraftKey, validPersonKeys]);
 
   // Demo playback types a message into the open composer.
   useEffect(() => {
@@ -969,6 +981,8 @@ export function ManagerCommunicationComposeModal({
             fromName: senderName,
             fromEmail: senderEmail,
             toEmails: emailTargets.directEmails,
+            // A linked roster vendor is addressed by account; the server re-checks the roster row.
+            ...(emailTargets.directRecipientUserIds.length ? { toUserIds: emailTargets.directRecipientUserIds } : {}),
             toBroadcast: emailTargets.broadcastCategories,
             subject: subject.trim() || "Message",
             attachmentUrls: attachments.flatMap((item) => item.uploadUrl ? [item.uploadUrl] : []),

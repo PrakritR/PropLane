@@ -42,4 +42,13 @@ describe("inboxReplySentToastMessage", () => {
       ).toBe(expected);
     },
   );
+
+  it("words an in-app-only vendor reply as sent in PropLane, never via email or text", () => {
+    expect(
+      inboxReplySentToastMessage({
+        emailRequested: false, smsRequested: false, emailOk: false, smsOk: false,
+        proplaneRequested: true, proplaneOk: true, inAppOnly: true, delivery: "sent",
+      }),
+    ).toBe("Sent in PropLane.");
+  });
 });

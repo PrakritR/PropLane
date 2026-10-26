@@ -300,6 +300,10 @@ export type DemoManagerWorkOrderRow = {
   /** Resolved server-side for vendor payout display — not persisted in row_data. */
   managerName?: string;
   photoDataUrls?: string[];
+  /** Vendor completion photos: private-bucket paths (read through signed URLs). */
+  completionPhotoPaths?: string[];
+  /** @deprecated Legacy inline completion photos; read-compat only, never written. */
+  completionPhotoDataUrls?: string[];
   vendorId?: string;
   vendorName?: string;
   /** Populated once the vendor signs up and links to manager_vendor_records. */

@@ -205,15 +205,16 @@ describe("J3: completion photos", () => {
   it("status and photos are written in ONE update; a failed write leaves nothing else done", async () => {
     const log: Array<{ table: string; op: string; row?: Rec }> = [];
     const row = { id: "wo1", bucket: "scheduled", title: "T", reference: "R" };
-    const db = fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: row } } }, log);
+    const base0 = fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: row } } }, log) as unknown as Rec;
+    const db = { ...base0, storage: { from: () => ({ upload: async () => ({ error: null }) }) } } as never;
     const ok = await markWorkOrderDoneByVendor(db, actor(), { workOrderId: "wo1", completionPhotoDataUrls: ["data:image/jpeg;base64,AAAA"] });
     expect(ok.ok).toBe(true);
     const updates = log.filter((l) => l.op === "update");
     expect(updates).toHaveLength(1);
     expect((updates[0]!.row!.row_data as Rec).automationStatus).toBe("vendor_marked_done");
-    expect((updates[0]!.row!.row_data as Rec).completionPhotoDataUrls).toEqual(["data:image/jpeg;base64,AAAA"]);
+    expect((updates[0]!.row!.row_data as Rec).completionPhotoPaths).toHaveLength(1);
 
-    const failing = fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: row }, error: { message: "boom" } } });
+    const failing = { ...(fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: row }, error: { message: "boom" } } }) as unknown as Rec), storage: base0.storage } as never;
     hoisted.events.length = 0;
     const bad = await markWorkOrderDoneByVendor(failing, actor(), { workOrderId: "wo1", completionPhotoDataUrls: ["data:image/jpeg;base64,AAAA"] });
     expect(bad).toMatchObject({ ok: false, status: 500 });
@@ -268,5 +269,74 @@ describe("J6c: what a vendor read carries", () => {
     const out = projectWorkOrderForOfferedVendor(row) as unknown as Rec;
     expect(out).not.toHaveProperty("assignedRoomChoice");
     expect(out).not.toHaveProperty("propertyAddress");
+  });
+});
+
+describe("L1: a maintenance service can be assigned to a roster vendor", () => {
+  it("the maintenance picker lists the roster vendors by directory name", async () => {
+    const { assignmentCandidatesFor } = await import("@/lib/work-assignment");
+    const input = { teamMembers: [{ userId: "u1", name: "Me" }], vendors: [{ id: "d1", name: "Pacific Plumbing", trade: "Plumbing", active: true }] };
+    expect(assignmentCandidatesFor("maintenance", input).map((c) => `${c.type}:${c.name}`)).toEqual(["team:Me", "vendor:Pacific Plumbing"]);
+    const fs = await import("node:fs");
+    expect(fs.readFileSync("src/components/portal/pro-legacy-service-intake-form.tsx", "utf8")).toContain('kind={isMaintenanceOffer ? "maintenance" : "service"}');
+  });
+});
+
+describe("L5: approving a bid reports back", () => {
+  it("the approve handlers return their promise so the Button owns loading, and refresh before the toast", async () => {
+    const fs = await import("node:fs");
+    const panel = fs.readFileSync("src/components/portal/pro-work-orders-panel.tsx", "utf8");
+    expect(panel).toContain("return bid ? acceptBidHandler(bid) : undefined;");
+    expect(panel.indexOf("await loadBids(bid.workOrderId);\n      showToast(\"Bid approved")).toBeGreaterThan(0);
+    expect(fs.readFileSync("src/components/portal/pro-all-services-panel.tsx", "utf8")).toContain("onApprove={(request) => addOnJob.approve(request)}");
+  });
+});
+
+describe("L6: completion photos go to the private bucket, row_data keeps paths", () => {
+  it("mark-done uploads first and writes only paths in the one update", async () => {
+    const uploads: string[] = [];
+    const log: Array<{ table: string; op: string; row?: Rec }> = [];
+    const base = fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: { id: "wo1", bucket: "scheduled" } } } }, log) as unknown as Rec;
+    const db = { ...base, storage: { from: () => ({ upload: async (path: string) => { uploads.push(path); return { error: null }; } }) } } as never;
+    const res = await markWorkOrderDoneByVendor(db, actor(), { workOrderId: "wo1", completionPhotoDataUrls: ["data:image/jpeg;base64,AAAA"] });
+    expect(res.ok).toBe(true);
+    expect(uploads[0]).toMatch(/^manager\/m1\/service-completion\/wo1\/.+\.jpg$/);
+    const written = log.filter((l) => l.op === "update");
+    expect(written).toHaveLength(1);
+    const rd = written[0]!.row!.row_data as Rec;
+    expect(rd.completionPhotoPaths).toEqual(uploads);
+    expect(rd).not.toHaveProperty("completionPhotoDataUrls");
+  });
+  it("a failed upload leaves the job unmarked", async () => {
+    const log: Array<{ table: string; op: string; row?: Rec }> = [];
+    const base = fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: { id: "wo1", bucket: "scheduled" } } } }, log) as unknown as Rec;
+    const db = { ...base, storage: { from: () => ({ upload: async () => ({ error: { message: "down" } }) }) } } as never;
+    expect(await markWorkOrderDoneByVendor(db, actor(), { workOrderId: "wo1", completionPhotoDataUrls: ["data:image/jpeg;base64,AAAA"] })).toMatchObject({ ok: false, status: 500 });
+    expect(log.filter((l) => l.op === "update")).toHaveLength(0);
+  });
+  it("signing refuses a path outside this manager's work order", async () => {
+    const { signCompletionPhotoPaths } = await import("@/lib/completion-photo-storage.server");
+    const signed: string[] = [];
+    const db = { storage: { from: () => ({ createSignedUrl: async (p: string) => { signed.push(p); return { data: { signedUrl: `https://s/${p}` } }; } }) } } as never;
+    const urls = await signCompletionPhotoPaths(db, {
+      managerUserId: "m1",
+      workOrderId: "wo1",
+      paths: ["manager/m1/service-completion/wo1/a.jpg", "manager/OTHER/service-completion/wo1/a.jpg", "manager/m1/service-completion/wo2/a.jpg"],
+    });
+    expect(urls).toEqual(["https://s/manager/m1/service-completion/wo1/a.jpg"]);
+  });
+});
+
+describe("L8: Upcoming visits are future only", () => {
+  it("drops past and completed visits, soonest first", async () => {
+    const { upcomingVendorVisits } = await import("@/lib/vendor-work-order-tabs");
+    const now = Date.parse("2026-10-25T12:00:00Z");
+    const rows = [
+      { id: "past", scheduledAtIso: "2026-10-08T17:00:00Z", bucket: "scheduled" },
+      { id: "later", scheduledAtIso: "2026-10-30T17:00:00Z", bucket: "scheduled" },
+      { id: "soon", scheduledAtIso: "2026-10-26T17:00:00Z", bucket: "scheduled" },
+      { id: "done", scheduledAtIso: "2026-10-27T17:00:00Z", bucket: "completed" },
+    ] as unknown as DemoManagerWorkOrderRow[];
+    expect(upcomingVendorVisits(rows, now).map((r) => r.id)).toEqual(["soon", "later"]);
   });
 });

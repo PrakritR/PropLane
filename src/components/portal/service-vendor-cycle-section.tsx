@@ -45,7 +45,7 @@ function CompareCards({
 }: {
   rows: readonly VendorRequestRow[];
   approvingBidId: string | null;
-  onApprove: (row: VendorRequestRow) => void;
+  onApprove: (row: VendorRequestRow) => void | Promise<unknown>;
 }) {
   const compared = compareBids(rows);
   const bidRows = new Map(rows.map((row) => [row.key, row]));
@@ -83,7 +83,7 @@ function CompareCards({
                 className="h-8 rounded-full px-4 text-xs"
                 disabled={!bid.canApprove || approving || !source}
                 aria-label={`Approve bid from ${bid.vendorName}`}
-                onClick={() => source && onApprove(source)}
+                onClick={() => (source ? onApprove(source) : undefined)}
               >
                 {approving ? "Approving…" : "Approve bid"}
               </Button>
@@ -140,7 +140,7 @@ export function ServiceVendorPipeline({
   allowMarketplace?: boolean;
   onSend: (vendorIds: string[], marketplace: PublishMarketplaceOptions | undefined) => void | Promise<void>;
   onWithdraw: (row: VendorRequestRow) => void;
-  onApprove: (row: VendorRequestRow) => void;
+  onApprove: (row: VendorRequestRow) => void | Promise<unknown>;
   onSchedule: (row: PipelineJobRow) => void;
   onMarkDone: (row: PipelineJobRow) => void;
   onPay: (row: PipelineJobRow) => void;

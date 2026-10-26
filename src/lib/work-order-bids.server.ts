@@ -32,6 +32,7 @@ import { bidCanBeApproved } from "@/lib/work-order-bid-approval";
 import { parseVisitFeeCents } from "@/lib/work-order-visit-fee";
 import { ensureVisitFeeInvoice } from "@/lib/work-order-visit-fee-invoice.server";
 import { safeFormatDateTime } from "@/lib/pacific-time";
+import { uploadCompletionPhotos } from "@/lib/completion-photo-storage.server";
 import { revealHeldVendorContact } from "@/lib/service-work-board.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -1198,6 +1199,21 @@ export async function markWorkOrderDoneByVendor(
     return { ok: false, status: 400, error: "This service has already been marked done." };
   }
 
+  // Upload first: the bytes go to the private bucket and row_data keeps only paths (never base64).
+  // A failure here leaves the job unmarked and retryable; an orphaned upload after a later failure is fine.
+  let completionPhotoPaths: string[] = [];
+  if (body.completionPhotoDataUrls?.length) {
+    try {
+      completionPhotoPaths = await uploadCompletionPhotos(db, {
+        managerUserId: String(workOrder.manager_user_id),
+        workOrderId,
+        dataUrls: body.completionPhotoDataUrls,
+      });
+    } catch (e) {
+      return { ok: false, status: 500, error: e instanceof Error ? e.message : "Could not store the completion photos." };
+    }
+  }
+
   const now = new Date().toISOString();
   const nextRowData: DemoManagerWorkOrderRow = {
     ...rowData,
@@ -1205,7 +1221,7 @@ export async function markWorkOrderDoneByVendor(
     vendorMarkedDoneAt: now,
     vendorMarkedDoneNote: note || undefined,
     // Written with the done status in this ONE update: a failure leaves the job unmarked and retryable.
-    ...(body.completionPhotoDataUrls?.length ? { completionPhotoDataUrls: body.completionPhotoDataUrls } : {}),
+    ...(completionPhotoPaths.length ? { completionPhotoPaths: [...(rowData.completionPhotoPaths ?? []), ...completionPhotoPaths] } : {}),
   };
 
   const { error } = await db
