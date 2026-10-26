@@ -722,17 +722,13 @@ async function currentOwnerOfRecord(db: SupabaseClient, workspace: { id: string;
       .eq("workspace_id", workspace.id)
       .eq("is_owner_of_record", true)
       .in("status", ["accepted", "pending"]),
-    db
-      .from("manager_invite_links")
-      .select("id, label, max_uses, used_count, expires_at, revoked_at")
-      .eq("owner_user_id", workspace.ownerUserId)
-      .eq("workspace_id", workspace.id)
-      .eq("kind", "manager")
-      .eq("team_role", "property_owner")
-      .is("revoked_at", null),
+    // Only a live Admin › Service invite holds the slot. An ordinary owner share link cannot create an owner of record
+    // (`redeemInviteLink` refuses an unbound one), so it must not stand in the real owner's way either — and the one
+    // query that decides what "a live service invite" is stays `liveServiceInviteLinks`.
+    liveServiceInviteLinks(db, workspace),
     isPlatformServiceOwner(db, workspace.ownerUserId),
   ]);
-  if (members.error || links.error) return null;
+  if (members.error || !links.ok) return null;
   // The owner of an attached CLIENT workspace IS its owner of record; nobody else can be, and nobody can replace them.
   if (!serviceOwned) {
     const owner = await db.from("profiles").select("full_name, email").eq("id", workspace.ownerUserId).maybeSingle();
@@ -749,11 +745,8 @@ async function currentOwnerOfRecord(db: SupabaseClient, workspace: { id: string;
     }
     return { kind: "member", linkId: flagged.id, name: name || "The owner", status: flagged.status };
   }
-  const now = new Date();
-  const live = ((links.data ?? []) as { id: string; label: string | null; max_uses: number | null; used_count: number | null; expires_at: string | null }[]).find(
-    (l) => (l.max_uses == null || (l.used_count ?? 0) < l.max_uses) && (!l.expires_at || new Date(l.expires_at) > now),
-  );
-  if (live) return { kind: "link", linkId: live.id, name: serviceInviteEmailFromLabel(live.label) ?? "The owner" };
+  const live = links.links.find((l) => l.teamRole === "property_owner");
+  if (live) return { kind: "link", linkId: live.id, name: live.email || "The owner" };
   return { kind: "none" };
 }
 

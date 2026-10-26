@@ -78,6 +78,38 @@ export async function loadOnboardingState(db: SupabaseClient, phoneKey: string):
   return (await readOnboardingState(db, phoneKey)).state;
 }
 
+/**
+ * Claim the one role question for this phone on this line. The claim IS the write, and it is a compare-and-swap on the
+ * `asked_at` the caller read: only one request can move it, so a burst of unclear texts that arrives before the
+ * question's outbox row lands asks once and only once. False = the claim was lost to another request, or nothing could
+ * be stored — and the caller must then ask nothing, because an ask that was never recorded can never have its answer
+ * read back.
+ */
+export async function claimRoleQuestionAsk(
+  db: SupabaseClient,
+  phoneKey: string,
+  line: string,
+  previousAskedAt: string | null,
+  now: Date = new Date(),
+): Promise<boolean> {
+  const stamp = now.toISOString();
+  const patch = { asked_at: stamp, asked_line: line, updated_at: stamp };
+  const base = db.from("sms_onboarding_state").update(patch).eq("phone_key", phoneKey);
+  const swapped = await (previousAskedAt ? base.eq("asked_at", previousAskedAt) : base.is("asked_at", null)).select("phone_key");
+  if (swapped.error) {
+    if (isMissingSchemaError(swapped.error)) return saveOnboardingState(db, phoneKey, { askedAt: stamp, askedLine: line }, now);
+    console.error("onboarding ask claim failed", swapped.error.code ?? "unknown");
+    return false;
+  }
+  if ((swapped.data ?? []).length > 0) return true;
+  // Nothing moved: either this phone has no row yet, or another request asked first. The insert settles which —
+  // `phone_key` is the primary key, so a duplicate means the row was there and the claim is not ours.
+  const fresh = await db.from("sms_onboarding_state").insert({ phone_key: phoneKey, ...patch }).select("phone_key");
+  if (!fresh.error) return (fresh.data ?? []).length > 0;
+  if (isMissingSchemaError(fresh.error)) return saveOnboardingState(db, phoneKey, { askedAt: stamp, askedLine: line }, now);
+  return false;
+}
+
 /** Merge a patch into the phone's row, creating it. Returns false when nothing could be stored. */
 export async function saveOnboardingState(
   db: SupabaseClient,

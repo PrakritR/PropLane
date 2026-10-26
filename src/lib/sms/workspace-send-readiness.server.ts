@@ -185,7 +185,9 @@ export async function evaluateWorkspaceSendReadiness(input: {
 
 /**
  * The registration, runtime, provider-identity and wallet checks for ONE number row. `billingWorkspaceId` names the wallet
- * that pays when it is not the row's own workspace (a managed workspace sending on the PropLane line pays from its own).
+ * that pays when it is not the row's own workspace (a managed workspace sending on the PropLane line pays from its own),
+ * and `allowlistUserId` names the manager the rollout allowlist is about when the line is not this owner's — the pilot
+ * gates the NUMBER, so a managed workspace sending on the PropLane line is judged by the line's own holder.
  */
 async function evaluateNumberRowReadiness(input: {
   db: SupabaseClient;
@@ -195,9 +197,11 @@ async function evaluateNumberRowReadiness(input: {
   requiredCents: number;
   now: Date;
   billingWorkspaceId?: string | null;
+  allowlistUserId?: string | null;
 }): Promise<WorkspaceSendReadiness> {
   const { db, ownerId, runtime: runtimeRow, numberRow, requiredCents, now } = input;
-  const allowlisted = (runtimeRow.pilot_manager_user_ids ?? []).includes(ownerId);
+  const allowlistUserId = input.allowlistUserId?.trim() || ownerId;
+  const allowlisted = (runtimeRow.pilot_manager_user_ids ?? []).includes(allowlistUserId);
   const decision = evaluateManagerSmsNumberSendability(
     {
       provisionState: numberRow.provision_state as never,
@@ -280,6 +284,9 @@ async function evaluateServiceLineReadiness(input: {
     requiredCents,
     now: input.now,
     billingWorkspaceId: workspaceId,
+    // The line belongs to the PropLane service owner, not to this workspace's owner (attach never moves
+    // `owner_user_id`), so the pilot allowlist is read against the holder of the number being left on.
+    allowlistUserId: line.serviceOwnerUserId,
   });
 }
 

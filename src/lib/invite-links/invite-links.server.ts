@@ -1058,10 +1058,10 @@ async function checkBoundInviteeEmail(
   db: SupabaseClient,
   linkId: string,
   redeemerUserId: string,
-): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+): Promise<{ ok: true; boundEmail: string | null } | { ok: false; status: number; error: string }> {
   const bound = await readBoundInviteeEmail(db, linkId);
   if (!bound.ok) return { ok: false, status: 500, error: "Could not verify this invite. Try again in a moment." };
-  if (!bound.email) return { ok: true };
+  if (!bound.email) return { ok: true, boundEmail: null };
   let user: { email?: string | null; email_confirmed_at?: string | null; confirmed_at?: string | null } | null = null;
   try {
     const res = await db.auth.admin.getUserById(redeemerUserId);
@@ -1076,7 +1076,7 @@ async function checkBoundInviteeEmail(
   if (!user.email_confirmed_at && !user.confirmed_at) {
     return { ok: false, status: 403, error: INVITE_EMAIL_UNCONFIRMED_ERROR };
   }
-  return { ok: true };
+  return { ok: true, boundEmail: bound.email };
 }
 
 export async function redeemInviteLink(
@@ -1112,10 +1112,13 @@ export async function redeemInviteLink(
   );
   if (unusable) return { ok: false, status: 410, error: inviteLinkUnusableMessage(unusable) };
 
-  // A service invite is bound to the email it was sent to. Checked before anything is spent or written.
+  // A service invite is bound to the email it was sent to. Checked before anything is spent or written. The email it
+  // read is kept: the owner-of-record guard below asks the same question and must not read it a second time.
+  let boundInviteeEmail: string | null = null;
   if (linkKind === "manager") {
     const bound = await checkBoundInviteeEmail(db, String(link.id), redeemerUserId);
     if (!bound.ok) return bound;
+    boundInviteeEmail = bound.boundEmail;
   }
 
   // Already redeemed by this person: hand back the invite they already have
@@ -1277,10 +1280,8 @@ export async function redeemInviteLink(
   }
   // The owner of record of a PropLane-owned workspace comes only from a bound Admin › Service invite. An unbound owner
   // link there (a share link, or one minted before that rule) redeems as nothing at all.
-  if (serviceOwned && redeemOwnerLink) {
-    const bound = await readBoundInviteeEmail(db, String(link.id));
-    if (!bound.ok) return { ok: false, status: 500, error: "Could not verify this invite. Try again in a moment." };
-    if (!bound.email) return { ok: false, status: 403, error: SERVICE_OWNER_LINK_ERROR };
+  if (serviceOwned && redeemOwnerLink && !boundInviteeEmail) {
+    return { ok: false, status: 403, error: SERVICE_OWNER_LINK_ERROR };
   }
 
   // Owner pays for co-manager seats. A Free invitee may join a Pro owner's

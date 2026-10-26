@@ -210,7 +210,7 @@ describe("J3: completion photos", () => {
   it("status and photos are written in ONE update; a failed write leaves nothing else done", async () => {
     const log: Array<{ table: string; op: string; row?: Rec }> = [];
     const row = { id: "wo1", bucket: "scheduled", title: "T", reference: "R" };
-    const base0 = fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: row } } }, log) as unknown as Rec;
+    const base0 = fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: row }, rows: [{ id: "wo1" }] } }, log) as unknown as Rec;
     const db = { ...base0, storage: { from: () => ({ upload: async () => ({ error: null }) }) } } as never;
     const ok = await markWorkOrderDoneByVendor(db, actor(), { workOrderId: "wo1", completionPhotoDataUrls: ["data:image/jpeg;base64,AAAA"] });
     expect(ok.ok).toBe(true);
@@ -219,10 +219,21 @@ describe("J3: completion photos", () => {
     expect((updates[0]!.row!.row_data as Rec).automationStatus).toBe("vendor_marked_done");
     expect((updates[0]!.row!.row_data as Rec).completionPhotoPaths).toHaveLength(1);
 
-    const failing = { ...(fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: row }, error: { message: "boom" } } }) as unknown as Rec), storage: base0.storage } as never;
+    const failing = { ...(fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: row }, rows: [{ id: "wo1" }], error: { message: "boom" } } }) as unknown as Rec), storage: base0.storage } as never;
     hoisted.events.length = 0;
     const bad = await markWorkOrderDoneByVendor(failing, actor(), { workOrderId: "wo1", completionPhotoDataUrls: ["data:image/jpeg;base64,AAAA"] });
     expect(bad).toMatchObject({ ok: false, status: 500 });
+    expect(hoisted.events).toHaveLength(0);
+  });
+
+  it("a double tap writes the done status once: the update re-asserts it, and a lost race fires nothing", async () => {
+    const log: Array<{ table: string; op: string; row?: Rec }> = [];
+    // The row still reads as not-done (the stale SELECT both requests made), but the conditional UPDATE matches no row
+    // because the winner already stamped automationStatus.
+    const base = fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: { id: "wo1", bucket: "scheduled", title: "T", reference: "R" } }, rows: [] } }, log) as unknown as Rec;
+    const db = { ...base, storage: { from: () => ({ upload: async () => ({ error: null }) }) } } as never;
+    hoisted.events.length = 0;
+    expect(await markWorkOrderDoneByVendor(db, actor(), { workOrderId: "wo1" })).toMatchObject({ ok: false, status: 400 });
     expect(hoisted.events).toHaveLength(0);
   });
 });
@@ -307,7 +318,7 @@ describe("L6: completion photos go to the private bucket, row_data keeps paths",
   it("mark-done uploads first and writes only paths in the one update", async () => {
     const uploads: string[] = [];
     const log: Array<{ table: string; op: string; row?: Rec }> = [];
-    const base = fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: { id: "wo1", bucket: "scheduled" } } } }, log) as unknown as Rec;
+    const base = fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: { id: "wo1", bucket: "scheduled" } }, rows: [{ id: "wo1" }] } }, log) as unknown as Rec;
     const db = { ...base, storage: { from: () => ({ upload: async (path: string) => { uploads.push(path); return { error: null }; } }) } } as never;
     const res = await markWorkOrderDoneByVendor(db, actor(), { workOrderId: "wo1", completionPhotoDataUrls: ["data:image/jpeg;base64,AAAA"] });
     expect(res.ok).toBe(true);
@@ -320,7 +331,7 @@ describe("L6: completion photos go to the private bucket, row_data keeps paths",
   });
   it("a failed upload leaves the job unmarked", async () => {
     const log: Array<{ table: string; op: string; row?: Rec }> = [];
-    const base = fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: { id: "wo1", bucket: "scheduled" } } } }, log) as unknown as Rec;
+    const base = fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: { id: "wo1", bucket: "scheduled" } }, rows: [{ id: "wo1" }] } }, log) as unknown as Rec;
     const db = { ...base, storage: { from: () => ({ upload: async () => ({ error: { message: "down" } }) }) } } as never;
     expect(await markWorkOrderDoneByVendor(db, actor(), { workOrderId: "wo1", completionPhotoDataUrls: ["data:image/jpeg;base64,AAAA"] })).toMatchObject({ ok: false, status: 500 });
     expect(log.filter((l) => l.op === "update")).toHaveLength(0);

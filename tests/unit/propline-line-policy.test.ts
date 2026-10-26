@@ -558,6 +558,17 @@ describe("rule 6: an unknown number's first text", () => {
       expect(state.sent[0]!.text).toContain("Hi, this is Elm Rentals.");
     });
 
+    it("a role given on ANOTHER line does not swallow the answer to this number's own question", async () => {
+      await ask("hi");
+      expect(await ask("vendor")).toEqual({ handled: false, forceVendor: true });
+      state.sent = [];
+      expect(await askOwn("hi")).toEqual({ handled: true, sent: true });
+      expect(state.sent[0]!.text).toContain("Hi, this is Elm Rentals.");
+      state.sent = [];
+      expect(await askOwn("I'm a resident")).toEqual({ handled: true, sent: true });
+      expect(state.sent[0]!.text).toBe(withOptOut(RESIDENT_NOT_FOUND_REPLY));
+    });
+
     it("a vendor answer is asked for their trade and area; a clear first text is untouched", async () => {
       await askOwn("hi");
       state.sent = [];

@@ -9,13 +9,13 @@ import { needsShortStayPricingCheck, shortStayPricingBlocker, type ShortStayPric
 export async function loadShortStayPricingSubmission(db: SupabaseClient, row: ShortStayPricingPlacement, managerUserId: string | null | undefined) {
   if (!needsShortStayPricingCheck(row)) return undefined;
   const propertyId = row.assignedPropertyId || row.propertyId || row.application?.propertyId || parseRoomChoiceValue(row.assignedRoomChoice || row.roomChoice || row.application?.roomChoice1 || "").propertyId;
-  if (!managerUserId || !propertyId) return null;
+  if (!managerUserId || !propertyId) return "unplaced";
   try {
     const { data, error } = await db.from("manager_property_records").select("property_data,row_data").eq("id", propertyId).eq("manager_user_id", managerUserId).maybeSingle();
-    if (error) return null;
+    if (error) return "unreadable";
     const raw = data?.property_data?.listingSubmission ?? data?.row_data?.listingSubmission ?? data?.row_data?.submission;
     return raw ? normalizeManagerListingSubmissionV1(raw) : null;
-  } catch { return null; }
+  } catch { return "unreadable"; }
 }
 
 /** New approvals only: historical approved/signed records are not repriced by a metadata write. */

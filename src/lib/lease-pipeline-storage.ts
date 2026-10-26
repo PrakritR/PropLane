@@ -1,5 +1,4 @@
-import { shortStayPricingBlocker } from "@/lib/short-stay-pricing-gate";
-import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { shortStayPricingBlocker, type ShortStayPricingSubmission } from "@/lib/short-stay-pricing-gate";
 /**
  * Unified manager / admin / resident lease workflow backed by Supabase records.
  * Buckets match UI tabs: manager → admin → resident → signed.
@@ -559,7 +558,7 @@ export function leaseLandlordNameWarning(row: LeasePipelineRow): string | null {
   return leaseLandlordNameBlocker(row);
 }
 
-export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoApplicantRow[], pricingSubmission?: ManagerListingSubmissionV1 | null): string | null {
+export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoApplicantRow[], pricingSubmission?: ShortStayPricingSubmission): string | null {
   // The document check itself, taught to recognize an uploaded/library-attached
   // PDF: `leasePipelineRowHasDocument` (-> `leaseRowHasDocument`) already
   // tolerates a LIST-shaped row whose bytes were omitted for bandwidth

@@ -1224,11 +1224,19 @@ export async function markWorkOrderDoneByVendor(
     ...(completionPhotoPaths.length ? { completionPhotoPaths: [...(rowData.completionPhotoPaths ?? []), ...completionPhotoPaths] } : {}),
   };
 
-  const { error } = await db
+  // Re-asserted in the WHERE clause, not just the in-memory read above: a double-tap or a retried
+  // POST must not write the done status twice, overwrite the winner's photo paths from this stale
+  // row, or fire the resident confirmation and the completed event a second time.
+  const { data: claimed, error } = await db
     .from("portal_work_order_records")
     .update({ row_data: stampSmsTestProvenance(nextRowData as unknown as Record<string, unknown>), updated_at: now })
-    .eq("id", workOrderId);
+    .eq("id", workOrderId)
+    .is("row_data->>automationStatus", null)
+    .select("id");
   if (error) return { ok: false, status: 500, error: error.message };
+  if (!(claimed ?? []).length) {
+    return { ok: false, status: 400, error: "This service has already been marked done." };
+  }
 
   // "Was this fixed?" — a signed link for the resident when the manager has the
   // step on. The stamp lives on the row so the answer can be matched back.

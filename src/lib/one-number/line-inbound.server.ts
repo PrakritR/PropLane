@@ -77,10 +77,12 @@ async function answerSelfServeTies(
   db: SupabaseClient,
   input: { lineOwnerUserId: string; fromPhone: string; body: string },
 ): Promise<{ reply: string; actorUserId: string } | null> {
-  if (isLineKeywordOrUrgentText(input.body) || isHousingSearchText(input.body)) return null;
+  // A jobs ask belongs to the PropLane vendor board, whoever else the sender is: dropping only the vendor ties would
+  // answer a vendor who also rents from a self-serve workspace with "text your work number" and never show the board.
+  if (isLineKeywordOrUrgentText(input.body) || isHousingSearchText(input.body) || asksForJobs(input.body)) return null;
   const [residencies, jobs, profile] = await Promise.all([
     findResidentCandidates(db, input.fromPhone).catch(() => null),
-    asksForJobs(input.body) ? Promise.resolve([]) : findVendorJobCandidates(db, input.fromPhone).catch(() => null),
+    findVendorJobCandidates(db, input.fromPhone).catch(() => null),
     findVerifiedProfileByPhone(db, input.fromPhone).catch(() => null),
   ]);
   if (residencies === null || jobs === null) return null;

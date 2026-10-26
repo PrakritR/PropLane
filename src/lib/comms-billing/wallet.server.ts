@@ -355,10 +355,16 @@ export async function finishCommsCredit(
   key: string,
   release = false,
 ) {
-  if ((await creditSourceForExistingReservation(db, owner, key)) === "number") {
+  const finishSource = await creditSourceForExistingReservation(db, owner, key);
+  if (finishSource !== "wallet") {
     const { finishNumberCredit } = await import("@/lib/number-subscription/credit.server");
-    await finishNumberCredit(owner, key, { release, db });
-    return;
+    try {
+      await finishNumberCredit(owner, key, { release, db });
+      return;
+    } catch (err) {
+      // The ledger was read: this reservation IS the number's, so the failure is the real answer.
+      if (finishSource === "number") throw err;
+    }
   }
   let usedPool = false;
   if (isCommsCreditPoolEnabled()) {
@@ -402,10 +408,15 @@ export async function settleCommsCreditQuantity(
   key: string,
   quantity: number,
 ) {
-  if ((await creditSourceForExistingReservation(db, owner, key)) === "number") {
+  const settleSource = await creditSourceForExistingReservation(db, owner, key);
+  if (settleSource !== "wallet") {
     const { settleNumberCreditQuantity } = await import("@/lib/number-subscription/credit.server");
-    await settleNumberCreditQuantity(owner, key, quantity, { db });
-    return;
+    try {
+      await settleNumberCreditQuantity(owner, key, quantity, { db });
+      return;
+    } catch (err) {
+      if (settleSource === "number") throw err;
+    }
   }
   if (isCommsCreditPoolEnabled()) {
     const { settleCommsCreditQuantityPool, CommsCreditPoolSchemaMissingError } = await import("./pool.server");

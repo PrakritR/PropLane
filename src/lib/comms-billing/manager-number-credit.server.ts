@@ -106,11 +106,24 @@ export async function creditSourceForReserve(
   return wallet.data ? "wallet" : "number";
 }
 
-/** Source for a finish / settle / refund: wherever the reservation was made, else the wallet. */
+/**
+ * Source for a finish / settle / refund: wherever the reservation was made, else the wallet.
+ *
+ * `unverified` = the number ledger could not be read. A finish must never abort on it: the reservation is already
+ * debited, and a throw here would leave it that way forever. The caller tries the number ledger and falls back to the
+ * wallet, which is not a guess — each ledger's RPC refuses a key it does not hold, so the reservation is found or the
+ * caller still fails loudly.
+ */
+export type ExistingReservationCreditSource = ManagerCreditSource | "unverified";
+
 export async function creditSourceForExistingReservation(
   db: SupabaseClient,
   managerUserId: string,
   key: string,
-): Promise<ManagerCreditSource> {
-  return (await existingCreditSourceForKey(db, managerUserId, key)) ?? "wallet";
+): Promise<ExistingReservationCreditSource> {
+  try {
+    return (await existingCreditSourceForKey(db, managerUserId, key)) ?? "wallet";
+  } catch {
+    return "unverified";
+  }
 }

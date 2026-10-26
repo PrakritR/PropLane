@@ -8,6 +8,13 @@ import { shortTermStayCanBePriced, shortTermStayNightCount } from "@/lib/short-t
 
 export const SHORT_STAY_PRICING_INCOMPLETE_MESSAGE = "Set a nightly rate that covers the full stay, or choose whole weeks for a weekly-only rate, before approving or sending the lease.";
 
+/**
+ * What the loader found, so the manager is told something they can act on. `null` is the property's rates missing
+ * (set them), not a failure: a read that failed is `unreadable` (retry) and a stay naming no property is `unplaced`
+ * (assign the room). `undefined` means the caller did not load one and falls back to its own copy.
+ */
+export type ShortStayPricingSubmission = ManagerListingSubmissionV1 | null | undefined | "unreadable" | "unplaced";
+
 export type ShortStayPricingPlacement = {
   propertyId?: string | null;
   assignedPropertyId?: string | null;
@@ -23,9 +30,11 @@ export function needsShortStayPricingCheck(row: ShortStayPricingPlacement): bool
 }
 
 /** Same rates and night coverage as the quote, agreement and approval ledger. No monthly fallback. */
-export function shortStayPricingBlocker(row: ShortStayPricingPlacement, submission: ManagerListingSubmissionV1 | null | undefined): string | null {
+export function shortStayPricingBlocker(row: ShortStayPricingPlacement, submission: ShortStayPricingSubmission): string | null {
   if (!needsShortStayPricingCheck(row)) return null;
-  if (!submission) return "Could not verify the stay pricing. Reload the property before approving or sending the lease.";
+  if (submission === "unreadable") return "Could not verify the stay pricing. Try again in a moment.";
+  if (submission === "unplaced") return "This stay is not linked to a property yet. Assign the room before approving or sending the lease.";
+  if (!submission) return "This property has no stay rates. Set a nightly or weekly rate before approving or sending the lease.";
   const app = row.application!;
   const choice = row.assignedRoomChoice || row.roomChoice || app.roomChoice1 || "";
   const room = resolveSubmissionRoom(submission, { roomChoices: [choice] });

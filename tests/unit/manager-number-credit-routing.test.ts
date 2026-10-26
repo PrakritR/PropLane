@@ -192,10 +192,14 @@ describe("Free manager with the PropLane Number add-on", () => {
     expect(await evaluateManagerCommsBillingGate(asDb(db), OWNER, 3, WS)).toEqual({ allowed: false, reason: "plan_unreadable" });
   });
 
-  it("an unreadable ledger lookup throws rather than guessing a source", async () => {
+  it("an unreadable ledger lookup refuses a reserve, and still releases a reservation already debited", async () => {
     const db = makeDb({ readError: true });
     await expect(reserve(db, "sms_outbound:6", 1)).rejects.toThrow();
-    await expect(finishCommsCredit(asDb(db), OWNER, "sms_outbound:6", true)).rejects.toThrow();
+    // A finish must never abandon a debited reservation: it tries the number ledger, whose RPC refuses a key it does
+    // not hold, and then the wallet. No ledger is guessed - each one answers for itself.
+    await finishCommsCredit(asDb(db), OWNER, "sms_outbound:6", true);
+    expect(db.state.numberCalls).toContain("finish_number_credit");
+    expect(db.state.walletCalls).toContain("finish_comms_credit");
   });
 });
 
