@@ -9,6 +9,8 @@ export type WorkOrderVendorOffer = {
   vendorUserId: string | null;
   vendorName?: string;
   vendorEmail?: string;
+  /** The linked account's login email, when it differs from the roster email (manager reads). */
+  vendorLoginEmail?: string;
   status: "sent" | "withdrawn" | "declined";
   declinedReason?: string | null;
   createdAt: string;

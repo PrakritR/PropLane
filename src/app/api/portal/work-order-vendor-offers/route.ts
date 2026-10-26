@@ -9,6 +9,7 @@ import {
   previewMarketplaceReach,
   sendWorkOrderVendorOffers,
   vendorDirectoryRowsById,
+  vendorLoginEmailsByUserId,
 } from "@/lib/work-order-offers.server";
 
 export const runtime = "nodejs";
@@ -37,6 +38,8 @@ type OfferJson = {
   vendorUserId: string | null;
   vendorName?: string;
   vendorEmail?: string;
+  /** The linked account's login email (manager reads only); the in-app thread lives under it. */
+  vendorLoginEmail?: string;
   status: OfferStatus;
   /** Why the vendor said no, when they gave a reason. Vendor-entered — display as data. */
   declinedReason?: string | null;
@@ -66,8 +69,13 @@ async function sessionActor(db: Db, req: Request) {
   };
 }
 
-function toJson(offer: OfferRecord, vendors: Map<string, { name: string; email: string }>): OfferJson {
+function toJson(
+  offer: OfferRecord,
+  vendors: Map<string, { name: string; email: string; vendorUserId?: string | null }>,
+  logins: Map<string, string> = new Map(),
+): OfferJson {
   const vendor = vendors.get(offer.vendor_directory_id);
+  const loginEmail = logins.get(offer.vendor_user_id ?? vendor?.vendorUserId ?? "");
   return {
     id: offer.id,
     workOrderId: offer.work_order_id,
@@ -75,6 +83,7 @@ function toJson(offer: OfferRecord, vendors: Map<string, { name: string; email: 
     vendorUserId: offer.vendor_user_id,
     vendorName: vendor?.name,
     vendorEmail: vendor?.email,
+    ...(loginEmail ? { vendorLoginEmail: loginEmail } : {}),
     status: offer.status,
     declinedReason: offer.declined_reason ?? null,
     createdAt: offer.created_at,
@@ -119,7 +128,12 @@ export async function GET(req: Request) {
 
     const offers = (data ?? []) as OfferRecord[];
     const vendors = await vendorDirectoryRowsById(db, offers.map((o) => o.vendor_directory_id));
-    return NextResponse.json({ offers: offers.map((o) => toJson(o, vendors)) });
+    // A manager's read also carries each linked vendor's login email (the in-app thread's address).
+    const logins =
+      actor.role === "vendor" && !actor.admin
+        ? new Map<string, string>()
+        : await vendorLoginEmailsByUserId(db, offers.map((o) => o.vendor_user_id ?? vendors.get(o.vendor_directory_id)?.vendorUserId));
+    return NextResponse.json({ offers: offers.map((o) => toJson(o, vendors, logins)) });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load vendor offers.";
     return NextResponse.json({ error: message }, { status: 500 });

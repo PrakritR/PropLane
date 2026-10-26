@@ -287,7 +287,13 @@ describe("L5: approving a bid reports back", () => {
     const fs = await import("node:fs");
     const panel = fs.readFileSync("src/components/portal/pro-work-orders-panel.tsx", "utf8");
     expect(panel).toContain("return bid ? acceptBidHandler(bid) : undefined;");
-    expect(panel.indexOf("await loadBids(bid.workOrderId);\n      showToast(\"Bid approved")).toBeGreaterThan(0);
+    // R3: toast and optimistic state come from the 200 itself; the refetch is never awaited.
+    const handler = panel.slice(panel.indexOf("const acceptBidHandler"), panel.indexOf("const removeRequestHandler"));
+    expect(handler.indexOf('showToast("Bid approved')).toBeLessThan(handler.indexOf("syncManagerWorkOrdersFromServer"));
+    expect(handler).toContain('status: "accepted"');
+    expect(handler).not.toMatch(/await (Promise\.all\(\[)?syncManagerWorkOrdersFromServer/);
+    const actions = fs.readFileSync("src/lib/add-on-vendor-job-actions.ts", "utf8");
+    expect(actions).not.toMatch(/approve_bid[\s\S]{0,300}await syncManagerWorkOrdersFromServer/);
     expect(fs.readFileSync("src/components/portal/pro-all-services-panel.tsx", "utf8")).toContain("onApprove={(request) => addOnJob.approve(request)}");
   });
 });
@@ -338,5 +344,56 @@ describe("L8: Upcoming visits are future only", () => {
       { id: "done", scheduledAtIso: "2026-10-27T17:00:00Z", bucket: "completed" },
     ] as unknown as DemoManagerWorkOrderRow[];
     expect(upcomingVendorVisits(rows, now).map((r) => r.id)).toEqual(["soon", "later"]);
+  });
+});
+
+
+describe("R3-1: a service's Communication finds the vendor's login-email thread", () => {
+  it("matches a thread under the linked account's login email, not only the roster email", async () => {
+    const { serviceCommunicationParties, serviceThreadsForParty, serviceThreadsForEveryone } = await import("@/lib/service-communication-scope");
+    const parties = serviceCommunicationParties({
+      resident: null,
+      offers: [{ vendorDirectoryId: "d1", vendorName: "Pacific Plumbing", vendorEmail: "office@pacificplumbing.example", vendorLoginEmail: "showcase.vendor@x.com" }],
+    });
+    expect(parties[0]).toMatchObject({ email: "office@pacificplumbing.example", altEmails: ["showcase.vendor@x.com"] });
+    const thread = { id: "t1", email: "showcase.vendor@x.com", recordRef: { kind: "service", id: "REQ-1", label: "x" } };
+    const other = { id: "t2", email: "someone@else.com", recordRef: { kind: "service", id: "REQ-1", label: "x" } };
+    expect(serviceThreadsForParty([thread, other], { recordIds: ["REQ-1"], party: parties[0] })).toEqual([thread]);
+    expect(serviceThreadsForEveryone([thread, other], { recordIds: ["REQ-1"], parties })).toEqual([thread]);
+  });
+  it("the bids and offers reads attach the login email for managers only", async () => {
+    const fs = await import("node:fs");
+    for (const f of ["src/app/api/portal/work-order-bids/route.ts", "src/app/api/portal/work-order-vendor-offers/route.ts"]) {
+      const src = fs.readFileSync(f, "utf8");
+      expect(src, f).toContain("vendorLoginEmailsByUserId");
+      expect(src, f).toMatch(/actor\.role === "vendor" && !actor\.admin\s*\?\s*new Map/);
+    }
+  });
+});
+
+describe("R3-3: Upcoming visits exclude every completed form", () => {
+  it("drops vendor-marked-done, paid and completedAt rows even when the bucket is still scheduled", async () => {
+    const { upcomingVendorVisits } = await import("@/lib/vendor-work-order-tabs");
+    const now = Date.parse("2026-10-26T12:00:00Z");
+    const at = "2026-10-30T17:00:00Z";
+    const rows = [
+      { id: "ok", scheduledAtIso: at, bucket: "scheduled" },
+      { id: "marked", scheduledAtIso: at, bucket: "scheduled", automationStatus: "vendor_marked_done" },
+      { id: "paid", scheduledAtIso: at, bucket: "scheduled", automationStatus: "paid" },
+      { id: "stamped", scheduledAtIso: at, bucket: "scheduled", completedAt: "2026-10-25T00:00:00Z" },
+    ] as unknown as DemoManagerWorkOrderRow[];
+    expect(upcomingVendorVisits(rows, now).map((r) => r.id)).toEqual(["ok"]);
+  });
+});
+
+describe("R3-4: the manager's inbox titles the vendor thread with the roster name", () => {
+  it("roster name first, else the profile name, never a login email", async () => {
+    const { managerSideVendorName } = await import("@/lib/vendor-sponsored-outbound.server");
+    const dbWith = (rowData: Rec | null) =>
+      ({ from: () => { const b: Rec = {}; for (const m of ["select", "eq", "limit"]) b[m] = () => b; b.maybeSingle = async () => ({ data: rowData ? { row_data: rowData } : null }); return b; } }) as never;
+    const input = { managerUserId: "m1", vendorUserId: "v1", fallbackName: "Vee Vendor" };
+    expect(await managerSideVendorName(dbWith({ name: "Pacific Plumbing" }), input)).toBe("Pacific Plumbing");
+    expect(await managerSideVendorName(dbWith(null), input)).toBe("Vee Vendor");
+    expect(await managerSideVendorName(dbWith(null), { ...input, fallbackName: "showcase.vendor@x.com" })).toBe("PropLane vendor");
   });
 });

@@ -33,6 +33,24 @@ function expiresLabel(at: Date): string {
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
+/**
+ * The login email of each linked vendor account. A vendor's in-app job messages live in the thread
+ * under THEIR login email, which can differ from the roster's directory email; the manager's service
+ * Communication section matches parties by address, so it needs both. Callers have already scoped the
+ * offers/bids to the manager, so only the manager's own linked vendors are resolved.
+ */
+export async function vendorLoginEmailsByUserId(db: Db, userIds: Array<string | null | undefined>): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ids = [...new Set(userIds.map((id) => String(id ?? "").trim()).filter(Boolean))];
+  if (ids.length === 0) return out;
+  const { data } = await db.from("profiles").select("id, email").in("id", ids);
+  for (const row of data ?? []) {
+    const email = String((row as { email?: unknown }).email ?? "").trim().toLowerCase();
+    if (email) out.set(String((row as { id?: unknown }).id), email);
+  }
+  return out;
+}
+
 export const MAX_VENDORS_PER_SEND = 10;
 
 export type VendorDirectorySummary = {

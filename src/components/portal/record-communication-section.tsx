@@ -128,7 +128,7 @@ export type RecordCommunicationSectionProps = {
    * add-on, its linked vendor job) and with this party - never the person-wide history matched by
    * counterparty email or phone (`service-communication-scope.ts`).
    */
-  serviceScope?: { recordIds: string[]; party: { email?: string; phone?: string } | null };
+  serviceScope?: { recordIds: string[]; party: { email?: string; altEmails?: string[]; phone?: string } | null };
   /**
    * A service's "Everyone" view (plan admin-money-1008, D9): ONE time-ordered timeline of the resident's and
    * every vendor's turns about this service, each labeled with its author and party, and a "To" picker so a

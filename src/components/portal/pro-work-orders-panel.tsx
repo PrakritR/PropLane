@@ -1052,11 +1052,27 @@ export function ManagerWorkOrdersPanel({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Could not approve bid.");
-      // Refresh the service list and this job's bids/offers before the toast, so the screen already
-      // shows Assigned/Scheduled when the confirmation lands.
-      await syncManagerWorkOrdersFromServer({ force: true });
-      await loadBids(bid.workOrderId);
+      // Confirm and reflect it NOW from the response we already have; the refetch below only reconciles
+      // and is never awaited (it can take many seconds, and the approval is already in the database).
       showToast("Bid approved. The visit is booked at the bid's time.");
+      setBidsByWorkOrderId((prev) => ({
+        ...prev,
+        [bid.workOrderId]: (prev[bid.workOrderId] ?? []).map((b) =>
+          b.id === bid.id ? { ...b, status: "accepted" } : b.status === "submitted" ? { ...b, status: "declined" } : b,
+        ),
+      }));
+      updateManagerWorkOrder(bid.workOrderId, (current) => ({
+        ...current,
+        vendorId: bid.vendorDirectoryId ?? current.vendorId,
+        vendorName: bid.vendorName ?? current.vendorName,
+        vendorAssignedAt: current.vendorAssignedAt ?? new Date().toISOString(),
+        selfAssigned: false,
+        biddingOpen: false,
+        ...(bid.proposedTime && current.bucket !== "completed"
+          ? { bucket: "scheduled" as const, status: "Scheduled", scheduledAtIso: bid.proposedTime }
+          : {}),
+      }));
+      void Promise.all([syncManagerWorkOrdersFromServer({ force: true }), loadBids(bid.workOrderId)]).catch(() => undefined);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not approve bid.");
     } finally {

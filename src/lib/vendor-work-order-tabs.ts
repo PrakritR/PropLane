@@ -288,7 +288,8 @@ export function vendorBidTabs(
 export function upcomingVendorVisits(rows: DemoManagerWorkOrderRow[], nowMs: number = Date.now()): DemoManagerWorkOrderRow[] {
   return rows
     .filter((r) => {
-      if (!r.scheduledAtIso || r.bucket === "completed") return false;
+      // "Completed" is the lifecycle's own call (bucket, vendor-marked-done, paid, completedAt), not the bucket alone.
+      if (!r.scheduledAtIso || isCompleted(r)) return false;
       const at = Date.parse(r.scheduledAtIso);
       return Number.isFinite(at) && at > nowMs;
     })

@@ -203,6 +203,27 @@ async function verifiedJobRef(
 }
 
 /**
+ * What the manager's inbox calls this vendor: the manager's own roster name for them, else the
+ * vendor's profile name. Without it a vendor with no profile name is titled by their login email,
+ * which the inbox renders as "Manager".
+ */
+export async function managerSideVendorName(
+  db: SupabaseClient,
+  input: { managerUserId: string; vendorUserId: string; fallbackName: string },
+): Promise<string> {
+  const { data } = await db
+    .from("manager_vendor_records")
+    .select("row_data")
+    .eq("manager_user_id", input.managerUserId)
+    .eq("vendor_user_id", input.vendorUserId)
+    .limit(1)
+    .maybeSingle();
+  const rosterName = String(((data?.row_data ?? {}) as { name?: unknown }).name ?? "").trim();
+  const fallback = input.fallbackName.trim();
+  return rosterName || (fallback && !fallback.includes("@") ? fallback : "PropLane vendor");
+}
+
+/**
  * Vendor -> PropLane user is in-app: the vendor's copy and the manager's side of
  * the SAME conversation (the resolver keys it, so no second conversation) are
  * written here, with no work identity and no provider. Both writes are idempotent
@@ -231,11 +252,19 @@ async function deliverVendorInApp(
     attachments: input.attachments, delivery: "sent" as const,
     ...(input.job ? { recordRef: input.job.recordRef } : {}),
   };
+  const managerSideName = recipient.userId
+    ? await managerSideVendorName(db, {
+        managerUserId: recipient.userId,
+        vendorUserId: actor.userId,
+        fallbackName: actor.name,
+      }).catch(() => common.fromName)
+    : common.fromName;
   const hints = { managerUserId: recipient.userId, propertyId: input.job?.propertyId ?? null, otherPartyUserId: actor.userId };
   // The manager's side: same attachment paths on their thread are what let
   // `userCanAccessInboxAttachment` serve the file to them.
   const inboxCopy = deliverPortalMessageThreadSide(db, {
     ...common,
+    fromName: managerSideName,
     scope: scopeForRole(input.role), folder: "inbox", ownerUserId: recipient.userId, participantEmail: recipient.email,
     otherPartyEmail: actor.email, fallbackId: `vendor-sponsored-inbox:${actor.userId}:${recipient.userId}`,
     unread: true, outbound: false, conversation: hints,

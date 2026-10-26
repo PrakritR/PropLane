@@ -19,6 +19,8 @@ export type ServiceCommunicationPartyTab = {
   kind: "resident" | "vendor";
   name: string;
   email?: string;
+  /** Other addresses the same party writes from (a vendor's login email when it differs from the roster email). */
+  altEmails?: string[];
   phone?: string;
 };
 
@@ -84,10 +86,12 @@ export function serviceRecordIds(serviceId: string, linkedWorkOrderId?: string |
   return [...new Set([serviceId, linkedWorkOrderId ?? ""].map((id) => id.trim()).filter(Boolean))];
 }
 
-function sameParty(thread: ThreadLike, party: Pick<ServiceCommunicationPartyTab, "email" | "phone">): boolean {
-  const partyEmail = party.email?.trim().toLowerCase() ?? "";
+function sameParty(thread: ThreadLike, party: Pick<ServiceCommunicationPartyTab, "email" | "phone" | "altEmails">): boolean {
   const threadEmail = (thread.email ?? "").trim().toLowerCase();
-  if (partyEmail && threadEmail && partyEmail === threadEmail) return true;
+  for (const candidate of [party.email, ...(party.altEmails ?? [])]) {
+    const partyEmail = candidate?.trim().toLowerCase() ?? "";
+    if (partyEmail && threadEmail && partyEmail === threadEmail) return true;
+  }
   const partyPhone = party.phone?.trim() ? smsNoticePhone(party.phone) : "";
   if (partyPhone && thread.smsNoticePhone && smsNoticePhone(thread.smsNoticePhone) === partyPhone) return true;
   return false;
@@ -101,7 +105,7 @@ function sameParty(thread: ThreadLike, party: Pick<ServiceCommunicationPartyTab,
  */
 export function serviceThreadsForParty<T extends ThreadLike>(
   threads: readonly T[],
-  scope: { recordIds: readonly string[]; party?: Pick<ServiceCommunicationPartyTab, "email" | "phone"> | null },
+  scope: { recordIds: readonly string[]; party?: Pick<ServiceCommunicationPartyTab, "email" | "phone" | "altEmails"> | null },
 ): T[] {
   const ids = new Set(scope.recordIds.map((id) => id.trim()).filter(Boolean));
   const party = scope.party ?? null;
@@ -118,7 +122,7 @@ export function serviceThreadsForParty<T extends ThreadLike>(
  */
 export function serviceThreadsForEveryone<T extends ThreadLike>(
   threads: readonly T[],
-  scope: { recordIds: readonly string[]; parties: readonly Pick<ServiceCommunicationPartyTab, "email" | "phone">[] },
+  scope: { recordIds: readonly string[]; parties: readonly Pick<ServiceCommunicationPartyTab, "email" | "phone" | "altEmails">[] },
 ): T[] {
   const keep = new Set<T>();
   const lists = scope.parties.length === 0 ? [null] : scope.parties;
@@ -179,8 +183,8 @@ export const SERVICE_PARTY_LABEL: Record<ServiceCommunicationPartyTab["kind"], s
  */
 export function serviceCommunicationParties(input: {
   resident: { name: string; email?: string; phone?: string } | null;
-  offers: readonly Pick<WorkOrderVendorOffer, "vendorDirectoryId" | "vendorName" | "vendorEmail">[];
-  bids?: readonly Pick<WorkOrderBid, "vendorDirectoryId" | "vendorName" | "vendorEmail" | "vendorUserId">[];
+  offers: readonly Pick<WorkOrderVendorOffer, "vendorDirectoryId" | "vendorName" | "vendorEmail" | "vendorLoginEmail">[];
+  bids?: readonly Pick<WorkOrderBid, "vendorDirectoryId" | "vendorName" | "vendorEmail" | "vendorUserId" | "vendorLoginEmail">[];
   /** The manager's vendor roster, for a vendor's phone when only the directory id is known. */
   roster?: readonly { id: string; name?: string | null; email?: string | null; phone?: string | null }[];
 }): ServiceCommunicationPartyTab[] {
@@ -189,9 +193,12 @@ export function serviceCommunicationParties(input: {
     tabs.push({ id: "resident", kind: "resident", name: input.resident.name, email: input.resident.email, phone: input.resident.phone });
   }
   const seen = new Set<string>();
-  const add = (directoryId: string | null | undefined, userId: string | null | undefined, name?: string, email?: string) => {
+  const loginByKey = new Map<string, string>();
+  const add = (directoryId: string | null | undefined, userId: string | null | undefined, name?: string, email?: string, loginEmail?: string) => {
     const key = directoryId?.trim() || userId?.trim() || "";
-    if (!key || seen.has(key)) return;
+    if (!key) return;
+    if (loginEmail?.trim()) loginByKey.set(key, loginEmail.trim().toLowerCase());
+    if (seen.has(key)) return;
     seen.add(key);
     const record = input.roster?.find((vendor) => vendor.id === directoryId);
     tabs.push({
@@ -202,7 +209,12 @@ export function serviceCommunicationParties(input: {
       phone: record?.phone?.trim() || undefined,
     });
   };
-  for (const offer of input.offers) add(offer.vendorDirectoryId, null, offer.vendorName, offer.vendorEmail);
-  for (const bid of input.bids ?? []) add(bid.vendorDirectoryId, bid.vendorUserId, bid.vendorName, bid.vendorEmail);
+  for (const offer of input.offers) add(offer.vendorDirectoryId, null, offer.vendorName, offer.vendorEmail, offer.vendorLoginEmail);
+  for (const bid of input.bids ?? []) add(bid.vendorDirectoryId, bid.vendorUserId, bid.vendorName, bid.vendorEmail, bid.vendorLoginEmail);
+  // Attach the login address(es) after all rows are seen, so an offer without one still gets its bid's.
+  for (const tab of tabs) {
+    const login = loginByKey.get(tab.id.replace(/^vendor:/, ""));
+    if (login && login !== tab.email?.trim().toLowerCase()) tab.altEmails = [login];
+  }
   return tabs;
 }
