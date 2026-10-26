@@ -41,6 +41,19 @@ type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
  * priced (see scheduledAtIso on the work order). */
 const CONSULTATION_VISIT_DURATION_MINUTES = 30;
 
+/**
+ * The row fields that book a visit: the one shape both the approved-bid auto-book and a vendor
+ * picking a time on a directly assigned job write, so the two can never drift.
+ */
+export function bookedVisitPatch(visitIso: string): Pick<DemoManagerWorkOrderRow, "bucket" | "status" | "scheduledAtIso" | "scheduled"> {
+  return {
+    bucket: "scheduled",
+    status: "Scheduled",
+    scheduledAtIso: visitIso,
+    scheduled: safeFormatDateTime(visitIso),
+  };
+}
+
 export type QuoteMode = "upfront" | "after_consultation";
 
 export type BidRecord = {
@@ -936,14 +949,7 @@ export async function acceptWorkOrderBid(
       // A hired service leaves the vendor work board (vendor-work-share-1006).
       ...(rowData.published ? { published: false } : {}),
       // The approved bid's proposed time is booked as the visit; either side can still move it.
-      ...(record.proposed_time && rowData.bucket !== "completed"
-        ? {
-            bucket: "scheduled" as const,
-            status: "Scheduled",
-            scheduledAtIso: record.proposed_time,
-            scheduled: safeFormatDateTime(record.proposed_time),
-          }
-        : {}),
+      ...(record.proposed_time && rowData.bucket !== "completed" ? bookedVisitPatch(record.proposed_time) : {}),
     };
     // The write that actually HIRES the vendor.
     const { error: assignError } = await db
@@ -1164,7 +1170,7 @@ export async function setVendorPriceForWorkOrder(
 export async function markWorkOrderDoneByVendor(
   db: Db,
   actor: WorkOrderActor,
-  body: { workOrderId?: string; note?: string },
+  body: { workOrderId?: string; note?: string; completionPhotoDataUrls?: string[] },
 ): Promise<{ ok: true; workOrder: DemoManagerWorkOrderRow } | WorkOrderActionFailure> {
   if (!actor.admin && actor.role !== "vendor") {
     return { ok: false, status: 403, error: "Forbidden." };
@@ -1198,6 +1204,8 @@ export async function markWorkOrderDoneByVendor(
     automationStatus: "vendor_marked_done",
     vendorMarkedDoneAt: now,
     vendorMarkedDoneNote: note || undefined,
+    // Written with the done status in this ONE update: a failure leaves the job unmarked and retryable.
+    ...(body.completionPhotoDataUrls?.length ? { completionPhotoDataUrls: body.completionPhotoDataUrls } : {}),
   };
 
   const { error } = await db
@@ -1247,6 +1255,83 @@ export async function markWorkOrderDoneByVendor(
 
   track("work_order_vendor_marked_done", actor.userId, { work_order_id: workOrderId });
   return { ok: true, workOrder: finalRowData };
+}
+
+/**
+ * The assigned vendor picks the visit time on a job they were put on directly (no bid, or an
+ * approved bid that carried no time). Books it with the same row patch the bid-accept path uses and
+ * moves the job to Scheduled. Ownership is re-derived from the row: `vendor_user_id` must be the
+ * actor, and the update re-asserts it in the WHERE clause, so a body id is only a name.
+ */
+export async function scheduleAssignedVisit(
+  db: Db,
+  actor: WorkOrderActor,
+  body: { workOrderId?: string; visitAt?: string },
+): Promise<{ ok: true; workOrder: DemoManagerWorkOrderRow; scheduledAtIso: string } | WorkOrderActionFailure> {
+  if (actor.role !== "vendor") return { ok: false, status: 403, error: "Forbidden." };
+  const workOrderId = String(body.workOrderId ?? "").trim();
+  if (!workOrderId) return { ok: false, status: 400, error: "Work order id required." };
+
+  const parsed = new Date(String(body.visitAt ?? ""));
+  if (Number.isNaN(parsed.getTime())) return { ok: false, status: 400, error: "Pick a valid visit date and time." };
+  if (parsed.getTime() <= Date.now()) return { ok: false, status: 400, error: "Pick a visit time in the future." };
+
+  const { data: workOrder } = await db
+    .from("portal_work_order_records")
+    .select("manager_user_id, vendor_user_id, resident_email, row_data")
+    .eq("id", workOrderId)
+    .maybeSingle();
+  if (!workOrder || workOrder.vendor_user_id !== actor.userId) return { ok: false, status: 403, error: "Forbidden." };
+
+  const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
+  if (rowData.bucket === "completed" || rowData.bucket === "scheduled" || rowData.scheduledAtIso || rowData.automationStatus) {
+    return { ok: false, status: 409, error: "This service is already scheduled or finished." };
+  }
+  if (rowData.biddingOpen) return { ok: false, status: 409, error: "This service is still taking bids." };
+
+  const visitIso = parsed.toISOString();
+  const now = new Date().toISOString();
+  const nextRowData: DemoManagerWorkOrderRow = { ...rowData, ...bookedVisitPatch(visitIso) };
+  const { data: updated, error } = await db
+    .from("portal_work_order_records")
+    .update({ row_data: stampSmsTestProvenance(nextRowData as unknown as Record<string, unknown>), updated_at: now })
+    .eq("id", workOrderId)
+    .eq("vendor_user_id", actor.userId)
+    .select("id");
+  if (error) return { ok: false, status: 500, error: error.message };
+  if (!updated || updated.length === 0) return { ok: false, status: 409, error: "This service changed. Reload and try again." };
+
+  const managerRecipients = await resolvePropertyScopedManagerRecipientIds(db, {
+    ownerManagerUserId: String(workOrder.manager_user_id),
+    propertyId: rowData.assignedPropertyId || rowData.propertyId || undefined,
+    channel: "services",
+  }).catch(() => [] as string[]);
+  const residentEmail = String(workOrder.resident_email ?? rowData.residentEmail ?? "").trim().toLowerCase();
+  await workOrderEvent(db, {
+    eventId: `${workOrderId}:scheduled:${visitIso}`,
+    event: "scheduled",
+    senderAudience: "vendor",
+    managerUserId: String(workOrder.manager_user_id),
+    workOrderId,
+    senderUserId: actor.userId,
+    senderEmail: actor.email,
+    senderName: actor.fullName,
+    facts: {
+      reference: rowData.reference || "Work order",
+      propertyId: rowData.assignedPropertyId || rowData.propertyId || undefined,
+      title: rowData.title || "Work order",
+      propertyLabel: rowData.propertyName || undefined,
+      scheduledFor: nextRowData.scheduled || undefined,
+      vendorName: actor.fullName || rowData.vendorName || undefined,
+    },
+    recipients: [
+      ...(residentEmail.includes("@") ? [{ audience: "resident" as const, email: residentEmail }] : []),
+      ...managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
+    ],
+  }).catch(() => undefined);
+
+  track("work_order_vendor_scheduled_visit", actor.userId, { work_order_id: workOrderId });
+  return { ok: true, workOrder: nextRowData, scheduledAtIso: visitIso };
 }
 
 /** Same function, named for what the manager does with it. */

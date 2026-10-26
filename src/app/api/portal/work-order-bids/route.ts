@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveSessionActorRole } from "@/lib/auth/vendor-api-access";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -56,7 +57,7 @@ async function sessionActor(db: Db, req: Request) {
   if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
   const admin = await resolveAdminOversight(req, user.id);
   const { data: profile } = await db.from("profiles").select("email, role, full_name").eq("id", user.id).maybeSingle();
-  const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+  const role = await resolveSessionActorRole(profile?.role ?? user.user_metadata?.role);
   return {
     userId: user.id,
     email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),

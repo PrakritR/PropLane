@@ -1,7 +1,9 @@
 import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import { track } from "@/lib/analytics/posthog";
 import {
+  claimVendorInvite,
   findPendingVendorInviteByToken,
+  releaseVendorInvite,
   provisionVendorAccountByEmail,
   vendorUnlinkedNotice,
   type VendorInviteRow,
@@ -57,14 +59,29 @@ export async function POST(req: Request) {
           ? user.user_metadata.name
           : invite?.vendor_name ?? null;
 
-    const result = await provisionVendorAccountByEmail(service, {
-      userId: user.id,
-      email: user.email,
-      fullName,
-      invite,
-      confirmEmail: true,
-    });
+    // Claim FIRST (compare-and-swap), exactly like the email path: the invite is single-use.
+    if (invite) {
+      const claimed = await claimVendorInvite(service, invite.id, user.id);
+      if (!claimed) {
+        return NextResponse.json({ error: "This invite has already been used." }, { status: 409 });
+      }
+    }
+
+    let result: Awaited<ReturnType<typeof provisionVendorAccountByEmail>>;
+    try {
+      result = await provisionVendorAccountByEmail(service, {
+        userId: user.id,
+        email: user.email,
+        fullName,
+        invite,
+        confirmEmail: true,
+      });
+    } catch (e) {
+      if (invite) await releaseVendorInvite(service, invite.id);
+      throw e;
+    }
     if (!result.ok) {
+      if (invite) await releaseVendorInvite(service, invite.id);
       return NextResponse.json({ error: result.error }, { status: result.status });
     }
 

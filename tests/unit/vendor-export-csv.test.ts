@@ -41,10 +41,14 @@ function table(rows: Row[]) {
   return api;
 }
 
-vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServerClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: state.user } }) },
-  }),
+// The route authorizes off profile_roles (requireVendorApiAccess), never the legacy profiles.role.
+// `state.role` stands in for whether that account holds the vendor role.
+vi.mock("@/lib/auth/vendor-api-access", () => ({
+  requireVendorApiAccess: async () => {
+    if (!state.user) return { ok: false, status: 401 };
+    if (state.role !== "vendor") return { ok: false, status: 403 };
+    return { ok: true, actor: { userId: state.user.id } };
+  },
 }));
 
 vi.mock("@/lib/supabase/service", () => ({

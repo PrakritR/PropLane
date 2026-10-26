@@ -9,6 +9,8 @@ export const vendorPortal: PortalDefinition = {
   sections: [
     { section: "dashboard", label: "Dashboard", tabs: [] },
     { section: "work-orders", label: "Services", tabs: [] },
+    // Tasks the manager assigned to this vendor (`VendorTaskList`): In progress · Completed.
+    { section: "tasks", label: "Tasks", tabs: [] },
     { section: "calendar", label: "Calendar", tabs: [] },
     { section: "communication", label: "Communication", tabs: [] },
     {
@@ -55,6 +57,7 @@ export const vendorPortal: PortalDefinition = {
 export const VENDOR_PORTAL_SMOKE_PATHS = [
   { label: "Dashboard", path: "/vendor/dashboard" },
   { label: "Services", path: "/vendor/work-orders" },
+  { label: "Tasks", path: "/vendor/tasks" },
   { label: "Calendar", path: "/vendor/calendar" },
   { label: "Communication", path: "/vendor/communication/active" },
   { label: "Incoming payments", path: "/vendor/payments/pending" },

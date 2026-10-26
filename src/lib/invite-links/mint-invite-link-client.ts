@@ -3,6 +3,8 @@ export type MintInviteLinkClientInput = {
   label?: string;
   workspaceId?: string | null;
   assignedPropertyIds: string[];
+  /** Vendor links: the manager's directory row the link claims on redemption. */
+  vendorDirectoryId?: string;
   propertyPermissions?: unknown;
   propertyLabelsById?: Record<string, string>;
   expiry?: string;
@@ -33,6 +35,7 @@ export async function mintInviteLinkClient(
         label: input.label,
         workspaceId: input.workspaceId || undefined,
         assignedPropertyIds: input.assignedPropertyIds,
+        vendorDirectoryId: input.vendorDirectoryId,
         propertyPermissions: input.propertyPermissions,
         propertyLabelsById: input.propertyLabelsById,
         expiry: input.expiry,

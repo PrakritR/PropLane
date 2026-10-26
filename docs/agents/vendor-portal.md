@@ -23,7 +23,8 @@ the section key `work-orders` (relabeled from "Work Orders" in the mobile-nav-m1
 overhaul), and Tasks is `tasks`, the vendor's view of manager tasks assigned
 to them (`VendorTaskList`, `GET/PATCH /api/vendor/tasks`, tabs
 `in-progress`/`completed`; bare `/vendor/tasks` is the default in-progress view —
-legacy `/vendor/task-list/...` redirects there).
+legacy `/vendor/task-list/...` redirects there). Tasks is a live vendor section again (nav, right after Services;
+`/vendor/tasks` mounts `VendorTaskList`, no redirect; the "New task from ..." email links to it).
 Routes live at `src/app/vendor/layout.tsx` +
 `src/app/vendor/[section]/[[...tab]]/page.tsx`, copied from the resident
 portal shell. Render handlers are in `render-portal-section.tsx` under
@@ -64,15 +65,15 @@ Send via PropLane / Email / SMS; the first send adds them to Your vendors
 (Every property) if they are not already there. Regular Add vendor keeps the
 six-step workspace.
 
-**Invites are server-issued and always expire.** `vendor_invites` is
+**Invites are server-issued and always expire.** A link minted for a directory row (Add vendor) carries that row's id, and redemption links THAT row instead of inserting a second one; previewing an invite reuses the unexpired pending token. `vendor_invites` is
 `SELECT`-only for `anon`/`authenticated` (owner-scoped read;
 `20260722123000_lock_role_grant_surface.sql`) — only the service-role issuing
 route writes one. Redemption turns an invite into a **pre-confirmed** account on
 its `vendor_email`, so both lookup paths in `provision-vendor-account.ts` (by
 token and by email) go through `redeemableInvite`, which fails closed on a
 missing/unparseable/elapsed `expires_at`. `expires_at` is `NOT NULL` and
-defaults to `now() + 7 days`, matching the `VENDOR_INVITE_TTL_MS` the issuing
-route stamps. Never reintroduce an expiry-optional path — a NULL expiry
+is stamped at 72 hours (`VENDOR_INVITE_TTL_MS`) by the issuing code; the column's
+7-day default is only a backstop. Never reintroduce an expiry-optional path — a NULL expiry
 previously skipped the TTL check entirely. Coverage:
 `tests/unit/vendor-invite-redemption-ttl.test.ts`.
 
@@ -108,9 +109,15 @@ uploads, but keyed off `vendor_business_profiles` instead of
 `onboarding_completed_at` is server-derived (`vendorOnboardingRequiredFieldsFilled`
 in `vendor-business-profile.server.ts`) from business name + at least one trade
 + a service area, and — once set — never un-sets, even if a field is later
-cleared. The vendor Dashboard shows a "Finish setting up" checklist (Business,
-Trades & area, License & insurance, Payout bank — the last linking to the
-existing `/vendor/financials/payouts` Connect flow) until all four are done.
+cleared. There is no "Finish setting up" checklist in code. What nudges a vendor to add a
+bank is the Dashboard balance card's Add bank flow (`vendor-dashboard-balance-card.tsx`)
+and the inbox notice sent when a held payment is returned unclaimed.
+
+Hold expiry (VD58): the 90-day cron lists both `held` and `classified_held`
+vendor-invoice holds with no transfer id; a `classified_held` one is returned through the
+central refund rail (`submitVendorRefund`, key `hold-expiry-<holdId>`), never a raw Stripe refund.
+Vendor Connect accounts are created with MCC 1799 / "Home repair and maintenance services"
+(managers keep 6513); existing accounts are not rewritten.
 
 **Manager-facing vendor directory (night/vendor-signup).** A directory-listed,
 onboarding-complete self-serve vendor (`directory_listed = true`) is now
@@ -164,6 +171,12 @@ NOT built: `mapPublicVendorReviewRow`'s `reviewerLabel` is hardcoded to "A
 PropLane manager" for every review on that route specifically so a vendor can
 never learn which manager/workspace reviewed them, and a workspace filter
 would require exposing that identity.
+
+**Vendor -> manager messages are in-app first** (`sendVendorSponsoredOutbound`): when the other end is a PropLane
+account the vendor is linked to, the reply or compose writes the vendor's copy AND the manager's side of the same
+conversation (idempotent on `sendId`), with no work identity or binding; a thread's `row_data.email` only names which
+linked account, never widens reach. The work identity (email/number) is used only for outside contacts with no
+profile. A job's "Message the manager" carries `recordRef {kind:"service"}`, which the server re-derives before stamping.
 
 Inbox scoping added a 3rd scope constant (`axis_portal_inbox_vendor_v1`,
 mirrored across `portal-inbox-delivery.ts`, `portal-inbox-thread-scope.ts`, and
@@ -280,7 +293,11 @@ to capturing the whole send. It is inert in any deployed build.
 
 Every Services tab (Open · Assigned · Scheduled · Completed · Find work) is the shared row; stage actions live only in
 the row's ⋯ (`vendorServiceActions`: Open Submit bid · Book visit · Decline; Assigned Schedule · Message the manager;
-Scheduled Reschedule (asks the manager) · Complete; Completed Send invoice). There is no bulk selection. The service
+Scheduled Reschedule (asks the manager) · Complete; Completed Send invoice). On an Assigned job (direct assignment or an approved bid with no time) the Schedule section is a
+visit-time picker: `POST /api/portal/work-orders/schedule-visit` -> `scheduleAssignedVisit` re-derives `vendor_user_id = actor`
+from the row and books with `bookedVisitPatch`, the same patch bid-accept writes, so the job moves to Scheduled. There is no
+vendor Decline on an assignment (only on an offer). Completion photos are downscaled client-side (1600px JPEG) and
+`mark-done` writes status + photos in one update (400 non-image, 413 over 2 MB). There is no bulk selection. The service
 record uses the resident-record anatomy: header Message the manager · the primary next step · ⋯ (the other stage
 actions), the stepper under it, rail Job (Overview · Estimate & bid · Schedule), Money (Invoice · Payments), Records
 (Communication · Documents). Estimate & bid answers are underline tabs (`vendorBidTabs`: Bid · Estimate · Estimate

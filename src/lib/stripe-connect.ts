@@ -60,13 +60,23 @@ export function connectAccountReadyForAchPayouts(account: Stripe.Account): boole
   return connectAccountTransfersActive(account) && Boolean(account.payouts_enabled);
 }
 
+/** Manager (and every non-vendor) accounts: real estate management. Vendors do repair work, not property management. */
+export function connectBusinessProfile(portal?: "portal" | "vendor"): { mcc: string; product_description: string } {
+  return portal === "vendor"
+    ? { mcc: "1799", product_description: "Home repair and maintenance services" }
+    : { mcc: "6513", product_description: "Property management services" };
+}
+
 export async function createAxisConnectAccount(
   stripe: Stripe,
-  opts: { email?: string; axisUserId: string; axisPortal?: "portal" | "vendor" },
+  opts: { email?: string; axisUserId: string; axisPortal?: "portal" | "vendor"; idempotencySuffix?: string },
 ): Promise<Stripe.Account> {
   return stripe.accounts.create({
     country: "US",
     email: opts.email,
+    // Vendors only, create-time only: existing accounts are never rewritten. The identity step
+    // sets the same profile for a vendor that submits before this account carried one.
+    ...(opts.axisPortal === "vendor" ? { business_profile: connectBusinessProfile("vendor") } : {}),
     // Destination charges only require transfers on the connected account (not card_payments).
     capabilities: {
       transfers: { requested: true },
@@ -86,6 +96,11 @@ export async function createAxisConnectAccount(
             : { interval: "weekly" as const, weekly_anchor: "friday" as const },
       },
     },
+  }, {
+    // A double click (or two tabs) must hit Stripe as ONE account. The suffix changes only
+    // when a stale id is deliberately replaced, so a relink inside Stripe's 24h key window
+    // is not handed the account it just abandoned.
+    idempotencyKey: `connect-account:${opts.axisPortal ?? "portal"}:${opts.axisUserId}${opts.idempotencySuffix ? `:${opts.idempotencySuffix}` : ""}`,
   });
 }
 

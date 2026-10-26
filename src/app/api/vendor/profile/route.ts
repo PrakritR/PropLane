@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { track } from "@/lib/analytics/posthog";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
@@ -16,18 +16,19 @@ async function requireVendor(): Promise<
   | { ok: true; userId: string; db: ReturnType<typeof createSupabaseServiceRoleClient> }
   | { ok: false; response: NextResponse }
 > {
-  const auth = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await auth.auth.getUser();
-  if (!user) return { ok: false, response: NextResponse.json({ error: "Unauthorized." }, { status: 401 }) };
-
-  const db = createSupabaseServiceRoleClient();
-  const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  if (String(profile?.role ?? "").toLowerCase() !== "vendor") {
-    return { ok: false, response: NextResponse.json({ error: "Forbidden." }, { status: 403 }) };
+  // profile_roles-aware: a resident+vendor account is a vendor too.
+  const access = await requireVendorApiAccess();
+  if (!access.ok) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: access.status === 401 ? "Unauthorized." : "Forbidden." },
+        { status: access.status },
+      ),
+    };
   }
-  return { ok: true, userId: user.id, db };
+  const db = createSupabaseServiceRoleClient();
+  return { ok: true, userId: access.actor.userId, db };
 }
 
 export async function GET() {

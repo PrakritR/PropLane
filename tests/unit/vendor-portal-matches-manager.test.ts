@@ -77,13 +77,15 @@ describe("vendor portal matches manager chrome", () => {
     expect(vendorLinkPaths().payments).toBe("/vendor/payments/pending");
   });
 
-  it("has no Tasks nav and redirects /vendor/tasks to services", () => {
-    expect(vendorPortal.sections.some((s) => s.section === "tasks")).toBe(false);
-    expect(vendorLinkPaths().tasks).toBe("/vendor/work-orders/pending");
+  it("Tasks is a vendor section after Services and /vendor/tasks renders (no redirect)", () => {
+    const sections = vendorPortal.sections.map((s) => s.section);
+    expect(sections.indexOf("tasks")).toBe(sections.indexOf("work-orders") + 1);
+    expect(vendorLinkPaths().tasks).toBe("/vendor/tasks");
     const render = read("src/lib/render-portal-section.tsx");
     expect(render).toContain('kind === "vendor" && section === "tasks"');
-    expect(render).toContain("/work-orders/pending");
-    expect(read("src/components/portal/vendor-dashboard.tsx")).not.toContain("/vendor/tasks");
+    expect(render).toContain("<VendorTaskList");
+    expect(render).not.toMatch(/section === "tasks"\) \{\s*redirect\(`\$\{def\.basePath\}\/work-orders\/pending`\)/);
+    expect(read("src/lib/work-order-vendor-messages.server.ts")).toContain("/vendor/tasks");
   });
 
   it("vendor calendar (C155 superseded, captain 2026-09-26) is the manager studio grid in one view, no tabs", () => {

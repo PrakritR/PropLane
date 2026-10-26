@@ -122,6 +122,7 @@ export async function POST(req: Request) {
       });
 
       const result = await submitIdentity(stripe, accountId, {
+        portal: "vendor",
         accountToken,
         personToken,
         personId,

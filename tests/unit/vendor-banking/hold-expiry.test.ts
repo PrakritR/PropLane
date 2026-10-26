@@ -4,6 +4,8 @@ vi.mock("@/lib/portal-inbox-delivery", () => ({
   deliverPortalInboxMessage: vi.fn().mockResolvedValue({ ok: true, recipientCount: 1 }),
 }));
 
+vi.mock("@/lib/vendor-banking/central-refund.server", () => ({ submitVendorRefund: vi.fn() }));
+
 import { expireVendorHolds, listExpiredVendorHolds, HOLD_EXPIRY_DAYS } from "@/lib/vendor-banking/hold-expiry.server";
 
 type Row = Record<string, unknown>;
@@ -38,6 +40,12 @@ function makeDb(opts: {
             return this;
           },
           eq(_c: string, _v: unknown) {
+            return this;
+          },
+          in(_c: string, _v: unknown) {
+            return this;
+          },
+          is(_c: string, _v: unknown) {
             return this;
           },
           lt(_c: string, _v: unknown) {

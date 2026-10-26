@@ -210,6 +210,39 @@ describe("settleVendorRefundBooks - vendor ledger, GL reversal, manager state", 
     expect(h.events.mock.calls.map((c) => (c[1] as { kind: string }).kind)).toEqual(["refund_sent", "refund_received"]);
   });
 
+  it("a hold-expiry refund books identically but emits neither refund_sent nor refund_received", async () => {
+    const db = settledDb();
+    await settleVendorRefundBooks(db as never, ATTEMPT, { initiatedBy: "hold_expiry" });
+    expect(h.events).not.toHaveBeenCalled();
+    expect(h.ledger.map((l) => [l.kind, l.amountCents])).toEqual([["refund", -5_000], ["adjustment", 150]]);
+    expect(h.gl).toHaveBeenCalled();
+  });
+
+  it("a webhook-settled expiry refund (no initiator passed) stays quiet via its client key", async () => {
+    const key = "hold-expiry-hold_1";
+    const attempt = `vendor-refund:payout_1:${key}`;
+    const db = makeDb({
+      payout: { refunded_gross_cents: 5_000 },
+      extra: {
+        vendor_payout_refunds: [{ id: "r1", attempt_key: attempt, vendor_user_id: "vendor_1", manager_user_id: "mgr_1", payout_id: "payout_1", gross_cents: 5_000, fee_share_cents: 0, net_debit_cents: 0, reason: "Unclaimed", status: "pending", stripe_refund_id: null, books_settled_at: null, notified_at: null }],
+        platform_hold_refund_attempts: [{ id: "a1", attempt_key: attempt, status: "succeeded", gross_cents: 5_000, fee_share_cents: 150, hold_debit_cents: 4_850, stripe_refund_id: "re_1", payout_id: "payout_1", owner_user_id: "vendor_1" }],
+      },
+    });
+    await settleVendorRefundBooks(db as never, attempt);
+    expect(h.events).not.toHaveBeenCalled();
+  });
+
+  it("submitVendorRefund threads initiatedBy: expiry sends no events, a normal vendor refund sends both", async () => {
+    h.runRefund.mockResolvedValue({ status: "succeeded", refundId: "re_1", recipientNetDebitCents: 0, vendorFeeShareCents: 0 });
+    const settledAttempt = (key: string) => ({ id: "a1", attempt_key: `vendor-refund:payout_1:${key}`, status: "succeeded", gross_cents: 20_500, fee_share_cents: 615, hold_debit_cents: 19_885, stripe_refund_id: "re_1", payout_id: "payout_1", owner_user_id: "vendor_1" });
+    const expiryDb = makeDb({ extra: { platform_hold_refund_attempts: [settledAttempt("expiry-key-0001")] } });
+    await submitVendorRefund(stripeWith(0), expiryDb as never, { ...base, clientKey: "expiry-key-0001", initiatedBy: "hold_expiry" });
+    expect(h.events).not.toHaveBeenCalled();
+    const vendorDb = makeDb({ extra: { platform_hold_refund_attempts: [settledAttempt(KEY)] } });
+    await submitVendorRefund(stripeWith(0), vendorDb as never, { ...base });
+    expect(h.events.mock.calls.map((c) => (c[1] as { kind: string }).kind)).toEqual(["refund_sent", "refund_received"]);
+  });
+
   it("running it again writes nothing more (webhook redelivery after the route already settled)", async () => {
     const db = settledDb();
     await settleVendorRefundBooks(db as never, ATTEMPT);

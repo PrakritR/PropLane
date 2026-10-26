@@ -307,7 +307,7 @@ export async function renderPortalSectionWith(
     AdminFinancesPanel, AdminManagedFinancePanel, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
     ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentStaysPanel, ResidentStayRequest, ResidentTourPanel, ResidentLeasePanel,
-    ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel,
+    ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel, VendorTaskList,
     VendorFinancesPanel, VendorFinancesPage, VendorWithdrawalDetail,
     VendorStatementsPanel, VendorTaxPanel, VendorDocumentsPanel, VendorSettingsPanel,
     VendorOutgoingPaymentsPanel, VendorReviewsPanel, ManagerPortalPageShell, loadManagerAllServicesPanel, loadManagerTaskList,
@@ -469,10 +469,6 @@ export async function renderPortalSectionWith(
     if (!segment) redirect(vendorOutgoingHref(def.basePath));
     if (!isVendorOutgoingSegment(segment)) notFound();
     return <VendorOutgoingPaymentsPanel basePath={def.basePath} segment={segment} />;
-  }
-
-  if (kind === "vendor" && section === "tasks") {
-    redirect(`${def.basePath}/work-orders/pending`);
   }
 
   // Jobs was folded into Services — every /vendor/jobs* URL (any tab, any
@@ -1993,6 +1989,17 @@ export async function renderPortalSectionWith(
     if (tabParts?.length) notFound();
     const { profile } = await getEffectiveSessionForPortal("vendor");
     return <VendorDashboard displayName={profile?.full_name?.trim() || "there"} />;
+  }
+
+  // Tasks the manager assigned to this vendor. Bare `/vendor/tasks` is the In progress view; the
+  // task-list redirect above and the assigned-task email both land here.
+  if (kind === "vendor" && section === "tasks") {
+    if (tabParts && tabParts.length > 1) notFound();
+    const taskTab = tabParts?.[0];
+    // A stale manager-style slug (open, scheduled, ...) lands on the bare list, never a 404.
+    if (taskTab && taskTab !== "in-progress" && taskTab !== "completed") redirect(`${def.basePath}/tasks`);
+    const { parseVendorTaskListTab } = await import("@/lib/portal-detail-routes");
+    return <VendorTaskList tabId={parseVendorTaskListTab(taskTab)} basePath={def.basePath} />;
   }
 
   if (kind === "vendor" && section === "work-orders") {

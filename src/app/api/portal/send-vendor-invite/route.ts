@@ -4,6 +4,7 @@ import {
   assertManagerCommunicationAllowedForActiveWorkspace,
   communicationRefusalBody,
 } from "@/lib/manager-communication-access.server";
+import { getPortalAccessContext, hasRole } from "@/lib/auth/portal-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { sendVendorInvite } from "@/lib/vendor-invite.server";
@@ -15,8 +16,10 @@ export const runtime = "nodejs";
 // so there is exactly one way to parse a match — avoids polynomial backtracking.
 const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
-function canSendVendorInvite(role: string | null | undefined): boolean {
-  return role === "admin" || role === "manager" || role === "owner" || role === "pro";
+/** profile_roles-aware: "owner" folds into manager; a multi-role account created as resident still qualifies. */
+async function canSendVendorInvite(): Promise<boolean> {
+  const ctx = await getPortalAccessContext();
+  return hasRole(ctx, "manager") || hasRole(ctx, "admin") || String(ctx.profile?.role ?? "").toLowerCase() === "pro";
 }
 
 export async function POST(req: Request) {
@@ -46,7 +49,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Vendor access is unavailable for this account." }, { status: 403 });
     }
     const { data: profile } = await db.from("profiles").select("role, full_name, email").eq("id", user.id).maybeSingle();
-    if (!canSendVendorInvite(profile?.role)) {
+    if (!(await canSendVendorInvite())) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 

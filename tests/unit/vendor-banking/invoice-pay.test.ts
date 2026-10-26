@@ -128,7 +128,8 @@ describe("startVendorInvoicePayCheckout", () => {
     // Never a hosted redirect — the manager stays inside PropLane.
     expect(call.mode).toBe("embedded");
     expect(typeof call.returnUrl).toBe("string");
-    expect(call.returnUrl).toContain("/portal/finances");
+    expect(call.returnUrl).toContain("/portal/outgoing/paid?invoice_pay=success");
+    expect(call.redirectOnCompletion).toBe("if_required");
   });
 
   it("a cross-rail refusal (another rail already paid the job) is a 409 before any claim or Stripe call", async () => {

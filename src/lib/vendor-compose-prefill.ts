@@ -5,12 +5,13 @@
  * the draft is consumed (and cleared) by the compose that opens.
  */
 import type { ResidentComposePrefill } from "@/lib/resident-compose-prefill";
+import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 
 const STORAGE_KEY = "vendor-compose-prefill-v1";
 
 export const VENDOR_COMPOSE_HREF = "/vendor/communication/active?compose=1";
 
-export function stageVendorComposePrefill(prefill: { managerUserId: string; subject?: string }): void {
+export function stageVendorComposePrefill(prefill: { managerUserId: string; subject?: string; recordRef?: RecordRef }): void {
   if (typeof sessionStorage === "undefined") return;
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(prefill));
@@ -19,19 +20,21 @@ export function stageVendorComposePrefill(prefill: { managerUserId: string; subj
   }
 }
 
-export function consumeVendorComposePrefill(): ResidentComposePrefill | null {
+export function consumeVendorComposePrefill(): (ResidentComposePrefill & { recordRef?: RecordRef }) | null {
   if (typeof sessionStorage === "undefined") return null;
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     sessionStorage.removeItem(STORAGE_KEY);
-    const parsed = JSON.parse(raw) as { managerUserId?: unknown; subject?: unknown };
+    const parsed = JSON.parse(raw) as { managerUserId?: unknown; subject?: unknown; recordRef?: unknown };
     const managerUserId = typeof parsed.managerUserId === "string" ? parsed.managerUserId.trim() : "";
     if (!managerUserId) return null;
+    const recordRef = normalizeRecordRef(parsed.recordRef);
     return {
       subject: typeof parsed.subject === "string" ? parsed.subject : "",
       body: "",
       managerUserId,
+      ...(recordRef ? { recordRef } : {}),
     };
   } catch {
     return null;

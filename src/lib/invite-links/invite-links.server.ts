@@ -49,6 +49,7 @@ import {
   flatCoManagerPermissionsFromProperty,
 } from "@/lib/co-manager-permissions";
 import { actorOwnWorkspaceHouseIds, actorWorkspaceStanding, workspaceHouseIds } from "@/lib/workspaces/membership.server";
+import { linkDirectoryRowToVendor } from "@/lib/auth/provision-vendor-account";
 import { primaryRoleWhenAddingVendor } from "@/lib/auth/profile-primary-role";
 
 const TOKEN_BYTES = 32;
@@ -180,7 +181,7 @@ function toInviteLinkRow(row: DbRow): InviteLinkRow {
 }
 
 const LINK_COLUMNS =
-  "id, kind, label, assigned_property_ids, assigned_room_id, property_permissions, max_uses, used_count, expires_at, revoked_at, created_at, short_code, team_role, house_scope, workspace_permissions";
+  "id, kind, label, assigned_property_ids, assigned_room_id, vendor_directory_id, property_permissions, max_uses, used_count, expires_at, revoked_at, created_at, short_code, team_role, house_scope, workspace_permissions";
 
 export type MintInviteLinkResult =
   | { ok: true; link: InviteLinkRow; token: string; code: string }
@@ -203,6 +204,8 @@ export async function mintInviteLink(
     label?: string;
     assignedPropertyIds: string[];
     assignedRoomId?: string;
+    /** Vendor links only: the manager's own directory row this link claims on redemption. */
+    vendorDirectoryId?: string;
     propertyPermissions: unknown;
     expiryOption?: string;
     usesOption?: string;
@@ -375,6 +378,23 @@ export async function mintInviteLink(
   // A room narrows a resident link; it is meaningless on a co-manager one,
   // whose scope is whole properties.
   const roomId = kind === "resident" ? input.assignedRoomId?.trim() || null : null;
+  // A vendor link may name the directory row it claims. Server-validated: the row must
+  // belong to the manager the link is minted for.
+  let vendorDirectoryId: string | null = null;
+  if (kind === "vendor") {
+    const directoryId = input.vendorDirectoryId?.trim() ?? "";
+    if (directoryId) {
+      const { data: dirRow } = await db
+        .from("manager_vendor_records")
+        .select("manager_user_id")
+        .eq("id", directoryId)
+        .maybeSingle();
+      if (!dirRow || String(dirRow.manager_user_id) !== ownerUserId) {
+        return { ok: false, status: 403, error: "That vendor is not yours to invite." };
+      }
+      vendorDirectoryId = directoryId;
+    }
+  }
   const token = mintToken();
   const linkId = randomUUID();
   const tokenCiphertext = tryEncryptInviteToken(token, ownerUserId, linkId);
@@ -451,6 +471,7 @@ export async function mintInviteLink(
       label: input.label?.trim() || null,
       assigned_property_ids: propertyIds,
       assigned_room_id: roomId,
+      vendor_directory_id: vendorDirectoryId,
       property_permissions: permissions,
       max_uses: maxUsesForOption(input.usesOption),
       expires_at: expiryIsoForOption(input.expiryOption, input.now ?? new Date()),
@@ -1338,9 +1359,16 @@ function toResidentInviteClaim(row: DbClaimRow, linkLabel: string | null): Resid
  * a vendor link grants immediately: the opener is already signed in, and the
  * directory row is how work orders find them. Re-opening is idempotent.
  */
-async function redeemVendorLink(args: {
+export async function redeemVendorLink(args: {
   db: SupabaseClient;
-  link: { id: string; owner_user_id: string; label?: string | null; assigned_property_ids?: string[] | null };
+  link: {
+    id: string;
+    owner_user_id: string;
+    label?: string | null;
+    assigned_property_ids?: string[] | null;
+    /** For a vendor link: the manager's directory row it claims. */
+    vendor_directory_id?: string | null;
+  };
   redeemerUserId: string;
   alreadyRedeemed: boolean;
   spendUse: () => Promise<{ ok: true } | { ok: false; status: number; error: string }>;
@@ -1396,6 +1424,46 @@ async function redeemVendorLink(args: {
       .from("profiles")
       .update({ role: primaryRoleWhenAddingVendor(claimant?.role as string | undefined) })
       .eq("id", redeemerUserId);
+
+    // A link minted for a specific directory row claims THAT row (the manager's name, trade
+    // and phone stay) instead of inserting a second one. Re-derived here: the row must still
+    // belong to the link's owner and be unclaimed, so a redeemer can never take another
+    // manager's row.
+    const targetId = link.vendor_directory_id?.trim() || "";
+    if (targetId) {
+      const { data: target } = await db
+        .from("manager_vendor_records")
+        .select("id, manager_user_id, vendor_user_id, row_data")
+        .eq("id", targetId)
+        .maybeSingle();
+      if (!target || String(target.manager_user_id) !== ownerUserId) {
+        throw new Error("This vendor invite is no longer valid. Ask your manager for a new one.");
+      }
+      const claimedBy = (target.vendor_user_id as string | null) ?? null;
+      if (claimedBy && claimedBy !== redeemerUserId) {
+        throw new Error("This vendor invite was already used. Ask your manager for a new one.");
+      }
+      const targetData = (target.row_data ?? {}) as Record<string, unknown>;
+      const nowTarget = new Date().toISOString();
+      // The claim itself is the arbiter: two redeemers racing past the read above cannot both
+      // land, because only a row still unclaimed (or already this redeemer's) is updated.
+      const { data: claimed } = await db
+        .from("manager_vendor_records")
+        .update({
+          vendor_user_id: redeemerUserId,
+          row_data: { ...targetData, email: String(targetData.email ?? "").trim() || claimantEmail, updatedAt: nowTarget },
+          updated_at: nowTarget,
+        })
+        .eq("id", targetId)
+        .eq("manager_user_id", ownerUserId)
+        .or(`vendor_user_id.is.null,vendor_user_id.eq.${redeemerUserId}`)
+        .select("id");
+      if (!claimed || claimed.length === 0) {
+        throw new Error("This vendor invite was already used. Ask your manager for a new one.");
+      }
+      await linkDirectoryRowToVendor(db, { directoryId: targetId, managerUserId: ownerUserId, vendorUserId: redeemerUserId });
+      return { ok: true, kind: "vendor", vendorDirectoryId: targetId, alreadyRedeemed: false };
+    }
 
     const directoryId = `vendor-${randomBytes(8).toString("hex")}`;
     const displayName =

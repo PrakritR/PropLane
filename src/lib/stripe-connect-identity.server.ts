@@ -1,7 +1,7 @@
 import "server-only";
 
 import type Stripe from "stripe";
-import { isApplicationCollected } from "@/lib/stripe-connect";
+import { connectBusinessProfile, isApplicationCollected } from "@/lib/stripe-connect";
 
 /**
  * PropLane's own identity-verification form, driven entirely by what Stripe's
@@ -274,6 +274,8 @@ export async function getIdentityRequirements(stripe: Stripe, accountId: string)
 }
 
 export type SubmitIdentityInput = {
+  /** "vendor" for a vendor account (repair MCC); anything else keeps the real-estate profile. */
+  portal?: "portal" | "vendor";
   /** `stripe.createToken('account', …)` result from the browser — the whole individual/business bundle, SSN and DOB included, tokenized before it ever reaches PropLane. */
   accountToken?: string;
   /** `stripe.createToken('person', …)` result, for a company representative/owner other than the account's own `individual`. */
@@ -369,7 +371,8 @@ export async function submitIdentity(
     const plain: Record<string, unknown> = {
       // Decide (plan): real estate management, MCC 6513 — never asked of the
       // manager, always set here so `business_profile.mcc` never blocks status.
-      business_profile: { mcc: "6513", product_description: "Property management services" },
+      // Vendors do repair work: MCC 1799 and their own description (connectBusinessProfile).
+      business_profile: connectBusinessProfile(input.portal),
     };
 
     for (const [key, value] of Object.entries(input.fields ?? {})) {

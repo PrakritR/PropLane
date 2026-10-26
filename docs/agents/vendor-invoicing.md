@@ -123,3 +123,8 @@ screen. See `.lavish/night/build-vendor-pay.md` and `src/lib/proplane-balance/`.
 The 3% **PropLane service fee** applies to the Stripe invoice-pay rail only; the
 balance and offline rails carry none (rails table and revenue write-through in
 `docs/agents/financials.md` § Vendor banking, "PropLane service fee").
+
+When the vendor has no connected bank (transfers not active or payouts not enabled), the
+manager pay sheet shows one inline line - "<Vendor> hasn't connected a bank yet. You're charged
+now; they're paid when they connect." - and paying stays allowed. Stripe's return URL is
+`/portal/outgoing/paid?invoice_pay=success` (the Outgoing list toasts once and refreshes).

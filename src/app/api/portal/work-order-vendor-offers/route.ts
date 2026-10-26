@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveSessionActorRole } from "@/lib/auth/vendor-api-access";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -55,7 +56,7 @@ async function sessionActor(db: Db, req: Request) {
   if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
   const admin = await resolveAdminOversight(req, user.id);
   const { data: profile } = await db.from("profiles").select("email, role, full_name").eq("id", user.id).maybeSingle();
-  const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+  const role = await resolveSessionActorRole(profile?.role ?? user.user_metadata?.role);
   return {
     userId: user.id,
     email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
@@ -163,7 +164,13 @@ export async function POST(req: Request) {
 
     const result = await sendWorkOrderVendorOffers(db, actor, body);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
-    return NextResponse.json({ ok: true, sent: result.sent, skipped: result.skipped });
+    return NextResponse.json({
+      ok: true,
+      sent: result.sent,
+      skipped: result.skipped,
+      invited: result.invited,
+      skippedDetails: result.skippedDetails,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to send to vendors.";
     return NextResponse.json({ error: message }, { status: 500 });

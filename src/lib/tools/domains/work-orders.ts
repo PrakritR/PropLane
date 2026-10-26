@@ -614,7 +614,7 @@ export const assignVendorTool = defineWriteTool({
       console.error("emitVendorAssigned failed", owned.id, e);
       return null;
     });
-    return { reply: `Assigned ${vendor.name || "the vendor"} to "${owned.row.title || owned.id}"${notified?.sent ? " and messaged them" : ""}.`, resultSummary: { workOrderId: owned.id, vendorId: input.vendorId.trim() } };
+    return { reply: `Assigned ${vendor.name || "the vendor"} to "${owned.row.title || owned.id}"${notified?.sent ? " and messaged them" : notified?.reason === "invited" ? ", who has no PropLane account yet, and emailed them a sign-up invite with the job" : notified?.reason === "no_contact" ? ". They have no account and no email on file, so nobody was notified" : ""}.`, resultSummary: { workOrderId: owned.id, vendorId: input.vendorId.trim() } };
   },
 });
 
@@ -689,8 +689,14 @@ export const offerToVendorsTool = defineWriteTool({
       throw new Error(result.error);
     }
     await updateAuditResult(ctx, dedupeKey, { sent: result.sent.length, skipped: result.skipped.length });
-    const skippedPart = result.skipped.length > 0 ? ` (${result.skipped.length} skipped)` : "";
-    return { reply: `Invited ${result.sent.length} vendor${result.sent.length === 1 ? "" : "s"} to bid on "${owned.row.title || owned.id}" and opened bidding${skippedPart}.`, resultSummary: { workOrderId: owned.id, sent: result.sent.length, skipped: result.skipped.length } };
+    const invitedPart = result.invited.length > 0 ? ` (${result.invited.map((v) => v.name || "a vendor").join(", ")} ha${result.invited.length === 1 ? "s" : "ve"} no PropLane account yet, so ${result.invited.length === 1 ? "they were" : "they were each"} emailed a sign-up invite with the job)` : "";
+    const skippedPart =
+      result.skippedDetails.length > 0
+        ? ` (skipped ${result.skippedDetails.map((v) => `${v.name || "a vendor"}: ${v.reason}`).join("; ")})`
+        : result.skipped.length > 0
+          ? ` (${result.skipped.length} skipped)`
+          : "";
+    return { reply: `Invited ${result.sent.length} vendor${result.sent.length === 1 ? "" : "s"} to bid on "${owned.row.title || owned.id}" and opened bidding${invitedPart}${skippedPart}.`, resultSummary: { workOrderId: owned.id, sent: result.sent.length, skipped: result.skipped.length } };
   },
 });
 

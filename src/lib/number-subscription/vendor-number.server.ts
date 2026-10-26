@@ -103,5 +103,13 @@ export function vendorNumberRefusalMessage(reason: string | undefined): string |
   if (reason === "out_of_credit") return "Out of credit. Buy credit in Settings to text from your number.";
   if (reason === "subscription_inactive") return "Subscribe to PropLane Number to text from your number.";
   if (reason === "credit_unavailable") return "Your credit could not be checked right now. Try again.";
+  if (reason === "identity_not_ready" || reason === "provider_disabled" || reason === "provider_unconfigured") {
+    return "Your work email isn't set up yet, so this contact can't be reached.";
+  }
+  if (reason === "recipient_unlinked" || reason === "conversation_unavailable") return "You can only message managers you're linked to.";
+  if (reason === "recipient_opted_out") return "This contact has opted out of messages.";
+  if (reason === "quiet_hours") return "This contact is in quiet hours. Try again later.";
+  // A bare machine token (snake_case) is never shown; anything already a sentence passes through.
+  if (reason && /^[a-z][a-z0-9_]*$/.test(reason)) return "Couldn't send. Try again.";
   return reason;
 }

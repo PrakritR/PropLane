@@ -9,17 +9,24 @@ import { recordVendorBankingLedgerEntry } from "@/lib/vendor-banking/ledger.serv
 import { recordVendorServiceFeeRevenueReversal } from "@/lib/vendor-banking/platform-revenue.server";
 import { PROPLANE_SERVICE_FEE_LABEL } from "@/lib/platform-fees";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
+import { submitVendorRefund } from "@/lib/vendor-banking/central-refund.server";
+import { HOLD_EXPIRY_CLIENT_KEY_PREFIX } from "@/lib/vendor-banking/refund-cap";
 
 export const HOLD_EXPIRY_DAYS = 90;
 
-/** Every `held` vendor_invoice-sourced hold older than the cutoff — VD58's 90-day cap. */
+/**
+ * Every unclaimed vendor_invoice-sourced hold older than the cutoff — VD58's 90-day cap.
+ * Central vendor-invoice holds are born `classified_held`; legacy ones are `held`. A hold
+ * that already carries a transfer id has left the platform and is never listed.
+ */
 export async function listExpiredVendorHolds(db: SupabaseClient, now: Date = new Date()): Promise<PlatformHoldRow[]> {
   const cutoffIso = new Date(now.getTime() - HOLD_EXPIRY_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await db
     .from("platform_payment_holds")
     .select("id, owner_user_id, owner_role, source, source_id, amount_cents, status, stripe_charge_id, stripe_transfer_id, created_at")
     .eq("source", "vendor_invoice")
-    .eq("status", "held")
+    .in("status", ["held", "classified_held"])
+    .is("stripe_transfer_id", null)
     .lt("created_at", cutoffIso);
   if (error) throw new Error(`Could not list expired vendor holds: ${error.message}`);
   return (data ?? []).map((row) => ({
@@ -90,6 +97,50 @@ async function lookupEmail(db: SupabaseClient, userId: string): Promise<string |
   return email ? email.toLowerCase() : null;
 }
 
+/**
+ * Best-effort "returned unclaimed" notices to both parties (item 3: "ledger + notification to
+ * both"), self-notify pattern (sender == recipient, fromName "PropLane") matching
+ * send-document-expiration-reminders. `messageId` is deterministic per hold + audience, so the
+ * cron re-running or a replayed refund appends each notice at most once.
+ */
+async function notifyHoldReturned(
+  db: SupabaseClient,
+  hold: PlatformHoldRow,
+  managerUserId: string | null,
+  label: string,
+  amountCents: number = hold.amountCents,
+): Promise<void> {
+  const amountLabel = `$${(amountCents / 100).toFixed(2)}`;
+  if (managerUserId) {
+    const managerEmail = await lookupEmail(db, managerUserId);
+    if (managerEmail) {
+      await deliverPortalInboxMessage(db, {
+        senderUserId: managerUserId,
+        senderEmail: managerEmail,
+        fromName: "PropLane",
+        senderRole: "manager",
+        subject: "A held vendor payment was returned to you",
+        text: `A payment of ${amountLabel} for ${label} was held on PropLane while the vendor finished setting up their bank. It went unclaimed for ${HOLD_EXPIRY_DAYS} days, so it has been refunded back to you.`,
+        toUserIds: [managerUserId],
+        messageId: `hold-expiry:${hold.id}:manager`,
+      }).catch(() => undefined);
+    }
+  }
+  const vendorEmail = await lookupEmail(db, hold.ownerUserId);
+  if (vendorEmail) {
+    await deliverPortalInboxMessage(db, {
+      senderUserId: hold.ownerUserId,
+      senderEmail: vendorEmail,
+      fromName: "PropLane",
+      senderRole: "vendor",
+      subject: "A held payment was returned to the manager",
+      text: `A payment of ${amountLabel} for ${label} was held on PropLane for ${HOLD_EXPIRY_DAYS} days waiting on your bank details. It has been returned to the manager. Add your bank in Settings to receive future payments right away.`,
+      toUserIds: [hold.ownerUserId],
+      messageId: `hold-expiry:${hold.id}:vendor`,
+    }).catch(() => undefined);
+  }
+}
+
 export type HoldExpiryResult = {
   checked: number;
   returned: number;
@@ -112,6 +163,45 @@ export async function expireVendorHolds(stripe: Stripe, db: SupabaseClient, now:
 
   for (const hold of holds) {
     try {
+      if (hold.status === "classified_held") {
+        // A central hold carries reserved balance + source-consumption rows: only the
+        // central refund rail may return it (a raw Stripe refund would strand them).
+        const { data: payoutRow, error: payoutError } = await db
+          .from("vendor_payouts")
+          .select("id")
+          .eq("platform_hold_id", hold.id)
+          .eq("vendor_user_id", hold.ownerUserId)
+          .limit(1)
+          .maybeSingle();
+        const payoutId = (payoutRow as { id?: string } | null)?.id;
+        if (payoutError || !payoutId) {
+          result.failed += 1;
+          result.errors.push(`hold ${hold.id}: no payout row to refund through the central rail`);
+          continue;
+        }
+        const refund = await submitVendorRefund(stripe, db, {
+          payoutId,
+          vendorUserId: hold.ownerUserId,
+          reason: `Unclaimed after ${HOLD_EXPIRY_DAYS} days`,
+          clientKey: `${HOLD_EXPIRY_CLIENT_KEY_PREFIX}${hold.id}`,
+          initiatedBy: "hold_expiry",
+        });
+        if (refund.ok) {
+          result.returned += 1;
+          // Money has moved: a notice problem never turns this into a failure. The manager is
+          // refunded the full gross (incl. PropLane's fee), not the vendor's net hold.
+          try {
+            const { managerUserId, label } = await resolvePayerForHold(db, hold);
+            await notifyHoldReturned(db, hold, managerUserId, label, refund.grossCents);
+          } catch (e) {
+            console.error(`[vendor-banking] hold expiry notice failed for ${hold.id}:`, e instanceof Error ? e.message : e);
+          }
+        } else {
+          result.failed += 1;
+          result.errors.push(`hold ${hold.id}: ${refund.error}`);
+        }
+        continue;
+      }
       if (!hold.stripeChargeId) {
         result.failed += 1;
         result.errors.push(`hold ${hold.id}: no stripe_charge_id on file, cannot refund`);
@@ -166,36 +256,7 @@ export async function expireVendorHolds(stripe: Stripe, db: SupabaseClient, now:
 
       result.returned += 1;
 
-      // Best-effort notification to both parties (item 3: "ledger +
-      // notification to both") — self-notify pattern (sender == recipient,
-      // fromName "PropLane") matching send-document-expiration-reminders.
-      const amountLabel = `$${(hold.amountCents / 100).toFixed(2)}`;
-      if (managerUserId) {
-        const managerEmail = await lookupEmail(db, managerUserId);
-        if (managerEmail) {
-          await deliverPortalInboxMessage(db, {
-            senderUserId: managerUserId,
-            senderEmail: managerEmail,
-            fromName: "PropLane",
-            senderRole: "manager",
-            subject: "A held vendor payment was returned to you",
-            text: `A payment of ${amountLabel} for ${label} was held on PropLane while the vendor finished setting up their bank. It went unclaimed for ${HOLD_EXPIRY_DAYS} days, so it has been refunded back to you.`,
-            toUserIds: [managerUserId],
-          }).catch(() => undefined);
-        }
-      }
-      const vendorEmail = await lookupEmail(db, hold.ownerUserId);
-      if (vendorEmail) {
-        await deliverPortalInboxMessage(db, {
-          senderUserId: hold.ownerUserId,
-          senderEmail: vendorEmail,
-          fromName: "PropLane",
-          senderRole: "vendor",
-          subject: "A held payment was returned to the manager",
-          text: `A payment of ${amountLabel} for ${label} was held on PropLane for ${HOLD_EXPIRY_DAYS} days waiting on your bank details. It has been returned to the manager. Add your bank in Settings to receive future payments right away.`,
-          toUserIds: [hold.ownerUserId],
-        }).catch(() => undefined);
-      }
+      await notifyHoldReturned(db, hold, managerUserId, label);
     } catch (e) {
       result.failed += 1;
       const message = e instanceof Error ? e.message : String(e);

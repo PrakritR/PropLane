@@ -137,7 +137,7 @@ export function renderWorkOrderEvent(
       text = `${ref}: We received “${title}”${at}.${promise ? ` You will hear back ${promise}.` : ""}${emergency ? ` Emergency? Call ${emergency}.` : ""}`;
     }
   } else if (event === "vendor_offered") {
-    if (audience === "vendor") text = `${ref}: New offer for “${title}”${at}.${expires ? ` Expires ${expires}.` : ""} Review it and respond.`;
+    if (audience === "vendor") text = `${ref}: New offer for “${title}”${at}.${expires ? ` Expires ${expires}.` : ""} Review it and respond${facts.url ? `: ${facts.url}` : "."}`;
     if (audience === "manager") text = `${ref}: Offer sent to ${facts.offerCount ?? 1} vendor${facts.offerCount === 1 ? "" : "s"}.${expires ? ` Expires ${expires}.` : ""}`;
   } else if (event === "vendor_new_service") {
     // Facts only: no resident name or phone until the vendor accepts.

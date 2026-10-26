@@ -253,7 +253,7 @@ const RESIDENT_GROUPS: NavGroupConfig[] = [
 // Captain #28: Reviews and Documents are the vendor's business record, not the work queue or money.
 const VENDOR_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard", "communication", "calendar"] },
-  { id: "work", label: "Work", sections: ["work-orders"] },
+  { id: "work", label: "Work", sections: ["work-orders", "tasks"] },
   { id: "money", label: "Money", sections: ["payments", "outgoing", "financials"] },
   { id: "business", label: "Business", sections: ["reviews", "documents"] },
 ];

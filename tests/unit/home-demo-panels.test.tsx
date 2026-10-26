@@ -43,7 +43,7 @@ describe("DEMO_TABS contract", () => {
     ]);
     expect(DEMO_TABS.vendor.map((t) => t.id)).toEqual([
       "dashboard", "communication", "calendar",
-      "work-orders",
+      "work-orders", "tasks",
       "payments", "outgoing", "financials",
       "reviews", "documents",
     ]);

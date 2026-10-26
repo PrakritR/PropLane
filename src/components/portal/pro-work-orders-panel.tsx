@@ -9,7 +9,7 @@ import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import { PortalDialog } from "@/components/portal/portal-dialog";
-import { sendWorkOrderToVendors, type PublishMarketplaceOptions } from "@/lib/work-order-vendor-offers";
+import { describeVendorSendOutcome, sendWorkOrderToVendors, type PublishMarketplaceOptions } from "@/lib/work-order-vendor-offers";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalDataTableEmpty, PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
@@ -1121,11 +1121,7 @@ export function ManagerWorkOrdersPanel({
       if (!result.ok) throw new Error(result.error ?? "Could not request bids.");
       await syncManagerWorkOrdersFromServer({ force: true });
       await loadBids(row.id);
-      showToast(
-        result.sent && result.sent.length > 0
-          ? `Requested ${result.sent.length} vendor${result.sent.length === 1 ? "" : "s"} for bids.`
-          : "No vendors could be requested.",
-      );
+      showToast(describeVendorSendOutcome(result, (id) => activeVendors.find((v) => v.id === id)?.name ?? ""));
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not request bids.");
     }

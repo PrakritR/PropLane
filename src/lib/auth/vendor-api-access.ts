@@ -70,3 +70,20 @@ export function resolvePortalApiActorRole(
   if (ctx.roles.length === 1) return ctx.roles[0]!;
   return String(ctx.profile?.role ?? "").toLowerCase();
 }
+
+/**
+ * Acting role for the mixed manager/vendor work-order routes: the portal the request came from
+ * (`profile_roles` + active-portal cookie), falling back to the legacy `profiles.role` only when
+ * the portal context cannot name one. `profiles.role` alone reads a manager+vendor as "manager"
+ * forever, which locked that account out of its own vendor jobs.
+ */
+export async function resolveSessionActorRole(legacyRole: unknown): Promise<string> {
+  const legacy = String(legacyRole ?? "").trim().toLowerCase();
+  try {
+    const ctx = await getPortalAccessContext();
+    const role = resolvePortalApiActorRole(ctx).trim().toLowerCase();
+    return role || legacy;
+  } catch {
+    return legacy;
+  }
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { CalendarDays, Clock, Landmark, Plus, Wallet } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
@@ -103,6 +103,8 @@ export function ManagerOutgoingInvoicesPanel({
   const [pay, setPay] = useState<OutgoingInvoice | null>(null);
   const [picker, setPicker] = useState(false);
   const [destination, setDestination] = useState<string | null>(null);
+  // Per invoice id; survives `pay` clearing when the sheet opens, so the warning reaches it.
+  const [vendorReadyById, setVendorReadyById] = useState<Record<string, boolean>>({});
   const [availableBalanceCents, setAvailableBalanceCents] = useState<number | null>(null);
   const [vendorRoster, setVendorRoster] = useState<ManagerVendorRow[]>([]);
   const { userId: managerUserId } = useManagerUserId();
@@ -117,7 +119,7 @@ export function ManagerOutgoingInvoicesPanel({
     const invoiceId = pay?.id;
     if (!invoiceId) return;
     let active = true;
-    fetch(`/api/vendor/invoices/${encodeURIComponent(invoiceId)}/outgoing`).then(response => response.json()).then(data => { if (active) setDestination(data.destination ?? null); }).catch(() => {});
+    fetch(`/api/vendor/invoices/${encodeURIComponent(invoiceId)}/outgoing`).then(response => response.json()).then(data => { if (!active) return; setDestination(data.destination ?? null); if (typeof data.vendorPayoutsReady === "boolean") setVendorReadyById(prev => ({ ...prev, [invoiceId]: data.vendorPayoutsReady })); }).catch(() => {});
     return () => { active = false; };
   }, [pay?.id]);
   useEffect(() => {
@@ -197,6 +199,26 @@ export function ManagerOutgoingInvoicesPanel({
   const vendorOptions = [...new Map(rows.map(row => [row.vendorUserId, row.vendorName])).entries()].map(([id, name]) => ({ value: id, label: name }));
   const propertyOptions = [...new Set(rows.map(row => row.propertyName).filter((name): name is string => Boolean(name)))].map(name => ({ value: name, label: name }));
   const refresh = async () => { await load(); window.dispatchEvent(new Event(MANAGER_OUTGOING_PAYMENTS_EVENT)); };
+  // Stripe's return_url (vendor-invoice-pay.server.ts) lands here with `?invoice_pay=success`
+  // for a redirect-based payment method: toast once, refresh the list, strip the query.
+  const returnHandled = useRef(false);
+  useEffect(() => {
+    if (returnHandled.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get("invoice_pay");
+    if (!result) return;
+    returnHandled.current = true;
+    if (result === "success") {
+      showToast("Payment received — the vendor will be paid.");
+      void refresh();
+    }
+    params.delete("invoice_pay");
+    params.delete("session_id");
+    const next = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${next ? `?${next}` : ""}`);
+    // Reads the URL Stripe's redirect left behind, once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const mutate = async (row: OutgoingInvoice, action: string, date?: string, method?: string) => {
     setActionError("");
     const res = await fetch(`/api/vendor/invoices/${encodeURIComponent(row.id)}/outgoing`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, date, method }) });
@@ -259,7 +281,12 @@ export function ManagerOutgoingInvoicesPanel({
         {actionError ? <p role="alert">{actionError}</p> : null}
       </div>
     </PortalDialog>
-    <VendorInvoiceManagerPaySheet invoice={checkout} onClose={() => { setCheckout(null); void refresh(); }} />
+    <VendorInvoiceManagerPaySheet
+      invoice={checkout}
+      vendorPayoutsReady={checkout ? vendorReadyById[checkout.id] : undefined}
+      onClose={() => { setCheckout(null); void refresh(); }}
+      onPaid={() => { const name = checkout?.vendorName; setCheckout(null); showToast(`Payment received — ${name || "the vendor"} will be paid.`); void refresh(); }}
+    />
   </>;
 
   /* ------------------------------------------------------------------ one payment: a record page */

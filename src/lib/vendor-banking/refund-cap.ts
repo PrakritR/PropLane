@@ -97,3 +97,6 @@ export function vendorRefundAttemptKey(payoutId: string, clientKey: string): str
   if (!/^[A-Za-z0-9_-]{8,80}$/.test(cleaned)) return null;
   return `vendor-refund:${payoutId}:${cleaned}`;
 }
+
+/** The hold-expiry cron's client key prefix: lets a webhook-settled (pending) expiry refund stay quiet too. */
+export const HOLD_EXPIRY_CLIENT_KEY_PREFIX = "hold-expiry-";

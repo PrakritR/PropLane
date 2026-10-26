@@ -13,6 +13,14 @@ vi.mock("@/lib/one-number/config.server", () => ({
   loadSharedLineConfigStrict: async () => (state.readFailed ? { ok: false } : { ok: true, config: { mode: state.shared ? "shared" : "per_workspace" } }),
 }));
 vi.mock("@/lib/auth/profile-role-row", () => ({ ensureProfileRoleRow: async () => undefined }));
+// The vendor profile route authorizes through requireVendorApiAccess (profile_roles), not a profiles.role read.
+vi.mock("@/lib/auth/vendor-api-access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/vendor-api-access")>()),
+  requireVendorApiAccess: async () => ({
+    ok: true,
+    actor: { userId: "user", email: "u@example.test", fullName: "", admin: false, roles: ["vendor"], effectiveRole: "vendor" },
+  }),
+}));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/vendor-own-record", () => ({ resolveOwnVendorRecord: async () => ({ id: "vendor", managerUserId: "owner", row: { id: "vendor", phone: "+12065550100" } }) }));
 vi.mock("@/lib/twilio", async () => ({
