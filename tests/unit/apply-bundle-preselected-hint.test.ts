@@ -3,10 +3,11 @@
  * the option of which one I want to pick or have it for none."
  *
  * Nothing in the client auto-selects a bundle; it arrives pre-filled from an
- * "Apply for this bundle" link (`?bundle=`), which is intended. The gap was that
- * the field's helper text always read as an invitation — "choose a bundle… or
- * leave as none" — even when one was already chosen, so a pre-filled field
- * looked like a decision made for the applicant rather than a changeable one.
+ * "Apply for this bundle" link (`?bundle=`), which is intended. The way out of a
+ * pre-filled field is the field's own "None" option, which names what applying
+ * without the bundle means. It is NOT a muted sentence under the control —
+ * AGENTS.md § "Never generate subtext" forbids that anywhere in the product, so
+ * the helper paragraph that used to sit there is gone and must not grow back.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -17,22 +18,26 @@ const steps = readFileSync(
   "utf8",
 );
 
+const bundleField = () => steps.split('data-wizard-field="bundleId"')[1]?.slice(0, 2600) ?? "";
+
 describe("lease bundle field", () => {
   it("keeps a None option that opts out of the bundle", () => {
-    const select = steps.split('data-wizard-field="bundleId"')[1]?.slice(0, 2600) ?? "";
+    const select = bundleField();
     expect(select).toContain('<option value="">');
     expect(select).toContain("apply for individual rooms");
   });
 
-  it("tells the applicant a selected bundle is still changeable", () => {
-    const hint = steps.split('data-wizard-field="bundleId"')[1]?.slice(0, 2600) ?? "";
-    expect(hint).toContain("bundleSelected");
-    expect(hint).toContain("You&apos;re applying for this bundle".replace("&apos;", "'"));
+  it("names the way out on the None option itself, for a by-room and a standard lease", () => {
+    const select = bundleField();
+    expect(select).toContain("standard lease");
+    expect(select).toContain("standard short-term stay");
   });
 
-  it("still shows the invitation copy when nothing is selected", () => {
-    const hint = steps.split('data-wizard-field="bundleId"')[1]?.slice(0, 2600) ?? "";
-    expect(hint).toContain("This listing offers bundle pricing");
+  it("carries no subtext paragraph under the label", () => {
+    const field = bundleField();
+    const beforeSelect = field.split("<Select")[0] ?? "";
+    expect(beforeSelect).toContain("<Label");
+    expect(beforeSelect).not.toMatch(/<p[\s>]/);
   });
 
   it("never auto-selects a bundle on a property or lease-term change", () => {

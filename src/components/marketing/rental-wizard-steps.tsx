@@ -1105,12 +1105,11 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
           <div className="space-y-2" data-wizard-field="bundleId">
             <Label htmlFor="bundleId">Lease bundle</Label>
             {/*
-              State-aware, because the old copy always read as an invitation
-              ("choose a bundle… or leave as none") even when a bundle was
-              ALREADY chosen — arriving pre-filled from an "Apply for this
-              bundle" link. An applicant then read the filled field as a decision
-              already made for them and did not realise they could change it
-              (AXI-166). When one is selected, say so and name the way out.
+              A bundle can arrive pre-filled from an "Apply for this bundle"
+              link, which once read as a decision already made for the applicant
+              (AXI-166). The way out is the "None" option below, which names what
+              applying without the bundle means — never a sentence under the
+              control (AGENTS.md § Never generate subtext).
             */}
             <Select
               id="bundleId"

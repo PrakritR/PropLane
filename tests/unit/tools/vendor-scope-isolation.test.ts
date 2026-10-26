@@ -121,6 +121,15 @@ class FakeVendorQuery {
     });
     return this;
   }
+  /** PostgREST `is.null`, JSON paths included: an absent key reads as NULL, exactly like `row_data->>key`. */
+  is(col: string, val: unknown) {
+    this.predicates.push((row) => {
+      const resolved = resolveColumn(row, col);
+      if (val === null) return resolved === undefined || resolved === null;
+      return resolved === val;
+    });
+    return this;
+  }
   in(col: string, vals: unknown[]) {
     const set = new Set((vals ?? []).map((v) => String(v)));
     this.predicates.push((row) => {
