@@ -159,10 +159,9 @@ describe("admin nav groups", () => {
 });
 
 describe("admin landing", () => {
-  it("opens on Settings: Settings is the first registry section and /admin redirects to it", () => {
-    expect(adminPortal.sections[0]!.section).toBe("profile");
-    expect(ADMIN_PORTAL_SMOKE_PATHS[0]).toEqual({ label: "Settings", path: "/admin/profile" });
-    expect(read("src/app/admin/page.tsx")).toContain('redirect("/admin/profile")');
+  it("opens on the Dashboard (Settings lives in the account menu, not the sidebar)", () => {
+    expect(read("src/app/admin/page.tsx")).toContain('redirect("/admin/dashboard")');
+    expect(routeResolves("/admin/dashboard")).toBe(true);
     expect(routeResolves("/admin/profile")).toBe(true);
   });
 });
