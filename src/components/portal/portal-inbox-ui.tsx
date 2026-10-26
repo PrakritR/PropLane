@@ -2,6 +2,9 @@
 import { INBOX_ATTACHMENT_FAILED_MESSAGE, inboxAttachmentSendBlockReason } from "@/lib/inbox-attachment-send-gate";
 import Link from "next/link";
 import { inboxActivitySummary } from "@/lib/inbox-activity-summary";
+import { InboxEventCard } from "@/components/portal/inbox-event-card";
+import type { InboxEventCard as InboxEventCardData, InboxEventKind, InboxEventViewer } from "@/lib/inbox-event-card";
+import type { RecordRef } from "@/lib/portals/record-kinds";
 import { formatInboxListNarrowTime, formatInboxStamp, isCanonicalInboxStamp } from "@/lib/portal-inbox-storage";
 
 import {
@@ -612,6 +615,16 @@ export type InboxBubbleMessage = {
   at: string;
   direction: InboxMessageDirection;
   automated?: boolean;
+  /**
+   * An automated turn that is an event card (`inbox-event-card.ts`): drawn as glyph, title, one fact and one
+   * action link instead of the plain activity row. Absent = the turn renders exactly as before.
+   */
+  eventKind?: InboxEventKind;
+  eventCard?: InboxEventCardData;
+  /** The record the card's action opens (a label; the link is the viewer's own section). */
+  eventRecordRef?: RecordRef;
+  /** Who typed this turn when it is not the owner ("Dev · Co-host"): shown under the bubble. */
+  senderDisplayName?: string;
   /** A text the AI on the vendor's PropLane number sent for them. */
   sentByAi?: boolean;
   eventTitle?: string;
@@ -1490,8 +1503,11 @@ export function InboxBubble({
   showAvatar = false,
   alignAssistantStart = false,
   emailNameAsPerson = false,
+  eventViewer = "manager",
 }: {
   message: InboxBubbleMessage;
+  /** Whose portal draws an event card: it picks the card's title wording and the action's section. */
+  eventViewer?: InboxEventViewer;
   showAuthor?: boolean;
   cluster?: InboxBubbleClusterPosition;
   showMeta?: boolean;
@@ -1507,6 +1523,9 @@ export function InboxBubble({
    */
   emailNameAsPerson?: boolean;
 }) {
+  if (message.eventKind && message.eventCard) {
+    return <InboxEventCard kind={message.eventKind} card={message.eventCard} viewer={eventViewer} />;
+  }
   if (message.direction === "system" || message.automated) {
     const event = inboxActivitySummary(message.eventTitle || message.subject, message.body);
     const at = /^\d{4}-\d\d-\d\dT/.test(message.at) && !Number.isNaN(Date.parse(message.at))
@@ -1546,7 +1565,8 @@ export function InboxBubble({
   const statusText = failed ? "Couldn't send" : sending ? "Sending…" : message.status || "";
   const showDeliveryTick = outbound && !sending && !failed && (message.delivery === "sent" || message.delivery === undefined);
   const showViaLine =
-    showMeta && ((showChannel && channel != null) || Boolean(statusText) || showDeliveryTick);
+    showMeta &&
+    ((showChannel && channel != null) || Boolean(statusText) || showDeliveryTick || Boolean(message.senderDisplayName));
 
   return (
     <div className="flex w-full min-w-0 gap-2.5" title={startsRun ? undefined : message.at}>
@@ -1612,6 +1632,9 @@ export function InboxBubble({
         </div>
         {showViaLine ? (
           <span className="mt-px flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] leading-snug text-muted/80">
+            {message.senderDisplayName ? (
+              <span data-inbox-sender-display-name>{message.senderDisplayName}</span>
+            ) : null}
             {showChannel && channel ? <InboxViaLine channel={channel} /> : null}
             {statusText ? (
               <span className={sending ? "italic" : failed ? "font-medium text-rose-600" : ""}>{statusText}</span>
@@ -1636,12 +1659,15 @@ export function InboxMessageTimeline({
   showAuthors = false,
   alignAssistantStart = false,
   emailNameAsPerson = false,
+  eventViewer = "manager",
 }: {
   messages: InboxBubbleMessage[];
   showAuthors?: boolean;
   alignAssistantStart?: boolean;
   /** Passed to every bubble — see `InboxBubble`. */
   emailNameAsPerson?: boolean;
+  /** Passed to every bubble — see `InboxBubble`. */
+  eventViewer?: InboxEventViewer;
 }) {
   const items = buildInboxMessageTimeline(messages);
   return (
@@ -1675,6 +1701,7 @@ export function InboxMessageTimeline({
               showAvatar={item.showAvatar}
               alignAssistantStart={alignAssistantStart}
               emailNameAsPerson={emailNameAsPerson}
+              eventViewer={eventViewer}
             />
           </div>
         ),
@@ -3255,6 +3282,7 @@ export function InboxThreadView({
   showAuthors = false,
   alignAssistantStart = false,
   emailNameAsPerson = false,
+  eventViewer = "manager",
   onBack,
   hideIdentityHeader = false,
   headerActions,
@@ -3278,6 +3306,8 @@ export function InboxThreadView({
   alignAssistantStart?: boolean;
   /** A bubble author known only as an email address reads as the person — see `InboxBubble`. */
   emailNameAsPerson?: boolean;
+  /** Whose portal draws the thread's event cards — see `InboxBubble`. */
+  eventViewer?: InboxEventViewer;
   /** Mobile-only back affordance returning to the list. */
   onBack?: () => void;
   /** Hide avatar, title, and subtitle (e.g. resident profile Communication tab). */
@@ -3382,6 +3412,7 @@ export function InboxThreadView({
               showAuthors={showAuthors}
               alignAssistantStart={alignAssistantStart}
               emailNameAsPerson={emailNameAsPerson}
+              eventViewer={eventViewer}
             />
             {afterMessages}
             <div ref={endRef} />

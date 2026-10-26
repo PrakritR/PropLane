@@ -16,6 +16,7 @@ import {
 import { serviceRecordRefForEvent } from "@/lib/service-record-ref";
 import { buildTeamNoticeLine } from "@/lib/team-notice-line";
 import type { RecordRef } from "@/lib/portals/record-kinds";
+import { buildInboxEventStamp } from "@/lib/inbox-event-card";
 import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-preferences";
 import type { TeamNoticeModule } from "@/lib/team-comms.server";
 import { resolveAutomationSendModeForEvent } from "@/lib/automation-send-mode.server";
@@ -35,6 +36,8 @@ export type ActionEventDomain =
   | "message"
   /** Move-in forms: sent, reminded and submitted (`move-in-form-events.server.ts`). */
   | "move_in_form"
+  /** A resident's move-in details and room assignment, announced in their conversation (`move-in-details-event.server.ts`). */
+  | "move_in"
   /** Vendor banking: payouts, bank/account state, refunds and disputes (`vendor-banking/events.server.ts`). */
   | "vendor_banking"
   /** WS5: team-only, no resident/vendor/manager side. */
@@ -92,6 +95,7 @@ export function teamModuleForDomain(domain: string): TeamNoticeModule {
       return "calendar";
     case "inspection":
     case "move_in_form":
+    case "move_in":
       return "residents";
     default:
       return "inbox";
@@ -282,6 +286,8 @@ async function deliverProjection(
     managerUserId?: string | null;
     /** The service this event is about (`service-record-ref.ts`), stamped on the thread for the record's Communication section. */
     recordRef?: RecordRef;
+    /** The record the event is about (the charge, lease, application ...): names the event card's action. */
+    entityId?: string | null;
     finalizeGuard?: { status: "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred"; dueAt: string };
   },
 ): Promise<"delivered" | "submitted" | "deferred" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "stale"> {
@@ -512,6 +518,19 @@ async function deliverProjection(
     ownerManagerUserId: input.managerUserId?.trim() || undefined,
     propertyId: input.propertyId ?? null,
     ...(input.recordRef ? { recordRef: input.recordRef } : {}),
+    // A resident's copy of a card-worthy event wears the event card in the stay chat. Built from the stored
+    // payload and entity id alone, so a retry stamps exactly what the first attempt did.
+    ...(() => {
+      const event = buildInboxEventStamp({
+        domain: input.domain ?? "",
+        event: input.eventType ?? "",
+        audience: input.recipient.audience,
+        entityId: input.entityId,
+        payload: input.payload,
+        rendered: input.rendered,
+      });
+      return event ? { event } : {};
+    })(),
   }).catch((error: unknown) => ({
     ok: false as const,
     error: error instanceof Error ? error.message : "Delivery failed",
@@ -782,6 +801,7 @@ export async function emitActionEvent(
       propertyId,
       managerUserId: input.managerUserId,
       recordRef: serviceRecordRefForEvent(input.domain, input.entityId, input.payload?.title),
+      entityId: input.entityId,
     });
     if (outcome === "delivered") delivered++;
     else if (outcome === "submitted") submitted++;
@@ -891,6 +911,7 @@ export async function retryDueActionEventDeliveries(
         event.entity_id ? String(event.entity_id) : undefined,
         (event.payload as { title?: unknown } | null)?.title,
       ),
+      entityId: event.entity_id ? String(event.entity_id) : null,
       finalizeGuard: { status: row.status as "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred", dueAt: claimUntil },
     });
     if (["failed", "email_failed", "sms_failed", "channels_failed"].includes(outcome)) failed++;

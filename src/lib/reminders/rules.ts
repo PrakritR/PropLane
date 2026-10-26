@@ -404,7 +404,10 @@ const PLAN_0915_DEFAULT_RULES: Omit<
   message_unanswered: rule({ timings: ["after:1440"], audience: MANAGER }),
   document_signature: rule({ timings: ["after:4320"], audience: COUNTERPARTY }),
   task_overdue: rule({ timings: ["after:1440"], audience: { counterparty: true, manager: true } }),
-  resident_welcome: rule({ enabled: false, timings: ["after:5", "after:2880", "after:10080"], audience: COUNTERPARTY }),
+  // ON by default (A3 decision 4): the welcome IS the Move-in details card in the resident's conversation
+  // (`emitMoveInDetails`), sent once. One timing, because the card is idempotent per resident and home: a
+  // second and third send would be dropped duplicates, never a second card.
+  resident_welcome: rule({ timings: ["after:5"], audience: COUNTERPARTY }),
   inspection_acknowledge: rule({ timings: ["after:7200"], audience: COUNTERPARTY }),
   // Stay times (bookings-times-1018). The guest of a confirmed short stay, never the manager.
   // The timing here is nominal: the sweeper (`subjects/stay-times.server.ts`) anchors each row on
