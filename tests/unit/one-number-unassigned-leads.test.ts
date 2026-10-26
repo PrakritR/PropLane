@@ -403,14 +403,15 @@ describe("assignment to exactly one workspace", () => {
     expect(lead(fake).status).toBe("open");
   });
 
-  it("an admin assignment opens the conversation with the Looking for line, not the transcript", async () => {
+  it("an admin (PropLane staff) placement still hands over the whole conversation, including the last text", async () => {
     const fake = seed();
     await say(fake, "hi");
     await say(fake, "$1000");
     const result = await assignLeadToHouse(fake.db, { leadId: String(lead(fake).id), propertyId: "prop-uw-a", by: "admin" }, deps());
     expect(result).toMatchObject({ ok: true, workspaceId: WS_A, ownerUserId: OWNER_A, label: "Brooklyn House" });
     const bodies = mocks.log.mock.calls.map((c) => (c[1] as { body: string }).body);
-    expect(bodies).toEqual(["Looking for: room \u00b7 under $1000"]);
+    expect(bodies).toContain("$1000");
+    expect(bodies).toHaveLength(4);
     expect(mocks.alert.mock.calls[0]![1]).toMatchObject({ workspaceId: WS_A });
   });
 });

@@ -119,6 +119,14 @@ export function asksTourWithDay(text: string): boolean {
   return TOUR_WORD.test(text) && DAY_WORD.test(text);
 }
 
+const HOME_SEARCH =
+  /\b(?:what|which|any|are there|is there|do you have|have any|got any|show me|looking for|need|find me)\b[^.?!]{0,40}\b(?:houses?|homes?|rooms?|apartments?|apts?|places?|rentals?|units?|listings?|studios?|flats?)\b/i;
+
+/** "what houses are in Seattle?": a search for homes, which the qualifier answers; it is never the unclear "hi". */
+export function asksForHomes(text: string): boolean {
+  return HOME_SEARCH.test(text);
+}
+
 /** Did the prospect say they want the home (so a paid manager's number may be given)? A pick, a yes and "interested in" all count. */
 export function expressesInterest(text: string): boolean {
   return /\b(?:interested|tour|visit|book|apply|application|rent (?:it|this|that)|take it|available|still open|more info|tell me more|learn more|details|price|how much)\b/i.test(text);

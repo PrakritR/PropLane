@@ -32,7 +32,7 @@ import {
 } from "@/lib/sms/propline-first-text";
 import { mintSetupLink } from "@/lib/one-number/onboarding/setup-links.server";
 import { askedByLine, readOnboardingState, saveOnboardingState, SHARED_LINE_ASK, type OnboardingState } from "@/lib/one-number/onboarding/state.server";
-import { asksTourWithDay } from "@/lib/one-number/home-lock";
+import { asksForHomes, asksTourWithDay } from "@/lib/one-number/home-lock";
 import { handleHoldInbound, handleUnassignedLeadInbound, openLeadStage, textNamesOneHome, type LeadDeps, type UnassignedLeadTurn } from "@/lib/one-number/unassigned-leads.server";
 
 export const ONBOARDING_COPY = {
@@ -177,9 +177,9 @@ async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbou
       const inferred = inferSenderRole(inbound.body) ?? fromClarity;
       if (!inferred) {
         // The FIRST unclear text ("hi", "who is this") gets one reply asking which home, and waits in Admin > Unassigned (never in a
-        // workspace). A tour or booking ask with a day is specific enough to go to the lead flow. A second unclear text gets the
+        // workspace). A tour or booking ask with a day, or a search for homes ("what houses are in Seattle?"), is specific enough to go to the lead flow. A second unclear text gets the
         // role question, as before.
-        if (openStage !== "hold") return asksTourWithDay(inbound.body) ? leadPath() : handleHoldInbound(db, inbound, { now: deps.now ?? deps.lead?.now });
+        if (openStage !== "hold") return asksTourWithDay(inbound.body) || asksForHomes(inbound.body) ? leadPath() : handleHoldInbound(db, inbound, { now: deps.now ?? deps.lead?.now });
         await saveOnboardingState(db, inbound.phoneKey, { askedAt: (now ?? new Date()).toISOString(), askedLine: SHARED_LINE_ASK }, now);
         return single(ONBOARDING_COPY.askRole);
       }

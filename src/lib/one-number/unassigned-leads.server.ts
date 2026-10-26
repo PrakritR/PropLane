@@ -47,6 +47,7 @@ import { matchListingsNamedIn, streetLine } from "@/lib/one-number/house-redirec
 import { lineTierOf, type LineListing } from "@/lib/one-number/line-tier";
 import { paidWorkNumberFor } from "@/lib/one-number/self-serve-line.server";
 import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
+import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import { upsertManagerSmsContact } from "@/lib/sms/manager-sms-contacts.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { resolveHouseRedirect } from "@/lib/one-number/house-redirect.server";
@@ -666,20 +667,46 @@ export async function assignLeadToHouse(
 
   const phoneE164 = e164FromPhoneKey(lead.phoneKey);
   const linePhone = config.sharedNumber ?? phoneE164;
-  // The browsing transcript is NOT copied: it holds the other managers' homes the prospect was offered. The locked manager's
-  // conversation opens with one "Looking for" line, then only the texts about their own home.
-  const looking = lookingForLine(lead.profile);
-  if (looking) {
-    await writeLookingForTurn(db, {
-      ownerUserId: prospect.ownerUserId,
-      workspaceId: prospect.workspaceId,
-      phoneE164,
-      linePhone,
-      text: looking,
-      leadId: lead.id,
-      propertyId: propertyId || "workspace",
-      at,
-    });
+  if (input.by === "admin") {
+    // PropLane staff placing a stranger into a PropLane Service workspace choose to hand over the whole conversation: it
+    // is their own workspace and they can already read it in Unassigned.
+    const excluded = new Set(input.excludeTurnIds ?? []);
+    const turns = await db
+      .from("sms_unassigned_lead_turns")
+      .select("id, direction, body, created_at")
+      .eq("lead_id", lead.id)
+      .order("created_at", { ascending: true })
+      .limit(200);
+    for (const turn of (turns.data ?? []) as Row[]) {
+      const id = str(turn.id);
+      if (excluded.has(id)) continue;
+      const inboundDir = str(turn.direction) === "inbound";
+      // `workspaceId` rides along for the workspace-stamp support in `logManagerSmsMessage`.
+      const entry: Parameters<typeof logManagerSmsMessage>[1] & { workspaceId?: string | null } = {
+        managerUserId: prospect.ownerUserId,
+        residentPhone: phoneE164,
+        direction: inboundDir ? "inbound" : "outbound",
+        body: str(turn.body),
+        fromPhone: inboundDir ? phoneE164 : linePhone,
+        toPhone: inboundDir ? linePhone : phoneE164,
+        messageSid: `lead:${id}`,
+        createdAt: str(turn.created_at) || at,
+        source: "work_number",
+        counterpartyRole: "prospect",
+        workspaceId: prospect.workspaceId,
+      };
+      await logManagerSmsMessage(db, entry).catch(() => false);
+    }
+    // Best-effort stamp for databases where the helper above does not stamp yet.
+    await db.from("manager_sms_messages").update({ workspace_id: prospect.workspaceId }).eq("manager_user_id", prospect.ownerUserId).like("message_sid", "lead:%").is("workspace_id", null);
+  } else {
+    // A prospect's own pick or naming of a home: the browsing transcript is NOT copied (it holds the other managers' homes the
+    // prospect was offered). The locked manager's conversation opens with one "Looking for" line, then only the texts about
+    // their own home.
+    const looking = lookingForLine(lead.profile);
+    if (looking) {
+      await writeLookingForTurn(db, { ownerUserId: prospect.ownerUserId, workspaceId: prospect.workspaceId, phoneE164, linePhone, text: looking, leadId: lead.id, propertyId: propertyId || "workspace", at });
+    }
   }
 
   // The returning-prospect lookup finds this phone through its contact row from now on.

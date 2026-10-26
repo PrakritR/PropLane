@@ -110,6 +110,13 @@ describe("ask once", () => {
     expect(turn.reply).toBe("LEAD: budget?");
   });
 
+  it("a search for homes goes to the lead flow, not the hold reply", async () => {
+    const f = leadFakeDb();
+    const turn = await run(f.db, "what houses are in seattle?");
+    expect(hold).not.toHaveBeenCalled();
+    expect(turn.reply).toBe("LEAD: budget?");
+  });
+
   it("a text that names a home skips the question and the hold: the lead flow locks the line to it", async () => {
     const f = leadFakeDb();
     named.value = true;

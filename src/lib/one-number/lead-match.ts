@@ -305,6 +305,12 @@ export function parseOfferPick(text: string, offers: readonly LeadOffer[]): Offe
     const hit = offers.find((o) => o.n === Number(inline[1]));
     if (hit) return { kind: "pick", offer: hit };
   }
+  // "tell me more about 2", "interested in 3": a number after a pick phrase, never "interested in 3 bedrooms" or "about 2 people".
+  const phrased = t.match(/\b(?:tell me (?:more )?about|what about|how about|interested in|show me|i'?ll take|i want|i like)\s+(?:the\s+)?(\d)\b(?!\s*(?:bed|bath|br\b|people|person|ppl|month|mo\b|roommate|k\b|\/|,\d|\d))/i);
+  if (phrased) {
+    const hit = offers.find((o) => o.n === Number(phrased[1]));
+    if (hit) return { kind: "pick", offer: hit };
+  }
   for (const [word, n] of Object.entries(ORDINALS)) {
     if (new RegExp(`\\b${word}\\b`, "i").test(t)) {
       const hit = offers.find((o) => o.n === n);

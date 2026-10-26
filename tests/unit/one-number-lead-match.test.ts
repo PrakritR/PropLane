@@ -7,7 +7,8 @@ vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.f
 vi.mock("server-only", () => ({}));
 
 import { publicListingProjection } from "@/lib/public-listings.server";
-import { buildOfferBubbles, buildOfferText, firstOfferPhoto, listingsInArea, matchRooms, offerFromRow, parseOfferPick } from "@/lib/one-number/lead-match";
+import { buildOfferBubbles, buildOfferText, countFittingRooms, firstOfferPhoto, listingsInArea, matchOffers, matchRooms, offerFromRow, parseOfferPick } from "@/lib/one-number/lead-match";
+import type { LineListing, LineTier } from "@/lib/one-number/line-tier";
 import type { LeadOffer, LeadProfile } from "@/lib/one-number/lead-qualifying";
 
 const TODAY = "2026-10-18";
@@ -145,6 +146,13 @@ describe("reading the pick", () => {
     expect(pick("can I see the 8th ave one")).toMatchObject({ kind: "pick", offer: { n: 2 } });
   });
 
+  it("takes 'tell me more about 2' and 'interested in 3', but not a count of bedrooms or people", () => {
+    expect(pick("tell me more about 2")).toMatchObject({ kind: "pick", offer: { n: 2 } });
+    expect(pick("actually im interested in 3")).toMatchObject({ kind: "pick", offer: { n: 3 } });
+    expect(pick("interested in 3 bedrooms")).not.toMatchObject({ kind: "pick" });
+    expect(pick("about 2 people")).not.toMatchObject({ kind: "pick" });
+  });
+
   it("a bare tour with several offers asks which; with one it is that one", () => {
     expect(pick("TOUR")).toEqual({ kind: "which" });
     expect(pick("can I schedule a tour?")).toEqual({ kind: "which" });
@@ -157,5 +165,62 @@ describe("reading the pick", () => {
     expect(pick("no")).toEqual({ kind: "decline" });
     expect(pick("what is the weather")).toEqual({ kind: "none" });
     expect(parseOfferPick("2", [])).toEqual({ kind: "none" });
+  });
+});
+
+describe("matchOffers: the stranger's tier mix", () => {
+  const tagged = (id: string, tier: LineTier, manager: string, rent: number, street: string): LineListing => ({
+    ...publicListingProjection(storedListing(id, { manager, neighborhood: "University District", beds: 4, rent, street, name: `${street} House` })),
+    workspaceId: `ws-${manager}`,
+    lineTier: tier,
+  });
+  const p = profile({ budgetMax: 1300 });
+
+  it("one managed, one free-manager and one paid-manager home when each has a fit, cheapest first", () => {
+    const catalog = [
+      tagged("free-1", "free", "lena", 1000, "1 Free St"),
+      tagged("free-2", "free", "ben", 1010, "2 Free St"),
+      tagged("paid-1", "paid", "marcus", 1200, "3 Paid St"),
+      tagged("svc-1", "managed", "svc", 1250, "4 Managed St"),
+      tagged("svc-2", "managed", "svc2", 1260, "5 Managed St"),
+      tagged("svc-3", "managed", "svc3", 1270, "6 Managed St"),
+    ];
+    const offers = matchOffers(catalog, p, TODAY);
+    expect(offers.map((o) => o.tier).sort()).toEqual(["free", "managed", "paid"]);
+    expect(offers.map((o) => o.row.propertyId)).toEqual(["free-1", "paid-1", "svc-1"]);
+  });
+
+  it("never two homes from the same manager; the best fits fill in when a tier has no fit", () => {
+    const catalog = [
+      tagged("a-1", "managed", "svc", 900, "1 A St"),
+      tagged("a-2", "managed", "svc", 910, "2 A St"),
+      tagged("b-1", "free", "lena", 950, "3 B St"),
+      tagged("b-2", "free", "ben", 960, "4 B St"),
+      tagged("b-3", "free", "cy", 970, "5 B St"),
+      tagged("b-4", "free", "dee", 980, "6 B St"),
+    ];
+    const offers = matchOffers(catalog, p, TODAY);
+    expect(offers).toHaveLength(3);
+    expect(offers.map((o) => o.row.propertyId)).toEqual(["a-1", "b-1", "b-2"]);
+  });
+
+  it("exactly four homes from four managers are all offered; an untagged listing counts as managed", () => {
+    const four = [tagged("t1", "managed", "m1", 900, "1 T St"), tagged("t2", "free", "m2", 910, "2 T St"), tagged("t3", "paid", "m3", 920, "3 T St"), tagged("t4", "free", "m4", 930, "4 T St")];
+    expect(matchOffers(four, p, TODAY)).toHaveLength(4);
+    const plain = matchOffers(CATALOG, profile({}), TODAY);
+    expect(plain.every((o) => o.tier === "managed")).toBe(true);
+  });
+
+  it("counts every fitting room, and an offer never carries a phone number", () => {
+    const catalog = [tagged("n1", "paid", "marcus", 1000, "1 N St"), tagged("n2", "free", "lena", 1010, "2 N St")];
+    expect(countFittingRooms(catalog, p, TODAY)).toBe(2);
+    const picks = matchOffers(catalog, p, TODAY);
+    const offers = picks.map((x, i) => offerFromRow(x.row, i + 1, x.tier));
+    const bubbles = buildOfferBubbles(offers, picks.map((x) => x.row), "https://proplane.ai");
+    for (const body of [buildOfferText(offers, "https://proplane.ai"), ...bubbles.map((b) => b.body)]) {
+      expect(body).not.toMatch(/\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+    }
+    expect(offers.map((o) => o.tier)).toEqual(["paid", "free"]);
+    expect(offers[0]).toMatchObject({ roomName: "Room A" });
   });
 });
