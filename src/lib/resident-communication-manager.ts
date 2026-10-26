@@ -19,6 +19,8 @@ export type ResidentThreadManager = {
   workspaceName?: string;
   /** The work number the resident texts (server-stamped counterparty, else the matched contact's). */
   workPhone?: string;
+  /** The work number is the PropLane line (a PropLane-managed workspace): drawn with a "PropLane line" label. */
+  onPropLaneLine?: boolean;
   /** Server-stamped initials, when the conversation carries a counterparty. */
   initials?: string;
   /** Street of the home the conversation is about, when one is known. */
@@ -95,6 +97,7 @@ export function resolveResidentThreadManager(
     ...(counterparty?.workspaceName?.trim() ? { workspaceName: counterparty.workspaceName.trim() } : {}),
     ...(counterparty?.initials ? { initials: counterparty.initials } : {}),
     ...(workPhone ? { workPhone } : {}),
+    ...(workPhone && counterparty?.onPropLaneLine ? { onPropLaneLine: true } : {}),
     ...(homeLabel ? { homeLabel } : {}),
     ...(email ? { email } : {}),
     ...(workPhone ? { phone: workPhone } : {}),

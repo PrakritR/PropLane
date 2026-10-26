@@ -60,6 +60,8 @@ export type ResidentCounterparty = {
   workspaceName: string | null;
   /** The work number the resident texts (public), E.164. */
   workPhone: string | null;
+  /** True when `workPhone` is the PropLane line because the workspace is PropLane-managed (shown as "· PropLane line"). */
+  onPropLaneLine?: boolean;
   /** No avatar is stored on a profile today; the UI draws `initials`. */
   avatarUrl: string | null;
   initials: string;

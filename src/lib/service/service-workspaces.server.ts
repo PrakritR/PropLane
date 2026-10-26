@@ -29,7 +29,9 @@ import { updateAuditResult, writeAuditLog } from "@/lib/tools/audit";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { proplaneIdLookupVariants } from "@/lib/manager-id";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
-import { loadSharedLineConfig, workspaceHasDedicatedNumber, workspaceOnSharedLine } from "@/lib/one-number/config.server";
+import { resolveServiceLine, type ServiceLine } from "@/lib/one-number/service-line.server";
+import { normalizeE164 } from "@/lib/phone-e164";
+import { releaseManagerNumber } from "@/lib/sms/manager-number-provisioning.server";
 import { isPlatformServiceOwner, loadServiceWorkspace, resolveServiceOwner } from "@/lib/service/service-owner.server";
 import { ensureServiceFeePolicy, setServiceManagementFee, PolicyError, type ServiceManagementFee } from "@/lib/owner-management/policies.server";
 import { MANAGEMENT_FEE_RANGE_MESSAGE, feePercentForOwnerShareBps, ownerShareBpsForFeePercent } from "@/lib/owner-management/fee-percent";
@@ -95,9 +97,19 @@ export type ServiceWorkspaceListRow = {
   ownerOfRecord: { name: string; linked: boolean } | null;
   isDefault: boolean;
   houseCount: number;
-  /** The number this workspace actually texts from: its own number only when dedicated (working number plus paid entitlement), else the shared PropLane line it is on, else none. */
+  /**
+   * The number this workspace texts from. Every row here is PropLane-managed, so it is ALWAYS the PropLane line
+   * (`resolveServiceLine`, source "shared"), never a number the workspace once held; null when that line cannot be
+   * resolved. "own" is kept in the type for older callers and is never produced.
+   */
   workNumber: string | null;
   workNumberSource: "own" | "shared" | null;
+  /**
+   * The number the workspace held before it went on the PropLane line, while it is still kept (receive-only: a text to it
+   * still lands in the workspace, the reply leaves from the PropLane line). `since` is when the workspace was attached, null
+   * when that cannot be read. Released by the "Release old number" action; no automatic release.
+   */
+  oldNumber: { phoneNumber: string; since: string | null } | null;
   teamCount: number;
   /** What the viewing operator is in this workspace; null = not a member (cannot open it). */
   viewerRole: string | null;
@@ -113,24 +125,48 @@ export type ServiceListPayload = {
 };
 
 /**
- * No number is provisioned, reserved or exempted for a service workspace. It has a number of its own only when it
- * is DEDICATED (a working number AND a paid personalized-number entitlement: `workspaceHasDedicatedNumber`, the
- * same decision W16's display resolver and the send path use); otherwise it texts from the shared PropLane line
- * while it is on it; otherwise (per_workspace) there is none to show.
+ * No number is provisioned, reserved or exempted for a service workspace, and it never has a personalized one: a
+ * PropLane-MANAGED workspace texts on the PropLane line in both modes (W29), so the number shown is `resolveServiceLine`'s
+ * answer and nothing else. A line that cannot be resolved or read shows no number (never the workspace's old one).
  */
-function resolveTextingNumber(
-  own: Record<string, unknown> | undefined,
-  sharedLine: Awaited<ReturnType<typeof loadSharedLineConfig>>,
-  workspaceId: string,
-): { workNumber: string | null; workNumberSource: "own" | "shared" | null } {
-  if (workspaceHasDedicatedNumber(sharedLine, workspaceId)) {
-    const ownNumber = typeof own?.phone_number === "string" && own.phone_number.trim() ? own.phone_number.trim() : null;
-    return ownNumber ? { workNumber: ownNumber, workNumberSource: "own" } : { workNumber: null, workNumberSource: null };
+function resolveTextingNumber(line: ServiceLine): { workNumber: string | null; workNumberSource: "own" | "shared" | null } {
+  return line.ok ? { workNumber: line.phoneNumber, workNumberSource: "shared" } : { workNumber: null, workNumberSource: null };
+}
+
+/**
+ * The old number a managed workspace still holds: its live own row whose number is not the PropLane line. Without a
+ * resolved line nothing can be told apart from the line, so nothing is reported (and nothing can be released).
+ */
+function oldNumberRow(rows: Record<string, unknown>[], workspaceId: string, line: ServiceLine): Record<string, unknown> | null {
+  if (!line.ok) return null;
+  return (
+    rows.find(
+      (n) =>
+        n.workspace_id === workspaceId &&
+        !n.released_at &&
+        normalizeE164(String(n.phone_number ?? "")) &&
+        normalizeE164(String(n.phone_number ?? "")) !== line.phoneNumber,
+    ) ?? null
+  );
+}
+
+/** When each workspace was attached (the attach audit row), best effort: an unreadable trail just leaves `since` null. */
+async function attachedAtByWorkspace(db: SupabaseClient, workspaceIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  try {
+    const { data, error } = await db.from("audit_log").select("created_at, input_summary").eq("action", ADMIN_SERVICE_ATTACH_AUDIT_ACTION);
+    if (error) return out;
+    for (const row of (data ?? []) as { created_at?: unknown; input_summary?: { workspaceId?: unknown } | null }[]) {
+      const id = String(row.input_summary?.workspaceId ?? "");
+      const at = typeof row.created_at === "string" ? row.created_at : "";
+      if (!at || !workspaceIds.includes(id)) continue;
+      const prev = out.get(id);
+      if (!prev || at < prev) out.set(id, at);
+    }
+  } catch {
+    /* best effort */
   }
-  if (workspaceOnSharedLine(sharedLine, workspaceId) && sharedLine.sharedNumber) {
-    return { workNumber: sharedLine.sharedNumber, workNumberSource: "shared" };
-  }
-  return { workNumber: null, workNumberSource: null };
+  return out;
 }
 
 function ownerOfRecordFor(
@@ -180,16 +216,17 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
   const ids = rows.map((r) => r.id);
   if (ids.length === 0) return { ok: true, payload: { configured, ownerUserId, workspaces: [] } };
 
-  const [houses, numbers, links, sharedLine, feePercents] = await Promise.all([
+  const [houses, numbers, links, serviceLine, feePercents, attachedAt] = await Promise.all([
     db.from("manager_property_records").select("id, workspace_id, manager_user_id").in("workspace_id", ids),
-    db.from("manager_sms_numbers").select("workspace_id, phone_number, provision_state, released_at").in("workspace_id", ids),
+    db.from("manager_sms_numbers").select("workspace_id, phone_number, provision_state, released_at, created_at").in("workspace_id", ids),
     db
       .from("account_link_invites")
       .select("id, workspace_id, inviter_user_id, invitee_user_id, team_role, status, is_owner_of_record, invitee_display_name")
       .in("workspace_id", ids)
       .in("status", ["accepted", "pending"]),
-    loadSharedLineConfig(db),
+    resolveServiceLine(db),
     serviceFeePercents(db, ids),
+    attachedAtByWorkspace(db, ids),
   ]);
   if (houses.error || numbers.error || links.error) return fail(503, "Could not load service workspaces. Please retry.");
   // The owner of record's name for an ACCEPTED flagged member comes from their profile; a pending one is shown
@@ -212,7 +249,7 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
   );
 
   const out: ServiceWorkspaceListRow[] = rows.map((row) => {
-    const live = ((numbers.data ?? []) as Record<string, unknown>[]).find((n) => n.workspace_id === row.id && !n.released_at);
+    const old = oldNumberRow((numbers.data ?? []) as Record<string, unknown>[], row.id, serviceLine);
     // Memberships of THIS workspace, granted by its own owner (a row from anyone else is not a membership of it).
     const members = ((links.data ?? []) as Record<string, unknown>[]).filter((l) => l.workspace_id === row.id && l.inviter_user_id === row.owner_user_id);
     const mine = members.find((l) => l.invitee_user_id === operatorUserId && l.status === "accepted");
@@ -225,7 +262,10 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
       ownerOfRecord: ownerOfRecordFor(row.owner_of_record_name, members, profileName, ownerIsRecord(row) ? { userId: row.owner_user_id } : null),
       isDefault: row.is_default,
       houseCount: ((houses.data ?? []) as Record<string, unknown>[]).filter((h) => h.workspace_id === row.id).length,
-      ...resolveTextingNumber(live, sharedLine, row.id),
+      ...resolveTextingNumber(serviceLine),
+      oldNumber: old
+        ? { phoneNumber: String(old.phone_number), since: attachedAt.get(row.id) ?? (typeof old.created_at === "string" ? old.created_at : null) }
+        : null,
       teamCount: members.filter((l) => l.status === "accepted").length,
       viewerRole: myRole,
       canManage: myRole === "owner" || myRole === "admin" || myRole === "full",
@@ -617,6 +657,59 @@ export async function authorizeOpenServiceWorkspace(
   const who = await operatorStanding(db, operatorUserId, workspaceId);
   if (!who.ok) return who;
   return { ok: true, id: who.workspace.id };
+}
+
+export const ADMIN_SERVICE_RELEASE_OLD_NUMBER_AUDIT_ACTION = "admin_service_release_old_number";
+
+/**
+ * Admin > Service > Release old number. A managed workspace keeps the number it held before it went on the PropLane line
+ * receive-only (inbound still lands in the workspace, replies leave from the PropLane line); this releases it, on the
+ * operator's say-so only (no timer). Platform admin only, re-derived here; the audit row is written BEFORE the release and
+ * a missing row means nothing changes; the PropLane line itself is never released (a workspace that holds the line, as the
+ * service owner's default does, refuses). The state flips in our database; handing the number back to the carrier stays
+ * an operator step. Verified after: a release that did not take reports 503.
+ */
+export async function releaseServiceWorkspaceOldNumber(
+  db: SupabaseClient,
+  operatorUserId: string,
+  input: { id: string },
+): Promise<ServiceResult<{ released: string }>> {
+  if (!(await userHoldsAdminRole(db, operatorUserId))) return fail(403, "Only a PropLane admin can release a workspace's old number.");
+  const workspace = await loadServiceWorkspace(db, input.id);
+  if (!workspace) return fail(404, NOT_FOUND);
+  const line = await resolveServiceLine(db);
+  if (!line.ok) return fail(503, "Could not resolve the PropLane line, so nothing was released. Please retry.");
+  const held = await db
+    .from("manager_sms_numbers")
+    .select("manager_user_id, workspace_id, phone_number, released_at")
+    .eq("workspace_id", workspace.id)
+    .is("released_at", null);
+  if (held.error) return fail(503, "Could not read the workspace's numbers. Please retry.");
+  const live = ((held.data ?? []) as Record<string, unknown>[]).filter((r) => normalizeE164(String(r.phone_number ?? "")));
+  if (live.some((r) => normalizeE164(String(r.phone_number)) === line.phoneNumber)) {
+    return fail(409, "This workspace holds the PropLane line itself, so there is no old number to release.");
+  }
+  const old = live[0];
+  if (!old) return fail(409, "This workspace has no old number to release.");
+  const managerIds = [...new Set(live.map((r) => String(r.manager_user_id ?? "").trim()).filter(Boolean))];
+  if (managerIds.length === 0) return fail(409, "This workspace has no old number to release.");
+
+  const audited = await auditServiceChange(
+    db,
+    operatorUserId,
+    workspace.ownerUserId,
+    ADMIN_SERVICE_RELEASE_OLD_NUMBER_AUDIT_ACTION,
+    { workspaceId: workspace.id, phoneNumbers: live.map((r) => String(r.phone_number)) },
+    true,
+  );
+  if (audited) return audited;
+
+  for (const managerId of managerIds) await releaseManagerNumber(db, managerId, workspace.id);
+  const after = await db.from("manager_sms_numbers").select("phone_number").eq("workspace_id", workspace.id).is("released_at", null);
+  if (after.error || ((after.data ?? []) as Record<string, unknown>[]).some((r) => normalizeE164(String(r.phone_number ?? "")) !== line.phoneNumber && normalizeE164(String(r.phone_number ?? "")))) {
+    return fail(503, "Could not release the old number. Please retry.");
+  }
+  return { ok: true, released: String(old.phone_number) };
 }
 
 export type { ServiceTeamMember } from "@/lib/service/service-team-types";

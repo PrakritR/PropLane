@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Building2 } from "lucide-react";
 import { PortalEntryRow } from "@/components/portal/portal-entry-row";
-import { currentFeeLine, feeOutcomeToast, groupServiceByCity, serviceRowFacts, type ServiceRow } from "@/components/portal/admin-service-panel";
+import { currentFeeLine, feeOutcomeToast, groupServiceByCity, oldNumberFactLabel, serviceRowFacts, workNumberFactLabel, type ServiceRow } from "@/components/portal/admin-service-panel";
 import { serviceWorkspaceFinancesHref } from "@/lib/service/service-links";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/portal/admin/accounts", useSearchParams: () => new URLSearchParams() }));
@@ -44,11 +44,22 @@ describe("Service list sections", () => {
     expect(serviceRowFacts(row({ houseCount: 2, workNumber: "+12065550100", teamCount: 3, feePercent: 10 })).map((f) => (typeof f === "string" ? f : f.label))).toEqual([
       "2 houses",
       "10% fee",
-      "+12065550100",
+      "(206) 555-0100",
       "3 on team",
     ]);
     expect(serviceRowFacts(row({ viewerRole: null })).map((f) => (typeof f === "string" ? f : f.label))).toContain("Not on team");
     expect(serviceRowFacts(row({})).map((f) => (typeof f === "string" ? f : f.label))).toContain("No fee yet");
+  });
+
+  it("a managed workspace's row says (206) 678-1909 · PropLane line, and a kept old number is its own fact", () => {
+    const managed = row({ houseCount: 1, workNumber: "+12066781909", workNumberSource: "shared", feePercent: 10, oldNumber: { phoneNumber: "+18146793694", since: "2026-10-25T18:00:00.000Z" } });
+    expect(workNumberFactLabel(managed)).toBe("(206) 678-1909 · PropLane line");
+    expect(oldNumberFactLabel(managed.oldNumber!)).toBe("Old (814) 679-3694 kept since Oct 25");
+    const labels = serviceRowFacts(managed).map((f) => (typeof f === "string" ? f : f.label));
+    expect(labels).toContain("(206) 678-1909 · PropLane line");
+    expect(labels).toContain("Old (814) 679-3694 kept since Oct 25");
+    expect(serviceRowFacts(row({})).map((f) => (typeof f === "string" ? f : f.label)).some((l) => l.startsWith("Old "))).toBe(false);
+    expect(workNumberFactLabel(row({}))).toBe("No number");
   });
 
   // Review fix, Oct 20: a row draws only its first three facts, so asserting the helper's array is not enough —
@@ -65,7 +76,7 @@ describe("Service list sections", () => {
     const rendered = screen.getByRole("button", { name: /Ballard Service/ });
     expect(rendered.textContent).toContain("10% fee");
     expect(rendered.textContent).toContain("2 houses");
-    expect(rendered.textContent).toContain("+12065550100");
+    expect(rendered.textContent).toContain("(206) 555-0100");
     expect(rendered.textContent).not.toContain("3 on team");
   });
 

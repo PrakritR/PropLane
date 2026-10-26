@@ -23,6 +23,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { fetchWithTimeout, FetchTimeoutError } from "@/lib/auth/fetch-with-timeout";
 import { cleanOwnerOfRecord, cleanServiceCity, cleanServiceName } from "@/lib/service/service-input";
+import { formatUsPhoneDisplay } from "@/lib/phone-e164";
 import { serviceWorkspaceFinancesHref } from "@/lib/service/service-links";
 import { DEFAULT_MANAGEMENT_FEE_PERCENT, MAX_MANAGEMENT_FEE_PERCENT, ownerShareBpsForFeePercent } from "@/lib/owner-management/fee-percent";
 import { Trash2 } from "lucide-react";
@@ -39,6 +40,8 @@ export type ServiceRow = {
   houseCount: number;
   workNumber: string | null;
   workNumberSource: "own" | "shared" | null;
+  /** The number the workspace held before the PropLane line, still receiving until an admin releases it. */
+  oldNumber?: { phoneNumber: string; since: string | null } | null;
   teamCount: number;
   viewerRole: string | null;
   canManage: boolean;
@@ -48,6 +51,21 @@ export type ServiceRow = {
 /** The rate in force, as the row states it. */
 export function feeFactLabel(row: Pick<ServiceRow, "feePercent">): string {
   return row.feePercent == null ? "No fee yet" : `${row.feePercent}% fee`;
+}
+
+/** The work number as a row states it: the managed workspace's PropLane line carries its label, "(206) 678-1909 · PropLane line". */
+export function workNumberFactLabel(row: Pick<ServiceRow, "workNumber" | "workNumberSource">): string {
+  if (!row.workNumber) return "No number";
+  const phone = formatUsPhoneDisplay(row.workNumber) || row.workNumber;
+  return row.workNumberSource === "shared" ? `${phone} · PropLane line` : phone;
+}
+
+/** The old-number fact: "Old (814) 679-3694 kept since Oct 25". */
+export function oldNumberFactLabel(old: NonNullable<ServiceRow["oldNumber"]>): string {
+  const phone = formatUsPhoneDisplay(old.phoneNumber) || old.phoneNumber;
+  const when = old.since ? new Date(old.since) : null;
+  const date = when && !Number.isNaN(when.getTime()) ? when.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Los_Angeles" }) : null;
+  return date ? `Old ${phone} kept since ${date}` : `Old ${phone} kept`;
 }
 
 /** The one line in the fee modal: what the workspace is on today. A new rate replaces it the moment it is saved. */
@@ -90,9 +108,11 @@ export function serviceRowFacts(row: ServiceRow): PortalEntryRowFact[] {
   const facts: PortalEntryRowFact[] = [
     { icon: Home, label: `${row.houseCount} ${row.houseCount === 1 ? "house" : "houses"}`, srLabel: "Houses" },
     { icon: Percent, label: feeFactLabel(row), srLabel: "Management fee" },
-    { icon: Phone, label: row.workNumber ?? "No number", srLabel: "Work number" },
+    { icon: Phone, label: workNumberFactLabel(row), srLabel: "Work number" },
     { icon: Users, label: row.viewerRole ? `${row.teamCount} on team` : "Not on team", srLabel: "Team" },
   ];
+  // The kept old number rides last: a row draws its first three facts, and the old number is on the row's menu too.
+  if (row.oldNumber) facts.push({ icon: Phone, label: oldNumberFactLabel(row.oldNumber), srLabel: "Old number" });
   return facts;
 }
 
@@ -131,7 +151,7 @@ async function post<T extends Record<string, unknown>>(body: Record<string, unkn
  * the + creates a new one.
  */
 export function AdminServicePanel() {
-  const { showToast } = useAppUi();
+  const { showToast, confirm } = useAppUi();
   const searchParams = useSearchParams();
   const router = useRouter();
   const tabParam = searchParams?.get("tab");
@@ -278,6 +298,34 @@ export function AdminServicePanel() {
     }
   };
 
+  const releaseOldNumber = async (row: ServiceRow) => {
+    if (!row.oldNumber) return;
+    const phone = formatUsPhoneDisplay(row.oldNumber.phoneNumber) || row.oldNumber.phoneNumber;
+    const sure = await confirm({
+      title: "Release old number",
+      description: `Release ${phone} for ${row.name}? Texts to it will stop arriving.`,
+      confirmLabel: "Release",
+      tone: "danger",
+      note: null,
+      dataAttr: "admin-service-release-old-number-confirm",
+    });
+    if (!sure) return;
+    setBusy(true);
+    try {
+      const { ok, json } = await post({ action: "release-old-number", id: row.id });
+      if (!ok) {
+        showToast(json.error ?? "Could not release the old number.");
+        return;
+      }
+      showToast("Old number released.");
+      reload();
+    } catch {
+      showToast("Could not release the old number.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const saveFee = async () => {
     if (!selected) return;
     setBusy(true);
@@ -416,6 +464,11 @@ export function AdminServicePanel() {
           >
             Management fee
           </Button>
+          {selected.oldNumber ? (
+            <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-service-release-old-number" disabled={busy} onClick={() => void releaseOldNumber(selected)}>
+              Release old number
+            </Button>
+          ) : null}
           {serviceWorkspaceFinancesHref(selected.id) ? (
             <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-service-finances" onClick={() => window.location.assign(serviceWorkspaceFinancesHref(selected.id)!)}>
               Finances

@@ -1195,6 +1195,17 @@ a text still arriving on a managed workspace's OLD number routes to that workspa
 Staff and seats texting the 206, and self-serve workspaces, are unchanged. The old number is not released here (no provider call): that is an
 operator step. Tests: `tests/unit/service-workspace-propline-line.test.ts`.
 
+**Every display of a managed workspace's number goes through the resolver (Oct 26).** `resolveServiceLine` /
+`workspaceWorkNumber` / `resolveActiveManagerSendNumber` decide what is SHOWN as well as what is sent: nothing reads
+`manager_sms_numbers` directly to draw a workspace's number. The resident conversation header
+(`loadResidentCounterparties`: `workPhone` is the 206 and `onPropLaneLine: true` for a managed workspace, drawn "(206) 678-1909 ·
+PropLane line"), Admin › Service's row and Integrations/Settings all agree; an unresolvable line shows nothing, never the old
+number. Audited and left alone because they are not displays: `service-catalog.server.ts` `isPropLaneServiceLine` (recognition) and
+`wallet.server.ts` `resolveWorkspaceIdForWorkNumber` (placing a number). **The old number is kept receive-only** (inbound still
+lands in that workspace, replies leave from the 206) until an admin presses Admin › Service **Release old number**
+(`releaseServiceWorkspaceOldNumber`, audited first, admin only); no timer releases it
+([`admin-service.md`](admin-service.md)). Tests: `tests/unit/{resident-counterparty-managed-number,admin-service-workspaces,admin-service-panel}`.
+
 ### Mode `shared` (Oct 25: the 206 is every free or trial manager's work number, with full service)
 
 `line_mode = shared` makes the 206 the work number of every workspace WITHOUT a personal number (`workspaceOnSharedLine`: not dedicated, inside

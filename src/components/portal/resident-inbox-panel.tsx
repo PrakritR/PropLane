@@ -1364,7 +1364,11 @@ export const ResidentInboxPanel = forwardRef<
         activeManager.workspaceName ?? "Property manager",
         activeManager.homeLabel,
         // A text-only conversation has no address: the work number is how to reach them.
-        activeThread?.smsOnly ? formatSmsPhoneLabel(activeManager.workPhone) : activeManager.email,
+        activeThread?.smsOnly
+          ? activeManager.onPropLaneLine
+            ? `${formatSmsPhoneLabel(activeManager.workPhone)} · PropLane line`
+            : formatSmsPhoneLabel(activeManager.workPhone)
+          : activeManager.email,
       ]
         .filter(Boolean)
         .join(" · ")
