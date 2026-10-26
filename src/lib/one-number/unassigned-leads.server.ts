@@ -667,9 +667,10 @@ export async function assignLeadToHouse(
 
   const phoneE164 = e164FromPhoneKey(lead.phoneKey);
   const linePhone = config.sharedNumber ?? phoneE164;
-  if (input.by === "admin") {
-    // PropLane staff placing a stranger into a PropLane Service workspace choose to hand over the whole conversation: it
-    // is their own workspace and they can already read it in Unassigned.
+  // Only PropLane's own (is_service) workspace is handed the whole conversation, and only by staff: it is their own workspace
+  // and they can already read it in Unassigned. A free or paid manager's workspace never gets the transcript, whoever places
+  // the lead: it holds the other managers' homes the prospect was offered.
+  if (input.by === "admin" && (await workspaceIsService(db, prospect.workspaceId))) {
     const excluded = new Set(input.excludeTurnIds ?? []);
     const turns = await db
       .from("sms_unassigned_lead_turns")
@@ -700,9 +701,9 @@ export async function assignLeadToHouse(
     // Best-effort stamp for databases where the helper above does not stamp yet.
     await db.from("manager_sms_messages").update({ workspace_id: prospect.workspaceId }).eq("manager_user_id", prospect.ownerUserId).like("message_sid", "lead:%").is("workspace_id", null);
   } else {
-    // A prospect's own pick or naming of a home: the browsing transcript is NOT copied (it holds the other managers' homes the
-    // prospect was offered). The locked manager's conversation opens with one "Looking for" line, then only the texts about
-    // their own home.
+    // A prospect's own pick or naming of a home, or a placement into someone else's workspace: the browsing transcript is NOT
+    // copied (it holds the other managers' homes the prospect was offered). The manager's conversation opens with one
+    // "Looking for" line, then only the texts about their own home.
     const looking = lookingForLine(lead.profile);
     if (looking) {
       await writeLookingForTurn(db, { ownerUserId: prospect.ownerUserId, workspaceId: prospect.workspaceId, phoneE164, linePhone, text: looking, leadId: lead.id, propertyId: propertyId || "workspace", at });

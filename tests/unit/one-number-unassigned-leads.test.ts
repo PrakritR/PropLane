@@ -311,6 +311,17 @@ describe("assignment to a self-serve workspace (the 206 serves free managers in 
     expect(lead(fake)).toMatchObject({ status: "assigned", assigned_workspace_id: WS_FREE });
   });
 
+  it("an admin placement into a free manager's workspace gets the Looking for line, never the transcript with the other managers' homes", async () => {
+    const fake = seedFree();
+    await toOffered(fake);
+    mocks.log.mockClear();
+    const result = await assignLeadToHouse(fake.db, { leadId: String(lead(fake).id), propertyId: "prop-free", by: "admin" }, deps());
+    expect(result).toMatchObject({ ok: true, workspaceId: WS_FREE, ownerUserId: OWNER_FREE });
+    const bodies = mocks.log.mock.calls.map((c) => (c[1] as { body: string }).body);
+    expect(bodies).toEqual(["Looking for: private room near University District \u00b7 under $1000 \u00b7 Nov 1 \u00b7 6 mo"]);
+    expect(JSON.stringify(bodies)).not.toMatch(/These rooms fit|15th Ave|17th Ave|prop-uw|Brooklyn House|Seventeenth/);
+  });
+
   it("per_workspace mode keeps the old rule: a pick that names a self-serve home is refused and the lead stays open", async () => {
     const fake = seedFree({ line_mode: "per_workspace" });
     await say(fake, "hi");
