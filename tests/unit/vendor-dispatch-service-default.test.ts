@@ -210,6 +210,16 @@ describe("DISPATCH keyword", () => {
     // The same repair on the texted number's own workspace is dispatched as before.
     s.workspaceByProperty = { "p-1": "ws-1" };
     expect(await handleManagerDispatchReply(world({ service: false }).db as never, { ownerUserId: "mgr", workspaceId: "ws-1", actorUserId: "mgr", body: "DISPATCH" })).toMatchObject({ handled: true });
+    // A PropLane Service seat holder texting the line never opens a run: their id is not the owner's.
+    expect(
+      await handleManagerDispatchReply(world({ service: false }).db as never, {
+        ownerUserId: "mgr",
+        workspaceId: "ws-1",
+        actorUserId: "seat-viewer",
+        body: "DISPATCH",
+        dispatchKeywordAllowed: false,
+      }),
+    ).toEqual({ handled: false });
     expect(s.runCalls).toEqual([{ id: "wo-1", requireRule: false, restart: true }]);
   });
 

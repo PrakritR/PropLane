@@ -55,6 +55,8 @@ import { isPlatformServiceOwner } from "@/lib/service/service-owner.server";
 
 const TOKEN_BYTES = 32;
 
+export const SERVICE_OWNER_LINK_ERROR = "The owner of a PropLane Service workspace is invited from Admin › Service.";
+
 /**
  * Whether `workspaceId` is a PropLane Service workspace that PropLane itself owns (the service owner's, created with
  * the +). Such a workspace is PropLane's managed service, not a manager's plan: there is no Pro / Business gate in
@@ -287,6 +289,11 @@ export async function mintInviteLink(
       }
       houseScope = "selected";
       if (propertyIds.length === 0 && !serviceOwned) return { ok: false, status: 400, error: OWNER_NEEDS_HOUSE_ERROR };
+      // In a workspace PropLane owns, an owner seat is THE owner of record (the owner payout and the whole workspace
+      // view), so it is minted only by Admin › Service (audited, bound to the invitee's email) — never a share link.
+      if (input.serviceInvite !== true && (await isPropLaneOwnedServiceWorkspace(db, input.workspaceId))) {
+        return { ok: false, status: 403, error: SERVICE_OWNER_LINK_ERROR };
+      }
     }
   }
   if (kind === "manager" && requestedWorkspaceId) {
@@ -1032,7 +1039,8 @@ async function readBoundInviteeEmail(
 ): Promise<{ ok: true; email: string | null } | { ok: false }> {
   const { data, error } = await db.from("manager_invite_links").select("invitee_email").eq("id", linkId).maybeSingle();
   if (error) {
-    if (error.code === "42703" || /invitee_email/i.test(error.message ?? "")) return { ok: true, email: null };
+    // Only "no such column" means a database without the migration; any other failure must not unbind a link.
+    if (error.code === "42703" || error.code === "PGRST204") return { ok: true, email: null };
     return { ok: false };
   }
   return { ok: true, email: normalizeInviteeEmail((data as { invitee_email?: unknown } | null)?.invitee_email) };
@@ -1266,6 +1274,13 @@ export async function redeemInviteLink(
     : [];
   if (redeemOwnerLink && redeemAssigned.length === 0 && !serviceOwned) {
     return { ok: false, status: 400, error: OWNER_NEEDS_HOUSE_ERROR };
+  }
+  // The owner of record of a PropLane-owned workspace comes only from a bound Admin › Service invite. An unbound owner
+  // link there (a share link, or one minted before that rule) redeems as nothing at all.
+  if (serviceOwned && redeemOwnerLink) {
+    const bound = await readBoundInviteeEmail(db, String(link.id));
+    if (!bound.ok) return { ok: false, status: 500, error: "Could not verify this invite. Try again in a moment." };
+    if (!bound.email) return { ok: false, status: 403, error: SERVICE_OWNER_LINK_ERROR };
   }
 
   // Owner pays for co-manager seats. A Free invitee may join a Pro owner's

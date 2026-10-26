@@ -242,9 +242,18 @@ export async function handleManagerDispatchReply(
      * Handles come from one counter across the service (`createDispatchRun`), so a handle names exactly one run.
      */
     scopes?: Array<{ ownerUserId: string; workspaceId: string | null }>;
+    /**
+     * False for a sender recognized only by a PropLane Service seat: `ownerUserId` is then the line's owner, not a
+     * workspace the seat holds, and a seat may be read-only, so `DISPATCH` must not open a run for them. Their
+     * Y / N answers still go through `listPendingForActor`, which is theirs alone. Default true.
+     */
+    dispatchKeywordAllowed?: boolean;
   },
 ): Promise<InboundHandled> {
-  if (isDispatchKeyword(input.body)) return handleDispatchKeyword(db, input);
+  if (isDispatchKeyword(input.body)) {
+    if (input.dispatchKeywordAllowed === false) return { handled: false };
+    return handleDispatchKeyword(db, input);
+  }
   const parsed = parseManagerDispatchReply(input.body);
   if (!parsed) return { handled: false };
   const pending = input.scopes

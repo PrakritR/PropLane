@@ -454,6 +454,17 @@ describe("someone with no account yet", () => {
     expect(db.tables.account_link_invites.some((l) => l.invitee_user_id === HELPER2)).toBe(false);
   });
 
+  it("an owner link that is not bound to an email (a share link, or one from before the rule) never makes an owner of record", async () => {
+    await inviteNewOwner();
+    const mail = sentEmails.items[0]!;
+    const token = /\/invite\/([^\s]+)/.exec(mail.text)![1]!;
+    db.tables.manager_invite_links[0]!.invitee_email = null;
+    authUsers[NEWCOMER] = { email: "priya@example.com", email_confirmed_at: "2026-10-25T00:00:00Z" };
+    expect(await redeemInviteLink(client(), { token, redeemerUserId: NEWCOMER })).toMatchObject({ ok: false, status: 403 });
+    expect(db.tables.account_link_invites.some((l) => l.invitee_user_id === NEWCOMER)).toBe(false);
+    expect(db.tables.manager_invite_links[0]!.used_count ?? 0).toBe(0);
+  });
+
   it("a teammate invited by email redeems into a PropLane-issued seat with the validated role and houses", async () => {
     const id = await made();
     await svc.inviteServiceClient(client(), ADMIN_A, {

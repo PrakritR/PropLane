@@ -953,6 +953,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       body,
       fromPhone,
       ...(serviceScopes ? { scopes: serviceScopes } : {}),
+      // A seat holder is recognized against the line owner's id, not a workspace they hold: no DISPATCH from them.
+      dispatchKeywordAllowed: serviceManager?.basis !== "seat",
     }).catch((error: unknown) => {
       console.error("vendor dispatch manager reply failed", error instanceof Error ? error.message : "unknown");
       return { handled: false as const };
