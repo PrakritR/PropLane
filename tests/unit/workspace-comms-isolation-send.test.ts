@@ -47,11 +47,24 @@ describe("resolveOwnerSendNumberRow: a workspace sends only from its own number"
     expect(WORKSPACE_NO_WORK_NUMBER_MESSAGE).toBe("This workspace has no work number.");
   });
 
-  it("a house in one of PropLane's own service workspaces (is_service) sends from the owner's default line; a customer workspace never does", async () => {
+  it("a house in one of PropLane's own service workspaces (is_service) sends on the PropLane line (the service owner's default line), even when it holds a live number of its own; a customer workspace never does", async () => {
     const service = [workspaces[0], { ...workspaces[1], is_service: true }];
-    const db = createWorkspaceMemoryDb({ portal_workspaces: service, manager_property_records: houses, manager_sms_numbers: [numberA] });
+    const settings = [{ singleton: true, owner_user_id: owner }];
+    const db = createWorkspaceMemoryDb({ portal_workspaces: service, manager_property_records: houses, manager_sms_numbers: [numberA], platform_service_settings: settings });
     const viaService = await resolveOwnerSendNumberRow<{ phone_number: string }>(db as never, owner, cols, { propertyId: "house-b" });
     expect(viaService.data?.phone_number).toBe("+12065550001");
+    // B still holds a live number of its own (Oct 25): the PropLane line wins, the old number is not used.
+    const withOwn = createWorkspaceMemoryDb({ portal_workspaces: service, manager_property_records: houses, manager_sms_numbers: [numberA, numberB], platform_service_settings: settings });
+    const managed = await resolveOwnerSendNumberRow<{ phone_number: string }>(withOwn as never, owner, cols, { propertyId: "house-b" });
+    expect(managed.data?.phone_number).toBe("+12065550001");
+    // ...also when the old line is pinned by id.
+    const pinned = await resolveOwnerSendNumberRow<{ phone_number: string }>(withOwn as never, owner, cols, { workLineId: "n-b" });
+    expect(pinned.data?.phone_number).toBe("+12065550001");
+    // No service owner / no PropLane line: refused, never the workspace's old number.
+    const noLine = createWorkspaceMemoryDb({ portal_workspaces: service, manager_property_records: houses, manager_sms_numbers: [numberA, numberB] });
+    const refused = await resolveOwnerSendNumberRow(noLine as never, owner, cols, { propertyId: "house-b" });
+    expect(refused.data).toBeNull();
+    expect(refused.error?.code).toBe(WORKSPACE_NO_WORK_NUMBER_CODE);
     const customer = seed({ manager_sms_numbers: [numberA] });
     expect((await resolveOwnerSendNumberRow(customer as never, owner, cols, { propertyId: "house-b" })).error?.code).toBe(WORKSPACE_NO_WORK_NUMBER_CODE);
   });

@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadWorkspaceById } from "@/lib/workspaces/active.server";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import { PERSONAL_NUMBER_FREE_REFUSAL } from "@/lib/one-number/personal-number";
+import { isServiceWorkspace } from "@/lib/one-number/service-line.server";
 import { managerPersonalNumberEntitlement } from "@/lib/one-number/personal-number-entitlement.server";
 import { loadManagerPlanAddonQuantities } from "@/lib/plan-addons.server";
 import {
@@ -236,6 +237,11 @@ export async function provisionNumberForWorkspace(
   const workspace = await loadWorkspaceById(db, workspaceId);
   if (!workspace || workspace.ownerUserId !== actor) {
     return { ok: false, error: "You cannot request a number for that workspace.", state: "failed", code: "not_authorized" };
+  }
+  // A PropLane-managed workspace texts on the PropLane line (Oct 25): it never buys a number of its own. One that cannot
+  // be proven unmanaged is refused too.
+  if ((await isServiceWorkspace(db, workspaceId)) !== false) {
+    return { ok: false, error: "This workspace texts from the PropLane line.", state: "failed", code: "not_entitled" };
   }
 
   // A hold on a RELEASED number is history, not a number the workspace holds:

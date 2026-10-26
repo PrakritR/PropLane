@@ -10,7 +10,7 @@ work number for their workspace; keep overall service PropLane separate." (W16)
 
 - **Everyone texts on the set PropLane line** (`sms_runtime_config.shared_number_e164`, `line_mode = shared`).
 - **A Pro or Business workspace MAY take a personalized number** (the existing per-workspace provisioning).
-  Both run side by side. PropLane's own managed service (W15) has no exemption: it uses the same default line and only gets a personalized number on a paying plan (lead correction, Oct 18).
+  Both run side by side. PropLane's own managed service (W15) has no exemption from the paid-plan rule, and (captain, Oct 25) a PropLane-MANAGED workspace never uses a personalized number at all: it texts on the PropLane line (206) in both modes (W29 § PropLane-managed workspaces).
 - **Dedicated = a working number AND a paid entitlement** (captain addendum, Oct 18: current accounts move to this model too; free
   has only the default PropLane line). A workspace is dedicated only when it holds a `manager_sms_numbers` home row that is live
   (`active`, has a phone, registration approved: `managerCanSendFromOwnNumber`) and not released (or a `workspace_work_numbers`
@@ -52,7 +52,7 @@ Files and invariants:
    lead assignment already branch on `workspaceOnSharedLine`.
 3. **Entitlement** (`personal-number.ts`, `personal-number-entitlement.server.ts`): `POST /api/manager/messaging-number` `request_number` and
    `provisionNumberForWorkspace` allow Pro / Business (plan read through `resolveEffectiveManagerSkuTier`) or an active PropLane Number
-   subscription; PropLane's managed service has no exemption. A Free workspace gets 403 `personal_number_needs_paid_plan` ("This workspace texts from the
+   subscription; PropLane's managed service has no exemption (and a PropLane-managed workspace never takes one: it texts on the PropLane line, W29). A Free workspace gets 403 `personal_number_needs_paid_plan` ("This workspace texts from the
    PropLane line."), provisioning code `not_entitled`. Plan words never appear in the refusal.
 4. **Settings > Communication > Channels** (`pro-messaging-settings-panel.tsx`): `status.sharedLine = { number, onSharedLine }`
    (null in `per_workspace`, so nothing changes there). A workspace on the line shows a "PropLane line" row (number, Copy,
@@ -1168,6 +1168,30 @@ table, a phone two verified accounts hold, an unverified phone or a missing enti
 | Asks about a SELF-SERVE home (street, house name, or a listing title with a distinctive word in it - "Private Room" names no home) | Its manager's PAID number (`managerPersonalNumberEntitlement`; a trial or a lapsed plan is not paid): "For 12 Elm St, Louisville, text (502) 555-0142." Nothing else. No paid number: "I can only help with homes PropLane manages. Looking for a place in Seattle? Tell me your area, budget and move-in date." (no street, no link, no name) | `house-redirect.server.ts` |
 | Self-serve manager, their team, residents, vendors with an open job | Not served: "This line is for homes PropLane manages. Text your work number <number>." (paid) else "...A personal work number comes with Pro: proplane.ai/pricing". A housing search, a jobs ask, STOP/HUMAN/emergency are not redirected | `line-member-status.server.ts`, `line-inbound.server.ts`, `self-serve-line.server.ts` |
 | Anyone texting a manager's own work number | Unchanged (it answers only for that workspace), plus the unclear-first-text question above | `inbound-pipeline.server.ts` |
+| Anyone texting a PropLane-managed workspace's OLD own number (Ambika, Vinod) | Still routed to that workspace (nobody who saved it is stranded); the reply leaves from the 206, and every send about a managed workspace does, in both modes | `resolveOwnedWorkNumber`; `resolveServiceLine` (§ PropLane-managed workspaces always text on the 206) |
+
+### PropLane-managed workspaces always text on the 206 (Oct 25, both modes)
+
+Captain: "update the work number for ambika and vinod to be 206 since they are under proplane admin portal management and anything under that
+management use main 206 number now." Every workspace with `portal_workspaces.is_service = true` sends on the PropLane line, in `per_workspace`,
+`shadow` and `shared` mode, even when it still holds a live `manager_sms_numbers` row of its own (Ambika's +1 (814) 679-3694). The line is
+`resolveServiceLine` (`src/lib/one-number/service-line.server.ts`, a leaf module): `shared` mode = `sms_runtime_config.shared_number_e164` (sent
+through the shared messaging service, the managed workspace's own wallet pays); otherwise the number the platform service owner holds on its
+DEFAULT workspace (the line `isPropLaneServiceLine` recognises). One decision, four consumers:
+
+| Consumer | What it does for a managed workspace |
+| --- | --- |
+| `evaluateWorkspaceSendReadiness` (the dispatcher's final from-number) | `resolveManagedSendTarget` decides managed-ness from the named workspace, the stamped outbox workspace, the pinned line's workspace or the house, else the owner's default; any of them managed = the 206. The registration, runtime, provider-identity and wallet checks then run on that line (`evaluateNumberRowReadiness`) |
+| `resolveActiveManagerSendNumber` / `resolveWorkspaceSendLine` | Answer with the 206 (`numberId` stays the workspace's own row, which names the workspace to the dispatcher). `{ ownLineOnly: true }` asks the old question, "does this workspace hold a number of its own" (vendor dispatch uses it) |
+| `resolveOwnerSendNumberRow` / `resolveWorkspaceStatusLine` | The 206 first, ahead of the workspace's own rows and a pinned line id |
+| `GET /api/manager/messaging-number` | `sharedLine = { number: 206, onSharedLine: true }` in both modes (the "PropLane line" row and the teammate "Workspace number" row), `number` and the workspace's `numbers` hide the old number, `canRequest` false, no add-on; `POST` and `PATCH` refuse (403 "This workspace texts from the PropLane line."); `provisionNumberForWorkspace` refuses too |
+
+Fail closed: no service owner, no live service-owner number, or an unreadable `portal_workspaces` / `platform_service_settings` /
+`sms_runtime_config` read refuses the send (`workspace_has_no_work_number`, or `control_plane_unreadable` for a failed read). It never falls
+back to the workspace's old number and never retries on the owner's default line (`sendWorkspaceText` lost its old retry). Inbound is unchanged:
+a text still arriving on a managed workspace's OLD number routes to that workspace (`resolveOwnedWorkNumber`), and the reply leaves from the 206.
+Staff and seats texting the 206, and self-serve workspaces, are unchanged. The old number is not released here (no provider call): that is an
+operator step. Tests: `tests/unit/service-workspace-propline-line.test.ts`.
 
 ### Mode `shared` (Oct 25: the 206 is every free or trial manager's work number, with full service)
 

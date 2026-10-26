@@ -17,6 +17,7 @@ import {
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
 import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
+import { isServiceWorkspace, loadManagedWorkspaceIds, resolveServiceLine } from "@/lib/one-number/service-line.server";
 import { PERSONAL_NUMBER_FREE_REFUSAL } from "@/lib/one-number/personal-number";
 import { managerPersonalNumberEntitlement } from "@/lib/one-number/personal-number-entitlement.server";
 import { getNumberAvailability } from "@/lib/number-subscription/availability.server";
@@ -141,10 +142,19 @@ async function buildStatus(
 
   // The set PropLane line, while it is live: which number every workspace texts from by default, and
   // whether THIS workspace is on it (a workspace with a number of its own is not).
-  const sharedLine: ManagerMessagingNumberStatus["sharedLine"] =
+  let sharedLine: ManagerMessagingNumberStatus["sharedLine"] =
     lineConfig && lineConfig.mode === "shared" && lineConfig.sharedNumber
       ? { number: lineConfig.sharedNumber, onSharedLine: workspaceOnSharedLine(lineConfig, workspace.id) }
       : null;
+  // A PropLane-MANAGED workspace (`is_service`) texts on the PropLane line in BOTH line modes, even when it still holds a
+  // number of its own (Oct 25): Settings shows that line, with its usual state, and offers no request or release. Read
+  // failures draw nothing managed here; the send path stays fail-closed on its own.
+  const managedIds = await loadManagedWorkspaceIds(db, [workspace.id, ...(all?.numbers ?? []).map((n) => n.workspaceId)]);
+  const managedActive = managedIds?.has(workspace.id) === true;
+  if (managedActive) {
+    const serviceLine = await resolveServiceLine(db).catch(() => null);
+    sharedLine = serviceLine?.ok ? { number: serviceLine.phoneNumber, onSharedLine: true } : null;
+  }
   // (the add-on facts are filled in below, once the entitlement has been read)
 
 
@@ -192,7 +202,8 @@ async function buildStatus(
         quarantineReason: rawNumber.quarantine_reason ?? null,
       }
     : null;
-  const number = normalizedNumber
+  // A managed workspace's own old number is no longer its line, so Settings does not show it.
+  const number = normalizedNumber && !managedActive
     ? {
         state: normalizedNumber.provisionState,
         registrationState: effectiveRegistrationState(normalizedNumber),
@@ -290,9 +301,10 @@ async function buildStatus(
           provisionState: readiness.numberRow.provision_state,
         };
     }
-  } else if (sharedLine?.onSharedLine) {
+  } else if (sharedLine?.onSharedLine || managedActive) {
     // On the set PropLane line there is no per-workspace number row to check: the send path's own
-    // shared-line decision (runtime switch, rollout seat, the workspace wallet) is the answer.
+    // shared-line decision (runtime switch, rollout seat, the workspace wallet) is the answer. A managed workspace
+    // always asks the send path, whichever line mode is live.
     const readiness = await evaluateWorkspaceSendReadiness({
       db,
       ownerUserId: workspace.ownerUserId,
@@ -328,7 +340,7 @@ async function buildStatus(
   const canSend = lineReady && viewerMayText;
   // The standalone PropLane Number subscription lets a Free manager hold a number too. Read only while
   // the shared line is live (otherwise Settings is exactly what it always was).
-  const personalNumber = lineConfig?.mode === "shared" && lineConfig.sharedNumber && !pureCoManager
+  const personalNumber = lineConfig?.mode === "shared" && lineConfig.sharedNumber && !pureCoManager && !managedActive
     ? await managerPersonalNumberEntitlement(db, userId)
     : null;
   const addOnActive = Boolean(personalNumber?.ok && personalNumber.entitled && personalNumber.via === "add_on");
@@ -354,7 +366,7 @@ async function buildStatus(
   if (pureCoManager) {
     const shared = all?.numbers.find((n) => n.workspaceId === workspace.id);
     let line = sendLine;
-    if (!line?.phoneNumber && shared && normalizeProvisionState(shared.provisionState) === "active")
+    if (!line?.phoneNumber && shared && !managedActive && normalizeProvisionState(shared.provisionState) === "active")
       line = { phoneNumber: shared.phoneNumber, provisionState: shared.provisionState };
     // `resolveWorkspaceWorkNumbers` only sees a workspace's HOME row. A line
     // the workspace holds by sharing, or the owner's legacy unplaced row, is
@@ -386,9 +398,10 @@ async function buildStatus(
       owned: n.owned,
       isDefault: n.isDefault,
       ownerName: n.ownerName,
-      phoneNumber: normalizeProvisionState(n.provisionState) === "active" ? n.phoneNumber : null,
-      provisionState: n.provisionState,
-      numbers: n.owned ? heldByWorkspace.get(n.workspaceId) ?? [] : undefined,
+      // A managed workspace lists no number of its own: its line is the PropLane line (`sharedLine`).
+      phoneNumber: !managedIds?.has(n.workspaceId) && normalizeProvisionState(n.provisionState) === "active" ? n.phoneNumber : null,
+      provisionState: managedIds?.has(n.workspaceId) ? null : n.provisionState,
+      numbers: n.owned ? (managedIds?.has(n.workspaceId) ? [] : heldByWorkspace.get(n.workspaceId) ?? []) : undefined,
     })),
     provisioningAvailable: provisioningEnvEnabled && modeAllowsManager,
     sendingAvailable: sendEnvEnabled && sendModeAllowed,
@@ -402,6 +415,7 @@ async function buildStatus(
     lineBlocked,
     canRequest:
       !pureCoManager &&
+      !managedActive &&
       canRequestBilling &&
       provisioningEnvEnabled &&
       modeAllowsManager &&
@@ -592,6 +606,18 @@ export async function POST(req: Request) {
     );
   }
 
+  // A PropLane-managed workspace texts on the PropLane line: it never requests a number of its own. A workspace that
+  // cannot be proven unmanaged is refused too.
+  const managedWorkspace = await isServiceWorkspace(actor.db, workspace.id);
+  if (managedWorkspace !== false) {
+    return managedWorkspace === null
+      ? NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503, headers: { "Cache-Control": "private, no-store" } })
+      : NextResponse.json(
+          { error: "This workspace texts from the PropLane line.", code: "workspace_on_propLane_line" },
+          { status: 403, headers: { "Cache-Control": "private, no-store" } },
+        );
+  }
+
   // Reconcile at the explicit-request boundary, not on GET. Status checks stay
   // read-only and billing/provider work happens only after a manager asks.
   // Only a paid Pro or Business workspace may take a personalized number; a Free workspace simply
@@ -706,6 +732,17 @@ export async function PATCH(req: Request) {
       { error: "numberId, workspaceId, and action (\"assign\" or \"unassign\") are required." },
       { status: 400 },
     );
+  }
+
+  // A PropLane-managed workspace holds no number of its own, so nothing is shared into it or removed from it.
+  const managedWorkspace = await isServiceWorkspace(actor.db, workspaceId);
+  if (managedWorkspace !== false) {
+    return managedWorkspace === null
+      ? NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503, headers: { "Cache-Control": "private, no-store" } })
+      : NextResponse.json(
+          { error: "This workspace texts from the PropLane line.", code: "workspace_on_propLane_line" },
+          { status: 403, headers: { "Cache-Control": "private, no-store" } },
+        );
   }
 
   const result =
