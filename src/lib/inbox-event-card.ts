@@ -56,9 +56,8 @@ export function inboxEventKindFor(domain: string | null | undefined, event: stri
   if (name === "charge_created" || name === "payment_received" || name === "payment_failed" || name === "late_fee_applied") {
     return owner === "payment" ? name : null;
   }
-  if (name.startsWith("lease_")) return owner === "lease" ? name : null;
+  if (name.startsWith("lease_") || name === "move_in_details" || name === "room_assigned") return owner === "lease" ? name : null;
   if (name === "application_approved") return owner === "application" ? name : null;
-  if (name === "move_in_details" || name === "room_assigned") return owner === "move_in" ? name : null;
   if (name === "tour_confirmed") return owner === "tour" ? name : null;
   if (name === "booking_confirmed" || name === "booking_changed") return owner === "channel_booking" ? name : null;
   return null;
@@ -286,12 +285,13 @@ export function normalizeSenderDisplayName(value: unknown): string | undefined {
  * `root*`. Every key is always present (undefined when the turn has none) so a merge that replaces the root
  * overwrites the previous root's stamps instead of inheriting them.
  */
-export function rootEventFieldsFromTurn(turn: EventStampedTurn | null | undefined): {
+export function rootEventFieldsFromTurn(source: object | null | undefined): {
   rootEventKind: InboxEventKind | undefined;
   rootEventCard: InboxEventCard | undefined;
   rootEventRecordRef: RecordRef | undefined;
   rootSenderDisplayName: string | undefined;
 } {
+  const turn = source as EventStampedTurn | null | undefined;
   const kind = normalizeInboxEventKind(turn?.eventKind);
   const card = kind ? normalizeInboxEventCard(turn?.eventCard) : undefined;
   return {
@@ -321,12 +321,13 @@ export function turnEventFieldsFromRoot(row: Record<string, unknown> | null | un
 }
 
 /** What the bubble builders spread onto an `InboxBubbleMessage`: only valid stamps, never a guessed one. */
-export function bubbleEventFields(turn: EventStampedTurn | null | undefined): {
+export function bubbleEventFields(source: object | null | undefined): {
   eventKind?: InboxEventKind;
   eventCard?: InboxEventCard;
   eventRecordRef?: RecordRef;
   senderDisplayName?: string;
 } {
+  const turn = source as EventStampedTurn | null | undefined;
   const kind = normalizeInboxEventKind(turn?.eventKind);
   const card = kind ? normalizeInboxEventCard(turn?.eventCard) : undefined;
   const recordRef = card ? normalizeRecordRef(turn?.recordRef) : null;

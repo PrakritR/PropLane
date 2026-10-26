@@ -2,7 +2,8 @@ import "server-only";
 
 /**
  * Sends the two move-in announcements a resident reads as cards in their one conversation (A3, stay chat):
- * `move_in_details` and `room_assigned` on the shared action-event bus (domain `move_in`).
+ * `move_in_details` and `room_assigned` on the shared action-event bus (domain `lease`: the domain column is a
+ * database check list, so the two events join the lease catalog rather than needing a migration).
  *
  * `move_in_details` is the ONE card for the welcome. The `resident_welcome` reminder
  * (`reminders/dispatch.server.ts`) and a manager's own send both come through `emitMoveInDetails` with the same
@@ -69,12 +70,11 @@ async function loadMoveInContext(
       .eq("resident_email", email)
       .order("updated_at", { ascending: false });
     if (error) throw new Error(`Could not read the resident's application: ${error.message}`);
-    const apps = (data ?? [])
-      .map((record) => {
-        const rowData = asObject(record.row_data) as unknown as DemoApplicantRow | null;
-        return rowData ? { id: String(record.id), row: { ...rowData, email: rowData.email?.trim().toLowerCase() || email } } : null;
-      })
-      .filter((entry): entry is { id: string; row: DemoApplicantRow } => Boolean(entry));
+    const apps: Array<{ id: string; row: DemoApplicantRow }> = [];
+    for (const record of data ?? []) {
+      const rowData = asObject(record.row_data) as unknown as DemoApplicantRow | null;
+      if (rowData) apps.push({ id: String(record.id), row: { ...rowData, email: rowData.email?.trim().toLowerCase() || email } });
+    }
     const current = apps.filter((entry) => isCurrentResidentApplicationRow(entry.row) && !entry.row.withdrawnAt);
     const pool = (current.length ? current : apps).map((entry) => entry.row);
     row = resolveBestResidentRow(email, pool);
@@ -142,7 +142,7 @@ export async function emitMoveInDetails(
   const residentUserId = input.residentUserId?.trim() || context.residentUserId || undefined;
   const result = await emitActionEvent(db, {
     eventId: moveInDetailsEventKey(residentUserId || context.residentEmail, context.propertyId),
-    domain: "move_in",
+    domain: "lease",
     event: "move_in_details",
     managerUserId: input.managerUserId,
     entityId: context.applicationId,
@@ -207,7 +207,7 @@ export async function emitRoomAssignment(
   if (!sender.email) return { ok: false, reason: "no_sender" };
   const result = await emitActionEvent(db, {
     eventId: roomAssignedEventKey(context.applicationId, transition.choice),
-    domain: "move_in",
+    domain: "lease",
     event: "room_assigned",
     managerUserId: input.managerUserId,
     entityId: context.applicationId,

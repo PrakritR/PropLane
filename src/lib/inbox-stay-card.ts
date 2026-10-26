@@ -75,13 +75,14 @@ function shortDay(date: Date, withYear: boolean): string {
   return date.toLocaleDateString("en-US", withYear ? { month: "short", day: "numeric", year: "numeric" } : { month: "short", day: "numeric" });
 }
 
-/** "Nov 1 – Apr 30", with years only when the stay crosses one. Either end may be missing. */
+/** "Nov 1 – Apr 30", with years only when the stay runs a year or more. Either end may be missing. */
 export function stayDatesLabel(start: string | null | undefined, end: string | null | undefined): string {
   const from = parseFlexibleLocalDate(start);
   const to = parseFlexibleLocalDate(end);
   if (from && to) {
-    const crossesYear = from.getFullYear() !== to.getFullYear();
-    return `${shortDay(from, crossesYear)} – ${shortDay(to, crossesYear)}`;
+    // Short dates read unambiguously inside a year; a stay of a year or more needs them.
+    const withYear = to.getTime() - from.getTime() >= 364 * 24 * 60 * 60_000;
+    return `${shortDay(from, withYear)} – ${shortDay(to, withYear)}`;
   }
   if (from) return `from ${shortDay(from, false)}`;
   if (to) return `until ${shortDay(to, false)}`;

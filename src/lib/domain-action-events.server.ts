@@ -39,6 +39,12 @@ export const ACTION_EVENT_CATALOG = {
     // PLAN-0915 phase 2: date changes made outside the signing flow.
     "move_out_notice",
     "amendment_sent",
+    // A resident's move-in announcements (`move-in-details-event.server.ts`). Both ride the resident's one
+    // conversation as event cards (`inbox-event-card.ts`): the details of arriving (never an entry code) and the
+    // room they were given. They live in the `lease` domain because `action_events.domain` is a database check
+    // list and a residency is a lease-side fact; no new domain means no migration.
+    "move_in_details",
+    "room_assigned",
   ],
   work_order: ["created", "vendor_offered", "accepted", "scheduled", "completed", "invoiced", "paid"],
   application: [
@@ -47,9 +53,6 @@ export const ACTION_EVENT_CATALOG = {
     "application_declined",
     "application_withdrawn",
   ],
-  // A resident's move-in announcements. Both ride the resident's one conversation as event cards
-  // (`inbox-event-card.ts`): the details of arriving (never an entry code), and the room they were given.
-  move_in: ["move_in_details", "room_assigned"],
   // Add-on services (parking, storage, the resident-purchasable offerings) are a
   // SEPARATE model from maintenance work orders and keep their own events, the
   // same way they keep their own table and tab.
@@ -64,7 +67,6 @@ export const ACTION_EVENT_CATALOG = {
 export type PaymentActionEvent = (typeof ACTION_EVENT_CATALOG.payment)[number];
 export type LeaseActionEvent = (typeof ACTION_EVENT_CATALOG.lease)[number];
 export type ApplicationActionEvent = (typeof ACTION_EVENT_CATALOG.application)[number];
-export type MoveInActionEvent = (typeof ACTION_EVENT_CATALOG.move_in)[number];
 export type ServiceRequestActionEvent = (typeof ACTION_EVENT_CATALOG.service_request)[number];
 
 type PaymentFacts = { title: string; amountLabel: string; propertyLabel?: string; balanceLabel?: string; dueDateLabel?: string };

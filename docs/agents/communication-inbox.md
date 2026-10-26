@@ -108,6 +108,46 @@ computed from the workspace may name nothing, and a caller must likewise withhol
 `teamChat` until its own party lookup has answered, or a cold load opens Team on a
 record that does have a contact.
 
+## Event cards and the stay card (A3, stay chat)
+
+A resident's conversation with a workspace is drawn like a stay, not a log. Two things sit in it besides the typed
+messages, and both are the SAME components for the resident and the manager (`InboxBubble` / `InboxThreadView`;
+never a second renderer).
+
+**Event cards.** An automated turn PropLane generated from an action event is stamped on its turn (never on the
+thread) with `eventKind`, `eventCard: { title, fact? }` and its OWN `recordRef` (the record the card's action
+opens). `buildInboxEventStamp` (`src/lib/inbox-event-card.ts`) builds it from stored facts only (the event
+payload and entity id), so a retried delivery stamps what the first attempt did; `deliverProjection` hands it to
+`deliverPortalInboxMessage({ event })`, which writes it on the turn of both thread sides
+(`deliverPortalMessageThreadSide`; a conversation's first turn stamps `rootEventKind` / `rootEventCard` /
+`rootEventRecordRef`, carried through the merges by `rootEventFieldsFromTurn` / `turnEventFieldsFromRoot`). Only the
+RESIDENT copy is a card, and only for: `charge_created` (rent due), `payment_received`, `payment_failed`,
+`late_fee_applied`, `lease_sent`, `lease_signed_by_resident`, `lease_countersigned`, `lease_signed`,
+`application_approved`, `move_in_details`, `room_assigned` (`tour_confirmed`, `booking_confirmed` and
+`booking_changed` are in the vocabulary and the renderer, but tours and bookings write through
+`tour-notification-delivery.server.ts` / the booking notices, not this function, so they are not stamped yet).
+The thread draws a stamped turn as `InboxEventCard`: glyph, bold title, one muted fact line, one action link
+(`inboxEventAction`: Pay / View / Open for the resident, View / Edit for the manager; plain section paths each
+portal already serves). A turn with no stamp renders exactly the plain activity row it always did - old rows are
+never reinterpreted. The record ref is a label, never a grant.
+
+**Stay card.** The top of a one-on-one resident conversation (not the Assistant, the Team chat, a house chat or an
+archived thread) pins `InboxStayCard`: home photo (the listing's own real photo, else `NoImagePlaceholder`; never a
+stock image), street and room, one fact line (dates, rent, next payment, the lease state for the manager) and the
+viewer's next steps (resident: Pay / Lease / Request service; manager: Charge / Lease / Record). It is DERIVED ON
+READ by `deriveStayCard` (`src/lib/inbox-stay-card.ts`) from the person's current lease, booking or approved
+application in this workspace through the stores the portal already reads (`use-inbox-stay-card.ts`) - nothing is
+stored, so it can never disagree with the lease page. A signed lease wins over an unsigned one; a lease still in
+draft (or an approved application with no lease) is the empty state, "Application approved · lease not sent yet";
+no stay and nothing approved draws no card. A resident with leases in several workspaces sees the one whose
+unit matches the home the conversation names.
+
+**A co-host's reply** (`senderDisplayName` on the turn, e.g. "Dev · Co-host", written by whichever builder knew who
+typed it) is shown under its bubble. The owner's own turns carry none and read "You".
+
+Guards: `tests/unit/inbox-event-card.test.ts`, `portal-inbox-delivery-event-card.test.ts`,
+`inbox-event-card-render.test.tsx`, `inbox-stay-card.test.ts`.
+
 ## Admin Communication is the manager's inbox over an adapter
 
 `ManagerUnifiedInbox` takes a `CommunicationInboxAdapter`

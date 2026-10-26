@@ -27,8 +27,8 @@ describe("which events are cards", () => {
     expect(inboxEventKindFor("lease", "lease_signed_by_resident")).toBe("lease_signed_by_resident");
     expect(inboxEventKindFor("lease", "lease_countersigned")).toBe("lease_countersigned");
     expect(inboxEventKindFor("application", "application_approved")).toBe("application_approved");
-    expect(inboxEventKindFor("move_in", "move_in_details")).toBe("move_in_details");
-    expect(inboxEventKindFor("move_in", "room_assigned")).toBe("room_assigned");
+    expect(inboxEventKindFor("lease", "move_in_details")).toBe("move_in_details");
+    expect(inboxEventKindFor("lease", "room_assigned")).toBe("room_assigned");
     // Not cards: they keep the plain activity row.
     expect(inboxEventKindFor("payment", "payment_processing")).toBeNull();
     expect(inboxEventKindFor("payment", "payment_refunded")).toBeNull();
@@ -81,7 +81,7 @@ describe("the stamp built for a resident delivery", () => {
 
   it("move-in details and room assigned point at the home through the property ref", () => {
     const details = buildInboxEventStamp({
-      domain: "move_in",
+      domain: "lease",
       event: "move_in_details",
       audience: "resident",
       entityId: "app-1",
@@ -90,7 +90,7 @@ describe("the stamp built for a resident delivery", () => {
     expect(details?.card).toEqual({ title: "Move-in details", fact: "Fri, Nov 1 after 3:00 pm · 4709A 8th Ave" });
     expect(details?.recordRef).toEqual({ kind: "property", id: "prop-1", label: "4709A 8th Ave" });
     const room = buildInboxEventStamp({
-      domain: "move_in",
+      domain: "lease",
       event: "room_assigned",
       audience: "resident",
       entityId: "app-1",
@@ -156,9 +156,9 @@ describe("stamps round-trip through the root turn and the bubble", () => {
 });
 
 // ---- the bus: every card event hands the delivery layer its kind and record ----------------------------------
-const deliver = vi.fn(async () => ({ ok: true as const, recipientCount: 1 }));
+const deliver = vi.fn<(...args: unknown[]) => Promise<{ ok: true; recipientCount: number }>>(async () => ({ ok: true, recipientCount: 1 }));
 vi.mock("@/lib/portal-inbox-delivery", () => ({
-  deliverPortalInboxMessage: (...args: unknown[]) => deliver(...(args as [])),
+  deliverPortalInboxMessage: (...args: unknown[]) => deliver(...args),
 }));
 
 type Row = Record<string, unknown> & { id: string };
@@ -220,8 +220,8 @@ describe("the action-event bus hands the delivery layer the card", () => {
     ["lease", "lease_signed_by_resident", "lease-9", { propertyLabel: "4709A" }, "lease"],
     ["lease", "lease_countersigned", "lease-9", { propertyLabel: "4709A" }, "lease"],
     ["application", "application_approved", "app-9", { propertyLabel: "4709A" }, "application"],
-    ["move_in", "move_in_details", "app-9", { propertyId: "prop-1", propertyLabel: "4709A", cardFact: "Nov 1" }, "property"],
-    ["move_in", "room_assigned", "app-9", { propertyId: "prop-1", propertyLabel: "4709A", roomLabel: "Room 3" }, "property"],
+    ["lease", "move_in_details", "app-9", { propertyId: "prop-1", propertyLabel: "4709A", cardFact: "Nov 1" }, "property"],
+    ["lease", "room_assigned", "app-9", { propertyId: "prop-1", propertyLabel: "4709A", roomLabel: "Room 3" }, "property"],
   ] as const)("%s %s", async (domain, event, entityId, payload, refKind) => {
     const { emitActionEvent } = await import("@/lib/action-events.server");
     await emitActionEvent(fakeBusDb(), {
