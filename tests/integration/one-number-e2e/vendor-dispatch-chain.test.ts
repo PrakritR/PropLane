@@ -225,10 +225,20 @@ describe("teams stay apart", () => {
 
 describe("completion photos by text", () => {
   const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
-  /** The private bucket, in memory: every path "downloads" the same tiny PNG. */
+  /**
+   * The private buckets, in memory: every path "downloads" the same tiny PNG, and a completion-photo
+   * upload is kept so the paths written on the service can be checked against what was stored.
+   */
+  const uploads: string[] = [];
   const withStorage = (db: Db) => {
     (db as unknown as { storage: unknown }).storage = {
-      from: () => ({ download: async () => ({ data: new Blob([PNG], { type: "image/png" }), error: null }) }),
+      from: () => ({
+        download: async () => ({ data: new Blob([PNG], { type: "image/png" }), error: null }),
+        upload: async (path: string) => {
+          uploads.push(path);
+          return { data: { path }, error: null };
+        },
+      }),
     };
     return db;
   };
@@ -244,6 +254,10 @@ describe("completion photos by text", () => {
     await vendorSays(db, "+12065550101", "YES 2:30pm");
   };
 
+  beforeEach(() => {
+    uploads.length = 0;
+  });
+
   it("a bare photo from the accepted vendor goes on the service as a completion photo and the vendor is told", async () => {
     const db = withStorage(world());
     (db as unknown as { __tables: Record<string, Row[]> }).__tables.sms_media_files ??= [];
@@ -252,9 +266,11 @@ describe("completion photos by text", () => {
     sent.vendor.length = 0;
     const out = await handleVendorDispatchMedia(db as never, { ownerUserId: OWNER, workspaceId: WS, phoneE164: "+12065550101", body: "", messageSid: "SMphoto1", mediaCount: 1, now: T0 });
     expect(out).toMatchObject({ handled: true });
-    const order = rows(db, "portal_work_order_records")[0]!.row_data as { completionPhotoDataUrls?: string[] };
-    expect(order.completionPhotoDataUrls).toHaveLength(1);
-    expect(order.completionPhotoDataUrls![0]).toMatch(/^data:image\/png;base64,/);
+    const order = rows(db, "portal_work_order_records")[0]!.row_data as { completionPhotoPaths?: string[] };
+    // The bytes go to the private bucket; only the path is on the row (never base64).
+    expect(order.completionPhotoPaths).toHaveLength(1);
+    expect(order.completionPhotoPaths![0]).toMatch(/^manager\/owner-1\/service-completion\/wo-1\/[\w-]+\.png$/);
+    expect(uploads).toEqual(order.completionPhotoPaths);
     expect(rows(db, "sms_media_files")[0]).toMatchObject({ linked_type: "vendor_job", linked_id: "wo-1" });
     expect(sent.vendor.at(-1)!.text).toBe("Got your photo for #1. Reply DONE when the job is finished");
     // The photo is on the audit trail.
@@ -267,8 +283,8 @@ describe("completion photos by text", () => {
     await accepted(db);
     media(db, "SMdone1");
     await vendorSays(db, "+12065550101", "DONE", { messageSid: "SMdone1", mediaCount: 1 });
-    const order = rows(db, "portal_work_order_records")[0]!.row_data as { completionPhotoDataUrls?: string[]; automationStatus?: string };
-    expect(order.completionPhotoDataUrls).toHaveLength(1);
+    const order = rows(db, "portal_work_order_records")[0]!.row_data as { completionPhotoPaths?: string[]; automationStatus?: string };
+    expect(order.completionPhotoPaths).toHaveLength(1);
     expect(order.automationStatus).toBe("vendor_marked_done");
   });
 
@@ -282,8 +298,9 @@ describe("completion photos by text", () => {
     // The right vendor, but the file sits under another owner's path: nothing is attached.
     media(db, "SMforeign", OWNER2);
     await handleVendorDispatchMedia(db as never, { ownerUserId: OWNER, workspaceId: WS, phoneE164: "+12065550101", body: "", messageSid: "SMforeign", mediaCount: 1, now: T0 });
-    const order = rows(db, "portal_work_order_records")[0]!.row_data as { completionPhotoDataUrls?: string[] };
-    expect(order.completionPhotoDataUrls ?? []).toHaveLength(0);
+    const order = rows(db, "portal_work_order_records")[0]!.row_data as { completionPhotoPaths?: string[] };
+    expect(order.completionPhotoPaths ?? []).toHaveLength(0);
+    expect(uploads).toEqual([]);
     expect(sent.vendor.at(-1)!.text).toMatch(/Could not save that photo for #1/);
     // No photo at all.
     expect(await handleVendorDispatchMedia(db as never, { ownerUserId: OWNER, workspaceId: WS, phoneE164: "+12065550101", body: "hi", messageSid: "SMnone", mediaCount: 0, now: T0 })).toEqual({ handled: false });
