@@ -535,7 +535,7 @@ const PLAN_0915_META: Partial<Record<ReminderSubjectKind, ReminderSubjectSetting
   task_overdue: compactMeta({ directions: ["after"], timingLabel: "Remind after due", counterparty: "Assignee", recipientPreview: "Jordan Team",
     subject: "Overdue: {title}", body: ["“{title}” was due {dueDateLabel} and is {duePhrase} overdue.", "", "{url}"], preview: { title: "Replace hallway bulb", dueDateLabel: "Sep 17, 2026", duePhrase: "1 day", url: "https://proplane.ai/portal/tasks" } }),
   resident_welcome: compactMeta({ directions: ["after"], timingLabel: "Send after the account is created", counterparty: "Resident",
-    subject: "Welcome to PropLane", body: ["Welcome to {propertyTitle}. Set up your account, add a payment method, and request service any time from Services.", "", "{url}"], preview: { url: "https://proplane.ai/resident/dashboard" } }),
+    subject: "Move-in details", body: ["Here are your move-in details for {propertyTitle}.", "", "{url}"], preview: { url: "https://proplane.ai/resident/move-in" } }),
   inspection_acknowledge: compactMeta({ directions: ["after"], timingLabel: "Remind after the report is shared", counterparty: "Resident",
     subject: "Review your inspection report", body: ["Your {title} for {propertyTitle} was shared {duePhrase} and is waiting for your acknowledgement.", "", "{url}"], preview: { title: "move-in report", duePhrase: "5 days ago", url: "https://proplane.ai/resident/move-in/inspections" } }),
   // ---- Stay times (bookings-times-1018). Built from the house's own details at send time

@@ -28,6 +28,7 @@ import {
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 import { workspaceKey } from "@/lib/communication/conversation-key";
+import { rootEventFieldsFromTurn } from "@/lib/inbox-event-card";
 
 /** The PropLane Assistant's own thread: never a manager conversation, never keyed, never given a counterparty or texts. */
 export function isResidentAssistantRow(row: PersistedInboxThread): boolean {
@@ -195,6 +196,7 @@ function withTurns(
     rootChannel: first.channel,
     rootSubject: first.subject,
     rootAutomated: first.automated === true,
+    ...rootEventFieldsFromTurn(first),
     rootHouseId: first.houseId,
     rootHouseLabel: first.houseLabel,
     attachments: first.attachments,

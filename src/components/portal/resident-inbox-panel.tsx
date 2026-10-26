@@ -42,6 +42,9 @@ import {
 } from "@/lib/manager-inbox-reply-channels";
 import { sendPropLaneAssistantInboxMessage } from "@/lib/assistant-inbox-reply";
 import { isHouseInboxThread } from "@/lib/house-thread-id";
+import { bubbleEventFields } from "@/lib/inbox-event-card";
+import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
+import { InboxStayCard } from "@/components/portal/inbox-stay-card";
 import {
   InboxSendRefusal,
   inboxReplySentToastMessage as residentReplySentToastMessage,
@@ -1410,6 +1413,8 @@ export const ResidentInboxPanel = forwardRef<
         houseLabel: m.houseLabel,
         ...(fields.subject ? { subject: fields.subject } : {}),
         attachments: m.attachments,
+        // The event card and a co-host's label ride the turn's own stamps; an old turn carries none.
+        ...bubbleEventFields(m),
       } satisfies InboxBubbleMessage;
     });
   }, [activeThread, activeFolder, pendingSendingThreadIds]);
@@ -1465,6 +1470,27 @@ export const ResidentInboxPanel = forwardRef<
             ))}
           </InboxScheduledThreadList>
     ) : null;
+
+  // The stay this one-on-one conversation with the manager is about, derived on read from the resident's
+  // own lease; the house chat, the assistant and an archived conversation have none.
+  const residentUnderHeader = (
+    <>
+      {activeThread ? (
+        <InboxStayCard
+          viewer="resident"
+          enabled={
+            activeThread.folder !== "trash" &&
+            !activeIsHouseThread &&
+            !isPropLaneAssistantInboxThread(activeThread)
+          }
+          managerUserId={null}
+          personEmail={session.email}
+          homeLabel={activeManager?.homeLabel}
+        />
+      ) : null}
+      {residentScheduledCards}
+    </>
+  );
 
   const openThread = useCallback(
     (thread: InboxThread) => {
@@ -1827,7 +1853,8 @@ export const ResidentInboxPanel = forwardRef<
               subtitle={activeThreadSubtitle}
               messages={activeBubbles}
               emailNameAsPerson
-              underHeader={residentScheduledCards}
+              underHeader={residentUnderHeader}
+              eventViewer="resident"
               threadKey={activeThread.id}
               onBack={() => setExpandedId(null)}
               headerActions={
@@ -1935,7 +1962,8 @@ export const ResidentInboxPanel = forwardRef<
                 subtitle={activeThreadSubtitle}
                 messages={activeBubbles}
                 emailNameAsPerson
-                underHeader={residentScheduledCards}
+                underHeader={residentUnderHeader}
+                eventViewer="resident"
                 threadKey={activeThread.id}
                 onBack={() => setExpandedId(null)}
                 headerActions={

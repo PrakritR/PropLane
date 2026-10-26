@@ -39,6 +39,7 @@ import { normalizeE164 } from "@/lib/phone-e164";
 import { isPhoneOptedOut } from "@/lib/sms-consent";
 import { ensureVendorConversationConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
+import { normalizeSenderDisplayName, type InboxEventStamp } from "@/lib/inbox-event-card";
 import { aggregateVendorSponsoredDelivery } from "@/lib/vendor-sponsored-delivery-state";
 import {
   propertyLabelFor,
@@ -686,6 +687,14 @@ export async function deliverPortalMessageThreadSide(
     /** Stamped onto the appended turn only - see `InboxThreadMessage.sentByAi`. */
     sentByAi?: boolean;
     /**
+     * The event card this automated turn wears (`inbox-event-card.ts`): `eventKind`, `eventCard` and the turn's
+     * OWN `recordRef` go on the turn, never on the thread (the thread keeps the first ref it was stamped with).
+     * Absent for every turn that is not a card: it renders as it always did.
+     */
+    event?: InboxEventStamp;
+    /** The label a co-host's reply wears under its bubble; stamped on the turn only. */
+    senderDisplayName?: string;
+    /**
      * Stored type for a brand-new row. A keyed conversation that already
      * exists keeps its own type. Defaults to `portal_message`.
      */
@@ -774,7 +783,10 @@ export async function deliverPortalMessageThreadSide(
       ...(houseId ? { houseId } : {}),
       ...(houseLabel ? { houseLabel } : {}),
       // The turn's own record (the thread keeps its first recordRef; see `InboxThreadMessage.recordRef`).
-      ...(normalizedRecordRef ? { recordRef: normalizedRecordRef } : {}),
+      // An event card's ref is the record its action opens, and belongs to the turn alone.
+      ...(args.event?.recordRef ?? normalizedRecordRef ? { recordRef: args.event?.recordRef ?? normalizedRecordRef } : {}),
+      ...(args.event ? { eventKind: args.event.kind, eventCard: args.event.card } : {}),
+      ...(normalizeSenderDisplayName(args.senderDisplayName) ? { senderDisplayName: normalizeSenderDisplayName(args.senderDisplayName) } : {}),
     });
     // Turns that follow the main one (a resident's message, then the acknowledgement).
     for (const turn of args.followUps ?? []) {
@@ -891,6 +903,9 @@ export async function deliverPortalMessageThreadSide(
     ...(normalizedRecordRef ? { recordRef: normalizedRecordRef } : {}),
     ...(args.delivery ? { rootDelivery: args.delivery } : {}),
     ...(args.automated ? { rootAutomated: true } : {}),
+    ...(args.event ? { rootEventKind: args.event.kind, rootEventCard: args.event.card } : {}),
+    ...(args.event?.recordRef ? { rootEventRecordRef: args.event.recordRef } : {}),
+    ...(normalizeSenderDisplayName(args.senderDisplayName) ? { rootSenderDisplayName: normalizeSenderDisplayName(args.senderDisplayName) } : {}),
     ...(args.rootOutbound ? { rootOutbound: true } : {}),
     ...(args.followUps?.length ? { messages: args.followUps } : {}),
     ...(houseId ? { rootHouseId: houseId } : {}),
@@ -1086,6 +1101,13 @@ export async function deliverPortalInboxMessage(
      * both the recipient's inbox copy and the sender's sent copy.
      */
     automated?: boolean;
+    /**
+     * The event card this automated turn wears: `eventKind`, the card's title and fact, and the record its action
+     * opens (`buildInboxEventStamp`). Stamped on the turn of both thread sides; never on the thread itself.
+     */
+    event?: InboxEventStamp;
+    /** The label a reply written by another builder wears under its bubble ("Dev · Co-host"). */
+    senderDisplayName?: string;
     /** The thread this turn was already written into by the caller (see `deliverPortalMessageThreadSide`). */
     alreadyRecordedInThreadId?: string;
     /**
@@ -1317,6 +1339,8 @@ export async function deliverPortalInboxMessage(
         outbound: true,
         category: opts.eventCategory,
         automated: opts.automated,
+        event: opts.event,
+        senderDisplayName: opts.senderDisplayName,
         messageId: opts.messageId ? `${opts.messageId}:sent:${recipientLower}` : undefined,
         recordRef: opts.recordRef,
       });
@@ -1352,6 +1376,8 @@ export async function deliverPortalInboxMessage(
         outbound: false,
         category: opts.eventCategory,
         automated: opts.automated,
+        event: opts.event,
+        senderDisplayName: opts.senderDisplayName,
         messageId: opts.messageId ? `${opts.messageId}:inbox:${recipientLower}` : undefined,
         recordRef: opts.recordRef,
       });

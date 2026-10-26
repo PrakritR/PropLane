@@ -39,6 +39,12 @@ export const ACTION_EVENT_CATALOG = {
     // PLAN-0915 phase 2: date changes made outside the signing flow.
     "move_out_notice",
     "amendment_sent",
+    // A resident's move-in announcements (`move-in-details-event.server.ts`). Both ride the resident's one
+    // conversation as event cards (`inbox-event-card.ts`): the details of arriving (never an entry code) and the
+    // room they were given. They live in the `lease` domain because `action_events.domain` is a database check
+    // list and a residency is a lease-side fact; no new domain means no migration.
+    "move_in_details",
+    "room_assigned",
   ],
   work_order: ["created", "vendor_offered", "accepted", "scheduled", "completed", "invoiced", "paid"],
   application: [
@@ -288,6 +294,7 @@ export async function emitApplicationTransition(
     payload: {
       bucket: input.application.bucket ?? null,
       propertyId: input.application.assignedPropertyId?.trim() || input.application.propertyId?.trim() || null,
+      ...(facts.propertyLabel ? { propertyLabel: facts.propertyLabel } : {}),
     },
     templateContext: { applicantName: facts.applicantName, propertyTitle: facts.propertyLabel ?? "", responsePromise: facts.responsePromise ?? "" },
     recipients: audiences.flatMap((recipient) => {
@@ -392,7 +399,7 @@ export async function emitServiceRequestTransition(
   });
 }
 
-async function managerSender(db: SupabaseClient, managerUserId: string) {
+export async function managerSender(db: SupabaseClient, managerUserId: string) {
   const { data } = await db.from("profiles").select("email, full_name").eq("id", managerUserId).maybeSingle();
   return {
     userId: managerUserId,
@@ -458,6 +465,8 @@ export async function emitHouseholdChargeTransition(
       title: facts.title,
       ...(facts.amountLabel ? { amountLabel: facts.amountLabel } : {}),
       ...(facts.propertyLabel ? { propertyLabel: facts.propertyLabel } : {}),
+      // The event card's title reads "Rent due Nov 1 · $1,150" from these two stored facts.
+      ...(facts.dueDateLabel ? { dueDateLabel: facts.dueDateLabel } : {}),
     },
     templateContext: { title: facts.title, amountLabel: facts.amountLabel, propertyTitle: facts.propertyLabel ?? "", balanceLabel: facts.balanceLabel ?? "", dueDateLabel: facts.dueDateLabel ?? "" },
     recipients: audiences.flatMap((recipient) => {
@@ -643,7 +652,11 @@ export async function emitLeaseTransition(
     senderUserId: input.actor.userId,
     senderEmail: input.actor.email,
     senderName: input.actor.name,
-    payload: { status: input.lease.status, propertyId: input.lease.propertyId },
+    payload: {
+      status: input.lease.status,
+      propertyId: input.lease.propertyId,
+      ...(facts.propertyLabel ? { propertyLabel: facts.propertyLabel } : {}),
+    },
     recipients: audiences.flatMap((recipient) => {
       const rendered = renderLeaseActionEvent(event, recipient.audience, facts);
       return rendered ? [{ ...recipient, rendered }] : [];
