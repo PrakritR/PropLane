@@ -301,9 +301,29 @@ export async function sendWorkOrderVendorOffers(
     skipped.push(id);
     skippedDetails.push({ id, name: name || "Vendor", reason });
   };
-  // One send round: the offer event id carries it, so a re-offer after a decline or expiry notifies
-  // again instead of being deduped against the first send.
-  const sendRound = new Date().toISOString();
+  // One send round, carried by the offer event id, so a re-offer after a decline or expiry notifies
+  // again instead of being deduped against the first send. A send whose vendors ALL still hold a
+  // live offer is not a new round but a replay of the open one (a double-submit, a second tab, a
+  // client retry): it reuses that round's key, so the notice is deduped as it was before rounds
+  // existed. Any vendor without a live offer opens a new round.
+  const { data: priorOffers } = await db
+    .from("work_order_vendor_offers")
+    .select("vendor_directory_id, status, expires_at")
+    .eq("work_order_id", workOrderId)
+    .in("vendor_directory_id", vendorIds);
+  const nowMs = Date.now();
+  const liveOffers = new Set(
+    ((priorOffers ?? []) as Array<{ vendor_directory_id: string; status: string; expires_at: string | null }>)
+      .filter((offer) => {
+        if (offer.status !== "sent") return false;
+        const expiry = offer.expires_at ? Date.parse(offer.expires_at) : NaN;
+        return !Number.isFinite(expiry) || expiry > nowMs;
+      })
+      .map((offer) => String(offer.vendor_directory_id)),
+  );
+  const openRound = String(rowData.offerRoundKey ?? "").trim();
+  const sendRound =
+    openRound && vendorIds.every((id) => liveOffers.has(id)) ? openRound : new Date().toISOString();
   // Offers expire on the manager's Services setting (a house with its own gets
   // it; otherwise workspace then account, phase C); a round sent now shares one deadline.
   const offerPropertyId = rowData.assignedPropertyId || rowData.propertyId || null;
@@ -320,29 +340,19 @@ export async function sendWorkOrderVendorOffers(
 
     // A roster vendor with no PropLane account has no inbox, so an offer reaches nobody. With an
     // email they get the sign-up invite carrying this job; without one there is no way to reach them.
-    let inviteOnly = false;
+    let inviteEmail: string | null = null;
     if (!vendor.vendorUserId) {
       const email = vendor.email.trim().toLowerCase();
       if (!INVITE_EMAIL_RE.test(email)) {
         skip(vendorId, vendor.name, "no email or account");
         continue;
       }
-      const inviter = await sendVendorInvite(db, {
-        managerUserId: String(workOrder.manager_user_id),
-        managerName: actor.fullName?.trim() || actor.email || "Your property manager",
-        vendorId,
-        vendorEmail: email,
-        vendorName: vendor.name,
-        origin: resolveEmailLinkBaseUrl().replace(/\/$/, ""),
-        jobLine: [rowData.title || "Service", rowData.reference].filter(Boolean).join(" · "),
-      });
-      if (!inviter.ok) {
-        skip(vendorId, vendor.name, inviter.status === 502 || inviter.status === 503 ? "invite email could not be sent" : "invite not allowed");
-        continue;
-      }
-      inviteOnly = true;
+      inviteEmail = email;
     }
 
+    // The offer row first, the invite email second: an invite promising "it will be waiting in
+    // your Services" must never be the only thing that happened, which is what a failed upsert
+    // after a sent invite left behind.
     const now = new Date().toISOString();
     const { error: offerError } = await db.from("work_order_vendor_offers").upsert(
       {
@@ -360,8 +370,24 @@ export async function sendWorkOrderVendorOffers(
       skip(vendorId, vendor.name, "offer could not be saved");
       continue;
     }
+
+    if (inviteEmail) {
+      const inviter = await sendVendorInvite(db, {
+        managerUserId: String(workOrder.manager_user_id),
+        managerName: actor.fullName?.trim() || actor.email || "Your property manager",
+        vendorId,
+        vendorEmail: inviteEmail,
+        vendorName: vendor.name,
+        origin: resolveEmailLinkBaseUrl().replace(/\/$/, ""),
+        jobLine: [rowData.title || "Service", rowData.reference].filter(Boolean).join(" · "),
+      });
+      if (!inviter.ok) {
+        skip(vendorId, vendor.name, inviter.status === 502 || inviter.status === 503 ? "invite email could not be sent" : "invite not allowed");
+        continue;
+      }
+    }
     sent.push(vendorId);
-    if (inviteOnly) invited.push({ id: vendorId, name: vendor.name });
+    if (inviteEmail) invited.push({ id: vendorId, name: vendor.name });
 
   }
 
@@ -370,6 +396,7 @@ export async function sendWorkOrderVendorOffers(
       ...rowData,
       biddingOpen: true,
       biddingOpenedAt: rowData.biddingOpenedAt ?? new Date().toISOString(),
+      offerRoundKey: sendRound,
       offerExpiresAt: expiresAt ? expiresAt.toISOString() : undefined,
       offerSharePhotos: sharePhotos,
       marketplacePublish: marketplaceEnabled

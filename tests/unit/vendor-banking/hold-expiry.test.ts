@@ -193,7 +193,7 @@ describe("expireVendorHolds", () => {
     });
 
     const result = await expireVendorHolds(stripe, db as never, new Date());
-    expect(result).toEqual({ checked: 1, returned: 1, failed: 0, errors: [] });
+    expect(result).toEqual({ checked: 1, returned: 1, pending: 0, failed: 0, stuck: 0, errors: [] });
 
     expect(stripe.refunds.create).toHaveBeenCalledWith(
       { charge: "ch_abc", reason: "requested_by_customer" },
@@ -247,7 +247,7 @@ describe("expireVendorHolds", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const result = await expireVendorHolds(stripe, db as never, new Date());
     errSpy.mockRestore();
-    expect(result).toEqual({ checked: 1, returned: 1, failed: 0, errors: [] });
+    expect(result).toEqual({ checked: 1, returned: 1, pending: 0, failed: 0, stuck: 0, errors: [] });
   });
 
   it("skips a hold missing its stripe_charge_id and records the failure rather than guessing", async () => {

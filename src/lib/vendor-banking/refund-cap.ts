@@ -108,6 +108,14 @@ export function isHoldExpiryAttemptKey(attemptKey: string): boolean {
   return attemptKey.startsWith(HOLD_EXPIRY_ATTEMPT_PREFIX);
 }
 
+/** The hold a cron attempt key names, so the settlement half can announce the return. */
+export function holdIdFromHoldExpiryAttemptKey(attemptKey: string): string | null {
+  if (!isHoldExpiryAttemptKey(attemptKey)) return null;
+  const parts = attemptKey.slice(HOLD_EXPIRY_ATTEMPT_PREFIX.length).split(":");
+  const holdId = parts.length === 2 ? parts[1]!.trim() : "";
+  return holdId || null;
+}
+
 /** A vendor-supplied Idempotency-Key may not impersonate the cron. */
 export function isReservedVendorClientKey(clientKey: string): boolean {
   return clientKey.trim().toLowerCase().startsWith(HOLD_EXPIRY_RESERVED_CLIENT_PREFIX);

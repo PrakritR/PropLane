@@ -12,6 +12,7 @@ import {
   storeInboundMediaBytes,
 } from "@/lib/sms-media.server";
 import { isMissingSchemaError } from "@/lib/one-number/config.server";
+import { uploadCompletionPhotos } from "@/lib/completion-photo-storage.server";
 
 /**
  * Inbound MMS for every role. Each media item on an inbound text is downloaded
@@ -285,18 +286,32 @@ export async function attachVendorJobMedia(
       .maybeSingle();
     if (!order) return { linked: 0 };
 
-    const dataUrls = await smsMediaDataUrls(db, rows);
+    // A texted photo takes the same rail as an uploaded one: the private manager-documents bucket
+    // under the owning manager's prefix, with only its path on the row. Base64 in `row_data` is
+    // the egress pattern `completionPhotoPaths` exists to replace, so nothing writes it any more.
+    const dataUrls = (await smsMediaDataUrls(db, rows)).filter((url) =>
+      /^data:image\/(?:jpeg|png|webp);base64,/i.test(url),
+    );
     if (dataUrls.length > 0) {
       const rowData = (order.row_data ?? {}) as Record<string, unknown>;
-      const current = Array.isArray(rowData.completionPhotoDataUrls)
-        ? (rowData.completionPhotoDataUrls as unknown[]).filter((u): u is string => typeof u === "string")
+      const current = Array.isArray(rowData.completionPhotoPaths)
+        ? (rowData.completionPhotoPaths as unknown[]).filter((p): p is string => typeof p === "string")
         : [];
-      const merged = [...current, ...dataUrls.filter((u) => !current.includes(u))].slice(0, MAX_JOB_PHOTOS);
-      await db
-        .from("portal_work_order_records")
-        .update({ row_data: { ...rowData, completionPhotoDataUrls: merged } })
-        .eq("id", workOrderId)
-        .eq("manager_user_id", args.ownerUserId);
+      const room = Math.max(0, MAX_JOB_PHOTOS - current.length);
+      if (room > 0) {
+        const paths = await uploadCompletionPhotos(db, {
+          managerUserId: args.ownerUserId,
+          workOrderId,
+          dataUrls: dataUrls.slice(0, room),
+        }).catch(() => [] as string[]);
+        if (paths.length > 0) {
+          await db
+            .from("portal_work_order_records")
+            .update({ row_data: { ...rowData, completionPhotoPaths: [...current, ...paths] } })
+            .eq("id", workOrderId)
+            .eq("manager_user_id", args.ownerUserId);
+        }
+      }
     }
     await linkClaimedMedia(db, { ids: rows.map((r) => r.id), linkedType: "vendor_job", linkedId: workOrderId });
     return { linked: rows.length };

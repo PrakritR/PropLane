@@ -114,14 +114,16 @@ describe("inbound MMS", () => {
     await expect(recentUnlinkedSmsMedia(db(), { ownerUserId: "o", senderPhone: "bad" })).resolves.toEqual([]);
   });
 
-  it("vendor photo on an open job: linked to the job and added to its completion photos", async () => {
+  it("vendor photo on an open job: stored in the private bucket, the job keeps only the PATH (never base64)", async () => {
     mocks.files = [{ id: "f1", content_type: "image/jpeg", storage_path: "manager/o/x/0.jpg" }];
-    mocks.order = { id: "WO-9", row_data: { title: "Leak", completionPhotoDataUrls: ["data:image/png;base64,OLD"] } };
+    mocks.order = { id: "WO-9", row_data: { title: "Leak", completionPhotoPaths: ["manager/o/service-completion/WO-9/old.jpg"] } };
     await expect(attachVendorJobMedia(db(), { ownerUserId: "o", workOrderId: "WO-9", messageSid: SID })).resolves.toEqual({ linked: 1 });
     const orderUpdate = mocks.updates.find((u) => u.table === "portal_work_order_records");
-    expect((orderUpdate?.payload.row_data as { completionPhotoDataUrls: string[] }).completionPhotoDataUrls).toEqual([
-      "data:image/png;base64,OLD", "data:image/jpeg;base64,AQID",
-    ]);
+    const rowData = orderUpdate?.payload.row_data as { completionPhotoPaths: string[] };
+    expect(rowData.completionPhotoPaths[0]).toBe("manager/o/service-completion/WO-9/old.jpg");
+    expect(rowData.completionPhotoPaths[1]).toMatch(/^manager\/o\/service-completion\/WO-9\/[^/]+\.jpg$/);
+    expect(rowData).not.toHaveProperty("completionPhotoDataUrls");
+    expect(mocks.uploads.some((u) => u.path.startsWith("manager/o/service-completion/WO-9/"))).toBe(true);
     expect(mocks.updates.find((u) => u.table === "sms_media_files")?.payload).toEqual({ linked_type: "vendor_job", linked_id: "WO-9" });
   });
 

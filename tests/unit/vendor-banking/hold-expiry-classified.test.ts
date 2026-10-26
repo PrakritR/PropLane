@@ -71,14 +71,30 @@ describe("vendor hold expiry covers classified_held", () => {
     expect(submitVendorRefund.mock.calls[1]![2]).toMatchObject({ clientKey: "b", initiatedBy: "hold_expiry" });
   });
 
-  it("reports a failure when there is no payout row or the rail refuses", async () => {
+  it("reports a failure when the rail refuses, and a hold with no payout row as stuck (no later pass can fix it)", async () => {
     const db = makeDb([hold({ id: "b" })], []);
     const r1 = await expireVendorHolds({} as never, db as never);
-    expect(r1.failed).toBe(1);
+    expect(r1).toMatchObject({ returned: 0, failed: 0, stuck: 1 });
+    expect(r1.errors[0]).toContain("no payout row");
     submitVendorRefund.mockResolvedValue({ ok: false, status: 409, error: "nope" });
     const db2 = makeDb([hold({ id: "b" })], [{ id: "p1", platform_hold_id: "b", vendor_user_id: "v1" }]);
     const r2 = await expireVendorHolds({} as never, db2 as never);
-    expect(r2).toMatchObject({ returned: 0, failed: 1 });
+    expect(r2).toMatchObject({ returned: 0, failed: 1, stuck: 0 });
+  });
+
+  it("a refund Stripe has not settled is counted pending and announced to nobody yet", async () => {
+    submitVendorRefund.mockResolvedValue({ ok: true, status: "pending", replay: false, grossCents: 1030 });
+    const db = makeDb(
+      [hold({ id: "b" })],
+      [{ id: "p1", platform_hold_id: "b", vendor_user_id: "v1" }],
+      {
+        invoices: [{ id: "inv_1", manager_user_id: "m1", invoice_number: "42" }],
+        profiles: [{ id: "m1", email: "m@x.test" }, { id: "v1", email: "v@x.test" }],
+      },
+    );
+    const result = await expireVendorHolds({} as never, db as never);
+    expect(result).toMatchObject({ checked: 1, returned: 0, pending: 1, failed: 0, stuck: 0 });
+    expect(deliver).not.toHaveBeenCalled();
   });
 
   it("sends the returned-unclaimed notice to manager and vendor with the GROSS amount, deduped by hold id", async () => {

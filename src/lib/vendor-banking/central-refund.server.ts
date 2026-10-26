@@ -9,10 +9,12 @@ import { resolveManagerConnectAccountId } from "@/lib/stripe-connect";
 import { readVendorFrozenDisputeCents } from "@/lib/vendor-banking/disputes.server";
 import { emitVendorBankingEvent } from "@/lib/vendor-banking/events.server";
 import { recordVendorBankingLedgerEntry } from "@/lib/vendor-banking/ledger.server";
+import { notifyHoldReturnedByHoldId } from "@/lib/vendor-banking/hold-expiry-notice.server";
 import { getVendorBankingPayoutForVendor } from "@/lib/vendor-banking/payouts.server";
 import { recordVendorServiceFeeRevenueReversal } from "@/lib/vendor-banking/platform-revenue.server";
 import {
   holdExpiryAttemptKey,
+  holdIdFromHoldExpiryAttemptKey,
   isHoldExpiryAttemptKey,
   VENDOR_REFUND_REFUSAL_COPY,
   computeVendorRefundCap,
@@ -323,9 +325,19 @@ export async function settleVendorRefundBooks(
     await db.from("manager_bills").update({ refunded_cents: refundedCents }).eq("id", context.billId).eq("manager_user_id", payout.manager_user_id);
   }
 
-  // A hold-expiry return tells both parties itself (notifyHoldReturned), so the vendor-initiated
-  // "You refunded..." events would be wrong and duplicate. Books above are identical either way.
+  // A hold-expiry return is PropLane's own, so the vendor-initiated "You refunded..." events would
+  // be wrong; it gets the system-initiated notice instead. Sent from here, the one place every
+  // route — the cron's own call, a webhook that settles a refund that came back pending, a retry —
+  // passes through once the money really moved. Books above are identical either way.
   const quiet = opts.initiatedBy === "hold_expiry" || isHoldExpiryAttemptKey(attemptKey);
+  if (quiet) {
+    const holdId = holdIdFromHoldExpiryAttemptKey(attemptKey);
+    if (holdId) {
+      await notifyHoldReturnedByHoldId(db, { holdId, amountCents: request.gross_cents }).catch((e) => {
+        console.error(`[vendor-banking] hold expiry notice failed for ${holdId}:`, e instanceof Error ? e.message : e);
+      });
+    }
+  }
   if (!quiet) await emitVendorBankingEvent(db, {
     kind: "refund_sent",
     eventId: `refund:${attemptKey}:sent`,

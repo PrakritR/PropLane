@@ -9,7 +9,10 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({ from: () => ({ select: () => ({ eq: () => ({ maybeSingle }) }) }) }),
 }));
 vi.mock("@/lib/test-workspaces/index.server", () => ({ resolveAuthenticatedBusinessAccess: async () => access }));
-vi.mock("@/lib/completion-photo-storage.server", () => ({ signCompletionPhotoPaths: async () => [] }));
+vi.mock("@/lib/completion-photo-storage.server", () => ({
+  signCompletionPhotoPaths: async () => [],
+  COMPLETION_PHOTO_SIGNED_URL_TTL_SECONDS: 600,
+}));
 
 import { GET } from "@/app/api/portal/work-orders/completion-photos/route";
 
@@ -24,8 +27,10 @@ describe("completion-photos business access", () => {
     expect(maybeSingle).not.toHaveBeenCalled();
   });
 
-  it("allowed access reaches the owner check", async () => {
+  it("allowed access reaches the owner check, and says when the signed urls expire", async () => {
     access = { kind: "allowed" };
-    expect((await call()).status).toBe(200);
+    const res = await call();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ urls: [], expiresInSeconds: 600 });
   });
 });

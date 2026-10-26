@@ -30,7 +30,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (!vendorBankingEnabled()) {
-    return NextResponse.json({ checked: 0, returned: 0, failed: 0, errors: [], enabled: false });
+    return NextResponse.json({ checked: 0, returned: 0, pending: 0, failed: 0, stuck: 0, errors: [], enabled: false });
   }
   const db = createSupabaseServiceRoleClient();
   const stripe = getStripe();

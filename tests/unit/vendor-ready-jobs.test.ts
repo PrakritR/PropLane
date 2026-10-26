@@ -106,10 +106,15 @@ describe("R1: multi-role vendor resolves as vendor from the portal, not profiles
       "src/app/api/portal/work-order-bids/route.ts",
       "src/app/api/portal/work-orders/mark-done/route.ts",
       "src/app/api/portal/work-orders/set-vendor-price/route.ts",
+      "src/app/api/vendor/availability/route.ts",
     ]) {
       expect(fs.readFileSync(f, "utf8"), f).toContain("resolveSessionActorRole");
       expect(fs.readFileSync(f, "utf8"), f).not.toMatch(/String\(profile\?\.role \?\? user\.user_metadata\?\.role \?\? ""\)\.toLowerCase\(\)/);
     }
+    // The payment follow-up is vendor-only, so it asks profile_roles for the vendor role itself.
+    const paymentNotify = fs.readFileSync("src/app/api/vendor/work-orders/payment-notify/route.ts", "utf8");
+    expect(paymentNotify).toContain("requireVendorApiAccess");
+    expect(paymentNotify).not.toMatch(/String\(profile\?\.role \?\? user\.user_metadata\?\.role \?\? ""\)\.toLowerCase\(\)/);
     expect(fs.readFileSync("src/app/api/portal-work-orders/route.ts", "utf8")).toContain("isVendorPortalRequest");
   });
 });

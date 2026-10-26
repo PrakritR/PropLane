@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveVendorPortalUserId } from "@/lib/auth/vendor-api-access";
+import { resolveSessionActorRole, resolveVendorPortalUserId } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import type { VendorAvailabilityRule } from "@/lib/vendor-availability";
@@ -39,6 +39,11 @@ function toJson(rule: RuleRecord): VendorAvailabilityRule {
   };
 }
 
+/**
+ * The manager reading a roster vendor's availability. The acting role comes from `profile_roles`
+ * plus the active portal, never legacy `profiles.role` - which reads a manager+vendor account
+ * created as a vendor as "vendor" forever, in their own manager portal.
+ */
 async function sessionManagerActor(db: Db) {
   const auth = await createSupabaseServerClient();
   const {
@@ -46,7 +51,7 @@ async function sessionManagerActor(db: Db) {
   } = await auth.auth.getUser();
   if (!user) return null;
   const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+  const role = await resolveSessionActorRole(profile?.role ?? user.user_metadata?.role);
   return { userId: user.id, role };
 }
 

@@ -5,11 +5,11 @@ import { isLinkedVendorJob } from "@/lib/add-on-vendor-job";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import {
   fetchRowsForManagerWithLinked,
-  linkedPropertyIdsForModule,
   resolveManagerWorkspaceRowScope,
   rowInWorkspaceScope,
   type ManagerWorkspaceRowScope,
 } from "@/lib/auth/co-manager-module-scope";
+import { managerScopedPropertyIds } from "@/lib/work-order-record-access.server";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
@@ -265,22 +265,6 @@ function actorOwnsRecord(actor: Actor, rec: OwnerCols | null): boolean {
   return false;
 }
 
-/** Property ids this manager may act on: the ones they own outright plus those
- * shared with them through an accepted co-manager link carrying Services
- * access. */
-async function managerScopedPropertyIds(db: Db, userId: string): Promise<Set<string>> {
-  const ids = await linkedPropertyIdsForModule(db, userId, "services");
-  const { data: ownedProps } = await db
-    .from("manager_property_records")
-    .select("id")
-    .eq("manager_user_id", userId)
-    .limit(500);
-  for (const prop of ownedProps ?? []) {
-    const id = String((prop as { id?: unknown }).id ?? "").trim();
-    if (id) ids.add(id);
-  }
-  return ids;
-}
 
 
 /** Resolve a vendor directory row's linked auth user, so the record can be scoped

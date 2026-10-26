@@ -398,6 +398,9 @@ export type DemoManagerWorkOrderRow = {
   // ---- PLAN-0915 vendor loop stamps ----
   /** When the current offer round expires; mirrors `work_order_vendor_offers.expires_at`. */
   offerExpiresAt?: string;
+  /** Identity of the open offer round: a re-send to the same still-live vendors reuses it, so its
+   * one notification is not emitted twice, while a re-offer after a decline or expiry gets a new one. */
+  offerRoundKey?: string;
   /** Vendor tapped On my way. */
   enRouteAt?: string;
   /** The resident said "not fixed"; the vendor's done no longer stands. */
