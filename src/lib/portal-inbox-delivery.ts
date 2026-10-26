@@ -142,7 +142,23 @@ export type InboxThreadReplyTarget = {
   participantEmail: string | null;
   threadType: string;
   rowData: Record<string, unknown>;
+  /**
+   * True when the sender is a co-manager who reached this manager-side conversation through a house grant (Communication
+   * edit on the thread's house), not its owner: their turn is a co-host reply into the owner's conversation. Derived here
+   * from the visibility rule, never from the request.
+   */
+  coHost?: boolean;
 };
+
+/**
+ * How a co-host is signed in the shared host-team thread: "<first name> · Co-host". The first name comes from the account's
+ * own profile name (the caller's `fromName`), never the request; a name that is only an address or empty falls back to
+ * "Co-host" alone.
+ */
+export function coHostDisplayName(fromName: string): string {
+  const first = fromName.trim().split(/\s+/)[0] ?? "";
+  return first && !first.includes("@") ? `${first} · Co-host` : "Co-host";
+}
 
 /**
  * Resolve the thread a reply targets and authorize the sender against it: the
@@ -225,6 +241,7 @@ export async function resolveInboxThreadReplyTarget(
       ? "agent_notice"
       : String(threadRow.thread_type ?? ""),
     rowData,
+    ...(delegatedOwner ? { coHost: true } : {}),
   };
 }
 
@@ -266,6 +283,12 @@ export async function commitInboxThreadReply(
     /** The house this turn is about; each turn of a person's conversation carries its own. */
     houseId?: string;
     houseLabel?: string;
+    /**
+     * The authenticated account that typed this turn, stamped as `senderUserId` on a manager-side conversation so a shared
+     * host-team thread says who answered. A co-host's turn (`target.coHost`) also carries `senderDisplayName`
+     * ("<first name> · Co-host"); the owner's does not (unlabeled). Never read from a request body.
+     */
+    senderUserId?: string;
   },
 ): Promise<"sending" | "sent" | "failed" | undefined> {
   const { data: freshRow, error: readError } = await db
@@ -311,6 +334,10 @@ export async function commitInboxThreadReply(
     ...(opts.delivery ? { delivery: opts.delivery } : {}),
     ...(opts.houseId?.trim() ? { houseId: opts.houseId.trim() } : {}),
     ...(opts.houseLabel?.trim() ? { houseLabel: opts.houseLabel.trim() } : {}),
+    ...(opts.senderUserId && target.scope === MANAGER_INBOX_SCOPE ? { senderUserId: opts.senderUserId } : {}),
+    ...(opts.senderUserId && target.scope === MANAGER_INBOX_SCOPE && target.coHost
+      ? { senderDisplayName: coHostDisplayName(opts.fromName) }
+      : {}),
     // The turn's own record: the thread keeps its first recordRef, a turn keeps the one it was composed from.
     ...(normalizeRecordRef(opts.recordRef) ? { recordRef: normalizeRecordRef(opts.recordRef)! } : {}),
   });

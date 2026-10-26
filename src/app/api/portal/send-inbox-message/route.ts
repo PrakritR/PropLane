@@ -666,6 +666,7 @@ export async function POST(req: Request) {
     if (replyTarget) {
       await commitInboxThreadReply(db, replyTarget, {
         ...replyBody,
+        senderUserId: user.id,
         houseId: propertyId || undefined,
         houseLabel: propertyId ? await propertyLabelFor(db, propertyId) : undefined,
       });

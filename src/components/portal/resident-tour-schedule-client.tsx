@@ -7,12 +7,15 @@ import { PORTAL_DATA_TABLE_WRAP } from "@/components/portal/portal-data-table";
 import { loadPublicPropertyLeadFromServer, PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
 import { getPropertyForPublicLink } from "@/lib/rental-application/data";
 import { notifyResidentToursChanged } from "@/lib/resident-tour-sync-client";
+import { residentTourThreadHref } from "@/lib/resident-tour-thread-client";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { useSearchParams } from "next/navigation";
 
 export function ResidentTourScheduleClient() {
   const searchParams = useSearchParams();
   const propertyId = searchParams.get("propertyId")?.trim() ?? "";
   const [tick, setTick] = useState(0);
+  const navigate = usePortalNavigate();
 
   useEffect(() => {
     if (!propertyId) return;
@@ -42,6 +45,7 @@ export function ResidentTourScheduleClient() {
               returnAfterAuth="/resident/tour/pending"
               embedded
               onSuccess={notifyResidentToursChanged}
+              onMessageHost={(inquiryId) => void residentTourThreadHref("/resident", inquiryId).then((href) => navigate(href))}
             />
           </div>
         )}

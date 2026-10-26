@@ -775,6 +775,16 @@ controls and source markers are phone-keyed) but carries the SAME key in
 `row_data`, and the SMS projection stamps it on the summary. A turn carries its
 `houseId` / `houseLabel`; the conversation row no longer claims one house.
 
+**One host-team thread per prospect or tour, and co-host attribution (Oct 26).** A tour request (and any lead for a house) is
+ONE turn in the workspace owner's conversation with the person, stamped with the house, not a copy per teammate; a co-manager holding
+that house with Communication sees and edits that conversation (rule 2 of `conversation-visibility.server.ts`, not weakened).
+`resolveInboxThreadReplyTarget` re-derives that a co-manager may post (Communication EDIT on the thread's house; `coHost: true`),
+never from the body. `commitInboxThreadReply` stamps a manager-side turn with `senderUserId` (the authenticated sender) and, for a
+co-host, `senderDisplayName` = "<first name> · Co-host" (`coHostDisplayName`, first name from the account's own profile; an
+address-only name reads "Co-host"); the owner's turn carries `senderUserId` and no label. The turn lives in
+`row_data.messages[]`; the bubble that draws the label belongs to the thread renderer. Tours:
+[`tours-scheduling.md`](tours-scheduling.md) § A tour request is ONE host-team thread.
+
 **Automated bursts create one thread, not one each.** Several payment events for
 one resident in the same second used to each find "no thread yet" and each mint a
 `msg_*` row titled "<charge> · Payment update". `deliverPortalInboxMessage` now
