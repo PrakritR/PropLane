@@ -407,6 +407,21 @@ route with the service role pinned to the signed-in vendor), plus the read-only 
 Texts from clients and residents to the number get an answer-only AI built from those answers; managers
 never do. Rules, limits and hand-off: [`sms-system.md`](sms-system.md) § Vendor-number AI.
 
+### The vendor's own phone is verified by a code (Oct 6)
+
+The verified phone (`profiles.phone_verified_at`) is the prerequisite for the number above and the thing
+that links the vendor's text history. Verification is the user-generic `PUT /api/manager/phone` with a
+6-digit code, shown by `PortalTextNotificationsBlock` in Settings > Messaging and on the onboarding page,
+plus one compact **Dashboard attention row** ("Verify your phone") - the portal-wide banner it replaced is
+retired, so no other vendor page carries the nudge (`useVendorPhoneNeedsVerification`, cleared by
+`profiles.phone_verified_at`, never by a typed phone; `tests/unit/vendor-phone-verification-row.test.tsx`).
+Verifying also pulls in every conversation a manager already had with that phone, one per manager
+workspace: [`communication-inbox.md`](communication-inbox.md) § A vendor's texts are in their conversation
+owns that rule. A manager's text lands on the vendor's own phone whenever there is no routable PropLane
+number (never claimed, unsubscribed or lapsed) and STOP from that phone stops every text from that
+workspace: [`sms-system.md`](sms-system.md) § Vendor texting. Typed replies do not use any of this - a
+vendor's message to a linked manager is delivered in-app (§ Phase 1, `sendVendorSponsoredOutbound`).
+
 # Vendor portal (Phase 3: Stripe Connect payouts + invoices)
 
 **Connect account reuses the manager's column.** `profiles.stripe_connect_account_id`
@@ -644,27 +659,6 @@ vendor's own quiet hours (default 8pm–7am; an emergency texts through only if 
 text me anytime" on), and the in-app message is never gated by any of it. Vendor texts go through
 `enqueueOwnerSms` with `purpose: "vendor_conversation"` (the same ledger as the vendor assistant),
 not the resident path that used to refuse them with `managed_sender_scope_required`.
-
-
-## Vendors text through the manager's number (Oct 6)
-
-A vendor has **no PropLane number** (the work-number claim, candidate search and
-Communication card are retired; the sponsored work email stays). Managers text the
-vendor's own saved phone from their workspace work number (`sms-system.md` § Vendor
-texting). What the vendor does:
-
-- **Verify the phone** with a 6-digit code (the user-generic `/api/manager/phone`,
-  shown by `PortalTextNotificationsBlock`): Settings > Messaging, the onboarding
-  page, and one **Dashboard attention row** ("Verify your phone") — the portal-wide
-  banner it replaced is retired, so no other vendor page carries the nudge
-  (`useVendorPhoneNeedsVerification`, cleared by `profiles.phone_verified_at`, never
-  by a typed phone; `tests/unit/vendor-phone-verification-row.test.tsx`).
-- Verifying links the history: every conversation a manager had with that number
-  appears in their Communication, one per manager workspace, earlier texts included
-  (`communication-inbox.md` § A vendor's texts are in their conversation). A number a
-  second account also verified links to neither.
-- They answer by text to that manager's work number or in the app; the manager sees
-  one conversation either way. STOP stops every text from that manager's workspace.
 
 # Vendor portal redesign: Reviews, Payments, Settings and quick replies (approved plan vendor-portal-redesign-1006)
 
