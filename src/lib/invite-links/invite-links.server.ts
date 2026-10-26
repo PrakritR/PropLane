@@ -242,8 +242,10 @@ export async function mintInviteLink(
     serviceInvite?: boolean;
     /**
      * Server-internal, with `serviceInvite`: the address the link is emailed to. It is stored (lowercase) on the row
-     * and redeeming the link then requires the signed-in account's CONFIRMED email to match, so a forwarded or leaked
-     * link cannot be taken by someone else (an Owner link would hand them the owner of record's financial view).
+     * and redeeming the link then requires the signed-in account's CONFIRMED email to match, so a forwarded link
+     * cannot be accepted into someone else's OWN account (an Owner link would hand them the owner of record's
+     * financial view). It is not proof of inbox control: the invite page's own sign-up marks the address confirmed,
+     * so the binding pins WHICH address redeems the link, not that the redeemer reads that inbox.
      */
     inviteeEmail?: string;
   },
@@ -1018,8 +1020,10 @@ async function readBoundInviteeEmail(
 /**
  * A bound (service) invite is redeemable only by the account whose CONFIRMED sign-in email is the one it was sent to.
  * Refused before a use is spent, so the right person can still accept. The email comes from the auth user, never
- * the request. (The invite page's own account creation confirms the address it is given; the link is what proves
- * possession of the inbox, and the page locks the field to the invited address.)
+ * the request. What this buys: nobody accepts the seat into an account of their own, and an existing account on the
+ * invited address still needs its password. What it does NOT buy: the invite page's sign-up confirms the address it
+ * is given without an inbox round-trip, so a holder of the link can still create an account on the invited address.
+ * Treat the link itself as the secret.
  */
 async function checkBoundInviteeEmail(
   db: SupabaseClient,

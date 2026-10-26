@@ -64,24 +64,32 @@ export function ServiceTeamSection({
     }
   }, []);
 
+  // The roster route is admin-only, so only an admin asks for it; a helper or the client owner reads the roster the
+  // workspace context already carries. A failed read keeps that copy too, never an empty "No teammates yet".
   const load = useCallback(async () => {
+    if (!isAdmin) return;
     const result = await post({ action: "team", id: workspace.id });
-    if (result.ok && result.members) setMembers(result.members);
-    setLoaded(true);
-  }, [post, workspace.id]);
+    if (result.ok && result.members) {
+      setMembers(result.members);
+      setLoaded(true);
+    }
+  }, [isAdmin, post, workspace.id]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     let cancelled = false;
     void (async () => {
       const result = await post({ action: "team", id: workspace.id });
       if (cancelled) return;
-      if (result.ok && result.members) setMembers(result.members);
-      setLoaded(true);
+      if (result.ok && result.members) {
+        setMembers(result.members);
+        setLoaded(true);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [post, workspace.id]);
+  }, [isAdmin, post, workspace.id]);
 
   // The workspace context carries its own copy of the roster (Settings reads it elsewhere), so a change refreshes both.
   const changed = useCallback(async () => {
@@ -102,7 +110,7 @@ export function ServiceTeamSection({
     await changed();
   };
 
-  // Show the server's roster once it has answered; until then, the context's copy keeps the list from flashing empty.
+  // Show the server's roster once it has answered; otherwise the context's copy, so the list never flashes or sticks empty.
   const rows: ServiceTeamMember[] = loaded
     ? members
     : (workspace.members ?? []).map((m) => ({

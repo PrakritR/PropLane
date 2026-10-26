@@ -50,20 +50,50 @@ type Row = Record<string, unknown>;
 
 const firstWord = (value: unknown): string => String(value ?? "").trim().split(/\s+/)[0] ?? "";
 
-async function senderLabel(db: SupabaseClient, ownerUserId: string, workspaceId: string | null): Promise<string> {
+const SENDER_FALLBACK = "a manager";
+const senderKey = (ownerUserId: string, workspaceId: string | null) => `${ownerUserId}|${workspaceId ?? ""}`;
+
+/**
+ * The first name (or workspace name) behind every direct job in one pass: two reads for the whole list, not two per
+ * attempt. This runs on the inbound SMS path, so a sender that cannot be read is the generic label, never a refusal.
+ */
+async function senderLabels(
+  db: SupabaseClient,
+  senders: ReadonlyArray<{ ownerUserId: string; workspaceId: string | null }>,
+): Promise<Map<string, string>> {
+  const labels = new Map<string, string>();
   try {
-    const { data } = await db.from("profiles").select("full_name").eq("id", ownerUserId).maybeSingle();
-    const first = firstWord((data as Row | null)?.full_name);
-    if (first) return first;
-    if (workspaceId) {
-      const { data: ws } = await db.from("portal_workspaces").select("name").eq("id", workspaceId).maybeSingle();
-      const name = String((ws as Row | null)?.name ?? "").trim();
-      if (name) return name;
+    const ownerIds = [...new Set(senders.map((s) => s.ownerUserId).filter(Boolean))];
+    const byOwner = new Map<string, string>();
+    if (ownerIds.length > 0) {
+      const { data } = await db.from("profiles").select("id, full_name").in("id", ownerIds);
+      for (const row of (data ?? []) as Row[]) {
+        const first = firstWord(row.full_name);
+        if (first) byOwner.set(String(row.id), first);
+      }
+    }
+    const workspaceIds = [
+      ...new Set(senders.filter((s) => !byOwner.has(s.ownerUserId) && s.workspaceId).map((s) => s.workspaceId as string)),
+    ];
+    const byWorkspace = new Map<string, string>();
+    if (workspaceIds.length > 0) {
+      const { data } = await db.from("portal_workspaces").select("id, name").in("id", workspaceIds);
+      for (const row of (data ?? []) as Row[]) {
+        const name = String(row.name ?? "").trim();
+        if (name) byWorkspace.set(String(row.id), name);
+      }
+    }
+    for (const sender of senders) {
+      const label =
+        byOwner.get(sender.ownerUserId) ??
+        (sender.workspaceId ? byWorkspace.get(sender.workspaceId) : undefined) ??
+        SENDER_FALLBACK;
+      labels.set(senderKey(sender.ownerUserId, sender.workspaceId), label);
     }
   } catch {
-    // falls through to the generic label
+    // every unresolved sender falls back to the generic label
   }
-  return "a manager";
+  return labels;
 }
 
 /** Dispatch jobs offered to this vendor and still open, newest offer first. Scoped through the vendor's own roster rows. */
@@ -88,6 +118,12 @@ async function loadOfferedToVendor(db: SupabaseClient, vendorUserId: string, now
       .select("id, owner_user_id, workspace_id, trade, issue, status, pay_cents, details, source_type, source_id")
       .in("id", [...new Set(live.map((a) => String(a.run_id)))]);
     const runById = new Map(((runs ?? []) as Row[]).map((r) => [String(r.id), r]));
+    const labels = await senderLabels(
+      db,
+      [...runById.values()]
+        .filter((run) => run.status === "offering")
+        .map((run) => ({ ownerUserId: String(run.owner_user_id ?? ""), workspaceId: (run.workspace_id as string | null) ?? null })),
+    );
     const entries: Candidate[] = [];
     for (const attempt of live) {
       const run = runById.get(String(attempt.run_id));
@@ -103,7 +139,7 @@ async function loadOfferedToVendor(db: SupabaseClient, vendorUserId: string, now
         area: String(details.area ?? "").trim() || "Nearby",
         when: String(details.whenLabel ?? "").trim() || "Anytime",
         budget: cents ? `$${Math.round(cents / 100)}` : "",
-        from: await senderLabel(db, String(run.owner_user_id ?? ""), (run.workspace_id as string | null) ?? null),
+        from: labels.get(senderKey(String(run.owner_user_id ?? ""), (run.workspace_id as string | null) ?? null)) ?? SENDER_FALLBACK,
         attemptId: String(attempt.id),
         sourceId: run.source_type === "work_order" ? String(run.source_id ?? "") : undefined,
       });

@@ -307,6 +307,8 @@ export async function POST(req: Request) {
     let inviterUserId: string;
     let workspaceId: string | null = requestedWorkspaceId;
     let actorRole: "owner" | TeamRoleId | null = null;
+    // Counted only on the workspace path, where the houses are read anyway; null leaves the role check strict.
+    let workspaceHasHouses: boolean | null = null;
     if (requestedWorkspaceId) {
       const standing = await actorWorkspaceStanding(svc, user.id, requestedWorkspaceId);
       if (!standing) {
@@ -321,6 +323,7 @@ export async function POST(req: Request) {
       inviterUserId = standing.ownerUserId;
       actorRole = standing.role;
       const houses = await workspaceHouseIds(svc, inviterUserId, standing.workspaceId);
+      workspaceHasHouses = houses.length > 0;
       if (houseScope === "all") {
         assignedPropertyIds = houses;
       } else if (assignedPropertyIds.some((id) => !houses.includes(id))) {
@@ -393,7 +396,11 @@ export async function POST(req: Request) {
     }
     // The role decides which keys survive, a map that no longer matches reads as the role it is, and the workspace
     // rights and flat grant follow (`finalizeInviteGrant`).
-    const finalGrant = finalizeInviteGrant(body, { teamRole, propertyCoManagerPermissions });
+    const finalGrant = finalizeInviteGrant(body, {
+      teamRole,
+      propertyCoManagerPermissions,
+      ...(workspaceHasHouses === null ? {} : { workspaceHasHouses }),
+    });
     teamRole = finalGrant.teamRole;
     propertyCoManagerPermissions = finalGrant.propertyCoManagerPermissions;
     const { workspacePermissions, coManagerPermissions } = finalGrant;

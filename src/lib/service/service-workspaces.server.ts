@@ -708,8 +708,11 @@ export async function listServiceTeam(
 type OwnerOfRecordHolder =
   | { kind: "none" }
   | { kind: "account"; name: string }
-  | { kind: "member"; linkId: string; name: string }
+  | { kind: "member"; linkId: string; name: string; status: string }
   | { kind: "link"; linkId: string; name: string };
+
+/** The holder a replace withdraws: never "none", never the attached client who owns the workspace. */
+type OutgoingOwner = Exclude<OwnerOfRecordHolder, { kind: "none" } | { kind: "account" }>;
 
 async function currentOwnerOfRecord(db: SupabaseClient, workspace: { id: string; ownerUserId: string }): Promise<OwnerOfRecordHolder | null> {
   const [members, links, serviceOwned] = await Promise.all([
@@ -744,7 +747,7 @@ async function currentOwnerOfRecord(db: SupabaseClient, workspace: { id: string;
       const p = profile.data as { full_name?: string | null; email?: string | null } | null;
       name = p?.full_name?.trim() || p?.email?.trim() || name;
     }
-    return { kind: "member", linkId: flagged.id, name: name || "The owner" };
+    return { kind: "member", linkId: flagged.id, name: name || "The owner", status: flagged.status };
   }
   const now = new Date();
   const live = ((links.data ?? []) as { id: string; label: string | null; max_uses: number | null; used_count: number | null; expires_at: string | null }[]).find(
@@ -800,7 +803,11 @@ async function resolveServiceSeatGrant(
     if (!capped.ok) return fail(capped.status, capped.error);
     propertyMap = capped.permissions;
   }
-  const final = finalizeInviteGrant(body, { teamRole, propertyCoManagerPermissions: propertyMap });
+  const final = finalizeInviteGrant(body, {
+    teamRole,
+    propertyCoManagerPermissions: propertyMap,
+    workspaceHasHouses: houses.length > 0,
+  });
   return {
     ok: true,
     grant: {
@@ -900,7 +907,10 @@ export async function inviteServiceClient(
   }
 
   // One owner of record per workspace. Taken: ask (owner_exists) unless the operator already confirmed the replace.
-  let ownerReplaced = false;
+  // The withdrawal is sequenced so a failed invite never leaves the workspace with NO owner of record: an emailed
+  // link is minted and sent first and the old holder withdrawn after, and a membership (which the database allows
+  // only one live row of) withdraws first and is put back when the insert fails.
+  let outgoingOwner: OutgoingOwner | null = null;
   if (flag) {
     const holder = await currentOwnerOfRecord(db, who.workspace);
     if (holder === null) return fail(503, "Could not send the invite. Please retry.");
@@ -909,9 +919,7 @@ export async function inviteServiceClient(
       if (input.replaceOwner !== true) {
         return { ok: false, status: 409, error: `${holder.name} is the owner now. Replace them?`, code: "owner_exists", ownerName: holder.name };
       }
-      const replaced = await replaceOwnerOfRecord(db, operatorUserId, who.workspace, holder);
-      if (replaced) return replaced;
-      ownerReplaced = true;
+      outgoingOwner = holder;
     }
   }
 
@@ -935,26 +943,84 @@ export async function inviteServiceClient(
   if (audited) return audited;
 
   if (addressed) {
+    // `account_link_invites_one_owner_of_record` allows one live owner row per workspace, so the seat has to be
+    // free before the replacement is inserted. A failed insert puts the previous holder back.
+    const withdrawn = await withdrawOutgoingOwner(db, operatorUserId, who.workspace, outgoingOwner);
+    if (!withdrawn.ok) return withdrawn;
     const added = await insertAdminMembership(db, who.workspace.ownerUserId, who.workspace.id, targetUserId, {
       pending: true,
       ownerOfRecord: flag,
       grant,
     });
-    if (!added.ok) return added;
+    if (!added.ok) {
+      await restoreOutgoingOwner(db, who.workspace, outgoingOwner);
+      return added;
+    }
     void notifyServiceInviteSent(db, { operatorUserId, inviteeUserId: targetUserId, inviteId: added.linkId, workspace: who.workspace, ownerInvite: flag });
-    return { ok: true, linkId: added.linkId, delivery: "account", ownerReplaced };
+    return { ok: true, linkId: added.linkId, delivery: "account", ownerReplaced: withdrawn.ownerReplaced };
   }
 
   // No account yet: a one-use link, emailed. The email is the only way to know who it is for, so it is required.
   if (!rawEmail) return fail(400, "Enter an email address for someone without an account.");
   const hintedName = cleanOwnerOfRecord(input.inviteeName);
-  return inviteByLink(db, operatorUserId, who.workspace, {
+  const sent = await inviteByLink(db, operatorUserId, who.workspace, {
     email: rawEmail,
     name: targetName || (hintedName ?? ""),
     ownerInvite: flag,
     grant,
-    ownerReplaced,
   });
+  if (!sent.ok) return sent;
+  const withdrawn = await withdrawOutgoingOwner(db, operatorUserId, who.workspace, outgoingOwner);
+  if (!withdrawn.ok) {
+    // The invite is out and the old holder is still on: two owners, not none. Say which half happened.
+    return fail(withdrawn.status, `The invite was sent, but ${outgoingOwner!.name} is still the owner. Remove them from the team list.`);
+  }
+  return { ...sent, ownerReplaced: withdrawn.ownerReplaced };
+}
+
+/** Withdraw the owner of record the new invite replaces, if there is one. */
+async function withdrawOutgoingOwner(
+  db: SupabaseClient,
+  operatorUserId: string,
+  workspace: { id: string; ownerUserId: string },
+  outgoing: OutgoingOwner | null,
+): Promise<ServiceFailure | { ok: true; ownerReplaced: boolean }> {
+  if (!outgoing) return { ok: true, ownerReplaced: false };
+  const replaced = await replaceOwnerOfRecord(db, operatorUserId, workspace, outgoing);
+  if (replaced) return replaced;
+  return { ok: true, ownerReplaced: true };
+}
+
+/**
+ * Put the withdrawn holder back when the replacement could not be written, so the workspace is never left without an
+ * owner of record. Best effort: the caller is already returning the original failure, and a restore that itself fails
+ * leaves the seat free rather than hiding the first error.
+ */
+async function restoreOutgoingOwner(
+  db: SupabaseClient,
+  workspace: { id: string; ownerUserId: string },
+  outgoing: OutgoingOwner | null,
+): Promise<void> {
+  if (!outgoing) return;
+  try {
+    if (outgoing.kind === "member") {
+      await db
+        .from("account_link_invites")
+        .update({ status: outgoing.status, responded_at: outgoing.status === "accepted" ? new Date().toISOString() : null })
+        .eq("id", outgoing.linkId)
+        .eq("inviter_user_id", workspace.ownerUserId)
+        .eq("workspace_id", workspace.id);
+      return;
+    }
+    await db
+      .from("manager_invite_links")
+      .update({ revoked_at: null, updated_at: new Date().toISOString() })
+      .eq("id", outgoing.linkId)
+      .eq("owner_user_id", workspace.ownerUserId)
+      .eq("workspace_id", workspace.id);
+  } catch (error) {
+    console.error("[service-workspaces] owner of record could not be restored", error instanceof Error ? error.name : "unknown");
+  }
 }
 
 /** Withdraw whoever holds the owner of record seat now: their membership (cancelled, audited) or their unspent link. */
@@ -1024,8 +1090,8 @@ async function inviteByLink(
   db: SupabaseClient,
   operatorUserId: string,
   workspace: { id: string; ownerUserId: string },
-  input: { email: string; name: string; ownerInvite: boolean; grant: ServiceSeatGrant | undefined; ownerReplaced: boolean },
-): Promise<ServiceResult<{ linkId: string; delivery: "account" | "link"; ownerReplaced: boolean }>> {
+  input: { email: string; name: string; ownerInvite: boolean; grant: ServiceSeatGrant | undefined },
+): Promise<ServiceResult<{ linkId: string; delivery: "account" | "link" }>> {
   const email = input.email.trim().toLowerCase();
   // One live service invite per email per workspace.
   const live = await liveServiceInviteLinks(db, workspace);
@@ -1069,7 +1135,7 @@ async function inviteByLink(
       .eq("owner_user_id", workspace.ownerUserId);
     return fail(502, `The invite could not be emailed: ${sent.error}`);
   }
-  return { ok: true, linkId: minted.link.id, delivery: "link", ownerReplaced: input.ownerReplaced };
+  return { ok: true, linkId: minted.link.id, delivery: "link" };
 }
 
 type LiveServiceInviteLink = { id: string; email: string; teamRole: string | null; expiresAt: string | null };

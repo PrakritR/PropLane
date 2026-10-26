@@ -127,8 +127,31 @@ describe("the service rail", () => {
     expect(assign).not.toHaveBeenCalled();
   });
 
-  it("service mode: the account menu is only Settings, Help & feedback, Sign out (no switch-portal rows)", () => {
-    // Even a staff member who owns a workspace of their own gets no way out through this menu: the PropLane tile is it.
+  it("a helper in service mode keeps their way back: the rail has no PropLane tile for them", () => {
+    render(
+      <PortalWorkspaceRail
+        kind="pro"
+        basePath="/portal"
+        name="P"
+        email="p@example.com"
+        service={shell({ isAdmin: false, activeId: VINOD.id, propertyPortalWorkspaceId: "mine" })}
+      />,
+    );
+    expect(document.querySelector('[data-attr="portal-rail-brand"]')).toBeNull();
+    openAccountMenu();
+    expect(document.querySelector('[data-attr="portal-account-switch-property"]')).toBeTruthy();
+  });
+
+  it("a helper with no workspace of their own gets no Property portal row", () => {
+    render(
+      <PortalWorkspaceRail kind="pro" basePath="/portal" name="P" email="p@example.com" service={shell({ isAdmin: false, activeId: VINOD.id })} />,
+    );
+    openAccountMenu();
+    expect(document.querySelector('[data-attr="portal-account-switch-property"]')).toBeNull();
+  });
+
+  it("admin service mode: the account menu is only Settings, Help & feedback, Sign out (no switch-portal rows)", () => {
+    // An admin's way out is the rail's PropLane tile, so the menu keeps nothing but the three rows.
     render(<PortalWorkspaceRail kind="pro" basePath="/portal" name="P" email="p@example.com" service={shell({ activeId: VINOD.id, propertyPortalWorkspaceId: "mine" })} />);
     openAccountMenu();
     const items = Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] button')).map((el) => el.textContent?.trim());

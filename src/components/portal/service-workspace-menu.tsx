@@ -19,7 +19,9 @@ import { serviceTileTitle, type ServiceShellData } from "@/lib/service/service-m
  * The phone's way to switch workspaces in the admin portal and in service mode (the desktop rail is hidden below lg):
  * the top bar's left slot, in the manager `WorkspaceSwitcher` mobile look - tile, current name, chevron. Rows: PropLane
  * (admins; the software overview), each service workspace the viewer can open (city as a plain fact), then New
- * workspace (admins). Service mode is still the admin portal, so there is no Property portal row. An open is the rail's own `open`; the server authorizes every one.
+ * workspace (admins). Service mode is still the admin portal, so there is no Property portal row here; a helper's
+ * way back to their own portal is the account menu beside this one. An open is the rail's own `open`; the server
+ * authorizes every one.
  */
 export function ServiceWorkspaceMenu({ service }: { service: ServiceShellData }) {
   const { createOpen, setCreateOpen, busyId, open, onCreated } = useServiceWorkspaceOpen(service);
