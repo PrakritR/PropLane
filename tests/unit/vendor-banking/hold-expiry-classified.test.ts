@@ -64,11 +64,11 @@ describe("vendor hold expiry covers classified_held", () => {
     const first = await expireVendorHolds(stripe as never, db as never);
     expect(first).toMatchObject({ checked: 1, returned: 1, failed: 0 });
     expect(submitVendorRefund).toHaveBeenCalledTimes(1);
-    expect(submitVendorRefund.mock.calls[0]![2]).toMatchObject({ payoutId: "p1", vendorUserId: "v1", clientKey: "hold-expiry-b" });
+    expect(submitVendorRefund.mock.calls[0]![2]).toMatchObject({ payoutId: "p1", vendorUserId: "v1", clientKey: "b", initiatedBy: "hold_expiry" });
     expect(stripe.refunds.create).not.toHaveBeenCalled();
     // Re-run: same key every time, so the rail replays instead of refunding twice.
     await expireVendorHolds(stripe as never, db as never);
-    expect(submitVendorRefund.mock.calls[1]![2]).toMatchObject({ clientKey: "hold-expiry-b" });
+    expect(submitVendorRefund.mock.calls[1]![2]).toMatchObject({ clientKey: "b", initiatedBy: "hold_expiry" });
   });
 
   it("reports a failure when there is no payout row or the rail refuses", async () => {

@@ -12,7 +12,8 @@ import { recordVendorBankingLedgerEntry } from "@/lib/vendor-banking/ledger.serv
 import { getVendorBankingPayoutForVendor } from "@/lib/vendor-banking/payouts.server";
 import { recordVendorServiceFeeRevenueReversal } from "@/lib/vendor-banking/platform-revenue.server";
 import {
-  HOLD_EXPIRY_CLIENT_KEY_PREFIX,
+  holdExpiryAttemptKey,
+  isHoldExpiryAttemptKey,
   VENDOR_REFUND_REFUSAL_COPY,
   computeVendorRefundCap,
   refundFeeShareCents,
@@ -324,7 +325,7 @@ export async function settleVendorRefundBooks(
 
   // A hold-expiry return tells both parties itself (notifyHoldReturned), so the vendor-initiated
   // "You refunded..." events would be wrong and duplicate. Books above are identical either way.
-  const quiet = opts.initiatedBy === "hold_expiry" || attemptKey.includes(`:${HOLD_EXPIRY_CLIENT_KEY_PREFIX}`);
+  const quiet = opts.initiatedBy === "hold_expiry" || isHoldExpiryAttemptKey(attemptKey);
   if (!quiet) await emitVendorBankingEvent(db, {
     kind: "refund_sent",
     eventId: `refund:${attemptKey}:sent`,
@@ -390,7 +391,11 @@ export async function submitVendorRefund(
   db: SupabaseClient,
   opts: { payoutId: string; vendorUserId: string; requestedGrossCents?: number; reason?: string; clientKey: string; initiatedBy?: RefundInitiator },
 ): Promise<VendorRefundSubmitResult> {
-  const attemptKey = vendorRefundAttemptKey(opts.payoutId, opts.clientKey);
+  // The cron's attempts are keyed in a reserved namespace a vendor key can never produce; its
+  // `clientKey` is the hold id. Vendor keys that try the reserved prefix get no attempt key at all.
+  const attemptKey = opts.initiatedBy === "hold_expiry"
+    ? (/^[A-Za-z0-9_-]{8,80}$/.test(opts.clientKey) ? holdExpiryAttemptKey(opts.payoutId, opts.clientKey) : null)
+    : vendorRefundAttemptKey(opts.payoutId, opts.clientKey);
   if (!attemptKey) return { ok: false, status: 400, code: "IDEMPOTENCY_KEY_REQUIRED", error: "A refund needs its Idempotency-Key." };
 
   const payout = await getVendorBankingPayoutForVendor(db, { payoutId: opts.payoutId, vendorUserId: opts.vendorUserId });

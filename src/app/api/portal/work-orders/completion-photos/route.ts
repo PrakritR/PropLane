@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { signCompletionPhotoPaths } from "@/lib/completion-photo-storage.server";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 
@@ -19,6 +20,9 @@ export async function GET(req: Request) {
     if (!workOrderId) return NextResponse.json({ error: "workOrderId required." }, { status: 400 });
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
     const { data: wo } = await db
       .from("portal_work_order_records")
       .select("manager_user_id, vendor_user_id, row_data")

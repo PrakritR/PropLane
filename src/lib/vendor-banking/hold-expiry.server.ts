@@ -10,7 +10,6 @@ import { recordVendorServiceFeeRevenueReversal } from "@/lib/vendor-banking/plat
 import { PROPLANE_SERVICE_FEE_LABEL } from "@/lib/platform-fees";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { submitVendorRefund } from "@/lib/vendor-banking/central-refund.server";
-import { HOLD_EXPIRY_CLIENT_KEY_PREFIX } from "@/lib/vendor-banking/refund-cap";
 
 export const HOLD_EXPIRY_DAYS = 90;
 
@@ -183,7 +182,7 @@ export async function expireVendorHolds(stripe: Stripe, db: SupabaseClient, now:
           payoutId,
           vendorUserId: hold.ownerUserId,
           reason: `Unclaimed after ${HOLD_EXPIRY_DAYS} days`,
-          clientKey: `${HOLD_EXPIRY_CLIENT_KEY_PREFIX}${hold.id}`,
+          clientKey: hold.id,
           initiatedBy: "hold_expiry",
         });
         if (refund.ok) {

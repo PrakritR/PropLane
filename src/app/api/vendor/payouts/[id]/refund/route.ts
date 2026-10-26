@@ -6,7 +6,7 @@ import { stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
 import { vendorBankingEnabled, vendorRefundsEnabled } from "@/lib/vendor-banking/flag";
 import { readVendorRefundFunds, submitVendorRefund } from "@/lib/vendor-banking/central-refund.server";
 import { getVendorBankingPayoutForVendor } from "@/lib/vendor-banking/payouts.server";
-import { computeVendorRefundCap, remainingRefundableGrossCents } from "@/lib/vendor-banking/refund-cap";
+import { computeVendorRefundCap, isReservedVendorClientKey, remainingRefundableGrossCents } from "@/lib/vendor-banking/refund-cap";
 import { track } from "@/lib/analytics/posthog";
 
 export const runtime = "nodejs";
@@ -87,6 +87,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     }
     const reason = typeof body.reason === "string" ? body.reason.slice(0, 500) : undefined;
     const clientKey = req.headers.get("Idempotency-Key")?.trim() ?? "";
+
+    if (isReservedVendorClientKey(clientKey)) {
+      return NextResponse.json({ error: "That Idempotency-Key is reserved." }, { status: 400 });
+    }
 
     const db = createSupabaseServiceRoleClient();
     const stripe = getStripe();
