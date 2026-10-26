@@ -128,3 +128,9 @@ When the vendor has no connected bank (transfers not active or payouts not enabl
 manager pay sheet shows one inline line - "<Vendor> hasn't connected a bank yet. You're charged
 now; they're paid when they connect." - and paying stays allowed. Stripe's return URL is
 `/portal/outgoing/paid?invoice_pay=success` (the Outgoing list toasts once and refreshes).
+
+Who an Outgoing row is owed TO is one resolver, `vendorDirectoryName`
+(`vendor-invoice-pay-readiness.ts`): the manager's own roster name for that vendor, else the vendor's
+profile name, else their business name - and only then the "Vendor" placeholder. Invoice rows and the
+unmatched payout rows on the same response go through it together, so one list never names the same
+person two ways.

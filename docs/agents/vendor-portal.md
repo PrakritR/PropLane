@@ -17,14 +17,23 @@ auth flow (`portal-access.ts`, `set-active-portal`, `resolve-oauth-portal-access
 extended in lockstep — when adding a 5th role, grep for `"resident" ===` /
 `"manager" ===` literal chains rather than assuming one canonical `isAuthRole`.
 
+**A vendor API route authorizes off `profile_roles`, never `profiles.role`.**
+`profiles.role` is only the role the account was created as, so a resident or manager who later
+added the vendor portal keeps the old value forever and was locked out of their own vendor
+screens. Vendor-only routes gate on `requireVendorApiAccess` (or `resolveVendorPortalUserId`,
+which also honours admin preview) and the mixed manager/vendor work-order routes derive the
+acting role with `resolveSessionActorRole` — all in `src/lib/auth/vendor-api-access.ts`, the
+vendor counterpart of `resident-role-access.ts` (AGENTS.md § `profiles.role` is legacy).
+`resolveChannels` does the same for a vendor notification topic.
+
 **Portal registry.** `src/lib/portals/vendor.ts` is the section list — read it
 rather than a copy here. Two naming notes that outlive any list: Services keeps
 the section key `work-orders` (relabeled from "Work Orders" in the mobile-nav-m1
-overhaul), and Tasks is `tasks`, the vendor's view of manager tasks assigned
-to them (`VendorTaskList`, `GET/PATCH /api/vendor/tasks`, tabs
-`in-progress`/`completed`; bare `/vendor/tasks` is the default in-progress view —
-legacy `/vendor/task-list/...` redirects there). Tasks is a live vendor section again (nav, right after Services;
-`/vendor/tasks` mounts `VendorTaskList`, no redirect; the "New task from ..." email links to it).
+overhaul), and Tasks is `tasks` — a LIVE section in the nav right after Services, the vendor's
+view of manager tasks assigned to them (`VendorTaskList`, `GET/PATCH /api/vendor/tasks`, tabs
+`in-progress`/`completed`). `/vendor/tasks` mounts the list and never redirects: bare is the
+default in-progress view, legacy `/vendor/task-list/...` and a stale manager-style tab slug land
+on it, and the "New task from …" email links to it.
 Routes live at `src/app/vendor/layout.tsx` +
 `src/app/vendor/[section]/[[...tab]]/page.tsx`, copied from the resident
 portal shell. Render handlers are in `render-portal-section.tsx` under
@@ -113,11 +122,17 @@ cleared. There is no "Finish setting up" checklist in code. What nudges a vendor
 bank is the Dashboard balance card's Add bank flow (`vendor-dashboard-balance-card.tsx`)
 and the inbox notice sent when a held payment is returned unclaimed.
 
-Hold expiry (VD58): the 90-day cron lists both `held` and `classified_held`
-vendor-invoice holds with no transfer id; a `classified_held` one is returned through the
-central refund rail (`submitVendorRefund`, key `hold-expiry-<holdId>`), never a raw Stripe refund.
-Vendor Connect accounts are created with MCC 1799 / "Home repair and maintenance services"
-(managers keep 6513); existing accounts are not rewritten.
+Hold expiry (VD58) — a payment held 90 days because the vendor never connected a bank is
+returned to the manager, and both parties get a "returned unclaimed" notice instead of a
+"You refunded" one. The rail, the reserved attempt-key namespace and what is (and is not)
+refunded: [`financials.md`](financials.md) § Vendor refunds, disputes and notifications.
+
+**A vendor Connect account is a repair business, not a management one.** `createAxisConnectAccount`
+stamps `business_profile` MCC **1799** / "Home repair and maintenance services" for `axisPortal:
+"vendor"` and the identity step sets the same (`connectBusinessProfile`); managers keep 6513.
+Create-time only — an existing account is never rewritten. Account creation is idempotent on
+`connect-account:<portal>:<userId>` (plus the replaced id when a stale account is deliberately
+dropped), so a double click or a second tab cannot leave two Stripe accounts behind.
 
 **Manager-facing vendor directory (night/vendor-signup).** A directory-listed,
 onboarding-complete self-serve vendor (`directory_listed = true`) is now
@@ -297,7 +312,16 @@ Scheduled Reschedule (asks the manager) · Complete; Completed Send invoice). On
 visit-time picker: `POST /api/portal/work-orders/schedule-visit` -> `scheduleAssignedVisit` re-derives `vendor_user_id = actor`
 from the row and books with `bookedVisitPatch`, the same patch bid-accept writes, so the job moves to Scheduled. There is no
 vendor Decline on an assignment (only on an offer). Completion photos are downscaled client-side (1600px JPEG) and
-`mark-done` writes status + photos in one update (400 non-image, 413 over 2 MB). There is no bulk selection. The service
+`mark-done` writes status + photos in one update (`validateCompletionPhotos`: 400 for a missing or non-image photo, 413 over
+2 MB each, 6 at most). The bytes do NOT live in `row_data`: they are uploaded to the private `manager-documents` bucket under
+`manager/<managerUserId>/service-completion/<workOrderId>/` and the row keeps only `completionPhotoPaths`
+(`completion-photo-storage.server.ts`). A photo texted in takes the same rail
+(`attachVendorJobMedia`, [`one-number.md`](one-number.md)). They are read back only as short-lived signed URLs from
+`GET /api/portal/work-orders/completion-photos`, which answers exactly who may read the record itself - owning manager,
+the vendor who did the work, or a co-manager holding the house with Services access (`mayReadWorkOrderRecord`,
+`work-order-record-access.server.ts`) - and 404s anyone else; a path outside that work order's own prefix is never signed.
+Rows written before this carry base64 `completionPhotoDataUrls` and still render; they were deliberately not migrated.
+There is no bulk selection. The service
 record uses the resident-record anatomy: header Message the manager · the primary next step · ⋯ (the other stage
 actions), the stepper under it, rail Job (Overview · Estimate & bid · Schedule), Money (Invoice · Payments), Records
 (Communication · Documents). Estimate & bid answers are underline tabs (`vendorBidTabs`: Bid · Estimate · Estimate

@@ -175,7 +175,11 @@ describe("house chat is a Communication permission, not house membership", () =>
     const keys = posts.postToHouseGroup.mock.calls.map((c) => (c as unknown as [unknown, { idempotencyKey: string }])[1].idempotencyKey);
     expect(keys).toHaveLength(2);
     expect(keys[0]).toBe(keys[1]);
-    expect(keys[0]).not.toMatch(/\d{13}/);
+    // The key is a HASH of the sender, house and words (plus the window), never the clock itself.
+    // Asserted by shape and by the absence of a real timestamp: a hex digest contains a run of 13
+    // decimal digits by chance in about 1 run in 40, which used to fail this test at random.
+    expect(keys[0]).toMatch(new RegExp(`^announce:[0-9a-f]{40}:${HOUSE}$`));
+    expect(keys[0]).not.toContain(String(Date.now()).slice(0, 10));
   });
 
   it("a client request id is scoped to the sender, so it cannot pre-claim another sender's key", () => {

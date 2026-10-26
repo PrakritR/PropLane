@@ -215,6 +215,17 @@ every other `submitted` row on the service `declined`, patches the work order's 
 mirror (the manager's browser picks it up on its next `syncManagerWorkOrdersFromServer`), and notifies
 the winner and, best-effort, each declined vendor.
 
+**A roster vendor with no PropLane account is invited, never silently skipped.** They have no inbox, so
+the offer row is written first and then the sign-up invite email naming this job is what reaches them
+(`sendVendorInvite` with `jobLine`); a row with no usable email reaches nobody and is left out. The result
+is `{ sent, invited, skipped, skippedDetails }`: `invited` is the subset emailed an invite instead of an
+offer notice, and `skippedDetails` names each left-out vendor and why ("not on your roster", "no email or
+account", "invite email could not be sent"), which is what the manager's toast and the Assistant's reply
+say. The same rule holds for a direct assignment and a task assignment (`emitVendorAssigned` /
+`emitVendorTaskAssigned` answer `invited` or `no_contact`), so no caller may report a send that never
+happened. A vendor whose invite is redeemed keeps the manager's directory row and inherits the offers,
+services and money already posted to it - [`vendor-portal.md`](vendor-portal.md), "Invites are server-issued and always expire".
+
 **The service lists follow the lifecycle.** The manager Services page has Open - Assigned - Scheduled -
 Completed (see One vocabulary), each tab and count from `workOrderServiceStage`; there is no Vendors
 tab. A property record's Operations > Services tab is that same list (`ManagerAllServicesPanel` with
@@ -249,6 +260,14 @@ silent: those fields still hold THAT vendor's approved figure, and the competito
 no business reading it. The vendor panel's own `vendorCanSeeFullWorkOrderSite` redaction is
 presentation on top of this projection, never instead of it.
 
+**A hired vendor keeps the site but not the manager's books.** They hold the job, so the address stays,
+but `projectWorkOrderForHiredVendor` strips the manager's billing of the RESIDENT from every row
+`/api/portal-work-orders` serves a vendor - `residentChargeCents`, `residentChargeId`, `expenseEntryIds`,
+`residentConfirmation`, `residentReminderSentAt`. The offered projection additionally drops
+`assignedRoomChoice`, which names a room even though it is not on the typed row. Which projection a request
+gets is decided by the portal it came from (`profile_roles` + the active-portal cookie), never
+`profiles.role`, so a manager+vendor account reads its own vendor jobs and still cannot write one.
+
 **The general area is never a street address.** A property NAMED after its address ("123 Main St,
 Seattle, WA") used to publish that name as the area, because the old rule simply took the text before
 the first comma. `workOrderGeneralArea` now drops any part that reads as a street line, keeps the
@@ -258,7 +277,9 @@ city, and answers "Nearby" when nothing left is safe to show.
 vendors' copy with the general area and no unit, and the manager's own copy as a SEPARATE event that
 says the house's real name — one emit naming the site to both audiences is how an address reached an
 offered vendor by email. The emits are deduped on their own event ids, so a retry notifies nobody
-twice.
+twice. The event id carries the send's **offer round** (`row_data.offerRoundKey`): a send whose vendors all
+still hold a live offer reuses the open round, so a double-submit or a second tab is deduped as before, while
+re-offering a service after a decline or an expiry opens a new round and does notify again.
 
 **RLS** (`work_order_bids_vendor_read` / `work_order_bids_manager_read`):
 BOTH sides are `FOR SELECT` only — vendor by `vendor_user_id = auth.uid()`,

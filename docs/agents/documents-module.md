@@ -33,7 +33,11 @@ pdf, jpeg/png/webp/gif/heic, docx/xlsx/doc/xls). Paths are namespaced
 signed URL AFTER an ownership check. A defense-in-depth
 `manager_documents_owner_objects` storage.objects policy scopes by
 `(storage.foldername(name))[2] = auth.uid()::text`, but real access is
-service-role.
+service-role. The same bucket also holds service **completion photos** under
+`manager/<manager_user_id>/service-completion/<work_order_id>/` - no
+`manager_documents` row, and signed for the assigned vendor as well as the
+manager, so the ownership check there is the work-order record's
+([`vendor-portal.md`](vendor-portal.md) § The vendor Services list and service record).
 
 **API** (`src/app/api/manager-documents/`) — every route gates on
 `getReportsAuthContext({ preferRole: "manager" })` + `assertManagerFinancialsAccess`

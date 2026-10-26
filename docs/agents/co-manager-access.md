@@ -566,16 +566,16 @@ co-manager's personally owned houses. Identity is
 `resolveManagerSmsInboundIdentity` — details in
 [`sms-system.md`](sms-system.md#a-manager-texting-a-work-number-gets-the-ai).
 
-**Shareable invite links are co-manager only.** `mintInviteLink` / `redeemInviteLink`
-(`src/lib/invite-links/invite-links.server.ts`) both refuse any `kind` other than
-`manager`, and the redeem refusal happens **before** a use is spent. A redemption can
-only ever produce an `account_link_invites` row — a table whose `tab_kind` CHECK admits
-`'manager'` alone — so a "vendor" link had no honest destination: it fell through to the
-same insert, carrying the link's `assigned_property_ids` and `property_permissions`, with
-neither side's Pro/Business plan checked (the gate was `kind === "manager"`-guarded). The
-vendor add flow therefore offers only the email invite; `PortalInviteChoiceStep` draws no
-invite-link card when a surface passes no `onCreateInviteLink`. Vendors join through
-`sendVendorInvite`, which binds a token to one directory row and one address.
+**Only a `manager` link redeems into co-manager access.** `mintInviteLink` /
+`redeemInviteLink` (`src/lib/invite-links/invite-links.server.ts`) accept `manager`,
+`resident` and `vendor`, refuse any other `kind` **before** a use is spent, and each kind
+has its own redemption: `manager` writes the `account_link_invites` row this file is about,
+`resident` a pending claim, `vendor` the manager's vendor directory row
+([`vendor-portal.md`](vendor-portal.md)). Only the manager path may reach that insert —
+`account_link_invites.tab_kind` CHECKs `'manager'` alone, and a "vendor" link that once fell
+through to it carried the link's `assigned_property_ids` and `property_permissions` with
+neither side's Pro/Business plan checked (the gate was `kind === "manager"`-guarded). Never
+give a non-manager kind a path into that table, and keep the plan gate on the kind that owns it.
 
 That insert also has to set `tab_kind: "manager"` explicitly — the column is `not null`
 with no default, so omitting it made every first redemption a 23502 that had already
