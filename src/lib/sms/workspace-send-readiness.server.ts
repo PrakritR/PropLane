@@ -10,6 +10,7 @@ import {
 import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
 import { loadSharedLineConfig, workspaceHasDedicatedNumber, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { resolveSendWorkspaceId } from "@/lib/one-number/shared-line-number.server";
+import { resolveManagedSendTarget, resolveServiceLine } from "@/lib/one-number/service-line.server";
 
 export type SendNumberRow = {
   manager_user_id: string;
@@ -94,6 +95,27 @@ export async function evaluateWorkspaceSendReadiness(input: {
   const ownerId = input.ownerUserId.trim();
   const now = input.now ?? new Date();
 
+  // A PropLane-MANAGED workspace (`is_service`) texts on the PropLane line in BOTH line modes, even when it still holds a
+  // live number of its own (captain, Oct 25). Decided here, once, before any number of the workspace's own is looked at; a
+  // line that cannot be resolved refuses the send, it never falls back to the old number.
+  const managedTarget = await resolveManagedSendTarget(db, {
+    ownerUserId: ownerId,
+    workspaceIds: [input.workspaceId, input.sharedLineWorkspaceId],
+    propertyId: input.propertyId ?? null,
+    workLineId: input.workLineId ?? null,
+  });
+  if (managedTarget.managed === null) return { canSend: false, reason: "control_plane_unreadable" };
+  if (managedTarget.managed && managedTarget.workspaceId) {
+    return evaluateServiceLineReadiness({
+      db,
+      ownerId,
+      workspaceId: managedTarget.workspaceId,
+      requiredCents,
+      runtime: input.runtime ?? null,
+      now,
+    });
+  }
+
   // One number for everyone: when the line is `shared` and this workspace is in
   // the pilot, the text leaves from the shared number instead of a work number.
   // Any trouble reading the line config reads as `per_workspace`, so this block
@@ -151,8 +173,30 @@ export async function evaluateWorkspaceSendReadiness(input: {
     return { canSend: false, reason: "control_plane_unreadable" };
   }
 
-  const runtimeRow = runtime as RuntimeRow;
-  const numberRow = number as SendNumberRow;
+  return evaluateNumberRowReadiness({
+    db,
+    ownerId,
+    runtime: runtime as RuntimeRow,
+    numberRow: number as SendNumberRow,
+    requiredCents,
+    now,
+  });
+}
+
+/**
+ * The registration, runtime, provider-identity and wallet checks for ONE number row. `billingWorkspaceId` names the wallet
+ * that pays when it is not the row's own workspace (a managed workspace sending on the PropLane line pays from its own).
+ */
+async function evaluateNumberRowReadiness(input: {
+  db: SupabaseClient;
+  ownerId: string;
+  runtime: RuntimeRow;
+  numberRow: SendNumberRow;
+  requiredCents: number;
+  now: Date;
+  billingWorkspaceId?: string | null;
+}): Promise<WorkspaceSendReadiness> {
+  const { db, ownerId, runtime: runtimeRow, numberRow, requiredCents, now } = input;
   const allowlisted = (runtimeRow.pilot_manager_user_ids ?? []).includes(ownerId);
   const decision = evaluateManagerSmsNumberSendability(
     {
@@ -185,11 +229,58 @@ export async function evaluateWorkspaceSendReadiness(input: {
 
   // Credit is per workspace: the message spends from the wallet of the
   // workspace that holds the line it leaves on, not an account-wide balance.
-  const sendWorkspaceId = String(numberRow.workspace_id ?? "").trim() || null;
+  const sendWorkspaceId = input.billingWorkspaceId?.trim() || String(numberRow.workspace_id ?? "").trim() || null;
   const billing = await evaluateManagerCommsBillingGate(db, ownerId, requiredCents, sendWorkspaceId);
   if (!billing.allowed) return { canSend: false, reason: `comms_billing_${billing.reason}` };
 
   return { canSend: true, numberRow, workspaceId: sendWorkspaceId, messagingServiceSid: expectedServiceSid };
+}
+
+/**
+ * Readiness for a text about a PropLane-MANAGED workspace: it leaves on the PropLane line (`resolveServiceLine`), whatever
+ * number the workspace itself holds. The workspace's own wallet pays. A line that cannot be resolved is the plain
+ * `workspace_has_no_work_number` refusal; one that cannot be read is `control_plane_unreadable`. Neither falls back to the
+ * workspace's old number.
+ */
+async function evaluateServiceLineReadiness(input: {
+  db: SupabaseClient;
+  ownerId: string;
+  workspaceId: string;
+  requiredCents: number;
+  runtime: RuntimeConfigResult | null;
+  now: Date;
+}): Promise<WorkspaceSendReadiness> {
+  const { db, ownerId, workspaceId, requiredCents } = input;
+  const line = await resolveServiceLine<SendNumberRow>(db, SEND_NUMBER_COLUMNS);
+  if (!line.ok) return { canSend: false, reason: line.reason === "unreadable" ? "control_plane_unreadable" : WORKSPACE_NO_WORK_NUMBER_CODE };
+  if (line.kind === "shared") {
+    return evaluateSharedLineReadiness({
+      db,
+      ownerId,
+      workspaceId,
+      sharedNumber: line.phoneNumber,
+      providerServiceSid: line.messagingServiceSid,
+      requiredCents,
+      runtime: input.runtime,
+    });
+  }
+  const { data: runtime, error: runtimeError } = input.runtime
+    ? input.runtime
+    : ((await db
+        .from("sms_runtime_config")
+        .select("mode, pilot_manager_user_ids")
+        .eq("singleton", true)
+        .maybeSingle()) as unknown as RuntimeConfigResult);
+  if (runtimeError || !runtime) return { canSend: false, reason: "control_plane_unreadable" };
+  return evaluateNumberRowReadiness({
+    db,
+    ownerId,
+    runtime: runtime as RuntimeRow,
+    numberRow: line.row,
+    requiredCents,
+    now: input.now,
+    billingWorkspaceId: workspaceId,
+  });
 }
 
 /**

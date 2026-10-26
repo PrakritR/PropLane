@@ -20,6 +20,7 @@ import {
   type RegistrationState,
 } from "@/lib/sms/number-registration-policy";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import { resolveManagedSendTarget, resolveServiceLine } from "@/lib/one-number/service-line.server";
 
 /**
  * Per-manager SMS number provisioning + registration state machine (server).
@@ -789,16 +790,65 @@ export async function restoreManagerNumber(db: SupabaseClient, managerUserId: st
 }
 
 /**
+ * The PropLane line a PropLane-MANAGED workspace (`is_service`) sends on, in both line modes, whatever number the workspace
+ * itself holds (captain, Oct 25). `managed: false` = an ordinary workspace; the caller resolves its own number. `managed:
+ * true, line: null` = managed but the line cannot be resolved or read, so nothing sends (never the old number).
+ */
+async function resolveManagedSendLine(
+  db: SupabaseClient,
+  managerUserId: string,
+  workspaceId?: string | null,
+): Promise<{ managed: false } | { managed: true; line: { phoneNumber: string; numberId: string | null } | null }> {
+  const target = await resolveManagedSendTarget(db, { ownerUserId: managerUserId, workspaceIds: [workspaceId] });
+  if (target.managed === false) return { managed: false };
+  if (target.managed === null) return { managed: true, line: null };
+  const line = await resolveServiceLine<Record<string, unknown>>(db, "phone_number, provision_state, registration_state, registration_ref");
+  if (!line.ok) return { managed: true, line: null };
+  if (line.kind === "owner_number") {
+    const row = line.row;
+    const sendable = managerCanSendFromOwnNumber({
+      provisionState: normalizeProvisionState(typeof row.provision_state === "string" ? row.provision_state : null),
+      phoneNumber: line.phoneNumber,
+      registrationState: normalizeRegistrationState(typeof row.registration_state === "string" ? row.registration_state : null),
+      registrationRef: typeof row.registration_ref === "string" ? row.registration_ref : null,
+    });
+    if (!sendable) return { managed: true, line: null };
+  }
+  // `numberId` is the pin the outbox carries. The PropLane line is not the workspace's row, so the pin stays the
+  // WORKSPACE's own row when it has one: it names the workspace to the dispatcher, whose readiness check turns it into the
+  // PropLane line. A managed workspace with no row of its own pins nothing (the dispatcher resolves it from the workspace).
+  let numberId: string | null = null;
+  if (target.workspaceId) {
+    try {
+      const { data } = await db.from(TABLE).select("id").eq("workspace_id", target.workspaceId).is("released_at", null).maybeSingle();
+      numberId = String((data as { id?: unknown } | null)?.id ?? "").trim() || null;
+    } catch {
+      numberId = null;
+    }
+  }
+  return { managed: true, line: { phoneNumber: line.phoneNumber, numberId } };
+}
+
+/**
  * The E.164 number a manager may SEND from right now, or null when they cannot
  * (no active number, or registration not approved). Callers fall back to the
  * shared transport while null.
+ *
+ * A PropLane-managed workspace (`is_service`) always answers with the PropLane line, even when it holds a live number of
+ * its own. `ownLineOnly` asks about the workspace's OWN number instead (the one question that must not see the PropLane
+ * line: "does this workspace have a line of its own").
  */
 export async function resolveActiveManagerSendNumber(
   db: SupabaseClient,
   managerUserId: string,
   /** The workspace the send is made from; omitted = the owner's default workspace. */
   workspaceId?: string | null,
+  options?: { ownLineOnly?: boolean },
 ): Promise<string | null> {
+  if (!options?.ownLineOnly) {
+    const managed = await resolveManagedSendLine(db, managerUserId, workspaceId);
+    if (managed.managed) return managed.line?.phoneNumber ?? null;
+  }
   const record = await getManagerNumberRecord(db, managerUserId, workspaceId);
   if (!managerCanSendFromOwnNumber(record)) return null;
   return record?.phoneNumber ?? null;
@@ -811,6 +861,9 @@ export async function resolveActiveManagerSendNumber(
  * (no number, registration not approved): callers send no text, never borrow
  * another workspace's line. `numberId` is null only when the row id cannot be
  * read, in which case the dispatcher resolves the owner's default line itself.
+ *
+ * A PropLane-managed workspace (`is_service`) always answers with the PropLane line (`ownLineOnly` opts out, see
+ * `resolveActiveManagerSendNumber`).
  */
 export async function resolveWorkspaceSendLine(
   db: SupabaseClient,
@@ -820,13 +873,17 @@ export async function resolveWorkspaceSendLine(
    * `failClosed`: a failed read of the workspace's number rows THROWS instead of reading as "no line". For a caller that
    * would otherwise fall back to a different line (a PropLane Service workspace borrowing the PropLane line).
    */
-  options?: { failClosed?: boolean },
+  options?: { failClosed?: boolean; ownLineOnly?: boolean },
 ): Promise<{ phoneNumber: string; numberId: string | null } | null> {
   if (options?.failClosed && workspaceId?.trim()) {
     const probe = await db.from(TABLE).select("id").eq("workspace_id", workspaceId.trim()).limit(1);
     if (probe.error) throw new Error("workspace_line_unreadable");
   }
-  const phoneNumber = await resolveActiveManagerSendNumber(db, managerUserId, workspaceId ?? null);
+  if (!options?.ownLineOnly) {
+    const managed = await resolveManagedSendLine(db, managerUserId, workspaceId);
+    if (managed.managed) return managed.line;
+  }
+  const phoneNumber = await resolveActiveManagerSendNumber(db, managerUserId, workspaceId ?? null, { ownLineOnly: true });
   if (!phoneNumber) return null;
   let numberId: string | null = null;
   try {

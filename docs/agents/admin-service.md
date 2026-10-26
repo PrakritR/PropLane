@@ -12,6 +12,12 @@ PropLane Service is a FLAG on a workspace plus memberships, never ownership.
 - The owner of record is the person who owns an attached workspace (no membership needed) or the member flagged
   `account_link_invites.is_owner_of_record` (a Property owner). `src/lib/property-owner/access.server.ts` gives them
   owner access; sign-in and "Property portal" land in the Property portal, view-only (`workspace.readOnly`).
+- **A service workspace texts on the PropLane line (206), always (Oct 25).** Every `is_service` workspace sends from the PropLane
+  line in BOTH line modes, even an attached client workspace that still holds a live number of its own (Ambika's +1 (814) 679-3694,
+  Vinod's). The decision is `resolveServiceLine` (`src/lib/one-number/service-line.server.ts`); the dispatcher's readiness check, the
+  number resolvers and Settings > Communication > Work identity (the "PropLane line" row, no request or release) all read it, and an
+  unresolvable line refuses the send rather than using the old number. Inbound on the old number still routes to the workspace. Nothing
+  here releases or buys a number: retiring the old one is an operator step. Detail: [`one-number.md`](one-number.md) § W29.
 - Opening a workspace sets the portal workspace cookie after `authorizeOpenServiceWorkspace` re-derives membership.
 - Every `/api/admin/service-workspaces` verb starts with `requireAdminRoute()`; a body id is a name, never a grant.
 - **One sidebar row (Oct 25).** Service is ONE row under Software (`ADMIN_SECTION_TABS.service`): tabs Workspaces
