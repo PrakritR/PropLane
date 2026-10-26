@@ -87,14 +87,17 @@ async function say(fake: LeadFakeDb, body: string, over: Partial<LeadDeps> = {},
 const lead = (fake: LeadFakeDb) => fake.rows.sms_unassigned_leads![0]!;
 const profile = (fake: LeadFakeDb) => lead(fake).profile as Record<string, unknown>;
 
-/** Walk a lead to the point where two rooms have been offered. */
+/**
+ * Walk a lead to the point where two rooms have been offered. The qualifier keeps asking while more than 4 rooms fit and
+ * stops when it can: two fit here, so the offers go out as soon as budget, dates, area and room type are in (the headcount
+ * never filters a match, so it is not asked).
+ */
 async function toOffered(fake: LeadFakeDb) {
   await say(fake, "hi");
   await say(fake, "$1000");
   await say(fake, "Nov 1 for 6 months");
   await say(fake, "University District");
-  await say(fake, "private bath, furnished");
-  return say(fake, "just me");
+  return say(fake, "private bath, furnished");
 }
 
 beforeEach(() => {
@@ -260,8 +263,12 @@ describe("matching public rooms", () => {
 
   it("a failed catalog read is not 'no room': it says so and searches again on the next text", async () => {
     const fake = seed();
-    for (const text of ["hi", "$1000", "Nov 1 for 6 months", "University District", "private bath, furnished"]) await say(fake, text);
-    const failed = await say(fake, "just me", { listings: async () => { throw new Error("catalog down"); } });
+    const down = { listings: async () => { throw new Error("catalog down"); } };
+    for (const text of ["hi", "$1000", "Nov 1 for 6 months", "University District"]) await say(fake, text);
+    // The fit count cannot be read, so the qualifier simply asks its last question instead of guessing.
+    const unsure = await say(fake, "private bath, furnished", down);
+    expect(unsure.reply).toBe("How many people will be moving in?");
+    const failed = await say(fake, "just me", down);
     expect(failed.reply).toBe("I could not check rooms just now. Text me again in a minute and I will try again.");
     expect(profile(fake).stage).toBe("qualifying");
     const retry = await say(fake, "ok");
@@ -279,7 +286,9 @@ describe("matching public rooms", () => {
     expect(profile(fake)).toMatchObject({ stage: "qualifying", asked: "refine" });
     const again = await say(fake, "up to 1800");
     expect(again.reply).toContain("These rooms fit:");
-    expect(again.reply).toContain("prop-uw-over");
+    expect(profile(fake).budgetMax).toBe(1800);
+    // Never two homes from one manager: OWNER_A's cheapest fit stands in for its pricier house.
+    expect(again.reply).not.toContain("prop-uw-over");
   });
 });
 
@@ -300,6 +309,17 @@ describe("assignment to a self-serve workspace (the 206 serves free managers in 
     const result = await assignLeadToHouse(fake.db, { leadId: String(lead(fake).id), propertyId: "prop-free", by: "prospect" }, deps());
     expect(result).toMatchObject({ ok: true, workspaceId: WS_FREE, ownerUserId: OWNER_FREE });
     expect(lead(fake)).toMatchObject({ status: "assigned", assigned_workspace_id: WS_FREE });
+  });
+
+  it("an admin placement into a free manager's workspace gets the Looking for line, never the transcript with the other managers' homes", async () => {
+    const fake = seedFree();
+    await toOffered(fake);
+    mocks.log.mockClear();
+    const result = await assignLeadToHouse(fake.db, { leadId: String(lead(fake).id), propertyId: "prop-free", by: "admin" }, deps());
+    expect(result).toMatchObject({ ok: true, workspaceId: WS_FREE, ownerUserId: OWNER_FREE });
+    const bodies = mocks.log.mock.calls.map((c) => (c[1] as { body: string }).body);
+    expect(bodies).toEqual(["Looking for: private room near University District \u00b7 under $1000 \u00b7 Nov 1 \u00b7 6 mo"]);
+    expect(JSON.stringify(bodies)).not.toMatch(/These rooms fit|15th Ave|17th Ave|prop-uw|Brooklyn House|Seventeenth/);
   });
 
   it("per_workspace mode keeps the old rule: a pick that names a self-serve home is refused and the lead stays open", async () => {
@@ -327,20 +347,18 @@ describe("assignment to exactly one workspace", () => {
 
     expect(lead(fake)).toMatchObject({ status: "assigned", assigned_workspace_id: WS_B, assigned_property_id: "prop-uw-d" });
 
-    // The history (everything except the "2" that triggers the leasing agent) lands in that owner's prospect conversation.
+    // The browsing transcript is NOT copied (it holds the other managers' homes). The locked manager's conversation opens
+    // with one "Looking for" line; the "2" that triggers the leasing agent arrives through the normal pipeline.
     const calls = mocks.log.mock.calls.map((c) => c[1] as Record<string, unknown>);
-    expect(calls.length).toBeGreaterThanOrEqual(10);
-    for (const call of calls) {
-      expect(call.managerUserId).toBe(OWNER_B);
-      expect(call.counterpartyRole).toBe("prospect");
-      expect(call.workspaceId).toBe(WS_B);
-      expect(call.residentPhone).toBe("+12065550142");
-    }
-    expect(calls.map((c) => c.body)).not.toContain("2");
-    expect(calls.filter((c) => c.direction === "inbound").map((c) => c.body)).toContain("$1000");
-    expect(calls.some((c) => typeof c.body === "string" && c.body.includes("These rooms fit:"))).toBe(true);
-    // Stable ids, so a replay is idempotent downstream.
-    expect(new Set(calls.map((c) => c.messageSid)).size).toBe(calls.length);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      managerUserId: OWNER_B,
+      counterpartyRole: "prospect",
+      workspaceId: WS_B,
+      residentPhone: "+12065550142",
+      body: "Looking for: private room near University District \u00b7 under $1000 \u00b7 Nov 1 \u00b7 6 mo",
+    });
+    expect(String(calls[0]!.messageSid)).toMatch(/^lookingfor:/);
 
     expect(mocks.alert).toHaveBeenCalledOnce();
     expect(mocks.alert.mock.calls[0]![1]).toMatchObject({ workspaceId: WS_B, ownerUserId: OWNER_B, kind: "new_lead", propertyId: "prop-uw-d" });
@@ -349,8 +367,8 @@ describe("assignment to exactly one workspace", () => {
     expect(mocks.contact).toHaveBeenCalledOnce();
     expect(mocks.contact.mock.calls[0]![1]).toMatchObject({ managerUserId: OWNER_B, counterpartyRole: "prospect" });
 
-    // The phone's session now points at that workspace as a prospect.
-    expect(fake.rows.sms_line_sessions![0]).toMatchObject({ phone_key: PHONE_KEY, current_workspace_id: WS_B, active_role: "prospect" });
+    // The phone's session now points at that workspace as a prospect, locked to the picked home.
+    expect(fake.rows.sms_line_sessions![0]).toMatchObject({ phone_key: PHONE_KEY, current_workspace_id: WS_B, active_role: "prospect", locked_property_id: "prop-uw-d" });
   });
 
   it("assigns once: a second assignment finds the lead closed to it and copies nothing", async () => {
@@ -396,7 +414,7 @@ describe("assignment to exactly one workspace", () => {
     expect(lead(fake).status).toBe("open");
   });
 
-  it("an admin assignment copies the whole conversation, including the last text", async () => {
+  it("an admin (PropLane staff) placement still hands over the whole conversation, including the last text", async () => {
     const fake = seed();
     await say(fake, "hi");
     await say(fake, "$1000");

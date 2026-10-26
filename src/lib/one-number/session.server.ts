@@ -42,13 +42,15 @@ export const PENDING_QUESTION_TTL_MS = 6 * 60 * 60 * 1000;
  */
 export async function loadSharedLineSession(db: SupabaseClient, phoneKey: string): Promise<SharedLineSession | null> {
   try {
-    const { data, error } = await db
-      .from("sms_line_sessions")
-      .select("phone_key, current_workspace_id, active_role, pending_candidates, pending_asked_at, updated_at")
-      .eq("phone_key", phoneKey)
-      .maybeSingle();
+    const read = (columns: string) => db.from("sms_line_sessions").select(columns).eq("phone_key", phoneKey).maybeSingle();
+    let res = await read("phone_key, current_workspace_id, active_role, pending_candidates, pending_asked_at, locked_property_id, locked_at, updated_at");
+    // Code that runs before the home-lock migration reads the session without the lock.
+    if (res.error && isMissingSchemaError(res.error)) {
+      res = await read("phone_key, current_workspace_id, active_role, pending_candidates, pending_asked_at, updated_at");
+    }
+    const { data, error } = res;
     if (error || !data) return null;
-    const row = data as Record<string, unknown>;
+    const row = data as unknown as Record<string, unknown>;
     const askedAt = row.pending_asked_at ? Date.parse(String(row.pending_asked_at)) : NaN;
     const fresh = Number.isFinite(askedAt) && Date.now() - askedAt <= PENDING_QUESTION_TTL_MS;
     const thread = await db
@@ -65,6 +67,8 @@ export async function loadSharedLineSession(db: SupabaseClient, phoneKey: string
       aiPaused: paused,
       pausedAt: paused ? String((thread.data as Array<Record<string, unknown>>)[0]?.paused_at ?? "") || null : null,
       pendingCandidates: fresh ? asCandidates(row.pending_candidates) : null,
+      lockedPropertyId: row.locked_property_id ? String(row.locked_property_id) : null,
+      lockedAt: row.locked_at ? String(row.locked_at) : null,
       updatedAt: String(row.updated_at ?? ""),
     };
   } catch {
@@ -72,26 +76,39 @@ export async function loadSharedLineSession(db: SupabaseClient, phoneKey: string
   }
 }
 
-/** Remember which team and role this phone is talking to now, and clear any pending question. */
+/**
+ * Remember which team and role this phone is talking to now, and clear any pending question. `lockedPropertyId` sets the
+ * home lock (a string) or clears it (null); left out, the lock is untouched, so an ordinary routed text never moves it.
+ */
 export async function saveSharedLineRoute(
   db: SupabaseClient,
   phoneKey: string,
-  route: { workspaceId: string; role: SharedLineRole },
+  route: { workspaceId: string; role: SharedLineRole; lockedPropertyId?: string | null },
 ): Promise<boolean> {
   const now = new Date().toISOString();
-  const { error } = await db.from("sms_line_sessions").upsert(
-    {
-      phone_key: phoneKey,
-      current_workspace_id: route.workspaceId,
-      active_role: route.role,
-      pending_candidates: null,
-      pending_asked_at: null,
-      last_inbound_at: now,
-      updated_at: now,
-    },
-    { onConflict: "phone_key" },
-  );
+  const base = {
+    phone_key: phoneKey,
+    current_workspace_id: route.workspaceId,
+    active_role: route.role,
+    pending_candidates: null,
+    pending_asked_at: null,
+    last_inbound_at: now,
+    updated_at: now,
+  };
+  const lock = route.lockedPropertyId === undefined ? {} : { locked_property_id: route.lockedPropertyId, locked_at: route.lockedPropertyId ? now : null };
+  let { error } = await db.from("sms_line_sessions").upsert({ ...base, ...lock }, { onConflict: "phone_key" });
+  // Before the home-lock migration the lock columns are not there: the route is still saved, the lock is not.
+  if (error && isMissingSchemaError(error) && Object.keys(lock).length > 0) {
+    ({ error } = await db.from("sms_line_sessions").upsert(base, { onConflict: "phone_key" }));
+  }
   if (error && !isMissingSchemaError(error)) console.error("shared line session save failed", error.code ?? "unknown");
+  return !error;
+}
+
+/** Drop the pending question without moving the route or the lock (a "no" to the switch question). */
+export async function clearSharedLinePending(db: SupabaseClient, phoneKey: string): Promise<boolean> {
+  const now = new Date().toISOString();
+  const { error } = await db.from("sms_line_sessions").update({ pending_candidates: null, pending_asked_at: null, updated_at: now }).eq("phone_key", phoneKey);
   return !error;
 }
 

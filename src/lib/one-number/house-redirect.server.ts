@@ -3,7 +3,6 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MockProperty } from "@/data/types";
 import type { SharedLineConfig } from "@/lib/one-number/contracts";
-import { workspaceHasDedicatedNumber } from "@/lib/one-number/config.server";
 import { homeLabelWithCity, matchListingsNamedIn } from "@/lib/one-number/house-redirect";
 import { sharedLineCatalogListings } from "@/lib/one-number/line-catalog.server";
 import { paidWorkNumberFor } from "@/lib/one-number/self-serve-line.server";
@@ -27,11 +26,11 @@ import { getServicePublicListings, loadServiceWorkspaceIds } from "@/lib/service
  *
  * SHARED mode (`deps.shared`): the 206 is every free or trial manager's work number, so a self-serve home with no personal
  * number is SERVED by the line (it is in the line catalog, `line-catalog.server.ts`) and gets no redirect and no "I can only
- * help with homes PropLane manages" reply. Only a home whose workspace holds a personal number (`dedicatedWorkspaceIds`)
- * is redirected: "For 12 Elm St, Louisville, text (502) 555-0142." When that number cannot be named, or several such homes
- * are named at once, nothing is said here and the lead flow answers (it never names a home it cannot send to). A PropLane-managed home (matched in the service catalog first), no match, or any
- * unreadable read returns null and the existing flow answers exactly as before (that flow's catalog is the managed homes
- * only, so it has nothing to say about a self-serve home either).
+ * help with homes PropLane manages" reply. A home whose workspace holds a personal number is NOT redirected here any more:
+ * a mention alone says nothing. The lead flow gives that manager's number (with their first name) only when the prospect
+ * expresses interest - a pick, a yes to the switch question, or a text that names the home - and writes only that interest
+ * and the reply into their Communication (`paidInterestTurn`). Shared mode therefore always returns null here. A
+ * PropLane-managed home, no match, or any unreadable read returns null and the existing flow answers exactly as before.
  */
 
 const allCache = createTtlCache<MockProperty[]>(60_000);
@@ -78,12 +77,10 @@ export async function resolveHouseRedirect(db: SupabaseClient, text: string, dep
       depsIn.paidNumberOf ??
       (async (l: MockProperty) => (l.managerUserId ? paidWorkNumberFor(db, { ownerUserId: l.managerUserId, workspaceId: l.workspaceId ?? null }) : null));
     if (depsIn.shared?.mode === "shared") {
-      // Served homes were handled above. What is left of interest is a home whose manager has a personal number.
-      const dedicated = all.filter((p) => workspaceHasDedicatedNumber(depsIn.shared!, p.workspaceId));
-      const named = matchListingsNamedIn(text, dedicated);
-      if (named.kind !== "one") return null;
-      const own = await paidNumberOf(named.listing).catch(() => null);
-      return own ? buildPaidHomeReply({ listing: named.listing, number: own }) : null;
+      // A home whose manager has a personal number is no longer answered on a MERE MENTION. The lead flow
+      // (`unassigned-leads.server.ts`) locks the texter to the home they pick or name and gives the manager's number only on
+      // expressed interest (a pick, a yes to the switch question, a text naming the home); see `paidInterestTurn`.
+      return null;
     }
     const serviceIds = new Set(await (depsIn.serviceWorkspaceIds ?? (() => loadServiceWorkspaceIds(db)))());
     const candidates = all.filter((p) => !(p.workspaceId && serviceIds.has(p.workspaceId)));

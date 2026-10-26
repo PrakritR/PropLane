@@ -750,6 +750,13 @@ export const listLiveListingsTool = defineTool({
 
     let ranked = all.filter((home) => (nameFilterApplies ? home.rank > 0 : true));
     if (nameFilterApplies) ranked.sort((a, b) => b.rank - a.rank);
+    // A phone locked to one home: that home leads whenever it ties for first (a plain browse, or an equally good name match).
+    const lockedId = ctx.leasingScope?.lockedHome?.propertyId ?? null;
+    if (lockedId && !areaText) {
+      const topRank = ranked[0]?.rank ?? 0;
+      const at = ranked.findIndex((home) => home.listing.propertyId === lockedId && home.rank === topRank);
+      if (at > 0) ranked.unshift(...ranked.splice(at, 1));
+    }
     let areaSummary: Record<string, unknown> | undefined;
     if (place) {
       for (const home of ranked) home.area = matchHomeToPlace(areaFactsOf(home.rec), place);
@@ -786,6 +793,7 @@ export const listLiveListingsTool = defineTool({
     return {
       count: listings.length,
       listings,
+      ...(lockedId ? { lockedPropertyId: lockedId } : {}),
       // The browse-all page, from the tool, so "see everything" needs no second lookup.
       browseUrl: `${origin}/rent/browse`,
       ...(areaSummary ? { area: areaSummary } : {}),

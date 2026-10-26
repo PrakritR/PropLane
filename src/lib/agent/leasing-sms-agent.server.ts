@@ -21,6 +21,7 @@ import { leasingSmsSystemPromptForWorkNumberOwner } from "@/lib/agent/leasing-sm
 import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { traceAgentTurn, traceProspectShadowComparison, type TraceActor } from "@/lib/observability/langfuse";
 import { buildLeasingSmsAgentContext } from "@/lib/tools/context";
+import { loadLockedHomeContext, lockedHomePromptNote } from "@/lib/one-number/locked-home-context.server";
 import { LEASING_SMS_STAY_PROMPT } from "@/lib/agent/leasing-sms-stay-prompt";
 import { leasingSmsAgentRegistry, leasingSmsAutonomousTourRegistry, LEASING_SMS_AUTONOMOUS_TOUR_WRITE_TOOLS, LEASING_SMS_INLINE_WRITE_TOOLS, LEASING_SMS_STAY_WRITE_TOOLS, withLeasingSmsStayTools } from "@/lib/tools";
 import { leasingSendMyLinkTool, withSharedLineTools } from "@/lib/tools/domains/one-number-links";
@@ -473,6 +474,10 @@ export async function runLeasingSmsAgentTurn(
   const serviceLine = !args.testActor && args.crossCatalog !== true && channel === "sms"
     ? await isPropLaneServiceLine(db, { ownerUserId: session.landlord_id, workNumber: args.workNumber })
     : false;
+  // A phone locked to one home on the PropLane line: the agent is told which, from the session row, never from the text.
+  const lockedHome = !args.testActor && channel === "sms"
+    ? await loadLockedHomeContext(db, { prospectPhone, landlordId: session.landlord_id, workspaceId: args.workspaceId })
+    : null;
   const recentDeliveredReplies = args.testActor ? [] : await loadRecentDeliveredReplies(db, {
     landlordId: session.landlord_id,
     phone: prospectPhone,
@@ -492,6 +497,7 @@ export async function runLeasingSmsAgentTurn(
       workNumber: args.workNumber?.trim() || null,
       crossCatalog: args.crossCatalog === true,
       ...(serviceLine ? { serviceCatalog: true } : {}),
+      ...(lockedHome ? { lockedHome } : {}),
       channel,
       currentInboundText: text,
       recentDeliveredReplies,
@@ -562,6 +568,7 @@ export async function runLeasingSmsAgentTurn(
     if (serviceLine) {
       system += `\n\nYou are answering on the PropLane line. The only homes you know are the ones list_live_listings returns: homes PropLane manages. Never name or suggest a home a tool did not return. For any place the prospect names (a campus, a landmark, a neighborhood, a zip, "near downtown"), call list_live_listings ONCE with area set to their words, then answer from that one result: list up to three homes with name, rent and the distance the tool gave, and put each home's own listingUrl from the tool next to it. Use the tool's browseUrl for "see everything". If the tool says no home is in the area, say so and give the closest ones it returned. If the lookup fails, say a teammate will follow up. When they pick a home, call build_prospect_links and send the tour or apply link.`;
     }
+    if (lockedHome) system += `\n\n${lockedHomePromptNote(lockedHome)}`;
     if (channel === "sms" && !args.testActor) system += `\n\n${LEASING_SMS_STAY_PROMPT}`;
     shadowSystem = system;
     turnPromptMeta = resolvePromptMeta(PROMPT_IDS.leasingSmsAgent, system);

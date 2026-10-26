@@ -161,3 +161,13 @@ describe("the PropLane-line redirect", () => {
     expect(reply.length).toBeLessThanOrEqual(160);
   });
 });
+
+describe("shared mode: a mention alone gives no number", () => {
+  it("a home whose manager has a personal number is not redirected on a mere mention, and its number is never read", async () => {
+    const paidNumberOf = vi.fn(async () => "+15025550142");
+    const shared = { mode: "shared" as const, sharedNumber: "+12066781909", messagingServiceSid: null, pilotWorkspaceIds: [], dedicatedWorkspaceIds: ["ws-oak"] };
+    const reply = await resolveHouseRedirect(DB, "is 77 Oakwood Dr open?", { ...base, serviceListings: async () => [BROOKLYN], allListings: async () => [BROOKLYN, home("oak", "77 Oakwood Dr, Seattle, WA 98115", { workspaceId: "ws-oak" })], paidNumberOf, shared });
+    expect(reply).toBeNull();
+    expect(paidNumberOf).not.toHaveBeenCalled();
+  });
+});

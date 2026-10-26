@@ -159,6 +159,13 @@ export type SharedLineSession = {
   pausedAt: string | null;
   /** Set while we are waiting on "Is this about 5259 Brooklyn or your job at 8th Ave?" */
   pendingCandidates: SharedLineCandidate[] | null;
+  /**
+   * The one home this phone is locked to (`manager_property_records.id`), set when a stranger picks an offered home or
+   * names exactly one. A text about a different home is never acted on until a yes to "Are you asking about X?".
+   * Null = not locked (or the lock column is not there yet).
+   */
+  lockedPropertyId?: string | null;
+  lockedAt?: string | null;
   updatedAt: string;
 };
 
