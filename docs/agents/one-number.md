@@ -1256,7 +1256,7 @@ the lock). Set by a pick of an offered home, by a text naming one home, or by a 
 so only the owner and the co-hosts who hold it see it, the session points there) or `paidInterestTurn` (paid). `assignLeadToHouse` NO LONGER replays
 the browsing transcript for a prospect pick (it held the other managers' homes): the manager's conversation opens with one "Looking for: private room
 near UW - under $1200 - Dec 1 - 6 mo" line (`lookingForLine`), then only texts about their own home (the text itself continues through the normal
-pipeline). A PropLane staff placement (`by: "admin"`) still hands over the whole conversation. Pre-lock browsing stays in Admin > Unassigned, read-only,
+pipeline). Only a PropLane staff placement into a PropLane-owned (`is_service`) workspace still hands over the whole conversation; a placement into a free or paid manager's workspace gets the same "Looking for" line. Pre-lock browsing stays in Admin > Unassigned, read-only,
 and leaves it when the lead is assigned.
 
 **Paid homes.** A paid manager's home is offered but never described by the line. On interest (a pick, a text naming it, a yes to the switch question)
@@ -1277,3 +1277,9 @@ lets the question lapse and is read fresh. Everything else routes to the locked 
 Tests: `tests/unit/line-206-home-lock.test.ts` replays the plan's A5 conversation through the router over an in-memory database and asserts, after every
 text, which workspaces got new message rows; plus `one-number-{lead-match,unassigned-leads,unknown-sender,session,house-redirect}` and
 `propline-shared-mode`.
+
+**The leasing agent knows the locked home.** `runLeasingSmsAgentTurn` reads `sms_line_sessions.locked_property_id` for the texting phone
+(`locked-home-context.server.ts`, never from the text), re-checks the home is live and belongs to the routed manager and workspace, and puts
+`lockedHome` in `LeasingSmsAgentScope`, a sentence in the system prompt (`lockedHomePromptNote`) and a head-of-list preference in `list_live_listings`
+(`lockedPropertyId` in its result). A switch moves the lock, so the next turn carries the new home; a lock that points at someone else's home is no
+lock. Tests: `tests/unit/line-206-leasing-locked-home.test.ts`.

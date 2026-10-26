@@ -103,6 +103,11 @@ export type LeasingSmsAgentScope = {
    * the rest of the public catalog.
    */
   serviceCatalog?: boolean;
+  /**
+   * The one home this phone is locked to on the PropLane line (server-derived from `sms_line_sessions`, never from the text).
+   * The listing tools put it first and the system prompt names it, so "is parking included?" is about this home.
+   */
+  lockedHome?: { propertyId: string; label: string } | null;
   /** Confirmed submitted/delivered replies eligible for semantic repeat suppression. */
   recentDeliveredReplies?: readonly {
     messageId: string;
