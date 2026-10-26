@@ -943,7 +943,7 @@ async function main() {
   for (const s of squatters ?? []) await must(supabase.from("profiles").update({ manager_id: null }).eq("id", s.id), "release manager_id");
   await must(
     supabase.from("profiles").upsert(
-      { id: userId, email: MANAGER_EMAIL, role: "manager", manager_id: managerId, full_name: MANAGER_NAME, phone: MANAGER_PHONE, sms_from_number: WORK_NUMBER, updated_at: NOW.toISOString() },
+      { id: userId, email: MANAGER_EMAIL, role: "manager", manager_id: managerId, full_name: MANAGER_NAME, phone: MANAGER_PHONE, sms_from_number: WORK_NUMBER, phone_verified_at: NOW.toISOString(), updated_at: NOW.toISOString() },
       { onConflict: "id" },
     ),
     "profiles",
