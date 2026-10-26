@@ -44,11 +44,15 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   A tile = the admin `open` action (sets the cookie), `set-active-portal manager` with `keepWorkspace`, then
   `/portal/dashboard`. A helper (not an admin) sees only their workspaces, no logo, no `+`, and opens through the
   ordinary workspace switch.
+- **Account menu** (the rail's bottom-left avatar, `PortalAccountMenu`): Settings is its FIRST item on every portal and
+  the admin sidebar has no Settings row (`/admin/profile`, `/portal/profile` stay routable). In service mode
+  (`service.activeId` set) the menu is ONLY Settings, Help & feedback, Sign out - no Switch to Admin / Resident /
+  Property portal rows (the phone's profile menu drops its role switcher the same way). A client owner viewing their
+  own workspace view-only is not in service mode and keeps the ordinary Property-portal menu.
 - **Phone** (the rail is hidden below `lg`): `PortalMobileNavBar` takes a `service` prop and shows `ServiceWorkspaceMenu`
-  in its left slot - current name + chevron, rows PropLane (admins), each workspace (city as a plain fact),
-  **Switch to Property portal** while a service workspace is open (`propertyPortalWorkspaceId`; the phone's only way
-  out of service mode, since the rail that holds it in its account menu is desktop-only), New workspace
-  (admins). It shares the rail's open/create/switch logic (`useServiceWorkspaceOpen`); the server authorizes every
+  in its left slot - current name + chevron, rows PropLane (admins), each workspace (city as a plain fact), New
+  workspace (admins). There is no Property portal row: service mode is still the admin portal and PropLane is the way
+  back to the admin home. It shares the rail's open/create/switch logic (`useServiceWorkspaceOpen`); the server authorizes every
   open. The menu takes the slot that held the section title, so the label stays as an `sr-only` `h1` beside it.
 - **Who is staff** (`loadServiceStaffWorkspaces`, decided per seat by `serviceSeatVerdict`): the platform service owner
   for the workspaces they own, or an accepted team seat at an OPERATOR role (Admin / Full), granted by the workspace's

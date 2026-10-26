@@ -9,7 +9,6 @@ import { PortalHelpPanel } from "@/components/portal/portal-help-panel";
 import { WorkspaceCreateJoinDialog } from "@/components/portal/workspace-create-join-dialog";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { usePortalSession } from "@/hooks/use-portal-session";
-import { switchToPropertyPortal } from "@/lib/service/open-service-workspace";
 import { openServiceWorkspace } from "@/lib/service/open-service-workspace";
 import type { ServiceRailWorkspace, ServiceShellData } from "@/lib/service/service-mode";
 import { ServiceRailTiles } from "@/components/portal/service-rail-tiles";
@@ -194,16 +193,7 @@ export function PortalWorkspaceRail({
                 }
               : undefined
           }
-          propertyPortal={
-            service?.propertyPortalWorkspaceId
-              ? {
-                  onSwitch: () =>
-                    void switchToPropertyPortal(service.propertyPortalWorkspaceId!).then((error) => {
-                      if (error) showToast(error);
-                    }),
-                }
-              : undefined
-          }
+          serviceMode={Boolean(service?.activeId)}
         />
       </nav>
 

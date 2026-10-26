@@ -115,6 +115,45 @@ describe("PortalAccountMenu", () => {
     expect(screen.getByText("Help & feedback")).toBeInTheDocument();
   });
 
+  function menuLabels() {
+    return Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] button')).map((el) => el.textContent?.trim());
+  }
+
+  it("admin root: Settings is the FIRST item, then the switch rows, Help & feedback and Sign out", async () => {
+    setWorkspaces([workspace("w1", "My workspace")]);
+    render(<PortalAccountMenu kind="admin" basePath="/admin" name="Pat Admin" email="pat@example.com" onOpenHelp={onOpenHelp} />);
+    openMenu();
+    await screen.findByText("Settings");
+    const labels = menuLabels();
+    expect(labels[0]).toBe("Settings");
+    expect(document.querySelector('[data-attr="portal-role-switcher-stub"]')).not.toBeNull();
+    expect(labels.slice(-2)).toEqual(["Help & feedback", "Sign out"]);
+    fireEvent.click(screen.getByText("Settings"));
+    expect(pushMock).toHaveBeenCalledWith("/admin/profile");
+  });
+
+  it("service mode shows exactly Settings, Help & feedback and Sign out", async () => {
+    setWorkspaces([workspace("w1", "My workspace")]);
+    render(
+      <PortalAccountMenu
+        kind="pro"
+        basePath="/portal"
+        name="Pat Admin"
+        email="pat@example.com"
+        onOpenHelp={onOpenHelp}
+        serviceMode
+        serviceEntries={{ workspaces: [{ id: "ws1", name: "Ambika" }], onOpen: vi.fn() }}
+      />,
+    );
+    openMenu();
+    await screen.findByText("Settings");
+    expect(menuLabels()).toEqual(["Settings", "Help & feedback", "Sign out"]);
+    expect(document.querySelector('[data-attr="portal-role-switcher-stub"]')).toBeNull();
+    expect(screen.queryByText("Open Ambika")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Settings"));
+    expect(pushMock).toHaveBeenCalledWith("/portal/profile");
+  });
+
   it("Help & feedback opens the help panel", async () => {
     setWorkspaces([workspace("w1", "My workspace")]);
     render(<PortalAccountMenu kind="manager" basePath="/portal" name="Alex Rivera" email="alex@example.com" onOpenHelp={onOpenHelp} />);

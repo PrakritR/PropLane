@@ -199,7 +199,10 @@ export function PortalMobileNavBar({
               Settings
             </DropdownMenuItem>
 
-            <PortalRoleSwitcher currentKind={definition.kind} onSwitched={() => setProfileMenuOpen(false)} />
+            {/* Service mode is still the admin portal: no switch-portal rows, the way back is the PropLane tile. */}
+            {service?.activeId ? null : (
+              <PortalRoleSwitcher currentKind={definition.kind} onSwitched={() => setProfileMenuOpen(false)} />
+            )}
 
             <DropdownMenuSeparator />
 

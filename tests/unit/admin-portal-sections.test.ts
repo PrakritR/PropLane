@@ -1,5 +1,5 @@
 /**
- * The admin sidebar: eight rows (Settings, Dashboard, Communication, Accounts, Money, Service, Support, Growth;
+ * The admin sidebar: seven rows (Dashboard, Communication, Accounts, Money, Service, Support, Growth;
  * the grouped ones show their sections as a tab strip), and the Health
  * section wired through the registry, the nav groups, the renderer and the route tree.
  *
@@ -54,9 +54,8 @@ describe("admin nav groups", () => {
     expect(ADMIN_PORTAL_SMOKE_PATHS.map((p) => p.path)).not.toContain("/admin/subscribers");
   });
 
-  it("is one headed half (Software) after Settings and Dashboard/Communication and before Support/Growth, listing every section in row order so an unfolded caller buckets too", () => {
+  it("is one headed half (Software) after Dashboard/Communication and before Support/Growth, listing every section in row order so an unfolded caller buckets too", () => {
     expect(groups.map((g) => [g.id, g.label] as const)).toEqual([
-      ["settings", null],
       ["home", null],
       ["software", "Software"],
       ["platform", null],
@@ -72,8 +71,8 @@ describe("admin nav groups", () => {
       "unassigned-leads",
     ]);
     // `test-accounts` is the operator-only inner Test tab of Accounts: routed, not a sidebar row.
+    // Settings (`profile`) is the first item of the account menu, not a sidebar row (captain, Oct 25).
     expect(rows).toEqual([
-      "profile",
       "dashboard",
       "communication",
       "axis-users",
@@ -126,13 +125,11 @@ describe("admin nav groups", () => {
     );
     const grouped = groupNavItems("admin", items);
     expect(grouped.map((g) => [g.id, g.label] as const)).toEqual([
-      ["settings", null],
       ["home", null],
       ["software", "Software"],
       ["platform", null],
     ]);
     expect(grouped.map((g) => g.items.map((i) => i.label))).toEqual([
-      ["Settings"],
       ["Dashboard", "Communication"],
       ["Accounts", "Money", "Service"],
       ["Support", "Growth"],
@@ -147,8 +144,17 @@ describe("admin nav groups", () => {
     expect(flat.map((i) => i.label)).toContain("Promo codes");
     expect(flat.map((i) => i.label)).toContain("Health");
     expect(flat.map((i) => i.label)).toContain("PropLane line");
-    // Test accounts is the one routed section with no row.
-    expect(flat).toHaveLength(registry.length - 1);
+    // Test accounts and Settings are the routed sections with no row.
+    expect(flat).toHaveLength(registry.length - 2);
+  });
+
+  it("has no Settings row in the sidebar, though the section stays registered and routable", () => {
+    const items = collapseAdminNavItems(adminPortal.sections.map((s) => ({ section: s.section, label: s.label })));
+    const sidebar = groupNavItems("admin", items).flatMap((g) => g.items);
+    expect(sidebar.map((i) => i.section)).not.toContain("profile");
+    expect(sidebar.map((i) => i.label)).not.toContain("Settings");
+    expect(registry).toContain("profile");
+    expect(routeResolves("/admin/profile")).toBe(true);
   });
 });
 

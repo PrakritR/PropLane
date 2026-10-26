@@ -228,15 +228,14 @@ const adminRowSections = (...ids: (typeof ADMIN_NAV_ROW_ORDER)[number][]) =>
  * One headed half, "Software": Accounts, Money and Service (PropLane's own managed portfolio: the service
  * workspaces per city, the PropLane line, the unassigned leads). The "Property management" heading and the
  * all-owners Properties list were removed (captain, Oct 25).
- * Admin Settings is the very first row, then Dashboard and Communication, then Software, with Support and Growth below. Members of a folded group are listed
+ * Dashboard and Communication come first, then Software, with Support and Growth below. Members of a folded group are listed
  * inline after their row key so this config buckets BOTH shapes: the sidebar's folded rows
  * (`collapseAdminNavItems`, keyed on the group's first section) and the unfolded sections the command palette
- * jumps to. Settings (`profile`) is also still in the account menu, unchanged.
+ * jumps to. Settings (`profile`) is the first item of the account menu, never a sidebar row.
  */
 const ADMIN_GROUPS: NavGroupConfig[] = [
-  // Admin Settings (`profile`) is the FIRST sidebar row (captain, Oct 18) and the `/admin` landing. Assigning it to a
-  // group is what puts it in the sidebar at all: `SIDEBAR_EXCLUDED_SECTIONS` only applies to unassigned sections.
-  { id: "settings", label: null, sections: ["profile"] },
+  // Admin Settings (`profile`) has no sidebar row (captain, Oct 25): it is the first item of the bottom-left account
+  // menu, and `SIDEBAR_EXCLUDED_SECTIONS` keeps an unassigned `profile` out of the sidebar.
   { id: "home", label: null, sections: adminRowSections("dashboard", "communication") },
   { id: "software", label: "Software", sections: adminRowSections("axis-users", "money", "service") },
   { id: "platform", label: null, sections: adminRowSections("support", "growth") },

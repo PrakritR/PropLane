@@ -2,7 +2,7 @@
 /**
  * The phone's workspace menu for the admin portal and service mode (the desktop rail is hidden below lg): an admin
  * gets PropLane, every service workspace and New workspace; a helper gets only their workspaces. In service mode it
- * is also the phone's only way back to the viewer's own Property portal.
+ * has no Property portal row (service mode is still the admin portal).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
@@ -77,19 +77,20 @@ describe("ServiceWorkspaceMenu", () => {
     expect(await screen.findByRole("dialog")).toBeTruthy();
   });
 
-  it("a helper in service mode gets the way back to their own Property portal", async () => {
+  it("service mode is still the admin portal: no Property portal row, even for a staff member who owns a workspace", async () => {
     render(<ServiceWorkspaceMenu service={shell({ isAdmin: false, activeId: "ws-ambika", propertyPortalWorkspaceId: "ws-own" })} />);
     await userEvent.click(screen.getByRole("button", { name: /Switch workspace/ }));
     await screen.findByRole("menu");
-    await userEvent.click(row("Switch to Property portal")!);
-    expect(switchToPropertyPortal).toHaveBeenCalledWith("ws-own");
+    expect(row("Switch to Property portal")).toBeNull();
+    expect(switchToPropertyPortal).not.toHaveBeenCalled();
   });
 
-  it("no own workspace, no Property portal row", async () => {
-    render(<ServiceWorkspaceMenu service={shell({ activeId: "ws-ambika" })} />);
+  it("an admin in service mode keeps the PropLane row, which goes to the admin home", async () => {
+    render(<ServiceWorkspaceMenu service={shell({ activeId: "ws-ambika", propertyPortalWorkspaceId: "ws-own" })} />);
     await userEvent.click(screen.getByRole("button", { name: /Switch workspace/ }));
     await screen.findByRole("menu");
     expect(row("Switch to Property portal")).toBeNull();
+    expect(row("PropLane")!.closest("a")!.getAttribute("href")).toBe("/admin/dashboard");
   });
 
   it("leaves PropLane and New workspace out for a helper", async () => {
