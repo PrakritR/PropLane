@@ -18,7 +18,8 @@ import {
   findWorkspaceProspectCandidate,
 } from "@/lib/one-number/router-lookups.server";
 import { saveSharedLinePending, saveSharedLineRoute } from "@/lib/one-number/session.server";
-import { handleUnknownSenderInbound } from "@/lib/one-number/onboarding/unknown-sender.server";
+import { handleLockedProspectText, type LockedDeps } from "@/lib/one-number/locked-prospect.server";
+import { handleUnknownSenderInbound, type UnknownSenderDeps } from "@/lib/one-number/onboarding/unknown-sender.server";
 import { parseVendorDispatchReply } from "@/lib/vendor-dispatch/reply-parse";
 
 export {
@@ -254,6 +255,10 @@ export type SharedLineRouteOptions = {
    * PropLane catalog. For a resident asking for a new house; the caller decided that from the text, never the model.
    */
   asProspect?: boolean;
+  /** Test seams for a phone locked to a home (`locked-prospect.server.ts`): the catalog, the paid number, the clock. */
+  locked?: Omit<LockedDeps, "dedicatedWorkspaceIds" | "dryRun">;
+  /** Test seam for a stranger's turn (the lead catalog, the clock). */
+  unknownSender?: UnknownSenderDeps;
 };
 
 export type SharedLineRouteResult = {
@@ -315,6 +320,28 @@ export async function routeSharedLineInboundWithReply(
   }
 
   const dedicated = new Set(options.dedicatedWorkspaceIds ?? []);
+
+  // A phone locked to one home (a pick, or a text that named one) stays with that home's manager. A text about another home
+  // is asked about first and moves nothing until a yes. Only a phone with no stronger tie (a resident, teammate, vendor or
+  // applicant outranks a prospect) and not searching as a stranger again.
+  if (session?.lockedPropertyId && !options.asProspect && all.every((c) => c.reason === "returning_prospect")) {
+    const locked = await handleLockedProspectText(db, inbound, session, {
+      ...options.locked,
+      dedicatedWorkspaceIds: options.dedicatedWorkspaceIds,
+      dryRun: options.dryRun,
+    }).catch((error) => {
+      console.error("locked prospect turn failed", error instanceof Error ? error.name : "unknown");
+      return null;
+    });
+    if (locked?.kind === "route") {
+      if (!options.dryRun) await saveSharedLineRoute(db, inbound.phoneKey, { workspaceId: locked.candidate.workspaceId, role: locked.candidate.role });
+      return { decision: { kind: "routed", ...locked.candidate }, unassignedReply: null };
+    }
+    if (locked?.kind === "reply") {
+      return { decision: { kind: "unassigned", role: "prospect", leadId: locked.leadId }, unassignedReply: locked.reply };
+    }
+  }
+
   if (dedicated.size > 0 && all.length > 0) {
     const served = all.filter((c) => !dedicated.has(c.workspaceId));
     if (served.length === 0) {
@@ -343,7 +370,7 @@ export async function routeSharedLineInboundWithReply(
 
   // Step 7: nobody knows this number. Shadow mode only reports it.
   if (options.dryRun) return { decision: { kind: "unassigned", role: "prospect", leadId: null }, unassignedReply: null };
-  const turn = await handleUnknownSenderInbound(db, inbound);
+  const turn = await handleUnknownSenderInbound(db, inbound, options.unknownSender);
   if (turn.assignedWorkspaceId) {
     const assigned = await findWorkspaceProspectCandidate(db, turn.assignedWorkspaceId);
     if (assigned && dedicated.has(assigned.workspaceId)) {

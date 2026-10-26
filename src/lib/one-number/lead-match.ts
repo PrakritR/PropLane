@@ -7,6 +7,7 @@ import {
 } from "@/lib/room-listings-catalog";
 import { compareAreaMatches, matchHomeToPlace, resolveSeattlePlace, type AreaMatch } from "@/lib/places/seattle-places";
 import { toGsm7, type LeadOffer, type LeadProfile } from "@/lib/one-number/lead-qualifying";
+import { lineTierOf, type LineListing, type LineTier } from "@/lib/one-number/line-tier";
 
 /**
  * Matching and offers for the Unassigned-leads agent. The listings passed in are what
@@ -18,6 +19,8 @@ import { toGsm7, type LeadOffer, type LeadProfile } from "@/lib/one-number/lead-
  */
 
 export const MAX_OFFERS = 3;
+/** A stranger is offered 3 homes, or 4 when exactly 4 fit; more than that and the qualifier keeps asking. */
+export const MAX_STRANGER_OFFERS = 4;
 
 const STOP_WORDS = new Set(["in", "near", "the", "area", "of", "around", "by", "at", "a", "an", "to", "close", "my", "work", "school", "campus", "downtown"]);
 
@@ -77,13 +80,8 @@ function furnishingText(row: RoomListingRow, byId: Map<string, MockProperty>): s
   return `${room?.furnishing ?? ""} ${row.descriptionBlurb} ${row.listingTags.join(" ")}`.toLowerCase();
 }
 
-/** Rooms that fit, cheapest first, furnished preference ranking only. At most one room per house. */
-export function matchRooms(
-  listings: readonly MockProperty[],
-  profile: LeadProfile,
-  today: string,
-  limit: number = MAX_OFFERS,
-): RoomListingRow[] {
+/** Every room that fits, furnished preference then cheapest first (one row per room, several per house). */
+function fitRooms(listings: readonly MockProperty[], profile: LeadProfile, today: string): RoomListingRow[] {
   const skipped = new Set(profile.skipped ?? []);
   const inArea = skipped.has("area") ? [...listings] : listingsInArea(listings, profile.area);
   if (inArea.length === 0) return [];
@@ -124,16 +122,77 @@ export function matchRooms(
     if (prefersBare) return unfurnished || !furnished ? 0 : 1;
     return 0;
   };
-  const sorted = [...fits].sort((a, b) => rank(a) - rank(b) || (a.rentNumeric ?? 0) - (b.rentNumeric ?? 0));
+  return [...fits].sort((a, b) => rank(a) - rank(b) || (a.rentNumeric ?? 0) - (b.rentNumeric ?? 0));
+}
+
+/** Rooms that fit, cheapest first, furnished preference ranking only. At most one room per house. */
+export function matchRooms(
+  listings: readonly MockProperty[],
+  profile: LeadProfile,
+  today: string,
+  limit: number = MAX_OFFERS,
+): RoomListingRow[] {
   const seen = new Set<string>();
   const out: RoomListingRow[] = [];
-  for (const row of sorted) {
+  for (const row of fitRooms(listings, profile, today)) {
     if (seen.has(row.propertyId)) continue;
     seen.add(row.propertyId);
     out.push(row);
     if (out.length >= limit) break;
   }
   return out;
+}
+
+/** How many rooms fit the profile right now. The qualifier keeps asking while this is more than `MAX_STRANGER_OFFERS`. */
+export function countFittingRooms(listings: readonly MockProperty[], profile: LeadProfile, today: string): number {
+  return fitRooms(listings, profile, today).length;
+}
+
+/** The person behind a home: its manager, else its workspace, else the home itself (so an unlabeled home never groups with another). */
+const managerOf = (listing: LineListing | undefined, row: RoomListingRow): string =>
+  String(listing?.managerUserId ?? "").trim() || String(listing?.workspaceId ?? "").trim() || row.propertyId;
+
+/**
+ * The homes a STRANGER is offered. One PropLane-managed, one free-manager and one paid-manager home when each kind has a
+ * fit (the cheapest of each); otherwise the best fits (cheapest first) fill the rest. Never two homes from the same
+ * manager, one room per home, and 3 offers, or 4 when exactly 4 homes from 4 managers fit. An untagged listing counts as
+ * managed. The offers carry no phone number (`buildOfferBubbles` renders a street line, a price, a date and a link).
+ */
+export function matchOffers(
+  listings: readonly LineListing[],
+  profile: LeadProfile,
+  today: string,
+): Array<{ row: RoomListingRow; tier: LineTier }> {
+  const byId = new Map(listings.map((p) => [p.id, p] as const));
+  // The cheapest room of each home, in best-fit order.
+  const seenHome = new Set<string>();
+  const homes: Array<{ row: RoomListingRow; tier: LineTier; manager: string }> = [];
+  for (const row of fitRooms(listings, profile, today)) {
+    if (seenHome.has(row.propertyId)) continue;
+    seenHome.add(row.propertyId);
+    const listing = byId.get(row.propertyId);
+    homes.push({ row, tier: listing ? lineTierOf(listing) : "managed", manager: managerOf(listing, row) });
+  }
+  const managers = new Set(homes.map((h) => h.manager));
+  const target = managers.size <= MAX_STRANGER_OFFERS ? managers.size : MAX_OFFERS;
+  const picked: typeof homes = [];
+  const usedManagers = new Set<string>();
+  const take = (home: (typeof homes)[number]) => {
+    picked.push(home);
+    usedManagers.add(home.manager);
+  };
+  for (const tier of ["managed", "free", "paid"] as const) {
+    if (picked.length >= target) break;
+    const home = homes.find((h) => h.tier === tier && !usedManagers.has(h.manager));
+    if (home) take(home);
+  }
+  for (const home of homes) {
+    if (picked.length >= target) break;
+    if (!picked.includes(home) && !usedManagers.has(home.manager)) take(home);
+  }
+  // Keep the cheapest first in the text the prospect reads.
+  picked.sort((a, b) => (a.row.rentNumeric ?? 0) - (b.row.rentNumeric ?? 0));
+  return picked.map(({ row, tier }) => ({ row, tier }));
 }
 
 /** "available now" / "available Nov 1", from the room's own availability text (never the count-style card label). */
@@ -143,8 +202,10 @@ function availabilityPhrase(raw: string): string {
   return /^available/i.test(t) ? `a${t.slice(1)}` : `available ${t}`;
 }
 
-export function offerFromRow(row: RoomListingRow, n: number): LeadOffer {
+export function offerFromRow(row: RoomListingRow, n: number, tier?: LineTier): LeadOffer {
   return {
+    ...(tier ? { tier } : {}),
+    ...(row.roomName?.trim() ? { roomName: row.roomName.trim() } : {}),
     n,
     propertyId: row.propertyId,
     roomId: row.roomId,
@@ -218,7 +279,7 @@ export type OfferPick =
   | { kind: "decline" }
   | { kind: "none" };
 
-const ORDINALS: Record<string, number> = { first: 1, "1st": 1, second: 2, "2nd": 2, third: 3, "3rd": 3 };
+const ORDINALS: Record<string, number> = { first: 1, "1st": 1, second: 2, "2nd": 2, third: 3, "3rd": 3, fourth: 4, "4th": 4 };
 const TOUR_INTENT = /\b(tour|tours|visit|see (?:it|the|that|this)|view(?:ing)?|come (?:by|see)|schedule|book|apply|application|interested|take it|i'?ll take|sounds good|that one|this one)\b/i;
 const DECLINE = /^(?:none|neither|nothing|no thanks?|no thank you|nope|not interested|pass|something else|different|other|more options|any others?|others?)\b|^no[.!]?$/i;
 const FILLER = new Set(["the", "a", "an", "at", "on", "in", "of", "and", "or", "one", "it", "that", "this", "please", "i", "ll", "like", "to", "tour", "see", "visit", "want", "ave", "st", "street", "avenue", "rd", "road", "way", "house", "room", "place"]);

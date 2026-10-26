@@ -137,6 +137,7 @@ branch, and `db:push` applies it only once merged):
 | 20261025100000 | `manager_invite_link_invitee_email` | one additive nullable column, `manager_invite_links.invitee_email` (lowercase, with a lower-case check): a PropLane Service invite link is bound to the email it was sent to and redeems only for the confirmed account with that address; NULL on every ordinary link, which stays a bearer link |
 | 20261025110000 | `sms_onboarding_asked_line` | one additive nullable column, `sms_onboarding_state.asked_line` (`shared` or the E.164 work number that asked): the role question is asked once PER LINE, so one line asking never suppresses another; NULL rows keep their old behaviour |
 | 20261025120000 | `manager_invite_link_vendor_directory` | additive nullable `manager_invite_links.vendor_directory_id`: an Add-vendor invite link carries the manager's own vendor directory row, and redemption claims THAT row instead of inserting a second one (null = a generic link, which still creates a row) |
+| 20261026120000 | `sms_line_session_home_lock` | two additive nullable columns on `sms_line_sessions`: `locked_property_id` (text) and `locked_at` (timestamptz). The line locks a texter to ONE home on a pick or a text naming one home; a switch asks "Are you asking about X?" first. Code before the migration reads and writes the session without the lock; no grant or RLS change |
 
 Check after the push (SQL editor, read-only):
 

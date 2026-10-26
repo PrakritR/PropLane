@@ -7,7 +7,24 @@ const lead = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => ({ leadId: "lead
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: vi.fn(async () => ({ ok: true })), clientIpFrom: () => "1.1.1.1" }));
 vi.mock("@/lib/test-workspaces/index.server", () => ({ resolveTestWorkspaceClassification: vi.fn(), lookupRecordTestWorkspaceId: vi.fn(async () => null) }));
-vi.mock("@/lib/one-number/unassigned-leads.server", () => ({ handleUnassignedLeadInbound: lead }));
+// The first unclear text is held (one "Which home?" reply, an open `hold` lead); the real hold is covered in
+// one-number-unassigned-leads and line-206-home-lock. A text that names a home is the lead flow's (`named`).
+const hold = vi.hoisted(() =>
+  vi.fn(async (db: { from: (t: string) => { insert: (r: unknown) => Promise<unknown> } }, inbound: { phoneKey: string }) => {
+    await db.from("sms_unassigned_leads").insert({ phone_key: inbound.phoneKey, status: "open", profile: { stage: "hold" } });
+    return { leadId: "lead-hold" as string | null, reply: "Hi! This is PropLane. Which home are you texting about? (street or house name)" as string | null, assignedWorkspaceId: null as string | null };
+  }),
+);
+const named = vi.hoisted(() => ({ value: false }));
+vi.mock("@/lib/one-number/unassigned-leads.server", () => ({
+  handleUnassignedLeadInbound: lead,
+  handleHoldInbound: hold,
+  textNamesOneHome: async () => named.value,
+  openLeadStage: async (db: { from: (t: string) => { select: (c: string) => { eq: (k: string, v: string) => { eq: (k: string, v: string) => { maybeSingle: () => Promise<{ data: { profile?: { stage?: string } } | null }> } } } } }, phoneKey: string) => {
+    const { data } = await db.from("sms_unassigned_leads").select("profile").eq("phone_key", phoneKey).eq("status", "open").maybeSingle();
+    return data ? (data.profile?.stage ?? "qualifying") : null;
+  },
+}));
 
 import { handleUnknownSenderInbound, ONBOARDING_COPY } from "@/lib/one-number/onboarding/unknown-sender.server";
 import { VENDOR_COPY } from "@/lib/one-number/onboarding/vendor-intake";
@@ -21,6 +38,8 @@ const run = (db: never, body: string) => handleUnknownSenderInbound(db, text(bod
 
 beforeEach(() => {
   lead.mockClear();
+  hold.mockClear();
+  named.value = false;
   sid = 0;
 });
 
@@ -62,9 +81,16 @@ describe("role inference on the first text", () => {
 });
 
 describe("ask once", () => {
-  it("asks the role question once, then takes the answer with the STOP notice on it", async () => {
+  it("holds the first unclear text with one 'which home' reply, then asks the role question once and takes the answer with the STOP notice on it", async () => {
     const f = leadFakeDb();
-    const asked = await run(f.db, "hi");
+    const held = await run(f.db, "hi");
+    expect(held.reply).toBe("Hi! This is PropLane. Which home are you texting about? (street or house name)");
+    expect(hold).toHaveBeenCalledTimes(1);
+    expect(lead).not.toHaveBeenCalled();
+    expect(f.rows.sms_onboarding_state ?? []).toEqual([]);
+
+    const asked = await run(f.db, "who is this?");
+    expect(hold).toHaveBeenCalledTimes(1);
     expect(asked.reply).toBe(ONBOARDING_COPY.askRole);
     expect(asked.reply).toBe("Hi, this is PropLane. Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?");
     expect(asked.reply).not.toContain("STOP");
@@ -77,6 +103,23 @@ describe("ask once", () => {
     expect(f.rows.sms_onboarding_state![0]).toMatchObject({ role: "landlord", stage: "finish_sent" });
   });
 
+  it("a tour ask with a day is specific enough for the lead flow, not the hold reply", async () => {
+    const f = leadFakeDb();
+    const turn = await run(f.db, "can I tour Saturday");
+    expect(hold).not.toHaveBeenCalled();
+    expect(turn.reply).toBe("LEAD: budget?");
+  });
+
+  it("a text that names a home skips the question and the hold: the lead flow locks the line to it", async () => {
+    const f = leadFakeDb();
+    named.value = true;
+    const turn = await run(f.db, "Is the room at 4709A 8th Ave still open?");
+    expect(hold).not.toHaveBeenCalled();
+    expect(lead).toHaveBeenCalledTimes(1);
+    expect(turn.reply).toBe("LEAD: budget?");
+    expect(f.rows.sms_onboarding_state ?? []).toEqual([]);
+  });
+
   it("a resident answer is told where to look, and nothing is saved as a role", async () => {
     const f = leadFakeDb();
     await run(f.db, "hello");
@@ -84,7 +127,7 @@ describe("ask once", () => {
     expect(answered.reply).toMatch(/^I cannot find a resident account for this number\./);
     expect(answered.reply).toContain("Reply STOP to opt out.");
     expect(lead).not.toHaveBeenCalled();
-    expect(f.rows.sms_onboarding_state![0]!.role ?? null).toBeNull();
+    expect(f.rows.sms_onboarding_state?.[0]?.role ?? null).toBeNull();
   });
 
   it("a clear first text skips the question: a housing search goes straight to the lead path", async () => {
@@ -97,8 +140,9 @@ describe("ask once", () => {
   it("never asks twice: a second unclear answer becomes a searcher", async () => {
     const f = leadFakeDb();
     await run(f.db, "hello");
-    const second = await run(f.db, "hmm not sure");
-    expect(second.reply).toBe("LEAD: budget?");
+    await run(f.db, "hmm");
+    const third = await run(f.db, "hmm not sure");
+    expect(third.reply).toBe("LEAD: budget?");
     expect(f.rows.sms_onboarding_state![0]).toMatchObject({ role: "searcher" });
     await run(f.db, "ok");
     expect(f.log.filter((l) => l.table === "sms_onboarding_state" && l.op === "upsert")).toHaveLength(2);
@@ -107,6 +151,7 @@ describe("ask once", () => {
   it("a vendor answer to the question starts the vendor intake", async () => {
     const f = leadFakeDb();
     await run(f.db, "hello");
+    await run(f.db, "hmm");
     const turn = await run(f.db, "vendor");
     expect(turn.reply).toBe(`${VENDOR_COPY.welcome} ${VENDOR_COPY.trade}`);
   });

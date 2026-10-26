@@ -32,7 +32,8 @@ import {
 } from "@/lib/sms/propline-first-text";
 import { mintSetupLink } from "@/lib/one-number/onboarding/setup-links.server";
 import { askedByLine, readOnboardingState, saveOnboardingState, SHARED_LINE_ASK, type OnboardingState } from "@/lib/one-number/onboarding/state.server";
-import { handleUnassignedLeadInbound, type LeadDeps, type UnassignedLeadTurn } from "@/lib/one-number/unassigned-leads.server";
+import { asksTourWithDay } from "@/lib/one-number/home-lock";
+import { handleHoldInbound, handleUnassignedLeadInbound, openLeadStage, textNamesOneHome, type LeadDeps, type UnassignedLeadTurn } from "@/lib/one-number/unassigned-leads.server";
 
 export const ONBOARDING_COPY = {
   askRole: PROPLANE_ROLE_QUESTION,
@@ -63,11 +64,6 @@ const demoTurn = (replies: string[], leadId: string | null = null): UnknownSende
 });
 
 const single = (text: string): UnknownSenderTurn => ({ leadId: null, reply: toGsm7(text), assignedWorkspaceId: null });
-
-async function hasOpenLead(db: SupabaseClient, phoneKey: string): Promise<boolean> {
-  const { data } = await db.from("sms_unassigned_leads").select("id").eq("phone_key", phoneKey).eq("status", "open").maybeSingle();
-  return Boolean(data);
-}
 
 async function runSmsDemo(db: SupabaseClient, inbound: SharedLineInbound, deps: UnknownSenderDeps): Promise<UnknownSenderTurn | null> {
   const turn = await runDemoTurn(db, { channel: "sms", sessionKey: inbound.phoneKey, text: inbound.body, origin: deps.origin }, { now: deps.now });
@@ -146,10 +142,16 @@ async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbou
     return single(ONBOARDING_COPY.setupUnavailable);
   }
 
-  // 2. Who is this? A phone with a lead already open (before onboarding existed) is a searcher.
+  // A text that names one of the homes the line offers (a street, a house name, a listing title) needs no role question: it is
+  // a prospect asking about that home, so the lead flow locks them to it.
+  if (!state?.role && (await textNamesOneHome(db, inbound.body, deps.lead))) return leadPath();
+
+  // 2. Who is this? A phone with a lead already open (before onboarding existed) is a searcher, unless that lead is only
+  // the "Which home?" hold from an earlier unclear text.
+  const openStage = await openLeadStage(db, inbound.phoneKey);
   let role: OnboardingRole | null = state?.role ?? null;
   let firstReply = !state;
-  if (!role && !state && (await hasOpenLead(db, inbound.phoneKey))) role = "searcher";
+  if (!role && !state && openStage !== null && openStage !== "hold") role = "searcher";
   if (!role) {
     if (askedByLine(state, SHARED_LINE_ASK)) {
       // THIS line asked already: take the answer. A question some manager's own work number asked is not ours, so it
@@ -174,6 +176,10 @@ async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbou
       const fromClarity = clarity.kind === "clear" ? ({ looking: "searcher", manage: "landlord", vendor: "vendor", resident: null } as const)[clarity.role] : null;
       const inferred = inferSenderRole(inbound.body) ?? fromClarity;
       if (!inferred) {
+        // The FIRST unclear text ("hi", "who is this") gets one reply asking which home, and waits in Admin > Unassigned (never in a
+        // workspace). A tour or booking ask with a day is specific enough to go to the lead flow. A second unclear text gets the
+        // role question, as before.
+        if (openStage !== "hold") return asksTourWithDay(inbound.body) ? leadPath() : handleHoldInbound(db, inbound, { now: deps.now ?? deps.lead?.now });
         await saveOnboardingState(db, inbound.phoneKey, { askedAt: (now ?? new Date()).toISOString(), askedLine: SHARED_LINE_ASK }, now);
         return single(ONBOARDING_COPY.askRole);
       }
