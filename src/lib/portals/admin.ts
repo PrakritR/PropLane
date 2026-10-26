@@ -6,10 +6,11 @@ export const adminPortal: PortalDefinition = {
   basePath: "/admin",
   title: "Admin Portal",
   accent: "blue",
-  // Order is the sidebar's: Settings, Dashboard, Communication · Software (Accounts, Money, Service) · Support, Growth
+  // Order is the sidebar's: Dashboard, Communication · Software (Accounts, Money, Service) · Support, Growth
   // (`ADMIN_GROUPS` in nav-groups.ts buckets these; a test pins every id exactly once).
   sections: [
-    // Admin Settings is the first tab and the `/admin` landing (captain, Oct 18); content unchanged.
+    // Admin Settings is the `/admin` landing and routable, but has no sidebar row (captain, Oct 25): it is the first
+    // item of the account menu (nav-groups.ts leaves `profile` unassigned, so the sidebar excludes it).
     { section: "profile", label: "Settings", tabs: [] },
     { section: "dashboard", label: "Dashboard", tabs: [] },
     // One inbox, no folder tabs. Unopened / Opened / Sent / Trash described the

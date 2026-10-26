@@ -127,15 +127,24 @@ describe("the service rail", () => {
     expect(assign).not.toHaveBeenCalled();
   });
 
-  it("the account menu offers Switch to Property portal only when the account has a workspace of its own", () => {
-    const { unmount } = render(<PortalWorkspaceRail kind="pro" basePath="/portal" name="P" email="p@example.com" service={shell({ activeId: VINOD.id, propertyPortalWorkspaceId: "mine" })} />);
+  it("service mode: the account menu is only Settings, Help & feedback, Sign out (no switch-portal rows)", () => {
+    // Even a staff member who owns a workspace of their own gets no way out through this menu: the PropLane tile is it.
+    render(<PortalWorkspaceRail kind="pro" basePath="/portal" name="P" email="p@example.com" service={shell({ activeId: VINOD.id, propertyPortalWorkspaceId: "mine" })} />);
     openAccountMenu();
-    expect(screen.getByText("Switch to Property portal")).toBeTruthy();
-    expect(screen.getByText("Switch to Admin portal (pro)")).toBeTruthy();
-    unmount();
-    render(<PortalWorkspaceRail kind="pro" basePath="/portal" name="P" email="p@example.com" service={shell({ activeId: VINOD.id })} />);
-    openAccountMenu();
+    const items = Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] button')).map((el) => el.textContent?.trim());
+    expect(items).toEqual(["Settings", "Help & feedback"]);
     expect(screen.queryByText("Switch to Property portal")).toBeNull();
+    expect(screen.queryByText(/Switch to .* portal/)).toBeNull();
+    expect(document.querySelector('[data-attr="portal-account-switch-property"]')).toBeNull();
+  });
+
+  it("admin home (no workspace open): Settings is the first item and the switch rows stay", () => {
+    render(<PortalWorkspaceRail kind="admin" basePath="/admin" name="P" email="p@example.com" service={shell()} />);
+    openAccountMenu();
+    const items = Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"], [role="menu"] button')).map((el) => el.textContent?.trim());
+    expect(items[0]).toBe("Settings");
+    expect(items).toContain("Switch to Admin portal (admin)");
+    expect(items).toContain("Help & feedback");
   });
 
   it("a helper in the Property portal reaches their service workspace from the account menu", () => {
