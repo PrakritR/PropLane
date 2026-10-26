@@ -69,7 +69,9 @@ never exposed as the conversational handle.
 
 ## One work number per WORKSPACE (a portal_workspaces row, not a person)
 
-> Oct 18 2026: every workspace texts the set PropLane line by default; only Pro / Business (and PropLane's own managed service) may hold the personalized number described below. See [`one-number.md`](one-number.md) § Number model.
+> Oct 18 2026: every workspace texts the set PropLane line by default; only Pro / Business may hold the personalized number described below. See [`one-number.md`](one-number.md) § Number model.
+>
+> Oct 25 2026: a PropLane-MANAGED workspace (`portal_workspaces.is_service`) always sends on the PropLane line (206), in both line modes, even with a live number of its own; the one decision is `resolveServiceLine` (`src/lib/one-number/service-line.server.ts`), consumed by `evaluateWorkspaceSendReadiness`, `resolveActiveManagerSendNumber` / `resolveWorkspaceSendLine`, `resolveOwnerSendNumberRow` and the Settings status. An unresolvable line refuses the send; inbound on the old number still routes to the workspace. See [`one-number.md`](one-number.md) § W29.
 
 A work number belongs to a **workspace** — a `portal_workspaces` row — and
 every workspace the switcher can land on has its own: `manager_sms_numbers`

@@ -98,7 +98,7 @@ export async function loadLineHistory(
 /** Append one turn (the vendor's text and our reply), once per MessageSid. */
 export async function appendLineTurn(
   db: SupabaseClient,
-  input: { sessionId: string; ownerUserId: string; inbound: string; reply: string | null; messageSid: string; now?: Date },
+  input: { sessionId: string; ownerUserId: string; inbound: string; reply: string | null; messageSid: string; now?: Date; /** Structured facts kept on the reply turn (the job list a number reply resolves against). */ replyTrace?: Row },
 ): Promise<boolean> {
   try {
     const sid = input.messageSid.trim();
@@ -113,7 +113,7 @@ export async function appendLineTurn(
     if (input.reply) {
       rows.push({
         session_id: input.sessionId, landlord_id: input.ownerUserId, role: "assistant", content: input.reply.slice(0, 2000), channel: "sms",
-        tool_trace: { sid: sid ? `${sid}:reply` : "", source: "propline_line" }, created_at: new Date(Date.parse(at) + 1).toISOString(),
+        tool_trace: { ...(input.replyTrace ?? {}), sid: sid ? `${sid}:reply` : "", source: "propline_line" }, created_at: new Date(Date.parse(at) + 1).toISOString(),
       });
     }
     const { error } = await db.from("agent_messages").insert(rows);

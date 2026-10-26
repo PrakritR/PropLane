@@ -386,7 +386,7 @@ export type AdminPromoCode = {
   kind: PromoKind;
   /** Accounts that used it: distinct manager accounts for a waiver or grant, Stripe's redemption count otherwise. */
   accounts: number;
-  /** Where the accounts that used it are listed (Subscribers filtered by the code); null when there is no list to open. */
+  /** Where the accounts that used it are listed (Accounts > Managers, Plan Promo, searched by the code); null when there is no list to open. */
   accountsHref: string | null;
   /** Set only on the record view. */
   redemptions?: PromoRedemption[];
@@ -520,8 +520,8 @@ export type WaiverPurchaseRow = {
   paid_at: string | null;
 };
 
-const SUBSCRIBERS_PATH = "/admin/subscribers";
-const subscribersHref = (code: string) => `${SUBSCRIBERS_PATH}?tab=promo&q=${encodeURIComponent(code)}`;
+const ACCOUNTS_PATH = "/admin/axis-users";
+const accountsHref = (code: string) => `${ACCOUNTS_PATH}?category=management&plan=promo&q=${encodeURIComponent(code)}`;
 
 /**
  * Every waiver code in use plus the built-ins (listed even at zero accounts), one row each. Pure.
@@ -588,7 +588,7 @@ export function buildWaiverCodeRows(
       givenCents: 0,
       kind,
       accounts,
-      accountsHref: accounts > 0 && kind !== "fee_waiver" ? subscribersHref(g.code) : null,
+      accountsHref: accounts > 0 && kind !== "fee_waiver" ? accountsHref(g.code) : null,
     });
   }
   return out;

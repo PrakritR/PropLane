@@ -105,7 +105,7 @@ They show fewer sections, never a different layout.
   and their headings are owned by `ADMIN_NAV_ROW_ORDER` / `ADMIN_SECTION_TABS` / `ADMIN_GROUPS`
   in `src/lib/portals/nav-groups.ts`; what the halves mean is
   [`one-number.md`](one-number.md) § W15. Do not restate the row list here. Its phone bottom
-  tabs are derived from `NATIVE_BOTTOM_NAV_ADMIN_PRIMARY` (Dashboard · Properties · Accounts ·
+  tabs are derived from `NATIVE_BOTTOM_NAV_ADMIN_PRIMARY` (Dashboard · Service · Accounts ·
   Support · More), which is why a grouped row keeps its first section's id as its key.
 - **Phone:** header "WORKSPACE ⌄" in bold uppercase plus the avatar; bottom tabs (manager:
   Properties · Residents · Dashboard · Communication · More). More is active for every other

@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { listViewerWorkspaces, loadWorkspaceById, resolveActiveWorkspace, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
+import { isServiceWorkspace, resolveServiceLine } from "@/lib/one-number/service-line.server";
 
 /** Accepted co-manager links where this user is the invitee (linked workspace, no owned rows). */
 export async function getAcceptedCoManagerInviterIds(
@@ -296,6 +297,28 @@ async function resolveHeldNumberRow<T>(
 }
 
 /**
+ * The row a PropLane-MANAGED workspace (`is_service`) sends from: the PropLane line, never a number the workspace itself
+ * holds (`resolveServiceLine`). In shared mode the line has no number row, so the answer is a description of it. A line that
+ * cannot be resolved is the plain no-work-number refusal; one that cannot be read is an error (never an old-number fallback).
+ */
+async function resolveManagedLineRow<T>(
+  db: SupabaseClient,
+  columns: string,
+): Promise<{ data: T | null; error: { message: string; code?: string } | null }> {
+  const line = await resolveServiceLine<T>(db, columns);
+  if (!line.ok) {
+    return line.reason === "unreadable"
+      ? { data: null, error: { message: "The PropLane line could not be read." } }
+      : { data: null, error: { message: WORKSPACE_NO_WORK_NUMBER_MESSAGE, code: WORKSPACE_NO_WORK_NUMBER_CODE } };
+  }
+  if (line.kind === "owner_number") return { data: line.row, error: null };
+  return {
+    data: { phone_number: line.phoneNumber, provision_state: "active", registration_state: "approved", workspace_id: null } as unknown as T,
+    error: null,
+  };
+}
+
+/**
  * The number row an OWNER sends from for one message: the line of the
  * workspace the message is about - the workspace that holds the house, or,
  * for a house-less (or unplaced) message, the owner's DEFAULT workspace.
@@ -328,6 +351,10 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
       .maybeSingle();
     if (error || !line) return { data: null, error: error ?? null };
     const row = line as unknown as T & { manager_user_id?: string };
+    // A line that belongs to a PropLane-managed workspace is the PropLane line, whatever id was pinned.
+    const pinnedManaged = await isServiceWorkspace(db, String(row.workspace_id ?? ""));
+    if (pinnedManaged === null) return { data: null, error: { message: "Service workspace unreadable." } };
+    if (pinnedManaged) return resolveManagedLineRow<T>(db, columns);
     if (row.manager_user_id === ownerUserId) return { data: row, error: null };
     const { data: holds, error: holdsError } = await db.from("workspace_work_numbers")
       .select("workspace_id,portal_workspaces!inner(owner_user_id)").eq("number_id", exactLine);
@@ -363,6 +390,14 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   };
   const targetWorkspaceId = houseWorkspaceId || (await loadDefaultWorkspaceId());
 
+  // PropLane's own managed service (`is_service`) has no line per workspace: it texts on the PropLane line, in both line
+  // modes, even when the workspace still holds a number of its own (captain, Oct 25).
+  if (targetWorkspaceId) {
+    const managed = await isServiceWorkspace(db, targetWorkspaceId);
+    if (managed === null) return { data: null, error: { message: "Service workspace unreadable." } };
+    if (managed) return resolveManagedLineRow<T>(db, columns);
+  }
+
   const query = db.from("manager_sms_numbers").select(withResolutionColumns(columns)).eq("manager_user_id", ownerUserId);
   // A real builder is thenable and yields every row; a single-row double
   // only answers `maybeSingle`, and its one row is the one candidate.
@@ -381,18 +416,6 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
     // sharing is still ITS line; nothing else is.
     const held = await resolveHeldNumberRow<T>(db, columns, targetWorkspaceId);
     if (held) return { data: held, error: null };
-    // PropLane's own service (`is_service`) has no line per workspace: a house in one of the service owner's service workspaces is
-    // texted from the service owner's default workspace line, the PropLane line (the same rule `sendWorkspaceText` applies). It is
-    // still the SAME owner's number; a customer's workspace never borrows another's.
-    const { data: target } = await db.from("portal_workspaces").select("is_service").eq("id", targetWorkspaceId).maybeSingle();
-    if ((target as { is_service?: unknown } | null)?.is_service === true) {
-      const defaultId = await loadDefaultWorkspaceId();
-      if (defaultId && defaultId !== targetWorkspaceId) {
-        const fallback = rows.filter((r) => String(r.workspace_id ?? "") === defaultId);
-        const line = fallback.find((r) => !r.released_at) ?? fallback[0];
-        if (line) return { data: line, error: null };
-      }
-    }
   }
 
   // A legacy row the migration could not place answers for the owner's

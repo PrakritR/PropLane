@@ -806,6 +806,37 @@ Do not "fix" these without asking:
   owner shell that used to carry an empty state is retired (see the retirement
   note above).
 
+## PropLane Service seats carry the same permissions
+
+A PropLane Service workspace's Team (admin Service route, `team-invite` / `team-access`) invites with the same Role, Houses and
+per-module levels as the manager Invite sheet, translated by the one shared `src/lib/co-manager-invite-grant.ts`
+(`parseInviteAccess`, `restampInviteHouses`, `finalizeInviteGrant`; `/api/pro/account-links` calls the same three). A
+service seat is re-derived server-side: houses must belong to that workspace, a role above the operator's is refused, the
+operator's own module grant caps what they hand out, and an Admin invited into a workspace with no houses yet stays an
+Admin (an empty map is not a Custom role). **Owner** is the one extra role there: `property_owner` + `is_owner_of_record`,
+read-only, one per workspace, replaced (never edited) by inviting another. A person with no account is invited by a one-use
+`manager_invite_links` link, **bound to the invited email** (`invitee_email`, lowercase; redeem requires the signed-in
+account's CONFIRMED auth email to equal it, else 403 "This invite was sent to another email. Sign in with that email to
+accept it." with the use unspent; the invite page locks its sign-up field to the invited address; ordinary links carry no
+email and stay bearer links), that `redeemInviteLink` turns into the seat; in a workspace PropLane owns it skips the owner-plan
+gate and stamps `is_service_seat` / `is_owner_of_record`, otherwise nothing about link redemption changes. Detail:
+[`admin-service.md`](admin-service.md) § Team.
+
+## The owner of record of a PropLane Service workspace reads the whole workspace, view only
+
+Decision 4 of `service-owner-1025`. An accepted `property_owner` seat flagged `is_owner_of_record` on an `is_service`
+workspace sees every house and every module of that workspace at **view** (never edit or delete). The reach is
+**derived at read time** by `src/lib/property-owner/service-owner-seat.server.ts` (`loadServiceOwnerSeats`) from the seat
+flag plus `is_service` plus the workspace owner being the seat's inviter, and is never written into the row (the stored
+grant stays owner keys on the invited houses). Only readers that turn a viewer's seats into house and module ACCESS
+append it: `loadWorkspaces`, `collectLinkedPropertyIdsForUser`, `collectLinkedPropertyPermissionsForUser`,
+`linkedOwnerScopeForModule`, `linkedOwnerForProperty` and the `GET /api/property-records` linked list. Every
+teammate-style reader still runs `withoutOwnerLinks` and never appends it (the derived seat keeps
+`team_role = property_owner`), so the owner never appears in a picker or as a recipient. A demoted (flag cleared),
+removed, not-yet-accepted or non-service seat resolves to nothing on the next read; a property owner on a non-service
+workspace keeps owner keys only. Writes are refused by the managed read-only lock (every accepted `property_owner` seat,
+the manager agent included). Coverage: `tests/unit/service-owner-view-access.test.ts`.
+
 ## Row note: view-only seats and managed workspaces
 
 `property_owner` is being retired into a view-only seat: `loadWorkspaces` stamps `readOnly: true` (and forces

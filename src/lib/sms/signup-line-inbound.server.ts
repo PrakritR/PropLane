@@ -27,9 +27,13 @@ export type SignupLineInboundResult = { handled: false } | { handled: true; sent
 export const SIGNUP_CONVERSATION_PURPOSE = "signup_conversation";
 export const SIGNUP_INBOUND_CONSENT_SOURCE = "recipient_initiated_inbound";
 
-async function ensureSignupReplyConsent(
+/**
+ * The sender texted first, which is their own opt-in to replies in this thread (never over a STOP). Shared by every
+ * fixed-reply branch of the line that answers a stranger: the sign-up flow and the first-text role question.
+ */
+export async function ensureRecipientInitiatedReplyConsent(
   db: SupabaseClient,
-  input: { managerUserId: string; phone: string; messageSid: string; conversationKey: string },
+  input: { managerUserId: string; phone: string; messageSid: string; conversationKey: string; purpose: string; role: string },
 ): Promise<"allowed" | "suppressed" | "unavailable"> {
   if (!input.messageSid.trim()) return "unavailable";
   const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() || null;
@@ -37,7 +41,7 @@ async function ensureSignupReplyConsent(
   const suppression = await readSmsSuppressionState(db, input.phone, { userId: null });
   if (!suppression.ok) return "unavailable";
   if (suppression.optedOut) return "suppressed";
-  const scope = { managerUserId: input.managerUserId, purpose: SIGNUP_CONVERSATION_PURPOSE, sendClass: "transactional" as const, conversationKey: input.conversationKey, messagingServiceSid };
+  const scope = { managerUserId: input.managerUserId, purpose: input.purpose, sendClass: "transactional" as const, conversationKey: input.conversationKey, messagingServiceSid };
   const current = await readScopedSmsConsentState(db, input.phone, scope);
   if (!current.ok) return "unavailable";
   if (current.state === "revoked") return "suppressed";
@@ -46,9 +50,16 @@ async function ensureSignupReplyConsent(
     ...scope,
     eventType: "granted",
     source: SIGNUP_INBOUND_CONSENT_SOURCE,
-    evidence: { messageSid: input.messageSid, role: "signup" },
+    evidence: { messageSid: input.messageSid, role: input.role },
   });
   return recorded.ok ? "allowed" : "unavailable";
+}
+
+async function ensureSignupReplyConsent(
+  db: SupabaseClient,
+  input: { managerUserId: string; phone: string; messageSid: string; conversationKey: string },
+): Promise<"allowed" | "suppressed" | "unavailable"> {
+  return ensureRecipientInitiatedReplyConsent(db, { ...input, purpose: SIGNUP_CONVERSATION_PURPOSE, role: "signup" });
 }
 
 export async function handlePropLaneLineSignupInbound(

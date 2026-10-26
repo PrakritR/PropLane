@@ -5,12 +5,18 @@ import {
   countMatchingAccounts,
   listAccountIdsForEveryKind,
   listSandboxAccountIds,
+  PROFILE_SCAN_SELECT,
   profileSearchFilter,
   resolveAccountKinds,
   scanNewestProfiles,
   type AdminAccountKind,
   type AdminProfileScanRow,
 } from "@/lib/admin/admin-accounts.server";
+import { loadSubscriberPopulation } from "@/lib/admin/admin-subscribers.server";
+import { SUBSCRIBER_TABS, type SubscriberBucket } from "@/lib/admin/admin-subscribers-shared";
+import { loadProfilesByIdChunks } from "@/lib/auth/admin-portal-manager-ids.server";
+import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
+import { createTtlCache, serverSnapshotCacheEnabled } from "@/lib/server-ttl-cache";
 
 export type AdminAccountSearchRow = {
   id: string;
@@ -47,6 +53,80 @@ export type AdminAccountSearchResult = {
    */
   activeCounts: { manager: number; resident: number; vendor: number };
 };
+
+/** The Plan filter on Accounts > Managers: the same four buckets the Dashboard cards count (Paid, Trial, Promo, Free). */
+export type AdminAccountPlanFilter = SubscriberBucket;
+
+export function accountPlanFromParam(raw: string | null | undefined): AdminAccountPlanFilter | null {
+  const value = String(raw ?? "").trim().toLowerCase();
+  return SUBSCRIBER_TABS.some((tab) => tab.id === value) ? (value as AdminAccountPlanFilter) : null;
+}
+
+function digitsOf(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+/**
+ * One plan bucket's managers, already classified: the profile rows, the promo code each account used, and
+ * which of them actually hold the manager role. The SEARCH TERM is not part of it, because the whole bucket
+ * is what a search filters down — see `managersInPlan`.
+ */
+type PlanBucket = {
+  profiles: AdminProfileScanRow[];
+  /** Lowercase promo code per account id, for the promo link's "View accounts". */
+  codes: Map<string, string>;
+  kinds: Map<string, AdminAccountKind[]>;
+};
+
+/**
+ * The bucket is the same answer for every operator and every keystroke, and building it costs a paged read of
+ * the whole real-manager population plus their profiles and roles. An admin typing in the search box would
+ * otherwise pay that scan per request, so one bucket is held for this long — the same stance `lastSignInFor`
+ * below takes, and never longer than the list is plausibly being typed into.
+ */
+const PLAN_BUCKET_TTL_MS = 30_000;
+const planBucketCache = createTtlCache<PlanBucket>(PLAN_BUCKET_TTL_MS, Date.now, { maxEntries: SUBSCRIBER_TABS.length });
+
+async function loadPlanBucket(db: SupabaseClient, plan: AdminAccountPlanFilter): Promise<PlanBucket> {
+  const population = await loadSubscriberPopulation(db);
+  const bucket = population.rows.filter((row) => row.bucket === plan);
+  const codes = new Map(bucket.map((row) => [row.id, (row.promoCode ?? "").toLowerCase()]));
+  const profiles = await loadProfilesByIdChunks<AdminProfileScanRow>(
+    db,
+    bucket.map((row) => row.id),
+    PROFILE_SCAN_SELECT,
+  );
+  // The subscriber population admits anyone carrying a PropLane ID, so a resident or vendor would read as Free;
+  // the Managers tab lists managers by role, and so does this.
+  const kinds = await resolveAccountKinds(db, profiles);
+  return { profiles, codes, kinds };
+}
+
+/**
+ * Managers in one plan bucket, newest first. The bucket comes from the SAME classifier enforcement and the
+ * Dashboard use (`loadSubscriberPopulation`); the search term matches name, email, PropLane ID, phone and the
+ * promo code the account used, so a promo code's "View accounts" link lands on exactly those accounts.
+ */
+async function managersInPlan(
+  db: SupabaseClient,
+  plan: AdminAccountPlanFilter,
+  query: string,
+): Promise<AdminProfileScanRow[]> {
+  const load = () => loadPlanBucket(db, plan);
+  const { profiles, codes, kinds } = serverSnapshotCacheEnabled() ? await planBucketCache.get(plan, load) : await load();
+  const needle = query.trim().toLowerCase();
+  const needleDigits = digitsOf(needle);
+  const matches = (row: AdminProfileScanRow) => {
+    if (!kinds.get(row.id)?.includes("manager")) return false;
+    if (!needle) return true;
+    const text = `${row.email ?? ""} ${row.full_name ?? ""} ${row.manager_id ?? ""} ${codes.get(row.id) ?? ""}`;
+    if (text.toLowerCase().includes(needle)) return true;
+    return needleDigits.length >= 3 && digitsOf(row.phone ?? "").includes(needleDigits);
+  };
+  return profiles
+    .filter((row) => !isPortalSandboxEmail(row.email) && matches(row))
+    .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? "") || a.id.localeCompare(b.id));
+}
 
 export const ADMIN_ACCOUNT_SEARCH_LIMIT = 100;
 const LAST_SIGN_IN_CONCURRENCY = 10;
@@ -107,9 +187,12 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
  */
 export async function searchAdminAccounts(
   db: SupabaseClient,
-  opts: { kind: AdminAccountKind; query: string },
+  opts: { kind: AdminAccountKind; query: string; plan?: AdminAccountPlanFilter | null },
 ): Promise<AdminAccountSearchResult> {
   const match = profileSearchFilter(opts.query);
+  // The Plan filter narrows Managers only. Its bucket decides who is listed and counted as a manager; the other two
+  // tabs keep their ordinary counts so the strip still describes the same search.
+  const planned = opts.plan && opts.kind === "manager" ? await managersInPlan(db, opts.plan, opts.query) : null;
 
   // The tab counts are totals: counted in the database over each kind's role
   // holders (minus the sandbox accounts), never a tally of the scanned page.
@@ -120,17 +203,20 @@ export async function searchAdminAccounts(
     Promise.all(kinds.map((kind) => countMatchingAccounts(db, real(idsByKind[kind]), match))),
     Promise.all(kinds.map((kind) => countMatchingAccounts(db, real(idsByKind[kind]), match, { activeOnly: true }))),
   ]);
-  const [manager, resident, vendor] = allCounts as [number, number, number];
-  const activeCounts = { manager: activeOnly[0]!, resident: activeOnly[1]!, vendor: activeOnly[2]! };
+  const [allManager, resident, vendor] = allCounts as [number, number, number];
+  const manager = planned ? planned.length : allManager;
+  const activeCounts = {
+    manager: planned ? planned.filter((row) => row.application_approved !== false).length : activeOnly[0]!,
+    resident: activeOnly[1]!,
+    vendor: activeOnly[2]!,
+  };
 
-  const page = await scanNewestProfiles<AdminProfileScanRow>(
-    db,
-    { match, limit: ADMIN_ACCOUNT_SEARCH_LIMIT },
-    async (rows) => {
+  const page =
+    planned ??
+    (await scanNewestProfiles<AdminProfileScanRow>(db, { match, limit: ADMIN_ACCOUNT_SEARCH_LIMIT }, async (rows) => {
       const kindsById = await resolveAccountKinds(db, rows);
       return rows.filter((row) => kindsById.get(row.id)?.includes(opts.kind));
-    },
-  );
+    }));
   const pageRows = page.slice(0, ADMIN_ACCOUNT_SEARCH_LIMIT);
 
   const workspaceCounts = new Map<string, number>();

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadCommsWallet } from "./wallet.server";
+import { managerNewUsageCreditSource } from "./manager-number-credit.server";
 
 export type CommsBillingBlockReason =
   | "free_tier"
@@ -23,6 +24,15 @@ export async function evaluateManagerCommsBillingGate(
 ): Promise<CommsBillingGateResult> {
   if (!managerUserId.trim()) return { allowed: false, reason: "plan_unreadable" };
   try {
+    // A Free manager holding the PropLane Number add-on pays from that subscription's credit. The
+    // balance read failing is a refusal, never a free send.
+    if ((await managerNewUsageCreditSource(db, managerUserId)) === "number") {
+      const { getNumberCreditBalance } = await import("@/lib/number-subscription/credit.server");
+      const balance = await getNumberCreditBalance(managerUserId, db);
+      return balance.totalCents >= requiredCents
+        ? { allowed: true, billingOwnerId: managerUserId }
+        : { allowed: false, reason: "allowance_exhausted" };
+    }
     const wallet = await loadCommsWallet(db, managerUserId, workspaceId ?? undefined);
     // Checked first: a trial has no Communication even if it somehow holds purchased credit.
     if (wallet.liveSignupTrial === true) return { allowed: false, reason: "trial" };

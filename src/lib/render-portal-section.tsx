@@ -302,8 +302,8 @@ export async function renderPortalSectionWith(
     ManagerInspectionsPage, ResidentInspectionsPage, AdminDashboard, ManagerDashboard, ManagerLeases,
     ManagerPayments, ManagerPromotion, ManagerMobileAppPanel, buildManagerAppQrSvg, ManagerProfile,
     AdminCreateManagerClient, AdminCreateResidentClient, AdminAxisUsersClient, AdminTestWorkspacesClient,
-    AdminPropertiesClient, AdminEventsClient, AdminProfileSection, AdminCommunication,
-    AdminBugFeedbackClient, AdminHealthClient, AdminPaymentsPanel, AdminSubscribersPanel, AdminUnassignedLeadsPanel, AdminServicePanel, AdminProplaneLinePanel, AdminPromoCodesPanel,
+    AdminEventsClient, AdminProfileSection, AdminCommunication,
+    AdminBugFeedbackClient, AdminHealthClient, AdminPaymentsPanel, AdminUnassignedLeadsPanel, AdminServicePanel, AdminProplaneLinePanel, AdminPromoCodesPanel,
     AdminFinancesPanel, AdminManagedFinancePanel, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
     ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentStaysPanel, ResidentStayRequest, ResidentTourPanel, ResidentLeasePanel,
@@ -656,21 +656,21 @@ export async function renderPortalSectionWith(
     return <AdminCreateResidentClient />;
   }
 
-  if (kind === "admin" && section === "properties") {
-    // A property row's record page is `/admin/properties/<adminRefId>` (C163)
-    // — one detail segment, decoded and handed to the client for lookup.
-    if ((tabParts?.length ?? 0) > 1) notFound();
-    const detailId = tabParts?.length ? decodeSegment(tabParts[0]!) : undefined;
-    return <AdminPropertiesClient detailId={detailId} />;
-  }
-
   if (kind === "admin" && section === "axis-users") {
     // An account row's record page is `/admin/axis-users/<kind>-<id>` (C165), and
     // each rail section of that record is one more segment: `/<kind>-<id>/billing`.
     if ((tabParts?.length ?? 0) > 2) notFound();
     const detailId = tabParts?.length ? decodeSegment(tabParts[0]!) : undefined;
     const detailSection = tabParts && tabParts.length > 1 ? decodeSegment(tabParts[1]!) : undefined;
-    return <AdminAxisUsersClient detailId={detailId} detailSection={detailSection} />;
+    // The operator-only "Test" tab after Vendors (it opens the Test accounts list); nobody else sees it.
+    const showTestTab =
+      !detailId && isTestWorkspaceFeatureEnabled()
+        ? await requireTrustedTestWorkspaceOperator().then(
+            () => true,
+            () => false,
+          )
+        : false;
+    return <AdminAxisUsersClient detailId={detailId} detailSection={detailSection} showTestTab={showTestTab} />;
   }
 
   // A branch handling the admin "billing" section used to live here — dead
@@ -749,11 +749,6 @@ export async function renderPortalSectionWith(
   if (kind === "admin" && section === "health") {
     if (tabParts?.length) notFound();
     return <AdminHealthClient />;
-  }
-
-  if (kind === "admin" && section === "subscribers") {
-    if (tabParts?.length) notFound();
-    return <AdminSubscribersPanel />;
   }
 
   if (kind === "admin" && section === "unassigned-leads") {

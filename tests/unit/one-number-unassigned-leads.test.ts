@@ -283,6 +283,40 @@ describe("matching public rooms", () => {
   });
 });
 
+describe("assignment to a self-serve workspace (the 206 serves free managers in shared mode)", () => {
+  const WS_FREE = "ws-free-mgr";
+  const OWNER_FREE = "owner-free";
+  function seedFree(over: Record<string, unknown> = {}): LeadFakeDb {
+    const fake = seed();
+    fake.rows.portal_workspaces!.push({ id: WS_FREE, name: "Elm Rentals", owner_user_id: OWNER_FREE, is_default: true, is_service: false });
+    fake.rows.manager_property_records!.push({ id: "prop-free", workspace_id: WS_FREE, manager_user_id: OWNER_FREE, status: "live", property_data: { buildingName: "Elm House", address: "12 Elm St" } });
+    Object.assign(fake.rows.sms_runtime_config![0]!, over);
+    return fake;
+  }
+
+  it("shared mode: a prospect's pick of a free manager's home is handed to that workspace", async () => {
+    const fake = seedFree();
+    await say(fake, "hi");
+    const result = await assignLeadToHouse(fake.db, { leadId: String(lead(fake).id), propertyId: "prop-free", by: "prospect" }, deps());
+    expect(result).toMatchObject({ ok: true, workspaceId: WS_FREE, ownerUserId: OWNER_FREE });
+    expect(lead(fake)).toMatchObject({ status: "assigned", assigned_workspace_id: WS_FREE });
+  });
+
+  it("per_workspace mode keeps the old rule: a pick that names a self-serve home is refused and the lead stays open", async () => {
+    const fake = seedFree({ line_mode: "per_workspace" });
+    await say(fake, "hi");
+    const result = await assignLeadToHouse(fake.db, { leadId: String(lead(fake).id), propertyId: "prop-free", by: "prospect" }, deps());
+    expect(result).toEqual({ ok: false, error: "house_not_found" });
+    expect(lead(fake)).toMatchObject({ status: "open" });
+  });
+
+  it("shared mode with a pilot list that leaves the workspace out: refused", async () => {
+    const fake = seedFree({ shared_pilot_workspace_ids: ["ws-someone-else"] });
+    await say(fake, "hi");
+    expect(await assignLeadToHouse(fake.db, { leadId: String(lead(fake).id), propertyId: "prop-free", by: "prospect" }, deps())).toEqual({ ok: false, error: "house_not_found" });
+  });
+});
+
 describe("assignment to exactly one workspace", () => {
   it("a pick hands the lead to that house's workspace, copies the history there once and alerts only that team", async () => {
     const fake = seed();

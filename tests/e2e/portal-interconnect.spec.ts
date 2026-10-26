@@ -87,7 +87,7 @@ test.describe("Cross-portal interconnect — admin", () => {
   });
 
   test("admin portal can reach all key admin sections", async ({ page }) => {
-    for (const path of ["/admin/dashboard", "/admin/properties"]) {
+    for (const path of ["/admin/dashboard", "/admin/service"]) {
       await page.goto(path);
       await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
     }

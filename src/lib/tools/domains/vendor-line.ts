@@ -23,7 +23,11 @@ export type ListOpenJobsNearInput = z.infer<typeof inputSchema>;
 const PROFILE_COLUMNS =
   "user_id, trades, service_area_zips, service_radius_miles, license_number, insurance_expires_at, insurance_doc_path, directory_listed, onboarding_completed_at";
 
-export async function runListOpenJobsNear(ctx: VendorLineContext, input: ListOpenJobsNearInput): Promise<OpenJobsNear> {
+export async function runListOpenJobsNear(
+  ctx: VendorLineContext,
+  input: ListOpenJobsNearInput,
+  options: { includeRefs?: boolean; limit?: number } = {},
+): Promise<OpenJobsNear> {
   // A signed-in vendor's saved trades and service area fill in what the text leaves out; read pinned to their own id.
   let profile: DirectoryProfileRow | null = null;
   if (ctx.vendorUserId) {
@@ -34,6 +38,8 @@ export async function runListOpenJobsNear(ctx: VendorLineContext, input: ListOpe
     tradeLabel: input.trade ?? null,
     areaText: input.area ?? null,
     vendor: ctx.vendorUserId ? { userId: ctx.vendorUserId, profile } : null,
+    ...(options.includeRefs ? { includeRefs: true } : {}),
+    ...(options.limit ? { limit: options.limit } : {}),
   });
 }
 

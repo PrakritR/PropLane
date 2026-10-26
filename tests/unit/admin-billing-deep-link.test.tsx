@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The Subscribers menu links to `/admin/axis-users/manager-<id>/billing?action=promo|extend-trial`.
+ * The account menu links to `/admin/axis-users/manager-<id>/billing?action=promo|extend-trial`.
  * The account record's billing cards open the matching popup once billing has loaded, then ask the
  * page to drop the param.
  */
@@ -37,7 +37,7 @@ function mount(props: { initialAction?: string | null; state?: "loading" | "read
 }
 
 describe("billing deep link", () => {
-  it("maps the Subscribers menu actions to a popup and ignores anything else", () => {
+  it("maps the account menu actions to a popup and ignores anything else", () => {
     expect(billingDialogForAction("promo")).toBe("promo");
     expect(billingDialogForAction("extend-trial")).toBe("trial");
     expect(billingDialogForAction("comp")).toBeNull();

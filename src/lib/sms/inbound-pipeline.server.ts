@@ -24,11 +24,13 @@ import {
 } from "@/lib/vendor-dispatch/inbound.server";
 import { handlePropLaneLineVendorInbound } from "@/lib/sms/vendor-line-inbound.server";
 import { handlePropLaneLineSignupInbound } from "@/lib/sms/signup-line-inbound.server";
+import { handleRoleQuestionInbound, type RoleQuestionInboundResult } from "@/lib/sms/role-question-line-inbound.server";
 import { recordVendorInboundReplyConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 import {
   buildServiceManagerAgentContext,
   listServiceWorkspaceRefs,
+  listServiceWorkspacesFor,
   pickServiceWorkspace,
   recognizeServiceManagerInbound,
 } from "@/lib/sms/service-manager-inbound.server";
@@ -940,7 +942,8 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     // Vendor dispatch (vendor-dispatch-1018): Y / N / 2 / R / B answering a dispatch approval is
     // parsed here, deterministically, before the Team chat or the Assistant sees the text. Only a
     // sender with something waiting on them is claimed; everything else falls through unchanged.
-    const serviceScopes = serviceManager
+    // Only a platform admin's approvals reach every service workspace; a seat holder's Y / N is theirs alone.
+    const serviceScopes = serviceManager?.basis === "admin"
       ? ((await listServiceWorkspaceRefs(db).catch(() => null)) ?? []).map((ws) => ({ ownerUserId: ws.ownerUserId, workspaceId: ws.id }))
       : undefined;
     const dispatchAnswer = await handleManagerDispatchReply(db, {
@@ -1025,15 +1028,11 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     }).catch((error) => console.error("manager inbound projection failed", error instanceof Error ? error.message : "unknown"));
     let managerIdentity: Awaited<ReturnType<typeof resolveManagerSmsAgentContext>>;
     if (serviceManager) {
-      // Which PropLane Service workspace is this about? A name in the text, the last pick, or one short question.
-      const workspaces = await listServiceWorkspaceRefs(db).catch(() => null);
+      // Which PropLane Service workspace is this about? A name in the text, the last pick, or one short question. An admin
+      // picks among every service workspace; a seat holder among the workspaces they hold a seat on.
+      const workspaces = await listServiceWorkspacesFor(db, serviceManager).catch(() => null);
       const picked = workspaces ? await pickServiceWorkspace(db, { fromPhone, body: agentBody, workspaces }).catch(() => null) : null;
-      if (!picked || picked.kind !== "chosen") {
-        const reply = !picked
-          ? "I could not read the service workspaces just now. Try again in a minute."
-          : picked.kind === "ask"
-            ? picked.question
-            : "There are no PropLane Service workspaces yet.";
+      const answerAndFinish = async (reply: string): Promise<NextResponse> => {
         await deliverManagerSmsReply({
           managerUserId: managerInbound.workNumberOwnerId,
           actorUserId: managerInbound.actorUserId,
@@ -1048,8 +1047,26 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
           return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
         }
         return twimlOk();
+      };
+      if (!picked || picked.kind !== "chosen") {
+        return answerAndFinish(
+          !picked
+            ? "I could not read the service workspaces just now. Try again in a minute."
+            : picked.kind === "ask"
+              ? picked.question
+              : "There are no PropLane Service workspaces yet.",
+        );
       }
-      managerIdentity = await buildServiceManagerAgentContext(db, { serviceOwnerId: managerInbound.actorUserId, workspace: picked.workspace });
+      const seat = serviceManager.basis === "seat" ? (serviceManager.seats ?? []).find((candidate) => candidate.workspace.id === picked.workspace.id) ?? null : null;
+      if (serviceManager.basis === "seat" && !seat) {
+        // The picked workspace is not one of their seats (cannot happen: the list is theirs). Fail closed.
+        return answerAndFinish(`I do not see any houses assigned to you in ${picked.workspace.name}.`);
+      }
+      const built = await buildServiceManagerAgentContext(db, { serviceOwnerId: managerInbound.actorUserId, workspace: picked.workspace, seat });
+      if (!built.ok && built.reason === "no_houses") {
+        return answerAndFinish(`I do not see any houses assigned to you in ${picked.workspace.name}.`);
+      }
+      managerIdentity = built;
     } else {
       managerIdentity = await resolveManagerSmsAgentContext(db, {
         managerUserId: managerInbound.workNumberOwnerId,
@@ -1737,6 +1754,40 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   }
   // === end on/smssignup ===
 
+  // === first text: the role question. A number nobody knows whose first text does not say what it wants ("hi", "who is
+  // this") gets ONE question (resident, vendor, looking for a place, or manage your own property), on the PropLane line and
+  // on a manager's own number alike; the answer picks the flow. A clear first text, and every later text, is untouched.
+  let senderSaidVendor = false;
+  {
+    const roleQuestion: RoleQuestionInboundResult = await handleRoleQuestionInbound(db, {
+      managerUserId: managerId,
+      workspaceId,
+      fromPhone,
+      toPhone,
+      messageSid,
+      body,
+      projectInbound: () => projectClassifiedInbound(db, {
+        managerUserId: managerId, role: "prospect", counterpartyUserId: null, fromPhone, toPhone, messageSid, body, occurredAt, workspaceId: workspaceId ?? null,
+      }),
+    }).catch((error: unknown) => {
+      console.error("role question failed", error instanceof Error ? error.name : "unknown");
+      return { handled: false } as RoleQuestionInboundResult;
+    });
+    if (roleQuestion.handled) {
+      mark("route:role-question");
+      if (!roleQuestion.sent) {
+        await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+        return NextResponse.json({ error: "Role question not delivered." }, { status: 503 });
+      }
+      if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
+        return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
+      }
+      return twimlOk();
+    }
+    senderSaidVendor = roleQuestion.forceVendor === true;
+  }
+  // === end first text ===
+
   // === on/smsvendor (W24): the vendor branch for the PropLane line. One block; the manager / resident forks above and
   // the leasing fallback below are untouched. A vendor asking for work (or a known vendor / lead) is answered with the
   // open jobs near them plus ONE link, saved to the lead list and the chat history; it never becomes a prospect.
@@ -1748,6 +1799,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
       toPhone,
       messageSid,
       body,
+      force: senderSaidVendor,
       projectInbound: (vendorUserId) => projectClassifiedInbound(db, {
         managerUserId: managerId, role: "vendor", counterpartyUserId: vendorUserId, fromPhone, toPhone, messageSid, body, occurredAt, workspaceId: workspaceId ?? null,
       }),

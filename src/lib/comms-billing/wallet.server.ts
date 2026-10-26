@@ -7,6 +7,10 @@ import {
   commsBudgetTierForPlan,
   type CommsPlanTier,
 } from "./allowances";
+import {
+  creditSourceForExistingReservation,
+  creditSourceForReserve,
+} from "./manager-number-credit.server";
 import { isCommsCreditPoolEnabled, unitPriceCentsForMeter, type CommsBillingMeter } from "./rates";
 
 export type CommsWallet = {
@@ -252,6 +256,19 @@ export async function reserveCommsCredit(
   input: CommsReservationInput,
   allowUnfunded = false,
 ): Promise<CommsReservation> {
+  // A Free manager with the PropLane Number add-on spends the subscription's credit, not the (empty)
+  // workspace wallet. Decided per key so finish / settle below land on the same ledger.
+  const key = input.idempotencyKey.trim();
+  const qty = input.quantity ?? 1;
+  const validUsage = key && Number.isFinite(qty) && qty > 0 && qty <= 1_000_000;
+  if (validUsage && (await creditSourceForReserve(db, input.managerUserId, key)) === "number") {
+    const { reserveNumberCredit } = await import("@/lib/number-subscription/credit.server");
+    return reserveNumberCredit(input.managerUserId, input.meter, input.quantity ?? 1, key, {
+      db,
+      allowUnfunded,
+      metadata: { ...(input.metadata ?? {}), source: "manager_number", workspaceId: input.workspaceId ?? null },
+    });
+  }
   if (isCommsCreditPoolEnabled()) {
     // The pool spends per WORKSPACE, never a caller-implied default: an
     // omitted workspace refuses here rather than silently falling back to the
@@ -338,6 +355,11 @@ export async function finishCommsCredit(
   key: string,
   release = false,
 ) {
+  if ((await creditSourceForExistingReservation(db, owner, key)) === "number") {
+    const { finishNumberCredit } = await import("@/lib/number-subscription/credit.server");
+    await finishNumberCredit(owner, key, { release, db });
+    return;
+  }
   let usedPool = false;
   if (isCommsCreditPoolEnabled()) {
     const { finishCommsCreditPool, CommsCreditPoolSchemaMissingError } = await import("./pool.server");
@@ -380,6 +402,11 @@ export async function settleCommsCreditQuantity(
   key: string,
   quantity: number,
 ) {
+  if ((await creditSourceForExistingReservation(db, owner, key)) === "number") {
+    const { settleNumberCreditQuantity } = await import("@/lib/number-subscription/credit.server");
+    await settleNumberCreditQuantity(owner, key, quantity, { db });
+    return;
+  }
   if (isCommsCreditPoolEnabled()) {
     const { settleCommsCreditQuantityPool, CommsCreditPoolSchemaMissingError } = await import("./pool.server");
     try {

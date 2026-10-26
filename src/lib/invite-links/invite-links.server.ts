@@ -51,8 +51,23 @@ import {
 import { actorOwnWorkspaceHouseIds, actorWorkspaceStanding, workspaceHouseIds } from "@/lib/workspaces/membership.server";
 import { linkDirectoryRowToVendor } from "@/lib/auth/provision-vendor-account";
 import { primaryRoleWhenAddingVendor } from "@/lib/auth/profile-primary-role";
+import { isPlatformServiceOwner } from "@/lib/service/service-owner.server";
 
 const TOKEN_BYTES = 32;
+
+/**
+ * Whether `workspaceId` is a PropLane Service workspace that PropLane itself owns (the service owner's, created with
+ * the +). Such a workspace is PropLane's managed service, not a manager's plan: there is no Pro / Business gate in
+ * front of its team, a seat redeemed into it is PropLane-issued, and a Property owner seat in it is its owner of
+ * record. An attached CLIENT workspace is not this: its owner's own invites keep every ordinary rule. Fails closed.
+ */
+async function isPropLaneOwnedServiceWorkspace(db: SupabaseClient, workspaceId: string | null | undefined): Promise<boolean> {
+  const id = String(workspaceId ?? "").trim();
+  if (!id) return false;
+  const { data, error } = await db.from("portal_workspaces").select("owner_user_id, is_service").eq("id", id).maybeSingle();
+  if (error || !data || (data as { is_service?: boolean | null }).is_service !== true) return false;
+  return isPlatformServiceOwner(db, String((data as { owner_user_id?: unknown }).owner_user_id ?? ""));
+}
 
 /**
  * A redeemed link lands by kind:
@@ -121,6 +136,8 @@ type DbRow = {
   token_ciphertext?: string | null;
   team_role?: string | null;
   workspace_permissions?: unknown;
+  /** PropLane Service invite links only: the email the link was sent to (lowercase). Read by `readBoundInviteeEmail`. */
+  invitee_email?: string | null;
 };
 
 const INVITE_TOKEN_ENCRYPT_FIELD = "token";
@@ -219,12 +236,33 @@ export async function mintInviteLink(
     workspacePermissions?: unknown;
     /** When true and kind === "manager": revoke prior active links for this workspace before inserting. */
     replaceActive?: boolean;
+    /**
+     * Server-internal, never read from a request body: PropLane Service's team verbs (`inviteServiceClient`, behind
+     * `requireAdminRoute()`) mint a one-use link for a person with no account yet. In a workspace PropLane itself
+     * owns, that skips the owner-plan gate and the Property owner "pick a house" rule (the owner of record sees the
+     * whole workspace). It changes nothing for any other workspace.
+     */
+    serviceInvite?: boolean;
+    /**
+     * Server-internal, with `serviceInvite`: the address the link is emailed to. It is stored (lowercase) on the row
+     * and redeeming the link then requires the signed-in account's CONFIRMED email to match, so a forwarded or leaked
+     * link cannot be taken by someone else (an Owner link would hand them the owner of record's financial view).
+     */
+    inviteeEmail?: string;
   },
 ): Promise<MintInviteLinkResult> {
   const actorUserId = input.actorUserId.trim();
   if (!actorUserId) return { ok: false, status: 401, error: "Sign in to create an invite link." };
 
   const kind = normalizeInviteLinkKind(input.kind);
+  const boundInviteeEmail = normalizeInviteeEmail(input.inviteeEmail);
+  if (kind === "manager" && input.serviceInvite === true && !boundInviteeEmail) {
+    return { ok: false, status: 400, error: "A service invite needs the email it is sent to." };
+  }
+  const serviceOwned =
+    kind === "manager" && input.serviceInvite === true
+      ? await isPropLaneOwnedServiceWorkspace(db, input.workspaceId)
+      : false;
   let houseScope: HouseScope = kind === "manager" ? parseHouseScope(input.houseScope) : "selected";
 
   // Every kind may carry properties. A vendor link's properties are NOT a
@@ -246,7 +284,7 @@ export async function mintInviteLink(
         return { ok: false, status: 400, error: OWNER_SELECTED_ONLY_ERROR };
       }
       houseScope = "selected";
-      if (propertyIds.length === 0) return { ok: false, status: 400, error: OWNER_NEEDS_HOUSE_ERROR };
+      if (propertyIds.length === 0 && !serviceOwned) return { ok: false, status: 400, error: OWNER_NEEDS_HOUSE_ERROR };
     }
   }
   if (kind === "manager" && requestedWorkspaceId) {
@@ -294,7 +332,7 @@ export async function mintInviteLink(
   // charging for the ability to move existing tenants onto PropLane would gate
   // the migration itself. A link that cannot be redeemed is worse than a
   // refusal, because the manager only learns at the far end.
-  if (kind === "manager") {
+  if (kind === "manager" && !serviceOwned) {
     const tier = await getEffectiveManagerSkuTier(ownerUserId);
     if (!tier.ok) {
       return { ok: false, status: 500, error: "We could not verify your plan. Try again in a moment." };
@@ -482,6 +520,9 @@ export async function mintInviteLink(
       house_scope: houseScope,
       workspace_permissions: workspacePermissions,
       short_code: code,
+      // Only a service invite is bound. Written ONLY then, so every other mint works on a database that has not run
+      // the `invitee_email` migration, while a bound mint on one that has not fails closed (unknown column).
+      ...(input.serviceInvite === true && boundInviteeEmail ? { invitee_email: boundInviteeEmail } : {}),
     })
       .select(LINK_COLUMNS)
       .maybeSingle();
@@ -775,6 +816,8 @@ export type InviteLinkPreview = {
   canDo?: string | null;
   /** The same reach as one compact fact — "Edit · Delete · Alerts in every area". */
   access?: string | null;
+  /** A PropLane Service invite: the address it was sent to, so the invite page can lock its sign-up to it. */
+  inviteeEmail?: string | null;
   unusableReason: InviteLinkUnusableReason | null;
 };
 
@@ -865,6 +908,7 @@ export async function previewInviteLink(
         )
       : undefined;
 
+  const boundEmail = kind === "manager" ? await readBoundInviteeEmail(db, String(link.id)) : null;
   return {
     kind,
     ownerUserId: String(link.owner_user_id),
@@ -886,6 +930,7 @@ export async function previewInviteLink(
         : kind === "manager"
         ? describeCoManagerAccessCompact(grantedPermissions)
         : null,
+    inviteeEmail: boundEmail && boundEmail.ok ? boundEmail.email : null,
     unusableReason: inviteLinkUnusableReason(
       {
         expiresAt: link.expires_at,
@@ -966,6 +1011,62 @@ async function acceptPendingMembership(
   }
   return { ok: false, status: 409, error: "This invite is no longer pending." };
 }
+export const INVITE_OTHER_EMAIL_ERROR = "This invite was sent to another email. Sign in with that email to accept it.";
+export const INVITE_EMAIL_UNCONFIRMED_ERROR = "Confirm your email first, then open this invite again.";
+
+function normalizeInviteeEmail(value: unknown): string | null {
+  const email = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return email.includes("@") ? email : null;
+}
+
+/**
+ * The email a link is bound to, or null for an ordinary link. Read on its own (not part of `LINK_COLUMNS`) so a
+ * database without the column keeps redeeming ordinary links: no bound link can exist there, since minting one
+ * writes the column and fails without it. Any OTHER read error fails closed.
+ */
+async function readBoundInviteeEmail(
+  db: SupabaseClient,
+  linkId: string,
+): Promise<{ ok: true; email: string | null } | { ok: false }> {
+  const { data, error } = await db.from("manager_invite_links").select("invitee_email").eq("id", linkId).maybeSingle();
+  if (error) {
+    if (error.code === "42703" || /invitee_email/i.test(error.message ?? "")) return { ok: true, email: null };
+    return { ok: false };
+  }
+  return { ok: true, email: normalizeInviteeEmail((data as { invitee_email?: unknown } | null)?.invitee_email) };
+}
+
+/**
+ * A bound (service) invite is redeemable only by the account whose CONFIRMED sign-in email is the one it was sent to.
+ * Refused before a use is spent, so the right person can still accept. The email comes from the auth user, never
+ * the request. (The invite page's own account creation confirms the address it is given; the link is what proves
+ * possession of the inbox, and the page locks the field to the invited address.)
+ */
+async function checkBoundInviteeEmail(
+  db: SupabaseClient,
+  linkId: string,
+  redeemerUserId: string,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  const bound = await readBoundInviteeEmail(db, linkId);
+  if (!bound.ok) return { ok: false, status: 500, error: "Could not verify this invite. Try again in a moment." };
+  if (!bound.email) return { ok: true };
+  let user: { email?: string | null; email_confirmed_at?: string | null; confirmed_at?: string | null } | null = null;
+  try {
+    const res = await db.auth.admin.getUserById(redeemerUserId);
+    user = res.data?.user ?? null;
+  } catch {
+    return { ok: false, status: 500, error: "Could not verify this invite. Try again in a moment." };
+  }
+  if (!user) return { ok: false, status: 500, error: "Could not verify this invite. Try again in a moment." };
+  if (normalizeInviteeEmail(user.email) !== bound.email) {
+    return { ok: false, status: 403, error: INVITE_OTHER_EMAIL_ERROR };
+  }
+  if (!user.email_confirmed_at && !user.confirmed_at) {
+    return { ok: false, status: 403, error: INVITE_EMAIL_UNCONFIRMED_ERROR };
+  }
+  return { ok: true };
+}
+
 export async function redeemInviteLink(
   db: SupabaseClient,
   input: { token: string; redeemerUserId: string; now?: Date },
@@ -998,6 +1099,12 @@ export async function redeemInviteLink(
     now,
   );
   if (unusable) return { ok: false, status: 410, error: inviteLinkUnusableMessage(unusable) };
+
+  // A service invite is bound to the email it was sent to. Checked before anything is spent or written.
+  if (linkKind === "manager") {
+    const bound = await checkBoundInviteeEmail(db, String(link.id), redeemerUserId);
+    if (!bound.ok) return bound;
+  }
 
   // Already redeemed by this person: hand back the invite they already have
   // rather than spending another use or creating a second link.
@@ -1095,6 +1202,10 @@ export async function redeemInviteLink(
     });
   }
 
+  // A workspace PropLane itself owns is its managed service, not a manager's plan: no owner-plan gate, the seat is
+  // PropLane-issued (`is_service_seat`), and a Property owner seat is the workspace's owner of record.
+  const serviceOwned = await isPropLaneOwnedServiceWorkspace(db, link.workspace_id);
+
   // One membership per workspace: a second link for the SAME workspace hands
   // back the row that exists; a link for another workspace makes a new one.
   const existingInviteQuery = db
@@ -1149,13 +1260,13 @@ export async function redeemInviteLink(
   const redeemAssigned: string[] = Array.isArray(link.assigned_property_ids)
     ? link.assigned_property_ids.map((id: unknown) => String(id ?? "").trim()).filter(Boolean)
     : [];
-  if (redeemOwnerLink && redeemAssigned.length === 0) {
+  if (redeemOwnerLink && redeemAssigned.length === 0 && !serviceOwned) {
     return { ok: false, status: 400, error: OWNER_NEEDS_HOUSE_ERROR };
   }
 
   // Owner pays for co-manager seats. A Free invitee may join a Pro owner's
   // workspace; their own owned workspaces stay on their own SKU.
-  {
+  if (!serviceOwned) {
     const ownerTier = await getEffectiveManagerSkuTier(String(link.owner_user_id));
     if (!ownerTier.ok) {
       return { ok: false, status: 500, error: "We could not verify plan eligibility. Try again in a moment." };
@@ -1273,6 +1384,9 @@ export async function redeemInviteLink(
       workspace_permissions: {},
       team_role: redeemedRole,
       house_scope: redeemOwnerLink ? "selected" : parseHouseScope(link.house_scope),
+      // PropLane Service (a workspace PropLane owns): the seat is PropLane-issued, and an owner seat is THE owner of
+      // record (one per workspace, enforced by `account_link_invites_one_owner_of_record`).
+      ...(serviceOwned ? { is_service_seat: !redeemOwnerLink, is_owner_of_record: redeemOwnerLink } : {}),
     })
     .select("id, workspace_id")
     .maybeSingle();
@@ -1286,6 +1400,9 @@ export async function redeemInviteLink(
         .eq("redeemed_by_user_id", redeemerUserId);
     }
     await releaseSpentUse();
+    if (inviteError?.code === "23505" && serviceOwned && redeemOwnerLink) {
+      return { ok: false, status: 409, error: "This workspace already has an owner. Ask PropLane for a new invite." };
+    }
     return { ok: false, status: 500, error: inviteError?.message ?? "Could not create the invite." };
   }
   return {

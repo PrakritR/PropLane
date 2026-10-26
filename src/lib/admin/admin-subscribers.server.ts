@@ -1,34 +1,28 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type Stripe from "stripe";
 import {
   classifySubscriber,
-  filterSubscribers,
   subscriberCounts,
   subscriberMrrCents,
   type SubscriberCounts,
-  type SubscriberFilters,
   type SubscriberPurchase,
   type SubscriberRow,
 } from "@/lib/admin/admin-subscribers-model";
 import {
   listAdminPortalManagerUserIds,
   loadProfilesByIdChunks,
-  mapWithBoundedConcurrency,
   readAllPages,
 } from "@/lib/auth/admin-portal-manager-ids.server";
 import { listSandboxAccountIds } from "@/lib/admin/admin-accounts.server";
 import { pickBestManagerPurchaseRow, type ManagerPurchaseRowRecord } from "@/lib/manager-access";
 import { EMPTY_MANAGER_BILLING_OVERRIDES, type ManagerBillingOverrides } from "@/lib/manager-billing-overrides";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
-import { getStripe } from "@/lib/stripe";
 
 /**
  * The Subscribers population: every real (non-sandbox) manager, classified by
  * `classifySubscriber`. All reads are paged (`readAllPages`: stable order, a failed
- * page throws) or id-chunked; nothing is an unbounded select. The Stripe period end
- * is looked up for the visible page only.
+ * page throws) or id-chunked; nothing is an unbounded select.
  */
 
 type PurchaseRow = {
@@ -144,68 +138,6 @@ export async function loadSubscriberPopulation(db: SupabaseClient, nowMs = Date.
     else unreadable += 1;
   }
   return { rows, unreadable };
-}
-
-/** Stripe's current period end for one subscription, as an ISO date; null when it cannot be read. */
-async function renewalOf(stripe: Stripe, subscriptionId: string): Promise<string | null> {
-  try {
-    const sub = await stripe.subscriptions.retrieve(subscriptionId);
-    if (sub.status === "canceled") return null;
-    const end = sub.items?.data?.[0]?.current_period_end;
-    return typeof end === "number" ? new Date(end * 1000).toISOString() : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Fill `renewsAt` on the visible rows from Stripe. Never throws; a miss leaves the fact out. */
-export async function enrichRenewals(
-  rows: SubscriberRow[],
-  deps: { stripe?: () => Stripe } = {},
-): Promise<SubscriberRow[]> {
-  const wanted = rows.filter((row) => row.stripeSubscriptionId && row.bucket !== "trial");
-  if (wanted.length === 0) return rows;
-  let stripe: Stripe;
-  try {
-    stripe = (deps.stripe ?? getStripe)();
-  } catch {
-    return rows;
-  }
-  const renewals = await mapWithBoundedConcurrency(wanted, 6, (row) => renewalOf(stripe, row.stripeSubscriptionId!));
-  const byId = new Map(wanted.map((row, index) => [row.id, renewals[index]!]));
-  return rows.map((row) => (byId.has(row.id) ? { ...row, renewsAt: byId.get(row.id) ?? null } : row));
-}
-
-export type AdminSubscribersPage = {
-  rows: SubscriberRow[];
-  total: number;
-  page: number;
-  pageSize: number;
-  counts: SubscriberCounts;
-  mrrCents: number;
-  unreadable: number;
-};
-
-export const SUBSCRIBERS_PAGE_SIZE_MAX = 100;
-
-export function pageSubscribers(
-  population: SubscriberPopulation,
-  filters: SubscriberFilters,
-  page: number,
-  pageSize: number,
-): AdminSubscribersPage {
-  const filtered = filterSubscribers(population.rows, filters);
-  const size = Math.min(Math.max(1, Math.floor(pageSize) || 50), SUBSCRIBERS_PAGE_SIZE_MAX);
-  const current = Math.max(1, Math.floor(page) || 1);
-  return {
-    rows: filtered.slice((current - 1) * size, current * size),
-    total: filtered.length,
-    page: current,
-    pageSize: size,
-    counts: subscriberCounts(population.rows),
-    mrrCents: subscriberMrrCents(population.rows),
-    unreadable: population.unreadable,
-  };
 }
 
 /** The Dashboard's subscriber figures, or null when the population could not be read. */

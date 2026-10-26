@@ -12,6 +12,7 @@ import { PortalEntryRow } from "@/components/portal/portal-entry-row";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
+import { adminAccountRoleTabs } from "@/components/portal/admin-axis-users-client";
 import {
   AdminTestWorkspaceRecordPage,
   type AdminTestWorkspaceMember,
@@ -235,7 +236,9 @@ export function AdminTestWorkspacesClient({ detailId }: { detailId?: string } = 
         className="mb-2"
         variant="command"
         stickyDestinations={false}
-        destinations={[]}
+        destinations={adminAccountRoleTabs({ showTestTab: true })}
+        activeDestinationId="test"
+        destinationAriaLabel="Account category"
         search={{
           value: query,
           onChange: setQuery,

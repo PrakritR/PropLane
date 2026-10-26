@@ -5,7 +5,14 @@
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { buildCoManagerInviteBody, coManagerInviteAcceptUrl, coManagerInviteSubject } from "@/lib/co-manager-link-email";
+import {
+  buildCoManagerInviteBody,
+  buildOwnerInviteBody,
+  buildOwnerInviteText,
+  coManagerInviteAcceptUrl,
+  coManagerInviteSubject,
+  ownerInviteSubject,
+} from "@/lib/co-manager-link-email";
 import { formatInviteMessageBody } from "@/lib/invite-message-body";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -30,18 +37,30 @@ export async function notifyCoManagerInviteSent(input: {
   inviteId: string;
   /** The workspace the invite is into, for the text's first line. */
   workspaceName?: string;
+  /**
+   * PropLane Service owner invite: the owner is told PropLane has set the workspace up for them (not that a manager
+   * invited them to co-manage), in the email, the inbox notice and the text.
+   */
+  ownerInvite?: boolean;
 }): Promise<void> {
   const db = (await import("@/lib/supabase/service")).createSupabaseServiceRoleClient();
   const invitee = await profileEmail(db, input.inviteeUserId);
   const inviter = await profileEmail(db, input.inviterUserId);
   if (!invitee) return;
 
-  const subject = coManagerInviteSubject(input.inviterName);
-  const text = buildCoManagerInviteBody({
-    inviterName: input.inviterName,
-    propertyLabels: input.propertyLabels,
-    inviteId: input.inviteId,
-  });
+  const ownerCopy = input.ownerInvite === true;
+  const subject = ownerCopy ? ownerInviteSubject(input.workspaceName ?? "") : coManagerInviteSubject(input.inviterName);
+  const text = ownerCopy
+    ? buildOwnerInviteBody({
+        ownerName: invitee.name,
+        workspaceName: input.workspaceName ?? "",
+        acceptUrl: coManagerInviteAcceptUrl(input.inviteId),
+      })
+    : buildCoManagerInviteBody({
+        inviterName: input.inviterName,
+        propertyLabels: input.propertyLabels,
+        inviteId: input.inviteId,
+      });
 
   await deliverPortalInboxMessage(db, {
     senderUserId: input.inviterUserId,
@@ -67,7 +86,7 @@ export async function notifyCoManagerInviteSent(input: {
  */
 async function textCoManagerInvite(
   db: Db,
-  input: { inviterUserId: string; inviteeUserId: string; inviterName: string; propertyLabels: string[]; inviteId: string; workspaceName?: string },
+  input: { inviterUserId: string; inviteeUserId: string; inviterName: string; propertyLabels: string[]; inviteId: string; workspaceName?: string; ownerInvite?: boolean },
 ): Promise<void> {
   const { data } = await db.from("profiles").select("phone, phone_verified_at").eq("id", input.inviteeUserId).maybeSingle();
   const phone = String((data as { phone?: unknown } | null)?.phone ?? "").trim();
@@ -81,13 +100,15 @@ async function textCoManagerInvite(
     managerUserId: input.inviterUserId,
     to: phone,
     fromNumber,
-    text: formatInviteMessageBody({
-      kind: "workspace",
-      inviterName: input.inviterName,
-      workspaceName: input.workspaceName,
-      propertyLabels: input.propertyLabels,
-      inviteUrl: coManagerInviteAcceptUrl(input.inviteId),
-    }),
+    text: input.ownerInvite
+      ? buildOwnerInviteText({ workspaceName: input.workspaceName ?? "", acceptUrl: coManagerInviteAcceptUrl(input.inviteId) })
+      : formatInviteMessageBody({
+          kind: "workspace",
+          inviterName: input.inviterName,
+          workspaceName: input.workspaceName,
+          propertyLabels: input.propertyLabels,
+          inviteUrl: coManagerInviteAcceptUrl(input.inviteId),
+        }),
     source: "work_number",
     counterpartyRole: "manager",
     purpose: "co_manager_invite_text",

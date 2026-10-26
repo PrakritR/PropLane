@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdminRoute } from "@/lib/admin/admin-route-guard.server";
 import type { AdminAccountKind } from "@/lib/admin/admin-accounts.server";
-import { searchAdminAccounts } from "@/lib/admin/admin-accounts-search.server";
+import { accountPlanFromParam, searchAdminAccounts } from "@/lib/admin/admin-accounts-search.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -11,7 +11,7 @@ function kindFromParam(raw: string | null): AdminAccountKind {
 }
 
 /**
- * GET /api/admin/accounts/search?kind=manager|resident|vendor&q=…
+ * GET /api/admin/accounts/search?kind=manager|resident|vendor&q=…&plan=paid|trial|promo|free (managers only)
  * Matches name, email, phone or PropLane ID. Admin-only, service-role reads.
  */
 export async function GET(req: Request) {
@@ -23,6 +23,7 @@ export async function GET(req: Request) {
     const result = await searchAdminAccounts(createSupabaseServiceRoleClient(), {
       kind: kindFromParam(url.searchParams.get("kind")),
       query,
+      plan: accountPlanFromParam(url.searchParams.get("plan")),
     });
     return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {

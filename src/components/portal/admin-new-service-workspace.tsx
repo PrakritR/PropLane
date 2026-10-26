@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { PreviewPanel, WizardField, WizardSection } from "@/components/portal/add-workspace/parts";
 import { Input } from "@/components/ui/input";
+import { useAppUi } from "@/components/providers/app-ui-provider";
 import { cleanOwnerOfRecord, cleanServiceCity, cleanServiceName } from "@/lib/service/service-input";
 
 /**
@@ -20,9 +21,12 @@ export function AdminNewServiceWorkspace({
   onClose: () => void;
   onCreated: (id: string, name: string) => void;
 }) {
+  const { showToast } = useAppUi();
   const [name, setName] = useState("");
   const [city, setCity] = useState("");
   const [client, setClient] = useState("");
+  // The owner's email or PropLane ID. Optional: left blank, nothing is sent and the owner is invited later from Team.
+  const [contact, setContact] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +39,9 @@ export function AdminNewServiceWorkspace({
   const cleanName = cleanServiceName(name);
   const cleanCity = cleanServiceCity(city);
   const cleanClient = cleanOwnerOfRecord(client);
-  const valid = Boolean(cleanName) && cleanCity !== undefined && cleanClient !== undefined;
+  const cleanContact = contact.trim();
+  const contactOk = cleanContact.length <= 120 && (!cleanContact.includes("@") || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanContact));
+  const valid = Boolean(cleanName) && cleanCity !== undefined && cleanClient !== undefined && contactOk;
   const steps: AddWorkspaceStep[] = [{ id: "workspace", label: "Workspace", incomplete: !valid }];
 
   const create = async () => {
@@ -47,9 +53,19 @@ export function AdminNewServiceWorkspace({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "create", name: cleanName, city: cleanCity, ownerOfRecord: cleanClient }),
+        body: JSON.stringify({
+          action: "create",
+          name: cleanName,
+          city: cleanCity,
+          ownerOfRecord: cleanClient,
+          ...(cleanContact ? { ownerContact: cleanContact } : {}),
+        }),
       });
-      const json = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        id?: string;
+        error?: string;
+        ownerInvite?: { sent: boolean; error?: string } | null;
+      };
       if (!res.ok || !json.id) {
         setError(json.error ?? "Could not create the workspace.");
         return;
@@ -58,6 +74,13 @@ export function AdminNewServiceWorkspace({
       setName("");
       setCity("");
       setClient("");
+      setContact("");
+      // The workspace exists whatever happened to the invite; say plainly when the invite did not go.
+      if (json.ownerInvite && !json.ownerInvite.sent) {
+        showToast(`Workspace created. The owner invite did not send: ${json.ownerInvite.error ?? "try again from Team."}`);
+      } else if (json.ownerInvite?.sent) {
+        showToast("Workspace created. Invite sent to the owner.");
+      }
       onCreated(json.id, created);
     } catch {
       setError("Could not reach the server. Try again.");
@@ -76,7 +99,7 @@ export function AdminNewServiceWorkspace({
         current={0}
         onJump={() => undefined}
         onClose={onClose}
-        dirty={Boolean(name.trim() || city.trim() || client.trim())}
+        dirty={Boolean(name.trim() || city.trim() || client.trim() || contact.trim())}
         discardTitle="Discard this workspace?"
         assistantContext="Creating a PropLane Service property portal workspace."
         assistantScopeKey="admin-new-service-workspace"
@@ -92,7 +115,7 @@ export function AdminNewServiceWorkspace({
             name={cleanName ?? "Workspace"}
             sub={cleanCity || undefined}
             facts={[
-              { label: "Owner of record", value: cleanClient || "None yet" },
+              { label: "Owner", value: cleanClient || "None yet" },
               { label: "Properties", value: "0" },
             ]}
           />
@@ -121,14 +144,27 @@ export function AdminNewServiceWorkspace({
               />
             </WizardField>
           </div>
+        </WizardSection>
+        <WizardSection title="Owner">
+          <WizardField label="Name">
+            <Input
+              value={client}
+              onChange={(e) => setClient(e.target.value)}
+              maxLength={80}
+              autoComplete="off"
+              placeholder="Ambika Rao"
+              data-attr="admin-service-workspace-client"
+            />
+          </WizardField>
           <div className="mt-4">
-            <WizardField label="Owner of record">
+            <WizardField label="Email or PropLane ID">
               <Input
-                value={client}
-                onChange={(e) => setClient(e.target.value)}
-                maxLength={80}
+                value={contact}
+                onChange={(e) => setContact(e.target.value)}
+                maxLength={120}
                 autoComplete="off"
-                data-attr="admin-service-workspace-client"
+                placeholder="owner@email.com"
+                data-attr="admin-service-workspace-owner-contact"
               />
             </WizardField>
           </div>

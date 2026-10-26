@@ -25,8 +25,8 @@ const seed = () => ({
   sms_runtime_config: [{ singleton: true, line_mode: "per_workspace", shared_number_e164: null, shared_pilot_workspace_ids: [] }],
   profiles: [{ id: "res-1", email: "r@x.com", phone: FROM, phone_verified_at: VERIFIED }],
   portal_workspaces: [
-    { id: "ws-x", name: "Maple Homes", owner_user_id: "owner-x", is_default: true },
-    { id: "ws-y", name: "Cedar Co", owner_user_id: "owner-y", is_default: true },
+    { id: "ws-x", name: "Maple Homes", owner_user_id: "owner-x", is_default: true, is_service: true },
+    { id: "ws-y", name: "Cedar Co", owner_user_id: "owner-y", is_default: true, is_service: true },
   ],
   manager_property_records: [
     { id: "px", manager_user_id: "owner-x", workspace_id: "ws-x", row_data: { buildingName: "12 Maple" } },

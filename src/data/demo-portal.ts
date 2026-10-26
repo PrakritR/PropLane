@@ -259,6 +259,9 @@ export const demoManagerPaymentLedgerRows: DemoManagerPaymentLedgerRow[] = [];
 
 export type ManagerWorkOrderBucket = "open" | "scheduled" | "completed";
 
+/** The service trades a manager's work order can carry. `tours` is a tour-host job (board category Tours). */
+export type DemoWorkOrderCategory = "cleaning" | "plumbing" | "mold" | "electrical" | "hvac" | "general" | "appliance" | "access" | "tours";
+
 export type DemoManagerWorkOrderRow = {
   id: string;
   /** Stable human handle, unique within the owning manager (for example WO-1042). */
@@ -331,7 +334,7 @@ export type DemoManagerWorkOrderRow = {
   /** Amount billed to the resident for this service, and the household charge it created. */
   residentChargeCents?: number;
   residentChargeId?: string;
-  category?: "cleaning" | "plumbing" | "mold" | "electrical" | "hvac" | "general" | "appliance" | "access";
+  category?: DemoWorkOrderCategory;
   vendorCostCents?: number;
   /** ISO timestamp when the vendor set labor cost via set-vendor-price (locks manager edits). */
   vendorPriceSetAt?: string;
@@ -372,6 +375,12 @@ export type DemoManagerWorkOrderRow = {
   publishRef?: string;
   /** The manager's optional "up to" budget shown on the board and the public service page. */
   publishBudgetCents?: number | null;
+  /**
+   * The trade the BOARD lists this service under when it is not the service's own (a tour-host job posts under
+   * Tours). Publish-scoped on purpose: the service keeps its own `category`, which is what its Services bucket and
+   * the expense mapping read. Only the public projection and "jobs near me" prefer this one.
+   */
+  publishCategory?: DemoWorkOrderCategory;
   /** The manager's "Share photos" answer for the board / a texted service link (default off). */
   publishSharePhotos?: boolean;
   /**

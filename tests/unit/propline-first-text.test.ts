@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isGreetingOnly, PROPLANE_FIRST_TEXT_REPLY } from "@/lib/sms/propline-first-text";
+import { isGreetingOnly, PROPLANE_FIRST_TEXT_REPLY, PROPLANE_PROSPECT_FALLBACK_REPLY, PROPLANE_ROLE_QUESTION } from "@/lib/sms/propline-first-text";
 import { summarizeLeasingEvidence, TEAM_FOLLOW_UP_REPLY } from "@/lib/agent/leasing-sms-fallback";
 import { quietSecondsFor } from "@/lib/sms/prospect-sms-burst.server";
 
@@ -13,11 +13,15 @@ describe("PropLane line first text", () => {
     (text) => expect(isGreetingOnly(text)).toBe(false),
   );
 
-  it("the fixed reply is one GSM-7 segment with no long dash", () => {
-    expect(PROPLANE_FIRST_TEXT_REPLY).toBe("Hi, this is PropLane. Looking for a place to rent? Tell me the area, budget and move-in date.");
-    expect(PROPLANE_FIRST_TEXT_REPLY.length).toBeLessThanOrEqual(160);
-    expect(PROPLANE_FIRST_TEXT_REPLY).toMatch(/^[\x20-\x7E]+$/);
-    expect(PROPLANE_FIRST_TEXT_REPLY).not.toMatch(/[–—]/);
+  it("the fixed reply is the role question: one GSM-7 segment with no long dash", () => {
+    expect(PROPLANE_FIRST_TEXT_REPLY).toBe("Hi, this is PropLane. Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?");
+    expect(PROPLANE_FIRST_TEXT_REPLY).toBe(PROPLANE_ROLE_QUESTION);
+    for (const reply of [PROPLANE_FIRST_TEXT_REPLY, PROPLANE_PROSPECT_FALLBACK_REPLY]) {
+      expect(reply.length).toBeLessThanOrEqual(160);
+      expect(reply).toMatch(/^[\x20-\x7E]+$/);
+      expect(reply).not.toMatch(/[–—]/);
+    }
+    expect(PROPLANE_PROSPECT_FALLBACK_REPLY).toBe("Hi, this is PropLane. Looking for a place to rent? Tell me the area, budget and move-in date.");
   });
 
   it("a finished question waits less than a fragment", () => {

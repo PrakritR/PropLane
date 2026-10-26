@@ -238,11 +238,11 @@ describe("adminAgentRegistry", () => {
       );
     });
 
-    it("subscriber_counts buckets by the SAME classifier /admin/subscribers renders", async () => {
+    it("subscriber_counts buckets by the SAME classifier the Accounts Plan filter uses", async () => {
       // `promo` holds a Stripe CHECKOUT code on a live subscription: display only, so it is Paid.
       // `comp` is the complimentary override: a staff grant, so it is the Promo code bucket (the
       // separate Comp bucket is gone). `free` (no purchase row) and `lapsed` (a run-out trial) are
-      // Free. Same answer `/admin/subscribers` renders for the same accounts.
+      // Free. Same answer the Accounts Plan filter gives for the same accounts.
       expect(await run("subscriber_counts")).toEqual({
         ok: true,
         data: { paid: 2, trial: 2, promo: 1, free: 2, total: 7 },

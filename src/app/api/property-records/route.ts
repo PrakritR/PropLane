@@ -8,6 +8,7 @@ import { track } from "@/lib/analytics/posthog";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
 import { collectLinkedPropertyPermissionsForUser } from "@/lib/auth/manager-lease-scope";
+import { loadServiceOwnerSeats } from "@/lib/property-owner/service-owner-seat.server";
 import { asStringArray, INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -161,7 +162,7 @@ export async function GET(req: Request) {
     // above). Errors are still checked in the original order below.
     const [
       { data: viewerProfile },
-      { data: linkRows, error: linkError },
+      { data: ownLinkRows, error: linkError },
       permsByProperty,
       { data: ownedRows, error },
       workspaceScope,
@@ -190,6 +191,8 @@ export async function GET(req: Request) {
       activeWorkspacePropertyScope(db, user.id),
     ]);
     const viewerEmail = String(viewerProfile?.email ?? user.email ?? "").trim();
+    // The owner of record of a PropLane Service workspace lists all of its houses, view only (derived, never stored).
+    const linkRows = [...(ownLinkRows ?? []), ...(await loadServiceOwnerSeats(db, user.id))];
 
     if (linkError && !String(linkError.message ?? "").toLowerCase().includes("account_link_invites")) {
       return NextResponse.json({ error: linkError.message }, { status: 500 });

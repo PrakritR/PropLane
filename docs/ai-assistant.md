@@ -507,8 +507,8 @@ in `tests/unit/agent/admin-agent.test.ts`). Each tool calls the function the
 admin UI already uses: `find_account` (name, email or PropLane ID), `account_summary`
 (`loadAdminAccountDetail`, projected to non-secret fields), `subscriber_counts`
 and `trials_ending` (Paid / Trial / Promo code / Free, through the same
-`classifySubscriber` the Subscribers page renders, so the counts staff are told
-cannot disagree with the page or with the plan the product enforces),
+`classifySubscriber` behind the Accounts > Managers Plan filter and the Dashboard cards, so the counts staff are
+told cannot disagree with the list or with the plan the product enforces),
 `earnings_summary` (Stripe balance transactions via `getStripe`, month window
 in UTC, reports `complete: false` if truncated), `promo_codes_summary` (Stripe
 promotion codes, most redeemed first), `health_summary` (`loadAdminHealth`) and

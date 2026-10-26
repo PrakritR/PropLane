@@ -16,7 +16,7 @@ import {
 
 const CASES = [
   // Settings (profile) has no sidebar row anywhere — every portal reaches it
-  // only from the account menu. Admin reaches Feedback through the Support
+  // only from the account menu (admin included since Oct 25). Admin reaches Feedback through the Support
   // row's tab strip; manager/resident/vendor feedback stays embedded
   // inside Settings.
   {
@@ -28,7 +28,7 @@ const CASES = [
   {
     kind: "admin" as const,
     sections: adminPortal.sections.map((s) => s.section),
-    sidebarShowsProfile: true,
+    sidebarShowsProfile: false,
     sidebarShowsFeedback: true,
   },
   {

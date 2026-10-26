@@ -29,7 +29,6 @@ import {
   ShieldCheck,
   Star,
   Tag,
-  UserCheck,
   UserPlus,
   UserCog,
   Wallet,
@@ -51,7 +50,6 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   "axis-users": Users,
   "test-accounts": ShieldCheck,
   // Admin Money (plan admin-money-1008). `payments` is the shared CreditCard above.
-  subscribers: UserCheck,
   "unassigned-leads": UserPlus,
   service: Briefcase,
   "proplane-line": Phone,

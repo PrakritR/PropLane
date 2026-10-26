@@ -40,6 +40,7 @@ export function workOrderCategoryForMarketplace(
     ["hvac", "hvac"],
     ["appliance", "appliance"],
     ["cleaning", "cleaning"],
+    ["tour", "tours"],
     ["access", "access"],
     ["lock", "access"],
     ["general", "general"],

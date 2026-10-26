@@ -15,6 +15,7 @@ const FIND_WORK_CATEGORIES = [
   "cleaning",
   "mold",
   "access",
+  "tours",
 ] as const satisfies readonly NonNullable<DemoManagerWorkOrderRow["category"]>[];
 
 export const FIND_WORK_TRADE_OPTIONS: Array<{ value: string; label: string }> = FIND_WORK_CATEGORIES.map((value) => ({

@@ -64,7 +64,7 @@ function world(extra: Record<string, Row[]> = {}): FakeDb {
   return createFakeDb({
     profiles: [{ id: "u-own", email: "own@x.com", phone: FROM, phone_verified_at: VERIFIED }],
     portal_workspaces: [
-      { id: "ws-a", name: "Brooklyn Homes", owner_user_id: "u-own", is_default: true, is_service: false },
+      { id: "ws-a", name: "Brooklyn Homes", owner_user_id: "u-own", is_default: true, is_service: true },
       { id: "ws-line", name: "PropLane Homes", owner_user_id: LINE_OWNER, is_default: true, is_service: true },
     ],
     manager_property_records: [
@@ -101,6 +101,11 @@ function world(extra: Record<string, Row[]> = {}): FakeDb {
     ...extra,
   });
 }
+
+/** A managed client who pays for their own plan: not view only, so a change request is pointed at their work number. */
+const SELF_PAID = {
+  manager_purchases: [{ user_id: "u-own", tier: "pro", stripe_subscription_id: "sub_1", subscription_status: "active", first_paid_at: "2026-01-01T00:00:00.000Z" }],
+};
 
 const run = (db: FakeDb, body: string, over: Record<string, unknown> = {}) =>
   handleLineMemberText(db as never, { fromPhone: FROM, body, phoneKey: KEY, mode: "service_line", lineOwnerUserId: LINE_OWNER, now: NOW, ...over } as never);
@@ -196,7 +201,7 @@ describe("an owner texting the PropLane line", () => {
   });
 
   it("declines a change and says where to make it; nothing is written", async () => {
-    const db = world();
+    const db = world(SELF_PAID);
     const nonEmpty = () => JSON.stringify(Object.fromEntries(Object.entries(db.tables).filter(([, rows]) => rows.length > 0)));
     const before = nonEmpty();
     const result = await run(db, "mark room 3 at 5259 rented to Sam");
@@ -218,8 +223,8 @@ describe("several workspaces: ask once, remember the answer", () => {
   function two() {
     const db = world({
       portal_workspaces: [
-        { id: "ws-a", name: "Brooklyn Homes", owner_user_id: "u-own", is_default: true, is_service: false },
-        { id: "ws-b", name: "Eighth Ave Co", owner_user_id: "u-own", is_default: false, is_service: false },
+        { id: "ws-a", name: "Brooklyn Homes", owner_user_id: "u-own", is_default: true, is_service: true },
+        { id: "ws-b", name: "Eighth Ave Co", owner_user_id: "u-own", is_default: false, is_service: true },
         { id: "ws-line", name: "PropLane Homes", owner_user_id: LINE_OWNER, is_default: true, is_service: true },
       ],
     });
@@ -470,7 +475,7 @@ describe("keywords and emergencies from a known member are never answered with a
 
 describe("a member's request or problem is not answered with a status dump", () => {
   it("points a free-form request at the work number and the portal, and tells the team once", async () => {
-    const result = await run(world(), "can you get a locksmith to copy the spare key for Sam", { messageSid: "SM1" });
+    const result = await run(world(SELF_PAID), "can you get a locksmith to copy the spare key for Sam", { messageSid: "SM1" });
     expect(result.handled && result.reply).toContain("text your work number +12065550111 or use the portal");
     expect(result.handled && result.reply).not.toContain("rooms occupied");
     expect(alerts).toHaveBeenCalledTimes(1);
@@ -478,7 +483,7 @@ describe("a member's request or problem is not answered with a status dump", () 
   });
 
   it("a problem report with a status word in it (broken, leaking) is a report, not a services overview", async () => {
-    const result = await run(world(), "the dishwasher is broken at 5259");
+    const result = await run(world(SELF_PAID), "the dishwasher is broken at 5259");
     expect(result.handled && result.reply).toContain("or use the portal");
     expect(result.handled && result.reply).not.toContain("open service");
     expect(alerts).toHaveBeenCalledTimes(1);
@@ -503,5 +508,36 @@ describe("a member's request or problem is not answered with a status dump", () 
     const named = await run(world(), "5259 Brooklyn");
     expect(named.handled && named.reply).toContain("Brooklyn Homes, October");
     expect(alerts).not.toHaveBeenCalled();
+  });
+});
+
+describe("a workspace's team role is read over EVERY seat it holds", () => {
+  // Two accepted seat rows can land on the same workspace: one pinned to it, one legacy row with no workspace_id that
+  // resolves through the inviter's default workspace. A viewer seat among them makes the workspace a viewer.
+  const seats = (rows: Row[]) =>
+    createFakeDb({
+      profiles: [{ id: "u-mate", email: "mate@x.com", phone: FROM, phone_verified_at: VERIFIED }],
+      portal_workspaces: [{ id: "ws-1", name: "Elm Rentals", owner_user_id: "own-1", is_default: true, is_service: true }],
+      account_link_invites: rows,
+      manager_property_records: [],
+    });
+
+  const seat = (id: string, role: string, workspaceId: string | null): Row => ({
+    id,
+    inviter_user_id: "own-1",
+    invitee_user_id: "u-mate",
+    workspace_id: workspaceId,
+    status: "accepted",
+    team_role: role,
+  });
+
+  it("a viewer seat seen second still makes the workspace a viewer", async () => {
+    const db = seats([seat("i1", "property_manager", "ws-1"), seat("i2", "viewer", null)]);
+    expect((await listLineMemberships(db as never, "u-mate"))?.map((m) => [m.workspaceId, m.kind, m.teamRole])).toEqual([["ws-1", "teammate", "viewer"]]);
+  });
+
+  it("a single non-viewer seat keeps its own role", async () => {
+    const db = seats([seat("i1", "property_manager", "ws-1")]);
+    expect((await listLineMemberships(db as never, "u-mate"))?.map((m) => m.teamRole)).toEqual(["property_manager"]);
   });
 });

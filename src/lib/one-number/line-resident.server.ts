@@ -7,6 +7,7 @@ import { isHousingSearchText, isPayLinkText } from "@/lib/one-number/line-intent
 import { portalSignInHref } from "@/lib/one-number/link-destinations.server";
 import { decideFromCandidates } from "@/lib/one-number/router.server";
 import { findResidentCandidates, findVerifiedProfileByPhone } from "@/lib/one-number/router-lookups.server";
+import { classifyLineWorkspaces } from "@/lib/one-number/self-serve-line.server";
 import { loadSharedLineSession, saveSharedLinePending, saveSharedLineRoute } from "@/lib/one-number/session.server";
 import { toGsm7 } from "@/lib/one-number/segments";
 import { formatSmsLinks } from "@/lib/sms/link-format";
@@ -27,7 +28,8 @@ import { residentSendMyLinkTool } from "@/lib/tools/domains/one-number-links";
  *
  * Anything else a resident says on the line (a housing search, a repair, a lease question) is `handled: false`: the
  * PropLane line keeps answering it exactly as before. Residents of the line owner's own workspace are not here: the
- * work-number resident agent has the same link tool.
+ * work-number resident agent has the same link tool. Only residents of PropLane-MANAGED workspaces (`is_service`) are
+ * answered; a self-serve workspace's residents are pointed at their manager's own number (`line-inbound.server.ts`).
  */
 
 export type LineResidentResult = { handled: false } | { handled: true; reply: string; residentUserId: string };
@@ -50,9 +52,14 @@ export async function handleLineResidentText(
 
   const profile = await findVerifiedProfileByPhone(db, input.fromPhone).catch(() => null);
   if (!profile) return { handled: false };
-  const residencies = (await findResidentCandidates(db, input.fromPhone).catch(() => [] as SharedLineCandidate[]))
-    .filter((c) => c.ownerUserId !== input.lineOwnerUserId)
-    .map(candidateOf);
+  const found = (await findResidentCandidates(db, input.fromPhone).catch(() => [] as SharedLineCandidate[])).filter(
+    (c) => c.ownerUserId !== input.lineOwnerUserId,
+  );
+  // The line serves homes PropLane manages: a residency in a self-serve workspace is not answered here (the line's
+  // self-serve answer points that resident at their own manager's number). Unreadable counts as self-serve.
+  const kinds = found.length ? await classifyLineWorkspaces(db, found.map((c) => c.workspaceId), input.lineOwnerUserId).catch(() => null) : new Map();
+  if (!kinds) return { handled: false };
+  const residencies = found.filter((c) => kinds.get(c.workspaceId) === "managed").map(candidateOf);
   if (residencies.length === 0) return { handled: false };
   // An answer to our question only counts when we really asked one (several residencies) and the text is not a new topic.
   if (!payAsk && residencies.length < 2) return { handled: false };

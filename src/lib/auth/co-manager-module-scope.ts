@@ -15,6 +15,7 @@ import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadWorkspaces } from "@/lib/workspaces/server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
+import { loadServiceOwnerSeats } from "@/lib/property-owner/service-owner-seat.server";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -56,6 +57,9 @@ export async function linkedOwnerForProperty(
   for (const row of data ?? []) {
     const ids = Array.isArray(row.assigned_property_ids) ? row.assigned_property_ids.map(String) : [];
     if (ids.includes(pid) && row.inviter_user_id) return String(row.inviter_user_id);
+  }
+  for (const seat of await loadServiceOwnerSeats(db, userId)) {
+    if (seat.assigned_property_ids.includes(pid)) return seat.inviter_user_id;
   }
   return null;
 }
@@ -106,7 +110,8 @@ export async function linkedOwnerScopeForModule(
     if (viewerError && options.throwOnError) throw viewerError;
     const viewerEmail = String(viewerProfile?.email ?? "").trim();
 
-    const { data: linkRows, error } = withoutOwnerLinks(await db
+    // eslint-disable-next-line prefer-const -- the owner-of-record seats are appended below
+    let { data: linkRows, error } = withoutOwnerLinks(await db
       .from("account_link_invites")
       .select(`inviter_user_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
@@ -115,6 +120,8 @@ export async function linkedOwnerScopeForModule(
       if (options.throwOnError) throw error;
       return { ownerIds, propertyIds, propertyIdsByOwner };
     }
+    // The owner of record of a PropLane Service workspace reaches all of its houses, view only (derived).
+    linkRows = [...(linkRows ?? []), ...(await loadServiceOwnerSeats(db, userId, { strict: options.throwOnError === true }))];
 
     const inviterIds = [
       ...new Set(

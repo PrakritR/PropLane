@@ -6,10 +6,11 @@ export const adminPortal: PortalDefinition = {
   basePath: "/admin",
   title: "Admin Portal",
   accent: "blue",
-  // Order is the sidebar's: Settings, Dashboard, Communication · Property management · Software · Support, Growth
+  // Order is the sidebar's: Dashboard, Communication · Software (Accounts, Money, Service) · Support, Growth
   // (`ADMIN_GROUPS` in nav-groups.ts buckets these; a test pins every id exactly once).
   sections: [
-    // Admin Settings is the first tab and the `/admin` landing (captain, Oct 18); content unchanged.
+    // Admin Settings is the `/admin` landing and routable, but has no sidebar row (captain, Oct 25): it is the first
+    // item of the account menu (nav-groups.ts leaves `profile` unassigned, so the sidebar excludes it).
     { section: "profile", label: "Settings", tabs: [] },
     { section: "dashboard", label: "Dashboard", tabs: [] },
     // One inbox, no folder tabs. Unopened / Opened / Sent / Trash described the
@@ -20,18 +21,9 @@ export const adminPortal: PortalDefinition = {
     // Labeled "Communication" to match the manager portal's own nav (it was
     // "Inbox" here only).
     { section: "communication", label: "Communication", tabs: [] },
-    // PROPERTY MANAGEMENT (PropLane's own managed portfolio, one-number W15): the all-owners Properties oversight,
-    // the service workspaces (one per city, owned by the service owner account), the PropLane line (the shared
-    // number on the website) and the strangers qualified on it who have not picked a house yet (one-number W3).
-    { section: "properties", label: "Properties", tabs: [] },
-    { section: "service", label: "Service", tabs: [] },
-    { section: "proplane-line", label: "PropLane line", tabs: [] },
-    { section: "unassigned-leads", label: "Unassigned leads", tabs: [] },
-    // SOFTWARE (the subscriptions PropLane sells): Accounts, Subscribers, Payments, Promo codes, Finances.
+    // SOFTWARE: Accounts, Money (Payments, Promo codes, Finances, Managed funds) and Service.
     { section: "axis-users", label: "Accounts", tabs: [] },
-    // Who pays, who is on a trial, who came in on a promo code - decided by the resolvers
-    // enforcement uses (`admin-subscribers-model.ts`).
-    { section: "subscribers", label: "Subscribers", tabs: [] },
+    // Operator-only; reached from the "Test" tab of Accounts, never a sidebar row.
     { section: "test-accounts", label: "Test accounts", tabs: [] },
     // Money: a live read of PropLane's platform Stripe account, the promo codes that discount it and
     // the P&L (plan admin-money-1008). `/admin/payments` used to be a dead redirect to the
@@ -41,6 +33,15 @@ export const adminPortal: PortalDefinition = {
     { section: "finances", label: "Finances", tabs: [] },
     // PropLane-held owner and vendor funds: platform cash, what is owed, fee policies per managed workspace (owner management).
     { section: "managed-finance", label: "Managed funds", tabs: [] },
+    // SERVICE (PropLane's own managed portfolio, one-number W15) is ONE sidebar row (`ADMIN_SECTION_TABS.service`)
+    // whose tabs are these three sections: the service workspaces (one per city, owned by the service owner account;
+    // the tab is labelled Workspaces and keeps its own Workspaces / Vendors / Network tabs), the PropLane line (the
+    // shared number on the website) and the strangers qualified on it who have not picked a house yet (one-number W3).
+    // The all-owners Properties list (`/admin/properties`) and Subscribers are gone: Accounts › Managers carries the
+    // Plan filter that Subscribers answered.
+    { section: "service", label: "Workspaces", tabs: [] },
+    { section: "proplane-line", label: "PropLane line", tabs: [] },
+    { section: "unassigned-leads", label: "Unassigned leads", tabs: [] },
     { section: "bugs-feedback", label: "Feedback", tabs: [] },
     { section: "events", label: "Meetings", tabs: [] },
     // Failed deliveries and stuck work, grouped by kind (GET /api/admin/health).
@@ -73,13 +74,11 @@ export const ADMIN_PORTAL_SMOKE_PATHS = [
   { label: "Settings", path: "/admin/profile" },
   { label: "Dashboard", path: "/admin/dashboard" },
   { label: "Communication", path: "/admin/communication" },
-  { label: "Properties", path: "/admin/properties" },
   { label: "Service", path: "/admin/service" },
   { label: "PropLane line", path: "/admin/proplane-line" },
   { label: "Unassigned leads", path: "/admin/unassigned-leads" },
   { label: "Managed funds", path: "/admin/managed-finance" },
   { label: "Accounts", path: "/admin/axis-users" },
-  { label: "Subscribers", path: "/admin/subscribers" },
   { label: "Payments", path: "/admin/payments" },
   { label: "Promo codes", path: "/admin/promo-codes" },
   { label: "Finances", path: "/admin/finances" },

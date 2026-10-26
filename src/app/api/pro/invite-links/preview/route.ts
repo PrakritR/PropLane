@@ -10,10 +10,11 @@ export const runtime = "nodejs";
 /**
  * What an opener sees before signing in or accepting.
  *
- * Anyone holding the URL can call this, so it returns the inviter's name and
- * the property labels the link covers and nothing else — never the owner's
- * other holdings, never the permission map. A bad token is a flat 404 so the
- * endpoint is not an oracle for guessing valid ones.
+ * Anyone holding the URL can call this, so it returns the inviter's name, the
+ * property labels the link covers and — on a bound service invite — the one
+ * email the link was sent to, so the sign-up field can be prefilled and locked
+ * to it; never the owner's other holdings, never the permission map. A bad token
+ * is a flat 404 so the endpoint is not an oracle for guessing valid ones.
  */
 export async function POST(req: Request) {
   if (!(await rateLimit(`invite-preview-ip:${clientIpFrom(req)}`, 30, 60_000)).ok) {
@@ -40,6 +41,7 @@ export async function POST(req: Request) {
     houseCount: preview.houseCount ?? preview.propertyLabels.length,
     canDo: preview.canDo ?? null,
     access: preview.access ?? null,
+    inviteeEmail: preview.inviteeEmail ?? null,
     unusableReason: preview.unusableReason,
     ...(user ? { ownerUserId: preview.ownerUserId } : {}),
   });

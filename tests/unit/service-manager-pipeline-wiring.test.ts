@@ -23,7 +23,31 @@ describe("service manager wiring", () => {
     expect(pipeline).toMatch(/\.\.\.\(serviceScopes \? \{ scopes: serviceScopes \} : \{\}\)/);
     expect(pipeline).toMatch(/teamRoute = serviceManager \? \{ kind: "agent", text: body \}/);
     expect(pipeline).toMatch(/pickServiceWorkspace\(db, \{ fromPhone, body: agentBody, workspaces \}\)/);
-    expect(pipeline).toMatch(/buildServiceManagerAgentContext\(db, \{ serviceOwnerId: managerInbound\.actorUserId, workspace: picked\.workspace \}\)/);
+    expect(pipeline).toMatch(/buildServiceManagerAgentContext\(db, \{ serviceOwnerId: managerInbound\.actorUserId, workspace: picked\.workspace, seat \}\)/);
+  });
+
+  it("an admin's dispatch approvals reach every service workspace; a seat holder's reach only their own", () => {
+    expect(pipeline).toMatch(/const serviceScopes = serviceManager\?\.basis === "admin"/);
+    expect(pipeline).toMatch(/listServiceWorkspacesFor\(db, serviceManager\)/);
+  });
+
+  it("a seat with no houses is told so; writes on the PropLane line still need the coded confirmation", () => {
+    expect(pipeline).toMatch(/built\.reason === "no_houses"/);
+    expect(pipeline).toMatch(/I do not see any houses assigned to you in/);
+    expect(pipeline).toMatch(/const onPropLaneLine = managerInbound\s*\?\s*Boolean\(serviceManager\)/);
+    expect(pipeline).toMatch(/requireConfirmationCode: onPropLaneLine/);
+  });
+
+  it("the first-text role question runs after the sign-up flow and before the vendor line and the leasing fallback", () => {
+    const signup = pipeline.indexOf("handlePropLaneLineSignupInbound(db, {");
+    const question = pipeline.indexOf("handleRoleQuestionInbound(db, {");
+    const vendor = pipeline.indexOf("handlePropLaneLineVendorInbound(db, {");
+    const leasing = pipeline.indexOf("handleClawLeasingInbound({");
+    expect(signup).toBeGreaterThan(-1);
+    expect(question).toBeGreaterThan(signup);
+    expect(vendor).toBeGreaterThan(question);
+    expect(leasing).toBeGreaterThan(vendor);
+    expect(pipeline).toMatch(/force: senderSaidVendor/);
   });
 
   it("the manager notice spine texts the service manager for the notice's workspace", () => {

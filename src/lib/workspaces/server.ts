@@ -18,6 +18,7 @@ import {
   type PropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
 import { lockedOwnedServiceWorkspaceIds } from "@/lib/auth/managed-read-only.server";
+import { loadServiceOwnerSeats } from "@/lib/property-owner/service-owner-seat.server";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import { maxResidentsForManagerTier } from "@/lib/manager-access";
 import { EMPTY_PLAN_ADDON_QUANTITIES } from "@/lib/plan-addons";
@@ -40,7 +41,20 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
       .eq("invitee_user_id", userId).eq("status", "accepted"),
   ]);
   if (owned.error || links.error) throw new Error("Could not load workspace access. Please retry.");
-  const participantIds = [...new Set([userId, ...(links.data ?? []).map((link) => link.inviter_user_id)])];
+  // The owner of record of a PropLane Service workspace sees all of it, view only: derived from the seat flag and
+  // `is_service` at read time (never written into the row), replacing the seat's own owner-keys-only grant.
+  let serviceOwnerSeats: Awaited<ReturnType<typeof loadServiceOwnerSeats>>;
+  try {
+    serviceOwnerSeats = await loadServiceOwnerSeats(db, userId, { strict: true });
+  } catch {
+    throw new Error("Could not load workspace access. Please retry.");
+  }
+  const derivedSeatIds = new Set(serviceOwnerSeats.map((seat) => seat.id));
+  const memberLinks = [
+    ...(links.data ?? []).filter((link) => !derivedSeatIds.has(String((link as { id?: unknown }).id ?? ""))),
+    ...serviceOwnerSeats,
+  ] as typeof links.data & object;
+  const participantIds = [...new Set([userId, ...memberLinks.map((link) => link.inviter_user_id)])];
   const profiles = await db.from("profiles").select("id,email,full_name").in("id", participantIds);
   if (profiles.error) throw new Error("Could not verify workspace participants. Please retry.");
   const emails = new Map((profiles.data ?? []).map((p) => [p.id, p.email ?? ""]));
@@ -60,7 +74,7 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
   // The viewer's standing in every workspace they were invited into: the role
   // on THAT workspace's membership row, and the rights the role carries.
   const standingByWorkspace = new Map<string, { role: TeamRoleId; houseScope: HouseScope; rights: WorkspaceRights }>();
-  for (const link of links.data ?? []) {
+  for (const link of memberLinks) {
     if (!emails.has(userId) || !emails.has(link.inviter_user_id)) continue;
     if (isCrossSandboxPortalPair(emails.get(userId)!, emails.get(link.inviter_user_id)!)) continue;
     const ids = asStringArray(link.assigned_property_ids);

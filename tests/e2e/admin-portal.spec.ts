@@ -6,7 +6,7 @@ const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
 
 const ADMIN_SECTIONS = [
   { label: "Dashboard", path: "/admin/dashboard" },
-  { label: "Properties", path: "/admin/properties" },
+  { label: "Service", path: "/admin/service" },
   { label: "Events", path: "/admin/events" },
   // Communication unified: the legacy `email`/`sms` channel segments now redirect
   // to the canonical `inbox` segment (see render-portal-section.tsx and
@@ -162,8 +162,9 @@ test.describe("Admin portal", () => {
     await expect(page.getByRole("heading", { name: "Feedback", exact: true, level: 1 })).toBeVisible({ timeout: 15_000 });
   });
 
-  test("properties section loads", async ({ page }) => {
+  test("the retired properties URL redirects to the Service row", async ({ page }) => {
     await page.goto("/admin/properties");
+    await expect(page).toHaveURL(/\/admin\/service/, { timeout: 15_000 });
     await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
   });
 

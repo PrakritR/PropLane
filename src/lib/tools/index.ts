@@ -129,6 +129,8 @@ import { listDocumentsTool } from "./domains/documents";
 import { managerFinancialsWriteTools } from "./domains/financials-write";
 import { managerServicesWriteTools } from "./domains/services-write";
 import { managerDispatchTools } from "./domains/vendor-dispatch";
+import { managerVendorMessageTools } from "./domains/vendor-message";
+import { managerServiceBoardTools } from "./domains/service-board";
 import { managerAnnounceTools } from "./domains/announce";
 import { confirmTourInquiryTool } from "./domains/tours-write";
 import { prepareShortStayTool, quoteShortStaysTool, requestShortStayTool } from "./domains/short-stay-sms";
@@ -289,6 +291,9 @@ export const agentRegistry = buildRegistry([
   ...managerServicesWriteTools,
   // Vendor dispatch: the manager approves a waiting run by name, or sends a role to an existing service.
   ...managerDispatchTools,
+  // Text one roster vendor, and post an open service (or a tour-host job) to the public work board.
+  ...managerVendorMessageTools,
+  ...managerServiceBoardTools,
   // Announcements to house groups (or each resident one on one when a house has no group).
   ...managerAnnounceTools,
   // Bookings reads + room-block writes (calendar area). remove_room_block is destructive.
@@ -373,15 +378,18 @@ export function buildManagerSmsRegistry(
         !MANAGER_SMS_DEEP_LINK_ONLY_TOOLS.includes(tool.name),
     ),
   );
-  if (access?.mode !== "delegated" && !access?.workspacePropertyIds) return managerSmsRegistry;
+  // A read-only seat gets no write tool at all (not even an inline one such as update_thread): nothing can be proposed.
+  const forAccess = (registry: ToolRegistry<AgentContext>): ToolRegistry<AgentContext> =>
+    access?.readOnly ? buildRegistry([...registry.values()].filter((tool) => tool.kind !== "write")) : registry;
+  if (access?.mode !== "delegated" && !access?.workspacePropertyIds) return forAccess(managerSmsRegistry);
   if (access?.mode !== "delegated") {
-    return buildRegistry(
+    return forAccess(buildRegistry(
       [...managerSmsRegistry.values()].filter((tool) => !delegatedSmsWithholdsTool(tool.name)),
-    );
+    ));
   }
-  return buildRegistry(
+  return forAccess(buildRegistry(
     [...managerSmsRegistry.values()].filter((tool) => CO_MANAGER_SCOPED_TOOLS.has(tool.name) && !delegatedSmsWithholdsTool(tool.name)),
-  );
+  ));
 }
 
 /**

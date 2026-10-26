@@ -139,9 +139,9 @@ function sharedFailureError(reason: string, detail?: string): string {
  * Send a text to a phone, from the line of the workspace it concerns, and say what happened.
  *
  *   1. the workspace is on the PropLane line (shared mode): the shared-line sender;
- *   2. else the workspace's own work number;
- *   3. a workspace of PropLane's own service (`is_service`) with no number of its own texts from the service
- *      owner's line (its default workspace's number), the PropLane line in per-workspace mode;
+ *   2. a workspace of PropLane's own service (`is_service`) always texts on the PropLane line - the shared number, or
+ *      in per-workspace mode the service owner's line - even when it still holds a number of its own (Oct 25);
+ *   3. else the workspace's own work number;
  *   4. anything else with no number of its own is refused with `workspace_has_no_work_number` (one number
  *      per workspace; a workspace never borrows another customer's line).
  */
@@ -162,12 +162,11 @@ export async function sendWorkspaceText(
   if (!to) return { ok: false, error: "invalid_to" };
   const { data: workspace, error } = await db
     .from("portal_workspaces")
-    .select("id, owner_user_id, is_service")
+    .select("id, owner_user_id")
     .eq("id", input.workspaceId)
     .maybeSingle();
   const ownerUserId = String((workspace as Record<string, unknown> | null)?.owner_user_id ?? "").trim();
   if (error || !ownerUserId) return { ok: false, error: "workspace_unavailable" };
-  const isService = (workspace as Record<string, unknown>).is_service === true;
   const delivery = deliveryForBasis(input.basis, ownerUserId, to);
   if (input.basis.kind === "vendor_notice" && input.basis.requestLinkId) {
     const allowed = await ensureVendorLinkRequestConsent(db, {
@@ -223,13 +222,11 @@ export async function sendWorkspaceText(
       skipLog: !delivery.logToThread,
     });
   // The workspace's own line, when it has one, is chosen by id so a non-default workspace never texts from
-  // the owner's default line by accident.
+  // the owner's default line by accident. A PropLane-managed workspace (`is_service`) texts on the PropLane line in both
+  // modes: `resolveWorkspaceSendLine` and the dispatcher's readiness check both resolve it there, and a line that cannot be
+  // resolved refuses the send (no retry on the owner's default line, which could be the old number).
   const own = await resolveWorkspaceSendLine(db, ownerUserId, input.workspaceId).catch(() => null);
-  let sent = await viaLine(input.workspaceId, input.propertyId ?? null, own?.numberId ?? null);
-  if (!sent.ok && isService && String(sent.error ?? "").includes("workspace_has_no_work_number")) {
-    // PropLane's own service has no line per workspace: it texts from the service owner's.
-    sent = await viaLine(null, null, null);
-  }
+  const sent = await viaLine(input.workspaceId, input.propertyId ?? null, own?.numberId ?? null);
   return { ok: sent.ok, ...(sent.error ? { error: sent.error } : {}), ...(sent.outboxId ? { outboxId: sent.outboxId } : {}) };
 }
 

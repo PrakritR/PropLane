@@ -74,7 +74,9 @@ async function sendOwnVendorViaServiceLine(
   // (the same value as `consent_unavailable`), exactly as for any other unreadable precondition.
   let ownLine: Awaited<ReturnType<typeof resolveWorkspaceSendLine>>;
   try {
-    ownLine = await resolveWorkspaceSendLine(db, input.ownerUserId, input.workspaceId, { failClosed: true });
+    // `ownLineOnly`: the question is whether the workspace holds a number of ITS OWN, not whether it can reach the PropLane
+    // line (every managed workspace can; the final from-number is the PropLane line either way).
+    ownLine = await resolveWorkspaceSendLine(db, input.ownerUserId, input.workspaceId, { failClosed: true, ownLineOnly: true });
   } catch {
     return { ok: false, reason: "workspace_line_unreadable" };
   }

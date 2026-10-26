@@ -136,7 +136,7 @@ export function AdminDashboard() {
                 <KpiCard
                   label="MRR"
                   value={formatAdminUsd(overview.money.mrrCents, { whole: true })}
-                  href="/admin/subscribers?tab=paid"
+                  href="/admin/axis-users?category=management&plan=paid"
                   dataAttr="admin-dashboard-kpi-mrr"
                 />
               ) : null}
@@ -160,7 +160,7 @@ export function AdminDashboard() {
                 <KpiCard
                   label="Paid subscribers"
                   value={String(overview.money.paidSubscribers)}
-                  href="/admin/subscribers?tab=paid"
+                  href="/admin/axis-users?category=management&plan=paid"
                   dataAttr="admin-dashboard-kpi-paid"
                 />
               ) : null}
@@ -168,7 +168,7 @@ export function AdminDashboard() {
                 <KpiCard
                   label="On trial"
                   value={String(overview.money.onTrial)}
-                  href="/admin/subscribers?tab=trial"
+                  href="/admin/axis-users?category=management&plan=trial"
                   dataAttr="admin-dashboard-kpi-trial"
                 />
               ) : null}
@@ -176,7 +176,7 @@ export function AdminDashboard() {
                 <KpiCard
                   label="Promo users"
                   value={String(overview.money.promoUsers)}
-                  href="/admin/subscribers?tab=promo"
+                  href="/admin/axis-users?category=management&plan=promo"
                   dataAttr="admin-dashboard-kpi-promo"
                 />
               ) : null}

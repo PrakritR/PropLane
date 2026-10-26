@@ -62,16 +62,19 @@ describe("a rent text leaves from the line of the workspace that holds the house
     expect(mocks.shared.mock.calls[0]![1].delivery).toMatchObject({ sendClass: "automated", purpose: "weekly_rent_reminder" });
   });
 
-  it("PropLane's own service workspace with no number of its own texts from the service owner's line", async () => {
-    mocks.workNumber
-      .mockResolvedValueOnce({ ok: false, error: "workspace_has_no_work_number" })
-      .mockResolvedValueOnce({ ok: true, outboxId: "ob-2" });
-    mocks.line.mockResolvedValue(null);
+  it("PropLane's own service workspace texts on the PropLane line: one send pinned to the workspace, never a retry on the owner's default line", async () => {
+    mocks.line.mockResolvedValue({ phoneNumber: "+12065550100", numberId: null });
     const result = await rent(world("per_workspace", { isService: true }));
-    expect(result).toEqual({ ok: true, outboxId: "ob-2" });
-    expect(mocks.workNumber).toHaveBeenCalledTimes(2);
-    expect(mocks.workNumber.mock.calls[1]![0]).not.toHaveProperty("workspaceId");
-    expect(mocks.workNumber.mock.calls[1]![0]).not.toHaveProperty("selectedWorkLineId");
+    expect(result).toEqual({ ok: true, outboxId: "ob-1" });
+    expect(mocks.workNumber).toHaveBeenCalledTimes(1);
+    expect(mocks.workNumber.mock.calls[0]![0]).toMatchObject({ workspaceId: WS, managerUserId: "owner-a" });
+  });
+
+  it("a service workspace whose PropLane line cannot be resolved is refused, with no second send that could leave on an old number", async () => {
+    mocks.workNumber.mockResolvedValue({ ok: false, error: "workspace_has_no_work_number" });
+    mocks.line.mockResolvedValue(null);
+    expect(await rent(world("per_workspace", { isService: true }))).toEqual({ ok: false, error: "workspace_has_no_work_number" });
+    expect(mocks.workNumber).toHaveBeenCalledTimes(1);
   });
 
   it("any other workspace with no number of its own is refused, never given another customer's line", async () => {

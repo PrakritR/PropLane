@@ -155,6 +155,18 @@ const nextConfig: NextConfig = {
       { source: "/admin/leasing/:path*", destination: "/admin/dashboard", permanent: false },
       { source: "/admin/leases", destination: "/admin/dashboard", permanent: false },
       { source: "/admin/leases/:path*", destination: "/admin/dashboard", permanent: false },
+      // Oct 25: the all-owners Properties list and Subscribers are gone. Properties' successor is the Service row;
+      // Subscribers' is Accounts > Managers with the Plan filter (an old `?tab=paid|trial|promo|free` link keeps its bucket).
+      { source: "/admin/properties", destination: "/admin/service", permanent: false },
+      { source: "/admin/properties/:path*", destination: "/admin/service", permanent: false },
+      {
+        source: "/admin/subscribers",
+        has: [{ type: "query", key: "tab", value: "(?<plan>paid|trial|promo|free)" }],
+        destination: "/admin/axis-users?category=management&plan=:plan",
+        permanent: false,
+      },
+      { source: "/admin/subscribers", destination: "/admin/axis-users", permanent: false },
+      { source: "/admin/subscribers/:path*", destination: "/admin/axis-users", permanent: false },
       // NOTE: do NOT redirect /admin/bugs-feedback — "Feedback" is a live admin nav
       // section (portals/admin.ts) rendered by AdminBugFeedbackClient. A legacy
       // redirect here shadows the route before it ever reaches the app router.

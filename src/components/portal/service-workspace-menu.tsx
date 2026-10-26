@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, Check, ChevronDown, Plus } from "lucide-react";
+import { Check, ChevronDown, Plus } from "lucide-react";
 import Link from "next/link";
 import { AxisLogoGlyph } from "@/components/brand/axis-logo";
 import { AdminNewServiceWorkspace } from "@/components/portal/admin-new-service-workspace";
@@ -18,12 +18,11 @@ import { serviceTileTitle, type ServiceShellData } from "@/lib/service/service-m
 /**
  * The phone's way to switch workspaces in the admin portal and in service mode (the desktop rail is hidden below lg):
  * the top bar's left slot, in the manager `WorkspaceSwitcher` mobile look - tile, current name, chevron. Rows: PropLane
- * (admins; the software overview), each service workspace the viewer can open (city as a plain fact), the way back
- * into the viewer's own Property portal while a service workspace is open (the desktop rail keeps it in the account
- * menu), then New workspace (admins). An open is the rail's own `open`; the server authorizes every one.
+ * (admins; the software overview), each service workspace the viewer can open (city as a plain fact), then New
+ * workspace (admins). Service mode is still the admin portal, so there is no Property portal row. An open is the rail's own `open`; the server authorizes every one.
  */
 export function ServiceWorkspaceMenu({ service }: { service: ServiceShellData }) {
-  const { createOpen, setCreateOpen, busyId, open, switchToProperty, onCreated } = useServiceWorkspaceOpen(service);
+  const { createOpen, setCreateOpen, busyId, open, onCreated } = useServiceWorkspaceOpen(service);
   const labels = workspaceTileLabels(service.workspaces.map((w) => w.name));
   const activeIndex = service.workspaces.findIndex((w) => w.id === service.activeId);
   const active = activeIndex >= 0 ? service.workspaces[activeIndex]! : null;
@@ -95,19 +94,6 @@ export function ServiceWorkspaceMenu({ service }: { service: ServiceShellData })
               </DropdownMenuItem>
             );
           })}
-          {switchToProperty ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                disabled={busyId !== null}
-                data-attr="service-workspace-menu-property-portal"
-                onSelect={() => void switchToProperty()}
-              >
-                <Building2 className="size-4" aria-hidden />
-                <span className="min-w-0 flex-1">Switch to Property portal</span>
-              </DropdownMenuItem>
-            </>
-          ) : null}
           {service.isAdmin ? (
             <>
               <DropdownMenuSeparator />
