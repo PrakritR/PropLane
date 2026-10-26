@@ -9,7 +9,7 @@ import { PortalHelpPanel } from "@/components/portal/portal-help-panel";
 import { WorkspaceCreateJoinDialog } from "@/components/portal/workspace-create-join-dialog";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { usePortalSession } from "@/hooks/use-portal-session";
-import { openServiceWorkspace } from "@/lib/service/open-service-workspace";
+import { openServiceWorkspace, switchToPropertyPortal } from "@/lib/service/open-service-workspace";
 import type { ServiceRailWorkspace, ServiceShellData } from "@/lib/service/service-mode";
 import { ServiceRailTiles } from "@/components/portal/service-rail-tiles";
 import type { PortalKind } from "@/lib/portal-types";
@@ -74,6 +74,11 @@ export function PortalWorkspaceRail({
     window.history.replaceState(null, "", query ? `${window.location.pathname}?${query}` : window.location.pathname);
   }, []);
   const isWorkspacePortal = (kind === "manager" || kind === "pro") && !service;
+  // Service mode is the ADMIN portal only for a platform admin: the rail's PropLane tile (admins only) is the way
+  // back. A helper's rail has no such tile, so their menu keeps the switcher and the way out to their own portal.
+  const adminServiceMode = Boolean(service?.activeId) && service?.isAdmin === true;
+  const helperPropertyPortalId =
+    service?.activeId && service.isAdmin !== true ? service.propertyPortalWorkspaceId : null;
   // Settings follows the workspace picked here, so switching while in Settings stays in Settings.
   const inSettings = /\/profile(\/|$)/.test(pathname ?? "");
 
@@ -193,7 +198,17 @@ export function PortalWorkspaceRail({
                 }
               : undefined
           }
-          serviceMode={Boolean(service?.activeId)}
+          serviceMode={adminServiceMode}
+          propertyPortal={
+            helperPropertyPortalId
+              ? {
+                  onSwitch: () =>
+                    void switchToPropertyPortal(helperPropertyPortalId).then((error) => {
+                      if (error) showToast(error);
+                    }),
+                }
+              : undefined
+          }
         />
       </nav>
 

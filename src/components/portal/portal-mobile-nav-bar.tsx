@@ -1,6 +1,6 @@
 "use client";
 
-import { Settings, User } from "lucide-react";
+import { Settings, User, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -11,6 +11,7 @@ import { PortalSignOutButton } from "@/components/portal/portal-sign-out-button"
 import { PortalRoleSwitcher } from "@/components/portal/portal-role-switcher";
 import { AxisLogoMark } from "@/components/brand/axis-logo";
 import { ServiceWorkspaceMenu } from "@/components/portal/service-workspace-menu";
+import { switchToPropertyPortal } from "@/lib/service/open-service-workspace";
 import { WorkspaceSwitcher } from "@/components/portal/workspace-switcher";
 import {
   DropdownMenu,
@@ -112,6 +113,9 @@ export function PortalMobileNavBar({
     };
   }, [pathname]);
 
+  // A helper's rail has no PropLane tile, so service mode keeps their switcher rows and their way back out.
+  const helperPropertyPortalId = service?.activeId && !service.isAdmin ? service.propertyPortalWorkspaceId : null;
+
   // Settings owns its pushed-screen bar on phone, including its origin-aware back action.
   if ((definition.kind === "manager" || definition.kind === "pro") && pathname === `${definition.basePath}/profile`) return null;
 
@@ -199,10 +203,24 @@ export function PortalMobileNavBar({
               Settings
             </DropdownMenuItem>
 
-            {/* Service mode is still the admin portal: no switch-portal rows, the way back is the PropLane tile. */}
-            {service?.activeId ? null : (
+            {/* For an ADMIN, service mode is still the admin portal: no switch-portal rows, the way back is the
+                PropLane row of the workspace menu. A helper has no such row, so theirs stay. */}
+            {service?.activeId && service.isAdmin ? null : (
               <PortalRoleSwitcher currentKind={definition.kind} onSwitched={() => setProfileMenuOpen(false)} />
             )}
+            {helperPropertyPortalId ? (
+              <DropdownMenuItem
+                data-attr="portal-mobile-switch-property"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setProfileMenuOpen(false);
+                  void switchToPropertyPortal(helperPropertyPortalId);
+                }}
+              >
+                <Users aria-hidden />
+                Switch to Property portal
+              </DropdownMenuItem>
+            ) : null}
 
             <DropdownMenuSeparator />
 

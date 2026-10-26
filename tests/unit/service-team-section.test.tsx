@@ -25,6 +25,12 @@ const workspace = {
   members: [],
 } as unknown as PortalWorkspace;
 
+/** What the workspace CONTEXT carries: what a helper (and a failed admin read) draws. */
+const helperWorkspace = {
+  ...workspace,
+  members: [{ linkId: "l1", userId: "u1", name: "Prakrit", email: "p@x.com", role: "admin", status: "accepted" }],
+} as unknown as PortalWorkspace;
+
 const TEAM: ServiceTeamMember[] = [
   { linkId: "l1", userId: "u1", name: "Prakrit", email: "p@x.com", role: "admin", status: "accepted", ownerOfRecord: false, delivery: "account", houseScope: "all", assignedPropertyIds: ["h1", "h2"] },
   { linkId: "l2", userId: "u2", name: "Maya", email: "", role: "property_manager", status: "pending", ownerOfRecord: false, delivery: "account", houseScope: "selected", assignedPropertyIds: ["h1"] },
@@ -78,12 +84,20 @@ describe("ServiceTeamSection", () => {
     expect(screen.queryByPlaceholderText("Email or PropLane ID")).toBeNull();
   });
 
-  it("is read-only for a helper: the team, no +, no ⋯", async () => {
-    stubFetch();
-    render(<ServiceTeamSection workspace={workspace} isAdmin={false} onChanged={vi.fn()} />);
+  it("is read-only for a helper: the context's team (the roster route is admin-only), no +, no ⋯", async () => {
+    const fetchMock = stubFetch();
+    render(<ServiceTeamSection workspace={helperWorkspace} isAdmin={false} onChanged={vi.fn()} />);
     expect(await screen.findByText("Prakrit")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Invite" })).toBeNull();
     expect(screen.queryAllByRole("button", { name: /^Actions for / })).toHaveLength(0);
+    // The admin-only route is never called for them, so a 403 can never blank the list.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the context's roster when the admin roster read fails, instead of showing an empty team", async () => {
+    stubFetch((body) => (body.action === "team" ? { ok: false, error: "Nope." } : undefined));
+    render(<ServiceTeamSection workspace={helperWorkspace} isAdmin onChanged={vi.fn()} />);
+    expect(await screen.findByText("Prakrit")).toBeTruthy();
   });
 
   it("the + opens the Invite sheet: email or PropLane ID, Role with Owner, Houses, and per-module levels", async () => {

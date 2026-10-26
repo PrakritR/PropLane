@@ -4,8 +4,8 @@
  * `POST /api/pro/account-links` and PropLane Service's team verbs (`team-invite`, `team-access`) both turn a request
  * body into (role, house scope, houses, per-house module map, flat grant, workspace rights). This is the single
  * implementation of that translation, so a service seat can never carry a shape the manager invite refuses, and the
- * rules (a forged `teamRole: "admin"` with an empty map grants nothing, an owner is never "all houses", a named role
- * rewrites the map) live in one place. It is pure: authority (who may invite, which houses belong to the workspace,
+ * rules (a forged `teamRole: "admin"` with an empty map grants nothing unless the workspace genuinely has no house
+ * yet, an owner is never "all houses", a named role rewrites the map) live in one place. It is pure: authority (who may invite, which houses belong to the workspace,
  * delegate caps) stays with the caller, between {@link parseInviteAccess} and {@link finalizeInviteGrant}.
  */
 import { asStringArray } from "@/lib/account-link-invite-row";
@@ -106,13 +106,24 @@ export type FinalInviteGrant = {
  */
 export function finalizeInviteGrant(
   body: InviteAccessInput | null | undefined,
-  input: { teamRole: TeamRoleId; propertyCoManagerPermissions: PropertyCoManagerPermissions },
+  input: {
+    teamRole: TeamRoleId;
+    propertyCoManagerPermissions: PropertyCoManagerPermissions;
+    /**
+     * Does the workspace hold any house at all? Only `false` (the caller counted and found none) excuses an empty
+     * map from the role check. Left out, the check runs: an empty map on a workspace that HAS houses is a role
+     * nobody can read, and is downgraded as before.
+     */
+    workspaceHasHouses?: boolean;
+  },
 ): FinalInviteGrant {
   let teamRole = input.teamRole;
   const propertyCoManagerPermissions = applyRoleToPropertyPermissions(teamRole, input.propertyCoManagerPermissions);
   // With no house there is no map to compare: a workspace that has no houses yet (a new PropLane Service workspace)
-  // must still invite an Admin as an Admin, not read the empty map as a Custom role with no workspace rights.
-  if (teamRole !== "custom" && Object.keys(propertyCoManagerPermissions).length > 0) {
+  // must still invite an Admin as an Admin, not read the empty map as a Custom role with no workspace rights. Every
+  // other empty map still reads as the role it really is, so a forged `teamRole` with no grant behind it gains nothing.
+  const emptyMapIsHouselessWorkspace = input.workspaceHasHouses === false;
+  if (teamRole !== "custom" && !(emptyMapIsHouselessWorkspace && Object.keys(propertyCoManagerPermissions).length === 0)) {
     const flatAfterCap = flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions);
     if (!permissionsMatchTeamRole(flatAfterCap, teamRole)) {
       teamRole = inferInviteTeamRole(propertyCoManagerPermissions);

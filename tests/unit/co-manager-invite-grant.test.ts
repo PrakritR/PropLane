@@ -44,10 +44,16 @@ describe("restampInviteHouses / finalizeInviteGrant", () => {
     expect(Object.keys(map)).toEqual(["h1", "h2"]);
   });
 
-  it("an Admin invited with no house yet stays an Admin (an empty map is not a Custom role)", () => {
-    const final = finalizeInviteGrant({}, { teamRole: "admin", propertyCoManagerPermissions: {} });
+  it("an Admin invited into a workspace with no house yet stays an Admin (nothing to compare the role to)", () => {
+    const final = finalizeInviteGrant({}, { teamRole: "admin", propertyCoManagerPermissions: {}, workspaceHasHouses: false });
     expect(final.teamRole).toBe("admin");
     expect(final.workspacePermissions).toEqual({});
+  });
+
+  it("an empty map on a workspace that HAS houses still reads as Custom (a forged role grants nothing)", () => {
+    expect(finalizeInviteGrant({}, { teamRole: "admin", propertyCoManagerPermissions: {}, workspaceHasHouses: true }).teamRole).toBe("custom");
+    // Unstated: the caller did not count, so the check stays strict.
+    expect(finalizeInviteGrant({}, { teamRole: "admin", propertyCoManagerPermissions: {} }).teamRole).toBe("custom");
   });
 
   it("a map that no longer matches its named role reads as the role it is", () => {

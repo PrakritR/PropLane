@@ -30,7 +30,8 @@ export function accountInitials(name: string | null, email: string | null): stri
  * exactly the items it had: name + email header, Settings, Appearance, the
  * portal switcher rows, Sign out; plus Help & feedback, which used to live in
  * the sidebar footer. Settings is reachable from here and nowhere in the nav, and it is the first item
- * on every portal, the admin included. In service mode the menu is only Settings, Help & feedback, Sign out.
+ * on every portal, the admin included. For an ADMIN in service mode the menu is only Settings, Help & feedback,
+ * Sign out; a helper keeps the switcher rows, which carry their only way back to their own Property portal.
  */
 export function PortalAccountMenu({
   kind,
@@ -39,6 +40,7 @@ export function PortalAccountMenu({
   email,
   onOpenHelp,
   serviceMode = false,
+  propertyPortal,
   serviceEntries,
 }: {
   kind: PortalKind;
@@ -47,10 +49,13 @@ export function PortalAccountMenu({
   email: string | null;
   onOpenHelp?: () => void;
   /**
-   * A staff member has a PropLane Service workspace open: still the admin portal, so the menu is only
+   * A platform ADMIN has a PropLane Service workspace open: still the admin portal, so the menu is only
    * Settings, Help & feedback and Sign out. The way back to the admin home is the rail's PropLane tile.
+   * A helper who is not an admin has no such tile, so their menu keeps its rows (and `propertyPortal`).
    */
   serviceMode?: boolean;
+  /** Service mode, helper: the account also owns a workspace of its own, so it can go back to the Property portal. */
+  propertyPortal?: { onSwitch: () => void };
   /** Property portal, a service helper: one row per PropLane Service workspace they can open. */
   serviceEntries?: { workspaces: { id: string; name: string }[]; onOpen: (id: string) => void };
 }) {
@@ -122,6 +127,20 @@ export function PortalAccountMenu({
                   Open {workspace.name}
                 </button>
               ))}
+              {propertyPortal ? (
+                <button
+                  type="button"
+                  data-attr="portal-account-switch-property"
+                  onClick={() => {
+                    setOpen(false);
+                    propertyPortal.onSwitch();
+                  }}
+                  className="flex min-h-11 w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-[13.5px] font-medium text-foreground outline-none transition hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring lg:min-h-0 lg:rounded-[var(--radius-control)] lg:px-[9px] lg:py-[7px] lg:text-[14px] lg:font-normal"
+                >
+                  <Users aria-hidden className="h-[16px] w-[16px] shrink-0 text-muted" />
+                  Switch to Property portal
+                </button>
+              ) : null}
             </div>
           </>
         )}

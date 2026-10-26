@@ -254,8 +254,20 @@ function AdminAccountsList({ showTestTab }: { showTestTab: boolean }) {
 
   const [statusTab, setStatusTab] = useState<StatusTab>("active");
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
-  // Seeded from `?plan=` so a Dashboard card (Paid / On trial / Promo users) lands on its bucket.
-  const [planFilter, setPlanFilter] = useState<PlanFilter>(() => planFromParam(searchParams.get("plan")));
+  // Plan lives in the URL like the category tab, so a Dashboard card (Paid / On trial / Promo users) lands on its
+  // bucket, the link keeps describing the list, and a role tab (which carries no `plan`) clears it rather than
+  // leaving a filter applied that the URL no longer names. It is a Managers-only filter.
+  const planFilter: PlanFilter = kind === "manager" ? planFromParam(searchParams.get("plan")) : "all";
+  const setPlanFilter = useCallback(
+    (next: PlanFilter) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next === "all") params.delete("plan");
+      else params.set("plan", next);
+      const query = params.toString();
+      navigate(query ? `/admin/axis-users?${query}` : "/admin/axis-users", { replace: true });
+    },
+    [navigate, searchParams],
+  );
   // Global per-plan messaging-credit defaults (S27) — a GLOBAL, not
   // per-account, setting, so it lives behind a header action rather than
   // inside any one row's editor. See `PlanCreditRulesSection`'s doc comment
