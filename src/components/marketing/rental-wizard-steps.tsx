@@ -60,6 +60,8 @@ import {
   defaultStoredTermForKind,
   type LeaseKind,
 } from "@/lib/rental-application/lease-choice";
+import { resolveStayPricing } from "@/lib/room-pricing";
+import { normalizePropertyStayTimes, formatStayTime } from "@/lib/bookings/stay-times";
 import { previousAddressApplies } from "@/lib/rental-application/previous-address";
 import { RENTAL_WIZARD_STEP_COUNT } from "@/lib/rental-application/types";
 import {
@@ -299,7 +301,7 @@ function pairedInputLabel(question: ResolvedApplicationField | null | undefined,
   return !defaultLabel || question.label.trim() === defaultLabel.trim() ? own : question.label;
 }
 
-function ApplicantPaysCard({ quote, title = "What a resident pays" }: { quote: ListingQuote; title?: string }) {
+function ApplicantPaysCard({ quote, title = "What you pay" }: { quote: ListingQuote; title?: string }) {
   // signingTotal sums only lines due at signing; listing the others above it
   // made the lines add up to more than the total.
   const dueNow = quote.signingLines.filter((line) => line.dueAtSigning);
@@ -333,12 +335,13 @@ function ApplicantPaysCard({ quote, title = "What a resident pays" }: { quote: L
       <div className="flex items-baseline justify-between pt-3">
         <span className="text-[13px] text-foreground">Total at signing</span>
         <b className="text-[24px] font-extrabold tabular-nums tracking-tight text-foreground">
-          {formatQuoteMoney(quote.signingTotal)}
+          {quote.isStay && quote.stayTotal == null ? "—" : formatQuoteMoney(quote.signingTotal)}
         </b>
       </div>
+      {quote.isStay && quote.stayTotal == null ? <p role="status" className="pt-3 text-sm">Choose valid stay dates and a priced room to see your stay total.</p> : null}
       {dueLater.length > 0 ? (
         <>
-          <p className="pt-3 text-[12px] font-extrabold uppercase tracking-[0.04em] text-foreground">Due later</p>
+          <p className="pt-3 text-[12px] font-extrabold uppercase tracking-[0.04em] text-foreground">{quote.isStay ? "Before check-in" : "Due later"}</p>
           {dueLater.map((line) => (
             <div key={line.key} className="flex items-baseline justify-between gap-3 pt-2">
               <span className="text-[13px] text-foreground">{line.label}</span>
@@ -382,6 +385,15 @@ function ApplicantPaysCard({ quote, title = "What a resident pays" }: { quote: L
       ) : null}
     </aside>
   );
+}
+
+export function applicantRoomOptionLabel(label: string, value: string, form: RentalWizardFormState, sub: Parameters<typeof applicantListingQuote>[0]): string {
+  if (form.rentalType !== "short_term") return label;
+  const parsed = parseRoomChoiceValue(value);
+  const room = sub?.rooms.find((entry) => entry.id === parsed.listingRoomId);
+  const pricing = resolveStayPricing({ room, submission: sub, application: { rentalType: "short_term", leaseTerm: form.leaseTerm, residentSlot: parsed.residentSlot } });
+  const rate = pricing.dailyRate ? `${formatQuoteMoney(pricing.dailyRate)}/night` : pricing.weeklyRate ? `${formatQuoteMoney(pricing.weeklyRate)}/week` : "Stay rate not set";
+  return label.replace(/\$[\d,.]+\s*\/(?:mo|month|day|night|wk|week)/g, rate);
 }
 
 /** Which side of the toggle a top-level lease type is. Only the two parent-less ids reach here. */
@@ -614,37 +626,6 @@ function LeaseTypeAndDates(props: LeaseTypeAndDatesProps) {
       {kind ? props.availabilityNotes : null}
 
       {shortForm ? (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="shortTermCheckInTime" required>
-              Check-in time
-            </Label>
-            <Input
-              id="shortTermCheckInTime"
-              type="time"
-              value={form.shortTermCheckInTime}
-              onChange={(e) => patch({ shortTermCheckInTime: e.target.value })}
-              className={errors.shortTermCheckInTime ? "border-red-400 ring-2 ring-red-100" : ""}
-            />
-            <FieldError msg={errors.shortTermCheckInTime} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="shortTermCheckOutTime" required>
-              Check-out time
-            </Label>
-            <Input
-              id="shortTermCheckOutTime"
-              type="time"
-              value={form.shortTermCheckOutTime}
-              onChange={(e) => patch({ shortTermCheckOutTime: e.target.value })}
-              className={errors.shortTermCheckOutTime ? "border-red-400 ring-2 ring-red-100" : ""}
-            />
-            <FieldError msg={errors.shortTermCheckOutTime} />
-          </div>
-        </div>
-      ) : null}
-
-      {shortForm ? (
         <label
           className="flex items-start gap-3 rounded-xl border border-border bg-card p-3 text-sm leading-6 text-foreground"
           htmlFor="shortTermRulesAck"
@@ -824,7 +805,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
   const managerQuestionsBlock = (sections: readonly string[]) => {
     const wizardStep = applicationWizardStepForSection(sections[0]);
     if (!CUSTOM_QUESTION_WIZARD_STEPS.has(wizardStep)) return null;
-    const stepProp = getPropertyById(form.propertyId);
     const fields = customFieldsForWizardStep(
       listingCustomApplicationFields(applicationConfig),
       wizardStep,
@@ -835,9 +815,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
       <div className="space-y-5 rounded-2xl border border-border bg-accent/20 p-4 sm:p-5">
         <div>
           <h3 className="text-base font-bold tracking-tight text-foreground">Questions from your property manager</h3>
-          <StepIntro className="mt-1.5">
-            {stepProp?.title ? `The manager of ${stepProp.title} asks all applicants:` : "The property manager asks all applicants:"}
-          </StepIntro>
         </div>
         {fields.map((field) => (
           <CustomQuestionField
@@ -985,6 +962,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
         ? applicantListingQuote(selectedProperty.listingSubmission, {
             roomChoice1: form.roomChoice1,
             leaseTerm: form.leaseTerm,
+            leaseStart: form.leaseStart, leaseEnd: form.leaseEnd, bundleId: form.bundleId, applicationTemplateId: form.applicationTemplateId,
             residentSlot: form.residentSlot,
             listingProperty: selectedProperty,
           })
@@ -1005,7 +983,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
         id: o.value,
         title: o.label,
         subtitle: prop?.address,
-        tags: prop ? [prop.neighborhood, prop.rentLabel].filter(Boolean) : undefined,
+        tags: prop ? [prop.neighborhood, ...(form.rentalType === "short_term" ? [] : [prop.rentLabel])].filter(Boolean) : undefined,
         searchText: prop ? `${prop.title} ${prop.address} ${prop.neighborhood} ${prop.buildingName} ${prop.zip}` : o.label,
       };
     });
@@ -1095,18 +1073,11 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
           startLabel={pairedInputLabel(datesQuestion, "Move-in date")}
           startRequired={datesQuestion?.required}
           onTerm={applyStoredLeaseTerm}
-          shortStayCard={
+          shortStayCard={selectedProperty?.listingSubmission?.shortTermRequirements?.trim() ? (
             <div className="rounded-xl border border-border bg-card p-3 text-sm leading-6 text-foreground">
-              <p>
-                Daily cost: <span className="font-semibold">{selectedProperty?.listingSubmission?.shortTermDailyCost || "Set by host"}</span>
-                {" · "}
-                Deposit: <span className="font-semibold">{selectedProperty?.listingSubmission?.shortTermDeposit || "Set by host"}</span>
-              </p>
-              {selectedProperty?.listingSubmission?.shortTermRequirements?.trim() ? (
-                <p className="mt-1 text-muted">{selectedProperty.listingSubmission.shortTermRequirements.trim()}</p>
-              ) : null}
+              {selectedProperty.listingSubmission.shortTermRequirements.trim()}
             </div>
-          }
+          ) : null}
           houseRulesAck={
             selectedProperty?.listingSubmission?.shortTermRequirements?.trim()
               ? "I have read and agree to follow the host's house rules for this short-term stay shown above."
@@ -1141,13 +1112,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
               already made for them and did not realise they could change it
               (AXI-166). When one is selected, say so and name the way out.
             */}
-            <p className="text-xs text-muted">
-              {bundleSelected
-                ? `You're applying for this bundle. Pick a different one, or choose “None” to apply ${isByRoom ? "for individual rooms" : "on the standard lease"} instead.`
-                : form.rentalType === "short_term"
-                  ? "Short-term bundle pricing for your stay. Choose a bundle or leave as none."
-                  : `This listing offers bundle pricing. Choose a bundle to apply for it${isByRoom ? " instead of individual rooms" : ""}, or leave as none.`}
-            </p>
             <Select
               id="bundleId"
               value={form.bundleId}
@@ -1209,7 +1173,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
               <option value="">{form.propertyId ? "Select a room" : "Select a property first"}</option>
               {firstChoiceRooms.map((o) => (
                 <option key={o.value} value={o.value} disabled={o.disabled}>
-                  {o.label}
+                  {applicantRoomOptionLabel(o.label, o.value, form, selectedProperty?.listingSubmission)}
                 </option>
               ))}
             </Select>
@@ -1220,9 +1184,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
         // Whole-unit listing with multiple units: pick one unit, no ranked choices.
         <div className="space-y-2">
           <Label required>Unit</Label>
-          <p className="text-xs text-muted">
-            This home is leased as a whole unit. Choose the unit you&apos;re applying for.
-          </p>
           <div data-wizard-field="roomChoice1">
             <Select
               value={form.roomChoice1}
@@ -1233,7 +1194,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
               <option value="">{form.propertyId ? "Select a unit" : "Select a property first"}</option>
               {rooms.map((o) => (
                 <option key={o.value} value={o.value}>
-                  {o.label}
+                  {applicantRoomOptionLabel(o.label, o.value, form, selectedProperty?.listingSubmission)}
                 </option>
               ))}
             </Select>
@@ -1304,14 +1265,14 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
             />
           );
         })() : null}
-        {listingQuote ? <ApplicantPaysCard quote={listingQuote} /> : null}
+        {listingQuote ? <ApplicantPaysCard quote={listingQuote} /> : bundleSelected ? <p role="status">Your group’s payment amounts will be confirmed with your placement.</p> : null}
         </div>
       </div>
     );
   };
 
   if (step === 1) {
-    const showCosigner = showWizardField("hasCosigner");
+    const showCosigner = form.rentalType !== "short_term" && showWizardField("hasCosigner");
     const showGroup = showWizardField("applyingAsGroup");
     const joiningGroup = Boolean(form.groupLeaderAppId.trim());
     const organizingGroup = form.applyingAsGroup === "yes" && !joiningGroup;
@@ -1336,16 +1297,15 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                   inline
                   showRequiredMarker={false}
                   labelClassName="text-sm font-semibold text-foreground"
-                  className="px-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5"
+                  className="px-4 sm:grid-cols-[minmax(0,1fr)_minmax(160px,240px)] sm:px-5"
                 >
-                  <YesNoPills
-                    value={form.applyingAsGroup}
-                    error={errors.applyingAsGroup}
-                    name={pairedInputLabel(groupQuestion, "Group application")}
-                    labels={groupAnswerLabels}
-                    fieldKey="applyingAsGroup"
-                    suppressError
-                    onChange={(v) => {
+                  <Select
+                    aria-label={pairedInputLabel(groupQuestion, "Group application")}
+                    value={form.applyingAsGroup ?? ""}
+                    aria-invalid={Boolean(errors.applyingAsGroup)}
+                    data-attr="application-group"
+                    onChange={(e) => {
+                      const v = e.target.value as "yes" | "no";
                       if (v === "no") {
                         patch({
                           applicantRole: "signer",
@@ -1368,7 +1328,11 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                         ...(joiningGroup ? {} : { groupSize: form.groupSize.trim() || "2" }),
                       });
                     }}
-                  />
+                  >
+                    <option value="" disabled>Select</option>
+                    <option value="yes">{groupAnswerLabels.yes}</option>
+                    <option value="no">{groupAnswerLabels.no}</option>
+                  </Select>
                 </ApplyFieldRow>
 
                 {form.applyingAsGroup === "yes" ? (
@@ -1466,20 +1430,23 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                   inline
                   showRequiredMarker={false}
                   labelClassName="text-sm font-semibold text-foreground"
-                  className="px-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:px-5"
+                  className="px-4 sm:grid-cols-[minmax(0,1fr)_minmax(160px,240px)] sm:px-5"
                 >
-                  <YesNoPills
-                    value={form.hasCosigner}
-                    error={errors.hasCosigner}
-                    name={pairedInputLabel(cosignerQuestion, "Co-signer")}
-                    labels={cosignerAnswerLabels}
-                    fieldKey="hasCosigner"
-                    suppressError
-                    onChange={(v) => {
+                  <Select
+                    aria-label={pairedInputLabel(cosignerQuestion, "Co-signer")}
+                    value={form.hasCosigner ?? ""}
+                    aria-invalid={Boolean(errors.hasCosigner)}
+                    data-attr="application-cosigner"
+                    onChange={(e) => {
+                      const v = e.target.value as "yes" | "no";
                       if (v === "yes") onEnsureApplicationId?.();
                       patch({ applicantRole: "signer", hasCosigner: v });
                     }}
-                  />
+                  >
+                    <option value="" disabled>Select</option>
+                    <option value="yes">{cosignerAnswerLabels.yes}</option>
+                    <option value="no">{cosignerAnswerLabels.no}</option>
+                  </Select>
                 </ApplyFieldRow>
                 {form.hasCosigner === "yes" && inviteAppId ? (
                   <div className="px-4 pb-4 sm:px-5">
@@ -1501,7 +1468,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
       .map((entry) => entry.key);
 
     return (
-      <div className="rental-wizard-step space-y-6">
+      <div className="rental-wizard-step mx-auto w-full max-w-4xl space-y-6">
         <section data-wizard-lease-choice className="space-y-4">
           {renderLeaseChoice()}
         </section>
@@ -1567,12 +1534,8 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
       }
     };
     return (
-      <div className="space-y-8">
+      <div className="mx-auto w-full max-w-4xl space-y-6">
         {autofillBanner}
-        <StepIntro>
-          Start with how we can reach you, then confirm your identity exactly as it appears on your ID. Your Social
-          Security number, date of birth, and ID number are stored encrypted.
-        </StepIntro>
         <div className="grid gap-4 sm:grid-cols-2" data-application-section="personal">
           {personalFields.map(renderPersonalField)}
         </div>
@@ -1587,9 +1550,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     const reason = standardQuestion("current_address", "currentReasonLeaving");
     return (
       <div className="space-y-8">
-        <div>
-          <StepIntro>Where you live today. Landlord and move dates help us verify your rental history.</StepIntro>
-        </div>
         <OrderedConfiguredQuestions fields={sectionQuestions("current_address")} renderCustom={renderCustomQuestion}>
         <WizardFieldGate fieldKey="currentStreet" enabled={showWizardField}>
         <div className="space-y-2">
@@ -1738,9 +1698,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     const reason = standardQuestion("previous_address", "prevReasonLeaving");
     return (
       <div className="space-y-8">
-        <div>
-          <StepIntro>If this is your first lease, you can indicate that you have no prior address to report.</StepIntro>
-        </div>
         <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-card p-4">
           <input
             type="checkbox"
@@ -1956,9 +1913,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     const second = standardQuestion("references", "ref2Name");
     return (
       <div className="space-y-8">
-        <div>
-          <StepIntro>List people who can speak to your character or employment. Avoid family members when possible.</StepIntro>
-        </div>
         <OrderedConfiguredQuestions fields={sectionQuestions("references")} renderCustom={renderCustomQuestion}>
         <WizardFieldGate fieldKey="ref1Name" enabled={showWizardField}>
         <div className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
@@ -2072,7 +2026,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     };
     return (
       <div className="space-y-8">
-        <StepIntro>These questions are standard for rental screening. Your answers are reviewed in context; answer honestly.</StepIntro>
         <div className="space-y-4" data-application-section="additional">
           {additionalFields.map(renderAdditionalField)}
         </div>
@@ -2086,9 +2039,6 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     const signature = standardQuestion("consent", "digitalSignature");
     return (
       <div className="space-y-8">
-        <div>
-          <StepIntro>Review the authorizations below. Your typed name carries the same effect as a handwritten signature.</StepIntro>
-        </div>
         <div className="rounded-2xl border border-border bg-accent/30 p-5 text-sm leading-relaxed text-foreground">
           <p>
             By submitting this application, you authorize the property manager to obtain consumer reports (including credit and
@@ -2157,7 +2107,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
 
   if (step === 10) {
     const prop = getPropertyById(form.propertyId);
-    const roomLabel = (id: string) => getRoomChoiceLabel(id);
+    const roomLabel = (id: string) => applicantRoomOptionLabel(getRoomChoiceLabel(id), id, form, prop?.listingSubmission);
     const reviewByRoom = isPropertyRentedByRoom(form.propertyId);
     const reviewBundleLabel = form.bundleId.trim()
       ? getBundleChoiceLabel(form.propertyId, form.bundleId, { rentalType: applicationRentalTypeFor(form.rentalType) })
@@ -2168,7 +2118,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
     const activeStepSet = new Set(
       activeApplicationWizardSteps(applicationConfig, normalizeCustomApplicationFields),
     );
-    const showCosignerReview = showWizardField("hasCosigner");
+    const showCosignerReview = form.rentalType !== "short_term" && showWizardField("hasCosigner");
     const showGroupReview = showWizardField("applyingAsGroup");
     const showHouseholdReview = showCosignerReview || showGroupReview;
     const reviewGroupQuestion = standardQuestion("household", "applyingAsGroup");
@@ -2212,8 +2162,8 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
             {form.leaseTerm !== "Month-to-Month" ? <ReviewRow k={reviewIsShort ? "Check-out date" : "Move-out date"} v={displayOrDash(form.leaseEnd)} /> : null}
             {form.rentalType === "short_term" ? (
               <>
-                <ReviewRow k="Check-in time" v={displayOrDash(form.shortTermCheckInTime)} />
-                <ReviewRow k="Check-out time" v={displayOrDash(form.shortTermCheckOutTime)} />
+                <ReviewRow k="Check-in time" v={formatStayTime(normalizePropertyStayTimes(prop?.listingSubmission?.stayTimes).checkInTime)} />
+                <ReviewRow k="Check-out time" v={formatStayTime(normalizePropertyStayTimes(prop?.listingSubmission?.stayTimes).checkOutTime)} />
                 <ReviewRow k="House rules" v={form.shortTermRulesAck ? "Acknowledged" : "—"} />
               </>
             ) : null}
@@ -2237,10 +2187,12 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                 const reviewQuote = applicantListingQuote(prop.listingSubmission, {
                   roomChoice1: form.roomChoice1,
                   leaseTerm: form.leaseTerm,
+                  leaseStart: form.leaseStart, leaseEnd: form.leaseEnd, bundleId: form.bundleId, applicationTemplateId: form.applicationTemplateId,
                   residentSlot: form.residentSlot,
                   listingProperty: prop,
                 });
                 if (!reviewQuote) {
+                  if (form.bundleId.trim() || form.rentalType === "short_term") return <ReviewRow k="Housing charges" v="Confirmed with your placement" />;
                   return (
                     <>
                       <ReviewRow k="Security deposit" v={displayOrDash(prop.listingSubmission.securityDeposit)} />
@@ -2257,7 +2209,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                     ))}
                     <ReviewRow k="Payment due at signing" v={formatQuoteMoney(reviewQuote.signingTotal)} />
                     {reviewQuote.signingLines.filter((line) => !line.dueAtSigning).map((line) => (
-                      <ReviewRow key={line.key} k={`${line.label} (due later)`} v={formatQuoteMoney(line.amount)} />
+                      <ReviewRow key={line.key} k={`${line.label} (${line.dueLabel?.toLowerCase() ?? "due later"})`} v={formatQuoteMoney(line.amount)} />
                     ))}
                     {reviewQuote.isStay ? (
                       reviewQuote.nightlyRate ? (
@@ -2409,6 +2361,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
         ? applicantListingQuote(prop.listingSubmission, {
             roomChoice1: form.roomChoice1,
             leaseTerm: form.leaseTerm,
+            leaseStart: form.leaseStart, leaseEnd: form.leaseEnd, bundleId: form.bundleId, applicationTemplateId: form.applicationTemplateId,
             residentSlot: form.residentSlot,
             listingProperty: prop,
           })

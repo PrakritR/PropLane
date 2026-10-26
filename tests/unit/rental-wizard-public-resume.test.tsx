@@ -19,17 +19,23 @@ import {
   clearRentalWizardDraft,
   loadRentalWizardDraft,
   loadRentalWizardDraftAxisId,
+  saveRentalWizardDraft,
+  saveRentalWizardDraftAxisId,
 } from "@/lib/rental-application/drafts";
 import type { MockProperty } from "@/data/types";
 import { settlePendingApplicationRowUpserts } from "@/lib/manager-applications-storage";
 import * as applicationStorage from "@/lib/manager-applications-storage";
+import * as applicationPolicy from "@/lib/rental-application/application-policy";
 import {
   clearApplicationFeeCheckoutResume,
   clearApplicationFeeSubmitConfirm,
   rememberApplicationFeeCheckoutResume,
 } from "@/lib/rental-application/fee-checkout-resume";
+import * as groupLeaderClient from "@/lib/rental-application/group-leader-link-client";
+import type { GroupLeaderLinkPreview } from "@/lib/rental-application/group-leader-link";
 import * as feePreviewClient from "@/lib/rental-application/application-fee-preview-client";
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
+import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 
 const PID = "mgr-resume-flat";
 const PID_B = "mgr-resume-second";
@@ -643,5 +649,104 @@ describe("Stripe return verification recovery", () => {
     expect(alert).toHaveTextContent("Payment was captured. Manager payout routing is still processing");
     expect(alert).not.toHaveTextContent("bank transfer");
     expectNoDraftWrites();
+  });
+});
+
+
+describe("group invitation and draft read ordering", () => {
+  it.each(["before", "after"])("keeps the group invitation when its preview finishes %s the solo draft read", async (order) => {
+    vi.spyOn(HTMLElement.prototype, "offsetParent", "get").mockReturnValue(document.body);
+    const leaderAppId = "PROPLANE-GROUP123";
+    searchParams = new URLSearchParams({ propertyId: PID, groupLeaderAppId: leaderAppId });
+    window.history.replaceState(null, "", `/rent/apply?${searchParams}`);
+    let releasePreview!: (value: GroupLeaderLinkPreview) => void;
+    let releaseDraft!: (value: Response) => void;
+    vi.spyOn(groupLeaderClient, "fetchGroupLeaderLinkPreview").mockImplementation(() => new Promise((resolve) => { releasePreview = resolve; }));
+    stubFetch({ selfResponse: () => new Promise((resolve) => { releaseDraft = resolve; }) });
+    await mountWizard();
+    const preview: GroupLeaderLinkPreview = { ok: true, leaderAppId, groupId: "verified-household", groupSize: 3, organizerFirstName: "Alex", propertyId: PID };
+    const draft = serverRow();
+    draft.application = { ...draft.application, applyingAsGroup: "no", groupRole: "", groupLeaderAppId: "", groupId: "", groupSize: "", wizardStep: 1 } as DemoApplicantRow["application"];
+    if (order === "before") await act(async () => { releasePreview(preview); });
+    await act(async () => { releaseDraft(new Response(JSON.stringify({ rows: [draft] }), { status: 200 })); });
+    if (order === "after") await act(async () => { releasePreview(preview); });
+    expect(loadRentalWizardDraft()).toMatchObject({
+      propertyId: PID, fullLegalName: "Riley Guest", applyingAsGroup: "yes", groupRole: "joining",
+      groupLeaderAppId: leaderAppId, groupId: "verified-household", groupSize: "3",
+    });
+    expect(loadRentalWizardDraftAxisId()).toBe(AXIS_ID);
+  });
+});
+
+describe("portal initial draft hydration", () => {
+  it("resolves a group-only invitation's verified house before touching any existing draft", async () => {
+    vi.spyOn(HTMLElement.prototype, "offsetParent", "get").mockReturnValue(document.body);
+    stubFetch({});
+    searchParams = new URLSearchParams({ groupLeaderAppId: "PROPLANE-GROUP123" });
+    const unrelated = serverRow();
+    unrelated.id = "PROPLANE-UNRELATED";
+    unrelated.propertyId = PID_B;
+    unrelated.application = { ...createInitialRentalWizardState(), ...unrelated.application, propertyId: PID_B, fullLegalName: "Unrelated draft", wizardStep: 1 } as DemoApplicantRow["application"];
+    saveRentalWizardDraft(unrelated.application!);
+    saveRentalWizardDraftAxisId(unrelated.id);
+    const target = serverRow();
+    target.application = { ...target.application, wizardStep: 1 } as DemoApplicantRow["application"];
+    vi.spyOn(applicationPolicy, "applicationsForResidentEmail").mockReturnValue([unrelated, target]);
+    const read = vi.spyOn(applicationStorage, "syncManagerApplicationsFromServerWithStatus").mockResolvedValue({ ok: true, complete: true, rows: [unrelated, target] });
+    let releasePreview!: (value: GroupLeaderLinkPreview) => void;
+    vi.spyOn(groupLeaderClient, "fetchGroupLeaderLinkPreview").mockImplementation(() => new Promise((resolve) => { releasePreview = resolve; }));
+    await act(async () => { render(<RentalApplicationWizard showToast={() => {}} mode="portal" sessionEmail="riley.guest@example.com" />); });
+    expect(read).not.toHaveBeenCalled();
+    expect(queuedApplicationIds.size).toBe(0);
+    expect(screen.getByLabelText(/^Move-in date/).matches(":disabled")).toBe(true);
+    await act(async () => { releasePreview({ ok: true, leaderAppId: "PROPLANE-GROUP123", groupId: "verified-group", groupSize: 2, propertyId: PID, organizerFirstName: "Alex" }); });
+    expect(loadRentalWizardDraftAxisId()).toBe(AXIS_ID);
+    expect(loadRentalWizardDraft()).toMatchObject({ propertyId: PID, fullLegalName: "Riley Guest", groupId: "verified-group" });
+    expect(queuedApplicationIds.has(unrelated.id)).toBe(false);
+    expect(unrelated.application).toMatchObject({ propertyId: PID_B, fullLegalName: "Unrelated draft" });
+  });
+
+  it("keeps edits protected after an incomplete read and unlocks only after an explicit successful retry", async () => {
+    stubFetch({});
+    vi.spyOn(applicationPolicy, "applicationsForResidentEmail").mockReturnValue([]);
+    const read = vi.spyOn(applicationStorage, "syncManagerApplicationsFromServerWithStatus").mockResolvedValue({ ok: true, complete: false, rows: [] });
+    await act(async () => {
+      render(<RentalApplicationWizard showToast={() => {}} mode="portal" sessionEmail="riley.guest@example.com" />);
+    });
+    expect(screen.getByText("We couldn't load your saved application.")).toBeTruthy();
+    expect(screen.getByLabelText(/^Move-in date/).matches(":disabled")).toBe(true);
+    read.mockResolvedValue({ ok: true, complete: true, rows: [] });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Retry loading" })); });
+    expect(screen.queryByText("We couldn't load your saved application.")).toBeNull();
+    expect(screen.getByLabelText(/^Move-in date/).matches(":disabled")).toBe(false);
+  });
+
+  it.each(["property", "group-only"])("blocks date edits on a %s link until the saved draft is restored, then persists edits against that same draft", async (target) => {
+    vi.spyOn(HTMLElement.prototype, "offsetParent", "get").mockReturnValue(document.body);
+    if (target === "group-only") {
+      searchParams = new URLSearchParams({ groupLeaderAppId: "PROPLANE-GROUP123" });
+      vi.spyOn(groupLeaderClient, "fetchGroupLeaderLinkPreview").mockResolvedValue({ ok: true, leaderAppId: "PROPLANE-GROUP123", groupId: "verified-group", groupSize: 2, propertyId: PID, organizerFirstName: "Alex" });
+    }
+    stubFetch({});
+    const draft = serverRow();
+    draft.application = { ...draft.application, wizardStep: 1, wizardMaxStepReached: 1, leaseStart: "2027-11-15", leaseEnd: "2028-11-14" } as DemoApplicantRow["application"];
+    vi.spyOn(applicationPolicy, "applicationsForResidentEmail").mockReturnValue([draft]);
+    let releaseRead!: (value: applicationStorage.ManagerApplicationsSyncResult) => void;
+    vi.spyOn(applicationStorage, "syncManagerApplicationsFromServerWithStatus").mockImplementation(() => new Promise((resolve) => { releaseRead = resolve; }));
+    await act(async () => {
+      render(<RentalApplicationWizard showToast={() => {}} mode="portal" sessionEmail="riley.guest@example.com" />);
+    });
+    const date = screen.getByLabelText(/^Move-in date/) as HTMLInputElement;
+    expect(date.matches(":disabled")).toBe(true);
+    expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Loading your saved application…")).toBeTruthy();
+
+    await act(async () => { releaseRead({ ok: true, complete: true, rows: [draft] }); });
+    const restoredDate = screen.getByLabelText(/^Move-in date/) as HTMLInputElement;
+    expect(restoredDate.matches(":disabled")).toBe(false);
+    expect(loadRentalWizardDraft()).toMatchObject({ leaseStart: "2027-11-15", leaseEnd: "2028-11-14" });
+    await act(async () => { fireEvent.change(restoredDate, { target: { value: "11/20/2027" } }); fireEvent.blur(restoredDate); });
+    expect(loadRentalWizardDraft()?.leaseStart).toBe("2027-11-20");
+    expect(loadRentalWizardDraftAxisId()).toBe(AXIS_ID);
   });
 });

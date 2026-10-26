@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cosignerSubmissionSummary } from "@/lib/cosigner-submission-visibility";
 import { openCosignerIdentity } from "@/lib/security/cosigner-identity";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import { isAdminUser } from "@/lib/auth/admin-preview";
@@ -24,6 +25,7 @@ export async function GET(req: Request) {
     const db = createSupabaseServiceRoleClient();
     const admin = await isAdminUser(user.id);
 
+    let fullAccess = admin;
     if (!admin) {
       const { data: appRow } = await db
         .from("manager_application_records")
@@ -33,6 +35,7 @@ export async function GET(req: Request) {
       if (!appRow) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
 
       let allowed = appRow.manager_user_id === user.id;
+      fullAccess = allowed;
       if (!allowed) {
         const [{ data: profile }, { data: roleRows }] = await Promise.all([
           db.from("profiles").select("email, role").eq("id", user.id).maybeSingle(),
@@ -48,6 +51,7 @@ export async function GET(req: Request) {
         }
         if (!allowed) {
           allowed = await managerCanAccessApplicationRecord(db, user.id, appRow);
+          fullAccess = allowed;
         }
       }
       if (!allowed) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
@@ -65,7 +69,9 @@ export async function GET(req: Request) {
       .map((r) => {
         const rowData = r.row_data as CosignerSubmission | null;
         if (!rowData) return null;
-        return { ...openCosignerIdentity(rowData, String(r.id)), id: String(r.id) };
+        return fullAccess
+          ? { ...openCosignerIdentity(rowData, String(r.id)), id: String(r.id) }
+          : cosignerSubmissionSummary(rowData, String(r.id));
       })
       .filter(Boolean) as CosignerSubmission[];
     return NextResponse.json({ rows }, { headers: { "Cache-Control": "private, no-store" } });

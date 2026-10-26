@@ -4,7 +4,7 @@
 // never rewrite the URL to /resident/applications/apply (that route rejects
 // managers and bounces them to sign-in).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { RentalApplicationWizard } from "@/components/marketing/rental-application-wizard";
 import { cachePublicExtraListings } from "@/lib/demo-property-pipeline";
 import {
@@ -124,8 +124,10 @@ describe("RentalApplicationWizard templatePreview", () => {
     // Step 1 is "Your lease": the move-in and move-out dates are answered with the lease, before the household answers.
     fireEvent.change(await screen.findByLabelText(/^Move-in date/), { target: { value: "01/01/2099" } });
     fireEvent.change(await screen.findByLabelText(/^Move-out date/), { target: { value: "12/31/2099" } });
-    fireEvent.click(screen.getByRole("group", { name: "Group application" }).querySelectorAll("button")[1]);
-    fireEvent.click(screen.getByRole("group", { name: "Co-signer" }).querySelectorAll("button")[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Group application" }));
+    fireEvent.click(within(screen.getByRole("listbox", { name: "Group application" })).getByRole("option", { name: "No" }));
+    fireEvent.click(screen.getByRole("button", { name: "Co-signer" }));
+    fireEvent.click(within(screen.getByRole("listbox", { name: "Co-signer" })).getByRole("option", { name: "No" }));
     fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
     expect(await screen.findByText("Applicant full name")).toBeTruthy();
   });

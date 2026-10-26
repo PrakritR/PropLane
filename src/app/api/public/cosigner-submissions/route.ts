@@ -10,7 +10,6 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import {
   completeLinkedFormRequest,
-  completeOpenLinkedFormRequestByForm,
   loadLinkedFormRequest,
   resolveLinkedFormViewerRole,
   type LinkedFormRequestRow,
@@ -20,6 +19,7 @@ import { resolveCosignerTemplateForApplication } from "@/lib/rental-application/
 import { listingCustomApplicationFields, validateCustomFieldAnswers } from "@/lib/rental-application/custom-fields";
 import type { RentalCustomFieldAnswer } from "@/lib/rental-application/types";
 import { validateDateRequired, validateEmail, validateFullName, validatePhone10, validateSsn } from "@/app/(rent)/rent/apply/apply-validation";
+import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { loadApplicantAccountIdentity } from "@/lib/rental-application/applicant-identity.server";
 import { isWizardFormFieldEnabled, isWizardFormFieldRequired } from "@/lib/rental-application/application-field-catalog";
 
@@ -48,8 +48,10 @@ export async function POST(req: Request) {
     // submit it, the application and template come from the stored request (never from the body), and the
     // person submitting must have paid its fee, if it has one.
     const formRequestId = typeof body.formRequestId === "string" ? body.formRequestId.trim() : "";
+    if (!formRequestId) return NextResponse.json({ error: "Open your resident portal invitation to submit this form." }, { status: 401 });
     let linkedRequest: LinkedFormRequestRow | null = null;
     let linkedUserId = "";
+    let linkedViewerRole = "";
     let linkedUser: { id: string; email?: string | null; user_metadata?: Record<string, unknown> | null } | null = null;
     if (formRequestId) {
       const auth = await createSupabaseServerClient();
@@ -58,6 +60,10 @@ export async function POST(req: Request) {
       } = await auth.auth.getUser();
       if (!user) return NextResponse.json({ error: "Sign in to submit this form." }, { status: 401 });
       const lookupDb = createSupabaseServiceRoleClient();
+      const { data: profile } = await lookupDb.from("profiles").select("role").eq("id", user.id).maybeSingle();
+      if (!(await authorizeResidentRole(lookupDb, { userId: user.id, legacyRole: profile?.role }))) {
+        return NextResponse.json({ error: "Not found." }, { status: 404 });
+      }
       let found = await loadLinkedFormRequest(lookupDb, formRequestId);
       const viewer = found ? await resolveLinkedFormViewerRole(lookupDb, found, { id: user.id, email: user.email }) : null;
       if (!found || !viewer || viewer.role === "manager" || found.form_kind !== "application") {
@@ -82,15 +88,13 @@ export async function POST(req: Request) {
       }
       linkedRequest = found;
       linkedUserId = user.id;
+      linkedViewerRole = viewer.role;
       linkedUser = user;
     }
 
     const signerAppId = normalizeApplicationAxisId(String(linkedRequest ? linkedRequest.application_id : (body.signerAppId ?? "")).trim());
     if (!signerAppId) {
       return NextResponse.json({ error: "Application ID is required." }, { status: 400 });
-    }
-    if (!body.consentCredit) {
-      return NextResponse.json({ error: "Credit check consent is required." }, { status: 400 });
     }
 
     const db = createSupabaseServiceRoleClient();
@@ -122,24 +126,31 @@ export async function POST(req: Request) {
     if (!template || template.pinMissing || (requestedTemplateId && template.templateId !== requestedTemplateId)) {
       return NextResponse.json({ error: "This co-signer form version is unavailable. Reload the link." }, { status: 409 });
     }
+    if (linkedViewerRole === "applicant" && (linkedRequest?.rule_id === "lfr-derived-cosigner" || template.formVariant === "cosigner")) {
+      return NextResponse.json({ error: "Your co-signer must submit from their own resident account." }, { status: 403 });
+    }
     // Name, phone and email are questions like any other, so a template may no longer ask for them. What the
     // template asks is validated from the body as before. What it does NOT ask is never taken from the body:
-    // a signed-in filler (the linked-form path) is recorded from their ACCOUNT. A signed-out co-signer has no
-    // account to read, so their name and email stay required either way.
+    // the authenticated filler supplies unasked identity from their account, and account email is authoritative.
+    const consentAsked = isWizardFormFieldEnabled(template.config, "consentCredit");
+    if (consentAsked && isWizardFormFieldRequired(template.config, "consentCredit") && body.consentCredit !== true) {
+      return NextResponse.json({ error: "Credit check consent is required." }, { status: 400 });
+    }
     const nameAsked = isWizardFormFieldEnabled(template.config, "fullLegalName");
     const emailAsked = isWizardFormFieldEnabled(template.config, "email");
     const phoneAsked = isWizardFormFieldEnabled(template.config, "phone");
     let fullName = typeof body.fullName === "string" ? body.fullName.trim() : "";
     let email = typeof body.email === "string" ? body.email.trim() : "";
     const phone = typeof body.phone === "string" ? body.phone.trim() : "";
-    if (linkedUser && (!nameAsked || !emailAsked)) {
+    const nameFromAccount = !nameAsked || (!isWizardFormFieldRequired(template.config, "fullLegalName") && !fullName);
+    if (linkedUser) {
       const account = await loadApplicantAccountIdentity(db, linkedUser);
-      if (!nameAsked) fullName = account.name;
-      if (!emailAsked) email = account.email;
+      if (nameFromAccount) fullName = account.name;
+      email = account.email;
       // An account with no profile name and no email resolves to blanks, and this is a trust-signal
       // record: refuse rather than store a submission naming nobody. Only a value TAKEN from the
       // account is judged here — one the form still asked for is validated below as before.
-      if ((!nameAsked && !fullName.trim()) || (!emailAsked && !email.trim())) {
+      if ((nameFromAccount && !fullName.trim()) || !email.trim()) {
         return NextResponse.json(
           { error: "Add your name and email to your account, or answer them here." },
           { status: 400 },
@@ -148,9 +159,9 @@ export async function POST(req: Request) {
     }
     // Only what the filler typed is validated; a value read from their account needs no format check.
     const identityError = [
-      nameAsked || !linkedUser ? validateFullName(fullName) : { ok: true as const },
+      !nameFromAccount || !linkedUser ? validateFullName(fullName) : { ok: true as const },
       emailAsked || !linkedUser ? validateEmail(email) : { ok: true as const },
-      phoneAsked || phone ? validatePhone10(phone) : { ok: true as const },
+      (phoneAsked && isWizardFormFieldRequired(template.config, "phone")) || phone ? validatePhone10(phone) : { ok: true as const },
     ].find((result) => !result.ok);
     if (identityError && !identityError.ok) return NextResponse.json({ error: identityError.message }, { status: 400 });
     const dob = typeof body.dob === "string" ? body.dob.trim() : "";
@@ -200,7 +211,7 @@ export async function POST(req: Request) {
       otherIncome: String(body.otherIncome ?? "").trim(),
       bankruptcy: String(body.bankruptcy ?? "").trim(),
       criminal: String(body.criminal ?? "").trim(),
-      consentCredit: true,
+      consentCredit: consentAsked && body.consentCredit === true,
       signature: String(body.signature ?? "").trim(),
       dateSigned: String(body.dateSigned ?? "").trim(),
       submittedAt: new Date().toISOString(),
@@ -228,15 +239,6 @@ export async function POST(req: Request) {
         await db.from("cosigner_submission_records").delete().eq("id", id);
         return NextResponse.json({ error: "This form is already finished." }, { status: 409 });
       }
-    } else if (template.templateId) {
-      // The legacy public co-signer link: it still finishes the request a co-signer rule opened.
-      void completeOpenLinkedFormRequestByForm(db, {
-        applicationId: resolvedSignerAppId,
-        formKind: "application",
-        formId: template.templateId,
-        filledByUserId: null,
-        submissionRef: id,
-      });
     }
 
     const appData = appRow.row_data as { name?: string; property?: string } | null;

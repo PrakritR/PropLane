@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  *
  * MONEY follow-ups for the leasing pipeline:
- *  1. A short stay with no stay rate never quotes a figure: there is no "First stay payment" line, no
+ *  1. A short stay with no stay rate or dates never quotes a figure: no priced stay line, no
  *     fallback to the long-term rent, and a ticked-at-signing rent line adds nothing to the total.
  *  2. A custom one-time fee is collected at signing only when the manager ticked it. The charge step
  *     (stamp), the gate and the billing snapshot all follow the same tick the preview does; an unticked
@@ -74,12 +74,12 @@ function stayListing(opts: { signing: string[]; stayRate?: boolean }): ManagerLi
 afterEach(cleanup);
 
 describe("a stay with no stay rate quotes no stay figure", () => {
-  it("has no First stay payment line and never falls back to the long-term rent", () => {
+  it("has no priced stay line and never falls back to the long-term rent", () => {
     for (const signing of [["move_in_fee"], ["room_rent:room-a", "move_in_fee"]]) {
       const quote = buildListingQuote(stayListing({ signing }), { roomId: "room-a", leaseTerm: SHORT_TERM_LEASE_TERM });
       expect(quote.isStay).toBe(true);
       expect(quote.nightlyRate).toBeNull();
-      expect(quote.signingLines.map((l) => l.label)).not.toContain("First stay payment");
+      expect(quote.signingLines.find((line) => line.key === "room_rent:room-a")?.amount ?? 0).toBe(0);
       expect(quote.signingLines.some((l) => l.amount === 10502)).toBe(false);
       // A ticked rent line contributes no number: the total is exactly the other ticked lines.
       const { atSigning } = splitQuoteLinesBySigning(quote);
@@ -88,13 +88,19 @@ describe("a stay with no stay rate quotes no stay figure", () => {
     }
   });
 
-  it("still quotes the first stay payment once a stay rate is set", () => {
-    const quote = buildListingQuote(stayListing({ signing: ["room_rent:room-a"], stayRate: true }), {
-      roomId: "room-a",
-      leaseTerm: SHORT_TERM_LEASE_TERM,
-    });
+  it("quotes the dated stay total and leaves an undated stay pending", () => {
+    const sub = stayListing({ signing: ["room_rent:room-a"], stayRate: true });
+    const selection = { roomId: "room-a", leaseTerm: SHORT_TERM_LEASE_TERM };
+    const pending = buildListingQuote(sub, selection);
+    expect(pending.stayTotal).toBeNull();
+    expect(pending.signingLines.find((line) => line.key === "room_rent:room-a"))
+      .toMatchObject({ amount: 0, amountPending: true });
+    const quote = buildListingQuote(sub, { ...selection, leaseStart: "2027-11-01", leaseEnd: "2027-11-03" });
     expect(quote.nightlyRate).toBe(120);
-    expect(quote.signingLines.map((l) => l.label)).toContain("First stay payment");
+    expect(quote.stayTotal).toBe(240);
+    expect(quote.signingLines.find((line) => line.key === "room_rent:room-a"))
+      .toMatchObject({ label: "Stay total", amount: 240, dueAtSigning: true });
+    expect(quote.signingTotal).toBe(240);
   });
 
   it("a long-term quote is unchanged: it keeps First month's rent", () => {

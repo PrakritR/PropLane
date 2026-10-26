@@ -109,17 +109,21 @@ function PublicApplyApplicationClient({ signedInNonResident }: { signedInNonResi
     return propertyAcceptingOnlineApplications(linkedProperty.listingSubmission);
   }, [linkedProperty]);
 
+  const groupLeaderAppId = searchParams.get("groupLeaderAppId")?.trim();
+  const listingRoomId = searchParams.get("listingRoomId")?.trim();
+  const bundleId = searchParams.get("bundle")?.trim();
+  const applicationFormId = searchParams.get("form")?.trim();
   const rentalTypeParam = searchParams.get("rentalType")?.trim();
   const rentalType = rentalTypeParam === "short_term" ? ("short_term" as const) : undefined;
 
   const applyGateKey = useMemo(
-    () => publicApplyGateKey({ propertyId, portfolioPropertyIds }),
-    [propertyId, portfolioPropertyIds],
+    () => publicApplyGateKey({ propertyId, portfolioPropertyIds, groupLeaderAppId }),
+    [propertyId, portfolioPropertyIds, groupLeaderAppId],
   );
 
   const applyReturnPath = useMemo(
-    () => publicApplyReturnPath({ propertyId, portfolioPropertyIds, rentalType }),
-    [propertyId, portfolioPropertyIds, rentalType],
+    () => publicApplyReturnPath({ propertyId, portfolioPropertyIds, rentalType, groupLeaderAppId, listingRoomId, bundleId, applicationFormId }),
+    [propertyId, portfolioPropertyIds, rentalType, groupLeaderAppId, listingRoomId, bundleId, applicationFormId],
   );
 
   const resumeFromEmailLink = useMemo(() => publicApplyResumeLinkActive(searchParams), [searchParams]);

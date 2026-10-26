@@ -1,39 +1,34 @@
 "use client";
 
-import { CopyIconAction } from "@/components/portal/portal-icon-action";
-import { buildCosignerApplyPath } from "@/lib/rental-application/cosigner-apply-link";
+import { useEffect, useState } from "react";
+import { LinkedFormsFinishList } from "@/components/marketing/linked-forms-finish-list";
+import { fetchLinkedFormsForApplicationResult } from "@/lib/linked-form-requests-client";
+import type { LinkedFormRequestView } from "@/lib/application-linked-form-requests";
 
-/** Co-signer invite: label · application id · link · Copy link icon · one short fact. No explanatory sentence. */
-export function CosignerInviteCallout({
-  signerAppId,
-  className,
-  pendingSubmit = false,
-}: {
+/** Only a server-authorized form request can provide a co-signer invitation. */
+export function CosignerInviteCallout({ signerAppId, className, pendingSubmit = false }: {
   signerAppId: string;
   className?: string;
-  /** Wizard step: the link is shown early but only works after the primary application is submitted. */
   pendingSubmit?: boolean;
 }) {
-  const invitePath = buildCosignerApplyPath(signerAppId);
-  const inviteUrl = typeof window !== "undefined" ? `${window.location.origin}${invitePath}` : invitePath;
-
-  return (
-    <div className={`text-left ${className ?? ""}`}>
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <p className="text-[13px] font-semibold text-foreground">Co-signer invite</p>
-        <span className="font-mono text-[11px] text-muted">{signerAppId}</span>
-        {pendingSubmit ? <span className="ml-auto text-[12px] text-muted">Works after you submit</span> : null}
-      </div>
-      <div className="mt-2 flex items-center gap-2">
-        <code className="min-w-0 flex-1 truncate rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-[11px] text-foreground">
-          {inviteUrl}
-        </code>
-        <CopyIconAction
-          label="Copy link"
-          data-attr="cosigner-invite-copy"
-          onCopy={() => navigator.clipboard.writeText(inviteUrl).catch(() => undefined)}
-        />
-      </div>
-    </div>
-  );
+  const [loaded, setLoaded] = useState<{ applicationId: string; forms: LinkedFormRequestView[] | null } | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (pendingSubmit) return;
+    let cancelled = false;
+    void fetchLinkedFormsForApplicationResult(signerAppId).then((result) => {
+      if (!cancelled) setLoaded({ applicationId: signerAppId, forms: result.ok ? result.requests.filter((request) => request.formKind === "application" && (
+        request.ruleId === "lfr-derived-cosigner" || /co.?signer/i.test(request.sourceQuestionLabel)
+      )) : null });
+    });
+    return () => { cancelled = true; };
+  }, [signerAppId, pendingSubmit, attempt]);
+  if (pendingSubmit) return <div className={className} role="status">Co-signer invitation available after you submit</div>;
+  if (!loaded || loaded.applicationId !== signerAppId) return <div className={className} role="status">Loading co-signer invitation…</div>;
+  if (!loaded.forms) return <div className={className}><p role="alert">Could not load the co-signer invitation.</p><button type="button" className="mt-2 font-semibold text-primary" onClick={() => setAttempt((value) => value + 1)}>Try again</button></div>;
+  const forms = loaded.forms;
+  if (!forms.length) return <div className={className} role="status">Ask your property manager to add a co-signer form.</div>;
+  const open = forms.filter((form) => form.status === "owed" || form.status === "shared");
+  if (!open.length) return <div className={className}>Co-signer form {forms.some((form) => form.status === "done") ? "submitted" : "no longer needed"}</div>;
+  return <LinkedFormsFinishList forms={open.map((form) => ({ ...form, requiresHelper: true }))} heading="Co-signer invitation" className={className} />;
 }

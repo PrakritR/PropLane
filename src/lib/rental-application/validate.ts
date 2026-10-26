@@ -1,3 +1,6 @@
+import { shortTermStayCanBePriced, shortTermStayNightCount } from "@/lib/short-term-stay-pricing";
+import { resolveStayPricing } from "@/lib/room-pricing";
+import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import {
   applicationRentalTypeFor,
   isLegacyFixedLeaseTerm,
@@ -266,7 +269,7 @@ export function validateStandardWizardSection(
         validateStandardWizardSection(3, { ...f, leaseStart: "", leaseEnd: "" }, fieldRequired, prop, fieldEnabled),
       ),
     );
-    if (fieldRequired("hasCosigner") && f.hasCosigner === null) {
+    if (f.rentalType !== "short_term" && fieldRequired("hasCosigner") && f.hasCosigner === null) {
       e.hasCosigner = "Please choose whether a co-signer will be added.";
     }
     if (f.applyingAsGroup === null) {
@@ -407,8 +410,17 @@ export function validateStandardWizardSection(
       e.leaseTerm = "This listing does not allow short-term stays.";
     }
     if (f.rentalType === "short_term") {
-      if (!f.shortTermCheckInTime.trim()) e.shortTermCheckInTime = "Check-in time is required.";
-      if (!f.shortTermCheckOutTime.trim()) e.shortTermCheckOutTime = "Check-out time is required.";
+      if (listingSub && !f.bundleId.trim()) {
+        const parsed = parseRoomChoiceValue(f.roomChoice1);
+        const pricing = resolveStayPricing({ submission: listingSub,
+          room: resolveSubmissionRoom(listingSub, { roomChoices: [f.roomChoice1] }),
+          application: { ...f, residentSlot: f.residentSlot ?? parsed.residentSlot },
+        });
+        const nights = shortTermStayNightCount(f.leaseStart, f.leaseEnd);
+        if (nights && pricing.weeklyRate && !shortTermStayCanBePriced(pricing.dailyRate ?? 0, nights, pricing.weeklyRate)) {
+          e.leaseEnd = "This room only has a weekly rate. Choose whole weeks or ask the manager to set a nightly rate.";
+        }
+      }
       if (!f.shortTermRulesAck) e.shortTermRulesAck = "Please acknowledge the host's house rules to continue.";
     }
     const start = f.leaseStart.trim();

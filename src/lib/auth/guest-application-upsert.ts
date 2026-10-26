@@ -1,3 +1,4 @@
+import { standardizeApplicantStayTimes } from "@/lib/rental-application/standard-stay-times.server";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { attachResidentSetupToken, isResidentSetupTokenValid } from "@/lib/auth/resident-setup-token";
 import { isLegitimateEmail } from "@/lib/email-address";
@@ -207,7 +208,7 @@ export async function prepareGuestApplicationUpsert(
     }
   }
 
-  const baseRow: DemoApplicantRow = {
+  let baseRow: DemoApplicantRow = {
     ...params.row,
     id: normalizeApplicationAxisId(params.row.id),
     email,
@@ -243,6 +244,7 @@ export async function prepareGuestApplicationUpsert(
   };
 
   baseRow.application = applicantRoomChoicesForListing(baseRow.application, propertyId);
+  baseRow = await standardizeApplicantStayTimes(db, baseRow, params.existing);
 
   const clientToken = params.clientSetupToken?.trim();
   if (params.existing && clientToken && isResidentSetupTokenValid(params.existing, clientToken)) {

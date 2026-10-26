@@ -36,28 +36,28 @@ afterEach(cleanup);
 describe("a short stay's first payment is in the signing block only when it is collected at signing", () => {
   it("is not a signing line when the signing ticks leave it out, and the total ignores it", () => {
     const sub = stayListing(["move_in_fee"]);
-    const quote = buildListingQuote(sub, { roomId: "room-a", leaseTerm: SHORT_TERM_LEASE_TERM });
-    const first = quote.signingLines.find((l) => l.label === "First stay payment")!;
+    const quote = buildListingQuote(sub, { roomId: "room-a", leaseTerm: SHORT_TERM_LEASE_TERM, leaseStart: "2027-10-21", leaseEnd: "2027-10-22" });
+    const first = quote.signingLines.find((l) => l.label === "Stay total")!;
     expect(first.dueAtSigning).toBe(false);
     const { atSigning, later } = splitQuoteLinesBySigning(quote);
-    expect(atSigning.map((l) => l.label)).not.toContain("First stay payment");
-    expect(later.map((l) => l.label)).toContain("First stay payment");
+    expect(atSigning.map((l) => l.label)).not.toContain("Stay total");
+    expect(later.map((l) => l.label)).toContain("Stay total");
     expect(quote.signingTotal).toBe(atSigning.reduce((s, l) => s + l.amount, 0));
   });
 
   it("is a signing line and part of the total when ticked", () => {
     const sub = stayListing(["room_rent:room-a", "move_in_fee"]);
-    const quote = buildListingQuote(sub, { roomId: "room-a", leaseTerm: SHORT_TERM_LEASE_TERM });
+    const quote = buildListingQuote(sub, { roomId: "room-a", leaseTerm: SHORT_TERM_LEASE_TERM, leaseStart: "2027-10-21", leaseEnd: "2027-10-22" });
     const { atSigning, later } = splitQuoteLinesBySigning(quote);
-    expect(atSigning.map((l) => l.label)).toContain("First stay payment");
-    expect(later.map((l) => l.label)).not.toContain("First stay payment");
+    expect(atSigning.map((l) => l.label)).toContain("Stay total");
+    expect(later.map((l) => l.label)).not.toContain("Stay total");
     expect(quote.signingTotal).toBe(atSigning.reduce((s, l) => s + l.amount, 0));
   });
 
   it("agrees, line by line, with what the pay-before-signing step stamps as due at signing", () => {
     for (const signing of [["move_in_fee"], ["room_rent:room-a", "security_deposit"], []]) {
       const sub = stayListing(signing);
-      const quote = buildListingQuote(sub, { roomId: "room-a", leaseTerm: SHORT_TERM_LEASE_TERM });
+      const quote = buildListingQuote(sub, { roomId: "room-a", leaseTerm: SHORT_TERM_LEASE_TERM, leaseStart: "2027-10-21", leaseEnd: "2027-10-22" });
       const ctx = { sub, leaseTerm: SHORT_TERM_LEASE_TERM, roomId: "room-a" };
       const byKey = (key: string) => quote.signingLines.find((l) => l.key === key);
       expect(byKey("room_rent:room-a")?.dueAtSigning).toBe(chargeKindDueAtSigning("stay_total", ctx));
@@ -92,8 +92,9 @@ describe("What a resident pays: nothing sits in the signing block that the total
       renderPanel(stayListing(["move_in_fee"]), plain);
       const total = screen.getByText("Total at signing");
       const later = screen.getByTestId("receipt-due-later");
-      const first = screen.getByText("First stay payment");
+      const first = screen.getByText("Stay total");
       expect(later.contains(first)).toBe(true);
+      expect(screen.getByText("Dates required")).toBeTruthy();
       expect(within(later).getByText("Due later")).toBeTruthy();
       // The signing block (everything above the total) has no first stay payment line.
       const position = first.compareDocumentPosition(total);
@@ -103,9 +104,10 @@ describe("What a resident pays: nothing sits in the signing block that the total
     it(`${plain ? "plain" : "editable"} receipt keeps a ticked first stay payment above the total`, () => {
       renderPanel(stayListing(["room_rent:room-a", "move_in_fee", "security_deposit"]), plain);
       const total = screen.getByText("Total at signing");
-      const first = screen.getByText("First stay payment");
+      const first = screen.getByText("Stay total");
       expect(first.compareDocumentPosition(total) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(screen.queryByTestId("receipt-due-later")).toBeNull();
+      expect(screen.getAllByText("Dates required").length).toBeGreaterThan(0);
     });
   }
 });

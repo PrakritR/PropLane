@@ -1,3 +1,4 @@
+import { parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { resolvedMoveInFeeRaw, stayPlacementLeaseTerm } from "@/lib/listing-placement-standard-fees";
 import {
   chargeKindDueAtSigning,
@@ -33,7 +34,7 @@ import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import { resolveStayPricing } from "@/lib/room-pricing";
 import { submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
-import { intraMonthStaySpan, shortTermStayNightCount, shortTermStayTotalAmount } from "@/lib/short-term-stay-pricing";
+import { intraMonthStaySpan, shortTermStayNightCount, shortTermStayCanBePriced, shortTermStayTotalAmount } from "@/lib/short-term-stay-pricing";
 
 /** One monthly fee's prorated line, as the ledger bills it. */
 export type LeaseBillingFeeLine = { id: string; label: string; amount: number };
@@ -299,13 +300,13 @@ export function buildLeaseBillingSnapshot(
   }) ?? undefined;
   const pricing = resolveStayPricing({
     room: selectedRoom, submission: sub,
-    application: { ...applicant.application, signedMonthlyRent: applicant.signedMonthlyRent },
+    application: { ...applicant.application, residentSlot: applicant.application?.residentSlot ?? parseRoomChoiceValue(applicant.assignedRoomChoice || applicant.application?.roomChoice1 || "").residentSlot, signedMonthlyRent: applicant.signedMonthlyRent },
   });
   const shortPricing = isShortTerm ? pricing : undefined;
   const dailyRent = !isShortTerm && pricing.basis === "daily" ? pricing.dailyRate : undefined;
   const stayNights = shortTermStayNightCount(applicant.application?.leaseStart, applicant.application?.leaseEnd);
-  const stayRent = shortPricing?.dailyRate != null && stayNights != null
-    ? shortTermStayTotalAmount(shortPricing.dailyRate, stayNights)
+  const stayRent = shortPricing && stayNights != null && shortTermStayCanBePriced(shortPricing.dailyRate ?? 0, stayNights, shortPricing.weeklyRate)
+    ? shortTermStayTotalAmount(shortPricing.dailyRate ?? 0, stayNights, shortPricing.weeklyRate)
     : undefined;
 
   const monthlyRent = placement.signedMonthlyRent;
@@ -493,7 +494,7 @@ export function buildLeaseBillingSnapshot(
     FIRST_PERIOD_UTIL_KINDS, resolvedProratedUtilities ?? monthlyUtilities,
   );
 
-  const totalBeforeCheckIn = pricing.stayKind === "short"
+  const totalBeforeCheckIn = pricing.stayKind === "short" && (!isShortTerm || stayRent != null)
     ? firstPeriodRentDue + firstPeriodUtilitiesDue + depositCollectionDue + moveInFeeDue + leaseFeeDue + otherCostDue + customOneTimeFeesDue
     : undefined;
 

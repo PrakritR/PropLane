@@ -20,8 +20,7 @@
  */
 
 import { useContext, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
-import { Copy } from "lucide-react";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { SendListingLinkRow } from "@/components/portal/zillow-rental-network-row";
 import { PortalContainerProvider } from "@/components/ui/portal-container-context";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { DemoPopupHostContext } from "@/components/marketing/site/product-mock/demo-popup-host";
@@ -41,7 +40,6 @@ import {
   PreviewPanel,
   ReviewCard,
   WizardField,
-  WizardLine,
   WizardMultiSelect,
   WizardRow,
   WizardSection,
@@ -305,14 +303,12 @@ export function DemoShareListingPopup({
                   required
                 />
                 <div className="mt-3 border-t border-border/60 pt-3">
-                  <WizardLine
+                  <p className="mb-2 text-sm font-semibold">Listing link</p>
+                  <SendListingLinkRow
                     label="Listing link"
-                    control={
-                      <span className="flex max-w-[min(320px,55vw)] items-center gap-1">
-                        <span className="truncate text-[13px] font-semibold text-foreground">{linkUrl || "—"}</span>
-                        <PortalIconAction icon={Copy} label="Copy listing link" disabled={!linkUrl} data-attr="share-lead-copy-link" />
-                      </span>
-                    }
+                    url={linkUrl}
+                    dataAttr="share-lead-link"
+                    onCopy={() => { void navigator.clipboard?.writeText(linkUrl).catch(() => undefined); }}
                   />
                 </div>
               </WizardSection>

@@ -196,7 +196,7 @@ describe("rental-application validate", () => {
     ).not.toContain(SHORT_TERM_LEASE_TERM);
   });
 
-  it("requires check-in and check-out times for a short-term application on a permitting listing", () => {
+  it("uses the host clock and only requires house rules consent for a short-term application", () => {
     const sub = { ...createDefaultListingSubmission(), shortTermRentalsAllowed: true };
     const state = {
       ...createInitialRentalWizardState(),
@@ -212,14 +212,14 @@ describe("rental-application validate", () => {
       property: { id: "prop-short-term", listingSubmission: sub },
     });
     expect(missing.leaseTerm).toBeUndefined();
-    expect(missing.shortTermCheckInTime).toContain("Check-in time");
-    expect(missing.shortTermCheckOutTime).toContain("Check-out time");
+    expect(missing.shortTermCheckInTime).toBeUndefined();
+    expect(missing.shortTermCheckOutTime).toBeUndefined();
 
     expect(missing.shortTermRulesAck).toContain("house rules");
 
     const filled = validateRentalWizardStep(
       1,
-      { ...state, shortTermCheckInTime: "15:00", shortTermCheckOutTime: "11:00", shortTermRulesAck: true },
+      { ...state, shortTermRulesAck: true, hasCosigner: null },
       { property: { id: "prop-short-term", listingSubmission: sub } },
     );
     expect(filled).toEqual({});

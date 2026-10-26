@@ -1,3 +1,4 @@
+import { loadShortStayPricingSubmission } from "@/lib/short-stay-pricing-gate.server";
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
@@ -383,7 +384,7 @@ async function sendForSignatureBlockerWithContext(
 ): Promise<string | null> {
   const blocker = sendForSignatureBlocker(row);
   if (blocker) return blocker;
-  return leaseSendGateBlockerAmong(row, await loadManagerApplications(ctx));
+  return leaseSendGateBlockerAmong(row, await loadManagerApplications(ctx), await loadShortStayPricingSubmission(ctx.db, row, ctx.landlordId));
 }
 
 export const sendLeaseForSignatureTool = defineWriteTool({

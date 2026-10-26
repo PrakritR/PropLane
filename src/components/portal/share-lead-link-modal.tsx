@@ -1,12 +1,13 @@
 "use client";
 
+import { SendListingLinkRow } from "@/components/portal/zillow-rental-network-row";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { DOCUMENT_UPLOAD_ACCEPT } from "@/lib/documents/manager-documents";
 import {
   ReviewCard,
   WizardField,
-  WizardLine,
   WizardMultiSelect,
   WizardSection,
   WizardSelect,
@@ -14,7 +15,7 @@ import {
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { ShareLeadLinkPreviewPanel } from "@/components/portal/share-lead-link-preview-panel";
-import { Copy, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { Input, Textarea } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 
@@ -725,20 +726,12 @@ export function ShareLeadLinkModal({
                   </div>
                 ) : null}
                 <div className="mt-3 border-t border-border/60 pt-3">
-                  <WizardLine
+                  <p className="mb-2 text-sm font-semibold">{linkLabel}</p>
+                  <SendListingLinkRow
                     label={linkLabel}
-                    control={
-                      <span className="flex max-w-[min(320px,55vw)] items-center gap-1">
-                        <span className="truncate text-[13px] font-semibold text-foreground">{linkUrl || "—"}</span>
-                        <PortalIconAction
-                          icon={Copy}
-                          label={`Copy ${linkLabel.toLowerCase()}`}
-                          disabled={!linkUrl}
-                          data-attr="share-lead-copy-link"
-                          onClick={() => void handleCopy(linkUrl, "Link copied.")}
-                        />
-                      </span>
-                    }
+                    url={linkUrl}
+                    dataAttr="share-lead-link"
+                    onCopy={() => void handleCopy(linkUrl, "Link copied.")}
                   />
                 </div>
               </WizardSection>

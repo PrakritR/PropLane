@@ -51,7 +51,6 @@ import {
   groupIdForRow,
   groupRowInputForRow,
 } from "@/components/portal/application-group-section";
-import { ManagerCosignerReadonlyReview } from "@/components/portal/pro-cosigner-readonly-review";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
 import { buildApplicationGroups, describeGroupBadge, groupForRow, type ApplicationGroupMember } from "@/lib/rental-application/application-groups";
 import {
@@ -312,6 +311,7 @@ export function ResidentApplicationsPanel({
   const router = useRouter();
   const { email: sessionEmail, userId: sessionUserId, ready: sessionReady } = usePortalSession();
   const searchParams = useSearchParams();
+  const groupLeaderAppId = searchParams.get("groupLeaderAppId")?.trim() || undefined;
   const portalNavigate = usePortalNavigate();
   const { showToast } = useAppUi();
   const demoMode = isDemoModeActive();
@@ -492,26 +492,20 @@ export function ResidentApplicationsPanel({
   }, [rows, section, applicationQuery]);
 
   const applyGateKey = useMemo(
-    () =>
-      applyTarget
-        ? publicApplyGateKey({
-            propertyId: applyTarget.propertyId,
-          })
-        : "",
-    [applyTarget],
+    () => publicApplyGateKey({ propertyId: applyTarget?.propertyId, groupLeaderAppId }),
+    [applyTarget, groupLeaderAppId],
   );
 
   const applyReturnPath = useMemo(
-    () =>
-      applyTarget
-        ? publicApplyReturnPath({
-            propertyId: applyTarget.propertyId,
-            rentalType,
-            listingRoomId: applyTarget.listingRoomId,
-            bundleId: applyTarget.bundleId,
-          })
-        : "",
-    [applyTarget, rentalType],
+    () => publicApplyReturnPath({
+      propertyId: applyTarget?.propertyId,
+      rentalType,
+      listingRoomId: applyTarget?.listingRoomId,
+      bundleId: applyTarget?.bundleId,
+      applicationFormId: searchParams.get("form") ?? undefined,
+      groupLeaderAppId,
+    }),
+    [applyTarget, rentalType, groupLeaderAppId, searchParams],
   );
 
   const applyView = useMemo(
@@ -750,22 +744,14 @@ export function ResidentApplicationsPanel({
   }, [applyTargetKey]);
 
   useEffect(() => {
-    if (!applyMode) return;
-    // Auto-open ONLY the application this apply session is actually for:
-    //  - a propertyId in the apply URL -> the in-progress row matching it
-    //    (Continue / the inline "Apply to a property" flow);
-    //  - a bare /apply with exactly ONE in-progress draft -> resume that draft.
-    // With several in-progress drafts and no target we open NONE — picking an
-    // arbitrary "first" is exactly what hijacked clicks on every other row and
-    // let withdraw/edit hit the WRONG application. The ref makes it fire once
-    // per resolved id so a sync tick can never re-snap over a row the resident
-    // opened by hand.
+    // A targeted apply link owns one wizard for its entire lifetime. Its own
+    // reconciliation resumes the matching draft; redirecting on a later sync
+    // unmounted the active form and flashed the application list.
+    if (!applyMode || applyTarget || searchParams.get("groupLeaderAppId")) return;
+    // Bare /apply can resume the sole unfinished application. With multiple
+    // drafts the resident chooses one; background sync must not choose for them.
     const inProgress = rows.filter(isInProgressApplicationRow);
-    const targetRow = applyTarget?.propertyId.trim()
-      ? findInProgressRowForTarget(rows, applyTarget)
-      : inProgress.length === 1
-        ? inProgress[0]
-        : undefined;
+    const targetRow = inProgress.length === 1 ? inProgress[0] : undefined;
     if (!targetRow || autoExpandedApplyIdRef.current === targetRow.id) return;
     autoExpandedApplyIdRef.current = targetRow.id;
     queueMicrotask(() => {
@@ -780,7 +766,7 @@ export function ResidentApplicationsPanel({
       // bounce a second time before it settles.
       portalNavigate(residentApplicationDetailHref(basePath, "pending", targetRow.id), { replace: true });
     });
-  }, [applyMode, applyTarget, basePath, portalNavigate, rows]);
+  }, [applyMode, applyTarget, basePath, portalNavigate, rows, searchParams]);
 
   useEffect(() => {
     if (openHandled.current || rows.length === 0) return;
@@ -971,7 +957,7 @@ export function ResidentApplicationsPanel({
   const embeddedWizard = applicationWizard;
 
   const renderStandaloneApplySurface = () => {
-    if (!applyMode || activeInProgressRow || !applyTarget) return null;
+    if (!applyMode || (activeInProgressRow && !groupLeaderAppId) || (!applyTarget && !groupLeaderAppId)) return null;
 
     if (applyView !== "wizard") {
       return (
@@ -1309,6 +1295,7 @@ export function ResidentApplicationsPanel({
       <>
         <ManagerPortalPageShell title="Applications" hideTitleOnMobileNav>
           <div className="mx-auto w-full max-w-5xl">
+            <ResidentLinkedFormsSection className="mb-4" />
             <ResidentApplicationStatusScreen
               row={soleApplication}
               residentEmail={residentEmail}
@@ -1335,7 +1322,7 @@ export function ResidentApplicationsPanel({
   }
 
   if (!applicationIdProp && applyMode) {
-    if (applyTarget && applyView === "wizard" && !activeInProgressRow) {
+    if ((applyTarget || searchParams.get("groupLeaderAppId")) && applyView === "wizard") {
       return (
         <ManagerPortalPageShell title="Apply" hideTitleOnMobileNav compactFilterRow>
           <div className={PORTAL_DATA_TABLE_WRAP}>
@@ -1440,19 +1427,13 @@ export function ResidentApplicationsPanel({
           actions={activeCosignerSubmission ? undefined : renderDetailActions(detailRow)}
         >
           {activeCosignerSubmission ? (
-            <ManagerCosignerReadonlyReview
-              sub={activeCosignerSubmission}
-              signerRow={detailRow}
-              onOpenSignerApplication={() =>
-                router.push(
-                  residentApplicationDetailHref(
-                    basePath,
-                    detailRow.bucket as ResidentApplicationBucketId,
-                    detailRow.id,
-                  ),
-                )
-              }
-            />
+            <section className="rounded-2xl border border-border bg-card p-5" aria-label="Co-signer application">
+              <h2 className="font-semibold">Co-signer application</h2>
+              <dl className="mt-4 divide-y divide-border">
+                <div className="flex justify-between gap-4 py-3"><dt>Name</dt><dd className="font-semibold">{activeCosignerSubmission.fullName || "Co-signer"}</dd></div>
+                <div className="flex justify-between gap-4 py-3"><dt>Status</dt><dd className="font-semibold">Submitted</dd></div>
+              </dl>
+            </section>
           ) : (editingId === detailRow.id && detailRow.bucket === "pending" && detailRow.application && !isInProgressApplicationRow(detailRow)) || isInProgressApplicationRow(detailRow) ? (
             // Editing or still in progress — there is nothing to overview
             // yet, so this keeps showing the editor/wizard directly, exactly

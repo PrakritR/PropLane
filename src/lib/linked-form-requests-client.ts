@@ -1,3 +1,4 @@
+import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import { resolveShareableAppOrigin } from "@/lib/app-url";
 import type { LinkedFormRequestView } from "@/lib/application-linked-form-requests";
 
@@ -22,9 +23,18 @@ function errorOf(body: Json, fallback: string): string {
   return typeof body.error === "string" && body.error ? body.error : fallback;
 }
 
-export async function fetchLinkedFormsForApplication(applicationId: string): Promise<LinkedFormRequestView[]> {
+export async function fetchLinkedFormsForApplicationResult(applicationId: string): Promise<
+  { ok: true; requests: LinkedFormRequestView[] } | { ok: false }
+> {
   const res = await call(`/api/linked-form-requests?applicationId=${encodeURIComponent(applicationId)}`);
-  return res.ok && Array.isArray(res.body.requests) ? (res.body.requests as LinkedFormRequestView[]) : [];
+  return res.ok && Array.isArray(res.body.requests)
+    ? { ok: true, requests: res.body.requests as LinkedFormRequestView[] }
+    : { ok: false };
+}
+
+export async function fetchLinkedFormsForApplication(applicationId: string): Promise<LinkedFormRequestView[]> {
+  const result = await fetchLinkedFormsForApplicationResult(applicationId);
+  return result.ok ? result.requests : [];
 }
 
 export type MyLinkedForms = { own: LinkedFormRequestView[]; helping: LinkedFormRequestView[] };
@@ -105,7 +115,11 @@ export async function fetchLinkedFormForFill(id: string): Promise<
   | {
       ok: true;
       request: LinkedFormRequestView;
+      submission: CosignerSubmission | null;
+      submissionConfig: unknown;
       form: {
+        accountName?: string;
+        accountEmail?: string;
         signerAppId: string;
         signerFullName: string;
         templateId?: string;
@@ -120,6 +134,8 @@ export async function fetchLinkedFormForFill(id: string): Promise<
   return {
     ok: true,
     request: res.body.request as LinkedFormRequestView,
+    submission: (res.body.submission as CosignerSubmission) ?? null,
+    submissionConfig: res.body.submissionConfig ?? null,
     form: (res.body.form as never) ?? null,
   };
 }

@@ -31,6 +31,12 @@ describe("shortTermStayTotalAmount", () => {
     expect(shortTermStayTotalAmount(85, 6)).toBe(510);
   });
 
+  it("never bills only the whole-week portion when leftover nights have no rate", () => {
+    expect(shortTermStayTotalAmount(0, 7, 350)).toBe(350);
+    expect(shortTermStayTotalAmount(0, 8, 350)).toBe(0);
+    expect(shortTermStayTotalAmount(65, 8, 350)).toBe(415);
+  });
+
   it("returns 0 when rate or nights are invalid", () => {
     expect(shortTermStayTotalAmount(0, 6)).toBe(0);
     expect(shortTermStayTotalAmount(85, 0)).toBe(0);

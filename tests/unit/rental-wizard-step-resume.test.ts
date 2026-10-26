@@ -30,7 +30,9 @@ import {
   isElementOnScreen,
   parsePersistedWizardStep,
   resumeActionForLiveDraft,
+  restoreRentalDraftWithGroupInvite,
 } from "@/components/marketing/rental-application-wizard";
+import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import { RENTAL_WIZARD_STEP_SCHEMA } from "@/lib/rental-application/wizard-step-schema";
 
 function params(query: Record<string, string>): URLSearchParams {
@@ -220,4 +222,12 @@ describe("isElementOnScreen", () => {
     expect(isElementOnScreen(el)).toBe(false);
     document.body.removeChild(parent);
   });
+});
+
+
+it("does not attach stale draft or preview metadata to a different group invitation", () => {
+  const restored = restoreRentalDraftWithGroupInvite({
+    ...createInitialRentalWizardState(), propertyId: "mgr-alder", groupLeaderAppId: "PROPLANE-OLD1234", groupId: "old-household", groupSize: "8",
+  }, "PROPLANE-NEW1234", { ok: true, leaderAppId: "PROPLANE-OLD1234", groupId: "old-household", groupSize: 8, organizerFirstName: "Old", propertyId: "mgr-alder" });
+  expect(restored).toMatchObject({ groupLeaderAppId: "PROPLANE-NEW1234", applyingAsGroup: "yes", groupRole: "joining", groupId: "", groupSize: "", propertyId: "mgr-alder" });
 });

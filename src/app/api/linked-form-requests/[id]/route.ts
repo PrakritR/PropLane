@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { loadApplicantAccountIdentity } from "@/lib/rental-application/applicant-identity.server";
+import { openCosignerIdentity } from "@/lib/security/cosigner-identity";
+import { mayReadCompletedLinkedSubmission } from "@/lib/cosigner-submission-visibility";
 import {
   loadLinkedFormRequest,
   markLinkedFormNotNeeded,
@@ -55,11 +58,14 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const { db, request, role, app } = ok;
     const [view] = await toLinkedFormRequestViews(db, [{ request, viewerRole: role, app }]);
     let form: Record<string, unknown> | null = null;
-    if (role !== "manager" && request.form_kind === "application" && (request.status === "owed" || request.status === "shared")) {
+    if (role !== "manager" && !(role === "applicant" && view?.requiresHelper) && request.form_kind === "application" && (request.status === "owed" || request.status === "shared")) {
       const template = await resolveCosignerTemplateForApplication(db, app, request.form_id, undefined, { anyPublishedVariant: true });
       if (template && !template.pinMissing) {
         const row = openApplicantRow(app.row_data, app.id, true, { soft: true });
+        const account = await loadApplicantAccountIdentity(db, ok.user);
         form = {
+          accountName: account.name,
+          accountEmail: account.email,
           signerAppId: app.id,
           signerFullName: row.name ?? "",
           templateId: template.templateId,
@@ -68,7 +74,22 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
         };
       }
     }
-    return NextResponse.json({ request: view, form }, { headers: { "Cache-Control": "private, no-store" } });
+    let submission = null;
+    let submissionConfig = null;
+    if (request.form_kind === "application" && mayReadCompletedLinkedSubmission(request, ok.user.id, role)) {
+      const { data, error } = await db.from("cosigner_submission_records")
+        .select("id, row_data").eq("id", request.completed_submission_ref!)
+        .eq("signer_app_id", request.application_id).maybeSingle();
+      if (error) throw error;
+      if (data?.row_data) {
+        submission = { ...openCosignerIdentity(data.row_data, String(data.id)), id: String(data.id) };
+        if (role !== "manager") {
+          const template = await resolveCosignerTemplateForApplication(db, app, submission.applicationTemplateId || request.form_id, submission.applicationTemplateVersion, { anyPublishedVariant: true });
+          if (template && !template.pinMissing) submissionConfig = template.config;
+        }
+      }
+    }
+    return NextResponse.json({ request: view, form, submission, submissionConfig }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return NextResponse.json({ error: "Could not load this form." }, { status: 500 });
   }
@@ -119,6 +140,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       return NextResponse.json({ error: "This form is filled in from the applicant's own portal." }, { status: 409 });
     }
     if (refusal === "closed") return NextResponse.json({ error: "This form is already finished." }, { status: 409 });
+
+    if (role === "applicant" && (action === "fee_checkout" || action === "fee_verify")) {
+      const [view] = await toLinkedFormRequestViews(db, [{ request, viewerRole: role, app }]);
+      if (view?.requiresHelper) return NextResponse.json({ error: "Your co-signer must use their own resident account." }, { status: 403 });
+    }
 
     if (action === "not_needed") {
       const done = await markLinkedFormNotNeeded(db, request.id);

@@ -6,6 +6,7 @@ import type { LinkedFormRequestView } from "@/lib/application-linked-form-reques
 
 const client = vi.hoisted(() => ({
   fetchLinkedFormsForApplication: vi.fn(),
+  fetchLinkedFormsForApplicationResult: vi.fn(),
   fetchMyLinkedForms: vi.fn(),
   mintLinkedFormShareUrl: vi.fn(),
   sendLinkedFormByEmail: vi.fn(),
@@ -25,6 +26,8 @@ vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => toast
 
 import { RentalApplicationFinishPanel } from "@/components/marketing/rental-application-finish-panel";
 import { ApplicationLinkedFormsSection } from "@/components/portal/application-linked-forms-section";
+import { CosignerInviteCallout } from "@/components/marketing/cosigner-invite-callout";
+import { LinkedFormsFinishList } from "@/components/marketing/linked-forms-finish-list";
 import { ResidentLinkedFormsSection } from "@/components/portal/resident-linked-forms-section";
 
 afterEach(() => {
@@ -118,10 +121,12 @@ describe("the applicant's finish screen", () => {
     expect(client.fetchLinkedFormsForApplication).toHaveBeenCalledWith("PROPLANE-APP00001");
   });
 
-  it("keeps the old co-signer copy box when the template links no form", () => {
+  it("does not issue an unsecured co-signer link when the template links no form", async () => {
     client.fetchLinkedFormsForApplication.mockResolvedValue([]);
+    client.fetchLinkedFormsForApplicationResult.mockResolvedValue({ ok: true, requests: [] });
     render(<RentalApplicationFinishPanel axisId="PROPLANE-APP00001" email="" portalFlow hasCosigner="yes" linkedForms={[]} onDone={() => {}} />);
-    expect(screen.getByText(/Co-signer invite/i)).toBeInTheDocument();
+    expect(await screen.findByText("Ask your property manager to add a co-signer form.")).toBeInTheDocument();
+    expect(screen.queryByText(/rent\/apply\/cosigner/)).not.toBeInTheDocument();
     expect(screen.queryByText(/more forms? to finish/i)).not.toBeInTheDocument();
   });
 
@@ -142,7 +147,13 @@ describe("the resident portal's Applications section", () => {
     expect(await screen.findByRole("heading", { name: "Forms for Sam Park" })).toBeInTheDocument();
     const helperList = screen.getByRole("heading", { name: "Forms for Sam Park" }).closest("section")!;
     expect(within(helperList).queryByRole("button", { name: "Someone else will fill it in" })).not.toBeInTheDocument();
-    expect(within(helperList).getByRole("link", { name: "Fill out now" })).toHaveAttribute("href", "/f/open/req-9");
+    expect(within(helperList).getByRole("link", { name: "Fill out now" })).toHaveAttribute("href", "/resident/applications/forms/req-9");
+  });
+
+  it.each(["own", "helping"] as const)("keeps completed forms accessible under %s", async (list) => {
+    client.fetchMyLinkedForms.mockResolvedValue({ own: [], helping: [], [list]: [view({ id: "finished", viewerRole: list === "own" ? "applicant" : "helper", status: "done" })] });
+    render(<ResidentLinkedFormsSection />);
+    expect(await screen.findByRole("link", { name: /Co-signer form.*Submitted/ })).toHaveAttribute("href", "/resident/applications/forms/finished");
   });
 
   it("draws nothing when nothing is owed", async () => {
@@ -230,5 +241,33 @@ describe("the manager's application record", () => {
     const { container } = render(<ApplicationLinkedFormsSection applicationId="PROPLANE-APP00001" />);
     await waitFor(() => expect(client.fetchLinkedFormsForApplication).toHaveBeenCalled());
     expect(container.querySelector("section")).toBeNull();
+  });
+});
+
+
+describe("co-signer invitation ownership", () => {
+  it("lets the primary share but not fill a co-signer form", () => {
+    render(<LinkedFormsFinishList forms={[view({ requiresHelper: true, viewerRole: "applicant" })]} />);
+    expect(screen.queryByRole("link", { name: "Fill out now" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Someone else will fill it in" })).toBeInTheDocument();
+  });
+  it("lets the linked helper fill their own co-signer form", () => {
+    render(<LinkedFormsFinishList forms={[view({ requiresHelper: true, viewerRole: "helper" })]} allowShare={false} />);
+    expect(screen.getByRole("link", { name: "Fill out now" })).toBeInTheDocument();
+  });
+  it("does not confuse an unreadable invitation with missing configuration", async () => {
+    client.fetchLinkedFormsForApplicationResult.mockResolvedValue({ ok: false });
+    render(<CosignerInviteCallout signerAppId="app-a" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not load");
+    expect(screen.queryByText("Ask your property manager to add a co-signer form.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+  it("never shows another application's stale request while the target changes", async () => {
+    client.fetchLinkedFormsForApplicationResult.mockResolvedValueOnce({ ok: true, requests: [view({ status: "done" })] }).mockReturnValueOnce(new Promise(() => {}));
+    const { rerender } = render(<CosignerInviteCallout signerAppId="app-a" />);
+    expect(await screen.findByText("Co-signer form submitted")).toBeInTheDocument();
+    rerender(<CosignerInviteCallout signerAppId="app-b" />);
+    expect(screen.queryByText("Co-signer form submitted")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading");
   });
 });

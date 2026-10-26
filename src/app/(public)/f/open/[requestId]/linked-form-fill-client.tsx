@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { LinkedFormsFinishList } from "@/components/marketing/linked-forms-finish-list";
+import { ManagerCosignerReadonlyReview } from "@/components/portal/pro-cosigner-readonly-review";
 import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CosignerApplyFlow } from "@/app/(rent)/rent/apply/cosigner-flow";
@@ -104,24 +106,33 @@ export default function LinkedFormFillClient({ requestId }: { requestId: string 
     );
   }
 
-  const { request, form } = phase.data;
-  return shell(<FillBody request={request} form={form} payError={payError} verifying={verifying} />);
+  const { request, form, submission, submissionConfig } = phase.data;
+  return shell(<FillBody request={request} form={form} submission={submission} submissionConfig={submissionConfig} payError={payError} verifying={verifying} />);
 }
 
 function FillBody({
   request,
   form,
+  submission,
+  submissionConfig,
   payError,
   verifying,
 }: {
   request: LinkedFormRequestView;
   form: Loaded["form"];
+  submission: Loaded["submission"];
+  submissionConfig: Loaded["submissionConfig"];
   payError: string | null;
   verifying: boolean;
 }) {
   const router = useRouter();
   const [startError, setStartError] = useState<string | null>(null);
 
+  if (request.status === "done" && submission) {
+    return <div className="space-y-6"><Link href="/resident/applications" className="font-semibold text-primary">Back to applications</Link>
+      <h1 className="text-2xl font-bold">{request.formLabel}</h1>
+      <p>Submitted</p><ManagerCosignerReadonlyReview sub={submission} questionConfig={submissionConfig as ApplicationConfigSlice | null} /></div>;
+  }
   if (request.status === "done" || request.status === "not_needed") {
     return (
       <div className="text-center">
@@ -148,6 +159,10 @@ function FillBody({
         </div>
       </div>
     );
+  }
+
+  if (request.viewerRole === "applicant" && request.requiresHelper) {
+    return <LinkedFormsFinishList forms={[request]} heading="Invite your co-signer" />;
   }
 
   const fee = request.feeCents ?? 0;
@@ -192,10 +207,14 @@ function FillBody({
 
   return (
     <CosignerApplyFlow
+      key={request.id}
+      embedded
       onBack={() => router.push("/resident/applications")}
       onDone={() => router.push("/resident/applications")}
       linkedForm={{
         requestId: request.id,
+        accountName: form.accountName,
+        accountEmail: form.accountEmail,
         signerAppId: form.signerAppId,
         signerFullName: form.signerFullName,
         templateId: form.templateId,

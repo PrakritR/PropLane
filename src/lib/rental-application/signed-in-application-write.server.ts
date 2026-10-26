@@ -1,3 +1,4 @@
+import { standardizeApplicantStayTimes } from "@/lib/rental-application/standard-stay-times.server";
 /**
  * The signed-in applicant's write of `manager_application_records`, shared by
  * `POST /api/manager-applications` and `POST /api/portal/quick-apply` so a Quick
@@ -400,6 +401,7 @@ export async function prepareResidentSelfWrite(
     application: applicantRoomChoicesForListing(row.application, String(row.propertyId || row.application?.propertyId || "")),
   };
   row = prepareApplicantIdentityWrite(row, existing, String(records?.[0]?.id ?? row.id));
+  row = await standardizeApplicantStayTimes(db, row, existing);
   if (!existing || isDraftShapedApplicationRow(existing)) {
     const validation = await validateResidentApplicationRowForPersistence(db, row, {
       loadProperty: input.loadProperty,

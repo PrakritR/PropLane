@@ -1,3 +1,5 @@
+import { shortStayPricingBlocker } from "@/lib/short-stay-pricing-gate";
+import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 /**
  * Unified manager / admin / resident lease workflow backed by Supabase records.
  * Buckets match UI tabs: manager → admin → resident → signed.
@@ -557,7 +559,7 @@ export function leaseLandlordNameWarning(row: LeasePipelineRow): string | null {
   return leaseLandlordNameBlocker(row);
 }
 
-export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoApplicantRow[]): string | null {
+export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoApplicantRow[], pricingSubmission?: ManagerListingSubmissionV1 | null): string | null {
   // The document check itself, taught to recognize an uploaded/library-attached
   // PDF: `leasePipelineRowHasDocument` (-> `leaseRowHasDocument`) already
   // tolerates a LIST-shaped row whose bytes were omitted for bandwidth
@@ -576,6 +578,11 @@ export function leaseSendGateBlockerAmong(row: LeasePipelineRow, apps: DemoAppli
     requireApprovedApplication: requireApproved,
   });
   if (approval) return approval;
+  if (!rowHasAnySignature(row) && row.application?.rentalType === "short_term") {
+    const sub = pricingSubmission === undefined ? getPropertyById(row.propertyId || row.application.propertyId || "")?.listingSubmission : pricingSubmission;
+    const pricing = shortStayPricingBlocker(row, sub);
+    if (pricing) return pricing;
+  }
   // Parties-mismatch guard. Confirming the review IS the explicit
   // acknowledgement, and it is bound to BOTH sides of the comparison: the
   // document by its digest, the record by `confirmedRecordFingerprint`. A

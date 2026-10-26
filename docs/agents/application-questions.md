@@ -6,6 +6,8 @@ application asks, and the forms an answer can pull in behind it. Stay types,
 [`lease-generation.md`](lease-generation.md); the move-in form product itself
 belongs to [`move-in-forms.md`](move-in-forms.md).
 
+Organizer-ID validation keys requests on the ID only; changing a parent callback must not repeat lookup and autosave (`group-leader-app-id-field.test.tsx`).
+
 ## The applicant sees seven steps
 
 Your lease · About you · Where you live · Work and income · References · More details · Review, sign and pay
@@ -22,9 +24,10 @@ share Where you live, consent and review share the last step. A step the templat
   Long-term with no fixed lengths and no Custom dates asks for the move-out date directly
   (`longTermHasImplicitMoveOut`), because the stay still needs an end. When Long-term leaves exactly one
   choice it is preselected and no Length control is drawn at all.
-  Short-term: check-in, check-out, times, house rules. Stored values never change
+  Short-term: check-in and check-out dates plus house rules. Arrival/departure times are the host’s standard clock, stamped server-side by `standardizeApplicantStayTimes` for drafts/new submissions; client-provided times never negotiate it and existing submitted clocks are preserved. Stored values never change
   ("Long-term", "Short-Term Stay", "Custom", "Month-to-Month"), and `validate.ts` still refuses a term the property
   does not offer. Custom dates stores "Custom" only when the property offers it.
+- Household Yes/No picks use the shared dropdown; short stays do not ask for a co-signer. Stay receipts use chosen dates and `resolveStayPricing` through `applicantListingQuote`, with the same checkout-exclusive nights and weekly pricing as approval and lease generation. No dates means no amount; never substitute monthly rent. Signing selection still comes from `chargeKindDueAtSigning`; remaining stay charges are labeled Before check-in. Bundle shares await confirmed placement rather than guessing a single-room amount.
 - **Where you live** asks the previous address only under two years at the current one (`previous-address.ts`).
 - **Review, sign and pay** opens the card form only once the whole application would pass the submit gate.
 - A draft saved by an older wizard carries `wizardStepSchema`; `normalizePersistedWizardStep` maps its step onto
@@ -50,11 +53,10 @@ draws what it returns.
   applicant has no account to fall back to, so the wizard asks a guest for Full
   legal name and Email whatever the template says
   (`withGuestIdentityQuestionsAsked`) and the guest submit path refuses a
-  submitted row with no name. **The co-signer form follows the same rule**: a
-  signed-in filler's unasked name and email come from their account (refused
-  when the account holds no such value), a signed-out co-signer is still asked for
-  both, and phone is validated only when the form asks for it or the filler
-  typed one.
+  submitted row with no name. **Co-signers must use their own resident account**: a
+  filler's unasked name comes from their account, and account email is authoritative
+  (refused when the account holds no such value). Phone is validated only when
+  the form asks for it or the filler typed one.
 - **Two structural limits, not locks.** A built-in whose choices the wizard
   compares by stored value (`BUILT_IN_ANSWER_VALUES`) can have each choice
   reworded but not added, removed or reordered — position *i* stores value *i*.
@@ -140,7 +142,7 @@ Schema: `supabase/migrations/20261004130000_linked_form_requests.sql` —
   sign in or create one and comes straight back; redeeming
   (`POST /api/linked-form-requests/redeem`, body = the token and nothing else)
   writes the `resident_account_links` row joining applicant and helper for that
-  one request, and answers with `/f/open/<request id>`. That link is what lets
+  one request, and answers with `/resident/applications/forms/<request id>`. Legacy `/f/open/<request id>` URLs redirect there. That link is what lets
   the helper read and fill **this** form — never the applicant's other forms.
 - Every refusal reads the same ("This link can't be used."), so the page is never
   a way to learn whether an application, a token or a link exists. Rate-limited
@@ -262,3 +264,28 @@ forms, the manager notice, move-in forms and screening (`consentCredit`) are one
 - Limits: signed-in residents only (401 otherwise), 10 submits and 30 dry runs a minute per account.
 - Out of scope: group quick apply, any fee bypass, any change to the wizard's questions. The row carries
   `quickApplied: true` (a plain fact on the record, never a pill).
+
+
+## Co-signer account and portal boundary (Oct 25, 2026)
+
+Co-signers submit only through an authorized linked-form request from their own resident account. The old
+`/rent/apply/cosigner?signerAppId=…` page resumes a uniquely matching request already linked to the signed-in
+helper; otherwise it asks for a fresh invitation. An application id grants no write access,
+and the public-named submission route rejects requests without `formRequestId`, an authenticated resident and
+access to that stored request. The existing fee and compare-and-swap completion gates still apply. A co-signer request (its published variant or derived rule) refuses primary-applicant submission and checkout: the primary shares it, a different resident fills it. Generic supplemental forms remain fillable by the applicant. Before the
+primary application is submitted, the wizard shows that the invitation will become available; it exposes no
+unusable public link. A missing configured co-signer template is shown as needing manager setup.
+
+The fill page lives in Applications at `/resident/applications/forms/<request id>` on both web and native.
+The linked wizard starts with personal information, prefills the account email read-only and profile name,
+shows the bound applicant as a fact, and skips unpublished sections. Consent is only required when the published
+form requires it, and an unasked or unchecked consent is never stored as granted.
+Submitted helper forms remain listed in that helper's portal. Their completed readout uses the submitted
+published template version, omitting unasked fields and booleans; manager review retains its full view. GET on the request reveals the completed
+submission only to its `filled_by_user_id` or an authorized manager, and looks up the exact
+`completed_submission_ref` under the same parent application. The primary applicant sees completion status;
+`/api/cosigner-submissions` gives them an allowlisted summary, never the co-signer's identity or financial
+answers. Existing signed documents and submitted responses are not rewritten.
+
+Coverage: `linked-form-requests-routes`, `cosigner-submission-visibility`, `cosigner-identity-from-account`,
+`security/cosigner-identity-route`, and `linked-forms-ui`.

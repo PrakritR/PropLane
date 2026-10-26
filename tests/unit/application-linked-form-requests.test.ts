@@ -155,7 +155,7 @@ describe("share and open paths", () => {
     const token = "A".repeat(43);
     expect(linkedFormSharePath(token)).toBe(`/f/${token}`);
     expect(linkedFormSharePath(token)).not.toContain("?");
-    expect(linkedFormOpenPath("abc")).toBe("/f/open/abc");
+    expect(linkedFormOpenPath("abc")).toBe("/resident/applications/forms/abc");
   });
 
   it("lets a post-sign-in redirect return only to those two shapes", () => {

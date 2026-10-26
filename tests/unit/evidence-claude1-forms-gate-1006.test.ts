@@ -29,9 +29,11 @@ afterAll(() => {
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { createDefaultListingSubmission, normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 
 const getUser = vi.fn();
+let PROPERTY: ReturnType<typeof createDefaultListingSubmission> | null = null;
 let PROFILE: { role: string; email: string } | null = null;
 let STORED_ROWS: { id: string; row_data: DemoApplicantRow; manager_user_id?: string | null; resident_email?: string | null }[] = [];
 let UPSERTS: { id: string; row_data: DemoApplicantRow }[] = [];
@@ -74,6 +76,7 @@ function makeDb() {
         order: () => builder,
         limit: () => builder,
         maybeSingle() {
+          if (table === "manager_property_records") return Promise.resolve({ data: PROPERTY ? { property_data: { listingSubmission: PROPERTY } } : null, error: null });
           if (table === "profiles") return Promise.resolve({ data: PROFILE, error: null });
           if (table === "manager_application_records") {
             const hit = STORED_ROWS.find((r) => (state.ids ? state.ids.includes(r.id) : true));
@@ -121,6 +124,7 @@ async function call(action: "upsert" | "replace", row: DemoApplicantRow) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  PROPERTY = null;
   PROFILE = { role: "manager", email: EMAIL };
   getUser.mockResolvedValue({ data: { user: { id: OWNER, email: EMAIL, user_metadata: {} } }, error: null });
   STORED_ROWS = [];
@@ -191,3 +195,17 @@ describe.each(["upsert", "replace"] as const)(
     });
   },
 );
+
+
+describe.each(["upsert", "replace"] as const)("short-stay approval pricing on %s", (action) => {
+  it.each([["2027-10-09", "", 409], ["2027-10-08", "", 200], ["2027-10-09", "55", 200]] as const)("prices the complete stay through %s with nightly %s", async (leaseEnd, nightly, status) => {
+    const base = createDefaultListingSubmission();
+    PROPERTY = normalizeManagerListingSubmissionV1({ ...base, shortTermRentalsAllowed: true, shortTermDailyCost: "", rooms: [{ ...base.rooms[0]!, id: "room", shortTermRent: nightly, dailyRentPrice: undefined, weeklyRentPrice: 350 }] });
+    const pending = applicationRow("AXIS-STAY", { application: { ...createInitialRentalWizardState(), propertyId: "prop-1", rentalType: "short_term", roomChoice1: "prop-1::room", leaseStart: "2027-10-01", leaseEnd } });
+    STORED_ROWS = [{ id: pending.id, row_data: pending, manager_user_id: OWNER, resident_email: pending.email }];
+    const res = await call(action, { ...pending, bucket: "approved" });
+    expect(res.status, JSON.stringify(res.body)).toBe(status);
+    expect(UPSERTS).toHaveLength(status === 200 ? 1 : 0);
+    if (status === 409) expect(res.body).toMatchObject({ blocked: "stay-pricing" });
+  });
+});

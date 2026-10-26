@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createLinkedFormFakeDb, type LinkedFormFakeDb } from "../helpers/linked-form-fake-db";
 import { buildLinkedFormListing } from "../helpers/linked-form-fixtures";
+import { applicationTemplateQuestionConfigFromSlice, createPropertyApplicationTemplate, publishApplicationTemplateQuestionDraft } from "@/lib/property-application-templates";
+import { STANDARD_APPLICATION_FIELD_CATALOG } from "@/lib/rental-application/application-field-catalog";
 import { hashLinkedFormToken } from "@/lib/application-linked-form-requests.server";
 
 const state = vi.hoisted(() => ({
@@ -16,6 +18,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => state.db }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: async () => ({ ok: true }), clientIpFrom: () => "127.0.0.1" }));
+vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
 vi.mock("@/lib/auth/portal-access", () => ({ getPortalAccessContext: async () => ({ roles: ["resident"], effectiveRole: "resident" }) }));
 // "manager-1" owns the application; "manager-readonly" is a co-manager holding read only.
 vi.mock("@/lib/auth/manager-application-access", () => ({
@@ -31,6 +34,7 @@ vi.mock("@/lib/application-fee-checkout.server", () => ({
 }));
 vi.mock("@/lib/cosigner-notification.server", () => ({ notifyManagerCosignerSubmitted: async () => undefined }));
 
+import { GET as getCosigners } from "@/app/api/cosigner-submissions/route";
 import { POST as redeem } from "@/app/api/linked-form-requests/redeem/route";
 import { POST as submitCosigner } from "@/app/api/public/cosigner-submissions/route";
 import { GET as getLinkedRequest, POST as postLinkedRequest } from "@/app/api/linked-form-requests/[id]/route";
@@ -130,7 +134,7 @@ describe("POST /api/linked-form-requests/redeem", () => {
     const res = await redeem(post("/api/linked-form-requests/redeem", { token: TOKEN }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toMatchObject({ ok: true, requestId: REQUEST_ID, role: "helper", path: `/f/open/${REQUEST_ID}`, formLabel: "Co-signer form" });
+    expect(body).toMatchObject({ ok: true, requestId: REQUEST_ID, role: "helper", path: `/resident/applications/forms/${REQUEST_ID}`, formLabel: "Co-signer form" });
     expect(JSON.stringify(body)).not.toContain(TOKEN);
   });
 
@@ -292,31 +296,14 @@ describe("a linked form submitted through the co-signer route", () => {
     return res;
   }
 
-  it("the legacy public co-signer link keeps working and finishes a request that owes no fee", async () => {
+  it.each([0, 4500, null])("legacy public submissions cannot bypass account ownership, even with fee %s", async (fee) => {
     const db = state.db as LinkedFormFakeDb;
-    db.tables.application_form_requests![0]!.fee_cents = 0;
-    const res = await legacySubmit(db);
-    expect(res.status).toBe(200);
-    expect(db.tables.cosigner_submission_records).toHaveLength(1);
-    expect(db.tables.application_form_requests![0]).toMatchObject({ status: "done", filled_by_user_id: null });
+    Object.assign(db.tables.application_form_requests![0]!, { fee_cents: fee, fee_paid_at: new Date().toISOString(), fee_paid_by_user_id: "helper-1" });
+    expect((await legacySubmit(db)).status).toBe(401);
+    expect(db.tables.cosigner_submission_records).toHaveLength(0);
+    expect(db.tables.application_form_requests![0]).toMatchObject({ status: "shared", filled_by_user_id: null });
   });
 
-  it("the legacy public link finishes a request whose fee was already paid", async () => {
-    const db = state.db as LinkedFormFakeDb;
-    Object.assign(db.tables.application_form_requests![0]!, { fee_paid_at: new Date().toISOString(), fee_paid_by_user_id: "helper-1" });
-    expect((await legacySubmit(db)).status).toBe(200);
-    expect(db.tables.application_form_requests![0]).toMatchObject({ status: "done" });
-  });
-
-  it("the legacy public link never completes a request whose fee is owed or unresolved", async () => {
-    for (const fee of [4500, null]) {
-      state.db = seed();
-      const db = state.db as LinkedFormFakeDb;
-      db.tables.application_form_requests![0]!.fee_cents = fee;
-      expect((await legacySubmit(db)).status).toBe(200); // the submission itself is stored, as before
-      expect(db.tables.application_form_requests![0]).toMatchObject({ status: "shared", filled_by_user_id: null });
-    }
-  });
 });
 
 describe("a manager's action on a linked-form request needs edit access", () => {
@@ -354,5 +341,96 @@ describe("a manager's action on a linked-form request needs edit access", () => 
     const waived = await act("not_needed");
     expect(waived.status).toBe(200);
     expect(db.tables.application_form_requests![0]!.status).toBe("not_needed");
+  });
+});
+
+
+describe("completed linked-form privacy", () => {
+  const ctx = { params: Promise.resolve({ id: REQUEST_ID }) };
+  beforeEach(() => {
+    state.db = seed({ status: "done", filled_by_user_id: "helper-1", completed_submission_ref: "submission-1" });
+    (state.db as LinkedFormFakeDb).tables.cosigner_submission_records = [{ id: "submission-1", signer_app_id: "PROPLANE-APP00001", row_data: { fullName: "Maria Lee", monthlyIncome: "9000", dob: "1970-01-01", ssn: "***-**-6789" } }];
+  });
+  it.each(["helper-1", "manager-1"])("allows the exact filler or authorized manager: %s", async (id) => {
+    state.user = { id, email: id === "helper-1" ? "mom@example.com" : "m@example.com" };
+    const res = await getLinkedRequest(new Request("http://localhost/form"), ctx);
+    expect(res.status).toBe(200);
+    expect((await res.json()).submission).toMatchObject({ id: "submission-1", monthlyIncome: "9000" });
+  });
+  it("uses the submitted template version for the helper's completed question filter", async () => {
+    state.user = { id: "helper-1", email: "mom@example.com" };
+    const db = state.db as LinkedFormFakeDb;
+    const listing = (db.tables.manager_property_records![0]!.property_data as { listingSubmission: ReturnType<typeof buildLinkedFormListing>["listing"] }).listingSubmission;
+    const template = listing.propertyApplicationTemplates.find((item) => item.id === db.tables.application_form_requests![0]!.form_id)!;
+    Object.assign(db.tables.cosigner_submission_records![0]!.row_data as object, { applicationTemplateId: template.id, applicationTemplateVersion: 1 });
+    const updated = publishApplicationTemplateQuestionDraft({ ...template, draftQuestionConfig: { ...template.draftQuestionConfig, customApplicationFields: template.draftQuestionConfig.customApplicationFields.map((field) => ({ ...field, label: `Updated ${field.label}` })) } });
+    listing.propertyApplicationTemplates = listing.propertyApplicationTemplates.map((item) => item.id === template.id ? updated : item);
+    const response = await getLinkedRequest(new Request("http://localhost/form"), ctx);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.submissionConfig.customApplicationFields[0].label).toBe("Income");
+  });
+  it("the primary applicant cannot retrieve private answers through the legacy list endpoint", async () => {
+    state.user = { id: "applicant-1", email: "ava@example.com" };
+    (state.db as LinkedFormFakeDb).tables.profiles!.push({ id: "applicant-1", role: "resident", email: "ava@example.com" });
+    const res = await getCosigners(new Request("http://localhost/api/cosigner-submissions?signerAppId=PROPLANE-APP00001"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.rows[0]).toMatchObject({ id: "submission-1", fullName: "Co-signer", monthlyIncome: "", dob: "", ssn: "" });
+    expect(JSON.stringify(body)).not.toMatch(/9000|6789|1970/);
+  });
+  it("returns status without the helper's answers to the primary applicant", async () => {
+    state.user = { id: "applicant-1", email: "ava@example.com" };
+    const res = await getLinkedRequest(new Request("http://localhost/form"), ctx);
+    const body = await res.json();
+    expect(body.request.status).toBe("done");
+    expect(body.submission).toBeNull();
+    expect(JSON.stringify(body)).not.toMatch(/9000|6789|1970/);
+  });
+  it("refuses an unrelated resident and never follows a submission from a different application", async () => {
+    state.user = { id: "helper-2", email: "dad@example.com" };
+    expect((await getLinkedRequest(new Request("http://localhost/form"), ctx)).status).toBe(404);
+    state.user = { id: "helper-1", email: "mom@example.com" };
+    (state.db as LinkedFormFakeDb).tables.cosigner_submission_records![0]!.signer_app_id = "PROPLANE-OTHER";
+    expect((await (await getLinkedRequest(new Request("http://localhost/form"), ctx)).json()).submission).toBeNull();
+  });
+});
+
+
+describe("a co-signer uses a separate resident account", () => {
+  const ctx = { params: Promise.resolve({ id: REQUEST_ID }) };
+  beforeEach(() => {
+    state.db = seed({ fee_cents: 0 });
+    state.user = { id: "applicant-1", email: "ava@example.com" };
+    (state.db as LinkedFormFakeDb).tables.profiles!.push({ id: "applicant-1", role: "resident", email: "ava@example.com", full_name: "Ava Lee" });
+  });
+  it("refuses a primary applicant who posts to their own co-signer request", async () => {
+    const res = await submitCosigner(post("/api/public/cosigner-submissions", cosignerBody("ignored")));
+    expect(res.status).toBe(403);
+    expect((state.db as LinkedFormFakeDb).tables.cosigner_submission_records).toHaveLength(0);
+  });
+  it("shows a share-only request and refuses primary applicant checkout", async () => {
+    const res = await getLinkedRequest(new Request("http://localhost/form"), ctx);
+    expect(await res.json()).toMatchObject({ request: { requiresHelper: true, viewerRole: "applicant" }, form: null });
+    const payment = await postLinkedRequest(post("/form", { action: "fee_checkout" }), ctx);
+    expect(payment.status).toBe(403);
+  });
+  it("still allows the applicant to fill a generic supplemental application form", async () => {
+    const db = state.db as LinkedFormFakeDb;
+    const listing = (db.tables.manager_property_records![0]!.property_data as { listingSubmission: { propertyApplicationTemplates: { id: string }[] } }).listingSubmission;
+    const supplemental = publishApplicationTemplateQuestionDraft({
+      ...createPropertyApplicationTemplate({ kind: "long-term", label: "Extra information" }),
+      draftQuestionConfig: { ...applicationTemplateQuestionConfigFromSlice({ applicationConfigMode: "custom", disabledStandardApplicationKeys: STANDARD_APPLICATION_FIELD_CATALOG.map((field) => field.standardKey), customApplicationFields: [] }), documentsQuestionsMigrated: true },
+    });
+    listing.propertyApplicationTemplates.push(supplemental);
+    db.tables.application_form_requests![0]!.form_id = supplemental.id;
+    const res = await getLinkedRequest(new Request("http://localhost/form"), ctx);
+    const body = await res.json();
+    expect(body.request.requiresHelper).toBe(false);
+    expect(body.form).toMatchObject({ accountName: "Ava Lee", accountEmail: "ava@example.com" });
+    const submitted = await submitCosigner(post("/api/public/cosigner-submissions", cosignerBody("ignored")));
+    expect(submitted.status, JSON.stringify(await submitted.clone().json())).toBe(200);
+    expect(db.tables.application_form_requests![0]).toMatchObject({ status: "done", filled_by_user_id: "applicant-1" });
+    expect(db.tables.cosigner_submission_records![0]!.row_data).toMatchObject({ consentCredit: false });
   });
 });

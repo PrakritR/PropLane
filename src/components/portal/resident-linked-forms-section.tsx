@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { linkedFormOpenPath } from "@/lib/linked-form-path";
 import { useEffect, useMemo, useState } from "react";
 import { LinkedFormsFinishList } from "@/components/marketing/linked-forms-finish-list";
 import { fetchMyLinkedForms, type MyLinkedForms } from "@/lib/linked-form-requests-client";
@@ -38,6 +40,11 @@ export function ResidentLinkedFormsSection({ className }: { className?: string }
   return (
     <div className={className} data-attr="resident-linked-forms">
       <LinkedFormsFinishList forms={lists.own} className="mb-4" />
+      {[...lists.own, ...lists.helping].filter((form) => form.status === "done").map((form) => (
+        <Link key={form.id} href={linkedFormOpenPath(form.id)} className="mb-3 flex items-center justify-between gap-4 rounded-xl border border-border p-4" data-attr="resident-completed-linked-form">
+          <span className="font-semibold">{form.formLabel}</span><span>Submitted</span>
+        </Link>
+      ))}
       {helping.map((group) => (
         <LinkedFormsFinishList
           key={group.forms[0]?.applicationId}

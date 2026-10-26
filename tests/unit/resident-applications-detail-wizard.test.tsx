@@ -84,6 +84,13 @@ vi.mock("@/components/marketing/rental-application-wizard", () => ({
   RentalApplicationWizard: () => <div data-testid="rental-wizard" />,
 }));
 
+vi.mock("@/components/portal/resident-linked-forms-section", () => ({
+  ResidentLinkedFormsSection: () => <div data-testid="linked-helper-forms">Co-signer application</div>,
+}));
+vi.mock("@/components/portal/resident-application-status-screen", () => ({
+  ResidentApplicationStatusScreen: () => <div data-testid="application-status" />,
+}));
+
 import { ResidentApplicationsPanel } from "@/components/portal/resident-applications-panel";
 
 function inProgressRow(id: string, propertyId: string, property: string): DemoApplicantRow {
@@ -156,4 +163,12 @@ describe("ResidentApplicationsPanel application detail", () => {
       expect(portalNavigate).toHaveBeenCalledWith("/resident/applications/pending");
     });
   });
+});
+
+
+it("shows helper forms even when one submitted application opens its status screen", async () => {
+  ROWS = [{ ...inProgressRow("PROPLANE-BBBB0002", "mgr-test-spruce", "Spruce Studio"), stage: "Submitted" }];
+  render(<ResidentApplicationsPanel />);
+  expect(await screen.findByTestId("linked-helper-forms")).toBeTruthy();
+  expect(screen.getByTestId("application-status")).toBeTruthy();
 });

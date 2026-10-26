@@ -1,8 +1,10 @@
+import { parseGroupLeaderAppIdParam } from "@/lib/rental-application/group-apply-link";
 import { buildPortfolioApplyHref } from "@/lib/manager-property-links";
 
 /** Session key for the account gate — one property id or a sorted portfolio token. */
 export function publicApplyGateKey(input: {
   propertyId?: string;
+  groupLeaderAppId?: string;
   portfolioPropertyIds?: readonly string[];
 }): string {
   const pid = input.propertyId?.trim();
@@ -11,42 +13,55 @@ export function publicApplyGateKey(input: {
     ...new Set((input.portfolioPropertyIds ?? []).map((id) => id.trim()).filter(Boolean)),
   ].sort();
   if (ids.length > 0) return `portfolio:${ids.join(",")}`;
-  return "";
+  const groupId = parseGroupLeaderAppIdParam(input.groupLeaderAppId);
+  return groupId ? `group:${groupId}` : "";
 }
 
 /** In-portal apply URL — canonical return target after sign-in / create-account. */
 export function residentPortalApplyReturnPath(input: {
   propertyId?: string;
+  groupLeaderAppId?: string;
   rentalType?: "standard" | "short_term";
   listingRoomId?: string;
   bundleId?: string;
+  applicationFormId?: string;
 }): string {
   const pid = input.propertyId?.trim();
-  if (!pid) return "/resident/applications/apply";
-  const q = new URLSearchParams({ propertyId: pid });
+  const q = new URLSearchParams();
+  if (pid) q.set("propertyId", pid);
+  const groupId = parseGroupLeaderAppIdParam(input.groupLeaderAppId);
+  if (groupId) q.set("groupLeaderAppId", groupId);
   if (input.rentalType === "short_term") q.set("rentalType", "short_term");
   const roomId = input.listingRoomId?.trim();
   if (roomId) q.set("listingRoomId", roomId);
   const bundleId = input.bundleId?.trim();
   if (bundleId) q.set("bundle", bundleId);
-  return `/resident/applications/apply?${q.toString()}`;
+  const formId = input.applicationFormId?.trim();
+  // A selected template is an id, never a URL or another query. Published
+  // app-tpl UUIDs and legacy slug ids both fit this bounded shape.
+  if (formId && /^[A-Za-z0-9_-]{1,200}$/.test(formId)) q.set("form", formId);
+  return `/resident/applications/apply${q.size ? `?${q.toString()}` : ""}`;
 }
 
 /** Return path after sign-in / create-account for a single listing or portfolio picker. */
 export function publicApplyReturnPath(input: {
   propertyId?: string;
+  groupLeaderAppId?: string;
   portfolioPropertyIds?: readonly string[];
   rentalType?: "standard" | "short_term";
   listingRoomId?: string;
   bundleId?: string;
+  applicationFormId?: string;
 }): string {
   const pid = input.propertyId?.trim();
-  if (pid) {
+  if (pid || input.groupLeaderAppId?.trim()) {
     return residentPortalApplyReturnPath({
+      groupLeaderAppId: input.groupLeaderAppId,
       propertyId: pid,
       rentalType: input.rentalType,
       listingRoomId: input.listingRoomId,
       bundleId: input.bundleId,
+      applicationFormId: input.applicationFormId,
     });
   }
   const ids = [

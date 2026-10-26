@@ -11,6 +11,7 @@ export type CosignerTemplateResolution = {
   templateId?: string;
   templateVersion?: number;
   pinMissing?: boolean;
+  formVariant?: string;
 };
 
 /** Resolve against the primary application's owner and property, never a body-supplied listing. */
@@ -74,5 +75,6 @@ export async function resolveCosignerTemplateForApplication(
     templateId: resolved.templateId,
     templateVersion: resolved.templateVersion,
     pinMissing: resolved.pinMissing,
+    formVariant: pinnedTemplate ? applicationFormVariantForTemplate(pinnedTemplate) : "cosigner",
   };
 }

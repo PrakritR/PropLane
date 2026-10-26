@@ -20,7 +20,7 @@ import { mintLinkedFormShareUrl } from "@/lib/linked-form-requests-client";
 export type LinkedFormListItem = Pick<
   LinkedFormRequestView,
   "id" | "formKind" | "formLabel" | "questionCount" | "feeCents" | "status"
-> & { shareToken?: string; expiresAt?: string };
+> & { shareToken?: string; expiresAt?: string; requiresHelper?: boolean; viewerRole?: LinkedFormRequestView["viewerRole"] };
 
 /** Where "Fill out now" goes: the token link (it signs a guest in first) when we hold it, else the session page. */
 export function fillOutNowHref(form: Pick<LinkedFormListItem, "id" | "formKind" | "shareToken">): string {
@@ -114,9 +114,9 @@ function FormRow({ form, allowShare }: { form: LinkedFormListItem; allowShare: b
         ))}
       </ul>
       <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-        <Button asChild data-attr="linked-form-fill-now">
+        {(!form.requiresHelper || form.viewerRole === "helper") ? <Button asChild data-attr="linked-form-fill-now">
           <Link href={fillOutNowHref(form)}>Fill out now</Link>
-        </Button>
+        </Button> : null}
         {canShare ? (
           <Button
             type="button"

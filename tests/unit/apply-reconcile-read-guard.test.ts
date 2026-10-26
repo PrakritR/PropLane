@@ -23,7 +23,7 @@ describe("portal apply reconcile read", () => {
     expect(source).toMatch(/\.then\(\(readSucceeded\) => \{/);
     const callback = source.slice(source.indexOf(".then((readSucceeded) => {"));
     const beforeConclusions = callback.slice(0, callback.indexOf("applicationsForResidentEmail"));
-    expect(beforeConclusions).toContain("if (!readSucceeded) return;");
+    expect(beforeConclusions).toMatch(/if \(!readSucceeded\) \{\s*setReconcileReadFailed\(true\);\s*return;/);
     // ...and nothing sets the signature before that guard, or the create effect would run.
     expect(beforeConclusions).not.toContain("setReconciledSignature");
   });
@@ -37,7 +37,7 @@ describe("portal apply reconcile read", () => {
     expect(source).not.toContain("readWasComplete = result.complete === true && !(result.skippedRowIds?.length)");
     expect(source).not.toContain("if (!hit && Array.isArray(body.skippedRowIds) && body.skippedRowIds.length > 0) lookupFailed = true;");
     const callback = source.slice(source.indexOf(".then((readSucceeded) => {"));
-    const guardAt = callback.indexOf("if (!readWasComplete) return;");
+    const guardAt = callback.indexOf("if (!readWasComplete) {");
     // After a resumed match, and before the fresh-target branch clears the draft or
     // unlocks the create effect.
     expect(guardAt).toBeGreaterThan(callback.indexOf("if (hit?.application)"));

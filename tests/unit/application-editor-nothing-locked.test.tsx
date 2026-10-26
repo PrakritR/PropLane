@@ -209,8 +209,9 @@ describe("household and identity questions are editable and the applicant wizard
 
     renderStep(1, stored);
     expect(screen.getByText("Moving in with a group?")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Yes, with a group" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "No, just me" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Moving in with a group?" }));
+    expect(screen.getByRole("option", { name: "Yes, with a group" }).getAttribute("data-field-select-option-value")).toBe("yes");
+    expect(screen.getByRole("option", { name: "No, just me" }).getAttribute("data-field-select-option-value")).toBe("no");
     expect(screen.getByText("Is someone co-signing?")).toBeTruthy();
     expect(screen.queryByText("Applying as part of a group?")).toBeNull();
     cleanup();
@@ -223,7 +224,11 @@ describe("household and identity questions are editable and the applicant wizard
     renderStep(1, startSlice());
     expect(screen.getByText("Applying as part of a group?")).toBeTruthy();
     expect(screen.getByText("Will someone co-sign with you?")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Yes" })).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Group application" }));
+    expect(within(screen.getByRole("listbox", { name: "Group application" })).getByRole("option", { name: "Yes" })).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("listbox", { name: "Group application" })).getByRole("option", { name: "No" }));
+    fireEvent.click(screen.getByRole("button", { name: "Co-signer" }));
+    expect(within(screen.getByRole("listbox", { name: "Co-signer" })).getByRole("option", { name: "Yes" })).toBeTruthy();
   });
 
   it("a reworded choice still stores yes / no", () => {
@@ -254,7 +259,10 @@ describe("household and identity questions are editable and the applicant wizard
         editFromReview={noop}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Solo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Group application" }));
+    const solo = screen.getByRole("option", { name: "Solo" });
+    expect(solo.getAttribute("data-field-select-option-value")).toBe("no");
+    fireEvent.click(solo);
     expect(patch).toHaveBeenCalledWith(expect.objectContaining({ applyingAsGroup: "no" }));
   });
 

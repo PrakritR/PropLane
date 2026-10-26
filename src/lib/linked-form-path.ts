@@ -1,5 +1,5 @@
 /**
- * The two paths a linked form is opened from. Dependency-free on purpose: the post-sign-in redirect guards
+ * The share and portal paths a linked form is opened from. Dependency-free on purpose: the post-sign-in redirect guards
  * import it, and they must stay light.
  */
 
@@ -20,7 +20,7 @@ export function isLinkedFormSharePath(path: string): boolean {
   }
 }
 
-/** The session-scoped fill page (no token): the applicant, and the helper who already opened a link, use it. */
+/** The session-scoped fill page (no token): the applicant, and the helper who already opened a link, use it inside Applications. */
 export function linkedFormOpenPath(requestId: string): string {
-  return `/f/open/${encodeURIComponent(requestId)}`;
+  return `/resident/applications/forms/${encodeURIComponent(requestId)}`;
 }

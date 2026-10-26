@@ -1,3 +1,5 @@
+import { shortStayPricingBlocker } from "@/lib/short-stay-pricing-gate";
+import { loadShortStayPricingSubmission } from "@/lib/short-stay-pricing-gate.server";
 import { residentNoticeChannel } from "@/lib/resident-notice-channel.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { createHash } from "node:crypto";
@@ -1298,6 +1300,10 @@ export async function POST(req: Request) {
       // and, for converted mode, the exact sanitized HTML offered for signature.
       // The browser gate is a convenience; row_data arrives from the client.
       const sendingToResident = ctx.user.role !== "resident" && nextRow.status === "Resident Signature Pending";
+      if (sendingToResident && !(storedRow && rowHasAnySignature(storedRow))) {
+        const pricing = shortStayPricingBlocker(nextRow, await loadShortStayPricingSubmission(ctx.db, nextRow, existingRecord?.manager_user_id ?? ctx.user.id));
+        if (pricing) return NextResponse.json({ error: pricing, blocked: "stay-pricing" }, { status: 409 });
+      }
       const hasUploadedSource = Boolean(nextRow.managerUploadedPdf?.dataUrl);
       // Both uploaded lease PDFs and converted reusable templates use the
       // "imported-converted" document mode. The stored template provenance is

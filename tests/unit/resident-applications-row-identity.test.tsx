@@ -15,7 +15,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => searchParams,
 }));
 vi.mock("@/hooks/use-portal-session", () => ({
-  usePortalSession: () => ({ email: "jamie.rivera@example.com", ready: true }),
+  usePortalSession: () => ({ email: "jamie.rivera@example.com", userId: "resident-test", ready: true }),
 }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useConfirm: () => (req: { description?: unknown }) =>
@@ -30,6 +30,10 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 vi.mock("@/lib/portal-nav-client", () => ({
   usePortalNavigate: () => portalNavigate,
 }));
+vi.mock("@/hooks/use-prospect-contact-autofill", () => ({
+  useProspectContactAutofill: () => ({ ready: true, userId: "resident-test", hasResidentRole: false, name: "Jamie", email: "jamie.rivera@example.com", phone: "" }),
+}));
+vi.mock("@/hooks/use-quick-apply-eligibility", () => ({ useQuickApplyProfile: () => null }));
 vi.mock("@/lib/manager-applications-storage", () => ({
   MANAGER_APPLICATIONS_EVENT: "manager-applications-changed",
   syncManagerApplicationsFromServer: () => Promise.resolve(),
@@ -166,27 +170,18 @@ describe("ResidentApplicationsPanel — each row opens its OWN application", () 
     expect(portalNavigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-CCCC0003");
   });
 
-  it("auto-opens the URL-targeted in-progress application on apply", async () => {
+  it("keeps a targeted apply link on one wizard when existing drafts sync", async () => {
+    searchParams = new URLSearchParams({ propertyId: "mgr-test-magnolia" });
+    await act(async () => { render(<ResidentApplicationsPanel applyMode />); });
+    const wizard = screen.getByTestId("rental-wizard");
     ROWS = [
       inProgressRow("PROPLANE-AAAA0001", "mgr-test-magnolia", "Magnolia House"),
       inProgressRow("PROPLANE-BBBB0002", "mgr-test-alder", "Alder Row"),
     ];
-    searchParams = new URLSearchParams({ propertyId: "mgr-test-magnolia" });
-    await act(async () => {
-      render(<ResidentApplicationsPanel applyMode />);
-    });
-
-    expect(portalNavigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-AAAA0001", {
-      replace: true,
-    });
-
-    portalNavigate.mockClear();
-    await act(async () => {
-      clickApplicationRow("PROPLANE-BBBB0002");
-    });
-    // A row the resident actually CLICKED stays a push — that is a trip they
-    // chose, and Back out of it belongs in their history.
-    expect(portalNavigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-BBBB0002");
+    await act(async () => { window.dispatchEvent(new Event("manager-applications-changed")); });
+    expect(portalNavigate).not.toHaveBeenCalled();
+    expect(screen.getAllByTestId("rental-wizard")).toHaveLength(1);
+    expect(screen.getByTestId("rental-wizard")).toBe(wizard);
   });
 });
 
@@ -240,4 +235,12 @@ it("opens the exact application from View without navigating on menu open", asyn
   expect(portalNavigate).not.toHaveBeenCalled();
   fireEvent.click(details);
   expect(portalNavigate).toHaveBeenCalledExactlyOnceWith("/resident/applications/pending/PROPLANE-DDDD0004");
+});
+
+
+it("requires a resident account for a direct group-only portal invitation", async () => {
+  searchParams = new URLSearchParams({ groupLeaderAppId: "PROPLANE-ABCD1234" });
+  await act(async () => { render(<ResidentApplicationsPanel applyMode hasResidentRole={false} signedInNonResident />); });
+  expect(screen.queryByTestId("rental-wizard")).toBeNull();
+  expect(screen.getByRole("heading", { name: "Create your resident account to apply" })).toBeTruthy();
 });

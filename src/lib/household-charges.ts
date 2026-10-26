@@ -20,6 +20,7 @@ import { feeAppliesToResidentSlot, listingFeeCadence, type ListingFeeRow } from 
 import { submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
 import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import { getPropertyById } from "@/lib/rental-application/data";
+import { parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { requestTimeoutSignal } from "@/lib/fetch-timeout";
 import { paymentAtSigningPriceLabel } from "@/lib/rental-application/listing-fees-display";
@@ -79,6 +80,7 @@ import {
   intraMonthStaySpan,
   shortTermStayChargeTitle,
   shortTermStayNightCount,
+  shortTermStayCanBePriced,
   shortTermStayTotalAmount,
 } from "@/lib/short-term-stay-pricing";
 import {
@@ -4219,6 +4221,7 @@ function syncPendingApprovedChargesFromListing(
                 leaseStart,
                 leaseEnd,
                 leaseTerm: row.application?.leaseTerm,
+                residentSlot: row.application?.residentSlot ?? parseRoomChoiceValue(row.assignedRoomChoice || row.application?.roomChoice1 || "").residentSlot,
                 managerRentOverride: row.application?.managerRentOverride,
                 managerSecurityDepositOverride: row.application?.managerSecurityDepositOverride,
                 signedMonthlyRent: row.signedMonthlyRent,
@@ -4227,7 +4230,7 @@ function syncPendingApprovedChargesFromListing(
           const nightlyRate = stayPricing.dailyRate ?? 0;
           const weeklyRate = stayPricing.weeklyRate;
           const nights = shortTermStayNightCount(leaseStart, leaseEnd);
-          if ((nightlyRate > 0 || (weeklyRate ?? 0) > 0) && nights) {
+          if (nights && shortTermStayCanBePriced(nightlyRate, nights, weeklyRate)) {
             out.push({
               kind: "stay_total",
               amount: shortTermStayTotalAmount(nightlyRate, nights, weeklyRate),
@@ -4754,6 +4757,7 @@ export function recordApprovedApplicationCharges(
           leaseStart,
           leaseEnd,
           leaseTerm: row.application?.leaseTerm,
+          residentSlot: row.application?.residentSlot ?? parseRoomChoiceValue(row.assignedRoomChoice || row.application?.roomChoice1 || "").residentSlot,
           managerRentOverride: row.application?.managerRentOverride,
           managerSecurityDepositOverride: row.application?.managerSecurityDepositOverride,
           signedMonthlyRent: row.signedMonthlyRent,
@@ -4762,7 +4766,7 @@ export function recordApprovedApplicationCharges(
     const nightlyRate = stayPricing.dailyRate ?? 0;
     const weeklyRate = stayPricing.weeklyRate;
     const nights = shortTermStayNightCount(leaseStart, leaseEnd);
-    if ((nightlyRate > 0 || (weeklyRate ?? 0) > 0) && nights) {
+    if (nights && shortTermStayCanBePriced(nightlyRate, nights, weeklyRate)) {
       pushCharge(
         "stay_total",
         shortTermStayTotalAmount(nightlyRate, nights, weeklyRate),

@@ -82,7 +82,7 @@ export const LINKED_FORM_REQUEST_COLUMNS =
 
 /* -------------------------------------------------------- form lookups */
 
-export type DescribedLinkedForm = { label: string; questionCount: number | null };
+export type DescribedLinkedForm = { label: string; questionCount: number | null; requiresHelper?: boolean };
 
 /** The form's name and question count, read from the property's own stored forms. Null when the form is gone. */
 export function describeLinkedForm(
@@ -102,6 +102,7 @@ export function describeLinkedForm(
   return {
     label: template.label.trim() || "Application",
     questionCount: resolved.pinMissing ? null : questions.length,
+    requiresHelper: applicationFormVariantForTemplate(template) === "cosigner",
   };
 }
 
@@ -241,6 +242,7 @@ export async function createLinkedFormRequestsForSubmit(
           formId: match.rule.formRef.id,
           formLabel: described.label,
           questionCount: described.questionCount,
+          requiresHelper: described.requiresHelper || match.rule.id === "lfr-derived-cosigner",
           sourceQuestionLabel: match.questionLabel,
           sourceAnswerLabel: match.answerLabel,
           neededBeforeReview: match.rule.neededBeforeReview,
@@ -385,6 +387,7 @@ export async function toLinkedFormRequestViews(
       formId: request.form_id,
       formLabel: described?.label ?? (request.form_kind === "move_in" ? "Move-in form" : "Form"),
       questionCount: described?.questionCount ?? null,
+      requiresHelper: described?.requiresHelper || request.rule_id === "lfr-derived-cosigner",
       sourceQuestionLabel: request.source_question_label,
       sourceAnswerLabel: request.source_answer_label,
       neededBeforeReview: request.needed_before_review,

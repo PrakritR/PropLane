@@ -100,16 +100,22 @@ export function shortTermStaySplit(
   return { weeks: Math.floor(nights / 7), nights: nights % 7 };
 }
 
+/** A weekly-only rate covers exact weeks, never unpriced leftover nights. */
+export function shortTermStayCanBePriced(nightlyRate: number, nights: number, weeklyRate?: number): boolean {
+  if (!Number.isFinite(nights) || nights <= 0 || !Number.isInteger(nights)) return false;
+  if (Number.isFinite(nightlyRate) && nightlyRate > 0) return true;
+  return Number.isFinite(weeklyRate) && (weeklyRate ?? 0) > 0 && nights % 7 === 0;
+}
+
 export function shortTermStayTotalAmount(
   nightlyRate: number,
   nights: number,
   weeklyRate?: number,
 ): number {
-  if (!(nights > 0)) return 0;
+  if (!shortTermStayCanBePriced(nightlyRate, nights, weeklyRate)) return 0;
   const split = shortTermStaySplit(nights, weeklyRate);
   if (split.weeks > 0) {
-    // A leftover night still needs a nightly rate; without one the weeks alone are billed
-    // rather than inventing a price for the remainder.
+    // Completeness was checked above; leftover nights always have a real price.
     const remainder = nightlyRate > 0 ? split.nights * nightlyRate : 0;
     return Number((split.weeks * (weeklyRate ?? 0) + remainder).toFixed(2));
   }

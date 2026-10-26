@@ -1,3 +1,4 @@
+import { shortStayApprovalBlocker } from "@/lib/short-stay-pricing-gate.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { readListingSource } from "@/lib/listing-channels/lead-source.server";
 import { openApplicantRow, prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
@@ -1109,6 +1110,7 @@ export async function POST(req: Request) {
       let blockedResidentSlots = 0;
       let blockedFormApprovals = 0;
       let uncheckedFormApprovals = 0;
+      let stayPricingError: string | null = null;
       for (const row of rows) {
         // Attribute each row to its correct owner and enforce edit access on
         // foreign (linked-owner) rows. Admins keep the client-supplied owner.
@@ -1149,6 +1151,8 @@ export async function POST(req: Request) {
           continue;
         }
         anchored = slotCheck.row;
+        const pricingError = await shortStayApprovalBlocker(db, anchored, (stored?.row_data ?? null) as DemoApplicantRow | null);
+        if (pricingError) { stayPricingError = pricingError; continue; }
         const previousRow = (stored?.row_data ?? null) as DemoApplicantRow | null;
         await persistNormalizedRow(db, stored?.id ?? anchored.id, anchored, stored ?? null);
         await revokeMaterializedApplicationConsentAfterWrite(db, stored, anchored);
@@ -1159,6 +1163,7 @@ export async function POST(req: Request) {
           void tryAutoOrderScreening(db, anchored);
         }
       }
+      if (stayPricingError) return NextResponse.json({ ok: false, error: stayPricingError, blocked: "stay-pricing" }, { status: 409 });
       if (blockedWithdrawnApprovals > 0) {
         return NextResponse.json(
           {
@@ -1546,6 +1551,8 @@ export async function POST(req: Request) {
         );
       }
       row = slotCheck.row;
+      const pricingError = await shortStayApprovalBlocker(db, row, (storedLoad.record?.row_data ?? null) as DemoApplicantRow | null);
+      if (pricingError) return NextResponse.json({ error: pricingError, blocked: "stay-pricing" }, { status: 409 });
     }
     const persisted = await persistApplicationWrite(db, {
       user,

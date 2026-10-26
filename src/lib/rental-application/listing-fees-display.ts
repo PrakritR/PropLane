@@ -1,10 +1,15 @@
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
 import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import { normalizeManagerListingSubmissionV1, PAYMENT_AT_SIGNING_OPTIONS, isEntireHomeListing, entireHomeMonthlyRentAmount } from "@/lib/manager-listing-submission";
-import { buildListingQuote, type ListingQuote } from "@/lib/listing-quote";
+import { buildListingQuote, isStayLeaseTerm, type ListingQuote, type ListingQuoteLine } from "@/lib/listing-quote";
 import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
-import { leaseDocumentFeeLines, listingPresetFeeAmount } from "@/lib/listing-fees";
+import { leaseDocumentFeeLines, listingPresetFeeAmount, resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
 import { isPaymentDueAtSigning, PAYMENT_AT_SIGNING_FEE_KEY_PREFIX, paymentAtSigningKeysFor } from "@/lib/listing-fee-scope";
+import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
+import { resolvedMoveInFeeRaw, resolvePlacementStandardFees, placementFeeOptionsFor } from "@/lib/listing-placement-standard-fees";
+import { genuinelyCustomFees } from "@/lib/rent-fold-in";
+import { isRoomLeaseFeeRowId, chargeKindDueAtSigning } from "@/lib/lease-at-signing";
+import { submissionWithApplicationRoomFees } from "@/lib/room-term-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import type { RentRuleAddress } from "@/lib/seattle-rent-rule";
 import {
@@ -43,15 +48,21 @@ export function formatQuoteMoney(amount: number): string {
 }
 
 /** The listing receipt for the applicant's first-choice room and resident slot. Hidden until a room is chosen. */
+export type ApplicantListingQuoteInput = {
+  roomChoice1: string;
+  leaseTerm?: string | null;
+  residentSlot?: number | null;
+  leaseStart?: string | null;
+  leaseEnd?: string | null;
+  bundleId?: string | null;
+  applicationTemplateId?: string | null;
+  /** The stored property record, so the Seattle rent rule resolves the way the lease does. */
+  listingProperty?: RentRuleAddress | null;
+};
+
 export function applicantListingQuote(
   sub: ListingSigningComputationInput,
-  input: {
-    roomChoice1: string;
-    leaseTerm?: string | null;
-    residentSlot?: number | null;
-    /** The stored property record, so the Seattle rent rule resolves the way the lease does. */
-    listingProperty?: RentRuleAddress | null;
-  },
+  input: ApplicantListingQuoteInput,
 ): ListingQuote | null {
   if (!sub?.v) return null;
   const roomChoice1 = input.roomChoice1.trim();
@@ -60,11 +71,48 @@ export function applicantListingQuote(
   const parsed = parseRoomChoiceValue(roomChoice1);
   const leaseTerm = String(input.leaseTerm ?? "").trim() || LONG_TERM_LEASE_TERM;
   const residentSlot = input.residentSlot ?? parsed.residentSlot ?? null;
-  if (isEntireHomeListing(n)) {
-    return buildListingQuote(n, { roomId: null, leaseTerm, residentSlot, listingProperty: input.listingProperty });
+  // Bundle shares depend on the confirmed group roster and manager placement. Never
+  // present one member room's price as the group's actual quote.
+  if (input.bundleId?.trim()) return null;
+  const entireHome = isEntireHomeListing(n);
+  if (!entireHome && (!parsed.listingRoomId || !n.rooms.some((room) => room.id === parsed.listingRoomId))) return null;
+  const room = resolveSubmissionRoom(n, { roomChoices: [roomChoice1] }) ?? null;
+  const quote = buildListingQuote(n, {
+    roomId: isStayLeaseTerm(leaseTerm) ? room?.id ?? null : entireHome ? null : parsed.listingRoomId, leaseTerm, residentSlot,
+    leaseStart: input.leaseStart, leaseEnd: input.leaseEnd, listingProperty: input.listingProperty,
+  });
+  if (!isStayLeaseTerm(leaseTerm)) return quote;
+
+  // Follow the approval ledger's short-stay amounts and signing matrix.
+  // Unticked lines retain their before-check-in deadline.
+  const feeOptions = placementFeeOptionsFor(n, { room: entireHome ? null : room, wholeHouse: entireHome, leaseTerm,
+    rentalType: "short_term", applicationTemplateId: input.applicationTemplateId });
+  const fees = resolvePlacementStandardFees(n, feeOptions);
+  const billedSub = submissionWithApplicationRoomFees(n, { roomChoices: [roomChoice1] }, {
+    leaseTerm, rentalType: "short_term", applicationTemplateId: input.applicationTemplateId,
+    listingProperty: input.listingProperty,
+  }) ?? n;
+  const deposit = parseMoneyAmount(resolvedShortTermPlacementDeposit(billedSub, room));
+  const moveIn = parseMoneyAmount(resolvedMoveInFeeRaw(billedSub, { leaseTerm, room, isStay: true }));
+  const due = (kind: Parameters<typeof chargeKindDueAtSigning>[0], customFeeId?: string) => chargeKindDueAtSigning(kind, { sub: billedSub, leaseTerm, roomId: room?.id ?? null, customFeeId });
+  const lines: ListingQuoteLine[] = quote.signingLines.filter((line) => !line.amountPending && (line.key.startsWith("room_rent:") || line.key === "first_month_rent"))
+    .map((line) => ({ ...line, dueAtSigning: due("stay_total"), dueLabel: "Before check-in" as const }));
+  if (deposit > 0) lines.push({ key: "security_deposit", label: "Security deposit", amount: deposit, dueAtSigning: due("security_deposit"), dueLabel: "Before check-in" });
+  if (moveIn > 0) lines.push({ key: "move_in_fee", label: "Move-in fee", amount: moveIn, dueAtSigning: due("move_in_fee"), dueLabel: "Before check-in" });
+  if (fees.leaseFee > 0) lines.push({ key: "lease_fee", label: "Lease fee", amount: fees.leaseFee, dueAtSigning: true, dueLabel: "Before lease signing" });
+  for (const fee of genuinelyCustomFees(billedSub)) {
+    if (isRoomLeaseFeeRowId(fee.id)) continue;
+    const amount = parseMoneyAmount(fee.shortTermAmount ?? "");
+    if (amount > 0) lines.push({ key: `fee:${fee.id}`, label: fee.label?.trim() || "Fee", amount, dueAtSigning: due("other_cost", fee.id), dueLabel: "Before check-in" });
   }
-  if (!parsed.listingRoomId) return null;
-  return buildListingQuote(n, { roomId: parsed.listingRoomId, leaseTerm, residentSlot, listingProperty: input.listingProperty });
+  return { ...quote, monthlyRent: 0, monthlyTotal: 0, monthlyUtilities: 0,
+    monthlyFees: [], foldedIntoRent: [], securityDeposit: deposit, signingLines: lines,
+    signingTotal: lines.filter((line) => line.dueAtSigning).reduce((total, line) => total + line.amount, 0),
+    nonRefundableAtSigning: (due("move_in_fee") ? moveIn : 0) + genuinelyCustomFees(billedSub)
+      .filter((fee) => !isRoomLeaseFeeRowId(fee.id) && !fee.refundable && !fee.creditsTowardSecurity && due("other_cost", fee.id))
+      .reduce((total, fee) => total + parseMoneyAmount(fee.shortTermAmount ?? ""), 0),
+    applicationFees: fees.applicationFee > 0 ? [{ id: "application_fee", label: "Application fee", amount: fees.applicationFee }] : [],
+  };
 }
 
 /**
@@ -87,9 +135,10 @@ export function applicantFirstChoiceRentLabel(
 
 export function applicantPaymentAtSigningPriceLabel(
   sub: ListingSigningComputationInput,
-  input: { roomChoice1: string; leaseTerm?: string | null; residentSlot?: number | null; listingProperty?: RentRuleAddress | null },
+  input: ApplicantListingQuoteInput,
 ): string {
   const quote = applicantListingQuote(sub, input);
+  if (isStayLeaseTerm(input.leaseTerm)) return quote?.stayTotal != null ? `$${quote.signingTotal.toFixed(2)}` : "—";
   if (quote && quote.signingTotal > 0) return `$${quote.signingTotal.toFixed(2)}`;
   return paymentAtSigningPriceLabel(sub);
 }

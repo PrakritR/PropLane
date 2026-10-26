@@ -6,9 +6,18 @@ import { createDefaultListingSubmission } from "@/lib/manager-listing-submission
 const mocks = vi.hoisted(() => ({ insert: vi.fn(), notify: vi.fn(), manager: "manager-a", property: null as unknown }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: async () => ({ ok: true }), clientIpFrom: () => "synthetic" }));
 vi.mock("@/lib/cosigner-notification.server", () => ({ notifyManagerCosignerSubmitted: mocks.notify }));
+vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: "helper-a", email: "synthetic@example.test" } } }) } }) }));
+vi.mock("@/lib/auth/resident-role-access", () => ({ authorizeResidentRole: async () => true }));
+vi.mock("@/lib/rental-application/applicant-identity.server", () => ({ loadApplicantAccountIdentity: async () => ({ name: "Synthetic Cosigner", email: "synthetic@example.test" }) }));
+vi.mock("@/lib/application-linked-form-requests.server", () => ({
+  loadLinkedFormRequest: async () => ({ id: "request-a", application_id: "APP-a", form_kind: "application", form_id: (mocks.property as { propertyApplicationTemplates?: { id: string }[] } | null)?.propertyApplicationTemplates?.[0]?.id ?? "", status: "shared", fee_cents: 0 }),
+  resolveLinkedFormViewerRole: async () => ({ role: "helper" }),
+  completeLinkedFormRequest: async () => true,
+}));
+vi.mock("@/lib/linked-form-fee.server", () => ({ linkedFormFeeOwed: () => false, resolveUnresolvedLinkedFormFee: async (_db: unknown, request: unknown) => ({ ok: true, request }) }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: (table: string) => ({
   insert: mocks.insert,
-  select: () => table === "manager_property_records"
+  select: () => table === "profiles" ? { eq: () => ({ maybeSingle: async () => ({ data: { role: "resident" } }) }) } : table === "manager_property_records"
     ? { eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { property_data: { listingSubmission: mocks.property ?? { v: 1 } } }, error: null }) }) }) }
     : { in: () => ({ maybeSingle: async () => ({ data: { id: "APP-a", manager_user_id: mocks.manager, property_id: "property-a", row_data: { stage: "Submitted", bucket: "pending" } } }) }) },
 }) }) }));
@@ -27,7 +36,7 @@ afterEach(() => vi.unstubAllEnvs());
 
 function request(overrides: Record<string, unknown> = {}) {
   return new Request("https://example.test/api/public/cosigner-submissions", { method: "POST", body: JSON.stringify({
-    signerAppId: "AXIS-123456", fullName: "Synthetic Cosigner", email: "synthetic@example.test", phone: "2065550123", consentCredit: true,
+    formRequestId: "request-a", signerAppId: "AXIS-123456", fullName: "Synthetic Cosigner", email: "synthetic@example.test", phone: "2065550123", consentCredit: true,
     ssn: "123-45-6789", dob: "1980-01-01", dlNumber: "ID-123", _identityProtection: { version: 1, originOwnerId: "attacker" },
     ...overrides,
   }) });
@@ -38,14 +47,13 @@ it.each([
   ["single-word legal name", { fullName: "Synthetic" }],
   ["missing phone", { phone: "" }],
   ["invalid phone", { phone: "123" }],
-  ["invalid email", { email: "not-an-email" }],
-])("rejects %s before storage for a legacy co-signer form", async (_label, overrides) => {
+])("rejects %s before storage for a linked co-signer form", async (_label, overrides) => {
   const response = await POST(request(overrides));
   expect(response.status).toBe(400);
   expect(mocks.insert).not.toHaveBeenCalled();
 });
 
-it("public submission stores only protected identity and never trusts supplied crypto ownership", async () => {
+it("account-linked submission stores only protected identity and never trusts supplied crypto ownership", async () => {
   const res = await POST(request());
   expect(res.status).toBe(200);
   const row = mocks.insert.mock.calls[0][0];

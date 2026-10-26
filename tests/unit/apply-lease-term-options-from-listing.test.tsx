@@ -243,12 +243,12 @@ describe("Your lease: the date fields follow the type", () => {
     expect(document.getElementById("leaseEnd")).toBeNull();
   });
 
-  it("Short-term asks check-in, check-out, the times and the house rules", () => {
+  it("Short-term asks dates and house rules, with no editable arrival times", () => {
     renderLeaseTermStep(["Long-term", "Short-Term Stay"], "Short-Term Stay", true, () => {}, { rentalType: "short_term" });
     expect(screen.getByText(/^Check-in date/)).toBeTruthy();
     expect(screen.getByText(/^Check-out date/)).toBeTruthy();
-    expect(document.getElementById("shortTermCheckInTime")).not.toBeNull();
-    expect(document.getElementById("shortTermCheckOutTime")).not.toBeNull();
+    expect(document.getElementById("shortTermCheckInTime")).toBeNull();
+    expect(document.getElementById("shortTermCheckOutTime")).toBeNull();
     expect(document.getElementById("shortTermRulesAck")).not.toBeNull();
     // None of the long-term fields.
     expect(screen.queryByText(/^Move-in date/)).toBeNull();

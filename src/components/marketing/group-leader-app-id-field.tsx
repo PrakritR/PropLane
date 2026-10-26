@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { fetchGroupLeaderLinkPreview } from "@/lib/rental-application/group-leader-link-client";
 import type { GroupLeaderLinkOk } from "@/lib/rental-application/group-leader-link";
@@ -19,6 +19,10 @@ export function GroupLeaderAppIdField({
   /** When a parent row (e.g. ApplyFieldRow) renders the form validation error. */
   suppressError?: boolean;
 }) {
+  // A parent commonly supplies an inline callback that patches the form. Its
+  // identity must not restart validation, or each result triggers another request.
+  const onResolvedRef = useRef(onResolved);
+  useEffect(() => { onResolvedRef.current = onResolved; }, [onResolved]);
   const [checking, setChecking] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewOk, setPreviewOk] = useState<GroupLeaderLinkOk | null>(null);
@@ -29,7 +33,7 @@ export function GroupLeaderAppIdField({
       setChecking(false);
       setPreviewError(null);
       setPreviewOk(null);
-      onResolved?.(null);
+      onResolvedRef.current?.(null);
       return;
     }
 
@@ -42,11 +46,11 @@ export function GroupLeaderAppIdField({
         if (result.ok) {
           setPreviewOk(result);
           setPreviewError(null);
-          onResolved?.(result);
+          onResolvedRef.current?.(result);
         } else {
           setPreviewOk(null);
           setPreviewError(result.message);
-          onResolved?.(null);
+          onResolvedRef.current?.(null);
         }
       });
     }, 350);
@@ -55,7 +59,7 @@ export function GroupLeaderAppIdField({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [value, onResolved]);
+  }, [value]);
 
   const showError = error || previewError;
   const displayError = suppressError ? previewError : showError;

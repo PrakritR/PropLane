@@ -11,8 +11,7 @@ import {
 
 /**
  * A co-signer template may drop Full legal name, Email and Phone like any other question. A SIGNED-IN filler (the
- * linked-form path) is then recorded from their ACCOUNT, never from the body; a signed-out co-signer has no
- * account to read, so their name and email stay required.
+ * linked-form path) is then recorded from their ACCOUNT, never from the body. Signed-out requests are refused.
  */
 const state = vi.hoisted(() => ({
   user: null as null | { id: string; email: string; user_metadata?: Record<string, unknown> },
@@ -37,7 +36,7 @@ const personalKey = (label: string) =>
   STANDARD_APPLICATION_FIELD_CATALOG.find((f) => f.section === "personal" && f.label === label)!.standardKey;
 const IDENTITY_KEYS = [personalKey("Full legal name"), personalKey("Email"), personalKey("Phone")];
 
-function seed(disabled: string[]): { db: LinkedFormFakeDb; cosignerId: string } {
+function seed(disabled: string[], optional: string[] = []): { db: LinkedFormFakeDb; cosignerId: string } {
   const cosigner = { ...createPropertyApplicationTemplate({ kind: "long-term", label: "Co-signer form" }), formVariant: "cosigner" as const };
   const published = publishApplicationTemplateQuestionDraft({
     ...cosigner,
@@ -45,7 +44,7 @@ function seed(disabled: string[]): { db: LinkedFormFakeDb; cosignerId: string } 
     draftQuestionConfig: applicationTemplateQuestionConfigFromSlice({
       applicationConfigMode: "custom",
       disabledStandardApplicationKeys: disabled,
-      customApplicationFields: [],
+      customApplicationFields: STANDARD_APPLICATION_FIELD_CATALOG.filter((field) => optional.includes(field.standardKey)).map((field) => ({ id: `optional-${field.standardKey}`, key: field.standardKey, standardKey: field.standardKey, label: field.label, type: field.type, required: false, options: field.options, section: field.section })),
     }),
   });
   const listing = { ...createDefaultListingSubmission(), propertyApplicationTemplates: [published] };
@@ -130,6 +129,16 @@ describe("a co-signer template without name, email or phone questions", () => {
     expect(saved.fullName).toBe("Maria Lee");
   });
 
+  it("uses account name and accepts blank optional phone while validating a typed phone", async () => {
+    const { db } = seed([], [personalKey("Full legal name"), personalKey("Phone")]);
+    state.db = db;
+    const invalid = await submitCosigner(post(body({ formRequestId: REQUEST_ID, fullName: "", phone: "123" })));
+    expect(invalid.status).toBe(400);
+    const accepted = await submitCosigner(post(body({ formRequestId: REQUEST_ID, fullName: "", phone: "" })));
+    expect(accepted.status).toBe(200);
+    expect(db.tables.cosigner_submission_records![0]!.row_data).toMatchObject({ fullName: "Maria Lee", phone: "", email: "mom@example.com" });
+  });
+
   it("falls back to the auth metadata name, then the email's local part, when the profile has no name", async () => {
     const { db } = seed(IDENTITY_KEYS);
     (db.tables.profiles![0] as Record<string, unknown>).full_name = null;
@@ -164,13 +173,14 @@ describe("a co-signer template without name, email or phone questions", () => {
     expect(db.tables.cosigner_submission_records).toHaveLength(0);
   });
 
-  it("a signed-out co-signer has no account to read, so name and email stay required", async () => {
+  it("a signed-out co-signer cannot bypass the account and invitation gate", async () => {
     const { db, cosignerId } = seed(IDENTITY_KEYS);
     state.db = db;
     state.user = null;
     const send = (extra: Record<string, unknown>) =>
       submitCosigner(post(body({ signerAppId: "PROPLANE-APP00001", applicationTemplateId: cosignerId, ...extra })));
-    expect((await send({})).status).toBe(400);
-    expect((await send({ fullName: "Maria Lee", email: "mom@example.com" })).status).toBe(200);
+    expect((await send({})).status).toBe(401);
+    expect((await send({ fullName: "Maria Lee", email: "mom@example.com" })).status).toBe(401);
+    expect(db.tables.cosigner_submission_records).toHaveLength(0);
   });
 });

@@ -23,6 +23,8 @@
  * If any of those change, this follows them. It must never grow a rule of its own.
  */
 
+import { shortTermStayNightCount, shortTermStayCanBePriced, shortTermStayTotalAmount, shortTermStayChargeTitle } from "@/lib/short-term-stay-pricing";
+import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
   feeAppliesToResidentSlot,
@@ -35,7 +37,7 @@ import {
 } from "@/lib/listing-fees";
 import { feeAppliesToArrangementCount } from "@/lib/listing-fees";
 import { roomPriceForResidentCount } from "@/lib/room-arrangement-pricing";
-import { roomResidentPriceForSlot, roomStayPriceForSlot } from "@/lib/room-pricing";
+import { roomResidentPriceForSlot, roomStayPriceForSlot, resolveStayPricing } from "@/lib/room-pricing";
 import {
   PAYMENT_AT_SIGNING_FEE_KEY_PREFIX,
   PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX,
@@ -57,6 +59,8 @@ export type ListingQuoteLine = {
   note?: string;
   amount: number;
   dueAtSigning: boolean;
+  amountPending?: boolean;
+  dueLabel?: "Before check-in" | "Before lease signing";
 };
 
 export type ListingQuoteFee = { id: string; label: string; amount: number; cadence?: ListingFeeCadence };
@@ -74,6 +78,9 @@ export type ListingQuote = {
   /** Recurring fees folded INTO the rent figure (Seattle), already included in monthlyRent. */
   foldedIntoRent: ListingQuoteFee[];
   monthlyTotal: number;
+  /** Null until dates and a rate resolve; absent for long-term quotes. */
+  stayTotal?: number | null;
+  stayNights?: number | null;
   nightlyRate: number | null;
   weeklyRate: number | null;
   signingLines: ListingQuoteLine[];
@@ -209,6 +216,8 @@ export function buildListingQuote(
     leaseTerm: string;
     residentSlot?: number | null;
     arrangementCount?: number | null;
+    leaseStart?: string | null;
+    leaseEnd?: string | null;
     startKind?: ListingQuoteStartKind;
     /** Property Pricing whole-house row — use `entireHomeMonthlyRent` even on shared-home listings. */
     useEntireHomeRent?: boolean;
@@ -256,12 +265,20 @@ export function buildListingQuote(
 
   // A stay is priced by its own rate (night / week / the term's own price). With none set there is
   // no stay figure at all: the long-term monthly rent is never a stand-in for it.
-  const nightly = staySlot
+  const stayPricing = isStay ? resolveStayPricing({
+    room, submission: sub, application: { rentalType: "short_term", leaseTerm, residentSlot, leaseStart: options.leaseStart, leaseEnd: options.leaseEnd },
+  }) : null;
+  const nightly = stayPricing ? stayPricing.dailyRate ?? 0 : staySlot
     ? parseMoneyAmount(staySlot.shortTermRent ?? "") || 0
     : room
       ? parseMoneyAmount(room.shortTermRent ?? "") || room.dailyRentPrice || 0
       : parseMoneyAmount(sub.shortTermDailyCost ?? "");
-  const weekly = staySlot?.weeklyRentPrice ?? room?.weeklyRentPrice ?? 0;
+  const weekly = stayPricing ? stayPricing.weeklyRate ?? 0 : staySlot?.weeklyRentPrice ?? room?.weeklyRentPrice ?? 0;
+  const start = parseFlexibleLocalDate(options.leaseStart);
+  const end = parseFlexibleLocalDate(options.leaseEnd);
+  const stayNights = isStay && start && end && end > start ? shortTermStayNightCount(options.leaseStart, options.leaseEnd) : null;
+  const stayTotal = stayNights && shortTermStayCanBePriced(nightly, stayNights, weekly)
+    ? shortTermStayTotalAmount(nightly, stayNights, weekly) : null;
   const stayTermRent = room?.termPricing?.[leaseTerm]?.monthlyRent;
   const hasStayRate =
     !isStay ||
@@ -390,11 +407,14 @@ export function buildListingQuote(
    * short by a month of fees.
    */
   const firstPeriodExtras = [...folded, ...recurring];
-  const signingLines: ListingQuoteLine[] = hasStayRate
+  const signingLines: ListingQuoteLine[] = isStay ? [{
+    key: rentKey, label: "Stay total", note: stayTotal !== null ? shortTermStayChargeTitle(stayNights!, nightly, weekly) : undefined,
+    amount: stayTotal ?? 0, amountPending: stayTotal === null, dueAtSigning: rentDueAtSigning,
+  }] : hasStayRate
     ? [
         {
           key: rentKey,
-          label: isStay ? "First stay payment" : "First month's rent",
+          label: "First month's rent",
           note:
             firstPeriodExtras.length > 0
               ? `Includes ${firstPeriodExtras.map((f) => f.label.toLowerCase()).join(", ")}`
@@ -476,6 +496,7 @@ export function buildListingQuote(
     monthlyFees: recurring,
     foldedIntoRent: folded,
     monthlyTotal,
+    ...(isStay ? { stayTotal, stayNights } : {}),
     nightlyRate: nightly > 0 ? nightly : null,
     weeklyRate: weekly > 0 ? weekly : null,
     signingLines,

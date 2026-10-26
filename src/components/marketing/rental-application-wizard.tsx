@@ -100,6 +100,7 @@ import {
   groupLeaderInviteFormPatch,
 } from "@/lib/rental-application/group-apply-link";
 import { fetchGroupLeaderLinkPreview } from "@/lib/rental-application/group-leader-link-client";
+import type { GroupLeaderLinkOk } from "@/lib/rental-application/group-leader-link";
 import { rentalWizardStepTitle } from "@/lib/rental-application/wizard-step-titles";
 import {
   computeLeaseEndDate,
@@ -241,8 +242,9 @@ const RECONCILE_READ_RETRY_MS = 800;
 
 function wizardTargetFromParam(
   searchParams: { get: (key: string) => string | null },
+  verifiedGroupPropertyId?: string,
 ): ApplicationRequestTarget | null {
-  const propertyId = searchParams.get("propertyId")?.trim() || "";
+  const propertyId = searchParams.get("propertyId")?.trim() || verifiedGroupPropertyId || "";
   if (!propertyId) return null;
   return {
     propertyId,
@@ -402,6 +404,26 @@ export function RentalApplicationWizard({
   );
 }
 
+/** A draft read may finish after the invitation preview: preserve the URL's
+ * joining identity and only metadata verified for that same invitation. */
+export function restoreRentalDraftWithGroupInvite(
+  draft: RentalWizardFormState,
+  leaderAppId: string | null | undefined,
+  preview: GroupLeaderLinkOk | null = null,
+): RentalWizardFormState {
+  const leader = parseGroupLeaderAppIdParam(leaderAppId);
+  if (!leader) return draft;
+  const matchedPreview = preview && parseGroupLeaderAppIdParam(preview.leaderAppId) === leader ? preview : null;
+  const sameGroup = parseGroupLeaderAppIdParam(draft.groupLeaderAppId) === leader;
+  return {
+    ...draft,
+    ...groupLeaderInviteFormPatch(leader),
+    groupId: matchedPreview?.groupId ?? (sameGroup ? draft.groupId : ""),
+    groupSize: matchedPreview?.groupSize != null ? String(matchedPreview.groupSize) : sameGroup ? draft.groupSize : "",
+    propertyId: draft.propertyId || matchedPreview?.propertyId || "",
+  };
+}
+
 function RentalApplicationWizardInner({
   showToast,
   mode = "public",
@@ -419,6 +441,9 @@ function RentalApplicationWizardInner({
   linkedRentalType,
 }: RentalApplicationWizardProps) {
   const searchParams = useSearchParams();
+  const groupInvitePreviewRef = useRef<GroupLeaderLinkOk | null>(null);
+  const [groupInvitePropertyId, setGroupInvitePropertyId] = useState("");
+  const groupOnlyInvite = !searchParams.get("propertyId")?.trim() && Boolean(parseGroupLeaderAppIdParam(searchParams.get(GROUP_LEADER_APP_ID_PARAM)));
   // "Send application" can name the form the resident gets; that pick outranks the lease type's form.
   const linkedFormIdRef = useRef(searchParams.get(APPLY_FORM_PARAM)?.trim() || "");
   const feeCheckoutReturn = searchParams.get("fee_checkout");
@@ -433,7 +458,7 @@ function RentalApplicationWizardInner({
     nextLabel?: string;
   } | null>(null);
   const feeReturnAttemptRef = useRef("");
-  const requestedTarget = wizardTargetFromParam(searchParams);
+  const requestedTarget = wizardTargetFromParam(searchParams, groupInvitePropertyId);
   const requestedTargetSignature = wizardTargetSignature(requestedTarget);
   const [step, setStep] = useState(() => initialWizardStepFromRequest(mode, requestedTarget, searchParams));
   const [maxStepReached, setMaxStepReached] = useState(() => initialWizardStepFromRequest(mode, requestedTarget, searchParams));
@@ -467,6 +492,13 @@ function RentalApplicationWizardInner({
       };
     }
     const draft = loadRentalWizardDraft();
+    // A legacy invite names its house only after verification. Never attach
+    // that group's identity to an arbitrary draft from another application.
+    if (groupOnlyInvite) {
+      if (draft) rememberRentalVariantDraft({ ...createInitialRentalWizardState(), ...draft });
+      clearRentalWizardDraft();
+      return { ...createInitialRentalWizardState(), ...groupInvitePatch };
+    }
     if (!draft) return { ...createInitialRentalWizardState(), ...groupInvitePatch };
     // A draft still loaded (same tab, no reload) for a DIFFERENT property/room
     // than this request must never flash onto a fresh apply — start blank and
@@ -476,7 +508,7 @@ function RentalApplicationWizardInner({
       clearRentalWizardDraft();
       return { ...createInitialRentalWizardState(), ...groupInvitePatch };
     }
-    return { ...createInitialRentalWizardState(), ...draft, ...groupInvitePatch };
+    return restoreRentalDraftWithGroupInvite({ ...createInitialRentalWizardState(), ...draft }, leaderAppIdFromUrl);
   });
   // Tracks which target signature has been confirmed (matched to an existing
   // in-progress application, or confirmed fresh) by the reconciliation effect.
@@ -501,6 +533,10 @@ function RentalApplicationWizardInner({
     return matchedTarget ? requestedTargetSignature : "";
   });
   const isReconcilingTarget = Boolean(requestedTargetSignature) && reconciledSignature !== requestedTargetSignature;
+  const [portalRestoreChecked, setPortalRestoreChecked] = useState(() => Boolean(loadRentalWizardDraftAxisId()?.trim() && loadRentalWizardDraft()));
+  const awaitingApplicationRestore = mode === "portal" && !templatePreview && (!portalRestoreChecked || isReconcilingTarget);
+  const [reconcileReadFailed, setReconcileReadFailed] = useState(false);
+  const [reconcileReadAttempt, setReconcileReadAttempt] = useState(0);
   const [errors, setErrors] = useState<RentalWizardErrors>({});
   const [draftReady] = useState(true);
   const [applicationAxisId, setApplicationAxisId] = useState(
@@ -698,8 +734,10 @@ function RentalApplicationWizardInner({
       return;
     }
     const qs = params.toString();
-    router.replace(qs ? `${wizardApplyPath}?${qs}` : wizardApplyPath, { scroll: false });
-  }, [mode, postSubmit, router, searchParams, step, templatePreview, wizardApplyPath, isOnScreen]);
+    // Step progress is local UI state: retain this mounted wizard and avoid a
+    // route fetch/loading boundary for each Continue or Back click.
+    window.history.replaceState(null, "", qs ? `${wizardApplyPath}?${qs}` : wizardApplyPath);
+  }, [mode, postSubmit, searchParams, step, templatePreview, wizardApplyPath, isOnScreen]);
 
   const exitApplication = useCallback(() => {
     if (templatePreview) {
@@ -1038,7 +1076,7 @@ function RentalApplicationWizardInner({
     // Wait for reconciliation to confirm this target before minting an axis id
     // or writing anything to the server — otherwise a fresh page load can sync
     // a brand-new row before the async lookup below finds the real match.
-    if ((mode === "portal" && isReconcilingTarget) || variantRestorePending) return;
+    if (awaitingApplicationRestore || (groupOnlyInvite && !groupInvitePropertyId) || variantRestorePending) return;
     const email = (mode === "portal" || mode === "manager" ? sessionEmail ?? form.email : form.email).trim();
     const pid = form.propertyId.trim();
     if (!shouldSyncInProgressDraft({ email, propertyId: pid })) return;
@@ -1090,18 +1128,19 @@ function RentalApplicationWizardInner({
     }, 2000);
 
     return () => window.clearTimeout(timer);
-  }, [draftReady, form, mode, sessionEmail, templatePreview, isReconcilingTarget, variantRestorePending, isOnScreen, step, maxStepReached, isVerifyingFeeReturn]);
+  }, [draftReady, form, mode, sessionEmail, templatePreview, awaitingApplicationRestore, groupOnlyInvite, groupInvitePropertyId, variantRestorePending, isOnScreen, step, maxStepReached, isVerifyingFeeReturn]);
 
   useEffect(() => {
     if (templatePreview) return;
     if (!draftReady || mode !== "portal") return;
+    if (groupOnlyInvite && !groupInvitePropertyId) return;
     const email = (sessionEmail ?? form.email).trim().toLowerCase();
     if (!email.includes("@")) return; // resolved once email is known — effect reruns.
 
     // Derived fresh from searchParams (not the render-scoped `requestedTarget`
     // object, which is a new reference every render and would make this a
     // dependency that never stabilizes).
-    const target = wizardTargetFromParam(searchParams);
+    const target = wizardTargetFromParam(searchParams, groupInvitePropertyId);
     const signature = wizardTargetSignature(target);
 
     // A local draft is only trustworthy as "already reconciled" if it also
@@ -1118,6 +1157,7 @@ function RentalApplicationWizardInner({
       // The loaded draft already IS this exact application — nothing to do.
       if (!target || targetMatchesApplication(target, { application: existingDraft })) {
         setReconciledSignature(signature);
+        setPortalRestoreChecked(true);
         return;
       }
       // Otherwise the loaded draft belongs to a DIFFERENT property/room than
@@ -1126,6 +1166,7 @@ function RentalApplicationWizardInner({
     }
 
     let cancelled = false;
+    setReconcileReadFailed(false);
     // "No in-progress application matches" is only true when the read that says so SUCCEEDED and
     // nothing it omitted could be this target. A failed or timed-out read (a slow or flapping server)
     // leaves the cache without the resident's drafts. A skipped row is not transient: it blocks a new
@@ -1159,15 +1200,23 @@ function RentalApplicationWizardInner({
       // is exactly the duplicate "Incomplete" row the retries exist to prevent. Leaving
       // `reconciledSignature` unset keeps this effect eligible to reconcile again — and
       // keeps the sync/create effect from writing a second application in the meantime.
-      if (!readSucceeded) return;
+      if (!readSucceeded) {
+        setReconcileReadFailed(true);
+        return;
+      }
       const inProgress = applicationsForResidentEmail(email).filter(isInProgressApplicationRow);
       const hit = findInProgressRowForTarget(inProgress, target);
       if (hit?.application) {
         // An in-progress application already exists for this exact target — resume it.
-        completeRentalVariantRestore({ ...createInitialRentalWizardState(), ...hit.application, email });
-        saveRentalWizardDraft({ ...createInitialRentalWizardState(), ...hit.application, email });
+        const restored = restoreRentalDraftWithGroupInvite(
+          { ...createInitialRentalWizardState(), ...hit.application, email },
+          searchParams.get(GROUP_LEADER_APP_ID_PARAM),
+          groupInvitePreviewRef.current,
+        );
+        completeRentalVariantRestore(restored);
+        saveRentalWizardDraft(restored);
         saveRentalWizardDraftAxisId(hit.id);
-        setForm({ ...createInitialRentalWizardState(), ...hit.application, email });
+        setForm(restored);
         // The server confirmed this target IS an existing application, so we can
         // resume the resident's exact position even though the synchronous
         // local-draft fast path in `initialWizardStepFromRequest` couldn't (a
@@ -1192,37 +1241,47 @@ function RentalApplicationWizardInner({
           setMaxStepReached((prev) => Math.max(prev, persistedMax));
         }
         setReconciledSignature(signature);
+        setPortalRestoreChecked(true);
         return;
       }
       // The read answered, but a skipped or truncated row might still be this
       // target's live draft. Absence is not proof — do not clear or mint.
       // An unrelated skipped row does not take this branch: the read above
       // already counted that catalog as proof this target is absent.
-      if (!readWasComplete) return;
+      if (!readWasComplete) {
+        setReconcileReadFailed(true);
+        return;
+      }
       // No in-progress application matches this target. If a stale draft for
       // a different property/room is still loaded (same browser tab, no
       // reload), it must not bleed into a fresh application — clear it so a
       // new draft (and a new axis id, minted on next save) starts clean.
       if (target && existingDraft) {
         clearRentalWizardDraft();
-        setForm({ ...createInitialRentalWizardState(), email });
+        setForm(restoreRentalDraftWithGroupInvite(
+          { ...createInitialRentalWizardState(), email },
+          searchParams.get(GROUP_LEADER_APP_ID_PARAM),
+          groupInvitePreviewRef.current,
+        ));
       }
       // Either a match was found and loaded above, or none exists and this is
       // confirmed to be a genuinely fresh target — either way, it is now safe
       // for the sync/create effect to mint an axis id and write to the server.
       setReconciledSignature(signature);
+      setPortalRestoreChecked(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [draftReady, form.email, mode, searchParams, sessionEmail, templatePreview]);
+  }, [draftReady, form.email, mode, searchParams, sessionEmail, templatePreview, reconcileReadAttempt, groupOnlyInvite, groupInvitePropertyId]);
 
   // PUBLIC apply: restore an in-progress application after a real page reload
   useEffect(() => {
     if (templatePreview) return;
     if (!draftReady || mode !== "public" || isDemoModeActive()) return;
+    if (groupOnlyInvite && !groupInvitePropertyId) return;
     if (loadRentalWizardDraftAxisId()?.trim()) return; // live draft present — nothing was lost
-    const target = wizardTargetFromParam(searchParams);
+    const target = wizardTargetFromParam(searchParams, groupInvitePropertyId);
     const tokenFromUrl = searchParams.get("token")?.trim();
     const axisIdFromUrl = residentSetupIdFromUrlParams(searchParams);
     if (tokenFromUrl && axisIdFromUrl) {
@@ -1294,11 +1353,11 @@ function RentalApplicationWizardInner({
         return;
       }
       const email = (hit.email ?? "").trim();
-      const restored: RentalWizardFormState = {
+      const restored = restoreRentalDraftWithGroupInvite({
         ...createInitialRentalWizardState(),
         ...hit.application,
         ...(email ? { email } : {}),
-      };
+      }, searchParams.get(GROUP_LEADER_APP_ID_PARAM), groupInvitePreviewRef.current);
       completeRentalVariantRestore(restored);
       saveRentalWizardDraft(restored);
       saveRentalWizardDraftAxisId(hit.id);
@@ -1318,7 +1377,7 @@ function RentalApplicationWizardInner({
     return () => {
       cancelled = true;
     };
-  }, [draftReady, mode, searchParams]);
+  }, [draftReady, mode, searchParams, groupOnlyInvite, groupInvitePropertyId]);
 
   useEffect(() => {
     if (!draftReady) return;
@@ -1422,6 +1481,9 @@ function RentalApplicationWizardInner({
     let cancelled = false;
     void fetchGroupLeaderLinkPreview(leaderAppId).then((preview) => {
       if (cancelled) return;
+      groupInvitePreviewRef.current = preview.ok ? preview : null;
+      setGroupInvitePropertyId(preview.ok ? preview.propertyId?.trim() ?? "" : "");
+      if (groupOnlyInvite && (!preview.ok || !preview.propertyId?.trim())) setReconcileReadFailed(true);
       setForm((prev) => {
         const invitePatch = groupLeaderInviteFormPatch(leaderAppId);
         const next: RentalWizardFormState = {
@@ -1459,7 +1521,7 @@ function RentalApplicationWizardInner({
     return () => {
       cancelled = true;
     };
-  }, [draftReady, searchParams, templatePreview]);
+  }, [draftReady, searchParams, templatePreview, groupOnlyInvite, reconcileReadAttempt]);
 
   const patchForm = useCallback((p: Partial<RentalWizardFormState>) => {
     setForm((f) => {
@@ -2922,7 +2984,11 @@ function RentalApplicationWizardInner({
                 setStep(1);
               }}
             />
-            <div className="rental-wizard-step-content pt-5 sm:pt-8">
+            {awaitingApplicationRestore ? <p role="status" className="mt-4 text-sm text-muted">
+              {reconcileReadFailed ? "We couldn't load your saved application." : "Loading your saved application…"}
+            </p> : null}
+            {awaitingApplicationRestore && reconcileReadFailed ? <Button type="button" onClick={() => setReconcileReadAttempt((attempt) => attempt + 1)}>Retry loading</Button> : null}
+            <fieldset disabled={awaitingApplicationRestore} aria-busy={awaitingApplicationRestore} className="rental-wizard-step-content min-w-0 pt-5 sm:pt-8">
               <RentalWizardStepBody
                 step={step}
                 form={form}
@@ -2972,7 +3038,7 @@ function RentalApplicationWizardInner({
                 savedAutofillAvailable={Boolean(savedAutofillProfile) && !autofillApplied}
                 onApplySavedAutofill={handleApplySavedAutofill}
               />
-            </div>
+            </fieldset>
 
             {variantRestorePending ? (
               <p role="status" className="mt-4 text-sm text-muted">
@@ -3027,6 +3093,7 @@ function RentalApplicationWizardInner({
                 disabled={
                   submitting ||
                   availabilityChecking ||
+                  awaitingApplicationRestore ||
                   variantRestorePending ||
                   (mode === "manager" && managerActionBusy) ||
                   (step === RENTAL_WIZARD_STEP_COUNT && mode !== "manager" &&

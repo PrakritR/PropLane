@@ -14,7 +14,7 @@ const PRE_LEASE_RESIDENT_SECTIONS = [
   { label: "Lease", path: "/resident/lease" },
   { label: "Payments", path: "/resident/payments" },
   { label: "Communication", path: "/resident/communication/active" },
-  { label: "Documents", path: "/resident/documents/application" },
+  { label: "Documents", path: "/resident/documents/application", canonicalPath: "/resident/documents/to-sign", kind: "application" },
 ] as const;
 
 async function expectSignedLeaseLock(page: import("@playwright/test").Page, label: string) {
@@ -48,7 +48,8 @@ test.describe("Resident portal", () => {
 
   test("all pre-lease resident sections load via direct navigation", async ({ page }) => {
     test.setTimeout(180_000);
-    for (const { path } of PRE_LEASE_RESIDENT_SECTIONS) {
+    for (const section of PRE_LEASE_RESIDENT_SECTIONS) {
+      const { path } = section;
       try {
         await gotoAppPath(page, path);
       } catch (error) {
@@ -57,7 +58,11 @@ test.describe("Resident portal", () => {
         await page.goto("/resident/dashboard", { waitUntil: "domcontentloaded" });
         await gotoAppPath(page, path);
       }
-      await expect(page).toHaveURL(pathToUrlRegExp(path));
+      if ("canonicalPath" in section) {
+        await expect(page).toHaveURL((url) => url.pathname === section.canonicalPath && url.searchParams.get("kind") === section.kind);
+      } else {
+        await expect(page).toHaveURL(pathToUrlRegExp(path));
+      }
       await expect(page.getByRole("heading").first().or(page.locator("main")).first()).toBeVisible({
         timeout: 30_000,
       });

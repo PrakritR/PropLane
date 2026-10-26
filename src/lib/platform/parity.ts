@@ -13,6 +13,7 @@
 /** Paths that load inside the product (browser tab or Capacitor WebView). */
 export const IN_APP_PATH_PREFIXES = [
   "/auth/",
+  "/f/", // Account-bound form invitations; redemption opens /resident/applications/forms/<id>.
   "/resident/",
   "/portal/", // Includes /portal/move-in/inspections, /portal/bookings/{calendar|upcoming|inhouse|past} and /portal/outgoing/{to-pay|scheduled|paid}.
   "/admin/",

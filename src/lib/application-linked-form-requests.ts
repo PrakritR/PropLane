@@ -42,6 +42,8 @@ export type LinkedFormRequestView = {
   applicantName: string | null;
   /** "applicant": the signed-in person owes it; "helper": linked through a share link; "manager": reading it. */
   viewerRole: "applicant" | "helper" | "manager";
+  /** A co-signer must be a different account from the primary applicant. */
+  requiresHelper?: boolean;
   expiresAt: string;
 };
 

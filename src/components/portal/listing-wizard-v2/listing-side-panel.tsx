@@ -380,7 +380,7 @@ export function PricingReceiptPanel({
       key={line.key}
       label={line.label}
       note={line.note}
-      amount={usd(line.amount)}
+      amount={line.amountPending ? "Dates required" : usd(line.amount)}
       muted={plainReceipt ? false : !line.dueAtSigning}
       control={
         plainReceipt
@@ -531,7 +531,7 @@ export function PricingReceiptPanel({
         <div className="flex items-baseline justify-between pt-2.5">
           <span className="text-[13px] text-foreground">Total at signing</span>
           <b className="text-[24px] font-extrabold tabular-nums tracking-tight text-foreground">
-            {usd(quote.signingTotal)}
+            {atSigningLines.some((line) => line.amountPending) ? "Dates required" : usd(quote.signingTotal)}
           </b>
         </div>
         {laterLines.length > 0 ? (

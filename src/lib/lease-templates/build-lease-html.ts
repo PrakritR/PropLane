@@ -1,3 +1,4 @@
+import { parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { formatLeaseDateLabel, parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
 import { leaseSharedRoomOccupancySentence } from "@/lib/shared-room-display";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
@@ -62,6 +63,8 @@ import { resolveSubmissionRoom, submissionRoomRentLabel } from "@/lib/listing-ro
 import {
   intraMonthStaySpan,
   shortTermStayNightCount,
+  shortTermStayCanBePriced,
+  shortTermStayChargeTitle,
   shortTermStayTotalAmount,
 } from "@/lib/short-term-stay-pricing";
 
@@ -660,6 +663,8 @@ export function buildLeaseHtml(ctxIn: LeaseGenerationContext, config: LeaseJuris
     submission: subNorm,
     application: {
       rentalType: a.rentalType,
+      leaseTerm: a.leaseTerm,
+      residentSlot: a.residentSlot ?? parseRoomChoiceValue(a.roomChoice1 || "").residentSlot,
       leaseStart: a.leaseStart,
       leaseEnd: a.leaseEnd,
       managerRentOverride: a.managerRentOverride,
@@ -1183,8 +1188,12 @@ export function buildLeaseHtml(ctxIn: LeaseGenerationContext, config: LeaseJuris
     const dailyCostRaw = propertyTemplatePreview ? "—" : dailyCost !== undefined ? fmtUsd(dailyCost) : "—";
     const depositAmount = propertyTemplatePreview ? undefined : ctx.leaseBilling?.securityDeposit ?? stay.deposit;
     const shortDepositRaw = propertyTemplatePreview ? "—" : depositAmount !== undefined ? fmtUsd(depositAmount) : "—";
-    const totalRent =
-      propertyTemplatePreview ? "—" : dailyCost && stayNights ? fmtUsd(shortTermStayTotalAmount(dailyCost, stayNights)) : "—";
+    const pricedStay = stayNights && shortTermStayCanBePriced(dailyCost ?? 0, stayNights, stay.weeklyRate)
+      ? shortTermStayTotalAmount(dailyCost ?? 0, stayNights, stay.weeklyRate) : undefined;
+    const totalRent = propertyTemplatePreview || pricedStay == null ? "—" : fmtUsd(pricedStay);
+    const stayCalculation = pricedStay != null && stayNights
+      ? shortTermStayChargeTitle(stayNights, dailyCost ?? 0, stay.weeklyRate).replace(/^Stay total \(/, "").replace(/\)$/, "")
+      : "";
     // The ledger bills more than rent + deposit on a stay, so the document has to list the
     // rest or its "Total due" understates what the guest owes. Which move-in field applies
     // follows rentalType, exactly as the ledger's two branches do.
@@ -1257,9 +1266,9 @@ export function buildLeaseHtml(ctxIn: LeaseGenerationContext, config: LeaseJuris
       ? "—"
       : ctx.leaseBilling?.totalBeforeCheckIn != null
         ? fmtUsd(ctx.leaseBilling.totalBeforeCheckIn)
-      : dailyCost && stayNights
+      : pricedStay != null
         ? fmtUsd(
-            shortTermStayTotalAmount(dailyCost, stayNights) +
+            pricedStay +
               (depositAmount ?? 0) +
               stayMoveInNum +
               stayOtherNum +
@@ -1312,7 +1321,7 @@ export function buildLeaseHtml(ctxIn: LeaseGenerationContext, config: LeaseJuris
           securityDeposit: depositAmount ?? 0,
           moveInFee: stayMoveInNum,
           monthlyRent:
-            dailyCost != null && stayNights != null ? shortTermStayTotalAmount(dailyCost, stayNights) : 0,
+            pricedStay ?? 0,
           monthlyUtilities: stayUtilitiesNum,
           customOneTimeFees: stCustomFeesTotal,
           otherSigningCost: stayOtherNum,
@@ -1328,8 +1337,9 @@ export function buildLeaseHtml(ctxIn: LeaseGenerationContext, config: LeaseJuris
   <p style="margin:0.2rem 0"><strong>Premises:</strong> ${roomLabel}, ${address}${cityZip ? `, ${escapeHtml(cityZip)}` : ""}</p>
   <p style="margin:0.2rem 0"><strong>Stay:</strong> ${checkInDateTime} through ${checkOutDateTime}${stayNights ? ` (${stayNights} ${stayUnitNoun.toLowerCase()}${stayNights === 1 ? "" : "s"})` : ""}</p>
   ${stayHeading("Stay charges")}
-  <p style="margin:0.2rem 0"><strong>Daily Rent:</strong> ${escapeHtml(dailyCostRaw)} per day</p>
-  <p style="margin:0.2rem 0"><strong>Rent for Stay:</strong> ${totalRent}${stayNights ? ` (${stayNights} × ${escapeHtml(dailyCostRaw)})` : ""}</p>
+  ${dailyCost != null ? `<p style="margin:0.2rem 0"><strong>Daily Rent:</strong> ${escapeHtml(dailyCostRaw)} per day</p>` : ""}
+  ${stay.weeklyRate ? `<p style="margin:0.2rem 0"><strong>Weekly Rent:</strong> ${fmtUsd(stay.weeklyRate)} per week</p>` : ""}
+  <p style="margin:0.2rem 0"><strong>Rent for Stay:</strong> ${totalRent}${stayCalculation ? ` (${escapeHtml(stayCalculation)})` : ""}</p>
   ${
     stayUtilitiesNum > 0 && stayUtilitiesSpan
       ? `<p style="margin:0.2rem 0"><strong>Prorated Utilities${stayMonthLabel ? ` for ${escapeHtml(stayMonthLabel)}` : ""}:</strong> ${fmtUsd(stayUtilitiesNum)} (${stayUtilitiesSpan.billableDays}/${stayUtilitiesSpan.daysInMonth} days)</p>`
@@ -1374,7 +1384,8 @@ ${staySummaryHtml}
 
 <h2>4. Payment</h2>
 <table class="fee-table">
-  <tr><th width="35%">Daily rent</th><td>${escapeHtml(dailyCostRaw)} per day</td></tr>
+  ${dailyCost != null ? `<tr><th width="35%">Daily rent</th><td>${escapeHtml(dailyCostRaw)} per day</td></tr>` : ""}
+  ${stay.weeklyRate ? `<tr><th>Weekly rent</th><td>${fmtUsd(stay.weeklyRate)} per week</td></tr>` : ""}
   <tr><th>Total rent for stay</th><td>${totalRent}</td></tr>
   <tr><th>Deposit</th><td>${escapeHtml(shortDepositRaw)}</td></tr>
   ${stayUtilitiesNum > 0 && stayUtilitiesSpan ? `<tr><th>Utilities estimate (${stayUtilitiesSpan.billableDays}/${stayUtilitiesSpan.daysInMonth} days)</th><td>${fmtUsd(stayUtilitiesNum)}</td></tr>` : ""}
