@@ -1,11 +1,15 @@
 import type { PropertyBookingEntry } from "./property-bookings";
 import { addDaysToDateKey } from "./bookings-ui";
+import { PADSPLIT_SOURCE } from "@/lib/channel-calendar/channel-link";
 import { occupancyForDay, occupancyStayKind, type OccupancyCapacities } from "@/lib/occupancy/snapshot";
 
 export type BookingCalendarView = "day" | "week" | "month" | "year";
 export const BOOKING_CALENDAR_VIEWS: BookingCalendarView[] = ["day", "week", "month", "year"];
 export const bookingCheckout = (entry: PropertyBookingEntry) => entry.openEnded ? null : addDaysToDateKey(entry.end, 1);
 export const bookingActiveOn = (entry: PropertyBookingEntry, day: string) => entry.start <= day && (entry.openEnded || entry.end >= day);
+export const PADSPLIT_STATUS = "PadSplit";
+export const isPadSplitStay = (entry: Pick<PropertyBookingEntry, "source" | "stayDetails">) =>
+  entry.source === "block" && entry.stayDetails?.source?.trim().toLowerCase() === PADSPLIT_SOURCE.toLowerCase();
 /**
  * A resident, as opposed to a pending hold: the entry an approved application draws (`source: "hold"`,
  * from `applicationHoldEntries`). A manager's or guest's unconfirmed hold is a `block` entry
@@ -14,6 +18,10 @@ export const bookingActiveOn = (entry: PropertyBookingEntry, day: string) => ent
 export const isResidentStay = (entry: Pick<PropertyBookingEntry, "source">) => entry.source === "hold";
 export function calendarStatus(entry: PropertyBookingEntry, today: string): string {
   if (entry.bookingStatus === "cancelled" || entry.statusLabel?.toLowerCase() === "cancelled") return "Cancelled";
+  // A PropLane stay linked to its channel reservation, or entered with Source PadSplit, is that site's booking.
+  if (entry.channelLink?.provider === "airbnb") return "Airbnb";
+  if (entry.channelLink?.provider === "booking_com") return "Booking.com";
+  if (isPadSplitStay(entry)) return PADSPLIT_STATUS;
   if (entry.source === "airbnb") return "Airbnb";
   if (entry.source === "booking_com") return "Booking.com";
   if (entry.source === "vrbo") return "Vrbo";
@@ -30,7 +38,10 @@ export function calendarStatus(entry: PropertyBookingEntry, today: string): stri
 /** Statuses with a colour of their own; any other status is a channel's typed name (Houfy). */
 const KNOWN_CALENDAR_STATUSES = new Set(["Hold", "Confirmed", "In-house", "Checked out", "Cancelled", "Blocked"]);
 export function calendarStatusClass(status: string): string {
-  if (status === "Airbnb" || status === "Booking.com" || status === "Vrbo" || !KNOWN_CALENDAR_STATUSES.has(status)) return "bg-[#9a4b1a] text-white";
+  // One colour per site a manager books on, so the legend and the bars agree: Airbnb rust, Booking.com navy, PadSplit violet.
+  if (status === "Booking.com") return "bg-[#003b95] text-white";
+  if (status === PADSPLIT_STATUS) return "bg-[#6b3fa0] text-white";
+  if (status === "Airbnb" || status === "Vrbo" || !KNOWN_CALENDAR_STATUSES.has(status)) return "bg-[#9a4b1a] text-white";
   if (status === "Hold") return "border border-dashed border-amber-600 bg-amber-100 text-amber-900";
   if (status === "Confirmed") return "bg-[#3d7d46] text-white";
   if (status === "In-house") return "bg-primary text-white";

@@ -67,6 +67,9 @@ function makeCtx(store: Record<string, Row[]>): AgentContext {
     eq(col: string, val: unknown) { this.filters.push((r) => r[col] === val); return this; }
     in(col: string, vals: unknown[]) { this.filters.push((r) => vals.includes(r[col])); return this; }
     delete() { this.op = "delete"; return this; }
+    maybeSingle() {
+      return Promise.resolve({ data: store[this.table]!.find((r) => this.filters.every((f) => f(r))) ?? null, error: null });
+    }
     update(patch: Row) {
       // Apply the patch to the matched rows when the awaited chain resolves.
       this.patch = patch;
@@ -232,6 +235,27 @@ describe("block_room_dates", () => {
     expect(await previewWrite(blockRoomDatesTool, ctx, { ...input, roomId: "room_1", start: "2026-11-04", end: "2026-11-06" })).toMatchObject({ ok: false, error: expect.stringContaining("already blocked") });
     // Check-out is exclusive: starting on the existing block's check-out day is free.
     expect((await previewWrite(blockRoomDatesTool, ctx, { ...input, roomId: "room_1", start: "2026-11-05", end: "2026-11-06" })).ok).toBe(true);
+  });
+
+  it("refuses dates an Airbnb reservation of that room holds, with the same words the Bookings sheet gets", async () => {
+    store.external_calendar_connections = [
+      {
+        id: "conn_1", manager_user_id: "manager_a", property_id: "prop_a", room_id: "room_2", provider: "airbnb", label: null, export_token: "t",
+        imported_ranges: [{ id: "u9", sourceUid: "u9", summary: "Reserved", start: "2026-12-02", end: "2026-12-05", reservationCode: "HMELIAS001" }],
+      },
+    ];
+    store.channel_stay_details = [{ connection_id: "conn_1", source_uid: "u9", guest_name: "Elias Mejia" }];
+    expect(await previewWrite(blockRoomDatesTool, ctx, { ...input, start: "2026-12-01", end: "2026-12-04" })).toMatchObject({
+      ok: false,
+      error: "Room 2 is booked Dec 2 – Dec 4 on Airbnb (Elias Mejia). Pick other dates or another room.",
+    });
+    // Check-out day of the reservation (Dec 6) is free; a free window before it is free too.
+    expect((await previewWrite(blockRoomDatesTool, ctx, { ...input, start: "2026-12-06", end: "2026-12-08" })).ok).toBe(true);
+    expect((await previewWrite(blockRoomDatesTool, ctx, { ...input, start: "2026-11-28", end: "2026-12-02" })).ok).toBe(true);
+    // A booking that carries the reservation's HM code in its notes IS that reservation: it is saved, and linked.
+    expect((await executeWrite(blockRoomDatesTool, ctx, { ...input, start: "2026-12-01", end: "2026-12-09", reason: "Airbnb HMELIAS001" })).ok).toBe(true);
+    const saved = store.portal_schedule_records!.find((r) => (r.row_data as Row).residentName === "Pat")!.row_data as { stayDetails?: { channelLink?: unknown } };
+    expect(saved.stayDetails?.channelLink).toMatchObject({ provider: "airbnb", reservationCode: "HMELIAS001" });
   });
 
   it("every block has a name: residentName, or closed:true with a reason", async () => {

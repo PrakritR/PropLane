@@ -1,6 +1,7 @@
 import { RESIDENT_TERM_LABELS, type ResidentTerm } from "@/lib/resident-term-split";
 import { dateKeyInBookingRange } from "@/lib/channel-calendar/bookings-dates";
 import type { StayApplicationAnswers } from "@/lib/short-stay/stay-application";
+import type { ChannelLink } from "@/lib/channel-calendar/channel-link";
 import type { ManagerChannelBookingProperty } from "@/lib/channel-calendar/types";
 import { leaseIsFullyExecuted, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
@@ -56,7 +57,11 @@ export type PropertyBookingEntry = {
     estimatedArrival?: string;
     /** The guest's booking application (server-owned): purpose, message to the host, who else is staying, the rules agreement. */
     application?: StayApplicationAnswers;
+    /** The Airbnb / Booking.com reservation this stay is (stored): it draws in that channel's colour and covers the channel's copy. */
+    channelLink?: ChannelLink;
   };
+  /** A native stay's link to its channel reservation, stored (`stayDetails.channelLink`) or auto-derived on read. Set by `withLinkedChannelStays`. */
+  channelLink?: ChannelLink;
   /**
    * The stay's resolved check-in / check-out times, "HH:MM" property wall time (explicit, else legacy, else
    * the property's defaults). Consumers fall back to `resolveStayTimes(entry)` when absent.
@@ -234,7 +239,9 @@ export function roomBlockSummary(block: Pick<RoomDateBlock, "reason" | "resident
  * blue, a person's name — not the grey hatch of a closed room; everything else
  * is its own source.
  */
-export function bookingVisualSource(entry: Pick<PropertyBookingEntry, "source" | "residentName">): BookingSource {
+export function bookingVisualSource(entry: Pick<PropertyBookingEntry, "source" | "residentName"> & { channelLink?: ChannelLink }): BookingSource {
+  // A stay linked to its channel reservation is that channel's booking, in that channel's colour.
+  if (entry.channelLink) return entry.channelLink.provider;
   return entry.source === "block" && entry.residentName?.trim() ? "hold" : entry.source;
 }
 

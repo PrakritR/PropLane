@@ -22,6 +22,7 @@ import { track } from "@/lib/analytics/posthog";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { channelRangeKey } from "@/lib/channel-calendar/channel-booking-diff";
+import { channelClashText, type ChannelClash } from "@/lib/channel-calendar/channel-overlap";
 import { channelCalendarProviderLabel } from "@/lib/channel-calendar/airbnb-url";
 import { bookingRecordUrl, channelStayBookingKey } from "@/lib/channel-calendar/booking-record-link";
 import { lastNightBeforeCheckout } from "@/lib/channel-calendar/property-bookings";
@@ -31,6 +32,8 @@ import { sendManagerNoticeEmail } from "@/lib/manager-notice-email.server";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
 
 export type ChannelBookingEvent = "channel_booking_created" | "channel_booking_cancelled";
+/** Two things hold one room on the same nights (found after a sync). */
+export type ChannelClashEvent = "channel_booking_clash";
 /** A booking made in PropLane itself (Add booking / Mark reserved / the assistant), not read from a channel feed. */
 export type NativeBookingEvent = "booking_created" | "booking_cancelled";
 
@@ -211,6 +214,54 @@ export async function emitChannelBookingEvent(
     provider: input.provider,
     kind: input.event === "channel_booking_created" ? "created" : "cancelled",
   });
+}
+
+export function renderChannelClashEvent(clash: Pick<ChannelClash, "roomLabel" | "start" | "end" | "sides">, propertyLabel?: string): { subject: string; text: string; smsText: string } {
+  const lead = channelClashText(clash);
+  const text = [propertyLabel?.trim(), lead].filter(Boolean).join(" · ");
+  return { subject: "Double booking", text, smsText: text };
+}
+
+/**
+ * ONE alert per double booking: "Room 8 is double-booked Oct 29 – Nov 1 (Airbnb and Booking.com)". The event id
+ * is the clash's own key (its two sides and the nights they share), so whichever room's sync finds it first
+ * announces it and every later sync, retry or manual Sync all, finds the same id and sends nothing.
+ */
+export async function emitChannelClashEvent(
+  db: SupabaseClient,
+  input: { clash: ChannelClash; managerUserId: string; propertyLabel?: string },
+): Promise<void> {
+  const { clash } = input;
+  const { data: manager } = await db.from("profiles").select("email, full_name").eq("id", input.managerUserId).maybeSingle();
+  const senderEmail = String(manager?.email ?? "").trim().toLowerCase();
+  if (!senderEmail) return;
+  const rendered = renderChannelClashEvent(clash, input.propertyLabel);
+  const channelSide = clash.sides.find((side) => side.kind === "channel");
+  const range = channelSide?.kind === "channel" ? channelSide.range : null;
+  const url = range
+    ? channelBookingRecordUrl({ provider: range.provider as ChannelCalendarProvider, propertyId: clash.propertyId, roomId: range.roomId, range: { start: range.start, end: range.end, summary: range.summary ?? "" } })
+    : resolveEmailLinkBaseUrl();
+  await emitActionEvent(db, {
+    eventId: clash.key,
+    domain: "channel_booking",
+    event: "channel_booking_clash",
+    managerUserId: input.managerUserId,
+    entityId: clash.key,
+    category: "tours",
+    senderUserId: input.managerUserId,
+    senderEmail,
+    senderName: String(manager?.full_name ?? "").trim() || undefined,
+    payload: {
+      propertyId: clash.propertyId,
+      roomId: clash.roomId,
+      start: clash.start,
+      end: clash.end,
+      sides: clash.sides.map((side) => side.label),
+    },
+    templateContext: { propertyTitle: input.propertyLabel ?? "", roomLabel: clash.roomLabel, stayLabel: channelBookingStay(clash.start, clash.end).label, url },
+    recipients: [{ audience: "manager", userId: input.managerUserId, rendered: { ...rendered, text: `${rendered.text}\n\n${url}` } }],
+  });
+  track("channel_booking_alert", input.managerUserId, { provider: "clash", kind: "clash" });
 }
 
 function cleanText(value: unknown): string {

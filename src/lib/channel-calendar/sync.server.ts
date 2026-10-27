@@ -33,7 +33,8 @@ import {
   reservationIdentitiesElsewhere,
   withoutMovedReservations,
 } from "@/lib/channel-calendar/channel-booking-diff";
-import { emitChannelBookingEvent } from "@/lib/channel-booking-events.server";
+import { emitChannelBookingEvent, emitChannelClashEvent } from "@/lib/channel-booking-events.server";
+import { detectChannelClashes } from "@/lib/channel-calendar/channel-overlap.server";
 import { parseIcsCalendar } from "@/lib/ical/parse";
 import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 import type { MockProperty } from "@/data/types";
@@ -863,6 +864,24 @@ export async function syncChannelCalendarConnection(
       console.warn("[channel-calendar] booking alert failed", {
         connectionId: connection.id,
         message: alertError instanceof Error ? alertError.message : String(alertError),
+      });
+    }
+    // Two things holding one room on the same nights (Airbnb and Booking.com both sold it, or a channel reservation
+    // landed on a PropLane stay that is not it): ONE alert per clash, idempotent on the clash's own key, so whichever
+    // room syncs first announces it. Best-effort like the alerts above.
+    try {
+      const clashes = await detectChannelClashes(db, { propertyId: connection.property_id, connectionId: connection.id, today });
+      for (const clash of clashes) {
+        await emitChannelClashEvent(db, {
+          clash,
+          managerUserId: connection.manager_user_id,
+          propertyLabel: record.property.buildingName?.trim() || record.property.title?.trim() || undefined,
+        });
+      }
+    } catch (clashError) {
+      console.warn("[channel-calendar] clash alert failed", {
+        connectionId: connection.id,
+        message: clashError instanceof Error ? clashError.message : String(clashError),
       });
     }
     return parseConnectionRow(saved as Record<string, unknown>);

@@ -11,7 +11,7 @@ import { VaulBottomSheet } from "@/components/ui/vaul-bottom-sheet";
 import { NO_ROOM_FOR_POPOVER_QUERY } from "@/components/ui/portal-surface";
 import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { bookingEntryKey } from "@/lib/channel-calendar/bookings-ui";
-import { bookingCheckout, calendarStatus, calendarStatusClass } from "@/lib/channel-calendar/bookings-calendar-view";
+import { bookingCheckout, calendarStatus, calendarStatusClass, isPadSplitStay } from "@/lib/channel-calendar/bookings-calendar-view";
 import { bookingRemovalActions } from "@/lib/channel-calendar/booking-presentation";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
 
@@ -40,8 +40,22 @@ export function useIsPhoneWidth(): boolean {
   );
 }
 
+/** The channel a bar belongs to: its feed, the reservation a PropLane stay is linked to, or PadSplit (typed in). */
+function barChannel(entry: PropertyBookingEntry): "airbnb" | "booking_com" | "padsplit" | null {
+  const linked = entry.channelLink?.provider;
+  if (linked) return linked;
+  if (entry.source === "airbnb" || entry.source === "booking_com") return entry.source;
+  return isPadSplitStay(entry) ? "padsplit" : null;
+}
+
 function channelGlyph(entry: PropertyBookingEntry, inline = true) {
-  return entry.source === "airbnb" ? <BookingsAirbnbIcon aria-label="Airbnb" role="img" className={inline ? "mr-1 inline h-3 w-3 align-[-1px]" : "h-3 w-3 shrink-0"} strokeWidth={1.7} /> : null;
+  const channel = barChannel(entry);
+  if (channel === "airbnb") return <BookingsAirbnbIcon aria-label="Airbnb" role="img" className={inline ? "mr-1 inline h-3 w-3 align-[-1px]" : "h-3 w-3 shrink-0"} strokeWidth={1.7} />;
+  if (channel === "booking_com" || channel === "padsplit") {
+    const label = channel === "booking_com" ? "Booking.com" : "PadSplit";
+    return <span role="img" aria-label={label} data-attr="bookings-bar-channel-mark" className={`${inline ? "mr-1 inline-flex align-[-1px]" : "inline-flex shrink-0"} h-3 w-3 items-center justify-center rounded-[3px] bg-white text-[9px] font-bold leading-none ${channel === "booking_com" ? "text-[#003b95]" : "text-[#6b3fa0]"}`}>{channel === "booking_com" ? "B" : "P"}</span>;
+  }
+  return null;
 }
 
 /** A paid early check-in / late checkout: a small clock before the guest's name. */
