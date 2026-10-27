@@ -109,11 +109,16 @@ export function serviceRowFacts(row: ServiceRow): PortalEntryRowFact[] {
     { icon: Home, label: `${row.houseCount} ${row.houseCount === 1 ? "house" : "houses"}`, srLabel: "Houses" },
     { icon: Percent, label: feeFactLabel(row), srLabel: "Management fee" },
     { icon: Phone, label: workNumberFactLabel(row), srLabel: "Work number" },
-    { icon: Users, label: row.viewerRole ? `${row.teamCount} on team` : "Not on team", srLabel: "Team" },
   ];
-  // The kept old number rides last: a row draws its first three facts, and the old number is on the row's menu too.
+  // The kept old number follows the number it replaced (`serviceRowFactCount` draws it); the team count rides last.
   if (row.oldNumber) facts.push({ icon: Phone, label: oldNumberFactLabel(row.oldNumber), srLabel: "Old number" });
+  facts.push({ icon: Users, label: row.viewerRole ? `${row.teamCount} on team` : "Not on team", srLabel: "Team" });
   return facts;
+}
+
+/** How many of `serviceRowFacts` a row draws, desktop and phone: houses, fee, number, plus the old number when one is kept. */
+export function serviceRowFactCount(row: Pick<ServiceRow, "oldNumber">): number {
+  return row.oldNumber ? 4 : 3;
 }
 
 /** Service workspaces grouped per city: Seattle first, the rest alphabetical, workspaces with no city last. */
@@ -561,6 +566,10 @@ export function AdminServicePanel() {
                 title={row.name}
                 place={row.ownerOfRecord?.name}
                 facts={serviceRowFacts(row)}
+                // The number it texts from (and the old one, when kept) is the fact an admin reads this row for: it
+                // reaches a phone too, so the cap is 3 (4 with an old number) at every width, never the shared 2.
+                maxFacts={serviceRowFactCount(row)}
+                phoneFactLimit={serviceRowFactCount(row)}
                 checked={selectedId === row.id}
                 onSelectedChange={(on) => setSelectedId(on ? row.id : null)}
                 onOpen={row.viewerRole ? () => void open(row) : undefined}
