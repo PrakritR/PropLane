@@ -15,11 +15,14 @@ vi.mock("posthog-js", () => ({ default: { reset: vi.fn() } }));
 import GetStartedPage from "@/app/auth/get-started/page";
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 
+const freshPhoneUser = { phone: "15103098345", app_metadata: { phone_only: true }, created_at: new Date().toISOString() };
 const page = () => render(<AppUiProvider><GetStartedPage /></AppUiProvider>);
 
 beforeEach(() => {
+  mocks.resolve.mockClear();
+  mocks.provision.mockClear();
   mocks.params = new URLSearchParams();
-  mocks.getSession.mockResolvedValue({ data: { session: { user: { phone: "15103098345" } } } });
+  mocks.getSession.mockResolvedValue({ data: { session: { user: freshPhoneUser } } });
   mocks.resolve.mockResolvedValue({ redirectTo: "/auth/get-started", resolutionFailed: false });
   mocks.provision.mockResolvedValue({ ok: true, redirectTo: "/resident/dashboard" });
 });
@@ -40,6 +43,27 @@ describe("get-started for a number with no account", () => {
     page();
     fireEvent.click(await screen.findByRole("button", { name: new RegExp(label) }));
     await waitFor(() => expect(mocks.provision).toHaveBeenCalledWith(role));
+  });
+
+  it("a phone login minted long ago, or one with a real account behind it, gets the ordinary resolver, not the new-number screen", async () => {
+    mocks.params = new URLSearchParams("phone_new=1");
+    mocks.getSession.mockResolvedValue({ data: { session: { user: { ...freshPhoneUser, created_at: "2026-01-01T00:00:00Z" } } } });
+    mocks.resolve.mockResolvedValue({ redirectTo: "/portal/dashboard", resolutionFailed: false });
+    const { unmount } = page();
+    await waitFor(() => expect(mocks.resolve).toHaveBeenCalled());
+    expect(screen.queryByText(/No account uses/)).not.toBeInTheDocument();
+    unmount();
+    mocks.resolve.mockClear();
+    mocks.getSession.mockResolvedValue({ data: { session: { user: { ...freshPhoneUser, app_metadata: {} } } } });
+    page();
+    await waitFor(() => expect(mocks.resolve).toHaveBeenCalled());
+  });
+
+  it("does not run the resolver that would send a brand-new number into the resident portal", async () => {
+    mocks.params = new URLSearchParams("phone_new=1");
+    page();
+    await screen.findByRole("heading", { name: /No account uses/ });
+    expect(mocks.resolve).not.toHaveBeenCalled();
   });
 
   it("without the flag it is the ordinary role picker", async () => {

@@ -34,6 +34,7 @@ const NEW_NUMBER_LABELS: Record<string, string> = {
   vendor: "I'm a vendor",
 };
 const NEW_NUMBER_ORDER = ["resident", "manager", "vendor"];
+const NEW_NUMBER_WINDOW_MS = 15 * 60 * 1000;
 
 /**
  * Portal chooser for a signed-in user with no portal role yet (new OAuth/email login),
@@ -50,8 +51,12 @@ function GetStartedContent() {
   const [loadError, setLoadError] = useState<string | null>(null);
   // A number that just proved itself by code and has no account yet (the phone verify route sends `?phone_new=1`).
   // Only someone holding the number's code ever reaches this heading, so naming the number reveals nothing to a stranger.
-  const phoneNew = searchParams.get("phone_new") === "1" && !addMode;
+  const phoneNewRequested = searchParams.get("phone_new") === "1" && !addMode;
   const [phoneLabel, setPhoneLabel] = useState<string | null>(null);
+  // Only a login that is a phone-only account minted minutes ago gets the screen: a bookmarked ?phone_new=1 on an older
+  // account is just the ordinary picker. (The phone bind gives every new phone login a resident role, so without this
+  // the resolver below would route the brand-new number straight into the resident portal.)
+  const phoneNew = phoneNewRequested && phoneLabel !== null;
   useAuthWelcomeChrome(true);
 
   const pickerOptions = useMemo(() => {
@@ -121,9 +126,18 @@ function GetStartedContent() {
         router.replace("/auth/sign-in?next=%2Fauth%2Fget-started");
         return;
       }
-      if (phoneNew && session.user?.phone) {
-        const e164 = session.user.phone.startsWith("+") ? session.user.phone : `+${session.user.phone}`;
-        setPhoneLabel(formatUsPhoneDisplay(e164) || null);
+      const sessionUser = session.user;
+      if (
+        phoneNewRequested && sessionUser?.phone && sessionUser.app_metadata?.phone_only === true &&
+        Date.now() - Date.parse(String(sessionUser.created_at)) < NEW_NUMBER_WINDOW_MS
+      ) {
+        const e164 = sessionUser.phone.startsWith("+") ? sessionUser.phone : `+${sessionUser.phone}`;
+        const label = formatUsPhoneDisplay(e164);
+        if (label) {
+          setPhoneLabel(label);
+          setResolving(false);
+          return;
+        }
       }
 
       const { redirectTo, resolutionFailed } = await resolvePostAuthDestination("/auth/continue");
@@ -140,7 +154,7 @@ function GetStartedContent() {
     return () => {
       cancelled = true;
     };
-  }, [addMode, phoneNew, router, showToast]);
+  }, [addMode, phoneNewRequested, router, showToast]);
 
   const choose = async (id: string) => {
     const role = id as AuthPortalPickerId;
@@ -219,7 +233,7 @@ function GetStartedContent() {
     <AuthCard variant="blend">
       <AuthPageHeader
         showLogo
-        title={addMode ? "Add another portal type" : phoneNew && phoneLabel ? `No account uses ${phoneLabel} yet` : "How do you want to use PropLane?"}
+        title={addMode ? "Add another portal type" : phoneNew ? `No account uses ${phoneLabel} yet` : "How do you want to use PropLane?"}
         subtitle={addMode ? "Same email works for every portal. Switch anytime from Settings." : undefined}
         accent={false}
       />

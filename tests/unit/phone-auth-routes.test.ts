@@ -140,6 +140,18 @@ describe("phone auth routes", () => {
     expect(mocks.verify).not.toHaveBeenCalled();
   });
 
+  it("accepts the browser's own origin when the dev server reports req.url as 0.0.0.0, and still refuses another site", async () => {
+    const dev = (origin: string) => new Request("http://0.0.0.0:3010/api/auth/phone/start", {
+      method: "POST", headers: { "content-type": "application/json", origin, host: "localhost:3010" },
+      body: JSON.stringify({ phone: "+12065550100", purpose: "sign_in" }),
+    });
+    expect((await start(dev("http://localhost:3010"))).status).toBe(200);
+    mocks.start.mockClear();
+    expect((await start(dev("http://attacker.test"))).status).toBe(400);
+    expect((await start(dev("not a url"))).status).toBe(400);
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+
   it("rejects an unsupported purpose before setting a cookie", async () => {
     expect((await start(request({ purpose: "admin_reset" }))).status).toBe(400);
     expect(mocks.start).not.toHaveBeenCalled();
