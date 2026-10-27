@@ -17,6 +17,7 @@ import {
   mergeCoManagerPermissions,
   type PropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
+import { isMissingArchivedColumn, withoutArchivedWorkspaces } from "@/lib/workspaces/archived";
 import { lockedOwnedServiceWorkspaceIds } from "@/lib/auth/managed-read-only.server";
 import { loadServiceOwnerSeats } from "@/lib/property-owner/service-owner-seat.server";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
@@ -34,8 +35,18 @@ import {
 
 /** Workspace selection narrows already-authorized data; it never grants access. */
 export async function loadWorkspaces(db: SupabaseClient, userId: string): Promise<PortalWorkspace[]> {
+  const WORKSPACE_COLUMNS = "id,name,owner_user_id,is_default,is_service";
+  // `archived_at` marks a workspace "Combine all into one" emptied; it is left out of the list. A database one migration
+  // behind has no such column, which reads as "nothing archived" (a second read without it).
+  const ownedWorkspaces = async () => {
+    const withArchive = await db.from("portal_workspaces").select(`${WORKSPACE_COLUMNS},archived_at`).eq("owner_user_id", userId).order("created_at");
+    if (withArchive.error && isMissingArchivedColumn(withArchive.error)) {
+      return db.from("portal_workspaces").select(WORKSPACE_COLUMNS).eq("owner_user_id", userId).order("created_at");
+    }
+    return withArchive;
+  };
   const [owned, links] = await Promise.all([
-    db.from("portal_workspaces").select("id,name,owner_user_id,is_default,is_service").eq("owner_user_id", userId).order("created_at"),
+    ownedWorkspaces(),
     db.from("account_link_invites")
       .select("id,inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions,workspace_id,workspace_permissions,team_role,house_scope")
       .eq("invitee_user_id", userId).eq("status", "accepted"),
@@ -135,9 +146,14 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
     ...linkedPropertiesResolved.map((p) => p.workspace_id).filter(Boolean),
     ...standingByWorkspace.keys(),
   ])];
-  const shared = sharedIds.length
-    ? await db.from("portal_workspaces").select("id,name,owner_user_id,is_default,is_service").in("id", sharedIds).order("created_at")
-    : { data: [], error: null };
+  const readShared = async () => {
+    const withArchive = await db.from("portal_workspaces").select(`${WORKSPACE_COLUMNS},archived_at`).in("id", sharedIds).order("created_at");
+    if (withArchive.error && isMissingArchivedColumn(withArchive.error)) {
+      return db.from("portal_workspaces").select(WORKSPACE_COLUMNS).in("id", sharedIds).order("created_at");
+    }
+    return withArchive;
+  };
+  const shared = sharedIds.length ? await readShared() : { data: [], error: null };
   if (shared.error) throw new Error("Could not load shared workspaces. Please retry.");
   const properties = [...(ownedProperties.data ?? []), ...linkedPropertiesResolved];
   const labelFor = (row: { id: string; row_data?: unknown }) => {
@@ -152,11 +168,13 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
     const address = typeof data.address === "string" ? data.address.trim() : "";
     return name && address ? address : "";
   };
-  const rows = new Map([...(owned.data ?? []), ...(shared.data ?? [])].map((w) => [w.id, w]));
+  // An archived workspace (emptied by "Combine all into one") is not listed, whoever's it is.
+  const ownedRows = withoutArchivedWorkspaces(owned.data);
+  const rows = new Map([...ownedRows, ...withoutArchivedWorkspaces(shared.data)].map((w) => [w.id, w]));
 
   // View-only: a PropLane Service workspace the viewer owns without a plan of her own, and a seat
   // that is the retired Property owner role. An unreadable plan locks (fail closed).
-  const ownedServiceIds = (owned.data ?? []).filter((w) => (w as { is_service?: boolean | null }).is_service === true).map((w) => w.id);
+  const ownedServiceIds = ownedRows.filter((w) => (w as { is_service?: boolean | null }).is_service === true).map((w) => w.id);
   let lockedOwnedService: Set<string>;
   try {
     lockedOwnedService = new Set(await lockedOwnedServiceWorkspaceIds(db, userId, ownedServiceIds));
