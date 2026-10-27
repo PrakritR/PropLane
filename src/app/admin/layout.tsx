@@ -9,9 +9,10 @@ import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
 import { PortalWorkspaceRail } from "@/components/portal/portal-workspace-rail";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
-import { assertAdminPortalAccess } from "@/lib/auth/portal-access";
+import { redirect } from "next/navigation";
+import { assertAdminPortalAccess, getPortalAccessContext, hasAdminRole } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { loadAdminServiceShell } from "@/lib/service/service-mode.server";
+import { loadAdminServiceShell, loadServiceStaffIds } from "@/lib/service/service-mode.server";
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
 import {
   PORTAL_MAIN_CONTENT_CLASS,
@@ -30,6 +31,14 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  // A workspace admin (a PropLane-issued seat, not an Overall admin) lives in the admin-style service shell under
+  // /portal, which shows only their workspaces: the PropLane-wide /admin pages are the Overall admin's, so they land
+  // there instead. Every /api/admin/* PropLane-wide route keeps requireAdminRoute() either way.
+  const access = await getPortalAccessContext();
+  if (access.user && !hasAdminRole(access)) {
+    const staff = await loadServiceStaffIds(createSupabaseServiceRoleClient(), access.user.id);
+    if (staff.ids.size > 0) redirect("/portal/dashboard");
+  }
   await assertAdminPortalAccess();
   const { profile, user } = await getServerSessionProfile();
   const [sidebarCollapsed, assistantDockCollapsed, testWorkspaceOperator, serviceShell] = await Promise.all([

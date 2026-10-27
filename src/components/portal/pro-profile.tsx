@@ -1,5 +1,6 @@
 import { PortalProfileClient } from "@/components/portal/portal-profile-client";
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
+import { loadPortalSettingsScope } from "@/lib/admin-team/settings-scope.server";
 
 function dash(s: unknown) {
   const t = typeof s === "string" ? s.trim() : "";
@@ -7,7 +8,9 @@ function dash(s: unknown) {
 }
 
 export async function ManagerProfile() {
-  const { profile, user } = await getServerSessionProfile();
+  const { profile, user, viewAs } = await getServerSessionProfile();
+  // Service mode only: the Settings scope dropdown (PropLane / each workspace) is for PropLane staff, never a View-as session.
+  const settingsScope = user && !viewAs ? await loadPortalSettingsScope(user.id) : null;
 
   return (
     <PortalProfileClient
@@ -19,6 +22,7 @@ export async function ManagerProfile() {
       initialPhoneVerified={Boolean(profile?.phone_verified_at)}
       idLabel="PropLane ID"
       idValue={dash(profile?.manager_id)}
+      settingsScope={settingsScope}
     />
   );
 }

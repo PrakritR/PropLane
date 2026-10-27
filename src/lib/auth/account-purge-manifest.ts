@@ -1295,6 +1295,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["owner_user_id"] },
   },
   {
+    // Admin team trail (plan admin-team-1027): the row follows the account it grants; who granted or revoked it is
+    // only detached, so removing an admin never erases another admin's record of what they were given.
+    table: "admin_team_grants",
+    phase: 3,
+    manager: { ids: ["user_id"], detachIds: ["granted_by", "revoked_by"] },
+  },
+  {
     table: "manager_documents",
     phase: 3,
     manager: { ids: ["manager_user_id"] },

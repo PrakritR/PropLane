@@ -90,6 +90,16 @@ export const ADMIN_NAV_ROW_ORDER = [
   "growth",
 ] as const;
 
+/**
+ * The PropLane-wide sidebar rows a viewer gets (Admin team, plan admin-team-1027). Only an Overall admin has any: a
+ * workspace admin (a PropLane-issued seat) lives in the admin-style service shell, whose rail shows only their
+ * workspaces and whose sidebar is that workspace's own sections, so none of these rows is drawn for them. The API
+ * stays the real gate: every PropLane-wide `/api/admin/*` route starts with `requireAdminRoute()`.
+ */
+export function adminNavRowsForViewer(viewer: { overall: boolean }): readonly (typeof ADMIN_NAV_ROW_ORDER)[number][] {
+  return viewer.overall ? ADMIN_NAV_ROW_ORDER : [];
+}
+
 export type AdminSectionTabGroup = { label: string; sections: readonly string[] };
 
 /**

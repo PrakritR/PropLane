@@ -42,6 +42,9 @@ export async function POST(req: Request) {
     canDo: preview.canDo ?? null,
     access: preview.access ?? null,
     inviteeEmail: preview.inviteeEmail ?? null,
+    ...(preview.kind === "admin"
+      ? { adminRoleLabel: preview.adminRoleLabel ?? null, adminWorkspaceNames: preview.adminWorkspaceNames ?? [] }
+      : {}),
     unusableReason: preview.unusableReason,
     ...(user ? { ownerUserId: preview.ownerUserId } : {}),
   });
