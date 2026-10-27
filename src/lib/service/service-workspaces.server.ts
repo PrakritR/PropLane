@@ -154,7 +154,14 @@ function oldNumberRow(rows: Record<string, unknown>[], workspaceId: string, line
 async function attachedAtByWorkspace(db: SupabaseClient, workspaceIds: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   try {
-    const { data, error } = await db.from("audit_log").select("created_at, input_summary").eq("action", ADMIN_SERVICE_ATTACH_AUDIT_ACTION);
+    if (workspaceIds.length === 0) return out;
+    // Narrowed to the workspaces being listed: every attach ever made is otherwise read and thrown away on
+    // each Admin > Service render, to put one date on each row.
+    const { data, error } = await db
+      .from("audit_log")
+      .select("created_at, input_summary")
+      .eq("action", ADMIN_SERVICE_ATTACH_AUDIT_ACTION)
+      .in("input_summary->>workspaceId", workspaceIds);
     if (error) return out;
     for (const row of (data ?? []) as { created_at?: unknown; input_summary?: { workspaceId?: unknown } | null }[]) {
       const id = String(row.input_summary?.workspaceId ?? "");

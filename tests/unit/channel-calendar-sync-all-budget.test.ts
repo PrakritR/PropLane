@@ -114,7 +114,8 @@ describe("syncAllChannelCalendarImports budget and concurrency", () => {
     expect(route).not.toContain("syncChannelCalendarConnection(");
     expect(route).toContain("skipped");
     expect(route).toContain("requireManagerRouteUser");
-    expect(route).toContain("managerCanWriteCalendarForProperty");
+    // The batch form of the same decision: one write check per HOUSE, not one per connection row.
+    expect(route).toContain("managerCanWriteCalendarForProperties");
     expect(route).toContain(`maxDuration = ${CHANNEL_SYNC_CRON_MAX_DURATION_MS / 1000}`);
   });
 });

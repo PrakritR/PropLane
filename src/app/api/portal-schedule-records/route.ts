@@ -484,6 +484,21 @@ const route = createJsonRecordRoute({
     return storedOwner ? { ...next, manager_user_id: storedOwner } : next;
   },
   atomicWrite: async ({ db, user, record, existing, expectedPayload, expectedPayloadKnown }) => {
+    // One write asks "who owns this house?" and "may this caller write its blocks?" from several gates below
+    // (the landing-house check, then the owner stamp), about the same house. Each answer is resolved once per
+    // request and shared, so adding a gate never adds a round trip and the gates can never disagree.
+    const ownerByProperty = new Map<string, Promise<string | null>>();
+    const houseOwnerOf = (propertyId: string): Promise<string | null> => {
+      const pending = ownerByProperty.get(propertyId) ?? resolvePropertyOwnerUserId(db, propertyId);
+      ownerByProperty.set(propertyId, pending);
+      return pending;
+    };
+    const grantByProperty = new Map<string, Promise<boolean>>();
+    const mayWriteBlocks = (propertyId: string): Promise<boolean> => {
+      const pending = grantByProperty.get(propertyId) ?? mayWriteBlocksOn(db, user, propertyId);
+      grantByProperty.set(propertyId, pending);
+      return pending;
+    };
     // Every manager write of a stay stamps its exact times and real instants (docs/agents/bookings.md
     // § Exact times): the save's own times, else the stored row's, else the property's defaults. The
     // paid early / late add-ons are carried from the stored row, never taken from the body.
@@ -513,7 +528,7 @@ const route = createJsonRecordRoute({
       const storedOwner = String(existing.manager_user_id ?? "").trim();
       const blockPropertyId = String(existing.property_id ?? record.property_id ?? "").trim();
       if (storedOwner && storedOwner !== user.id && !scheduleUserHasRole(user, "admin")) {
-        const allowed = await mayWriteBlocksOn(db, user, blockPropertyId);
+        const allowed = await mayWriteBlocks(blockPropertyId);
         if (!allowed) {
           return { handled: true, error: "You need Calendar edit access on this property to change its room blocks.", status: 403 };
         }
@@ -530,8 +545,8 @@ const route = createJsonRecordRoute({
       const landingPropertyId = String(record.property_id ?? "").trim();
       const storedPropertyId = existing ? String(existing.property_id ?? "").trim() : "";
       if (landingPropertyId && (!existing || landingPropertyId !== storedPropertyId)) {
-        const houseOwner = await resolvePropertyOwnerUserId(db, landingPropertyId);
-        const allowed = (Boolean(houseOwner) && houseOwner === user.id) || (await mayWriteBlocksOn(db, user, landingPropertyId));
+        const houseOwner = await houseOwnerOf(landingPropertyId);
+        const allowed = (Boolean(houseOwner) && houseOwner === user.id) || (await mayWriteBlocks(landingPropertyId));
         if (!allowed) {
           return { handled: true, error: "You need Calendar edit access on this property to block its rooms.", status: 403 };
         }
@@ -559,13 +574,13 @@ const route = createJsonRecordRoute({
       // owner (their own id kept as createdByUserId); anyone else is refused here, never stamped.
       const blockPropertyId = String(record.property_id ?? "").trim();
       if (!existing && blockPropertyId) {
-        const owner = await resolvePropertyOwnerUserId(db, blockPropertyId);
+        const owner = await houseOwnerOf(blockPropertyId);
         if (owner && String(record.manager_user_id ?? "") !== owner) {
           // An admin's write arrives unstamped (assignOwnership leaves admin rows alone).
           const allowed =
             owner === user.id ||
             scheduleUserHasRole(user, "admin") ||
-            (await mayWriteBlocksOn(db, user, blockPropertyId));
+            (await mayWriteBlocks(blockPropertyId));
           if (!allowed) {
             return { handled: true, error: "You need Calendar edit access on this property to block its rooms.", status: 403 };
           }

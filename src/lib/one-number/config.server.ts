@@ -132,7 +132,9 @@ async function loadDedicatedWorkspaceIds(db: SupabaseClient): Promise<string[] |
   // line (`resolveServiceLine`), whatever old number row it carries and whoever pays for it. Counting it dedicated
   // sent its own residents a "text (206) ... instead" redirect to the very line they were already texting.
   if (ids.size > 0) {
-    const service = await db.from("portal_workspaces").select("id").eq("is_service", true).limit(500);
+    // Asked about THESE workspaces only, so the answer can never be partial: a page limit over every service
+    // workspace silently left the ones it did not reach counted as dedicated, which is the bug this removes.
+    const service = await db.from("portal_workspaces").select("id").eq("is_service", true).in("id", [...ids]);
     if (service.error) return isMissingSchemaError(service.error) ? [...ids] : null;
     for (const row of service.data ?? []) ids.delete(String((row as { id?: unknown }).id ?? "").trim());
   }

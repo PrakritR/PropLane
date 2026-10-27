@@ -1,9 +1,19 @@
 /**
  * A tiny in-memory service-role client for the PropLane Service tests: select / insert / update / delete /
- * upsert over arrays of rows with eq / in / is filters, order, maybeSingle, and the one rpc the Service
- * tab calls. `failOn` makes a table's reads return a Postgres-shaped error.
+ * upsert over arrays of rows with eq / in / is filters (including `jsonb->>key` columns), order,
+ * maybeSingle, and the one rpc the Service tab calls. `failOn` makes a table's reads return a
+ * Postgres-shaped error.
  */
 export type Row = Record<string, unknown>;
+
+/** A filtered column, which may address one key of a jsonb column the way PostgREST does. */
+function column(row: Row, col: string): unknown {
+  const arrow = col.split("->>");
+  if (arrow.length !== 2) return row[col];
+  const container = row[arrow[0]!] as Row | null | undefined;
+  const value = container?.[arrow[1]!];
+  return value === undefined || value === null ? null : String(value);
+}
 
 export type ServiceFakeDb = {
   tables: Record<string, Row[]>;
@@ -77,9 +87,9 @@ export function makeServiceFakeDb(initial: Record<string, Row[]> = {}): ServiceF
         ),
         update: (values: Row) => ((mode = "update"), (patch = values), q),
         delete: () => ((mode = "delete"), q),
-        eq: (col: string, value: unknown) => (filters.push((r) => r[col] === value), q),
-        in: (col: string, values: unknown[]) => (filters.push((r) => values.includes(r[col])), q),
-        is: (col: string, value: unknown) => (filters.push((r) => (value === null ? r[col] == null : r[col] === value)), q),
+        eq: (col: string, value: unknown) => (filters.push((r) => column(r, col) === value), q),
+        in: (col: string, values: unknown[]) => (filters.push((r) => values.includes(column(r, col))), q),
+        is: (col: string, value: unknown) => (filters.push((r) => (value === null ? column(r, col) == null : column(r, col) === value)), q),
         not: (col: string, op: string, value: unknown) => (
           filters.push((r) => (op === "is" && value === null ? r[col] != null : r[col] !== value)), q
         ),

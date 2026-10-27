@@ -21,7 +21,7 @@ import {
 } from "@/lib/channel-calendar/channel-link";
 import { connectionTouchesRoom } from "@/lib/channel-calendar/export-feed";
 import { isHostBlockRange, withoutEchoedHostBlocks } from "@/lib/channel-calendar/host-block";
-import { bookingRangesOverlap, lastNightBeforeCheckout } from "@/lib/channel-calendar/property-bookings";
+import { bookingRangesOverlap, isImportedChannelBlock, lastNightBeforeCheckout } from "@/lib/channel-calendar/property-bookings";
 
 /** One imported range of one room, as the overlap check reads it. `start`/`end` are the first and LAST night. */
 export type ChannelOverlapRange = Omit<LinkableRange, "provider"> & {
@@ -240,11 +240,17 @@ export function findChannelClashes(input: {
     }
   }
   const links = input.natives.filter((native) => native.link && !native.cancelled).map((native) => native.link!);
+  // The reservations this pass can actually clash with. Narrowing once keeps the stay-by-stay scan below off
+  // every other connection's ranges, and lets a stay that touches none of them skip `linkedRangeForStay`
+  // entirely - the house is re-read per synced connection, so this loop runs once per connection of a house.
+  const relevant = input.connectionId ? reservations.filter((range) => range.connectionId === input.connectionId) : reservations;
   for (const native of input.natives) {
     if (native.cancelled || !native.checkIn || !native.checkOut) continue;
     // A channel import mirrored into a block is the channel's own stay, never a PropLane one.
-    if (/^(airbnb|booking)$/i.test((native.reason ?? "").trim())) continue;
+    if (isImportedChannelBlock({ reason: native.reason ?? "" })) continue;
     const nights = { start: native.checkIn, end: native.openEnded ? "9999-12-30" : lastNightBeforeCheckout(native.checkOut) };
+    const candidates = relevant.filter((range) => touches(native.roomId, range.roomId) && bookingRangesOverlap(nights, range));
+    if (candidates.length === 0) continue;
     const own = linkedRangeForStay({
       propertyId,
       roomId: native.roomId,
@@ -257,10 +263,8 @@ export function findChannelClashes(input: {
       otherLinks: links.filter((link) => link !== native.link),
       derive: stayMayAutoLink({ residentName: native.name, blockKind: native.blockKind, reason: native.reason }),
     }).range;
-    for (const range of reservations) {
-      if (input.connectionId && range.connectionId !== input.connectionId) continue;
+    for (const range of candidates) {
       if (own && range.connectionId === own.connectionId && range.sourceUid === own.sourceUid && range.start === own.start) continue;
-      if (!touches(native.roomId, range.roomId) || !bookingRangesOverlap(nights, range)) continue;
       add([channelSide(range), { kind: "native", label: native.name?.trim() || native.reason?.trim() || "a PropLane booking", id: native.id }], native.roomId || range.roomId, range.roomLabel?.trim() || "That room", nights, range);
     }
   }

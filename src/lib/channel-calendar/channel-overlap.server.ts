@@ -30,7 +30,13 @@ function roomLabelOf(property: Parameters<typeof listingSubmissionFromProperty>[
 
 /** Every imported range of a house's channel connections, tombstoned stays dropped. Throws when a read fails. */
 export async function loadChannelOverlapRanges(db: SupabaseClient, propertyId: string): Promise<ChannelOverlapRange[]> {
-  const { data, error } = await db.from("external_calendar_connections").select("*").eq("property_id", propertyId);
+  // Only the columns the ranges below are built from: this read repeats for every connection of the house on
+  // every sync (each one must see what the ones before it just imported), so `*` dragged each row's export
+  // token, import url and released-identity history along with it on a free-plan egress budget.
+  const { data, error } = await db
+    .from("external_calendar_connections")
+    .select("id, manager_user_id, property_id, room_id, provider, label, imported_ranges, last_synced_at")
+    .eq("property_id", propertyId);
   if (error) throw new Error(error.message);
   const connections = (data ?? []).map((row) => parseConnectionRow(row as Record<string, unknown>));
   if (connections.every((connection) => (connection.imported_ranges ?? []).length === 0)) return [];

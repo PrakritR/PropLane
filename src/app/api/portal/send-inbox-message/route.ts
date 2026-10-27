@@ -640,8 +640,12 @@ export async function POST(req: Request) {
     // One more gate before anything is written: the thread being replied into
     // must belong to the person being messaged. Without it a reply could be
     // stored in one conversation and delivered to another person.
+    // The thread's own workspace is read once here and reused by the delivery below: the gate and the
+    // delivery must answer to the SAME workspace, not to two reads of it.
+    let replyThreadWorkspaceId: string | null = null;
     if (replyTarget) {
       const stored = await loadThreadConversation(db, replyTarget.threadId);
+      replyThreadWorkspaceId = stored.workspaceId;
       const match = await replyRecipientsMatchThread(db, {
         thread: {
           id: replyTarget.threadId,
@@ -906,7 +910,7 @@ export async function POST(req: Request) {
       // A reply into the workspace owner's conversation is delivered under THAT owner's workspace and house, whoever typed it.
       const hostReply = replyDeliveryContext(replyTarget, {
         senderUserId: user.id,
-        threadWorkspaceId: replyTarget ? (await loadThreadConversation(db, replyTarget.threadId)).workspaceId : null,
+        threadWorkspaceId: replyThreadWorkspaceId,
       });
       const coHostReply = Boolean(hostReply && !hostReply.ownedBySender);
       for (const recipient of recipients) {

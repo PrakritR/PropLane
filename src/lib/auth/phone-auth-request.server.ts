@@ -42,6 +42,9 @@ export function assertPhoneRequestOrigin(req: Request) {
   // `next dev --hostname 0.0.0.0` (how every lane runs) reports `req.url` as http://0.0.0.0:<port>, so a browser on
   // localhost would fail the comparison above and every phone sign-in would read as a generic refusal. The browser's own
   // Host header is the same-origin truth there: a cross-site page cannot make a browser send its Origin with another Host.
+  // A deployed build never has that problem (`req.url` is built from the forwarded host), and the fallback drops the
+  // scheme from the comparison, so it stays OFF in production rather than letting an http:// origin pass an https:// door.
+  if (process.env.NODE_ENV === "production") throw new Error(PHONE_AUTH_ERROR);
   const host = req.headers.get("host")?.trim() ?? "";
   let originHost = "";
   try {
