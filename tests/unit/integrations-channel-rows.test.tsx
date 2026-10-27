@@ -63,6 +63,17 @@ describe("Settings → Integrations → Bookings", () => {
     expect(text).not.toContain("Export booking calendar");
   });
 
+  it("PadSplit is a plain manual row: it says what it does, and its action opens the host dashboard in a new tab", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<ManagerBookingChannelsPanel />);
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-padsplit-row"]')).not.toBeNull());
+    expect(document.querySelector('[data-attr="settings-padsplit-status"]')?.textContent).toBe("Manual · approve each booking in PadSplit");
+    expect(document.querySelector('[data-attr="settings-padsplit-manage"]')).toBeNull();
+    fireEvent.click(document.querySelector('[data-attr="settings-padsplit-open"]') as HTMLElement);
+    expect(open).toHaveBeenCalledWith("https://www.padsplit.com/host", "_blank", "noopener,noreferrer");
+    open.mockRestore();
+  });
+
   it("keeps an already-linked Vrbo manageable instead of hiding it behind Coming soon", async () => {
     bookings.rooms = [room("vrbo", "r1"), room("vrbo", "r3")];
     render(<ManagerBookingChannelsPanel />);

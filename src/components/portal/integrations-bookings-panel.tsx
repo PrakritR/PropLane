@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, CalendarPlus, House, Palmtree, Plus } from "lucide-react";
+import { Building2, CalendarPlus, ExternalLink, House, Palmtree, Plus, UsersRound } from "lucide-react";
 
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { IntegrationRow } from "@/components/portal/integration-row";
@@ -23,6 +23,9 @@ const LIVE_CHANNELS = [
   { provider: "airbnb", name: "Airbnb", icon: House, tone: "text-rose-500" },
   { provider: "booking_com", name: "Booking.com", icon: Building2, tone: "text-blue-600" },
 ] as const;
+
+/** PadSplit's host dashboard. PadSplit has no calendar feed and no API, so this is a plain link, never a connection. */
+export const PADSPLIT_HOST_URL = "https://www.padsplit.com/host";
 
 /** What the Other calendar row says before any site is linked: the sites people reach for first. */
 const OTHER_CALENDAR_HINT = "Houfy, Furnished Finder, Vrbo, any .ics";
@@ -127,6 +130,15 @@ export function ManagerBookingChannelsPanel() {
               Manage
             </Button>
           }
+        />
+        <IntegrationRow
+          icon={UsersRound}
+          tone="text-violet-600"
+          name="PadSplit"
+          fact="Manual · approve each booking in PadSplit"
+          factDataAttr="settings-padsplit-status"
+          dataAttr="settings-padsplit-row"
+          action={<PortalIconAction icon={ExternalLink} label="Open PadSplit" data-attr="settings-padsplit-open" onClick={() => window.open(PADSPLIT_HOST_URL, "_blank", "noopener,noreferrer")} />}
         />
         <IntegrationRow
           icon={CalendarPlus}
