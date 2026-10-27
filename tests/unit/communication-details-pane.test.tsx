@@ -126,7 +126,7 @@ describe("InboxTwoPane panes=flat", () => {
   const mount = () =>
     render(<InboxTwoPane panes="flat" threadOpen list={<div>list</div>} thread={<div>thread</div>} details={<div>details</div>} />);
 
-  it("draws no cards and adds the details column only where the surface itself is 1040px wide", () => {
+  it("draws no cards and never adds a details column, even where the surface is wide (the details are on demand)", () => {
     surface(1039);
     mount();
     const root = document.querySelector('[data-attr="portal-inbox-two-pane"]') as HTMLElement;
@@ -136,13 +136,13 @@ describe("InboxTwoPane panes=flat", () => {
     cleanup();
     vi.restoreAllMocks();
 
-    surface(1040);
+    surface(1600);
     mount();
-    expect(screen.getByText("details")).toBeTruthy();
-    const aside = document.querySelector('[data-attr="inbox-details-pane"]') as HTMLElement;
-    expect(aside.className).not.toMatch(/xl:/);
-    const grid = aside.parentElement as HTMLElement;
-    expect(grid.className).toContain("grid-cols-[320px_minmax(440px,1fr)_280px]");
+    expect(screen.queryByText("details")).toBeNull();
+    expect(document.querySelector('[data-attr="inbox-details-pane"]')).toBeNull();
+    const grid = (document.querySelector('[data-attr="portal-inbox-two-pane"]') as HTMLElement).firstElementChild as HTMLElement;
+    expect(grid.className).toContain("grid-cols-[320px_minmax(440px,1fr)]");
+    expect(grid.className).not.toContain("280px");
   });
 
   it("two columns at 760px, the thread alone under it", () => {

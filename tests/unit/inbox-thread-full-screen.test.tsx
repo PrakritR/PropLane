@@ -2,7 +2,7 @@
 //
 // Full-screen conversation: the thread header's Full screen / Exit full screen
 // icon, the list stepping aside, Escape, session memory, and the phone rule.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { InboxThreadView, InboxTwoPane } from "@/components/portal/portal-inbox-ui";
 import {
@@ -108,5 +108,107 @@ describe("inbox full screen", () => {
   it("an embedded thread (no split pane) has no full-screen button", () => {
     render(<InboxThreadView title="x" messages={messages} headerActions={<span>a</span>} />);
     expect(screen.queryByRole("button", { name: /full screen/i })).toBeNull();
+  });
+});
+
+/**
+ * Communication is two columns (list + conversation) at every width from 760px; the contact details open on
+ * demand from the thread header's info icon; and full screen fills the content area exactly (no `-mx-8` bleed
+ * that slid the pinned pane 32px left under the sidebar) with the conversation centred at 760px.
+ */
+function FlatHarness({ details = true }: { details?: boolean }) {
+  return (
+    <InboxTwoPane
+      panes="flat"
+      threadOpen
+      details={details ? <div data-testid="details">Contact details</div> : undefined}
+      list={<div data-testid="list">conversations</div>}
+      thread={
+        <InboxThreadView
+          title="Aarav Jain"
+          messages={messages}
+          threadKey="a"
+          composer={<textarea aria-label="Reply" rows={1} />}
+        />
+      }
+    />
+  );
+}
+
+function surfaceWidth(width: number) {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const w = this.classList?.contains("portal-inbox-two-pane") ? width : 0;
+    return { x: 0, y: 0, top: 0, left: 0, right: w, bottom: 0, width: w, height: 0, toJSON: () => ({}) } as DOMRect;
+  });
+}
+
+describe("inbox sizing: two columns, details on demand, centred full screen", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([1040, 1280, 1600])("draws two columns at %ipx, never a third details column", (width) => {
+    surfaceWidth(width);
+    const { container } = render(<FlatHarness />);
+    expect(container.querySelector('[data-attr="inbox-details-pane"]')).toBeNull();
+    expect(container.querySelector(".grid")!.className).toContain("grid-cols-[320px_minmax(440px,1fr)]");
+    expect(container.querySelector(".grid")!.className).not.toContain("280px");
+    expect(screen.getByTestId("list")).toBeTruthy();
+    expect(screen.queryByTestId("details")).toBeNull();
+  });
+
+  it("the info icon in the thread header opens the contact details as the 280px panel, and closes it", () => {
+    surfaceWidth(1600);
+    const { container } = render(<FlatHarness />);
+    const info = screen.getByRole("button", { name: "Contact information" });
+    expect(info.getAttribute("data-slot")).toBe("portal-icon-action");
+    expect(container.querySelector('[data-attr="inbox-details-panel"]')).toBeNull();
+    fireEvent.click(info);
+    const panel = container.querySelector('[data-attr="inbox-details-panel"]')!;
+    expect(panel.className).toContain("w-[280px]");
+    expect(screen.getByTestId("details")).toBeTruthy();
+    fireEvent.click(info);
+    expect(container.querySelector('[data-attr="inbox-details-panel"]')).toBeNull();
+  });
+
+  it("a thread with no contact details has no info icon", () => {
+    surfaceWidth(1600);
+    render(<FlatHarness details={false} />);
+    expect(screen.queryByRole("button", { name: "Contact information" })).toBeNull();
+  });
+
+  it("full screen drops the -mx-8 bleed and centres the body and composer at 760px", () => {
+    surfaceWidth(1600);
+    const { container } = render(<FlatHarness />);
+    const root = container.querySelector<HTMLElement>(".portal-inbox-two-pane")!;
+    expect(root.className).toContain("lg:-mx-8");
+    expect(container.querySelector('[data-attr="inbox-thread-centred"]')).toBeNull();
+    const reply = screen.getByLabelText("Reply");
+
+    fireEvent.click(screen.getByRole("button", { name: "Full screen" }));
+    expect(root.dataset.fullScreen).toBe("true");
+    expect(root.style.position).toBe("fixed");
+    expect(root.className).not.toContain("-mx-8");
+    const centred = container.querySelector('[data-attr="inbox-thread-centred"]')!;
+    expect(centred.className).toContain("mx-auto");
+    expect(centred.className).toContain("max-w-[760px]");
+    expect(centred.className).toContain("w-full");
+    expect(centred.contains(screen.getByLabelText("Reply"))).toBe(true);
+    expect(centred.querySelector(".portal-inbox-thread-body")).not.toBeNull();
+    // The header stays edge to edge, outside the centred column.
+    expect(centred.querySelector(".portal-inbox-thread-header")).toBeNull();
+    // Entering full screen never remounts the composer, so a typed draft survives.
+    expect(screen.getByLabelText("Reply")).toBe(reply);
+
+    fireEvent.click(screen.getByRole("button", { name: "Exit full screen" }));
+    expect(root.className).toContain("lg:-mx-8");
+    expect(container.querySelector('[data-attr="inbox-thread-centred"]')).toBeNull();
+    expect(screen.getByLabelText("Reply")).toBe(reply);
+  });
+
+  it("the details panel is still reachable in full screen", () => {
+    surfaceWidth(1600);
+    const { container } = render(<FlatHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "Full screen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Contact information" }));
+    expect(container.querySelector('[data-attr="inbox-details-panel"]')).not.toBeNull();
   });
 });

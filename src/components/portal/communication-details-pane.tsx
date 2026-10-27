@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * The contact-details column at the right edge of Communication (1280px and up).
+ * The contact details of Communication: a panel that opens over the thread's right edge from the thread header's
+ * info icon (never a fixed third column).
  *
  * It only restates what the open conversation already carries: who it is with,
  * their phone and email, the records the thread is about, and the sends already
