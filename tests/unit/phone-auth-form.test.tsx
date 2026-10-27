@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PhoneAuthForm } from "@/components/auth/phone-auth-form";
 
@@ -36,7 +36,7 @@ describe("phone authentication form", () => {
     submit();
     submit();
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "Continue with phone" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Text me a code" })).toBeDisabled();
     resolve(response({ challengeId: "only-one" }));
     expect(await screen.findByLabelText("Verification code")).toBeEnabled();
   });
@@ -73,7 +73,7 @@ describe("phone authentication form", () => {
     (code as HTMLInputElement).value = "123456";
     submit();
     await waitFor(() => expect(navigate).toHaveBeenCalledWith("/auth/continue?next=%2Fresident%2Fcommunication"));
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ challengeId: "challenge", code: "123456" });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ challengeId: "challenge", code: "123456", purpose: "sign_in", next: "/resident/communication" });
     expect(setSession).toHaveBeenCalledWith(session);
   });
 
@@ -128,18 +128,25 @@ describe("phone authentication form", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
-  it("refuses malformed codes locally and clears a stale code on resend", async () => {
-    fetchMock.mockResolvedValueOnce(response({ challengeId: "first" })).mockResolvedValueOnce(response({ challengeId: "second" }));
-    render(<PhoneAuthForm />);
-    fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "+14255550123" } });
-    submit();
-    fireEvent.change(await screen.findByLabelText("Verification code"), { target: { value: "abc" } });
-    submit();
-    expect(await screen.findByRole("alert")).toHaveTextContent("Enter the 6-digit code");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Resend code" }));
-    await waitFor(() => expect(screen.getByLabelText("Verification code")).toHaveValue(""));
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+  it("refuses malformed codes locally, holds Resend for 30 seconds, then clears a stale code on resend", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"], shouldAdvanceTime: true });
+    try {
+      fetchMock.mockResolvedValueOnce(response({ challengeId: "first" })).mockResolvedValueOnce(response({ challengeId: "second" }));
+      render(<PhoneAuthForm />);
+      fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "+14255550123" } });
+      submit();
+      fireEvent.change(await screen.findByLabelText("Verification code"), { target: { value: "abc" } });
+      submit();
+      expect(await screen.findByRole("alert")).toHaveTextContent("Enter the 6-digit code");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("button", { name: /Resend in 0:\d\d/ })).toBeDisabled();
+      await act(async () => { vi.advanceTimersByTime(31_000); });
+      fireEvent.click(await screen.findByRole("button", { name: "Resend code" }));
+      await waitFor(() => expect(screen.getByLabelText("Verification code")).toHaveValue(""));
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the form available after a transport failure and rejects unsafe redirect destinations", async () => {

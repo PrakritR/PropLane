@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { AuthRole } from "@/components/auth/portal-switcher";
 import { LEGACY_PREVIEW_UID_COOKIE_NAME, PREVIEW_PORTAL_COOKIE, PREVIEW_UID_COOKIE } from "@/lib/auth/admin-preview";
+import { LAST_PORTAL_COOKIE, lastPortalCookieOptions } from "@/lib/auth/last-portal";
 import { ACTIVE_PORTAL_COOKIE, getPortalAccessContext, isPortalRoleReachable } from "@/lib/auth/portal-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -62,6 +63,8 @@ export async function POST(req: Request) {
       maxAge: 60 * 60 * 24 * 365,
       secure,
     });
+    // The device remembers the portal it opened last; a multi-role sign-in reopens it (post-sign-in-destination.server.ts).
+    res.cookies.set(LAST_PORTAL_COOKIE, role, lastPortalCookieOptions(secure));
     res.cookies.set(PREVIEW_UID_COOKIE, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0, secure });
     res.cookies.set(PREVIEW_PORTAL_COOKIE, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0, secure });
     res.cookies.set(LEGACY_PREVIEW_UID_COOKIE_NAME, "", { httpOnly: true, sameSite: "lax", path: "/", maxAge: 0, secure });

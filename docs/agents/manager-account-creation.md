@@ -19,6 +19,21 @@ else.
 | Partner-pricing OAuth callback | `src/app/auth/callback/partner-pricing/route.ts` |
 | Regression coverage | `tests/e2e/manager-get-started-signed-in.spec.ts` |
 
+## A multi-role sign-in opens the portal this device used last
+
+`pl_last_portal` (`src/lib/auth/last-portal.ts`) is an httpOnly, lax, one-year cookie holding a role string only (no ids),
+written by the two server doors that open a portal: `POST /api/auth/set-active-portal` (the chooser and the account
+menu's switch) and the post-sign-in resolver (`resolvePostSignInDestination`, behind `/api/auth/oauth-portal-access`
+and the phone verify route). A cookie cannot be set from a layout, which is why it is not written "when a layout
+renders". It survives sign-out on purpose: it is a device memory.
+
+`resolveOAuthPortalRedirect` uses it only for a generic sign-in (`/auth/continue`) by an account with MORE than one
+role, and only when the role is still in the `profile_roles` rows read for that very sign-in (`pickLastPortal`);
+otherwise it is `/auth/choose-portal` as before. A `?next=` deep link wins, a single-role account ignores it, and the
+primary admin's manager routing is unchanged. When it opens a portal it also pins `axis_active_portal`, because a
+multi-role account cannot render a portal without it. Applies to every sign-in method (password, Google, Apple, phone).
+Tests: `tests/unit/last-portal.test.ts`, `tests/unit/phone-verify-next.test.ts`.
+
 ## The create-account surface never auto-redirects to a portal
 
 Entering a portal from here is always an **explicit user click**, on every path:

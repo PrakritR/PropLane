@@ -32,6 +32,7 @@ import { POST as start } from "@/app/api/auth/phone/start/route";
 import { POST as verify } from "@/app/api/auth/phone/verify/route";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { PHONE_AUTH_ERROR } from "@/lib/auth/phone-auth.server";
+import { PHONE_AUTH_COPY, PhoneAuthError } from "@/lib/auth/phone-auth-errors";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 function request(body: unknown, origin = "https://proplane.test") {
@@ -107,9 +108,18 @@ describe("phone auth routes", () => {
     ]);
   });
 
-  it.each([0, 1])("refuses with the generic message when rate bucket %s is exhausted", async (bucket) => {
+  it.each([0, 1])("sign-in names the device/endpoint throttle (never a per-number fact) when rate bucket %s is exhausted", async (bucket) => {
     mocks.rate.mockImplementation(async () => ({ ok: mocks.rate.mock.calls.length - 1 !== bucket }));
     const response = await start(request({ phone: "+12065550100", purpose: "sign_in" }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: PHONE_AUTH_COPY.throttled, kind: "throttled" });
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.cookieSet).not.toHaveBeenCalled();
+  });
+
+  it.each([0, 1])("every other purpose keeps the generic message when rate bucket %s is exhausted", async (bucket) => {
+    mocks.rate.mockImplementation(async () => ({ ok: mocks.rate.mock.calls.length - 1 !== bucket }));
+    const response = await start(request({ phone: "+12065550100", purpose: "verify_phone" }));
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: PHONE_AUTH_ERROR });
     expect(mocks.start).not.toHaveBeenCalled();
@@ -128,6 +138,18 @@ describe("phone auth routes", () => {
     expect(await response.json()).toEqual({ error: PHONE_AUTH_ERROR });
     expect(mocks.start).not.toHaveBeenCalled();
     expect(mocks.verify).not.toHaveBeenCalled();
+  });
+
+  it("accepts the browser's own origin when the dev server reports req.url as 0.0.0.0, and still refuses another site", async () => {
+    const dev = (origin: string) => new Request("http://0.0.0.0:3010/api/auth/phone/start", {
+      method: "POST", headers: { "content-type": "application/json", origin, host: "localhost:3010" },
+      body: JSON.stringify({ phone: "+12065550100", purpose: "sign_in" }),
+    });
+    expect((await start(dev("http://localhost:3010"))).status).toBe(200);
+    mocks.start.mockClear();
+    expect((await start(dev("http://attacker.test"))).status).toBe(400);
+    expect((await start(dev("not a url"))).status).toBe(400);
+    expect(mocks.start).not.toHaveBeenCalled();
   });
 
   it("rejects an unsupported purpose before setting a cookie", async () => {
@@ -179,6 +201,49 @@ describe("phone auth routes", () => {
     const response = await verify(request({ challengeId: ID, code: "000007" }));
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: PHONE_AUTH_ERROR });
+  });
+});
+
+describe("phone sign-in failures name only what is safe to name", () => {
+  it("the switch being off is its own 409 so the form can hide itself", async () => {
+    mocks.start.mockRejectedValue(new PhoneAuthError("off", PHONE_AUTH_ERROR));
+    const response = await start(request({ phone: "+12065550100", purpose: "sign_in" }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: PHONE_AUTH_COPY.off, kind: "off", phoneOff: true });
+    expect(mocks.cookieSet).not.toHaveBeenCalled();
+  });
+
+  it.each(["bad_number", "not_us"] as const)("%s is named for the typed number alone", async (kind) => {
+    mocks.start.mockRejectedValue(new PhoneAuthError(kind, PHONE_AUTH_ERROR));
+    const response = await start(request({ phone: "+12065550100", purpose: "sign_in" }));
+    expect(await response.json()).toEqual({ error: PHONE_AUTH_COPY[kind], kind });
+  });
+
+  it("a failed send is named; an unknown failure (owners, cap, lockout, read error) stays generic", async () => {
+    mocks.start.mockRejectedValueOnce(Object.assign(new Error("x"), { sendFailed: true }));
+    expect((await (await start(request({ phone: "+12065550100", purpose: "sign_in" }))).json()).kind).toBe("send_failed");
+    mocks.start.mockRejectedValueOnce(new Error("two owners"));
+    expect(await (await start(request({ phone: "+12065550100", purpose: "sign_in" }))).json()).toEqual({ error: PHONE_AUTH_COPY.generic, kind: "generic" });
+  });
+
+  it("other purposes never get a kind, even when the server threw a typed error", async () => {
+    mocks.start.mockRejectedValue(new PhoneAuthError("off", PHONE_AUTH_ERROR));
+    const response = await start(request({ phone: "+12065550100", purpose: "verify_phone" }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: PHONE_AUTH_ERROR });
+  });
+
+  it("a sign-in verify with no proof cookie reads as expired; a wrong code as wrong_code", async () => {
+    expect(await (await verify(request({ challengeId: ID, code: "000007", purpose: "sign_in" }))).json()).toEqual({ error: PHONE_AUTH_COPY.expired, kind: "expired" });
+    mocks.values.set("proplane_phone_browser", "browser");
+    mocks.verify.mockRejectedValue(new PhoneAuthError("wrong_code", PHONE_AUTH_ERROR));
+    expect(await (await verify(request({ challengeId: ID, code: "000007", purpose: "sign_in" }))).json()).toEqual({ error: PHONE_AUTH_COPY.wrong_code, kind: "wrong_code" });
+  });
+
+  it("an unreadable sign-in verify failure is the vague sentence", async () => {
+    mocks.values.set("proplane_phone_browser", "browser");
+    mocks.verify.mockRejectedValue(new Error("two owners / admin / lockout"));
+    expect(await (await verify(request({ challengeId: ID, code: "000007", purpose: "sign_in" }))).json()).toEqual({ error: PHONE_AUTH_COPY.generic, kind: "generic" });
   });
 });
 

@@ -3,7 +3,8 @@ import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createRealIdentitySupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { newPhoneBrowserSecret, PHONE_AUTH_ERROR, PHONE_BROWSER_COOKIE, startPhoneChallenge, type PhonePurpose } from "@/lib/auth/phone-auth.server";
-import { allowPhoneStartGlobalBudget, assertPhoneRequestOrigin, phoneAuthFailure, phoneAuthResponse, phoneProofCookieOptions } from "@/lib/auth/phone-auth-request.server";
+import { allowPhoneStartGlobalBudget, assertPhoneRequestOrigin, phoneAuthFailure, phoneAuthResponse, phoneProofCookieOptions, phoneSignInFailure } from "@/lib/auth/phone-auth-request.server";
+import { phoneAuthKindOf, type PhoneAuthErrorKind } from "@/lib/auth/phone-auth-errors";
 import { PhoneOwnFlowError } from "@/lib/auth/phone-own-errors";
 import { PHONE_SEND_FAILED_COOKIE, phoneSendFailedCookieOptions, phoneSendFailedValue, PhoneSendFailedError } from "@/lib/auth/phone-required.server";
 
@@ -16,14 +17,18 @@ const START_PER_USER_PER_HOUR = 5;
 const PURPOSES: PhonePurpose[] = ["sign_in", "verify_phone", "verify_own_phone", "change_number_old", "change_number_new"];
 
 export async function POST(req: Request) {
+  // Only the signed-out sign-in door names a failure (`phone-auth-errors.ts`); every other purpose keeps the one generic message.
+  let signIn = false;
+  const fail = (kind: PhoneAuthErrorKind) => (signIn ? phoneSignInFailure(kind) : phoneAuthFailure());
   try {
     assertPhoneRequestOrigin(req);
     const body = await req.json();
     if (!PURPOSES.includes(body?.purpose)) return phoneAuthFailure();
-    // Same generic refusal as every other failure: a throttled caller learns nothing about a number.
+    signIn = body.purpose === "sign_in";
+    // Counted per device / per endpoint, never per number, so naming it tells a caller nothing about any number.
     const byIp = await rateLimit(`phone-auth-start-ip:${clientIpFrom(req)}`, START_PER_IP_PER_HOUR, HOUR_MS);
-    if (!byIp.ok) return phoneAuthFailure();
-    if (!(await allowPhoneStartGlobalBudget())) return phoneAuthFailure();
+    if (!byIp.ok) return fail("throttled");
+    if (!(await allowPhoneStartGlobalBudget())) return fail("throttled");
     const jar = await cookies();
     const browser = jar.get(PHONE_BROWSER_COOKIE)?.value || newPhoneBrowserSecret();
     const client = await createRealIdentitySupabaseServerClient();
@@ -50,5 +55,5 @@ export async function POST(req: Request) {
       }
       throw error;
     }
-  } catch { return phoneAuthFailure(); }
+  } catch (error) { return signIn ? phoneSignInFailure(phoneAuthKindOf(error)) : phoneAuthFailure(); }
 }

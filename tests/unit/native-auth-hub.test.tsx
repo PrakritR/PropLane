@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { authState, getSession, waitForOAuthUser } = vi.hoisted(() => ({
@@ -80,12 +80,14 @@ describe("NativeAuthHub native session recovery", () => {
     });
   });
 
-  it("places phone sign-in before social sign-in and retains the named email form when enabled", async () => {
+  it("places phone sign-in before social sign-in and retains the named email form behind Use email instead", async () => {
     renderHub(true);
-    const phone = await screen.findByRole("button", { name: "Continue with phone" });
+    const phone = await screen.findByRole("button", { name: "Text me a code" });
     const google = screen.getByRole("button", { name: "Continue with Google" });
     expect(phone.compareDocumentPosition(google) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continue with Apple" })).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Email")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Use email instead" }));
     expect(screen.getByPlaceholderText("Email")).toHaveAttribute("name", "email");
     expect(screen.getByPlaceholderText("Password")).toHaveAttribute("name", "password");
   });
@@ -93,7 +95,7 @@ describe("NativeAuthHub native session recovery", () => {
   it("preserves the legacy sign-in surface when phone-first is disabled", async () => {
     renderHub();
     await screen.findByPlaceholderText("Email");
-    expect(screen.queryByRole("button", { name: "Continue with phone" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Text me a code" })).not.toBeInTheDocument();
   });
 
   it("recovers a marked OAuth return immediately when mounted visible", async () => {

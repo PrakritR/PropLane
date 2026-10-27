@@ -1,5 +1,6 @@
 import "server-only";
 
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { phoneAuthHookEnabled } from "@/lib/auth/phone-hook-flag";
 import { SHARED_LINE_OTP_RULES } from "@/lib/one-number/contracts";
 import { loadSharedLineConfig } from "@/lib/one-number/config.server";
@@ -26,6 +27,27 @@ export async function claimPhoneAuthHookDelivery(phone: string): Promise<boolean
 }
 
 /**
+ * The domain-bound last line of a code text, `@proplane.ai #482913`: the standard format iPhone (keyboard suggestion for
+ * that site only) and Android Chrome (Web OTP) look for. The host is the CANONICAL origin, never the request's Host
+ * header, so a forged header cannot bind a code to another site.
+ */
+export function phoneAuthCodeDomainLine(code: string, origin: string = resolveEmailLinkBaseUrl()): string {
+  let host = "";
+  try {
+    host = new URL(origin).host;
+  } catch {
+    host = "";
+  }
+  return host ? `@${host} #${code}` : "";
+}
+
+export function phoneAuthCodeBody(code: string): string {
+  const base = `Your PropLane code is ${code}. It expires in ${SHARED_LINE_OTP_RULES.ttlMinutes} minutes. Do not share this code.`;
+  const domainLine = phoneAuthCodeDomainLine(code);
+  return domainLine ? `${base}\n\n${domainLine}` : base;
+}
+
+/**
  * Auth codes are platform traffic, never billed to or sent from a workspace.
  * Both the signed Supabase hook and the local challenge flow use this path.
  * No payload or provider error is logged: either may contain the code/phone.
@@ -43,7 +65,7 @@ export async function sendPhoneAuthCode(phone: string, code: string, actorUserId
 
     const result = await sendSms(
       to,
-      `Your PropLane code is ${code}. It expires in ${SHARED_LINE_OTP_RULES.ttlMinutes} minutes. Do not share this code.`,
+      phoneAuthCodeBody(code),
       from,
       {
         purpose: "phone_verification", skipOptOutCheck: true,
