@@ -38,9 +38,10 @@ function profilePhoneDbLookupValues(phone: string): string[] {
 /**
  * Common stored formats for one US number so consent reads can match
  * `profiles.phone` regardless of how the inbound webhook or profile row
- * formats the digits. The column is E.164 text (it was numeric on production
- * until 20261027010000, which is why the bare-digit forms are still emitted:
- * rows written through that column kept the digits without the `+`).
+ * formats the digits. The column is E.164 text (`20261027010000` converted the
+ * numeric column production had drifted to, `20261027020000` re-normalized the
+ * digits-only rows it left behind), but a self-edited Settings phone is still
+ * stored as typed, so the bare-digit forms are emitted too.
  */
 export function profilePhoneVariants(phone: string): string[] {
   return profilePhoneDbLookupValues(phone);

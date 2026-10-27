@@ -7,8 +7,10 @@
  *   - a setting that is the same for everyone (`off`),
  *   - something that happens identically for any number (`send_failed`, and the per-device/endpoint `throttled`),
  *   - or this browser's own challenge (`wrong_code`, `expired`).
- * Two owners, an admin account, the per-number lockout and the per-number send cap, and every unreadable / mint / bind
- * failure stay `generic`. `tests/unit/phone-auth-error-kinds.test.ts` fails if any of those returns a named kind.
+ * Two owners, the per-number lockout and the per-number send cap, and every unreadable / mint / bind failure stay
+ * `generic` (an admin account is NOT one of them: it signs in by code like any other account -
+ * `docs/agents/one-number.md` DOCUMENTED EXCEPTION).
+ * `tests/unit/phone-auth-routes.test.ts` fails if any of those returns a named kind.
  */
 export const PHONE_AUTH_ERROR_KINDS = [
   "off", "bad_number", "not_us", "send_failed", "throttled", "wrong_code", "expired", "generic",
