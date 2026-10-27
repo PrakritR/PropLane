@@ -241,3 +241,67 @@ describe("a channel's own closure refuses, PropLane's echoed export does not", (
     expect(await write(db, stay({ row_data: { checkIn: "2026-10-30", checkOut: "2026-11-02" } }), stored)).toEqual({ handled: false });
   });
 });
+
+/**
+ * EVIDENCE (EVIDENCE_DIR only): the same route, driven as a manager uses it, recorded as a transcript —
+ * what is saved, what is refused, and exactly what the person reads when it is refused.
+ */
+describe("evidence: saving a stay over a channel reservation", () => {
+  const lines: string[] = [];
+  const show = (what: string, result: Record<string, unknown>) => {
+    const answer =
+      result.handled === true
+        ? `REFUSED ${result.status} — ${String(result.error ?? "(no detail)")}`
+        : "SAVED (no clash)";
+    lines.push(`${what}\n    -> ${answer}`);
+  };
+
+  it("writes the transcript", async () => {
+    mocks.canWrite = true;
+    lines.push(
+      "House 4709A, Room 8 carries an Airbnb reservation: Elias Mejia, HMELIAS001, Oct 29 - Nov 1 (last night Oct 31).",
+      "Every line below is POST /api/portal-schedule-records going through the route's own atomic write.",
+      "",
+    );
+
+    show('owner saves "Alex Guest" into Room 8, Oct 29 - Nov 4', await write(seed(), stay()));
+    show('owner saves the same stay into Room 7 instead', await write(seed(), stay({ row_data: { roomId: "r7" } })));
+    show('owner moves it to Nov 1 - Nov 4 (the day the guest checks out)', await write(seed(), stay({ row_data: { checkIn: "2026-11-01", checkOut: "2026-11-04" } })));
+    show('owner saves it with no guest name on the reservation (code only)', await write(seed({ channel_stay_details: [] }), stay()));
+
+    const linked = stay({ row_data: { stayDetails: { source: "Airbnb", channelLink: { provider: "airbnb", reservationCode: "HMELIAS001" } } } });
+    show('owner links the stay to HMELIAS001 — "this stay IS that reservation"', await write(seed(), linked));
+    lines.push(`    stored link: ${JSON.stringify(detailsOf(linked)?.channelLink)}`);
+
+    const other = { id: "u-next", sourceUid: "u-next", summary: "Reserved", start: "2026-11-02", end: "2026-11-04", reservationCode: "HMNEXT0001" };
+    const grown = stay({ row_data: { checkOut: "2026-11-05", stayDetails: { channelLink: { provider: "airbnb", reservationCode: "HMELIAS001" } } } });
+    show(
+      'owner stretches that linked stay to Nov 5, over a DIFFERENT reservation (HMNEXT0001)',
+      await write(seed({ external_calendar_connections: [connection({ id: "c8", room_id: "r8", imported_ranges: [ELIAS, other] })] }), grown),
+    );
+
+    const bookingCom = seed({
+      external_calendar_connections: [
+        connection({ id: "cb", room_id: "r8", provider: "booking_com", imported_ranges: [{ id: "bk1", sourceUid: "bk1", summary: "CLOSED - Not available", start: "2026-10-30", end: "2026-10-31" }] }),
+      ],
+      channel_stay_details: [],
+    });
+    show("owner saves over nights Booking.com holds instead", await write(bookingCom, stay()));
+
+    mocks.canWrite = false;
+    const asCoManager = (record: Record<string, unknown>) =>
+      (mocks.config!.atomicWrite as AtomicWrite)({ db: seed(), user: { id: "co-1", role: "manager" }, record, existing: null });
+    const refused = await asCoManager(stay());
+    show("a co-manager with NO Calendar grant on this house tries the same save", refused);
+    lines.push(`    the refusal discloses no guest, code or dates: ${JSON.stringify(refused)}`);
+    expect(JSON.stringify(refused)).not.toMatch(/Elias|HMELIAS001|Oct 29|Airbnb/);
+
+    const out = process.env.EVIDENCE_DIR ?? "";
+    if (out) {
+      const { mkdirSync, writeFileSync } = await import("node:fs");
+      mkdirSync(out, { recursive: true });
+      const title = "Server refuses a stay that lands on nights a channel holds (and gates it on Calendar write)";
+      writeFileSync(`${out}/51-channel-overlap-refusal.txt`, `${title}\n${"=".repeat(title.length)}\n\n${lines.join("\n")}\n`, "utf8");
+    }
+  });
+});

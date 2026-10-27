@@ -93,8 +93,14 @@ describe("no tag is ever a guess", () => {
     const tagAt = bot.indexOf('source: "leasing"');
     expect(tagAt).toBeGreaterThan(-1);
     const guard = bot.slice(bot.lastIndexOf("if (", tagAt), tagAt);
-    expect(guard).toContain("hinted?.propertyId");
+    // The tag is whatever `taggedPropertyId` resolved to...
+    expect(guard).toContain("propertyId: taggedPropertyId");
     expect(guard).not.toContain("defaultPropertyId");
+    // ...and that is an explicit hint, or the home this phone is locked to on the shared line — never
+    // the default-property fallback, which is wording only.
+    const derived = bot.slice(bot.lastIndexOf("const taggedPropertyId", tagAt), tagAt).split("\n")[0]!;
+    expect(derived).toContain("hinted?.propertyId");
+    expect(derived).not.toContain("defaultPropertyId");
   });
 
   it("the manual route re-derives ownership of every house id from the body", () => {

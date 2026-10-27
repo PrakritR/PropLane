@@ -7,7 +7,13 @@ const lead = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => ({ leadId: "lead
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: vi.fn(async () => ({ ok: true })), clientIpFrom: () => "1.1.1.1" }));
 vi.mock("@/lib/test-workspaces/index.server", () => ({ resolveTestWorkspaceClassification: vi.fn(), lookupRecordTestWorkspaceId: vi.fn(async () => null) }));
-vi.mock("@/lib/one-number/unassigned-leads.server", () => ({ handleUnassignedLeadInbound: lead }));
+// Only the lead hand-off is stubbed: the turn now also asks this module whether the text names a home and
+// whether a lead is already open, and those read the fake db, so they stay real (a factory mock that omits
+// them makes the module throw).
+vi.mock("@/lib/one-number/unassigned-leads.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/one-number/unassigned-leads.server")>()),
+  handleUnassignedLeadInbound: lead,
+}));
 vi.mock("@/lib/service/service-catalog.server", () => ({
   readPlatformServiceOwnerId: vi.fn(async () => "svc-owner"),
   isPropLaneServiceLine: vi.fn(async () => false),

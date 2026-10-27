@@ -2,6 +2,7 @@
 // "Are you asking about X?" switch question, the paid manager's number on interest. Every text is routed through
 // `routeSharedLineInboundWithReply` and, after each one, the test asserts WHICH workspaces' Communication got new message
 // rows - the plan's "Where this text appears" table - and that the other inboxes' counts did not move.
+import { mkdirSync, writeFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SharedLineConfig, SharedLineInbound } from "@/lib/one-number/contracts";
 import { LEAD_CONSTRAINTS, leadFakeDb, type LeadFakeDb } from "../helpers/lead-fake-db";
@@ -95,6 +96,25 @@ function seed(): LeadFakeDb {
 let fake: LeadFakeDb;
 let sid = 0;
 
+/**
+ * The conversation as the prospect and the managers live it, recorded for a reviewer (EVIDENCE_DIR only):
+ * each text to the 206, what the line texted back, and whose Communication the turn landed in.
+ */
+const transcript: string[] = [];
+const WORKSPACE_NAMES: Record<string, string> = {
+  [WS_SVC]: "PropLane homes (PropLane-managed)",
+  [WS_LENA]: "Lena Rentals (free plan)",
+  [WS_MARCUS]: "Marcus Homes (paid number)",
+  [WS_OTHER]: "Other Co",
+};
+
+function writeTranscript(name: string, title: string) {
+  const out = process.env.EVIDENCE_DIR ?? "";
+  if (!out) return;
+  mkdirSync(out, { recursive: true });
+  writeFileSync(`${out}/${name}.txt`, `${title}\n${"=".repeat(title.length)}\n\n${transcript.join("\n")}\n`, "utf8");
+}
+
 const counts = () => {
   const out: Record<string, number> = {};
   for (const m of mocks.messages) out[m.workspaceId] = (out[m.workspaceId] ?? 0) + 1;
@@ -119,6 +139,19 @@ async function text(body: string, phone = PHONE, key = PHONE_KEY): Promise<Step>
   const fresh = mocks.messages.slice(before);
   const rows: Record<string, string[]> = {};
   for (const m of fresh) (rows[m.workspaceId] ??= []).push(m.body);
+
+  transcript.push(`prospect ${phone} -> 206: ${body}`);
+  for (const line of (result.unassignedReply ?? "").split("\n").filter(Boolean)) transcript.push(`206 -> prospect:  ${line}`);
+  const landed = Object.keys(rows);
+  transcript.push(
+    landed.length === 0
+      ? "   lands in: nobody's Communication (Admin > Unassigned only)"
+      : landed.map((id) => `   lands in: ${WORKSPACE_NAMES[id] ?? id} -> ${rows[id]!.map((r) => JSON.stringify(r)).join(", ")}`).join("\n"),
+  );
+  const locked = fake.rows.sms_line_sessions?.find((row) => row.phone_key === key)?.locked_property_id;
+  transcript.push(`   phone is locked to: ${locked ?? "nothing yet"}`);
+  transcript.push("");
+
   return { result, reply: result.unassignedReply, rows, workspaces: Object.keys(rows) };
 }
 
@@ -127,6 +160,7 @@ const leadTurns = (leadId: string) => (fake.rows.sms_unassigned_lead_turns ?? []
 const session = () => fake.rows.sms_line_sessions!.find((s) => s.phone_key === PHONE_KEY)!;
 
 beforeEach(() => {
+  transcript.length = 0;
   mocks.messages.length = 0;
   mocks.alerts.length = 0;
   sid = 0;
@@ -262,6 +296,10 @@ describe("A5 · the Seattle conversation, step by step", () => {
 
     // Totals: Lena 3 (Looking-for, pick, parking), Marcus 2, PropLane 3 (Looking-for, details, sat 11). No one else, ever.
     expect(counts()).toEqual({ [WS_LENA]: 3, [WS_MARCUS]: 2, [WS_SVC]: 3 });
+    writeTranscript(
+      "50-line-206-conversation",
+      "PropLane line (206) - one stranger's whole conversation: browsing, the tiered offers, the home lock, the switch question, and the paid manager's number",
+    );
     // The switch lead's two questions and both answers lived in Unassigned only.
     expect(mocks.messages.some((m) => m.body === "yes")).toBe(false);
   });
