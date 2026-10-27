@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { MANAGER_SEND_DEDUPE_PREFIX } from "@/lib/sms/manager-send-dedupe";
 import { createHash } from "node:crypto";
 import { fetchManagerSmsConversations, resolveSmsScopeManagerIds } from "@/lib/manager-sms-messages.server";
 import { enqueueOwnerSms, dispatchOwnerSmsOutbox } from "@/lib/sms/owner-sms-dispatcher.server";
@@ -201,8 +202,8 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
   }
   const requestedDedupe = args.idempotencyKey?.trim() ?? "";
   const dedupeKey = /^[A-Za-z0-9_-]{16,128}$/.test(requestedDedupe)
-    ? `manager:${requestedDedupe}`
-    : `manager:${createHash("sha256")
+    ? `${MANAGER_SEND_DEDUPE_PREFIX}${requestedDedupe}`
+    : `${MANAGER_SEND_DEDUPE_PREFIX}${createHash("sha256")
         .update(
           [
             args.actorUserId,
@@ -380,7 +381,7 @@ async function hasAcceptedManagerVendorText(
     .eq("manager_user_id", ownerManagerUserId)
     .eq("recipient_phone", phone)
     .eq("purpose", VENDOR_CONVERSATION_PURPOSE)
-    .like("dedupe_key", "manager:%")
+    .like("dedupe_key", `${MANAGER_SEND_DEDUPE_PREFIX}%`)
     .in("status", ["queued", "claimed", "deferred", "submitting", "submitted", "sent", "delivered", "unknown"])
     .limit(1);
   // An unreadable history is treated as "not sent yet": a repeated STOP footer is harmless, a missing one is not.
@@ -647,8 +648,8 @@ async function sendRosterVendorText(
 
   const requestedDedupe = args.idempotencyKey?.trim() ?? "";
   const dedupeKey = /^[A-Za-z0-9_-]{16,128}$/.test(requestedDedupe)
-    ? `manager:${requestedDedupe}`
-    : `manager:${createHash("sha256")
+    ? `${MANAGER_SEND_DEDUPE_PREFIX}${requestedDedupe}`
+    : `${MANAGER_SEND_DEDUPE_PREFIX}${createHash("sha256")
         .update([args.actorUserId, ownerManagerUserId, rosterPhone, conversationKey, input.text, Math.floor(Date.now() / 30_000)].join("|"))
         .digest("hex")}`;
   const result = await enqueueOwnerSms({

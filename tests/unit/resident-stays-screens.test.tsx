@@ -9,7 +9,7 @@
  * `resident-stays-ui.test.tsx` and `channel-calendar-ical-modal.test.tsx`.
  */
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { existsSync, writeFileSync } from "node:fs";
 import type { GuestStay } from "@/lib/short-stay/guest-stays";
 

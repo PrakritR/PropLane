@@ -10,6 +10,7 @@ import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/co
 import { loadManagedWorkspaceIds, resolveServiceLine } from "@/lib/one-number/service-line.server";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import {
+  decideOutboundSender,
   decideResidentSmsLink,
   initialsOf,
   isResidentAssistantRow,
@@ -388,30 +389,81 @@ export async function readProjectionCandidates(db: Db, identity: ResidentPhoneId
   return [...byId.values()];
 }
 
-export async function readTurns(db: Db, conversationId: string, workspaceId?: string): Promise<ResidentSmsTurn[]> {
+export async function readTurns(
+  db: Db,
+  conversationId: string,
+  workspaceId?: string,
+  /** The PropLane lines (shared number, service line), read only when a text has no outbox row to say who sent it. */
+  propLaneNumbers?: () => Promise<readonly string[]>,
+): Promise<ResidentSmsTurn[]> {
   let query = db
     .from("sms_projection_turns")
-    .select("id, direction, body, occurred_at, from_phone, to_phone")
+    .select("id, direction, body, occurred_at, from_phone, to_phone, source_event_id, source_ref")
     .eq("conversation_id", conversationId);
   if (workspaceId) query = query.eq("workspace_id", workspaceId);
   const { data } = await query
     .order("occurred_at", { ascending: false })
     .limit(TURNS_PER_CONVERSATION);
-  return ((data ?? []) as Row[]).flatMap((row) => {
+  const rows = (data ?? []) as Row[];
+  const dedupeBySid = await readOutboxDedupeKeys(
+    db,
+    rows.filter((row) => clean(row.direction) === "outbound").map((row) => clean(row.source_event_id)),
+  );
+  const needsLine = rows.some((row) => {
+    if (clean(row.direction) !== "outbound" || dedupeBySid.has(clean(row.source_event_id))) return false;
+    const source = row.source_ref && typeof row.source_ref === "object" ? (row.source_ref as Row).source : null;
+    return source !== "automated" && source !== "relay";
+  });
+  const lines = needsLine && propLaneNumbers ? await propLaneNumbers().catch(() => [] as string[]) : [];
+  return rows.flatMap((row) => {
     const direction = clean(row.direction);
     const at = clean(row.occurred_at);
     if ((direction !== "inbound" && direction !== "outbound") || !Number.isFinite(Date.parse(at))) return [];
+    const fromPhone = clean(row.from_phone) || null;
+    const sourceRef = row.source_ref && typeof row.source_ref === "object" ? (row.source_ref as Row) : {};
     return [
       {
         id: clean(row.id),
         direction,
         body: typeof row.body === "string" ? row.body : "",
         at,
-        fromPhone: clean(row.from_phone) || null,
+        fromPhone,
         toPhone: clean(row.to_phone) || null,
+        ...(direction === "outbound"
+          ? {
+              sender: decideOutboundSender({
+                source: sourceRef.source,
+                outboxDedupeKey: dedupeBySid.get(clean(row.source_event_id)) ?? null,
+                fromPhone,
+                propLaneNumbers: lines,
+              }),
+            }
+          : {}),
       } satisfies ResidentSmsTurn,
     ];
   });
+}
+
+/**
+ * `sms_outbox.dedupe_key` for each provider SID (only the key is read, never the body or recipient), so an
+ * outbound turn can tell a text a person typed from one the assistant or an automation sent. A failed read is
+ * an empty map: the sender is then decided from the line the text left on (`decideOutboundSender`).
+ */
+async function readOutboxDedupeKeys(db: Db, sids: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const unique = [...new Set(sids.filter(Boolean))];
+  if (unique.length === 0) return out;
+  try {
+    const { data } = await db.from("sms_outbox").select("provider_message_sid, dedupe_key").in("provider_message_sid", unique);
+    for (const row of (data ?? []) as Row[]) {
+      const sid = clean(row.provider_message_sid);
+      const key = typeof row.dedupe_key === "string" ? row.dedupe_key : "";
+      if (sid && key) out.set(sid, key);
+    }
+  } catch {
+    // Decided from the line instead.
+  }
+  return out;
 }
 
 /**
@@ -492,6 +544,13 @@ export async function loadLinkedSmsConversations(
         }
       }
     }
+    // The numbers PropLane itself texts on, read once and only if some text needs them to be placed.
+    let lineNumbers: Promise<readonly string[]> | null = null;
+    const propLaneNumbers = () =>
+      (lineNumbers ??= (async () => {
+        const service = await resolveServiceLine(db).catch(() => null);
+        return [config.sharedNumber, service && service.ok ? service.phoneNumber : null].filter((n): n is string => Boolean(n));
+      })());
     const byWorkspace = new Map<string, { rows: ProjectionRow[]; linkedBy: Set<"account" | "verified_phone"> }>();
     for (const entry of mine) {
       const workspaceId = entry.row.workLineId ? lineWorkspace.get(entry.row.workLineId) : sharedWorkspaceByConversation.get(entry.row.id);
@@ -508,7 +567,7 @@ export async function loadLinkedSmsConversations(
     for (const [workspaceId, bucket] of byWorkspace) {
       const counterparty = counterparties.get(workspaceId);
       if (!counterparty) continue;
-      const turnSets = await Promise.all(bucket.rows.map((row) => readTurns(db, row.id, sharedWorkspaceByConversation.get(row.id))));
+      const turnSets = await Promise.all(bucket.rows.map((row) => readTurns(db, row.id, sharedWorkspaceByConversation.get(row.id), propLaneNumbers)));
       const seen = new Set<string>();
       const turns = turnSets
         .flat()

@@ -983,6 +983,14 @@ are `resident-conversation.ts` (`tests/unit/resident-conversation.test.ts`):
   on a resident row: ids `sms-proj:<turn>` are in `shared-thread-merge`'s derived
   set so a save never persists them, and a text-only conversation is a read-only
   row `resident_sms_<workspace>` (`smsOnly`, reserved id, no email).
+- **Who sent an outbound text** (captain, Oct 27: the assistant's replies said the owner's name). Each outbound turn
+  carries `sender: "assistant" | "manager"` from `decideOutboundSender`, and the bubble says **PropLane** for the
+  assistant / an automation and the manager's name only for a text a person typed. The projection turn does not say,
+  so the evidence is: `source_ref.source` (`automated` -> assistant; `relay` -> manager), the `sms_outbox` row carrying
+  the turn's SID (`dedupe_key` starting `manager:`, written only by `sendManagerSms`, `MANAGER_SEND_DEDUPE_PREFIX`,
+  -> manager; any other key -> assistant), and with no outbox row, the line it left on (the shared PropLane number or
+  the service line -> assistant; a manager's own number -> manager). Only the key is read from the outbox. Tests:
+  `tests/unit/resident-sms-sender-labels.test.ts`.
 - Every workspace-keyed resident row carries a server-stamped `counterparty`
   (`name`, `workspaceName`, `workPhone`, `initials`; no avatar column exists
   today). A body's `counterparty` / `smsOnly` is discarded.
