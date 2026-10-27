@@ -519,6 +519,24 @@ const route = createJsonRecordRoute({
         }
       }
     }
+    if (
+      (String(record.record_type ?? "") === ROOM_DATE_BLOCK_RECORD_TYPE || String(record.record_type ?? "") === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE) &&
+      !scheduleUserHasRole(user, "admin")
+    ) {
+      // The house a booking lands on comes from the BODY (`buildUpsert`), so a create, or an update that moves the
+      // booking to another house, must prove Calendar write on THAT house before anything reads it: the overlap and
+      // channel checks below answer with the house's guest names, reservation codes and dates. The owner, or a
+      // Calendar grant on the new house; anything unresolvable (no owner, no grant) is refused, never waved through.
+      const landingPropertyId = String(record.property_id ?? "").trim();
+      const storedPropertyId = existing ? String(existing.property_id ?? "").trim() : "";
+      if (landingPropertyId && (!existing || landingPropertyId !== storedPropertyId)) {
+        const houseOwner = await resolvePropertyOwnerUserId(db, landingPropertyId);
+        const allowed = (Boolean(houseOwner) && houseOwner === user.id) || (await mayWriteBlocksOn(db, user, landingPropertyId));
+        if (!allowed) {
+          return { handled: true, error: "You need Calendar edit access on this property to block its rooms.", status: 403 };
+        }
+      }
+    }
     if (String(record.record_type ?? "") === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE) {
       // Eligibility comes from the persisted stay, never the replacement body's dates.
       const priorType = String(existing?.record_type ?? "");

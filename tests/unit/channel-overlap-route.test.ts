@@ -4,7 +4,7 @@ import { createFakeDb, type Row } from "../helpers/fake-table-db";
 
 // The schedule-records route refuses a stay that lands on nights a channel holds (docs/agents/bookings.md
 // § One booking system). These drive the route's own atomicWrite against seeded rows.
-const mocks = vi.hoisted(() => ({ config: null as null | Record<string, unknown> }));
+const mocks = vi.hoisted(() => ({ config: null as null | Record<string, unknown>, canWrite: true }));
 vi.mock("@/lib/portal-record-api", () => ({
   createJsonRecordRoute: (config: Record<string, unknown>) => {
     mocks.config = config;
@@ -12,7 +12,7 @@ vi.mock("@/lib/portal-record-api", () => ({
   },
 }));
 vi.mock("@/lib/property-owner.server", () => ({ resolvePropertyOwnerUserId: async () => "owner-1" }));
-vi.mock("@/lib/auth/manager-lease-scope", () => ({ managerCanWriteCalendarForProperty: async () => true }));
+vi.mock("@/lib/auth/manager-lease-scope", () => ({ managerCanWriteCalendarForProperty: async () => mocks.canWrite }));
 await import("@/app/api/portal-schedule-records/route");
 
 type AtomicWrite = (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -58,7 +58,10 @@ const write = (db: ReturnType<typeof seed>, record: Record<string, unknown>, exi
 const detailsOf = (record: Record<string, unknown>) => (record.row_data as { stayDetails?: { channelLink?: unknown } }).stayDetails;
 
 describe("the server refuses a stay that overlaps a channel reservation", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.canWrite = true;
+  });
 
   it("409 names the room, the dates, the channel and the guest", async () => {
     const result = await write(seed(), stay());
@@ -169,6 +172,46 @@ describe("the server refuses a stay that overlaps a channel reservation", () => 
       channel_stay_details: [],
     });
     expect(await write(db, stay())).toMatchObject({ status: 409, error: expect.stringContaining("on Booking.com") });
+  });
+});
+
+describe("the house in the body must be one the caller may write", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.canWrite = true;
+  });
+  const asCoManager = (db: ReturnType<typeof seed>, record: Record<string, unknown>, existing: Record<string, unknown> | null = null) =>
+    (mocks.config!.atomicWrite as AtomicWrite)({ db, user: { id: "co-1", role: "manager" }, record, existing });
+
+  it("a co-manager without Calendar on the house gets 403 and no guest name, code or dates", async () => {
+    mocks.canWrite = false;
+    const result = await asCoManager(seed(), stay());
+    expect(result).toMatchObject({ handled: true, status: 403 });
+    const body = JSON.stringify(result);
+    expect(body).not.toMatch(/Elias|HMELIAS001|Oct 29|Airbnb/);
+  });
+
+  it("the same co-manager with Calendar edit on the house still reads the clash", async () => {
+    expect(await asCoManager(seed(), stay())).toMatchObject({ status: 409, error: expect.stringContaining("Elias Mejia") });
+  });
+
+  it("the owner gets the 409 with detail", async () => {
+    mocks.canWrite = false;
+    expect(await write(seed(), stay())).toMatchObject({ status: 409, error: expect.stringContaining("Elias Mejia") });
+  });
+
+  it("an update that re-sends a booking onto another house is refused without a Calendar grant there", async () => {
+    mocks.canWrite = false;
+    const existing = { ...stay({ property_id: "p0", manager_user_id: "co-1" }) };
+    const result = await asCoManager(seed(), stay(), existing);
+    expect(result).toMatchObject({ handled: true, status: 403 });
+    expect(JSON.stringify(result)).not.toMatch(/Elias|HMELIAS001/);
+  });
+
+  it("an update that stays on its own house is not re-gated by the move check", async () => {
+    mocks.canWrite = false;
+    const existing = stay({ manager_user_id: "co-1" });
+    expect(await asCoManager(seed(), stay(), existing)).not.toMatchObject({ status: 403, error: expect.stringContaining("block its rooms") });
   });
 });
 
