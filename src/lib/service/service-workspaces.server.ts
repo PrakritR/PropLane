@@ -618,9 +618,27 @@ export async function listServiceAttachCandidates(
 }
 
 /** What the operator is inside one service workspace, or a failure when it is not one / they hold nothing in it. */
-async function operatorStanding(db: SupabaseClient, operatorUserId: string, workspaceId: string) {
+/**
+ * `opts.overall` is the Admin team's verdict, derived by its routes from the Overall admin role (never from a body): an
+ * Overall admin stands as the owner of every PropLane Service workspace for team changes, member or not. Left out, the
+ * operator must hold a seat in the workspace, exactly as before.
+ */
+export type OperatorOpts = { overall?: boolean };
+
+async function operatorStanding(db: SupabaseClient, operatorUserId: string, workspaceId: string, opts: OperatorOpts = {}) {
   const workspace = await loadServiceWorkspace(db, workspaceId);
   if (!workspace) return fail(404, NOT_FOUND);
+  if (opts.overall === true) {
+    const standing = {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      ownerUserId: workspace.ownerUserId,
+      role: "owner" as const,
+      rights: { members: true, houses: true },
+      linkId: null,
+    };
+    return { ok: true as const, workspace, standing };
+  }
   const standing = await actorWorkspaceStanding(db, operatorUserId, workspace.id);
   if (!standing || standing.role === null) return fail(403, "Ask a teammate of this workspace to add you to its team first.");
   return { ok: true as const, workspace, standing };
@@ -891,7 +909,7 @@ async function resolveServiceSeatGrant(
     if (assignedPropertyIds.length === 0) return fail(400, "Choose at least one house, or all houses.");
   }
   let propertyMap = restampInviteHouses(body, teamRole, assignedPropertyIds, parsed.access.propertyCoManagerPermissions);
-  if (operatorUserId.trim() !== who.workspace.ownerUserId.trim()) {
+  if (operatorUserId.trim() !== who.workspace.ownerUserId.trim() && who.standing.role !== "owner") {
     const capped = await capTeamInvitePermissionsForDelegate(db, operatorUserId, who.workspace.ownerUserId, assignedPropertyIds, propertyMap);
     if (!capped.ok) return fail(capped.status, capped.error);
     propertyMap = capped.permissions;
@@ -1269,10 +1287,11 @@ export async function updateServiceTeamAccess(
   db: SupabaseClient,
   operatorUserId: string,
   input: InviteAccessInput & { id: string; linkId: unknown },
+  opts: OperatorOpts = {},
 ): Promise<ServiceResult<object>> {
   const linkId = typeof input.linkId === "string" ? input.linkId.trim() : "";
   if (!/^[0-9a-f-]{36}$/i.test(linkId)) return fail(400, "Choose a teammate.");
-  const who = await operatorStanding(db, operatorUserId, input.id);
+  const who = await operatorStanding(db, operatorUserId, input.id, opts);
   if (!who.ok) return who;
   if (!who.standing.rights.members) return fail(403, "Only the owner or an admin of this workspace can change access.");
   const link = await db
@@ -1453,13 +1472,14 @@ export async function removeServiceTeamMember(
   db: SupabaseClient,
   operatorUserId: string,
   input: { id: string; linkId?: unknown; inviteLinkId?: unknown },
+  opts: OperatorOpts = {},
 ): Promise<ServiceResult<object>> {
   // A person invited by email who has no account yet has no membership row, only an unspent invite link: withdrawing
   // them turns that link off.
   if (input.inviteLinkId !== undefined) {
     const inviteLinkId = typeof input.inviteLinkId === "string" ? input.inviteLinkId.trim() : "";
     if (!/^[0-9a-f-]{36}$/i.test(inviteLinkId)) return fail(400, "Choose a teammate.");
-    const who = await operatorStanding(db, operatorUserId, input.id);
+    const who = await operatorStanding(db, operatorUserId, input.id, opts);
     if (!who.ok) return who;
     if (!who.standing.rights.members) return fail(403, "Only the owner or an admin of this workspace can change its team.");
     const live = await liveServiceInviteLinks(db, who.workspace);
@@ -1486,7 +1506,7 @@ export async function removeServiceTeamMember(
   }
   const linkId = typeof input.linkId === "string" ? input.linkId.trim() : "";
   if (!/^[0-9a-f-]{36}$/i.test(linkId)) return fail(400, "Choose a teammate.");
-  const who = await operatorStanding(db, operatorUserId, input.id);
+  const who = await operatorStanding(db, operatorUserId, input.id, opts);
   if (!who.ok) return who;
   const link = await db
     .from("account_link_invites")
@@ -1519,4 +1539,80 @@ export async function removeServiceTeamMember(
     .eq("workspace_id", who.workspace.id);
   if (res.error) return fail(503, "Could not remove the teammate. Please retry.");
   return { ok: true };
+}
+
+/**
+ * Seat an EXISTING account on a PropLane Service workspace as an accepted, PropLane-issued team seat, with the role,
+ * houses and module levels the Admin team asked for. Used when an admin-team invite is redeemed (the inviter is the
+ * operator, re-derived at that moment), never from a request body naming the grantee. The same validators as
+ * `inviteServiceClient` decide the grant (role from the allow-list, houses of THIS workspace, no role above the
+ * operator's own); the audit row is written first and the seat refused without it.
+ */
+export async function seatAdminTeamMember(
+  db: SupabaseClient,
+  operatorUserId: string,
+  input: InviteAccessInput & { id: string; userId: string; via: "invite" | "change" },
+  opts: OperatorOpts = {},
+): Promise<ServiceResult<{ linkId: string }>> {
+  const userId = input.userId.trim();
+  if (!userId) return fail(400, "Choose a teammate.");
+  const who = await operatorStanding(db, operatorUserId, input.id, opts);
+  if (!who.ok) return who;
+  if (!who.standing.rights.members) return fail(403, "Only the owner or an admin of this workspace can invite people.");
+  if (userId === who.workspace.ownerUserId) return fail(409, "That account already owns this workspace.");
+  const resolved = await resolveServiceSeatGrant(db, who, operatorUserId, input);
+  if (!resolved.ok) return resolved;
+  const { grant } = resolved;
+  const existing = await db
+    .from("account_link_invites")
+    .select("id, status, team_role, is_owner_of_record")
+    .eq("inviter_user_id", who.workspace.ownerUserId)
+    .eq("invitee_user_id", userId)
+    .eq("workspace_id", who.workspace.id)
+    .in("status", ["accepted", "pending"])
+    .maybeSingle();
+  if (existing.error) return fail(503, "Could not add the teammate. Please retry.");
+  const current = existing.data as { id: string; status: string; is_owner_of_record: boolean | null } | null;
+  if (current?.is_owner_of_record === true) return fail(409, "That account is this workspace's owner of record.");
+  const audited = await auditServiceChange(
+    db,
+    operatorUserId,
+    who.workspace.ownerUserId,
+    "admin_team_seat",
+    {
+      workspaceId: who.workspace.id,
+      inviteeUserId: userId,
+      teamRole: grant.teamRole,
+      houseScope: grant.houseScope,
+      houseCount: grant.assignedPropertyIds.length,
+      via: input.via,
+      replacesLinkId: current?.id ?? null,
+    },
+    true,
+  );
+  if (audited) return audited;
+  // A seat the person already holds (accepted, or pending from the older invite) is accepted with the new grant
+  // rather than duplicated: one membership per workspace.
+  if (current) {
+    const res = await db
+      .from("account_link_invites")
+      .update({
+        status: "accepted",
+        responded_at: new Date().toISOString(),
+        team_role: grant.teamRole,
+        house_scope: grant.houseScope,
+        assigned_property_ids: grant.assignedPropertyIds,
+        property_co_manager_permissions: grant.propertyCoManagerPermissions,
+        co_manager_permissions: grant.coManagerPermissions,
+        workspace_permissions: grant.workspacePermissions,
+        is_service_seat: true,
+      })
+      .eq("id", current.id)
+      .eq("inviter_user_id", who.workspace.ownerUserId);
+    if (res.error) return fail(503, "Could not add the teammate. Please retry.");
+    return { ok: true, linkId: current.id };
+  }
+  const added = await insertAdminMembership(db, who.workspace.ownerUserId, who.workspace.id, userId, { grant });
+  if (!added.ok) return added;
+  return { ok: true, linkId: added.linkId };
 }

@@ -51,10 +51,11 @@ export type ServiceSeat = {
  *
  *   * `no` - it is not a membership of that workspace at all (someone other than its owner granted it), or
  *     it is the client-side Property owner role;
- *   * `staff` - an operator role (admin / full) on a workspace PropLane CREATED (the service owner owns it, so
- *     the client grants nothing there), or an operator role carrying PropLane's own provenance: that is what
- *     makes a helper invited by email or PropLane ID staff of an ATTACHED workspace too. A Viewer / Custom
- *     seat is `no` on either kind of workspace (it keeps only its per-house grants);
+ *   * `staff` - any team role carrying PropLane's own provenance (`isServiceSeat`, Admin team Oct 27: a workspace admin,
+ *     property manager, bookkeeper... the shell shows their workspaces, the seat decides what they can do), or an
+ *     operator role (admin / full) on a workspace PropLane CREATED (the service owner owns it, so the client grants
+ *     nothing there). A Viewer / Custom seat WITHOUT the provenance is `no` on either kind of workspace (it keeps
+ *     only its per-house grants);
  *   * `platform_person_only` - an operator seat on an attached workspace with no provenance marker (written before the
  *     column, or granted by the client herself). It counts only for a PropLane person, which keeps a client
  *     from minting staff by inviting a second account of her own.
@@ -68,6 +69,11 @@ export function serviceSeatVerdict(
 ): ServiceSeatVerdict {
   if (!isStaffTeamRole(seat.teamRole)) return "no";
   if (seat.inviterUserId !== workspace.ownerUserId) return "no";
+  // A PropLane-issued seat (Admin team, Oct 27) of ANY team role opens the admin-style shell for its holder: the shell only
+  // decides which workspaces they see, while what they can read and change inside stays the seat's own houses and
+  // module levels (`loadWorkspaces` narrows the houses, every route re-checks the permission map). The marker is written
+  // only by the admin Service path, so a client's own co-manager invite never gets here.
+  if (seat.isServiceSeat) return "staff";
   // A Viewer / Custom / Property manager seat is a limited seat that keeps only its per-house grants, on a workspace
   // PropLane CREATED and on an ATTACHED one alike. Decided before either branch so a platform admin holding such a
   // seat is not staff through it either (they keep staff only through the rules that name them a PropLane person).
