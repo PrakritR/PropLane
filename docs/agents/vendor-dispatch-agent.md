@@ -17,7 +17,10 @@ manager's or service manager's Y; nobody is texted before it. A manager who SAVE
 it; the fallback chain appends it after the workspace's own vendors). A self-serve workspace stays off, but when a repair is filed
 with dispatch off the manager gets ONE notice (idempotent per repair): "Reply DISPATCH to text your vendors". The bare reply
 `DISPATCH` (handled before the Y/N parser in `handleManagerDispatchReply`) opens the same rule-less run for the newest open,
-unassigned repair of the last 7 days and asks for Y.
+unassigned repair of the last 7 days and asks for Y, scoped to the texted number's own workspace. A sender recognized only by a
+PropLane Service SEAT cannot use it (`dispatchKeywordAllowed: false` when `serviceManager.basis === "seat"`): their
+`ownerUserId` is the line's owner rather than a workspace they hold, and a seat may be read-only. Their Y / N answers still
+reach only their own pending items (`listPendingForActor`).
 
 **Invoice Y (Oct 19).** The manager's Y on a texted invoice (`decideRunInvoice`) sets the service's vendor cost to the approved
 invoice amount (the invoice row's recomputed total, else the texted figure) so Approve + pay never uses the earlier agreed price. On a
@@ -158,7 +161,9 @@ Files: `src/lib/vendor-dispatch/service-roster.server.ts`, `tests/unit/service-r
   `offered`, found through the vendor's own `manager_vendor_records`; "sent to you by <first name>"), then the public board through the same
   `list_open_jobs_near` read the 206 uses ("open to all"), a job on both shown once, max 5, <= 2 GSM-7 segments, general area only (never a street, unit
   or resident). The list is saved on the vendor's own-number chat session (45 minute TTL); "2" / "see 2" shows it, "bid 2 $120" bids: a public job through
-  `requestBoardJob` (the Find work offer), a job sent to them through `recordVendorYes` (the SMS `YES $price` call). The "Reply to" manager prompt retires
+  `requestBoardJob` (the Find work offer), a job sent to them through `recordVendorYes` (the SMS `YES $price` call). Only the lines the reply
+  actually carried are saved (trailing entries are dropped until the text fits), so a bare "bid 5" can never resolve against a job the vendor
+  never saw. The "Reply to" manager prompt retires
   the list so a later bare number still picks a manager. Every other text keeps the relay; any failure falls through to it. A client texting the number is
   unchanged.
 - **`message_vendor`** (manager registries: portal + manager SMS, confirm-first, not destructive; `tools/domains/vendor-message.ts`). The vendor is matched

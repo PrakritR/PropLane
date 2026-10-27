@@ -131,7 +131,9 @@ one answer: `managerPersonalNumberEntitlement` reports `via: "add_on"`) has no p
 `NUMBER_INCLUDED_CREDIT_CENTS`, then bought credit) through the same `reserveNumberCredit` / `finishNumberCredit` / `settleNumberCreditQuantity` triple the
 vendor and resident numbers use. `src/lib/comms-billing/manager-number-credit.server.ts` decides the source ONCE per reservation key (a key already on
 the number ledger stays there; a new key follows the entitlement), so reserve, settle and refund can never land on different ledgers even if the add-on
-lapses mid-flight. `reserveCommsCredit`, `finishCommsCredit` and `settleCommsCreditQuantity` (`wallet.server.ts`) are the only switch points, so every
+lapses mid-flight. A finish / settle whose source could not be READ (`unverified`) never aborts - the reservation is already debited, so it tries the
+number ledger and falls back to the wallet; each ledger's RPC refuses a key it does not hold, so the reservation is found or the caller still fails
+loudly. Only a source read that SAID "number" re-throws the number ledger's own failure. `reserveCommsCredit`, `finishCommsCredit` and `settleCommsCreditQuantity` (`wallet.server.ts`) are the only switch points, so every
 caller (SMS dispatcher, AI turns, received texts, house groups, leasing/vendor agents, email auto-reply) follows. `evaluateManagerCommsBillingGate`
 (and so `evaluateWorkspaceSendReadiness`) reads the number credit balance for such a manager; an unreadable balance, plan or ledger lookup is a refusal,
 never a free send. Pro / Business keep their plan credit, a Free manager without the add-on and a lapsed add-on are unchanged, an unreadable plan stays on

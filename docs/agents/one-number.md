@@ -773,10 +773,10 @@ admin ROLE is still not the all-owners read. Purge: `platform_service_settings` 
 `account-purge-manifest.ts` (deleting the owner clears it, so the exemption fails closed).
 
 **Admin navigation: one headed half (Software).** `ADMIN_SECTION_TABS` / `ADMIN_GROUPS` in
-`src/lib/portals/nav-groups.ts` are the one source. Admin Settings (`profile`) is the FIRST
-sidebar row and the `/admin` landing (captain, Oct 18) — assigning it to a group is what puts it
-in the sidebar at all, since `SIDEBAR_EXCLUDED_SECTIONS` only applies to unassigned sections; it
-is still in the account menu too, unchanged. Then Dashboard and Communication, then **Software** (headed group, three
+`src/lib/portals/nav-groups.ts` are the one source. Admin Settings (`profile`) has NO sidebar row
+(captain, Oct 25): it is unassigned, so `SIDEBAR_EXCLUDED_SECTIONS` keeps it out, and it is reached
+from the bottom-left account menu like every other portal's ([`ui-page-structure.md`](ui-page-structure.md)
+§ Shell); `/admin` lands on the Dashboard. Dashboard and Communication come first, then **Software** (headed group, three
 rows): Accounts (one page; its Managers · Residents · Vendors tabs, and an operator-only Test tab, live inside it),
 Money (Payments · Promo codes · Finances · Managed funds) and **Service** (ONE row keyed on `service`: tabs Workspaces
 (`/admin/service`, with its own Workspaces · Vendors · Network tabs) · PropLane line · Unassigned leads). Support and
@@ -1183,9 +1183,9 @@ DEFAULT workspace (the line `isPropLaneServiceLine` recognises). One decision, f
 
 | Consumer | What it does for a managed workspace |
 | --- | --- |
-| `evaluateWorkspaceSendReadiness` (the dispatcher's final from-number) | `resolveManagedSendTarget` decides managed-ness from the named workspace, the stamped outbox workspace, the pinned line's workspace or the house, else the owner's default; any of them managed = the 206. The registration, runtime, provider-identity and wallet checks then run on that line (`evaluateNumberRowReadiness`) |
+| `evaluateWorkspaceSendReadiness` (the dispatcher's final from-number) | `resolveManagedSendTarget` decides managed-ness from the named workspace, the stamped outbox workspace, the pinned line's workspace or the house, else the owner's default; any of them managed = the 206. The registration, runtime, provider-identity and wallet checks then run on that line (`evaluateNumberRowReadiness`): the wallet is still the managed workspace's own, while the rollout allowlist gates the NUMBER and so is read against the line's holder (the service owner), never the workspace's owner |
 | `resolveActiveManagerSendNumber` / `resolveWorkspaceSendLine` | Answer with the 206 (`numberId` stays the workspace's own row, which names the workspace to the dispatcher). `{ ownLineOnly: true }` asks the old question, "does this workspace hold a number of its own" (vendor dispatch uses it) |
-| `resolveOwnerSendNumberRow` / `resolveWorkspaceStatusLine` | The 206 first, ahead of the workspace's own rows and a pinned line id |
+| `resolveOwnerSendNumberRow` / `resolveWorkspaceStatusLine` | The 206 first, ahead of the workspace's own rows and a pinned line id. A pinned id is checked for ENTITLEMENT first (the owner's own `manager_sms_numbers` row, or one a workspace of theirs holds in `workspace_work_numbers`): a line that is neither answers nothing, so the managed override can never hand an owner a line they have no claim on |
 | `GET /api/manager/messaging-number` | `sharedLine = { number: 206, onSharedLine: true }` in both modes (the "PropLane line" row and the teammate "Workspace number" row), `number` and the workspace's `numbers` hide the old number, `canRequest` false, no add-on; `POST` and `PATCH` refuse (403 "This workspace texts from the PropLane line."); `provisionNumberForWorkspace` refuses too |
 
 Fail closed: no service owner, no live service-owner number, or an unreadable `portal_workspaces` / `platform_service_settings` /
@@ -1226,8 +1226,12 @@ is pointed at it. Lapsed, unreadable, unverified or shared phone = no redirect (
 HUMAN, emergencies (`isLineKeywordOrUrgentText`), a dispatch answer (`parseVendorDispatchReply`), "is it fixed?" answers, and any account that holds a
 manager-side role or a workspace seat (their texts here run houses). Reads only.
 
-Invariants: the first-text question is asked once per number (nothing was ever sent to it, `sms_outbox`, AND no `asked_at` inside the window - so a
-burst of unclear texts is asked once), its answer is read only within 24 hours of `asked_at` and only when no role is chosen, the answer carries the
+Invariants: the first-text question is asked once per number PER LINE (nothing was ever sent to it, `sms_outbox`, AND no `asked_at` inside the
+window naming this line in `asked_line`). The ask is recorded BEFORE the question is sent and only one request wins it (`claimRoleQuestionAsk`, a
+compare-and-swap on the `asked_at` just read), so a burst of unclear texts that arrives before the question's outbox row lands is asked once and only
+once; an ask that could not be stored is not sent at all (its answer could never be read back, so the text takes the path it always took). Its answer
+is read within 24 hours of `asked_at`, whenever THIS line holds that live ask - a role the phone gave ANOTHER line does not close this line's question -
+and recording any answer clears `asked_at`, so no later text is re-read as one. The answer carries the
 opt-out notice the fixed question cannot, and a webhook retry answers once (`dedupe_key line_role_<sid>`). A seat's admin-ness is never inferred:
 the legacy `profiles.role` and the ops email are not evidence for the phone door. Shared mode (above) is code-complete but OFF in production until the captain flips `line_mode`; per_workspace behaviour is unchanged by it. Tests:
 `tests/unit/{propline-shared-mode,propline-personal-number-redirect,propline-line-policy,propline-first-text-classifier,propline-first-text,one-number-house-redirect,one-number-line-status,one-number-line-resident,service-manager,service-manager-pipeline-wiring,one-number-unknown-sender}.test.ts`.

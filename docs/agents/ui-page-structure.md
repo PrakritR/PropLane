@@ -96,8 +96,9 @@ They show fewer sections, never a different layout.
   Outgoing); "Need help?" at the bottom. Top bar on the right: "✦ Ask PropLane ⌘K" pill, then
   the avatar pill.
 - **Avatar menu:** name, email · Settings · Appearance ☀/☾ · Sign out (red). Settings
-  opens from here and not from the sidebar — the one exception is the admin portal, whose own
-  group config puts Settings in the sidebar as well (below).
+  opens from here and never from the sidebar, in every portal — admin included since Oct 25, where
+  it is the menu's first item (`SIDEBAR_EXCLUDED_SECTIONS`; a service workspace narrows the menu to
+  Settings · Help & feedback · Sign out, [`admin-service.md`](admin-service.md) § Service mode).
 - **Admin's sidebar is grouped rows, not one row per section:** a grouped row stands for
   several sections, which appear as a Properties-style tab strip across the top of every page in
   the group (`AdminSectionTabs`). Section ids, routes and `adminPortal.sections` are unchanged —

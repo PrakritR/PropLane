@@ -143,7 +143,11 @@ link, it reuses that link's URL (revealing it if not already in hand);
 otherwise it mints a fresh one with `replaceActive: true` so a URL already
 sent can never gain more power than whoever holds it agreed to, and the
 previous link is revoked in the same call (`mintInviteLink`,
-`docs/agents/co-manager-access.md` "Mint stores a hash..." above). The reveal
+`docs/agents/co-manager-access.md` "Mint stores a hash..." above). That revoke
+sweeps the workspace's SHARE links only: a link bound to one address
+(`invitee_email` — an Admin › Service invite, Owner included) is that person's
+pending invite, not this workspace's URL, so reminting never cancels it, drops
+the pending owner from the Team list or frees the one-owner slot. The reveal
 call is `POST /api/pro/invite-links/[linkId]/link` with no body, which
 **reveals** the stored ciphertext rather than rotating (rotate is the
 separate `{ rotate: true }` call two sections below).
@@ -758,7 +762,14 @@ refuses. The server is the one that decides: an explicit `houseScope: "all"` on
 the invite POST, the mint or the PATCH is a 400 (`OWNER_SELECTED_ONLY_ERROR`), a
 defaulted scope is coerced to `selected`, and an owner row with no house is a 400
 (`OWNER_NEEDS_HOUSE_ERROR`). A legacy link stored as `all` redeems as `selected`
-over the houses it names, or refuses when it names none.
+over the houses it names, or refuses when it names none. In a workspace PropLane itself OWNS
+(`is_service`, owned by the platform service owner) an owner seat IS that workspace's owner of
+record, so an owner link there is minted only by Admin › Service (`serviceInvite`, bound to the
+invitee's email) and 403s otherwise (`SERVICE_OWNER_LINK_ERROR`); redeem asks the same question and
+refuses an UNBOUND owner link before a use is spent, so a share link — or one minted before this
+rule — makes nobody an owner of record. That workspace is also the one place an owner link needs no
+house (its owner of record reads every house). An attached CLIENT workspace keeps every ordinary
+rule. Detail: [`admin-service.md`](admin-service.md) § Team.
 Accepting an owner invite does not rewrite `profiles.role` — an existing
 resident or vendor keeps the role their account was created as.
 

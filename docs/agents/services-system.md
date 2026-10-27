@@ -217,7 +217,14 @@ the winner and, best-effort, each declined vendor.
 
 **A roster vendor with no PropLane account is invited, never silently skipped.** They have no inbox, so
 the offer row is written first and then the sign-up invite email naming this job is what reaches them
-(`sendVendorInvite` with `jobLine`); a row with no usable email reaches nobody and is left out. The result
+(`sendVendorInvite` with `jobLine`); a row with no usable email reaches nobody and is left out. That invite
+IS the notice, so it carries the linked path's idempotency: one invite per assignment, claimed on the
+action-event key with `:invite` (`action_events`, `ignoreDuplicates`, already processed) before it is sent,
+so a double-tapped or retried assign emails nothing new; a claim that could not be WRITTEN still invites
+(hearing nothing is worse than hearing twice) and a send that failed hands its claim back. An invite that
+did not go out also leaves no live offer row behind: the row is put back exactly as the send found it
+(deleted when the send created it), so the manager is not shown an offer for a vendor they were told was
+not sent to, and the open round can start a new one. The result
 is `{ sent, invited, skipped, skippedDetails }`: `invited` is the subset emailed an invite instead of an
 offer notice, and `skippedDetails` names each left-out vendor and why ("not on your roster", "no email or
 account", "invite email could not be sent"), which is what the manager's toast and the Assistant's reply

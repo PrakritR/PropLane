@@ -22,8 +22,8 @@ PropLane Service is a FLAG on a workspace plus memberships, never ownership.
 - Every `/api/admin/service-workspaces` verb starts with `requireAdminRoute()`; a body id is a name, never a grant.
 - **One sidebar row (Oct 25).** Service is ONE row under Software (`ADMIN_SECTION_TABS.service`): tabs Workspaces
   (`/admin/service`, today's panel with its inner Workspaces · Vendors · Network tabs) · PropLane line · Unassigned leads.
-  The "Property management" heading and the all-owners Properties list are gone (`/admin/properties*` redirects to
-  `/admin/service`); the phone bottom bar shows Service where it showed Properties.
+  The rest of the admin nav — the retired "Property management" heading and all-owners Properties list, the redirects and
+  the phone bottom bar — is [`one-number.md`](one-number.md) § W15 (Admin navigation).
 - Work number column: the workspace's own active work number, else nothing.
 - Management fee: every service workspace gets PropLane's automatic fee, never signed; attach and create ask for it,
   and a workspace created before it has an owner of record gets it the first time anything needs one. The row states
@@ -50,9 +50,9 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   A tile = the admin `open` action (sets the cookie), `set-active-portal manager` with `keepWorkspace`, then
   `/portal/dashboard`. A helper (not an admin) sees only their workspaces, no logo, no `+`, and opens through the
   ordinary workspace switch.
-- **Account menu** (the rail's bottom-left avatar, `PortalAccountMenu`): Settings is its FIRST item on every portal and
-  the admin sidebar has no Settings row (`/admin/profile`, `/portal/profile` stay routable). In service mode
-  (`service.activeId` set) the menu is ONLY Settings, Help & feedback, Sign out - no Switch to Admin / Resident /
+- **Account menu** (the rail's bottom-left avatar, `PortalAccountMenu`): Settings opens from here, not the sidebar
+  ([`ui-page-structure.md`](ui-page-structure.md) § Shell; `/admin/profile`, `/portal/profile` stay routable). In service
+  mode (`service.activeId` set) the menu is ONLY Settings, Help & feedback, Sign out - no Switch to Admin / Resident /
   Property portal rows (the phone's profile menu drops its role switcher the same way). A client owner viewing their
   own workspace view-only is not in service mode and keeps the ordinary Property-portal menu.
 - **Phone** (the rail is hidden below `lg`): `PortalMobileNavBar` takes a `service` prop and shows `ServiceWorkspaceMenu`
@@ -103,8 +103,10 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
     redeem skips the owner-plan gate and stamps `is_service_seat` (or, for an Owner link, `is_owner_of_record`); on a
     client-owned attached workspace every ordinary rule still applies and no service flag is set.
   - *Owner.* Role Owner stamps `team_role = property_owner` + `is_owner_of_record`, read-only by role, and the Team list
-    labels the row "Owner" ("Invited · Owner" while pending). One per workspace: a second invite answers 409
-    `owner_exists` (the sheet asks "Replace the owner?"); confirming (`replaceOwner: true`) cancels the first owner's
+    labels the row "Owner" ("Invited · Owner" while pending). One per workspace, and only an accepted / pending owner
+    membership or a LIVE Admin › Service owner invite holds that slot (`liveServiceInviteLinks`; an ordinary owner
+    share link cannot make an owner of record, so it never stands in the real owner's way either): a second invite
+    answers 409 `owner_exists` (the sheet asks "Replace the owner?"); confirming (`replaceOwner: true`) cancels the first owner's
     membership (audited `admin_service_owner_replaced`) or turns their unspent link off, then invites. The client who
     OWNS an attached workspace is its owner of record and cannot be replaced. Owner copy: email subject "PropLane manages
     <Workspace> for you", body "Hi <First>, PropLane has set up <Workspace> for your homes. Create your account to see rent,
