@@ -48,4 +48,28 @@ describe("resident conversation header number", () => {
     expect(out.get(MANAGED_WS)?.workPhone).toBeNull();
     expect(out.get(NORMAL_WS)?.workPhone).toBe("+14255550100");
   });
+
+  it("exposes no number at all when the managed (is_service) read fails: unknown is not unmanaged", async () => {
+    const real = seed(shared);
+    const db = {
+      ...real,
+      from: (table: string) => {
+        const builder = (real as unknown as { from: (t: string) => Record<string, unknown> }).from(table);
+        if (table !== "portal_workspaces") return builder;
+        return {
+          ...builder,
+          select: (columns: string, ...rest: unknown[]) =>
+            columns.includes("is_service")
+              ? { in: async () => ({ data: null, error: { code: "XX000", message: "boom" } }) }
+              : (builder.select as (...a: unknown[]) => unknown)(columns, ...rest),
+        };
+      },
+    };
+    const out = await loadResidentCounterparties(db as never, [MANAGED_WS, NORMAL_WS]);
+    for (const ws of [MANAGED_WS, NORMAL_WS]) {
+      expect(out.get(ws)?.workPhone).toBeNull();
+      expect(out.get(ws)).not.toHaveProperty("onPropLaneLine");
+    }
+    expect(JSON.stringify([...out.values()])).not.toMatch(/8146793694|4255550100/);
+  });
 });

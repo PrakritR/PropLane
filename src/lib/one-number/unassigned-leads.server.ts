@@ -33,7 +33,7 @@ import {
 } from "@/lib/one-number/lead-qualifying";
 import { redactSensitiveNumbers } from "@/lib/one-number/redact";
 import { findWorkspaceProspectCandidate, propertyLabel } from "@/lib/one-number/router-lookups.server";
-import { saveSharedLineRoute } from "@/lib/one-number/session.server";
+import { loadSharedLineSession, saveSharedLineRoute } from "@/lib/one-number/session.server";
 import {
   HOLD_REPLY,
   lookingForLine,
@@ -188,7 +188,7 @@ async function matchAndOffer(profile: LeadProfile, deps: Required<Pick<LeadDeps,
     // A failed catalog read is not "no room": say so and search again on the next text.
     return {
       profile: { ...profile, stage: "qualifying", asked: "refine" },
-      reply: "I could not check rooms just now. Text me again in a minute and I will try again.",
+      reply: RETRY_REPLY,
       mediaUrls: [],
     };
   }
@@ -438,6 +438,30 @@ export async function handleUnassignedLeadInbound(
 type LockContext = { inboundSid: string; triggerTurnId: string; first: boolean };
 
 const GONE_REPLY = "That room is no longer available. Send a new budget or area and I will search again.";
+/** The neutral line when a write the answer depends on failed: nothing is claimed, the phone keeps its previous home. */
+export const RETRY_REPLY = "I could not check rooms just now. Text me again in a minute and I will try again.";
+
+type LockRoute = { workspaceId: string; role: "prospect"; lockedPropertyId: string | null };
+type LockFirst = { ok: false } | { ok: true; undo: () => Promise<void> };
+
+/**
+ * Persist the home lock BEFORE anything that tells the prospect (or a workspace) the home is theirs. A failed or thrown save
+ * is `ok: false` and the caller stops: the previous lock and assignment stay as they were. `undo` puts the previous route
+ * back if a later step of the same move fails.
+ */
+async function lockFirst(db: SupabaseClient, phoneKey: string, route: LockRoute): Promise<LockFirst> {
+  const prior = await loadSharedLineSession(db, phoneKey).catch(() => null);
+  const saved = await saveSharedLineRoute(db, phoneKey, route).catch(() => false);
+  if (!saved) return { ok: false };
+  return {
+    ok: true,
+    undo: async () => {
+      if (prior?.currentWorkspaceId && prior.activeRole) {
+        await saveSharedLineRoute(db, phoneKey, { workspaceId: prior.currentWorkspaceId, role: prior.activeRole, lockedPropertyId: prior.lockedPropertyId ?? null }).catch(() => false);
+      }
+    },
+  };
+}
 
 /** Several homes named in one text: "Which one? 1) ... 2) ...", with the homes stored as offers so a number picks one. */
 function askWhichHome(text: string, catalog: readonly LineListing[]): { reply: string; offers: LeadOffer[] } | null {
@@ -464,6 +488,12 @@ async function lockLeadToListing(
   if (tier === "paid" && listing) return paidInterestTurn(db, lead, listing, ctx, deps);
   const assigned = await assignLeadToHouse(db, { leadId: lead.id, propertyId, excludeTurnIds: ctx.triggerTurnId ? [ctx.triggerTurnId] : [], by: "prospect" }, deps);
   if (assigned.ok) return { leadId: lead.id, reply: null, assignedWorkspaceId: assigned.workspaceId };
+  if (assigned.error === "unavailable") {
+    // The lock (or a read it needs) did not save: nothing moved, the lead stays open and the next text tries again.
+    const retry = toGsm7(RETRY_REPLY);
+    await recordReply(db, lead.id, ctx.inboundSid, retry, []);
+    return { leadId: lead.id, reply: retry, assignedWorkspaceId: null };
+  }
   // The room is gone or not assignable: say so and offer to search again.
   const reply = toGsm7(GONE_REPLY);
   await saveProfile(db, lead, { ...lead.profile, stage: "qualifying", asked: "refine", offers: [] });
@@ -496,6 +526,13 @@ export async function paidInterestTurn(
   const firstName = (await deps.firstNameOf(home.ownerUserId).catch(() => null)) ?? "";
   const reply = paidInterestReply({ label: home.label, firstName, number });
   const at = deps.now().toISOString();
+  // The lock first: a phone told "text Marcus" that is not locked to the home would route its next text to the old owner.
+  const lock = await lockFirst(db, lead.phoneKey, { workspaceId: home.workspaceId, role: "prospect", lockedPropertyId: home.propertyId });
+  if (!lock.ok) {
+    const retry = toGsm7(RETRY_REPLY);
+    await recordReply(db, lead.id, ctx.inboundSid, retry, []);
+    return { leadId: lead.id, reply: ctx.first ? toGsm7(`${WELCOME} ${retry}`) : retry, assignedWorkspaceId: null };
+  }
   await recordReply(db, lead.id, ctx.inboundSid, reply, []);
   const claimed = await db
     .from("sms_unassigned_leads")
@@ -514,7 +551,11 @@ export async function paidInterestTurn(
       key: `${lead.id}:${home.propertyId}`,
       at,
     });
-    await saveSharedLineRoute(db, lead.phoneKey, { workspaceId: home.workspaceId, role: "prospect", lockedPropertyId: home.propertyId });
+  } else if (claimed.error) {
+    // The lead could not be marked assigned: put the previous home back rather than lock a phone nothing was recorded for.
+    await lock.undo();
+    const retry = toGsm7(RETRY_REPLY);
+    return { leadId: lead.id, reply: ctx.first ? toGsm7(`${WELCOME} ${retry}`) : retry, assignedWorkspaceId: null };
   }
   return { leadId: lead.id, reply: ctx.first ? toGsm7(`${WELCOME} ${reply}`) : reply, assignedWorkspaceId: null };
 }
@@ -649,6 +690,10 @@ export async function assignLeadToHouse(
   const label = houseLabel || prospect.label;
 
   const at = now().toISOString();
+  // The home lock first (a house sets it; a placement by an admin with no house clears any earlier lock). If it does not
+  // save, nothing below runs: the lead stays open and the phone keeps its previous home.
+  const lock = await lockFirst(db, lead.phoneKey, { workspaceId: prospect.workspaceId, role: "prospect", lockedPropertyId: propertyId || null });
+  if (!lock.ok) return { ok: false, error: "unavailable" };
   const claimed = await db
     .from("sms_unassigned_leads")
     .update({
@@ -662,7 +707,11 @@ export async function assignLeadToHouse(
     .eq("id", lead.id)
     .eq("status", "open")
     .select("id");
-  if (claimed.error) return { ok: false, error: "unavailable" };
+  if (claimed.error) {
+    await lock.undo();
+    return { ok: false, error: "unavailable" };
+  }
+  // A lost race: the winner wrote its own lock, so this one is not undone.
   if (!claimed.data?.length) return { ok: false, error: "lead_not_open" };
 
   const phoneE164 = e164FromPhoneKey(lead.phoneKey);
@@ -713,9 +762,7 @@ export async function assignLeadToHouse(
   // The returning-prospect lookup finds this phone through its contact row from now on.
   await upsertManagerSmsContact(db, { managerUserId: prospect.ownerUserId, phone: phoneE164, counterpartyRole: "prospect", lastInboundAt: at }).catch(() => undefined);
   await db.from("manager_sms_contacts").update({ workspace_id: prospect.workspaceId }).eq("manager_user_id", prospect.ownerUserId).eq("phone_e164", phoneE164).eq("counterparty_role", "prospect");
-  // The home lock: a house sets it (and tags the thread with that house so only the owner and the co-hosts who hold it see
-  // it); a placement by an admin with no house clears any earlier lock.
-  await saveSharedLineRoute(db, lead.phoneKey, { workspaceId: prospect.workspaceId, role: "prospect", lockedPropertyId: propertyId || null });
+  // The thread is tagged with the house so only the owner and the co-hosts who hold it see it (the lock itself is saved above).
   if (propertyId) await tagLockedHouse(db, { ownerUserId: prospect.ownerUserId, phoneE164, propertyId });
 
   const summary = profileLine(lead.profile);

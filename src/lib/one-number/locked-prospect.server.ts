@@ -28,6 +28,7 @@ import {
   assignLeadToHouse,
   closeLead,
   paidInterestTurn,
+  RETRY_REPLY,
   recentLeadsFor,
   recordReply,
   startLeadExchange,
@@ -196,6 +197,12 @@ async function relock(
     return { kind: "reply", reply: turn.reply ?? "", leadId: lead.id };
   }
   const assigned = await assignLeadToHouse(db, { leadId: lead.id, propertyId: home.propertyId, by: "prospect" }, deps);
+  if (!assigned.ok && assigned.error === "unavailable") {
+    // The new lock did not save, so nothing moved: the previous home stays locked, the question stays open for another yes.
+    const reply = toGsm7(RETRY_REPLY);
+    await recordReply(db, lead.id, inbound.messageSid, reply, []);
+    return { kind: "reply", reply, leadId: lead.id };
+  }
   if (!assigned.ok) {
     const reply = toGsm7("That room is no longer available. Send a new budget or area and I will search again.");
     await clearSharedLinePending(db, inbound.phoneKey);
