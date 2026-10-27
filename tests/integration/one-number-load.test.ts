@@ -97,7 +97,8 @@ let phoneSeq = 0;
 const newPhone = () => {
   phoneSeq += 1;
   const digits = `206555${String(1000 + phoneSeq).padStart(4, "0")}`;
-  // profiles.phone is a numeric column: it holds digits (with or without the country code), never punctuation.
+  // profiles.phone is E.164 text (it was numeric on production until 20261027010000), and rows written while it was
+  // numeric kept bare digits with no `+`, so a stored value is any of those digit forms, never punctuation.
   return { key: digits, e164: `+1${digits}`, stored: [`+1${digits}`, digits, `1${digits}`][phoneSeq % 3]! };
 };
 
