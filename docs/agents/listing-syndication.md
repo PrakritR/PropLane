@@ -103,8 +103,9 @@ service-role client, 404s on an unknown or disabled key, then intersects
 `getPublicListings()` (already sandbox-filtered, contact-resolved, projected)
 with `zillowEnabledPropertyIds`'s id set — a raw `manager_property_records`
 query filtered to `manager_user_id` AND `workspace_id` — before mapping to
-XML. `publicListingProjection` carries neither `syndication` nor `workspaceId`
-(both excluded from the public allowlist), so the workspace scoping happens
+XML. Neither `syndication` nor `workspaceId` is on the public allowlist, and
+`workspaceId` rides a projection only when a server-only caller opts in (the
+PropLane line's catalog does; this feed does not), so the workspace scoping happens
 entirely through that pre-computed id set, never by filtering the projected
 listing itself. `Content-Type: application/xml`, `Cache-Control` matches the
 other public listing reads (`public, s-maxage=60, stale-while-revalidate=600`).

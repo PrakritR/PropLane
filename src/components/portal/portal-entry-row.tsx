@@ -129,7 +129,7 @@ export function PortalEntryRow({
   attention?: boolean;
   /** "who · where · when" — the line under the title. */
   place?: string;
-  /** Up to three plain facts; anything past the third is dropped. */
+  /** Plain facts; anything past `maxFacts` (three by default) is dropped. */
   facts?: PortalEntryRowFact[];
   /** Facts a row draws at desktop width (default 3). */
   maxFacts?: number;

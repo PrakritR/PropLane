@@ -406,7 +406,9 @@ suggestion and Android Chrome's Web OTP look for. The host comes from `resolveEm
 never the request's Host header. The form: fixed "+1" and as-you-type US formatting (`src/lib/phone-format.ts`), the
 last number used on this device (`axis:remembered-login-phone`, cleared by `clearPortalBrowserCache` with the remembered
 email), six boxes over one real `autocomplete="one-time-code"` input, auto-submit on the 6th digit (one verify per
-challenge via the `inFlight` guard), Web OTP with an AbortController, a 30 second resend countdown.
+challenge via the `inFlight` guard), Web OTP with an AbortController, a 30 second resend countdown. Email and
+password sit behind "Use email instead" while the phone box is drawn, and open from the start when phone is off or
+when this device last signed in by email (`axis:last-login-method`, written on a successful sign-in either way).
 
 Straight to the portal: after a `sign_in` verify the route runs the SAME resolver `/auth/continue` uses
 (`resolvePostSignInDestination`, shared with `/api/auth/oauth-portal-access`) for the new session and returns `next`;
