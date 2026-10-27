@@ -15,7 +15,7 @@
  * so a slow or failing lookup can never cost us the email nor stall the webhook
  * response; that pass retries a bounded number of times to ride out a blip.
  */
-import { normalizeInboundHeaders } from "@/lib/inbound-email/inbound-sender-authentication";
+import { normalizeInboundHeaders, replyToFromHeaders } from "@/lib/inbound-email/inbound-sender-authentication";
 import { buildPortalInboxThreadUpsert } from "@/lib/portal-inbox-thread-upsert";
 import { ADMIN_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -36,6 +36,12 @@ export type ParsedInboundEmail = {
   html?: string;
   /** Message headers when the provider inlined them on the webhook (it normally does not). */
   headers?: Record<string, string[]>;
+  /**
+   * The Reply-To address when the webhook carries one (inlined `reply_to` or a `Reply-To` header). A booking site's
+   * guest-message mail names its relay here; when absent the caller reads it from the received-email headers
+   * (`fetchResendReceivedEmailHeaders` + `replyToFromHeaders`).
+   */
+  replyTo?: string;
 };
 
 /** Deterministic thread id keyed off the provider message id → idempotent upsert. */
@@ -78,6 +84,14 @@ function toEmailList(value: unknown): string[] {
     .filter((email) => email.includes("@"));
 }
 
+/** `reply_to` (string or list) on the payload, else the `Reply-To` header; null when neither is an address. */
+function replyToOf(data: Record<string, unknown>): string | null {
+  const raw = Array.isArray(data.reply_to) ? data.reply_to[0] : data.reply_to;
+  const inlined = typeof raw === "string" ? parseEmailAddress(raw).email : "";
+  if (inlined.includes("@")) return inlined;
+  return replyToFromHeaders(data.headers);
+}
+
 /**
  * Extract the fields we need from a Resend `email.received` webhook. Returns null
  * for any other event type or a malformed payload so the route can ack-and-ignore
@@ -111,6 +125,7 @@ export function parseInboundEmailWebhook(payload: unknown): ParsedInboundEmail |
       const normalized = normalizeInboundHeaders(data.headers);
       return Object.keys(normalized).length ? normalized : undefined;
     })(),
+    ...(replyToOf(data) ? { replyTo: replyToOf(data)! } : {}),
   };
 }
 

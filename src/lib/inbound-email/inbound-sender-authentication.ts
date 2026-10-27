@@ -76,3 +76,15 @@ export function inboundSenderAuthenticated(rawHeaders: unknown, fromAddress: str
   }
   return false;
 }
+
+/**
+ * The Reply-To address of a received message, from its headers (`Reply-To: Name <addr>` or a bare address).
+ * Null when absent or not an address. A booking site's guest-message mail names its relay here.
+ */
+export function replyToFromHeaders(rawHeaders: unknown): string | null {
+  const value = normalizeInboundHeaders(rawHeaders)["reply-to"]?.[0];
+  if (!value) return null;
+  const open = value.lastIndexOf("<");
+  const candidate = (open >= 0 && value.trim().endsWith(">") ? value.slice(open + 1, value.lastIndexOf(">")) : value).trim().toLowerCase();
+  return /^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/.test(candidate) ? candidate : null;
+}

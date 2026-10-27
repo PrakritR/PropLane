@@ -9,10 +9,10 @@
  * Pure function: no IO.
  */
 
-export type AirbnbEmailKind = "booking" | "payout";
+export type AirbnbEmailKind = "booking" | "payout" | "message";
 
 export type ParsedAirbnbEmail = {
-  kind: AirbnbEmailKind;
+  kind: Exclude<AirbnbEmailKind, "message">;
   confirmationCode: string;
   guestFirstName?: string;
   /** "Juan Angel" when the mail spells the guest out (a forwarded confirmation often does); its first word is `guestFirstName`. */
@@ -135,7 +135,7 @@ export function parseAirbnbEmail(input: { subject: string; text: string; receive
   const isPayout = /\b(payout|you(?:'|’)?ve been paid|we(?:'|’)?ve sent your|paid you)\b/i.test(haystack);
   const isBooking = /\b(reservation confirmed|new booking|booking confirmed|reservation is confirmed)\b/i.test(haystack);
   // A payout mail also quotes its reservation; a mail that says both is a payout.
-  const kind: AirbnbEmailKind | null = isPayout ? "payout" : isBooking ? "booking" : null;
+  const kind: ParsedAirbnbEmail["kind"] | null = isPayout ? "payout" : isBooking ? "booking" : null;
   if (!kind) return null;
 
   const received = input.receivedAt ? new Date(input.receivedAt) : new Date();
@@ -200,4 +200,95 @@ export function isAirbnbSenderAddress(address: string): boolean {
   const at = address.lastIndexOf("@");
   const domain = (at >= 0 ? address.slice(at + 1) : address).replace(/[>\s]/g, "").toLowerCase();
   return domain === "airbnb.com" || domain.endsWith(".airbnb.com");
+}
+
+
+/** A guest MESSAGE email ("kind: message"): who wrote, what they said, and which listing it is about. */
+export type ParsedAirbnbGuestMessage = {
+  kind: "message";
+  guestName: string;
+  messageText: string;
+  listingTitle?: string;
+  /** HM confirmation code when the mail quotes the reservation the message belongs to. */
+  confirmationCode?: string;
+};
+
+const MESSAGE_SUBJECT_NAME = [
+  /^(?:re:\s*)?new message from\s+(.+?)\s*$/i,
+  /^(?:re:\s*)?(.+?)\s+sent you a message\b/i,
+  /^(?:re:\s*)?message from\s+(.+?)\s*$/i,
+  /^(?:re:\s*)?(.+?)\s+is asking about\b/i,
+  /^(?:re:\s*)?(.+?)\s+(?:wrote|messaged you)\b/i,
+];
+const MESSAGE_END = /^(?:reply to this email|reply to respond|view message|view in app|open the airbnb app|respond in the app|airbnb, inc|airbnb ireland|unsubscribe|this email was sent|sent with|please don.?t reply)/i;
+const MESSAGE_HEADER_LINE = /^(?:re|about|listing|message about|regarding|reservation|dates|check[\s-]?in|check[\s-]?out|guests?)\b\s*[:\-–—]?/i;
+
+/**
+ * Airbnb "new message" email, read into the guest, the message and the listing. Null the moment it is unsure
+ * (no plausible name, no message text): a null stores the mail and answers nothing.
+ */
+export function parseAirbnbGuestMessage(input: { subject: string; text: string }): ParsedAirbnbGuestMessage | null {
+  const subject = stripTags(input.subject ?? "").trim();
+  const body = stripTags(input.text ?? "");
+  if (!/(new message from|sent you a message|message from|is asking about|wrote|messaged you)/i.test(subject) && !/\bsent you a message\b/i.test(body)) return null;
+  if (/\b(payout|reservation confirmed|new booking|booking confirmed)\b/i.test(subject)) return null;
+  const lines = body.split(/\r?\n/).map((line) => line.replace(/^[>\s]+/, "").trim());
+
+  let guestName: string | undefined;
+  for (const pattern of MESSAGE_SUBJECT_NAME) {
+    const candidate = pattern.exec(subject)?.[1];
+    const name = candidate ? plausibleGuestName(candidate) : undefined;
+    if (name) {
+      guestName = name;
+      break;
+    }
+  }
+  const firstContent = lines.findIndex((line) => line.length > 0);
+  if (!guestName && firstContent >= 0) guestName = plausibleGuestName(lines[firstContent]!);
+  if (!guestName) return null;
+
+  let listingTitle: string | undefined;
+  let headerEnd = firstContent >= 0 && plausibleGuestName(lines[firstContent]!) === guestName ? firstContent : -1;
+  for (let i = 0; i < Math.min(lines.length, 12); i += 1) {
+    const line = lines[i]!;
+    const listing = /^(?:re|about|listing|message about|regarding)\s*[:\-–—]\s*(.{3,120})$/i.exec(line);
+    if (listing && !listingTitle) {
+      listingTitle = listing[1]!.replace(/\s+[·|]\s+.*$/, "").trim();
+      headerEnd = Math.max(headerEnd, i);
+    } else if (MESSAGE_HEADER_LINE.test(line) || /^[A-Z][a-z]{2}\s+\d{1,2}\s*[–-]\s*[A-Z][a-z]{2}\s+\d{1,2}/.test(line)) {
+      headerEnd = Math.max(headerEnd, i);
+    }
+  }
+  const subjectListing = /\babout\s+(?:your\s+listing\s+)?["“]?(.{3,100}?)["”]?\s*$/i.exec(subject)?.[1];
+  if (!listingTitle && subjectListing) listingTitle = subjectListing.trim();
+
+  const collected: string[] = [];
+  for (let i = headerEnd + 1; i < lines.length; i += 1) {
+    const line = lines[i]!;
+    if (MESSAGE_END.test(line)) break;
+    collected.push(line);
+  }
+  const messageText = collected.join("\n").replace(/\n{3,}/g, "\n\n").replace(/^["“]|["”]$/g, "").trim();
+  if (!messageText || messageText.length < 2) return null;
+  const confirmationCode = CODE.exec(`${subject}\n${body}`)?.[1];
+  return {
+    kind: "message",
+    guestName,
+    messageText: messageText.slice(0, 4000),
+    ...(listingTitle ? { listingTitle } : {}),
+    ...(confirmationCode ? { confirmationCode } : {}),
+  };
+}
+
+/** A guest's display name: one to three name words (a trailing initial such as "Maria L." is fine). Shared by every site parser. */
+export function plausibleGuestName(raw: string | undefined): string | undefined {
+  const value = (raw ?? "").replace(/\s+/g, " ").trim().replace(/^["“'‘]|["”'’:,!]+$/g, "").trim();
+  if (!value || value.length > 40) return undefined;
+  const tokens = value.split(" ");
+  if (tokens.length > 3) return undefined;
+  for (const token of tokens) {
+    if (!/^[\p{L}][\p{L}'’\-]*\.?$/u.test(token)) return undefined;
+    if (/^(your|the|a|an|new|guest|reservation|booking|airbnb|we|you|host|hi|hello|hey|dear|message|reply)$/i.test(token)) return undefined;
+  }
+  return tokens.join(" ");
 }
