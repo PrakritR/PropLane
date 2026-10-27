@@ -144,7 +144,8 @@ describe("a verified guest message lands in the right conversation and room", ()
     expect(result).toMatchObject({ handled: true, replied: true, role: "channel" });
 
     const mirror = mocks.mirrorAssistantEmailConversation.mock.calls[0]![1];
-    expect(mirror.senderEmail).toBe(channelGuestKeyAddress("airbnb", "Jose Alaniz"));
+    expect(mirror.senderEmail).toBe(channelGuestKeyAddress("airbnb", "Jose Alaniz", { replyAddress: "k3f9a1c2d4@reply.airbnb.com" }));
+    expect(mirror.senderEmail).not.toContain("k3f9a1c2d4");
     expect(mirror.propertyId).toBe("p5257");
     expect(mirror.channelGuest).toMatchObject({ site: "airbnb", propertyId: "p5257", roomId: "r6", roomLabel: "Room 6", replyAddress: "k3f9a1c2d4@reply.airbnb.com", held: false });
     expect(mirror.workspaceId).toBe("ws-1");
@@ -169,6 +170,21 @@ describe("a verified guest message lands in the right conversation and room", ()
     await processManagerAssistantInboundEmail(makeDb(), inbound(AIRBNB_MESSAGE, { subject: "New message from Jose Alaniz" }));
     const keys = mocks.mirrorAssistantEmailConversation.mock.calls.map((call) => call[1].senderEmail);
     expect(new Set(keys).size).toBe(1);
+  });
+
+  it("two different guests with the same name get two conversations; the same thread twice gets one", async () => {
+    const john = (relay: string) => ({
+      ...AIRBNB_MESSAGE,
+      subject: "New message from John",
+      text: AIRBNB_MESSAGE.text.replace("Jose Alaniz", "John Smith").replace("Reservation code: HMTESTCODE1\n", ""),
+      replyTo: relay,
+    });
+    await processManagerAssistantInboundEmail(makeDb(), inbound(john("aaa111@reply.airbnb.com")));
+    await processManagerAssistantInboundEmail(makeDb(), inbound(john("bbb222@reply.airbnb.com")));
+    await processManagerAssistantInboundEmail(makeDb(), inbound(john("aaa111@reply.airbnb.com")));
+    const [a, b, a2] = mocks.mirrorAssistantEmailConversation.mock.calls.map((call) => call[1].senderEmail);
+    expect(a).not.toBe(b);
+    expect(a2).toBe(a);
   });
 
   it("Booking.com: mapped to its room, answered through its relay", async () => {

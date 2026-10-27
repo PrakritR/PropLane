@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   channelGuestKeyAddress,
+  isChannelGuestKeyAddress,
   channelSiteOfAddress,
   isChannelRelayAddress,
   parseChannelGuestMessage,
@@ -83,13 +84,39 @@ describe("each site's message email is read into guest, message, listing and rel
   });
 });
 
-describe("one conversation per guest per site", () => {
-  it("the same guest always gets the same key, another guest or site another", () => {
-    const a = channelGuestKeyAddress("airbnb", "Jose Alaniz");
-    expect(channelGuestKeyAddress("airbnb", "  jose   alaniz ")).toBe(a);
-    expect(channelGuestKeyAddress("booking_com", "Jose Alaniz")).not.toBe(a);
-    expect(channelGuestKeyAddress("airbnb", "Jose Alvarez")).not.toBe(a);
-    expect(a.endsWith(".invalid")).toBe(true);
+describe("one conversation per guest thread, never per name", () => {
+  const relayA = { replyAddress: "aaa111@reply.airbnb.com" };
+  const relayB = { replyAddress: "bbb222@reply.airbnb.com" };
+
+  it("two guests with the same name but different relay addresses get different keys", () => {
+    expect(channelGuestKeyAddress("airbnb", "John", relayA)).not.toBe(channelGuestKeyAddress("airbnb", "John", relayB));
+  });
+
+  it("the same relay twice is the same key, whatever case, spacing or name drift", () => {
+    const first = channelGuestKeyAddress("airbnb", "John", relayA);
+    expect(channelGuestKeyAddress("airbnb", "John S.", { replyAddress: " AAA111@Reply.Airbnb.com " })).toBe(first);
+  });
+
+  it("the raw relay address never appears in the key, and the shape stays a .invalid site address", () => {
+    const key = channelGuestKeyAddress("booking_com", "Maria L.", { replyAddress: "mt-8d41f0@guest.booking.com" });
+    expect(key).not.toContain("8d41f0");
+    expect(key).toMatch(/^[a-z0-9-]+@booking-com\.guest\.invalid$/);
+    expect(isChannelGuestKeyAddress(key)).toBe(true);
+  });
+
+  it("with no relay, different reservation codes differ and the same code matches; the relay outranks the code", () => {
+    const one = channelGuestKeyAddress("padsplit", "John", { reservationCode: "4012345678" });
+    expect(channelGuestKeyAddress("padsplit", "John", { reservationCode: "4012345679" })).not.toBe(one);
+    expect(channelGuestKeyAddress("padsplit", "Someone Else", { reservationCode: "4012345678" })).toBe(one);
+    expect(channelGuestKeyAddress("padsplit", "John", { ...relayA, reservationCode: "4012345678" })).not.toBe(one);
+  });
+
+  it("only as a last resort: name + listing title + site", () => {
+    const a = channelGuestKeyAddress("spareroom", "Aiko K.", { listingTitle: "Room near UW" });
+    expect(channelGuestKeyAddress("spareroom", "  aiko   k. ", { listingTitle: "room near uw" })).toBe(a);
+    expect(channelGuestKeyAddress("spareroom", "Aiko K.", { listingTitle: "Room near downtown" })).not.toBe(a);
+    expect(channelGuestKeyAddress("airbnb", "Aiko K.", { listingTitle: "Room near UW" })).not.toBe(a);
+    expect(channelGuestKeyAddress("spareroom", "Aiko Kato", { listingTitle: "Room near UW" })).not.toBe(a);
   });
 });
 

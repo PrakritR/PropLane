@@ -360,7 +360,7 @@ and the host points the site's notification address (or a Gmail auto-forward) at
 - **Only a PROVEN site is answered.** The sender must pass `inboundSenderAuthenticated` (DKIM/SPF aligned to the site's
   domain, read off the received email's headers; a forwarded copy keeps the site's DKIM). A forged `From: airbnb.com` is stored under its
   own address and never answered; an unreadable header fetch is not a pass. Site recognition is by exact domain/subdomain, never a look-alike.
-- **One conversation per guest per site per workspace**, keyed on `channelGuestKeyAddress` (a never-deliverable `.invalid` address) through the
+- **One conversation per guest THREAD, never per name** (two "John"s must not share history the agent reads): keyed on `channelGuestKeyAddress` (a never-deliverable `.invalid` address) from the site's relay address (hashed), else the reservation code, else name + listing title through the
   normal conversation-key resolver; `row_data.channelGuest` carries site, house, room and the relay address. House/room come from the
   workspace's `external_calendar_connections` (`matchChannelListing`): a tie across houses maps nothing, never a guess.
 - **The reply leaves from the work email to the SITE'S relay address only** (`deliverManagerEmailReply({ channel })` refuses an unauthenticated mail

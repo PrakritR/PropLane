@@ -11,6 +11,7 @@
  * Tolerant by design: the sites reword their mail often, so the parsers key on stable pieces and return null the
  * moment they are unsure. A null never answers anything - the mail is just stored. Pure functions: no IO.
  */
+import { createHash } from "node:crypto";
 import { parseAirbnbGuestMessage, plausibleGuestName } from "@/lib/inbound-email/airbnb-parser";
 
 export const CHANNEL_SITES = ["airbnb", "booking_com", "padsplit", "spareroom"] as const;
@@ -251,20 +252,44 @@ export function parseChannelGuestMessage(input: {
   return parseSpareRoom(subject, lines, replyTo);
 }
 
+/** Lowercased, trimmed, truncated SHA-256: a stable key part that never exposes the raw relay address or code. */
+function keyHash(value: string, length: number): string {
+  return createHash("sha256").update(value.trim().toLowerCase()).digest("hex").slice(0, length);
+}
+
+export type ChannelGuestIdentity = {
+  /** The site's relay reply address (per-thread on Airbnb and Booking.com). */
+  replyAddress?: string | null;
+  reservationCode?: string | null;
+  listingTitle?: string | null;
+};
+
 /**
- * The one conversation key per guest per site: a stable, never-deliverable address (`.invalid`, RFC 2606) derived from the
- * site and the guest's name. The conversation key resolver keys on it like any email, so a guest who writes again - even
- * about another reservation - lands in the same conversation, and nothing can ever be sent to it by accident.
+ * The one conversation key per guest THREAD: a stable, never-deliverable address (`.invalid`, RFC 2606) the conversation key
+ * resolver keys on like any email, so a guest who writes again in the same thread lands in the same conversation and
+ * nothing can ever be sent to it by accident.
+ *
+ * Two different guests can share a name ("John"), and a conversation's history is what the leasing agent reads, so a name alone
+ * must never join people. The strongest per-guest identity the message carries decides, in order:
+ *   1. the site's relay reply address (SHA-256, truncated; the raw relay is never in the key),
+ *   2. the reservation code (hashed the same way),
+ *   3. only then the name together with the listing title.
  */
-export function channelGuestKeyAddress(site: ChannelSite, guestName: string): string {
+export function channelGuestKeyAddress(site: ChannelSite, guestName: string, identity: ChannelGuestIdentity = {}): string {
+  const domain = `${site.replace("_", "-")}.guest.invalid`;
+  const relay = identity.replyAddress?.trim().toLowerCase();
+  if (relay && relay.includes("@")) return `r-${keyHash(relay, 24)}@${domain}`;
+  const code = identity.reservationCode?.trim();
+  if (code) return `c-${keyHash(code, 24)}@${domain}`;
   const slug = guestName
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
-  return `${slug || "guest"}@${site.replace("_", "-")}.guest.invalid`;
+  const listing = identity.listingTitle?.replace(/\s+/g, " ").trim().toLowerCase();
+  return `n-${slug || "guest"}${listing ? `-${keyHash(listing, 10)}` : ""}@${domain}`;
 }
 
 export function isChannelGuestKeyAddress(address: string): boolean {

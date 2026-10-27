@@ -11,7 +11,7 @@ import "server-only";
  *    stamped `dkim=pass` / `spf=pass` aligned to the site's domain (`inboundSenderAuthenticated`, read off the received
  *    email's headers - never the From line alone) is read as a guest message. A forwarded mail keeps the site's DKIM
  *    signature, so a Gmail auto-forward still verifies. Anything else is STORED in Communication and NEVER answered.
- * 2. The guest has ONE conversation per site per workspace (the internal key address from `channelGuestKeyAddress`, through
+ * 2. The guest has ONE conversation per site per workspace (the internal key address from `channelGuestKeyAddress`: relay address, else reservation code, else name + listing - never the name alone, through
  *    the same conversation-key resolver as every other person), tagged with the site and the house/room the listing maps to
  *    through the workspace's channel calendar connections.
  * 3. The reply goes through the leasing assistant (credit reserved BEFORE the model, the approval hold and quiet hours
@@ -234,7 +234,11 @@ export async function handleChannelGuestEmail(db: SupabaseClient, input: Channel
   const listingLine = match
     ? [match.propertyLabel, match.roomLabel].filter(Boolean).join(", ")
     : message.listingTitle;
-  const guestKey = channelGuestKeyAddress(site, message.guestName);
+  const guestKey = channelGuestKeyAddress(site, message.guestName, {
+    replyAddress: message.replyAddress,
+    reservationCode: message.reservationCode,
+    listingTitle: message.listingTitle,
+  });
   const holdReason: ChannelHoldReason | null = channelHoldReason(message.messageText);
 
   let serviceWorkspace = false;
