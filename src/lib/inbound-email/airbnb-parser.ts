@@ -15,6 +15,8 @@ export type ParsedAirbnbEmail = {
   kind: AirbnbEmailKind;
   confirmationCode: string;
   guestFirstName?: string;
+  /** "Juan Angel" when the mail spells the guest out (a forwarded confirmation often does); its first word is `guestFirstName`. */
+  guestFullName?: string;
   /** YYYY-MM-DD */
   checkIn?: string;
   /** YYYY-MM-DD (check-out day) */
@@ -84,6 +86,29 @@ function guestFirstNameFrom(subject: string, body: string): string | undefined {
   return undefined;
 }
 
+const NAME_TOKEN = "[\\p{L}][\\p{L}'’\\-]*";
+const FULL_NAME_PATTERNS = [
+  new RegExp(`(?:reservation confirmed|new booking(?: confirmed)?|booking confirmed)\\s*[-–—:!]+\\s*(${NAME_TOKEN}(?:[ \\t]+${NAME_TOKEN}){1,2})[ \\t]+(?:arrives|is arriving|will arrive|checks? in)`, "iu"),
+  new RegExp(`^[ \\t>]*(${NAME_TOKEN}(?:[ \\t]+${NAME_TOKEN}){1,2})[ \\t]+(?:is arriving|will arrive|arrives)\\b`, "imu"),
+  new RegExp(`\\bguest\\s*[:\\-]\\s*(${NAME_TOKEN}(?:[ \\t]+${NAME_TOKEN}){1,2})[ \\t]*$`, "imu"),
+];
+
+/** The guest's full name when the mail has it, and only when every word is a plausible name. */
+function guestFullNameFrom(subject: string, body: string): string | undefined {
+  for (const text of [subject, body]) {
+    for (const pattern of FULL_NAME_PATTERNS) {
+      const raw = pattern.exec(text)?.[1];
+      if (!raw) continue;
+      const tokens = raw.trim().split(/[ \t]+/);
+      if (tokens.length < 2 || tokens.length > 3) continue;
+      if (tokens.some((token) => !plausibleName(token))) continue;
+      const full = tokens.join(" ");
+      if (full.length <= 60) return full;
+    }
+  }
+  return undefined;
+}
+
 function moneyCents(raw: string): number | null {
   const n = Number(raw.replace(/,/g, ""));
   return Number.isFinite(n) && n > 0 && n < 1_000_000 ? Math.round(n * 100) : null;
@@ -141,7 +166,9 @@ export function parseAirbnbEmail(input: { subject: string; text: string; receive
 
   const nightsMatch = /\b(\d{1,3})\s+nights?\b/i.exec(body);
   const nights = nightsMatch ? Number(nightsMatch[1]) : undefined;
-  const guestFirstName = guestFirstNameFrom(subject, body);
+  const guestFullName = guestFullNameFrom(subject, body);
+  // The first word of a spelled-out name IS the first name; otherwise the lone word the mail gives.
+  const guestFirstName = guestFullName ? guestFullName.split(" ")[0] : guestFirstNameFrom(subject, body);
 
   if (kind === "payout") {
     const payoutCents = payoutCentsFrom(body);
@@ -150,6 +177,7 @@ export function parseAirbnbEmail(input: { subject: string; text: string; receive
       kind,
       confirmationCode: code,
       ...(guestFirstName ? { guestFirstName } : {}),
+      ...(guestFullName ? { guestFullName } : {}),
       ...(checkIn && checkOut ? { checkIn, checkOut } : {}),
       ...(nights ? { nights } : {}),
       payoutCents,
@@ -161,6 +189,7 @@ export function parseAirbnbEmail(input: { subject: string; text: string; receive
     kind,
     confirmationCode: code,
     ...(guestFirstName ? { guestFirstName } : {}),
+    ...(guestFullName ? { guestFullName } : {}),
     ...(checkIn && checkOut ? { checkIn, checkOut } : {}),
     ...(nights ? { nights } : {}),
   };
