@@ -3,7 +3,7 @@ import { loadPropertyStayClock } from "@/lib/bookings/property-stay-times.server
 import { resolveRowStayTimes, stampStayRow } from "@/lib/bookings/stay-stamp";
 import { DEFAULT_PROPERTY_STAY_TIMES, staysOverlap, type PropertyStayTimes } from "@/lib/bookings/stay-times";
 import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
-import { normalizeChannelLink, type ChannelLink } from "@/lib/channel-calendar/channel-link";
+import { normalizeChannelLink, stayMayAutoLink, type ChannelLink } from "@/lib/channel-calendar/channel-link";
 import { monthDay } from "@/lib/channel-calendar/channel-overlap";
 import { CHANNEL_OVERLAP_UNVERIFIED, checkStayAgainstChannels } from "@/lib/channel-calendar/channel-overlap.server";
 import { roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
@@ -519,6 +519,24 @@ const route = createJsonRecordRoute({
         }
       }
     }
+    if (
+      (String(record.record_type ?? "") === ROOM_DATE_BLOCK_RECORD_TYPE || String(record.record_type ?? "") === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE) &&
+      !scheduleUserHasRole(user, "admin")
+    ) {
+      // The house a booking lands on comes from the BODY (`buildUpsert`), so a create, or an update that moves the
+      // booking to another house, must prove Calendar write on THAT house before anything reads it: the overlap and
+      // channel checks below answer with the house's guest names, reservation codes and dates. The owner, or a
+      // Calendar grant on the new house; anything unresolvable (no owner, no grant) is refused, never waved through.
+      const landingPropertyId = String(record.property_id ?? "").trim();
+      const storedPropertyId = existing ? String(existing.property_id ?? "").trim() : "";
+      if (landingPropertyId && (!existing || landingPropertyId !== storedPropertyId)) {
+        const houseOwner = await resolvePropertyOwnerUserId(db, landingPropertyId);
+        const allowed = (Boolean(houseOwner) && houseOwner === user.id) || (await mayWriteBlocksOn(db, user, landingPropertyId));
+        if (!allowed) {
+          return { handled: true, error: "You need Calendar edit access on this property to block its rooms.", status: 403 };
+        }
+      }
+    }
     if (String(record.record_type ?? "") === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE) {
       // Eligibility comes from the persisted stay, never the replacement body's dates.
       const priorType = String(existing?.record_type ?? "");
@@ -590,7 +608,12 @@ const route = createJsonRecordRoute({
               channel: {
                 link: normalizeChannelLink(savedDetails.channelLink),
                 storedLink,
-                derive: Boolean(text(savedData.residentName)) && text(savedData.blockKind) !== "closed",
+                derive: stayMayAutoLink({
+                  residentName: text(savedData.residentName),
+                  blockKind: text(savedData.blockKind),
+                  cancelled: savedData.bookingStatus === "cancelled",
+                  reason: text(savedData.reason),
+                }),
                 reason: text(savedData.reason),
                 openEnded: savedData.openEnded === true,
               },

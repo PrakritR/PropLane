@@ -69,6 +69,23 @@ export function hmCodeFromText(...texts: Array<string | null | undefined>): stri
   return null;
 }
 
+/** True for a provider whose reservations a PropLane stay can link to (Airbnb, Booking.com). */
+export function isChannelLinkProvider(provider: unknown): provider is ChannelLinkProvider {
+  return CHANNEL_LINK_PROVIDERS.some((candidate) => candidate === provider);
+}
+
+/**
+ * The ONE rule for "may this PropLane stay be auto-linked to a channel reservation": the read-time
+ * resolver, the server derive on save, the assistant's block tools and the clash finder all ask it.
+ * Only a stay that is not cancelled, not a closed room, and names its guest (or carries an explicit
+ * Airbnb HM code in its notes) links. A closure or a nameless hold never does: linking would let it
+ * cover the real guest of the reservation on the same nights.
+ */
+export function stayMayAutoLink(stay: { residentName?: string | null; blockKind?: string | null; closed?: boolean; cancelled?: boolean; reason?: string | null }): boolean {
+  if (stay.cancelled || stay.closed || stay.blockKind === "closed") return false;
+  return Boolean(stay.residentName?.trim() || hmCodeFromText(stay.reason));
+}
+
 /** A channel reservation as the linker sees it. `start`/`end` are the first and LAST night, inclusive. */
 export type LinkableRange = {
   provider: ChannelLinkProvider;
@@ -157,6 +174,8 @@ export type LinkEntry = {
   bookingStatus?: string;
   summary?: string | null;
   reason?: string;
+  residentName?: string;
+  blockKind?: string;
   blockId?: string;
   connectionId?: string;
   sourceUid?: string;
@@ -227,7 +246,8 @@ export function resolveChannelLinks(entries: readonly LinkEntry[]): ResolvedChan
   for (const native of natives) {
     const own = normalizeChannelLink(native.stayDetails?.channelLink);
     if (!own) {
-      unlinked.push(native);
+      // Same eligibility as the server derive (`stayMayAutoLink`): closures and nameless holds never link.
+      if (stayMayAutoLink({ residentName: native.residentName, blockKind: native.blockKind, cancelled: native.bookingStatus === "cancelled", reason: native.reason })) unlinked.push(native);
       continue;
     }
     links.set(native.blockId!, own);

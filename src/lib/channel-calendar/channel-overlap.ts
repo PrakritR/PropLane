@@ -13,7 +13,9 @@
 import { channelCalendarProviderLabel } from "@/lib/channel-calendar/airbnb-url";
 import {
   autoLinkForStay,
+  isChannelLinkProvider,
   linkTargetsRange,
+  stayMayAutoLink,
   type ChannelLink,
   type LinkableRange,
 } from "@/lib/channel-calendar/channel-link";
@@ -46,6 +48,8 @@ export type OverlapNativeStay = {
   cancelled?: boolean;
   /** The reservation this stay is explicitly linked to, if any. */
   link?: ChannelLink;
+  /** "closed" = the room is shut with a reason and nobody is staying: it never links to a reservation. */
+  blockKind?: string;
 };
 
 export type ChannelOverlapHit = {
@@ -94,6 +98,8 @@ export function linkedRangeForStay(input: {
   ranges: readonly ChannelOverlapRange[];
   /** Links other stays of the house already hold; their reservations are not available to auto-link. */
   otherLinks?: readonly ChannelLink[];
+  /** False = a stay that may not auto-link (`stayMayAutoLink`); only an explicit link resolves. Default true. */
+  derive?: boolean;
 }): { link: ChannelLink | undefined; range: ChannelOverlapRange | undefined; verified: boolean; derived: boolean } {
   const reservations = input.ranges.filter((range) => !isHostBlockRange({ hostBlock: range.hostBlock, summary: range.summary }));
   if (input.link) {
@@ -102,7 +108,10 @@ export function linkedRangeForStay(input: {
     );
     return { link: input.link, range, verified: Boolean(range), derived: false };
   }
-  const free = reservations.filter((range) => !(input.otherLinks ?? []).some((other) => linkTargetsRange(other, range)));
+  // Only Airbnb / Booking.com reservations can be linked to; every other provider (Vrbo, iCal, ...) stays in the
+  // overlap check so a stay on those nights is still a clash.
+  if (input.derive === false) return { link: undefined, range: undefined, verified: false, derived: false };
+  const free = reservations.filter((range) => isChannelLinkProvider(range.provider) && !(input.otherLinks ?? []).some((other) => linkTargetsRange(other, range)));
   const hit = autoLinkForStay(
     {
       propertyId: input.propertyId,
@@ -246,6 +255,7 @@ export function findChannelClashes(input: {
       link: native.link,
       ranges: reservations,
       otherLinks: links.filter((link) => link !== native.link),
+      derive: stayMayAutoLink({ residentName: native.name, blockKind: native.blockKind, reason: native.reason }),
     }).range;
     for (const range of reservations) {
       if (input.connectionId && range.connectionId !== input.connectionId) continue;

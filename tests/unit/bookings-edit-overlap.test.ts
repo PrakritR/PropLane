@@ -13,6 +13,8 @@ vi.mock("@/lib/portal-record-api", () => ({
     return { GET: vi.fn(), POST: vi.fn() };
   },
 }));
+// The landing house must be one the caller may write (no owner resolves from this fake db, which fails closed).
+vi.mock("@/lib/auth/manager-lease-scope", () => ({ managerCanWriteCalendarForProperty: async () => true }));
 await import("@/app/api/portal-schedule-records/route");
 
 type AtomicWrite = (input: Record<string, unknown>) => Promise<Record<string, unknown>>;
