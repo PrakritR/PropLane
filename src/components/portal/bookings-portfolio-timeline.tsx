@@ -13,6 +13,8 @@ import {
   lazyCache,
   narrowHouseBySearch,
   placeBars,
+  CLOSURE_HATCH,
+  roomHasClash,
   BAR_VISUAL_HEIGHT,
   LANE_PITCH,
   ROOM_ROW_MIN_HEIGHT,
@@ -104,7 +106,7 @@ export function propertyRooms(propertyId: string, entries: PropertyBookingEntry[
 }
 /** The calendar's colour key: one row that never wraps (it scrolls sideways on a phone), colour dot + name. */
 export function BookingsCalendarLegend() {
-  return <ul className="flex shrink-0 flex-nowrap items-center gap-x-4 overflow-x-auto whitespace-nowrap px-1 pt-1 text-xs text-muted" data-attr="bookings-calendar-legend" aria-label="Calendar colours">{["Hold", "Confirmed", "In-house", "Checked out", "Airbnb"].map(status => <li key={status} className="flex shrink-0 items-center gap-1.5"><span aria-hidden className={`h-2.5 w-2.5 rounded-full ${calendarStatusClass(status)}`} />{status === "Airbnb" ? "Airbnb / Booking.com" : status}</li>)}</ul>;
+  return <ul className="flex shrink-0 flex-nowrap items-center gap-x-4 overflow-x-auto whitespace-nowrap px-1 pt-1 text-xs text-muted" data-attr="bookings-calendar-legend" aria-label="Calendar colours">{["Hold", "Confirmed", "In-house", "Checked out", "Airbnb", "Booking.com", "PadSplit"].map(status => <li key={status} className="flex shrink-0 items-center gap-1.5"><span aria-hidden className={`h-2.5 w-2.5 rounded-full ${calendarStatusClass(status)}`} />{status}</li>)}<li className="flex shrink-0 items-center gap-1.5"><span aria-hidden className="h-2.5 w-2.5 rounded-full border border-slate-400" style={{ backgroundImage: CLOSURE_HATCH }} />Closed on a channel</li></ul>;
 }
 
 /**
@@ -206,8 +208,10 @@ const TimelineRow = memo(function TimelineRow({ row, ctx, stats, expanded }: { r
   }
   const { layout } = row;
   const room = layout.room;
+  // A double booking in view puts a red dot by the room's name, so it is found without scanning every bar.
+  const clash = roomHasClash(layout);
   const label = <div className={`${labelBase} px-2 sm:px-3`} style={labelStyle} title={title}>
-    <span className="truncate text-[13px] font-semibold leading-4 text-foreground sm:text-sm">{house.single ? house.name : room.label}</span>
+    <span className="flex min-w-0 items-center gap-1.5"><span className="truncate text-[13px] font-semibold leading-4 text-foreground sm:text-sm">{house.single ? house.name : room.label}</span>{clash ? <span role="img" aria-label="Double booked" title="Double booked" data-attr="bookings-room-clash" className="size-2 shrink-0 rounded-full bg-red-500" /> : null}</span>
     {house.single && room.label && room.label !== "Whole home" && room.label !== house.name ? <span className="truncate text-xs text-muted">{room.label}</span> : null}
     {room.rent ? <span className="truncate text-xs text-muted">{room.rent}</span> : null}
   </div>;

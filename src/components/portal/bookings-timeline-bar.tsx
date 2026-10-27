@@ -4,7 +4,7 @@ import { memo, useState, useSyncExternalStore, type CSSProperties, type Keyboard
 import { ArrowUpRight, Ban, Clock3, Pencil, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { BookingsAirbnbIcon } from "@/components/portal/bookings-airbnb-icon";
-import { barDisplayName, BAR_VISUAL_HEIGHT, LANE_PITCH, NARROW_GLYPH_PX, dayDiff } from "@/components/portal/bookings-timeline-layout";
+import { barDisplayName, BAR_VISUAL_HEIGHT, CLOSURE_HATCH, LANE_PITCH, NARROW_GLYPH_PX, dayDiff, isLongChannelClosure, isNoEndBlock } from "@/components/portal/bookings-timeline-layout";
 import { entryMoments, paidAddOnGlyphLabel, paidAddOnRows, stayTitleLine, type EntryStayTimes } from "@/components/portal/bookings-stay-times";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { VaulBottomSheet } from "@/components/ui/vaul-bottom-sheet";
@@ -103,14 +103,17 @@ export const BookingBar = memo(function BookingBar({ entry, today, placement, co
   const { status, dates, room, moments, timeRows } = barFacts(entry, today, times);
   const name = barDisplayName(entry);
   const style: CSSProperties | undefined = placement ? { position: "absolute", left: placement.left, top: placement.top, width: placement.width, height: LANE_PITCH } : undefined;
-  const visual = `${calendarStatusClass(status)} ${conflict ? "ring-2 ring-red-500" : ""}`;
+  // A channel's standing closure is a hatched bar, not a guest: it never reads as a stay.
+  const closure = isLongChannelClosure(entry);
+  const visual = `${closure ? "border border-slate-400 text-foreground" : calendarStatusClass(status)} ${conflict ? "ring-2 ring-red-500" : ""}`;
+  const hatch = closure ? { backgroundImage: CLOSURE_HATCH } : undefined;
   const face = placement?.narrow ? (
     <>
-      <span data-bar-visual="" className={`flex shrink-0 items-center justify-center overflow-clip rounded-lg text-[13px] font-semibold ${visual}`} style={{ width: placement.width, height: BAR_VISUAL_HEIGHT }}>{placement.width >= NARROW_GLYPH_PX ? channelGlyph(entry, false) : null}<span className="sr-only">{name}</span></span>
+      <span data-bar-visual="" className={`flex shrink-0 items-center justify-center overflow-clip rounded-lg text-[13px] font-semibold ${visual}`} style={{ width: placement.width, height: BAR_VISUAL_HEIGHT, ...hatch }}>{placement.width >= NARROW_GLYPH_PX ? channelGlyph(entry, false) : null}<span className="sr-only">{name}</span></span>
     </>
   ) : (
-    <span data-bar-visual="" className={`flex min-w-0 flex-1 flex-col justify-center overflow-clip rounded-lg text-left text-[13px] ${placement ? "" : "min-h-8 py-1"} ${visual}`} style={placement ? { height: BAR_VISUAL_HEIGHT } : undefined}>
-      <span className={placement ? "block truncate px-2 font-semibold leading-8" : "block truncate px-2 font-semibold"} style={placement ? { marginLeft: placement.nameInset, maxWidth: placement.width - placement.nameInset } : undefined}>{channelGlyph(entry)}{addOnGlyph(entry)}{name}</span>
+    <span data-bar-visual="" className={`flex min-w-0 flex-1 flex-col justify-center overflow-clip rounded-lg text-left text-[13px] ${placement ? "" : "min-h-8 py-1"} ${visual}`} style={placement ? { height: BAR_VISUAL_HEIGHT, ...hatch } : hatch}>
+      <span className={placement ? "block truncate px-2 font-semibold leading-8" : "block truncate px-2 font-semibold"} style={placement ? { marginLeft: placement.nameInset, maxWidth: placement.width - placement.nameInset } : undefined}>{closure ? null : channelGlyph(entry)}{addOnGlyph(entry)}<span className={closure ? "rounded bg-[var(--pl-surface-raised)] px-1" : undefined}>{name}</span>{isNoEndBlock(entry) ? <span data-attr="bookings-bar-no-end" className="ml-1.5 rounded bg-white/25 px-1 text-[11px] font-medium">no end</span> : null}</span>
       {detail}
     </span>
   );
