@@ -7,8 +7,10 @@
  * all: the card never prints "$0" or a dash for a price it does not have.
  */
 import type { ListingRichContent } from "@/data/listing-rich-content";
+import { listingOffersCustomLeaseSurcharge, listingOffersMonthToMonthSurcharge } from "@/lib/listing-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
+import { listingFoldsAllMonthlyFeesIntoRent, type RentRuleAddress } from "@/lib/seattle-rent-rule";
 
 export type ListingPriceLine = { label: string; amount: number; from: boolean };
 
@@ -59,12 +61,27 @@ export function listingMonthlyPriceLine(
   return null;
 }
 
-export type ListingPriceRow = { key: string; label: string; value: string };
+/** `title` is the row's hover text: the formula behind a figure, never a line printed under the row. */
+export type ListingPriceRow = { key: string; label: string; value: string; title?: string };
 
 type PriceRowsSubmission = {
   securityDeposit?: string | null;
+  monthToMonthSurcharge?: string | null;
+  customLeaseSurcharge?: string | null;
+  allowedLeaseTerms?: string[] | null;
+  leaseTermsBody?: string | null;
+  shortTermRentalsAllowed?: boolean | null;
+  airbnbRentalsAllowed?: boolean | null;
+  address?: string;
+  city?: string;
+  state?: string;
+  neighborhood?: string;
+  zip?: string;
   rooms?: Array<{ id?: string; name?: string; securityDeposit?: string | null }> | null;
 } | null | undefined;
+
+/** The first month is billed by the day; the formula is the row's tooltip. */
+export const FIRST_MONTH_PRORATION_FORMULA = "Monthly rent ÷ days in that month × days you stay";
 
 const money = (n: number) => formatRoomPriceAmount(n);
 
@@ -78,6 +95,8 @@ export function listingPriceRows(
   sub: PriceRowsSubmission,
   nightlyFrom: number,
   formatLabelMoney: (value: string) => string = (v) => v,
+  /** The stored property record: a Seattle property whose submission never recorded a city is still Seattle. */
+  listingProperty?: RentRuleAddress | null,
 ): ListingPriceRow[] {
   const rows: ListingPriceRow[] = [];
   const breakdown = rich.pricingBreakdown ?? [];
@@ -110,9 +129,37 @@ export function listingPriceRows(
   if (nightly) rows.push({ key: "nightly", label: "Nightly rate", value: formatLabelMoney(nightly.value) });
   else if (nightlyFrom > 0) rows.push({ key: "nightly", label: "Nightly rate", value: `from ${money(nightlyFrom)}/night` });
 
+  // The two lease-length surcharges are their own labelled rows, behind the same gate every reader uses
+  // (offered lease length + the Seattle fold-into-rent rule), so a surcharge that is never billed is never shown.
+  const gateSub = sub as Parameters<typeof listingOffersMonthToMonthSurcharge>[0] | null | undefined;
+  const mtm = parseMoneyAmount(sub?.monthToMonthSurcharge ?? "");
+  const showMtm = mtm > 0 && gateSub != null && listingOffersMonthToMonthSurcharge(gateSub, listingProperty);
+  if (showMtm) rows.push({ key: "month-to-month", label: "Month-to-month", value: `+${money(mtm)}/mo` });
+  const custom = parseMoneyAmount(sub?.customLeaseSurcharge ?? "");
+  const showCustom =
+    custom > 0 &&
+    gateSub != null &&
+    listingOffersCustomLeaseSurcharge(gateSub) &&
+    !listingFoldsAllMonthlyFeesIntoRent(gateSub, listingProperty);
+  if (showCustom) {
+    rows.push({ key: "custom-term", label: "Custom term · starts any day", value: `+${money(custom)}/mo` });
+  }
+  // A monthly rent is what gets prorated; a listing with no monthly price has nothing to prorate.
+  if (line) {
+    rows.push({ key: "first-month", label: "First month", value: "Prorated by day", title: FIRST_MONTH_PRORATION_FORMULA });
+  }
+
   const handled = (label: string) => {
     const l = label.trim().toLowerCase();
-    return l === "application fee" || l === "nightly rate" || l === "security deposit" || l.startsWith("deposit ·");
+    return (
+      l === "application fee" ||
+      l === "nightly rate" ||
+      l === "security deposit" ||
+      l.startsWith("deposit ·") ||
+      // Already shown above as the labelled surcharge rows (or deliberately hidden by the gate).
+      l === "month-to-month surcharge" ||
+      l === "custom lease"
+    );
   };
   breakdown.forEach((other, index) => {
     if (handled(other.label) || !other.value?.trim()) return;
