@@ -31,6 +31,7 @@ const config = (): SharedLineConfig => ({ mode: "shared", sharedNumber: "+120667
 function world(extra: Record<string, FakeRow[]> = {}) {
   return fakeSharedLineDb({
     platform_service_settings: [{ singleton: true, owner_user_id: SERVICE_OWNER }],
+    sms_runtime_config: [{ singleton: true, line_mode: "shared", shared_number_e164: "+12066781909", shared_messaging_service_sid: "MGshared", shared_pilot_workspace_ids: [] }],
     portal_workspaces: [
       { id: SERVICE_WS, name: "PropLane", owner_user_id: SERVICE_OWNER, is_default: true },
       { id: "ws-a", name: "Brooklyn Homes", owner_user_id: "owner-a", is_default: true },
@@ -110,6 +111,50 @@ describe("an admin's text to the PropLane line", () => {
     const { db } = world();
     const result = await run(db, MANAGER_PHONE, "any update on the sink");
     expect(result).toEqual({ kind: "continue", owned: { managerId: "owner-a", workspaceId: "ws-a", messagingServiceSid: "MGshared" } });
+  });
+});
+
+describe("control words and recognition come before the admin Assistant branch", () => {
+  it("a control word from an admin's phone is handled as on any phone, not swallowed by the Assistant", async () => {
+    for (const body of ["human", "there is a gas leak in the kitchen", "leave group"]) {
+      unassigned.mockClear();
+      const { db } = world();
+      expect((await run(db, PRAKRIT_PHONE, body)).kind).not.toBe("continue");
+    }
+  });
+
+  it("the HUMAN keyword takes today's path for an admin: no Assistant continue, and the lead queue answers", async () => {
+    const { db } = world();
+    const result = await run(db, PRAKRIT_PHONE, "HUMAN");
+    expect(result.kind).toBe("handled");
+    expect(unassigned).toHaveBeenCalled();
+  });
+
+  it("continues only when the pipeline's own recognition will succeed: a line it cannot place falls through", async () => {
+    // No sms_runtime_config row: recognizeServiceManagerInbound cannot place the text on the PropLane line, so the
+    // pipeline would treat the sender as nobody. The seam must not promise an Assistant turn it cannot deliver.
+    const { db } = fakeSharedLineDb({
+      platform_service_settings: [{ singleton: true, owner_user_id: SERVICE_OWNER }],
+      portal_workspaces: [{ id: SERVICE_WS, name: "PropLane", owner_user_id: SERVICE_OWNER, is_default: true }],
+      profiles: [{ id: "admin-prakrit", email: "p@x.com", phone: PRAKRIT_PHONE, phone_verified_at: VERIFIED }],
+      profile_roles: [{ user_id: "admin-prakrit", role: "admin" }],
+    });
+    const result = await run(db, PRAKRIT_PHONE);
+    expect(result.kind).toBe("handled");
+    expect(unassigned).toHaveBeenCalled();
+  });
+
+  it("a text with no shared number on the config never continues as an admin", async () => {
+    const { db } = world();
+    const result = await handleSharedLineInbound(db as never, {
+      config: { ...config(), sharedNumber: null },
+      fromPhone: PRAKRIT_PHONE,
+      body: "which rooms are free in nov",
+      messageSid: "SM1",
+      mediaCount: 0,
+      phoneKey: "5103098345",
+    });
+    expect(result.kind).not.toBe("continue");
   });
 });
 

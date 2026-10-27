@@ -19,7 +19,8 @@ import { ADMIN_INVITE_CODE_MINUTES, parseStoredAdminGrant } from "@/lib/admin-te
  * without an inbox round-trip, therefore cannot be used to take an admin grant.
  *
  * The challenge is stateless: an HMAC over (link, address, expiry, code) keyed with a server secret, so no new table is
- * needed. Verifying is rate limited per link, so a 6-digit code cannot be ground through.
+ * needed. Verifying is capped at five attempts per link (across every challenge), so a 6-digit code cannot be ground
+ * through; a locked link is replaced by Resend, which mints a new one.
  */
 
 export type ProofResult<T> = ({ ok: true } & T) | { ok: false; status: number; error: string };
@@ -27,6 +28,11 @@ const fail = (status: number, error: string) => ({ ok: false as const, status, e
 
 export const ADMIN_CODE_WRONG_ERROR = "That code is not right. Check it and try again.";
 export const ADMIN_CODE_EXPIRED_ERROR = "That code has expired. Send a new one.";
+export const ADMIN_INVITE_LOCKED_ERROR = "This invite is locked — ask for a new one.";
+/** Code attempts one link allows across ALL its challenges (a new code does not reset it). Resend mints a new link. */
+export const ADMIN_CODE_ATTEMPTS_PER_LINK = 5;
+/** The limiter's longest window is one day, so the lock is per day; the link itself lives seven. */
+const ADMIN_CODE_ATTEMPT_WINDOW_MS = 24 * 60 * 60_000;
 export const ADMIN_ACCOUNT_EXISTS_ERROR = "An account with this email already exists. Sign in to accept this invite.";
 
 function secret(): string | null {
@@ -116,7 +122,10 @@ export async function createVerifiedAdminAccount(
   const loaded = await loadLiveAdminLink(db, input.token);
   if (!loaded.ok) return loaded;
   const { link } = loaded;
-  if (!(await rateLimit(`admin-invite-code-verify:${link.id}`, 10, 10 * 60_000)).ok) return fail(429, "Too many tries. Wait a few minutes and send a new code.");
+  // One budget per LINK, spent before the code is looked at (so a right guess cannot be tried without paying for the
+  // wrong ones) and shared by every challenge: asking for a fresh code does not buy fresh guesses.
+  const attempt = await rateLimit(`admin-invite-code-verify:${link.id}`, ADMIN_CODE_ATTEMPTS_PER_LINK, ADMIN_CODE_ATTEMPT_WINDOW_MS);
+  if (!attempt.ok) return attempt.unavailable ? fail(503, "Could not check the code. Try again later.") : fail(429, ADMIN_INVITE_LOCKED_ERROR);
   const code = input.code.trim();
   const [expRaw, signature] = input.challenge.split(".");
   const expiresAt = Number(expRaw);

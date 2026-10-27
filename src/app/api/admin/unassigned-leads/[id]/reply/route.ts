@@ -22,7 +22,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   } catch {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
-  const result = await sendAdminLeadReply(createSupabaseServiceRoleClient(), { leadId: id, text: typeof body.text === "string" ? body.text : "" });
+  const result = await sendAdminLeadReply(createSupabaseServiceRoleClient(), { leadId: id, text: typeof body.text === "string" ? body.text : "", adminUserId: admin.userId });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
   return NextResponse.json({ ok: true });
 }

@@ -1555,7 +1555,7 @@ async function redeemAdminLink(args: {
   // emailed-code proof (or a provider that verified the address). Checked before a use is spent.
   const auth = await db.auth.admin.getUserById(redeemerUserId).catch(() => null);
   const authUser = auth?.data?.user ?? null;
-  if (!adminInviteAccountProven(authUser as never, { id: String(link.id), created_at: link.created_at })) {
+  if (!adminInviteAccountProven(authUser as never, { id: String(link.id), created_at: link.created_at, email: args.boundInviteeEmail })) {
     return { ok: false, status: 403, error: ADMIN_EMAIL_UNPROVEN_ERROR };
   }
   const spent = await args.spendUse();

@@ -38,6 +38,17 @@ vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () =
 vi.mock("@/lib/one-number/personal-number-entitlement.server", () => ({
   managerPersonalNumberEntitlement: vi.fn(async () => ({ ok: true as const, entitled: false as const, tier: "free" as const })),
 }));
+// The real limiter's semantics (a counter per key, ok until `limit` is spent), but reset for every test so the
+// per-actor invite budget of one test never leaks into the next.
+const limiter = vi.hoisted(() => ({ counts: new Map<string, number>(), calls: [] as { key: string; limit: number; windowMs: number }[] }));
+vi.mock("@/lib/rate-limit", () => ({
+  rateLimit: vi.fn(async (key: string, limit: number, windowMs: number) => {
+    limiter.calls.push({ key, limit, windowMs });
+    const used = (limiter.counts.get(key) ?? 0) + 1;
+    limiter.counts.set(key, used);
+    return { ok: used <= limit };
+  }),
+}));
 const sentEmails = vi.hoisted(() => ({ items: [] as Array<{ to: string[]; subject: string; text: string }> }));
 vi.mock("@/lib/resend-delivery.server", () => ({
   postResendEmail: vi.fn(async (args: { payload: { to: string[]; subject: string; text: string } }) => {
@@ -83,6 +94,8 @@ function signUp(id: string, opts: { confirmed?: boolean } = {}) {
 }
 
 beforeEach(async () => {
+  limiter.counts.clear();
+  limiter.calls.length = 0;
   sentEmails.items.length = 0;
   state.signedIn = null;
   db = makeServiceFakeDb({
@@ -360,7 +373,10 @@ describe("a new account must prove it reads the invited inbox", () => {
 
   it("an account that signed in with Google (the provider verified the address) is accepted without a code", async () => {
     await invite(PRAKRIT, { email: NEWBIE, role: "overall_admin" });
-    const viaGoogle = createUser({ app_metadata: { provider: "google", providers: ["google"] } });
+    const viaGoogle = createUser({
+      app_metadata: { provider: "google", providers: ["google"] },
+      identities: [{ provider: "google", identity_data: { email: NEWBIE, email_verified: true } }],
+    });
     expect(await redeem(viaGoogle, lastToken())).toMatchObject({ ok: true, role: "overall_admin" });
   });
 
@@ -624,5 +640,250 @@ describe("the routes", () => {
     // A Property manager seat is staff of the shell now (PropLane issued it), but reaches only its own houses and levels.
     const seat = db.tables.account_link_invites.find((l) => l.invitee_user_id === SAM && l.workspace_id === AMBIKA)!;
     expect(seat.team_role).toBe("property_manager");
+  });
+});
+
+describe("Google / Apple proof is tied to the bound email", () => {
+  const NEWBIE = "newbie@example.com";
+  const authUsers = () => (db.auth as { users: Map<string, Record<string, unknown>> }).users;
+  const NEWBIE_ID = "88888888-8888-4888-8888-888888888888";
+  const googleUser = (over: Record<string, unknown>) => {
+    authUsers().set(NEWBIE_ID, {
+      id: NEWBIE_ID,
+      email: NEWBIE,
+      created_at: new Date(Date.now() + 1000).toISOString(),
+      app_metadata: { provider: "google", providers: ["google"] },
+      email_confirmed_at: "2026-10-27T00:00:00Z",
+      user_metadata: {},
+      ...over,
+    });
+    return NEWBIE_ID;
+  };
+
+  it("a providers list alone is not proof: no identity, or an identity for another address, is refused", async () => {
+    await invite(PRAKRIT, { email: NEWBIE, role: "overall_admin" });
+    const token = lastToken();
+    expect(await redeem(googleUser({}), token)).toMatchObject({ ok: false, status: 403 });
+    googleUser({ identities: [{ provider: "google", identity_data: { email: "someone-else@example.com", email_verified: true } }] });
+    expect(await redeem(NEWBIE_ID, token)).toMatchObject({ ok: false, status: 403 });
+    googleUser({ identities: [{ provider: "github", identity_data: { email: NEWBIE, email_verified: true } }] });
+    expect(await redeem(NEWBIE_ID, token)).toMatchObject({ ok: false, status: 403 });
+    expect(roleHolders(db)).toEqual([PRAKRIT]);
+    expect(db.tables.manager_invite_links[0]!.used_count).toBe(0);
+  });
+
+  it("an identity whose address the provider did not verify is refused", async () => {
+    await invite(PRAKRIT, { email: NEWBIE, role: "overall_admin" });
+    googleUser({ identities: [{ provider: "google", identity_data: { email: NEWBIE, email_verified: false } }] });
+    expect(await redeem(NEWBIE_ID, lastToken())).toMatchObject({ ok: false, status: 403 });
+    expect(roleHolders(db)).toEqual([PRAKRIT]);
+  });
+
+  it("a verified Google or Apple identity on the bound address (any letter case) is accepted", async () => {
+    await invite(PRAKRIT, { email: NEWBIE, role: "overall_admin" });
+    googleUser({ identities: [{ provider: "apple", identity_data: { email: "NewBie@Example.com", email_verified: "true" } }] });
+    expect(await redeem(NEWBIE_ID, lastToken())).toMatchObject({ ok: true, role: "overall_admin" });
+  });
+
+  it("an account older than the invite still passes, but only with a confirmed address", async () => {
+    await invite(PRAKRIT, { email: "aarav@example.com", role: "overall_admin" });
+    const token = lastToken();
+    authUsers().get(AARAV)!.email_confirmed_at = null;
+    expect(await redeem(AARAV, token)).toMatchObject({ ok: false, status: 403 });
+    authUsers().get(AARAV)!.email_confirmed_at = "2026-10-27T00:00:00Z";
+    expect(await redeem(AARAV, token)).toMatchObject({ ok: true });
+  });
+});
+
+describe("the emailed code is capped across challenges", () => {
+  const NEWBIE = "newbie@example.com";
+  const codeFromEmail = () => /\b(\d{6})\b/.exec(sentEmails.items.at(-1)!.text)![1]!;
+  const create = (token: string, challenge: string, code: string) =>
+    proof.createVerifiedAdminAccount(client(), { token, challenge, code, fullName: "New Admin", phone: "", password: "a-long-password" });
+  const sendCode = async (token: string) => {
+    const sent = await proof.sendAdminInviteCode(client(), { token });
+    if (!sent.ok) throw new Error(sent.error);
+    return sent;
+  };
+
+  it("five wrong guesses lock the link, a fresh code does not reset it, and Resend mints a link that works", async () => {
+    await invite(PRAKRIT, { email: NEWBIE, role: "overall_admin" });
+    const token = lastToken();
+    const first = await sendCode(token);
+    const wrong = codeFromEmail() === "000000" ? "111111" : "000000";
+    for (let i = 0; i < 5; i++) {
+      expect(await create(token, first.challenge, wrong)).toMatchObject({ ok: false, error: proof.ADMIN_CODE_WRONG_ERROR });
+    }
+    // A brand-new challenge, with its right code, is still refused: the budget belongs to the link.
+    const second = await sendCode(token);
+    const refused = await create(token, second.challenge, codeFromEmail());
+    expect(refused).toMatchObject({ ok: false, status: 429, error: "This invite is locked — ask for a new one." });
+    expect((db.auth as { users: Map<string, Record<string, unknown>> }).users.size).toBe(6);
+
+    // The admin resends: the old link is off, the new one has its own budget.
+    const inviteId = String(db.tables.manager_invite_links[0]!.id);
+    expect(await invites.resendAdminInvite(client(), PRAKRIT, await actorOf(PRAKRIT), inviteId)).toMatchObject({ ok: true });
+    const freshToken = lastToken();
+    const third = await sendCode(freshToken);
+    expect(await create(freshToken, third.challenge, codeFromEmail())).toMatchObject({ ok: true, email: NEWBIE });
+  });
+});
+
+describe("changing a teammate never seats a stranger or breaks a demotion halfway", () => {
+  async function aaravOverall() {
+    await invite(PRAKRIT, { email: "aarav@example.com", role: "overall_admin" });
+    await redeem(AARAV, lastToken());
+    sentEmails.items.length = 0;
+  }
+
+  it("a demotion whose seat would be refused changes nothing: the Overall role stays, nothing is audited as revoked", async () => {
+    await aaravOverall();
+    const actor = await actorOf(PRAKRIT);
+    const res = await team.changeAdminTeamMember(client(), PRAKRIT, actor, {
+      userId: AARAV,
+      role: "viewer",
+      workspaceIds: [AMBIKA],
+      access: { houseScope: "selected", assignedPropertyIds: ["house-3"] },
+    });
+    expect(res).toMatchObject({ ok: false });
+    expect(roleHolders(db)).toContain(AARAV);
+    expect(auditActions()).not.toContain("admin_team_revoke");
+    expect(db.tables.account_link_invites.some((l) => l.invitee_user_id === AARAV)).toBe(false);
+  });
+
+  it("an account that is on no team cannot be seated or promoted through the body userId; an invite is the way in", async () => {
+    const actor = await actorOf(PRAKRIT);
+    expect(await team.changeAdminTeamMember(client(), PRAKRIT, actor, { userId: STRANGER, role: "viewer", workspaceIds: [AMBIKA], access: {} })).toMatchObject({
+      ok: false,
+      status: 404,
+      error: team.NOT_ON_TEAM_ERROR,
+    });
+    expect(await team.changeAdminTeamMember(client(), PRAKRIT, actor, { userId: STRANGER, role: "overall_admin", workspaceIds: [], access: {} })).toMatchObject({ ok: false, status: 404 });
+    expect(db.tables.account_link_invites.some((l) => l.invitee_user_id === STRANGER)).toBe(false);
+    expect(roleHolders(db)).toEqual([PRAKRIT]);
+  });
+
+  it("a workspace admin cannot move someone whose only seat is outside their reach", async () => {
+    await invite(PRAKRIT, { email: "jordan@example.com", role: "admin", workspaceIds: [AMBIKA] });
+    await redeem(JORDAN, lastToken());
+    await invite(PRAKRIT, { email: "sam@example.com", role: "viewer", workspaceIds: [VINOD] });
+    await redeem(SAM, lastToken());
+    const jordan = await actorOf(JORDAN);
+    expect(await team.changeAdminTeamMember(client(), JORDAN, jordan, { userId: SAM, role: "viewer", workspaceIds: [AMBIKA], access: {} })).toMatchObject({ ok: false, status: 404 });
+    expect(db.tables.account_link_invites.some((l) => l.invitee_user_id === SAM && l.workspace_id === AMBIKA)).toBe(false);
+  });
+
+  it("a seat the workspace's own owner issued is never silently converted into a PropLane seat", async () => {
+    await invite(PRAKRIT, { email: "sam@example.com", role: "viewer", workspaceIds: [VINOD] });
+    await redeem(SAM, lastToken());
+    db.tables.account_link_invites.push({
+      id: "client-seat-1",
+      inviter_user_id: OWNER,
+      invitee_user_id: SAM,
+      workspace_id: AMBIKA,
+      status: "accepted",
+      team_role: "viewer",
+      is_service_seat: false,
+    });
+    const actor = await actorOf(PRAKRIT);
+    const res = await team.changeAdminTeamMember(client(), PRAKRIT, actor, { userId: SAM, role: "property_manager", workspaceIds: [AMBIKA, VINOD], access: {} });
+    expect(res).toMatchObject({ ok: false, status: 409, error: team.CLIENT_SEAT_ERROR });
+    const seat = db.tables.account_link_invites.find((l) => l.id === "client-seat-1")!;
+    expect(seat).toMatchObject({ team_role: "viewer", is_service_seat: false, status: "accepted" });
+    // Nothing else moved: Vinod is still the viewer seat it was.
+    expect(db.tables.account_link_invites.find((l) => l.invitee_user_id === SAM && l.workspace_id === VINOD)).toMatchObject({ team_role: "viewer" });
+  });
+
+  it("someone already on the team can still be changed", async () => {
+    await invite(PRAKRIT, { email: "sam@example.com", role: "viewer", workspaceIds: [AMBIKA] });
+    await redeem(SAM, lastToken());
+    const actor = await actorOf(PRAKRIT);
+    expect(await team.changeAdminTeamMember(client(), PRAKRIT, actor, { userId: SAM, role: "property_manager", workspaceIds: [AMBIKA], access: {} })).toEqual({ ok: true });
+    expect(db.tables.account_link_invites.find((l) => l.invitee_user_id === SAM)).toMatchObject({ team_role: "property_manager", is_service_seat: true });
+  });
+});
+
+describe("invites and resends are rate limited, and the inviter's name is cleaned", () => {
+  it("allows 20 per hour per inviter across invites and resends, then refuses with no link and no email", async () => {
+    for (let i = 0; i < 19; i++) expect(await invite(PRAKRIT, { email: `person${i}@example.com`, role: "overall_admin" })).toMatchObject({ ok: true });
+    const inviteId = String(db.tables.manager_invite_links[0]!.id);
+    expect(await invites.resendAdminInvite(client(), PRAKRIT, await actorOf(PRAKRIT), inviteId)).toMatchObject({ ok: true });
+    const links = db.tables.manager_invite_links.length;
+    const emails = sentEmails.items.length;
+    expect(await invite(PRAKRIT, { email: "one-too-many@example.com", role: "overall_admin" })).toMatchObject({ ok: false, status: 429 });
+    expect(await invites.resendAdminInvite(client(), PRAKRIT, await actorOf(PRAKRIT), String(db.tables.manager_invite_links.at(-1)!.id))).toMatchObject({ ok: false, status: 429 });
+    expect(db.tables.manager_invite_links).toHaveLength(links);
+    expect(sentEmails.items).toHaveLength(emails);
+    expect(limiter.calls[0]).toEqual({ key: `admin-team-invite:${PRAKRIT}`, limit: 20, windowMs: 3_600_000 });
+  });
+
+  it("the budget is per inviter: one admin spending theirs does not stop another", async () => {
+    await invite(PRAKRIT, { email: "aarav@example.com", role: "overall_admin" });
+    await redeem(AARAV, lastToken());
+    for (let i = 0; i < 19; i++) await invite(PRAKRIT, { email: `person${i}@example.com`, role: "overall_admin" });
+    expect(await invite(PRAKRIT, { email: "x@example.com", role: "overall_admin" })).toMatchObject({ ok: false, status: 429 });
+    expect(await invite(AARAV, { email: "y@example.com", role: "overall_admin" })).toMatchObject({ ok: true });
+  });
+
+  it("links, markup and length are stripped from the inviter's name in the email", async () => {
+    const profile = db.tables.profiles.find((p) => p.id === PRAKRIT)!;
+    profile.full_name = `Eve <b>click</b> https://phish.example/login www.phish.example ${"x".repeat(200)}`;
+    await invite(PRAKRIT, { email: "aarav@example.com", role: "overall_admin" });
+    const text = sentEmails.items.at(-1)!.text;
+    expect(text).not.toMatch(/phish/);
+    expect(text).not.toMatch(/[<>]/);
+    expect(text).toContain("Eve b click /b");
+    expect(text).not.toContain("x".repeat(61));
+  });
+
+  it("sanitizeInviterName falls back when nothing is left", async () => {
+    const { sanitizeInviterName } = await import("@/lib/admin-team/admin-team-model");
+    expect(sanitizeInviterName("https://evil.example <>")).toBe("A PropLane admin");
+    expect(sanitizeInviterName("  Prakrit   R. ")).toBe("Prakrit R.");
+    expect(sanitizeInviterName("a".repeat(100))).toHaveLength(60);
+  });
+});
+
+describe("the audit row records the outcome", () => {
+  const rowsFor = (action: string) => db.tables.audit_log.filter((r) => r.action === action);
+
+  it("an invite that went out is applied; one that could not be emailed is not", async () => {
+    await invite(PRAKRIT, { email: "aarav@example.com", role: "overall_admin" });
+    expect(rowsFor("admin_team_invite").at(-1)!.result_summary).toEqual({ applied: true });
+    const { postResendEmail } = await import("@/lib/resend-delivery.server");
+    vi.mocked(postResendEmail).mockImplementationOnce(async () => new Response(JSON.stringify({ message: "nope" }), { status: 500 }));
+    expect(await invite(PRAKRIT, { email: "jordan@example.com", role: "overall_admin" })).toMatchObject({ ok: false, status: 502 });
+    expect(rowsFor("admin_team_invite").at(-1)!.result_summary).toMatchObject({ applied: false });
+  });
+
+  it("a redeem that applies is applied; one handed back after the intent row is written is not", async () => {
+    await invite(PRAKRIT, { email: "aarav@example.com", role: "overall_admin" });
+    expect(await redeem(AARAV, lastToken())).toMatchObject({ ok: true });
+    expect(rowsFor("admin_team_grant").at(-1)!.result_summary).toEqual({ applied: true });
+
+    await invite(PRAKRIT, { email: "sam@example.com", role: "property_manager", workspaceIds: [AMBIKA], access: { houseScope: "selected", assignedPropertyIds: ["house-1"] } });
+    const token = lastToken();
+    // The house disappears before the invitee accepts: the seat is refused after the audit row exists.
+    db.tables.manager_property_records = db.tables.manager_property_records.filter((r) => r.id !== "house-1");
+    expect(await redeem(SAM, token)).toMatchObject({ ok: false });
+    expect(rowsFor("admin_team_grant").at(-1)!.result_summary).toMatchObject({ applied: false, error: "seat_failed" });
+    expect(db.tables.manager_invite_links.at(-1)!.used_count).toBe(0);
+  });
+
+  it("a demotion and a removal are applied once they took effect", async () => {
+    await invite(PRAKRIT, { email: "aarav@example.com", role: "overall_admin" });
+    await redeem(AARAV, lastToken());
+    const actor = await actorOf(PRAKRIT);
+    expect(await team.changeAdminTeamMember(client(), PRAKRIT, actor, { userId: AARAV, role: "viewer", workspaceIds: [AMBIKA], access: {} })).toEqual({ ok: true });
+    expect(rowsFor("admin_team_revoke").at(-1)!.result_summary).toEqual({ applied: true });
+
+    await invite(PRAKRIT, { email: "jordan@example.com", role: "overall_admin" });
+    await redeem(JORDAN, lastToken());
+    expect(await team.removeAdminTeamMember(client(), PRAKRIT, await actorOf(PRAKRIT), { userId: JORDAN })).toEqual({ ok: true });
+    expect(rowsFor("admin_team_revoke").at(-1)!.result_summary).toEqual({ applied: true });
+
+    await invite(PRAKRIT, { email: "sam@example.com", role: "viewer", workspaceIds: [AMBIKA] });
+    expect(await team.removeAdminTeamMember(client(), PRAKRIT, await actorOf(PRAKRIT), { inviteId: String(db.tables.manager_invite_links.at(-1)!.id) })).toEqual({ ok: true });
+    expect(rowsFor("admin_team_invite_revoke").at(-1)!.result_summary).toEqual({ applied: true });
   });
 });

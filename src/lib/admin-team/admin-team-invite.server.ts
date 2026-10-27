@@ -5,6 +5,7 @@ import { ADMIN_INVITE_SUBJECT, buildAdminInviteBody } from "@/lib/co-manager-lin
 import { inviteLinkUrl } from "@/lib/invite-links/invite-link-model";
 import { mintAdminInviteToken, hashInviteLinkToken } from "@/lib/invite-links/invite-links.server";
 import { sharedPortalFromAddress } from "@/lib/manager-outbound-identity.server";
+import { rateLimit } from "@/lib/rate-limit";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 import { auditAdminTeam, type AdminTeamFailure } from "@/lib/admin-team/admin-team-audit.server";
 import {
@@ -15,6 +16,7 @@ import {
   normalizeAdminInviteEmail,
   parseAdminTeamRole,
   parseStoredAdminGrant,
+  sanitizeInviterName,
   type AdminTeamActor,
   type StoredAdminGrant,
 } from "@/lib/admin-team/admin-team-model";
@@ -25,6 +27,10 @@ import { checkAdminTeamSeatGrant } from "@/lib/service/service-workspaces.server
  * Minting and emailing an Admin team invite (kind `admin`): one use, bound to one email, seven days. The grant it will
  * make is stored on the row by the inviter here and re-validated at redemption; the opener names nothing.
  */
+
+/** Invites and resends one admin may send per hour; every send is a PropLane-signed email to an address they name. */
+export const ADMIN_INVITES_PER_HOUR = 20;
+export const ADMIN_INVITE_RATE_ERROR = "You have sent a lot of invites. Try again in an hour.";
 
 export type InviteAdminResult = { ok: true; inviteId: string; emailed: true } | AdminTeamFailure;
 const fail = (status: number, error: string): AdminTeamFailure => ({ ok: false, status, error });
@@ -50,7 +56,7 @@ async function sendAdminInviteEmail(
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return { ok: false, error: "Email delivery is not configured (set RESEND_API_KEY)." };
   const { data } = await db.from("profiles").select("full_name, email").eq("id", input.inviterUserId).maybeSingle();
-  const inviterName = (data as { full_name?: string | null; email?: string | null } | null)?.full_name?.trim() || "A PropLane admin";
+  const inviterName = sanitizeInviterName((data as { full_name?: string | null } | null)?.full_name);
   const acceptUrl = inviteLinkUrl(resolveEmailLinkBaseUrl(), input.token);
   try {
     const res = await postResendEmail({
@@ -116,10 +122,13 @@ export async function inviteAdminTeamMember(
   }
   const names = await workspaceNames(db, workspaceIds);
   if (workspaceIds.some((id) => !names.has(id))) return fail(404, "Service workspace not found.");
+  // After every refusal that costs nothing, before the first write: a resend comes through here too, so one budget covers both.
+  const budget = await rateLimit(`admin-team-invite:${inviterUserId}`, ADMIN_INVITES_PER_HOUR, 60 * 60_000);
+  if (!budget.ok) return budget.unavailable ? fail(503, "Could not send the invite. Try again later.") : fail(429, ADMIN_INVITE_RATE_ERROR);
 
   const stored: StoredAdminGrant = { role, workspaceIds, access: role === OVERALL_ADMIN_ROLE ? {} : { ...(input.access ?? {}) } };
   const audited = await auditAdminTeam(db, inviterUserId, "admin_team_invite", { inviteeEmail: email, role, workspaceIds });
-  if (audited) return audited;
+  if (!audited.ok) return audited;
 
   const token = mintAdminInviteToken();
   const expiresAt = new Date(Date.now() + ADMIN_INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -139,7 +148,10 @@ export async function inviteAdminTeamMember(
     })
     .select("id")
     .maybeSingle();
-  if (inserted.error || !inserted.data) return fail(503, "Could not create the invite. Please retry.");
+  if (inserted.error || !inserted.data) {
+    await audited.finish(false, { error: "insert_failed" });
+    return fail(503, "Could not create the invite. Please retry.");
+  }
   const inviteId = String((inserted.data as { id: unknown }).id);
 
   const sent = await sendAdminInviteEmail(db, {
@@ -152,8 +164,10 @@ export async function inviteAdminTeamMember(
   if (!sent.ok) {
     // An invite nobody was told about must not sit live.
     await db.from("manager_invite_links").update({ revoked_at: new Date().toISOString() }).eq("id", inviteId);
+    await audited.finish(false, { error: "email_failed" });
     return fail(502, `The invite could not be emailed: ${sent.error}`);
   }
+  await audited.finish(true);
   return { ok: true, inviteId, emailed: true };
 }
 

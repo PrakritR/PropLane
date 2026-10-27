@@ -193,26 +193,74 @@ export type AdminTeamPayload = {
 };
 
 
+/** The slice of a Supabase auth user the proof reads. `identities` is what a provider (Google, Apple) verified. */
+export type AdminInviteAuthUser = {
+  created_at?: string | null;
+  email_confirmed_at?: string | null;
+  app_metadata?: Record<string, unknown> | null;
+  identities?: { provider?: string | null; identity_data?: Record<string, unknown> | null }[] | null;
+};
+
+/** `email_verified` arrives as a boolean or the string "true"; absent is not a denial (Apple omits it). Anything else is. */
+function identityEmailVerified(value: unknown): boolean {
+  return value === undefined || value === null || value === true || value === "true";
+}
+
+/** A Google / Apple identity on this account whose OWN email is the invite's bound address, verified by the provider. */
+function providerVerifiedBoundEmail(user: AdminInviteAuthUser, boundEmail: string): boolean {
+  const bound = boundEmail.trim().toLowerCase();
+  if (!bound) return false;
+  return (user.identities ?? []).some((identity) => {
+    const provider = String(identity?.provider ?? "").toLowerCase();
+    if (provider !== "google" && provider !== "apple") return false;
+    const data = identity?.identity_data ?? {};
+    return String(data.email ?? "").trim().toLowerCase() === bound && identityEmailVerified(data.email_verified);
+  });
+}
+
 /**
  * Has this account proven it controls the invited inbox? An admin invite is bound to an email, but the generic sign-up
  * confirms an address without any inbox round-trip, so a holder of a forwarded link could otherwise create the account
- * and take the grant. An account that existed BEFORE the invite was minted signed in as itself (the person's own login);
- * one created AFTER must carry the server's proof (`app_metadata.admin_invite_proof`, written only by the emailed-code
- * route, and only for this link) or come from an identity provider that verified the address (Google, Apple). Anything
- * unreadable fails closed.
+ * and take the grant. One created AFTER the invite was minted must carry the server's proof
+ * (`app_metadata.admin_invite_proof`, written only by the emailed-code route, and only for this link) or hold a Google /
+ * Apple identity whose own verified email IS the invite's bound address (the providers list alone proves nothing: it
+ * names a provider, not whose address it verified). An account that existed BEFORE the invite signed in as itself, but its
+ * address must be confirmed. Anything unreadable fails closed.
+ *
+ * Residual (accepted, documented in docs/agents/admin-service.md): someone who pre-registered the invitee's address
+ * before any invite existed, and confirmed it, still holds that login.
  */
 export function adminInviteAccountProven(
-  user: { created_at?: string | null; app_metadata?: Record<string, unknown> | null } | null | undefined,
-  link: { id: string; created_at: string | null | undefined },
+  user: AdminInviteAuthUser | null | undefined,
+  link: { id: string; created_at: string | null | undefined; email: string },
 ): boolean {
   if (!user) return false;
   const app = user.app_metadata ?? {};
   if (app.admin_invite_proof === link.id) return true;
-  const providers = [app.provider, ...(Array.isArray(app.providers) ? app.providers : [])].map((p) => String(p ?? "").toLowerCase());
-  if (providers.includes("google") || providers.includes("apple")) return true;
+  if (providerVerifiedBoundEmail(user, link.email)) return true;
+  if (!String(user.email_confirmed_at ?? "").trim()) return false;
   const created = Date.parse(String(user.created_at ?? ""));
   const minted = Date.parse(String(link.created_at ?? ""));
   return Number.isFinite(created) && Number.isFinite(minted) && created <= minted;
 }
 
 export const ADMIN_INVITE_CODE_MINUTES = 10;
+
+export const ADMIN_INVITE_NAME_MAX = 60;
+export const ADMIN_INVITE_FALLBACK_NAME = "A PropLane admin";
+
+/**
+ * The inviter's profile name as it may appear in an email WE send: it is free text the inviter typed, so a link or markup
+ * in it would ride a PropLane-signed message. URLs and angle brackets are stripped, whitespace collapsed, 60 characters.
+ */
+export function sanitizeInviterName(raw: unknown): string {
+  const cleaned = String(raw ?? "")
+    .replace(/\b(?:https?:\/\/|www\.)\S*/gi, " ")
+    .replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|co|app|dev|xyz|info|biz|us|ly|link|click|top)\b\S*/gi, " ")
+    .replace(/[<>]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, ADMIN_INVITE_NAME_MAX)
+    .trim();
+  return cleaned || ADMIN_INVITE_FALLBACK_NAME;
+}

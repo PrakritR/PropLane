@@ -9,7 +9,11 @@ export const ADMIN_LEAD_REPLY_MAX_LENGTH = 1600;
 
 export type AdminLeadReplyResult =
   | { ok: true; sid: string }
-  | { ok: false; status: 400 | 404 | 409 | 422 | 502 | 503; error: string };
+  | { ok: false; status: 400 | 404 | 409 | 422 | 502 | 503; error: string; /** The text went out; only the thread copy is missing. */ sent?: true };
+
+/** A lead who texted within this window is being ANSWERED; older than that, an admin text is outreach and keeps quiet hours. */
+export const ADMIN_LEAD_REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const ADMIN_LEAD_REPLY_NOT_SAVED_ERROR = "Sent, but not saved to the thread.";
 
 const REFUSAL: Record<Exclude<PlatformLeadSendResult, { ok: true }>["reason"], { status: 409 | 422 | 502 | 503; error: string }> = {
   opted_out: { status: 409, error: "That number has opted out of texts." },
@@ -32,7 +36,7 @@ const REFUSAL: Record<Exclude<PlatformLeadSendResult, { ok: true }>["reason"], {
  */
 export async function sendAdminLeadReply(
   db: SupabaseClient,
-  input: { leadId: string; text: string },
+  input: { leadId: string; text: string; /** The signed-in platform admin, from the session. */ adminUserId?: string; now?: Date },
   deps: { send?: typeof sendPlatformLeadText } = {},
 ): Promise<AdminLeadReplyResult> {
   const text = toGsm7(String(input.text ?? "").trim());
@@ -42,19 +46,24 @@ export async function sendAdminLeadReply(
   }
   const { data, error } = await db
     .from("sms_unassigned_leads")
-    .select("id, phone_key, status")
+    .select("id, phone_key, status, last_inbound_at")
     .eq("id", input.leadId)
     .maybeSingle();
   if (error) return { ok: false, status: 503, error: "Could not read this lead." };
-  const row = data as { phone_key?: unknown; status?: unknown } | null;
+  const row = data as { phone_key?: unknown; status?: unknown; last_inbound_at?: unknown } | null;
   const phoneKey = String(row?.phone_key ?? "").trim();
   if (!row || !phoneKey) return { ok: false, status: 404, error: "Lead not found." };
   if (String(row.status ?? "") !== "open") return { ok: false, status: 409, error: "Lead is not open." };
 
   const send = deps.send ?? sendPlatformLeadText;
-  // A person is answering a person: transactional, so it is not held by the automated-outreach quiet hours.
-  const result = await send(db, { to: e164FromPhoneKey(phoneKey), body: text, inboundReply: true });
+  // A person answering a person is transactional (not held by the automated-outreach quiet hours) only while the lead's
+  // last inbound text is recent; a lead who has been silent longer is being texted first, which keeps quiet hours.
+  const now = input.now ?? new Date();
+  const lastInbound = Date.parse(String(row.last_inbound_at ?? ""));
+  const inboundReply = Number.isFinite(lastInbound) && now.getTime() - lastInbound >= 0 && now.getTime() - lastInbound <= ADMIN_LEAD_REPLY_WINDOW_MS;
+  const result = await send(db, { to: e164FromPhoneKey(phoneKey), body: text, inboundReply, now });
   if (!result.ok) return { ok: false, ...REFUSAL[result.reason] };
-  await recordReply(db, input.leadId, `admin:${result.sid}`, text, []);
+  const saved = await recordReply(db, input.leadId, `admin:${result.sid}`, text, [], input.adminUserId ? { sentByUserId: input.adminUserId } : {});
+  if (!saved.ok) return { ok: false, status: 502, error: ADMIN_LEAD_REPLY_NOT_SAVED_ERROR, sent: true };
   return { ok: true, sid: result.sid };
 }

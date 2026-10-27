@@ -10,7 +10,7 @@ import { workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { findVerifiedProfileByPhone } from "@/lib/one-number/router-lookups.server";
 import { readServiceOwnerOrThrow } from "@/lib/one-number/service-line.server";
 import { userDefaultWorkspaceId } from "@/lib/communication/manager-assistant-workspace.server";
-import { holdsAdminRole } from "@/lib/sms/service-manager-inbound.server";
+import { holdsAdminRole, recognizeServiceManagerInbound } from "@/lib/sms/service-manager-inbound.server";
 import { groupPreferenceCommand } from "@/lib/house-groups/ra-policy";
 import { runDemoTurn } from "@/lib/one-number/demo/run-demo-turn.server";
 import { isDemoStartText } from "@/lib/one-number/demo/script";
@@ -102,6 +102,9 @@ async function residentSearchingForHousing(db: SupabaseClient, inbound: SharedLi
  * `recognizeServiceManagerInbound` re-derives the same admin from the same phone, runs the manager agent as THAT admin, and
  * mirrors the turn into that admin's own Assistant thread (keyed by the admin, so no other admin ever reads it). Anything
  * ambiguous or unreadable is not an admin here: the text takes today's path.
+ *
+ * The `continue` is returned only when that downstream recognition (`recognizeServiceManagerInbound`, the same predicate,
+ * asked of the same phone on the same line) will succeed; otherwise the text would reach the manager pipeline as nobody.
  */
 async function adminAssistantContinuation(
   db: SupabaseClient,
@@ -115,6 +118,9 @@ async function adminAssistantContinuation(
     if (!serviceOwner) return null;
     const workspaceId = await userDefaultWorkspaceId(db, serviceOwner);
     if (!workspaceId) return null;
+    if (!input.config.sharedNumber) return null;
+    const recognized = await recognizeServiceManagerInbound(db, { managerId: serviceOwner, fromPhone: input.fromPhone, toPhone: input.config.sharedNumber });
+    if (!recognized || recognized.basis !== "admin") return null;
     return {
       kind: "continue",
       owned: { managerId: serviceOwner, workspaceId, messagingServiceSid: input.config.messagingServiceSid ?? "" },
@@ -132,9 +138,13 @@ async function adminAssistantContinuation(
  */
 export async function handleSharedLineInbound(db: SupabaseClient, input: SeamInput): Promise<SharedLineSeamResult> {
   // An admin's own phone talks to their Assistant: before groups, redirects, the owner line and the router, none of which
-  // is about them, and so no Unassigned lead is ever made from an admin's text.
-  const adminContinuation = await adminAssistantContinuation(db, input);
-  if (adminContinuation) return adminContinuation;
+  // is about them, and so no Unassigned lead is ever made from an admin's text. The control words (leave/join group, a
+  // person please, an emergency) are not the Assistant's to swallow, so a text that carries one takes the normal path below.
+  const controlWord = Boolean(groupPreferenceCommand(input.body)) || classifySharedLineKeyword(input.body) !== null;
+  if (!controlWord) {
+    const adminContinuation = await adminAssistantContinuation(db, input);
+    if (adminContinuation) return adminContinuation;
+  }
   // "leave group" / "join group" (house group chats): answered here, before routing, when the sender is a resident of a chat-enabled house.
   const groupCommand = groupPreferenceCommand(input.body);
   if (groupCommand) {

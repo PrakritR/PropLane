@@ -157,10 +157,21 @@ workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and th
   rotate, reveal and revoke, and an admin link with no bound email redeems as nothing.
 - **A new account proves the inbox.** The generic sign-up confirms an address with no inbox round-trip, so for admin invites the
   invite page mails a 6-digit code to the address stored on the link (`/api/pro/invite-links/admin-account`, stateless HMAC
-  challenge, rate limited) and the server creates the confirmed account only when it verifies, stamping
-  `app_metadata.admin_invite_proof = <link id>`. The redeem requires that stamp of any account created after the invite (or a
-  Google/Apple identity); an account that pre-dates the invite signs in as itself. Residual: an attacker who pre-registered the
-  invitee's address before any invite existed still holds that login.
+  challenge) and the server creates the confirmed account only when it verifies, stamping
+  `app_metadata.admin_invite_proof = <link id>`. Five code attempts per link, across every challenge (a fresh code buys no
+  fresh guesses; the limiter's longest window is a day, so the cap renews daily); then "This invite is locked - ask for a new
+  one", and Resend mints a new link. The redeem requires that stamp of any account created after the invite, or a Google/Apple
+  identity whose own verified email IS the bound address (`identities[].identity_data.email`, `email_verified`; the providers
+  list alone proves nothing). An account that pre-dates the invite signs in as itself, but its email must be confirmed.
+  Residual: an attacker who pre-registered AND confirmed the invitee's address before any invite existed still holds that login.
+- **Invites are rate limited and cleaned.** 20 invites + resends per hour per inviter (`admin-team-invite:<user>`); the inviter's
+  profile name in the email loses URLs and angle brackets and is cut to 60 characters (`sanitizeInviterName`).
+- **Change never seats a stranger.** `changeAdminTeamMember` works only on someone who already holds an Overall role or a
+  PropLane-issued seat inside the actor's reach (otherwise 404, "Invite them instead"); every target seat is validated
+  (`checkAdminTeamSeatGrant`) BEFORE a demotion deletes the Overall role, so a refusal changes nothing; a seat the workspace's own
+  owner issued (not `is_service_seat`) is refused, never converted.
+- **The audit row says what happened.** Written `applied: false` before the change, stamped `applied: true` after it took
+  effect and `applied: false` (+ `error`) on every refused or handed-back path, the redeem undo included.
 - **Redeem** (`applyAdminInviteGrant`): the session's confirmed email must equal the bound one; the inviter is re-derived at that
   moment (still an Overall admin for an Overall grant; still able to make the workspace grant); the audit row (`admin_team_grant`,
   `admin_team_seat`) is written BEFORE the role; any failure hands the spent use back. Every change writes `admin_team_*` audit rows

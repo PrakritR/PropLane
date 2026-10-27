@@ -6,7 +6,7 @@ import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { primaryRoleWhenAddingManager } from "@/lib/auth/profile-primary-role";
 import { actorWorkspaceStanding } from "@/lib/workspaces/membership.server";
 import { loadServiceStaffWorkspaces } from "@/lib/service/service-mode.server";
-import { removeServiceTeamMember, seatAdminTeamMember } from "@/lib/service/service-workspaces.server";
+import { checkAdminTeamSeatGrant, removeServiceTeamMember, seatAdminTeamMember } from "@/lib/service/service-workspaces.server";
 import { auditAdminTeam, type AdminTeamFailure } from "@/lib/admin-team/admin-team-audit.server";
 import {
   OVERALL_ADMIN_ROLE,
@@ -133,20 +133,27 @@ export async function applyAdminInviteGrant(
     workspaceIds: grant.workspaceIds,
     via: "invite",
   });
-  if (audited) return audited;
+  if (!audited.ok) return audited;
 
   if (grant.role === OVERALL_ADMIN_ROLE) {
     const profile = await ensureAdminTeamProfile(db, redeemerUserId);
-    if (profile) return profile;
+    if (profile) {
+      await audited.finish(false, { error: "profile_failed" });
+      return profile;
+    }
     await ensureProfileRoleRow(db, redeemerUserId, "admin");
     await recordGrant(db, { userId: redeemerUserId, grantedBy: inviterUserId, role: OVERALL_ADMIN_ROLE, workspaceIds: [] });
+    await audited.finish(true);
     return { ok: true, role: grant.role, workspaceIds: [] };
   }
 
   // A workspace role: the person needs a manager portal for the service shell to open (the same account every other
   // seat holder has), then one PropLane-issued seat per chosen workspace.
   const profile = await ensureAdminTeamProfile(db, redeemerUserId);
-  if (profile) return profile;
+  if (profile) {
+    await audited.finish(false, { error: "profile_failed" });
+    return profile;
+  }
   await ensureProfileRoleRow(db, redeemerUserId, "manager");
   for (const workspaceId of grant.workspaceIds) {
     const seated = await seatAdminTeamMember(
@@ -155,9 +162,14 @@ export async function applyAdminInviteGrant(
       { ...grant.access, teamRole: grant.role, id: workspaceId, userId: redeemerUserId, via: "invite" },
       { overall: actor.overall },
     );
-    if (!seated.ok) return fail(seated.status, seated.error);
+    if (!seated.ok) {
+      // The caller hands the spent use back and undoes the redemption; the trail says the grant did not stand.
+      await audited.finish(false, { error: "seat_failed" });
+      return fail(seated.status, seated.error);
+    }
   }
   await recordGrant(db, { userId: redeemerUserId, grantedBy: inviterUserId, role: grant.role, workspaceIds: grant.workspaceIds });
+  await audited.finish(true);
   return { ok: true, role: grant.role, workspaceIds: grant.workspaceIds };
 }
 
@@ -364,10 +376,17 @@ export type ChangeAdminTeamInput = {
   access: Record<string, unknown>;
 };
 
+export const NOT_ON_TEAM_ERROR = "That person is not on the admin team. Invite them instead.";
+export const CLIENT_SEAT_ERROR =
+  "That person already has a seat in this workspace that its owner gave them. PropLane does not convert it; ask the owner to remove it first.";
+
 /**
- * Change one person's role and workspaces. An Overall grant or revoke is Overall-admin only (audited first; the last
- * Overall admin cannot be demoted). A workspace role is written seat by seat through the same validators the manager
- * Team invite uses, only inside workspaces the actor manages.
+ * Change one person's role and workspaces. The person must ALREADY be on the team inside the actor's reach (an Overall
+ * admin, or a PropLane-issued seat on a workspace the actor manages): a user id in the body names someone, it never seats
+ * a brand-new account, which goes through an invite the person accepts. An Overall grant or revoke is Overall-admin only
+ * (audited first; the last Overall admin cannot be demoted). A workspace role is written seat by seat through the same
+ * validators the manager Team invite uses, only inside workspaces the actor manages, and every seat is validated BEFORE
+ * anything is removed, so a refusal changes nothing.
  */
 export async function changeAdminTeamMember(
   db: SupabaseClient,
@@ -388,29 +407,6 @@ export async function changeAdminTeamMember(
   const targetIsOverall = overallHolders.includes(userId) || (await holdsAdminOutsideRoleRow(db, userId));
   if (targetIsOverall && !actor.overall) return fail(403, "Only an Overall admin can change an Overall admin.");
 
-  if (input.role === OVERALL_ADMIN_ROLE) {
-    if (overallHolders.includes(userId)) return { ok: true };
-    const audited = await auditAdminTeam(db, actorUserId, "admin_team_grant", { inviteeUserId: userId, role: OVERALL_ADMIN_ROLE, workspaceIds: [], via: "change" });
-    if (audited) return audited;
-    await ensureProfileRoleRow(db, userId, "admin");
-    await recordGrant(db, { userId, grantedBy: actorUserId, role: OVERALL_ADMIN_ROLE, workspaceIds: [] });
-    return { ok: true };
-  }
-
-  // Demoting an Overall admin to a workspace role.
-  if (overallHolders.includes(userId)) {
-    const last = lastOverallAdminVerdict(await allOverallAdminIds(db), userId);
-    if (!last.ok) return last;
-    if (await holdsAdminOutsideRoleRow(db, userId)) {
-      return fail(409, "This account is an admin through the primary-admin email or a legacy role, which this pane does not remove.");
-    }
-    const audited = await auditAdminTeam(db, actorUserId, "admin_team_revoke", { targetUserId: userId, role: OVERALL_ADMIN_ROLE, via: "change" });
-    if (audited) return audited;
-    const del = await db.from("profile_roles").delete().eq("user_id", userId).eq("role", "admin");
-    if (del.error) return fail(503, "Could not change the role. Please retry.");
-    await revokeGrants(db, userId, actorUserId, OVERALL_ADMIN_ROLE);
-  }
-
   const seatsNow = await db
     .from("account_link_invites")
     .select("id, workspace_id")
@@ -418,7 +414,64 @@ export async function changeAdminTeamMember(
     .eq("is_service_seat", true)
     .in("status", ["accepted", "pending"]);
   if (seatsNow.error) return fail(503, "Could not change the role. Please retry.");
+  const currentSeats = (seatsNow.data ?? []) as { id: string; workspace_id: string }[];
+  if (!targetIsOverall && !currentSeats.some((seat) => actor.manageableWorkspaceIds.has(seat.workspace_id))) {
+    return fail(404, NOT_ON_TEAM_ERROR);
+  }
+
+  if (input.role === OVERALL_ADMIN_ROLE) {
+    if (overallHolders.includes(userId)) return { ok: true };
+    const audited = await auditAdminTeam(db, actorUserId, "admin_team_grant", { inviteeUserId: userId, role: OVERALL_ADMIN_ROLE, workspaceIds: [], via: "change" });
+    if (!audited.ok) return audited;
+    await ensureProfileRoleRow(db, userId, "admin");
+    await recordGrant(db, { userId, grantedBy: actorUserId, role: OVERALL_ADMIN_ROLE, workspaceIds: [] });
+    await audited.finish(true);
+    return { ok: true };
+  }
+
   const chosen = new Set(input.workspaceIds);
+  // Every refusal a seat can raise is asked up front, with nothing written: a demotion that deleted the Overall role and
+  // then found a workspace it could not seat would leave the person with neither.
+  for (const workspaceId of chosen) {
+    const checked = await checkAdminTeamSeatGrant(db, actorUserId, { ...input.access, teamRole: input.role, id: workspaceId }, { overall: actor.overall });
+    if (!checked.ok) return fail(checked.status, checked.error);
+  }
+  if (chosen.size > 0) {
+    const held = await db
+      .from("account_link_invites")
+      .select("workspace_id, is_service_seat")
+      .eq("invitee_user_id", userId)
+      .in("workspace_id", [...chosen])
+      .in("status", ["accepted", "pending"]);
+    if (held.error) return fail(503, "Could not change the role. Please retry.");
+    // A seat the workspace's own owner issued is theirs to manage; PropLane's pane never quietly rewrites it into a PropLane seat.
+    if (((held.data ?? []) as { is_service_seat?: boolean | null }[]).some((row) => row.is_service_seat !== true)) {
+      return fail(409, CLIENT_SEAT_ERROR);
+    }
+  }
+
+  // Demoting an Overall admin to a workspace role.
+  let demotionAudit: Awaited<ReturnType<typeof auditAdminTeam>> | null = null;
+  if (overallHolders.includes(userId)) {
+    const last = lastOverallAdminVerdict(await allOverallAdminIds(db), userId);
+    if (!last.ok) return last;
+    if (await holdsAdminOutsideRoleRow(db, userId)) {
+      return fail(409, "This account is an admin through the primary-admin email or a legacy role, which this pane does not remove.");
+    }
+    demotionAudit = await auditAdminTeam(db, actorUserId, "admin_team_revoke", { targetUserId: userId, role: OVERALL_ADMIN_ROLE, via: "change" });
+    if (!demotionAudit.ok) return demotionAudit;
+    const del = await db.from("profile_roles").delete().eq("user_id", userId).eq("role", "admin");
+    if (del.error) {
+      await demotionAudit.finish(false, { error: "delete_failed" });
+      return fail(503, "Could not change the role. Please retry.");
+    }
+  }
+  const restoreOverall = async (error: string) => {
+    if (!demotionAudit?.ok) return;
+    await ensureProfileRoleRow(db, userId, "admin");
+    await demotionAudit.finish(false, { error });
+  };
+
   for (const workspaceId of chosen) {
     const seated = await seatAdminTeamMember(
       db,
@@ -426,13 +479,23 @@ export async function changeAdminTeamMember(
       { ...input.access, teamRole: input.role, id: workspaceId, userId, via: "change" },
       { overall: actor.overall },
     );
-    if (!seated.ok) return fail(seated.status, seated.error);
+    if (!seated.ok) {
+      await restoreOverall("seat_failed");
+      return fail(seated.status, seated.error);
+    }
   }
   // Workspaces the person leaves, inside the actor's reach only.
-  for (const seat of (seatsNow.data ?? []) as { id: string; workspace_id: string }[]) {
+  for (const seat of currentSeats) {
     if (chosen.has(seat.workspace_id) || !actor.manageableWorkspaceIds.has(seat.workspace_id)) continue;
     const removed = await removeServiceTeamMember(db, actorUserId, { id: seat.workspace_id, linkId: seat.id }, { overall: actor.overall });
-    if (!removed.ok) return fail(removed.status, removed.error);
+    if (!removed.ok) {
+      await restoreOverall("seat_remove_failed");
+      return fail(removed.status, removed.error);
+    }
+  }
+  if (demotionAudit?.ok) {
+    await revokeGrants(db, userId, actorUserId, OVERALL_ADMIN_ROLE);
+    await demotionAudit.finish(true);
   }
   await recordGrant(db, { userId, grantedBy: actorUserId, role: input.role, workspaceIds: input.workspaceIds });
   return { ok: true };
@@ -467,13 +530,17 @@ export async function removeAdminTeamMember(
     const reach = grant !== null && grant.role !== OVERALL_ADMIN_ROLE && grant.workspaceIds.every((id) => actor.manageableWorkspaceIds.has(id));
     if (!(actor.overall || reach || (mine && grant !== null && grant.role !== OVERALL_ADMIN_ROLE))) return fail(403, "You cannot turn off this invite.");
     const audited = await auditAdminTeam(db, actorUserId, "admin_team_invite_revoke", { inviteId: input.inviteId, role: grant?.role ?? null });
-    if (audited) return audited;
+    if (!audited.ok) return audited;
     const res = await db
       .from("manager_invite_links")
       .update({ revoked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq("id", input.inviteId)
       .eq("kind", "admin");
-    if (res.error) return fail(503, "Could not turn off the invite. Please retry.");
+    if (res.error) {
+      await audited.finish(false, { error: "update_failed" });
+      return fail(503, "Could not turn off the invite. Please retry.");
+    }
+    await audited.finish(true);
     return { ok: true };
   }
   const userId = (input.userId ?? "").trim();
@@ -492,10 +559,14 @@ export async function removeAdminTeamMember(
       return fail(409, "This account is an admin through the primary-admin email or a legacy role, which this pane does not remove.");
     }
     const audited = await auditAdminTeam(db, actorUserId, "admin_team_revoke", { targetUserId: userId, role: OVERALL_ADMIN_ROLE, via: "remove" });
-    if (audited) return audited;
+    if (!audited.ok) return audited;
     const del = await db.from("profile_roles").delete().eq("user_id", userId).eq("role", "admin");
-    if (del.error) return fail(503, "Could not remove the admin. Please retry.");
+    if (del.error) {
+      await audited.finish(false, { error: "delete_failed" });
+      return fail(503, "Could not remove the admin. Please retry.");
+    }
     await revokeGrants(db, userId, actorUserId, OVERALL_ADMIN_ROLE);
+    await audited.finish(true);
   }
   const seats = await db
     .from("account_link_invites")
