@@ -40,6 +40,7 @@ import { normalizeTourContactPhone, validateTourContactFields } from "@/lib/tour
 import { anchorTourWindowToSlotKey, isActivePlannedTourEvent } from "@/lib/tour-slot-math";
 import { REQUESTED_TOUR_KIND, resolveRequestedTourWindow } from "@/lib/tour-request-time";
 import { listOpenTourSlots } from "@/lib/tour-availability.server";
+import { rateLimit } from "@/lib/rate-limit";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -60,6 +61,7 @@ export type CreateTourInquiryResult =
       reason: "invalid_contact" | "missing_host" | "slot_unavailable" | "application_required" | "sign_in_required";
       error: string;
     }
+  | { ok: false; reason: "duplicate_request" | "rate_limited"; error: string }
   | { ok: false; reason: "conflict"; error: string }
   | { ok: false; reason: "write_failed"; error: string };
 
@@ -243,6 +245,9 @@ export async function resolveEligibleTourHostUserIds(
   return [...eligible];
 }
 
+/** Requested-time requests one account may file in an hour. */
+const REQUESTED_TIME_REQUESTS_PER_HOUR = 5;
+
 /**
  * Requested-time mode, gated on the server.
  *
@@ -284,6 +289,31 @@ async function prepareRequestedTimeTour(
   const ownerUserId = textValue((propertyRow as { manager_user_id?: unknown } | null)?.manager_user_id);
   if (!ownerUserId || !(await managerMayHostPropertyTour(db, { managerUserId: ownerUserId, propertyId }))) {
     return { ok: false, reason: "missing_host", error: "A host is required for tour requests." };
+  }
+
+  /* One open request per account and home: a pending one is answered (or declined) before another is filed, so a signed-in
+     account cannot flood a host's queue. Then a ceiling per account per hour. */
+  const account = verifiedApplicantEmail.trim().toLowerCase();
+  const { data: filed, error: filedError } = await db
+    .from("portal_schedule_records")
+    .select("row_data")
+    .eq("id", INQUIRIES_RECORD_ID)
+    .maybeSingle();
+  if (filedError) {
+    return { ok: false, reason: "write_failed", error: "We could not check your existing tour requests. Please try again." };
+  }
+  const alreadyOpen = inquiryRowsFromRecord(filed?.row_data).some(
+    (item) =>
+      item.requestKind === REQUESTED_TOUR_KIND &&
+      textValue(item.status).toLowerCase() === "pending" &&
+      textValue(item.propertyId) === propertyId &&
+      textValue(item.email).toLowerCase() === account,
+  );
+  if (alreadyOpen) {
+    return { ok: false, reason: "duplicate_request", error: "You already have a tour request for this home." };
+  }
+  if (!(await rateLimit(`tour-requested-time:${account}`, REQUESTED_TIME_REQUESTS_PER_HOUR, 60 * 60 * 1000)).ok) {
+    return { ok: false, reason: "rate_limited", error: "You have sent several tour requests. Please try again later." };
   }
 
   row.requestKind = REQUESTED_TOUR_KIND;

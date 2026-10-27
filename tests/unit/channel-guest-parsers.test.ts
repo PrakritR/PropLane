@@ -4,6 +4,7 @@ import {
   isChannelGuestKeyAddress,
   channelSiteOfAddress,
   isChannelRelayAddress,
+  singleEmailAddress,
   parseChannelGuestMessage,
 } from "@/lib/inbound-email/channel-senders";
 import { parseAirbnbEmail, parseAirbnbGuestMessage } from "@/lib/inbound-email/airbnb-parser";
@@ -40,6 +41,40 @@ describe("site recognition is by the sender's real domain", () => {
     expect(isChannelRelayAddress("booking_com", "x@guest.booking.com")).toBe(true);
     expect(isChannelRelayAddress("booking_com", "x@guest.airbnb.com")).toBe(false);
     expect(isChannelRelayAddress("padsplit", null)).toBe(false);
+  });
+
+  it("accepts one strict address (bare or Name <addr>) and rejects a list whose entry is on the site", () => {
+    expect(isChannelRelayAddress("airbnb", "Jose via Airbnb <K3F9A1C2D4@reply.airbnb.com>")).toBe(true);
+    expect(singleEmailAddress("Jose via Airbnb <K3F9A1C2D4@reply.airbnb.com>")).toBe("k3f9a1c2d4@reply.airbnb.com");
+    for (const list of [
+      "evil@evil.com, x@airbnb.com",
+      "evil@evil.com,x@reply.airbnb.com",
+      "x@reply.airbnb.com; evil@evil.com",
+      "evil@evil.com x@reply.airbnb.com",
+      "Evil <evil@evil.com>, X <x@reply.airbnb.com>",
+      "evil@evil.com <x@reply.airbnb.com>",
+      "<a@reply.airbnb.com><evil@evil.com>",
+      "x@reply.airbnb.com>",
+    ]) {
+      expect(singleEmailAddress(list), list).toBeNull();
+      expect(isChannelRelayAddress("airbnb", list), list).toBe(false);
+    }
+  });
+
+  it("a guest message whose Reply-To is a list has no reply address (the reply is held, never sent)", () => {
+    const parsed = parseChannelGuestMessage({
+      fromEmail: AIRBNB_MESSAGE.fromEmail,
+      subject: AIRBNB_MESSAGE.subject,
+      text: AIRBNB_MESSAGE.text,
+      replyTo: "evil@evil.com, k3f9a1c2d4@reply.airbnb.com",
+    });
+    expect(parsed).not.toBeNull();
+    expect(parsed!.replyAddress).toBeNull();
+  });
+
+  it("the Reply-To header reader applies the same rule", () => {
+    expect(replyToFromHeaders({ "reply-to": "Jose <k3f9a1c2d4@reply.airbnb.com>" })).toBe("k3f9a1c2d4@reply.airbnb.com");
+    expect(replyToFromHeaders({ "reply-to": "evil@evil.com, Jose <k3f9a1c2d4@reply.airbnb.com>" })).toBeNull();
   });
 });
 

@@ -24,9 +24,11 @@ const mocks = vi.hoisted(() => ({
   loadServiceWorkspaceIds: vi.fn(),
   resolveListingTextNumbers: vi.fn(),
   classifyAssistantEmailSender: vi.fn(),
+  rateLimit: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.rateLimit }));
 vi.mock("@/lib/agent/leasing-email-agent.server", () => ({ runLeasingEmailAgentTurn: mocks.runLeasingEmailAgentTurn }));
 vi.mock("@/lib/agent/manager-email-agent.server", () => ({
   runManagerEmailAgentTurn: mocks.runManagerEmailAgentTurn,
@@ -117,6 +119,7 @@ beforeEach(() => {
     { id: "p4709", manager_user_id: "mgr-1", workspace_id: "ws-1", property_data: { address: "4709A 8th Ave", listingSubmission: { v: 1, rooms: [{ id: "r9", name: "Room 9" }] } } },
     { id: "p5259", manager_user_id: "mgr-1", workspace_id: "ws-1", property_data: { address: "5259 Brooklyn Ave", listingSubmission: { v: 1, rooms: [{ id: "r1", name: "Room 1" }] } } },
   ];
+  mocks.rateLimit.mockResolvedValue({ ok: true });
   mocks.resolveWorkspaceOwnerForWorkEmail.mockResolvedValue({ ownerUserId: "mgr-1", sharedFromCoManager: false, workspaceId: "ws-1" });
   mocks.loadManagerAssistantEmail.mockResolvedValue({ managerUserId: "mgr-1", address: MAILBOX, provisionState: "active" });
   mocks.fetchHeaders.mockResolvedValue(SIGNED("airbnb.com"));
@@ -306,5 +309,64 @@ describe("a PropLane-managed workspace browses its own catalog", () => {
     mocks.loadServiceWorkspaceIds.mockResolvedValue(["ws-1"]);
     await processManagerAssistantInboundEmail(makeDb(), inbound(AIRBNB_MESSAGE));
     expect(mocks.runLeasingEmailAgentTurn.mock.calls[0]![1].channel.serviceWorkspace).toBe(true);
+  });
+});
+
+describe("a mail from a synthetic guest key is forged: stored under a quarantine address, never answered", () => {
+  it("runs no agent turn, reserves no credit and never writes into the real guest's conversation", async () => {
+    const key = channelGuestKeyAddress("airbnb", "Jose Alaniz", { replyAddress: "k3f9a1c2d4@reply.airbnb.com" });
+    const result = await processManagerAssistantInboundEmail(makeDb(), inbound(AIRBNB_MESSAGE, { fromEmail: key, fromName: "Jose Alaniz" }));
+    expect(result).toMatchObject({ handled: true, replied: false, role: "channel" });
+    expect(mocks.runLeasingEmailAgentTurn).not.toHaveBeenCalled();
+    expect(mocks.runManagerEmailAgentTurn).not.toHaveBeenCalled();
+    expect(mocks.classifyAssistantEmailSender).not.toHaveBeenCalled();
+    expect(mocks.reserveCommsCredit).not.toHaveBeenCalled();
+    expect(mocks.deliverManagerEmailReply).not.toHaveBeenCalled();
+    expect(mocks.mirrorAssistantEmailConversation).toHaveBeenCalledTimes(1);
+    const mirror = mocks.mirrorAssistantEmailConversation.mock.calls[0]![1];
+    expect(mirror.senderEmail).not.toBe(key);
+    expect(mirror.senderEmail).not.toMatch(/\.guest\.invalid$/);
+    expect(mirror.replyText).toBeNull();
+    expect(mirror.channelGuest).toBeUndefined();
+  });
+});
+
+describe("a replayed genuine site mail does not buy a second paid turn", () => {
+  const withMessageId = (id: string) => ({ headers: { "authentication-results": ["mx.resend.com; dkim=pass header.d=airbnb.com"], "message-id": [id] } });
+
+  it("the same RFC Message-ID in the same workspace is stored only the second time", async () => {
+    const seen = new Set<string>();
+    mocks.rateLimit.mockImplementation(async (key: string) => {
+      if (seen.has(key)) return { ok: false };
+      seen.add(key);
+      return { ok: true };
+    });
+    const first = await processManagerAssistantInboundEmail(makeDb(), inbound(AIRBNB_MESSAGE, withMessageId("<abc@airbnb.com>")));
+    const replay = await processManagerAssistantInboundEmail(makeDb(), inbound(AIRBNB_MESSAGE, withMessageId("<ABC@airbnb.com>")));
+    expect(first).toMatchObject({ replied: true });
+    expect(replay).toMatchObject({ handled: true, replied: false, role: "channel" });
+    expect(mocks.runLeasingEmailAgentTurn).toHaveBeenCalledTimes(1);
+    expect(mocks.reserveCommsCredit).toHaveBeenCalledTimes(1);
+    expect(mocks.deliverManagerEmailReply).toHaveBeenCalledTimes(1);
+    // The replay is still shown to the manager.
+    expect(mocks.mirrorAssistantEmailConversation).toHaveBeenCalledTimes(2);
+    expect(mocks.mirrorAssistantEmailConversation.mock.calls[1]![1].replyText).toBeNull();
+  });
+
+  it("limits one relay thread to 6 paid turns an hour per workspace, keyed on the hashed relay", async () => {
+    await processManagerAssistantInboundEmail(makeDb(), inbound(AIRBNB_MESSAGE));
+    const relayCall = mocks.rateLimit.mock.calls.find((call) => String(call[0]).startsWith("channel-relay:"))!;
+    expect(relayCall[0]).toMatch(/^channel-relay:ws-1:r-[0-9a-f]{24}$/);
+    expect(relayCall[0]).not.toContain("k3f9a1c2d4");
+    expect(relayCall.slice(1)).toEqual([6, 60 * 60 * 1000]);
+
+    mocks.rateLimit.mockClear();
+    mocks.runLeasingEmailAgentTurn.mockClear();
+    mocks.reserveCommsCredit.mockClear();
+    mocks.rateLimit.mockResolvedValue({ ok: false });
+    const over = await processManagerAssistantInboundEmail(makeDb(), inbound(AIRBNB_MESSAGE));
+    expect(over).toMatchObject({ handled: true, replied: false, role: "channel" });
+    expect(mocks.reserveCommsCredit).not.toHaveBeenCalled();
+    expect(mocks.runLeasingEmailAgentTurn).not.toHaveBeenCalled();
   });
 });

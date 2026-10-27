@@ -29,8 +29,8 @@ import {
 } from "@/lib/agent/manager-email-agent.server";
 import { applyAirbnbEmailToStay, applyForwardedAirbnbConfirmation } from "@/lib/channel-calendar/airbnb-email-intake.server";
 import { isAirbnbSenderAddress, parseAirbnbEmail, parseAirbnbGuestMessage } from "@/lib/inbound-email/airbnb-parser";
-import { channelSiteOfAddress } from "@/lib/inbound-email/channel-senders";
-import { handleChannelGuestEmail } from "@/lib/manager-assistant-email/channel-guest-message.server";
+import { channelSiteOfAddress, isChannelGuestKeyAddress } from "@/lib/inbound-email/channel-senders";
+import { handleChannelGuestEmail, storeChannelMailUnanswered } from "@/lib/manager-assistant-email/channel-guest-message.server";
 import type { ParsedInboundEmail } from "@/lib/inbound-email/inbound-email.server";
 import { resolveInboundEmailBody } from "@/lib/inbound-email/inbound-email.server";
 import { fetchResendReceivedEmailHeaders } from "@/lib/inbound-email/inbound-email-headers.server";
@@ -208,6 +208,17 @@ export async function processManagerAssistantInboundEmail(
     (workspaceId ? await loadManagerAssistantEmail(db, managerUserId, workspaceId) : null) ??
     (await loadManagerAssistantEmail(db, managerUserId, null)) ??
     (managerUserId !== mailboxUserId ? await loadManagerAssistantEmail(db, mailboxUserId, null) : null);
+
+  /* The synthetic guest keys (`…@<site>.guest.invalid`) are ours alone: nothing real is ever sent from one, so a mail
+     whose From is one is forged. Stored under a quarantine address and answered by nobody - no agent turn, no credit,
+     and no write into the real guest's conversation. */
+  if (isChannelGuestKeyAddress(parsed.fromEmail)) {
+    return storeChannelMailUnanswered(
+      db,
+      { parsed, managerUserId, workspaceId, inboundText, managerEmail: await loadManagerProfileEmail(db, managerUserId) },
+      "synthetic_sender",
+    );
+  }
 
   /* A guest message from a booking site (Airbnb, Booking.com, PadSplit, SpareRoom) is neither a prospect, a resident nor
      the manager: it has its own front door, run BEFORE the sender is classified. It answers only a mail the receiving
