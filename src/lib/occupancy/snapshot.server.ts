@@ -192,6 +192,8 @@ function roomDateBlockFromRecord(row: { id?: unknown; property_id?: unknown; row
     checkOut,
     reason: str(data.reason),
     openEnded: data.openEnded === true,
+    // A closure stays a closure: without it an HM code in the reason would let it link to (and hide) a channel guest.
+    ...(data.blockKind === "closed" ? { blockKind: "closed" as const } : {}),
     // A room_date_block row whose row_data says cancelled is cancelled (the calendar, feed and capacity read it so).
     bookingStatus: data.bookingStatus === "cancelled" ? "cancelled" : data.bookingStatus === "confirmed" ? "confirmed" : "hold",
     ...(str(data.residentName) ? { residentName: str(data.residentName) } : {}),
@@ -482,7 +484,7 @@ async function readRoomDateBlockRows(db: SupabaseClient, propertyIds: string[]):
   return rows;
 }
 
-async function occupancyBlockEntries(
+export async function occupancyBlockEntries(
   db: SupabaseClient,
   propertyIds: string[],
   meta: OccupancyPropertyMeta,
