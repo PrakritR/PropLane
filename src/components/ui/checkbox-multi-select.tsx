@@ -524,7 +524,10 @@ export function FieldSingleSelect({
           instead of fitting inside it. `break-words` keeps a long unbroken
           token (an address with no spaces) inside too.
         */}
-        <span className="min-w-0 break-words text-left leading-snug">{opt.label}</span>
+        <span className="min-w-0 break-words text-left leading-snug">
+          {opt.label}
+          {opt.hint ? <span className="mt-0.5 block text-xs text-muted">{opt.hint}</span> : null}
+        </span>
         {opt.attention ? (
           <span className="ml-auto mt-1.5 size-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" role="img" aria-label="Needs attention" />
         ) : null}

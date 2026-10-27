@@ -112,16 +112,16 @@ export async function deleteChannelCalendarConnection(connectionId: string): Pro
 
 export async function syncAllChannelCalendarConnections(
   propertyIds: string[],
-): Promise<{ synced: number; failed: number }> {
+): Promise<{ synced: number; failed: number; skipped: number }> {
   const res = await fetch(`/api/portal/channel-calendar/sync-all`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ propertyIds }),
   });
-  const data = (await res.json()) as { synced?: number; failed?: number; error?: string };
+  const data = (await res.json()) as { synced?: number; failed?: number; skipped?: number; error?: string };
   if (!res.ok) throw new Error(data.error ?? "Sync failed.");
-  return { synced: data.synced ?? 0, failed: data.failed ?? 0 };
+  return { synced: data.synced ?? 0, failed: data.failed ?? 0, skipped: data.skipped ?? 0 };
 }
 
 export async function syncChannelCalendarConnection(

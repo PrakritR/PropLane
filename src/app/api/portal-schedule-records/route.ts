@@ -4,6 +4,7 @@ import { resolveRowStayTimes, stampStayRow } from "@/lib/bookings/stay-stamp";
 import { DEFAULT_PROPERTY_STAY_TIMES, staysOverlap, type PropertyStayTimes } from "@/lib/bookings/stay-times";
 import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
 import { normalizeChannelLink, type ChannelLink } from "@/lib/channel-calendar/channel-link";
+import { monthDay } from "@/lib/channel-calendar/channel-overlap";
 import { CHANNEL_OVERLAP_UNVERIFIED, checkStayAgainstChannels } from "@/lib/channel-calendar/channel-overlap.server";
 import { roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { emitNativeBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
@@ -165,7 +166,7 @@ async function roomDateBlockOverlapConflict(args: {
     if (!overlaps) continue;
     const otherRoomLabel = roomDateBlockField(row, "roomId") ? "That room" : "This room";
     const who = roomDateBlockField(row, "residentName") || roomDateBlockField(row, "reason") || "another hold";
-    return { conflict: `${otherRoomLabel} is booked ${otherCheckIn} – ${otherCheckOut} by ${who}` };
+    return { conflict: `${otherRoomLabel} is booked ${monthDay(otherCheckIn)} – ${monthDay(otherCheckOut)} by ${who}` };
   }
   if (!args.channel) return { conflict: null };
   const checked = await checkStayAgainstChannels(db, {

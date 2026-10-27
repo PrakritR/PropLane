@@ -8,6 +8,7 @@ import {
   SYNC_ALL_CONCURRENCY,
   SYNC_ALL_STOP_SCHEDULING_MS,
   syncAllChannelCalendarImports,
+  syncChannelCalendarConnectionIds,
 } from "@/lib/channel-calendar/sync.server";
 
 function dbWith(rows: Array<{ id: string; import_url: string | null; last_synced_at?: string | null }>): SupabaseClient {
@@ -78,6 +79,42 @@ describe("syncAllChannelCalendarImports budget and concurrency", () => {
 
   it("keeps the budget in step with the cron route's maxDuration", () => {
     const route = readFileSync(path.join(process.cwd(), "src/app/api/cron/sync-channel-calendars/route.ts"), "utf8");
+    expect(route).toContain(`maxDuration = ${CHANNEL_SYNC_CRON_MAX_DURATION_MS / 1000}`);
+  });
+
+  it("the portal's Sync all runs the same pool: four at a time, in order, and reports what it skipped", async () => {
+    let active = 0;
+    let peak = 0;
+    const ids = feeds(10).map((f) => f.id);
+    const result = await syncChannelCalendarConnectionIds({} as SupabaseClient, ids, {
+      syncOne: async () => {
+        active += 1;
+        peak = Math.max(peak, active);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        active -= 1;
+      },
+    });
+    expect(peak).toBe(SYNC_ALL_CONCURRENCY);
+    expect(result).toEqual({ synced: 10, failed: 0, skipped: 0 });
+
+    let clock = 0;
+    const budgeted = await syncChannelCalendarConnectionIds({} as SupabaseClient, feeds(60).map((f) => f.id), {
+      now: () => clock,
+      concurrency: 1,
+      syncOne: async () => {
+        clock += 5_000;
+      },
+    });
+    expect(budgeted).toEqual({ synced: 21, failed: 0, skipped: 39 });
+  });
+
+  it("the portal route shares the helper instead of looping itself, and keeps its auth and scoping", () => {
+    const route = readFileSync(path.join(process.cwd(), "src/app/api/portal/channel-calendar/sync-all/route.ts"), "utf8");
+    expect(route).toContain("syncChannelCalendarConnectionIds");
+    expect(route).not.toContain("syncChannelCalendarConnection(");
+    expect(route).toContain("skipped");
+    expect(route).toContain("requireManagerRouteUser");
+    expect(route).toContain("managerCanWriteCalendarForProperty");
     expect(route).toContain(`maxDuration = ${CHANNEL_SYNC_CRON_MAX_DURATION_MS / 1000}`);
   });
 });

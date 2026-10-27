@@ -252,8 +252,12 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
   };
   const syncAll = () => run(async () => {
     try {
-      const { synced, failed } = await syncAllChannelCalendarConnections(scopeKey ? scopeKey.split("\n") : []);
-      showToast(failed ? `Synced ${synced} · ${failed} failed` : `Synced ${synced} ${synced === 1 ? "calendar" : "calendars"}.`);
+      const { synced, failed, skipped } = await syncAllChannelCalendarConnections(scopeKey ? scopeKey.split("\n") : []);
+      showToast(
+        failed || skipped
+          ? `Synced ${synced}${failed ? ` · ${failed} failed` : ""}${skipped ? ` · ${skipped} left, sync again` : ""}`
+          : `Synced ${synced} ${synced === 1 ? "calendar" : "calendars"}.`,
+      );
     } finally { await refresh(); }
   });
 

@@ -59,7 +59,8 @@ export type ChannelOverlapHit = {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-function monthDay(key: string): string {
+/** "Nov 12" from a YYYY-MM-DD key; the one date format every overlap refusal uses. */
+export function monthDay(key: string): string {
   const [, month, day] = key.split("-").map(Number);
   return month && day ? `${MONTHS[month - 1]} ${day}` : key;
 }

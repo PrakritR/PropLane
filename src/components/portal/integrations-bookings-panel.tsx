@@ -105,6 +105,7 @@ export function ManagerBookingChannelsPanel() {
       <PortalSettingsGroup>
         {LIVE_CHANNELS.map(({ provider, name, icon, tone }) => (
           <IntegrationRow
+            stackOnPhone
             key={provider}
             icon={icon}
             tone={tone}
@@ -119,6 +120,7 @@ export function ManagerBookingChannelsPanel() {
           />
         ))}
         <IntegrationRow
+          stackOnPhone
           icon={Palmtree}
           tone="text-indigo-600"
           name="Vrbo"
@@ -132,6 +134,7 @@ export function ManagerBookingChannelsPanel() {
           }
         />
         <IntegrationRow
+          stackOnPhone
           icon={UsersRound}
           tone="text-violet-600"
           name="PadSplit"
@@ -141,6 +144,7 @@ export function ManagerBookingChannelsPanel() {
           action={<PortalIconAction icon={ExternalLink} label="Open PadSplit" data-attr="settings-padsplit-open" onClick={() => window.open(PADSPLIT_HOST_URL, "_blank", "noopener,noreferrer")} />}
         />
         <IntegrationRow
+          stackOnPhone
           icon={CalendarPlus}
           tone="text-emerald-600"
           name="Other calendar"

@@ -31,6 +31,10 @@ vi.mock("@/lib/channel-calendar/sync.server", () => ({
     state.syncs += 1;
     return { id: "conn-1", provider: "airbnb", room_id: "room-a", property_id: PROPERTY };
   },
+  syncChannelCalendarConnectionIds: async (_db: unknown, ids: string[]) => {
+    state.syncs += ids.length;
+    return { synced: ids.length, failed: 0, skipped: 0 };
+  },
   listChannelCalendarConnections: async () => [{ id: "conn-1" }],
   ensureRoomExportCalendarUrl: async () => "https://example.test/export",
 }));

@@ -63,6 +63,37 @@ describe("describeBookingConflict", () => {
   });
 });
 
+describe("describeBookingConflict names a channel stay, never the feed's generic 'Reserved'", () => {
+  const channel: Parameters<typeof describeBookingConflict>[0] = {
+    roomLabel: "Room 2",
+    start: "2026-11-12",
+    end: "2026-11-14",
+    openEnded: false,
+    summary: "Reserved",
+    source: "airbnb",
+  };
+
+  it("uses the guest name the manager typed", () => {
+    expect(describeBookingConflict({ ...channel, guestName: "Dana Lee", reservationCode: "HMABC12345" }, "Room 2")).toBe(
+      "Room 2 is booked Nov 12, 2026 – Nov 15, 2026 by Dana Lee",
+    );
+  });
+
+  it("prefers the linked resident's name over the feed", () => {
+    expect(describeBookingConflict({ ...channel, residentName: "Sam Rivera" }, "Room 2")).toContain("by Sam Rivera");
+  });
+
+  it("falls back to 'Airbnb guest · HM…' when only the reservation code is known", () => {
+    expect(describeBookingConflict({ ...channel, reservationCode: "HMABC12345" }, "Room 2")).toContain("by Airbnb guest · HMABC12345");
+  });
+
+  it("falls back to the channel's name, never 'Reserved'", () => {
+    expect(describeBookingConflict(channel, "Room 2")).toBe("Room 2 is booked Nov 12, 2026 – Nov 15, 2026 by Airbnb");
+    expect(describeBookingConflict({ ...channel, source: "booking_com" }, "Room 2")).toContain("by Booking.com");
+    expect(describeBookingConflict({ ...channel, source: "ical", channelLabel: "Furnished Finder" }, "Room 2")).toContain("by Furnished Finder");
+  });
+});
+
 describe("the server re-checks overlap at write time (docs/agents/shared-room-capacity.md's 409 contract)", () => {
   it("refuses a new block that overlaps another hold on the same room with a 409", async () => {
     const atomicWrite = routeMocks.config!.atomicWrite as AtomicWrite;
@@ -95,6 +126,9 @@ describe("the server re-checks overlap at write time (docs/agents/shared-room-ca
 
     expect(result.status).toBe(409);
     expect(result.error).toContain("Prakrit");
+    // The dates read like the channel refusal ("Nov 12 – Nov 15"), never raw ISO keys.
+    expect(result.error).toBe("That room is booked Sep 1 – Sep 5 by Prakrit");
+    expect(result.error).not.toMatch(/\d{4}-\d{2}-\d{2}/);
   });
 
   it("lets a non-overlapping block, or a different room, through to the ordinary upsert", async () => {

@@ -98,4 +98,17 @@ describe("Settings → Integrations → Bookings", () => {
     await waitFor(() => expect(fetchManagerChannelBookings).toHaveBeenCalled());
     expect(vi.mocked(fetchManagerChannelBookings).mock.calls[0]![1]).toEqual({ slim: true });
   });
+
+  it("every channel row stacks its fact and action under the name on a phone", async () => {
+    bookings.rooms = [];
+    render(<ManagerBookingChannelsPanel />);
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-airbnb-manage"]')).not.toBeNull());
+    for (const id of ["settings-airbnb-manage", "settings-booking_com-manage", "settings-padsplit-open", "settings-ical-manage"]) {
+      const row = document.querySelector(`[data-attr="${id}"]`)?.closest('[data-integration-actions]')?.parentElement as HTMLElement;
+      expect(row.className).toContain("max-sm:flex-wrap");
+      expect(row.querySelector('[data-integration-actions="stacked"]')?.className).toContain("max-sm:basis-full");
+    }
+    const fact = document.querySelector('[data-attr="settings-padsplit-status"]') as HTMLElement;
+    expect(fact.className).toContain("max-sm:flex-1");
+  });
 });

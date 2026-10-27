@@ -22,6 +22,7 @@ export function IntegrationRow({
   dataAttr,
   className,
   onOpen,
+  stackOnPhone,
 }: {
   icon: ComponentType<{ className?: string }>;
   /** Tailwind text color for the logo glyph. */
@@ -37,11 +38,16 @@ export function IntegrationRow({
   className?: string;
   /** Makes the whole row open something (a guide, a drawer) and draws a trailing chevron. */
   onOpen?: () => void;
+  /**
+   * On a phone the fact and action drop to a second line under the name (indented past the logo tile), so a long
+   * fact or a listing picker never overlaps the name and the action never leaves the screen.
+   */
+  stackOnPhone?: boolean;
 }) {
   return (
     <div
       data-attr={dataAttr}
-      className={cn("flex min-h-14 items-center gap-3 border-b border-border px-4 py-2 last:border-0", onOpen && "cursor-pointer hover:bg-foreground/5", className)}
+      className={cn("flex min-h-14 items-center gap-3 border-b border-border px-4 py-2 last:border-0", stackOnPhone && "max-sm:flex-wrap", onOpen && "cursor-pointer hover:bg-foreground/5", className)}
       {...(onOpen
         ? {
             role: "button" as const,
@@ -64,9 +70,16 @@ export function IntegrationRow({
         <p className="min-w-[6rem] truncate text-[15px] text-foreground">{name}</p>
       </div>
       {/* "Coming soon" and its action stack on a phone so the name keeps its width instead of shrinking to a letter. */}
-      <div className={cn("flex shrink-0 items-center gap-2", comingSoon && comingSoonAction ? "max-sm:flex-col max-sm:items-end max-sm:gap-0.5" : null)}>
+      <div
+        className={cn(
+          "flex shrink-0 items-center gap-2",
+          comingSoon && comingSoonAction ? "max-sm:flex-col max-sm:items-end max-sm:gap-0.5" : null,
+          stackOnPhone && "max-sm:w-full max-sm:shrink max-sm:basis-full max-sm:pl-12",
+        )}
+        data-integration-actions={stackOnPhone ? "stacked" : undefined}
+      >
         {fact && !comingSoon ? (
-          <span className="text-xs text-muted" data-attr={factDataAttr}>
+          <span className={cn("text-xs text-muted", stackOnPhone && "max-sm:min-w-0 max-sm:flex-1")} data-attr={factDataAttr}>
             {fact}
           </span>
         ) : null}

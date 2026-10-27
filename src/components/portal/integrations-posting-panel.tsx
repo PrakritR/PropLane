@@ -15,6 +15,7 @@ import { getPropertyById } from "@/lib/rental-application/data";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
 import { postListingChannelWrite, useListingChannels } from "@/hooks/use-listing-channels";
+import { listingPickerHoldReason, listingPickerLabel, LISTING_PICKER_HELD_LABEL, LISTING_PICKER_READY_LABEL } from "@/lib/listing-channels/listing-picker";
 import { listingHoldFact } from "@/lib/listing-channels/post-text";
 import { listingChannelDef } from "@/lib/listing-channels/registry";
 
@@ -125,14 +126,38 @@ function CopyPostRow({
 }) {
   const { showToast } = useAppUi();
   const [listingId, setListingId] = useState("");
-  const chosen = options.some((o) => o.value === listingId) ? listingId : (options[0]?.value ?? "");
-  const { status } = useListingChannels(chosen || undefined);
-  const holdReasons = status?.property?.holdReasons ?? [];
-  const text = status?.property?.id === chosen ? status.property.postTexts[channelId] : undefined;
+  const { status: listingsStatus } = useListingChannels(undefined, { listings: true });
 
+  // The workspace's own listings come with their hold reasons: held ones are named in the menu, under
+  // "Held", with the reason as the option's second line (never a pill). Until they load, the plain list.
+  const { groups, flat } = useMemo(() => {
+    const listings = (listingsStatus?.listings ?? []).filter((l) => l.status !== "draft");
+    if (listings.length === 0) return { groups: undefined, flat: options };
+    const byLabel = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label, "en", { sensitivity: "base", numeric: true });
+    const ready = listings.filter((l) => l.holdReasons.length === 0).map((l) => ({ value: l.id, label: listingPickerLabel(l.name, l.roomCount) })).sort(byLabel);
+    const held = listings
+      .filter((l) => l.holdReasons.length > 0)
+      .map((l) => ({ value: l.id, label: listingPickerLabel(l.name, l.roomCount), hint: listingPickerHoldReason(l.holdReasons) }))
+      .sort(byLabel);
+    return {
+      groups: [
+        ...(ready.length > 0 ? [{ label: LISTING_PICKER_READY_LABEL, options: ready }] : []),
+        ...(held.length > 0 ? [{ label: LISTING_PICKER_HELD_LABEL, options: held }] : []),
+      ],
+      flat: [...ready, ...held],
+    };
+  }, [listingsStatus?.listings, options]);
+
+  const chosen = flat.some((o) => o.value === listingId) ? listingId : (flat[0]?.value ?? "");
+  const { status } = useListingChannels(chosen || undefined);
+  const loaded = status?.property?.id === chosen ? status.property : null;
+  const holdReasons = loaded?.holdReasons ?? [];
+  const text = loaded?.postTexts[channelId];
+
+  // Copy post stays live for a held listing: the click is how the manager learns why nothing was copied.
   const copyPost = async () => {
     if (!text) {
-      showToast(holdReasons.length > 0 ? `${listingHoldFact(holdReasons)}.` : "Pick a listing first.");
+      showToast(holdReasons.length > 0 ? `${listingHoldFact(holdReasons)}.` : chosen ? "The post is still loading. Try again." : "Pick a listing first.");
       return;
     }
     const ok = await copyTextToClipboard(text);
@@ -146,20 +171,21 @@ function CopyPostRow({
       tone={tone}
       name={name}
       dataAttr={`settings-${dataPrefix}-row`}
+      stackOnPhone
       action={
         <>
-          <div className="w-44 sm:w-56">
+          <div className="w-44 max-sm:min-w-0 max-sm:flex-1 sm:w-56">
             <FieldSingleSelect
               hideLabel
               label="Listing"
               placeholder="Pick a listing"
               dataAttr={`settings-${dataPrefix}-listing`}
               value={chosen}
-              options={options}
+              {...(groups ? { groups } : { options })}
               onChange={setListingId}
             />
           </div>
-          <Button variant="ghost" disabled={!chosen || !text} data-attr={`settings-${dataPrefix}-copy-post`} onClick={() => void copyPost()}>
+          <Button variant="ghost" className="max-sm:shrink-0" disabled={!chosen} data-attr={`settings-${dataPrefix}-copy-post`} onClick={() => void copyPost()}>
             Copy post
           </Button>
           {openLabel ? (

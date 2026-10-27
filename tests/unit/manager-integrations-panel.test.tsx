@@ -183,11 +183,50 @@ describe("Integrations → Posting", () => {
     open.mockRestore();
   });
 
-  it("SpareRoom: a held listing (no street address or real photo) has no post, so Copy post stays off", async () => {
+  it("SpareRoom: a held listing keeps Copy post live and says why nothing was copied", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
     statusOverrides.value = { property: { id: "p1", live: false, holdReasons: ["no_photo"], postTexts: {} } };
     render(<ManagerIntegrationsPanel initialTab="posting" />);
     await waitFor(() => expect(document.querySelector('[data-attr="settings-spareroom-copy-post"]')).not.toBeNull());
-    expect((document.querySelector('[data-attr="settings-spareroom-copy-post"]') as HTMLButtonElement).disabled).toBe(true);
+    const button = document.querySelector('[data-attr="settings-spareroom-copy-post"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    await waitFor(() => {
+      fireEvent.click(button);
+      expect(toast).toHaveBeenCalledWith(expect.stringMatching(/photo/i));
+    });
+    expect(copied).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+    open.mockRestore();
+  });
+
+  it("the listing picker names a held listing under Held with the reason as its second line", async () => {
+    statusOverrides.value = {
+      listings: [
+        { id: "p1", status: "live", name: "4709A", roomCount: 3, holdReasons: [] },
+        { id: "p2", status: "live", name: "Maple", roomCount: 0, holdReasons: ["no_photo"] },
+        { id: "p3", status: "draft", name: "Cedar", roomCount: 0, holdReasons: [] },
+      ],
+    };
+    render(<ManagerIntegrationsPanel initialTab="posting" />);
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-facebook-listing"]')?.textContent).toContain("4709A"));
+    fireEvent.click(document.querySelector('[data-attr="settings-facebook-listing"]') as HTMLElement);
+    const options = within(screen.getByRole("listbox")).getAllByRole("option");
+    const held = options.find((o) => /Maple/.test(o.textContent ?? ""));
+    expect(held?.textContent).toMatch(/photo/i);
+    expect(options.some((o) => /Cedar/.test(o.textContent ?? ""))).toBe(false);
+    expect(options.find((o) => /4709A/.test(o.textContent ?? ""))?.textContent).not.toMatch(/photo/i);
+  });
+
+  it("Copy post rows wrap on a phone: the picker and actions stack under the name", () => {
+    render(<ManagerIntegrationsPanel initialTab="posting" />);
+    for (const prefix of ["facebook", "spareroom"]) {
+      const row = document.querySelector(`[data-attr="settings-${prefix}-row"]`) as HTMLElement;
+      expect(row.className).toContain("max-sm:flex-wrap");
+      const actions = row.querySelector('[data-integration-actions="stacked"]') as HTMLElement;
+      expect(actions.className).toContain("max-sm:basis-full");
+      expect(actions.className).toContain("max-sm:shrink");
+      expect((row.querySelector(`[data-attr="settings-${prefix}-listing"]`)?.closest("div.w-44") as HTMLElement).className).toContain("max-sm:flex-1");
+    }
   });
 
   it("does not open Facebook when the copy fails", async () => {
