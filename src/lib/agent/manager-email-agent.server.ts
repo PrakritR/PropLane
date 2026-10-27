@@ -16,6 +16,7 @@ import {
 } from "@/lib/agent/sms-agent-turn.server";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 import { assertManagerCommunicationAllowed } from "@/lib/manager-communication-access.server";
+import { isChannelRelayAddress, type ChannelSite } from "@/lib/inbound-email/channel-senders";
 
 type Db = SupabaseClient;
 
@@ -91,7 +92,17 @@ export async function deliverManagerEmailReply(args: {
   text: string;
   fromAddress: string;
   replyTo?: string | null;
+  /**
+   * A reply to a booking-site guest message. `toEmail` must then be the site's RELAY address on the site's own domain, and
+   * the inbound must have been authenticated (DKIM/SPF) as that site: anything else is refused here, so no caller can
+   * route a guest reply to an address a forged mail named.
+   */
+  channel?: { site: ChannelSite; authenticated: boolean };
 }): Promise<{ ok: boolean; error?: string }> {
+  if (args.channel) {
+    if (!args.channel.authenticated) return { ok: false, error: "The sender was not authenticated as the site." };
+    if (!isChannelRelayAddress(args.channel.site, args.toEmail)) return { ok: false, error: "Not the site's reply address." };
+  }
   // A live signup trial has no Communication until it pays; an unreadable plan fails closed.
   const access = await assertManagerCommunicationAllowed(args.managerUserId);
   if (!access.allowed) return { ok: false, error: access.message };

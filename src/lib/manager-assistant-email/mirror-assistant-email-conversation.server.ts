@@ -26,6 +26,7 @@ import {
 } from "@/lib/portal-inbox-delivery";
 import { attachDraftToThread, reviewDraft } from "@/lib/action-event-draft-review.server";
 import { formatInboxStamp } from "@/lib/portal-inbox-storage";
+import { stampChannelGuestOnThread, type ChannelGuestThreadTag } from "@/lib/manager-assistant-email/channel-guest-thread.server";
 
 function previewOf(text: string): string {
   const flat = text.replace(/\s+/g, " ").trim();
@@ -75,6 +76,13 @@ export async function mirrorAssistantEmailConversation(
      * resident's conversation with their manager.
      */
     residentUserId?: string | null;
+    /**
+     * A booking-site guest (Airbnb, Booking.com, PadSplit, SpareRoom): the house this conversation is about, and the tag
+     * Communication marks the thread with. The conversation is still the ONE conversation per guest per workspace - the
+     * sender key is the guest's internal key address, never a second thread per reservation.
+     */
+    propertyId?: string | null;
+    channelGuest?: ChannelGuestThreadTag;
   },
 ): Promise<void> {
   const senderEmail = args.senderEmail.trim().toLowerCase();
@@ -108,8 +116,16 @@ export async function mirrorAssistantEmailConversation(
     conversation: {
       workspaceId: args.workspaceId ?? null,
       workLine: args.workLine ?? null,
+      ...(args.propertyId ? { propertyId: args.propertyId } : {}),
     },
   });
+  if (args.channelGuest) {
+    try {
+      await stampChannelGuestOnThread(db, inbound.threadId, args.channelGuest);
+    } catch (cause) {
+      console.error("channel guest tag not stamped", cause instanceof Error ? cause.message : "unknown");
+    }
+  }
 
   const residentUserId = args.residentUserId?.trim() ?? "";
   if (residentUserId) {
