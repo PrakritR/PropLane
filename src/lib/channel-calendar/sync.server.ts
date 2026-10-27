@@ -33,7 +33,8 @@ import {
   reservationIdentitiesElsewhere,
   withoutMovedReservations,
 } from "@/lib/channel-calendar/channel-booking-diff";
-import { emitChannelBookingEvent } from "@/lib/channel-booking-events.server";
+import { emitChannelBookingEvent, emitChannelClashEvent } from "@/lib/channel-booking-events.server";
+import { detectChannelClashes } from "@/lib/channel-calendar/channel-overlap.server";
 import { parseIcsCalendar } from "@/lib/ical/parse";
 import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 import type { MockProperty } from "@/data/types";
@@ -865,6 +866,24 @@ export async function syncChannelCalendarConnection(
         message: alertError instanceof Error ? alertError.message : String(alertError),
       });
     }
+    // Two things holding one room on the same nights (Airbnb and Booking.com both sold it, or a channel reservation
+    // landed on a PropLane stay that is not it): ONE alert per clash, idempotent on the clash's own key, so whichever
+    // room syncs first announces it. Best-effort like the alerts above.
+    try {
+      const clashes = await detectChannelClashes(db, { propertyId: connection.property_id, connectionId: connection.id, today });
+      for (const clash of clashes) {
+        await emitChannelClashEvent(db, {
+          clash,
+          managerUserId: connection.manager_user_id,
+          propertyLabel: record.property.buildingName?.trim() || record.property.title?.trim() || undefined,
+        });
+      }
+    } catch (clashError) {
+      console.warn("[channel-calendar] clash alert failed", {
+        connectionId: connection.id,
+        message: clashError instanceof Error ? clashError.message : String(clashError),
+      });
+    }
     return parseConnectionRow(saved as Record<string, unknown>);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Sync failed.";
@@ -929,25 +948,77 @@ export async function ensureRoomExportCalendarUrl(
   return `${connection.exportUrl}${suffix}`;
 }
 
-export async function syncAllChannelCalendarImports(db: SupabaseClient): Promise<{ synced: number; failed: number }> {
+/** The cron route's `maxDuration` in ms (`api/cron/sync-channel-calendars`); a test keeps the two in step. */
+export const CHANNEL_SYNC_CRON_MAX_DURATION_MS = 120_000;
+/** Feeds fetched at once. Four keeps 56+ feeds inside the cron without hammering one channel. */
+export const SYNC_ALL_CONCURRENCY = 4;
+/** No new fetch starts once less than this is left of the cron's duration (a fetch may run 15s). */
+export const SYNC_ALL_STOP_SCHEDULING_MS = 20_000;
+
+export type SyncAllResult = { synced: number; failed: number; skipped: number };
+
+/**
+ * Sync every saved import URL, {@link SYNC_ALL_CONCURRENCY} at a time. The least recently synced
+ * connections go first, and no new fetch is scheduled once the cron's time budget has under
+ * {@link SYNC_ALL_STOP_SCHEDULING_MS} left; whatever was not started is reported as `skipped` and goes
+ * first on the next run, so a large portfolio converges instead of running out the clock mid-write.
+ */
+type SyncPoolOptions = {
+  concurrency?: number;
+  budgetMs?: number;
+  stopSchedulingMs?: number;
+  now?: () => number;
+  syncOne?: (db: SupabaseClient, connectionId: string) => Promise<unknown>;
+};
+
+/**
+ * Sync the given connections, {@link SYNC_ALL_CONCURRENCY} at a time, in the order given. Stops
+ * scheduling new fetches with under {@link SYNC_ALL_STOP_SCHEDULING_MS} left of the budget; whatever
+ * was not started is `skipped`. The cron and the portal's Sync all both run through this.
+ */
+export async function syncChannelCalendarConnectionIds(
+  db: SupabaseClient,
+  connectionIds: readonly string[],
+  options: SyncPoolOptions = {},
+): Promise<SyncAllResult> {
+  const now = options.now ?? Date.now;
+  const startedAt = now();
+  const budgetMs = options.budgetMs ?? CHANNEL_SYNC_CRON_MAX_DURATION_MS;
+  const stopSchedulingMs = options.stopSchedulingMs ?? SYNC_ALL_STOP_SCHEDULING_MS;
+  const syncOne = options.syncOne ?? syncChannelCalendarConnection;
+  const result: SyncAllResult = { synced: 0, failed: 0, skipped: 0 };
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      if (budgetMs - (now() - startedAt) < stopSchedulingMs) return;
+      const id = connectionIds[next];
+      if (id === undefined) return;
+      next += 1;
+      try {
+        await syncOne(db, id);
+        result.synced += 1;
+      } catch {
+        result.failed += 1;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(options.concurrency ?? SYNC_ALL_CONCURRENCY, connectionIds.length || 1)) }, worker));
+  result.skipped = Math.max(0, connectionIds.length - next);
+  return result;
+}
+
+export async function syncAllChannelCalendarImports(db: SupabaseClient, options: SyncPoolOptions = {}): Promise<SyncAllResult> {
   const { data, error } = await db
     .from("external_calendar_connections")
-    .select("id, import_url")
+    .select("id, import_url, last_synced_at")
     .not("import_url", "is", null);
   if (error) throw new Error(error.message);
 
-  let synced = 0;
-  let failed = 0;
-  for (const row of data ?? []) {
-    if (!String(row.import_url ?? "").trim()) continue;
-    try {
-      await syncChannelCalendarConnection(db, String(row.id));
-      synced += 1;
-    } catch {
-      failed += 1;
-    }
-  }
-  return { synced, failed };
+  const queue = (data ?? [])
+    .filter((row) => String(row.import_url ?? "").trim())
+    .sort((a, b) => String(a.last_synced_at ?? "").localeCompare(String(b.last_synced_at ?? "")))
+    .map((row) => String(row.id));
+  return syncChannelCalendarConnectionIds(db, queue, options);
 }
 
 export async function loadConnectionByExportToken(

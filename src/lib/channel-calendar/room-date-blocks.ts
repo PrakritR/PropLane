@@ -17,6 +17,7 @@ import { stampStayRow } from "@/lib/bookings/stay-stamp";
 import { STAY_ADD_ON_KINDS, normalizePropertyStayTimes, normalizeStayTime, type StayAddOns } from "@/lib/bookings/stay-times";
 import { propertyTimeZoneForZip } from "@/lib/property-time-zone";
 import { normalizeStayApplication } from "@/lib/short-stay/stay-application";
+import { normalizeChannelLink } from "@/lib/channel-calendar/channel-link";
 import { getPropertyById } from "@/lib/rental-application/data";
 
 export const ROOM_DATE_BLOCKS_CHANGED = "axis:room-date-blocks-changed";
@@ -76,6 +77,9 @@ function normalizeStayDetails(raw: unknown): RoomDateBlock["stayDetails"] {
   // The guest's booking application (resident portal request): server-written, read back for the host.
   const application = normalizeStayApplication(values.application);
   if (application) result.application = application;
+  // Which Airbnb / Booking.com reservation this stay is. Anything that names no reservation is dropped.
+  const channelLink = normalizeChannelLink(values.channelLink);
+  if (channelLink) result.channelLink = channelLink;
   return result;
 }
 

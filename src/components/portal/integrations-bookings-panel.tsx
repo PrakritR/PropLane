@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BedDouble, Building2, CalendarPlus, House, Palmtree, Plus } from "lucide-react";
+import { Building2, CalendarPlus, ExternalLink, House, Palmtree, Plus, UsersRound } from "lucide-react";
 
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { IntegrationRow } from "@/components/portal/integration-row";
@@ -24,8 +24,8 @@ const LIVE_CHANNELS = [
   { provider: "booking_com", name: "Booking.com", icon: Building2, tone: "text-blue-600" },
 ] as const;
 
-/** Channels that are listed so managers see what is coming - no connect action yet. */
-const COMING_SOON_CHANNELS = [{ id: "spareroom", name: "SpareRoom", icon: BedDouble }] as const;
+/** PadSplit's host dashboard. PadSplit has no calendar feed and no API, so this is a plain link, never a connection. */
+export const PADSPLIT_HOST_URL = "https://www.padsplit.com/host";
 
 /** What the Other calendar row says before any site is linked: the sites people reach for first. */
 const OTHER_CALENDAR_HINT = "Houfy, Furnished Finder, Vrbo, any .ics";
@@ -105,6 +105,7 @@ export function ManagerBookingChannelsPanel() {
       <PortalSettingsGroup>
         {LIVE_CHANNELS.map(({ provider, name, icon, tone }) => (
           <IntegrationRow
+            stackOnPhone
             key={provider}
             icon={icon}
             tone={tone}
@@ -119,6 +120,7 @@ export function ManagerBookingChannelsPanel() {
           />
         ))}
         <IntegrationRow
+          stackOnPhone
           icon={Palmtree}
           tone="text-indigo-600"
           name="Vrbo"
@@ -132,6 +134,17 @@ export function ManagerBookingChannelsPanel() {
           }
         />
         <IntegrationRow
+          stackOnPhone
+          icon={UsersRound}
+          tone="text-violet-600"
+          name="PadSplit"
+          fact="Manual · approve each booking in PadSplit"
+          factDataAttr="settings-padsplit-status"
+          dataAttr="settings-padsplit-row"
+          action={<PortalIconAction icon={ExternalLink} label="Open PadSplit" data-attr="settings-padsplit-open" onClick={() => window.open(PADSPLIT_HOST_URL, "_blank", "noopener,noreferrer")} />}
+        />
+        <IntegrationRow
+          stackOnPhone
           icon={CalendarPlus}
           tone="text-emerald-600"
           name="Other calendar"
@@ -139,9 +152,6 @@ export function ManagerBookingChannelsPanel() {
           factDataAttr="settings-ical-status"
           action={<PortalIconAction icon={Plus} label="Connect an Other calendar" data-attr="settings-ical-manage" onClick={() => setChannelOpen("ical")} />}
         />
-        {COMING_SOON_CHANNELS.map(({ id, name, icon }) => (
-          <IntegrationRow key={id} icon={icon} name={name} comingSoon dataAttr={`settings-${id}-row`} />
-        ))}
       </PortalSettingsGroup>
       <ChannelCalendarLinkModal
         open={channelOpen !== null}

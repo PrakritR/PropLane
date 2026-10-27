@@ -25,6 +25,7 @@ import { shortStaySourceLabel } from "@/lib/short-stay/guest-stays";
 import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { bookingRateLabel, bookingRemovalActions, bookingStatusLabel } from "@/lib/channel-calendar/booking-presentation";
 import { airbnbOpenUrlForEntry } from "@/lib/channel-calendar/reservation-code";
+import { airbnbReservationUrl } from "@/lib/channel-calendar/reservation-details";
 import { airbnbLinkForRoom, channelCheckFacts, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
 import { bookingEntryGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { bookingRecordHref, managerBookingListHref, parseBookingDetailTab, paymentRecordDetailHref } from "@/lib/portal-detail-routes";
@@ -69,7 +70,8 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
   const airbnbStay = entry.source === "airbnb" && !isHostBlockSummary(entry.summary) && Boolean(entry.connectionId && entry.sourceUid);
   // The record's one "Open in Airbnb" is the header icon, on the same stay the Guest card trusts:
   // a real imported reservation (never a host block), with a code the sync could parse.
-  const airbnbUrl = airbnbStay ? airbnbOpenUrlForEntry(entry) : null;
+  // A PropLane stay linked to its Airbnb reservation opens that reservation too.
+  const airbnbUrl = airbnbStay ? airbnbOpenUrlForEntry(entry) : entry.channelLink?.provider === "airbnb" ? airbnbReservationUrl(entry.channelLink.reservationCode) : null;
   const resident = residentOptions.find((option) => option.email === entry.residentEmail || option.name === entry.residentName || option.name === entry.summary);
   const guestEmail = entry.residentEmail || resident?.email || "";
   const sourceTarget = channel ? null : bookingOpenTarget(entry, basePath);
@@ -116,7 +118,7 @@ export function BookingsRecordPage({ bookingId, tab: tabProp, basePath, entries,
     const past = guestPastStays(entry, entries, today);
     body = (
       <RecordFactCard title="Guest" dataAttr="booking-guest-card">
-        <RecordFactRow label="Name" value={airbnbStay ? <span className="flex items-center gap-1.5">{name}<PortalIconAction icon={Pencil} label="Edit booking details" onClick={() => setNamingGuest(true)} data-attr="booking-guest-name-edit" /></span> : name} />
+        <RecordFactRow label="Name" value={airbnbStay ? <span className="flex items-center gap-1.5">{name}<PortalIconAction icon={Pencil} label={entry.guestName?.trim() ? "Edit booking details" : "Add name"} onClick={() => setNamingGuest(true)} data-attr="booking-guest-name-edit" /></span> : name} />
         {airbnbStay && entry.reservationCode ? <RecordFactRow label="Reservation" value={entry.reservationCode} /> : null}
         {entry.phoneLast4 ? <RecordFactRow label="Phone ending" value={entry.phoneLast4} /> : null}
         <RecordFactRow label="Email" value={guestEmail || "—"} />

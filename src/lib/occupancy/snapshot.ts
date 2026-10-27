@@ -12,6 +12,7 @@
 
 import { addDaysToDateKey, bookingSourceLabel } from "@/lib/channel-calendar/bookings-ui";
 import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
+import { channelStayCoverKey, resolveChannelLinks } from "@/lib/channel-calendar/channel-link";
 import { isShortStayRequestSource } from "@/lib/short-stay/guest-stays";
 import { bookingEntriesForDayKey, isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 
@@ -165,10 +166,14 @@ export function withoutChannelStaysCoveredByResidents(entries: readonly Property
     if (entry.source !== "hold" && entry.source !== "proplane") continue;
     if (entry.icalConnectionId && entry.icalSourceUid) covered.add(`${entry.icalConnectionId}\0${entry.icalSourceUid}`);
   }
-  if (covered.size === 0) return [...entries];
+  // A PropLane stay linked to its Airbnb / Booking.com reservation (typed link, or the HM code / same
+  // dates auto-link) is that reservation: its channel copy is dropped too, so one guest is one bed.
+  const linked = resolveChannelLinks(entries).covered;
+  if (covered.size === 0 && linked.size === 0) return [...entries];
   return entries.filter((entry) => {
     if (!isChannelBookingSource(entry.source) || !entry.connectionId || !entry.sourceUid) return true;
     if (isAvailabilityBlockRow(entry)) return true;
+    if (linked.has(channelStayCoverKey(entry))) return false;
     return !covered.has(`${entry.connectionId}\0${entry.sourceUid}`);
   });
 }

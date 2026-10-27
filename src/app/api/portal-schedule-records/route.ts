@@ -3,6 +3,9 @@ import { loadPropertyStayClock } from "@/lib/bookings/property-stay-times.server
 import { resolveRowStayTimes, stampStayRow } from "@/lib/bookings/stay-stamp";
 import { DEFAULT_PROPERTY_STAY_TIMES, staysOverlap, type PropertyStayTimes } from "@/lib/bookings/stay-times";
 import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
+import { normalizeChannelLink, type ChannelLink } from "@/lib/channel-calendar/channel-link";
+import { monthDay } from "@/lib/channel-calendar/channel-overlap";
+import { CHANNEL_OVERLAP_UNVERIFIED, checkStayAgainstChannels } from "@/lib/channel-calendar/channel-overlap.server";
 import { roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { emitNativeBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
 import { createJsonRecordRoute } from "@/lib/portal-record-api";
@@ -106,7 +109,10 @@ async function announceNativeBooking(db: Parameters<typeof emitNativeBookingEven
  * (PLAN-0920-1058, area 1e; docs/agents/shared-room-capacity.md's 409
  * contract for a different table). The client already screens against every
  * booking source it can see (`bookingConflictsFor`); this is the authoritative
- * re-check against every OTHER manager-made hold on the same room. This
+ * re-check against every OTHER manager-made hold on the same room, and then
+ * against what the room's Airbnb / Booking.com calendars hold
+ * (`checkStayAgainstChannels`: the reservation this stay is linked to is the
+ * stay itself, PropLane's own echoed export is not a closure). This
  * read-check-write is not database serialization; concurrent writes still need
  * the room-capacity transaction before the last-bed guarantee can be claimed.
  */
@@ -122,16 +128,24 @@ async function roomDateBlockOverlapConflict(args: {
   checkInTime: string;
   checkOutTime: string;
   propertyTimes: PropertyStayTimes;
-}): Promise<string | null> {
+  /** What the channel check needs of this save (omitted = native holds only). */
+  channel?: {
+    link?: ChannelLink;
+    storedLink?: ChannelLink;
+    derive: boolean;
+    reason: string;
+    openEnded: boolean;
+  };
+}): Promise<{ conflict: string | null; channelLink?: ChannelLink | null }> {
   const { db, managerUserId, recordId, propertyId, roomId, checkIn, checkOut, checkInTime, checkOutTime, propertyTimes } = args;
-  if (!propertyId || !checkIn || !checkOut) return null;
+  if (!propertyId || !checkIn || !checkOut) return { conflict: null };
   const { data, error } = await db
     .from("portal_schedule_records")
     .select("id, row_data")
     .eq("manager_user_id", managerUserId)
     .eq("property_id", propertyId)
     .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE);
-  if (error || !data) return "Could not verify room availability. Try again.";
+  if (error || !data) return { conflict: CHANNEL_OVERLAP_UNVERIFIED };
   for (const row of data as RoomDateBlockRow[]) {
     if (String(row.id ?? "") === recordId) continue;
     const otherRoomId = roomDateBlockField(row, "roomId");
@@ -152,9 +166,23 @@ async function roomDateBlockOverlapConflict(args: {
     if (!overlaps) continue;
     const otherRoomLabel = roomDateBlockField(row, "roomId") ? "That room" : "This room";
     const who = roomDateBlockField(row, "residentName") || roomDateBlockField(row, "reason") || "another hold";
-    return `${otherRoomLabel} is booked ${otherCheckIn} – ${otherCheckOut} by ${who}`;
+    return { conflict: `${otherRoomLabel} is booked ${monthDay(otherCheckIn)} – ${monthDay(otherCheckOut)} by ${who}` };
   }
-  return null;
+  if (!args.channel) return { conflict: null };
+  const checked = await checkStayAgainstChannels(db, {
+    propertyId,
+    roomId,
+    checkIn,
+    checkOut,
+    openEnded: args.channel.openEnded,
+    reason: args.channel.reason,
+    link: args.channel.link,
+    storedLink: args.channel.storedLink,
+    derive: args.channel.derive,
+    ownId: recordId,
+    blockRows: data as RoomDateBlockRow[],
+  });
+  return { conflict: checked.conflict, channelLink: checked.link ?? null };
 }
 
 /**
@@ -541,7 +569,13 @@ const route = createJsonRecordRoute({
         const nameError = roomDateBlockNameError({ bookingStatus: data.bookingStatus, residentName: data.residentName, blockKind: data.blockKind, reason: data.reason });
         if (nameError) return { handled: true, error: nameError, status: 400 };
       }
-      const conflict = await roomDateBlockOverlapConflict({
+      const savedData = roomDateBlockData(record);
+      const savedDetails = savedData.stayDetails && typeof savedData.stayDetails === "object" && !Array.isArray(savedData.stayDetails) ? (savedData.stayDetails as Record<string, unknown>) : {};
+      const storedDetails = existing ? roomDateBlockData(existing).stayDetails : null;
+      const storedLink = storedDetails && typeof storedDetails === "object" ? normalizeChannelLink((storedDetails as Record<string, unknown>).channelLink) : undefined;
+      // A channel import mirrors the channel's own stay, so it is never checked against the channel it came from.
+      const checkChannels = savedData.bookingStatus !== "cancelled" && !isImportedChannelBlock({ reason: text(savedData.reason) });
+      const overlap = await roomDateBlockOverlapConflict({
         db,
         managerUserId: String(record.manager_user_id ?? user.id),
         recordId: String(record.id ?? ""),
@@ -551,8 +585,27 @@ const route = createJsonRecordRoute({
         checkOut: roomDateBlockField(record as RoomDateBlockRow, "checkOut"),
         ...stayTimes,
         propertyTimes: propertyStayTimes ?? DEFAULT_PROPERTY_STAY_TIMES,
+        ...(checkChannels
+          ? {
+              channel: {
+                link: normalizeChannelLink(savedDetails.channelLink),
+                storedLink,
+                derive: Boolean(text(savedData.residentName)) && text(savedData.blockKind) !== "closed",
+                reason: text(savedData.reason),
+                openEnded: savedData.openEnded === true,
+              },
+            }
+          : {}),
       });
-      if (conflict) return { handled: true, error: conflict, status: 409 };
+      if (overlap.conflict) return { handled: true, error: overlap.conflict, status: 409 };
+      if (checkChannels && overlap.channelLink !== undefined) {
+        // The link is stored as the server verified it (a typed link no reservation answers to is dropped; an
+        // auto-link is written on this save, the manager's own, never as a background change).
+        const { channelLink: _typed, ...detailsWithoutLink } = savedDetails;
+        void _typed;
+        const nextDetails = overlap.channelLink ? { ...detailsWithoutLink, channelLink: overlap.channelLink } : detailsWithoutLink;
+        record.row_data = { ...savedData, ...(Object.keys(nextDetails).length > 0 || savedData.stayDetails ? { stayDetails: nextDetails } : {}) };
+      }
       return { handled: false };
     }
     if (String(record.id) !== PLANNED_EVENTS_RECORD_ID) {

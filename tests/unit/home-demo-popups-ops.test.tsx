@@ -156,7 +156,7 @@ describe("Bookings", () => {
     expect(screen.getByRole("button", { name: "Add booking" })).toBeInTheDocument();
     for (const control of ["Previous month", "Next month"]) expect(screen.getAllByRole("button", { name: control }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Today" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Calendar colours")).toHaveTextContent("Airbnb / Booking.com");
+    expect(screen.getByLabelText("Calendar colours")).toHaveTextContent("Booking.com");
   });
 
   it("the + opens Add booking (Property, When, Review) ending in Add booking", async () => {

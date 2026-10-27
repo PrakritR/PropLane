@@ -73,6 +73,17 @@ describe("listing channel registry", () => {
     expect(byId.facebook_page).toBe("coming_soon");
   });
 
+  it("SpareRoom is a copy-the-post site (like Facebook Marketplace) that opens SpareRoom's roommates page, with no API", () => {
+    const def = listingChannelDef("spareroom")!;
+    expect(def.posting).toBe("manual");
+    expect(def.mode).toBeUndefined();
+    expect(def.createUrl).toBe("https://www.spareroom.com/roommates");
+    expect(def.guide.createUrl).toBe("https://www.spareroom.com/roommates");
+    expect(def.posting).toBe(listingChannelDef("facebook_marketplace")!.posting);
+    expect(apiPostingChannelIds()).not.toContain("spareroom");
+    expect(listingChannels({}).find((c) => c.id === "spareroom")?.availability).toBe("live");
+  });
+
   it("Facebook Page and Instagram are Coming soon when the Meta env is missing", () => {
     for (const env of [{}, { META_APP_ID: "1" }, { META_APP_ID: "1", META_APP_SECRET: "s" }, { META_APP_SECRET: "s", META_APP_LIVE: "1" }]) {
       expect(metaChannelsLive(env)).toBe(false);

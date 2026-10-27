@@ -189,6 +189,16 @@ admin to read there; the Listing sites API ships no partner contacts. Availabili
 `live` only when Meta is live, `partner_only` is `partner_only`; there is never a
 "Coming soon"-only dead row.
 
+**SpareRoom is a Copy post site, like Facebook Marketplace.** Settings › Integrations › Posting has a
+SpareRoom row (the same `CopyPostRow` as Marketplace): a listing picker, **Copy post** (the
+`postTexts.spareroom` the Listing sites GET builds from `publicListingProjection` facts plus the workspace
+work number and email; no work number means nothing is built, and a listing with no street address or no
+real photo is held with its existing reason, so Copy post stays off and says why) and a plain **Open
+SpareRoom** link to `https://www.spareroom.com/roommates` (`SPAREROOM_ROOMMATES_URL`, the registry's
+`createUrl`). No API, no scraping, no browser driving; the Bookings tab no longer carries a SpareRoom
+"Coming soon" row because SpareRoom has no calendar feed. Coverage: `listing-channels-registry.test.ts`,
+`listing-channels-post-text.test.ts`, `manager-integrations-panel.test.tsx`.
+
 ### The guide schema
 
 Each `ListingChannelDef` carries `guide: { how, signupUrl?, signupNote,

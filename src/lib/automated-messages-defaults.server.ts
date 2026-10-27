@@ -17,7 +17,7 @@ import {
   type ServiceRequestActionEvent,
 } from "@/lib/domain-action-events.server";
 import { renderVendorTaskAssigned, renderWorkOrderEvent, type WorkOrderEventType } from "@/lib/work-order-events.server";
-import { renderChannelBookingEvent, renderNativeBookingEvent, type ChannelBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
+import { renderChannelBookingEvent, renderChannelClashEvent, renderNativeBookingEvent, type ChannelBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
 import { renderTourManagerEvent, renderTourTeamEvent, type TourManagerEvent } from "@/lib/tour-events.server";
 import { renderInspectionEvent } from "@/lib/inspection-events.server";
 
@@ -99,6 +99,20 @@ function renderDefault(domain: string, event: string, audience: AutomatedMessage
   }
   if (domain === "channel_booking" && audience === "manager" && (event === "booking_created" || event === "booking_cancelled")) {
     return renderNativeBookingEvent(event as NativeBookingEvent, { propertyLabel: "5259 Brooklyn Ave", roomLabel: "Room 3", guestName: "Alex Guest", checkIn: "2026-10-12", checkOut: "2026-10-15" });
+  }
+  if (domain === "channel_booking" && audience === "manager" && event === "channel_booking_clash") {
+    return renderChannelClashEvent(
+      {
+        roomLabel: "Room 8",
+        start: "2026-10-29",
+        end: "2026-10-31",
+        sides: [
+          { kind: "channel", label: "Airbnb", range: { provider: "airbnb", connectionId: "c1", propertyId: "p", roomId: "r8", start: "2026-10-29", end: "2026-10-31" } },
+          { kind: "channel", label: "Booking.com", range: { provider: "booking_com", connectionId: "c2", propertyId: "p", roomId: "r8", start: "2026-10-30", end: "2026-11-01" } },
+        ],
+      },
+      "5259 Brooklyn Ave",
+    );
   }
   if (domain === "channel_booking" && audience === "manager") {
     return renderChannelBookingEvent(event as ChannelBookingEvent, { provider: "airbnb", propertyLabel: "5259 Brooklyn Ave", roomLabel: "Room 3", start: "2026-10-12", end: "2026-10-14" });

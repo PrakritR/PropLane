@@ -388,13 +388,61 @@ Coverage: `tests/unit/short-stay-instant-book.test.ts`, `short-stay-guests-weigh
 An **Approved** application row (captain, Oct 13: never Pending, Declined, withdrawn or unfinished; `applicationRowCanQuickBook` enforces it) has a **Quick book** icon (`CalendarPlus`) that opens the same Block dates sheet as Bookings, on Mark reserved, filled from the application: house and room from `parseRoomChoiceValue(roomChoice1)`, check-in `leaseStart`, check-out `leaseEnd` (the day after check-in when missing), the applicant as the resident (matched to a resident on the books by email, else a new resident) and reason `Application <id>`. The prefill is `quickBookPrefillForApplication` (`src/lib/channel-calendar/quick-book.ts`); an application with no room or move-in date toasts instead of opening. The host (`application-quick-book.tsx`) mounts only while open and saves through `useSaveBookingBlock`, the one save path Bookings also uses — never fork it, so a new resident gets the same invite either way.
 
 Because the host starts the Bookings reads as it opens, it is the one sheet that opens on an empty
-calendar, and both lists it decides on are empty for that moment: `entries` is the whole
-double-booking guard (`saveRoomDateBlock` does no server-side overlap check) and `residentOptions` is
+calendar, and both lists it decides on are empty for that moment: `entries` is the sheet's own
+double-booking screen (the server re-checks every save, § One booking across channels) and `residentOptions` is
 what tells a prefilled applicant already on the books apart from a NEW resident, who gets an
 account-setup invite by text or email. So `useManagerBookingEntries` reports `readsPending` (every
 source, not just the first — that is `loading`), the sheet takes it as a prop, and while it is true the
 sheet fills and reads but will not save. Any future host that opens the sheet before its reads land
 passes the same flag.
+
+## One booking across channels (Oct 26 2026)
+
+Airbnb, Booking.com and PadSplit are one calendar: a stay is the same stay wherever it came from, and a room is
+blocked on every channel. Plan `bookings-channels-1026`.
+
+- **A stay knows its channel reservation.** `stayDetails.channelLink {provider: airbnb|booking_com,
+  reservationCode?, sourceUid?}` (`channel-link.ts`, normalized in `room-date-blocks.ts`) says a hand-typed stay IS
+  that reservation. With Source **Airbnb** or **Booking.com** the Add/Edit sheets show a reservation picker listing
+  that room's imported reservations, closest dates first (`reservationOptionsForStay`, `BookingChannelLinkField`);
+  picking one links, "Not linked" unlinks, and changing Source to another channel drops the link. A **linked stay
+  covers its channel copy**: `withLinkedChannelStays` (the hook's `entries`) stamps `channelLink` on the stay and the
+  guest's name on the copy, and `withoutChannelStaysCoveredByResidents` (calendar, list, occupancy, client and
+  server) drops the copy, so one reservation is one bar and one bed. `entries` keeps the copy for the record page and
+  payouts. The bar takes the channel's colour (`calendarStatus`), a small channel mark and the stay's own name.
+- **Auto-link, once, derived.** A stay with no link links itself (`resolveChannelLinks`, `autoLinkForStay`): an HM
+  code in its notes that is exactly one reservation's code in that house, else exactly one reservation in the same
+  room whose check-in and check-out are each within one night. Two candidates (or two stays claiming one
+  reservation) is no link: a wrong join is worse than none. Reading never writes. The link is stored on the
+  manager's NEXT save of that stay (the sheets open already linked; the schedule-records route and the assistant's
+  block tools derive the same answer server-side) and never as a background write.
+- **The server refuses a double booking.** `roomDateBlockOverlapConflict` (`/api/portal-schedule-records`) and the
+  assistant's `block_room_dates` / `update_room_block` also check the room's (and, for a whole-home stay, every
+  room's) imported channel ranges after tombstoned stays are dropped (`checkStayAgainstChannels`,
+  `channel-overlap.ts`). 409: "Room 8 is booked Oct 29 – Nov 1 on Airbnb (Elias Mejia). Pick other dates or another
+  room." The reservation the stay is linked to is the stay, never a clash; a typed link no reservation answers to is
+  dropped from what is saved (unless it was already stored: a reservation can leave the feed). A host block ("Not
+  available") counts only for what PropLane's own stays do not explain (the same echo subtraction as
+  `withoutEchoedHostBlocks`): "Room 8 is closed on Airbnb Oct 29 – Nov 4." An unreadable channel read refuses the
+  save ("Could not verify room availability") rather than guessing. Overlaps that reach PropLane from the channels
+  anyway send one alert (integrations.md § Two-way with Airbnb).
+- **Names.** The bar says: the linked stay's name, else the typed `channel_stay_details.guest_name`, else "Airbnb
+  guest · HM…". The record page's pencil beside Name reads **Add name** until there is one. A confirmation the
+  manager FORWARDS to their own work email fills the name too, and only that: it is believed when the receiving
+  server proved the sender, the sender is the workspace owner, the mail quotes a booking confirmation, and its HM
+  code is already one of that owner's own imported reservations (`applyForwardedAirbnbConfirmation`,
+  `nameOnly`). The full name is taken when the mail spells it out (`guestFullName`), else the first name; a typed name
+  wins; the mail never creates, moves or prices a stay. A code that is absent, or another manager's, does nothing.
+- **PadSplit** has no feed and no API (Integrations row: plain link). A stay entered with Source **PadSplit** is an
+  ordinary PropLane block, so it reaches the Airbnb and Booking.com export feeds; it draws violet with a "P" mark.
+- **Timeline.** The legend names Airbnb, Booking.com, PadSplit and "Closed on a channel". A channel's own closure
+  longer than 60 nights (`LONG_CLOSURE_NIGHTS`) is a hatched "Closed on Airbnb · until Oct 27, 2027" bar, never a
+  guest; a room with a double booking in view shows a red dot by its name (`roomHasClash`); an open-ended PropLane
+  block says where it starts ("Blocked · from Sep 12") and carries a "no end" tag.
+
+Coverage: `channel-link.test.ts`, `channel-overlap-route.test.ts`, `channel-clash-alerts.test.ts`,
+`airbnb-forwarded-confirmation.test.ts`, `padsplit-export.test.ts`, `bookings-timeline-channels.test.tsx`,
+`tools/bookings-tools.test.ts`.
 
 ## Airbnb echoes
 

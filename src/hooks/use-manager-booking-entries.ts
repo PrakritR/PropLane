@@ -1,6 +1,7 @@
 "use client";
 
 import { withoutEchoedHostBlocks } from "@/lib/channel-calendar/host-block";
+import { withLinkedChannelStays } from "@/lib/channel-calendar/channel-link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PORTAL_READ_TIMEOUT_MS, withTimeout } from "@/lib/auth/fetch-with-timeout";
 import { channelLinksFromBookings, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
@@ -540,13 +541,17 @@ export function useManagerBookingEntries({
   const entries = useMemo(
     () =>
       withResolvedStayTimes(
-        applyStayMeta(
-          withoutEchoedHostBlocks(
-            [...airbnbEntries, ...importedAirbnbEntries, ...residentEntries, ...blockEntries].filter(
-              (entry) => BOOKING_CALENDAR_SOURCES.has(entry.source),
+        // A stay linked to its Airbnb / Booking.com reservation (typed, or auto-linked by HM code / dates)
+        // carries `channelLink` and names its channel copy; the copy itself is dropped from the calendar below.
+        withLinkedChannelStays(
+          applyStayMeta(
+            withoutEchoedHostBlocks(
+              [...airbnbEntries, ...importedAirbnbEntries, ...residentEntries, ...blockEntries].filter(
+                (entry) => BOOKING_CALENDAR_SOURCES.has(entry.source),
+              ),
             ),
+            stayMetas,
           ),
-          stayMetas,
         ),
         stayTimesForProperty,
       ),

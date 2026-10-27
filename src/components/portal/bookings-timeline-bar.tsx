@@ -4,14 +4,14 @@ import { memo, useState, useSyncExternalStore, type CSSProperties, type Keyboard
 import { ArrowUpRight, Ban, Clock3, Pencil, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { BookingsAirbnbIcon } from "@/components/portal/bookings-airbnb-icon";
-import { barDisplayName, BAR_VISUAL_HEIGHT, LANE_PITCH, NARROW_GLYPH_PX, dayDiff } from "@/components/portal/bookings-timeline-layout";
+import { barDisplayName, BAR_VISUAL_HEIGHT, CLOSURE_HATCH, LANE_PITCH, NARROW_GLYPH_PX, dayDiff, isLongChannelClosure, isNoEndBlock } from "@/components/portal/bookings-timeline-layout";
 import { entryMoments, paidAddOnGlyphLabel, paidAddOnRows, stayTitleLine, type EntryStayTimes } from "@/components/portal/bookings-stay-times";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { VaulBottomSheet } from "@/components/ui/vaul-bottom-sheet";
 import { NO_ROOM_FOR_POPOVER_QUERY } from "@/components/ui/portal-surface";
 import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { bookingEntryKey } from "@/lib/channel-calendar/bookings-ui";
-import { bookingCheckout, calendarStatus, calendarStatusClass } from "@/lib/channel-calendar/bookings-calendar-view";
+import { bookingCheckout, calendarStatus, calendarStatusClass, isPadSplitStay } from "@/lib/channel-calendar/bookings-calendar-view";
 import { bookingRemovalActions } from "@/lib/channel-calendar/booking-presentation";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
 
@@ -40,8 +40,22 @@ export function useIsPhoneWidth(): boolean {
   );
 }
 
+/** The channel a bar belongs to: its feed, the reservation a PropLane stay is linked to, or PadSplit (typed in). */
+function barChannel(entry: PropertyBookingEntry): "airbnb" | "booking_com" | "padsplit" | null {
+  const linked = entry.channelLink?.provider;
+  if (linked) return linked;
+  if (entry.source === "airbnb" || entry.source === "booking_com") return entry.source;
+  return isPadSplitStay(entry) ? "padsplit" : null;
+}
+
 function channelGlyph(entry: PropertyBookingEntry, inline = true) {
-  return entry.source === "airbnb" ? <BookingsAirbnbIcon aria-label="Airbnb" role="img" className={inline ? "mr-1 inline h-3 w-3 align-[-1px]" : "h-3 w-3 shrink-0"} strokeWidth={1.7} /> : null;
+  const channel = barChannel(entry);
+  if (channel === "airbnb") return <BookingsAirbnbIcon aria-label="Airbnb" role="img" className={inline ? "mr-1 inline h-3 w-3 align-[-1px]" : "h-3 w-3 shrink-0"} strokeWidth={1.7} />;
+  if (channel === "booking_com" || channel === "padsplit") {
+    const label = channel === "booking_com" ? "Booking.com" : "PadSplit";
+    return <span role="img" aria-label={label} data-attr="bookings-bar-channel-mark" className={`${inline ? "mr-1 inline-flex align-[-1px]" : "inline-flex shrink-0"} h-3 w-3 items-center justify-center rounded-[3px] bg-white text-[9px] font-bold leading-none ${channel === "booking_com" ? "text-[#003b95]" : "text-[#6b3fa0]"}`}>{channel === "booking_com" ? "B" : "P"}</span>;
+  }
+  return null;
 }
 
 /** A paid early check-in / late checkout: a small clock before the guest's name. */
@@ -89,14 +103,17 @@ export const BookingBar = memo(function BookingBar({ entry, today, placement, co
   const { status, dates, room, moments, timeRows } = barFacts(entry, today, times);
   const name = barDisplayName(entry);
   const style: CSSProperties | undefined = placement ? { position: "absolute", left: placement.left, top: placement.top, width: placement.width, height: LANE_PITCH } : undefined;
-  const visual = `${calendarStatusClass(status)} ${conflict ? "ring-2 ring-red-500" : ""}`;
+  // A channel's standing closure is a hatched bar, not a guest: it never reads as a stay.
+  const closure = isLongChannelClosure(entry);
+  const visual = `${closure ? "border border-slate-400 text-foreground" : calendarStatusClass(status)} ${conflict ? "ring-2 ring-red-500" : ""}`;
+  const hatch = closure ? { backgroundImage: CLOSURE_HATCH } : undefined;
   const face = placement?.narrow ? (
     <>
-      <span data-bar-visual="" className={`flex shrink-0 items-center justify-center overflow-clip rounded-lg text-[13px] font-semibold ${visual}`} style={{ width: placement.width, height: BAR_VISUAL_HEIGHT }}>{placement.width >= NARROW_GLYPH_PX ? channelGlyph(entry, false) : null}<span className="sr-only">{name}</span></span>
+      <span data-bar-visual="" className={`flex shrink-0 items-center justify-center overflow-clip rounded-lg text-[13px] font-semibold ${visual}`} style={{ width: placement.width, height: BAR_VISUAL_HEIGHT, ...hatch }}>{placement.width >= NARROW_GLYPH_PX ? channelGlyph(entry, false) : null}<span className="sr-only">{name}</span></span>
     </>
   ) : (
-    <span data-bar-visual="" className={`flex min-w-0 flex-1 flex-col justify-center overflow-clip rounded-lg text-left text-[13px] ${placement ? "" : "min-h-8 py-1"} ${visual}`} style={placement ? { height: BAR_VISUAL_HEIGHT } : undefined}>
-      <span className={placement ? "block truncate px-2 font-semibold leading-8" : "block truncate px-2 font-semibold"} style={placement ? { marginLeft: placement.nameInset, maxWidth: placement.width - placement.nameInset } : undefined}>{channelGlyph(entry)}{addOnGlyph(entry)}{name}</span>
+    <span data-bar-visual="" className={`flex min-w-0 flex-1 flex-col justify-center overflow-clip rounded-lg text-left text-[13px] ${placement ? "" : "min-h-8 py-1"} ${visual}`} style={placement ? { height: BAR_VISUAL_HEIGHT, ...hatch } : hatch}>
+      <span className={placement ? "block truncate px-2 font-semibold leading-8" : "block truncate px-2 font-semibold"} style={placement ? { marginLeft: placement.nameInset, maxWidth: placement.width - placement.nameInset } : undefined}>{closure ? null : channelGlyph(entry)}{addOnGlyph(entry)}<span className={closure ? "rounded bg-[var(--pl-surface-raised)] px-1" : undefined}>{name}</span>{isNoEndBlock(entry) ? <span data-attr="bookings-bar-no-end" className="ml-1.5 rounded bg-white/25 px-1 text-[11px] font-medium">no end</span> : null}</span>
       {detail}
     </span>
   );
