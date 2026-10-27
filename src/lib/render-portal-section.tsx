@@ -10,7 +10,6 @@ import {
 import { isListingChannelId, listingChannelDef } from "@/lib/listing-channels/registry";
 import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { isResidentFormId, parseResidentFormsBucket } from "@/lib/resident-forms-routes";
-import { parseGuestStayBucket } from "@/lib/short-stay/guest-stays";
 import { parseStayRequestPrefill } from "@/lib/short-stay/stay-request-link";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
@@ -306,7 +305,7 @@ export async function renderPortalSectionWith(
     AdminBugFeedbackClient, AdminHealthClient, AdminPaymentsPanel, AdminUnassignedLeadsPanel, AdminServicePanel, AdminProplaneLinePanel, AdminPromoCodesPanel,
     AdminFinancesPanel, AdminManagedFinancePanel, GrowthAdminClient, ResidentDashboard, ResidentMoveInPanel, ResidentMoveInShell,
     ResidentFormsSection, ResidentCommunication, VendorCommunication, ResidentPaymentsPanel,
-    ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentStaysPanel, ResidentStayRequest, ResidentTourPanel, ResidentLeasePanel,
+    ResidentDocumentsPanel, ResidentApplicationsPanel, ResidentStayRequest, ResidentTourPanel, ResidentLeasePanel,
     ResidentProfileSection, PortalBugFeedbackPanel, VendorDashboard, VendorWorkOrdersPanel, VendorTaskList,
     VendorFinancesPanel, VendorFinancesPage, VendorWithdrawalDetail,
     VendorStatementsPanel, VendorTaxPanel, VendorDocumentsPanel, VendorSettingsPanel,
@@ -509,6 +508,17 @@ export async function renderPortalSectionWith(
     const RESIDENT_APP_BUCKETS = ["pending", "approved", "rejected"] as const;
     if (!tabParts?.length) {
       redirect(`${def.basePath}/applications/pending`);
+    }
+    // The short-stay request (`/applications/stay?listing=&room=&checkIn=&checkOut=&guests=`): a short stay is an
+    // application row, so the request opens as the pop-up over the Application list and closing it lands back there.
+    // The path guard above lets any resident account in (a brand-new signup lands here).
+    if (tabParts.length === 1 && tabParts[0] === "stay") {
+      return (
+        <>
+          <ResidentApplicationsPanel bucket="pending" basePath={def.basePath} />
+          <ResidentStayRequest basePath={def.basePath} prefill={parseStayRequestPrefill(searchParams ?? {})} />
+        </>
+      );
     }
     // Bucket + id + the record's own detail tab (PLAN-0921-1029, area 2).
     if (tabParts.length > 3) notFound();
@@ -1767,30 +1777,6 @@ export async function renderPortalSectionWith(
         leaseDetailId={leaseDetailId}
         leaseDetailTab={leaseDetailTab}
       />
-    );
-  }
-
-  // Resident Stays: the guest's own short stays, Upcoming | Past (a route each), and the booking application
-  // at `/stays/request`. The path guard above lets any resident account in (a brand-new signup lands on the
-  // request page); a bare address opens Upcoming.
-  if (kind === "resident" && section === "stays") {
-    if ((tabParts?.length ?? 0) > 1) notFound();
-    if (!tabParts?.length) redirect(`${def.basePath}/stays/upcoming`);
-    if (tabParts[0] === "request") {
-      // The application opens as the pop-up over the guest's Stays, so closing it lands back on the list.
-      return (
-        <ManagerPortalPageShell title="Stays" hideTitleOnMobileNav compactFilterRow>
-          <ResidentStaysPanel basePath={def.basePath} bucket="upcoming" />
-          <ResidentStayRequest basePath={def.basePath} prefill={parseStayRequestPrefill(searchParams ?? {})} />
-        </ManagerPortalPageShell>
-      );
-    }
-    const staysBucket = parseGuestStayBucket(tabParts[0]);
-    if (!staysBucket) notFound();
-    return (
-      <ManagerPortalPageShell title="Stays" hideTitleOnMobileNav compactFilterRow>
-        <ResidentStaysPanel basePath={def.basePath} bucket={staysBucket} />
-      </ManagerPortalPageShell>
     );
   }
 

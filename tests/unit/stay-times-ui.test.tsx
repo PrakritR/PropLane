@@ -11,7 +11,7 @@ import type { GuestStay } from "@/lib/short-stay/guest-stays";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), prefetch: vi.fn(), replace: vi.fn() }),
-  usePathname: () => "/resident/stays/upcoming",
+  usePathname: () => "/resident/applications/approved",
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock("@/hooks/use-portal-session", () => ({ usePortalSession: () => ({ userId: "u1", email: "priya@example.com", ready: true }) }));
@@ -27,7 +27,7 @@ const client = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/short-stay/guest-stays-client", async (orig) => ({ ...(await orig<typeof import("@/lib/short-stay/guest-stays-client")>()), ...client }));
 
-import { ResidentStaysPanel } from "@/components/portal/resident-stays-panel";
+import { StaysRowsHarness } from "../helpers/stays-rows-harness";
 import { StayTimesSheet } from "@/components/portal/stay-times-sheet";
 import { GuestStaysError, type StayAddOnsView } from "@/lib/short-stay/guest-stays-client";
 import { stayAddOnRowViews } from "@/lib/short-stay/stay-add-ons";
@@ -134,27 +134,27 @@ describe("Check-in and checkout sheet", () => {
   });
 });
 
-describe("the Stays page", () => {
-  it("an upcoming row prints its real times and opens the sheet from the ⋯ menu", async () => {
-    render(<ResidentStaysPanel bucket="upcoming" />);
+describe("the Application page (short stays are rows)", () => {
+  it("an approved stay row opens the Check-in times sheet from its ⋯ menu", async () => {
+    render(<StaysRowsHarness section="approved" />);
     const row = (await screen.findByText("Cedar Court · Attic Nook")).closest('[data-record-row]') as HTMLElement;
-    expect(row.textContent).toContain("Oct 20, 3:00 pm → Oct 23, 11:00 am");
+    expect(row.textContent).toContain("Short stay · Oct 20–23 · 3 nights");
     fireEvent.keyDown(row.querySelector('[data-attr="record-actions-trigger"]')!, { key: "ArrowDown" });
-    fireEvent.click(await screen.findByRole("menuitem", { name: /Check-in and checkout/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Check-in times/ }));
     await waitFor(() => expect(document.querySelector('[data-attr="stay-times-sheet"]')).toBeTruthy());
     expect(client.fetchStayAddOns).toHaveBeenCalledWith("s1");
   });
 
   it("the text link (?stay=&addOn=&time=) opens that stay's sheet preselected", async () => {
-    Object.defineProperty(window, "location", { configurable: true, value: { ...window.location, assign, pathname: "/resident/stays/upcoming", search: "?stay=s1&addOn=early_check_in&time=12:00" } });
-    render(<ResidentStaysPanel bucket="upcoming" />);
+    Object.defineProperty(window, "location", { configurable: true, value: { ...window.location, assign, pathname: "/resident/applications/approved", search: "?stay=s1&addOn=early_check_in&time=12:00" } });
+    render(<StaysRowsHarness section="approved" />);
     await waitFor(() => expect(document.querySelector('[data-attr="stay-times-sheet"]')).toBeTruthy());
     await waitFor(() => expect(document.querySelector('[data-attr="stay-add-on-early_check_in"]')?.hasAttribute("data-selected")).toBe(true));
   });
 
   it("a link to someone else's stay opens nothing", async () => {
-    Object.defineProperty(window, "location", { configurable: true, value: { ...window.location, assign, pathname: "/resident/stays/upcoming", search: "?stay=not-mine&addOn=early_check_in" } });
-    render(<ResidentStaysPanel bucket="upcoming" />);
+    Object.defineProperty(window, "location", { configurable: true, value: { ...window.location, assign, pathname: "/resident/applications/approved", search: "?stay=not-mine&addOn=early_check_in" } });
+    render(<StaysRowsHarness section="approved" />);
     await screen.findByText("Cedar Court · Attic Nook");
     expect(document.querySelector('[data-attr="stay-times-sheet"]')).toBeNull();
   });

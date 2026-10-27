@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Resident portal › Request a stay (`/resident/stays/request?listing=&room=&checkIn=&checkOut=&guests=`):
+ * Resident portal › Request a stay (`/resident/applications/stay?listing=&room=&checkIn=&checkOut=&guests=`):
  * the short-stay booking APPLICATION. It is built like the long-term application and the Add property
  * pop-up (`AddWorkspace`: a step rail, a live preview pane, Back and one primary at the foot): Stay
  * (room, dates, guests, arrival, early check-in / late checkout, the live total), Guests (the account
@@ -74,7 +74,9 @@ export function ResidentStayRequest({ basePath = "/resident", prefill }: { baseP
   const { showToast } = useAppUi();
   const today = pacificTodayKey();
   const lastBookableDay = addRangeDays(today, SHORT_STAY_MAX_DAYS_AHEAD);
-  const staysHref = `${basePath}/stays/upcoming`;
+  // A short stay is an application row: a request lands in Sent, an instantly confirmed stay in Approved.
+  const sentHref = `${basePath}/applications/pending`;
+  const approvedHref = `${basePath}/applications/approved`;
 
   const [listing, setListing] = useState<BookableListing | null>(null);
   const [listingState, setListingState] = useState<"loading" | "ready" | "missing">(prefill.listing ? "loading" : "missing");
@@ -206,7 +208,7 @@ export function ResidentStayRequest({ basePath = "/resident", prefill }: { baseP
   ];
   const currentId: StepId = STEPS[Math.min(step, STEPS.length - 1)]!;
 
-  const close = () => navigate(staysHref);
+  const close = () => navigate(sentHref);
 
   const submit = async () => {
     if (busy || !ready || !room) return;
@@ -233,7 +235,7 @@ export function ResidentStayRequest({ basePath = "/resident", prefill }: { baseP
       } else {
         showToast(`Request sent. The host has ${SHORT_STAY_HOLD_HOURS} hours to answer.`);
       }
-      navigate(staysHref, { replace: true });
+      navigate(response.results[0]?.outcome === "confirmed" ? approvedHref : sentHref, { replace: true });
     } catch (caught) {
       if (caught instanceof GuestStaysError && caught.status === 409) setError("Someone just booked those nights. Pick other dates.");
       else setError(caught instanceof Error ? caught.message : "Could not send your request.");

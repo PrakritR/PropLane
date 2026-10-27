@@ -24,6 +24,16 @@ import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { PortalListControlStack, portalListAddPrimaryLabel } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { CalendarDays, Home, Undo2 } from "lucide-react";
+import { ResidentApplyKindMenu } from "@/components/portal/resident-apply-kind-menu";
+import { ResidentStayApplicationRows, useResidentGuestStays } from "@/components/portal/resident-stay-application-rows";
+import {
+  countGuestStaySections,
+  guestStaySearchText,
+  guestStaySectionOf,
+  sortGuestStaysForSection,
+} from "@/lib/short-stay/guest-stay-application";
+import { stayRequestHref } from "@/lib/short-stay/stay-request-link";
+import { pacificTodayKey } from "@/lib/room-availability-range";
 import {
   RESIDENT_APPLICATION_SECTION_LABELS,
   RESIDENT_APPLICATION_SECTION_ORDER,
@@ -347,6 +357,8 @@ export function ResidentApplicationsPanel({
   // happens in place (a searchable modal), then the wizard opens INLINE under
   // its own row in this same list — no round-trip out to the browse page.
   const [pickerOpen, setPickerOpen] = useState(false);
+  // The + offers Long-term lease or Short stay: a short stay picks a home that takes short stays, then opens the request form.
+  const [stayPicker, setStayPicker] = useState(false);
   const [pickedPropertyId, setPickedPropertyId] = useState<string | null>(null);
   // Quick apply: with saved answers, the round blue + opens the one-sheet Quick apply instead of the picker.
   const [quickApplyOpen, setQuickApplyOpen] = useState(false);
@@ -478,10 +490,31 @@ export function ResidentApplicationsPanel({
   // kind the Apply picker offers.
   const term = parseResidentTermParam(searchParams.get("term")) ?? (rentalType === "short_term" ? "short_term" : "long_term");
   // The page's three sections: Sent | Approved | Denied (an unfinished draft is a Sent row that reads "Started …").
-  const sectionCounts = useMemo(() => countResidentApplicationSections(rows), [rows]);
+  // Short stays are rows of the same three sections (no Stays tab): pending -> Sent, confirmed -> Approved, the rest Denied.
+  const guestStays = useResidentGuestStays({ enabled: !demoMode && !applyMode });
+  const staysToday = pacificTodayKey();
+  const sectionCounts = useMemo(() => {
+    const applicationCounts = countResidentApplicationSections(rows);
+    const stayCounts = countGuestStaySections(guestStays.stays);
+    return {
+      sent: applicationCounts.sent + stayCounts.sent,
+      approved: applicationCounts.approved + stayCounts.approved,
+      denied: applicationCounts.denied + stayCounts.denied,
+    };
+  }, [rows, guestStays.stays]);
   const [chosenSection, setChosenSection] = useState<ResidentApplicationSection | null>(null);
-  const section = chosenSection ?? defaultResidentApplicationSection(sectionCounts);
+  // A link to /applications/approved (a stay's pay link) opens on Approved when it has rows.
+  const routeSection: ResidentApplicationSection | null =
+    bucketProp === "approved" && sectionCounts.approved > 0 ? "approved" : bucketProp === "rejected" && sectionCounts.denied > 0 ? "denied" : null;
+  const section = chosenSection ?? routeSection ?? defaultResidentApplicationSection(sectionCounts);
   const [applicationQuery, setApplicationQuery] = useState("");
+  const staysForSection = useMemo(() => {
+    const needle = applicationQuery.trim().toLowerCase();
+    return sortGuestStaysForSection(
+      guestStays.stays.filter((stay) => guestStaySectionOf(stay) === section && (!needle || guestStaySearchText(stay).includes(needle))),
+      section,
+    );
+  }, [guestStays.stays, section, applicationQuery]);
   const rowsForSection = useMemo(() => {
     const needle = applicationQuery.trim().toLowerCase();
     return rows.filter((row) => {
@@ -626,7 +659,7 @@ export function ResidentApplicationsPanel({
     return filterSandboxFromPublicCatalog(readExtraListingsPublic(), { production: isProductionPublicSite() })
       .filter(isPropertyActiveForLeads)
       // Short term lists only the homes that offer short stays (the listing's own gate).
-      .filter((property) => term !== "short_term" || propertyAllowsShortTermRental(property.id))
+      .filter((property) => (term !== "short_term" && !stayPicker) || propertyAllowsShortTermRental(property.id))
       .map((property) => {
         const prop = getPropertyById(property.id);
         return {
@@ -640,10 +673,18 @@ export function ResidentApplicationsPanel({
         };
       })
       .sort((a, b) => a.title.localeCompare(b.title));
-  }, [pickerOpen, term, tick]);
+  }, [pickerOpen, term, stayPicker, tick]);
 
+
+  const openStayPicker = () => {
+    setStayPicker(true);
+    setPickedPropertyId(null);
+    void loadPublicExtraListingsFromServer();
+    setPickerOpen(true);
+  };
 
   const openPropertyPicker = () => {
+    setStayPicker(false);
     // Quick apply only builds a long-term (`standard`) application, so short term keeps its own picker.
     if (quickProfile.hasProfile && term !== "short_term") {
       setQuickApplyOpen(true);
@@ -893,7 +934,7 @@ export function ResidentApplicationsPanel({
     {quickApplySheet}
     <Modal
       open={pickerOpen}
-      title={term === "short_term" ? "Apply short term to a property" : "Apply to a property"}
+      title={stayPicker ? "Request a short stay" : term === "short_term" ? "Apply short term to a property" : "Apply to a property"}
       onClose={() => setPickerOpen(false)}
       panelClassName="max-w-lg"
       assistantContext="Apply to a property"
@@ -919,9 +960,17 @@ export function ResidentApplicationsPanel({
               className="rounded-full"
               data-attr="resident-applications-start"
               disabled={!pickedPropertyId}
-              onClick={() => pickedPropertyId && startApplicationForProperty(pickedPropertyId)}
+              onClick={() => {
+                if (!pickedPropertyId) return;
+                if (stayPicker) {
+                  setPickerOpen(false);
+                  portalNavigate(stayRequestHref({ listing: pickedPropertyId }, basePath));
+                  return;
+                }
+                startApplicationForProperty(pickedPropertyId);
+              }}
             >
-              Start application
+              {stayPicker ? "Continue" : "Start application"}
             </Button>
           </div>
         </div>
@@ -934,7 +983,7 @@ export function ResidentApplicationsPanel({
         placeholder="Search by address, neighborhood, or property name…"
         emptyMessage="No properties match your search."
         listEmptyMessage={
-          term === "short_term"
+          term === "short_term" || stayPicker
             ? "No properties are offering short stays right now."
             : "No properties are available to apply for right now."
         }
@@ -1156,11 +1205,9 @@ export function ResidentApplicationsPanel({
       }}
       primary={
         sessionReady && canOpenPropertyPicker ? (
-          <PortalPrimaryIconAction
-            label={portalListAddPrimaryLabel("application")}
-            onClick={openPropertyPicker}
-            data-attr="resident-applications-apply"
-          />
+          <ResidentApplyKindMenu onLongTerm={openPropertyPicker} onShortStay={openStayPicker}>
+            <PortalPrimaryIconAction label={portalListAddPrimaryLabel("application")} data-attr="resident-applications-apply" />
+          </ResidentApplyKindMenu>
         ) : undefined
       }
     />
@@ -1257,6 +1304,12 @@ export function ResidentApplicationsPanel({
     const listRows = rowsForSection;
     const sibling = RESIDENT_APPLICATION_SECTION_ORDER.find((id) => id !== section && sectionCounts[id] > 0);
     const searching = applicationQuery.trim().length > 0;
+    const staysState = guestStays.state.status;
+    const nothingToShow = listRows.length === 0 && staysForSection.length === 0;
+    // Skeletons while the stays are still coming and there is nothing else to draw (or a lone application is
+    // waiting to know whether it stays a status screen).
+    const staysPending = staysState === "loading" && (nothingToShow || rows.length === 1);
+    const staysFailed = staysState === "error";
 
     return (
       <>
@@ -1264,8 +1317,10 @@ export function ResidentApplicationsPanel({
         {renderApplicationsBand()}
         <PortalRecordListSurface
           className="mt-0"
-          loading={!sessionReady}
-          isEmpty={sessionReady && listRows.length === 0}
+          loading={!sessionReady || staysPending}
+          loadError={sessionReady && staysFailed && nothingToShow && !searching ? "Couldn't load your short stays" : undefined}
+          onRetry={guestStays.reload}
+          isEmpty={sessionReady && nothingToShow}
           emptyCard={{
             title: searching ? "No matches" : `Nothing ${RESIDENT_APPLICATION_SECTION_LABELS[section].toLowerCase()}`,
             section: "applications",
@@ -1280,7 +1335,19 @@ export function ResidentApplicationsPanel({
           bulkActions={<PortalAdaptiveActionRow actions={applicationSelectionActions} />}
         >
           {renderRoutedList(listRows)}
+          {staysForSection.length > 0 ? (
+            <ResidentStayApplicationRows stays={staysForSection} today={staysToday} basePath={basePath} onOpenTimes={guestStays.openTimes} />
+          ) : null}
+          {staysFailed && !nothingToShow ? (
+            <div role="alert" className="flex items-center justify-between gap-3 px-4 py-3 text-[13px] text-muted" data-attr="resident-stays-load-error">
+              <span>Couldn&apos;t load your short stays.</span>
+              <Button type="button" variant="outline" onClick={guestStays.reload} data-attr="resident-stays-retry">
+                Try again
+              </Button>
+            </div>
+          ) : null}
         </PortalRecordListSurface>
+        {guestStays.sheet}
         {withdrawModal}
         {propertyPickerModal}
       </>
@@ -1289,7 +1356,9 @@ export function ResidentApplicationsPanel({
 
   // One submitted application is one status screen, not a list of one: six
   // steps, whose turn it is, what happens next. Several applications keep the list.
-  const soleApplication = sessionReady && rows.length === 1 ? rows[0] : null;
+  // A resident with short stays keeps the list (the stays are rows beside the application).
+  const soleApplication =
+    sessionReady && rows.length === 1 && guestStays.state.status === "ready" && guestStays.stays.length === 0 ? rows[0] : null;
   if (!applicationIdProp && !applyMode && soleApplication && soleApplication.application && !isInProgressApplicationRow(soleApplication)) {
     return (
       <>
