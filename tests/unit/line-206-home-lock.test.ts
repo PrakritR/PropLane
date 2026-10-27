@@ -140,6 +140,23 @@ async function toOffers() {
   return steps;
 }
 
+describe("naming two homes asks which one", () => {
+  it("a stranger naming 4709A and 12 Ravenna Pl gets 'Which one? 1) ... 2) ...' and nothing is locked or routed", async () => {
+    const step = await text("what about 4709A and 12 Ravenna Pl");
+    expect(step.reply).toMatch(/^Which one\? 1\) .*4709A.* 2\) .*12 Ravenna Pl/);
+    expect(step.workspaces).toEqual([]);
+    expect(mocks.messages).toEqual([]);
+  });
+
+  it("a phone locked to 4709A that names both homes is asked which one, not only about the other", async () => {
+    await text("tell me about 4709A 8th Ave NE");
+    expect(session()).toMatchObject({ locked_property_id: "prop-4709a" });
+    const step = await text("what about 4709A and 12 Ravenna Pl");
+    expect(step.reply).toMatch(/^Which one\? 1\) .*4709A.* 2\) .*12 Ravenna Pl/);
+    expect(session()).toMatchObject({ locked_property_id: "prop-4709a" });
+  });
+});
+
 describe("A5 · the Seattle conversation, step by step", () => {
   it("browsing: five texts narrow the search, each answered on the line, none in any Communication", async () => {
     const [first, budget, dates, area, offered] = await toOffers();

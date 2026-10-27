@@ -151,27 +151,34 @@ export function textNamesListingByName(text: string, listing: Pick<MockProperty,
 
 export type HomeMatch<T> = { kind: "none" } | { kind: "one"; listing: T } | { kind: "several" };
 
-/** The homes a text names by street, by house name or by title. Distinct homes only; several is "several", never a guess. */
-export function matchListingsNamedIn<T extends Pick<MockProperty, "id" | "address" | "title" | "buildingName" | "neighborhood">>(
-  text: string,
-  listings: readonly T[],
-): HomeMatch<T> {
-  const hits = new Map<string, T>();
-  const byAddress = matchListingByAddress(text, listings);
-  if (byAddress) hits.set(byAddress.id, byAddress);
-  // An address that names several homes ("1234 Maple" twice) is ambiguous, but it still names a home: never fall to "none".
+type Nameable = Pick<MockProperty, "id" | "address" | "title" | "buildingName" | "neighborhood">;
+
+/**
+ * EVERY distinct home a text names, in catalog order: by street (number plus a street-name word), by a unit-lettered
+ * house number said on its own ("4709A": three or more digits and a letter, exactly a listing's street number, which a
+ * dollar amount or a count never looks like), and by house name or title. Two homes sharing a street line are both
+ * returned: this never picks between them.
+ */
+export function listingsNamedIn<T extends Nameable>(text: string, listings: readonly T[]): T[] {
   const spoken = words(text);
+  if (spoken.length === 0) return [];
   const numbers = spoken.filter((w) => /^\d{1,6}[a-z]?$/.test(w));
-  let ambiguousAddress = false;
-  if (!byAddress && numbers.length > 0) {
-    const candidates = listings.filter((listing) => {
-      const parsed = parseStreetLine(listing.address);
-      return Boolean(parsed) && numbers.some((n) => sameNumber(n, parsed!.number)) && parsed!.names.some((name) => nameInText(name, spoken));
-    });
-    ambiguousAddress = new Set(candidates.map((c) => c.id)).size > 1;
+  const lettered = new Set(spoken.filter((w) => /^\d{3,6}[a-z]$/.test(w)));
+  const hits = new Map<string, T>();
+  for (const listing of listings) {
+    if (hits.has(listing.id)) continue;
+    const parsed = parseStreetLine(listing.address);
+    const byStreet = Boolean(parsed) && numbers.some((n) => sameNumber(n, parsed!.number)) && parsed!.names.some((name) => nameInText(name, spoken));
+    const byLetteredNumber = Boolean(parsed) && lettered.has(parsed!.number);
+    if (byStreet || byLetteredNumber || textNamesListingByName(text, listing)) hits.set(listing.id, listing);
   }
-  for (const listing of listings) if (textNamesListingByName(text, listing)) hits.set(listing.id, listing);
-  if (hits.size === 0) return ambiguousAddress ? { kind: "several" } : { kind: "none" };
-  if (hits.size > 1 || ambiguousAddress) return { kind: "several" };
-  return { kind: "one", listing: [...hits.values()][0]! };
+  return [...hits.values()];
+}
+
+/** The homes a text names by street, by house name or by title. Distinct homes only; several is "several", never a guess. */
+export function matchListingsNamedIn<T extends Nameable>(text: string, listings: readonly T[]): HomeMatch<T> {
+  const hits = listingsNamedIn(text, listings);
+  if (hits.length === 0) return { kind: "none" };
+  if (hits.length > 1) return { kind: "several" };
+  return { kind: "one", listing: hits[0]! };
 }

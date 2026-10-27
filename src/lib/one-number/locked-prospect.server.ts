@@ -16,7 +16,7 @@ import {
   switchQuestion,
 } from "@/lib/one-number/home-lock";
 import { e164FromPhoneKey, loadHome, ownerFirstName, type LockedHome } from "@/lib/one-number/home-lock.server";
-import { matchListingsNamedIn } from "@/lib/one-number/house-redirect";
+import { listingsNamedIn } from "@/lib/one-number/house-redirect";
 import { getLineOfferListings } from "@/lib/one-number/line-catalog.server";
 import type { LineListing } from "@/lib/one-number/line-tier";
 import type { LeadOffer } from "@/lib/one-number/lead-qualifying";
@@ -96,11 +96,12 @@ async function switchTargets(
   inbound: SharedLineInbound,
   dedicated: readonly string[],
 ): Promise<Target[]> {
-  const named = matchListingsNamedIn(text, catalog);
-  if (named.kind !== "none") {
-    const hits = named.kind === "one" ? [named.listing] : catalog.filter((l) => matchListingsNamedIn(text, [l]).kind === "one");
-    const others = hits.filter((l) => l.id !== locked.propertyId).slice(0, 4);
-    if (others.length > 0 && !(named.kind === "one" && hits[0]!.id === locked.propertyId)) {
+  const hits = listingsNamedIn(text, catalog);
+  if (hits.length > 0) {
+    // One home named and it is the locked one: nothing to switch. Several named (the locked one among them or not): ask
+    // "Which one?" over all of them, so naming two homes never silently narrows to one.
+    const others = (hits.length === 1 ? hits.filter((l) => l.id !== locked.propertyId) : hits).slice(0, 4);
+    if (others.length > 0) {
       const offers = await offersOnRecord(db, inbound.phoneKey);
       return loadTargets(
         db,

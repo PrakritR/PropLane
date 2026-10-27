@@ -43,7 +43,7 @@ import {
   switchQuestion,
 } from "@/lib/one-number/home-lock";
 import { loadHome, ownerFirstName, recordPaidInterest, tagLockedHouse, workspaceIsService, writeLookingForTurn } from "@/lib/one-number/home-lock.server";
-import { matchListingsNamedIn, streetLine } from "@/lib/one-number/house-redirect";
+import { listingsNamedIn, matchListingsNamedIn, streetLine } from "@/lib/one-number/house-redirect";
 import { lineTierOf, type LineListing } from "@/lib/one-number/line-tier";
 import { paidWorkNumberFor } from "@/lib/one-number/self-serve-line.server";
 import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
@@ -441,7 +441,7 @@ const GONE_REPLY = "That room is no longer available. Send a new budget or area 
 
 /** Several homes named in one text: "Which one? 1) ... 2) ...", with the homes stored as offers so a number picks one. */
 function askWhichHome(text: string, catalog: readonly LineListing[]): { reply: string; offers: LeadOffer[] } | null {
-  const hits = catalog.filter((l) => matchListingsNamedIn(text, [l]).kind === "one").slice(0, MAX_STRANGER_OFFERS);
+  const hits = listingsNamedIn(text, catalog).slice(0, MAX_STRANGER_OFFERS);
   if (hits.length < 2) return null;
   const offers: LeadOffer[] = hits.map((l, i) => ({ n: i + 1, propertyId: l.id, roomId: "", label: streetLine(l.address) || l.title, rent: null, availability: "", tier: lineTierOf(l) }));
   return { reply: switchQuestion(offers.map((o) => offerLabel(o))), offers };
