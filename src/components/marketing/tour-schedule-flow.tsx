@@ -30,7 +30,6 @@ import {
 import { useProspectContactAutofill, type ProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
 import { linkBookedToursToSignedInResident } from "@/lib/tour-resident-link.client";
 import { residentCreateAccountHref, residentSignInHref } from "@/lib/resident-public-nav";
-import { residentPortalListingMessagePath } from "@/lib/prospect-public-nav";
 import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listing";
 import {
   PropertySearchPicker,
@@ -57,6 +56,14 @@ import { syncPublicApprovedApplicationsFromServer } from "@/lib/manager-applicat
 import { TourApplicationFirstPanel } from "@/components/marketing/tour-application-first-panel";
 import { useTourApplicationGate } from "@/hooks/use-tour-application-gate";
 import { pacificCalendarDateYmd } from "@/lib/pacific-time";
+import {
+  REQUESTED_TOUR_KIND,
+  formatRequestedTourTime,
+  requestedTourCaption,
+  requestedTourDates,
+  requestedTourSlotIndices,
+} from "@/lib/tour-request-time";
+import { isoWindowFromSlotKey } from "@/lib/tour-slot-math";
 
 type TourStep = 1 | 2 | 3;
 
@@ -370,6 +377,14 @@ export function TourScheduleFlow({
     return new Set(Object.entries(slotHosts).filter(([, hosts]) => hosts.length > 0).map(([slot]) => slot));
   }, [slotHosts, tick]);
 
+  // No open slot at all: instead of a dead calendar the visitor picks any day from tomorrow and a 30-minute time,
+  // and the manager confirms it (or suggests another). Never while loading or after a failed read, and never
+  // when slots exist: then only those slots are offered, exactly as before.
+  const requestMode =
+    !availabilityLoading &&
+    !availabilityError &&
+    !tourAvailabilityHasUpcoming(selectedAvailability, pacificCalendarDateYmd());
+
   const slotManagerMap = useMemo(() => {
     const map = new Map<string, PropertyManagerEntry[]>();
     for (const [slot, hosts] of Object.entries(slotHosts)) {
@@ -400,8 +415,13 @@ export function TourScheduleFlow({
       if (!selectedRoomKey) errs.room = "Choose a room to tour, or select not sure yet.";
     }
     if (step === 2) {
-      if (selectedDay === null || selectedSlotIndex === null || managersAtSelectedSlot.length === 0) {
-        errs.tourSlot = "Select a date and time for your tour.";
+      if (
+        selectedDay === null ||
+        selectedSlotIndex === null ||
+        (!requestMode && managersAtSelectedSlot.length === 0) ||
+        (requestMode && !signedInUserId)
+      ) {
+        errs.tourSlot = requestMode && !signedInUserId ? "Sign in to request a tour time." : "Select a date and time for your tour.";
       }
     }
     if (Object.keys(errs).length > 0) {
@@ -416,10 +436,12 @@ export function TourScheduleFlow({
     setMaxStepReached((m) => nextWizardMaxReached(m, next) as TourStep);
   }, [
     managersAtSelectedSlot.length,
+    requestMode,
     selectedDay,
     selectedRoomKey,
     selectedSlotIndex,
     showToast,
+    signedInUserId,
     step,
   ]);
 
@@ -831,6 +853,9 @@ export function TourScheduleFlow({
             availabilityLoading={availabilityLoading}
             availabilityError={availabilityError}
             onRetryAvailability={() => void loadAvailability()}
+            requestMode={requestMode}
+            signedIn={Boolean(signedInUserId)}
+            returnAfterAuth={returnAfterAuth}
           />
         )}
         {step === 3 && (
@@ -875,14 +900,18 @@ export function TourScheduleFlow({
                 return;
               }
               if (selectedDay == null || selectedSlotIndex == null) return;
-              if (managersAtSelectedSlot.length === 0) {
+              if (!requestMode && managersAtSelectedSlot.length === 0) {
                 showToast("That tour time is no longer available.");
                 return;
               }
               const dateStr = toLocalDateStr(new Date(calYear, calMonth, selectedDay, 12, 0, 0, 0));
-              const start = localDateAtSlotStart(dateStr, selectedSlotIndex);
-              const end = new Date(start.getTime() + 30 * 60 * 1000);
               const selectedSlotKey = dateSlotKey(dateStr, selectedSlotIndex);
+              // A requested time is Pacific wall time like every slotKey, so its instant is built from the key,
+              // never from this browser's own zone.
+              const requestedWindow = requestMode ? isoWindowFromSlotKey(selectedSlotKey) : null;
+              if (requestMode && !requestedWindow) return;
+              const start = requestedWindow ? new Date(requestedWindow.start) : localDateAtSlotStart(dateStr, selectedSlotIndex);
+              const end = requestedWindow ? new Date(requestedWindow.end) : new Date(start.getTime() + 30 * 60 * 1000);
               const propertyContext = [
                 `Property: ${property.title}`,
                 selectedRoomLabel ? `Room: ${selectedRoomLabel}` : "",
@@ -907,6 +936,50 @@ export function TourScheduleFlow({
               const eligibleHostUserIds = [
                 ...new Set(managersAtSelectedSlot.map((manager) => manager.userId).filter(Boolean)),
               ];
+              if (requestMode) {
+                // No host to name: the server files it under the property's own host, re-checks that the house
+                // still has no open slot, and stamps the kind.
+                const result = await appendPartnerInquiryToServer({
+                  name: name.trim(),
+                  email: email.trim(),
+                  phone: normalizedPhone,
+                  smsConsent,
+                  smsConsentAt: smsConsent ? new Date().toISOString() : undefined,
+                  kind: "tour",
+                  requestKind: REQUESTED_TOUR_KIND,
+                  tourGroupId,
+                  propertyId: property.id,
+                  propertyTitle: property.title,
+                  roomLabel: selectedRoomLabel,
+                  tourFormat,
+                  notes: [propertyContext, notes.trim()].filter(Boolean).join("\n\n"),
+                  requestedWindows: [{ start: start.toISOString(), end: end.toISOString(), slotKey: selectedSlotKey }],
+                  proposedStart: start.toISOString(),
+                  proposedEnd: end.toISOString(),
+                });
+                setBookingTour(false);
+                if (!result.ok) {
+                  showToast(result.error ?? "That tour time is no longer available.");
+                  setStep(2);
+                  setSelectedSlotIndex(null);
+                  void loadAvailability();
+                  return;
+                }
+                const requestedInquiryId = result.row?.id?.trim() ?? "";
+                if (signedInUserId && hasResidentRole && requestedInquiryId) {
+                  const linked = await linkBookedToursToSignedInResident([requestedInquiryId]);
+                  if (!linked) showToast("Your tour was requested but could not be linked to your account yet.");
+                }
+                setSubmitted(true);
+                setSubmittedContact({
+                  name: name.trim(),
+                  email: email.trim(),
+                  phone: formatTourContactPhoneDisplay(normalizedPhone),
+                  inquiryId: requestedInquiryId,
+                });
+                onSuccess();
+                return;
+              }
               // Filed under the host whose own listing this is, when one of them
               // is; otherwise the first. Only bookkeeping — it does not decide
               // who hosts, and every eligible host sees it either way.
@@ -1122,6 +1195,9 @@ function Step2({
   availabilityLoading,
   availabilityError,
   onRetryAvailability,
+  requestMode,
+  signedIn,
+  returnAfterAuth,
 }: {
   pub: boolean;
   onSelectDate: (year: number, month: number, day: number) => void;
@@ -1136,6 +1212,10 @@ function Step2({
   availabilityLoading: boolean;
   availabilityError: string | null;
   onRetryAvailability: () => void;
+  /** The house has no open slot: any day from tomorrow and any 30-minute time is requestable. */
+  requestMode: boolean;
+  signedIn: boolean;
+  returnAfterAuth: string;
 }) {
   const daysInMonth = getDaysInMonth(calYear, calMonth);
   const firstDay = getFirstDayOfMonth(calYear, calMonth);
@@ -1145,12 +1225,32 @@ function Step2({
   // the cell holding them is drawn as past.
   const todayPacific = pacificCalendarDateYmd();
   const selectedDateStr = selectedDay != null ? toLocalDateStr(new Date(calYear, calMonth, selectedDay, 12, 0, 0, 0)) : null;
-  const openSlots = selectedDateStr ? openSlotIndicesForDateStr(availability, selectedDateStr) : [];
+  const requestDates = requestMode ? requestedTourDates() : [];
+  const openSlots = selectedDateStr
+    ? requestMode
+      ? requestedTourSlotIndices()
+      : openSlotIndicesForDateStr(availability, selectedDateStr)
+    : [];
+  const slotLabel = (slotIndex: number) =>
+    requestMode ? formatRequestedTourTime(slotIndex) : formatAvailabilitySlotLabel(slotIndex);
+  const requestCaption =
+    requestMode && selectedDateStr && selectedSlotIndex != null ? requestedTourCaption(selectedDateStr, selectedSlotIndex) : null;
+  // A requested time needs an account (the same resident-account rule every tour request has).
+  const needsSignIn = requestMode && !signedIn;
+  const signInPrompt = needsSignIn ? (
+    <div data-attr="tour-request-sign-in" className={pub ? "ps-j-note" : "flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm portal-banner-pending"}>
+      <p className={pub ? undefined : "min-w-0 flex-1 font-semibold"}>Sign in to request a tour time</p>
+      <Link href={residentSignInHref(returnAfterAuth)} prefetch={false} data-attr="tour-request-sign-in-link" className={pub ? "ps-btn ps-btn-line" : "rounded-full border border-current px-4 py-1.5 text-xs font-semibold"}>
+        Sign in
+      </Link>
+      <Link href={residentCreateAccountHref(returnAfterAuth)} prefetch={false} data-attr="tour-request-create-account-link" className={pub ? "ps-btn ps-btn-line" : "rounded-full border border-current px-4 py-1.5 text-xs font-semibold"}>
+        Create account
+      </Link>
+    </div>
+  ) : null;
 
   if (pub) {
-    const openDates = upcomingOpenDates(availability, todayPacific);
-    const noTimes =
-      !availabilityLoading && !availabilityError && !tourAvailabilityHasUpcoming(availability, todayPacific);
+    const openDates = requestMode ? requestDates : upcomingOpenDates(availability, todayPacific);
     return (
       <div className="ps-j-stack" style={{ gap: 22 }}>
         {availabilityLoading ? (
@@ -1169,27 +1269,15 @@ function Step2({
               Try again
             </button>
           </div>
-        ) : noTimes ? (
-          <div data-attr="tour-no-times-yet" className="ps-j-note">
-            <p>No tour times yet</p>
-            {/* The web channel messages the manager in the resident portal, never by a text link (captain, Oct 20). */}
-            <Link
-              href={residentPortalListingMessagePath(property.id)}
-              prefetch={false}
-              data-attr="tour-message-manager"
-              className="ps-btn ps-btn-line"
-            >
-              Message the manager
-            </Link>
-          </div>
         ) : null}
+        {signInPrompt}
 
         <div
           data-wizard-field="tourSlot"
           className={`ps-j-stack${fieldErrors.tourSlot ? " ps-j-err" : ""}`}
           style={{ gap: 22 }}
         >
-          {openDates.length > 0 ? (
+          {openDates.length > 0 && !needsSignIn ? (
             <div>
               <p className="ps-j-month">Day</p>
               <div className="ps-j-days" role="group" aria-label="Open days">
@@ -1203,7 +1291,7 @@ function Step2({
                       type="button"
                       className="ps-j-day"
                       aria-pressed={selected}
-                      aria-label={`${tourDayLabel(y, m - 1, d)} — open for tours`}
+                      aria-label={`${tourDayLabel(y, m - 1, d)} — ${requestMode ? "request a tour" : "open for tours"}`}
                       onClick={() => onSelectDate(y, m - 1, d)}
                     >
                       <span className="ps-j-day-w">{weekday}</span>
@@ -1216,7 +1304,7 @@ function Step2({
             </div>
           ) : null}
 
-          {selectedDay ? (
+          {selectedDay && !needsSignIn ? (
             <div>
               <p className="ps-j-month">Time · {tourDayLabel(calYear, calMonth, selectedDay)}</p>
               {openSlots.length === 0 ? (
@@ -1233,11 +1321,16 @@ function Step2({
                       aria-pressed={selectedSlotIndex === slotIndex}
                       onClick={() => onSelectSlotIndex(slotIndex)}
                     >
-                      {formatAvailabilitySlotLabel(slotIndex)}
+                      {slotLabel(slotIndex)}
                     </button>
                   ))}
                 </div>
               )}
+              {requestCaption ? (
+                <p className="ps-mute" style={{ margin: "10px 0 0" }} data-attr="tour-request-caption">
+                  {requestCaption}
+                </p>
+              ) : null}
             </div>
           ) : null}
 
@@ -1273,22 +1366,12 @@ function Step2({
             Try again
           </button>
         </div>
-      ) : !tourAvailabilityHasUpcoming(availability, todayPacific) ? (
-        <div
-          data-attr="tour-no-times-yet"
-          className="flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm portal-banner-pending"
-        >
-          <p className="min-w-0 flex-1 font-semibold">No tour times yet</p>
-          {/* The web channel messages the manager in the resident portal, never by a text link (captain, Oct 20). */}
-          <Link
-            href={residentPortalListingMessagePath(property.id)}
-            prefetch={false}
-            data-attr="tour-message-manager"
-            className="rounded-full border border-current px-4 py-1.5 text-xs font-semibold"
-          >
-            Message the manager
-          </Link>
-        </div>
+      ) : needsSignIn ? (
+        signInPrompt
+      ) : requestMode ? (
+        <p className="text-sm text-muted">
+          Pick a day and time to request a tour of <span className="font-semibold text-foreground">{property.title}</span>.
+        </p>
       ) : (
         <p className="text-sm text-muted">
           Pick an available date for <span className="font-semibold text-foreground">{property.title}</span>.
@@ -1298,6 +1381,7 @@ function Step2({
         data-wizard-field="tourSlot"
         className={wizardSectionErrorClass(Boolean(fieldErrors.tourSlot), "space-y-4 rounded-2xl")}
       >
+      {needsSignIn ? null : (
       <div className="mx-auto w-full max-w-[17.5rem]">
         <div className="mb-2 flex items-center justify-between">
           <button type="button" onClick={onPrevMonth} className="rounded-full p-1 hover:bg-accent/30">
@@ -1316,9 +1400,12 @@ function Step2({
           {Array.from({ length: firstDay }).map((_, i) => <div key={`e${i}`} />)}
           {Array.from({ length: daysInMonth }).map((_, i) => {
             const day = i + 1;
-            const isAvailable = dateHasAvailability(new Date(calYear, calMonth, day, 12, 0, 0, 0), availability);
+            const cellDateStr = toLocalDateStr(new Date(calYear, calMonth, day, 12, 0, 0, 0));
+            const isAvailable = requestMode
+              ? requestDates.includes(cellDateStr)
+              : dateHasAvailability(new Date(calYear, calMonth, day, 12, 0, 0, 0), availability);
             const isSelected = selectedDay === day;
-            const isPast = toLocalDateStr(new Date(calYear, calMonth, day, 12, 0, 0, 0)) < todayPacific;
+            const isPast = cellDateStr < todayPacific;
             return (
               <button
                 key={day}
@@ -1334,7 +1421,7 @@ function Step2({
                 }`}
                 aria-label={
                   isAvailable && !isPast
-                    ? `${MONTHS[calMonth]} ${day} — open for tours`
+                    ? `${MONTHS[calMonth]} ${day} — ${requestMode ? "request a tour" : "open for tours"}`
                     : `${MONTHS[calMonth]} ${day} — unavailable`
                 }
               >
@@ -1344,11 +1431,12 @@ function Step2({
           })}
         </div>
       </div>
+      )}
 
-      {selectedDay ? (
+      {selectedDay && !needsSignIn ? (
         <div>
           <p className="mb-2 text-sm font-semibold text-foreground">
-            Available times · {MONTHS[calMonth]} {selectedDay}
+            {requestMode ? "Request a time" : "Available times"} · {MONTHS[calMonth]} {selectedDay}
           </p>
           {openSlots.length === 0 ? (
             <p className="rounded-xl border border-dashed border-primary/30 bg-primary/5 px-3 py-2 text-sm text-muted">
@@ -1367,11 +1455,16 @@ function Step2({
                       : TOUR_OPEN_SLOT_CLASS
                   }`}
                 >
-                  {formatAvailabilitySlotLabel(slotIndex)}
+                  {slotLabel(slotIndex)}
                 </button>
               ))}
             </div>
           )}
+          {requestCaption ? (
+            <p className="mt-2 text-xs text-muted" data-attr="tour-request-caption">
+              {requestCaption}
+            </p>
+          ) : null}
         </div>
       ) : null}
 

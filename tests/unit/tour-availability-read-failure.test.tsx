@@ -127,27 +127,30 @@ describe("a failed tour-availability read is never a booking page with zero slot
     expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("still says the property has published nothing when the read SUCCEEDS and is empty", async () => {
-    // The empty state is a real answer — the fix must not swallow it too.
+  it("still treats a SUCCEEDED, empty read as the property's own answer (request mode, never a retry)", async () => {
+    // The empty read is a real answer - the fix must not swallow it too. It no longer ends in a dead
+    // "No tour times yet": the visitor is offered a requested time (signed out: asked to sign in first).
     stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }]);
     await renderAtDateStep();
 
     await waitFor(() => {
-      expect(screen.getByText(EMPTY_STATE)).toBeTruthy();
+      expect(screen.getByText(/Sign in to request a tour time/i)).toBeTruthy();
     });
+    expect(screen.queryByText(EMPTY_STATE)).toBeNull();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
-  it("treats a grid whose every published slot is already past as no tour times yet", async () => {
+  it("treats a grid whose every published slot is already past as no open slots (request mode)", async () => {
     stubAvailability([{ ok: true, status: 200, body: { slotHosts: { "2001-01-02:4": [{ id: "m1", name: "Pat", email: "pat@example.com" }] } } }]);
     await renderAtDateStep();
 
     await waitFor(() => {
-      expect(screen.getByText(EMPTY_STATE)).toBeTruthy();
+      expect(screen.getByText(/Sign in to request a tour time/i)).toBeTruthy();
     });
+    expect(screen.queryByText(EMPTY_STATE)).toBeNull();
   });
 
-  it("offers Message the manager next to the empty state as a resident-portal message, never a text link", async () => {
+  it("replaces the dead empty state with sign-in links into the resident portal, never a text link", async () => {
     stubAvailability([{ ok: true, status: 200, body: { slotHosts: {} } }]);
     render(
       <TourScheduleFlow
@@ -158,7 +161,8 @@ describe("a failed tour-availability read is never a booking page with zero slot
     );
     fireEvent.click(await screen.findByText(`${PROPERTY.buildingName} · ${PROPERTY.unitLabel}`));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    const link = await screen.findByText("Message the manager");
-    expect(link.closest("a")?.getAttribute("href")).toBe(`/resident/communication/active?propertyId=${encodeURIComponent(PROPERTY.id)}&compose=1`);
+    const signIn = await screen.findByText("Sign in");
+    expect(signIn.closest("a")?.getAttribute("href")?.startsWith("sms:")).toBe(false);
+    expect(screen.queryByText("Message the manager")).toBeNull();
   });
 });
