@@ -72,7 +72,14 @@ const EMAILS: Record<string, string> = {
 
 function signUp(id: string, opts: { confirmed?: boolean } = {}) {
   db.tables.profiles.push({ id, full_name: `Name ${id.slice(0, 4)}`, email: EMAILS[id], manager_id: `AX-${id.slice(0, 4)}`, role: "manager" });
-  (db.auth as { users: Map<string, unknown> }).users.set(id, { id, email: EMAILS[id], email_confirmed_at: opts.confirmed === false ? null : "2026-10-27T00:00:00Z", user_metadata: { full_name: `Name ${id.slice(0, 4)}` } });
+  (db.auth as { users: Map<string, unknown> }).users.set(id, {
+    id,
+    email: EMAILS[id],
+    created_at: "2026-01-01T00:00:00Z",
+    app_metadata: { provider: "email" },
+    email_confirmed_at: opts.confirmed === false ? null : "2026-10-27T00:00:00Z",
+    user_metadata: { full_name: `Name ${id.slice(0, 4)}` },
+  });
 }
 
 beforeEach(async () => {
@@ -98,7 +105,25 @@ beforeEach(async () => {
     sms_runtime_config: [],
   }) as ServiceFakeDb & { auth?: unknown };
   const users = new Map<string, unknown>();
-  db.auth = { users, admin: { getUserById: async (id: string) => ({ data: { user: users.get(id) ?? null }, error: null }) } };
+  db.auth = {
+    users,
+    admin: {
+      getUserById: async (id: string) => ({ data: { user: users.get(id) ?? null }, error: null }),
+      listUsers: async () => ({ data: { users: [...users.values()] }, error: null }),
+      createUser: async (input: { email: string; email_confirm?: boolean; user_metadata?: object; app_metadata?: object }) => {
+        const id = `99999999-9999-4999-8999-${String(users.size).padStart(12, "0")}`;
+        users.set(id, {
+          id,
+          email: input.email,
+          created_at: new Date().toISOString(),
+          app_metadata: { provider: "email", ...(input.app_metadata ?? {}) },
+          email_confirmed_at: input.email_confirm ? new Date().toISOString() : null,
+          user_metadata: input.user_metadata ?? {},
+        });
+        return { data: { user: users.get(id) }, error: null };
+      },
+    },
+  };
   for (const id of [OWNER, PRAKRIT, AARAV, JORDAN, SAM, STRANGER]) signUp(id);
   const created = await svc.createServiceWorkspace(client(), PRAKRIT, { name: "1. Ambika", city: "Seattle" });
   const created2 = await svc.createServiceWorkspace(client(), PRAKRIT, { name: "2. Vinod", city: "Seattle" });
@@ -130,6 +155,9 @@ async function invite(by: string, input: { email: string; role: string; workspac
     access: (input.access ?? {}) as never,
   });
 }
+
+const proof = await import("@/lib/admin-team/admin-invite-proof.server");
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test-service-role-key";
 
 const redeem = (userId: string, token: string) => links.redeemInviteLink(client(), { token, redeemerUserId: userId });
 const auditActions = () => db.tables.audit_log.map((r) => r.action);
@@ -218,8 +246,8 @@ describe("redeeming grants only for the bound email", () => {
     expect(db.tables.audit_log.find((r) => r.action === "admin_team_grant")).toMatchObject({ actor_user_id: PRAKRIT });
     expect(db.tables.admin_team_grants).toEqual([expect.objectContaining({ user_id: AARAV, granted_by: PRAKRIT, role: "overall_admin" })]);
     expect(db.tables.manager_invite_links[0]!.used_count).toBe(1);
-    // The link is spent: opening it again changes nothing.
-    expect(await redeem(AARAV, token)).toMatchObject({ ok: false, status: 410 });
+    // The link is spent: the same account opening it again is told it is already on the team; nothing changes.
+    expect(await redeem(AARAV, token)).toMatchObject({ ok: true, kind: "admin", role: "overall_admin", alreadyRedeemed: true });
     expect(db.tables.admin_team_grants).toHaveLength(1);
     expect(roleHolders(db).filter((id) => id === AARAV)).toHaveLength(1);
   });
@@ -247,6 +275,111 @@ describe("redeeming grants only for the bound email", () => {
     db.tables.manager_invite_links[0]!.invitee_email = null;
     expect(await redeem(AARAV, lastToken())).toMatchObject({ ok: false });
     expect(roleHolders(db)).toEqual([PRAKRIT]);
+  });
+});
+
+describe("a new account must prove it reads the invited inbox", () => {
+  const NEWBIE = "newbie@example.com";
+  const codeFromEmail = () => /\b(\d{6})\b/.exec(sentEmails.items.at(-1)!.text)![1]!;
+  const authUsers = () => (db.auth as { users: Map<string, Record<string, unknown>> }).users;
+  const createUser = (over: Record<string, unknown> = {}) => {
+    const id = "88888888-8888-4888-8888-888888888888";
+    authUsers().set(id, {
+      id,
+      email: NEWBIE,
+      created_at: new Date(Date.now() + 1000).toISOString(),
+      app_metadata: { provider: "email" },
+      email_confirmed_at: "2026-10-27T00:00:00Z",
+      user_metadata: {},
+      ...over,
+    });
+    return id;
+  };
+  const create = (token: string, challenge: string, code: string, now?: number) =>
+    proof.createVerifiedAdminAccount(client(), { token, challenge, code, fullName: "New Admin", phone: "", password: "a-long-password", now });
+
+  it("an account made through the generic sign-up after the invite (confirmed with no inbox round-trip) cannot take the grant", async () => {
+    await invite(PRAKRIT, { email: NEWBIE, role: "overall_admin" });
+    const token = lastToken();
+    const forged = createUser();
+    expect(await redeem(forged, token)).toMatchObject({ ok: false, status: 403 });
+    expect(roleHolders(db)).toEqual([PRAKRIT]);
+    expect(db.tables.manager_invite_links[0]!.used_count).toBe(0);
+    expect(db.tables.admin_team_grants).toHaveLength(0);
+  });
+
+  it("the grant is refused until the emailed code verifies: no account exists before it", async () => {
+    await invite(PRAKRIT, { email: NEWBIE, role: "overall_admin" });
+    const token = lastToken();
+    const sent = await proof.sendAdminInviteCode(client(), { token });
+    if (!sent.ok) throw new Error(sent.error);
+    expect(sentEmails.items.at(-1)).toMatchObject({ to: [NEWBIE], subject: "Your PropLane admin code" });
+    expect(authUsers().size).toBe(6);
+    const wrong = await create(token, sent.challenge, codeFromEmail() === "000000" ? "111111" : "000000");
+    expect(wrong).toMatchObject({ ok: false, status: 400, error: proof.ADMIN_CODE_WRONG_ERROR });
+    expect(authUsers().size).toBe(6);
+    expect(roleHolders(db)).toEqual([PRAKRIT]);
+  });
+
+  it("an expired code, a tampered challenge and a code meant for another link are refused", async () => {
+    await invite(PRAKRIT, { email: NEWBIE, role: "overall_admin" });
+    const tokenA = lastToken();
+    const sentA = await proof.sendAdminInviteCode(client(), { token: tokenA });
+    if (!sentA.ok) throw new Error(sentA.error);
+    const codeA = codeFromEmail();
+    expect(await create(tokenA, sentA.challenge, codeA, sentA.expiresAt + 1)).toMatchObject({ ok: false, error: proof.ADMIN_CODE_EXPIRED_ERROR });
+    expect(await create(tokenA, `${sentA.expiresAt + 600000}.${sentA.challenge.split(".")[1]}`, codeA)).toMatchObject({ ok: false, error: proof.ADMIN_CODE_WRONG_ERROR });
+    await invite(PRAKRIT, { email: NEWBIE, role: "overall_admin" });
+    const tokenB = lastToken();
+    expect(await create(tokenB, sentA.challenge, codeA)).toMatchObject({ ok: false, error: proof.ADMIN_CODE_WRONG_ERROR });
+    expect(authUsers().size).toBe(6);
+  });
+
+  it("the right code creates the confirmed, proof-stamped account; only then does the redeem grant", async () => {
+    await invite(PRAKRIT, { email: NEWBIE, role: "overall_admin" });
+    const token = lastToken();
+    const sent = await proof.sendAdminInviteCode(client(), { token });
+    if (!sent.ok) throw new Error(sent.error);
+    const made = await create(token, sent.challenge, codeFromEmail());
+    expect(made).toMatchObject({ ok: true, email: NEWBIE });
+    const user = [...authUsers().values()].find((u) => u.email === NEWBIE)!;
+    expect(user.email_confirmed_at).toBeTruthy();
+    expect((user.app_metadata as Record<string, unknown>).admin_invite_proof).toBe(String(db.tables.manager_invite_links[0]!.id));
+    expect(roleHolders(db)).toEqual([PRAKRIT]);
+    expect(await redeem(String(user.id), token)).toMatchObject({ ok: true, kind: "admin", role: "overall_admin" });
+    expect(roleHolders(db)).toContain(String(user.id));
+  });
+
+  it("an address that already has a login gets no code (it signs in instead), and a revoked invite sends none", async () => {
+    await invite(PRAKRIT, { email: "aarav@example.com", role: "overall_admin" });
+    expect(await proof.sendAdminInviteCode(client(), { token: lastToken() })).toMatchObject({ ok: false, status: 409 });
+    await invite(PRAKRIT, { email: NEWBIE, role: "overall_admin" });
+    db.tables.manager_invite_links.at(-1)!.revoked_at = "2026-10-27T00:00:00Z";
+    expect(await proof.sendAdminInviteCode(client(), { token: lastToken() })).toMatchObject({ ok: false, status: 410 });
+  });
+
+  it("an account that signed in with Google (the provider verified the address) is accepted without a code", async () => {
+    await invite(PRAKRIT, { email: NEWBIE, role: "overall_admin" });
+    const viaGoogle = createUser({ app_metadata: { provider: "google", providers: ["google"] } });
+    expect(await redeem(viaGoogle, lastToken())).toMatchObject({ ok: true, role: "overall_admin" });
+  });
+
+  it("a different signed-in email is refused even with a proof-stamped account of its own", async () => {
+    await invite(PRAKRIT, { email: NEWBIE, role: "overall_admin" });
+    const token = lastToken();
+    authUsers().get(STRANGER)!.app_metadata = { provider: "email", admin_invite_proof: String(db.tables.manager_invite_links[0]!.id) };
+    expect(await redeem(STRANGER, token)).toMatchObject({ ok: false, status: 403 });
+    expect(roleHolders(db)).toEqual([PRAKRIT]);
+  });
+
+  it("reopening a spent link: the same account is told it is already on the team; anyone else, or an account no longer on it, is not", async () => {
+    await invite(PRAKRIT, { email: "aarav@example.com", role: "overall_admin" });
+    const token = lastToken();
+    await redeem(AARAV, token);
+    expect(await redeem(AARAV, token)).toMatchObject({ ok: true, alreadyRedeemed: true, role: "overall_admin" });
+    expect(await redeem(STRANGER, token)).toMatchObject({ ok: false, status: 410 });
+    db.tables.profile_roles = db.tables.profile_roles.filter((r) => !(r.user_id === AARAV && r.role === "admin"));
+    expect(await redeem(AARAV, token)).toMatchObject({ ok: false, status: 410 });
   });
 });
 

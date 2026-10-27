@@ -512,3 +512,18 @@ export async function removeAdminTeamMember(
   await revokeGrants(db, userId, actorUserId, "all");
   return { ok: true };
 }
+
+/** Does this account still hold what an admin grant gave it? (The same-account re-open message must not lie.) */
+export async function adminGrantStillHeld(db: SupabaseClient, userId: string, grant: StoredAdminGrant): Promise<boolean> {
+  if (grant.role === OVERALL_ADMIN_ROLE) return userHoldsAdminRole(db, userId);
+  const { data, error } = await db
+    .from("account_link_invites")
+    .select("workspace_id")
+    .eq("invitee_user_id", userId)
+    .eq("is_service_seat", true)
+    .eq("status", "accepted")
+    .in("workspace_id", grant.workspaceIds);
+  if (error) return false;
+  const held = new Set(((data ?? []) as { workspace_id: string }[]).map((row) => String(row.workspace_id)));
+  return grant.workspaceIds.every((id) => held.has(id));
+}

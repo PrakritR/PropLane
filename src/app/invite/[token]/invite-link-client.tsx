@@ -281,7 +281,8 @@ export default function InviteLinkClient({ token }: { token: string }) {
     ? `/portal/communication?composeToUserId=${encodeURIComponent(preview.ownerUserId)}`
     : `/auth/sign-in?next=${encodeURIComponent(invitePath)}`;
 
-  if (preview.unusableReason) {
+  // An admin invite renders its own spent / re-open states (the same account opening it again is told it is already on the team).
+  if (preview.unusableReason && preview.kind !== "admin") {
     return (
       <AuthCard variant="blend">
         <InviteHeader tile={isManager ? workspaceLabel : preview.ownerName} title="This invite is no longer active" />

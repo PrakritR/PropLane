@@ -1,5 +1,5 @@
-import { applyAdminInviteGrant } from "@/lib/admin-team/admin-team.server";
-import { adminTeamRoleLabel, parseStoredAdminGrant } from "@/lib/admin-team/admin-team-model";
+import { adminGrantStillHeld, applyAdminInviteGrant } from "@/lib/admin-team/admin-team.server";
+import { adminInviteAccountProven, adminTeamRoleLabel, parseStoredAdminGrant } from "@/lib/admin-team/admin-team-model";
 import "server-only";
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -1012,6 +1012,9 @@ export async function previewInviteLink(
   };
 }
 
+export const ADMIN_EMAIL_UNPROVEN_ERROR =
+  "Confirm you own this email first: open the invite signed out and create your account with the code we email you.";
+
 export type RedeemInviteLinkResult =
   | {
       ok: true;
@@ -1163,6 +1166,21 @@ export async function redeemInviteLink(
   const isAdminLink = String(link.kind) === "admin";
   if (linkKind !== "manager" && linkKind !== "resident" && linkKind !== "vendor") {
     return { ok: false, status: 400, error: UNSUPPORTED_INVITE_LINK_KIND_ERROR };
+  }
+
+  // The same signed-in account opening its own spent admin invite again is told it is already on the team (when it still
+  // is), instead of "used the maximum number of times".
+  if (isAdminLink) {
+    const grant = parseStoredAdminGrant((link as { admin_grant?: unknown }).admin_grant);
+    const { data: prior } = await db
+      .from("manager_invite_link_redemptions")
+      .select("id")
+      .eq("link_id", link.id)
+      .eq("redeemed_by_user_id", redeemerUserId)
+      .maybeSingle();
+    if (prior && grant && (await adminGrantStillHeld(db, redeemerUserId, grant))) {
+      return { ok: true, kind: "admin", role: grant.role, workspaceIds: grant.workspaceIds, alreadyRedeemed: true };
+    }
   }
 
   const unusable = inviteLinkUnusableReason(
@@ -1532,6 +1550,13 @@ async function redeemAdminLink(args: {
   if (!grant) return { ok: false, status: 400, error: "This invite is not valid. Ask for a new one." };
   if (args.alreadyRedeemed) {
     return { ok: true, kind: "admin", role: grant.role, workspaceIds: grant.workspaceIds, alreadyRedeemed: true };
+  }
+  // The address must have been proven from the inbox, not merely typed: an account created after this invite needs the
+  // emailed-code proof (or a provider that verified the address). Checked before a use is spent.
+  const auth = await db.auth.admin.getUserById(redeemerUserId).catch(() => null);
+  const authUser = auth?.data?.user ?? null;
+  if (!adminInviteAccountProven(authUser as never, { id: String(link.id), created_at: link.created_at })) {
+    return { ok: false, status: 403, error: ADMIN_EMAIL_UNPROVEN_ERROR };
   }
   const spent = await args.spendUse();
   if (!spent.ok) return spent;

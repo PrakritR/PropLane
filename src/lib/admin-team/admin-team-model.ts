@@ -192,3 +192,27 @@ export type AdminTeamPayload = {
   members: AdminTeamMemberRow[];
 };
 
+
+/**
+ * Has this account proven it controls the invited inbox? An admin invite is bound to an email, but the generic sign-up
+ * confirms an address without any inbox round-trip, so a holder of a forwarded link could otherwise create the account
+ * and take the grant. An account that existed BEFORE the invite was minted signed in as itself (the person's own login);
+ * one created AFTER must carry the server's proof (`app_metadata.admin_invite_proof`, written only by the emailed-code
+ * route, and only for this link) or come from an identity provider that verified the address (Google, Apple). Anything
+ * unreadable fails closed.
+ */
+export function adminInviteAccountProven(
+  user: { created_at?: string | null; app_metadata?: Record<string, unknown> | null } | null | undefined,
+  link: { id: string; created_at: string | null | undefined },
+): boolean {
+  if (!user) return false;
+  const app = user.app_metadata ?? {};
+  if (app.admin_invite_proof === link.id) return true;
+  const providers = [app.provider, ...(Array.isArray(app.providers) ? app.providers : [])].map((p) => String(p ?? "").toLowerCase());
+  if (providers.includes("google") || providers.includes("apple")) return true;
+  const created = Date.parse(String(user.created_at ?? ""));
+  const minted = Date.parse(String(link.created_at ?? ""));
+  return Number.isFinite(created) && Number.isFinite(minted) && created <= minted;
+}
+
+export const ADMIN_INVITE_CODE_MINUTES = 10;

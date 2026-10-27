@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthCard } from "@/components/auth/auth-card";
 import { PortalSettingsGroup, PortalSettingsRow } from "@/components/portal/portal-settings-ui";
@@ -9,15 +9,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { startOAuthSignIn } from "@/lib/auth/start-oauth-sign-in";
+import Link from "next/link";
 import { openServiceWorkspace } from "@/lib/service/open-service-workspace";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { OVERALL_ADMIN_LABEL } from "@/lib/admin-team/admin-team-model";
+import { inviteLinkUnusableMessage, type InviteLinkUnusableReason } from "@/lib/invite-links/invite-link-model";
 
 export type AdminInvitePreview = {
   ownerName: string;
   inviteeEmail?: string | null;
   adminRoleLabel?: string | null;
   adminWorkspaceNames?: string[];
+  unusableReason?: InviteLinkUnusableReason | null;
 };
 
 /**
@@ -38,6 +41,11 @@ export function AdminInviteCard({ token, preview, signedIn, onSignedIn }: { toke
   const [landing, setLanding] = useState<(() => void) | null>(null);
   const [createdPhone, setCreatedPhone] = useState("");
   const [verified, setVerified] = useState(false);
+  // The emailed-code proof a NEW account needs: the signed challenge the server returned, then the 6 digits.
+  const [challenge, setChallenge] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  // Set when the signed-in account is already on the admin team (the same link opened again).
+  const [already, setAlready] = useState<{ overall: boolean } | null>(null);
   const phoneVerify = useProfilePhoneVerify({ phone: createdPhone, onVerified: () => setVerified(true) });
 
   const roleLabel = preview.adminRoleLabel ?? "Admin";
@@ -53,9 +61,13 @@ export function AdminInviteCard({ token, preview, signedIn, onSignedIn }: { toke
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
     });
-    const body = (await res.json().catch(() => ({}))) as { role?: string; workspaceIds?: string[]; error?: string };
+    const body = (await res.json().catch(() => ({}))) as { role?: string; workspaceIds?: string[]; error?: string; alreadyRedeemed?: boolean };
     if (!res.ok) {
       setError(body.error ?? "Could not accept this invite.");
+      return null;
+    }
+    if (body.alreadyRedeemed) {
+      setAlready({ overall: body.role === "overall_admin" });
       return null;
     }
     const first = body.workspaceIds?.[0];
@@ -87,11 +99,29 @@ export function AdminInviteCard({ token, preview, signedIn, onSignedIn }: { toke
     }
   };
 
-  const createAndAccept = async (): Promise<(() => void) | null> => {
-    const res = await fetch("/api/auth/signup", {
+  /** Step one for a new account: mail the code to the invited address (the server picks the address, not this page). */
+  const sendCode = async (): Promise<null> => {
+    setError(null);
+    const res = await fetch("/api/pro/invite-links/admin-account", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: boundEmail, password, fullName: name, phone }),
+      body: JSON.stringify({ action: "send", token }),
+    });
+    const out = (await res.json().catch(() => ({}))) as { error?: string; challenge?: string };
+    if (!res.ok || !out.challenge) {
+      setError(out.error ?? "Could not send a code.");
+      return null;
+    }
+    setChallenge(out.challenge);
+    return null;
+  };
+
+  /** Step two: the code proves the inbox, the server creates the confirmed account, then this signs in and accepts. */
+  const createAndAccept = async (): Promise<(() => void) | null> => {
+    const res = await fetch("/api/pro/invite-links/admin-account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "create", token, challenge, code, fullName: name, phone, password }),
     });
     const out = (await res.json().catch(() => ({}))) as { error?: string };
     if (!res.ok) {
@@ -108,6 +138,27 @@ export function AdminInviteCard({ token, preview, signedIn, onSignedIn }: { toke
     setCreatedPhone(phone);
     return accept();
   };
+
+  // The same link opened again by an account that already redeemed it: say so instead of "no longer active".
+  useEffect(() => {
+    if (!signedIn || preview.unusableReason !== "exhausted") return;
+    let cancelled = false;
+    void (async () => {
+      const res = await fetch("/api/pro/invite-links/redeem", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      const out = (await res.json().catch(() => ({}))) as { role?: string; alreadyRedeemed?: boolean };
+      if (cancelled) return;
+      if (res.ok && out.alreadyRedeemed) setAlready({ overall: out.role === "overall_admin" });
+      else setError(inviteLinkUnusableMessage("exhausted"));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [signedIn, preview.unusableReason, token]);
 
   const google = async () => {
     setError(null);
@@ -143,6 +194,44 @@ export function AdminInviteCard({ token, preview, signedIn, onSignedIn }: { toke
       </PortalSettingsGroup>
     </div>
   );
+
+  if (already) {
+    return (
+      <AuthCard variant="blend">
+        <div className="flex flex-col items-center text-center" data-attr="admin-invite-already">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">You&apos;re already on the PropLane admin team</h1>
+        </div>
+        <div className="mt-6">
+          <Link
+            href={already.overall ? "/admin/dashboard" : "/portal/dashboard"}
+            className="block w-full rounded-full bg-primary px-4 py-2.5 text-center text-[15px] font-semibold text-primary-foreground"
+            data-attr="admin-invite-open"
+          >
+            {already.overall ? "Open PropLane admin" : "Open your workspace"}
+          </Link>
+        </div>
+      </AuthCard>
+    );
+  }
+
+  if (preview.unusableReason && !(signedIn && preview.unusableReason === "exhausted" && !error)) {
+    return (
+      <AuthCard variant="blend">
+        <div className="flex flex-col items-center text-center">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">This invite is no longer active</h1>
+          <p className="mt-2 text-[15px] text-foreground/80" data-attr="admin-invite-unusable">{inviteLinkUnusableMessage(preview.unusableReason)}</p>
+        </div>
+      </AuthCard>
+    );
+  }
+
+  if (preview.unusableReason) {
+    return (
+      <AuthCard variant="blend">
+        <p className="text-center text-sm text-muted">Checking your invite…</p>
+      </AuthCard>
+    );
+  }
 
   // Accepted: a number typed here gets its text code, then the admin lands.
   if (landing && createdPhone) {
@@ -191,21 +280,33 @@ export function AdminInviteCard({ token, preview, signedIn, onSignedIn }: { toke
             data-attr="admin-invite-create"
             onSubmit={(event) => {
               event.preventDefault();
-              void run(createAndAccept, Boolean(phone));
+              void run(challenge ? createAndAccept : sendCode, Boolean(phone));
             }}
           >
             <Input aria-label="Full name" placeholder="Full name" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
             <Input aria-label="Email" type="email" value={boundEmail} readOnly />
             <PhoneNumberField value={phone} onChange={setPhone} dataAttr="admin-invite-phone-field" />
             <Input aria-label="Password" placeholder="Password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            {challenge ? (
+              <Input
+                aria-label="6-digit code from your email"
+                placeholder="6-digit code from your email"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                data-attr="admin-invite-email-code"
+              />
+            ) : null}
             <Button
               type="submit"
               className="w-full rounded-full py-2.5 text-[15px] font-semibold"
               data-attr="admin-invite-create-submit"
               loading={busy}
-              disabled={!boundEmail || name.trim().length < 2 || password.length < 8}
+              disabled={!boundEmail || name.trim().length < 2 || password.length < 8 || (challenge !== null && code.length !== 6)}
             >
-              Create admin account
+              {challenge ? "Create admin account" : "Email me a code"}
             </Button>
             <Button type="button" variant="outline" className="w-full rounded-full py-2.5 text-[15px] font-semibold" data-attr="admin-invite-google" onClick={() => void google()}>
               Continue with Google

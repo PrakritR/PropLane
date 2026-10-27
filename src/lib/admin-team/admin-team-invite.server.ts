@@ -134,6 +134,8 @@ export async function inviteAdminTeamMember(
       expires_at: expiresAt,
       invitee_email: email,
       admin_grant: stored,
+      // Explicit, so "the account existed before this invite" is a comparison against a value this code wrote.
+      created_at: new Date().toISOString(),
     })
     .select("id")
     .maybeSingle();

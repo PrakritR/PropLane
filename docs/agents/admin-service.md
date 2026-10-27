@@ -155,6 +155,12 @@ workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and th
   account" (name, mobile with the usual text code, Google or a password) or, signed in, Accept. The kind is never accepted from a
   request body (`normalizeInviteLinkKind` still falls back to `manager`), admin links are excluded from every share-link list,
   rotate, reveal and revoke, and an admin link with no bound email redeems as nothing.
+- **A new account proves the inbox.** The generic sign-up confirms an address with no inbox round-trip, so for admin invites the
+  invite page mails a 6-digit code to the address stored on the link (`/api/pro/invite-links/admin-account`, stateless HMAC
+  challenge, rate limited) and the server creates the confirmed account only when it verifies, stamping
+  `app_metadata.admin_invite_proof = <link id>`. The redeem requires that stamp of any account created after the invite (or a
+  Google/Apple identity); an account that pre-dates the invite signs in as itself. Residual: an attacker who pre-registered the
+  invitee's address before any invite existed still holds that login.
 - **Redeem** (`applyAdminInviteGrant`): the session's confirmed email must equal the bound one; the inviter is re-derived at that
   moment (still an Overall admin for an Overall grant; still able to make the workspace grant); the audit row (`admin_team_grant`,
   `admin_team_seat`) is written BEFORE the role; any failure hands the spent use back. Every change writes `admin_team_*` audit rows
