@@ -10,9 +10,13 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { inviteLinkUnusableMessage, type InviteLinkUnusableReason, MANAGER_ROLE_REQUIRED_CODE } from "@/lib/invite-links/invite-link-model";
 import { firstNameFromDisplay, inviteAcceptTitle } from "@/lib/invite-links/invite-accept-copy";
 import { teamRoleListLabel } from "@/lib/co-manager-team-roles";
+import { AdminInviteCard } from "./admin-invite-card";
 
 type Preview = {
-  kind: "manager" | "vendor" | "resident";
+  kind: "manager" | "vendor" | "resident" | "admin";
+  /** Admin team invites: the role in words and the workspaces it covers. */
+  adminRoleLabel?: string | null;
+  adminWorkspaceNames?: string[];
   ownerName: string;
   workspaceName?: string | null;
   ownerUserId?: string;
@@ -288,6 +292,11 @@ export default function InviteLinkClient({ token }: { token: string }) {
         </PortalSettingsGroup>
       </AuthCard>
     );
+  }
+
+  // An Admin team invite has its own page: create the admin account (or sign in), then accept.
+  if (preview.kind === "admin") {
+    return <AdminInviteCard token={token} preview={preview} signedIn={signedIn} onSignedIn={() => setSignedIn(true)} />;
   }
 
   // A resident's claim is filed, not granted. Ending on "we sent your request"

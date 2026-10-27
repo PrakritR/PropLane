@@ -1,5 +1,6 @@
 import { AdminProfileClient } from "@/components/portal/admin-profile-client";
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
+import { loadAdminSettingsScope } from "@/lib/admin-team/settings-scope.server";
 
 /** Avoid `.trim()` on non-strings from DB/JSON edge cases (would throw in RSC). */
 function safeLine(value: unknown): string {
@@ -35,8 +36,10 @@ export async function AdminProfileSection() {
     );
   }
 
+  const settingsScope = user ? await loadAdminSettingsScope(user.id) : null;
   return (
     <AdminProfileClient
+      settingsScope={settingsScope}
       fullName={safeLine(profile?.full_name)}
       email={safeLine(profile?.email ?? user?.email)}
       phone={safeLine(profile?.phone)}
