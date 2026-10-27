@@ -228,8 +228,13 @@ export async function claimLeadAndLock(
   }
   if (claimed.rows === 0) return { kind: "lost", same: await storedAssignmentIs(db, lead.id, lead.phoneKey, target) };
   const route = { workspaceId: target.workspaceId, role: "prospect" as const, lockedPropertyId: target.propertyId };
-  if (await saveSharedLineRouteIf(db, lead.phoneKey, route, prior, at)) return { kind: "won" };
-  await revertSharedLineRoute(db, lead.phoneKey, { workspaceId: target.workspaceId, lockedPropertyId: target.propertyId, at }, prior);
+  const saved = await saveSharedLineRouteIf(db, lead.phoneKey, route, prior, at);
+  if (saved.kind === "written") return { kind: "won" };
+  // A known conflict (unique violation, or no row matched the prior revision) wrote nothing: the session is someone else's
+  // and is never touched. Only an unknown outcome may have landed, and the undo matches our exact revision (`updated_at = at`).
+  if (saved.kind === "unknown") {
+    await revertSharedLineRoute(db, lead.phoneKey, { workspaceId: target.workspaceId, lockedPropertyId: target.propertyId, at, updatedAt: at }, prior);
+  }
   await rollbackClaim(db, lead, target, at);
   return { kind: "unavailable" };
 }

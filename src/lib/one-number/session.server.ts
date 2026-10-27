@@ -120,16 +120,18 @@ export type SessionSnapshot =
       lockedAt: string | null;
       pendingCandidates: unknown;
       pendingAskedAt: string | null;
+      /** The row's revision: `updated_at` exactly as the database returned it (a string, never round-tripped through Date). */
+      updatedAt: string | null;
     };
 
 export async function readSessionSnapshot(db: SupabaseClient, phoneKey: string): Promise<SessionSnapshot | null> {
   try {
     const read = (columns: string) => db.from("sms_line_sessions").select(columns).eq("phone_key", phoneKey).maybeSingle();
     let hasLockColumns = true;
-    let res = await read("phone_key, current_workspace_id, active_role, pending_candidates, pending_asked_at, locked_property_id, locked_at");
+    let res = await read("phone_key, current_workspace_id, active_role, pending_candidates, pending_asked_at, locked_property_id, locked_at, updated_at");
     if (res.error && isMissingSchemaError(res.error)) {
       hasLockColumns = false;
-      res = await read("phone_key, current_workspace_id, active_role, pending_candidates, pending_asked_at");
+      res = await read("phone_key, current_workspace_id, active_role, pending_candidates, pending_asked_at, updated_at");
     }
     if (res.error) return null;
     if (!res.data) return { exists: false, hasLockColumns };
@@ -144,6 +146,7 @@ export async function readSessionSnapshot(db: SupabaseClient, phoneKey: string):
       lockedAt: text(row.locked_at),
       pendingCandidates: row.pending_candidates ?? null,
       pendingAskedAt: text(row.pending_asked_at),
+      updatedAt: text(row.updated_at),
     };
   } catch {
     return null;
@@ -156,10 +159,20 @@ function guard<T extends Guarded<T>>(q: T, column: string, value: string | null)
 }
 
 /**
- * Compare-and-swap form of `saveSharedLineRoute` for a MOVE of the home lock. It applies only if the session still holds
- * the lock values `prior` was read with (or, with no row before, only if no row exists yet), so a later winner is never
- * overwritten by an earlier loser. `at` is the lock time written; the caller passes the same value to `revertSharedLineRoute`.
- * Throws and errors are `false`; zero matched rows is `false`.
+ * What a conditional lock write did.
+ *  - `written`: we wrote the row; `updatedAt` is the revision our write produced (the only value a revert may match).
+ *  - `conflict`: a unique violation (23505) or zero matched rows. We wrote NOTHING, so there is nothing to undo, and
+ *    whatever is in the table now belongs to someone else.
+ *  - `unknown`: an error or a throw. The write may or may not have landed; a revert must match our exact revision (`at`).
+ */
+export type ConditionalSave = { kind: "written"; updatedAt: string } | { kind: "conflict" } | { kind: "unknown" };
+
+/**
+ * Compare-and-swap form of `saveSharedLineRoute` for a MOVE of the home lock. It applies only if the session is still the
+ * COMPLETE revision `prior` was read with: workspace, role, lock, lock time and `updated_at` (every writer of the table
+ * sets `updated_at`, so any intervening write, including an ordinary router save that leaves the lock alone, changes it).
+ * With no row before, it is an insert and a unique violation means someone else created the row first.
+ * `at` is the time written to `updated_at` / `locked_at`.
  */
 export async function saveSharedLineRouteIf(
   db: SupabaseClient,
@@ -167,7 +180,7 @@ export async function saveSharedLineRouteIf(
   route: { workspaceId: string; role: SharedLineRole; lockedPropertyId: string | null },
   prior: SessionSnapshot,
   at: string,
-): Promise<boolean> {
+): Promise<ConditionalSave> {
   try {
     const base = {
       current_workspace_id: route.workspaceId,
@@ -179,38 +192,51 @@ export async function saveSharedLineRouteIf(
     };
     const lock = prior.hasLockColumns ? { locked_property_id: route.lockedPropertyId, locked_at: route.lockedPropertyId ? at : null } : {};
     if (!prior.exists) {
-      const { error } = await db.from("sms_line_sessions").insert({ phone_key: phoneKey, ...base, ...lock });
-      if (error) console.error("shared line session lock insert failed", error.code ?? "unknown");
-      return !error;
+      const { data, error } = await db.from("sms_line_sessions").insert({ phone_key: phoneKey, ...base, ...lock }).select("phone_key, updated_at");
+      if (error) {
+        console.error("shared line session lock insert failed", error.code ?? "unknown");
+        return error.code === "23505" ? { kind: "conflict" } : { kind: "unknown" };
+      }
+      const row = (data as Array<Record<string, unknown>> | null)?.[0];
+      return row ? { kind: "written", updatedAt: String(row.updated_at ?? at) } : { kind: "unknown" };
     }
     let q = db.from("sms_line_sessions").update({ ...base, ...lock }).eq("phone_key", phoneKey);
+    q = guard(q, "current_workspace_id", prior.workspaceId);
+    q = guard(q, "active_role", prior.role);
+    q = guard(q, "updated_at", prior.updatedAt);
     if (prior.hasLockColumns) {
       q = guard(q, "locked_property_id", prior.lockedPropertyId);
       q = guard(q, "locked_at", prior.lockedAt);
     }
-    const { data, error } = await q.select("phone_key");
-    if (error) console.error("shared line session lock update failed", error.code ?? "unknown");
-    return !error && (data ?? []).length === 1;
+    const { data, error } = await q.select("phone_key, updated_at");
+    if (error) {
+      console.error("shared line session lock update failed", error.code ?? "unknown");
+      return { kind: "unknown" };
+    }
+    const rows = (data ?? []) as Array<Record<string, unknown>>;
+    if (rows.length === 0) return { kind: "conflict" };
+    return rows.length === 1 ? { kind: "written", updatedAt: String(rows[0]!.updated_at ?? at) } : { kind: "unknown" };
   } catch {
-    return false;
+    return { kind: "unknown" };
   }
 }
 
 /**
- * Undo exactly what `saveSharedLineRouteIf` wrote: only while the session still holds that request's route and lock values.
- * A session that did not exist before is removed (no lock, no route); one that did goes back to its prior route, lock and
- * pending question. A newer writer's values never match the guard, so they are left alone.
+ * Undo exactly what `saveSharedLineRouteIf` wrote, and nothing else: it matches the revision OUR write produced
+ * (`mine.updatedAt`) plus our route and lock values, so any later writer's row (a different `updated_at`) is left alone.
+ * Never call it after `conflict`: we wrote nothing then. A session that did not exist before is removed; one that did
+ * goes back to its prior route, lock and pending question (stamped with a fresh `updated_at`).
  */
 export async function revertSharedLineRoute(
   db: SupabaseClient,
   phoneKey: string,
-  mine: { workspaceId: string; lockedPropertyId: string | null; at: string },
+  mine: { workspaceId: string; lockedPropertyId: string | null; at: string; updatedAt: string },
   prior: SessionSnapshot,
 ): Promise<boolean> {
   try {
     const lockedAt = mine.lockedPropertyId ? mine.at : null;
     const guardMine = <T extends Guarded<T>>(q: T): T => {
-      let g = q.eq("current_workspace_id", mine.workspaceId);
+      let g = q.eq("current_workspace_id", mine.workspaceId).eq("updated_at", mine.updatedAt);
       if (prior.hasLockColumns) {
         g = guard(g, "locked_property_id", mine.lockedPropertyId);
         g = guard(g, "locked_at", lockedAt);
