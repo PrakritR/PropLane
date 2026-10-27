@@ -929,25 +929,65 @@ export async function ensureRoomExportCalendarUrl(
   return `${connection.exportUrl}${suffix}`;
 }
 
-export async function syncAllChannelCalendarImports(db: SupabaseClient): Promise<{ synced: number; failed: number }> {
+/** The cron route's `maxDuration` in ms (`api/cron/sync-channel-calendars`); a test keeps the two in step. */
+export const CHANNEL_SYNC_CRON_MAX_DURATION_MS = 120_000;
+/** Feeds fetched at once. Four keeps 56+ feeds inside the cron without hammering one channel. */
+export const SYNC_ALL_CONCURRENCY = 4;
+/** No new fetch starts once less than this is left of the cron's duration (a fetch may run 15s). */
+export const SYNC_ALL_STOP_SCHEDULING_MS = 20_000;
+
+export type SyncAllResult = { synced: number; failed: number; skipped: number };
+
+/**
+ * Sync every saved import URL, {@link SYNC_ALL_CONCURRENCY} at a time. The least recently synced
+ * connections go first, and no new fetch is scheduled once the cron's time budget has under
+ * {@link SYNC_ALL_STOP_SCHEDULING_MS} left; whatever was not started is reported as `skipped` and goes
+ * first on the next run, so a large portfolio converges instead of running out the clock mid-write.
+ */
+export async function syncAllChannelCalendarImports(
+  db: SupabaseClient,
+  options: {
+    concurrency?: number;
+    budgetMs?: number;
+    stopSchedulingMs?: number;
+    now?: () => number;
+    syncOne?: (db: SupabaseClient, connectionId: string) => Promise<unknown>;
+  } = {},
+): Promise<SyncAllResult> {
+  const now = options.now ?? Date.now;
+  const startedAt = now();
+  const budgetMs = options.budgetMs ?? CHANNEL_SYNC_CRON_MAX_DURATION_MS;
+  const stopSchedulingMs = options.stopSchedulingMs ?? SYNC_ALL_STOP_SCHEDULING_MS;
+  const syncOne = options.syncOne ?? syncChannelCalendarConnection;
   const { data, error } = await db
     .from("external_calendar_connections")
-    .select("id, import_url")
+    .select("id, import_url, last_synced_at")
     .not("import_url", "is", null);
   if (error) throw new Error(error.message);
 
-  let synced = 0;
-  let failed = 0;
-  for (const row of data ?? []) {
-    if (!String(row.import_url ?? "").trim()) continue;
-    try {
-      await syncChannelCalendarConnection(db, String(row.id));
-      synced += 1;
-    } catch {
-      failed += 1;
+  const queue = (data ?? [])
+    .filter((row) => String(row.import_url ?? "").trim())
+    .sort((a, b) => String(a.last_synced_at ?? "").localeCompare(String(b.last_synced_at ?? "")))
+    .map((row) => String(row.id));
+  const result: SyncAllResult = { synced: 0, failed: 0, skipped: 0 };
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      if (budgetMs - (now() - startedAt) < stopSchedulingMs) return;
+      const id = queue[next];
+      if (id === undefined) return;
+      next += 1;
+      try {
+        await syncOne(db, id);
+        result.synced += 1;
+      } catch {
+        result.failed += 1;
+      }
     }
-  }
-  return { synced, failed };
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(options.concurrency ?? SYNC_ALL_CONCURRENCY, queue.length || 1)) }, worker));
+  result.skipped = Math.max(0, queue.length - next);
+  return result;
 }
 
 export async function loadConnectionByExportToken(
