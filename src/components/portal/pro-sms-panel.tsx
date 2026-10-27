@@ -47,6 +47,8 @@ import {
 } from "@/components/portal/portal-inbox-ui";
 import {
   dispatchManagerSmsContactsChanged,
+  isLookingForTurnSid,
+  lookingForCardText,
   MANAGER_SMS_SORT_OPTIONS,
   normalizeManagerSmsConversationsPayload,
   smsConversationDisplayName,
@@ -1669,6 +1671,14 @@ function Bubble({
   /** The conversation's counterparty, named on each of their runs. */
   authorName: string;
 }) {
+  if (isLookingForTurnSid(message.messageSid)) {
+    return (
+      <div className="mt-3 first:mt-0 w-full min-w-0 rounded-xl border border-border bg-accent/35 px-3 py-2 text-sm" data-sms-looking-for-card>
+        <p className="text-xs font-semibold text-muted">Looking for</p>
+        <p className="whitespace-pre-wrap break-words text-foreground">{lookingForCardText(message.body)}</p>
+      </div>
+    );
+  }
   const outbound = message.direction === "outbound";
   const startsRun = cluster === "single" || cluster === "first";
   const author = outbound ? message.sentBy?.name?.trim() || "You" : authorName;
