@@ -216,13 +216,13 @@ export async function listAdminTeam(db: SupabaseClient, viewerUserId: string, ac
     housesByWorkspace.set(row.workspace_id, list);
   }
 
+  // Everyone holding Overall admin. An Overall admin lists them all; a workspace admin only learns which of the seat
+  // holders they already see are Overall admins (so the row reads right and is out of their reach), never the full list.
   let overallIds: string[] = [];
-  if (actor.overall) {
-    try {
-      overallIds = await listAdminUserIds(db);
-    } catch {
-      return fail(503, "Could not load the admin team. Please retry.");
-    }
+  try {
+    overallIds = actor.overall ? await listAdminUserIds(db) : await overallRoleHolderIds(db);
+  } catch {
+    return fail(503, "Could not load the admin team. Please retry.");
   }
 
   const seatRes = manageable.length
@@ -284,12 +284,13 @@ export async function listAdminTeam(db: SupabaseClient, viewerUserId: string, ac
       seats: [],
       inviteId: null,
       isSelf: userId === viewerUserId,
+      // Overall admins are the Overall admins' to manage, never a workspace admin's.
       canManage: actor.overall,
     };
     rows.set(userId, created);
     return created;
   };
-  for (const id of overallIds) rowFor(id);
+  if (actor.overall) for (const id of overallIds) rowFor(id);
   for (const seat of seats) {
     const row = rowFor(seat.invitee_user_id);
     const assigned = Array.isArray(seat.assigned_property_ids) ? seat.assigned_property_ids.map(String) : [];

@@ -57,9 +57,12 @@ export function makeServiceFakeDb(initial: Record<string, Row[]> = {}): ServiceF
         }
         if (pendingUpsert) {
           const { row, ignoreDuplicates, onConflict } = pendingUpsert;
-          const exists = rows().some((r) => r[onConflict] === row[onConflict]);
+          // `onConflict` may name several columns ("user_id,role"): a conflict is a row equal on all of them.
+          const keys = onConflict.split(",").map((k) => k.trim());
+          const same = (r: Row) => keys.every((k) => r[k] === row[k]);
+          const exists = rows().some(same);
           if (!exists || !ignoreDuplicates) {
-            if (exists) Object.assign(rows().find((r) => r[onConflict] === row[onConflict])!, row);
+            if (exists) Object.assign(rows().find(same)!, row);
             else rows().push({ ...row });
           }
           return { data: null, error: null };
