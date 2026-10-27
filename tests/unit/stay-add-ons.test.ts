@@ -314,7 +314,7 @@ describe("paid", () => {
     const notice = spies.deliverPortalInboxMessage.mock.calls[0]![1] as { text: string; suppressSms: boolean; toUserIds: string[] };
     expect(notice).toMatchObject({ suppressSms: true, toUserIds: [GUEST] });
     expect(notice.text).toContain("Early check-in at 12:00 pm is confirmed for Oct 20.");
-    expect(notice.text).toContain("https://proplane.ai/resident/stays/upcoming");
+    expect(notice.text).toContain("https://proplane.ai/resident/applications/approved");
   });
 
   it("a late checkout moves the checkout and re-times this stay's own clean", async () => {

@@ -1,5 +1,5 @@
 /**
- * The answers on a short-stay booking APPLICATION (the resident portal's `/resident/stays/request`):
+ * The answers on a short-stay booking APPLICATION (the resident portal's `/resident/applications/stay`):
  * why they are staying, a note to the host, who else is staying and the house-rules agreement. Saved on
  * `stayDetails.application` of the hold and drawn to the manager on the hold in Bookings. Pure: the
  * request page, the route, the manager sheet and the tests all read the same rules.

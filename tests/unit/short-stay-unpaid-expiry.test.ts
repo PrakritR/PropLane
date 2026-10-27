@@ -106,7 +106,7 @@ describe("a confirmed stay left unpaid for 24 hours", () => {
     const notice = deliverInbox.mock.calls[0]![1] as { subject: string; text: string; toUserIds: string[]; suppressSms: boolean };
     expect(notice).toMatchObject({ toUserIds: [GUEST], suppressSms: true });
     expect(notice.subject).toBe("Released, unpaid: Attic Nook at Cedar Court");
-    expect(notice.text).toContain("https://proplane.ai/resident/stays/upcoming");
+    expect(notice.text).toContain("https://proplane.ai/resident/applications/approved");
     expect(notice.text).not.toContain("/l/");
     expect(emitActionEvent.mock.calls.map((c) => (c[1] as { event: string }).event)).toEqual(["short_stay_unpaid_expired"]);
   });

@@ -47,7 +47,6 @@ export const IN_APP_PATH_EXACT = ["/", "/partner", "/tos", "/privacy", "/app"] a
  */
 export const REGISTERED_PUSH_DEEP_LINKS = [
   "/resident/payments",
-  "/resident/stays",
   "/resident/dashboard",
   "/resident/applications",
   "/resident/communication/active",

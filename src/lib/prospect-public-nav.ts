@@ -1,3 +1,4 @@
+import { STAY_REQUEST_PATH } from "@/lib/short-stay/stay-request-link";
 import { buildPropertyMessageHref, buildTourContactHref } from "@/lib/manager-property-links";
 import { buildRentalApplyHref, type RentalApplyFromListingParams } from "@/lib/rental-application/apply-from-listing";
 import { residentPortalApplyReturnPath } from "@/lib/rental-application/public-apply-session";
@@ -63,7 +64,7 @@ export function buildProspectTourHref(
   return pid ? residentCreateAccountHref(residentPortalTourSchedulePath(pid)) : buildTourContactHref(pid);
 }
 
-/** The resident portal's short-stay request (the contract with `/resident/stays/request`), prefilled with the picks. */
+/** The resident portal's short-stay request (the contract with `/resident/applications/stay`), prefilled with the picks. */
 export function residentStayRequestPath(
   propertyId: string,
   picks: { roomId?: string | null; checkIn?: string | null; checkOut?: string | null; guests?: number | null },
@@ -73,7 +74,7 @@ export function residentStayRequestPath(
   if (picks.checkIn) q.set("checkIn", picks.checkIn);
   if (picks.checkOut) q.set("checkOut", picks.checkOut);
   q.set("guests", String(Math.max(1, Math.round(picks.guests ?? 1))));
-  return `/resident/stays/request?${q.toString()}`;
+  return `${STAY_REQUEST_PATH}?${q.toString()}`;
 }
 
 /**

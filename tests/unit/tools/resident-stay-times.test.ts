@@ -75,7 +75,7 @@ describe("get_my_stay_times", () => {
       estimatedArrival: "13:00",
     });
     const early = stay.addOns.find((a) => a.kind === "early_check_in")!;
-    const link = `https://proplane.test/resident/stays/upcoming?stay=${BLOCK}&addOn=early_check_in&time=12:00`;
+    const link = `https://proplane.test/resident/applications/approved?stay=${BLOCK}&addOn=early_check_in&time=12:00`;
     expect(early).toMatchObject({
       status: "available",
       time: "12:00",
@@ -118,7 +118,7 @@ describe("get_my_stay_times", () => {
     );
     const { stays } = await run(ctxFor(db));
     const early = stays[0]!.addOns.find((a) => a.kind === "early_check_in")!;
-    const link = `https://proplane.test/resident/stays/upcoming?stay=${BLOCK}&addOn=early_check_in&time=13:00`;
+    const link = `https://proplane.test/resident/applications/approved?stay=${BLOCK}&addOn=early_check_in&time=13:00`;
     expect(early).toMatchObject({
       status: "pending",
       time: "13:00",

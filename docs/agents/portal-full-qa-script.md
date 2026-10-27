@@ -341,12 +341,12 @@ Tabs: application, lease, receipts, other
 - [ ] Notification preferences
 - [ ] Sign out
 
-### 2.11 Stays (`/resident/stays/{upcoming|past}`) — any account that owns a stay row
+### 2.11 Short stays (rows on `/resident/applications/*`; `/resident/stays*` redirect there) — any account that owns a stay row
 
 Contract: `docs/agents/bookings.md` § Guest portal stays.
 
-- [ ] Upcoming | Past tabs; the row is absent (and the URL refused) for a login with no stay
-- [ ] Book again on a past stay opens the sheet with quick picks and the taken-nights calendar
+- [ ] A requested stay is a Sent row, a confirmed one Approved (Pay now while unpaid), declined/expired Denied; there is no Stays nav row at any stage
+- [ ] Request again on a row opens the request form with the house and room prefilled; the round + offers Long-term lease or Short stay
 - [ ] Several date ranges in one request: a taken range is refused (409) on its own, the rest still go
 - [ ] A returning guest on an instant-book listing is confirmed; anyone else gets a 24h hold
 - [ ] A confirmed stay raises exactly one `stay_total` charge in Payments (no second one on re-confirm)

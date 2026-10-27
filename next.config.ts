@@ -136,6 +136,13 @@ const nextConfig: NextConfig = {
       // redirect preserves on its own.
       { source: "/browse/:path*", destination: "/rent/browse", permanent: false },
       { source: "/resident/move-in", destination: "/resident/move-in/placement", permanent: false },
+      // Short stays are rows on the Application page (captain, Oct 27: no Stays tab). Texts, emails and bookmarks
+      // sent before that still carry /resident/stays...: the request form moved to /applications/stay, every other
+      // address opens the Application list (its query - `?stay=&addOn=&time=`, `?listing=&room=...` - rides along
+      // on a redirect). These outrank the app router, so the old `stays` section no longer needs a handler.
+      { source: "/resident/stays/request", destination: "/resident/applications/stay", permanent: false },
+      { source: "/resident/stays", destination: "/resident/applications/approved", permanent: false },
+      { source: "/resident/stays/:path*", destination: "/resident/applications/approved", permanent: false },
       { source: "/portal/financials/cash-flow", destination: "/portal/financials/cash-flow-statement", permanent: false },
       { source: "/dashboard", destination: "/auth/continue", permanent: false },
       { source: "/admin/applications", destination: "/admin/dashboard", permanent: false },

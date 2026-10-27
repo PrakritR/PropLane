@@ -27,7 +27,6 @@ import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-serv
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import { resolveResidentPortalNavStage } from "@/lib/resident-portal-nav";
 import { getResidentPortalDefinition } from "@/lib/portals/resident";
-import { withoutConditionalResidentSections } from "@/lib/portals/resident-sections";
 import { getAssistantDockCollapsed } from "@/lib/assistant-dock-state";
 import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
 import { TestAccountBanner } from "@/components/portal/test-account-banner";
@@ -62,10 +61,7 @@ export default async function ResidentLayout({ children }: { children: React.Rea
     email: profile?.email ?? user?.email ?? null,
     managerSubscriptionTier,
   });
-  // A section that shows what the account HAS (Stays) is drawn only when it has it.
-  const residentPortal = access.hasStays
-    ? residentCatalog
-    : { ...residentCatalog, sections: withoutConditionalResidentSections(residentCatalog.sections) };
+  const residentPortal = residentCatalog;
   const [sidebarCollapsed, assistantDockCollapsed] = await Promise.all([
     getSidebarCollapsed(),
     getAssistantDockCollapsed(),

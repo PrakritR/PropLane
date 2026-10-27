@@ -100,7 +100,7 @@ describe("short-stay booking card", () => {
     const book = await screen.findByRole("link", { name: "Request to book" });
     const href = book.getAttribute("href")!;
     expect(href.startsWith("/auth/create-account?mode=create&role=resident&next=")).toBe(true);
-    expect(decodeURIComponent(href.split("next=")[1]!)).toBe("/resident/stays/request?listing=prop-1&room=r3&checkIn=2026-10-20&checkOut=2026-10-24&guests=1");
+    expect(decodeURIComponent(href.split("next=")[1]!)).toBe("/resident/applications/stay?listing=prop-1&room=r3&checkIn=2026-10-20&checkOut=2026-10-24&guests=1");
     // Nothing is sent from the public card: no form, no request.
     expect(screen.queryByLabelText("Your name")).toBeNull();
     expect(fetch).not.toHaveBeenCalledWith("/api/public/short-stay-request", expect.anything());
@@ -118,6 +118,6 @@ describe("short-stay booking card", () => {
     fireEvent.click(screen.getByText("pick dates"));
     fireEvent.click(screen.getByText("pick room 3"));
     const book = await screen.findByRole("link", { name: "Request to book" });
-    expect(book.getAttribute("href")).toBe("/resident/stays/request?listing=prop-1&room=r3&checkIn=2026-10-20&checkOut=2026-10-24&guests=1");
+    expect(book.getAttribute("href")).toBe("/resident/applications/stay?listing=prop-1&room=r3&checkIn=2026-10-20&checkOut=2026-10-24&guests=1");
   });
 });

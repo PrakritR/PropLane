@@ -144,9 +144,9 @@ export function stayAddOnRowViews(rows: readonly StayAddOnQuoteRow[]): StayAddOn
 
 /* ───────────────────────── the pay link ───────────────────────── */
 
-export const STAY_ADD_ON_LINK_PATH = "/resident/stays/upcoming";
+export const STAY_ADD_ON_LINK_PATH = "/resident/applications/approved";
 
-/** `/resident/stays/upcoming?stay=<blockId>&addOn=early_check_in&time=12:00`. */
+/** `/resident/applications/approved?stay=<blockId>&addOn=early_check_in&time=12:00`. */
 export function stayAddOnPayPath(input: { blockId: string; kind: StayAddOnKind; time?: string | null }): string {
   const params = new URLSearchParams({ stay: input.blockId, addOn: input.kind });
   const time = normalizeStayTime(input.time);

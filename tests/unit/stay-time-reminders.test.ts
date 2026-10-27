@@ -330,7 +330,7 @@ describe("delivery: the door code reaches only that guest's own 1:1 message", ()
     expect(call.text).toContain("Door code: 001000");
     expect(call.text).toContain("Check-in is at 3:00 pm on Oct 16.");
     expect(call.text).toContain("Wi-Fi: Brooklyn5259, password pa55-word");
-    expect(call.text).toContain("https://prop-lane.space/resident/stays");
+    expect(call.text).toContain("https://prop-lane.space/resident/applications/approved");
     expect(call.smsText).toContain("Door code: 001000");
     expect(call.deliverViaSms).toBe(true);
     // Never routed through the manager/team notice path.

@@ -7,7 +7,7 @@ import { phoneGateHref } from "@/lib/auth/phone-gate-href";
  */
 describe("phoneGateHref", () => {
   it("carries the stay request the visitor was heading to", () => {
-    const requested = "/resident/stays/request?listing=house-1&room=r1&checkIn=2026-11-09&checkOut=2026-11-12&guests=2";
+    const requested = "/resident/applications/stay?listing=house-1&room=r1&checkIn=2026-11-09&checkOut=2026-11-12&guests=2";
     expect(phoneGateHref(requested)).toBe(`/auth/verify-phone?next=${encodeURIComponent(requested)}`);
   });
 

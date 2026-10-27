@@ -121,7 +121,7 @@ async function textGuest(
       blockId: input.chargeId,
       event: input.purpose,
       row: input.row,
-      notice: { subject: "Your stay was updated", text: `${input.body} See it in Stays: ${residentPortalUrl("stays")}` },
+      notice: { subject: "Your stay was updated", text: `${input.body} See it in your applications: ${residentPortalUrl("stays")}` },
     });
     return;
   }

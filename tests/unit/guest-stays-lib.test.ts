@@ -101,7 +101,7 @@ describe("what the button says is decided from the per-range answers", () => {
 
 describe("the guest's texts", () => {
   const input = { roomLabel: "Attic Nook", propertyLabel: "Cedar Court Short Stays", checkIn: "2026-10-15", checkOut: "2026-10-16", nights: 1, total: 140 };
-  const url = "https://proplane.ai/resident/stays/upcoming";
+  const url = "https://proplane.ai/resident/applications/approved";
   it("match the plan and carry no long dash", () => {
     const texts = [
       guestStayConfirmedText(input, url),

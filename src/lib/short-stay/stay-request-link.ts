@@ -1,10 +1,10 @@
 /**
  * The resident portal's short-stay booking application address:
- * `/resident/stays/request?listing=<propertyId>&room=<roomId>&checkIn=YYYY-MM-DD&checkOut=YYYY-MM-DD&guests=N`.
- * The public listing card, the Stays page and the notices build it here; the page parses it here.
+ * `/resident/applications/stay?listing=<propertyId>&room=<roomId>&checkIn=YYYY-MM-DD&checkOut=YYYY-MM-DD&guests=N`.
+ * The public listing card, the Application page and the notices build it here; the page parses it here.
  * Everything in it is a PREFILL, never an authorization: the server re-checks the house, room and dates.
  */
-export const STAY_REQUEST_PATH = "/resident/stays/request";
+export const STAY_REQUEST_PATH = "/resident/applications/stay";
 
 export type StayRequestPrefill = {
   listing: string;
@@ -24,7 +24,7 @@ export function stayRequestHref(input: Partial<StayRequestPrefill>, basePath = "
   if (input.checkOut && DAY.test(input.checkOut)) query.set("checkOut", input.checkOut);
   if (input.guests && Number.isInteger(input.guests) && input.guests > 0) query.set("guests", String(input.guests));
   const qs = query.toString();
-  return `${basePath}/stays/request${qs ? `?${qs}` : ""}`;
+  return `${basePath}/applications/stay${qs ? `?${qs}` : ""}`;
 }
 
 function first(value: string | string[] | undefined): string {

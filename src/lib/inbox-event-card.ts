@@ -254,7 +254,7 @@ export function inboxEventAction(viewer: InboxEventViewer, kind: InboxEventKind)
       return { label: "View", href: viewer === "manager" ? "/portal/tours" : "/resident/tour" };
     case "booking_confirmed":
     case "booking_changed":
-      return { label: "View", href: viewer === "manager" ? "/portal/bookings" : "/resident/stays" };
+      return { label: "View", href: viewer === "manager" ? "/portal/bookings" : "/resident/applications/approved" };
     case "move_in_details":
       return viewer === "manager"
         ? { label: "Edit", href: "/portal/properties" }

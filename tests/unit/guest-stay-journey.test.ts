@@ -210,7 +210,7 @@ describe("the guest short-stay journey", () => {
     expect(notice.toUserIds).toEqual([GUEST]);
     expect(notice).toMatchObject({ deliverViaEmail: true, deliverViaSms: false, suppressSms: true });
     expect(sms).toEqual([]);
-    expect(notice.text).toContain("https://proplane.ai/resident/stays/upcoming");
+    expect(notice.text).toContain("https://proplane.ai/resident/applications/approved");
     expect(notice.text).not.toMatch(/token_hash|\/auth\/confirm|\/l\/|sms:/);
   });
 

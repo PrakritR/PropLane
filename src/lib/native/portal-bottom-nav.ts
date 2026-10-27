@@ -49,7 +49,6 @@ export const NATIVE_BOTTOM_NAV_RESIDENT_ORDER = [
   "tour",
   "applications",
   "dashboard",
-  "stays",
   "lease",
   "services",
   "payments",

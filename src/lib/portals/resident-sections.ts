@@ -17,7 +17,6 @@ export const RESIDENT_PORTAL_BASE_PATH = "/resident";
  */
 export const RESIDENT_FREE_TIER_SECTION_IDS = [
   "dashboard",
-  "stays",
   "tour",
   "lease",
   "applications",
@@ -96,9 +95,6 @@ export const RESIDENT_UNIFIED_PORTAL_SECTIONS: PortalSection[] = [
   { section: "tour", label: "Tour", tabs: [] },
   { section: "applications", label: "Application", tabs: [] },
   { section: "dashboard", label: "Dashboard", tabs: [] },
-  // Stays: a guest's own short stays (Upcoming | Past). Listed for everyone, drawn only for an account that
-  // has a stay row (`RESIDENT_CONDITIONAL_SECTION_IDS`), unlocked at every stage.
-  { section: "stays", label: "Stays", tabs: [] },
   { section: "lease", label: "Lease", tabs: [] },
   { section: "services", label: "Services", tabs: [] },
   { section: "payments", label: "Payments", tabs: [] },
@@ -146,19 +142,6 @@ export const RESIDENT_APPROVED_PORTAL_SECTIONS: PortalSection[] = [
   { section: "profile", label: "Settings", tabs: [] },
 ];
 
-/**
- * Sections that exist in the catalog but are DRAWN only when the account has what they show: Stays needs a
- * stay row (`ResidentPortalAccessState.hasStays`). The resident layout drops them from the sidebar's
- * definition otherwise, and the public home demo (a fixture account with no stays) never lists them.
- */
-export const RESIDENT_CONDITIONAL_SECTION_IDS = ["stays"] as const;
-
-/** The catalog without the sections an account only gets by having something (see above). */
-export function withoutConditionalResidentSections(sections: PortalSection[]): PortalSection[] {
-  const hidden: readonly string[] = RESIDENT_CONDITIONAL_SECTION_IDS;
-  return sections.filter((section) => !hidden.includes(section.section));
-}
-
 /** Every resident nav section id (union of limited + approved definitions). */
 export const RESIDENT_PORTAL_SECTION_IDS = [
   ...new Set([
@@ -176,7 +159,6 @@ export const RESIDENT_PORTAL_SECTION_IDS = [
  */
 export const RESIDENT_RENDERED_SECTION_IDS = [
   "dashboard",
-  "stays",
   "tour",
   "lease",
   "payments",

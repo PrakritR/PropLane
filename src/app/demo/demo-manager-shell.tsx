@@ -27,7 +27,6 @@ import { proPortal } from "@/lib/portals/pro";
 import {
   RESIDENT_PORTAL_BASE_PATH,
   RESIDENT_UNIFIED_PORTAL_SECTIONS,
-  withoutConditionalResidentSections,
 } from "@/lib/portals/resident-sections";
 import { vendorPortal } from "@/lib/portals/vendor";
 import type { PortalDefinition, PortalSection } from "@/lib/portal-types";
@@ -65,7 +64,7 @@ const residentPortal: PortalDefinition = {
   basePath: RESIDENT_PORTAL_BASE_PATH,
   title: "Resident Portal",
   accent: "blue",
-  sections: withoutConditionalResidentSections(RESIDENT_UNIFIED_PORTAL_SECTIONS),
+  sections: RESIDENT_UNIFIED_PORTAL_SECTIONS,
 };
 
 /**

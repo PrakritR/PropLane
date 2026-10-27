@@ -85,7 +85,7 @@ describe("the host approves a guest's request", () => {
     expect(chargeWrites[0]).toMatchObject({ kind: "stay_total", amountLabel: "$420.00", residentUserId: GUEST });
     const sms = enqueueOwnerSms.mock.calls[0]![0] as { managerUserId: string; recipientPhone: string; body: string; purpose: string };
     expect(sms).toMatchObject({ managerUserId: OWNER, recipientPhone: "+12065550142", purpose: "short_stay_confirmed" });
-    expect(sms.body).toBe("PropLane: Confirmed, Oct 20 to 23 at Cedar Court. See it in your portal: https://proplane.ai/resident/stays/upcoming");
+    expect(sms.body).toBe("PropLane: Confirmed, Oct 20 to 23 at Cedar Court. See it in your portal: https://proplane.ai/resident/applications/approved");
     expect((emitActionEvent.mock.calls[0]![1] as { event: string; domain: string }).event).toBe("short_stay_confirmed");
     expect((emitActionEvent.mock.calls[0]![1] as { domain: string }).domain).toBe("channel_booking");
   });
@@ -138,7 +138,7 @@ describe("a request made in the portal is answered in the portal (never by text,
     const declined = seeded(portalRow());
     await decideShortStayHold(declined as never, { blockId: BLOCK, decision: "decline" });
     expect(lastInbox().subject).toBe("Not confirmed: Attic Nook at Cedar Court");
-    expect(lastInbox().text).toContain("https://proplane.ai/resident/stays/upcoming");
+    expect(lastInbox().text).toContain("https://proplane.ai/resident/applications/approved");
     deliverInbox.mockClear();
     const expired = seeded(portalRow());
     await expireShortStayHolds(expired as never, new Date("2026-10-15T09:00:00Z"));
@@ -163,7 +163,7 @@ describe("the host declines, or the 24 hours run out", () => {
     expect(stored.record_type).toBe("cancelled_room_date_block");
     expect(stored.row_data).toMatchObject({ bookingStatus: "cancelled", recordType: "cancelled_room_date_block", reason: "Declined by host", stayDetails: { decision: "declined" } });
     expect(chargeWrites).toHaveLength(0);
-    expect((enqueueOwnerSms.mock.calls[0]![0] as { body: string }).body).toBe("PropLane: The host couldn't confirm Oct 20 to 23. Other nights are open in your portal: https://proplane.ai/resident/stays/upcoming");
+    expect((enqueueOwnerSms.mock.calls[0]![0] as { body: string }).body).toBe("PropLane: The host couldn't confirm Oct 20 to 23. Other nights are open in your portal: https://proplane.ai/resident/applications/approved");
     expect((emitActionEvent.mock.calls[0]![1] as { event: string }).event).toBe("short_stay_declined");
     // A declined request ends instant booking for that guest on this listing.
     const history = db.tables.portal_schedule_records!.map((r) => ({ record_type: String(r.record_type), row_data: r.row_data as Record<string, unknown> }));
