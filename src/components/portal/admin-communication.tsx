@@ -40,19 +40,19 @@ const ADMIN_COMM_BASE = "/admin/communication";
 export function AdminCommunication({
   listSegment: listSegmentProp = "active",
   threadId,
-  smsUiEnabled = false,
 }: {
   /** Routed conversation list segment (`/admin/communication/{active|unread|archived}`). */
   listSegment?: "active" | "unread" | "archived";
   /** Deep-linked conversation from `/admin/communication/{segment}/{threadId}`. */
   threadId?: string;
   /**
-   * Server-resolved SMS Communication UI flag. When false the text stream is not
-   * read at all and no text rows are drawn - transport, webhooks and both SMS
-   * agents are unaffected.
+   * Server-resolved SMS Communication UI flag. It governs the MANAGER portals. Admin operates the PropLane line, so
+   * this surface reads the text stream and keeps every thread's composer whatever the flag says.
    */
   smsUiEnabled?: boolean;
 }) {
+  // Admin operates the PropLane line, so the text stream and every composer are on here (see the prop's note).
+  const smsUiEnabled = true;
   // The Filter popover's Workspace value: "" = every workspace, "unassigned", or one service workspace id. The adapter
   // reads the text stream with it, so a new value is a new adapter and a fresh read.
   const [workspaceFilter, setWorkspaceFilter] = useState("");

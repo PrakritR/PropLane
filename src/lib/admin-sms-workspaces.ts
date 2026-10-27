@@ -112,3 +112,23 @@ export async function assignLeadToServiceWorkspace(
     return { ok: false, error: "Could not assign this lead." };
   }
 }
+
+/** Reply to an Unassigned lead from the PropLane line. The server resolves the lead's number from the id; the browser never holds it. */
+export async function replyToLead(
+  args: { leadId: string; text: string },
+  deps: { fetch?: OpenFetch } = {},
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const doFetch: OpenFetch = deps.fetch ?? ((input, init) => fetch(input, init));
+  try {
+    const res = await doFetch(`/api/admin/unassigned-leads/${encodeURIComponent(args.leadId)}/reply`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: args.text }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    return res.ok ? { ok: true } : { ok: false, error: body.error ?? "Could not send SMS." };
+  } catch {
+    return { ok: false, error: "Could not send SMS." };
+  }
+}

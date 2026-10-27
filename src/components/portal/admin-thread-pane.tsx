@@ -267,7 +267,8 @@ function AdminEmailThread(ctx: InboxThreadPaneContext) {
 export function AdminThreadPane(ctx: InboxThreadPaneContext) {
   if (ctx.selection.channel === "sms") {
     const resident = ctx.smsResidents[0] ?? null;
-    // A PropLane-line lead no workspace holds yet: read-only transcript + the Assign action (no composer, no number).
+    // A PropLane-line lead no workspace holds yet: answered from the PropLane line (the server holds the number), with
+    // Assign to a workspace in the thread header.
     if (resident?.unassignedLeadId) {
       return (
         <AdminLeadThread
@@ -277,6 +278,7 @@ export function AdminThreadPane(ctx: InboxThreadPaneContext) {
             ctx.closeThread();
             ctx.onSmsProjectionStateChanged();
           }}
+          onSent={ctx.onSmsProjectionStateChanged}
         />
       );
     }
@@ -293,7 +295,8 @@ export function AdminThreadPane(ctx: InboxThreadPaneContext) {
         }}
         onConversationOpened={ctx.onSmsConversationOpened}
         onProjectionStateChanged={ctx.onSmsProjectionStateChanged}
-        smsUiEnabled={ctx.smsUiEnabled}
+        // Admin operates the PropLane line: its threads keep their composer whatever the manager-portal SMS UI flag says.
+        smsUiEnabled
         listSegment={ctx.listSegment}
       />
     );
