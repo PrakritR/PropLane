@@ -121,23 +121,28 @@ function isoDate(d: Date): string {
 /**
  * A sensible Pacific wall-clock instant, N days from today — never "whatever
  * second the seed happened to run" (a tour or service visit seeded at
- * 2:48 AM read as broken, not as sample data). `daysFromToday` is applied to
- * the SERVER's current instant first and then read back as a Pacific
- * calendar date, so it stays "N days out" regardless of the server's own
- * time zone.
+ * 2:48 AM read as broken, not as sample data). `daysFromToday` counts whole
+ * PACIFIC CALENDAR days from today's Pacific date, so it stays "N days out"
+ * regardless of the server's own time zone. It is deliberately not
+ * `now + days * 24h`: across a DST end that walks the wall clock back an
+ * hour, and a "today" just past Pacific midnight then lands on the day
+ * BEFORE the one counted (a Thursday tour read as Wednesday).
  */
 function pacificWallTimeIso(daysFromToday: number, hour: number, minute = 0): string {
-  const anchor = new Date(Date.now() + daysFromToday * DAY_MS);
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: TOUR_CALENDAR_TIME_ZONE,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(anchor);
+  }).formatToParts(new Date());
   const year = Number(parts.find((p) => p.type === "year")!.value);
   const month = Number(parts.find((p) => p.type === "month")!.value);
   const day = Number(parts.find((p) => p.type === "day")!.value);
-  return new Date(zonedWallTimeMs(year, month, day, hour * 60 + minute, TOUR_CALENDAR_TIME_ZONE)).toISOString();
+  // `zonedWallTimeMs` normalizes an out-of-range day through `Date.UTC`, so
+  // the offset rolls months and years on its own.
+  return new Date(
+    zonedWallTimeMs(year, month, day + daysFromToday, hour * 60 + minute, TOUR_CALENDAR_TIME_ZONE),
+  ).toISOString();
 }
 
 /**
