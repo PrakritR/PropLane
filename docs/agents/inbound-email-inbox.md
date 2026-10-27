@@ -308,8 +308,10 @@ no scraping is involved.
 
 Handling (`handleAirbnbNotification` in `process-assistant-inbound.server.ts`):
 - The gate is the sender domain (`isAirbnbSenderAddress`: `airbnb.com` or a
-  subdomain, never a look-alike). It runs before the sender is classified, so an
-  Airbnb mail never reaches an assistant: no auto-reply, no paid AI turn, no
+  subdomain, never a look-alike). It runs after the guest-message front door
+  (§ Booking-site guest messages, which takes an Airbnb mail that reads as a guest
+  MESSAGE and nothing else) and before the sender is classified, so a reservation or
+  payout notification never reaches an assistant: no auto-reply, no paid AI turn, no
   prospect thread.
 - It is parsed only when `inboundSenderAuthenticated` proves the receiving server
   authenticated airbnb.com for the From domain.
@@ -321,8 +323,8 @@ Handling (`handleAirbnbNotification` in `process-assistant-inbound.server.ts`):
   `applyAirbnbEmailToStay` upserts `channel_stay_details`: guest first name only
   if the name is empty, check-in / check-out, and on payout mails `payout_cents`
   plus `paid_at`; `source = 'airbnb_email'`.
-- An unmatched, unparsed or unauthenticated Airbnb mail is stored in Communication
-  like other inbound mail and never answered.
+- An unmatched, unparsed or unauthenticated Airbnb notification is stored in
+  Communication like other inbound mail and never answered.
 
 ## Tests
 

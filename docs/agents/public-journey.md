@@ -12,7 +12,7 @@ cards, square 3px corners, numbered section headers.
 | --- | --- |
 | `/rent/browse`, `/rent/w/<slug>` | Find a home: four dropdown filters (Budget, Move in by, Area, Room type) + search, flat cards |
 | `/rent/listings/<id>` | The listing, photos first (`listing-gallery.tsx`: swipe strip on phone, lead + 4 grid and a full-screen viewer on desktop), numbered sections, sticky card / phone dock with Book a tour · Apply (Request to book on the Short stay segment) |
-| `/rent/tours-contact` | Book a tour: day cells and time buttons over `listOpenTourSlots` |
+| `/rent/tours-contact` | Book a tour: day cells and time buttons over `listOpenTourSlots`, or the requested-time picker when the house has no open slot ([`tours-scheduling.md`](tours-scheduling.md) § Requested time) |
 | `/rent/apply` | The apply wizard inside `.ps` (palette re-pointed, no fork) |
 | `/l/<token>`, `/apply/<code>`, `/tour/<code>`, `/start/<token>` | Phone-bound doors (expired, code gate, phone bind, rent card, finish setup) |
 

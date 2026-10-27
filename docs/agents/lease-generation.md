@@ -54,7 +54,10 @@ filter legitimately offers all four `LEASE_TYPES` and is the one file that test 
   removal). It is a row of the Long term pricing section ("Month-to-month surcharge", blank or 0 = none; there is no
   Month-to-month section, only Long term and Short term), stored on the room / bundle / whole-house arrangement row
   and resolved through the one resolver (`resolveRoomTermFees` / `submissionWithRoomTermFees` in `room-term-fees.ts`),
-  so the quote (`startKind: "m2m"`), the lease document, the ledger and the public listing agree. It is charged ONLY
+  so the quote (`startKind: "m2m"`), the lease document, the ledger and the public listing agree (the listing's
+  **Costs** section carries it as its own "Month-to-month" row, and the custom-start surcharge as "Custom term ·
+  starts any day", behind that same predicate — `listingPriceRows`, so a surcharge that is never billed is never
+  shown). It is charged ONLY
   on a `Month-to-Month` lease (`shouldBillMonthToMonthSurcharge`), as its own monthly charge, and is NEVER offered on
   a Seattle listing: `listingOffersMonthToMonthSurcharge` (listing-fees.ts) is the one predicate (hidden row, amount
   0 in `listingPresetFeeAmountIfEnabled`, no fold into Seattle rent, no lease-document line, no quote add-on).
@@ -1114,7 +1117,11 @@ The rule for adding a field: it belongs on a list when a prospect-facing surface
 reads it, or it is pure listing marketing metadata. It stays off when it is
 manager- or resident-internal — access credentials and instructions (wifi,
 `moveInInstructions`), lease configuration, billing policy, add-on service
-offers (which carry `residentEmails`), proration internals. A compliance field
+offers (which carry `residentEmails`), the per-day proration RATES. The proration
+METHOD is public (`entireHomeProrateMethod`, a room's and a resident slot's own
+`prorateMethod`): the price card's "First month · Prorated by day" row states which
+formula the first charge uses, so it may not promise the monthly-rent arithmetic for
+a room billed from its daily rate. A compliance field
 like `yearBuilt` added next month is public only when someone adds it here.
 
 **`listingSubmission` is still present in the payload, allowlisted, not

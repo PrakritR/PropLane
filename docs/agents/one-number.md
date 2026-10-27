@@ -1357,3 +1357,5 @@ and are answered by the leasing assistant ([`inbound-email-inbox.md`](inbound-em
 never carries the 206 (or any link, phone or email); PadSplit and SpareRoom replies may. On a PropLane-managed (`is_service`) workspace the email
 assistant browses the managed-homes catalog (`serviceCatalog`), like the 206. Availability in any reply is the CHECKED calendar only
 (`list_live_listings` / `get_listing_details` / `check_room_availability`); a failed read says "let me confirm", never "available".
+To audit the published labels against the occupancy snapshot, `node scripts/check-site-availability.mjs [baseUrl]` prints every room where
+the two disagree (read-only GETs, no credentials; exit 1 = mismatches). Tests: `tests/unit/check-site-availability-script.test.ts`.
