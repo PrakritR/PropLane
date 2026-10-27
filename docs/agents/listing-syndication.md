@@ -169,9 +169,13 @@ that `source_channel`, each linking to its own record page). Both the list and t
 by `leadReadablePropertyIds` — the workspace's own houses narrowed to those whose applicant
 identities this viewer may read (`applications` or `residents`) — so a badge can never count leads
 the tab then withholds. A failed page of either read throws instead of returning a short answer. The **property**-level row still opens
-the pop-up guide (`listing-site-guide.tsx`), bound to that one listing. Every "which listing?"
-dropdown is built by `listingPickerOptions()` (`listing-picker.ts`): house name or short street, then
-`· N rooms`; Ready to post before Held (reason beside the name); drafts never offered.
+the pop-up guide (`listing-site-guide.tsx`), bound to that one listing. `listing-picker.ts` owns how a
+listing is NAMED in every "which listing?" dropdown: `listingPickerLabel` is house name or short street,
+then `· N rooms`; `listingPickerHoldReason` is the hold fact, sentence-cased; Ready to post before Held;
+drafts never offered. The record page's Post section builds its whole dropdown through
+`listingPickerOptions()` (the reason beside the name); Settings › Integrations › Posting's `CopyPostRow`
+groups the workspace listings itself from the same two helpers, with the reason on the option's second
+line.
 
 | Posting mode | Channels | How it works |
 | --- | --- | --- |
