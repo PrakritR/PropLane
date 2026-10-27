@@ -128,12 +128,24 @@ function payloadPropertyId(payload: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+/**
+ * Events whose text IS the content (a room, move-in details): a burst of other notices must never swap them for
+ * "Several updates were recorded.", which would lose the room. They still wait out quiet hours.
+ */
+const DIGEST_EXEMPT_EVENTS: ReadonlySet<string> = new Set(["room_assigned", "move_in_details"]);
+
+export function eventIsDigestExempt(event: string | null | undefined): boolean {
+  return DIGEST_EXEMPT_EVENTS.has(String(event ?? "").trim());
+}
+
 export type ActionDeliveryPolicy = { deferSms: boolean; digest: boolean; nextAttemptAt: string | null };
 
 export function actionDeliveryPolicy(input: {
   now: Date;
   urgent?: boolean;
   recentEventCount: number;
+  /** The event carries its own content (`eventIsDigestExempt`): never collapsed into the digest placeholder. */
+  digestExempt?: boolean;
   /**
    * The zone the quiet window is read in - the PROPERTY's, so "nothing after
    * 8pm" means 8pm where the house is. Omitted keeps the policy default.
@@ -141,7 +153,7 @@ export function actionDeliveryPolicy(input: {
   timeZone?: string;
 }): ActionDeliveryPolicy {
   if (input.urgent) return { deferSms: false, digest: false, nextAttemptAt: null };
-  const digest = input.recentEventCount >= 4;
+  const digest = input.recentEventCount >= 4 && input.digestExempt !== true;
   const config = input.timeZone ? { ...DEFAULT_QUIET_HOURS, tz: input.timeZone } : DEFAULT_QUIET_HOURS;
   const quiet = isWithinQuietHours(input.now, config);
   if (!quiet && !digest) return { deferSms: false, digest: false, nextAttemptAt: null };
@@ -739,7 +751,7 @@ export async function emitActionEvent(
       ? { deferSms: false, digest: false, nextAttemptAt: null }
       : await withVendorQuietHours(
           db,
-          actionDeliveryPolicy({ now, urgent: input.urgent, recentEventCount: count ?? 0, timeZone }),
+          actionDeliveryPolicy({ now, urgent: input.urgent, recentEventCount: count ?? 0, timeZone, digestExempt: eventIsDigestExempt(input.event) }),
           recipient,
           now,
           input.urgent,

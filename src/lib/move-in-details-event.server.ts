@@ -141,7 +141,9 @@ export async function emitMoveInDetails(
   if (!sender.email) return { ok: false, reason: "no_sender" };
   const residentUserId = input.residentUserId?.trim() || context.residentUserId || undefined;
   const result = await emitActionEvent(db, {
-    eventId: moveInDetailsEventKey(residentUserId || context.residentEmail, context.propertyId),
+    // Keyed on the application (the stay's record), never on who the caller could name: the welcome sequence passes the
+    // resident's user id and a manager's own send does not, and both must be one card.
+    eventId: moveInDetailsEventKey(context.applicationId || residentUserId || context.residentEmail, context.propertyId),
     domain: "lease",
     event: "move_in_details",
     managerUserId: input.managerUserId,

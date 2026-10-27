@@ -201,13 +201,25 @@ describe("the senders", () => {
     expect(emitted).toHaveLength(1);
     const event = emitted[0]!;
     expect(event.event).toBe("move_in_details");
-    expect(event.eventId).toBe("move_in_details:res-1:prop-1");
+    expect(event.eventId).toBe("move_in_details:app-1:prop-1");
     expect(event.payload).toMatchObject({ propertyId: "prop-1" });
     const text = event.recipients[0]!.rendered.text;
     expect(text).toContain("4709A 8th Ave NE");
     expect(text).toContain("Room 3");
     for (const secret of houseInfoSecretValues(houseInfo)) expect(text + JSON.stringify(event.payload)).not.toContain(secret);
     expect(text).not.toMatch(/password/i);
+  });
+
+  it("the key is the stay's record, so a caller that can name the resident user and one that cannot are still ONE card", async () => {
+    const { emitMoveInDetails } = await import("@/lib/move-in-details-event.server");
+    // The stored application carries no residentUserId: only the welcome sequence knows it.
+    const noUser = { ...APPROVED, residentUserId: undefined } as unknown as DemoApplicantRow;
+    const first = await emitMoveInDetails(fakeDb([noUser]), { managerUserId: "mgr-1", residentEmail: "maya@example.com", residentUserId: "res-1" });
+    const second = await emitMoveInDetails(fakeDb([noUser]), { managerUserId: "mgr-1", residentEmail: "maya@example.com" });
+    expect(first).toEqual({ ok: true, duplicate: false });
+    expect(second).toEqual({ ok: true, duplicate: true });
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]!.eventId).toBe("move_in_details:app-1:prop-1");
   });
 
   it("the welcome sequence and a manager's own send are ONE card (same event key, second is a duplicate)", async () => {
