@@ -247,4 +247,38 @@ describe("the owner of record of a PropLane-owned workspace", () => {
     expect(Number(linkRow().used_count ?? 0)).toBe(0);
     expect(db.tables.account_link_invites.some((l) => l.invitee_user_id === NIKHIL)).toBe(false);
   });
+  it("a new workspace share link leaves the pending Admin › Service invite alone", async () => {
+    // An ordinary share link is plan-gated (the Admin › Service invite is not), so this workspace's owner is on Pro.
+    const access = await import("@/lib/manager-access-server");
+    vi.mocked(access.getEffectiveManagerSkuTier).mockResolvedValue({ ok: true, tier: "pro" } as never);
+    const workspaceId = await managedWorkspace("2. Cedar");
+    await svc.inviteServiceClient(client(), ADMIN_A, { id: workspaceId, email: "Priya@Example.com", inviteeName: "Priya Nair", ownerOfRecord: true });
+    const ownerToken = tokenFromEmail();
+    const ownerLink = () => db.tables.manager_invite_links.find((l) => l.invitee_email === "priya@example.com")!;
+
+    scene("SCENE 7 — somebody makes a fresh SHARE link for the same workspace while Priya has not accepted yet");
+    const share = await mintInviteLink(client(), {
+      actorUserId: ADMIN_A,
+      kind: "manager",
+      teamRole: "maintenance",
+      houseScope: "selected",
+      assignedPropertyIds: ["house-a"],
+      propertyPermissions: {},
+      workspaceId,
+      replaceActive: true,
+    });
+    expect(share).toMatchObject({ ok: true });
+    const shareRow = db.tables.manager_invite_links.find((l) => l.team_role === "maintenance")!;
+    say(`  Share sheet · Create link → a new ${String(shareRow.team_role)} link (replaces the workspace's old share link)`);
+    say(`  Priya's Admin › Service invite → ${ownerLink().revoked_at ? "CANCELLED" : "still live"} (bound to ${String(ownerLink().invitee_email)})`);
+    expect(ownerLink().revoked_at ?? null).toBeNull();
+
+    scene("SCENE 8 — Priya opens the link she was emailed, after that share link was made");
+    const accepted = await redeemInviteLink(client(), { token: ownerToken, redeemerUserId: PRIYA });
+    shown("Priya (priya@example.com) opens it", accepted);
+    const seat = db.tables.account_link_invites.find((l) => l.invitee_user_id === PRIYA && l.workspace_id === workspaceId)!;
+    say(`  seat             role: ${String(seat.team_role)} · owner of record: ${String(seat.is_owner_of_record)} · status: ${String(seat.status)}`);
+    expect(accepted).toMatchObject({ ok: true, kind: "manager" });
+    expect(seat).toMatchObject({ team_role: "property_owner", is_owner_of_record: true });
+  });
 });
