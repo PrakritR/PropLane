@@ -27,7 +27,8 @@ import { getServicePublicListings, loadServiceWorkspaceIds } from "@/lib/service
 const allCache = createTtlCache<MockProperty[]>(60_000);
 
 async function allPublicListings(): Promise<MockProperty[]> {
-  const load = () => getPublicListings();
+  // The workspace id is opted in here only: tiering needs it, and a public response never carries it.
+  const load = () => getPublicListings({ workspaceId: true });
   return serverSnapshotCacheEnabled() ? allCache.get("all", load) : load();
 }
 

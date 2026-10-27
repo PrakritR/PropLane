@@ -543,13 +543,16 @@ export function publicListingProjection(
   /** Server-resolved "Listed with PropLane" visibility; omitted or false adds nothing. */
   showAttribution?: boolean,
   /** `workNumber`: keep the workspace's work number. Server-only callers (the syndication feeds) only. */
-  opts?: { workNumber?: boolean },
+  opts?: { workNumber?: boolean; workspaceId?: boolean },
 ): MockProperty {
   const sub = property.listingSubmission;
   const resolvedSub = sub && sub.v === 1 ? applyEffectiveApplicationForm(sub, workspaceForm ?? null) : sub;
   return {
     ...pick(property, PUBLIC_PROPERTY_KEYS),
     ...(opts?.workNumber === true && property.contactSmsPhone ? { contactSmsPhone: property.contactSmsPhone } : {}),
+    // Server-only opt-in (the PropLane line's catalog, which tiers a home by its workspace). The workspace id is never
+    // in a public response: `PUBLIC_PROPERTY_KEYS` leaves it out and nothing on a public route passes this flag.
+    ...(opts?.workspaceId === true && property.workspaceId ? { workspaceId: property.workspaceId } : {}),
     ...(resolvedSub && resolvedSub.v === 1 ? { listingSubmission: publicSubmission(resolvedSub) } : {}),
     ...(signingContext
       ? {
@@ -611,6 +614,8 @@ export async function getPublicListings(opts?: {
   workspaceIds?: readonly string[];
   /** Keep each listing's work number in the projection: the syndication feeds, never a public response. */
   workNumber?: boolean;
+  /** Keep each listing's workspace id: the PropLane line's catalog (server-only), never a public response. */
+  workspaceId?: boolean;
 }): Promise<MockProperty[]> {
   const db = createSupabaseServiceRoleClient();
   let query = db
@@ -733,7 +738,7 @@ export async function getPublicListings(opts?: {
         listing.id,
       ),
       attributionByOwnerWorkspace.get(`${listing.managerUserId ?? ""}:${listing.workspaceId ?? ""}`) ?? false,
-      { workNumber: opts?.workNumber === true },
+      { workNumber: opts?.workNumber === true, workspaceId: opts?.workspaceId === true },
     ),
   );
 }
