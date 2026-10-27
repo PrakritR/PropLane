@@ -18,6 +18,7 @@ import {
 } from "@/lib/auth/auth-portal-picker-options";
 import { isGetStartedAddMode } from "@/lib/auth/get-started-path";
 import { navigateAfterRoleSignup } from "@/lib/auth/navigate-after-role-signup";
+import { formatUsPhoneDisplay } from "@/lib/phone-e164";
 import { provisionPortalFromGetStarted } from "@/lib/auth/provision-portal-from-get-started";
 import { isGetStartedDestination, resolvePostAuthDestination } from "@/lib/auth/resolve-post-auth-destination";
 import { safeNextPath } from "@/lib/auth/safe-next-path";
@@ -25,6 +26,14 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useRouter, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+
+// New-number copy: the same three role routes, in the order of the question people are answering.
+const NEW_NUMBER_LABELS: Record<string, string> = {
+  resident: "I'm looking for a place",
+  manager: "I manage homes",
+  vendor: "I'm a vendor",
+};
+const NEW_NUMBER_ORDER = ["resident", "manager", "vendor"];
 
 /**
  * Portal chooser for a signed-in user with no portal role yet (new OAuth/email login),
@@ -39,6 +48,10 @@ function GetStartedContent() {
   const [resolving, setResolving] = useState(true);
   const [existingRoles, setExistingRoles] = useState<AuthRole[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // A number that just proved itself by code and has no account yet (the phone verify route sends `?phone_new=1`).
+  // Only someone holding the number's code ever reaches this heading, so naming the number reveals nothing to a stranger.
+  const phoneNew = searchParams.get("phone_new") === "1" && !addMode;
+  const [phoneLabel, setPhoneLabel] = useState<string | null>(null);
   useAuthWelcomeChrome(true);
 
   const pickerOptions = useMemo(() => {
@@ -49,16 +62,20 @@ function GetStartedContent() {
     return AUTH_PORTAL_PICKER_OPTIONS;
   }, [addMode, existingRoles]);
 
+
   const stackOptions = useMemo(
     () =>
-      pickerOptions.map((opt) => ({
+      (phoneNew
+        ? [...pickerOptions].sort((a, b) => NEW_NUMBER_ORDER.indexOf(a.id) - NEW_NUMBER_ORDER.indexOf(b.id))
+        : pickerOptions
+      ).map((opt) => ({
         id: opt.id,
-        label: opt.chooserLabel,
-        hint: opt.id === "vendor" ? opt.chooserHint : undefined,
+        label: phoneNew ? NEW_NUMBER_LABELS[opt.id] ?? opt.chooserLabel : opt.chooserLabel,
+        hint: !phoneNew && opt.id === "vendor" ? opt.chooserHint : undefined,
         icon: opt.icon,
         tone: opt.tone,
       })),
-    [pickerOptions],
+    [pickerOptions, phoneNew],
   );
 
   useEffect(() => {
@@ -104,6 +121,10 @@ function GetStartedContent() {
         router.replace("/auth/sign-in?next=%2Fauth%2Fget-started");
         return;
       }
+      if (phoneNew && session.user?.phone) {
+        const e164 = session.user.phone.startsWith("+") ? session.user.phone : `+${session.user.phone}`;
+        setPhoneLabel(formatUsPhoneDisplay(e164) || null);
+      }
 
       const { redirectTo, resolutionFailed } = await resolvePostAuthDestination("/auth/continue");
       if (cancelled) return;
@@ -119,7 +140,7 @@ function GetStartedContent() {
     return () => {
       cancelled = true;
     };
-  }, [addMode, router, showToast]);
+  }, [addMode, phoneNew, router, showToast]);
 
   const choose = async (id: string) => {
     const role = id as AuthPortalPickerId;
@@ -198,7 +219,7 @@ function GetStartedContent() {
     <AuthCard variant="blend">
       <AuthPageHeader
         showLogo
-        title={addMode ? "Add another portal type" : "How do you want to use PropLane?"}
+        title={addMode ? "Add another portal type" : phoneNew && phoneLabel ? `No account uses ${phoneLabel} yet` : "How do you want to use PropLane?"}
         subtitle={addMode ? "Same email works for every portal. Switch anytime from Settings." : undefined}
         accent={false}
       />
