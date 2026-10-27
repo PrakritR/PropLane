@@ -372,6 +372,49 @@ sender id. It asks `phoneCodeSignInAllowed`, which refuses only an admin or an u
 checked before the phone is bound, and the HOSTED (GoTrue) OTP path is only chosen for an account that passes it,
 because GoTrue's own verify would mint the session past that check.
 
+**Phone sign-in: plain errors, server wins on "off", straight to the portal (Oct 26).** Still Shared-mode only
+(`phoneAuthEnabled`). The sign-in page decides whether to draw the phone box from one read when it loads; the SERVER's
+answer wins when they disagree: `POST /api/auth/phone/start` returns `409 { phoneOff: true, kind: "off" }`, and
+`PhoneAuthForm` calls `onPhoneOff`, so `NativeAuthHub` replaces the phone box with "Phone sign-in isn't available right
+now. Use Apple, Google or email." and opens the email form. No dead form.
+
+Failures carry a `kind` and ONE copy table (`src/lib/auth/phone-auth-errors.ts`, only for the signed-out `sign_in`
+door; Settings purposes keep `PHONE_AUTH_ERROR`). A kind may be named only when its cause is the typed input, a setting
+that is the same for everyone, something that happens identically for any number, or THIS browser's own challenge:
+
+| kind | Message | Raised by |
+| --- | --- | --- |
+| `off` | Phone sign-in isn't available right now. Use Apple, Google or email. | switch off at start or verify (409) |
+| `bad_number` | Enter a 10-digit phone number. | does not normalize, or a +1 number with an impossible shape |
+| `not_us` | We can only text US and Canadian numbers. | a non-allowed calling code |
+| `send_failed` | We couldn't send the text. Try again in a minute. | the provider refused (`PhoneSendFailedError`) |
+| `throttled` | Too many codes requested. Try again in an hour, or use Apple, Google or email. | the per-IP and endpoint-wide budgets only |
+| `wrong_code` | That code didn't match. Check the text and try again. | malformed code, or a refused code on a live challenge |
+| `expired` | That code expired. | challenge missing / not this browser's / no proof cookie / spent / past 10 minutes / 5 tries |
+| `generic` | We couldn't sign you in with this number. Use Apple, Google or email. | EVERYTHING else |
+
+`generic` is deliberate for: a number held by two accounts, an admin account, the per-number send cap
+(`phone_auth_start` refusing) and the per-number failed-code lockout (`classifyRefusedCode` re-reads
+`phone_auth_failed_code_count`; at 10 or unreadable it is `generic`, never `wrong_code`), and every unreadable, claim,
+bind or mint failure. Naming any of them would tell a stranger something about whoever owns the number.
+`tests/unit/phone-auth.test.ts` ("phone sign-in error kinds") pins each branch and fails if an ownership, role or
+lockout branch returns a named kind. An `expired` verify also answers `canResend` (`phoneResendAllowed`, read-only,
+fail closed); the form auto-sends a fresh code only when it is true, otherwise it shows "Send a new code".
+
+The code text ends with the domain-bound line `@<host> #<code>` (`phoneAuthCodeBody`), the format iPhone's keyboard
+suggestion and Android Chrome's Web OTP look for. The host comes from `resolveEmailLinkBaseUrl()` (canonical origin),
+never the request's Host header. The form: fixed "+1" and as-you-type US formatting (`src/lib/phone-format.ts`), the
+last number used on this device (`axis:remembered-login-phone`, cleared by `clearPortalBrowserCache` with the remembered
+email), six boxes over one real `autocomplete="one-time-code"` input, auto-submit on the 6th digit (one verify per
+challenge via the `inFlight` guard), Web OTP with an AbortController, a 30 second resend countdown.
+
+Straight to the portal: after a `sign_in` verify the route runs the SAME resolver `/auth/continue` uses
+(`resolvePostSignInDestination`, shared with `/api/auth/oauth-portal-access`) for the new session and returns `next`;
+the form navigates there. A `?next=` deep link (re-validated server-side) still wins. Any failure leaves `next` unset and
+the form falls back to `/auth/continue`. A number with no account is created exactly as before (`resolvePhoneUser`),
+but verify returns `/auth/get-started?phone_new=1`, whose heading is "No account uses (510) 309-8345 yet" with the three
+existing role routes (looking for a place / manage homes / vendor). Only someone who just proved the code sees it.
+
 W5 validation (2026-10-18): both migrations applied to **dev/test only** with migration ledger rows. `npx tsc --noEmit` exit 0; 18 targeted Vitest files / 280 tests passed (17-file run: 277, transport override: 3), and the changed profile guard's 12 tests passed again after its TypeScript fix. Both transaction-only SQL proof scripts passed, including manager reset via accepted invite and submitted vendor bid. A temporary dev account completed challenge → bind → server-generated token hash → valid Supabase session; the account, contact and proofs were cleaned up, no SMS sent. Mobile browser verified the flag-off Apple/Google/email form, disabled phone status, invalid-proof refusal and signed-out verification redirect. The new form's active states are covered by interaction tests; live SMS/OAuth-provider end-to-end testing remains for rollout, since the shared flag and hosted hook were deliberately not enabled. Manager reset currently has an authenticated API, not a new settings button.
 
 Spec: [`one-number-spec.md`](one-number-spec.md). Shared contracts: `src/lib/one-number/contracts.ts`.

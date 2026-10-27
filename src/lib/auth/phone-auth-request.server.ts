@@ -1,6 +1,7 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { PHONE_AUTH_ERROR } from "@/lib/auth/phone-auth.server";
+import { PHONE_AUTH_COPY, type PhoneAuthErrorKind } from "@/lib/auth/phone-auth-errors";
 import { rateLimit } from "@/lib/rate-limit";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -22,6 +23,17 @@ export function phoneAuthResponse(body: object, status = 200) {
 export function phoneAuthFailure() {
   // Deliberately identical for expired, missing, taken, throttled, and bad codes.
   return phoneAuthResponse({ error: PHONE_AUTH_ERROR }, 400);
+}
+
+/**
+ * The sign-in door's failure: a `kind` and its plain sentence (see `phone-auth-errors.ts` for which kinds may be named).
+ * `off` is a 409 with `phoneOff: true` so the form can hide itself instead of leaving a dead phone box.
+ */
+export function phoneSignInFailure(kind: PhoneAuthErrorKind, extra: Record<string, unknown> = {}) {
+  return phoneAuthResponse(
+    { error: PHONE_AUTH_COPY[kind], kind, ...(kind === "off" ? { phoneOff: true } : {}), ...extra },
+    kind === "off" ? 409 : 400,
+  );
 }
 
 export function assertPhoneRequestOrigin(req: Request) {
