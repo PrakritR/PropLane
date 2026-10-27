@@ -4,7 +4,6 @@ import { sharedGet } from "@/lib/shared-get-cache";
 import { ELIGIBLE_CONTACTS_TTL_MS } from "@/lib/inbox-eligible-contacts-ttl";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Archive, ArchiveRestore, Mail, MailOpen, Trash2 } from "lucide-react";
-import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { useSearchParams } from "next/navigation";
 import { consumeComposeQueryParam } from "@/lib/portals/compose-query";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -17,7 +16,7 @@ import { INBOX_TAB_DEFS, INBOX_LIST_SCROLL, INBOX_THREAD_ICON_BTN, INBOX_THREAD_
 import { InboxComposerChannelMenu, InboxComposerScheduleMenu, formatScheduledLabel } from "@/components/portal/inbox-composer-tools";
 import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
 import { useResidentManagerContacts } from "@/hooks/use-resident-manager-contacts";
-import { matchResidentManagerContact, resolveResidentThreadManager } from "@/lib/resident-communication-manager";
+import { matchResidentManagerContact, residentThreadSubtitle, resolveResidentThreadManager } from "@/lib/resident-communication-manager";
 import { scheduledItemsForRecipient } from "@/lib/inbox-scheduled-thread";
 import {
   PortalInboxSelectionToolbar,
@@ -1360,22 +1359,7 @@ export const ResidentInboxPanel = forwardRef<
   // "Property manager · Cascade Lofts · work@email" — the manager's header
   // line (Resident · House, Room · email) turned around: who they are to the
   // resident, the home it is about, and the address they write from.
-  const activeThreadSubtitle = activeIsHouseThread
-    ? undefined
-    : activeManager
-    ? [
-        activeManager.workspaceName ?? "Property manager",
-        activeManager.homeLabel,
-        // A text-only conversation has no address: the work number is how to reach them.
-        activeThread?.smsOnly
-          ? activeManager.onPropLaneLine
-            ? `${formatSmsPhoneLabel(activeManager.workPhone)} · PropLane line`
-            : formatSmsPhoneLabel(activeManager.workPhone)
-          : activeManager.email,
-      ]
-        .filter(Boolean)
-        .join(" · ")
-    : undefined;
+  const activeThreadSubtitle = activeIsHouseThread ? undefined : residentThreadSubtitle(activeManager, Boolean(activeThread?.smsOnly));
   const activeFolder = activeThread
     ? activeThread.folder === "trash"
       ? inferPreviousFolder(activeThread)
