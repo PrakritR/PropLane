@@ -39,7 +39,7 @@ const handleUnassigned = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => (
 vi.mock("@/lib/one-number/onboarding/unknown-sender.server", () => ({ handleUnknownSenderInbound: handleUnassigned }));
 
 import { handleLineMemberText } from "@/lib/one-number/line-member-status.server";
-import { getLineCatalogListings, sharedLineCatalogListings } from "@/lib/one-number/line-catalog.server";
+import { getLineCatalogListings, getLineOfferListings, sharedLineCatalogListings, sharedLineOfferListings } from "@/lib/one-number/line-catalog.server";
 import { NO_PAID_NUMBER_HOME_REPLY, resolveHouseRedirect } from "@/lib/one-number/house-redirect.server";
 import { routeSharedLineInboundWithReply } from "@/lib/one-number/router.server";
 import { MANAGE_OWN_REPLY, MANAGE_OWN_SHARED_REPLY } from "@/lib/sms/propline-first-text";
@@ -100,9 +100,21 @@ describe("home questions", () => {
     expect(await resolveHouseRedirect({} as never, "tell me about 5259 Brooklyn", { ...base, serviceListings: served, shared: SHARED })).toBeNull();
   });
 
-  it("shared: a home whose manager has a personal number is redirected to it, naming that home only", async () => {
-    const reply = await resolveHouseRedirect({} as never, "is 77 Oakwood Dr open?", { ...base, serviceListings: async () => [SERVICE_HOME, FREE_HOME], shared: SHARED });
-    expect(reply).toBe("For 77 Oakwood Dr, Seattle, text (502) 555-0142.");
+  it("shared: a home whose manager has a personal number is NOT redirected on a mere mention (the lead flow gives the number on interest)", async () => {
+    const paidNumberOf = vi.fn(base.paidNumberOf);
+    const reply = await resolveHouseRedirect({} as never, "is 77 Oakwood Dr open?", { ...base, paidNumberOf, serviceListings: async () => [SERVICE_HOME, FREE_HOME], shared: SHARED });
+    expect(reply).toBeNull();
+    expect(paidNumberOf).not.toHaveBeenCalled();
+  });
+
+  it("shared: the stranger offer catalog adds the personal-number home, tagged paid, next to managed and free", async () => {
+    const offered = await sharedLineOfferListings({} as never, SHARED, { allListings, serviceWorkspaceIds: async () => ["ws-service"] });
+    expect(offered.map((p) => [p.id, p.lineTier]).sort()).toEqual([["free", "free"], ["paid", "paid"], ["svc", "managed"]]);
+    // The line's served catalog (no paid home) is unchanged.
+    expect((await sharedLineCatalogListings({} as never, SHARED, { allListings, serviceWorkspaceIds: async () => ["ws-service"] })).map((p) => p.id).sort()).toEqual(["free", "svc"]);
+    // per_workspace: managed only, tagged managed.
+    state.serviceListings = [SERVICE_HOME];
+    expect((await getLineOfferListings({} as never, PER_WORKSPACE)).map((p) => [p.id, p.lineTier])).toEqual([["svc", "managed"]]);
   });
 
   it("shared: a personal-number home whose number cannot be named says nothing here (the lead flow answers)", async () => {

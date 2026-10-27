@@ -7,6 +7,7 @@ import { profilePhoneVariants } from "@/lib/sms-consent";
 import { loadAccountCandidates, resolveSmsConversationRef, workspaceIdForWorkLine } from "@/lib/communication/conversation-key.server";
 import { workspaceKey } from "@/lib/communication/conversation-key";
 import { loadSharedLineConfig, workspaceOnSharedLine } from "@/lib/one-number/config.server";
+import { loadManagedWorkspaceIds, resolveServiceLine } from "@/lib/one-number/service-line.server";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import {
   decideResidentSmsLink,
@@ -124,10 +125,16 @@ export async function loadResidentCounterparties(
     const { data: workspaces } = await db.from("portal_workspaces").select("id, name, owner_user_id").in("id", ids);
     const rows = (workspaces ?? []) as Row[];
     const ownerIds = [...new Set(rows.map((row) => clean(row.owner_user_id)).filter(Boolean))];
-    const [{ data: owners }, { data: lines }] = await Promise.all([
+    const [{ data: owners }, { data: lines }, managedIds] = await Promise.all([
       ownerIds.length ? db.from("profiles").select("id, full_name").in("id", ownerIds) : Promise.resolve({ data: [] }),
       db.from("manager_sms_numbers").select("workspace_id, phone_number, provision_state").in("workspace_id", ids),
+      loadManagedWorkspaceIds(db, ids),
     ]);
+    // A PropLane-MANAGED workspace texts on the PropLane line (W29), so that is the number a resident is shown, never the
+    // workspace's old row. An unreadable managed check (null) leaves every workspace UNKNOWN: no number and no line flag,
+    // since the workspace's old row may be exactly the number a managed workspace no longer texts from.
+    const managedLine = managedIds && managedIds.size > 0 ? await resolveServiceLine(db).catch(() => null) : null;
+    const managedPhone = managedLine && managedLine.ok ? managedLine.phoneNumber : null;
     const ownerName = new Map(((owners ?? []) as Row[]).map((row) => [clean(row.id), clean(row.full_name)]));
     const workPhone = new Map<string, string>();
     for (const line of (lines ?? []) as Row[]) {
@@ -137,13 +144,16 @@ export async function loadResidentCounterparties(
     }
     for (const row of rows) {
       const id = clean(row.id);
+      const unknown = managedIds === null;
+      const managed = managedIds?.has(id) === true;
       const workspaceName = clean(row.name) || null;
       const name = ownerName.get(clean(row.owner_user_id)) || workspaceName || "Property manager";
       out.set(id, {
         workspaceId: id,
         name,
         workspaceName,
-        workPhone: workPhone.get(id) ?? null,
+        workPhone: unknown ? null : managed ? managedPhone : workPhone.get(id) ?? null,
+        ...(managed ? { onPropLaneLine: true } : {}),
         avatarUrl: null,
         initials: initialsOf(name),
       });

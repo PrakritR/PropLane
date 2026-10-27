@@ -256,6 +256,7 @@ export function TourScheduleFlow({
   embeddedModalLayout = false,
   onEmbeddedFooterChange,
   onSuccessDismiss,
+  onMessageHost,
 }: {
   property: MockProperty;
   returnAfterAuth: string;
@@ -266,6 +267,8 @@ export function TourScheduleFlow({
   onEmbeddedFooterChange?: (footer: ReactNode | null) => void;
   /** When set, success screen offers Done that closes the host (e.g. resident modal). */
   onSuccessDismiss?: () => void;
+  /** Embedded in the resident portal: the success screen's main button opens the host-team thread for the booked tour. */
+  onMessageHost?: (inquiryId: string) => void;
 }) {
   const { showToast } = useAppUi();
   // The public tour page (not the resident portal's embedded flow) wears the journey look.
@@ -632,6 +635,16 @@ export function TourScheduleFlow({
         )}
 
         <div className="flex flex-wrap gap-2">
+          {onMessageHost && submittedContact?.inquiryId ? (
+            <button
+              type="button"
+              onClick={() => onMessageHost(submittedContact.inquiryId)}
+              data-attr="tour-success-message-host"
+              className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              Message the host
+            </button>
+          ) : null}
           {onSuccessDismiss ? (
             <button
               type="button"

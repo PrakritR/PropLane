@@ -16,6 +16,7 @@ import {
 import { serviceRecordRefForEvent } from "@/lib/service-record-ref";
 import { buildTeamNoticeLine } from "@/lib/team-notice-line";
 import type { RecordRef } from "@/lib/portals/record-kinds";
+import { buildInboxEventStamp } from "@/lib/inbox-event-card";
 import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-preferences";
 import type { TeamNoticeModule } from "@/lib/team-comms.server";
 import { resolveAutomationSendModeForEvent } from "@/lib/automation-send-mode.server";
@@ -127,12 +128,24 @@ function payloadPropertyId(payload: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+/**
+ * Events whose text IS the content (a room, move-in details): a burst of other notices must never swap them for
+ * "Several updates were recorded.", which would lose the room. They still wait out quiet hours.
+ */
+const DIGEST_EXEMPT_EVENTS: ReadonlySet<string> = new Set(["room_assigned", "move_in_details"]);
+
+export function eventIsDigestExempt(event: string | null | undefined): boolean {
+  return DIGEST_EXEMPT_EVENTS.has(String(event ?? "").trim());
+}
+
 export type ActionDeliveryPolicy = { deferSms: boolean; digest: boolean; nextAttemptAt: string | null };
 
 export function actionDeliveryPolicy(input: {
   now: Date;
   urgent?: boolean;
   recentEventCount: number;
+  /** The event carries its own content (`eventIsDigestExempt`): never collapsed into the digest placeholder. */
+  digestExempt?: boolean;
   /**
    * The zone the quiet window is read in - the PROPERTY's, so "nothing after
    * 8pm" means 8pm where the house is. Omitted keeps the policy default.
@@ -140,7 +153,7 @@ export function actionDeliveryPolicy(input: {
   timeZone?: string;
 }): ActionDeliveryPolicy {
   if (input.urgent) return { deferSms: false, digest: false, nextAttemptAt: null };
-  const digest = input.recentEventCount >= 4;
+  const digest = input.recentEventCount >= 4 && input.digestExempt !== true;
   const config = input.timeZone ? { ...DEFAULT_QUIET_HOURS, tz: input.timeZone } : DEFAULT_QUIET_HOURS;
   const quiet = isWithinQuietHours(input.now, config);
   if (!quiet && !digest) return { deferSms: false, digest: false, nextAttemptAt: null };
@@ -282,6 +295,8 @@ async function deliverProjection(
     managerUserId?: string | null;
     /** The service this event is about (`service-record-ref.ts`), stamped on the thread for the record's Communication section. */
     recordRef?: RecordRef;
+    /** The record the event is about (the charge, lease, application ...): names the event card's action. */
+    entityId?: string | null;
     finalizeGuard?: { status: "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred"; dueAt: string };
   },
 ): Promise<"delivered" | "submitted" | "deferred" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "stale"> {
@@ -512,6 +527,19 @@ async function deliverProjection(
     ownerManagerUserId: input.managerUserId?.trim() || undefined,
     propertyId: input.propertyId ?? null,
     ...(input.recordRef ? { recordRef: input.recordRef } : {}),
+    // A resident's copy of a card-worthy event wears the event card in the stay chat. Built from the stored
+    // payload and entity id alone, so a retry stamps exactly what the first attempt did.
+    ...(() => {
+      const event = buildInboxEventStamp({
+        domain: input.domain ?? "",
+        event: input.eventType ?? "",
+        audience: input.recipient.audience,
+        entityId: input.entityId,
+        payload: input.payload,
+        rendered: input.rendered,
+      });
+      return event ? { event } : {};
+    })(),
   }).catch((error: unknown) => ({
     ok: false as const,
     error: error instanceof Error ? error.message : "Delivery failed",
@@ -723,7 +751,7 @@ export async function emitActionEvent(
       ? { deferSms: false, digest: false, nextAttemptAt: null }
       : await withVendorQuietHours(
           db,
-          actionDeliveryPolicy({ now, urgent: input.urgent, recentEventCount: count ?? 0, timeZone }),
+          actionDeliveryPolicy({ now, urgent: input.urgent, recentEventCount: count ?? 0, timeZone, digestExempt: eventIsDigestExempt(input.event) }),
           recipient,
           now,
           input.urgent,
@@ -782,6 +810,7 @@ export async function emitActionEvent(
       propertyId,
       managerUserId: input.managerUserId,
       recordRef: serviceRecordRefForEvent(input.domain, input.entityId, input.payload?.title),
+      entityId: input.entityId,
     });
     if (outcome === "delivered") delivered++;
     else if (outcome === "submitted") submitted++;
@@ -891,6 +920,7 @@ export async function retryDueActionEventDeliveries(
         event.entity_id ? String(event.entity_id) : undefined,
         (event.payload as { title?: unknown } | null)?.title,
       ),
+      entityId: event.entity_id ? String(event.entity_id) : null,
       finalizeGuard: { status: row.status as "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred", dueAt: claimUntil },
     });
     if (["failed", "email_failed", "sms_failed", "channels_failed"].includes(outcome)) failed++;

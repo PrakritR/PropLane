@@ -17,8 +17,10 @@ import { resolveInboxSenderRoleForPortal } from "@/lib/inbox-portal-sender";
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import { inboxDeepLinkForRole } from "@/lib/platform/parity";
 import {
+  coHostDisplayName,
   commitInboxThreadReply,
   deliverPortalMessageThreadSide,
+  replyDeliveryContext,
   resolveInboxThreadReplyTarget,
 } from "@/lib/portal-inbox-delivery";
 import {
@@ -666,6 +668,7 @@ export async function POST(req: Request) {
     if (replyTarget) {
       await commitInboxThreadReply(db, replyTarget, {
         ...replyBody,
+        senderUserId: user.id,
         houseId: propertyId || undefined,
         houseLabel: propertyId ? await propertyLabelFor(db, propertyId) : undefined,
       });
@@ -886,6 +889,12 @@ export async function POST(req: Request) {
       const when = formatPacificDateTime(new Date());
       const preview = storedText.slice(0, 100).replace(/\n/g, " ");
       const portalSenderRole = mapProfileRoleToAdminInboxSenderRole(senderRole);
+      // A reply into the workspace owner's conversation is delivered under THAT owner's workspace and house, whoever typed it.
+      const hostReply = replyDeliveryContext(replyTarget, {
+        senderUserId: user.id,
+        threadWorkspaceId: replyTarget ? (await loadThreadConversation(db, replyTarget.threadId)).workspaceId : null,
+      });
+      const coHostReply = Boolean(hostReply && !hostReply.ownedBySender);
       for (const recipient of recipients) {
         if (isPrimaryAdminRecipientEmail(recipient.email)) {
           await deliverPortalMessageToAdminSharedInbox(db, {
@@ -931,7 +940,8 @@ export async function POST(req: Request) {
 
         // Sender's Sent record (owner-only, scoped to the sender's portal).
         // Repeated sends to the same person append to the ONE sent thread.
-        await deliverPortalMessageThreadSide(db, {
+        // A co-host has none: their reply is a turn of the owner's thread, which is the one conversation.
+        if (!coHostReply) await deliverPortalMessageThreadSide(db, {
           scope: senderScope,
           folder: "sent",
           ownerUserId: user.id,
@@ -969,10 +979,12 @@ export async function POST(req: Request) {
           participantEmail: recipientLower,
           otherPartyEmail: senderEmail,
           conversation: {
-            propertyId: propertyId || null,
+            propertyId: propertyId || hostReply?.propertyId || null,
             otherPartyUserId: user.id,
-            managerUserId: senderScope === MANAGER_INBOX_SCOPE ? user.id : recipient.userId,
+            managerUserId: hostReply?.managerUserId ?? (senderScope === MANAGER_INBOX_SCOPE ? user.id : recipient.userId),
+            ...(hostReply?.workspaceId ? { workspaceId: hostReply.workspaceId } : {}),
           },
+          ...(coHostReply ? { senderDisplayName: coHostDisplayName(fromName) } : {}),
           fallbackId: `msg_inbox_${ts}_${rand}`,
           fromName,
           subject,

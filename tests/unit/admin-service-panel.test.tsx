@@ -3,7 +3,8 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { Building2 } from "lucide-react";
 import { PortalEntryRow } from "@/components/portal/portal-entry-row";
-import { currentFeeLine, feeOutcomeToast, groupServiceByCity, serviceRowFacts, type ServiceRow } from "@/components/portal/admin-service-panel";
+import { currentFeeLine, feeOutcomeToast, groupServiceByCity, oldNumberFactLabel, serviceRowFacts, workNumberFactLabel,
+  serviceRowFactCount, type ServiceRow } from "@/components/portal/admin-service-panel";
 import { serviceWorkspaceFinancesHref } from "@/lib/service/service-links";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/portal/admin/accounts", useSearchParams: () => new URLSearchParams() }));
@@ -44,11 +45,22 @@ describe("Service list sections", () => {
     expect(serviceRowFacts(row({ houseCount: 2, workNumber: "+12065550100", teamCount: 3, feePercent: 10 })).map((f) => (typeof f === "string" ? f : f.label))).toEqual([
       "2 houses",
       "10% fee",
-      "+12065550100",
+      "(206) 555-0100",
       "3 on team",
     ]);
     expect(serviceRowFacts(row({ viewerRole: null })).map((f) => (typeof f === "string" ? f : f.label))).toContain("Not on team");
     expect(serviceRowFacts(row({})).map((f) => (typeof f === "string" ? f : f.label))).toContain("No fee yet");
+  });
+
+  it("a managed workspace's row says (206) 678-1909 · PropLane line, and a kept old number is its own fact", () => {
+    const managed = row({ houseCount: 1, workNumber: "+12066781909", workNumberSource: "shared", feePercent: 10, oldNumber: { phoneNumber: "+18146793694", since: "2026-10-25T18:00:00.000Z" } });
+    expect(workNumberFactLabel(managed)).toBe("(206) 678-1909 · PropLane line");
+    expect(oldNumberFactLabel(managed.oldNumber!)).toBe("Old (814) 679-3694 kept since Oct 25");
+    const labels = serviceRowFacts(managed).map((f) => (typeof f === "string" ? f : f.label));
+    expect(labels).toContain("(206) 678-1909 · PropLane line");
+    expect(labels).toContain("Old (814) 679-3694 kept since Oct 25");
+    expect(serviceRowFacts(row({})).map((f) => (typeof f === "string" ? f : f.label)).some((l) => l.startsWith("Old "))).toBe(false);
+    expect(workNumberFactLabel(row({}))).toBe("No number");
   });
 
   // Review fix, Oct 20: a row draws only its first three facts, so asserting the helper's array is not enough —
@@ -65,8 +77,36 @@ describe("Service list sections", () => {
     const rendered = screen.getByRole("button", { name: /Ballard Service/ });
     expect(rendered.textContent).toContain("10% fee");
     expect(rendered.textContent).toContain("2 houses");
-    expect(rendered.textContent).toContain("+12065550100");
+    expect(rendered.textContent).toContain("(206) 555-0100");
     expect(rendered.textContent).not.toContain("3 on team");
+  });
+
+  // Live drive, Oct 26: at 390px the row named only houses and the fee, so the 206 and the kept old number were invisible.
+  // A phone row hides a fact with `max-lg:hidden`; the number facts must not carry it.
+  it("at phone width the work number and the kept old number are not hidden", () => {
+    const managed = row({ houseCount: 1, workNumber: "+12066781909", workNumberSource: "shared", feePercent: 10, oldNumber: { phoneNumber: "+18146793694", since: null } });
+    const hiddenOnPhone = (n: number, mgd: ServiceRow, extra: object) => {
+      const { container, unmount } = render(
+        <PortalEntryRow tile={{ kind: "glyph", icon: Building2 }} title="Ambika" facts={serviceRowFacts(mgd)} onOpen={() => {}} {...extra} />,
+      );
+      const line = container.querySelector('[data-attr="record-row-facts"]')!;
+      const out = [...line.children].map((c) => c.classList.contains("max-lg:hidden") === true && true);
+      unmount();
+      return { texts: [...line.children].map((c) => c.textContent ?? ""), hidden: out, n };
+    };
+    expect(serviceRowFactCount(managed)).toBe(4);
+    expect(serviceRowFactCount(row({}))).toBe(3);
+    // The shared default (two facts on a phone) hides both numbers: the bug.
+    const before = hiddenOnPhone(4, managed, {});
+    expect(before.texts.some((t) => t.includes("(206) 678-1909"))).toBe(true);
+    expect(before.hidden[before.texts.findIndex((t) => t.includes("(206) 678-1909"))]).toBe(true);
+    // The service row's own caps keep the 206 and the old number on a phone.
+    const after = hiddenOnPhone(4, managed, { maxFacts: 4, phoneFactLimit: 4 });
+    for (const needle of ["(206) 678-1909", "Old (814) 679-3694"]) {
+      const i = after.texts.findIndex((t) => t.includes(needle));
+      expect(i).toBeGreaterThanOrEqual(0);
+      expect(after.hidden[i]).toBe(false);
+    }
   });
 
   it("the rendered row says so when no fee is in force yet", () => {

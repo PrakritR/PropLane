@@ -16,9 +16,11 @@ import { buildReplyAddress } from "@/lib/inbound-email/reply-address.server";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 import {
+  postTeamNoticeLineForEvent,
   resolveManagerRecipientProfiles,
   resolvePropertyLeadRecipientIds,
 } from "@/lib/co-manager-notification-recipients.server";
+import { buildTeamNoticeLine } from "@/lib/team-notice-line";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 import {
@@ -452,33 +454,62 @@ export async function notifyManagerTourRequest(
   const recipients = await resolveManagerRecipientProfiles(db, recipientIds);
   if (recipients.length === 0) return { ok: false, error: "Manager email not found." };
 
-  for (const recipient of recipients) {
-    let smsConversationKey: string | undefined;
-    const guestPhone = textField(inquiry as Record<string, unknown>, "phone");
-    if (guestPhone) try {
-      const conversations = await fetchManagerSmsConversations(db, recipient.userId, { scopeManagerIdsOverride: [recipient.userId], provisionWorkNumber: false, visibility: "none" });
-      const existing = resolveExistingApplicantConversation(conversations.residents, { managerUserId: recipient.userId, applicantPhone: guestPhone, workNumber: conversations.workNumber });
-      if (existing.kind === "matched") smsConversationKey = existing.conversation.conversationKey;
-    } catch { smsConversationKey = undefined; }
-    await appendManagerPropertyLeadInboxMessage(db, recipient.userId, {
-      propertyId,
-      propertyTitle: ctx.propertyTitle || "Property",
-      prospectName: ctx.guestName || "Guest",
-      prospectEmail: guestEmail,
-      topic: "Tour request",
-      subject,
-      body: text,
-      counterpartyRole: "prospect",
-      outbound: false,
-      messageId: `tour:${textField(inquiry as Record<string, unknown>, "id") || propertyId}:request:${tourStartIso}:${tourEndIso}`,
-      ...(smsConversationKey ? { smsConversationKey } : {}),
-    });
+  // ONE host-team thread per prospect (A4): the tour request is a single turn in the workspace OWNER's conversation with the
+  // person, stamped with the house (`houseId` on the turn and `propertyId` on the thread). A co-manager holding that house
+  // with Communication sees the same conversation through the visibility rule (`conversation-visibility.server.ts`), and
+  // answers in it as themselves; a co-manager holding another house, or none, does not. They get the email / text / Team
+  // line below instead of a copy of their own.
+  let smsConversationKey: string | undefined;
+  const guestPhone = textField(inquiry as Record<string, unknown>, "phone");
+  if (guestPhone) try {
+    const conversations = await fetchManagerSmsConversations(db, managerUserId, { scopeManagerIdsOverride: [managerUserId], provisionWorkNumber: false, visibility: "none" });
+    const existing = resolveExistingApplicantConversation(conversations.residents, { managerUserId, applicantPhone: guestPhone, workNumber: conversations.workNumber });
+    if (existing.kind === "matched") smsConversationKey = existing.conversation.conversationKey;
+  } catch { smsConversationKey = undefined; }
+  await appendManagerPropertyLeadInboxMessage(db, managerUserId, {
+    propertyId,
+    propertyTitle: ctx.propertyTitle || "Property",
+    prospectName: ctx.guestName || "Guest",
+    prospectEmail: guestEmail,
+    topic: "Tour request",
+    subject,
+    body: text,
+    counterpartyRole: "prospect",
+    outbound: false,
+    messageId: `tour:${textField(inquiry as Record<string, unknown>, "id") || propertyId}:request:${tourStartIso}:${tourEndIso}`,
+    ...(smsConversationKey ? { smsConversationKey } : {}),
+  });
+
+  // Teammates are told where the one thread is: the email carries the Communication link, and the workspace Team chat gets one
+  // plain line (idempotent per request). Neither is a copy of the lead.
+  const emailText = `${text}\n\nReply to ${ctx.guestName || "the guest"} in Communication: ${origin.replace(/\/$/, "")}/portal/communication/active`;
+  const coManagerIds = recipients.map((recipient) => recipient.userId).filter((id) => id !== managerUserId);
+  if (coManagerIds.length > 0) {
+    try {
+      await postTeamNoticeLineForEvent(db, {
+        ownerManagerUserId: managerUserId,
+        propertyId,
+        module: "calendar",
+        teamNotice: {
+          messageId: `tour:${textField(inquiry as Record<string, unknown>, "id") || propertyId}:request:${tourStartIso}:${tourEndIso}:team`,
+          text: buildTeamNoticeLine({
+            domain: "tour",
+            event: "requested",
+            subject: ctx.guestName || "Guest",
+            place: [ctx.propertyTitle, ctx.roomLabel].filter(Boolean).join(" "),
+          }),
+        },
+        excludeUserIds: [managerUserId],
+      });
+    } catch {
+      /* non-critical: the email and text above already reached the teammates */
+    }
   }
 
   const email = await deliverEmail(
     recipients.map((recipient) => recipient.email),
     subject,
-    text,
+    emailText,
     undefined,
     undefined,
     { db, managerUserId },

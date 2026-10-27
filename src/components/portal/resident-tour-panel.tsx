@@ -19,8 +19,7 @@ import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
-import { stageResidentComposePrefill } from "@/lib/resident-compose-prefill";
-import { residentTourManagerMessageDraft } from "@/lib/resident-manager-message-draft";
+import { residentTourThreadHref } from "@/lib/resident-tour-thread-client";
 import {
   residentTourDetailHref,
   residentTourListHref,
@@ -261,9 +260,8 @@ export function ResidentTourPanel({
 
   const openMessageManager = useCallback(
     (tour: ResidentTourView) => {
-      const draft = residentTourManagerMessageDraft(tour);
-      stageResidentComposePrefill(draft);
-      navigate(`${basePath}/communication/active`);
+      // The existing conversation with this home's host team, not a compose prefill.
+      void residentTourThreadHref(basePath, tour.inquiryId).then((href) => navigate(href));
     },
     [basePath, navigate],
   );

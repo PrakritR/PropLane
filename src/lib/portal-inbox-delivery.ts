@@ -39,6 +39,7 @@ import { normalizeE164 } from "@/lib/phone-e164";
 import { isPhoneOptedOut } from "@/lib/sms-consent";
 import { ensureVendorConversationConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
+import { normalizeSenderDisplayName, type InboxEventStamp } from "@/lib/inbox-event-card";
 import { aggregateVendorSponsoredDelivery } from "@/lib/vendor-sponsored-delivery-state";
 import {
   propertyLabelFor,
@@ -142,7 +143,46 @@ export type InboxThreadReplyTarget = {
   participantEmail: string | null;
   threadType: string;
   rowData: Record<string, unknown>;
+  /**
+   * True when the sender is a co-manager who reached this manager-side conversation through a house grant (Communication
+   * edit on the thread's house), not its owner: their turn is a co-host reply into the owner's conversation. Derived here
+   * from the visibility rule, never from the request.
+   */
+  coHost?: boolean;
 };
+
+/**
+ * How a co-host is signed in the shared host-team thread: "<first name> · Co-host". The first name comes from the account's
+ * own profile name (the caller's `fromName`), never the request; a name that is only an address or empty falls back to
+ * "Co-host" alone.
+ */
+export function coHostDisplayName(fromName: string): string {
+  const first = fromName.trim().split(/\s+/)[0] ?? "";
+  return first && !first.includes("@") ? `${first} · Co-host` : "Co-host";
+}
+
+/**
+ * Where a reply into a manager-side conversation is DELIVERED. The thread belongs to the workspace OWNER and is stamped with
+ * its workspace and house; the person on the other end (a resident's side of the same conversation) is found under that
+ * owner's workspace, never under whoever typed. Without this a co-host's reply resolved the other side against the co-host's
+ * OWN default workspace, found no conversation there, and never reached the resident (the reply sat in the owner's thread only).
+ * `ownedBySender` is false for a co-host: their reply is already recorded in the owner's thread, so they get no sent copy of
+ * their own. Null when the thread is not a manager-side conversation with an owner.
+ */
+export function replyDeliveryContext(
+  target: InboxThreadReplyTarget | null,
+  input: { senderUserId: string; threadWorkspaceId?: string | null },
+): { managerUserId: string; workspaceId: string | null; propertyId: string | null; ownedBySender: boolean } | null {
+  if (!target || target.scope !== MANAGER_INBOX_SCOPE || !target.ownerUserId) return null;
+  const row = target.rowData;
+  const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  return {
+    managerUserId: target.ownerUserId,
+    workspaceId: text(input.threadWorkspaceId) || text(row.workspaceId) || null,
+    propertyId: text(row.propertyId) || text(row.rootHouseId) || null,
+    ownedBySender: target.ownerUserId === input.senderUserId,
+  };
+}
 
 /**
  * Resolve the thread a reply targets and authorize the sender against it: the
@@ -225,6 +265,7 @@ export async function resolveInboxThreadReplyTarget(
       ? "agent_notice"
       : String(threadRow.thread_type ?? ""),
     rowData,
+    ...(delegatedOwner ? { coHost: true } : {}),
   };
 }
 
@@ -266,6 +307,12 @@ export async function commitInboxThreadReply(
     /** The house this turn is about; each turn of a person's conversation carries its own. */
     houseId?: string;
     houseLabel?: string;
+    /**
+     * The authenticated account that typed this turn, stamped as `senderUserId` on a manager-side conversation so a shared
+     * host-team thread says who answered. A co-host's turn (`target.coHost`) also carries `senderDisplayName`
+     * ("<first name> · Co-host"); the owner's does not (unlabeled). Never read from a request body.
+     */
+    senderUserId?: string;
   },
 ): Promise<"sending" | "sent" | "failed" | undefined> {
   const { data: freshRow, error: readError } = await db
@@ -311,6 +358,10 @@ export async function commitInboxThreadReply(
     ...(opts.delivery ? { delivery: opts.delivery } : {}),
     ...(opts.houseId?.trim() ? { houseId: opts.houseId.trim() } : {}),
     ...(opts.houseLabel?.trim() ? { houseLabel: opts.houseLabel.trim() } : {}),
+    ...(opts.senderUserId && target.scope === MANAGER_INBOX_SCOPE ? { senderUserId: opts.senderUserId } : {}),
+    ...(opts.senderUserId && target.scope === MANAGER_INBOX_SCOPE && target.coHost
+      ? { senderDisplayName: coHostDisplayName(opts.fromName) }
+      : {}),
     // The turn's own record: the thread keeps its first recordRef, a turn keeps the one it was composed from.
     ...(normalizeRecordRef(opts.recordRef) ? { recordRef: normalizeRecordRef(opts.recordRef)! } : {}),
   });
@@ -659,6 +710,14 @@ export async function deliverPortalMessageThreadSide(
     /** Stamped onto the appended turn only - see `InboxThreadMessage.sentByAi`. */
     sentByAi?: boolean;
     /**
+     * The event card this automated turn wears (`inbox-event-card.ts`): `eventKind`, `eventCard` and the turn's
+     * OWN `recordRef` go on the turn, never on the thread (the thread keeps the first ref it was stamped with).
+     * Absent for every turn that is not a card: it renders as it always did.
+     */
+    event?: InboxEventStamp;
+    /** The label a co-host's reply wears under its bubble; stamped on the turn only. */
+    senderDisplayName?: string;
+    /**
      * Stored type for a brand-new row. A keyed conversation that already
      * exists keeps its own type. Defaults to `portal_message`.
      */
@@ -747,7 +806,10 @@ export async function deliverPortalMessageThreadSide(
       ...(houseId ? { houseId } : {}),
       ...(houseLabel ? { houseLabel } : {}),
       // The turn's own record (the thread keeps its first recordRef; see `InboxThreadMessage.recordRef`).
-      ...(normalizedRecordRef ? { recordRef: normalizedRecordRef } : {}),
+      // An event card's ref is the record its action opens, and belongs to the turn alone.
+      ...(args.event?.recordRef ?? normalizedRecordRef ? { recordRef: args.event?.recordRef ?? normalizedRecordRef } : {}),
+      ...(args.event ? { eventKind: args.event.kind, eventCard: args.event.card } : {}),
+      ...(normalizeSenderDisplayName(args.senderDisplayName) ? { senderDisplayName: normalizeSenderDisplayName(args.senderDisplayName) } : {}),
     });
     // Turns that follow the main one (a resident's message, then the acknowledgement).
     for (const turn of args.followUps ?? []) {
@@ -864,6 +926,9 @@ export async function deliverPortalMessageThreadSide(
     ...(normalizedRecordRef ? { recordRef: normalizedRecordRef } : {}),
     ...(args.delivery ? { rootDelivery: args.delivery } : {}),
     ...(args.automated ? { rootAutomated: true } : {}),
+    ...(args.event ? { rootEventKind: args.event.kind, rootEventCard: args.event.card } : {}),
+    ...(args.event?.recordRef ? { rootEventRecordRef: args.event.recordRef } : {}),
+    ...(normalizeSenderDisplayName(args.senderDisplayName) ? { rootSenderDisplayName: normalizeSenderDisplayName(args.senderDisplayName) } : {}),
     ...(args.rootOutbound ? { rootOutbound: true } : {}),
     ...(args.followUps?.length ? { messages: args.followUps } : {}),
     ...(houseId ? { rootHouseId: houseId } : {}),
@@ -1059,6 +1124,13 @@ export async function deliverPortalInboxMessage(
      * both the recipient's inbox copy and the sender's sent copy.
      */
     automated?: boolean;
+    /**
+     * The event card this automated turn wears: `eventKind`, the card's title and fact, and the record its action
+     * opens (`buildInboxEventStamp`). Stamped on the turn of both thread sides; never on the thread itself.
+     */
+    event?: InboxEventStamp;
+    /** The label a reply written by another builder wears under its bubble ("Dev · Co-host"). */
+    senderDisplayName?: string;
     /** The thread this turn was already written into by the caller (see `deliverPortalMessageThreadSide`). */
     alreadyRecordedInThreadId?: string;
     /**
@@ -1290,6 +1362,8 @@ export async function deliverPortalInboxMessage(
         outbound: true,
         category: opts.eventCategory,
         automated: opts.automated,
+        event: opts.event,
+        senderDisplayName: opts.senderDisplayName,
         messageId: opts.messageId ? `${opts.messageId}:sent:${recipientLower}` : undefined,
         recordRef: opts.recordRef,
       });
@@ -1325,6 +1399,8 @@ export async function deliverPortalInboxMessage(
         outbound: false,
         category: opts.eventCategory,
         automated: opts.automated,
+        event: opts.event,
+        senderDisplayName: opts.senderDisplayName,
         messageId: opts.messageId ? `${opts.messageId}:inbox:${recipientLower}` : undefined,
         recordRef: opts.recordRef,
       });

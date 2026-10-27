@@ -709,6 +709,7 @@ async function mirrorLeasingInboundToCommunication(args: {
   messageId?: string | null;
   workNumber: string | null;
   receivedAt: string | null;
+  workspaceId?: string | null;
 }): Promise<void> {
   const db = createSupabaseServiceRoleClient();
   const { resolvePropertyScopedManagerRecipientIds } = await import(
@@ -726,6 +727,9 @@ async function mirrorLeasingInboundToCommunication(args: {
         ownerManagerUserId: args.landlordId,
         phoneNumber: args.workNumber,
         occurredAt: args.receivedAt,
+        // On the shared PropLane line there is no work-number row: the line is the routed workspace's. Without it the notice
+        // carried no original-text marker, so it never folded into the projection's thread and the owner saw two rows.
+        workspaceId: args.workspaceId ?? null,
       }).catch(() => null) : null;
   const originalSmsEvent = line && args.messageId && args.receivedAt ? {
     sourceNamespace: `twilio:${args.landlordId}:${process.env.TWILIO_ACCOUNT_SID?.trim() || "unconfigured"}`,
@@ -1126,9 +1130,21 @@ export async function handleClawLeasingInbound(args: {
   const hinted =
     (await resolvePropertyHint(hintId, managers)) ??
     (await resolvePropertyByLabelHint(extractPropertyLabelHint(text), managers, Boolean(scopedManagerId)));
-  const propertyId = hinted?.propertyId || managers[0]?.defaultPropertyId || null;
+  // A phone locked to one home on the PropLane line is talking about THAT home: the thread subject, the house stamp and the
+  // recipients follow the lock, never the manager's most recently edited listing (a different home of theirs).
+  const lockedHomeEarly =
+    scopedManagerId && (hinted?.managerUserId || managers[0]?.userId || scopedManagerId)
+      ? await (await import("@/lib/one-number/locked-home-context.server"))
+          .loadLockedHomeContext(createSupabaseServiceRoleClient(), {
+            prospectPhone: from,
+            landlordId: hinted?.managerUserId || managers[0]?.userId || scopedManagerId,
+            workspaceId: args.workspaceId ?? null,
+          })
+          .catch(() => null)
+      : null;
+  const propertyId = lockedHomeEarly?.propertyId || hinted?.propertyId || managers[0]?.defaultPropertyId || null;
   const propertyLabel =
-    hinted?.propertyLabel || managers[0]?.defaultPropertyLabel || null;
+    lockedHomeEarly?.label || hinted?.propertyLabel || managers[0]?.defaultPropertyLabel || null;
   if (!bundleId) {
     bundleId = await resolveBundleIdByLabel(propertyId, extractBundleLabelHint(text));
   }
@@ -1141,7 +1157,8 @@ export async function handleClawLeasingInbound(args: {
   // tagged to it. The `defaultPropertyId` fallback below is a guess for
   // wording only and is deliberately NOT a tag — a wrong tag would put this
   // prospect in front of the wrong teammate.
-  if (hinted?.propertyId && landlordId && (!hinted.managerUserId || hinted.managerUserId === landlordId)) {
+  const taggedPropertyId = lockedHomeEarly?.propertyId || hinted?.propertyId || null;
+  if (taggedPropertyId && landlordId && (lockedHomeEarly || !hinted?.managerUserId || hinted.managerUserId === landlordId)) {
     const { tagConversationHouse } = await import("@/lib/sms/conversation-houses.server");
     await tagConversationHouse(createSupabaseServiceRoleClient(), {
       managerUserId: landlordId,
@@ -1151,7 +1168,7 @@ export async function handleClawLeasingInbound(args: {
         counterpartyUserId: null,
         counterpartyPhone: from,
       }),
-      propertyId: hinted.propertyId,
+      propertyId: taggedPropertyId,
       source: "leasing",
     }).catch(() => false);
   }
@@ -1200,6 +1217,7 @@ export async function handleClawLeasingInbound(args: {
         messageId: event.messageId,
         workNumber: toLine,
         receivedAt: event.receivedAt,
+        workspaceId: args.workspaceId ?? null,
       }).catch((e) => console.error("claw leasing inbox notice failed", e));
     }
   }

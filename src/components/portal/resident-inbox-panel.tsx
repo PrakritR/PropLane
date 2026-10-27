@@ -4,7 +4,6 @@ import { sharedGet } from "@/lib/shared-get-cache";
 import { ELIGIBLE_CONTACTS_TTL_MS } from "@/lib/inbox-eligible-contacts-ttl";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Archive, ArchiveRestore, Mail, MailOpen, Trash2 } from "lucide-react";
-import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { useSearchParams } from "next/navigation";
 import { consumeComposeQueryParam } from "@/lib/portals/compose-query";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -17,7 +16,7 @@ import { INBOX_TAB_DEFS, INBOX_LIST_SCROLL, INBOX_THREAD_ICON_BTN, INBOX_THREAD_
 import { InboxComposerChannelMenu, InboxComposerScheduleMenu, formatScheduledLabel } from "@/components/portal/inbox-composer-tools";
 import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
 import { useResidentManagerContacts } from "@/hooks/use-resident-manager-contacts";
-import { matchResidentManagerContact, resolveResidentThreadManager } from "@/lib/resident-communication-manager";
+import { matchResidentManagerContact, residentThreadSubtitle, resolveResidentThreadManager } from "@/lib/resident-communication-manager";
 import { scheduledItemsForRecipient } from "@/lib/inbox-scheduled-thread";
 import {
   PortalInboxSelectionToolbar,
@@ -42,6 +41,9 @@ import {
 } from "@/lib/manager-inbox-reply-channels";
 import { sendPropLaneAssistantInboxMessage } from "@/lib/assistant-inbox-reply";
 import { isHouseInboxThread } from "@/lib/house-thread-id";
+import { bubbleEventFields } from "@/lib/inbox-event-card";
+import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
+import { InboxStayCard } from "@/components/portal/inbox-stay-card";
 import {
   InboxSendRefusal,
   inboxReplySentToastMessage as residentReplySentToastMessage,
@@ -1357,18 +1359,7 @@ export const ResidentInboxPanel = forwardRef<
   // "Property manager · Cascade Lofts · work@email" — the manager's header
   // line (Resident · House, Room · email) turned around: who they are to the
   // resident, the home it is about, and the address they write from.
-  const activeThreadSubtitle = activeIsHouseThread
-    ? undefined
-    : activeManager
-    ? [
-        activeManager.workspaceName ?? "Property manager",
-        activeManager.homeLabel,
-        // A text-only conversation has no address: the work number is how to reach them.
-        activeThread?.smsOnly ? formatSmsPhoneLabel(activeManager.workPhone) : activeManager.email,
-      ]
-        .filter(Boolean)
-        .join(" · ")
-    : undefined;
+  const activeThreadSubtitle = activeIsHouseThread ? undefined : residentThreadSubtitle(activeManager, Boolean(activeThread?.smsOnly));
   const activeFolder = activeThread
     ? activeThread.folder === "trash"
       ? inferPreviousFolder(activeThread)
@@ -1406,6 +1397,8 @@ export const ResidentInboxPanel = forwardRef<
         houseLabel: m.houseLabel,
         ...(fields.subject ? { subject: fields.subject } : {}),
         attachments: m.attachments,
+        // The event card and a co-host's label ride the turn's own stamps; an old turn carries none.
+        ...bubbleEventFields(m),
       } satisfies InboxBubbleMessage;
     });
   }, [activeThread, activeFolder, pendingSendingThreadIds]);
@@ -1461,6 +1454,27 @@ export const ResidentInboxPanel = forwardRef<
             ))}
           </InboxScheduledThreadList>
     ) : null;
+
+  // The stay this one-on-one conversation with the manager is about, derived on read from the resident's
+  // own lease; the house chat, the assistant and an archived conversation have none.
+  const residentUnderHeader = (
+    <>
+      {activeThread ? (
+        <InboxStayCard
+          viewer="resident"
+          enabled={
+            activeThread.folder !== "trash" &&
+            !activeIsHouseThread &&
+            !isPropLaneAssistantInboxThread(activeThread)
+          }
+          managerUserId={null}
+          personEmail={session.email}
+          homeLabel={activeManager?.homeLabel}
+        />
+      ) : null}
+      {residentScheduledCards}
+    </>
+  );
 
   const openThread = useCallback(
     (thread: InboxThread) => {
@@ -1823,7 +1837,8 @@ export const ResidentInboxPanel = forwardRef<
               subtitle={activeThreadSubtitle}
               messages={activeBubbles}
               emailNameAsPerson
-              underHeader={residentScheduledCards}
+              underHeader={residentUnderHeader}
+              eventViewer="resident"
               threadKey={activeThread.id}
               onBack={() => setExpandedId(null)}
               headerActions={
@@ -1931,7 +1946,8 @@ export const ResidentInboxPanel = forwardRef<
                 subtitle={activeThreadSubtitle}
                 messages={activeBubbles}
                 emailNameAsPerson
-                underHeader={residentScheduledCards}
+                underHeader={residentUnderHeader}
+                eventViewer="resident"
                 threadKey={activeThread.id}
                 onBack={() => setExpandedId(null)}
                 headerActions={

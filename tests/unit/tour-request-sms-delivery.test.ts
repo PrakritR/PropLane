@@ -10,6 +10,7 @@ const recipients: Array<{ userId: string; email: string; fullName: string | null
 vi.mock("@/lib/co-manager-notification-recipients.server", () => ({
   resolvePropertyLeadRecipientIds: vi.fn(async () => recipients.map((r) => r.userId)),
   resolveManagerRecipientProfiles: vi.fn(async () => recipients),
+  postTeamNoticeLineForEvent: vi.fn(async () => undefined),
 }));
 
 vi.mock("@/lib/resident-outbound-sms.server", () => ({

@@ -12,6 +12,8 @@
  * property thread: its row-level `propertyId` stands in for every unstamped turn.
  */
 
+import { rootEventFieldsFromTurn } from "@/lib/inbox-event-card";
+
 export type HouseGrantView = {
   /** Houses the viewer holds at the level asked, already narrowed to the active workspace. */
   allowed: ReadonlySet<string>;
@@ -90,6 +92,7 @@ export function restrictThreadToHouses(
       rootHouseId: first.houseId,
       rootDelivery: first.delivery,
       rootAutomated: first.automated,
+      ...rootEventFieldsFromTurn(first),
       attachments: first.attachments,
       messages: rest,
     };

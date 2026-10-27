@@ -126,7 +126,7 @@ Invariants:
 1. The replies are templates. The model only extracts an answer the deterministic extractors could not read, and its output goes through `sanitizeModelFields` (range checks, protected-topic scrub) before it can touch a profile. First reply: "Hi, this is PropLane. Reply STOP to opt out." + the first question. All copy is GSM-7 (`toGsm7`), one question per text.
 2. Fair housing is code, not a prompt. Match inputs are price, dates, location and room features only. Household size is stored as a headcount and never filters. A text that asks about, or volunteers, a protected class or the character of a neighborhood or its people (race, religion, national origin, sex, family or children, disability, age, source of income / vouchers, orientation, gender identity, marital or military status, criminal record, "safe area" and so on) gets `NEUTRAL_REPLY` plus the same question again; the flagged clause is dropped before extraction and never reaches the profile, the model, or a filter. The pattern list is deliberately wide.
 3. Matching reads only the public projection (never a private row). An offer carries a street line, a price, an availability label and the public listing link, nothing else. An area nobody serves is "no match" (`NO_MATCH_TEXT`), never a far-away room. At most one real https listing photo (`firstOfferPhoto`), never a placeholder. The photo is returned as `UnassignedLeadTurn.mediaUrls`; the seam does not put it on the TwiML yet (see the report).
-4. Assignment (`assignLeadToHouse`) happens exactly once per lead: the house is re-read from the database (must be `status = 'live'`, never trusted from the stored offer), it decides the workspace and its owner, and the claim is `update … where status = 'open'`. Then the history is copied through `logManagerSmsMessage` (counterparty role `prospect`, stable `lead:<turnId>` ids, `workspaceId` passed for the transport workstream's stamp) into that owner's conversation, the contact row and `sms_line_sessions` point at the workspace, and only that team gets a `new_lead` alert (`alertWorkspaceTeam`). A prospect's own pick leaves out the triggering text: the pipeline records it when the leasing agent takes over. An admin assignment copies everything.
+4. Assignment (`assignLeadToHouse`) happens exactly once per lead: the house is re-read from the database (must be `status = 'live'`, never trusted from the stored offer), it decides the workspace and its owner, and the claim is `update … where status = 'open'`. (Superseded Oct 26, § W30: a PROSPECT pick writes a one-line "Looking for" summary instead of the transcript; only a PropLane staff placement copies the history.) Then the history is copied through `logManagerSmsMessage` (counterparty role `prospect`, stable `lead:<turnId>` ids, `workspaceId` passed for the transport workstream's stamp) into that owner's conversation, the contact row and `sms_line_sessions` point at the workspace, and only that team gets a `new_lead` alert (`alertWorkspaceTeam`). A prospect's own pick leaves out the triggering text: the pipeline records it when the leasing agent takes over. An admin assignment copies everything.
 5. The Unassigned queue is platform-only. The admin routes answer 401 / 403 before any read; phones leave the server masked to the last four digits.
 6. Webhook retries are safe: the inbound turn's `message_sid` is unique, and a retry returns the reply stored under `reply:<sid>`. One open lead per phone (partial unique index); a closed or assigned lead's phone starts a fresh lead.
 7. Follow-ups: one nudge at 24h quiet, one at 72h, then nothing (flags `nudged24` / `nudged72` in the profile, claimed with an `updated_at` compare-and-swap BEFORE sending and given back when the send fails). Shared mode only, never in quiet hours (21:00-08:00 Pacific), never to an opted-out number, never for leads quiet over 30 days. A `no_match` lead gets one "a room that fits just opened" text when the catalog fits it, which counts as its 24h nudge. `sendPlatformLeadText` sends from the shared number with no workspace (nothing to bill or sign off for) behind the opt-out ledger, quiet hours and the real-customer shield.
@@ -1195,6 +1195,17 @@ a text still arriving on a managed workspace's OLD number routes to that workspa
 Staff and seats texting the 206, and self-serve workspaces, are unchanged. The old number is not released here (no provider call): that is an
 operator step. Tests: `tests/unit/service-workspace-propline-line.test.ts`.
 
+**Every display of a managed workspace's number goes through the resolver (Oct 26).** `resolveServiceLine` /
+`workspaceWorkNumber` / `resolveActiveManagerSendNumber` decide what is SHOWN as well as what is sent: nothing reads
+`manager_sms_numbers` directly to draw a workspace's number. The resident conversation header
+(`loadResidentCounterparties`: `workPhone` is the 206 and `onPropLaneLine: true` for a managed workspace, drawn "(206) 678-1909 ·
+PropLane line"), Admin › Service's row and Integrations/Settings all agree; an unresolvable line shows nothing, never the old
+number. Audited and left alone because they are not displays: `service-catalog.server.ts` `isPropLaneServiceLine` (recognition) and
+`wallet.server.ts` `resolveWorkspaceIdForWorkNumber` (placing a number). **The old number is kept receive-only** (inbound still
+lands in that workspace, replies leave from the 206) until an admin presses Admin › Service **Release old number**
+(`releaseServiceWorkspaceOldNumber`, audited first, admin only); no timer releases it
+([`admin-service.md`](admin-service.md)). Tests: `tests/unit/{resident-counterparty-managed-number,admin-service-workspaces,admin-service-panel}`.
+
 ### Mode `shared` (Oct 25: the 206 is every free or trial manager's work number, with full service)
 
 `line_mode = shared` makes the 206 the work number of every workspace WITHOUT a personal number (`workspaceOnSharedLine`: not dedicated, inside
@@ -1205,10 +1216,10 @@ the pilot list when there is one). Everything the per_workspace table says about
 | --- | --- | --- |
 | Free or trial manager (owner) / their teammate | The manager SMS assistant for THEIR workspace (as if they texted their own work number); every text they send to residents, vendors and leads goes out from the 206 | router `findTeamMemberCandidates` -> pipeline (`handleSharedLineInbound` `continue`) |
 | Their residents, vendors, applicants | Their normal flows for that workspace (resident assistant, vendor job flow, leasing) | router, same seam |
-| Prospect (stranger, or a resident searching) | The lead agent over the LINE catalog: managed homes plus every home without a personal number; a pick is handed to that home's workspace, which owns tours | `line-catalog.server.ts` (`getLineCatalogListings`), `unassigned-leads.server.ts` (`assignLeadToHouse` accepts a service workspace OR `workspaceOnSharedLine`) |
-| Prospect asking about a home WITH a personal number | "For 12 Elm St, Louisville, text (502) 555-0142." Nothing else. When that number cannot be named, nothing is said here (the lead flow answers) | `house-redirect.server.ts` (`deps.shared`) |
+| Prospect (stranger, or a resident searching) | The lead agent over the OFFER catalog: managed homes, free managers' homes and (as offers only) paid managers' homes, tagged by tier. A pick or a text naming one home locks the line to it (§ W30). | `line-catalog.server.ts` (`getLineOfferListings`), `lead-match.ts` (`matchOffers`), `unassigned-leads.server.ts` |
+| Prospect asking about a home WITH a personal number | Nothing on a mere mention (`resolveHouseRedirect` returns null in shared mode). On interest (a pick, a text naming the home, a yes to the switch question): "12 Ravenna Pl is listed by Marcus. To learn more or book a tour, text Marcus at (206) 555-0142." and only that interest text + the reply land in the manager's Communication (§ W30). When the number cannot be named, nothing about the home is said | `unassigned-leads.server.ts` (`paidInterestTurn`) |
 | Anyone whose workspaces ALL have a personal number | The dedicated redirect: "<house> texts from (XXX) XXX-XXXX. Please text that number." | `dedicated-redirect.server.ts` (unchanged) |
-| Unknown number, UNCLEAR first text | The same role question; "manage my own" answers "Set up your homes here: https://proplane.ai/auth/create-account?role=manager You'll text from this number until you get your own." (the link stays bare: nothing glued to it) | `unknown-sender.server.ts`, `MANAGE_OWN_SHARED_REPLY` |
+| Unknown number, UNCLEAR first text ("hi", "who is this") | ONE reply, "Hi! This is PropLane. Which home are you texting about? (street or house name)", and the text waits in Admin > Unassigned (an open `hold` lead), never in a Communication; a SECOND unclear text gets the role question; "manage my own" answers "Set up your homes here: https://proplane.ai/auth/create-account?role=manager You'll text from this number until you get your own." (the link stays bare: nothing glued to it) | `unknown-sender.server.ts`, `MANAGE_OWN_SHARED_REPLY` |
 | Admin, service-seat holders, owner of record, managed residents/vendors | As in § per_workspace (the pipeline's service-manager recognition and `handleLineMemberText` `shared_line` are mode independent) | unchanged |
 
 ### Personal-number redirects (both modes, before any routing)
@@ -1235,3 +1246,55 @@ and recording any answer clears `asked_at`, so no later text is re-read as one. 
 opt-out notice the fixed question cannot, and a webhook retry answers once (`dedupe_key line_role_<sid>`). A seat's admin-ness is never inferred:
 the legacy `profiles.role` and the ops email are not evidence for the phone door. Shared mode (above) is code-complete but OFF in production until the captain flips `line_mode`; per_workspace behaviour is unchanged by it. Tests:
 `tests/unit/{propline-shared-mode,propline-personal-number-redirect,propline-line-policy,propline-first-text-classifier,propline-first-text,one-number-house-redirect,one-number-line-status,one-number-line-resident,service-manager,service-manager-pipeline-wiring,one-number-unknown-sender}.test.ts`.
+
+## W30 - Stranger sorting, tiered offers, the home lock and the switch question (`line-206-chat-1026`, Oct 26)
+
+Shared mode only (per_workspace behaviour is unchanged). Captain's decisions 2, 5, 6, 7, 8 on the plan `claude-2/line-206-chat-1026`.
+
+**Sorting a stranger (`unknown-sender.server.ts`).** A text that names exactly one home (street, house name or listing title, matched over the
+OFFER catalog by `matchListingsNamedIn`) needs no role question: the lead flow locks the line to that home. A tour/booking ask with a day, or a
+search for homes ("what houses are in Seattle?", `asksTourWithDay` / `asksForHomes` in `home-lock.ts`), goes to the qualifier. Anything else
+unclear gets ONE reply (`HOLD_REPLY`) via `handleHoldInbound`: an open lead in stage `hold`, turns recorded in `sms_unassigned_lead_turns`, nothing in
+any workspace. A second unclear text gets the role question as before; a named home on the next text locks and the hold leaves Unassigned.
+
+**Tiered offers.** `line-catalog.server.ts` `getLineOfferListings` / `sharedLineOfferListings` return the public homes (still
+`getPublicListings`, the allowlisted projection) tagged `lineTier` (`line-tier.ts`): `managed` (`is_service`), `free` (answers on the 206), `paid`
+(dedicated workspace with a personal number). The served catalog (`getLineCatalogListings`, used by the redirect and the followups) is unchanged and
+has no paid homes. `lead-match.ts` `matchOffers`: one managed, one free, one paid home when each has a fit (cheapest of each), otherwise the best fits;
+never two homes from one manager; 3 offers, or 4 when exactly 4 managers have a fit; cheapest first. Offer text never carries a phone number
+(`tests/unit/one-number-lead-match.test.ts`, `line-206-home-lock.test.ts`). The qualifier asks budget, move-in, area and room type, and asks the
+household question only while MORE than 4 rooms fit (`countFittingRooms`); the headcount never filters a match.
+
+**The lock.** `sms_line_sessions.locked_property_id` / `locked_at` (migration `20261026120000`; code before it reads and writes the session without
+the lock). Set by a pick of an offered home, by a text naming one home, or by a yes to the switch question - always through
+`assignLeadToHouse` (managed / free: the lead is claimed for that home's workspace, the thread is tagged with the home via `tagConversationHouse`
+so only the owner and the co-hosts who hold it see it, the session points there) or `paidInterestTurn` (paid). `assignLeadToHouse` NO LONGER replays
+the browsing transcript for a prospect pick (it held the other managers' homes): the manager's conversation opens with one "Looking for: private room
+near UW - under $1200 - Dec 1 - 6 mo" line (`lookingForLine`), then only texts about their own home (the text itself continues through the normal
+pipeline). Only a PropLane staff placement into a PropLane-owned (`is_service`) workspace still hands over the whole conversation; a placement into a free or paid manager's workspace gets the same "Looking for" line. Pre-lock browsing stays in Admin > Unassigned, read-only,
+and leaves it when the lead is assigned.
+
+**Paid homes.** A paid manager's home is offered but never described by the line. On interest (a pick, a text naming it, a yes to the switch question)
+the reply is `paidInterestReply` ("12 Ravenna Pl is listed by Marcus. To learn more or book a tour, text Marcus at (206) 555-0142.", number from
+`paidWorkNumberFor`, first name from `profiles.full_name`) and ONLY the synthesized interest text plus that reply are written into that manager's
+workspace Communication (`recordPaidInterest`: prospect conversation through the conversation key, tagged with the home), so the thread continues when
+the prospect texts the manager's own number. Later texts from the locked phone get the same reply again, written nowhere. A number that cannot be
+named says nothing about the home and does not lock.
+
+**The switch question (`locked-prospect.server.ts`, called from `routeSharedLineInboundWithReply` before candidates are decided).** For a phone
+whose only ties are returning-prospect ones and that has a lock: a text naming a DIFFERENT home, or pointing at an offered one by position ("the other
+one", "#2", "the first one", "interested in 3" - `offerReference`, deliberately narrow), is never acted on. The line asks "Are you asking about <street>,
+<room>?" (or "Which one? 1) ... 2) ..." for several) and stores it as `pending_candidates`. The question and the answer are written to an open lead
+in Admin > Unassigned and to NO workspace. YES (or a number / name from the list) re-locks (managed / free: `assignLeadToHouse` + a one-line details
+reply logged in the new workspace; paid: the interest flow above); NO answers "OK, still talking about <street>." and keeps the lock; any other text
+lets the question lapse and is read fresh. Everything else routes to the locked home's manager.
+
+Tests: `tests/unit/line-206-home-lock.test.ts` replays the plan's A5 conversation through the router over an in-memory database and asserts, after every
+text, which workspaces got new message rows; plus `one-number-{lead-match,unassigned-leads,unknown-sender,session,house-redirect}` and
+`propline-shared-mode`.
+
+**The leasing agent knows the locked home.** `runLeasingSmsAgentTurn` reads `sms_line_sessions.locked_property_id` for the texting phone
+(`locked-home-context.server.ts`, never from the text), re-checks the home is live and belongs to the routed manager and workspace, and puts
+`lockedHome` in `LeasingSmsAgentScope`, a sentence in the system prompt (`lockedHomePromptNote`) and a head-of-list preference in `list_live_listings`
+(`lockedPropertyId` in its result). A switch moves the lock, so the next turn carries the new home; a lock that points at someone else's home is no
+lock. Tests: `tests/unit/line-206-leasing-locked-home.test.ts`.

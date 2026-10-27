@@ -194,6 +194,36 @@ export async function dispatchReminderRow(
     return "sent";
   }
 
+  // The welcome IS the Move-in details card in the resident's conversation (A3). It goes through the same
+  // idempotent event a manager's own send uses (`emitMoveInDetails`), so turning the sequence on can never
+  // send a second card; the generic reminder wording below is not used for it.
+  if (row.kind === "resident_welcome") {
+    try {
+      const { emitMoveInDetails } = await import("@/lib/move-in-details-event.server");
+      const residentUserId =
+        typeof row.payload.recipientUserId === "string" && row.payload.recipientUserId.trim()
+          ? row.payload.recipientUserId.trim()
+          : row.subjectId;
+      const result = await emitMoveInDetails(db, {
+        managerUserId: row.managerUserId,
+        residentEmail: row.recipientEmail,
+        residentUserId,
+        sender,
+      });
+      if (result.ok) {
+        await resolveReminder(db, row.id, workerId, "sent");
+        return "sent";
+      }
+      // No placed, approved home (or no address) yet: nothing true to say, and retrying every five minutes
+      // cannot fix it. The card is sent by `emitMoveInDetails` the next time someone calls it for this home.
+      await resolveReminder(db, row.id, workerId, "failed", `no move-in details to send (${result.reason})`);
+      return "failed";
+    } catch (error) {
+      await resolveReminder(db, row.id, workerId, "scheduled", error instanceof Error ? error.message : "welcome delivery threw");
+      return "retried";
+    }
+  }
+
   // A guest's timed stay text (arrival guide, checkout reminder) is built from the house's current
   // details at send time and reaches ONE person: the guest, in their own 1:1 thread. It carries the
   // door code, so nothing else (a teammate, the manager, a group) is ever a recipient of it.

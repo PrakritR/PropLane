@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isGenericParticipantName, resolveResidentThreadManager } from "@/lib/resident-communication-manager";
+import { isGenericParticipantName, residentThreadSubtitle, resolveResidentThreadManager } from "@/lib/resident-communication-manager";
 
 const contact = {
   managerName: "Email Match",
@@ -102,5 +102,20 @@ describe("isGenericParticipantName", () => {
   });
   it.each(["Test Manager", "Test Everything", "Cascade Lofts"])("%j is a name", (name) => {
     expect(isGenericParticipantName(name)).toBe(false);
+  });
+});
+
+describe("residentThreadSubtitle (A1: the 206 is the host's number on a managed workspace's portal thread too)", () => {
+  const managed = { name: "Ambika", workspaceName: "Ambika Homes", homeLabel: "4709A 8th Ave NE", email: "ambika@mail.proplane.ai", workPhone: "+12066781909", onPropLaneLine: true };
+  const selfServe = { name: "Dana", workspaceName: "Cascade", homeLabel: "1 Main St", email: "dana@example.com", workPhone: "+15103098345" };
+
+  it("a managed workspace's portal thread names the PropLane line beside the email; its text thread names it alone", () => {
+    expect(residentThreadSubtitle(managed, false)).toBe("Ambika Homes · 4709A 8th Ave NE · ambika@mail.proplane.ai · +1 (206) 678-1909 · PropLane line");
+    expect(residentThreadSubtitle(managed, true)).toBe("Ambika Homes · 4709A 8th Ave NE · +1 (206) 678-1909 · PropLane line");
+  });
+
+  it("a self-serve workspace is unchanged: email on the portal thread, its own number on a text thread", () => {
+    expect(residentThreadSubtitle(selfServe, false)).toBe("Cascade · 1 Main St · dana@example.com");
+    expect(residentThreadSubtitle(selfServe, true)).toBe("Cascade · 1 Main St · +1 (510) 309-8345");
   });
 });

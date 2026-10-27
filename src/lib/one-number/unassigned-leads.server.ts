@@ -9,8 +9,10 @@ import { extractLeadFieldsWithModel } from "@/lib/one-number/lead-extract.server
 import {
   buildOfferBubbles,
   buildOfferText,
+  countFittingRooms,
+  MAX_STRANGER_OFFERS,
   type OfferBubble,
-  matchRooms,
+  matchOffers,
   NO_MATCH_TEXT,
   offerFromRow,
   parseOfferPick,
@@ -18,6 +20,7 @@ import {
 import {
   applyAnswer,
   mergeModelFields,
+  missingSteps,
   NEUTRAL_REPLY,
   nextQuestion,
   pacificToday,
@@ -25,18 +28,29 @@ import {
   touchesProtectedTopic,
   WELCOME,
   withoutProtectedClauses,
+  type LeadOffer,
   type LeadProfile,
 } from "@/lib/one-number/lead-qualifying";
 import { redactSensitiveNumbers } from "@/lib/one-number/redact";
 import { findWorkspaceProspectCandidate, propertyLabel } from "@/lib/one-number/router-lookups.server";
-import { saveSharedLineRoute } from "@/lib/one-number/session.server";
+import {
+  HOLD_REPLY,
+  lookingForLine,
+  offerLabel,
+  PAID_NUMBER_UNAVAILABLE_REPLY,
+  paidInterestReply,
+  switchQuestion,
+} from "@/lib/one-number/home-lock";
+import { claimLeadAndLock, loadHome, ownerFirstName, recordPaidInterest, tagLockedHouse, workspaceIsService, writeLookingForTurn } from "@/lib/one-number/home-lock.server";
+import { listingsNamedIn, matchListingsNamedIn, streetLine } from "@/lib/one-number/house-redirect";
+import { lineTierOf, type LineListing } from "@/lib/one-number/line-tier";
+import { paidWorkNumberFor } from "@/lib/one-number/self-serve-line.server";
 import { alertWorkspaceTeam } from "@/lib/one-number/team-alerts.server";
 import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import { upsertManagerSmsContact } from "@/lib/sms/manager-sms-contacts.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { resolveHouseRedirect } from "@/lib/one-number/house-redirect.server";
-import { isServiceWorkspace } from "@/lib/one-number/service-line.server";
-import { getLineCatalogListings } from "@/lib/one-number/line-catalog.server";
+import { getLineOfferListings } from "@/lib/one-number/line-catalog.server";
 
 export type UnassignedLeadTurn = {
   leadId: string | null;
@@ -57,8 +71,12 @@ function redactLeadBody(body: string): string {
 
 export type LeadDeps = {
   now?: () => Date;
-  /** Live public listings (the hourly projected catalog). */
-  listings?: () => Promise<MockProperty[]>;
+  /** Live public listings (the hourly projected catalog), each tagged with its tier when the line is shared. */
+  listings?: () => Promise<LineListing[]>;
+  /** The work number the home's manager PAYS for (never the shared line), or null. */
+  paidNumberOf?: (listing: MockProperty) => Promise<string | null>;
+  /** A workspace owner's first name, or null. */
+  firstNameOf?: (ownerUserId: string) => Promise<string | null>;
   /** Fallback answer reader. Receives text already stripped of protected clauses. */
   extract?: (input: { text: string; today: string }) => Promise<Partial<LeadProfile> | null>;
   origin?: () => string;
@@ -67,7 +85,7 @@ export type LeadDeps = {
 };
 
 type Row = Record<string, unknown>;
-type LeadRow = { id: string; phoneKey: string; status: string; profile: LeadProfile; lastInboundAt: string | null; updatedAt: string };
+export type LeadRow = { id: string; phoneKey: string; status: string; profile: LeadProfile; lastInboundAt: string | null; updatedAt: string };
 
 const str = (v: unknown): string => (typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim());
 const EMPTY_TURN: UnassignedLeadTurn = { leadId: null, reply: null, assignedWorkspaceId: null };
@@ -98,7 +116,7 @@ export function e164FromPhoneKey(phoneKey: string): string {
  */
 type LeadLookup = { kind: "lead"; lead: LeadRow } | { kind: "missing" } | { kind: "unavailable" };
 
-async function findOrCreateOpenLead(db: SupabaseClient, phoneKey: string, nowIso: string): Promise<LeadLookup> {
+export async function findOrCreateOpenLead(db: SupabaseClient, phoneKey: string, nowIso: string): Promise<LeadLookup> {
   const read = () => db.from("sms_unassigned_leads").select(LEAD_COLUMNS).eq("phone_key", phoneKey).eq("status", "open").maybeSingle();
   const first = await read();
   if (first.error) return isMissingSchemaError(first.error) ? { kind: "missing" } : { kind: "unavailable" };
@@ -129,7 +147,7 @@ export function firstTextFallbackReply(): string {
   return toGsm7(`${WELCOME}${question ? ` ${question.text}` : ""}`);
 }
 
-async function storedReplyFor(db: SupabaseClient, leadId: string, messageSid: string): Promise<string | null> {
+export async function storedReplyFor(db: SupabaseClient, leadId: string, messageSid: string): Promise<string | null> {
   const { data } = await db
     .from("sms_unassigned_lead_turns")
     .select("body")
@@ -140,12 +158,12 @@ async function storedReplyFor(db: SupabaseClient, leadId: string, messageSid: st
   return body || null;
 }
 
-async function saveProfile(db: SupabaseClient, lead: LeadRow, profile: LeadProfile, extra: Record<string, unknown> = {}): Promise<void> {
+export async function saveProfile(db: SupabaseClient, lead: LeadRow, profile: LeadProfile, extra: Record<string, unknown> = {}): Promise<void> {
   const now = new Date().toISOString();
   await db.from("sms_unassigned_leads").update({ profile, updated_at: now, ...extra }).eq("id", lead.id).eq("status", "open");
 }
 
-async function recordReply(db: SupabaseClient, leadId: string, messageSid: string, body: string, mediaUrls: string[]): Promise<void> {
+export async function recordReply(db: SupabaseClient, leadId: string, messageSid: string, body: string, mediaUrls: string[]): Promise<void> {
   await db.from("sms_unassigned_lead_turns").insert({
     lead_id: leadId,
     direction: "outbound",
@@ -155,9 +173,10 @@ async function recordReply(db: SupabaseClient, leadId: string, messageSid: strin
   });
 }
 
-const PICK_PROMPT = (n: number) => `Reply ${n === 1 ? "1" : n === 2 ? "1 or 2" : "1, 2 or 3"} to pick a room, or TOUR to see one.`;
+const PICK_PROMPT = (n: number) =>
+  `Reply ${n === 1 ? "1" : n === 2 ? "1 or 2" : n === 3 ? "1, 2 or 3" : "1, 2, 3 or 4"} to pick a room, or TOUR to see one.`;
 
-type FlowResult = { profile: LeadProfile; reply: string; mediaUrls: string[]; bubbles?: OfferBubble[]; assign?: { propertyId: string; roomId: string } };
+type FlowResult = { profile: LeadProfile; reply: string; mediaUrls: string[]; bubbles?: OfferBubble[]; assign?: { propertyId: string; roomId: string; tier?: LeadOffer["tier"] } };
 
 async function matchAndOffer(profile: LeadProfile, deps: Required<Pick<LeadDeps, "now" | "listings" | "origin">>): Promise<FlowResult> {
   const today = pacificToday(deps.now());
@@ -168,15 +187,17 @@ async function matchAndOffer(profile: LeadProfile, deps: Required<Pick<LeadDeps,
     // A failed catalog read is not "no room": say so and search again on the next text.
     return {
       profile: { ...profile, stage: "qualifying", asked: "refine" },
-      reply: "I could not check rooms just now. Text me again in a minute and I will try again.",
+      reply: RETRY_REPLY,
       mediaUrls: [],
     };
   }
-  const rows = matchRooms(listings, profile, today);
-  if (rows.length === 0) {
+  // One PropLane-managed, one free-manager and one paid-manager home when each has a fit, never two from one manager.
+  const picks = matchOffers(listings, profile, today);
+  if (picks.length === 0) {
     return { profile: { ...profile, stage: "no_match", asked: null, offers: [] }, reply: NO_MATCH_TEXT, mediaUrls: [] };
   }
-  const offers = rows.map((row, i) => offerFromRow(row, i + 1));
+  const rows = picks.map((p) => p.row);
+  const offers = picks.map((p, i) => offerFromRow(p.row, i + 1, p.tier));
   const bubbles = buildOfferBubbles(offers, rows, deps.origin());
   return {
     profile: { ...profile, stage: "offered", asked: "pick", offers },
@@ -224,7 +245,7 @@ async function runFlow(
     const offers = profile.offers ?? [];
     const pick = parseOfferPick(text, offers);
     if (pick.kind === "pick") {
-      return { profile, reply: "", mediaUrls: [], assign: { propertyId: pick.offer.propertyId, roomId: pick.offer.roomId } };
+      return { profile, reply: "", mediaUrls: [], assign: { propertyId: pick.offer.propertyId, roomId: pick.offer.roomId, tier: pick.offer.tier } };
     }
     if (pick.kind === "which") return { profile, reply: `Which one? ${PICK_PROMPT(offers.length)}`, mediaUrls: [] };
     if (pick.kind === "decline") {
@@ -252,7 +273,13 @@ async function runFlow(
   // Qualifying (including a first text).
   const read = await readAnswer(profile, text, deps);
   const next: LeadProfile = { ...read.profile, stage: "qualifying" };
-  const question = nextQuestion(next);
+  let question = nextQuestion(next);
+  // Keep asking while more than 4 rooms fit. Everything that can narrow the search is asked (budget, move-in, area, room
+  // type); the headcount never filters, so once those are in and 4 or fewer rooms fit, the offers go out without it.
+  if (question && missingSteps(next).every((step) => step === "household")) {
+    const fits = await deps.listings().then((all) => countFittingRooms(all, next, pacificToday(deps.now()))).catch(() => null);
+    if (fits !== null && fits >= 1 && fits <= MAX_STRANGER_OFFERS) question = null;
+  }
   if (!question) {
     const offered = await matchAndOffer(next, deps);
     if (!first) return offered;
@@ -282,11 +309,15 @@ export async function handleUnassignedLeadInbound(
 ): Promise<UnassignedLeadTurn> {
   // The homes the line shows: managed homes in per_workspace mode; in shared mode (the 206 is every free manager's number)
   // also every self-serve home without a personal number (`line-catalog.server.ts`).
-  const listings = depsIn.listings ?? (() => getLineCatalogListings(db));
+  const listings = depsIn.listings ?? (() => getLineOfferListings(db));
   const deps: Required<LeadDeps> = {
     now: depsIn.now ?? (() => new Date()),
     // A stranger on the PropLane line is shown the homes the line serves (see `getLineCatalogListings`) and no one else's.
     listings,
+    paidNumberOf:
+      depsIn.paidNumberOf ??
+      (async (l: MockProperty) => (l.managerUserId ? paidWorkNumberFor(db, { ownerUserId: l.managerUserId, workspaceId: l.workspaceId ?? null }) : null)),
+    firstNameOf: depsIn.firstNameOf ?? ((ownerUserId: string) => ownerFirstName(db, ownerUserId)),
     extract: depsIn.extract ?? extractLeadFieldsWithModel,
     origin: depsIn.origin ?? resolveEmailLinkBaseUrl,
     houseRedirect: depsIn.houseRedirect ??
@@ -337,9 +368,10 @@ export async function handleUnassignedLeadInbound(
     const triggerTurnId = str((inboundTurn.data as Row | null)?.id);
     await db.from("sms_unassigned_leads").update({ last_inbound_at: nowIso, updated_at: nowIso }).eq("id", lead.id);
 
-    const first = firstTurn;
+    // A stranger whose first text named nothing got the one "Which home?" reply: the next text is the first real one.
+    const first = firstTurn || lead.profile.stage === "hold";
     // A new inquiry on the PropLane line: tell the service manager's phone once (best effort, never blocks the reply).
-    if (first) {
+    if (firstTurn) {
       void import("@/lib/service/service-manager-alerts.server")
         .then((m) => m.alertServiceManagerOfInquiry(db, { phone: inbound.phoneKey, body: inbound.body }))
         .catch(() => undefined);
@@ -351,21 +383,28 @@ export async function handleUnassignedLeadInbound(
       await recordReply(db, lead.id, inbound.messageSid, reply, []);
       return { leadId: lead.id, reply, assignedWorkspaceId: null };
     }
+    const ctx: LockContext = { inboundSid: inbound.messageSid, triggerTurnId, first };
+
+    // A text that names exactly one home (street, house name or listing title) locks the line to that home; two homes ask which.
+    const catalog = await deps.listings().catch(() => null);
+    if (catalog) {
+      const named = matchListingsNamedIn(inbound.body, catalog);
+      if (named.kind === "one") return lockLeadToListing(db, lead, named.listing, named.listing.id, undefined, ctx, deps);
+      if (named.kind === "several") {
+        const asked = askWhichHome(inbound.body, catalog);
+        if (asked) {
+          await saveProfile(db, lead, { ...lead.profile, stage: "offered", asked: "pick", offers: asked.offers });
+          await recordReply(db, lead.id, inbound.messageSid, asked.reply, []);
+          return { leadId: lead.id, reply: asked.reply, assignedWorkspaceId: null };
+        }
+      }
+    }
+
     const flow = await runFlow(lead.profile, inbound.body, first, deps);
 
     if (flow.assign) {
-      const assigned = await assignLeadToHouse(db, {
-        leadId: lead.id,
-        propertyId: flow.assign.propertyId,
-        excludeTurnIds: triggerTurnId ? [triggerTurnId] : [],
-        by: "prospect",
-      }, deps);
-      if (assigned.ok) return { leadId: lead.id, reply: null, assignedWorkspaceId: assigned.workspaceId };
-      // The room is gone or not assignable: say so and offer to search again.
-      const reply = toGsm7("That room is no longer available. Send a new budget or area and I will search again.");
-      await saveProfile(db, lead, { ...lead.profile, stage: "qualifying", asked: "refine", offers: [] });
-      await recordReply(db, lead.id, inbound.messageSid, reply, []);
-      return { leadId: lead.id, reply, assignedWorkspaceId: null };
+      const listing = catalog?.find((p) => p.id === flow.assign!.propertyId);
+      return lockLeadToListing(db, lead, listing, flow.assign.propertyId, flow.assign.tier, ctx, deps);
     }
 
     const reply = toGsm7(flow.reply);
@@ -392,17 +431,160 @@ export async function handleUnassignedLeadInbound(
 }
 
 // ---------------------------------------------------------------------------
-// Assignment
+// Home lock: a pick, or a text naming one home, locks the line to that home and its manager
 // ---------------------------------------------------------------------------
 
-/**
- * Does `workspaceId` carry the PropLane Service flag? `isServiceWorkspace` is the one place that decides it; a read
- * it could not answer (null) is NOT a service workspace here, which is the fail-closed direction for both callers
- * below (less access, never more).
- */
-async function workspaceIsService(db: SupabaseClient, workspaceId: string): Promise<boolean> {
-  return (await isServiceWorkspace(db, workspaceId)) === true;
+type LockContext = { inboundSid: string; triggerTurnId: string; first: boolean };
+
+const GONE_REPLY = "That room is no longer available. Send a new budget or area and I will search again.";
+/** The neutral line when a write the answer depends on failed: nothing is claimed, the phone keeps its previous home. */
+export const RETRY_REPLY = "I could not check rooms just now. Text me again in a minute and I will try again.";
+
+/** Several homes named in one text: "Which one? 1) ... 2) ...", with the homes stored as offers so a number picks one. */
+function askWhichHome(text: string, catalog: readonly LineListing[]): { reply: string; offers: LeadOffer[] } | null {
+  const hits = listingsNamedIn(text, catalog).slice(0, MAX_STRANGER_OFFERS);
+  if (hits.length < 2) return null;
+  const offers: LeadOffer[] = hits.map((l, i) => ({ n: i + 1, propertyId: l.id, roomId: "", label: streetLine(l.address) || l.title, rent: null, availability: "", tier: lineTierOf(l) }));
+  return { reply: switchQuestion(offers.map((o) => offerLabel(o))), offers };
 }
+
+/**
+ * Lock a stranger to ONE home. A PropLane-managed or free-manager home hands the lead to that workspace (the text itself
+ * then continues into that workspace's own conversation); a PAID manager's home gives their number, on interest.
+ */
+async function lockLeadToListing(
+  db: SupabaseClient,
+  lead: LeadRow,
+  listing: LineListing | undefined,
+  propertyId: string,
+  offerTier: LeadOffer["tier"],
+  ctx: LockContext,
+  deps: Required<LeadDeps>,
+): Promise<UnassignedLeadTurn> {
+  const tier = listing ? lineTierOf(listing) : (offerTier ?? "managed");
+  if (tier === "paid" && listing) return paidInterestTurn(db, lead, listing, ctx, deps);
+  const assigned = await assignLeadToHouse(db, { leadId: lead.id, propertyId, excludeTurnIds: ctx.triggerTurnId ? [ctx.triggerTurnId] : [], by: "prospect" }, deps);
+  if (assigned.ok) return { leadId: lead.id, reply: null, assignedWorkspaceId: assigned.workspaceId };
+  if (assigned.error === "unavailable") {
+    // The lock (or a read it needs) did not save: nothing moved, the lead stays open and the next text tries again.
+    const retry = toGsm7(RETRY_REPLY);
+    await recordReply(db, lead.id, ctx.inboundSid, retry, []);
+    return { leadId: lead.id, reply: retry, assignedWorkspaceId: null };
+  }
+  // The room is gone or not assignable: say so and offer to search again.
+  const reply = toGsm7(GONE_REPLY);
+  await saveProfile(db, lead, { ...lead.profile, stage: "qualifying", asked: "refine", offers: [] });
+  await recordReply(db, lead.id, ctx.inboundSid, reply, []);
+  return { leadId: lead.id, reply, assignedWorkspaceId: null };
+}
+
+/**
+ * A prospect wants a PAID manager's home: the reply names the home, the manager's first name and their own work number
+ * ("12 Ravenna Pl is listed by Marcus. To learn more or book a tour, text Marcus at (206) 555-0142."). Only the interest
+ * text and this reply are written into that manager's workspace Communication, so the conversation carries on there when
+ * the prospect texts the manager. The lead leaves Unassigned and the phone is locked to the home. A manager whose number
+ * cannot be named is not described and not locked.
+ */
+export async function paidInterestTurn(
+  db: SupabaseClient,
+  lead: Pick<LeadRow, "id" | "phoneKey" | "profile">,
+  listing: Pick<MockProperty, "id" | "managerUserId" | "workspaceId" | "address" | "title">,
+  ctx: { inboundSid: string; first?: boolean },
+  deps: Pick<Required<LeadDeps>, "now" | "paidNumberOf" | "firstNameOf">,
+): Promise<UnassignedLeadTurn> {
+  const number = await deps.paidNumberOf(listing as MockProperty).catch(() => null);
+  const config = await loadSharedLineConfig(db);
+  const home = number ? await loadHome(db, listing.id, config) : null;
+  if (!number || !home) {
+    const reply = toGsm7(number ? GONE_REPLY : PAID_NUMBER_UNAVAILABLE_REPLY);
+    await recordReply(db, lead.id, ctx.inboundSid, reply, []);
+    return { leadId: lead.id, reply, assignedWorkspaceId: null };
+  }
+  const firstName = (await deps.firstNameOf(home.ownerUserId).catch(() => null)) ?? "";
+  const reply = paidInterestReply({ label: home.label, firstName, number });
+  const at = deps.now().toISOString();
+  // Claim the lead, then lock the phone to the home, as one ordered conditional unit (`claimLeadAndLock`). Only after BOTH
+  // applied is the success reply recorded: a replay of this text can never be handed a success for a failed attempt.
+  const welcomed = (text: string) => (ctx.first ? toGsm7(`${WELCOME} ${text}`) : text);
+  const moved = await claimLeadAndLock(db, {
+    lead,
+    target: { workspaceId: home.workspaceId, propertyId: home.propertyId },
+    at,
+    assignedProfile: { ...lead.profile, stage: "assigned", asked: null },
+  });
+  if (moved.kind === "lost" && moved.same) {
+    // The winner already holds this exact home and lock (and recorded it): nothing more to write.
+    return { leadId: lead.id, reply: welcomed(reply), assignedWorkspaceId: null };
+  }
+  if (moved.kind !== "won") {
+    // Nothing was claimed or locked (or a different request won): say nothing about the home. The neutral line is what a
+    // replay of this text gets back, never a success.
+    const retry = toGsm7(RETRY_REPLY);
+    await recordReply(db, lead.id, ctx.inboundSid, retry, []);
+    return { leadId: lead.id, reply: welcomed(retry), assignedWorkspaceId: null };
+  }
+  await recordReply(db, lead.id, ctx.inboundSid, reply, []);
+  const phoneE164 = e164FromPhoneKey(lead.phoneKey);
+  await recordPaidInterest(db, {
+    home,
+    phoneE164,
+    linePhone: config.sharedNumber ?? phoneE164,
+    interestText: `I'm interested in ${home.label}.`,
+    replyText: reply,
+    key: `${lead.id}:${home.propertyId}`,
+    at,
+  });
+  return { leadId: lead.id, reply: welcomed(reply), assignedWorkspaceId: null };
+}
+
+/**
+ * A stranger's first text named nothing specific ("hi", "who is this"): ONE reply asking which home, and the text waits in
+ * Admin > Unassigned (an open lead in the `hold` stage), never in any workspace's Communication. Their next text is
+ * checked again: a home named locks them to it, anything else goes on as before.
+ */
+export async function handleHoldInbound(db: SupabaseClient, inbound: SharedLineInbound, depsIn: Pick<LeadDeps, "now"> = {}): Promise<UnassignedLeadTurn> {
+  const nowIso = (depsIn.now?.() ?? new Date()).toISOString();
+  const found = await findOrCreateOpenLead(db, inbound.phoneKey, nowIso);
+  if (found.kind !== "lead") return { leadId: null, reply: toGsm7(HOLD_REPLY), assignedWorkspaceId: null };
+  const lead = found.lead;
+  const inboundTurn = await db
+    .from("sms_unassigned_lead_turns")
+    .insert({ lead_id: lead.id, direction: "inbound", body: redactLeadBody(inbound.body), message_sid: inbound.messageSid || null, media: inbound.mediaCount > 0 ? { count: inbound.mediaCount } : null })
+    .select("id")
+    .maybeSingle();
+  if (inboundTurn.error?.code === "23505") {
+    const stored = await storedReplyFor(db, lead.id, inbound.messageSid);
+    return { leadId: lead.id, reply: stored ?? toGsm7(HOLD_REPLY), assignedWorkspaceId: null };
+  }
+  const reply = toGsm7(HOLD_REPLY);
+  await saveProfile(db, lead, { ...lead.profile, stage: "hold", asked: null });
+  await db.from("sms_unassigned_leads").update({ last_inbound_at: nowIso, updated_at: nowIso }).eq("id", lead.id);
+  await recordReply(db, lead.id, inbound.messageSid, reply, []);
+  return { leadId: lead.id, reply, assignedWorkspaceId: null };
+}
+
+/** The stage of the phone's open lead (`hold` after the one "Which home?" reply), or null when it has none. */
+export async function openLeadStage(db: SupabaseClient, phoneKey: string): Promise<string | null> {
+  const { data } = await db.from("sms_unassigned_leads").select("profile").eq("phone_key", phoneKey).eq("status", "open").maybeSingle();
+  if (!data) return null;
+  const profile = (data as Row).profile as LeadProfile | null;
+  return profile?.stage ?? "qualifying";
+}
+
+/** Does this text name exactly one home the line offers (any tier)? Used before the role question: a named home needs no question. */
+export async function textNamesOneHome(db: SupabaseClient, text: string, depsIn: Pick<LeadDeps, "listings"> = {}): Promise<boolean> {
+  try {
+    const catalog = await (depsIn.listings ?? (() => getLineOfferListings(db)))();
+    const named = matchListingsNamedIn(text, catalog);
+    return named.kind !== "none";
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Assignment
+// ---------------------------------------------------------------------------
 
 /**
  * May a prospect on the PropLane line be handed to this workspace? A PropLane-managed workspace always; in `shared` mode
@@ -432,8 +614,8 @@ function profileLine(profile: LeadProfile): string {
  * Hand a lead to ONE workspace. The house is read from the database (never from the offer the lead was
  * shown), must be live, and decides the workspace and its owner. The claim is a conditional update on
  * `status = 'open'`, so a lead is assigned exactly once. The history then enters that workspace's own
- * prospect conversation through the normal log + projection path, the phone's session points there,
- * and only that team is alerted.
+ * prospect conversation (opened by a one-line "Looking for" summary, never the browsing transcript), the phone's session
+ * points there and locks to the home, and only that team is alerted.
  */
 export async function assignLeadToHouse(
   db: SupabaseClient,
@@ -485,58 +667,69 @@ export async function assignLeadToHouse(
   const label = houseLabel || prospect.label;
 
   const at = now().toISOString();
-  const claimed = await db
-    .from("sms_unassigned_leads")
-    .update({
-      status: "assigned",
-      assigned_workspace_id: prospect.workspaceId,
-      assigned_property_id: propertyId || null,
-      assigned_at: at,
-      profile: { ...lead.profile, stage: "assigned", asked: null },
-      updated_at: at,
-    })
-    .eq("id", lead.id)
-    .eq("status", "open")
-    .select("id");
-  if (claimed.error) return { ok: false, error: "unavailable" };
-  if (!claimed.data?.length) return { ok: false, error: "lead_not_open" };
+  // Claim the lead, then lock the phone (a house sets the lock; a placement by an admin with no house clears any earlier one),
+  // as one ordered conditional unit. A loser writes no lock; a lock that does not apply rolls the claim back. Every effect
+  // below runs only after both applied.
+  const moved = await claimLeadAndLock(db, {
+    lead,
+    target: { workspaceId: prospect.workspaceId, propertyId: propertyId || null },
+    at,
+    assignedProfile: { ...lead.profile, stage: "assigned", asked: null },
+  });
+  if (moved.kind === "unavailable") return { ok: false, error: "unavailable" };
+  // A lost race: the winner owns the lead and the lock. Same target as stored AND locked = a no-op success; else retry.
+  if (moved.kind === "lost") return moved.same ? { ok: true, workspaceId: prospect.workspaceId, ownerUserId: prospect.ownerUserId, label } : { ok: false, error: "unavailable" };
 
   const phoneE164 = e164FromPhoneKey(lead.phoneKey);
   const linePhone = config.sharedNumber ?? phoneE164;
-  const excluded = new Set(input.excludeTurnIds ?? []);
-  const turns = await db
-    .from("sms_unassigned_lead_turns")
-    .select("id, direction, body, created_at")
-    .eq("lead_id", lead.id)
-    .order("created_at", { ascending: true })
-    .limit(200);
-  for (const turn of (turns.data ?? []) as Row[]) {
-    const id = str(turn.id);
-    if (excluded.has(id)) continue;
-    const inboundDir = str(turn.direction) === "inbound";
-    // `workspaceId` rides along for the workspace-stamp support in `logManagerSmsMessage`.
-    const entry: Parameters<typeof logManagerSmsMessage>[1] & { workspaceId?: string | null } = {
-      managerUserId: prospect.ownerUserId,
-      residentPhone: phoneE164,
-      direction: inboundDir ? "inbound" : "outbound",
-      body: str(turn.body),
-      fromPhone: inboundDir ? phoneE164 : linePhone,
-      toPhone: inboundDir ? linePhone : phoneE164,
-      messageSid: `lead:${id}`,
-      createdAt: str(turn.created_at) || at,
-      source: "work_number",
-      counterpartyRole: "prospect",
-      workspaceId: prospect.workspaceId,
-    };
-    await logManagerSmsMessage(db, entry).catch(() => false);
+  // Only PropLane's own (is_service) workspace is handed the whole conversation, and only by staff: it is their own workspace
+  // and they can already read it in Unassigned. A free or paid manager's workspace never gets the transcript, whoever places
+  // the lead: it holds the other managers' homes the prospect was offered.
+  if (input.by === "admin" && (await workspaceIsService(db, prospect.workspaceId))) {
+    const excluded = new Set(input.excludeTurnIds ?? []);
+    const turns = await db
+      .from("sms_unassigned_lead_turns")
+      .select("id, direction, body, created_at")
+      .eq("lead_id", lead.id)
+      .order("created_at", { ascending: true })
+      .limit(200);
+    for (const turn of (turns.data ?? []) as Row[]) {
+      const id = str(turn.id);
+      if (excluded.has(id)) continue;
+      const inboundDir = str(turn.direction) === "inbound";
+      // `workspaceId` rides along for the workspace-stamp support in `logManagerSmsMessage`.
+      const entry: Parameters<typeof logManagerSmsMessage>[1] & { workspaceId?: string | null } = {
+        managerUserId: prospect.ownerUserId,
+        residentPhone: phoneE164,
+        direction: inboundDir ? "inbound" : "outbound",
+        body: str(turn.body),
+        fromPhone: inboundDir ? phoneE164 : linePhone,
+        toPhone: inboundDir ? linePhone : phoneE164,
+        messageSid: `lead:${id}`,
+        createdAt: str(turn.created_at) || at,
+        source: "work_number",
+        counterpartyRole: "prospect",
+        workspaceId: prospect.workspaceId,
+      };
+      await logManagerSmsMessage(db, entry).catch(() => false);
+    }
+    // Best-effort stamp for databases where the helper above does not stamp yet.
+    await db.from("manager_sms_messages").update({ workspace_id: prospect.workspaceId }).eq("manager_user_id", prospect.ownerUserId).like("message_sid", "lead:%").is("workspace_id", null);
+  } else {
+    // A prospect's own pick or naming of a home, or a placement into someone else's workspace: the browsing transcript is NOT
+    // copied (it holds the other managers' homes the prospect was offered). The manager's conversation opens with one
+    // "Looking for" line, then only the texts about their own home.
+    const looking = lookingForLine(lead.profile);
+    if (looking) {
+      await writeLookingForTurn(db, { ownerUserId: prospect.ownerUserId, workspaceId: prospect.workspaceId, phoneE164, linePhone, text: looking, leadId: lead.id, propertyId: propertyId || "workspace", at });
+    }
   }
-  // Best-effort stamp for databases where the helper above does not stamp yet.
-  await db.from("manager_sms_messages").update({ workspace_id: prospect.workspaceId }).eq("manager_user_id", prospect.ownerUserId).like("message_sid", "lead:%").is("workspace_id", null);
 
   // The returning-prospect lookup finds this phone through its contact row from now on.
   await upsertManagerSmsContact(db, { managerUserId: prospect.ownerUserId, phone: phoneE164, counterpartyRole: "prospect", lastInboundAt: at }).catch(() => undefined);
   await db.from("manager_sms_contacts").update({ workspace_id: prospect.workspaceId }).eq("manager_user_id", prospect.ownerUserId).eq("phone_e164", phoneE164).eq("counterparty_role", "prospect");
-  await saveSharedLineRoute(db, lead.phoneKey, { workspaceId: prospect.workspaceId, role: "prospect" });
+  // The thread is tagged with the house so only the owner and the co-hosts who hold it see it (the lock itself is saved above).
+  if (propertyId) await tagLockedHouse(db, { ownerUserId: prospect.ownerUserId, phoneE164, propertyId });
 
   const summary = profileLine(lead.profile);
   await alertWorkspaceTeam(db, {
@@ -652,4 +845,41 @@ export async function listOpenLeadThreads(db: SupabaseClient, opts: { limit?: nu
     lastMessageAt: lead.lastInboundAt,
     turns: byLead.get(lead.id) ?? [],
   }));
+}
+
+// ---------------------------------------------------------------------------
+// The lead exchange for a locked prospect's switch question (Unassigned only)
+// ---------------------------------------------------------------------------
+
+/** The newest lead rows for a phone, any status, newest first. */
+export async function recentLeadsFor(db: SupabaseClient, phoneKey: string, limit = 5): Promise<LeadRow[]> {
+  const { data, error } = await db.from("sms_unassigned_leads").select(LEAD_COLUMNS).eq("phone_key", phoneKey).order("updated_at", { ascending: false }).limit(limit);
+  if (error) return [];
+  return ((data ?? []) as Row[]).map(toLead);
+}
+
+/**
+ * Open (or reuse) the phone's lead and record the inbound text on it, so a question the line asks a LOCKED prospect and its
+ * answer are visible to PropLane admin in Unassigned and to no manager. A new lead starts from `seed` (the criteria of the
+ * earlier lead, so a later re-lock can still say what they were looking for). `duplicate` = a webhook retry of this text.
+ */
+export async function startLeadExchange(
+  db: SupabaseClient,
+  input: { phoneKey: string; body: string; messageSid: string; mediaCount?: number; now: Date; seed?: LeadProfile },
+): Promise<{ lead: LeadRow; duplicate: string | null } | null> {
+  const found = await findOrCreateOpenLead(db, input.phoneKey, input.now.toISOString());
+  if (found.kind !== "lead") return null;
+  let lead = found.lead;
+  if (lead.profile.stage === undefined && input.seed) {
+    lead = { ...lead, profile: { ...input.seed, stage: "switch", asked: null } };
+    await saveProfile(db, lead, lead.profile);
+  }
+  const turn = await db
+    .from("sms_unassigned_lead_turns")
+    .insert({ lead_id: lead.id, direction: "inbound", body: redactLeadBody(input.body), message_sid: input.messageSid || null, media: input.mediaCount ? { count: input.mediaCount } : null })
+    .select("id")
+    .maybeSingle();
+  if (turn.error?.code === "23505") return { lead, duplicate: (await storedReplyFor(db, lead.id, input.messageSid)) ?? "" };
+  await db.from("sms_unassigned_leads").update({ last_inbound_at: input.now.toISOString(), updated_at: input.now.toISOString() }).eq("id", lead.id);
+  return { lead, duplicate: null };
 }

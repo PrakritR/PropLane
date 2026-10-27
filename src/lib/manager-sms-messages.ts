@@ -57,6 +57,19 @@ export type ManagerSmsMessageRow = {
 };
 
 /**
+ * The "Looking for" summary that opens a prospect's conversation once the PropLane line locks them to a home
+ * (`writeLookingForTurn`, sid `lookingfor:<lead>:<home>`). It is drawn as a card, not a text anyone sent.
+ */
+export function isLookingForTurnSid(messageSid: string | null | undefined): boolean {
+  return String(messageSid ?? "").startsWith("lookingfor:");
+}
+
+/** The card's text: the stored "Looking for: ..." line without its label. */
+export function lookingForCardText(body: string): string {
+  return body.replace(/^\s*looking for:?\s*/i, "").trim();
+}
+
+/**
  * Who a text bubble is from, as a person reads it: "You" for the viewer's own
  * texts (or the teammate's name when a co-manager sent it), the other side's
  * name for what they sent. Never the raw direction word.

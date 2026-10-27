@@ -21,6 +21,7 @@ import { provisionApprovedResidentAccount } from "@/lib/auth/provision-approved-
 import { isDraftApplicationRow, normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { createLinkedFormRequestsForSubmit } from "@/lib/application-linked-form-requests.server";
 import { applicationEventForTransition, emitApplicationTransition } from "@/lib/domain-action-events.server";
+import { emitRoomAssignment } from "@/lib/move-in-details-event.server";
 import { dispatchMoveInFormsForResidencyAfterResponse } from "@/lib/move-in-forms/server";
 import {
   notifyManagerApplicationSubmitted,
@@ -529,6 +530,16 @@ export async function persistApplicationWrite(
       application: row,
       actor: { userId: user.id, email: user.email ?? "" },
     }).catch(bestEffortFailed("application action event", { application: row.id }));
+  }
+  // The resident's room was set or changed: one Room assigned card in their conversation. After the write
+  // committed, best-effort, idempotent per residency and room (`room_assigned:<residency>:<room>`).
+  if (row.managerUserId) {
+    void emitRoomAssignment(db, {
+      managerUserId: row.managerUserId,
+      previous: previousRow,
+      application: row,
+      actor: { userId: user.id, email: user.email ?? "" },
+    }).catch(bestEffortFailed("room assigned event", { application: row.id }));
   }
   // Forms set to go out on approval (the manager chose "when the application is approved"
   // rather than the default "when the lease is signed"). Best-effort; never fails this save.
