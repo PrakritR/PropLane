@@ -218,7 +218,7 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
 
   const [houses, numbers, links, serviceLine, feePercents, attachedAt] = await Promise.all([
     db.from("manager_property_records").select("id, workspace_id, manager_user_id").in("workspace_id", ids),
-    db.from("manager_sms_numbers").select("workspace_id, phone_number, provision_state, released_at, created_at").in("workspace_id", ids),
+    db.from("manager_sms_numbers").select("workspace_id, phone_number, provision_state, released_at, requested_at").in("workspace_id", ids),
     db
       .from("account_link_invites")
       .select("id, workspace_id, inviter_user_id, invitee_user_id, team_role, status, is_owner_of_record, invitee_display_name")
@@ -264,7 +264,7 @@ export async function listServiceWorkspaces(db: SupabaseClient, operatorUserId: 
       houseCount: ((houses.data ?? []) as Record<string, unknown>[]).filter((h) => h.workspace_id === row.id).length,
       ...resolveTextingNumber(serviceLine),
       oldNumber: old
-        ? { phoneNumber: String(old.phone_number), since: attachedAt.get(row.id) ?? (typeof old.created_at === "string" ? old.created_at : null) }
+        ? { phoneNumber: String(old.phone_number), since: attachedAt.get(row.id) ?? (typeof old.requested_at === "string" ? old.requested_at : null) }
         : null,
       teamCount: members.filter((l) => l.status === "accepted").length,
       viewerRole: myRole,

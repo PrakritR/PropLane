@@ -229,7 +229,7 @@ describe("the Service list", () => {
       provision_state: "active",
       registration_state: "approved",
       released_at: null,
-      created_at: "2026-10-01T00:00:00.000Z",
+      requested_at: "2026-10-01T00:00:00.000Z",
     });
     paid.owners.add(OWNER);
     expect(await list()).toBe("+12065550111|shared");
@@ -249,7 +249,7 @@ describe("the Service list", () => {
   it("an attached workspace keeps its old number receive-only: the row shows the 206 plus 'old number kept since <attach date>'", async () => {
     const created = (await svc.createServiceWorkspace(client(), ADMIN_A, { name: "Ambika", city: "Seattle" })) as { id: string };
     db.tables.sms_runtime_config = [{ singleton: true, line_mode: "shared", shared_number_e164: "+12066781909", shared_pilot_workspace_ids: [] }];
-    db.tables.manager_sms_numbers.push({ id: "n1", manager_user_id: OWNER, workspace_id: created.id, phone_number: "+18146793694", provision_state: "active", released_at: null, created_at: "2026-08-01T00:00:00.000Z" });
+    db.tables.manager_sms_numbers.push({ id: "n1", manager_user_id: OWNER, workspace_id: created.id, phone_number: "+18146793694", provision_state: "active", released_at: null, requested_at: "2026-08-01T00:00:00.000Z" });
     db.tables.audit_log = [
       { action: svc.ADMIN_SERVICE_ATTACH_AUDIT_ACTION, created_at: "2026-10-25T18:00:00.000Z", input_summary: { workspaceId: created.id } },
       { action: svc.ADMIN_SERVICE_ATTACH_AUDIT_ACTION, created_at: "2026-10-26T18:00:00.000Z", input_summary: { workspaceId: "someone-else" } },
