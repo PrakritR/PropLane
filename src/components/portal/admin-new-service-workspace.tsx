@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
-import { PreviewPanel, WizardField, WizardSection } from "@/components/portal/add-workspace/parts";
+import { PreviewPanel, WizardField, WizardLockedField, WizardSection } from "@/components/portal/add-workspace/parts";
 import { Input } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { cleanOwnerOfRecord, cleanServiceCity, cleanServiceName } from "@/lib/service/service-input";
@@ -167,6 +167,13 @@ export function AdminNewServiceWorkspace({
                 data-attr="admin-service-workspace-owner-contact"
               />
             </WizardField>
+          </div>
+          <div className="mt-4" data-attr="admin-service-workspace-owner-role">
+            <WizardLockedField
+              label="Owner's role"
+              value="Property owner (view-only)"
+              lockTip="The owner joins as the owner of record, view-only. Change their role from Team after they join."
+            />
           </div>
           {error ? (
             <p role="alert" className="mt-3 text-sm font-semibold text-danger">

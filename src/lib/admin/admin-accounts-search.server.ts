@@ -15,6 +15,7 @@ import {
 import { loadSubscriberPopulation } from "@/lib/admin/admin-subscribers.server";
 import { SUBSCRIBER_TABS, type SubscriberBucket } from "@/lib/admin/admin-subscribers-shared";
 import { loadProfilesByIdChunks } from "@/lib/auth/admin-portal-manager-ids.server";
+import { isArchivedWorkspaceRow, isMissingArchivedColumn } from "@/lib/workspaces/archived";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 import { createTtlCache, serverSnapshotCacheEnabled } from "@/lib/server-ttl-cache";
 
@@ -33,6 +34,8 @@ export type AdminAccountSearchRow = {
   lastSignInKnown: boolean;
   /** Managers only: workspaces this account owns. */
   workspaceCount?: number;
+  /** Managers only: owned workspaces that are neither PropLane-managed nor archived. Zero hides "Managed by PropLane...". */
+  unmanagedWorkspaceCount?: number;
 };
 
 export type AdminAccountSearchResult = {
@@ -220,16 +223,16 @@ export async function searchAdminAccounts(
   const pageRows = page.slice(0, ADMIN_ACCOUNT_SEARCH_LIMIT);
 
   const workspaceCounts = new Map<string, number>();
+  // Workspaces the "Managed by PropLane..." row action can still act on: not PropLane-managed, not archived.
+  const unmanagedCounts = new Map<string, number>();
   if (opts.kind === "manager" && pageRows.length > 0) {
-    const { data } = await db
-      .from("portal_workspaces")
-      .select("owner_user_id")
-      .in(
-        "owner_user_id",
-        pageRows.map((row) => row.id),
-      );
-    for (const row of (data ?? []) as { owner_user_id: string }[]) {
+    const ownerIds = pageRows.map((row) => row.id);
+    let res: { data: unknown; error: { code?: string } | null } = await db.from("portal_workspaces").select("owner_user_id, is_service, archived_at").in("owner_user_id", ownerIds);
+    if (res.error && isMissingArchivedColumn(res.error)) res = await db.from("portal_workspaces").select("owner_user_id, is_service").in("owner_user_id", ownerIds);
+    for (const row of (res.data ?? []) as { owner_user_id: string; is_service?: boolean | null; archived_at?: string | null }[]) {
+      if (isArchivedWorkspaceRow(row)) continue;
       workspaceCounts.set(row.owner_user_id, (workspaceCounts.get(row.owner_user_id) ?? 0) + 1);
+      if (row.is_service !== true) unmanagedCounts.set(row.owner_user_id, (unmanagedCounts.get(row.owner_user_id) ?? 0) + 1);
     }
   }
 
@@ -250,7 +253,9 @@ export async function searchAdminAccounts(
       joinedAt: row.created_at ?? null,
       lastSignInAt: known ? signIn.at : null,
       lastSignInKnown: known,
-      ...(opts.kind === "manager" ? { workspaceCount: workspaceCounts.get(row.id) ?? 0 } : {}),
+      ...(opts.kind === "manager"
+        ? { workspaceCount: workspaceCounts.get(row.id) ?? 0, unmanagedWorkspaceCount: unmanagedCounts.get(row.id) ?? 0 }
+        : {}),
     };
   });
 

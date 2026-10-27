@@ -368,7 +368,7 @@ async function insertAdminMembership(
 export async function createServiceWorkspace(
   db: SupabaseClient,
   operatorUserId: string,
-  input: { name: unknown; city: unknown; ownerOfRecord?: unknown; ownerContact?: unknown },
+  input: { name: unknown; city: unknown; ownerOfRecord?: unknown; ownerContact?: unknown; ownerRole?: unknown },
 ): Promise<ServiceResult<{ id: string; ownerInvite: { sent: boolean; delivery?: "account" | "link"; error?: string } | null }>> {
   const name = cleanServiceName(input.name);
   if (!name) return fail(400, "Use a workspace name of 1 to 80 characters.");
@@ -381,6 +381,11 @@ export async function createServiceWorkspace(
   const contactRaw = typeof input.ownerContact === "string" ? input.ownerContact.trim() : input.ownerContact === undefined || input.ownerContact === null ? "" : null;
   if (contactRaw === null || contactRaw.length > 120) return fail(400, "Enter the owner's email or PropLane ID.");
   if (contactRaw.includes("@") && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactRaw)) return fail(400, "Enter a valid email address.");
+  // The owner's role: Property owner (the owner of record, view-only) is the one role an owner invite carries. A different
+  // role is set from the workspace's Team once they have joined (a platform admin edits it there, audited).
+  if (input.ownerRole !== undefined && input.ownerRole !== null && input.ownerRole !== "" && input.ownerRole !== "property_owner") {
+    return fail(400, "An owner is invited as Property owner. Change their role from Team after they join.");
+  }
   const owner = await resolveServiceOwner(db);
   if (!owner.ok) return fail(owner.reason === "not_configured" ? 409 : 503, owner.reason === "not_configured" ? SERVICE_NOT_CONFIGURED : "Could not reach the service settings. Please retry.");
   const created = await db.rpc("create_portal_service_workspace", { p_owner: owner.ownerUserId, p_name: name, p_city: city });
@@ -873,7 +878,26 @@ async function resolveServiceSeatGrant(
   who: { workspace: { id: string; ownerUserId: string }; standing: { role: Parameters<typeof roleAssignableBy>[0] } },
   operatorUserId: string,
   body: InviteAccessInput,
+  /** Editing the owner of record's own seat: role Owner is allowed and re-stamped server-side (read-only by role). */
+  options: { allowOwner?: boolean } = {},
 ): Promise<ServiceFailure | { ok: true; grant: ServiceSeatGrant }> {
+  if (body.teamRole === "property_owner" && options.allowOwner) {
+    // The owner of record keeps the Owner role: houses and keys are re-stamped here, nothing in the body is read.
+    const houses = await workspaceHouseIds(db, who.workspace.ownerUserId, who.workspace.id);
+    // Never taken from the body: an owner sees every house of the workspace and holds the owner keys only.
+    const ownerMap = stampTeamRoleOnProperties("property_owner", houses, {});
+    return {
+      ok: true,
+      grant: {
+        teamRole: "property_owner",
+        houseScope: "selected",
+        assignedPropertyIds: houses,
+        propertyCoManagerPermissions: ownerMap,
+        coManagerPermissions: flatTeamRoleGrant("property_owner", ownerMap) ?? {},
+        workspacePermissions: {},
+      },
+    };
+  }
   // A bare "email or PropLane ID" invite (no role, no houses) is the original service invite: Admin, every house.
   const parsed = parseInviteAccess({ ...body, teamRole: body.teamRole ?? "admin", houseScope: body.houseScope ?? "all" });
   if (!parsed.ok) return fail(400, parsed.error);
@@ -1262,8 +1286,9 @@ async function liveServiceInviteLinks(
 }
 
 /**
- * Edit a seat's access: role, houses and module levels, validated exactly like the invite. The owner of record's
- * access is fixed (read-only by role) and is changed by replacing them, never by editing. Audited before it changes.
+ * Edit a seat's access: role, houses and module levels, validated exactly like the invite. The owner of record is
+ * edited like any teammate (a platform admin only; role Owner stays read-only by role) and KEEPS the owner-of-record
+ * flag whatever role they hold; who the owner is changes only by replacing them. Audited before it changes.
  */
 export async function updateServiceTeamAccess(
   db: SupabaseClient,
@@ -1287,10 +1312,18 @@ export async function updateServiceTeamAccess(
   if (link.error) return fail(503, "Could not update. Please retry.");
   if (!link.data) return fail(404, "Teammate not found.");
   const target = link.data as { invitee_user_id: string; team_role: string | null; status: string; is_owner_of_record: boolean | null };
-  if (target.is_owner_of_record === true || target.team_role === "property_owner") {
-    return fail(409, "The owner's access is read-only by role. Replace the owner to change who it is.");
+  const ownerOfRecord = target.is_owner_of_record === true;
+  // A Property owner who is not the owner of record is the retired role: nothing here edits it.
+  if (!ownerOfRecord && target.team_role === "property_owner") {
+    return fail(409, "This owner's access is read-only by role. Remove them to change it.");
   }
-  const resolved = await resolveServiceSeatGrant(db, who, operatorUserId, input);
+  // The owner of record's role and houses are changed by a PLATFORM ADMIN only, re-derived here (a workspace Admin
+  // seat holder can edit teammates but not who the client is, or what they can do). The owner-of-record flag is never
+  // touched by this verb: only Replace / the owner-of-record verb move it.
+  if (ownerOfRecord && !(await userHoldsAdminRole(db, operatorUserId))) {
+    return fail(403, "Only a PropLane admin can change the owner's access.");
+  }
+  const resolved = await resolveServiceSeatGrant(db, who, operatorUserId, input, { allowOwner: ownerOfRecord });
   if (!resolved.ok) return resolved;
   const { grant } = resolved;
   const oldRole = (parseTeamRole(target.team_role).ok ? (parseTeamRole(target.team_role) as { role: TeamRoleId | null }).role : null) ?? "custom";
@@ -1313,6 +1346,7 @@ export async function updateServiceTeamAccess(
       workspaceId: who.workspace.id,
       linkId,
       inviteeUserId: target.invitee_user_id,
+      ownerOfRecord,
       previousTeamRole: target.team_role,
       teamRole: grant.teamRole,
       houseScope: grant.houseScope,

@@ -15,12 +15,15 @@ const API = "/api/admin/service-workspaces";
 
 /** "Owner", "Admin", "Invited · Owner": the role the row shows, in the words the Invite sheet uses. */
 export function serviceTeamRoleLabel(member: Pick<ServiceTeamMember, "role" | "status" | "ownerOfRecord">): string {
-  const role = member.ownerOfRecord || member.role === "property_owner" ? "Owner" : (TEAM_ROLE_LABELS[member.role as keyof typeof TEAM_ROLE_LABELS] ?? member.role);
+  // The owner of record is "Owner" while they hold the Owner role; a different role shows its own name (still the owner of record).
+  const role = member.role === "property_owner" ? "Owner" : (TEAM_ROLE_LABELS[member.role as keyof typeof TEAM_ROLE_LABELS] ?? member.role);
   return member.status === "pending" ? `Invited · ${role}` : role;
 }
 
 function reachLabel(member: ServiceTeamMember): string | null {
-  if (member.ownerOfRecord || member.delivery === "link") return null;
+  // The owner of record in the Owner role sees every house, view only: nothing to say. In any other role they have a
+  // reach like a teammate.
+  if ((member.ownerOfRecord && member.role === "property_owner") || member.delivery === "link") return null;
   if (member.houseScope === "selected") {
     const count = member.assignedPropertyIds?.length ?? 0;
     return `${count} ${count === 1 ? "house" : "houses"}`;
@@ -146,7 +149,7 @@ export function ServiceTeamSection({
                     label={member.name}
                     dataAttr="service-team-member-menu"
                     items={[
-                      member.delivery === "account" && !member.ownerOfRecord && member.role !== "property_owner"
+                      member.delivery === "account" && (member.ownerOfRecord || member.role !== "property_owner")
                         ? { id: "edit", label: "Edit access", onSelect: () => setSheet({ member }), dataAttr: "service-team-edit" }
                         : null,
                       { id: "remove", label: "Remove", danger: true, onSelect: () => void remove(member), dataAttr: "service-team-remove" },

@@ -249,11 +249,14 @@ describe("Edit access (team-access)", () => {
     const other = await made("2. Vinod");
     expect(await svc.updateServiceTeamAccess(client(), ADMIN_A, { id: other, linkId: String(row.id), teamRole: "viewer", houseScope: "all" })).toMatchObject({ ok: false, status: 404 });
     expect(await svc.updateServiceTeamAccess(client(), ADMIN_A, { id, linkId: "not-a-uuid", teamRole: "viewer", houseScope: "all" })).toMatchObject({ ok: false, status: 400 });
-    // The owner of record's access is read-only by role.
+    // The owner of record is editable like a teammate (a platform admin only, flag kept: admin-managed-by-proplane.test.ts);
+    // a role is still never invented from the body, and nobody else can.
     await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-CCCC", ownerOfRecord: true });
     const ownerRow = db.tables.account_link_invites.find((l) => l.invitee_user_id === CLIENT_OWNER)!;
-    expect(await svc.updateServiceTeamAccess(client(), ADMIN_A, { id, linkId: String(ownerRow.id), teamRole: "admin", houseScope: "all" })).toMatchObject({ ok: false, status: 409 });
-    expect(ownerRow.team_role).toBe("property_owner");
+    expect(await svc.updateServiceTeamAccess(client(), ADMIN_A, { id, linkId: String(ownerRow.id), teamRole: "viewer", houseScope: "all" })).toEqual({ ok: true });
+    expect(ownerRow).toMatchObject({ team_role: "viewer", is_owner_of_record: true });
+    expect(await svc.updateServiceTeamAccess(client(), OUTSIDER, { id, linkId: String(ownerRow.id), teamRole: "admin", houseScope: "all" })).toMatchObject({ ok: false, status: 403 });
+    expect(ownerRow).toMatchObject({ team_role: "viewer", is_owner_of_record: true });
     expect(await svc.updateServiceTeamAccess(client(), OUTSIDER, { id, linkId: String(row.id), teamRole: "admin", houseScope: "all" })).toMatchObject({ ok: false, status: 403 });
   });
 

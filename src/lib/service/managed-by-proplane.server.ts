@@ -48,7 +48,7 @@ type OwnedWorkspaceRow = { id: string; name: string; city: string | null; isDefa
 /** The account's workspaces that are not archived. `null` when the read failed (the caller refuses; never "none"). */
 async function readOwnedWorkspaces(db: SupabaseClient, accountUserId: string): Promise<OwnedWorkspaceRow[] | null> {
   const columns = "id, name, city, is_default, is_service";
-  let res = await db.from("portal_workspaces").select(`${columns}, archived_at`).eq("owner_user_id", accountUserId).order("created_at");
+  let res: { data: unknown; error: { code?: string } | null } = await db.from("portal_workspaces").select(`${columns}, archived_at`).eq("owner_user_id", accountUserId).order("created_at");
   if (res.error && isMissingArchivedColumn(res.error)) res = await db.from("portal_workspaces").select(columns).eq("owner_user_id", accountUserId).order("created_at");
   if (res.error) return null;
   return ((res.data ?? []) as Record<string, unknown>[])

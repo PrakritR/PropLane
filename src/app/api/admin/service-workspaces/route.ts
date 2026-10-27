@@ -64,6 +64,7 @@ export async function POST(request: Request) {
         city: body.city,
         ownerOfRecord: body.ownerOfRecord,
         ownerContact: body.ownerContact,
+        ownerRole: body.ownerRole,
       });
       if (!result.ok) return failure(result);
       return NextResponse.json({ id: result.id, ownerInvite: result.ownerInvite }, { status: 201, headers: NO_STORE });
@@ -105,8 +106,10 @@ export async function POST(request: Request) {
         feePercent: body.feePercent,
       });
       if (!result.ok) return failure(result);
-      const { ok: _ok, ...payload } = result;
-      return NextResponse.json(payload, { status: 201, headers: NO_STORE });
+      return NextResponse.json(
+        { attached: result.attached, moved: result.moved, archived: result.archived, kept: result.kept, feeErrors: result.feeErrors },
+        { status: 201, headers: NO_STORE },
+      );
     }
     case "rename": {
       const result = await renameServiceWorkspace(db, admin.userId, { id, name: body.name, city: body.city, ownerOfRecord: body.ownerOfRecord });

@@ -23,6 +23,8 @@ export type ServiceFakeDb = {
   failInsertOn: Set<string>;
   /** Make updates on `table` fail. */
   failUpdateOn: Set<string>;
+  /** Make this rpc answer with an error, changing nothing (the real ones are single transactions). */
+  failRpc: Set<string>;
   from(table: string): unknown;
   rpc(fn: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { code?: string; message: string } | null }>;
 };
@@ -37,6 +39,7 @@ export function makeServiceFakeDb(initial: Record<string, Row[]> = {}): ServiceF
     failOn: {},
     failInsertOn: new Set(),
     failUpdateOn: new Set(),
+    failRpc: new Set(),
     from(table: string) {
       const rows = () => (db.tables[table] ??= []);
       const filters: Array<(r: Row) => boolean> = [];
@@ -114,6 +117,33 @@ export function makeServiceFakeDb(initial: Record<string, Row[]> = {}): ServiceF
     },
     async rpc(fn, args) {
       db.rpcCalls.push({ fn, args });
+      if (db.failRpc.has(fn)) return { data: null, error: { code: "XX000", message: `${fn} failed` } };
+      if (fn === "combine_portal_workspaces") {
+        // The real one is a single transaction: it checks everything first, then changes only the house link and the
+        // archive stamp.
+        const workspaces = (db.tables.portal_workspaces ??= []);
+        const sources = args.p_sources as string[];
+        const target = workspaces.find((w) => w.id === args.p_target && w.owner_user_id === args.p_owner && !w.archived_at);
+        const found = workspaces.filter((w) => sources.includes(String(w.id)) && w.owner_user_id === args.p_owner && !w.archived_at && w.is_service !== true);
+        if (!target || sources.includes(String(args.p_target)) || found.length !== sources.length) {
+          return { data: null, error: { code: "23514", message: "Every source must be an active, unmanaged workspace of this owner." } };
+        }
+        const moved: string[] = [];
+        for (const h of (db.tables.manager_property_records ??= [])) {
+          if (h.manager_user_id === args.p_owner && sources.includes(String(h.workspace_id))) {
+            h.workspace_id = args.p_target;
+            moved.push(String(h.id));
+          }
+        }
+        const archived: string[] = [];
+        for (const w of found) {
+          if (w.is_default !== true) {
+            w.archived_at = new Date().toISOString();
+            archived.push(String(w.id));
+          }
+        }
+        return { data: { moved, archived, kept: found.filter((w) => !w.archived_at).map((w) => String(w.id)) }, error: null };
+      }
       if (fn === "create_portal_service_workspace") {
         const settings = (db.tables.platform_service_settings ?? [])[0];
         if (!settings || settings.owner_user_id !== args.p_owner) {

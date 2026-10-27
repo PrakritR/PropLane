@@ -179,7 +179,7 @@ describe("ServiceTeamSection", () => {
     expect(writes(fetchMock)).toHaveLength(1);
   });
 
-  it("⋯ offers Edit access on a teammate (not on the owner or an unaccepted link) and Remove on every row", async () => {
+  it("⋯ offers Edit access on a teammate and on the owner of record (a role and houses like anyone), not on an unaccepted link, and Remove on every row", async () => {
     stubFetch();
     render(<ServiceTeamSection workspace={workspace} isAdmin onChanged={vi.fn()} />);
     await screen.findByText("Prakrit");
@@ -191,6 +191,13 @@ describe("ServiceTeamSection", () => {
     render(<ServiceTeamSection workspace={workspace} isAdmin onChanged={vi.fn()} />);
     await screen.findByText("Ambika Rao");
     fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Ambika Rao" }), { key: "Enter" });
+    expect(await screen.findByRole("menuitem", { name: "Edit access" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Remove" })).toBeTruthy();
+    cleanup();
+    stubFetch();
+    render(<ServiceTeamSection workspace={workspace} isAdmin onChanged={vi.fn()} />);
+    await screen.findByText("new@x.com");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for new@x.com" }), { key: "Enter" });
     await screen.findByRole("menuitem", { name: "Remove" });
     expect(screen.queryByRole("menuitem", { name: "Edit access" })).toBeNull();
   });
@@ -210,6 +217,22 @@ describe("ServiceTeamSection", () => {
     const [saved] = writes(fetchMock);
     expect(saved).toMatchObject({ action: "team-access", id: "ws-1", linkId: "l2", teamRole: "property_manager", houseScope: "selected", assignedPropertyIds: ["h1"] });
     expect(showToast).toHaveBeenCalledWith("Access saved.");
+  });
+
+  it("Edit access on the owner of record saves their role through team-access (the owner-of-record flag is the server's, never sent)", async () => {
+    const fetchMock = stubFetch();
+    const onChanged = vi.fn();
+    render(<ServiceTeamSection workspace={workspace} isAdmin onChanged={onChanged} />);
+    await screen.findByText("Ambika Rao");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Ambika Rao" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Edit access" }));
+    const recipient = (await screen.findByPlaceholderText("Email or PropLane ID")) as HTMLInputElement;
+    expect(recipient.disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Save access" }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    const [saved] = writes(fetchMock);
+    expect(saved).toMatchObject({ action: "team-access", id: "ws-1", linkId: "l3", teamRole: "property_owner" });
+    expect(saved).not.toHaveProperty("ownerOfRecord");
   });
 
   it("removes a teammate after a confirm, and a link invite by its invite link id", async () => {
