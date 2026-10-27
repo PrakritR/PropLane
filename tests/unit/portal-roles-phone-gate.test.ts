@@ -25,12 +25,14 @@ describe("portal-roles under the phone gate", () => {
     expect(JSON.parse(text)).toEqual({ error: "Verify your phone to continue.", redirectTo: "/auth/verify-phone" });
   });
 
-  it("does not follow an off-site redirect", async () => {
+  it("drops an off-site redirect target without ever printing NEXT_REDIRECT", async () => {
     getPortalAccessContext.mockImplementation(async () => redirect("https://evil.example/x"));
     const res = await GET();
-    const body = await res.json();
-    expect(res.status).toBe(500);
-    expect(body.redirectTo).toBeUndefined();
+    const text = await res.text();
+    expect(res.status).toBe(403);
+    expect(text).not.toContain("NEXT_REDIRECT");
+    expect(text).not.toContain("evil.example");
+    expect(JSON.parse(text)).toEqual({ error: "Verify your phone to continue." });
   });
 
   it("keeps a normal error as a 500 with its message", async () => {
@@ -46,5 +48,20 @@ describe("portal-roles under the phone gate", () => {
     expect(phoneGateRedirectTo({ redirectTo: "https://evil.example" })).toBeNull();
     expect(phoneGateRedirectTo({ error: "x" })).toBeNull();
     expect(phoneGateRedirectTo(null)).toBeNull();
+  });
+
+  it("carries the page the client was heading to onto the bare gate", () => {
+    expect(phoneGateRedirectTo({ redirectTo: "/auth/verify-phone" }, "/resident/stays/request")).toBe(
+      "/auth/verify-phone?next=%2Fresident%2Fstays%2Frequest",
+    );
+    // An auth screen, an API path and an off-site next are never carried.
+    expect(phoneGateRedirectTo({ redirectTo: "/auth/verify-phone" }, "/auth/choose-portal")).toBe("/auth/verify-phone");
+    expect(phoneGateRedirectTo({ redirectTo: "/auth/verify-phone" }, "/api/auth/portal-roles")).toBe("/auth/verify-phone");
+    expect(phoneGateRedirectTo({ redirectTo: "/auth/verify-phone" }, "//evil.example")).toBe("/auth/verify-phone");
+    expect(phoneGateRedirectTo({ redirectTo: "/auth/verify-phone" }, "")).toBe("/auth/verify-phone");
+    // A gate href that already carries a destination is left alone.
+    expect(phoneGateRedirectTo({ redirectTo: "/auth/verify-phone?next=%2Fresident" }, "/portal/dashboard")).toBe(
+      "/auth/verify-phone?next=%2Fresident",
+    );
   });
 });

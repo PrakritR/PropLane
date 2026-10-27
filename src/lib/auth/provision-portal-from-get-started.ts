@@ -1,6 +1,7 @@
 "use client";
 
 import type { AuthPortalPickerId } from "@/lib/auth/auth-portal-picker-options";
+import { phoneGateRedirectTo } from "@/lib/auth/phone-gate-redirect";
 import { detectNativePlatformSync } from "@/lib/native/detect-native";
 
 /** Where a freshly provisioned manager chooses Free / Pro / Business. */
@@ -8,9 +9,12 @@ export const MANAGER_ENTRY_PLAN_PATH = "/auth/manager/choose-plan";
 
 export type ProvisionPortalResult =
   | { ok: true; redirectTo: string; direct?: boolean }
-  | { ok: false; error: string };
+  /** `gateRedirectTo` is the phone gate: the caller follows it instead of showing `error` as a dead end. */
+  | { ok: false; error: string; gateRedirectTo?: string };
 
-async function setActivePortal(role: AuthPortalPickerId): Promise<{ ok: true } | { ok: false; error: string }> {
+type SetActivePortalResult = { ok: true } | { ok: false; error: string; gateRedirectTo?: string };
+
+async function setActivePortal(role: AuthPortalPickerId): Promise<SetActivePortalResult> {
   const res = await fetch("/api/auth/set-active-portal", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -18,7 +22,12 @@ async function setActivePortal(role: AuthPortalPickerId): Promise<{ ok: true } |
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
-    return { ok: false, error: body.error || "Could not open the property portal." };
+    const gate = phoneGateRedirectTo(body);
+    return {
+      ok: false,
+      error: body.error || "Could not open the property portal.",
+      ...(gate ? { gateRedirectTo: gate } : {}),
+    };
   }
   return { ok: true };
 }
@@ -53,7 +62,7 @@ export async function provisionPortalFromGetStarted(role: AuthPortalPickerId): P
     }
     const setResult = await setActivePortal("manager");
     if (!setResult.ok) {
-      return { ok: false, error: setResult.error };
+      return setResult;
     }
     // A just-provisioned manager chooses their plan (Free / Pro / Business)
     // before entering the portal — a `direct` destination, so the caller doesn't
@@ -89,7 +98,7 @@ export async function provisionPortalFromGetStarted(role: AuthPortalPickerId): P
   }
   const setResult = await setActivePortal("vendor");
   if (!setResult.ok) {
-    return { ok: false, error: setResult.error };
+    return setResult;
   }
   return { ok: true, redirectTo: body.redirectTo?.startsWith("/") ? body.redirectTo : "/vendor/dashboard" };
 }

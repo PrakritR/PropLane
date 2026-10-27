@@ -22,6 +22,7 @@ import { formatUsPhoneDisplay } from "@/lib/phone-e164";
 import { provisionPortalFromGetStarted } from "@/lib/auth/provision-portal-from-get-started";
 import { isGetStartedDestination, resolvePostAuthDestination } from "@/lib/auth/resolve-post-auth-destination";
 import { safeNextPath } from "@/lib/auth/safe-next-path";
+import { phoneGateHrefCarrying } from "@/lib/auth/phone-gate-href";
 import { phoneGateRedirectTo } from "@/lib/auth/phone-gate-redirect";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -45,6 +46,8 @@ function GetStartedContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const addMode = isGetStartedAddMode(searchParams);
+  // Where signup was heading before the chooser; also what the phone gate carries when it fires here.
+  const forwardedNext = searchParams.get("next");
   const { showToast } = useAppUi();
   const [busy, setBusy] = useState<string | null>(null);
   const [resolving, setResolving] = useState(true);
@@ -94,7 +97,7 @@ function GetStartedContent() {
           const body = (await res.json()) as { roles?: AuthRole[]; error?: string; redirectTo?: string };
           if (cancelled) return;
           if (!res.ok) {
-            const gate = phoneGateRedirectTo(body);
+            const gate = phoneGateRedirectTo(body, forwardedNext);
             if (gate) {
               window.location.assign(gate);
               return;
@@ -160,7 +163,7 @@ function GetStartedContent() {
     return () => {
       cancelled = true;
     };
-  }, [addMode, phoneNewRequested, router, showToast]);
+  }, [addMode, forwardedNext, phoneNewRequested, router, showToast]);
 
   const choose = async (id: string) => {
     const role = id as AuthPortalPickerId;
@@ -169,6 +172,10 @@ function GetStartedContent() {
     setBusy(id);
     const result = await provisionPortalFromGetStarted(role);
     if (!result.ok) {
+      if (result.gateRedirectTo) {
+        window.location.assign(phoneGateHrefCarrying(result.gateRedirectTo, forwardedNext));
+        return;
+      }
       setLoadError(result.error);
       showToast(result.error);
       setBusy(null);
@@ -177,7 +184,7 @@ function GetStartedContent() {
     // A `?next=` forwarded from signup is where the user was actually heading
     // (e.g. an application they had already started). Honour it once the role
     // exists, rather than dropping them on a portal dashboard.
-    const forwarded = safeNextPath(searchParams.get("next"));
+    const forwarded = safeNextPath(forwardedNext);
     if (forwarded) {
       window.location.replace(forwarded);
       return;

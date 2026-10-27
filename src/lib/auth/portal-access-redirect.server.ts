@@ -14,11 +14,15 @@ export function redirectTargetFromError(error: unknown): string | null {
 
 /**
  * `getPortalAccessContext()` calls `redirect()` (the phone gate) and that throws. A JSON route has no page to redirect,
- * so it answers 403 with `redirectTo` for the client to follow, never the raw "NEXT_REDIRECT" message.
- * Returns null when the error is not a followable redirect.
+ * so it answers 403 with `redirectTo` for the client to follow, never the raw "NEXT_REDIRECT" message. An off-site
+ * target is not followable, so it is dropped — but the answer is still the gate's own 403, never that message.
+ * Returns null only when the error is not a redirect at all.
  */
 export function phoneGateJsonResponse(error: unknown): NextResponse | null {
+  if (!isRedirectError(error)) return null;
   const redirectTo = redirectTargetFromError(error);
-  if (!redirectTo) return null;
-  return NextResponse.json({ error: "Verify your phone to continue.", redirectTo }, { status: 403 });
+  return NextResponse.json(
+    redirectTo ? { error: "Verify your phone to continue.", redirectTo } : { error: "Verify your phone to continue." },
+    { status: 403 },
+  );
 }

@@ -82,7 +82,7 @@ function ChoosePortalForm() {
         return { kind: "unauthorized" };
       }
       // The phone gate: follow it, never print it.
-      const gate = phoneGateRedirectTo(body);
+      const gate = phoneGateRedirectTo(body, nextRaw);
       if (gate) {
         window.location.assign(gate);
         return { kind: "redirected" };
@@ -151,7 +151,7 @@ function ChoosePortalForm() {
         });
         const body = (await res.json().catch(() => ({}))) as { error?: string; redirectTo?: string };
         if (!res.ok) {
-          const gate = phoneGateRedirectTo(body);
+          const gate = phoneGateRedirectTo(body, nextRaw);
           if (gate) {
             window.location.assign(gate);
             return;
