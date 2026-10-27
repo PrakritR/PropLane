@@ -4,6 +4,7 @@ import { Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { portalDashboardPath, type AuthRole } from "@/components/auth/portal-switcher";
+import { phoneGateRedirectTo } from "@/lib/auth/phone-gate-redirect";
 import { portalSwitchTargets, type PortalSwitchTarget } from "@/lib/portal-switch-targets";
 import type { PortalKind } from "@/lib/portal-types";
 
@@ -49,7 +50,11 @@ export function PortalRoleSwitcher({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        const gate = phoneGateRedirectTo(await res.json().catch(() => null));
+        if (gate) window.location.assign(gate);
+        return;
+      }
       router.push(portalDashboardPath(role));
       router.refresh();
     } catch {

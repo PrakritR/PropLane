@@ -22,6 +22,7 @@ import { formatUsPhoneDisplay } from "@/lib/phone-e164";
 import { provisionPortalFromGetStarted } from "@/lib/auth/provision-portal-from-get-started";
 import { isGetStartedDestination, resolvePostAuthDestination } from "@/lib/auth/resolve-post-auth-destination";
 import { safeNextPath } from "@/lib/auth/safe-next-path";
+import { phoneGateRedirectTo } from "@/lib/auth/phone-gate-redirect";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useRouter, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
@@ -90,9 +91,14 @@ function GetStartedContent() {
       void (async () => {
         try {
           const res = await fetch("/api/auth/portal-roles", { credentials: "include" });
-          const body = (await res.json()) as { roles?: AuthRole[]; error?: string };
+          const body = (await res.json()) as { roles?: AuthRole[]; error?: string; redirectTo?: string };
           if (cancelled) return;
           if (!res.ok) {
+            const gate = phoneGateRedirectTo(body);
+            if (gate) {
+              window.location.assign(gate);
+              return;
+            }
             if (res.status === 401) {
               router.replace("/auth/sign-in");
               return;

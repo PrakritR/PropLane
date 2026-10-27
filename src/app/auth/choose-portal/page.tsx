@@ -7,6 +7,7 @@ import { type AuthRole } from "@/components/auth/portal-switcher";
 import type { AuthRoleIconName } from "@/components/auth/auth-role-icons";
 import { getStartedAddPortalPath } from "@/lib/auth/get-started-path";
 import { normalizePostAuthPath } from "@/lib/auth/normalize-post-auth-path";
+import { phoneGateRedirectTo } from "@/lib/auth/phone-gate-redirect";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { useRouter, useSearchParams } from "next/navigation";
 import posthog from "posthog-js";
@@ -64,6 +65,7 @@ function ChoosePortalForm() {
   const loadRoles = useCallback(async (): Promise<
     | { kind: "ok"; roles: AuthRole[] }
     | { kind: "unauthorized" }
+    | { kind: "redirected" }
     | { kind: "error"; message: string }
   > => {
     const res = await fetch("/api/auth/portal-roles", { credentials: "include" });
@@ -78,6 +80,12 @@ function ChoosePortalForm() {
           `/auth/sign-in?next=${encodeURIComponent(choosePortalSignInNext(nextRaw))}`,
         );
         return { kind: "unauthorized" };
+      }
+      // The phone gate: follow it, never print it.
+      const gate = phoneGateRedirectTo(body);
+      if (gate) {
+        window.location.assign(gate);
+        return { kind: "redirected" };
       }
       return {
         kind: "error",
@@ -102,7 +110,7 @@ function ChoosePortalForm() {
       setRoles(null);
       try {
         const result = await loadRoles();
-        if (cancelled || result.kind === "unauthorized") return;
+        if (cancelled || result.kind === "unauthorized" || result.kind === "redirected") return;
         if (result.kind === "error") {
           setLoadError(result.message);
           setRoles([]);
@@ -141,8 +149,13 @@ function ChoosePortalForm() {
           credentials: "include",
           body: JSON.stringify({ role }),
         });
-        const body = (await res.json()) as { error?: string };
+        const body = (await res.json().catch(() => ({}))) as { error?: string; redirectTo?: string };
         if (!res.ok) {
+          const gate = phoneGateRedirectTo(body);
+          if (gate) {
+            window.location.assign(gate);
+            return;
+          }
           setLoadError(body.error ?? "Could not continue.");
           setBusy(null);
           return;
