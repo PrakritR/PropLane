@@ -17,8 +17,6 @@ import {
   type AdminTeamActor,
   type AdminTeamMemberRow,
   type AdminTeamPayload,
-  type AdminTeamSeat,
-  type AdminTeamWorkspace,
   type AdminTeamRole,
   type StoredAdminGrant,
 } from "@/lib/admin-team/admin-team-model";
