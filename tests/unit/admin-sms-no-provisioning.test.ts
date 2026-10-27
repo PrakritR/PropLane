@@ -72,16 +72,17 @@ describe("admin SMS oversight work-number resolution", () => {
     const payload = await fetchAdminSmsConversations(makeDb({ "mgr-anchor": "+12064440777" }));
     expect(resolveManagerWorkNumber).not.toHaveBeenCalled();
     expect(ensureManagerSmsNumber).not.toHaveBeenCalled();
-    // It still shows the number already on file.
-    expect(payload.workNumber).toBe("+12064440777");
+    // The card is the PropLane line (`resolveServiceLine`), never the number a manager in scope has on file; with no line
+    // configured it shows none.
+    expect(payload.workNumber).toBeNull();
   });
 
-  it("falls back to another cohort number on file rather than buying one", async () => {
+  it("never buys a number, and never falls back to a cohort manager's own number for the card", async () => {
     const payload = await fetchAdminSmsConversations(
       makeDb({ "mgr-anchor": "", "mgr-2": "+12064440888" }),
     );
     expect(ensureManagerSmsNumber).not.toHaveBeenCalled();
-    expect(payload.workNumber).toBe("+12064440888");
+    expect(payload.workNumber).toBeNull();
   });
 
   it("keeps a manager's own inbox read side-effect-free", async () => {

@@ -152,11 +152,11 @@ describe("admin Communication draws the manager page", () => {
     expect(urls.some((url) => url.includes("/api/manager/"))).toBe(false);
   });
 
-  it("shows only the email conversations, and asks for no texts, when the text UI is off", async () => {
+  it("reads and draws the text stream even when the manager-portal text UI flag is off: admin operates the line", async () => {
     render(<AdminCommunication smsUiEnabled={false} />);
     await waitFor(() => expect(screen.getByText("Jamie Rivera")).toBeTruthy());
-    expect(screen.queryByText("Pat Texter")).toBeNull();
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("sms-conversations"))).toBe(false);
+    await waitFor(() => expect(screen.getByText("Pat Texter")).toBeTruthy());
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("sms-conversations"))).toBe(true);
   });
 
   it("opens an email conversation in the shared thread with a reply composer and an archive icon", async () => {

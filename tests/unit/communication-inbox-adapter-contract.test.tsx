@@ -165,9 +165,10 @@ describe("the manager adapter keeps today's behaviour", () => {
 describe("the admin adapter serves admin's own sources", () => {
   const adapter = () => createAdminInboxAdapter({ smsUiEnabled: true });
 
-  it("never pins the Assistant, never folds through the manager's direct chat, and archives no texts", () => {
+  it("pins only the viewer's own Assistant, never folds through the manager's direct chat, and archives no texts", () => {
     const a = adapter();
-    expect(a.pinsAssistant).toBe(false);
+    expect(a.pinsAssistant).toBe(true);
+    expect(a.assistantWorkspace).toEqual({ id: "", isDefault: true });
     expect(a.directChat).toBe(false);
     expect(a.smsArchivable).toBe(false);
     expect(a.syncDirectory).toBeUndefined();

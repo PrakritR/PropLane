@@ -92,7 +92,7 @@ beforeEach(() => {
       });
     }
     if (target.includes("scheduled-inbox-messages")) return Response.json({ messages: [] });
-    if (target.startsWith("/api/admin/unassigned-leads/") && init?.method === "PATCH") return Response.json({ ok: true });
+    if (target.startsWith("/api/admin/unassigned-leads/") && (init?.method === "PATCH" || init?.method === "POST")) return Response.json({ ok: true });
     return Response.json({ ok: true, rows: [] });
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -131,17 +131,34 @@ describe("workspace on admin text threads", () => {
     expect(screen.queryByRole("button", { name: "Open in workspace" })).toBeNull();
   });
 
-  it("a PropLane-line lead opens read-only with an Assign control, and assigning PATCHes the lead", async () => {
+  it("a PropLane-line lead opens with a composer and Assign in the header, and assigning PATCHes the lead", async () => {
     const { container } = render(<AdminCommunication smsUiEnabled />);
     await waitFor(() => expect(screen.getByText("Lead •••• 0199")).toBeTruthy());
     fireEvent.click(screen.getByText("Lead •••• 0199"));
     await waitFor(() => expect(container.querySelector('[data-attr="admin-communication-lead-thread"]')).toBeTruthy());
     expect(screen.queryByTestId("admin-sms-thread")).toBeNull();
     expect(container.querySelector('[data-attr="admin-communication-workspace-name"]')?.textContent).toBe("Unassigned");
-    // No composer and no number: the only action is Assign, and it needs a workspace first.
-    expect(container.querySelector('[data-attr="admin-communication-reply"]')).toBeNull();
-    const assign = container.querySelector('[data-attr="admin-communication-assign-submit"]') as HTMLButtonElement;
-    expect(assign.disabled).toBe(true);
+    // A composer answers from the PropLane line (the number is masked and never in the browser); Assign lives in the
+    // thread header and only offers itself once a workspace is chosen.
+    expect(container.querySelector('[data-attr="admin-communication-lead-reply"]')).toBeTruthy();
+    expect(container.querySelector('[data-attr="admin-communication-assign-header"]')).toBeTruthy();
+    expect(container.querySelector('[data-attr="admin-communication-assign-submit"]')).toBeNull();
+    expect(JSON.stringify(LEAD)).not.toMatch(/\+1206555\d{4}/);
+  });
+
+  it("sending from a lead thread POSTs the text to the lead's reply route by id, with no phone", async () => {
+    const { container } = render(<AdminCommunication smsUiEnabled />);
+    await waitFor(() => expect(screen.getByText("Lead •••• 0199")).toBeTruthy());
+    fireEvent.click(screen.getByText("Lead •••• 0199"));
+    await waitFor(() => expect(container.querySelector('[data-attr="admin-communication-lead-thread"]')).toBeTruthy());
+    const field = container.querySelector('textarea') as HTMLTextAreaElement;
+    fireEvent.change(field, { target: { value: "Room 6 is free Nov 1." } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url]) => String(url) === "/api/admin/unassigned-leads/lead-1/reply");
+      expect(call).toBeTruthy();
+      expect(JSON.parse(String((call![1] as RequestInit).body))).toEqual({ text: "Room 6 is free Nov 1." });
+    });
   });
 });
 
@@ -181,12 +198,12 @@ describe("the Workspace filter", () => {
     expect(screen.getByText("Pat Texter")).toBeTruthy();
   });
 
-  it("is absent when the text stream is off", async () => {
+  it("is present even when the manager-portal text flag is off: admin operates the line", async () => {
     stubPointerFine();
     const { container } = render(<AdminCommunication smsUiEnabled={false} />);
     await waitFor(() => expect(container.querySelector('[data-attr="communication-filter-sheet-open"]')).toBeTruthy());
     fireEvent.click(container.querySelector('[data-attr="communication-filter-sheet-open"]')!);
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).queryByText("Workspace")).toBeNull();
+    expect(within(dialog).getByText("Workspace")).toBeTruthy();
   });
 });

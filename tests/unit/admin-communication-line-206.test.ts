@@ -10,7 +10,7 @@ import { LEAD_CONSTRAINTS, leadFakeDb } from "../helpers/lead-fake-db";
 
 const mocks = vi.hoisted(() => ({
   admin: vi.fn(async (): Promise<{ userId: string } | { status: 401 | 403 }> => ({ userId: "admin-1" })),
-  sendSms: vi.fn(async (..._args: unknown[]): Promise<Record<string, unknown>> => ({ sent: true, sid: "SMadmin1" })),
+  sendSms: vi.fn(async (...args: unknown[]): Promise<Record<string, unknown>> => ({ sent: true, sid: "SMadmin1", args: args.length })),
   cohort: vi.fn(async () => [{ userId: "mgr-ambika" }]),
 }));
 

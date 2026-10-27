@@ -1084,7 +1084,9 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     const assistantThread = managerIdentity.ok
       ? await appendSmsTurnToManagerAssistantThread(db, {
           ownerUserId: managerInbound.actorUserId,
-          workspaceId: workspaceId ?? null,
+          // A platform admin texting the PropLane line talks to THEIR OWN Assistant (their default workspace's chat),
+          // not to a chat in the service owner's workspace the line happens to belong to.
+          workspaceId: serviceManager?.basis === "admin" ? null : (workspaceId ?? null),
           messageId: `sms_in_${messageSid}`,
           author: "manager",
           body: agentBody,

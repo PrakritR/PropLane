@@ -10,6 +10,7 @@
  * adds the pending scheduled sends, which draw as conversations of their own
  * when the recipient has never been messaged (`admin-inbox-threads.ts`).
  */
+import { isManagerAgentNoticeThreadId } from "@/lib/communication-manager-assistant-thread";
 import { emitAdminUi } from "@/lib/demo-admin-ui";
 import {
   moveInboxMessageToTrash,
@@ -29,9 +30,36 @@ export const ADMIN_INBOX_STORAGE_KEY = "axis_admin_inbox_v1";
 
 let scheduledRecords: ScheduledInboxMessageRecord[] = [];
 
-/** Test-only: drop the held scheduled sends. */
+/**
+ * The signed-in admin's OWN PropLane Assistant chat (`/api/admin/assistant-thread`), held apart from the stored admin
+ * messages on purpose: those are written back to the server as `scope: "admin"` rows, and this one is not an admin message.
+ */
+let assistantThread: PersistedInboxThread | null = null;
+
+/** Test-only: drop the held scheduled sends and Assistant chat. */
 export function resetAdminScheduledForTests(): void {
   scheduledRecords = [];
+  assistantThread = null;
+}
+
+/** Read the viewer's own Assistant chat. A failed read keeps nothing, so another admin's chat is never shown in its place. */
+export async function refreshAdminAssistantThread(): Promise<boolean> {
+  if (typeof window === "undefined" || isDemoModeActive()) return true;
+  try {
+    const res = await fetch("/api/admin/assistant-thread", { credentials: "include", cache: "no-store" });
+    if (!res.ok) {
+      assistantThread = null;
+      return false;
+    }
+    const body = (await res.json()) as { thread?: PersistedInboxThread | null };
+    const thread = body.thread;
+    assistantThread = thread && typeof thread.id === "string" && isManagerAgentNoticeThreadId(thread.id) ? thread : null;
+    emitAdminUi();
+    return true;
+  } catch {
+    assistantThread = null;
+    return false;
+  }
 }
 
 /** Pending scheduled sends admin has composed (what the thread cards read and cancel). */
@@ -51,7 +79,8 @@ export async function refreshAdminScheduled(): Promise<boolean> {
 
 /** Every admin conversation as the unified inbox's thread rows. */
 export function adminCachedThreads(): PersistedInboxThread[] {
-  return adminThreadsFrom(readInboxMessages(), scheduledRecords);
+  const threads = adminThreadsFrom(readInboxMessages(), scheduledRecords);
+  return assistantThread ? [assistantThread, ...threads] : threads;
 }
 
 export async function syncAdminThreads(opts?: { force?: boolean }): Promise<PersistedInboxSyncResult> {
@@ -59,6 +88,8 @@ export async function syncAdminThreads(opts?: { force?: boolean }): Promise<Pers
     syncInboxMessagesFromServerWithStatus(opts?.force ? { force: true } : undefined),
     // The scheduled read decorates conversations; its failure must not turn the inbox into an error.
     refreshAdminScheduled(),
+    // Likewise the viewer's own Assistant chat.
+    refreshAdminAssistantThread(),
   ]);
   return { rows: adminCachedThreads(), ok: status.ok, stale: false };
 }

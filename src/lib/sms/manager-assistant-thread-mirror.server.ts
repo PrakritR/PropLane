@@ -178,10 +178,19 @@ export async function mirrorManagerOwnOutboxToAssistantThread(
   if (error) return "failed";
   const own = normalizeE164(String(profile?.phone ?? ""));
   if (!own || own !== normalizeE164(row.recipient_phone)) return "skipped";
-  const workspaceId = await workspaceIdForWorkNumber(db, {
-    managerUserId: row.manager_user_id,
-    workNumber: fromNumber,
-  }).catch(() => null);
+  // A platform admin's reply on the PropLane line goes to their own Assistant (their default workspace's chat), never to
+  // a chat in the service owner's workspace that holds the line.
+  const adminOnSomeoneElsesLine =
+    ownerUserId !== row.manager_user_id &&
+    (await import("@/lib/sms/service-manager-inbound.server")
+      .then((mod) => mod.holdsAdminRole(db, ownerUserId))
+      .catch(() => false));
+  const workspaceId = adminOnSomeoneElsesLine
+    ? null
+    : await workspaceIdForWorkNumber(db, {
+        managerUserId: row.manager_user_id,
+        workNumber: fromNumber,
+      }).catch(() => null);
   const result = await appendSmsTurnToManagerAssistantThread(db, {
     ownerUserId,
     workspaceId,
