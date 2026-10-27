@@ -124,6 +124,7 @@ describe("price rows", () => {
       "Deposit · Room 9$1,500",
       "Application fee$45",
       "Nightly rate$55/night",
+      "First monthProrated by day",
       "Parking$75/mo",
     ]);
   });

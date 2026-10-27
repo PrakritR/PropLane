@@ -756,6 +756,11 @@ export type PartnerInquiry = {
    */
   eligibleHostUserIds?: string[];
   tourGroupId?: string;
+  /**
+   * `"requested_time"` when the house had no open slot and the guest picked their own time. Only a CLAIM from
+   * the browser: the server re-checks it and stamps the stored value (`tour-inquiry-create.server.ts`).
+   */
+  requestKind?: "requested_time";
   propertyId?: string;
   propertyTitle?: string;
   roomLabel?: string;

@@ -318,6 +318,9 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     return { ok: false, status: 403, error: "That host cannot host tours at this property." };
   }
   const handingToSomeoneElse = managerUserId !== opts.actorUserId;
+  // A requested time was never on anyone's published calendar, so nothing has checked it against a booked
+  // tour yet: confirming it always runs the double-book check, whichever route confirms.
+  const guardDoubleBook = Boolean(opts.guardDoubleBook) || textField(row, "requestKind") === "requested_time";
 
   const requestedStart = opts.requestedStart?.trim() ?? "";
   const requestedEnd = opts.requestedEnd?.trim() ?? "";
@@ -345,7 +348,7 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
   // information is exactly what this refusal exists to stop. Claiming it
   // yourself keeps the route's long-standing override behavior.
   if (
-    (opts.guardDoubleBook || handingToSomeoneElse) &&
+    (guardDoubleBook || handingToSomeoneElse) &&
     plannedTourOccupiesWindow(plannedRows, managerUserId, start, windowEnd)
   ) {
     return {
@@ -403,7 +406,7 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     operation: "append",
     event: plannedEvent,
     removeInquiryIds: removedInquiryIds,
-    allowConflict: !opts.guardDoubleBook && !handingToSomeoneElse,
+    allowConflict: !guardDoubleBook && !handingToSomeoneElse,
   });
   if (!persisted.ok) {
     return {

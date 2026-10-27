@@ -126,12 +126,24 @@ it, and a key that names no slot is refused as `slot_unavailable`. Coverage:
 
 The public scheduler's **"today"** is Pacific too (`pacificCalendarDateYmd`): a prospect
 east of Pacific whose own date has rolled over was shown today's open slots as past and
-told there were none. The grid says **"No tour times yet"** (with a "Message the manager"
-link into the resident portal — never an `sms:` link: `/rent` is the web channel, see
-[`public-journey.md`](public-journey.md)) only when no published slot is today or
+told there were none. The grid switches to the **requested-time** picker (below; never an `sms:` link — `/rent` is
+the web channel, see [`public-journey.md`](public-journey.md)) only when no published slot is today or
 later — `tourAvailabilityHasUpcoming` — because a grid whose every slot has passed looks
 identical to an empty one. A FAILED availability read is still never rendered as either
 (see the doc comment in `tour-schedule-flow.tsx`).
+
+## Requested time: a house with no open slot (`requestKind: "requested_time"`)
+
+When `listOpenTourSlots` returns nothing, the booking flow (`tour-schedule-flow.tsx`) offers any day from tomorrow for 60 days
+and any 30-minute time 8:00 AM-7:30 PM Pacific instead of a dead calendar ("Thu, Oct 29 at 4:00 PM · request"). The mode is
+**server-decided**: `createTourInquiry` accepts the client's claim only after re-reading `listOpenTourSlots` (any open slot, or
+an unresolved house, refuses it), requiring a signed-in account (`verifiedApplicantEmail`, 401 `sign_in_required`), and
+`resolveRequestedTourWindow` (`src/lib/tour-request-time.ts`): the `slotKey` is derived with `slotKeyForInstant`, the instant must
+sit exactly on a Pacific half hour, inside 8:00-19:30, tomorrow or later. It is stored pending with `requestKind` (a body value is
+stripped, never trusted), filed under the property owner after `managerMayHostPropertyTour`, eligible hosts via
+`resolveEligibleTourHostUserIds({ requestMode: true })` (no published slot needed), never proposed for auto-confirm. Confirming
+it always runs the double-book check. The manager's notice reads "<Name> wants to tour <property> on <Day, Mon D> at <h:mm AM/PM>".
+With open slots, only those slots are offered, exactly as before.
 
 ## What a prospect is offered = published − busy − booked
 

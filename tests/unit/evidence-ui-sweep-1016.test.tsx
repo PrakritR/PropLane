@@ -337,7 +337,7 @@ describe("the public tour scheduler", () => {
     );
   });
 
-  it("answers an empty calendar as an answer, with a way to reach the manager", async () => {
+  it("answers an empty calendar by offering a requested time, behind sign-in", async () => {
     stubAvailability({ slotHosts: {} });
     render(
       <AppUiProvider>
@@ -352,11 +352,11 @@ describe("the public tour scheduler", () => {
     );
     fireEvent.click(await screen.findByText("Room 1 · 2nd floor · $1,000/mo"));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() => expect(screen.getByText(/No tour times yet/i)).toBeTruthy());
-    expect(screen.getByText("Message the manager")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/Sign in to request a tour time/i)).toBeTruthy());
+    expect(screen.queryByText(/No tour times yet/i)).toBeNull();
     capture(
       "07-tour-empty-state",
-      "A successful but empty availability read is the property's own answer — 'No tour times yet' plus Message the manager. A throttled or failed read shows a retry instead (next shot).",
+      "A successful but empty availability read is the property's own answer — no dead calendar: a visitor with an account requests any day and time, a signed-out one is asked to sign in. A throttled or failed read shows a retry instead (next shot).",
     );
   });
 

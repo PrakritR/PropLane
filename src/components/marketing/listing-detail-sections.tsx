@@ -400,6 +400,7 @@ function ListingDetailBody({
     property.listingSubmission as Parameters<typeof listingPriceRows>[1],
     stay?.offered === true ? listingShortStayNightlyFrom(property.listingSubmission) : 0,
     formatMoneyInLabel,
+    property as Parameters<typeof listingPriceRows>[4],
   ).filter((row) => row.key !== "rent");
   const hasSpaces =
     roomCount > 0 ||
@@ -455,7 +456,7 @@ function ListingDetailBody({
       body: (
         <ul className="ps-facts" data-attr="listing-price-rows">
           {costRows.map((row) => (
-            <li key={row.key}>
+            <li key={row.key} title={row.title}>
               <span>{row.label}</span>
               <span>{row.value}</span>
             </li>

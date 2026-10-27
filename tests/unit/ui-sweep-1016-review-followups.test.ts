@@ -51,7 +51,8 @@ describe("the tour calendar reads today in Pacific", () => {
   it("compares Pacific-keyed slots against a Pacific calendar date", () => {
     const source = read("components", "marketing", "tour-schedule-flow.tsx");
     expect(source).toContain("const todayPacific = pacificCalendarDateYmd()");
-    expect(source).toContain("tourAvailabilityHasUpcoming(availability, todayPacific)");
+    // The request-any-time switch (no upcoming slot) asks with the Pacific date too, never the browser's.
+    expect(source).toContain("tourAvailabilityHasUpcoming(selectedAvailability, pacificCalendarDateYmd())");
     // The browser's own calendar no longer decides which day is past.
     expect(source).not.toMatch(/today\.getFullYear\(\)/);
     expect(source).not.toMatch(/toLocalDateStr\(today\)/);

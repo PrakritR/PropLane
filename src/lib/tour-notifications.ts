@@ -5,6 +5,7 @@
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { normalizeTourFormat, tourFormatDescription, type TourFormat } from "@/lib/tour-format";
 import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listing";
+import { formatRequestedTourWhen } from "@/lib/tour-request-time";
 
 export const TOUR_REQUEST_MANAGER_SUBJECT = "New tour request — PropLane";
 
@@ -32,6 +33,8 @@ export type TourNotificationContext = {
   /** In person or virtual; always normalized. */
   tourFormat: TourFormat;
   notes?: string;
+  /** The guest picked this time themselves because the house had no open slot (`requestKind: "requested_time"`). */
+  requestedTime?: boolean;
   managerLabel?: string;
   instructions?: string;
   applyUrl: string;
@@ -93,12 +96,22 @@ export function buildTourApplyUrl(origin: string, propertyId?: string | null, ro
   return `${base}${path}`;
 }
 
+/** "Prakrit wants to tour 2412 Clifford St on Thu, Oct 29 at 4:00 PM" - the manager's headline for a requested time. */
+export function buildTourRequestedTimeHeadline(ctx: Pick<TourNotificationContext, "guestName" | "propertyTitle" | "tourStartIso">): string {
+  const when = formatRequestedTourWhen(ctx.tourStartIso);
+  const name = ctx.guestName?.trim() || "A guest";
+  const property = ctx.propertyTitle?.trim() || "your property";
+  return when ? `${name} wants to tour ${property} on ${when}` : `${name} wants to tour ${property}`;
+}
+
 export function buildTourRequestManagerBody(ctx: TourNotificationContext): string {
   const when = formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso);
   const lines = [
     "Hi,",
     "",
-    "Someone requested a property tour through PropLane.",
+    ctx.requestedTime
+      ? `${buildTourRequestedTimeHeadline(ctx)}. This home had no open tour times, so they picked their own.`
+      : "Someone requested a property tour through PropLane.",
     "",
     `Guest: ${ctx.guestName || "Guest"}${ctx.guestEmail ? ` (${ctx.guestEmail})` : ""}`,
   ];
@@ -425,6 +438,7 @@ export function buildTourNotificationContext(input: {
   tourEndIso: string;
   tourFormat?: TourFormat | string | null;
   notes?: string | null;
+  requestedTime?: boolean;
   managerLabel?: string | null;
   instructions?: string | null;
   tourInquiryId?: string | null;
@@ -452,6 +466,7 @@ export function buildTourNotificationContext(input: {
     tourEndIso: input.tourEndIso,
     tourFormat: normalizeTourFormat(input.tourFormat),
     notes: input.notes?.trim() || undefined,
+    ...(input.requestedTime ? { requestedTime: true } : {}),
     managerLabel: input.managerLabel?.trim() || undefined,
     instructions: input.instructions?.trim() || undefined,
     applyUrl: buildTourApplyUrl(input.origin, input.propertyId, input.roomLabel),

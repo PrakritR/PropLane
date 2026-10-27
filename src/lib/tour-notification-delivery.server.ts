@@ -5,6 +5,7 @@
 import { noticeChannelFor, withResidentPortalLink } from "@/lib/notice-channel";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { formatPacificDateTime } from "@/lib/pacific-time";
+import { REQUESTED_TOUR_KIND } from "@/lib/tour-request-time";
 import { appendResidentPropertyManagerInboxMessage, appendManagerPropertyLeadInboxMessage } from "@/lib/property-manager-inbox-thread.server";
 import { sendManagerNotificationSms } from "@/lib/manager-notification-routing.server";
 import { sendResidentOutboundSms, type ResidentOutboundSmsResult } from "@/lib/resident-outbound-sms.server";
@@ -35,6 +36,7 @@ import {
   buildTourConfirmedTenantHtml,
   buildTourNotificationContext,
   buildTourRequestManagerBody,
+  buildTourRequestedTimeHeadline,
   buildTourRequestRemovedTenantBody,
   buildTourRescheduleConfirmRequestBody,
   buildTourRescheduledTenantBody,
@@ -401,6 +403,8 @@ export type TourInquiryPayload = {
   adminLabel?: unknown;
   proposedStart?: unknown;
   proposedEnd?: unknown;
+  /** `"requested_time"` when the guest picked the time themselves (server-stamped). */
+  requestKind?: unknown;
 };
 
 export async function notifyManagerTourRequest(
@@ -438,6 +442,7 @@ export async function notifyManagerTourRequest(
     tourStartIso,
     tourEndIso,
     notes: textField(inquiry as Record<string, unknown>, "notes") || null,
+    requestedTime: textField(inquiry as Record<string, unknown>, "requestKind") === REQUESTED_TOUR_KIND,
     managerLabel: textField(inquiry as Record<string, unknown>, "adminLabel") || managerProfile?.full_name || null,
     tourInquiryId: textField(inquiry as Record<string, unknown>, "id") || null,
   });
@@ -519,7 +524,7 @@ export async function notifyManagerTourRequest(
   // admin's own DB-backed number) — a tour request shouldn't wait on email.
   const smsText = `PropLane: new tour request${ctx.propertyTitle ? ` — ${ctx.propertyTitle}` : ""}${
     ctx.tourStartIso ? ` (${formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso)})` : ""
-  }. ${ctx.guestName} requested a tour. Check your PropLane inbox for details.`;
+  }. ${ctx.requestedTime ? `${buildTourRequestedTimeHeadline(ctx)}.` : `${ctx.guestName} requested a tour.`} Check your PropLane inbox for details.`;
   await Promise.all(
     recipients.map((recipient) =>
       sendManagerNotificationSms(db, {
