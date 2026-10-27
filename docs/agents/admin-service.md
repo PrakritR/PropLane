@@ -173,3 +173,33 @@ workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and th
 - **Settings** is one page with a scope dropdown (`SettingsScopeSwitcher`): PropLane (Overall admins: Profile, Preferences,
   Login & security, Admin team, Feedback, Account) and each workspace the viewer can open (that workspace's manager panes).
   Switching runs the authorized open (cookie) and stays in Settings.
+
+## Managed by PropLane (Accounts > Managers, Oct 27)
+
+Accounts > Managers > row ⋯ has **Managed by PropLane...** between Copy PropLane ID and Disable (hidden when the account has no
+owned workspace left that is neither `is_service` nor archived: `unmanagedWorkspaceCount`). It opens
+`ManagedByProplaneSheet` (the Add-property pop-up frame): the account's workspaces, City, Management fee, and the owner's role
+fixed at **Property owner (view-only)** (the owner owns the workspace, so they are its owner of record by ownership and no
+membership row is written for them).
+
+- Verbs `account-workspaces` and `manage-by-proplane` on `/api/admin/service-workspaces` (`requireAdminRoute()` first;
+  `src/lib/service/managed-by-proplane.server.ts`). A body id only NAMES a row: the account's workspaces and houses are re-read
+  from the database, each id must be one of that account's own active, unmanaged workspaces, and any failed read refuses with
+  nothing written. The service owner's own account is refused.
+- **Choose workspaces** = `attachWorkspaceToService` once per workspace (audit first, never moves `owner_user_id`), then the fee
+  through `setServiceWorkspaceFee` (audited). It stops at the first refusal and says how many were attached before it.
+- **Combine all into one** = the chosen target is attached and the OTHER workspaces' houses move into it through the
+  `combine_portal_workspaces` RPC (`20261027030000_portal_workspaces_archived_combine.sql`), ONE transaction that changes only
+  `manager_property_records.workspace_id` (never an owner, lease, charge or application) and then archives the emptied
+  workspaces. One `admin_service_combine_move` audit row per source (the houses it holds) is written BEFORE the attach and the
+  move, then stamped applied or not. An owner's default workspace is where a house with no workspace lands, so an emptied
+  default one is kept listed rather than archived. Teammates' seats on an emptied workspace stay pinned to it.
+- **Archived** = `portal_workspaces.archived_at`. `loadWorkspaces` leaves an archived workspace out (and reads without the
+  column when the database has not run the migration, `src/lib/workspaces/archived.ts`). Reversible: clear `archived_at`.
+- **Owner of record in Team**: a platform admin edits the owner's role and houses like a teammate (`team-access`, audited with
+  `ownerOfRecord: true`); `is_owner_of_record` is never touched by that verb. Role Owner is re-stamped server-side (every house,
+  owner keys only); any other role stops the derived view-only reach, and the managed read-only lock (every accepted
+  `property_owner` seat) no longer applies to that seat.
+- **New workspace** sheet: Owner's role is fixed at Property owner; the server refuses any other `ownerRole` before creating
+  anything. Owner email invites exactly as the Team Owner role does (existing account: pending membership + notice; new email:
+  one-use link bound to that email).
