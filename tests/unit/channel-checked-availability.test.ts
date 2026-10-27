@@ -82,11 +82,25 @@ describe("list_live_listings answers from the CHECKED calendar", () => {
     expect((await checkedAvailabilityForListing(rec, undefined)).size).toBe(0);
   });
 
-  it("an assistant that nonetheless claims availability after a failed read is replaced with the confirm-later text", () => {
+  it("an assistant that nonetheless claims availability after a failed read is replaced with the confirm-later text", async () => {
+    // The list call itself SUCCEEDS on a failed occupancy read - every room just comes back unverified - so the
+    // post-check has to read the rooms it returned, not the fact that it was called.
+    mocks.occupancy.mockRejectedValue(new Error("db down"));
+    const listed = await listLiveListingsTool.handler(ctx(), { query: "5257 Brooklyn" });
     const out = enforceCheckedAvailability({
       reply: "Room 6 is available from November 1.",
-      toolTrace: [{ tool: "list_live_listings", ok: false }],
+      toolEvidence: [{ tool: "list_live_listings", output: listed }],
     });
     expect(out).toEqual({ reply: CHANNEL_CONFIRM_LATER_REPLY, replaced: true });
+  });
+
+  it("a verified room's availability stands as written", async () => {
+    mocks.occupancy.mockResolvedValue([
+      { roomChoice: "p5257::r6", spans: [{ start: "2026-09-01", end: "2026-10-31", count: 1 }] },
+      { roomChoice: "p5257::r5", spans: [] },
+    ]);
+    const listed = await listLiveListingsTool.handler(ctx(), { query: "5257 Brooklyn" });
+    const reply = "Room 6 is available from November 1.";
+    expect(enforceCheckedAvailability({ reply, toolEvidence: [{ tool: "list_live_listings", output: listed }] })).toEqual({ reply, replaced: false });
   });
 });

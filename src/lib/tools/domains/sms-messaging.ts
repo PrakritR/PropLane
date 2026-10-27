@@ -150,6 +150,8 @@ export const replyToSmsConversationTool = defineWriteTool({
     }
     const result = await sendManagerConversationSms(ctx.db, {
       actorUserId: ctx.userId,
+      // The assistant wrote this text; confirming it does not make it the manager's own words.
+      author: "assistant",
       scopeManagerIds: ids,
       conversationKey: row.conversationKey,
       toPhone: destination,

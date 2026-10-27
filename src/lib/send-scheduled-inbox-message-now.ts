@@ -120,6 +120,8 @@ export async function sendScheduledInboxMessageNow(
           // Same outbound path, consent, billing reserve and work number as a manual reply.
           const sent = await sendManagerConversationSms(db, {
             actorUserId: active.managerUserId,
+            // The manager typed this body and scheduled it; the cron only delivers it.
+            author: "manager",
             idempotencyKey: `sched-${active.id}`.padEnd(16, "_").slice(0, 128),
             toPhone: active.recipientPhone ?? "",
             text: active.body,

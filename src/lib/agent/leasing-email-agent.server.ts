@@ -269,7 +269,7 @@ export async function runLeasingEmailAgentTurn(
      only from a checked read, and no contact details on a site that forbids them. */
   let channelResult: LeasingEmailTurn["channel"];
   if (args.channel) {
-    const checked = enforceCheckedAvailability({ reply, toolTrace: result.toolTrace });
+    const checked = enforceCheckedAvailability({ reply, toolEvidence: result.toolEvidence });
     reply = checked.reply;
     channelResult = {
       availabilityReplaced: checked.replaced,

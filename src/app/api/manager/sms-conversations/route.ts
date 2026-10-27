@@ -219,6 +219,8 @@ export async function POST(req: Request) {
   }
   const result = await sendManagerConversationSms(auth.db, {
     actorUserId: auth.user.id,
+    // Typed by the person in Communication: the bubble keeps their name.
+    author: "manager",
     toPhone: body.toPhone,
     text: body.text,
     residentUserId: body.residentUserId,

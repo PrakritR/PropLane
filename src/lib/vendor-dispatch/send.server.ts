@@ -187,6 +187,8 @@ export async function sendVendorDispatchText(
     const ownerWorkspaceId = await userDefaultWorkspaceId(db, rosterSender.serviceOwnerId);
     const sent = await sendManagerConversationSms(db, {
       actorUserId: rosterSender.serviceOwnerId,
+      // Dispatch text: PropLane wrote it, so the vendor's thread labels it PropLane.
+      author: "assistant",
       idempotencyKey: input.idempotencyKey.replace(/[^A-Za-z0-9_-]/g, "_").padEnd(16, "_").slice(0, 128),
       toPhone: phone,
       text,
@@ -210,6 +212,7 @@ export async function sendVendorDispatchText(
     : input.idempotencyKey.replace(/[^A-Za-z0-9_-]/g, "_").padEnd(16, "_").slice(0, 128);
   const result = await sendManagerConversationSms(db, {
     actorUserId: input.ownerUserId,
+    author: "assistant",
     idempotencyKey: key,
     toPhone: phone,
     text,

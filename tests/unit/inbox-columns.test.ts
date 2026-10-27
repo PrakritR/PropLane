@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { INBOX_FULL_SCREEN_THREAD_MAX_PX, pickInboxColumns } from "@/lib/inbox-columns";
+import { INBOX_DETAILS_PANEL_PX, INBOX_FULL_SCREEN_THREAD_MAX_PX, pickInboxColumns } from "@/lib/inbox-columns";
 
 describe("pickInboxColumns", () => {
   it("draws two columns (list + conversation) from 760px up, at any width above", () => {
@@ -34,6 +34,8 @@ describe("InboxTwoPane source guard", () => {
     expect(body).not.toMatch(/inbox-details-pane(?!l)/);
     expect(body).not.toMatch(/grid-cols-\[320px_minmax\(440px,1fr\)_280px\]/);
     expect(body).toContain("inbox-details-panel");
+    // Tailwind cannot interpolate the constant, so the class is held to it here instead.
+    expect(body).toContain(`w-[${INBOX_DETAILS_PANEL_PX}px]`);
   });
   it("full screen drops the sidebar-bleed margin and centres the thread at the shared width", () => {
     expect(body).toMatch(/fullScreenDrawn\s*\? "lg:border-t lg:border-border"/);

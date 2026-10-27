@@ -6,6 +6,7 @@ import { normalizeE164, formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import { profilePhoneVariants } from "@/lib/sms-consent";
 import { rosterPhoneIdentifiesVendor, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
+import { MANAGER_SEND_DEDUPE_PREFIX } from "@/lib/sms/manager-send-dedupe";
 import {
   classifyInboundText,
   guessTradeFromInboundText,
@@ -152,7 +153,8 @@ const ACCEPTED_OUTBOUND_STATUSES = ["queued", "claimed", "deferred", "submitting
 
 /**
  * Did THIS workspace owner text this number recently, as a person (the manual
- * send's `manager:` dedupe key - the job assistant's own texts never count)?
+ * send's {@link MANAGER_SEND_DEDUPE_PREFIX} dedupe key - the job assistant's
+ * own texts carry the assistant prefix and never count)?
  * `vendorOnly` narrows it to texts that went to a vendor thread.
  */
 export async function managerTextedPhoneWithin(
@@ -165,7 +167,7 @@ export async function managerTextedPhoneWithin(
     .select("recipient_user_id,counterparty_role,created_at")
     .eq("manager_user_id", input.managerUserId)
     .eq("recipient_phone", input.phoneE164)
-    .like("dedupe_key", "manager:%")
+    .like("dedupe_key", `${MANAGER_SEND_DEDUPE_PREFIX}%`)
     .in("status", ACCEPTED_OUTBOUND_STATUSES)
     .gte("created_at", since);
   if (input.vendorOnly) query = query.eq("counterparty_role", "vendor");

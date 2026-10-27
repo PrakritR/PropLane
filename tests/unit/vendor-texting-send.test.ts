@@ -66,6 +66,7 @@ function seed(overrides: { phone?: string; vendorUserId?: string | null; active?
 const send = (db: ReturnType<typeof seed>, extra: Record<string, unknown> = {}) =>
   sendManagerConversationSms(db as never, {
     actorUserId: ACTOR,
+    author: "manager",
     toPhone: PHONE,
     text: "Hi Mike, can you look at a leak under the kitchen sink at 1420 Alder St this week?",
     vendorRecordId: VENDOR_ROW,
@@ -287,6 +288,7 @@ describe("a vendor thread already on screen", () => {
     db.__tables.inbound_sms_log!.push({ manager_user_id: OWNER, from_phone: PHONE, message_sid: "SMold", created_at: "2026-10-01T00:00:00Z" });
     const result = await sendManagerConversationSms(db as never, {
       actorUserId: ACTOR,
+      author: "manager",
       toPhone: PHONE,
       text: "Thursday works.",
       idempotencyKey: "vendor_thread_reply_01",
@@ -306,7 +308,7 @@ describe("a vendor thread already on screen", () => {
   it("a resident thread keeps the generic purpose", async () => {
     const db = seed();
     await sendManagerConversationSms(db as never, {
-      actorUserId: ACTOR, toPhone: "+12065550177", text: "Hi", idempotencyKey: "resident_reply_000001",
+      actorUserId: ACTOR, author: "manager", toPhone: "+12065550177", text: "Hi", idempotencyKey: "resident_reply_000001",
       selectedConversation: {
         projectionId: "proj-2", workLineId: "line-1", ownerManagerUserId: OWNER, residentUserId: "res-1", residentEmail: "r@x.co",
         name: "Riley", phone: "+12065550177", propertyLabel: null, counterpartyRole: "resident", conversationKey: "K", messages: [],

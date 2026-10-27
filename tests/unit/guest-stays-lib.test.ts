@@ -8,18 +8,15 @@ import {
   guestBookActionLabel,
   guestBookSummaryLine,
   guestStayApprovedText,
-  guestStayBucket,
   guestStayConfirmedText,
   guestStayDeclinedText,
   guestStayExpiredText,
   guestStayRequestedText,
   guestStayStatusLabel,
   holdExpiresInLabel,
-  parseGuestStayBucket,
   shortStayHoldExpiresAt,
   shortStayQuickPicks,
   shortStayRangesOverlap,
-  sortGuestStays,
   withGuestSignInPrompt,
   type GuestStay,
 } from "@/lib/short-stay/guest-stays";
@@ -44,27 +41,8 @@ describe("quick picks", () => {
   });
 });
 
-describe("Upcoming | Past and the row facts", () => {
+describe("the row facts", () => {
   const today = "2026-10-14";
-  it("splits on check-out and status", () => {
-    expect(guestStayBucket(stay(), today)).toBe("upcoming");
-    expect(guestStayBucket(stay({ status: "pending" }), today)).toBe("upcoming");
-    expect(guestStayBucket(stay({ checkOut: "2026-10-14" }), today)).toBe("past");
-    // The host's answer stays in Upcoming while the dates are ahead, so a guest sees Declined / Expired.
-    expect(guestStayBucket(stay({ status: "declined" }), today)).toBe("upcoming");
-    expect(guestStayBucket(stay({ status: "expired" }), today)).toBe("upcoming");
-    expect(guestStayBucket(stay({ status: "declined", checkOut: "2026-10-14" }), today)).toBe("past");
-    expect(guestStayBucket(stay({ status: "cancelled" }), today)).toBe("past");
-    expect(parseGuestStayBucket("past")).toBe("past");
-    expect(parseGuestStayBucket("nope")).toBeNull();
-  });
-
-  it("sorts soonest first for Upcoming and newest first for Past", () => {
-    const list = [stay({ id: "b", checkIn: "2026-10-25" }), stay({ id: "a", checkIn: "2026-10-20" })];
-    expect(sortGuestStays(list, "upcoming").map((s) => s.id)).toEqual(["a", "b"]);
-    expect(sortGuestStays(list, "past").map((s) => s.id)).toEqual(["b", "a"]);
-  });
-
   it("prints the pending hours and plain status words (no pill)", () => {
     const now = new Date("2026-10-14T20:00:00Z");
     expect(holdExpiresInLabel("2026-10-15T18:30:00Z", now)).toBe("Pending, expires in 22h");

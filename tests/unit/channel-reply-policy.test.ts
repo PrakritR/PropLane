@@ -63,23 +63,52 @@ describe("a reply with contact details is held on Airbnb and Booking.com", () =>
 
 describe("availability is only ever stated from a checked read", () => {
   const claim = "Room 6 is available from November 1.";
+  const verifiedRoom6 = { tool: "check_room_availability", output: { found: true, ok: true, rooms: [{ roomId: "r6", roomLabel: "Room 6", available: true }] } };
+  const unverifiedRoom6 = { tool: "check_room_availability", output: { found: true, ok: true, rooms: [{ roomId: "r6", roomLabel: "Room 6", available: null }] } };
 
   it("a claim with no availability read is replaced by the confirm-later text", () => {
-    expect(enforceCheckedAvailability({ reply: claim, toolTrace: [] })).toEqual({ reply: CHANNEL_CONFIRM_LATER_REPLY, replaced: true });
+    expect(enforceCheckedAvailability({ reply: claim, toolEvidence: [] })).toEqual({ reply: CHANNEL_CONFIRM_LATER_REPLY, replaced: true });
   });
 
   it("a claim after only FAILED reads is replaced", () => {
-    const result = enforceCheckedAvailability({ reply: claim, toolTrace: [{ tool: "check_room_availability", ok: false }, { tool: "get_listing_details", ok: false }] });
+    const result = enforceCheckedAvailability({
+      reply: claim,
+      toolEvidence: [
+        { tool: "check_room_availability", output: { found: true, ok: false, error: "listing_unreadable" } },
+        { tool: "get_listing_details", output: { found: false } },
+      ],
+    });
     expect(result).toEqual({ reply: CHANNEL_CONFIRM_LATER_REPLY, replaced: true });
     expect(result.reply).not.toMatch(/\bis available\b/i);
   });
 
-  it("a claim backed by a successful checked read stands, and a non-claim is never touched", () => {
-    expect(enforceCheckedAvailability({ reply: claim, toolTrace: [{ tool: "check_room_availability", ok: true }] })).toEqual({ reply: claim, replaced: false });
-    expect(enforceCheckedAvailability({ reply: "Parking is street only.", toolTrace: [] })).toEqual({ reply: "Parking is street only.", replaced: false });
+  it("a read that succeeded but verified nothing is not evidence", () => {
+    expect(enforceCheckedAvailability({ reply: claim, toolEvidence: [unverifiedRoom6] })).toEqual({ reply: CHANNEL_CONFIRM_LATER_REPLY, replaced: true });
+  });
+
+  it("naming a room the turn could not verify is replaced, even beside a verified one", () => {
+    const listed = {
+      tool: "list_live_listings",
+      output: {
+        listings: [
+          { title: "Alder St", rooms: [{ name: "Room 2", currentAvailabilityVerified: true, freeNow: true }] },
+          { title: "Brooklyn Ave", rooms: [{ name: "Room 6", currentAvailabilityVerified: false, availabilityNote: "Not checked in this list" }] },
+        ],
+      },
+    };
+    expect(enforceCheckedAvailability({ reply: claim, toolEvidence: [listed] })).toEqual({ reply: CHANNEL_CONFIRM_LATER_REPLY, replaced: true });
+    expect(enforceCheckedAvailability({ reply: "Room 2 is available from November 1.", toolEvidence: [listed] })).toEqual({
+      reply: "Room 2 is available from November 1.",
+      replaced: false,
+    });
+  });
+
+  it("a claim backed by a verified checked read stands, and a non-claim is never touched", () => {
+    expect(enforceCheckedAvailability({ reply: claim, toolEvidence: [verifiedRoom6] })).toEqual({ reply: claim, replaced: false });
+    expect(enforceCheckedAvailability({ reply: "Parking is street only.", toolEvidence: [] })).toEqual({ reply: "Parking is street only.", replaced: false });
   });
 
   it("the confirm-later text itself makes no availability claim", () => {
-    expect(enforceCheckedAvailability({ reply: CHANNEL_CONFIRM_LATER_REPLY, toolTrace: [] }).replaced).toBe(false);
+    expect(enforceCheckedAvailability({ reply: CHANNEL_CONFIRM_LATER_REPLY, toolEvidence: [] }).replaced).toBe(false);
   });
 });

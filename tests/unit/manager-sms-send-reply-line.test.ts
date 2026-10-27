@@ -39,7 +39,7 @@ beforeEach(() => {
   dispatch.mockResolvedValue({ submitted: 1, unknown: 0 });
 });
 
-const send = () => sendManagerConversationSms(db(), { actorUserId: "owner-1", toPhone: "+12065550142", text: "Hello there", idempotencyKey: "reply_line_test_0001", conversationKey: "K1" });
+const send = () => sendManagerConversationSms(db(), { actorUserId: "owner-1", author: "manager", toPhone: "+12065550142", text: "Hello there", idempotencyKey: "reply_line_test_0001", conversationKey: "K1" });
 
 describe("manager reply leaves from the conversation's own line (S6)", () => {
   it("a conversation that came in on workspace B's number replies from B", async () => {

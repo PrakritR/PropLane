@@ -1,8 +1,9 @@
 /**
  * The pure half of the guest portal's short stays (a returning guest books again from a row on the Application page):
- * the shapes the route returns, the 24-hour hold, the quick picks, the Upcoming | Past split, the
- * button wording the server's dry run decides, and the guest's texts. No server import, so the Stays
- * panel, the Book again sheet, the routes and the tests all read the same rules.
+ * the shapes the route returns, the 24-hour hold, the quick picks, the button wording the server's dry run
+ * decides, and the guest's texts. Which Application section a stay sits in, and the order of the rows inside it,
+ * is `guest-stay-application.ts` alone. No server import, so the Book again sheet, the routes and the tests all
+ * read the same rules.
  */
 import type { StayAddOnKind, StayAddOns } from "@/lib/bookings/stay-times";
 import { addRangeDays, rangeDaysBetween } from "@/lib/room-availability-range";
@@ -51,7 +52,7 @@ export type GuestStayStatus = "confirmed" | "pending" | "declined" | "expired" |
  */
 export type GuestStayPayment = "due" | "processing" | "paid" | "none";
 
-/** One of the guest's own stays, as the Stays list draws it. Never carries another guest's data. */
+/** One of the guest's own stays, as its Application row draws it. Never carries another guest's data. */
 export type GuestStay = {
   id: string;
   propertyId: string;
@@ -80,27 +81,6 @@ export type GuestStay = {
   /** Paid early check-in / late checkout on this stay (requested, pending, paid or refunded). */
   addOns?: StayAddOns;
 };
-
-export type GuestStayBucket = "upcoming" | "past";
-export const GUEST_STAY_BUCKETS: readonly GuestStayBucket[] = ["upcoming", "past"];
-
-export function parseGuestStayBucket(value: string | undefined): GuestStayBucket | null {
-  return GUEST_STAY_BUCKETS.find((bucket) => bucket === value) ?? null;
-}
-
-/**
- * A stay is Upcoming while its check-out is still ahead (check-out day is exclusive) and the host's answer
- * is one the guest still needs to see: Requested, Approved, Confirmed, Declined or Expired. Any other
- * ending (a cancellation) and anything over is Past.
- */
-export function guestStayBucket(stay: Pick<GuestStay, "status" | "checkOut">, today: string): GuestStayBucket {
-  const shown = stay.status === "confirmed" || stay.status === "pending" || stay.status === "declined" || stay.status === "expired";
-  return shown && stay.checkOut > today ? "upcoming" : "past";
-}
-
-export function sortGuestStays(stays: readonly GuestStay[], bucket: GuestStayBucket): GuestStay[] {
-  return [...stays].sort((a, b) => (bucket === "upcoming" ? a.checkIn.localeCompare(b.checkIn) : b.checkIn.localeCompare(a.checkIn)));
-}
 
 /** "Pending, expires in 22h" (under an hour: minutes). Past the deadline it reads "Pending, expiring". */
 export function holdExpiresInLabel(expiresAt: string | null | undefined, now: Date = new Date()): string {

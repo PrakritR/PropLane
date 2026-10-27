@@ -123,6 +123,7 @@ export const messageVendorTool = defineWriteTool({
     }
     const result = await sendManagerConversationSms(ctx.db, {
       actorUserId: ctx.userId,
+      author: "assistant",
       scopeManagerIds: [ctx.landlordId],
       vendorRecordId: vendor.recordId,
       toPhone: vendor.phone,

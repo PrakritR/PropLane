@@ -148,18 +148,69 @@ export const CHECKED_AVAILABILITY_TOOLS: readonly string[] = ["list_live_listing
 
 const AVAILABILITY_CLAIM = /\b(is available|are available|available (?:now|from|on|until|starting)|free (?:from|on|until|starting)|is free|vacant|open (?:from|on|now)|ready (?:from|on)|move[- ]in (?:on|from))\b/i;
 
+/** One room an availability read reported on, and whether that read actually VERIFIED it. */
+type CheckedRoom = { label: string | null; verified: boolean };
+
 /**
- * Availability is only ever stated from a checked tool read. A reply that states availability in a turn where no
- * availability read succeeded (none called, or every one failed) is replaced with the confirm-later text, never sent
- * as written. Pure: the tool trace is the evidence.
+ * The rooms one checked read reported on. A read that merely SUCCEEDED proves nothing: `list_live_listings` reads real
+ * occupancy for the first ranked homes only and returns `currentAvailabilityVerified: false` for every other room (and
+ * for every room of a home whose occupancy read threw), and `check_room_availability` / `get_listing_details` return
+ * `available: null` / `currentAvailabilityVerified: false` for the same reason. So the room rows are read, not the call.
+ */
+function checkedRoomsIn(output: unknown): CheckedRoom[] {
+  const rooms: CheckedRoom[] = [];
+  const visit = (node: unknown, depth: number): void => {
+    if (node === null || typeof node !== "object" || depth > 8) return;
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, depth + 1);
+      return;
+    }
+    const row = node as Record<string, unknown>;
+    const label =
+      typeof row.name === "string" && row.name.trim() ? row.name.trim()
+      : typeof row.roomLabel === "string" && row.roomLabel.trim() ? row.roomLabel.trim()
+      : null;
+    if (typeof row.currentAvailabilityVerified === "boolean") {
+      rooms.push({ label, verified: row.currentAvailabilityVerified });
+    } else if (typeof row.roomId === "string" && "available" in row) {
+      rooms.push({ label, verified: typeof row.available === "boolean" });
+    }
+    for (const value of Object.values(row)) visit(value, depth + 1);
+  };
+  visit(output, 0);
+  return rooms;
+}
+
+function mentionsLabel(reply: string, label: string): boolean {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  try {
+    return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(reply);
+  } catch {
+    return reply.toLowerCase().includes(label.toLowerCase());
+  }
+}
+
+/**
+ * Availability is only ever stated from a checked tool read that VERIFIED a room. A reply that states availability is
+ * replaced with the confirm-later text when no room came back verified in this turn, and when it names a room whose
+ * own read was NOT verified (the unverified half of a list the model was also shown). Pure: the tool answers are the
+ * evidence, never the fact a call was made.
  */
 export function enforceCheckedAvailability(input: {
   reply: string;
-  toolTrace: readonly { tool: string; ok: boolean }[];
+  /** This turn's successful reads with their own answers (`runAgentTurn().toolEvidence`). */
+  toolEvidence: readonly { tool: string; output: unknown }[];
 }): { reply: string; replaced: boolean } {
   const reply = input.reply ?? "";
   if (!AVAILABILITY_CLAIM.test(reply)) return { reply, replaced: false };
-  const checked = input.toolTrace.some((entry) => entry.ok && CHECKED_AVAILABILITY_TOOLS.includes(entry.tool));
-  if (checked) return { reply, replaced: false };
-  return { reply: CHANNEL_CONFIRM_LATER_REPLY, replaced: true };
+  const rooms = input.toolEvidence
+    .filter((entry) => CHECKED_AVAILABILITY_TOOLS.includes(entry.tool))
+    .flatMap((entry) => checkedRoomsIn(entry.output));
+  if (!rooms.some((room) => room.verified)) return { reply: CHANNEL_CONFIRM_LATER_REPLY, replaced: true };
+  const verifiedLabels = new Set(rooms.filter((room) => room.verified && room.label).map((room) => room.label!.toLowerCase()));
+  const namesUnverifiedRoom = rooms.some(
+    (room) => !room.verified && room.label && !verifiedLabels.has(room.label.toLowerCase()) && mentionsLabel(reply, room.label),
+  );
+  if (namesUnverifiedRoom) return { reply: CHANNEL_CONFIRM_LATER_REPLY, replaced: true };
+  return { reply, replaced: false };
 }

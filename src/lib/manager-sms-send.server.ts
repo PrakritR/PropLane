@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { MANAGER_SEND_DEDUPE_PREFIX } from "@/lib/sms/manager-send-dedupe";
+import { SEND_DEDUPE_PREFIXES, sendDedupePrefix, type SendAuthor } from "@/lib/sms/manager-send-dedupe";
 import { createHash } from "node:crypto";
 import { fetchManagerSmsConversations, resolveSmsScopeManagerIds } from "@/lib/manager-sms-messages.server";
 import { enqueueOwnerSms, dispatchOwnerSmsOutbox } from "@/lib/sms/owner-sms-dispatcher.server";
@@ -35,6 +35,12 @@ function response(body: Record<string, unknown>, init?: { status: number }): Sen
  * edit grant before the existing consent, outbox and delivery-status gates. */
 export async function sendManagerConversationSms(db: SupabaseClient, args: {
   actorUserId: string;
+  /**
+   * Who wrote this text. A person typing (or scheduling) in Communication is `"manager"` and keeps their name on the
+   * bubble; everything the assistant, an agent or an automation composed is `"assistant"` and reads as PropLane, a
+   * confirmed assistant draft included. Required so a new caller cannot borrow a person's name by omission.
+   */
+  author: SendAuthor;
   idempotencyKey?: string;
   /** Server-resolved surface scope only; never accept this from the client/model. */
   scopeManagerIds?: string[];
@@ -201,9 +207,10 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
     });
   }
   const requestedDedupe = args.idempotencyKey?.trim() ?? "";
+  const prefix = sendDedupePrefix(args.author);
   const dedupeKey = /^[A-Za-z0-9_-]{16,128}$/.test(requestedDedupe)
-    ? `${MANAGER_SEND_DEDUPE_PREFIX}${requestedDedupe}`
-    : `${MANAGER_SEND_DEDUPE_PREFIX}${createHash("sha256")
+    ? `${prefix}${requestedDedupe}`
+    : `${prefix}${createHash("sha256")
         .update(
           [
             args.actorUserId,
@@ -369,7 +376,7 @@ async function materializeLegacyVendorInboundConsent(
   }
 }
 
-/** Has a manager text to this vendor already been accepted for delivery? */
+/** Has any text to this vendor from this workspace already been accepted for delivery, whoever wrote it? */
 async function hasAcceptedManagerVendorText(
   db: SupabaseClient,
   ownerManagerUserId: string,
@@ -381,7 +388,7 @@ async function hasAcceptedManagerVendorText(
     .eq("manager_user_id", ownerManagerUserId)
     .eq("recipient_phone", phone)
     .eq("purpose", VENDOR_CONVERSATION_PURPOSE)
-    .like("dedupe_key", `${MANAGER_SEND_DEDUPE_PREFIX}%`)
+    .or(SEND_DEDUPE_PREFIXES.map((prefix) => `dedupe_key.like.${prefix}*`).join(","))
     .in("status", ["queued", "claimed", "deferred", "submitting", "submitted", "sent", "delivered", "unknown"])
     .limit(1);
   // An unreadable history is treated as "not sent yet": a repeated STOP footer is harmless, a missing one is not.
@@ -566,6 +573,7 @@ async function sendRosterVendorText(
   db: SupabaseClient,
   args: {
     actorUserId: string;
+    author: SendAuthor;
     idempotencyKey?: string;
     scopeManagerIds?: string[];
     vendorRecordId?: string | null;
@@ -647,9 +655,10 @@ async function sendRosterVendorText(
   }
 
   const requestedDedupe = args.idempotencyKey?.trim() ?? "";
+  const prefix = sendDedupePrefix(args.author);
   const dedupeKey = /^[A-Za-z0-9_-]{16,128}$/.test(requestedDedupe)
-    ? `${MANAGER_SEND_DEDUPE_PREFIX}${requestedDedupe}`
-    : `${MANAGER_SEND_DEDUPE_PREFIX}${createHash("sha256")
+    ? `${prefix}${requestedDedupe}`
+    : `${prefix}${createHash("sha256")
         .update([args.actorUserId, ownerManagerUserId, rosterPhone, conversationKey, input.text, Math.floor(Date.now() / 30_000)].join("|"))
         .digest("hex")}`;
   const result = await enqueueOwnerSms({

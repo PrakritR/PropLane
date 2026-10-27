@@ -144,6 +144,7 @@ export async function POST(req: Request) {
     const send = (runDispatch?: Parameters<typeof sendManagerConversationSms>[1]["runDispatch"]) =>
       sendManagerConversationSms(db, {
         actorUserId: user.id,
+        author: "manager",
         toPhone: phone,
         text,
         vendorRecordId: vendor.vendorId,

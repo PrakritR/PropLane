@@ -96,4 +96,9 @@ async function main() {
   process.exit(mismatches.length ? 1 : 0);
 }
 
-main();
+// The exit code is the contract: anything unexpected (a malformed catalog row, a snapshot that is not a list)
+// still reports "could not read", never a Node-chosen code from an unhandled rejection.
+main().catch((error) => {
+  console.error(`Could not read ${base}: ${error instanceof Error ? error.message : error}`);
+  process.exit(2);
+});

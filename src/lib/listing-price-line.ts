@@ -78,10 +78,40 @@ type PriceRowsSubmission = {
   neighborhood?: string;
   zip?: string;
   rooms?: Array<{ id?: string; name?: string; securityDeposit?: string | null }> | null;
+  /** The whole-home arrangement's proration method, when the listing rents as one home. */
+  entireHomeProrateMethod?: string | null;
 } | null | undefined;
 
-/** The first month is billed by the day; the formula is the row's tooltip. */
-export const FIRST_MONTH_PRORATION_FORMULA = "Monthly rent ÷ days in that month × days you stay";
+/**
+ * The first month is billed by the day; the formula is the row's tooltip. True only while the listing prorates from
+ * the monthly rent (`prorateMethod: "auto"`, what `computeProratedFirstMonthTotals` does by default).
+ */
+export const FIRST_MONTH_PRORATION_FORMULA = "Monthly rent ÷ days in that month × days you stay; a move-in on the 1st is a full month";
+
+/**
+ * A room (or the whole home) set to "Set per day" bills `dailyRentRate × days`, which is NOT the monthly-rent formula,
+ * so the row says what is true for every room instead of quoting a figure the first charge will not match.
+ */
+export const FIRST_MONTH_DAILY_RATE_PRORATION_FORMULA = "Charged for the days you stay; a room priced per day uses its own daily rate";
+
+/**
+ * Does anything on this listing prorate from a per-day rate rather than the monthly rent? Read from the submission the
+ * billing engine reads (`entireHomeProrateMethod`, each room's own `prorateMethod`, and the per-resident / per-term
+ * price rows that override it), so the public tooltip cannot promise a formula the charge does not use.
+ */
+export function listingProratesFromDailyRate(sub: PriceRowsSubmission): boolean {
+  if (sub?.entireHomeProrateMethod === "daily_rate") return true;
+  const seen = new Set<unknown>();
+  const visit = (node: unknown, depth: number): boolean => {
+    if (node === null || typeof node !== "object" || depth > 6 || seen.has(node)) return false;
+    seen.add(node);
+    if (Array.isArray(node)) return node.some((item) => visit(item, depth + 1));
+    const row = node as Record<string, unknown>;
+    if (row.prorateMethod === "daily_rate") return true;
+    return Object.values(row).some((value) => visit(value, depth + 1));
+  };
+  return visit(sub?.rooms ?? null, 0);
+}
 
 const money = (n: number) => formatRoomPriceAmount(n);
 
@@ -144,9 +174,15 @@ export function listingPriceRows(
   if (showCustom) {
     rows.push({ key: "custom-term", label: "Custom term · starts any day", value: `+${money(custom)}/mo` });
   }
-  // A monthly rent is what gets prorated; a listing with no monthly price has nothing to prorate.
+  // A monthly rent is what gets prorated; a listing with no monthly price has nothing to prorate. The tooltip states
+  // the formula the first charge actually uses, so a per-day room never advertises the monthly-rent arithmetic.
   if (line) {
-    rows.push({ key: "first-month", label: "First month", value: "Prorated by day", title: FIRST_MONTH_PRORATION_FORMULA });
+    rows.push({
+      key: "first-month",
+      label: "First month",
+      value: "Prorated by day",
+      title: listingProratesFromDailyRate(sub) ? FIRST_MONTH_DAILY_RATE_PRORATION_FORMULA : FIRST_MONTH_PRORATION_FORMULA,
+    });
   }
 
   const handled = (label: string) => {

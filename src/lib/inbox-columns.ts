@@ -14,7 +14,7 @@ export type InboxColumns = 2 | 1;
 
 export const INBOX_LIST_COLUMN_PX = 320;
 export const INBOX_THREAD_MIN_PX = 440;
-/** Width of the contact-details panel that opens over the thread. */
+/** Width of the contact-details panel that opens over the thread (the panel's own class is held to it by `tests/unit/inbox-columns.test.ts`). */
 export const INBOX_DETAILS_PANEL_PX = 280;
 export const INBOX_TWO_COLUMN_MIN_PX = INBOX_LIST_COLUMN_PX + INBOX_THREAD_MIN_PX;
 /** Full screen centres the conversation at this readable width. */

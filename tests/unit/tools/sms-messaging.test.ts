@@ -21,6 +21,7 @@ vi.mock("@/lib/tools/audit", () => ({
 vi.mock("@/lib/analytics/posthog", () => ({ track: mocks.track }));
 import { listSmsConversationsTool, replyToSmsConversationTool } from "@/lib/tools/domains/sms-messaging";
 import { sendManagerConversationSms } from "@/lib/manager-sms-send.server";
+import { ASSISTANT_SEND_DEDUPE_PREFIX, MANAGER_SEND_DEDUPE_PREFIX } from "@/lib/sms/manager-send-dedupe";
 
 const db = {
   from: (table: string) => {
@@ -178,6 +179,14 @@ describe("assistant work-number conversations", () => {
     expect(mocks.enqueue).toHaveBeenCalledWith(expect.objectContaining({ managerUserId: "manager-b", actorUserId: "manager-a" }));
   });
 
+  it("stores the text as the assistant's, never as a text the manager typed", async () => {
+    const sent = await executeWrite(replyToSmsConversationTool, ctx, { ...input, toPhone: "+12065550123" });
+    expect(sent.ok).toBe(true);
+    const key = String(mocks.enqueue.mock.calls[0]![0].dedupeKey);
+    expect(key.startsWith(ASSISTANT_SEND_DEDUPE_PREFIX)).toBe(true);
+    expect(key.startsWith(MANAGER_SEND_DEDUPE_PREFIX)).toBe(false);
+  });
+
   it("refuses sending if the audit write fails", async () => {
     mocks.audit.mockResolvedValue({ recorded: false });
     const sent = await executeWrite(replyToSmsConversationTool, ctx, { ...input, toPhone: "+12065550123" });
@@ -194,7 +203,7 @@ describe("assistant work-number conversations", () => {
 
   it("rechecks a co-manager's edit grant in the shared send function", async () => {
     rows[0]!.ownerManagerUserId = "manager-b";
-    const result = await sendManagerConversationSms(ctx.db, { actorUserId: ctx.userId,
+    const result = await sendManagerConversationSms(ctx.db, { actorUserId: ctx.userId, author: "assistant",
       conversationKey: input.conversationKey, toPhone: "+12065550123", text: input.body });
     expect(result.status).toBe(403);
     expect(mocks.enqueue).not.toHaveBeenCalled();
@@ -229,7 +238,7 @@ describe("assistant work-number conversations", () => {
   });
 
   it("never falls back to a different conversation when an explicit key is missing", async () => {
-    const result = await sendManagerConversationSms(ctx.db, { actorUserId: ctx.userId,
+    const result = await sendManagerConversationSms(ctx.db, { actorUserId: ctx.userId, author: "assistant",
       conversationKey: "deleted-conversation", toPhone: "+12065550123", text: input.body });
     expect(result.status).toBe(409);
     expect(mocks.enqueue).not.toHaveBeenCalled();

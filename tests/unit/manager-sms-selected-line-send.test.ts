@@ -14,7 +14,7 @@ describe("selected projection send", () => {
     dispatch.mockResolvedValue({ submitted: 1, unknown: 0 });
     const db = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { status: "submitted" } }) }) }) }) } as never;
     const result = await sendManagerConversationSms(db, {
-      actorUserId: "owner-1", toPhone: "+12065550142", text: "Exact line reply", idempotencyKey: "selected_line_test_01",
+      actorUserId: "owner-1", author: "manager", toPhone: "+12065550142", text: "Exact line reply", idempotencyKey: "selected_line_test_01",
       selectedConversation: {
         projectionId: "projection-two", workLineId: "line-two", ownerManagerUserId: "owner-1",
         residentUserId: "resident-1", residentEmail: "resident@example.com", name: "Resident", phone: "+12065550142",

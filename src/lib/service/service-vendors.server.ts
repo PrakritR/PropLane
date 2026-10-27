@@ -181,6 +181,7 @@ export async function sendServiceVendorIntro(
   const workspaceId = await userDefaultWorkspaceId(db, input.ownerUserId);
   const result = await sendManagerConversationSms(db, {
     actorUserId: input.ownerUserId,
+    author: "assistant",
     // One intro per roster entry, however many times this is retried.
     idempotencyKey: `svc-vendor-intro-${record.id}-${phone.slice(-10)}-${(row.rosterAddedAt ?? "").replace(/[^0-9]/g, "")}`.padEnd(16, "0"),
     toPhone: phone,

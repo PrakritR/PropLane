@@ -987,9 +987,12 @@ are `resident-conversation.ts` (`tests/unit/resident-conversation.test.ts`):
   carries `sender: "assistant" | "manager"` from `decideOutboundSender`, and the bubble says **PropLane** for the
   assistant / an automation and the manager's name only for a text a person typed. The projection turn does not say,
   so the evidence is: `source_ref.source` (`automated` -> assistant; `relay` -> manager), the `sms_outbox` row carrying
-  the turn's SID (`dedupe_key` starting `manager:`, written only by `sendManagerSms`, `MANAGER_SEND_DEDUPE_PREFIX`,
-  -> manager; any other key -> assistant), and with no outbox row, the line it left on (the shared PropLane number or
-  the service line -> assistant; a manager's own number -> manager). Only the key is read from the outbox. Tests:
+  the turn's SID (`dedupe_key` starting `MANAGER_SEND_DEDUPE_PREFIX` -> manager; any other key, including
+  `ASSISTANT_SEND_DEDUPE_PREFIX`, -> assistant), and with no outbox row, the line it left on (the shared PropLane
+  number or the service line -> assistant; a manager's own number -> manager). Only the key is read from the outbox.
+  `sendManagerConversationSms` writes both prefixes and takes the author explicitly - the inbox route and the
+  scheduled delivery of a message a person composed pass `manager`, every assistant tool, dispatch and intro passes
+  `assistant`, so a confirmed assistant draft still reads as PropLane. Tests:
   `tests/unit/resident-sms-sender-labels.test.ts`.
 - Every workspace-keyed resident row carries a server-stamped `counterparty`
   (`name`, `workspaceName`, `workPhone`, `initials`; no avatar column exists

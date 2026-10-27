@@ -4,7 +4,7 @@
  * its tooltip, and the generic fee rows never list the same surcharge a second time.
  */
 import { describe, expect, it } from "vitest";
-import { FIRST_MONTH_PRORATION_FORMULA, listingPriceRows } from "@/lib/listing-price-line";
+import { FIRST_MONTH_DAILY_RATE_PRORATION_FORMULA, FIRST_MONTH_PRORATION_FORMULA, listingPriceRows } from "@/lib/listing-price-line";
 
 const rich = (pricingBreakdown: Array<{ label: string; value: string }> = []) => ({
   startingRentLabel: "$1,000/mo",
@@ -74,5 +74,24 @@ describe("listingPriceRows surcharge rows", () => {
       value: "Prorated by day",
       title: FIRST_MONTH_PRORATION_FORMULA,
     });
+  });
+
+  it("never quotes the monthly-rent formula when a room (or the home) is priced per day", () => {
+    const perDayRoom = listingPriceRows(
+      rich(),
+      { ...offered, rooms: [{ id: "r1", name: "Room 1" }, { id: "r2", name: "Room 2", prorateMethod: "daily_rate", dailyRentRate: 120 }] } as never,
+      0,
+    );
+    expect(byKey(perDayRoom, "first-month")!.title).toBe(FIRST_MONTH_DAILY_RATE_PRORATION_FORMULA);
+
+    const perDayHome = listingPriceRows(rich(), { ...offered, entireHomeProrateMethod: "daily_rate" }, 0);
+    expect(byKey(perDayHome, "first-month")!.title).toBe(FIRST_MONTH_DAILY_RATE_PRORATION_FORMULA);
+
+    const perResidentRow = listingPriceRows(
+      rich(),
+      { ...offered, rooms: [{ id: "r1", name: "Room 1", residentPrices: [{ slot: 1, monthlyRent: 1200, prorateMethod: "daily_rate", dailyRentRate: 60 }] }] } as never,
+      0,
+    );
+    expect(byKey(perResidentRow, "first-month")!.title).toBe(FIRST_MONTH_DAILY_RATE_PRORATION_FORMULA);
   });
 });
