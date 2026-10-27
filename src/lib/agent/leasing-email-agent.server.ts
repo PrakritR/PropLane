@@ -30,7 +30,19 @@ import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { traceAgentTurn } from "@/lib/observability/langfuse";
 import { buildLeasingSmsAgentContext } from "@/lib/tools/context";
 import { leasingSmsAgentRegistry, LEASING_SMS_INLINE_WRITE_TOOLS } from "@/lib/tools";
+import { buildProspectLinksTool, escalateLeasingToManagerTool, getSiteLinksTool, suppressRedundantLeasingReplyTool } from "@/lib/tools/domains/leasing-sms";
+import { listOpenTourSlotsTool, leasingRequestTourTool } from "@/lib/tools/domains/tours";
+import { buildRegistry, type ToolRegistry } from "@/lib/tools/registry";
+import type { AgentContext } from "@/lib/tools/context";
 import { leasingSmsTraceActor } from "@/lib/agent/leasing-sms-agent.server";
+import {
+  channelAgentInstructions,
+  channelReplyViolations,
+  enforceCheckedAvailability,
+  type ChannelHoldReason,
+  type ChannelReplyViolation,
+} from "@/lib/agent/channel-reply-policy";
+import { CHANNEL_SITE_LABEL, channelAllowsContactDetails, type ChannelSite } from "@/lib/inbound-email/channel-senders";
 
 type Db = ReturnType<typeof import("@/lib/supabase/service").createSupabaseServiceRoleClient>;
 
@@ -48,7 +60,43 @@ export type LeasingEmailTurn = {
   reply: string;
   sessionId: string;
   traceId: string | null;
+  /** Channel turns only: what the post-checks found. A non-empty `violations` means the reply must be HELD, never sent. */
+  channel?: {
+    violations: ChannelReplyViolation[];
+    /** The model stated availability without a successful checked read; `reply` is the confirm-later text. */
+    availabilityReplaced: boolean;
+  };
 };
+
+/** A guest message from a booking site (Airbnb, Booking.com, PadSplit, SpareRoom) rather than a prospect's own email. */
+export type LeasingEmailChannel = {
+  site: ChannelSite;
+  guestName: string;
+  /** "5257 Brooklyn Ave, Room 6" when the listing was matched to a room. */
+  listingLine: string | null;
+  holdReason: ChannelHoldReason | null;
+  /** The workspace is PropLane-managed (`is_service`): the catalog is the homes PropLane manages. */
+  serviceWorkspace: boolean;
+  /** The PropLane line as the guest should read it, for the sites that allow a number. */
+  proplaneLine: string | null;
+};
+
+/**
+ * The tools a channel turn may use. Airbnb and Booking.com forbid links, so the tools that mint them are removed
+ * (the post-check still holds anything that slips through); a channel guest is never "suppressed" as an acknowledgment.
+ */
+export function channelLeasingRegistry(site: ChannelSite): ToolRegistry<AgentContext> {
+  const drop = new Set<string>([suppressRedundantLeasingReplyTool.name]);
+  if (!channelAllowsContactDetails(site)) {
+    for (const tool of [buildProspectLinksTool, getSiteLinksTool, listOpenTourSlotsTool, leasingRequestTourTool]) drop.add(tool.name);
+  }
+  return buildRegistry([...leasingSmsAgentRegistry.values()].filter((tool) => !drop.has(tool.name)));
+}
+
+/** The writes a channel turn may run inline: only the manager notification on Airbnb and Booking.com. */
+export function channelInlineWriteTools(site: ChannelSite): readonly string[] {
+  return channelAllowsContactDetails(site) ? LEASING_SMS_INLINE_WRITE_TOOLS : [escalateLeasingToManagerTool.name];
+}
 
 async function findOrCreateLeasingEmailSession(
   db: SupabaseClient,
@@ -99,6 +147,8 @@ export async function runLeasingEmailAgentTurn(
     prospectEmail: string;
     inboundText: string;
     inboundEmailId: string;
+    /** Set for a booking-site guest message: channel-aware prompt, tool allowlist, catalog and post-checks. */
+    channel?: LeasingEmailChannel;
   },
 ): Promise<LeasingEmailTurn | null> {
   const text = args.inboundText.trim();
@@ -156,11 +206,13 @@ export async function runLeasingEmailAgentTurn(
     scope: {
       sessionId: session.id,
       prospectPhoneE164: "",
-      prospectEmail: args.prospectEmail.trim().toLowerCase(),
+      // A channel guest has no email of their own (the key address is internal): nothing may prefill or quote it.
+      prospectEmail: args.channel ? null : args.prospectEmail.trim().toLowerCase(),
       channel: "email",
       currentInboundText: text,
       workNumber: null,
       crossCatalog: false,
+      ...(args.channel?.serviceWorkspace ? { serviceCatalog: true } : {}),
     },
   });
 
@@ -171,20 +223,30 @@ export async function runLeasingEmailAgentTurn(
     // supplied by the prospect.
     const system =
       (await leasingSmsSystemPromptForWorkNumberOwner(db, session.landlord_id)) +
-      EMAIL_CHANNEL_INSTRUCTIONS;
+      (args.channel
+        ? channelAgentInstructions({
+            site: args.channel.site,
+            siteLabel: CHANNEL_SITE_LABEL[args.channel.site],
+            guestName: args.channel.guestName,
+            listingLine: args.channel.listingLine,
+            holdReason: args.channel.holdReason,
+            serviceWorkspace: args.channel.serviceWorkspace,
+            proplaneLine: args.channel.proplaneLine,
+          })
+        : EMAIL_CHANNEL_INSTRUCTIONS);
     result = await traceAgentTurn(
       leasingSmsTraceActor(session.landlord_id),
       history as { role: string; content: string }[],
       (observer) =>
         runAgentTurn({
           ctx,
-          registry: leasingSmsAgentRegistry,
+          registry: args.channel ? channelLeasingRegistry(args.channel.site) : leasingSmsAgentRegistry,
           messages: history,
           observer,
           system,
           model: runtimeTaskModel(),
           readOnly: true,
-          allowWriteTools: LEASING_SMS_INLINE_WRITE_TOOLS,
+          allowWriteTools: args.channel ? channelInlineWriteTools(args.channel.site) : LEASING_SMS_INLINE_WRITE_TOOLS,
         }),
       {
         name: "axis-leasing-email-turn",
@@ -200,8 +262,20 @@ export async function runLeasingEmailAgentTurn(
     return null;
   }
 
-  const reply = result.reply.trim();
+  let reply = result.reply.trim();
   if (!reply) return null;
+
+  /* Channel post-checks, on the TEXT the model wrote (the prompt is a request, this is the guarantee): availability
+     only from a checked read, and no contact details on a site that forbids them. */
+  let channelResult: LeasingEmailTurn["channel"];
+  if (args.channel) {
+    const checked = enforceCheckedAvailability({ reply, toolTrace: result.toolTrace });
+    reply = checked.reply;
+    channelResult = {
+      availabilityReplaced: checked.replaced,
+      violations: channelReplyViolations(args.channel.site, reply, { allowedPhoneDigits: args.channel.proplaneLine }),
+    };
+  }
 
   await db.from("agent_messages").insert({
     session_id: session.id,
@@ -215,5 +289,5 @@ export async function runLeasingEmailAgentTurn(
   await db.from("agent_sessions").update({ updated_at: nowIso }).eq("id", session.id);
   track("leasing_email_message_out", session.landlord_id, { tools: result.toolTrace.length });
 
-  return { reply, sessionId: session.id, traceId };
+  return { reply, sessionId: session.id, traceId, ...(channelResult ? { channel: channelResult } : {}) };
 }

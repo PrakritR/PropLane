@@ -404,6 +404,77 @@ export function __resetSmsOccupancyCache(): void {
   smsOccupancyInflight.clear();
 }
 
+/** Homes whose rooms get the CHECKED availability read in one list call; the rest say "not checked" and point at get_listing_details. */
+const CHECKED_AVAILABILITY_HOME_LIMIT = 10;
+
+type CheckedRoomAvailability = {
+  currentAvailability: string | null;
+  currentAvailabilityVerified: boolean;
+  /** YYYY-MM-DD: today when free now, else the first day the room is free. Null = unknown or not free within a year. */
+  freeFrom: string | null;
+  freeNow: boolean | null;
+};
+
+const UNCHECKED_ROOM: CheckedRoomAvailability = { currentAvailability: null, currentAvailabilityVerified: false, freeFrom: null, freeNow: null };
+
+/**
+ * The CHECKED availability of every room of one home: the same occupancy the public listing page and the calendar read
+ * (every approved resident, executed lease, room block and imported channel booking - Airbnb, Booking.com, PadSplit),
+ * through `roomAvailabilityForRange`. A failed or unreadable read leaves every room UNVERIFIED (null label, no date) - it is
+ * never turned into "available". Exported for tests.
+ */
+export async function checkedAvailabilityForListing(
+  rec: RawPropertyRecord,
+  ownerId: string | undefined,
+  now: Date = new Date(),
+): Promise<Map<string, CheckedRoomAvailability>> {
+  const out = new Map<string, CheckedRoomAvailability>();
+  const submission = asObject(propertySource(rec)?.listingSubmission);
+  if (submission?.v !== 1) return out;
+  let occupancy: Awaited<ReturnType<typeof loadPublicRoomOccupancy>>;
+  try {
+    occupancy = await loadListingOccupancyForSms(rec, submission, ownerId);
+  } catch {
+    return out;
+  }
+  const today = pacificTodayKey(now);
+  const [y, m, d] = today.split("-").map(Number) as [number, number, number];
+  const tomorrow = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+  const range = await roomAvailabilityForRange(
+    { propertyId: rec.id, moveIn: today, moveOut: tomorrow },
+    { submission, loadOccupancy: async () => occupancy },
+  );
+  if (!range.ok) return out;
+  const spansByRoom = new Map(occupancy.map((row) => [row.roomChoice, row.spans]));
+  const capacity = new Map<string, unknown>();
+  const moveIn = new Map<string, string | null>();
+  for (const room of Array.isArray(submission.rooms) ? submission.rooms : []) {
+    const record = asObject(room);
+    if (record && typeof record.id === "string") {
+      capacity.set(record.id, record.occupancyCapacity);
+      moveIn.set(record.id, typeof record.moveInAvailableDate === "string" ? record.moveInAvailableDate : null);
+    }
+  }
+  for (const room of range.rooms) {
+    const spans = spansByRoom.get(`${rec.id}::${room.roomId}`);
+    if (room.available === null || !spans) {
+      out.set(room.roomId, UNCHECKED_ROOM);
+      continue;
+    }
+    out.set(room.roomId, {
+      currentAvailability: applyMoveInDateToLabel(
+        availabilityLabelFromPublicSpans(spans, capacity.get(room.roomId), pacificListingDay(now)),
+        moveIn.get(room.roomId) ?? null,
+        today,
+      ),
+      currentAvailabilityVerified: true,
+      freeNow: room.available,
+      freeFrom: room.available ? today : room.nextAvailableFrom ?? null,
+    });
+  }
+  return out;
+}
+
 /**
  * A public-catalog listing (any owner) reshaped into the raw-row form the
  * summarizers expect. `getPublicListings()` already returns the marketing
@@ -720,7 +791,7 @@ type ListedHome = { listing: ReturnType<typeof summarizeListingRecord>; rec: Raw
 export const listLiveListingsTool = defineTool({
   name: "list_live_listings",
   description:
-    "Search PropLane's live public listings — on the shared PropLane line this spans EVERY manager's listings (the same catalog as the public /rent site), so use it to find ANY house or room a prospect names. Joined/spaced names, case, Unicode, and punctuation are normalized; exact identity ranks before fuzzy marketing terms. The resolution field says exact, ranked, ambiguous, none, or browsing. Ask a short clarifying question for ambiguous results. Returns canonical property and room ids plus public facts, and each home's own listingUrl. For a place the prospect names (a campus, a landmark, a neighborhood, a zip, \"near downtown\"), pass it as `area` exactly as they said it: the homes come back nearest first with areaMatch.distanceMiles, and `area.resolved` says whether the place was understood. Use first when matching a prospect's house or room question.",
+    "Search PropLane's live public listings — on the shared PropLane line this spans EVERY manager's listings (the same catalog as the public /rent site), so use it to find ANY house or room a prospect names. Joined/spaced names, case, Unicode, and punctuation are normalized; exact identity ranks before fuzzy marketing terms. The resolution field says exact, ranked, ambiguous, none, or browsing. Ask a short clarifying question for ambiguous results. Returns canonical property and room ids plus public facts, and each home's own listingUrl. Each room carries its CHECKED availability (currentAvailability, currentAvailabilityVerified, freeNow and the exact freeFrom date, read from the calendar including every channel booking); a room with currentAvailabilityVerified false has NO known availability, so say you will confirm. For a place the prospect names (a campus, a landmark, a neighborhood, a zip, \"near downtown\"), pass it as `area` exactly as they said it: the homes come back nearest first with areaMatch.distanceMiles, and `area.resolved` says whether the place was understood. Use first when matching a prospect's house or room question.",
   kind: "read",
   inputSchema: z
     .object({
@@ -776,13 +847,40 @@ export const listLiveListingsTool = defineTool({
     }
     const bestRank = ranked[0]?.rank ?? 0;
     const bestCount = ranked.filter((home) => home.rank === bestRank).length;
+    // The CHECKED availability (the calendar with every channel booking) for the homes a reply is likely to name. A saved
+    // label can be stale, so it is never returned here: a room is either checked, or says it is not.
+    const ownerScope = isCrossCatalog(ctx) || isServiceCatalog(ctx) ? undefined : ctx.landlordId;
+    const checkedByHome = new Map<string, Map<string, CheckedRoomAvailability>>();
+    await Promise.all(
+      ranked.slice(0, CHECKED_AVAILABILITY_HOME_LIMIT).map(async ({ rec }) => {
+        checkedByHome.set(rec.id, await checkedAvailabilityForListing(rec, ownerScope).catch(() => new Map<string, CheckedRoomAvailability>()));
+      }),
+    );
     const listings = ranked
       // Cap the payload the model sees (large catalogs); a needle narrows first.
       .slice(0, 40)
       .map(({ listing, area }) => {
         const rents = listing.rooms.map((room) => room.monthlyRent).filter((rent): rent is number => typeof rent === "number" && rent > 0);
+        const checkedRooms = checkedByHome.get(listing.propertyId);
         return {
           ...listing,
+          rooms: listing.rooms.map((room) => {
+            const checked = checkedRooms?.get(room.id) ?? UNCHECKED_ROOM;
+            return {
+              ...room,
+              // The saved label is not evidence: a verified room carries the checked read instead, an unverified one keeps the
+              // saved label only as "what the listing says" beside currentAvailabilityVerified: false and a note.
+              publishedAvailability: checked.currentAvailabilityVerified ? null : room.publishedAvailability,
+              ...checked,
+              ...(checked.currentAvailabilityVerified
+                ? {}
+                : {
+                    availabilityNote: checkedRooms
+                      ? "Availability could not be verified: say you will confirm and get back to them. Never say this room is available."
+                      : "Not checked in this list: call get_listing_details or check_room_availability before stating availability.",
+                  }),
+            };
+          }),
           // The home's own link, from the tool: the only link a reply may carry for this home.
           listingUrl: buildManagerListingUrl(origin, listing.propertyId),
           roomCount: listing.rooms.length,

@@ -213,3 +213,9 @@ The Automations feature (`src/lib/automations/`) keeps each workspace's preset m
 `owner_user_id`); the two once shared a name, so the feature's `create table if not exists` was a silent no-op
 wherever the resolver's table existed. Never reuse that name. `saveAutomationSetting` returns the Postgres error
 code on a failed write and logs it; the route answers 503 with the code, never a silent "saved".
+
+## Channel guest messages: the assistant answers, money and disputes wait (Oct 27)
+
+A verified Airbnb / Booking.com / PadSplit / SpareRoom guest message ([`inbound-email-inbox.md`](inbound-email-inbox.md) § Booking-site guest messages) is answered by the leasing
+assistant, EXCEPT money, refunds, cancellations and complaints (`channelHoldReason`): those, and any reply that carries contact details the site forbids, are stored as a
+review draft with an Assistant notice ("Guest message held"), never sent. Nothing automates a regulated notice; a held draft is the manager's one tap.

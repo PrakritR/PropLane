@@ -1348,3 +1348,12 @@ text, which workspaces got new message rows; plus `one-number-{lead-match,unassi
 `lockedHome` in `LeasingSmsAgentScope`, a sentence in the system prompt (`lockedHomePromptNote`) and a head-of-list preference in `list_live_listings`
 (`lockedPropertyId` in its result). A switch moves the lock, so the next turn carries the new home; a lock that points at someone else's home is no
 lock. Tests: `tests/unit/line-206-leasing-locked-home.test.ts`.
+
+## W31 - The 206 on the booking sites, and guest messages by email (`channel-inbox-1026`, Oct 27)
+
+The 206 goes on every listing as the contact phone; the host's own account phone on Airbnb, Booking.com, PadSplit and SpareRoom STAYS
+(it receives their sign-in codes - switching it risks a lock-out). The sites never text guest messages, so those arrive by EMAIL at the work email
+and are answered by the leasing assistant ([`inbound-email-inbox.md`](inbound-email-inbox.md) § Booking-site guest messages). A reply on Airbnb or Booking.com
+never carries the 206 (or any link, phone or email); PadSplit and SpareRoom replies may. On a PropLane-managed (`is_service`) workspace the email
+assistant browses the managed-homes catalog (`serviceCatalog`), like the 206. Availability in any reply is the CHECKED calendar only
+(`list_live_listings` / `get_listing_details` / `check_room_availability`); a failed read says "let me confirm", never "available".

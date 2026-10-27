@@ -348,3 +348,23 @@ for traffic they never sent, and an inbound email is the one fan-out with no for
 prospect or resident text still texts, because the forward IS their text —
 [`sms-system.md`](sms-system.md) § Inbound texts reach the whole team by role). Coverage:
 `tests/unit/manager-assistant-email-inbound.test.ts`.
+
+## Booking-site guest messages (channel inbox, Oct 27)
+
+Airbnb, Booking.com, PadSplit and SpareRoom have no messaging API PropLane may use; each EMAILS the host every guest message,
+and the host points the site's notification address (or a Gmail auto-forward) at the work email. Front door:
+`handleChannelGuestEmail` (`src/lib/manager-assistant-email/channel-guest-message.server.ts`), run in
+`processManagerAssistantInboundEmail` BEFORE sender classification; parsers in `src/lib/inbound-email/channel-senders.ts`
+(+ `parseAirbnbGuestMessage`).
+
+- **Only a PROVEN site is answered.** The sender must pass `inboundSenderAuthenticated` (DKIM/SPF aligned to the site's
+  domain, read off the received email's headers; a forwarded copy keeps the site's DKIM). A forged `From: airbnb.com` is stored under its
+  own address and never answered; an unreadable header fetch is not a pass. Site recognition is by exact domain/subdomain, never a look-alike.
+- **One conversation per guest THREAD, never per name** (two "John"s must not share history the agent reads): keyed on `channelGuestKeyAddress` (a never-deliverable `.invalid` address) from the site's relay address (hashed), else the reservation code, else name + listing title through the
+  normal conversation-key resolver; `row_data.channelGuest` carries site, house, room and the relay address. House/room come from the
+  workspace's `external_calendar_connections` (`matchChannelListing`): a tie across houses maps nothing, never a guess.
+- **The reply leaves from the work email to the SITE'S relay address only** (`deliverManagerEmailReply({ channel })` refuses an unauthenticated mail
+  and any address off the site's own domain). It is HELD (review draft + Assistant notice, nothing sent) for money / refund / cancellation /
+  complaint messages, a reply carrying contact details the site forbids (Airbnb and Booking.com: no link, phone or email; PadSplit/SpareRoom: the listing
+  link and the PropLane line only), no relay address, the approval setting, or no credit. Credit is reserved before the model, as for texts.
+- Tests: `channel-guest-parsers`, `channel-reply-policy`, `channel-guest-inbound`, `channel-relay-delivery`, `channel-checked-availability`.

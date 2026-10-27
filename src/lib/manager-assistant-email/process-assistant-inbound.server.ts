@@ -28,7 +28,9 @@ import {
   runManagerEmailAgentTurn,
 } from "@/lib/agent/manager-email-agent.server";
 import { applyAirbnbEmailToStay, applyForwardedAirbnbConfirmation } from "@/lib/channel-calendar/airbnb-email-intake.server";
-import { isAirbnbSenderAddress, parseAirbnbEmail } from "@/lib/inbound-email/airbnb-parser";
+import { isAirbnbSenderAddress, parseAirbnbEmail, parseAirbnbGuestMessage } from "@/lib/inbound-email/airbnb-parser";
+import { channelSiteOfAddress } from "@/lib/inbound-email/channel-senders";
+import { handleChannelGuestEmail } from "@/lib/manager-assistant-email/channel-guest-message.server";
 import type { ParsedInboundEmail } from "@/lib/inbound-email/inbound-email.server";
 import { resolveInboundEmailBody } from "@/lib/inbound-email/inbound-email.server";
 import { fetchResendReceivedEmailHeaders } from "@/lib/inbound-email/inbound-email-headers.server";
@@ -68,7 +70,7 @@ export type AssistantInboundEmailResult =
       replied: boolean;
       idempotent?: boolean;
       /** Which assistant answered — surfaced for the webhook's ack and for tests. */
-      role?: "manager" | "resident" | "prospect";
+      role?: "manager" | "resident" | "prospect" | "channel";
     };
 
 async function claimInboundEmail(
@@ -200,6 +202,36 @@ export async function processManagerAssistantInboundEmail(
   const inboundText = stripEmailReplyQuote(rawBody).trim();
   if (!inboundText) return { handled: true, replied: false };
 
+  /* Reply from the workspace's address when it has one; a legacy co-manager address that collapsed to an owner without
+     their own falls back to the mailbox that was actually written to, so the reply never comes from nowhere. */
+  const loadReplyMailbox = async () =>
+    (workspaceId ? await loadManagerAssistantEmail(db, managerUserId, workspaceId) : null) ??
+    (await loadManagerAssistantEmail(db, managerUserId, null)) ??
+    (managerUserId !== mailboxUserId ? await loadManagerAssistantEmail(db, mailboxUserId, null) : null);
+
+  /* A guest message from a booking site (Airbnb, Booking.com, PadSplit, SpareRoom) is neither a prospect, a resident nor
+     the manager: it has its own front door, run BEFORE the sender is classified. It answers only a mail the receiving
+     server proved came from the site; anything else from a site's domain is stored and left alone. Airbnb's booking and
+     payout notifications keep their own handler below. */
+  const channelSite = channelSiteOfAddress(parsed.fromEmail);
+  if (
+    channelSite &&
+    (channelSite !== "airbnb" ||
+      (parseAirbnbGuestMessage({ subject: parsed.subject, text: rawBody }) !== null &&
+        parseAirbnbEmail({ subject: parsed.subject, text: rawBody, receivedAt: parsed.receivedAt }) === null))
+  ) {
+    return handleChannelGuestEmail(db, {
+      parsed,
+      site: channelSite,
+      managerUserId,
+      workspaceId,
+      rawBody,
+      inboundText,
+      managerEmail: await loadManagerProfileEmail(db, managerUserId),
+      mailbox: await loadReplyMailbox(),
+    });
+  }
+
   /* Airbnb's own notifications (reservation confirmed, payout sent) are data for a channel stay, not a
      person to answer. They never reach an assistant: no auto-reply, no prospect thread, no paid turn.
      Only a message the receiving server proved came from airbnb.com is believed enough to write the
@@ -213,13 +245,7 @@ export async function processManagerAssistantInboundEmail(
     fromEmail: parsed.fromEmail,
   });
 
-  /* Reply from the workspace's address when it has one; a legacy co-manager
-     address that collapsed to an owner without their own falls back to the
-     mailbox that was actually written to, so the reply never comes from nowhere. */
-  const mailbox =
-    (workspaceId ? await loadManagerAssistantEmail(db, managerUserId, workspaceId) : null) ??
-    (await loadManagerAssistantEmail(db, managerUserId, null)) ??
-    (managerUserId !== mailboxUserId ? await loadManagerAssistantEmail(db, mailboxUserId, null) : null);
+  const mailbox = await loadReplyMailbox();
   const senderEmail = parsed.fromEmail.trim().toLowerCase();
   const senderName = parsed.fromName?.trim() || senderEmail;
 
