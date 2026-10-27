@@ -23,6 +23,8 @@ import {
 } from "@/lib/auth/manager-lease-scope";
 import { listManagerChannelCalendarBookings } from "@/lib/channel-calendar/bookings.server";
 import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
+import { normalizeChannelLink, stayMayAutoLink, type ChannelLink } from "@/lib/channel-calendar/channel-link";
+import { checkStayAgainstChannels } from "@/lib/channel-calendar/channel-overlap.server";
 import { ROOM_BLOCK_KIND_CLOSED, roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { emitNativeBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
 import { afterResponse } from "@/lib/after-response.server";
@@ -544,6 +546,26 @@ export function conflictMessage(r: ResolvedBlock, other: BlockView): string {
   return `${other.roomId ? "That room" : "This home"} is already blocked ${other.checkIn} to ${other.openEnded ? "open-ended" : other.checkOut} by ${who} (${r.property.title}).`;
 }
 
+/**
+ * The second half of the overlap rule: what the house's Airbnb / Booking.com calendars hold. The schedule-records
+ * route refuses it for the Bookings sheets; the assistant's writes go around that route, so they ask the same
+ * question here and answer with the same words.
+ */
+async function channelCheckForBlock(ctx: AgentContext, r: ResolvedBlock, records: BlockRecord[], ownId: string, link?: ChannelLink) {
+  return checkStayAgainstChannels(ctx.db as unknown as SupabaseClient, {
+    propertyId: r.property.id,
+    roomId: r.roomId,
+    checkIn: r.start,
+    checkOut: r.end,
+    reason: r.reason,
+    link,
+    storedLink: link,
+    derive: stayMayAutoLink({ residentName: r.residentName, closed: r.closed, reason: r.reason }),
+    ownId,
+    blockRows: records,
+  });
+}
+
 export const blockRoomDatesTool = defineWriteTool({
   name: "block_room_dates",
   description:
@@ -563,11 +585,11 @@ export const blockRoomDatesTool = defineWriteTool({
     .strict(),
   preview: async (ctx, input) => {
     const r = await resolveBlockInput(ctx, input);
-    const conflict = overlappingBlock(
-      (await loadBlockRecords(ctx, [r.property.id])).map(blockFromRecord).filter((b): b is BlockView => b !== null),
-      r,
-    );
+    const records = await loadBlockRecords(ctx, [r.property.id]);
+    const conflict = overlappingBlock(records.map(blockFromRecord).filter((b): b is BlockView => b !== null), r);
     if (conflict) throw new Error(conflictMessage(r, conflict));
+    const channelClash = await channelCheckForBlock(ctx, r, records, "");
+    if (channelClash.conflict) throw new Error(channelClash.conflict);
 
     const warnings: string[] = [];
     try {
@@ -620,7 +642,8 @@ export const blockRoomDatesTool = defineWriteTool({
   handler: async (ctx, input) => {
     // Re-derive everything from live, actor-scoped data; nothing in the stored input is ownership proof.
     const r = await resolveBlockInput(ctx, input);
-    const existing = (await loadBlockRecords(ctx, [r.property.id])).map(blockFromRecord).filter((b): b is BlockView => b !== null);
+    const records = await loadBlockRecords(ctx, [r.property.id]);
+    const existing = records.map(blockFromRecord).filter((b): b is BlockView => b !== null);
     const conflict = overlappingBlock(existing, r);
     if (conflict) {
       if (conflict.roomId === r.roomId && conflict.checkIn === r.start && conflict.checkOut === r.end) {
@@ -628,6 +651,8 @@ export const blockRoomDatesTool = defineWriteTool({
       }
       throw new Error(conflictMessage(r, conflict));
     }
+    const channelClash = await channelCheckForBlock(ctx, r, records, "");
+    if (channelClash.conflict) throw new Error(channelClash.conflict);
 
     const uid = crypto.randomUUID();
     const id = roomDateBlockRecordId(ctx.userId, uid);
@@ -656,6 +681,8 @@ export const blockRoomDatesTool = defineWriteTool({
       reason: r.reason,
       bookingStatus: "hold",
       ...(r.residentName ? { residentName: r.residentName } : { blockKind: ROOM_BLOCK_KIND_CLOSED }),
+      // A booking typed with its Airbnb code in the notes, or on the same dates, is that reservation.
+      ...(channelClash.link ? { stayDetails: { channelLink: channelClash.link } } : {}),
       createdAt: now,
       createdByUserId: ctx.userId,
       recordType: ROOM_DATE_BLOCK_RECORD_TYPE,
@@ -848,9 +875,15 @@ async function resolveBlockUpdate(ctx: AgentContext, input: UpdateBlockInput) {
     if (nameError) throw new Error(nameError);
   }
   // Same overlap rule as block_room_dates, against every OTHER block on the house.
-  const others = (await loadBlockRecords(ctx, [property.id])).map(blockFromRecord).filter((b): b is BlockView => b !== null && b.id !== block.id);
+  const records = await loadBlockRecords(ctx, [property.id]);
+  const others = records.map(blockFromRecord).filter((b): b is BlockView => b !== null && b.id !== block.id);
   const conflict = overlappingBlock(others, next);
   if (conflict) throw new Error(conflictMessage(next, conflict));
+  // ...and against the house's channel calendars; the reservation this stay is linked to is the stay itself.
+  const storedStay = records.find((record) => record.id === block.id);
+  const storedDetails = asObject(asObject(storedStay?.row_data)?.stayDetails);
+  const channelClash = await channelCheckForBlock(ctx, next, records, block.id, normalizeChannelLink(storedDetails?.channelLink));
+  if (channelClash.conflict) throw new Error(channelClash.conflict);
   return { block, next, phone };
 }
 

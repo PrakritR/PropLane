@@ -47,19 +47,31 @@ describe("Settings → Integrations → Bookings", () => {
     expect(screen.getByTestId("connect-modal").textContent).toBe("booking_com");
   });
 
-  it("offers Connect on Airbnb and Booking.com and an Other calendar row, with Coming soon rows for Vrbo and SpareRoom", async () => {
+  it("offers Connect on Airbnb and Booking.com and an Other calendar row, with a Coming soon row for Vrbo, and no SpareRoom (it posts from the Posting tab)", async () => {
     bookings.rooms = [];
     render(<ManagerBookingChannelsPanel />);
     await waitFor(() => expect(document.querySelector('[data-attr="settings-airbnb-manage"]')?.textContent).toBe("Connect"));
     expect(document.querySelector('[data-attr="settings-booking_com-manage"]')?.textContent).toBe("Connect");
     expect(document.querySelector('[data-attr="settings-vrbo-manage"]')).toBeNull();
     const text = document.body.textContent ?? "";
-    for (const name of ["Vrbo", "SpareRoom", "Other calendar"]) expect(text).toContain(name);
+    for (const name of ["Vrbo", "Other calendar"]) expect(text).toContain(name);
+    expect(text).not.toContain("SpareRoom");
     // Furnished Finder is no longer its own row: it is named on Other calendar, which links any .ics.
     expect(document.querySelector('[data-attr="settings-furnished-finder-row"]')).toBeNull();
     expect(document.querySelector('[data-attr="settings-ical-status"]')?.textContent).toBe("Houfy, Furnished Finder, Vrbo, any .ics");
-    expect(text.match(/Coming soon/g)?.length).toBe(2);
+    expect(text.match(/Coming soon/g)?.length).toBe(1);
     expect(text).not.toContain("Export booking calendar");
+  });
+
+  it("PadSplit is a plain manual row: it says what it does, and its action opens the host dashboard in a new tab", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<ManagerBookingChannelsPanel />);
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-padsplit-row"]')).not.toBeNull());
+    expect(document.querySelector('[data-attr="settings-padsplit-status"]')?.textContent).toBe("Manual · approve each booking in PadSplit");
+    expect(document.querySelector('[data-attr="settings-padsplit-manage"]')).toBeNull();
+    fireEvent.click(document.querySelector('[data-attr="settings-padsplit-open"]') as HTMLElement);
+    expect(open).toHaveBeenCalledWith("https://www.padsplit.com/host", "_blank", "noopener,noreferrer");
+    open.mockRestore();
   });
 
   it("keeps an already-linked Vrbo manageable instead of hiding it behind Coming soon", async () => {
@@ -68,7 +80,7 @@ describe("Settings → Integrations → Bookings", () => {
     await waitFor(() => expect(document.querySelector('[data-attr="settings-vrbo-status"]')?.textContent).toBe("Connected · 2 rooms"));
     fireEvent.click(document.querySelector('[data-attr="settings-vrbo-manage"]') as HTMLElement);
     expect(screen.getByTestId("connect-modal").textContent).toBe("vrbo");
-    expect((document.body.textContent ?? "").match(/Coming soon/g)?.length).toBe(1);
+    expect(document.body.textContent ?? "").not.toContain("Coming soon");
   });
 
   it("counts Other calendar links per site and opens the popup on ical, handing it the loaded rooms", async () => {
@@ -85,5 +97,18 @@ describe("Settings → Integrations → Bookings", () => {
     render(<ManagerBookingChannelsPanel />);
     await waitFor(() => expect(fetchManagerChannelBookings).toHaveBeenCalled());
     expect(vi.mocked(fetchManagerChannelBookings).mock.calls[0]![1]).toEqual({ slim: true });
+  });
+
+  it("every channel row stacks its fact and action under the name on a phone", async () => {
+    bookings.rooms = [];
+    render(<ManagerBookingChannelsPanel />);
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-airbnb-manage"]')).not.toBeNull());
+    for (const id of ["settings-airbnb-manage", "settings-booking_com-manage", "settings-padsplit-open", "settings-ical-manage"]) {
+      const row = document.querySelector(`[data-attr="${id}"]`)?.closest('[data-integration-actions]')?.parentElement as HTMLElement;
+      expect(row.className).toContain("max-sm:flex-wrap");
+      expect(row.querySelector('[data-integration-actions="stacked"]')?.className).toContain("max-sm:basis-full");
+    }
+    const fact = document.querySelector('[data-attr="settings-padsplit-status"]') as HTMLElement;
+    expect(fact.className).toContain("max-sm:flex-1");
   });
 });

@@ -17,8 +17,10 @@ import { resolveInboxSenderRoleForPortal } from "@/lib/inbox-portal-sender";
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import { inboxDeepLinkForRole } from "@/lib/platform/parity";
 import {
+  coHostDisplayName,
   commitInboxThreadReply,
   deliverPortalMessageThreadSide,
+  replyDeliveryContext,
   resolveInboxThreadReplyTarget,
 } from "@/lib/portal-inbox-delivery";
 import {
@@ -77,7 +79,7 @@ import { attachmentMetaFromUrls as inboxAttachmentsFromUrls } from "@/lib/inbox-
 import { normalizeInboxAttachmentUrls } from "@/lib/inbox-attachments.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
-import { assertManagerCommunicationAllowedForWorkspace } from "@/lib/manager-communication-access.server";
+import { assertManagerCommunicationAllowed, assertManagerCommunicationAllowedForWorkspace } from "@/lib/manager-communication-access.server";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { isHouseThreadId } from "@/lib/house-thread-id";
@@ -638,8 +640,12 @@ export async function POST(req: Request) {
     // One more gate before anything is written: the thread being replied into
     // must belong to the person being messaged. Without it a reply could be
     // stored in one conversation and delivered to another person.
+    // The thread's own workspace is read once here and reused by the delivery below: the gate and the
+    // delivery must answer to the SAME workspace, not to two reads of it.
+    let replyThreadWorkspaceId: string | null = null;
     if (replyTarget) {
       const stored = await loadThreadConversation(db, replyTarget.threadId);
+      replyThreadWorkspaceId = stored.workspaceId;
       const match = await replyRecipientsMatchThread(db, {
         thread: {
           id: replyTarget.threadId,
@@ -659,6 +665,20 @@ export async function POST(req: Request) {
           { status: 409 },
         );
       }
+      // A co-host's reply is delivered under the thread OWNER's workspace, not the co-host's active one checked above, so
+      // that workspace's plan gates it too. A trial or unreadable owner plan refuses before anything is stored or delivered.
+      const hostGate = replyDeliveryContext(replyTarget, { senderUserId: user.id, threadWorkspaceId: stored.workspaceId });
+      if (hostGate && !hostGate.ownedBySender) {
+        const hostAccess = hostGate.workspaceId
+          ? await assertManagerCommunicationAllowedForWorkspace(db, user.id, hostGate.workspaceId)
+          : await assertManagerCommunicationAllowed(hostGate.managerUserId);
+        if (!hostAccess.allowed) {
+          return NextResponse.json(
+            { ok: false, error: hostAccess.message, code: `communication_${hostAccess.reason}` },
+            { status: hostAccess.status },
+          );
+        }
+      }
     }
 
     // Every gate is now clear, so the reply may finally land in its thread. A
@@ -666,6 +686,7 @@ export async function POST(req: Request) {
     if (replyTarget) {
       await commitInboxThreadReply(db, replyTarget, {
         ...replyBody,
+        senderUserId: user.id,
         houseId: propertyId || undefined,
         houseLabel: propertyId ? await propertyLabelFor(db, propertyId) : undefined,
       });
@@ -886,6 +907,12 @@ export async function POST(req: Request) {
       const when = formatPacificDateTime(new Date());
       const preview = storedText.slice(0, 100).replace(/\n/g, " ");
       const portalSenderRole = mapProfileRoleToAdminInboxSenderRole(senderRole);
+      // A reply into the workspace owner's conversation is delivered under THAT owner's workspace and house, whoever typed it.
+      const hostReply = replyDeliveryContext(replyTarget, {
+        senderUserId: user.id,
+        threadWorkspaceId: replyThreadWorkspaceId,
+      });
+      const coHostReply = Boolean(hostReply && !hostReply.ownedBySender);
       for (const recipient of recipients) {
         if (isPrimaryAdminRecipientEmail(recipient.email)) {
           await deliverPortalMessageToAdminSharedInbox(db, {
@@ -931,7 +958,8 @@ export async function POST(req: Request) {
 
         // Sender's Sent record (owner-only, scoped to the sender's portal).
         // Repeated sends to the same person append to the ONE sent thread.
-        await deliverPortalMessageThreadSide(db, {
+        // A co-host has none: their reply is a turn of the owner's thread, which is the one conversation.
+        if (!coHostReply) await deliverPortalMessageThreadSide(db, {
           scope: senderScope,
           folder: "sent",
           ownerUserId: user.id,
@@ -969,10 +997,12 @@ export async function POST(req: Request) {
           participantEmail: recipientLower,
           otherPartyEmail: senderEmail,
           conversation: {
-            propertyId: propertyId || null,
+            propertyId: propertyId || hostReply?.propertyId || null,
             otherPartyUserId: user.id,
-            managerUserId: senderScope === MANAGER_INBOX_SCOPE ? user.id : recipient.userId,
+            managerUserId: hostReply?.managerUserId ?? (senderScope === MANAGER_INBOX_SCOPE ? user.id : recipient.userId),
+            ...(hostReply?.workspaceId ? { workspaceId: hostReply.workspaceId } : {}),
           },
+          ...(coHostReply ? { senderDisplayName: coHostDisplayName(fromName) } : {}),
           fallbackId: `msg_inbox_${ts}_${rand}`,
           fromName,
           subject,

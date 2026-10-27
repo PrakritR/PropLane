@@ -3,6 +3,9 @@ import { loadPropertyStayClock } from "@/lib/bookings/property-stay-times.server
 import { resolveRowStayTimes, stampStayRow } from "@/lib/bookings/stay-stamp";
 import { DEFAULT_PROPERTY_STAY_TIMES, staysOverlap, type PropertyStayTimes } from "@/lib/bookings/stay-times";
 import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
+import { normalizeChannelLink, stayMayAutoLink, type ChannelLink } from "@/lib/channel-calendar/channel-link";
+import { monthDay } from "@/lib/channel-calendar/channel-overlap";
+import { CHANNEL_OVERLAP_UNVERIFIED, checkStayAgainstChannels } from "@/lib/channel-calendar/channel-overlap.server";
 import { roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { emitNativeBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
 import { createJsonRecordRoute } from "@/lib/portal-record-api";
@@ -106,7 +109,10 @@ async function announceNativeBooking(db: Parameters<typeof emitNativeBookingEven
  * (PLAN-0920-1058, area 1e; docs/agents/shared-room-capacity.md's 409
  * contract for a different table). The client already screens against every
  * booking source it can see (`bookingConflictsFor`); this is the authoritative
- * re-check against every OTHER manager-made hold on the same room. This
+ * re-check against every OTHER manager-made hold on the same room, and then
+ * against what the room's Airbnb / Booking.com calendars hold
+ * (`checkStayAgainstChannels`: the reservation this stay is linked to is the
+ * stay itself, PropLane's own echoed export is not a closure). This
  * read-check-write is not database serialization; concurrent writes still need
  * the room-capacity transaction before the last-bed guarantee can be claimed.
  */
@@ -122,16 +128,24 @@ async function roomDateBlockOverlapConflict(args: {
   checkInTime: string;
   checkOutTime: string;
   propertyTimes: PropertyStayTimes;
-}): Promise<string | null> {
+  /** What the channel check needs of this save (omitted = native holds only). */
+  channel?: {
+    link?: ChannelLink;
+    storedLink?: ChannelLink;
+    derive: boolean;
+    reason: string;
+    openEnded: boolean;
+  };
+}): Promise<{ conflict: string | null; channelLink?: ChannelLink | null }> {
   const { db, managerUserId, recordId, propertyId, roomId, checkIn, checkOut, checkInTime, checkOutTime, propertyTimes } = args;
-  if (!propertyId || !checkIn || !checkOut) return null;
+  if (!propertyId || !checkIn || !checkOut) return { conflict: null };
   const { data, error } = await db
     .from("portal_schedule_records")
     .select("id, row_data")
     .eq("manager_user_id", managerUserId)
     .eq("property_id", propertyId)
     .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE);
-  if (error || !data) return "Could not verify room availability. Try again.";
+  if (error || !data) return { conflict: CHANNEL_OVERLAP_UNVERIFIED };
   for (const row of data as RoomDateBlockRow[]) {
     if (String(row.id ?? "") === recordId) continue;
     const otherRoomId = roomDateBlockField(row, "roomId");
@@ -152,9 +166,23 @@ async function roomDateBlockOverlapConflict(args: {
     if (!overlaps) continue;
     const otherRoomLabel = roomDateBlockField(row, "roomId") ? "That room" : "This room";
     const who = roomDateBlockField(row, "residentName") || roomDateBlockField(row, "reason") || "another hold";
-    return `${otherRoomLabel} is booked ${otherCheckIn} – ${otherCheckOut} by ${who}`;
+    return { conflict: `${otherRoomLabel} is booked ${monthDay(otherCheckIn)} – ${monthDay(otherCheckOut)} by ${who}` };
   }
-  return null;
+  if (!args.channel) return { conflict: null };
+  const checked = await checkStayAgainstChannels(db, {
+    propertyId,
+    roomId,
+    checkIn,
+    checkOut,
+    openEnded: args.channel.openEnded,
+    reason: args.channel.reason,
+    link: args.channel.link,
+    storedLink: args.channel.storedLink,
+    derive: args.channel.derive,
+    ownId: recordId,
+    blockRows: data as RoomDateBlockRow[],
+  });
+  return { conflict: checked.conflict, channelLink: checked.link ?? null };
 }
 
 /**
@@ -456,6 +484,21 @@ const route = createJsonRecordRoute({
     return storedOwner ? { ...next, manager_user_id: storedOwner } : next;
   },
   atomicWrite: async ({ db, user, record, existing, expectedPayload, expectedPayloadKnown }) => {
+    // One write asks "who owns this house?" and "may this caller write its blocks?" from several gates below
+    // (the landing-house check, then the owner stamp), about the same house. Each answer is resolved once per
+    // request and shared, so adding a gate never adds a round trip and the gates can never disagree.
+    const ownerByProperty = new Map<string, Promise<string | null>>();
+    const houseOwnerOf = (propertyId: string): Promise<string | null> => {
+      const pending = ownerByProperty.get(propertyId) ?? resolvePropertyOwnerUserId(db, propertyId);
+      ownerByProperty.set(propertyId, pending);
+      return pending;
+    };
+    const grantByProperty = new Map<string, Promise<boolean>>();
+    const mayWriteBlocks = (propertyId: string): Promise<boolean> => {
+      const pending = grantByProperty.get(propertyId) ?? mayWriteBlocksOn(db, user, propertyId);
+      grantByProperty.set(propertyId, pending);
+      return pending;
+    };
     // Every manager write of a stay stamps its exact times and real instants (docs/agents/bookings.md
     // § Exact times): the save's own times, else the stored row's, else the property's defaults. The
     // paid early / late add-ons are carried from the stored row, never taken from the body.
@@ -485,9 +528,27 @@ const route = createJsonRecordRoute({
       const storedOwner = String(existing.manager_user_id ?? "").trim();
       const blockPropertyId = String(existing.property_id ?? record.property_id ?? "").trim();
       if (storedOwner && storedOwner !== user.id && !scheduleUserHasRole(user, "admin")) {
-        const allowed = await mayWriteBlocksOn(db, user, blockPropertyId);
+        const allowed = await mayWriteBlocks(blockPropertyId);
         if (!allowed) {
           return { handled: true, error: "You need Calendar edit access on this property to change its room blocks.", status: 403 };
+        }
+      }
+    }
+    if (
+      (String(record.record_type ?? "") === ROOM_DATE_BLOCK_RECORD_TYPE || String(record.record_type ?? "") === CANCELLED_ROOM_DATE_BLOCK_RECORD_TYPE) &&
+      !scheduleUserHasRole(user, "admin")
+    ) {
+      // The house a booking lands on comes from the BODY (`buildUpsert`), so a create, or an update that moves the
+      // booking to another house, must prove Calendar write on THAT house before anything reads it: the overlap and
+      // channel checks below answer with the house's guest names, reservation codes and dates. The owner, or a
+      // Calendar grant on the new house; anything unresolvable (no owner, no grant) is refused, never waved through.
+      const landingPropertyId = String(record.property_id ?? "").trim();
+      const storedPropertyId = existing ? String(existing.property_id ?? "").trim() : "";
+      if (landingPropertyId && (!existing || landingPropertyId !== storedPropertyId)) {
+        const houseOwner = await houseOwnerOf(landingPropertyId);
+        const allowed = (Boolean(houseOwner) && houseOwner === user.id) || (await mayWriteBlocks(landingPropertyId));
+        if (!allowed) {
+          return { handled: true, error: "You need Calendar edit access on this property to block its rooms.", status: 403 };
         }
       }
     }
@@ -513,13 +574,13 @@ const route = createJsonRecordRoute({
       // owner (their own id kept as createdByUserId); anyone else is refused here, never stamped.
       const blockPropertyId = String(record.property_id ?? "").trim();
       if (!existing && blockPropertyId) {
-        const owner = await resolvePropertyOwnerUserId(db, blockPropertyId);
+        const owner = await houseOwnerOf(blockPropertyId);
         if (owner && String(record.manager_user_id ?? "") !== owner) {
           // An admin's write arrives unstamped (assignOwnership leaves admin rows alone).
           const allowed =
             owner === user.id ||
             scheduleUserHasRole(user, "admin") ||
-            (await mayWriteBlocksOn(db, user, blockPropertyId));
+            (await mayWriteBlocks(blockPropertyId));
           if (!allowed) {
             return { handled: true, error: "You need Calendar edit access on this property to block its rooms.", status: 403 };
           }
@@ -541,7 +602,13 @@ const route = createJsonRecordRoute({
         const nameError = roomDateBlockNameError({ bookingStatus: data.bookingStatus, residentName: data.residentName, blockKind: data.blockKind, reason: data.reason });
         if (nameError) return { handled: true, error: nameError, status: 400 };
       }
-      const conflict = await roomDateBlockOverlapConflict({
+      const savedData = roomDateBlockData(record);
+      const savedDetails = savedData.stayDetails && typeof savedData.stayDetails === "object" && !Array.isArray(savedData.stayDetails) ? (savedData.stayDetails as Record<string, unknown>) : {};
+      const storedDetails = existing ? roomDateBlockData(existing).stayDetails : null;
+      const storedLink = storedDetails && typeof storedDetails === "object" ? normalizeChannelLink((storedDetails as Record<string, unknown>).channelLink) : undefined;
+      // A channel import mirrors the channel's own stay, so it is never checked against the channel it came from.
+      const checkChannels = savedData.bookingStatus !== "cancelled" && !isImportedChannelBlock({ reason: text(savedData.reason) });
+      const overlap = await roomDateBlockOverlapConflict({
         db,
         managerUserId: String(record.manager_user_id ?? user.id),
         recordId: String(record.id ?? ""),
@@ -551,8 +618,32 @@ const route = createJsonRecordRoute({
         checkOut: roomDateBlockField(record as RoomDateBlockRow, "checkOut"),
         ...stayTimes,
         propertyTimes: propertyStayTimes ?? DEFAULT_PROPERTY_STAY_TIMES,
+        ...(checkChannels
+          ? {
+              channel: {
+                link: normalizeChannelLink(savedDetails.channelLink),
+                storedLink,
+                derive: stayMayAutoLink({
+                  residentName: text(savedData.residentName),
+                  blockKind: text(savedData.blockKind),
+                  cancelled: savedData.bookingStatus === "cancelled",
+                  reason: text(savedData.reason),
+                }),
+                reason: text(savedData.reason),
+                openEnded: savedData.openEnded === true,
+              },
+            }
+          : {}),
       });
-      if (conflict) return { handled: true, error: conflict, status: 409 };
+      if (overlap.conflict) return { handled: true, error: overlap.conflict, status: 409 };
+      if (checkChannels && overlap.channelLink !== undefined) {
+        // The link is stored as the server verified it (a typed link no reservation answers to is dropped; an
+        // auto-link is written on this save, the manager's own, never as a background change).
+        const { channelLink: _typed, ...detailsWithoutLink } = savedDetails;
+        void _typed;
+        const nextDetails = overlap.channelLink ? { ...detailsWithoutLink, channelLink: overlap.channelLink } : detailsWithoutLink;
+        record.row_data = { ...savedData, ...(Object.keys(nextDetails).length > 0 || savedData.stayDetails ? { stayDetails: nextDetails } : {}) };
+      }
       return { handled: false };
     }
     if (String(record.id) !== PLANNED_EVENTS_RECORD_ID) {

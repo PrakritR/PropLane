@@ -11,6 +11,7 @@ import {
   listServiceAttachCandidates,
   listServiceTeam,
   listServiceWorkspaces,
+  releaseServiceWorkspaceOldNumber,
   removeServiceTeamMember,
   renameServiceWorkspace,
   setServiceOwnerOfRecord,
@@ -91,6 +92,12 @@ export async function POST(request: Request) {
       const result = await setServiceWorkspaceFee(db, admin.userId, { id, percent: body.percent });
       if (!result.ok) return failure(result);
       return NextResponse.json({ ok: true, feePercent: result.feePercent, changed: result.changed }, { headers: NO_STORE });
+    }
+    case "release-old-number": {
+      // Admin only (re-derived in the service layer); audited before the release; never the PropLane line itself.
+      const result = await releaseServiceWorkspaceOldNumber(db, admin.userId, { id });
+      if (!result.ok) return failure(result);
+      return NextResponse.json({ ok: true, released: result.released }, { headers: NO_STORE });
     }
     case "open": {
       const result = await authorizeOpenServiceWorkspace(db, admin.userId, id);

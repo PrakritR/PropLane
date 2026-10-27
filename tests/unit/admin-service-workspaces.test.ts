@@ -204,23 +204,23 @@ describe("the Service list", () => {
     const asA = await svc.listServiceWorkspaces(client(), ADMIN_A);
     const asB = await svc.listServiceWorkspaces(client(), ADMIN_B);
     expect(asA.ok && asA.payload.workspaces).toEqual([
-      { id, name: "PropLane Seattle", city: "Seattle", ownerOfRecord: null, isDefault: true, houseCount: 2, workNumber: null, workNumberSource: null, teamCount: 1, viewerRole: "admin", canManage: true, feePercent: null },
+      { id, name: "PropLane Seattle", city: "Seattle", ownerOfRecord: null, isDefault: true, houseCount: 2, workNumber: null, workNumberSource: null, oldNumber: null, teamCount: 1, viewerRole: "admin", canManage: true, feePercent: null },
     ]);
     expect(asB.ok && asB.payload.workspaces[0]).toMatchObject({ viewerRole: null, canManage: false });
   });
 
-  it("shows the number the workspace actually texts from: the shared PropLane line by default, its own only if it holds one, and never provisions", async () => {
+  it("shows the PropLane line (206) for a managed workspace, never a number it once held, and never provisions", async () => {
     const created = (await svc.createServiceWorkspace(client(), ADMIN_A, { name: "PropLane Seattle", city: null })) as { id: string };
     const list = async () => {
       const r = await svc.listServiceWorkspaces(client(), ADMIN_A);
       return r.ok ? r.payload.workspaces[0]!.workNumber + "|" + r.payload.workspaces[0]!.workNumberSource : "fail";
     };
-    // per_workspace (default / unreadable config): nothing to show.
+    // per_workspace with no service-owner number: the line cannot be resolved, so no number (and never the old one).
     expect(await list()).toBe("null|null");
-    // The shared line is on for this workspace: the default PropLane number.
+    // The shared line is on: the managed workspace shows it.
     db.tables.sms_runtime_config = [{ singleton: true, line_mode: "shared", shared_number_e164: "+12065550111", shared_pilot_workspace_ids: [] }];
     expect(await list()).toBe("+12065550111|shared");
-    // An own row nobody pays for does not take the workspace off the shared line.
+    // It still holds an old row of its own (and even pays for a personal number): the 206 is what is shown.
     db.tables.manager_sms_numbers.push({
       id: "n1",
       manager_user_id: OWNER,
@@ -229,20 +229,92 @@ describe("the Service list", () => {
       provision_state: "active",
       registration_state: "approved",
       released_at: null,
+      requested_at: "2026-10-01T00:00:00.000Z",
     });
-    expect(await list()).toBe("+12065550111|shared");
-    // Paid (Pro/Business plan or an active number add-on): dedicated, so its own number wins.
     paid.owners.add(OWNER);
-    expect(await list()).toBe("+12065550199|own");
-    // A released one is not the workspace's number, paid or not.
-    db.tables.manager_sms_numbers[0]!.released_at = "2026-10-01";
+    expect(await list()).toBe("+12065550111|shared");
+    // A released one is history.
+    db.tables.manager_sms_numbers[0]!.released_at = "2026-10-02";
     expect(await list()).toBe("+12065550111|shared");
     expect(db.rpcCalls.map((c) => c.fn)).toEqual(["create_portal_service_workspace"]);
+  });
+
+  it("per_workspace mode: the service owner's own default-workspace number is the line and is not an 'old number'", async () => {
+    const created = (await svc.createServiceWorkspace(client(), ADMIN_A, { name: "PropLane Seattle", city: null })) as { id: string };
+    db.tables.manager_sms_numbers.push({ id: "n1", manager_user_id: OWNER, workspace_id: created.id, phone_number: "+12065550100", provision_state: "active", released_at: null });
+    const r = await svc.listServiceWorkspaces(client(), ADMIN_A);
+    expect(r.ok && r.payload.workspaces[0]).toMatchObject({ workNumber: "+12065550100", workNumberSource: "shared", oldNumber: null });
+  });
+
+  it("an attached workspace keeps its old number receive-only: the row shows the 206 plus 'old number kept since <attach date>'", async () => {
+    const created = (await svc.createServiceWorkspace(client(), ADMIN_A, { name: "Ambika", city: "Seattle" })) as { id: string };
+    db.tables.sms_runtime_config = [{ singleton: true, line_mode: "shared", shared_number_e164: "+12066781909", shared_pilot_workspace_ids: [] }];
+    db.tables.manager_sms_numbers.push({ id: "n1", manager_user_id: OWNER, workspace_id: created.id, phone_number: "+18146793694", provision_state: "active", released_at: null, requested_at: "2026-08-01T00:00:00.000Z" });
+    db.tables.audit_log = [
+      { action: svc.ADMIN_SERVICE_ATTACH_AUDIT_ACTION, created_at: "2026-10-25T18:00:00.000Z", input_summary: { workspaceId: created.id } },
+      { action: svc.ADMIN_SERVICE_ATTACH_AUDIT_ACTION, created_at: "2026-10-26T18:00:00.000Z", input_summary: { workspaceId: "someone-else" } },
+    ];
+    const r = await svc.listServiceWorkspaces(client(), ADMIN_A);
+    expect(r.ok && r.payload.workspaces[0]).toMatchObject({
+      workNumber: "+12066781909",
+      workNumberSource: "shared",
+      oldNumber: { phoneNumber: "+18146793694", since: "2026-10-25T18:00:00.000Z" },
+    });
+    // The workspace's own number is still routed inbound: the row is live and untouched by a list.
+    expect(db.tables.manager_sms_numbers[0]!.released_at).toBeNull();
   });
 
   it("reports unconfigured instead of an error when there is no service owner", async () => {
     db = makeServiceFakeDb({ platform_service_settings: [], profiles: [] });
     expect(await svc.listServiceWorkspaces(client(), ADMIN_A)).toEqual({ ok: true, payload: { configured: false, ownerUserId: null, workspaces: [] } });
+  });
+});
+
+describe("Release old number", () => {
+  async function attachedWithOldNumber() {
+    const created = (await svc.createServiceWorkspace(client(), ADMIN_A, { name: "Ambika", city: "Seattle" })) as { id: string };
+    db.tables.sms_runtime_config = [{ singleton: true, line_mode: "shared", shared_number_e164: "+12066781909", shared_pilot_workspace_ids: [] }];
+    db.tables.manager_sms_numbers.push({ id: "n1", manager_user_id: CLIENT, workspace_id: created.id, phone_number: "+18146793694", provision_state: "active", released_at: null });
+    return created.id;
+  }
+
+  it("is admin only: a non-admin is refused before anything is read or written", async () => {
+    const id = await attachedWithOldNumber();
+    expect(await svc.releaseServiceWorkspaceOldNumber(client(), OUTSIDER, { id })).toMatchObject({ ok: false, status: 403 });
+    expect(db.tables.manager_sms_numbers[0]!.released_at).toBeNull();
+    expect((db.tables.audit_log ?? []).filter((r) => r.action === svc.ADMIN_SERVICE_RELEASE_OLD_NUMBER_AUDIT_ACTION)).toHaveLength(0);
+  });
+
+  it("writes the audit row first: no audit row means the number is not released", async () => {
+    const id = await attachedWithOldNumber();
+    db.failInsertOn.add("audit_log");
+    expect(await svc.releaseServiceWorkspaceOldNumber(client(), ADMIN_A, { id })).toMatchObject({ ok: false, status: 503 });
+    expect(db.tables.manager_sms_numbers[0]!.released_at).toBeNull();
+    db.failInsertOn.delete("audit_log");
+    const done = await svc.releaseServiceWorkspaceOldNumber(client(), ADMIN_A, { id });
+    expect(done).toMatchObject({ ok: true, released: "+18146793694" });
+    const audit = (db.tables.audit_log ?? []).filter((r) => r.action === svc.ADMIN_SERVICE_RELEASE_OLD_NUMBER_AUDIT_ACTION);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({ actor_user_id: ADMIN_A, input_summary: { workspaceId: id, phoneNumbers: ["+18146793694"] } });
+    expect(db.tables.manager_sms_numbers[0]!.released_at).toBeTruthy();
+    expect(db.tables.manager_sms_numbers[0]!.provision_state).toBe("released");
+  });
+
+  it("refuses a workspace that holds the PropLane line itself, a non-service workspace, and a workspace with no old number", async () => {
+    const id = await attachedWithOldNumber();
+    db.tables.manager_sms_numbers.push({ id: "n2", manager_user_id: CLIENT, workspace_id: id, phone_number: "+12066781909", provision_state: "active", released_at: null });
+    expect(await svc.releaseServiceWorkspaceOldNumber(client(), ADMIN_A, { id })).toMatchObject({ ok: false, status: 409 });
+    expect(db.tables.manager_sms_numbers.every((r) => r.released_at === null)).toBe(true);
+    expect(await svc.releaseServiceWorkspaceOldNumber(client(), ADMIN_A, { id: "66666666-6666-4666-8666-666666666666" })).toMatchObject({ ok: false, status: 404 });
+    db.tables.manager_sms_numbers = [];
+    expect(await svc.releaseServiceWorkspaceOldNumber(client(), ADMIN_A, { id })).toMatchObject({ ok: false, status: 409 });
+  });
+
+  it("fails closed when the PropLane line cannot be resolved", async () => {
+    const id = await attachedWithOldNumber();
+    db.tables.sms_runtime_config = [];
+    expect(await svc.releaseServiceWorkspaceOldNumber(client(), ADMIN_A, { id })).toMatchObject({ ok: false, status: 503 });
+    expect(db.tables.manager_sms_numbers[0]!.released_at).toBeNull();
   });
 });
 

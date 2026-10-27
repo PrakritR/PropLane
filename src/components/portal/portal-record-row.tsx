@@ -161,6 +161,7 @@ export function PortalPropertyRecordRow({
   summary,
   meta,
   facts,
+  phoneFactLimit = PHONE_FACT_LIMIT,
   badge,
   statusWord,
   trailing,
@@ -198,6 +199,8 @@ export function PortalPropertyRecordRow({
   meta?: { beds?: number; baths?: number; rooms?: number | null; residents?: number | null };
   /** Any other glyph facts on that same line — a person row's date, email, household. */
   facts?: ReactNode;
+  /** How many facts a phone row names under its place line (default 2); a row whose key fact is third needs more. */
+  phoneFactLimit?: number;
   /** @deprecated Pass `statusWord` — plain coloured text, never a pill. Kept so existing callers still compile. */
   badge?: ReactNode;
   /** The row's trailing status, in coloured text — never a pill. */
@@ -260,7 +263,7 @@ export function PortalPropertyRecordRow({
     );
   }
   const phoneCap = (node: ReactNode, index: number, key: string) =>
-    index >= PHONE_FACT_LIMIT ? <span key={key} className="max-lg:hidden">{node}</span> : node;
+    index >= phoneFactLimit ? <span key={key} className="max-lg:hidden">{node}</span> : node;
   const hasFacts = factNodes.length > 0 || metaNodes.length > 0;
   const factsLine = hasFacts ? (
     <div

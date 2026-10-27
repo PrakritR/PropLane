@@ -19,6 +19,7 @@
  */
 import { PERSONAL_WORKSPACE_ID, type ConversationFlag } from "@/lib/communication/conversation-key";
 import { parseInboxStampMs } from "@/lib/portal-inbox-storage";
+import { rootEventFieldsFromTurn, turnEventFieldsFromRoot } from "@/lib/inbox-event-card";
 
 export type BackfillRow = {
   id: string;
@@ -105,6 +106,7 @@ function memberTurns(row: BackfillRow): Turn[] {
     ...(str(data.rootSubject) ? { subject: data.rootSubject } : {}),
     ...(Array.isArray(data.attachments) && data.attachments.length ? { attachments: data.attachments } : {}),
     ...(data.rootAutomated ? { automated: true } : {}),
+    ...turnEventFieldsFromRoot(data),
     ...(str(data.rootDelivery) ? { delivery: data.rootDelivery } : {}),
     ...(rootHouse ? { houseId: rootHouse } : {}),
     ...(str(data.rootHouseLabel) || (rootHouse && str(data.propertyTitle) && !str(data.conversationKey))
@@ -184,6 +186,7 @@ export function mergeConversationRows(
     rootChannel: first?.channel,
     rootSubject: first?.subject,
     rootAutomated: first?.automated,
+    ...rootEventFieldsFromTurn(first),
     rootDelivery: first?.delivery,
     rootHouseId: first?.houseId,
     rootHouseLabel: first?.houseLabel,

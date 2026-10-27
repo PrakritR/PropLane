@@ -56,8 +56,8 @@ vocabulary — is owned by [`bookings.md`](bookings.md).
 Airbnb and Booking.com are live and their row opens the one-page Connect popup
 (`ChannelCalendarLinkModal`, `src/components/portal/channel-calendar-link-modal.tsx`);
 Vrbo is "Coming soon" unless the workspace already has a Vrbo link, which keeps
-working and stays manageable. SpareRoom is listed as Coming soon so a manager can
-see what is planned.
+working and stays manageable. SpareRoom has no calendar feed, so it is not a Bookings
+row: it is a Copy post row under Posting ([`listing-syndication.md`](listing-syndication.md)).
 
 **Other calendar** (`provider: "ical"`) is the row for every site without a row of its
 own - Houfy, Furnished Finder, Expedia, HomeToGo, Vrbo while it is Coming soon, anything
@@ -97,13 +97,28 @@ property loads in parallel. The cap is not raised; the full read stays the Booki
 calendar's own ([`bookings.md`](bookings.md)). Coverage:
 `tests/unit/channel-calendar-slim-read.test.ts`, `channel-calendar-ical-modal.test.tsx`.
 
-The popup is **one page, not a wizard**: channel → scope → a paste field per
-unit. Scope is `SegmentedTwo` — **Entire workspace** or **specific properties** —
-and an entire-home listing has one row ("Whole house"), a shared house one row
-per room (`channelCalendarUnits`). An import URL must be that channel's own
-export link (`isValidChannelImportUrl` per host + path; the error message names
-the exact clicks on that channel's site), so the fetcher can never be pointed at
-an arbitrary target.
+The popup is **one page, not a wizard**: channel → a paste field per unit. Connecting a channel always
+links the whole workspace (every property the caller may write, `writableFor`); there is no scope toggle any
+more, and the preview pane says "Entire workspace". An entire-home listing has one row ("Whole house"), a
+shared house one row per room (`channelCalendarUnits`). A connection to a room the house no longer lists (a
+renamed or removed room, or a bare export link such as the stray Booking.com one on a room) is drawn as a row
+under its house too, so it is never invisible here. An import URL must be that channel's own export link
+(`isValidChannelImportUrl` per host + path; the error message names the exact clicks on that channel's site),
+so the fetcher can never be pointed at an arbitrary target.
+
+**Connecting 28 rooms is two icon actions, not 56 round trips** (`link-bulk.ts`):
+- **Copy all PropLane links** puts one "House · Room: URL" line per room on the clipboard, making the links
+  that do not exist yet exactly as copying one does (`exportFor`, four at a time).
+- **Paste many** takes every channel link at once (`parsePastedLinks`: a bare link per line, "Room 3: https://…",
+  bullets), matches them to rooms in the order listed (rooms with no link yet first: `matchLinksToRooms`), and
+  shows one review row per link with its own room picker ("Skip this link" is a choice). Each row is checked by
+  the channel's own validator (`checkBulkRows`: a wrong host is refused with that channel's message, the same
+  link twice or two links for one room is flagged). "Use N links" only fills the boxes; nothing is saved yet.
+- **Save is one request.** `POST /api/portal/channel-calendar/connections` with `{ connections: [...] }`
+  (`saveChannelCalendarConnectionsBatch`, at most 100) answers per item, in order: each item is exactly a
+  single-room POST (Calendar at `edit` on ITS house, decided once per house; one bad link never fails the
+  others). The rooms that now have a link are then synced four at a time, and only a room that failed to save
+  keeps what was typed.
 
 **Each room row says where it stands in one plain status line**, never a pill:
 `channelStatusParts` / `channelStatusLine` (`channel-links.ts`) compose it as
@@ -120,6 +135,13 @@ pastes into Airbnb's own composer. It never posts anywhere and never invents a
 photo: a data-URL photo is listed as "embedded photo (open the room in PropLane to
 save it)" rather than a URL. **Sync all now** (footer) syncs every row in scope and
 reports how many failed.
+
+**PadSplit is a plain manual row** ("Manual · approve each booking in PadSplit"), and its action only opens
+`https://www.padsplit.com/host` in a new tab. PadSplit has no calendar feed and no API, so there is nothing to
+connect and nothing to sync: the manager approves each booking in PadSplit, then enters it in PropLane with
+Source **PadSplit** ([`bookings.md`](bookings.md) § One booking across channels), which blocks Airbnb and
+Booking.com through the export feeds like any other PropLane stay. Coverage: `padsplit-export.test.ts`,
+`integrations-channel-rows.test.tsx`.
 
 ### Two-way with Airbnb
 
@@ -148,6 +170,15 @@ Airbnb has no public write API, so the two directions are not equally fast:
   fails the feed, written at most every 5 minutes. **PropLane checked Airbnb** is the
   connection's `last_synced_at`. Both show on the booking record page and per room in the
   Connect popup.
+- **Sync-all budget.** The cron (`syncAllChannelCalendarImports`) fetches feeds four at a time, least recently
+  synced first, and starts no new fetch once less than 20 seconds are left of the route's 120 (`maxDuration`; a
+  test keeps the two in step). It reports `{ synced, failed, skipped }`; a skipped feed goes first next run.
+  "Sync now" on a room re-reads that room only.
+- **Double-booking alerts.** After a sync, `detectChannelClashes` looks for two things holding one room on the
+  same nights (two channels, or a channel reservation on a PropLane stay that is not that reservation) and
+  `emitChannelClashEvent` sends ONE `channel_booking_clash` notice per clash, idempotent on the clash's own key
+  (its two sides and the nights they share), so whichever room syncs first announces it and no later sync repeats
+  it. Host blocks are closures, never a side.
 - **Booking alerts.** `syncChannelCalendarConnection` diffs the new ranges against the
   connection's stored ones (`diffChannelReservations`, `channel-booking-diff.ts`) and
   emits `channel_booking_created` / `channel_booking_cancelled` on the action-event bus
@@ -160,8 +191,9 @@ Airbnb has no public write API, so the two directions are not equally fast:
   connection + stay (`eventId`), so a re-run does not notify twice. The payload carries no contact
   data; its `guestLabel` is the one label every Bookings surface uses for that stay
   (`bookingEntryGuestLabel` — "Airbnb guest · HM…" when the code is all the feed gave), never a bare
-  "Reserved". Each booking also emails the workspace owner, and the sync files a resident for every
-  reservation: [`bookings.md`](bookings.md) § Every booking has a name.
+  "Reserved". Each booking also emails the workspace owner. The sync files NO resident for a channel stay (the import's own
+  room block holds the nights; the Residents list derives a row from the booking): [`bookings.md`](bookings.md)
+  § Every booking has a name.
 - **Who booked.** The feed never carries the guest's name, so a stay is identified from
   three things. Two are read off the event DESCRIPTION
   (`parseReservationDescription`, `reservation-details.ts`): the **reservation code**

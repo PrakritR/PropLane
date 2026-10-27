@@ -31,6 +31,10 @@ vi.mock("@/lib/channel-calendar/sync.server", () => ({
     state.syncs += 1;
     return { id: "conn-1", provider: "airbnb", room_id: "room-a", property_id: PROPERTY };
   },
+  syncChannelCalendarConnectionIds: async (_db: unknown, ids: string[]) => {
+    state.syncs += ids.length;
+    return { synced: ids.length, failed: 0, skipped: 0 };
+  },
   listChannelCalendarConnections: async () => [{ id: "conn-1" }],
   ensureRoomExportCalendarUrl: async () => "https://example.test/export",
 }));
@@ -147,5 +151,42 @@ describe("an owner or a co-manager with calendar edit can", () => {
     const res = await syncAll(json("POST", { propertyIds: [PROPERTY] }));
     expect(await res.json()).toMatchObject({ synced: 0 });
     expect(state.syncs).toBe(0);
+  });
+});
+
+describe("saving many rooms' links in one request (Paste many)", () => {
+  const items = [
+    { propertyId: PROPERTY, roomId: "room-a", provider: "airbnb", importUrl: "https://airbnb.test/a.ics" },
+    { propertyId: PROPERTY, roomId: "room-b", provider: "airbnb", importUrl: "https://airbnb.test/b.ics" },
+    { propertyId: PROPERTY, roomId: "room-c", provider: "nope", importUrl: "https://airbnb.test/c.ics" },
+    { propertyId: PROPERTY, roomId: "", provider: "airbnb" },
+  ];
+
+  it("a calendar editor saves every valid item and each item answers for itself", async () => {
+    state.userId = EDITOR;
+    const res = await postConnection(json("POST", { connections: items }));
+    expect(res.status).toBe(200);
+    const { results } = (await res.json()) as { results: Array<{ ok: boolean; error?: string }> };
+    expect(results.map((r) => r.ok)).toEqual([true, true, false, false]);
+    expect(results[2]!.error).toBe("Unknown calendar channel.");
+    expect(results[3]!.error).toBe("propertyId and roomId are required.");
+    expect(state.upserts).toBe(2);
+  });
+
+  it("a read-only co-manager is refused item by item and nothing is written", async () => {
+    state.userId = READER;
+    const res = await postConnection(json("POST", { connections: items.slice(0, 2) }));
+    const { results } = (await res.json()) as { results: Array<{ ok: boolean; error?: string }> };
+    expect(results).toEqual([{ ok: false, error: "Forbidden." }, { ok: false, error: "Forbidden." }]);
+    expect(state.upserts).toBe(0);
+  });
+
+  it("a house the caller may not edit is refused even when another house in the same request is allowed", async () => {
+    state.userId = EDITOR;
+    const res = await postConnection(json("POST", { connections: [items[0], { ...items[1], propertyId: "someone-elses-house" }] }));
+    const { results } = (await res.json()) as { results: Array<{ ok: boolean; error?: string }> };
+    expect(results.map((r) => r.ok)).toEqual([true, false]);
+    expect(results[1]!.error).toBe("Forbidden.");
+    expect(state.upserts).toBe(1);
   });
 });

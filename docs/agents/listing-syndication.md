@@ -103,8 +103,9 @@ service-role client, 404s on an unknown or disabled key, then intersects
 `getPublicListings()` (already sandbox-filtered, contact-resolved, projected)
 with `zillowEnabledPropertyIds`'s id set — a raw `manager_property_records`
 query filtered to `manager_user_id` AND `workspace_id` — before mapping to
-XML. `publicListingProjection` carries neither `syndication` nor `workspaceId`
-(both excluded from the public allowlist), so the workspace scoping happens
+XML. Neither `syndication` nor `workspaceId` is on the public allowlist, and
+`workspaceId` rides a projection only when a server-only caller opts in (the
+PropLane line's catalog does; this feed does not), so the workspace scoping happens
 entirely through that pre-computed id set, never by filtering the projected
 listing itself. `Content-Type: application/xml`, `Cache-Control` matches the
 other public listing reads (`public, s-maxage=60, stale-while-revalidate=600`).
@@ -168,9 +169,13 @@ that `source_channel`, each linking to its own record page). Both the list and t
 by `leadReadablePropertyIds` — the workspace's own houses narrowed to those whose applicant
 identities this viewer may read (`applications` or `residents`) — so a badge can never count leads
 the tab then withholds. A failed page of either read throws instead of returning a short answer. The **property**-level row still opens
-the pop-up guide (`listing-site-guide.tsx`), bound to that one listing. Every "which listing?"
-dropdown is built by `listingPickerOptions()` (`listing-picker.ts`): house name or short street, then
-`· N rooms`; Ready to post before Held (reason beside the name); drafts never offered.
+the pop-up guide (`listing-site-guide.tsx`), bound to that one listing. `listing-picker.ts` owns how a
+listing is NAMED in every "which listing?" dropdown: `listingPickerLabel` is house name or short street,
+then `· N rooms`; `listingPickerHoldReason` is the hold fact, sentence-cased; Ready to post before Held;
+drafts never offered. The record page's Post section builds its whole dropdown through
+`listingPickerOptions()` (the reason beside the name); Settings › Integrations › Posting's `CopyPostRow`
+groups the workspace listings itself from the same two helpers, with the reason on the option's second
+line.
 
 | Posting mode | Channels | How it works |
 | --- | --- | --- |
@@ -188,6 +193,16 @@ partner contacts live on in `RETIRED_PARTNER_CONTACTS` in the registry, for an
 admin to read there; the Listing sites API ships no partner contacts. Availability: `feed` and `manual` are `live`, `api` is
 `live` only when Meta is live, `partner_only` is `partner_only`; there is never a
 "Coming soon"-only dead row.
+
+**SpareRoom is a Copy post site, like Facebook Marketplace.** Settings › Integrations › Posting has a
+SpareRoom row (the same `CopyPostRow` as Marketplace): a listing picker, **Copy post** (the
+`postTexts.spareroom` the Listing sites GET builds from `publicListingProjection` facts plus the workspace
+work number and email; no work number means nothing is built, and a listing with no street address or no
+real photo is held with its existing reason, so Copy post stays off and says why) and a plain **Open
+SpareRoom** link to `https://www.spareroom.com/roommates` (`SPAREROOM_ROOMMATES_URL`, the registry's
+`createUrl`). No API, no scraping, no browser driving; the Bookings tab no longer carries a SpareRoom
+"Coming soon" row because SpareRoom has no calendar feed. Coverage: `listing-channels-registry.test.ts`,
+`listing-channels-post-text.test.ts`, `manager-integrations-panel.test.tsx`.
 
 ### The guide schema
 

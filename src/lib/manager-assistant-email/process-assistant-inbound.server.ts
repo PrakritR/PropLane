@@ -27,7 +27,7 @@ import {
   deliverManagerEmailReply,
   runManagerEmailAgentTurn,
 } from "@/lib/agent/manager-email-agent.server";
-import { applyAirbnbEmailToStay } from "@/lib/channel-calendar/airbnb-email-intake.server";
+import { applyAirbnbEmailToStay, applyForwardedAirbnbConfirmation } from "@/lib/channel-calendar/airbnb-email-intake.server";
 import { isAirbnbSenderAddress, parseAirbnbEmail } from "@/lib/inbound-email/airbnb-parser";
 import type { ParsedInboundEmail } from "@/lib/inbound-email/inbound-email.server";
 import { resolveInboundEmailBody } from "@/lib/inbound-email/inbound-email.server";
@@ -239,6 +239,32 @@ export async function processManagerAssistantInboundEmail(
   let mirror: (replySent: boolean) => Promise<void> = async () => {};
 
   if (sender.role === "manager") {
+    /* A confirmation the manager FORWARDED to their own work email names a stay in their own Airbnb calendar:
+       the HM code matching one of their imported reservations is the proof it is theirs. It fills the guest's
+       name and nothing else (never creates or moves a stay), and the mail is then handled like any other from
+       the manager. Only a sender the receiving server proved, and only the workspace owner themselves. */
+    if (/\bHM[A-Z0-9]{8,}\b/.test(rawBody) && /airbnb/i.test(rawBody)) {
+      try {
+        let authenticated = false;
+        try {
+          const headers = parsed.headers ?? (await fetchResendReceivedEmailHeaders(parsed.emailId));
+          authenticated = inboundSenderAuthenticated(headers, parsed.fromEmail);
+        } catch {
+          authenticated = false;
+        }
+        const forwarded = await applyForwardedAirbnbConfirmation(db, {
+          ownerUserId: managerUserId,
+          senderUserId: sender.identity.actorUserId,
+          authenticated,
+          subject: parsed.subject,
+          text: rawBody,
+          receivedAt: parsed.receivedAt,
+        });
+        if (forwarded.applied) return { handled: true, replied: false };
+      } catch (cause) {
+        console.error("forwarded airbnb confirmation failed", cause);
+      }
+    }
     const managerIdentity = await resolveManagerSmsAgentContext(db, {
       managerUserId: sender.identity.workNumberOwnerId,
       actorUserId: sender.identity.actorUserId,

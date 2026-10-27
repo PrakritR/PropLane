@@ -417,6 +417,21 @@ The web and resident `request_tour` paths never book. Their request is
 `status: "pending"` until a human confirms it. The separate prospect-SMS typed
 booking tool is the only exception described above.
 
+### A tour request is ONE host-team thread (Oct 26)
+
+`notifyManagerTourRequest` writes ONE turn into the workspace OWNER's conversation with the prospect
+(`appendManagerPropertyLeadInboxMessage` for the inquiry's `managerUserId` only), stamped with the house (`houseId` on the turn,
+`propertyId` on the thread). It no longer writes a lead copy into every co-manager's inbox. A co-manager who holds that house with
+Communication sees the SAME conversation through `conversation-visibility.server.ts` rule 2 (unchanged) and answers in it as
+themselves; one holding another house, or without Communication, sees nothing and cannot post. Teammates are told, not copied: the
+manager email (to every recipient with notification access) ends with the Communication link, the SMS forward is unchanged, and
+`postTeamNoticeLineForEvent` posts ONE Team chat line ("Tour requested: Jordan Lee, Cedar Court.", idempotent on
+`tour:<inquiry>:request:<start>:<end>:team`). Resident side: "Message host" (tour panel) and the booking confirmation's **Message the
+host** open the resident's existing conversation through `GET /api/portal-resident-tours/thread?inquiryId=` (the manager and house
+come from the resident's own linked tour, never the request; no stored thread opens the Communication list) instead of staging a
+compose prefill. `inbox-recipient-scope.ts` `managerIdsFromResidentTours` still authorizes the resident's send. Tests:
+`tests/unit/{tour-host-team-thread,resident-tour-thread-open,portal-inbox-thread-reply}.test.ts`.
+
 ## Tour tools, and who may do what
 
 | Tool | Registries | What it does |

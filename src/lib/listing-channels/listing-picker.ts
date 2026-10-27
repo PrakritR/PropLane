@@ -1,15 +1,21 @@
 /**
  * The one "which listing?" rule for Listing sites.
  *
- * Pure and client-safe. The Post section of a site's record page and the property-level panel's pop-up
- * both build their dropdown through `listingPickerOptions`, so a house is never named one way in one
- * place and another way in the next (the old picker mixed street addresses with titles, gave no
- * room count, and only revealed a hold after the pick).
+ * Pure and client-safe. Every picker names a house through `listingPickerLabel` /
+ * `listingPickerHoldReason` here, so a house is never named one way in one place and another way in
+ * the next (the old picker mixed street addresses with titles, gave no room count, and only revealed
+ * a hold after the pick).
  *
  *  - Label: the house name, or the short street address when it has no real name (`propertyRowTitle`),
  *    then " · N rooms".
- *  - Groups: "Ready to post" first, then "Held" with the reason beside the name.
+ *  - Groups: "Ready to post" first, then "Held".
  *  - Drafts are never offered: a draft is not a listing yet.
+ *
+ * `listingPickerOptions` builds the whole grouped dropdown, reason beside the name; the Post section of
+ * a site's record page (`listing-site-record.tsx`) uses it. Settings › Integrations › Posting's
+ * `CopyPostRow` groups its own list from the two label helpers because it reads the workspace's
+ * listings from the status route rather than from `ListingPickerSource` rows, and shows the reason on
+ * the option's second line.
  */
 import type { MockProperty } from "@/data/types";
 import { listingHoldFact, listingChannelEligibility, type ListingHoldReason } from "@/lib/listing-channels/post-text";

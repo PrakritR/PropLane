@@ -32,6 +32,8 @@ import type { BlockDatesResidentOption } from "@/lib/channel-calendar/block-date
 import { airbnbLinkForRoom, type ChannelRoomLink } from "@/lib/channel-calendar/channel-links";
 import { roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { cn } from "@/lib/utils";
+import { STAY_SOURCE_OPTIONS, stayDetailsWithLink, stayDetailsWithSource, withoutLinkedReservation } from "@/lib/channel-calendar/channel-link";
+import { BookingChannelLinkField } from "@/components/portal/booking-channel-link-field";
 
 const FIELD_LINK = POPUP_FIELD_LINK_CLASS;
 
@@ -230,7 +232,7 @@ export function BookingsBlockDatesModal({
     );
     setStepIdx(mode === "reserve" && !editingBlock && property && initialDayKey ? 2 : 0);
     setReason(initialReason ?? "");
-    setStayDetails(editingBlock?.stayDetails ?? {});
+    setStayDetails(stayDetailsWithLink(editingBlock?.stayDetails, editingBlock?.channelLink));
     setCheckInTime(editingBlock?.checkInTime ?? "");
     setCheckOutTime(editingBlock?.checkOutTime ?? "");
     setResidentChoice("");
@@ -306,9 +308,10 @@ export function BookingsBlockDatesModal({
 
   const rangeValid = Boolean(checkIn && checkOut && checkOut > checkIn);
 
+  // The reservation this stay is linked to is the stay itself, never a clash with it.
   const conflictPool = useMemo(
-    () => (editingBlockId ? entries.filter((entry) => entry.blockId !== editingBlockId) : entries),
-    [editingBlockId, entries],
+    () => withoutLinkedReservation(editingBlockId ? entries.filter((entry) => entry.blockId !== editingBlockId) : entries, stayDetails.channelLink),
+    [editingBlockId, entries, stayDetails.channelLink],
   );
 
   const conflicts = useMemo(() => {
@@ -675,7 +678,8 @@ export function BookingsBlockDatesModal({
             </div>
           ) : null}
           <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div><span className={POPUP_FIELD_LABEL_CLASS}>Source</span><Select aria-label="Source" id="booking-stay-source" value={stayDetails.source ?? "Direct"} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, source: event.target.value })}>{["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((source) => <option key={source} value={source}>{source}</option>)}</Select></div>
+            <div><span className={POPUP_FIELD_LABEL_CLASS}>Source</span><Select aria-label="Source" id="booking-stay-source" value={stayDetails.source ?? "Direct"} disabled={busy} onChange={(event) => setStayDetails(stayDetailsWithSource(stayDetails, event.target.value))}>{STAY_SOURCE_OPTIONS.map((source) => <option key={source} value={source}>{source}</option>)}</Select></div>
+            <BookingChannelLinkField labelClassName={POPUP_FIELD_LABEL_CLASS} source={stayDetails.source} entries={entries} propertyId={propertyId} roomId={roomId} checkIn={checkIn} checkOut={checkOut} link={stayDetails.channelLink} onChange={(next) => setStayDetails({ ...stayDetails, channelLink: next })} disabled={busy} />
             {isClosed ? null : <label><span className={POPUP_FIELD_LABEL_CLASS}>Notes</span><Input value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} /></label>}
             {(["linen", "baggage"] as const).map((key) => <div key={key}><span className={POPUP_FIELD_LABEL_CLASS}>{key === "linen" ? "Linen" : "Baggage"}</span><Select aria-label={key === "linen" ? "Linen" : "Baggage"} id={`booking-stay-${key}`} value={stayDetails[key] ?? ""} disabled={busy} onChange={(event) => setStayDetails({ ...stayDetails, [key]: event.target.value })}><option value="">Not set</option>{(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => <option key={value} value={value}>{value}</option>)}</Select></div>)}
             <div><span className={POPUP_FIELD_LABEL_CLASS}>Check-in</span><Select aria-label="Check-in" id="booking-stay-check-in" value={checkInTime || houseTimes.checkInTime} disabled={busy} onChange={(event) => setCheckInTime(event.target.value)}>{stayTimeOptions(checkInTime || houseTimes.checkInTime).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></div>

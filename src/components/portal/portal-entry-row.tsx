@@ -112,6 +112,8 @@ export function PortalEntryRow({
   attention = false,
   place,
   facts,
+  maxFacts = 3,
+  phoneFactLimit,
   figure,
   onOpen,
   onSelectedChange,
@@ -127,8 +129,12 @@ export function PortalEntryRow({
   attention?: boolean;
   /** "who · where · when" — the line under the title. */
   place?: string;
-  /** Up to three plain facts; anything past the third is dropped. */
+  /** Plain facts; anything past `maxFacts` (three by default) is dropped. */
   facts?: PortalEntryRowFact[];
+  /** Facts a row draws at desktop width (default 3). */
+  maxFacts?: number;
+  /** Facts a phone row draws (the shared row's default is 2): for a list whose key fact would otherwise be hidden. */
+  phoneFactLimit?: number;
   figure?: PortalEntryRowFigure;
   /** Omit for a row with nothing to open. */
   onOpen?: () => void;
@@ -141,13 +147,14 @@ export function PortalEntryRow({
   dataAttr?: string;
 }) {
   const { node: tileNode, shape } = renderTile(tile);
-  const factNodes = facts && facts.length ? facts.slice(0, 3).map(renderFact) : undefined;
+  const factNodes = facts && facts.length ? facts.slice(0, maxFacts).map(renderFact) : undefined;
   return (
     <PortalPropertyRecordRow
       title={title}
       attention={attention}
       address={place}
       facts={factNodes ? <>{factNodes}</> : undefined}
+      {...(phoneFactLimit !== undefined ? { phoneFactLimit } : {})}
       leading={tileNode}
       leadingShape={shape}
       amount={figure?.value}

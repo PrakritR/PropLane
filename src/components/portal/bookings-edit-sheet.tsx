@@ -14,6 +14,8 @@ import { bookingConflictsFor, lastNightBeforeCheckout, type PropertyBookingEntry
 import { addDaysToDateKey, describeBookingConflict } from "@/lib/channel-calendar/bookings-ui";
 import { bookingCancelLabel, bookingRoomRate, canCancelBooking, canDeleteReservation, isReservedBlock } from "@/lib/channel-calendar/booking-presentation";
 import { stayMetaRefOf, type StayMeta } from "@/lib/channel-calendar/stay-meta";
+import { STAY_SOURCE_OPTIONS, stayDetailsWithLink, stayDetailsWithSource, withoutLinkedReservation } from "@/lib/channel-calendar/channel-link";
+import { BookingChannelLinkField } from "@/components/portal/booking-channel-link-field";
 import { ROOM_DATE_BLOCKS_CHANGED } from "@/lib/channel-calendar/room-date-blocks";
 import { ROOM_BLOCK_KIND_CLOSED, roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { isShortStayRequestSource, shortStaySourceLabel } from "@/lib/short-stay/guest-stays";
@@ -83,7 +85,10 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
   const [notes, setNotes] = useState(entry.reason ?? "");
   // Dates with nobody attached are a closed room until a guest is named; every booking has a name.
   const [reservedName, setReservedName] = useState("");
-  const [details, setDetails] = useState(entry.stayDetails ?? {});
+  // A stay that was only auto-linked (HM code in its notes, or the same dates) opens already linked, so the
+  // manager's next Save stores the link; it is also the baseline "Unsaved changes" compares against.
+  const [initialDetails] = useState(() => stayDetailsWithLink(entry.stayDetails, entry.channelLink));
+  const [details, setDetails] = useState(initialDetails);
   // The stay's own times, else its property's defaults: the manager overrides either from here.
   const initialTimes = resolveStayTimes(
     { checkInTime: entry.checkInTime, checkOutTime: entry.checkOutTime, legacyEarlyCheckIn: entry.stayDetails?.earlyCheckIn, legacyLateCheckOut: entry.stayDetails?.lateCheckOut },
@@ -113,7 +118,8 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
     ? null
     : roomDateBlockNameError({ residentName: reservedLabel, blockKind: reservedKind, reason: notes });
   const guestValid = reservation ? reservationError === null : locked || guestName.trim().length > 0;
-  const pool = entries.filter((candidate) => candidate !== entry && (!entry.blockId || candidate.blockId !== entry.blockId));
+  // The reservation this stay is linked to is the stay itself, never a clash with it.
+  const pool = withoutLinkedReservation(entries.filter((candidate) => candidate !== entry && (!entry.blockId || candidate.blockId !== entry.blockId)), details.channelLink);
   const conflictsForRoom = (id: string) => valid ? bookingConflictsFor(pool, { propertyId, roomId: id, start: checkIn, end: openEnded ? "9999-12-30" : lastNightBeforeCheckout(checkOut) }) : [];
   const rooms = bookingRoomChoices(getRoomOptionsForProperty(propertyId, { includeUnavailable: true, includeUnnamed: true }), conflictsForRoom);
   const conflicts = conflictsForRoom(roomId);
@@ -139,7 +145,7 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
     finally { setBusy(false); }
   };
   const rateValid = rate === "" || (Number.isFinite(Number(rate)) && Number(rate) >= 0);
-  const dirty = guestName !== initialName || guestEmail !== (entry.residentEmail ?? "") || guestPhone !== (entry.residentPhone ?? "") || propertyId !== entry.propertyId || roomId !== entry.roomId || openEnded !== Boolean(entry.openEnded) || checkIn !== entry.start || checkOut !== initialCheckOut || status !== initialStatus || rate !== initialRateText || basis !== (entry.rateBasis ?? initialRate.basis) || notes !== (entry.reason ?? "") || reservedName !== "" || checkInTime !== initialTimes.checkInTime || checkOutTime !== initialTimes.checkOutTime || JSON.stringify(details) !== JSON.stringify(entry.stayDetails ?? {});
+  const dirty = guestName !== initialName || guestEmail !== (entry.residentEmail ?? "") || guestPhone !== (entry.residentPhone ?? "") || propertyId !== entry.propertyId || roomId !== entry.roomId || openEnded !== Boolean(entry.openEnded) || checkIn !== entry.start || checkOut !== initialCheckOut || status !== initialStatus || rate !== initialRateText || basis !== (entry.rateBasis ?? initialRate.basis) || notes !== (entry.reason ?? "") || reservedName !== "" || checkInTime !== initialTimes.checkInTime || checkOutTime !== initialTimes.checkOutTime || JSON.stringify(details) !== JSON.stringify(initialDetails);
   const save = async () => {
     if (lockedDetails) { onClose(); return; }
     if (metaRef && onSaveStayMeta) {
@@ -241,7 +247,8 @@ export function BookingsEditSheet({ entry, entries, propertyOptions = [], onClos
         <label><span className={POPUP_FIELD_LABEL_CLASS}>Rate / {rateUnit}</span><Input type="number" min="0" step="0.01" disabled={locked || busy} value={rate} onChange={(event) => setRate(event.target.value)} /></label>
       </EditSection>
       <EditSection id="details" label="Stay details">
-        <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Source" dataAttr="select-booking-edit-source" disabled={locked || busy || decidable} value={details.source ?? "Direct"} onChange={(next) => setDetails({ ...details, source: next })} options={[...["Direct", "Tenant", "Airbnb", "Booking.com", "Application", "Other"].map((value) => ({ value, label: value })), ...(isShortStayRequestSource(details.source) ? [{ value: details.source as string, label: shortStaySourceLabel(details.source) }] : [])]} />
+        <FieldSingleSelect labelClassName={POPUP_FIELD_LABEL_CLASS} label="Source" dataAttr="select-booking-edit-source" disabled={locked || busy || decidable} value={details.source ?? "Direct"} onChange={(next) => setDetails(stayDetailsWithSource(details, next))} options={[...STAY_SOURCE_OPTIONS.map((value) => ({ value, label: value })), ...(isShortStayRequestSource(details.source) ? [{ value: details.source as string, label: shortStaySourceLabel(details.source) }] : [])]} />
+        {metaOnly || locked ? null : <BookingChannelLinkField labelClassName={POPUP_FIELD_LABEL_CLASS} source={details.source} entries={entries} propertyId={propertyId} roomId={roomId} checkIn={checkIn} checkOut={openEnded ? "" : checkOut} link={details.channelLink} onChange={(next) => setDetails({ ...details, channelLink: next })} disabled={busy || decidable} />}
         <label><span className={POPUP_FIELD_LABEL_CLASS}>Notes</span><Input disabled={lockedDetails || busy} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
         {(["linen", "baggage"] as const).map((key) => <FieldSingleSelect key={key} labelClassName={POPUP_FIELD_LABEL_CLASS} label={key === "linen" ? "Linen" : "Baggage"} dataAttr={`select-booking-edit-${key}`} disabled={lockedDetails || busy} value={details[key] ?? ""} onChange={(next) => setDetails({ ...details, [key]: next })} options={[{ value: "", label: "Not set" }, ...(key === "linen" ? ["Requested", "Delivered"] : ["Yes", "No"]).map((value) => ({ value, label: value }))]} />)}
         {metaOnly ? null : <>

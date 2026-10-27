@@ -24,9 +24,17 @@ export type LeadOffer = {
   label: string;
   rent: number | null;
   availability: string;
+  /** The room's own name ("Room 3"), when the offer came from a room. */
+  roomName?: string;
+  /** Who answers for the home (`line-tier.ts`). Absent on an offer stored before tiers: it reads as managed. */
+  tier?: "managed" | "free" | "paid";
 };
 
-export type LeadStage = "qualifying" | "offered" | "no_match" | "assigned";
+/**
+ * `hold` = a stranger whose first text named nothing specific and got the one "Which home?" reply (waits in Admin ›
+ * Unassigned). `switch` = a locked prospect asked about another home and was asked "Are you asking about X?".
+ */
+export type LeadStage = "qualifying" | "offered" | "no_match" | "assigned" | "hold" | "switch";
 
 /** The `sms_unassigned_leads.profile` jsonb: answers plus the small amount of flow state the agent needs. */
 export type LeadProfile = {

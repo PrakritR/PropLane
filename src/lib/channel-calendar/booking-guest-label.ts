@@ -3,14 +3,18 @@ import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 /** User-facing label for an imported channel event summary. */
 export type GuestLabelSource = "airbnb" | "booking_com" | "vrbo" | "ical";
 
+/** The channel's own name: "Airbnb", "Booking.com", "Vrbo", or the site the manager named for an Other calendar. */
+export function bookingChannelName(source: GuestLabelSource = "airbnb", channelLabel?: string | null): string {
+  return source === "booking_com" ? "Booking.com" : source === "vrbo" ? "Vrbo" : source === "ical" ? channelLabel?.trim() || "Other calendar" : "Airbnb";
+}
+
 export function bookingGuestLabel(
   summary: string | null | undefined,
   source: GuestLabelSource = "airbnb",
   channelLabel?: string | null,
 ): string {
   const raw = summary?.trim() ?? "";
-  const channel =
-    source === "booking_com" ? "Booking.com" : source === "vrbo" ? "Vrbo" : source === "ical" ? channelLabel?.trim() || "Other calendar" : "Airbnb";
+  const channel = bookingChannelName(source, channelLabel);
   const fallback = `Booked (${channel})`;
   if (!raw) return fallback;
   const lower = raw.toLowerCase();
@@ -31,7 +35,7 @@ export function bookingGuestShortLabel(
   return `${label.slice(0, maxLen - 1)}…`;
 }
 
-function isGuestLabelSource(source: string): source is GuestLabelSource {
+export function isGuestLabelSource(source: string): source is GuestLabelSource {
   return source === "airbnb" || source === "booking_com" || source === "vrbo" || source === "ical";
 }
 

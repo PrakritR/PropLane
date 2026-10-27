@@ -1,3 +1,5 @@
+import { bookingChannelName, bookingEntryNamedLabel, isGuestLabelSource } from "@/lib/channel-calendar/booking-guest-label";
+import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
 import { bookedDayKeyCountInMonth, isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { addDays, dateKey, startOfLocalDay, startOfWeekSunday } from "@/lib/room-availability-calendar";
 import { applicationDetailHref, leaseDetailHref, propertyDetailHref, residentDetailHref } from "@/lib/portal-detail-routes";
@@ -93,13 +95,31 @@ export function formatBookingStayRange(
  * the two.
  */
 export function describeBookingConflict(
-  conflict: Pick<PropertyBookingEntry, "roomLabel" | "start" | "end" | "openEnded" | "summary">,
+  conflict: Pick<PropertyBookingEntry, "roomLabel" | "start" | "end" | "openEnded" | "summary"> &
+    Partial<Pick<PropertyBookingEntry, "source" | "residentName" | "guestName" | "reservationCode" | "channelLabel">>,
   fallbackRoomLabel: string,
 ): string {
   const room = conflict.roomLabel?.trim() || fallbackRoomLabel;
   const range = formatBookingStayRange(conflict.start, conflict.end, conflict.openEnded);
-  const who = conflict.summary?.trim();
+  const who = bookingConflictWho(conflict);
   return who ? `${room} is booked ${range} by ${who}` : `${room} is booked ${range}`;
+}
+
+/**
+ * Who holds the dates, for the refusal line: the linked resident or the name the manager typed, else
+ * "Airbnb guest · HM…", else the summary when it is a real name, else the channel itself - never the
+ * feed's generic "Reserved".
+ */
+function bookingConflictWho(conflict: Parameters<typeof describeBookingConflict>[0]): string | null {
+  const resident = conflict.residentName?.trim();
+  if (resident) return resident;
+  const summary = conflict.summary?.trim() ?? "";
+  const source = conflict.source;
+  if (!source || !isGuestLabelSource(source)) return summary || null;
+  const named = bookingEntryNamedLabel({ ...conflict, source, summary });
+  if (named) return named;
+  if (summary && summary.toLowerCase() !== "reserved" && !isHostBlockSummary(summary)) return summary;
+  return bookingChannelName(source, conflict.channelLabel);
 }
 
 export function classifyBookingListBucket(

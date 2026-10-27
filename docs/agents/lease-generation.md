@@ -1103,6 +1103,13 @@ bathrooms, shared spaces, bundles, quick facts and custom fees. Each list is
 `as const satisfies readonly (keyof T)[]`, so a renamed field fails the build
 rather than silently dropping out of the payload.
 
+Two facts sit OFF every list and reach the projection only when a server-only
+caller passes the matching opt-in: the workspace's work number
+(`opts.workNumber`, the syndication feeds) and its `workspaceId`
+(`opts.workspaceId`, the PropLane line's catalog, which tiers a home by its
+workspace). No public route passes either, so neither is ever in a public
+response; a new opt-in belongs here and nowhere else.
+
 The rule for adding a field: it belongs on a list when a prospect-facing surface
 reads it, or it is pure listing marketing metadata. It stays off when it is
 manager- or resident-internal — access credentials and instructions (wifi,

@@ -39,10 +39,21 @@ describe("parseAirbnbEmail", () => {
       kind: "booking",
       confirmationCode: "HMHW5SHXRB",
       guestFirstName: "Juan",
+      guestFullName: "Juan Angel",
       checkIn: "2026-10-13",
       checkOut: "2026-10-16",
       nights: 3,
     });
+  });
+
+  it("captures the full name only when the mail spells it out, and never a stray word", () => {
+    const withFull = parseAirbnbEmail({ subject: "Fwd: Reservation confirmed - Kumaran Chanthrakumar arrives Oct 3", text: "HMRRN4XTZ8\nCheck-in Oct 3\nCheckout Nov 3", receivedAt: "2026-10-01T00:00:00Z" });
+    expect(withFull).toMatchObject({ guestFirstName: "Kumaran", guestFullName: "Kumaran Chanthrakumar" });
+    const firstOnly = parseAirbnbEmail({ subject: "Reservation confirmed - Juan arrives Oct 13", text: "Soon, Juan is arriving.\nHMHW5SHXRB\nCheck-in Oct 13\nCheckout Oct 16", receivedAt: "2026-10-09T00:00:00Z" });
+    expect(firstOnly?.guestFirstName).toBe("Juan");
+    expect(firstOnly?.guestFullName).toBeUndefined();
+    const junk = parseAirbnbEmail({ subject: "Reservation confirmed - Juan arrives Oct 13", text: "Your guest 2 Juan is arriving.\nHMHW5SHXRB\nCheck-in Oct 13\nCheckout Oct 16", receivedAt: "2026-10-09T00:00:00Z" });
+    expect(junk?.guestFullName).toBeUndefined();
   });
 
   it("reads a payout mail", () => {

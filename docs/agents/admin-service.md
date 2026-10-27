@@ -24,7 +24,15 @@ PropLane Service is a FLAG on a workspace plus memberships, never ownership.
   (`/admin/service`, today's panel with its inner Workspaces · Vendors · Network tabs) · PropLane line · Unassigned leads.
   The rest of the admin nav — the retired "Property management" heading and all-owners Properties list, the redirects and
   the phone bottom bar — is [`one-number.md`](one-number.md) § W15 (Admin navigation).
-- Work number column: the workspace's own active work number, else nothing.
+- Work number column: a service workspace is always on the PropLane line, so the row states `resolveServiceLine`'s number as
+  "(206) 678-1909 · PropLane line" (`workNumberFactLabel`), never a number the workspace once held; an unresolvable or unreadable line
+  shows "No number". A live number the workspace still holds besides the line is its **old number**: it keeps receiving (a text to it
+  lands in that workspace, the reply leaves from the 206, send paths refuse the old row) and the row carries one more fact,
+  "Old (814) 679-3694 kept since Oct 25" (`oldNumber`, the date of the attach audit row). There is no automatic release. The per-row
+  **Release old number** action (`action: "release-old-number"`, `releaseServiceWorkspaceOldNumber`) is platform-admin only
+  (re-derived), writes its `admin_service_release_old_number` audit row BEFORE the release and refuses without it, calls
+  `releaseManagerNumber` (database state only; handing the number back to the carrier stays an operator step), verifies the row is
+  gone, and refuses a workspace that holds the PropLane line itself.
 - Management fee: every service workspace gets PropLane's automatic fee, never signed; attach and create ask for it,
   and a workspace created before it has an owner of record gets it the first time anything needs one. The row states
   the rate in force and the per-row **Management fee** action (`action: "fee"`, audit row written before the change)

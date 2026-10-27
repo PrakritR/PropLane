@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderWorkOrderEvent, workOrderDeliveryPolicy } from "@/lib/work-order-events.server";
-import { actionDeliveryPolicy } from "@/lib/action-events.server";
+import { actionDeliveryPolicy, eventIsDigestExempt } from "@/lib/action-events.server";
 
 const facts = {
   reference: "WO-1042",
@@ -94,5 +94,17 @@ describe("PLAN-0915 work-order events", () => {
     expect(renderWorkOrderEvent("invoice_disputed", "vendor", { ...base, note: "line 2?" })?.text).toContain("line 2?");
     expect(renderWorkOrderEvent("invoice_approved", "manager", base)).toBeNull();
     expect(renderWorkOrderEvent("created", "resident", { ...base, responsePromise: "within 4 hours", emergencyPhone: "(206) 555-0100" })?.text).toContain("within 4 hours");
+  });
+});
+
+describe("the digest window never swallows a room assignment", () => {
+  const now = new Date("2026-10-26T20:00:00Z");
+  it("four recent notices digest an ordinary event but not room_assigned or move_in_details", () => {
+    expect(actionDeliveryPolicy({ now, recentEventCount: 4 }).digest).toBe(true);
+    for (const event of ["room_assigned", "move_in_details"]) {
+      expect(eventIsDigestExempt(event)).toBe(true);
+      expect(actionDeliveryPolicy({ now, recentEventCount: 9, digestExempt: eventIsDigestExempt(event) })).toEqual({ deferSms: false, digest: false, nextAttemptAt: null });
+    }
+    expect(eventIsDigestExempt("charge_created")).toBe(false);
   });
 });

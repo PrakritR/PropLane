@@ -25,6 +25,7 @@ import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { managerOauthFinishPath } from "@/lib/auth/manager-oauth-finish-path";
 import { resolveManagerPortalEntryPath } from "@/lib/auth/manager-google-services-onboarding.server";
 import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
+import { pickLastPortal } from "@/lib/auth/last-portal";
 import { ownerAccessStateFor } from "@/lib/property-owner/access.server";
 import { loadResidentPortalAccessState, residentPortalHomePath } from "@/lib/resident-portal-access";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
@@ -99,6 +100,41 @@ async function finishPrimaryAdminManagerPortal(
   return finish(await managerPortalDestination(supabase, userId, safeIntended));
 }
 
+export type PortalRedirectOptions = {
+  intent?: OAuthSignInIntent | null;
+  surface?: OAuthSurface | null;
+  /** The `pl_last_portal` cookie value. Only a generic sign-in by an account that still holds the role may use it. */
+  lastPortalRole?: string | null;
+  /**
+   * Out-parameter the resolver fills in: the account's portal roles as read for this sign-in, and the role whose portal
+   * a multi-role account was opened straight into (so the caller can pin it active and remember it).
+   */
+  trace?: { roles?: AuthRole[]; openedLastPortal?: AuthRole | null };
+};
+
+/**
+ * A multi-role account's destination when this device remembers the portal it used last and the account still holds
+ * that role (checked against the `profile_roles` rows read for this very sign-in). Null means: show the chooser.
+ */
+async function lastPortalDestination(
+  supabase: SupabaseClient,
+  user: User,
+  roles: AuthRole[],
+  lastPortalRole: string | null | undefined,
+  safeIntended: string,
+  email: string,
+): Promise<{ role: AuthRole; path: string } | null> {
+  if (!isGenericOAuthContinuePath(safeIntended)) return null;
+  const role = pickLastPortal(roles, lastPortalRole);
+  if (!role) return null;
+  if (role === "manager") return { role, path: await managerPortalDestination(supabase, user.id, safeIntended) };
+  if (role === "resident") {
+    const access = await loadResidentPortalAccessState({ userId: user.id, role: "resident", email });
+    return { role, path: residentPortalHomePath(access) };
+  }
+  return { role, path: portalDashboardPath(role) };
+}
+
 /**
  * After Google OAuth, decide where the user may go.
  * Unknown accounts → free manager portal. Residents need an application. Managers use their tier.
@@ -107,10 +143,7 @@ export async function resolveOAuthPortalRedirect(
   supabase: SupabaseClient,
   user: User,
   intendedPath: string,
-  options?: {
-    intent?: OAuthSignInIntent | null;
-    surface?: OAuthSurface | null;
-  },
+  options?: PortalRedirectOptions,
 ): Promise<string> {
   const intent = options?.intent ?? null;
   const surface = options?.surface ?? null;
@@ -140,12 +173,19 @@ export async function resolveOAuthPortalRedirect(
     supabase.from("profiles").select("role, manager_id, full_name, application_approved").eq("id", user.id).maybeSingle(),
   ]);
   const roles = normalizePortalRoles(roleRows, profile?.role);
+  if (options?.trace) options.trace.roles = roles;
 
   // Multi-role users (e.g. admin+manager) always pick their portal explicitly — the chooser
   // must never be skipped by a single-role branch below.
   if (roles.length > 1) {
     if (isPrimaryAdminEmail(email) && primaryAdminWantsManagerPortal(intent, safeIntended)) {
       return await finishPrimaryAdminManagerPortal(supabase, user.id, safeIntended, finish);
+    }
+    const remembered = await lastPortalDestination(supabase, user, roles, options?.lastPortalRole, safeIntended, email)
+      .catch(() => null);
+    if (remembered) {
+      if (options?.trace) options.trace.openedLastPortal = remembered.role;
+      return finish(remembered.path);
     }
     return finish(resolvePostOAuthPathFromRoles(roles, safeIntended));
   }
@@ -282,10 +322,7 @@ export async function finalizeOAuthPortalRedirect(
   supabase: SupabaseClient,
   user: User,
   intendedPath: string,
-  options?: {
-    intent?: OAuthSignInIntent | null;
-    surface?: OAuthSurface | null;
-  },
+  options?: PortalRedirectOptions,
 ): Promise<string> {
   const resolved = normalizePostAuthPath(await resolveOAuthPortalRedirect(supabase, user, intendedPath, options));
   if (resolved !== "/auth/continue") return resolved;

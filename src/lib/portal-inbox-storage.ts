@@ -24,6 +24,12 @@ import { trimmedText } from "@/lib/trimmed-text";
 import { inboxDisplayName } from "@/lib/inbox-display-name";
 import { selectedWorkspaceId } from "@/lib/workspaces/selection";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
+import {
+  rootEventFieldsFromTurn,
+  turnEventFieldsFromRoot,
+  type InboxEventCard,
+  type InboxEventKind,
+} from "@/lib/inbox-event-card";
 /** Persist portal inbox threads (demo localStorage) so actions survive navigation and reloads. */
 
 export type InboxThreadMessage = {
@@ -84,6 +90,19 @@ export type InboxThreadMessage = {
    * reuses the thread but its turns carry their own record. Absent on rows written before this existed.
    */
   recordRef?: RecordRef;
+  /**
+   * What happened, for an automated turn that is an event card (`inbox-event-card.ts`): the thread view draws it
+   * as a card (glyph, title, one fact, one link) instead of a plain activity line. Stamped by the send path with
+   * `eventCard` and this turn's own `recordRef`. Absent on every row written before this: it renders as before.
+   */
+  eventKind?: InboxEventKind;
+  /** The card's bold title and one fact line, rendered once at delivery. */
+  eventCard?: InboxEventCard;
+  /**
+   * The label a reply written by another builder wears under its bubble ("Dev · Co-host"). Stamped by the
+   * writer that knew who typed it; the owner's own turns carry none and read "You".
+   */
+  senderDisplayName?: string;
 };
 
 export type InboxThreadMessageChannel = "email" | "sms" | "proplane" | "facebook";
@@ -131,6 +150,11 @@ export type PersistedInboxThread = {
   rootSubject?: string;
   /** Root-turn stamp of `InboxThreadMessage.automated` — the root lives in `body`. */
   rootAutomated?: boolean;
+  /** Root-turn stamps of `InboxThreadMessage.eventKind` / `eventCard` / its own `recordRef` / `senderDisplayName`. */
+  rootEventKind?: InboxEventKind;
+  rootEventCard?: InboxEventCard;
+  rootEventRecordRef?: RecordRef;
+  rootSenderDisplayName?: string;
   /** Root-turn attachments when the thread was opened with media. */
   attachments?: { url: string; name?: string }[];
   messages?: InboxThreadMessage[];
@@ -1197,6 +1221,7 @@ export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMe
     ...(thread.rootChannel ? { channel: thread.rootChannel } : {}),
     ...(thread.rootSubject ? { subject: thread.rootSubject } : {}),
     ...(thread.rootAutomated ? { automated: true } : {}),
+    ...turnEventFieldsFromRoot(thread as unknown as Record<string, unknown>),
     ...(thread.rootHouseId ? { houseId: thread.rootHouseId } : {}),
     ...(thread.rootHouseLabel ? { houseLabel: thread.rootHouseLabel } : {}),
   });
@@ -1493,6 +1518,7 @@ export function collapsePersonInboxThreads(
       rootChannel: first.channel,
       rootSubject: first.subject,
       rootAutomated: first.automated === true,
+      ...rootEventFieldsFromTurn(first),
       rootHouseId: first.houseId,
       rootHouseLabel: first.houseLabel,
       // The row is named by its counterparty: a turn the assistant authored

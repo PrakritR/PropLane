@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- test doubles stand in for a PostgREST client and untyped .mjs scripts */
 // A stranger texts the PropLane number with no code. Through the real seam, router, role detection, lead
 // qualifier, room matcher and assignment: welcome -> five questions -> rooms from every team -> a pick ->
-// that one team owns the conversation, with the history and an alert, and the next text reaches it.
+// that one team owns the conversation, with a Looking-for line and an alert, and the next text reaches it.
 // The leasing agent that books the tour is a model; the journey is proven up to and including its hand-off.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockProperty } from "@/data/types";
@@ -19,12 +19,6 @@ const sim = vi.hoisted(() => ({
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/service/service-catalog.server", () => ({ getServicePublicListings: vi.fn(async () => sim.listings) }));
-// In `shared` mode the line's catalog is not the service catalog: it is every public listing of a workspace that
-// answers on the 206 (`line-catalog.server`). That is the seam the lead flow resolves, so inject the catalog there.
-vi.mock("@/lib/one-number/line-catalog.server", () => ({
-  getLineCatalogListings: vi.fn(async () => sim.listings),
-  sharedLineCatalogListings: vi.fn(async () => sim.listings),
-}));
 vi.mock("@/lib/one-number/lead-extract.server", () => ({ extractLeadFieldsWithModel: vi.fn(async () => null) }));
 vi.mock("@/lib/one-number/send.server", () => ({
   sendSharedLineMessage: vi.fn(async (_db: unknown, send: SharedLineSend) => {
@@ -77,7 +71,9 @@ const LISTINGS: MockProperty[] = [
 function world(): LeadFakeDb {
   return leadFakeDb(
     {
-      sms_runtime_config: [{ singleton: true, line_mode: "shared", shared_number_e164: "+12065550100" }],
+      // The offer catalog is read from the database's line mode. This journey is the managed-homes catalog (`getServicePublicListings`,
+      // mocked above); the shared-mode catalog and the home lock are covered by tests/unit/line-206-home-lock.test.ts.
+      sms_runtime_config: [{ singleton: true, line_mode: "per_workspace", shared_number_e164: "+12065550100" }],
       // PropLane-managed: the line's offers come from the `is_service` catalog alone, and a prospect pick is
       // re-checked against the flag before the lead is handed over.
       portal_workspaces: [
@@ -107,10 +103,11 @@ beforeEach(() => {
 
 async function toOffers(fake: LeadFakeDb) {
   const out: string[] = [];
+  // An unclear first text gets one "which home?" reply and waits in Admin > Unassigned; "looking for a room" makes them a searcher.
   out.push(twiml(await say(fake, "hi")));
-  // Onboarding asks once who this is; "looking for a room" makes them a searcher.
   out.push(twiml(await say(fake, "looking for a room")));
-  for (const answer of ["$1000", "Nov 1 for 6 months", "University District", "private bath, furnished", "just me"]) out.push(twiml(await say(fake, answer)));
+  // Two rooms fit, so the offers go out once budget, dates, area and room type are in (the headcount never filters, so it is not asked).
+  for (const answer of ["$1000", "Nov 1 for 6 months", "University District", "private bath, furnished"]) out.push(twiml(await say(fake, answer)));
   return out;
 }
 
@@ -118,7 +115,7 @@ describe("a prospect with no code", () => {
   it("is welcomed once, asked one question at a time, offered rooms from every team, and every reply is one GSM-7 text", async () => {
     const fake = world();
     const replies = await toOffers(fake);
-    expect(replies[0]).toBe("Hi, this is PropLane. Are you a resident, a vendor, looking for a place, or want to manage your own property with PropLane?");
+    expect(replies[0]).toBe("Hi! This is PropLane. Which home are you texting about? (street or house name)");
     expect(replies[1]).toMatch(/Reply STOP to opt out\./);
     expect(replies[1]).toMatch(/monthly budget/);
     expect(replies[2]).toMatch(/move in/i);
@@ -140,8 +137,8 @@ describe("a prospect with no code", () => {
     const fake = world();
     await say(fake, "hi");
     await say(fake, "looking for a room");
-    for (const answer of ["$1000", "Nov 1 for 6 months", "University District", "private bath, furnished"]) await say(fake, answer);
-    const last = await say(fake, "just me");
+    for (const answer of ["$1000", "Nov 1 for 6 months", "University District"]) await say(fake, answer);
+    const last = await say(fake, "private bath, furnished");
     expect(last.kind).toBe("handled");
     const bubbles = last.kind === "handled" ? last.bubbles ?? [] : [];
     // Two rooms + the pick prompt, welcome notice not repeated (it was sent with the first reply).
@@ -166,7 +163,7 @@ describe("a prospect with no code", () => {
     expect(fake.rows.sms_unassigned_leads![0]!.status).toBe("open");
   });
 
-  it("a pick gives the lead to exactly that house's team: history copied, only that team alerted, and the next text reaches them", async () => {
+  it("a pick gives the lead to exactly that house's team: a Looking-for line (no transcript), only that team alerted, and the next text reaches them", async () => {
     const fake = world();
     await toOffers(fake);
     const pick = await say(fake, "2");
@@ -175,13 +172,13 @@ describe("a prospect with no code", () => {
     // Only the picked team hears about it.
     expect(sim.alerts).toHaveLength(1);
     expect(sim.alerts[0]).toMatchObject({ workspaceId: WS_B, ownerUserId: OWNER_B, kind: "new_lead", propertyId: "prop-uw-d" });
-    // The conversation so far now sits in THAT owner's inbox as a prospect thread, stamped with the workspace.
+    // The browsing transcript (it holds team A's home) is NOT copied: THAT owner's prospect thread opens with one "Looking for" line.
     const thread = fake.rows.manager_sms_messages!;
-    expect(thread.length).toBeGreaterThan(8);
-    expect(thread.every((m) => m.manager_user_id === OWNER_B && m.workspace_id === WS_B && m.resident_phone === PHONE)).toBe(true);
-    expect(thread.some((m) => String(m.body).includes("$1000"))).toBe(true);
-    // Nothing of it reached team A.
-    expect(JSON.stringify(fake.rows)).not.toContain(`"manager_user_id":"${OWNER_A}","resident_phone"`);
+    expect(thread).toHaveLength(1);
+    expect(thread[0]).toMatchObject({ manager_user_id: OWNER_B, workspace_id: WS_B, resident_phone: PHONE, body: "Looking for: private room near University District \u00b7 under $1000 \u00b7 Nov 1 \u00b7 6 mo" });
+    // Nothing of it reached team A, and the phone is locked to the picked home.
+    expect(JSON.stringify(fake.rows.manager_sms_messages)).not.toContain(OWNER_A);
+    expect(fake.rows.sms_line_sessions![0]).toMatchObject({ locked_property_id: "prop-uw-d", current_workspace_id: WS_B });
 
     // The pick's own text is the leasing agent's: it continues into team B's pipeline as a prospect.
     expect(pick).toMatchObject({ kind: "continue", owned: { workspaceId: WS_B, managerId: OWNER_B } });
@@ -203,7 +200,7 @@ describe("a prospect with no code", () => {
   });
 
   // Idempotent per MessageSid: the retry gets the recorded question back and onboarding does not advance twice.
-  it("a Twilio retry of the very first text repeats the same role question", async () => {
+  it("a Twilio retry of the very first text repeats the same 'which home' reply", async () => {
     const fake = world();
     const input = { config, fromPhone: PHONE, body: "hi", messageSid: "SM-retry-0", mediaCount: 0, phoneKey: KEY };
     const first = await handleSharedLineInbound(fake.db, input);

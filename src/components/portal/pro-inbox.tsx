@@ -65,6 +65,9 @@ import {
   type InboxThreadMessage,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
+import { bubbleEventFields } from "@/lib/inbox-event-card";
+import { isHouseInboxThread } from "@/lib/house-thread-id";
+import { InboxStayCard } from "@/components/portal/inbox-stay-card";
 import { inboxThreadLastTurnDirection, inboxTurnDirection } from "@/lib/inbox-turn-direction";
 import { markThreadMessageDelivery } from "@/lib/inbox-message-timeline";
 import {
@@ -1551,6 +1554,8 @@ export const ManagerInbox = forwardRef<
         houseLabel: m.houseLabel,
         ...(fields.subject ? { subject: fields.subject } : {}),
         attachments: m.attachments,
+        // The event card and a co-host's label ride the turn's own stamps; an old turn carries none.
+        ...bubbleEventFields(m),
       } satisfies InboxBubbleMessage;
     });
     return annotateInboxOutboundReadReceipts(bubbles);
@@ -2689,7 +2694,23 @@ export const ManagerInbox = forwardRef<
       onBack={embeddedResidentChat ? undefined : () => setExpandedId(null)}
       hideIdentityHeader={embeddedResidentChat}
       headerActions={threadHeaderActions}
-      underHeader={scheduledCards}
+      underHeader={
+        <>
+          {/* The stay this one-on-one conversation is about, derived on read from the person's lease. */}
+          <InboxStayCard
+            viewer="manager"
+            enabled={
+              activeThread.folder !== "trash" &&
+              !activeIsAssistantThread &&
+              !activeIsTeamThread &&
+              !isHouseInboxThread(activeThread)
+            }
+            managerUserId={userId}
+            personEmail={activeThread.email}
+          />
+          {scheduledCards}
+        </>
+      }
       emptyLabel="No messages in this conversation."
       scrollMode={embeddedResidentChat ? "pane" : pageScroll ? "page" : "pane"}
       composer={

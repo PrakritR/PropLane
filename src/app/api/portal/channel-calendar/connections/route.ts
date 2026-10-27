@@ -40,6 +40,62 @@ async function requireManager() {
   return { db, userId: user.id };
 }
 
+type BatchItem = { propertyId?: string; roomId?: string; provider?: string | null; label?: string | null; importUrl?: string | null };
+type BatchResult = { ok: true; connection: Awaited<ReturnType<typeof upsertChannelCalendarConnection>> } | { ok: false; error: string };
+
+/** Most links one request carries: a 28-room workspace on a few channels, with room to spare. */
+const CONNECTION_BATCH_MAX = 100;
+
+/**
+ * Each item is exactly one single-room POST: the same Calendar-at-edit check on ITS house (decided once per
+ * house, in one round trip), the same validator, the same upsert. One bad item never fails the others; every
+ * item answers for itself, in order.
+ */
+async function saveBatch(ctx: { db: ReturnType<typeof createSupabaseServiceRoleClient>; userId: string }, items: BatchItem[], browserOrigin: string): Promise<BatchResult[]> {
+  const list = items.slice(0, CONNECTION_BATCH_MAX);
+  const writable = await managerCanWriteCalendarForProperties(
+    ctx.db,
+    ctx.userId,
+    [...new Set(list.map((item) => item.propertyId?.trim() ?? "").filter(Boolean))],
+  );
+  const results: BatchResult[] = [];
+  for (const item of list) {
+    const propertyId = item.propertyId?.trim() ?? "";
+    const roomId = item.roomId?.trim() ?? "";
+    if (!propertyId || !roomId) {
+      results.push({ ok: false, error: "propertyId and roomId are required." });
+      continue;
+    }
+    const provider = item.provider == null || String(item.provider).trim() === "" ? "airbnb" : parseChannelCalendarProvider(item.provider);
+    if (!provider) {
+      results.push({ ok: false, error: "Unknown calendar channel." });
+      continue;
+    }
+    if (!writable.has(propertyId)) {
+      results.push({ ok: false, error: "Forbidden." });
+      continue;
+    }
+    try {
+      const connection = await upsertChannelCalendarConnection(
+        ctx.db,
+        {
+          managerUserId: ctx.userId,
+          propertyId,
+          roomId,
+          provider,
+          label: item.label ?? null,
+          ...(Object.prototype.hasOwnProperty.call(item, "importUrl") ? { importUrl: item.importUrl ?? null } : {}),
+        },
+        browserOrigin,
+      );
+      results.push({ ok: true, connection });
+    } catch (e) {
+      results.push({ ok: false, error: e instanceof Error ? e.message : "Failed." });
+    }
+  }
+  return results;
+}
+
 export async function GET(req: Request) {
   try {
     const ctx = await requireManager();
@@ -104,7 +160,13 @@ export async function POST(req: Request) {
       provider?: string | null;
       label?: string | null;
       importUrl?: string | null;
+      /** Batch: the popup's Save (and Paste many) sends every changed room in one request. */
+      connections?: BatchItem[];
     };
+
+    if (Array.isArray(body.connections)) {
+      return NextResponse.json({ results: await saveBatch(ctx, body.connections, browserOrigin) });
+    }
 
     const propertyId = body.propertyId?.trim() ?? "";
     const roomId = body.roomId?.trim() ?? "";

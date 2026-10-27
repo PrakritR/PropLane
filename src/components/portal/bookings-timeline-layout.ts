@@ -3,8 +3,10 @@ import { addDaysToDateKey, bookingEntryMatchesSearch } from "@/lib/channel-calen
 import { entryTimedStay, formatGapDuration, type EntryStayTimes } from "@/components/portal/bookings-stay-times";
 import { DEFAULT_PROPERTY_STAY_TIMES, formatStayTime, halfDayBarSpan, stayEndWall, stayStartWall, staysOverlap, stayTimeMinutes, type PropertyStayTimes, type TimedStay } from "@/lib/bookings/stay-times";
 import { isAvailabilityBlockRow } from "@/lib/occupancy/snapshot";
+import { isHostBlockSummary } from "@/lib/channel-calendar/host-block";
+import { bookingSourceLabel } from "@/lib/channel-calendar/bookings-ui";
 import { bookingEntryNamedLabel } from "@/lib/channel-calendar/booking-guest-label";
-import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
+import { isChannelBookingSource, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import type { OccupancyCapacities } from "@/lib/occupancy/snapshot";
 
 /**
@@ -246,7 +248,38 @@ export function turnoverStripPx(turnover: Pick<TurnoverSpec, "start" | "end">, c
 
 export type PixelBar = PlacedBarSpec & { left: number; width: number; top: number; narrow: boolean };
 
-export const barDisplayName = (entry: PropertyBookingEntry) => entry.residentName || bookingEntryNamedLabel(entry) || entry.summary;
+/** The hatch a standing channel closure is drawn with (and the legend swatch for it). */
+export const CLOSURE_HATCH = "repeating-linear-gradient(135deg, rgb(148 163 184 / 0.7) 0 3px, rgb(241 245 249 / 0.95) 3px 8px)";
+
+/** A channel's own closure ("Airbnb (Not available)") longer than this is a standing closure, not a stay: drawn hatched, never as a guest. */
+export const LONG_CLOSURE_NIGHTS = 60;
+
+/** The channel's host block (never a reservation) that runs past {@link LONG_CLOSURE_NIGHTS}. */
+export function isLongChannelClosure(entry: Pick<PropertyBookingEntry, "source" | "summary" | "start" | "end" | "openEnded">): boolean {
+  if (!isChannelBookingSource(entry.source) || !isHostBlockSummary(entry.summary)) return false;
+  return Boolean(entry.openEnded) || dayDiff(entry.end, entry.start) + 1 > LONG_CLOSURE_NIGHTS;
+}
+
+const shortDate = (key: string) => new Date(`${key}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+/** "Closed on Airbnb · until Oct 27, 2027": the date is the check-out, the first day the channel is open again. */
+export function closureBarLabel(entry: Pick<PropertyBookingEntry, "source" | "channelLabel" | "end" | "openEnded">): string {
+  const channel = bookingSourceLabel(entry.source, entry.channelLabel);
+  return entry.openEnded ? `Closed on ${channel} · no end` : `Closed on ${channel} · until ${shortDate(addDaysToDateKey(entry.end, 1))}`;
+}
+
+/** A PropLane block with no end date: it holds the room from its start for good, so the bar says so. */
+export const isNoEndBlock = (entry: Pick<PropertyBookingEntry, "source" | "openEnded">) => entry.source === "block" && Boolean(entry.openEnded);
+
+export const barDisplayName = (entry: PropertyBookingEntry) => {
+  if (isLongChannelClosure(entry)) return closureBarLabel(entry);
+  const base = entry.residentName || bookingEntryNamedLabel(entry) || entry.summary;
+  // An unnamed open-ended block ("Blocked" from Sep 30, no end) says where it starts so it is easy to find and remove.
+  return isNoEndBlock(entry) && !entry.residentName ? `${base} · from ${shortDate(entry.start).replace(/, \d{4}$/, "")}` : base;
+};
+
+/** A room with a double booking in view: more stays in it, at one moment, than it has beds. */
+export const roomHasClash = (layout: Pick<RoomLayout, "bars">) => layout.bars.some(bar => bar.conflict);
 
 /**
  * Bars in px. A bar under `NARROW_BAR_PX` is `narrow`: it draws no name (a glyph at most), and no bar ever draws

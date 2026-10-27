@@ -159,7 +159,7 @@ describe("evidence · one house's Bookings calendar shows both channels", () => 
     // The colour key is a quiet legend row under the calendar, not a dropdown.
     const legend = document.querySelector('[data-attr="bookings-calendar-legend"]');
     expect(legend?.textContent).toContain("Confirmed");
-    expect(legend?.textContent).toContain("Airbnb / Booking.com");
+    for (const name of ["Airbnb", "Booking.com", "PadSplit"]) expect(legend?.textContent).toContain(name);
     const airbnbDay = document.querySelector('[data-attr="portfolio-booking-day-2026-08-18"]');
     expect(airbnbDay).toBeTruthy();
     expect(airbnbDay?.textContent).not.toContain("1/1");

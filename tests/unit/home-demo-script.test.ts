@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   HOME_DEMO_JOURNEY,
   HOME_DEMO_PHOTOS,
@@ -209,11 +209,28 @@ describe("homepage Software demo journey", () => {
   });
 
   it("books the tour and the visit on a Thursday, a calendar week out from a Monday-Wednesday today", () => {
-    const tour = homeDemoTourWindow();
     const day = new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", weekday: "long" });
-    expect(day.format(new Date(tour.start))).toBe("Thursday");
-    expect(day.format(new Date(homeDemoVisitIso()))).toBe("Thursday");
-    expect(new Date(tour.start).getTime()).toBeGreaterThan(Date.now());
+    // Driven off a pinned clock, not just the real one: the day offset counts
+    // whole PACIFIC days, and `now + days * 24h` quietly lands on the wrong
+    // one across a DST change — the Nov 1 end booked a Wednesday from a Tuesday
+    // just past Pacific midnight, and the Mar 8 start a Friday.
+    const clocks = [
+      "2026-10-27T07:21:00Z", // Tue 00:21 Pacific, nine days out crosses the DST end
+      "2026-03-03T07:00:00Z", // Mon 23:00 Pacific, ten days out crosses the DST start
+      "2026-11-01T08:30:00Z", // the fall-back hour itself
+      "2026-03-08T10:30:00Z", // the spring-forward hour itself
+      "2026-10-29T16:00:00Z", // a Thursday today: the next Thursday, no extra week
+      new Date().toISOString(), // and whatever today actually is
+    ];
+    for (const clock of clocks) {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(clock));
+      const tour = homeDemoTourWindow();
+      expect(day.format(new Date(tour.start)), clock).toBe("Thursday");
+      expect(day.format(new Date(homeDemoVisitIso())), clock).toBe("Thursday");
+      expect(new Date(tour.start).getTime(), clock).toBeGreaterThan(Date.now());
+      vi.useRealTimers();
+    }
   });
 
   it("resolves a nav target against the portal on screen, and the resident Tour is the real tour panel", () => {

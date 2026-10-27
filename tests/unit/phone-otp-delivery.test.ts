@@ -5,17 +5,36 @@ vi.mock("@/lib/twilio", () => ({ sendSms: mocks.sendSms }));
 vi.mock("@/lib/one-number/config.server", () => ({ loadSharedLineConfig: mocks.config }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: mocks.service }));
 
-import { claimPhoneAuthHookDelivery, sendPhoneAuthCode } from "@/lib/auth/phone-otp-delivery.server";
+import { claimPhoneAuthHookDelivery, phoneAuthCodeBody, phoneAuthCodeDomainLine, sendPhoneAuthCode } from "@/lib/auth/phone-otp-delivery.server";
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("TWILIO_DEFAULT_FROM", "+12065550100");
+  vi.stubEnv("NEXT_PUBLIC_CANONICAL_APP_URL", "https://proplane.ai");
   mocks.service.mockReturnValue({ rpc: mocks.rpc });
   mocks.config.mockResolvedValue({ mode: "per_workspace", sharedNumber: null });
   mocks.sendSms.mockResolvedValue({ sent: true });
   mocks.rpc.mockResolvedValue({ data: true, error: null });
 });
 afterEach(() => vi.unstubAllEnvs());
+
+describe("code text domain line", () => {
+  it("ends with `@<host> #<code>` so iPhone and Android Chrome can fill the code for this site only", () => {
+    expect(phoneAuthCodeDomainLine("482913", "https://proplane.ai")).toBe("@proplane.ai #482913");
+    expect(phoneAuthCodeDomainLine("482913", "http://localhost:3010")).toBe("@localhost:3010 #482913");
+    const body = phoneAuthCodeBody("482913");
+    expect(body.split("\n").at(-1)).toBe("@proplane.ai #482913");
+    expect(body.startsWith("Your PropLane code is 482913. It expires in 10 minutes.")).toBe(true);
+  });
+
+  it("takes the host from the canonical origin, not from anything a request supplies", () => {
+    vi.stubEnv("NEXT_PUBLIC_CANONICAL_APP_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://evil.vercel.app");
+    // A vercel.app deployment host is never used; the production domain is the fallback.
+    expect(phoneAuthCodeBody("111222")).toContain("@proplane.ai #111222");
+    expect(phoneAuthCodeDomainLine("111222", "not a url")).toBe("");
+  });
+});
 
 describe("phone auth transport", () => {
   it("fails closed for the hook outside shared mode: no reservation lookup, no send", async () => {
@@ -59,7 +78,7 @@ describe("phone auth transport", () => {
   it("uses the platform verification path, never a workspace sender", async () => {
     expect(await sendPhoneAuthCode("2065550142", "123456", "actor")).toBe(true);
     expect(mocks.sendSms).toHaveBeenCalledExactlyOnceWith(
-      "+12065550142", "Your PropLane code is 123456. It expires in 10 minutes. Do not share this code.", "+12065550100",
+      "+12065550142", "Your PropLane code is 123456. It expires in 10 minutes. Do not share this code.\n\n@proplane.ai #123456", "+12065550100",
       { purpose: "phone_verification", skipOptOutCheck: true, actorUserId: "actor" },
     );
   });

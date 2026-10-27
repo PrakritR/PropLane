@@ -41,16 +41,40 @@ Invariants:
 | Applications | Response promise, decision reminder, approved-no-lease, incomplete application (applicant / you), post-tour apply link | submitted, approved, declined, withdrawn |
 | Tours | Guest and manager tour reminders now ship on fixed defaults, not a per-workspace rule (C191) — see "What PropLane sends" above | confirmed, cancelled by guest, claimed by a teammate (team); bookings: new / cancelled on any linked channel calendar, Other calendar included, plus new / cancelled for a booking made in PropLane itself (manager, `channel_booking` domain; owned by [`bookings.md`](bookings.md) § Booking alerts and reminders). The guest short-stay notices (requested / confirmed / declined / expired) ride the same domain and are owned by [`bookings.md`](bookings.md) § Guest portal stays; they have no `AUTOMATED_MESSAGE_CATALOG` entry yet, so "What PropLane sends" does not list them |
 | Payments | Rent reminder schedule, my payment alerts, delinquency, outgoing payments | charge created, processing, received, partial, failed, refunded, late fee applied, deposit received |
-| Communication | Unanswered message reminder, welcome sequence (off), AI draft auto-send | after-hours reply, emergency flagged, availability changed (team) |
+| Communication | Unanswered message reminder, welcome sequence (on; it is the Move-in details card), AI draft auto-send | after-hours reply, emergency flagged, availability changed (team) |
 | Bookings | Booking reminders; guest arrival guide (24 h before check-in) and checkout reminder (8:00 am), confirmed short stays with a login only (`reminders/subjects/stay-times.server.ts`, [`bookings.md`](bookings.md) § Exact times) | — |
 | Inspections | Room photos (resident / you) | resident submitted, report reopened |
 | Tasks | Task reminders, overdue | **task assigned to a vendor** |
-| Residents | Welcome message | — |
+| Residents | Welcome message (the Move-in details card) | move-in details, room assigned (domain `lease`) |
 | Move-in forms | Per-property "Remind residents": 2 days before + due date, due date only, or never (`reminders/subjects/move-in-forms.server.ts`, claimed on `reminders_sent`) | sent, reminder, submitted (`move-in-form-events.server.ts`; the submitted notice can also email the manager) |
 
 Resident → Settings → Preferences: per-category Email / Text (messages, lease & move, payments, services, applications, **tours**, **inspections**, phone calls, account) plus **quiet hours for texts**.
 
 Vendor → Settings → Notifications: per-topic Email / Text (offers, schedule, invoices, payments, messages, documents, reviews), **visit reminders** (timing + text), **quiet hours for texts** with an emergency bypass. Read at send by `resolveChannels` (`vendor-notification-settings.server.ts`); the three legacy `vendor_business_profiles` booleans are mirrored on save.
+
+## Move-in details and room assigned (A3, stay chat)
+
+Two events in the `lease` domain (`ACTION_EVENT_CATALOG.lease`, sent by `move-in-details-event.server.ts`; the `action_events.domain` column is a database check list, so they join an existing domain instead of needing a migration), both read by
+the resident as cards in their one conversation (event cards: [`communication-inbox.md`](communication-inbox.md)
+§ Event cards and the stay card).
+
+| Event | Fires | Text |
+| --- | --- | --- |
+| `move_in_details` | The `resident_welcome` reminder (now ON by default, one timing: 5 minutes after the account is created) or a manager's own send (`emitMoveInDetails`) | Date and window ("Sun, Nov 1 after 3:00 pm", the house's standard check-in time), street address, room, parking; "entry code in the lease packet" when the house keeps any secret. Built from the house's Move-in card (`resolveResidentMoveInFromApplications`). |
+| `room_assigned` | After the write commits, when a manager sets or changes an approved resident's `assignedRoomChoice` (`signed-in-application-write.server.ts` -> `emitRoomAssignment`); never for the applicant's own first pick | "You have been assigned Room 3 at 4709A." / "Your room at 4709A is now Room 4." |
+
+- **Never a secret in the text.** The Move-in card holds door and gate codes, the lockbox and the Wi-Fi password. None
+  of them is ever written into a move-in message, a card fact or the stored event payload; every fact the card prints
+  is also checked against `containsHouseSecret` and dropped if it matches. The resident reads the codes on their own
+  Move-in page. Same rule as [`house-printables.md`](house-printables.md): a code never travels as text.
+- **One card, whoever sends it.** `move_in_details` is idempotent on `move_in_details:<resident>:<home>`; the welcome
+  reminder, its later timings and a manager's manual send all go through `emitMoveInDetails`, so the bus drops every
+  second one (the welcome rule has a single timing for that reason). A resident with no placed, approved home (or a
+  home with no address) gets nothing: the reminder row ends as `failed` rather than spin.
+- `room_assigned` is idempotent on `room_assigned:<residency>:<room>`: the same room saved again says nothing, a new
+  room is a new card, and moving back to a room already announced is dropped by the key.
+- Both ride the normal rail: the workspace's "approve resident messages first" setting holds them as drafts, the
+  resident's channel preferences gate email and text, and a portal-channel resident gets email plus inbox only.
 
 ## The vendor loop
 

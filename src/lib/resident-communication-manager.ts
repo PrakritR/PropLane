@@ -10,6 +10,7 @@
  */
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import type { ResidentManagerContact } from "@/hooks/use-resident-manager-contacts";
+import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { conversationHouseLabels, inboxRowAddressLabel } from "@/lib/communication-row-meta";
 
 export type ResidentThreadManager = {
@@ -19,6 +20,8 @@ export type ResidentThreadManager = {
   workspaceName?: string;
   /** The work number the resident texts (server-stamped counterparty, else the matched contact's). */
   workPhone?: string;
+  /** The work number is the PropLane line (a PropLane-managed workspace): drawn with a "PropLane line" label. */
+  onPropLaneLine?: boolean;
   /** Server-stamped initials, when the conversation carries a counterparty. */
   initials?: string;
   /** Street of the home the conversation is about, when one is known. */
@@ -95,8 +98,22 @@ export function resolveResidentThreadManager(
     ...(counterparty?.workspaceName?.trim() ? { workspaceName: counterparty.workspaceName.trim() } : {}),
     ...(counterparty?.initials ? { initials: counterparty.initials } : {}),
     ...(workPhone ? { workPhone } : {}),
+    ...(workPhone && counterparty?.onPropLaneLine ? { onPropLaneLine: true } : {}),
     ...(homeLabel ? { homeLabel } : {}),
     ...(email ? { email } : {}),
     ...(workPhone ? { phone: workPhone } : {}),
   };
+}
+
+/**
+ * The manager's header line on a resident thread: "Property manager · Cascade Lofts · work@email". A text-only thread has
+ * no address, so the work number stands in for it. A resident of a PropLane-managed workspace (`onPropLaneLine`) sees the
+ * PropLane line as their host's number on EVERY thread, the portal one included: "(206) 678-1909 · PropLane line".
+ */
+export function residentThreadSubtitle(manager: ResidentThreadManager | null | undefined, smsOnly: boolean): string | undefined {
+  if (!manager) return undefined;
+  const number = formatSmsPhoneLabel(manager.workPhone);
+  const numberLabel = number ? (manager.onPropLaneLine ? `${number} · PropLane line` : number) : null;
+  const tail = smsOnly ? [numberLabel] : manager.onPropLaneLine ? [manager.email, numberLabel] : [manager.email];
+  return [manager.workspaceName ?? "Property manager", manager.homeLabel, ...tail].filter(Boolean).join(" · ");
 }

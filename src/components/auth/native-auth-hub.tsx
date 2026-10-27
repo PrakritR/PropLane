@@ -40,6 +40,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
+import { PHONE_AUTH_COPY } from "@/lib/auth/phone-auth-errors";
+import { readLastLoginMethod, readRememberedLoginEmail, rememberLoginMethod, REMEMBERED_LOGIN_EMAIL_KEY } from "@/lib/auth/remembered-login";
 
 async function tryResidentAutoConfirm(email: string): Promise<boolean> {
   try {
@@ -51,15 +53,6 @@ async function tryResidentAutoConfirm(email: string): Promise<boolean> {
     return res.ok;
   } catch {
     return false;
-  }
-}
-
-function readRememberedLoginEmail(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    return window.localStorage.getItem("axis:remembered-login-email") ?? "";
-  } catch {
-    return "";
   }
 }
 
@@ -104,6 +97,13 @@ function NativeAuthHubInner({ defaultMode = "sign-in", phoneFirst = false }: Nat
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [phoneBusy, setPhoneBusy] = useState(false);
+  // The server's answer wins over this page's earlier read of the switch: a 409 from the phone door flips this and the
+  // phone box is replaced by the off sentence (no dead form).
+  const [phoneOff, setPhoneOff] = useState(false);
+  const phoneAvailable = phoneFirst && !phoneOff;
+  // Email + password sit behind "Use email instead" while phone is on; open from the start when phone is off, or when
+  // this device last signed in by email. The hub renders its loading card first, so reading storage here never mismatches.
+  const [emailOpen, setEmailOpen] = useState(() => !phoneFirst || readLastLoginMethod() === "email");
   // `/auth/sign-in` is where EVERY native OAuth failure lands (`nativeOAuthSignInFailureUrl`
   // navigates here with ?error=oauth&message=…). Reading those params is what turns that
   // navigation from a bare page reload — "it just refreshes and goes back" — into an
@@ -310,10 +310,11 @@ function NativeAuthHubInner({ defaultMode = "sign-in", phoneFirst = false }: Nat
       if (!data.user) throw new Error("No active session.");
       setFailedSignInAttempts(0);
       try {
-        window.localStorage.setItem("axis:remembered-login-email", credentials.email);
+        window.localStorage.setItem(REMEMBERED_LOGIN_EMAIL_KEY, credentials.email);
       } catch {
         /* ignore */
       }
+      rememberLoginMethod("email");
       window.location.replace(signInContinueHref);
     } catch (e) {
       setSignInError(presentSignInError(e instanceof Error ? e.message : "Sign-in failed"));
@@ -360,11 +361,21 @@ function NativeAuthHubInner({ defaultMode = "sign-in", phoneFirst = false }: Nat
           )}
 
           <div className="space-y-3">
-            {phoneFirst ? (
+            {phoneAvailable ? (
               <>
-                <PhoneAuthForm nextPath={signInNextPath} disabled={busy} onBusyChange={setPhoneBusy} />
+                <PhoneAuthForm
+                  nextPath={signInNextPath}
+                  disabled={busy}
+                  onBusyChange={setPhoneBusy}
+                  onPhoneOff={() => {
+                    setPhoneOff(true);
+                    setEmailOpen(true);
+                  }}
+                />
                 <AuthDivider label="or" />
               </>
+            ) : phoneFirst ? (
+              <p role="alert" className="text-sm text-danger" data-attr="auth-phone-off">{PHONE_AUTH_COPY.off}</p>
             ) : null}
             <OAuthSocialStack
               nextPath={signInNextPath}
@@ -372,6 +383,19 @@ function NativeAuthHubInner({ defaultMode = "sign-in", phoneFirst = false }: Nat
               disabled={locked}
               onError={(message) => setSignInError(message ? presentSignInError(message) : null)}
             />
+            {!emailOpen ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full"
+                onClick={() => setEmailOpen(true)}
+                disabled={locked}
+                data-attr="auth-hub-use-email"
+              >
+                Use email instead
+              </Button>
+            ) : (
+              <>
             <AuthDivider label="or" />
             {/* A real <form> with NAMED fields, not loose inputs in a div.
                 iOS/iPadOS Password AutoFill and every password manager identify
@@ -443,6 +467,8 @@ function NativeAuthHubInner({ defaultMode = "sign-in", phoneFirst = false }: Nat
                 {busy ? "Signing in…" : "Sign in"}
               </Button>
             </form>
+              </>
+            )}
           </div>
         </div>
       </AuthCard>

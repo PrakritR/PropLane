@@ -228,7 +228,10 @@ the plan cannot be read), called on the workspace OWNER's plan (a teammate in a 
 is refused, one in a paid owner's is not): compose (`send-inbox-message`), scheduled messages (create
 and deliver), the assistant's message tools (`COMMUNICATION_SENDING_TOOLS`), manager SMS, payment
 reminders (route, send-now, cron), assistant-email replies, work-email enrolment, lead invites,
-record-share links and invite-link texts. **Welcome and invite mail is gated too** (the earlier
+record-share links and invite-link texts. A reply typed by a CO-HOST is delivered under the thread
+owner's workspace, so `send-inbox-message` checks that workspace's plan as well as the sender's active
+one, before the turn is stored (`send-inbox-message-cohost-plan-gate.test.ts`).
+**Welcome and invite mail is gated too** (the earlier
 exception is closed): a manager-initiated email or text to a resident, applicant or vendor is
 outbound Communication. A route whose only job is the send refuses with the helper's status and
 message (`{ ok:false, error, code: "communication_trial" | "communication_plan_unreadable" }`) BEFORE

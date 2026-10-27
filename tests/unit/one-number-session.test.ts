@@ -62,3 +62,48 @@ describe("HUMAN pause is per (phone, workspace)", () => {
     expect(rows.sms_line_thread_state).toHaveLength(1);
   });
 });
+
+describe("the home lock on the session", () => {
+  it("a route save can set the lock, leaves it alone when not asked, and clears it with null", async () => {
+    const { db } = fakeSharedLineDb();
+    expect((await loadSharedLineSession(db, "k"))?.lockedPropertyId ?? null).toBeNull();
+    await saveSharedLineRoute(db, "k", { workspaceId: "ws-a", role: "prospect", lockedPropertyId: "prop-1" });
+    expect(await loadSharedLineSession(db, "k")).toMatchObject({ lockedPropertyId: "prop-1" });
+    expect((await loadSharedLineSession(db, "k"))?.lockedAt).toBeTruthy();
+    // An ordinary routed text never moves the lock.
+    await saveSharedLineRoute(db, "k", { workspaceId: "ws-a", role: "prospect" });
+    expect(await loadSharedLineSession(db, "k")).toMatchObject({ lockedPropertyId: "prop-1" });
+    // The switch question rides pending_candidates and does not touch the lock either.
+    await saveSharedLinePending(db, "k", [candidate]);
+    expect(await loadSharedLineSession(db, "k")).toMatchObject({ lockedPropertyId: "prop-1", pendingCandidates: [expect.objectContaining({ workspaceId: "ws-a" })] });
+    await saveSharedLineRoute(db, "k", { workspaceId: "ws-b", role: "prospect", lockedPropertyId: null });
+    expect(await loadSharedLineSession(db, "k")).toMatchObject({ lockedPropertyId: null, lockedAt: null });
+  });
+
+  it("before the migration (no lock columns) the session still reads and the route still saves, without the lock", async () => {
+    const rows: Record<string, unknown>[] = [];
+    const missing = { code: "42703", message: "column does not exist" };
+    const table = (name: string) => {
+      let columns = "";
+      const q: Record<string, unknown> = {
+        select(c: string) { columns = c; return q; },
+        eq() { return q; },
+        limit() { return q; },
+        async maybeSingle() {
+          if (name !== "sms_line_sessions") return { data: null, error: null };
+          return columns.includes("locked_property_id") ? { data: null, error: missing } : { data: rows[0] ?? null, error: null };
+        },
+        upsert(v: Record<string, unknown>) {
+          if ("locked_property_id" in v) return Promise.resolve({ error: missing });
+          rows.splice(0, rows.length, v);
+          return Promise.resolve({ error: null });
+        },
+        then(resolve: (v: unknown) => unknown) { return resolve({ data: [], error: null }); },
+      };
+      return q;
+    };
+    const db = { from: table } as never;
+    expect(await saveSharedLineRoute(db, "k", { workspaceId: "ws-a", role: "prospect", lockedPropertyId: "prop-1" })).toBe(true);
+    expect(await loadSharedLineSession(db, "k")).toMatchObject({ currentWorkspaceId: "ws-a", lockedPropertyId: null });
+  });
+});

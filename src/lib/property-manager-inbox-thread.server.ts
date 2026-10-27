@@ -526,6 +526,29 @@ async function appendResidentPropertyManagerInboxMessageOnce(
 }
 
 /**
+ * The id of the resident's EXISTING conversation with a house's host team, or null when none is stored yet. The resident side
+ * of the one conversation per person per workspace (a tour, a text and a house question all land in it); read-only, so
+ * "Message the host" can open the thread instead of staging a compose. The caller proves the resident owns the tour; the
+ * manager and house come from that tour, never from the request.
+ */
+export async function findResidentPropertyManagerThreadId(
+  db: Db,
+  input: { residentUserId: string; residentEmail: string; managerUserId: string; managerEmail: string; propertyId: string },
+): Promise<string | null> {
+  const residentEmail = input.residentEmail.trim().toLowerCase();
+  if (!residentEmail.includes("@") || !input.managerUserId.trim() || !input.propertyId.trim()) return null;
+  const target = await resolvePropertyManagerThread(db, {
+    side: "resident",
+    residentEmail,
+    residentUserId: input.residentUserId,
+    managerUserId: input.managerUserId,
+    managerEmail: input.managerEmail.trim().toLowerCase(),
+    propertyId: input.propertyId,
+  });
+  return target.existing ? target.id : null;
+}
+
+/**
  * Resident-initiated chat in the property-scoped thread (no PropLane ack turn).
  * Writes the resident outbound copy and the manager inbound copy on the same
  * stable thread id used by tour and listing messages.

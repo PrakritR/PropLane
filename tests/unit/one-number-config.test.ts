@@ -72,6 +72,24 @@ describe("loadSharedLineConfig", () => {
     }
   });
 
+  it("a PropLane-managed (is_service) workspace is never dedicated, even with a working paid number row or a link to one", async () => {
+    paid.owners["o-svc"] = "plan";
+    paid.owners["o-pro"] = "plan";
+    const { db } = fakeSharedLineDb({
+      sms_runtime_config: [row()],
+      portal_workspaces: [{ id: "ws-managed", is_service: true }, { id: "ws-linked-managed", is_service: true }, { id: "ws-pro", is_service: false }],
+      manager_sms_numbers: [
+        { id: "n1", manager_user_id: "o-svc", workspace_id: "ws-managed", phone_number: "+18146793694", ...live },
+        { id: "n2", manager_user_id: "o-pro", workspace_id: "ws-pro", phone_number: "+12065550111", ...live },
+      ],
+      workspace_work_numbers: [{ number_id: "n1", workspace_id: "ws-linked-managed" }],
+    });
+    const config = await loadSharedLineConfig(db);
+    expect(config.dedicatedWorkspaceIds).toEqual(["ws-pro"]);
+    expect(workspaceOnSharedLine(config, "ws-managed")).toBe(true);
+    expect(workspaceOnSharedLine(config, "ws-linked-managed")).toBe(true);
+  });
+
   it("a number row with no paid entitlement leaves the workspace on the shared line (nobody pays today)", async () => {
     const { db } = fakeSharedLineDb({
       sms_runtime_config: [row()],

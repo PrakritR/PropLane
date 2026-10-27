@@ -9,7 +9,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/public-listings.server", () => ({ getPublicListings: vi.fn(async () => []) }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
 
-import { homeLabelWithCity, matchListingByAddress, matchListingsNamedIn, parseStreetLine, textNamesListingByName } from "@/lib/one-number/house-redirect";
+import { homeLabelWithCity, listingsNamedIn, matchListingByAddress, matchListingsNamedIn, parseStreetLine, textNamesListingByName } from "@/lib/one-number/house-redirect";
 import { buildPaidHomeReply, NO_PAID_NUMBER_HOME_REPLY, resolveHouseRedirect } from "@/lib/one-number/house-redirect.server";
 
 const home = (id: string, address: string, extra: Partial<MockProperty> = {}) =>
@@ -81,6 +81,20 @@ describe("name and title matching", () => {
     expect(matchListingsNamedIn("nothing here", [elm, hill])).toEqual({ kind: "none" });
     const twin = home("twin", "12 Elm Ave, Tacoma, WA 98402", { title: "Another", buildingName: "Another" });
     expect(matchListingsNamedIn("12 Elm", [elm, twin]).kind).toBe("several");
+  });
+
+  it("returns EVERY home a text names: a bare unit-lettered house number plus a full street both count", () => {
+    const eighth = home("eighth", "4709A 8th Ave NE, Seattle, WA 98105", { title: "Eighth Avenue House", buildingName: "Eighth Avenue House", neighborhood: "Roosevelt" });
+    const ravenna = home("ravenna", "12 Ravenna Pl, Seattle, WA 98115", { title: "Ravenna Place House", buildingName: "Ravenna Place House", neighborhood: "Ravenna" });
+    const text = "what about 4709A and 12 Ravenna Pl";
+    expect(listingsNamedIn(text, [eighth, ravenna]).map((l) => l.id)).toEqual(["eighth", "ravenna"]);
+    expect(matchListingsNamedIn(text, [eighth, ravenna])).toEqual({ kind: "several" });
+    expect(matchListingsNamedIn("tell me about 4709A", [eighth, ravenna])).toEqual({ kind: "one", listing: eighth });
+    // A plain count or a dollar amount never names a home.
+    expect(listingsNamedIn("I can pay 4709 dollars, 12 people", [eighth, ravenna])).toEqual([]);
+    // Two homes on one street line are both returned, never narrowed to one.
+    const twin = home("twin", "12 Ravenna Ave, Tacoma, WA 98402", { title: "Another", buildingName: "Another" });
+    expect(listingsNamedIn("12 Ravenna", [ravenna, twin]).map((l) => l.id)).toEqual(["ravenna", "twin"]);
   });
 
   it("labels a home with its street and city only", () => {
@@ -159,5 +173,15 @@ describe("the PropLane-line redirect", () => {
     const reply = buildPaidHomeReply({ listing: MAPLE, number: "+12065550111" });
     expect(reply).toMatch(/^[\x20-\x7E]+$/);
     expect(reply.length).toBeLessThanOrEqual(160);
+  });
+});
+
+describe("shared mode: a mention alone gives no number", () => {
+  it("a home whose manager has a personal number is not redirected on a mere mention, and its number is never read", async () => {
+    const paidNumberOf = vi.fn(async () => "+15025550142");
+    const shared = { mode: "shared" as const, sharedNumber: "+12066781909", messagingServiceSid: null, pilotWorkspaceIds: [], dedicatedWorkspaceIds: ["ws-oak"] };
+    const reply = await resolveHouseRedirect(DB, "is 77 Oakwood Dr open?", { ...base, serviceListings: async () => [BROOKLYN], allListings: async () => [BROOKLYN, home("oak", "77 Oakwood Dr, Seattle, WA 98115", { workspaceId: "ws-oak" })], paidNumberOf, shared });
+    expect(reply).toBeNull();
+    expect(paidNumberOf).not.toHaveBeenCalled();
   });
 });
