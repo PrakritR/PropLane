@@ -34,6 +34,7 @@ function database() {
     proof: { id: ID, phone: PHONE, purpose: "sign_in", provider: "local" },
     owners: [user.id],
     roles: [] as string[],
+    rolesError: false,
     refused: new Set<string>(),
   };
   const updates = vi.fn();
@@ -43,7 +44,7 @@ function database() {
       update: vi.fn((patch: unknown) => { updates(table, patch); return builder; }),
       maybeSingle: vi.fn(async () => ({ data: table === "profiles" ? state.profile : state.challenge, error: null })),
       ...(table === "profile_roles"
-        ? { then: (resolve: (v: unknown) => unknown) => resolve({ data: state.roles.map((role) => ({ role })), error: null }) }
+        ? { then: (resolve: (v: unknown) => unknown) => resolve(state.rolesError ? { data: null, error: { message: "read failed" } } : { data: state.roles.map((role) => ({ role })), error: null }) }
         : {}),
     };
     return builder;
@@ -119,10 +120,19 @@ describe("phone auth start and gate", () => {
     expect(admin.createUser).not.toHaveBeenCalled();
   });
 
-  it("keeps an admin's phone off hosted OTP, so GoTrue's verify cannot mint a session past the admin refusal", async () => {
+  it("gives an admin's confirmed phone the hosted OTP like anyone else (captain, Oct 26)", async () => {
     const { db, rpc, state } = database();
     vi.stubEnv("SUPABASE_PHONE_AUTH_HOOK_ENABLED", "true");
     state.roles = ["admin"];
+    await startPhoneChallenge({ db, userId: null, browser: BROWSER, phone: PHONE, purpose: "sign_in" });
+    expect(rpc).toHaveBeenCalledWith("phone_auth_start", expect.objectContaining({ p_provider: "supabase" }));
+    expect(mocks.signInWithOtp).toHaveBeenCalledWith({ phone: PHONE, options: { shouldCreateUser: false } });
+  });
+
+  it("keeps an unreadable account's phone off hosted OTP, so GoTrue's verify cannot mint a session past the refusal", async () => {
+    const { db, rpc, state } = database();
+    vi.stubEnv("SUPABASE_PHONE_AUTH_HOOK_ENABLED", "true");
+    state.rolesError = true;
     await startPhoneChallenge({ db, userId: null, browser: BROWSER, phone: PHONE, purpose: "sign_in" });
     expect(rpc).toHaveBeenCalledWith("phone_auth_start", expect.objectContaining({ p_provider: "local" }));
     expect(mocks.signInWithOtp).not.toHaveBeenCalled();
@@ -229,29 +239,38 @@ describe("phone proof verification", () => {
   it.each([
     ["an admin profile_roles row", (s: ReturnType<typeof database>["state"]) => { s.roles = ["resident", "admin"]; }],
     ["the legacy admin profiles.role", (s: ReturnType<typeof database>["state"]) => { s.profile = { ...s.profile, role: "admin" }; }],
-  ])("refuses a signed-out phone-code sign-in for an admin (%s): nothing bound, no session minted", async (_name, arrange) => {
+  ])("signs an admin in by phone code (%s): the phone is bound and a session is minted (captain, Oct 26)", async (_name, arrange) => {
     const { db, state, rpc, admin } = database();
     arrange(state);
+    expect(await verify(db)).toMatchObject({ ok: true, session: { access_token: "access", refresh_token: "refresh" } });
+    expect(rpc).toHaveBeenCalledWith("phone_auth_bind", expect.objectContaining({ p_user: user.id }));
+    const bindIndex = rpc.mock.calls.findIndex(([name]) => name === "phone_auth_bind");
+    expect(rpc.mock.invocationCallOrder[bindIndex]).toBeLessThan(admin.generateLink.mock.invocationCallOrder[0]);
+  });
+
+  it("signs in the primary admin email by phone code even with no admin role row", async () => {
+    const { db, admin } = database();
+    admin.getUserById.mockResolvedValue({ data: { user: { ...user, email: PRIMARY_ADMIN_EMAIL } }, error: null });
+    expect(await verify(db)).toMatchObject({ ok: true, session: { access_token: "access" } });
+    expect(admin.generateLink).toHaveBeenCalled();
+  });
+
+  it("refuses a signed-out phone-code sign-in for an unreadable account: nothing bound, no session minted", async () => {
+    const { db, state, rpc, admin } = database();
+    state.rolesError = true;
     await expect(verify(db)).rejects.toThrow(PHONE_AUTH_ERROR);
     expect(rpc).not.toHaveBeenCalledWith("phone_auth_bind", expect.anything());
     expect(admin.generateLink).not.toHaveBeenCalled();
     expect(rpc).toHaveBeenCalledWith("phone_auth_release_operation", expect.anything());
   });
 
-  it("refuses the primary admin email even with no admin role row", async () => {
-    const { db, admin } = database();
-    admin.getUserById.mockResolvedValue({ data: { user: { ...user, email: PRIMARY_ADMIN_EMAIL } }, error: null });
-    await expect(verify(db)).rejects.toThrow(PHONE_AUTH_ERROR);
-    expect(admin.generateLink).not.toHaveBeenCalled();
-  });
-
-  it("still signs in a non-admin multi-role account (manager + resident): phone-first stays open", async () => {
+  it("still signs in a multi-role account (manager + resident): phone-first stays open", async () => {
     const { db, state } = database();
     state.roles = ["resident", "manager"];
     expect(await verify(db)).toMatchObject({ ok: true, session: { access_token: "access" } });
   });
 
-  it("an admin who is ALREADY signed in can still attach a phone (only the signed-out sign-in is refused)", async () => {
+  it("an admin who is ALREADY signed in can attach a phone", async () => {
     const { db, state } = database();
     state.roles = ["admin"];
     state.challenge!.auth_user_id = user.id;

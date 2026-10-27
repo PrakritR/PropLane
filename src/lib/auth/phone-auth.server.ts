@@ -141,7 +141,7 @@ export async function startPhoneChallenge(input: {
     if (owners.length === 1) {
       const { data, error } = await db.auth.admin.getUserById(owners[0]);
       // Hosted verify would mint the session inside GoTrue, past `phoneCodeSignInAllowed` in `verifyPhoneChallenge`;
-      // an account that may not sign in by code (an admin) stays on the local path, where that check runs.
+      // an account that may not sign in by code (an unreadable one) stays on the local path, where that check runs.
       if (
         !error && data.user.phone_confirmed_at && data.user.phone &&
         normalizeE164(`+${data.user.phone.replace(/^\+/, "")}`) === phone &&
@@ -274,8 +274,8 @@ export async function verifyPhoneChallenge(input: {
       user = await resolvePhoneUser(db, proof.phone);
     }
     if (nativeUser && nativeUser.id !== user.id) throw new Error(PHONE_AUTH_ERROR);
-    // A signed-out code sign-in opens any non-admin account; an admin signs in the ordinary way. Checked before
-    // the phone is bound so a refused admin changes nothing.
+    // A signed-out code sign-in opens any readable account, admins included. Checked before the phone is bound so a
+    // refused sign-in changes nothing.
     if (!actor && !(await phoneCodeSignInAllowed(db, user.id))) throw new Error(PHONE_AUTH_ERROR);
     const claimedUser = await db.rpc("phone_auth_claim_operation", { p_operation: operation, p_phone: proof.phone, p_user: user.id });
     if (claimedUser.error || claimedUser.data !== true) throw new Error(PHONE_AUTH_ERROR);

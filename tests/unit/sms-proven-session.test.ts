@@ -10,7 +10,7 @@ vi.mock("@/lib/rate-limit", () => ({ rateLimit: vi.fn(async () => ({ ok: true })
 vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://proplane.ai" }));
 vi.mock("@/lib/one-number/link-destinations.server", () => ({ residentPhoneMatches: vi.fn(async () => true) }));
 
-import { smsProvenSessionAllowed, smsProvenSessionVerdict } from "@/lib/auth/sms-proven-session.server";
+import { phoneCodeSignInAllowed, smsProvenSessionAllowed, smsProvenSessionVerdict } from "@/lib/auth/sms-proven-session.server";
 import { mintResidentPortalSessionForLink } from "@/lib/one-number/link-portal-session.server";
 import { mintPhoneSignInLink } from "@/lib/one-number/signup/sign-in-link.server";
 
@@ -109,6 +109,18 @@ describe("smsProvenSessionVerdict: who a phone alone may sign in", () => {
     ["an admin even when the phone is the only credential", { roles: ["admin"], identities: [{ provider: "phone" }] }],
   ] as Array<[string, World]>)("never mints for %s", async (_name, w) => {
     expect(await smsProvenSessionVerdict(world(w).db, "u1")).toEqual({ ok: false, reason: "admin" });
+  });
+
+  it("a signed-out phone-code sign-in is open for every readable account, admins included, and refused only when unreadable (captain, Oct 26)", async () => {
+    for (const w of [
+      { roles: ["admin"] },
+      { roles: ["resident"], authEmail: "Founders@axis-seattle-housing.com" },
+      { roles: ["manager"], authEmail: "m@example.com" },
+      { roles: ["resident"] },
+    ] as World[]) expect(await phoneCodeSignInAllowed(world(w).db, "u1")).toBe(true);
+    expect(await phoneCodeSignInAllowed(world({ roles: ["admin"], rolesError: true }).db, "u1")).toBe(false);
+    // an inbound text alone still never opens an admin session
+    expect(await smsProvenSessionAllowed(world({ roles: ["admin"] }).db, "u1")).toBe(false);
   });
 
   it.each([

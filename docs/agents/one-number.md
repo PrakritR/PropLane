@@ -367,10 +367,11 @@ Any other account, and any read that fails, is refused and sent to the ordinary 
 link) and `short-stay/guest-login.server.ts` (a guest's link, which no caller mints today).
 
 DOCUMENTED EXCEPTION: a signed-out phone-code sign-in (`verifyPhoneChallenge`) is the captain's phone-first direction,
-so it stays open for every NON-ADMIN account - a verified one-time code is a stronger proof than an inbound text's
-sender id. It asks `phoneCodeSignInAllowed`, which refuses only an admin or an unreadable account. The refusal is
-checked before the phone is bound, and the HOSTED (GoTrue) OTP path is only chosen for an account that passes it,
-because GoTrue's own verify would mint the session past that check.
+so it is open for every account, admins included (captain, Oct 26) - a verified one-time code to the account's own
+verified phone is a stronger proof than an inbound text's sender id. It asks `phoneCodeSignInAllowed`, which refuses
+only an unreadable account; an inbound text alone still never opens an admin session (`smsProvenSessionAllowed`). The
+refusal is checked before the phone is bound, and the HOSTED (GoTrue) OTP path is only chosen for an account that passes
+it (an unreadable one stays on the local path), because GoTrue's own verify would mint the session past that check.
 
 W5 validation (2026-10-18): both migrations applied to **dev/test only** with migration ledger rows. `npx tsc --noEmit` exit 0; 18 targeted Vitest files / 280 tests passed (17-file run: 277, transport override: 3), and the changed profile guard's 12 tests passed again after its TypeScript fix. Both transaction-only SQL proof scripts passed, including manager reset via accepted invite and submitted vendor bid. A temporary dev account completed challenge → bind → server-generated token hash → valid Supabase session; the account, contact and proofs were cleaned up, no SMS sent. Mobile browser verified the flag-off Apple/Google/email form, disabled phone status, invalid-proof refusal and signed-out verification redirect. The new form's active states are covered by interaction tests; live SMS/OAuth-provider end-to-end testing remains for rollout, since the shared flag and hosted hook were deliberately not enabled. Manager reset currently has an authenticated API, not a new settings button.
 

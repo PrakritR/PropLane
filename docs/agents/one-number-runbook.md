@@ -137,6 +137,7 @@ branch, and `db:push` applies it only once merged):
 | 20261025100000 | `manager_invite_link_invitee_email` | one additive nullable column, `manager_invite_links.invitee_email` (lowercase, with a lower-case check): a PropLane Service invite link is bound to the email it was sent to and redeems only for the confirmed account with that address; NULL on every ordinary link, which stays a bearer link |
 | 20261025110000 | `sms_onboarding_asked_line` | one additive nullable column, `sms_onboarding_state.asked_line` (`shared` or the E.164 work number that asked): the role question is asked once PER LINE, so one line asking never suppresses another; NULL rows keep their old behaviour |
 | 20261025120000 | `manager_invite_link_vendor_directory` | additive nullable `manager_invite_links.vendor_directory_id`: an Add-vendor invite link carries the manager's own vendor directory row, and redemption claims THAT row instead of inserting a second one (null = a generic link, which still creates a row) |
+| 20261027010000 | `profiles_phone_text` | `profiles.phone` numeric → text, only where it is numeric (production had drifted; dev/staging were already text): `phone_auth_bind` writes E.164 text and failed with 42804 there, so no phone could be verified or signed in. Lossless (the same digits); a no-op elsewhere |
 
 Check after the push (SQL editor, read-only):
 
