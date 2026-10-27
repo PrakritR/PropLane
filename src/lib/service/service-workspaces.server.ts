@@ -1616,3 +1616,21 @@ export async function seatAdminTeamMember(
   if (!added.ok) return added;
   return { ok: true, linkId: added.linkId };
 }
+
+/**
+ * The same validation `seatAdminTeamMember` runs, without writing anything: may this operator hand out this role, to these
+ * houses, in this workspace? The Admin team invite asks it when the invite is written, so a role above the inviter's own
+ * or a house of another workspace is refused at the sheet instead of at the moment the invitee accepts.
+ */
+export async function checkAdminTeamSeatGrant(
+  db: SupabaseClient,
+  operatorUserId: string,
+  input: InviteAccessInput & { id: string },
+  opts: OperatorOpts = {},
+): Promise<ServiceResult<object>> {
+  const who = await operatorStanding(db, operatorUserId, input.id, opts);
+  if (!who.ok) return who;
+  if (!who.standing.rights.members) return fail(403, "Only the owner or an admin of this workspace can invite people.");
+  const resolved = await resolveServiceSeatGrant(db, who, operatorUserId, input);
+  return resolved.ok ? { ok: true } : resolved;
+}

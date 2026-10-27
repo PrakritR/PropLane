@@ -1,3 +1,5 @@
+import { applyAdminInviteGrant } from "@/lib/admin-team/admin-team.server";
+import { adminTeamRoleLabel, parseStoredAdminGrant } from "@/lib/admin-team/admin-team-model";
 import "server-only";
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -94,6 +96,11 @@ export function hashInviteLinkToken(token: string): string {
 function mintToken(): string {
   // base64url so the whole token is one clean URL path segment.
   return randomBytes(TOKEN_BYTES).toString("base64url");
+}
+
+/** A fresh token for an Admin team invite link (`admin-team-invite.server.ts` writes the row; only the digest is stored). */
+export function mintAdminInviteToken(): string {
+  return mintToken();
 }
 
 export type InviteLinkRow = {
@@ -577,6 +584,7 @@ export async function listInviteLinks(
     .from("manager_invite_links")
     .select(LINK_COLUMNS)
     .eq("owner_user_id", ownerUserId.trim())
+    .neq("kind", "admin")
     .is("revoked_at", null)
     .order("created_at", { ascending: false })
     .limit(50);
@@ -590,6 +598,7 @@ export async function listInviteLinksForActor(db: SupabaseClient, actorUserId: s
     .from("manager_invite_links")
     .select(`${LINK_COLUMNS}, owner_user_id`)
     .in("owner_user_id", owners)
+    .neq("kind", "admin")
     .is("revoked_at", null)
     .order("created_at", { ascending: false })
     .limit(50);
@@ -679,6 +688,8 @@ async function loadInviteLinkById(db: SupabaseClient, linkId: string): Promise<I
     .from("manager_invite_links")
     .select(`${LINK_COLUMNS}, owner_user_id, workspace_name_snapshot`)
     .eq("id", linkId.trim())
+    // An Admin team invite is managed from the Admin team pane only, never rotated, copied or revoked as a share link.
+    .neq("kind", "admin")
     .maybeSingle();
   if (!data) return null;
   const row = data as DbRow & { owner_user_id: string };
@@ -769,6 +780,7 @@ export async function revealInviteLinkToken(
     .from("manager_invite_links")
     .select(`${LINK_COLUMNS}, owner_user_id, token_ciphertext`)
     .eq("id", input.linkId.trim())
+    .neq("kind", "admin")
     .maybeSingle();
   if (!data) return { ok: false, status: 404, error: "That invite link no longer exists." };
   const row = data as DbRow & { owner_user_id: string; token_ciphertext?: string | null };
@@ -833,7 +845,11 @@ export async function revokeInviteLink(
 }
 
 export type InviteLinkPreview = {
-  kind: InviteLinkKind;
+  /** `admin` is an Admin team invite (plan admin-team-1027); it is never minted from a request body. */
+  kind: InviteLinkKind | "admin";
+  /** Admin invites only: the role in words and the workspaces it covers. */
+  adminRoleLabel?: string | null;
+  adminWorkspaceNames?: string[];
   ownerUserId: string;
   ownerName: string;
   workspaceName: string | null;
@@ -862,7 +878,7 @@ async function loadLinkByToken(
   if (parsed.kind === "code" && !opts.allowCode) return null;
   const query = db
     .from("manager_invite_links")
-    .select(`${LINK_COLUMNS}, owner_user_id, workspace_id, workspace_name_snapshot, property_labels`);
+    .select(`${LINK_COLUMNS}, owner_user_id, workspace_id, workspace_name_snapshot, property_labels, admin_grant`);
   const token = parsed.kind === "token" ? parsed.token : "";
   const { data } = await (parsed.kind === "code"
     ? query.eq("short_code", parsed.code)
@@ -895,6 +911,29 @@ export async function previewInviteLink(
       .in("id", link.assigned_property_ids ?? []),
   ]);
 
+  if (String(link.kind) === "admin") {
+    const grant = parseStoredAdminGrant((link as { admin_grant?: unknown }).admin_grant);
+    const names = grant && grant.workspaceIds.length
+      ? await db.from("portal_workspaces").select("id, name").in("id", grant.workspaceIds)
+      : { data: [] };
+    const bound = await readBoundInviteeEmail(db, String(link.id));
+    return {
+      kind: "admin",
+      ownerUserId: String(link.owner_user_id),
+      ownerName: String(owner?.full_name ?? "").trim() || "A PropLane admin",
+      workspaceName: null,
+      propertyLabels: [],
+      adminRoleLabel: grant ? adminTeamRoleLabel(grant.role) : null,
+      adminWorkspaceNames: ((names.data ?? []) as { name: string }[]).map((w) => String(w.name ?? "").trim()).filter(Boolean),
+      inviteeEmail: bound.ok ? bound.email : null,
+      unusableReason: grant
+        ? inviteLinkUnusableReason(
+            { expiresAt: link.expires_at, revokedAt: link.revoked_at, maxUses: link.max_uses, usedCount: link.used_count },
+            now,
+          )
+        : "revoked",
+    };
+  }
   const kind = normalizeInviteLinkKind(link.kind);
   // A property record's `row_data` is routinely EMPTY on the server — the name a
   // manager sees in their own list is built from browser-local listings, not
@@ -984,6 +1023,7 @@ export type RedeemInviteLinkResult =
     }
   | { ok: true; kind: "resident"; claimId: string; alreadyRedeemed: boolean }
   | { ok: true; kind: "vendor"; vendorDirectoryId: string; alreadyRedeemed: boolean }
+  | { ok: true; kind: "admin"; role: string; workspaceIds: string[]; alreadyRedeemed: boolean }
   | { ok: false; status: number; error: string; code?: string };
 
 /** Typed refusal when the opener has no manager portal role yet. */
@@ -1118,6 +1158,9 @@ export async function redeemInviteLink(
   // Refused BEFORE a use is spent: unknown kinds must not burn the budget or
   // fall through to the co-manager insert below.
   const linkKind = normalizeInviteLinkKind(link.kind);
+  // An Admin team invite is stored as kind `admin` (never accepted from a request body, so never minted as a share
+  // link) and goes down its own branch below; it must never fall into the manager path `normalize` would give it.
+  const isAdminLink = String(link.kind) === "admin";
   if (linkKind !== "manager" && linkKind !== "resident" && linkKind !== "vendor") {
     return { ok: false, status: 400, error: UNSUPPORTED_INVITE_LINK_KIND_ERROR };
   }
@@ -1214,6 +1257,18 @@ export async function redeemInviteLink(
       .eq("id", link.id)
       .eq("used_count", (link.used_count ?? 0) + 1);
   };
+
+  if (isAdminLink) {
+    return redeemAdminLink({
+      db,
+      link,
+      redeemerUserId,
+      boundInviteeEmail,
+      alreadyRedeemed: Boolean(existingRedemption),
+      spendUse,
+      releaseSpentUse,
+    });
+  }
 
   if (linkKind === "resident") {
     return redeemResidentLink({
@@ -1453,6 +1508,54 @@ export async function redeemInviteLink(
     alreadyRedeemed: false,
     workspaceId: String(invite.workspace_id ?? "").trim() || workspaceId,
   };
+}
+
+/**
+ * Redeem an Admin team invite. The link is one use, bound to the email it was sent to (the session's confirmed email must
+ * equal it), and the grant it makes was written by the inviter: the opener names nothing. The use is spent first
+ * (conditionally), the audit row is written inside `applyAdminInviteGrant` before the role, and any failure hands the
+ * use back so the right person can try again.
+ */
+async function redeemAdminLink(args: {
+  db: SupabaseClient;
+  link: DbRow & { owner_user_id: string };
+  redeemerUserId: string;
+  boundInviteeEmail: string | null;
+  alreadyRedeemed: boolean;
+  spendUse: () => Promise<{ ok: true } | { ok: false; status: number; error: string }>;
+  releaseSpentUse: () => Promise<void>;
+}): Promise<RedeemInviteLinkResult> {
+  const { db, link, redeemerUserId } = args;
+  // An admin invite with no bound address is never redeemable: the address is what ties the grant to a person.
+  if (!args.boundInviteeEmail) return { ok: false, status: 403, error: "This invite is not valid. Ask for a new one." };
+  const grant = parseStoredAdminGrant((link as { admin_grant?: unknown }).admin_grant);
+  if (!grant) return { ok: false, status: 400, error: "This invite is not valid. Ask for a new one." };
+  if (args.alreadyRedeemed) {
+    return { ok: true, kind: "admin", role: grant.role, workspaceIds: grant.workspaceIds, alreadyRedeemed: true };
+  }
+  const spent = await args.spendUse();
+  if (!spent.ok) return spent;
+  const undo = async () => {
+    await db.from("manager_invite_link_redemptions").delete().eq("link_id", link.id).eq("redeemed_by_user_id", redeemerUserId);
+    await args.releaseSpentUse();
+  };
+  const { error: redemptionError } = await db
+    .from("manager_invite_link_redemptions")
+    .insert({ link_id: link.id, redeemed_by_user_id: redeemerUserId });
+  if (redemptionError && redemptionError.code !== "23505") {
+    await args.releaseSpentUse();
+    return { ok: false, status: 500, error: "Could not record this invite. Try again." };
+  }
+  const applied = await applyAdminInviteGrant(db, {
+    inviterUserId: String(link.owner_user_id),
+    redeemerUserId,
+    grant,
+  });
+  if (!applied.ok) {
+    await undo();
+    return { ok: false, status: applied.status, error: applied.error };
+  }
+  return { ok: true, kind: "admin", role: applied.role, workspaceIds: applied.workspaceIds, alreadyRedeemed: false };
 }
 
 export type ResidentInviteClaim = {

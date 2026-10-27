@@ -107,3 +107,88 @@ export function parseStoredAdminGrant(raw: unknown): StoredAdminGrant | null {
   if (role !== OVERALL_ADMIN_ROLE && workspaceIds.length === 0) return null;
   return { role, workspaceIds: role === OVERALL_ADMIN_ROLE ? [] : workspaceIds, access };
 }
+
+/** What the Invite / Change sheet collected. The server re-derives every part of it; this only shapes the request. */
+export type AdminTeamChoice = {
+  role: AdminTeamRole;
+  workspaceIds: string[];
+  houseScope: "all" | "selected";
+  /** The houses chosen; only meaningful for `selected` (and then exactly one workspace). */
+  houseIds: string[];
+  customPermissions: Record<string, unknown>;
+  workspacePermissions: Record<string, unknown>;
+};
+
+/**
+ * The `access` object of an Admin team request. "All houses" names no house and no per-house map, so every workspace
+ * resolves it to ITS OWN houses on the server (the same validators the Team invite runs); only a selected list, which
+ * the sheet allows for exactly one workspace, names houses.
+ */
+export function adminTeamAccessFields(choice: AdminTeamChoice): Record<string, unknown> {
+  if (choice.role === OVERALL_ADMIN_ROLE) return {};
+  const base: Record<string, unknown> = {
+    teamRole: choice.role,
+    houseScope: choice.workspaceIds.length === 1 ? choice.houseScope : "all",
+  };
+  if (choice.role === "custom") {
+    base.coManagerPermissions = choice.customPermissions;
+    base.workspacePermissions = choice.workspacePermissions;
+  }
+  if (choice.workspaceIds.length === 1 && choice.houseScope === "selected") base.assignedPropertyIds = choice.houseIds;
+  return base;
+}
+
+export function adminTeamInviteRequest(input: { email: string; choice: AdminTeamChoice }): Record<string, unknown> {
+  return {
+    email: input.email.trim(),
+    role: input.choice.role,
+    workspaceIds: input.choice.role === OVERALL_ADMIN_ROLE ? [] : input.choice.workspaceIds,
+    access: adminTeamAccessFields(input.choice),
+  };
+}
+
+export function adminTeamChangeRequest(input: { userId: string; choice: AdminTeamChoice }): Record<string, unknown> {
+  return {
+    userId: input.userId,
+    role: input.choice.role,
+    workspaceIds: input.choice.role === OVERALL_ADMIN_ROLE ? [] : input.choice.workspaceIds,
+    access: adminTeamAccessFields(input.choice),
+  };
+}
+
+// The Admin team list as the pane reads it (built by `listAdminTeam`).
+export type AdminTeamSeat = {
+  linkId: string;
+  workspaceId: string;
+  workspaceName: string;
+  role: string;
+  status: "accepted" | "pending";
+  houseScope: "all" | "selected";
+  assignedPropertyIds: string[];
+  houseCount: number;
+};
+
+export type AdminTeamMemberRow = {
+  key: string;
+  userId: string | null;
+  name: string;
+  email: string;
+  phoneVerified: boolean;
+  role: AdminTeamRole;
+  state: "active" | "invited";
+  seats: AdminTeamSeat[];
+  /** The unspent admin invite link behind an "invited" row. */
+  inviteId: string | null;
+  isSelf: boolean;
+  /** Whether this viewer may change or remove the row (re-checked by the verb itself). */
+  canManage: boolean;
+};
+
+export type AdminTeamWorkspace = { id: string; name: string; city: string | null; houses: { id: string; label: string }[] };
+
+export type AdminTeamPayload = {
+  viewer: { userId: string; overall: boolean };
+  workspaces: AdminTeamWorkspace[];
+  members: AdminTeamMemberRow[];
+};
+

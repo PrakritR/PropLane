@@ -52,6 +52,14 @@ export async function POST(req: Request) {
       alreadyRedeemed: result.alreadyRedeemed,
     });
   }
+  if (result.kind === "admin") {
+    return NextResponse.json({
+      kind: "admin",
+      role: result.role,
+      workspaceIds: result.workspaceIds,
+      alreadyRedeemed: result.alreadyRedeemed,
+    });
+  }
   if (result.kind === "vendor") {
     return NextResponse.json({
       kind: "vendor",

@@ -93,6 +93,32 @@ export function buildServiceTeamInviteBody(params: { workspaceName: string; role
   ].join("\n");
 }
 
+/** Admin team invite (plan admin-team-1027): "You're invited to PropLane admin". */
+export const ADMIN_INVITE_SUBJECT = "You're invited to PropLane admin";
+
+export function buildAdminInviteBody(params: {
+  inviterName: string;
+  roleLabel: string;
+  workspaceNames: string[];
+  acceptUrl: string;
+  expiresInDays: number;
+}): string {
+  const inviter = params.inviterName.trim() || "A PropLane admin";
+  const names = params.workspaceNames.map((n) => n.trim()).filter(Boolean);
+  const scope = names.length > 0 ? ` to manage ${names.join(", ")}` : "";
+  return [
+    "Hi,",
+    "",
+    `${inviter} invited you${scope} as ${params.roleLabel} on PropLane.`,
+    "",
+    `Create your admin account, or sign in if you already have one, to accept: ${params.acceptUrl}`,
+    "",
+    `This link works once, for this email address only, and expires in ${params.expiresInDays} days.`,
+    "",
+    "PropLane",
+  ].join("\n");
+}
+
 export function coManagerLinkRemovedSubject(actorName: string): string {
   const name = actorName.trim() || "A property manager";
   return `Co-manager link update from ${name}`;
