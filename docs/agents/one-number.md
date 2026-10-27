@@ -1357,3 +1357,11 @@ and are answered by the leasing assistant ([`inbound-email-inbox.md`](inbound-em
 never carries the 206 (or any link, phone or email); PadSplit and SpareRoom replies may. On a PropLane-managed (`is_service`) workspace the email
 assistant browses the managed-homes catalog (`serviceCatalog`), like the 206. Availability in any reply is the CHECKED calendar only
 (`list_live_listings` / `get_listing_details` / `check_room_availability`); a failed read says "let me confirm", never "available".
+
+## W32 - Admins on the 206 (`admin-team-1027`, Oct 27)
+
+- Admin Communication's "PropLane number" card is the PropLane line from `resolveServiceLine` (set in `fetchAdminSmsConversations`), never a client owner's old work number; no resolvable line shows no number. An admin reply in a workspace's thread passes that thread's `workspaceId` so a managed workspace leaves on the 206.
+- An Unassigned lead is answered from the line: `POST /api/admin/unassigned-leads/[id]/reply` (`requirePlatformAdmin`, then `sendAdminLeadReply`). The lead's phone is resolved on the server from the lead id (the browser only holds the masked number), the send is the platform-lead transport so STOP/opt-out/shield apply, and the turn is recorded only after the transport accepted it. Assign stays in the thread header.
+- Admin Communication reads and composes whatever `SMS_COMM_UI_ENABLED` says (admin operates the line); the flag still governs the manager portals.
+- A text from a platform admin's own verified phone (`profile_roles` admin, phone verified and held by exactly one profile) to the 206 is that admin talking to their own Assistant: `adminAssistantContinuation` in `inbound-seam.server.ts` runs before every router step and continues as the service owner's line, so `recognizeServiceManagerInbound` runs the manager agent as that admin and the turn is mirrored into `agent_notice_<adminId>` (the admin's default-workspace chat, not a chat in the service owner's workspace). It never makes an Unassigned lead; ambiguous or unreadable = today's behaviour.
+- The pinned Assistant in admin Communication is the viewer's own thread only (`GET /api/admin/assistant-thread`, keyed by session; the admin adapter also drops any `agent_notice_*` row that is not the viewer's). Guards: `tests/unit/admin-communication-line-206.test.ts`, `tests/unit/admin-assistant-line-206.test.ts`.

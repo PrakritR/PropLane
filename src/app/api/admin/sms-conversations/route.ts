@@ -66,7 +66,7 @@ export async function GET(req: Request) {
 }
 
 /**
- * Admin sends an SMS to a resident or a manager on the shared line. The message
+ * Admin sends an SMS to a resident or a manager on the PropLane line. The message
  * is logged into the owning manager's thread (so it shows for both admin and
  * that manager), and a COPY is sent to the admin oversight phone so admin stays
  * in the loop. The recipient phone is the ONLY model-free routing input.
@@ -151,6 +151,9 @@ export async function POST(req: Request) {
     residentUserId: attributedResidentUserId,
     source: "work_number",
     counterpartyRole,
+    // A workspace's thread is answered as that workspace: a PropLane-managed one leaves on the PropLane line (206), the
+    // same number the Communication card shows. The id comes from the stored thread, never the body.
+    ...(match?.workspaceId ? { workspaceId: match.workspaceId } : {}),
   });
   if (!result.ok) {
     return NextResponse.json(

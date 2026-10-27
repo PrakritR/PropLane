@@ -67,7 +67,7 @@ export async function loadManagedWorkspaceIds(db: SupabaseClient, workspaceIds: 
 }
 
 /** The platform service owner (`platform_service_settings`), or null when none is set. Throws when the read fails. */
-async function readServiceOwnerOrThrow(db: SupabaseClient): Promise<string | null> {
+export async function readServiceOwnerOrThrow(db: SupabaseClient): Promise<string | null> {
   const { data, error } = await db.from("platform_service_settings").select("owner_user_id").eq("singleton", true).maybeSingle();
   if (error) throw new Error(error.message || "platform service owner read failed");
   return String((data as { owner_user_id?: unknown } | null)?.owner_user_id ?? "").trim() || null;

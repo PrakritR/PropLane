@@ -89,8 +89,13 @@ export type CommunicationInboxAdapter = {
   buildListThreads(rows: PersistedInboxThread[], ctx: InboxListThreadsContext): PersistedInboxThread[];
   /** Overrides the storage-key based archive / restore / delete (admin has its own store). */
   emailMutations?: InboxEmailMutations;
-  /** The PropLane Assistant thread is pinned into the list (manager only). */
+  /** The viewer's PropLane Assistant thread is pinned first in the list. */
   pinsAssistant: boolean;
+  /**
+   * Which workspace's Assistant chat is pinned. Absent = the active workspace (manager). Admin has no active workspace
+   * for its own chat: it pins the viewer's default one, the chat their text to the PropLane line is mirrored into.
+   */
+  assistantWorkspace?: ManagerAssistantWorkspace | null;
   /** Folded email + SMS conversations render through the direct chat pane (manager only). */
   directChat: boolean;
   /**

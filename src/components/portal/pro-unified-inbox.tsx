@@ -325,12 +325,15 @@ export function ManagerUnifiedInbox({
   const { userId, ready: sessionReady } = usePortalSession();
   const viewerId = resolveCommunicationViewerId(null, userId);
   const workspaceIdentity = useActiveWorkspaceIdentity();
+  const adapterAssistantWorkspace = adapter.assistantWorkspace;
   const assistantWorkspace = useMemo(
     () =>
-      workspaceIdentity.id
-        ? { id: workspaceIdentity.id, isDefault: workspaceIdentity.isDefault }
-        : null,
-    [workspaceIdentity.id, workspaceIdentity.isDefault],
+      adapterAssistantWorkspace !== undefined
+        ? adapterAssistantWorkspace
+        : workspaceIdentity.id
+          ? { id: workspaceIdentity.id, isDefault: workspaceIdentity.isDefault }
+          : null,
+    [adapterAssistantWorkspace, workspaceIdentity.id, workspaceIdentity.isDefault],
   );
   const viewerEpochRef = useRef(0);
   const viewerAuthority = useMemo(() => ({ viewerId }), [viewerId]);

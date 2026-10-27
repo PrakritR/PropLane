@@ -41,6 +41,7 @@ import {
   syncInboxMessagesFromServer,
 } from "@/lib/demo-admin-partner-inbox";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { isManagerAgentNoticeThreadId } from "@/lib/communication-manager-assistant-thread";
 import { inboxThreadSortMs } from "@/lib/portal-inbox-storage";
 
 function isPortalCounterpartyRole(role: string | undefined): boolean {
@@ -67,8 +68,11 @@ function AdminEmailThread(ctx: InboxThreadPaneContext) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [primary?.id, threads]);
 
+  // The viewer's own PropLane Assistant chat: the transcript of what they texted the PropLane line. Not an admin message,
+  // so it has no reply-by-mail, schedule or archive here (the Assistant panel answers in the app).
+  const assistant = primary ? isManagerAgentNoticeThreadId(primary.id) : false;
   const email = primary?.email?.trim() ?? "";
-  const title = ctx.selectedRow?.name ?? primary?.from ?? "Conversation";
+  const title = assistant ? "PropLane Assistant" : (ctx.selectedRow?.name ?? primary?.from ?? "Conversation");
   const bubbles = useMemo(() => adminThreadBubbles(threads), [threads]);
   const stub = primary ? isAdminScheduledStubId(primary.id) : false;
   const canReply = Boolean(stored) && !archived;
@@ -214,7 +218,7 @@ function AdminEmailThread(ctx: InboxThreadPaneContext) {
         <Trash2 className="h-4 w-4" aria-hidden />
       </button>
     </>
-  ) : stub ? null : (
+  ) : stub || assistant ? null : (
     <button
       type="button"
       className={INBOX_THREAD_ICON_BTN}
@@ -237,7 +241,11 @@ function AdminEmailThread(ctx: InboxThreadPaneContext) {
       onBack={ctx.closeThread}
       headerActions={headerActions}
       underHeader={scheduledCards}
-      emptyLabel="No messages in this conversation."
+      emptyLabel={
+        assistant
+          ? "Only you see this chat. Text the PropLane line from your verified phone and it shows here."
+          : "No messages in this conversation."
+      }
       composer={
         canReply ? (
           <InboxComposer
@@ -267,7 +275,8 @@ function AdminEmailThread(ctx: InboxThreadPaneContext) {
 export function AdminThreadPane(ctx: InboxThreadPaneContext) {
   if (ctx.selection.channel === "sms") {
     const resident = ctx.smsResidents[0] ?? null;
-    // A PropLane-line lead no workspace holds yet: read-only transcript + the Assign action (no composer, no number).
+    // A PropLane-line lead no workspace holds yet: answered from the PropLane line (the server holds the number), with
+    // Assign to a workspace in the thread header.
     if (resident?.unassignedLeadId) {
       return (
         <AdminLeadThread
@@ -277,6 +286,7 @@ export function AdminThreadPane(ctx: InboxThreadPaneContext) {
             ctx.closeThread();
             ctx.onSmsProjectionStateChanged();
           }}
+          onSent={ctx.onSmsProjectionStateChanged}
         />
       );
     }
@@ -293,7 +303,8 @@ export function AdminThreadPane(ctx: InboxThreadPaneContext) {
         }}
         onConversationOpened={ctx.onSmsConversationOpened}
         onProjectionStateChanged={ctx.onSmsProjectionStateChanged}
-        smsUiEnabled={ctx.smsUiEnabled}
+        // Admin operates the PropLane line: its threads keep their composer whatever the manager-portal SMS UI flag says.
+        smsUiEnabled
         listSegment={ctx.listSegment}
       />
     );
