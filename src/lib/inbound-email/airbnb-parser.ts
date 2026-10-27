@@ -62,6 +62,21 @@ function trimTrailingPunctuation(value: string): string {
   return value.slice(0, end);
 }
 
+const NAME_LEADING_EDGE = "\"\u201c'\u2018";
+const NAME_TRAILING_EDGE = "\"\u201d'\u2019:,!";
+
+/**
+ * One opening quote and any run of closing quotes / punctuation dropped from a name's
+ * edges by a scan, for the same reason as `trimTrailingPunctuation`: an anchored
+ * `["\u201d'\u2019:,!]+$` backtracks quadratically on a long run from an inbound mail.
+ */
+function trimNameEdges(value: string): string {
+  const start = value.length > 0 && NAME_LEADING_EDGE.includes(value[0]!) ? 1 : 0;
+  let end = value.length;
+  while (end > start && NAME_TRAILING_EDGE.includes(value[end - 1]!)) end -= 1;
+  return value.slice(start, end);
+}
+
 function plausibleName(raw: string | undefined): string | undefined {
   const name = raw === undefined ? undefined : trimTrailingPunctuation(raw.trim());
   if (!name || name.length > 40 || !/^[\p{L}][\p{L}'’\-]*$/u.test(name)) return undefined;
@@ -213,12 +228,17 @@ export type ParsedAirbnbGuestMessage = {
   confirmationCode?: string;
 };
 
+/**
+ * The subject is whitespace-collapsed and trimmed before these run, so the separator is one
+ * literal space: `\s+` next to `(.+?)` or `\s*$` lets a run of tabs be split two ways and
+ * backtracks quadratically.
+ */
 const MESSAGE_SUBJECT_NAME = [
-  /^(?:re:\s*)?new message from\s+(.+?)\s*$/i,
-  /^(?:re:\s*)?(.+?)\s+sent you a message\b/i,
-  /^(?:re:\s*)?message from\s+(.+?)\s*$/i,
-  /^(?:re:\s*)?(.+?)\s+is asking about\b/i,
-  /^(?:re:\s*)?(.+?)\s+(?:wrote|messaged you)\b/i,
+  /^(?:re: ?)?new message from (.+)$/i,
+  /^(?:re: ?)?(.+?) sent you a message\b/i,
+  /^(?:re: ?)?message from (.+)$/i,
+  /^(?:re: ?)?(.+?) is asking about\b/i,
+  /^(?:re: ?)?(.+?) (?:wrote|messaged you)\b/i,
 ];
 const MESSAGE_END = /^(?:reply to this email|reply to respond|view message|view in app|open the airbnb app|respond in the app|airbnb, inc|airbnb ireland|unsubscribe|this email was sent|sent with|please don.?t reply)/i;
 const MESSAGE_HEADER_LINE = /^(?:re|about|listing|message about|regarding|reservation|dates|check[\s-]?in|check[\s-]?out|guests?)\b\s*[:\-–—]?/i;
@@ -228,7 +248,7 @@ const MESSAGE_HEADER_LINE = /^(?:re|about|listing|message about|regarding|reserv
  * (no plausible name, no message text): a null stores the mail and answers nothing.
  */
 export function parseAirbnbGuestMessage(input: { subject: string; text: string }): ParsedAirbnbGuestMessage | null {
-  const subject = stripTags(input.subject ?? "").trim();
+  const subject = stripTags(input.subject ?? "").replace(/\s+/g, " ").trim();
   const body = stripTags(input.text ?? "");
   if (!/(new message from|sent you a message|message from|is asking about|wrote|messaged you)/i.test(subject) && !/\bsent you a message\b/i.test(body)) return null;
   if (/\b(payout|reservation confirmed|new booking|booking confirmed)\b/i.test(subject)) return null;
@@ -253,7 +273,7 @@ export function parseAirbnbGuestMessage(input: { subject: string; text: string }
     const line = lines[i]!;
     const listing = /^(?:re|about|listing|message about|regarding)\s*[:\-–—]\s*(.{3,120})$/i.exec(line);
     if (listing && !listingTitle) {
-      listingTitle = listing[1]!.replace(/\s+[·|]\s+.*$/, "").trim();
+      listingTitle = listing[1]!.split(/\s[·|]\s/)[0]!.trim();
       headerEnd = Math.max(headerEnd, i);
     } else if (MESSAGE_HEADER_LINE.test(line) || /^[A-Z][a-z]{2}\s+\d{1,2}\s*[–-]\s*[A-Z][a-z]{2}\s+\d{1,2}/.test(line)) {
       headerEnd = Math.max(headerEnd, i);
@@ -282,7 +302,7 @@ export function parseAirbnbGuestMessage(input: { subject: string; text: string }
 
 /** A guest's display name: one to three name words (a trailing initial such as "Maria L." is fine). Shared by every site parser. */
 export function plausibleGuestName(raw: string | undefined): string | undefined {
-  const value = (raw ?? "").replace(/\s+/g, " ").trim().replace(/^["“'‘]|["”'’:,!]+$/g, "").trim();
+  const value = trimNameEdges((raw ?? "").replace(/\s+/g, " ").trim()).trim();
   if (!value || value.length > 40) return undefined;
   const tokens = value.split(" ");
   if (tokens.length > 3) return undefined;

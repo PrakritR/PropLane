@@ -78,9 +78,21 @@ const END_COMMON =
 
 function normalizeBody(text: string): string[] {
   return (text ?? "")
-    .replace(/ /g, " ")
+    .replace(/\u00a0/g, " ")
     .split(/\r?\n/)
     .map((line) => line.replace(/^[>\s]+/, "").replace(/[ \t]+/g, " ").trim());
+}
+
+const OPENING_QUOTES = '"“';
+const CLOSING_QUOTES = '"”';
+
+/** Quote runs on the edges dropped by a scan, not a regex: an anchored `["”]+$` backtracks quadratically on a long run of quotes. */
+function trimQuotes(value: string): string {
+  let start = 0;
+  while (start < value.length && OPENING_QUOTES.includes(value[start]!)) start += 1;
+  let end = value.length;
+  while (end > start && CLOSING_QUOTES.includes(value[end - 1]!)) end -= 1;
+  return value.slice(start, end);
 }
 
 /** The lines after the last header-ish line up to the first footer marker; quotes and blank edges trimmed. */
@@ -91,7 +103,7 @@ function messageFrom(lines: string[], start: number, endMarkers: RegExp): string
     if (endMarkers.test(line) || END_COMMON.test(line)) break;
     kept.push(line);
   }
-  return kept.join("\n").replace(/\n{3,}/g, "\n\n").replace(/^["“]+|["”]+$/g, "").trim().slice(0, 4000);
+  return trimQuotes(kept.join("\n").replace(/\n{3,}/g, "\n\n")).trim().slice(0, 4000);
 }
 
 function guestFrom(subject: string, lines: string[], subjectPatterns: readonly RegExp[], bodyPatterns: readonly RegExp[]): string | undefined {
@@ -150,7 +162,7 @@ function parseBookingCom(subject: string, lines: string[], replyTo: string | nul
       listingTitle = property.trim();
       start = Math.max(start, i + 1);
     }
-    const code = /^(?:reservation|booking)\s*(?:number|id|no\.?)?\s*[:#\-–—]\s*(\d{8,12})\b/i.exec(line)?.[1];
+    const code = /^(?:reservation|booking)\s*(?:(?:number|id|no\.?)\s*)?[:#\-–—]\s*(\d{8,12})\b/i.exec(line)?.[1];
     if (code && !reservationCode) {
       reservationCode = code;
       start = Math.max(start, i + 1);
@@ -179,7 +191,7 @@ function parsePadSplit(subject: string, lines: string[], replyTo: string | null)
   let listingTitle: string | undefined;
   let start = 0;
   lines.forEach((line, i) => {
-    const about = /sent you a message about\s+["“]?(.{3,120}?)["”]?\s*[:.]?\s*$/i.exec(line)?.[1] ?? /^(?:property|room|listing)\s*[:\-–—]\s*(.{3,120})$/i.exec(line)?.[1];
+    const about = /sent you a message about\s+["“]?(.{3,120}?)["”]?\s*[:.]?$/i.exec(line)?.[1] ?? /^(?:property|room|listing)\s*[:\-–—]\s*(.{3,120})$/i.exec(line)?.[1];
     if (about && !listingTitle) {
       listingTitle = about.trim();
       start = Math.max(start, i + 1);
