@@ -56,8 +56,8 @@ vocabulary — is owned by [`bookings.md`](bookings.md).
 Airbnb and Booking.com are live and their row opens the one-page Connect popup
 (`ChannelCalendarLinkModal`, `src/components/portal/channel-calendar-link-modal.tsx`);
 Vrbo is "Coming soon" unless the workspace already has a Vrbo link, which keeps
-working and stays manageable. SpareRoom is listed as Coming soon so a manager can
-see what is planned.
+working and stays manageable. SpareRoom has no calendar feed, so it is not a Bookings
+row: it is a Copy post row under Posting ([`listing-syndication.md`](listing-syndication.md)).
 
 **Other calendar** (`provider: "ical"`) is the row for every site without a row of its
 own - Houfy, Furnished Finder, Expedia, HomeToGo, Vrbo while it is Coming soon, anything

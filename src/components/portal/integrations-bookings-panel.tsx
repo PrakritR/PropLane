@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BedDouble, Building2, CalendarPlus, House, Palmtree, Plus } from "lucide-react";
+import { Building2, CalendarPlus, House, Palmtree, Plus } from "lucide-react";
 
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { IntegrationRow } from "@/components/portal/integration-row";
@@ -23,9 +23,6 @@ const LIVE_CHANNELS = [
   { provider: "airbnb", name: "Airbnb", icon: House, tone: "text-rose-500" },
   { provider: "booking_com", name: "Booking.com", icon: Building2, tone: "text-blue-600" },
 ] as const;
-
-/** Channels that are listed so managers see what is coming - no connect action yet. */
-const COMING_SOON_CHANNELS = [{ id: "spareroom", name: "SpareRoom", icon: BedDouble }] as const;
 
 /** What the Other calendar row says before any site is linked: the sites people reach for first. */
 const OTHER_CALENDAR_HINT = "Houfy, Furnished Finder, Vrbo, any .ics";
@@ -139,9 +136,6 @@ export function ManagerBookingChannelsPanel() {
           factDataAttr="settings-ical-status"
           action={<PortalIconAction icon={Plus} label="Connect an Other calendar" data-attr="settings-ical-manage" onClick={() => setChannelOpen("ical")} />}
         />
-        {COMING_SOON_CHANNELS.map(({ id, name, icon }) => (
-          <IntegrationRow key={id} icon={icon} name={name} comingSoon dataAttr={`settings-${id}-row`} />
-        ))}
       </PortalSettingsGroup>
       <ChannelCalendarLinkModal
         open={channelOpen !== null}

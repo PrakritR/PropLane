@@ -105,6 +105,18 @@ describe("listing post text", () => {
     expect(listingHoldFact(["no_photo", "no_work_number"])).toBe("Held: no photo · Set up work number");
   });
 
+  it("SpareRoom posts the same facts as Marketplace, tagged ?src=spareroom, and nothing without a work number", () => {
+    const result = build(projected(), "spareroom");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.text).toContain("Ballard House");
+    expect(result.text).toContain("$2,200/mo");
+    expect(result.text).toContain("Details and photos: https://proplane.ai/rent/listings/prop-1?src=spareroom");
+    expect(result.text).toContain("Text (206) 555-0100");
+    expect(result.text).toContain("Email work@proplane.test");
+    expect(build(projected(), "spareroom", { phone: null, email: "work@proplane.test" })).toEqual({ ok: false, reason: "no_work_number" });
+  });
+
   it("an email-less workspace still posts with the number alone", () => {
     const result = build(projected(), "facebook_marketplace", { phone: CONTACT.phone, email: null });
     expect(result.ok && result.text).toContain("Text (206) 555-0100");

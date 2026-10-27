@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Building, Camera, Copy, Home, Share2, Unlink } from "lucide-react";
+import { BedDouble, Building, Camera, Copy, ExternalLink, Home, Share2, Unlink } from "lucide-react";
 
 import { ProPlaneMarkIcon } from "@/components/brand/axis-logo";
 import { IntegrationRow } from "@/components/portal/integration-row";
@@ -20,6 +20,9 @@ import { listingChannelDef } from "@/lib/listing-channels/registry";
 
 /** Where Facebook's own rental composer lives; there is no API to post for the manager (D11). */
 export const FACEBOOK_MARKETPLACE_CREATE_URL = listingChannelDef("facebook_marketplace")?.createUrl ?? "https://www.facebook.com/marketplace/create/rental";
+
+/** SpareRoom's own "find a roommate" composer; a plain link, never an API or a scrape. */
+export const SPAREROOM_ROOMMATES_URL = listingChannelDef("spareroom")?.createUrl ?? "https://www.spareroom.com/roommates";
 
 /** "N of M listings posting" from each listing's own Zillow opt-in (`submission.syndication.zillow`). */
 export function zillowPostingCounts(propertyIds: readonly string[]): { posting: number; total: number } {
@@ -93,16 +96,39 @@ function ZillowFeedRow({ propertyIds }: { propertyIds: readonly string[] }) {
 }
 
 /**
- * Facebook has no rental-posting API for us: copy the post (built on the server from the listing's
- * public facts plus the workspace work number and email), then open Facebook's composer.
+ * A site with no posting API we may use: copy the post (built on the server from the listing's public facts plus
+ * the workspace work number and email, held with its reason when the listing has no street address or real photo),
+ * then open the site's own composer. Facebook Marketplace and SpareRoom are the same row with different words.
  */
-function FacebookMarketplaceRow({ options }: { options: { value: string; label: string }[] }) {
+function CopyPostRow({
+  channelId,
+  name,
+  icon,
+  tone,
+  createUrl,
+  pasteInto,
+  dataPrefix,
+  openLabel,
+  options,
+}: {
+  channelId: "facebook_marketplace" | "spareroom";
+  name: string;
+  icon: typeof Share2;
+  tone: string;
+  createUrl: string;
+  /** "Paste it into Facebook." */
+  pasteInto: string;
+  dataPrefix: string;
+  /** A plain link to the site beside Copy post (SpareRoom). */
+  openLabel?: string;
+  options: { value: string; label: string }[];
+}) {
   const { showToast } = useAppUi();
   const [listingId, setListingId] = useState("");
   const chosen = options.some((o) => o.value === listingId) ? listingId : (options[0]?.value ?? "");
   const { status } = useListingChannels(chosen || undefined);
   const holdReasons = status?.property?.holdReasons ?? [];
-  const text = status?.property?.id === chosen ? status.property.postTexts.facebook_marketplace : undefined;
+  const text = status?.property?.id === chosen ? status.property.postTexts[channelId] : undefined;
 
   const copyPost = async () => {
     if (!text) {
@@ -110,16 +136,16 @@ function FacebookMarketplaceRow({ options }: { options: { value: string; label: 
       return;
     }
     const ok = await copyTextToClipboard(text);
-    showToast(ok ? "Post copied. Paste it into Facebook." : "Could not copy the post.");
-    if (ok) window.open(FACEBOOK_MARKETPLACE_CREATE_URL, "_blank", "noopener,noreferrer");
+    showToast(ok ? `Post copied. ${pasteInto}` : "Could not copy the post.");
+    if (ok) window.open(createUrl, "_blank", "noopener,noreferrer");
   };
 
   return (
     <IntegrationRow
-      icon={Share2}
-      tone="text-sky-600"
-      name="Facebook Marketplace"
-      dataAttr="settings-facebook-row"
+      icon={icon}
+      tone={tone}
+      name={name}
+      dataAttr={`settings-${dataPrefix}-row`}
       action={
         <>
           <div className="w-44 sm:w-56">
@@ -127,15 +153,18 @@ function FacebookMarketplaceRow({ options }: { options: { value: string; label: 
               hideLabel
               label="Listing"
               placeholder="Pick a listing"
-              dataAttr="settings-facebook-listing"
+              dataAttr={`settings-${dataPrefix}-listing`}
               value={chosen}
               options={options}
               onChange={setListingId}
             />
           </div>
-          <Button variant="ghost" disabled={!chosen || !text} data-attr="settings-facebook-copy-post" onClick={() => void copyPost()}>
+          <Button variant="ghost" disabled={!chosen || !text} data-attr={`settings-${dataPrefix}-copy-post`} onClick={() => void copyPost()}>
             Copy post
           </Button>
+          {openLabel ? (
+            <PortalIconAction icon={ExternalLink} label={openLabel} data-attr={`settings-${dataPrefix}-open`} onClick={() => window.open(createUrl, "_blank", "noopener,noreferrer")} />
+          ) : null}
         </>
       }
     />
@@ -262,7 +291,27 @@ export function ManagerPostingPanel() {
       <ListedWithPropLaneRow />
       <ZillowFeedRow propertyIds={propertyIds} />
       <MetaPostingRows />
-      <FacebookMarketplaceRow options={options} />
+      <CopyPostRow
+        channelId="facebook_marketplace"
+        name="Facebook Marketplace"
+        icon={Share2}
+        tone="text-sky-600"
+        createUrl={FACEBOOK_MARKETPLACE_CREATE_URL}
+        pasteInto="Paste it into Facebook."
+        dataPrefix="facebook"
+        options={options}
+      />
+      <CopyPostRow
+        channelId="spareroom"
+        name="SpareRoom"
+        icon={BedDouble}
+        tone="text-rose-600"
+        createUrl={SPAREROOM_ROOMMATES_URL}
+        pasteInto="Paste it into SpareRoom."
+        dataPrefix="spareroom"
+        openLabel="Open SpareRoom"
+        options={options}
+      />
       <IntegrationRow icon={Building} name="Apartments.com" comingSoon dataAttr="settings-apartments-row" />
     </PortalSettingsGroup>
   );

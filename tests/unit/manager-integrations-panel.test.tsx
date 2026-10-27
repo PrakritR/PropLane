@@ -31,7 +31,7 @@ vi.mock("@/lib/manager-property-links", async (importOriginal) => ({
 }));
 
 import { INTEGRATIONS_TABS, ManagerIntegrationsPanel } from "@/components/portal/manager-integrations-panel";
-import { FACEBOOK_MARKETPLACE_CREATE_URL, zillowPostingCounts } from "@/components/portal/integrations-posting-panel";
+import { FACEBOOK_MARKETPLACE_CREATE_URL, SPAREROOM_ROOMMATES_URL, zillowPostingCounts } from "@/components/portal/integrations-posting-panel";
 import { resetSharedGets } from "@/lib/shared-get-cache";
 
 /** What GET /api/manager/listing-channels answers; tests flip `statusOverrides` per case. */
@@ -52,7 +52,7 @@ function listingChannelsStatus(url: string) {
     workContact: { phone: "(206) 555-0100", email: "work@x.test" },
     posts: [],
     property: propertyId
-      ? { id: propertyId, live: true, holdReasons: [], postTexts: { facebook_marketplace: `facebook post for ${propertyId}\nText (206) 555-0100 · Email work@x.test` } }
+      ? { id: propertyId, live: true, holdReasons: [], postTexts: { facebook_marketplace: `facebook post for ${propertyId}\nText (206) 555-0100 · Email work@x.test`, spareroom: `spareroom post for ${propertyId}\nText (206) 555-0100 · Email work@x.test` } }
       : null,
     ...statusOverrides.value,
   };
@@ -166,6 +166,28 @@ describe("Integrations → Posting", () => {
     fireEvent.click(document.querySelector('[data-attr="settings-facebook-copy-post"]') as HTMLElement);
     await waitFor(() => expect(copied).toHaveBeenCalledWith("facebook post for p2\nText (206) 555-0100 · Email work@x.test"));
     open.mockRestore();
+  });
+
+  it("SpareRoom: Copy post copies the chosen listing's post and opens SpareRoom's roommates page; Open SpareRoom is a plain link", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(<ManagerIntegrationsPanel initialTab="posting" />);
+    expect(SPAREROOM_ROOMMATES_URL).toBe("https://www.spareroom.com/roommates");
+    await waitFor(() => expect((document.querySelector('[data-attr="settings-spareroom-copy-post"]') as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(document.querySelector('[data-attr="settings-spareroom-copy-post"]') as HTMLElement);
+    await waitFor(() => expect(copied).toHaveBeenCalledWith("spareroom post for p1\nText (206) 555-0100 · Email work@x.test"));
+    expect(open).toHaveBeenCalledWith(SPAREROOM_ROOMMATES_URL, "_blank", "noopener,noreferrer");
+    open.mockClear();
+    fireEvent.click(document.querySelector('[data-attr="settings-spareroom-open"]') as HTMLElement);
+    expect(open).toHaveBeenCalledWith("https://www.spareroom.com/roommates", "_blank", "noopener,noreferrer");
+    expect(copied).toHaveBeenCalledTimes(1);
+    open.mockRestore();
+  });
+
+  it("SpareRoom: a held listing (no street address or real photo) has no post, so Copy post stays off", async () => {
+    statusOverrides.value = { property: { id: "p1", live: false, holdReasons: ["no_photo"], postTexts: {} } };
+    render(<ManagerIntegrationsPanel initialTab="posting" />);
+    await waitFor(() => expect(document.querySelector('[data-attr="settings-spareroom-copy-post"]')).not.toBeNull());
+    expect((document.querySelector('[data-attr="settings-spareroom-copy-post"]') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("does not open Facebook when the copy fails", async () => {
