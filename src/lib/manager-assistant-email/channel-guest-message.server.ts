@@ -45,7 +45,6 @@ import {
   reserveEmailAutoReplyCredit,
 } from "@/lib/manager-assistant-email/email-auto-reply-credit.server";
 import { mirrorAssistantEmailConversation } from "@/lib/manager-assistant-email/mirror-assistant-email-conversation.server";
-import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { resolveListingTextNumbers, listingTextNumberKey } from "@/lib/listing-text-number.server";
 import { loadServiceWorkspaceIds } from "@/lib/service/service-catalog.server";
 import { fanOutWorkspaceNotice, inboundEmailNoticeText, repliedNoticeText } from "@/lib/workspace-team-fanout.server";
@@ -140,12 +139,11 @@ export async function loadChannelRoomCandidates(
       const adTitle = typeof source?.alsoListedAs === "string" ? source.alsoListedAs : null;
       let roomLabel = connection.room_id === connection.property_id ? "Whole house" : "";
       try {
-        const submission = source?.listingSubmission as Record<string, unknown> | undefined;
-        if (submission && !roomLabel) {
-          const rooms = normalizeManagerListingSubmissionV1(submission as never).rooms;
-          const index = rooms.findIndex((room) => room.id === connection.room_id);
-          if (index >= 0) roomLabel = rooms[index]!.name.trim() || `Room ${index + 1}`;
-        }
+        // The raw saved rooms: the name the manager typed, whatever the normalizer would do to the rest of the submission.
+        const submission = source?.listingSubmission as { rooms?: unknown } | undefined;
+        const rooms = Array.isArray(submission?.rooms) ? (submission.rooms as { id?: unknown; name?: unknown }[]) : [];
+        const index = rooms.findIndex((room) => room?.id === connection.room_id);
+        if (!roomLabel && index >= 0) roomLabel = (typeof rooms[index]!.name === "string" ? (rooms[index]!.name as string).trim() : "") || `Room ${index + 1}`;
       } catch {
         /* an unreadable submission leaves the room unnamed; the house still matches */
       }
@@ -335,7 +333,8 @@ export async function handleChannelGuestEmail(db: SupabaseClient, input: Channel
       managerUserId,
       managerEmail: input.managerEmail,
       senderEmail: guestKey,
-      senderName: `${message.guestName} · ${siteLabel}`,
+      // The site (and room) ride in the name the list shows; the house is the conversation's own house label.
+      senderName: [message.guestName, siteLabel, match?.roomLabel].filter(Boolean).join(" · "),
       subject: parsed.subject,
       inboundText: message.messageText,
       replyText: replyText || null,
