@@ -17,7 +17,9 @@ vi.mock("@/lib/channel-calendar/client", () => ({
   fetchOccupancySnapshot: vi.fn(async () => ({ days: [] })),
   fetchRoomExportCalendarUrl: vi.fn(async () => "https://proplane.ai/api/calendar/export/new.ics"),
   fetchWritableChannelCalendarPropertyIds: vi.fn(async (ids: string[]) => ids),
-  saveChannelCalendarConnection: vi.fn(async (input: { roomId: string }) => ({ id: `c-${input.roomId}`, hasImportUrl: true })),
+  saveChannelCalendarConnectionsBatch: vi.fn(async (items: Array<{ propertyId: string; roomId: string; importUrl?: string | null }>) =>
+    items.map((item) => ({ ok: true as const, connection: { id: `c-${item.roomId}`, hasImportUrl: Boolean(item.importUrl) } })),
+  ),
   deleteChannelCalendarConnection: vi.fn(),
   syncChannelCalendarConnection: vi.fn(async () => ({})),
   syncAllChannelCalendarConnections: vi.fn(),
@@ -25,7 +27,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
 }));
 
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
-import { fetchManagerChannelBookings, fetchRoomExportCalendarUrl, saveChannelCalendarConnection, syncChannelCalendarConnection, validateChannelImportUrl } from "@/lib/channel-calendar/client";
+import { fetchManagerChannelBookings, fetchRoomExportCalendarUrl, saveChannelCalendarConnectionsBatch, syncChannelCalendarConnection, validateChannelImportUrl } from "@/lib/channel-calendar/client";
 
 const room = (provider: string, roomId: string, label: string | null) => ({
   connectionId: `${provider}-${roomId}-${label}`, roomId, roomLabel: roomId, provider, label, ranges: [], lastSyncedAt: null, lastError: null,
@@ -143,8 +145,8 @@ describe("Connect modal · Other calendar", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://proplane.ai/api/calendar/export/new.ics"));
     expect(fetchRoomExportCalendarUrl).toHaveBeenCalledWith({ propertyId: "p1", roomId: "room-9", roomLabel: "Expedia", provider: "ical" });
     fireEvent.click(screen.getByText("Save"));
-    await waitFor(() => expect(saveChannelCalendarConnection).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(saveChannelCalendarConnection).mock.calls[0]![0]).toMatchObject({ provider: "ical", label: "Expedia", roomId: "room-9", importUrl: "https://partner.expedia.example/feeds/r9.ics" });
+    await waitFor(() => expect(saveChannelCalendarConnectionsBatch).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(saveChannelCalendarConnectionsBatch).mock.calls[0]![0][0]).toMatchObject({ provider: "ical", label: "Expedia", roomId: "room-9", importUrl: "https://partner.expedia.example/feeds/r9.ics" });
     await waitFor(() => expect(syncChannelCalendarConnection).toHaveBeenCalledWith("c-room-9"));
   });
 });

@@ -74,6 +74,33 @@ export async function saveChannelCalendarConnection(input: {
   return data.connection;
 }
 
+export type SaveConnectionInput = {
+  propertyId: string;
+  roomId: string;
+  provider: ChannelCalendarProvider;
+  label?: string | null;
+  importUrl?: string | null;
+};
+
+/**
+ * Saves many rooms' links in ONE request (the popup's Save and Paste many). Each item answers for itself, in
+ * order: one bad link or one room the caller may not edit never fails the others.
+ */
+export async function saveChannelCalendarConnectionsBatch(
+  connections: readonly SaveConnectionInput[],
+): Promise<Array<{ ok: true; connection: ChannelCalendarConnectionPublic } | { ok: false; error: string }>> {
+  if (connections.length === 0) return [];
+  const res = await fetch(`/api/portal/channel-calendar/connections`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connections }),
+  });
+  const data = (await res.json()) as { results?: Array<{ ok: true; connection: ChannelCalendarConnectionPublic } | { ok: false; error: string }>; error?: string };
+  if (!res.ok || !data.results) throw new Error(data.error ?? "Could not save connections.");
+  return data.results;
+}
+
 export async function deleteChannelCalendarConnection(connectionId: string): Promise<void> {
   const res = await fetch(
     `/api/portal/channel-calendar/connections?id=${encodeURIComponent(connectionId)}`,

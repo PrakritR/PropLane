@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, MoreHorizontal, RotateCw } from "lucide-react";
+import { AlertCircle, Check, ClipboardCopy, ClipboardPaste, MoreHorizontal, RotateCw } from "lucide-react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { PortalDialog } from "@/components/portal/portal-dialog";
@@ -11,13 +11,13 @@ import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { POPUP_FIELD_LABEL_CLASS } from "@/components/portal/popup-phone-styles";
-import { Input } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
 import {
   deleteChannelCalendarConnection,
   fetchManagerChannelBookings,
   fetchRoomExportCalendarUrl,
   fetchWritableChannelCalendarPropertyIds,
-  saveChannelCalendarConnection,
+  saveChannelCalendarConnectionsBatch,
   syncAllChannelCalendarConnections,
   syncChannelCalendarConnection,
   validateChannelImportUrl,
@@ -28,6 +28,16 @@ import { isEntireHomeProperty } from "@/lib/rental-application/data";
 import { channelStatusParts, type ChannelConnectionStatus } from "@/lib/channel-calendar/channel-links";
 import { buildAirbnbListingPack } from "@/lib/channel-calendar/listing-pack";
 import { channelCalendarUnits, type ChannelCalendarUnit } from "@/lib/channel-calendar/property-units";
+import {
+  checkBulkRows,
+  copyAllLinksText,
+  draftsFromBulkRows,
+  mapWithConcurrency,
+  matchLinksToRooms,
+  parsePastedLinks,
+  type BulkRow,
+  type BulkRowCheck,
+} from "@/lib/channel-calendar/link-bulk";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { parseIcsCalendar } from "@/lib/ical/parse";
 
@@ -104,6 +114,9 @@ function ChannelStatusText({
   );
 }
 
+/** Links saved or synced at once: four keeps 28 rooms quick without hammering the channel. */
+const SAVE_SYNC_CONCURRENCY = 4;
+
 type LinkCheck = { state: "checking" } | { state: "ok"; text: string } | { state: "bad"; text: string };
 
 export function ChannelCalendarLinkFields({ active, propertyOptions: allPropertyOptions, initialProvider, initialConnections, showToast, onChanged, onClose, entries = [], onOpenBooking }: Props) {
@@ -154,7 +167,7 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
   const scopeIds = useMemo(() => writableOptions.map((p) => p.id), [writableOptions]);
   const scopeKey = scopeIds.join("\n");
   // An entire-home listing has no rooms to list: the house itself is its one row (see channelCalendarUnits).
-  const groups = useMemo<LinkGroup[]>(
+  const baseGroups = useMemo<LinkGroup[]>(
     () =>
       scopeIds.map((propertyId) => {
         const label = writableOptions.find((p) => p.id === propertyId)?.label ?? propertyId;
@@ -165,7 +178,26 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     // eslint-disable-next-line react-hooks/exhaustive-deps -- scopeKey is scopeIds' identity
     [scopeKey, writableOptions],
   );
+  // A link to a room the house no longer lists (a renamed or removed room, or one that only ever got an export link)
+  // still exists and still blocks: it is drawn as a row under its house instead of being invisible here.
+  const groups = useMemo<LinkGroup[]>(() => {
+    const known = new Set(baseGroups.flatMap((g) => g.rows.map((r) => r.key)));
+    const stray = new Map<string, LinkRow[]>();
+    for (const property of linked) {
+      if (!scopeIds.includes(property.propertyId)) continue;
+      for (const room of property.rooms) {
+        if (room.provider !== channel || (isIcal && icalLabelKey(room.label) !== icalLabelKey(site))) continue;
+        const key = rowKey(property.propertyId, room.roomId);
+        if (known.has(key)) continue;
+        known.add(key);
+        const unit: ChannelCalendarUnit = { id: room.roomId, label: room.roomLabel, name: room.roomLabel };
+        stray.set(property.propertyId, [...(stray.get(property.propertyId) ?? []), { key, propertyId: property.propertyId, unit, title: room.roomLabel }]);
+      }
+    }
+    return baseGroups.map((g) => (stray.has(g.propertyId) ? { ...g, rows: [...g.rows, ...stray.get(g.propertyId)!] } : g));
+  }, [baseGroups, linked, scopeIds, channel, isIcal, site]);
   const rows = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
+  const houseLabelOf = (propertyId: string) => groups.find((g) => g.propertyId === propertyId)?.label ?? propertyId;
 
   const linkedRef = useRef(linked);
   useEffect(() => { linkedRef.current = linked; }, [linked]);
@@ -237,21 +269,66 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
   const invalid = rows.some(isBad);
   const pending = rows.filter(changedOf);
 
-  // Save upserts every row whose link changed, then syncs the ones that now have one. A row the
-  // manager emptied is sent as `importUrl: null`, which clears the stored link and its imported stays.
+  // Save sends every row whose link changed in ONE request, then syncs the ones that now have a link four at a
+  // time. A row the manager emptied is sent as `importUrl: null`, which clears the stored link and its imported stays.
   const save = () => run(async () => {
     const failures: string[] = [];
-    for (const row of pending) {
-      try {
-        const connection = await saveChannelCalendarConnection({ propertyId: row.propertyId, roomId: row.unit.id, provider: channel, label: isIcal ? site : row.unit.label, importUrl: draftOf(row) || null });
-        if (connection.hasImportUrl) await syncChannelCalendarConnection(connection.id);
-      } catch (e) { failures.push(`${row.unit.label}: ${e instanceof Error ? e.message : "Save failed"}`); }
-    }
+    const failedKeys = new Set<string>();
+    const results = await saveChannelCalendarConnectionsBatch(
+      pending.map((row) => ({ propertyId: row.propertyId, roomId: row.unit.id, provider: channel, label: isIcal ? site : row.unit.label, importUrl: draftOf(row) || null })),
+    );
+    const toSync: Array<{ row: LinkRow; id: string }> = [];
+    results.forEach((result, index) => {
+      const row = pending[index]!;
+      if (!result.ok) { failures.push(`${row.unit.label}: ${result.error}`); failedKeys.add(row.key); }
+      else if (result.connection.hasImportUrl) toSync.push({ row, id: result.connection.id });
+    });
+    const synced = await mapWithConcurrency(toSync, SAVE_SYNC_CONCURRENCY, ({ id }) => syncChannelCalendarConnection(id));
+    synced.forEach((result, index) => {
+      if (!result.ok) failures.push(`${toSync[index]!.row.unit.label}: ${result.error instanceof Error ? result.error.message : "Sync failed"}`);
+    });
     await refresh();
-    setDrafts({});
+    // What saved is on the server now; only a row that failed to save keeps what the manager typed.
+    setDrafts((old) => Object.fromEntries(Object.entries(old).filter(([key]) => failedKeys.has(key))));
     if (failures.length) setError(failures.join(" · "));
     else { showToast(pending.length > 0 && pending.every(clearedOf) ? "Calendar link removed." : "Calendars saved and synced."); }
   });
+
+  // Copy all: every room's PropLane link as one "House · Room: URL" list. A room with no link yet gets one made,
+  // the same way copying it one at a time does.
+  const copyAll = () => run(async () => {
+    const made = await mapWithConcurrency(rows, SAVE_SYNC_CONCURRENCY, async (row) => ({ house: houseLabelOf(row.propertyId), room: row.title, url: await exportFor(row) }));
+    const entries = made.flatMap((result) => (result.ok ? [result.value] : []));
+    if (entries.length === 0) throw new Error("Could not create the PropLane links.");
+    await navigator.clipboard.writeText(copyAllLinksText(entries));
+    const missed = made.length - entries.length;
+    showToast(missed ? `Copied ${entries.length} PropLane links · ${missed} could not be created.` : `Copied ${entries.length} PropLane ${entries.length === 1 ? "link" : "links"}.`);
+  });
+
+  // Paste many: every link at once, matched to rooms in the order listed, each with its own room picker and its
+  // own check. Using them only fills the boxes; the one Save below saves them all.
+  const [paste, setPaste] = useState<{ text: string; rows: BulkRow[] | null } | null>(null);
+  const labelOfKey = (key: string) => { const row = rows.find((r) => r.key === key); return row ? `${houseLabelOf(row.propertyId)} · ${row.title}` : key; };
+  const pastedRows = paste?.rows ?? null;
+  const bulkChecks = useMemo(
+    () => (pastedRows ? checkBulkRows(channel, pastedRows, (key) => { const row = rows.find((r) => r.key === key); return row ? row.title : key; }) : new Map<string, BulkRowCheck>()),
+    [pastedRows, channel, rows],
+  );
+  const reviewPaste = () => {
+    if (!paste) return;
+    const links = parsePastedLinks(paste.text);
+    const keys = matchLinksToRooms(links, rows.map((row) => ({ key: row.key, label: row.title, filled: Boolean(shownOf(row).trim()) })));
+    setPaste({ ...paste, rows: links.map((url, index) => ({ id: String(index), url, roomKey: keys[index] ?? "" })) });
+  };
+  const usablePasted = paste?.rows ? Object.keys(draftsFromBulkRows(paste.rows, bulkChecks)).length : 0;
+  const pasteBlocked = Boolean(paste?.rows?.some((row) => row.roomKey && bulkChecks.get(row.id)?.ok === false));
+  const applyPaste = () => {
+    if (!paste?.rows) return;
+    const next = draftsFromBulkRows(paste.rows, bulkChecks);
+    setDrafts((old) => ({ ...old, ...next }));
+    setPaste(null);
+    showToast(`${Object.keys(next).length} ${Object.keys(next).length === 1 ? "link" : "links"} ready. Save to connect.`);
+  };
 
   // "Other calendar" can be checked from the server before it is saved: public host, a real calendar.
   const checkLink = async (row: LinkRow) => {
@@ -283,6 +360,10 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
         <datalist id="channel-calendar-site-names">{knownSites.map((known) => <option key={known} value={known} />)}</datalist>
       </div> : null}
     </div>
+    {!loading && provider && rows.length > 0 ? <div className="-mt-2 mb-3 flex items-center justify-end gap-1" data-attr="channel-calendar-bulk-actions">
+      <PortalIconAction icon={ClipboardCopy} label="Copy all PropLane links" disabled={busy || needsName} onClick={() => void copyAll()} data-attr="channel-calendar-copy-all" />
+      <PortalIconAction icon={ClipboardPaste} label="Paste many" disabled={busy || needsName} onClick={() => setPaste({ text: "", rows: null })} data-attr="channel-calendar-paste-many" />
+    </div> : null}
     {loading ? <p role="status">Loading linked rooms…</p> : rows.length === 0 ? <p>This workspace has no rooms listed.</p> : <div className="space-y-5" data-attr="channel-calendar-link-table">
       <div className={`hidden text-xs font-medium text-muted ${gridClass}`}><span>Room</span><span>{name} calendar link</span><span>PropLane link</span><span className="w-9" /></div>
       {groups.filter((g) => g.rows.length).map((group) => <section key={group.propertyId} aria-label={group.label} className="overflow-hidden rounded-2xl border border-border bg-card">
@@ -365,6 +446,28 @@ export function ChannelCalendarLinkFields({ active, propertyOptions: allProperty
     >
       {page}
     </AddWorkspace>
+    <PortalDialog
+      open={Boolean(paste)}
+      onClose={() => setPaste(null)}
+      title={paste?.rows ? "Match links to rooms" : "Paste many"}
+      primaryAction={paste?.rows
+        ? { label: `Use ${usablePasted} ${usablePasted === 1 ? "link" : "links"}`, onClick: applyPaste, disabled: usablePasted === 0 || pasteBlocked, dataAttr: "channel-calendar-paste-apply" }
+        : { label: "Match rooms", onClick: reviewPaste, disabled: parsePastedLinks(paste?.text ?? "").length === 0, dataAttr: "channel-calendar-paste-match" }}
+      secondaryAction={paste?.rows ? { label: "Back", onClick: () => setPaste({ text: paste.text, rows: null }) } : null}
+    >
+      {paste?.rows ? <div className="space-y-3" data-attr="channel-calendar-paste-review">
+        {paste.rows.length === 0 ? <p>No links found.</p> : paste.rows.map((row) => {
+          const check = bulkChecks.get(row.id);
+          return <div key={row.id} className="space-y-1.5 rounded-xl border border-border p-3" data-attr="channel-calendar-paste-row">
+            <p className="break-all text-xs text-muted">{row.url}</p>
+            <FieldSingleSelect hideLabel label="Room" dataAttr="channel-calendar-paste-room" value={row.roomKey} placeholder="Skip this link"
+              options={[{ value: "", label: "Skip this link" }, ...rows.map((r) => ({ value: r.key, label: labelOfKey(r.key) }))]}
+              onChange={(next) => setPaste({ text: paste.text, rows: paste.rows!.map((candidate) => (candidate.id === row.id ? { ...candidate, roomKey: next } : candidate)) })} />
+            {row.roomKey && check?.ok === false ? <p role="alert" className="text-sm text-danger">{check.error}</p> : row.roomKey ? <p className="text-sm">OK</p> : null}
+          </div>;
+        })}
+      </div> : <Textarea aria-label="Calendar links" rows={9} autoFocus value={paste?.text ?? ""} placeholder={`Paste every ${name} calendar link, one per line`} onChange={(event) => setPaste({ text: event.target.value, rows: null })} data-attr="channel-calendar-paste-text" />}
+    </PortalDialog>
     <PortalDialog open={Boolean(preview)} onClose={() => setPreview(null)} title={`Feed preview · ${preview?.room ?? ""}`} primaryAction={{ label: "Done", onClick: () => setPreview(null) }} secondaryAction={null}><div className="space-y-3">{preview?.events.length === 0 ? <p>No PropLane blocks in this feed.</p> : preview?.events.map((event) => <div key={event.uid} className="rounded-xl border border-border p-3"><p>Blocked by PropLane</p><p>{formatPortalListDate(event.startDate)} – {formatPortalListDate(event.endDate)}</p><code className="text-xs">DTSTART {event.startDate.replaceAll("-", "")} · DTEND {new Date(Date.parse(`${event.endDate}T00:00:00Z`) + 86400000).toISOString().slice(0, 10).replaceAll("-", "")}</code></div>)}</div></PortalDialog>
     <PortalDialog open={Boolean(disconnect)} onClose={() => setDisconnect(null)} title="Disconnect calendar?" primaryAction={{ label: "Disconnect", onClick: () => run(async () => { await deleteChannelCalendarConnection(disconnect!.id); setDisconnect(null); await refresh(); }), disabled: busy }} secondaryAction={{ label: "Keep connected", onClick: () => setDisconnect(null) }}><p>{disconnect?.label ?? "This room"} · Imported blocks will be removed and this feed link may stop working.</p></PortalDialog>
   </>;
