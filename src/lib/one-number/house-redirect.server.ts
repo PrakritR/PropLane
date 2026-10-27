@@ -36,7 +36,7 @@ import { getServicePublicListings, loadServiceWorkspaceIds } from "@/lib/service
 const allCache = createTtlCache<MockProperty[]>(60_000);
 
 async function allPublicListings(): Promise<MockProperty[]> {
-  const load = () => getPublicListings();
+  const load = () => getPublicListings({ workspaceId: true });
   return serverSnapshotCacheEnabled() ? allCache.get("all", load) : load();
 }
 
