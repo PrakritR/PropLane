@@ -192,6 +192,10 @@ const PUBLIC_SUBMISSION_KEYS = [
   "customFees",
   "monthToMonthSurcharge",
   "customLeaseSurcharge",
+  // How a part month is billed, so the public "First month · Prorated by day" row states the
+  // formula the first charge actually uses instead of always quoting the monthly-rent one.
+  // The method alone; the per-day RATES stay internal.
+  "entireHomeProrateMethod",
   "allowedLeaseTerms",
   "leaseTermsBody",
   "shortTermRentalsAllowed",
@@ -223,7 +227,11 @@ const PUBLIC_SUBMISSION_KEYS = [
   "propertyApplicationTemplatesExplicit",
 ] as const satisfies readonly (keyof ManagerListingSubmissionV1)[];
 
-/** Excludes `moveInInstructions` (door codes, key handoff) and proration internals. */
+/**
+ * Excludes `moveInInstructions` (door codes, key handoff) and the per-day proration RATES.
+ * `prorateMethod` itself is published: it is which formula the first charge uses, which the
+ * public price card's "First month" row states.
+ */
 const PUBLIC_ROOM_KEYS = [
   "id",
   "name",
@@ -244,6 +252,9 @@ const PUBLIC_ROOM_KEYS = [
   // leasing line.
   "securityDeposit",
   "rentBasis",
+  // Whether this room's part month bills from its daily rate or from the monthly rent — the
+  // one input `listingProratesFromDailyRate` reads for the public "First month" row.
+  "prorateMethod",
   "dailyRentPrice",
   // The room's own nightly rate: the short-stay price card quotes the same figure the request books at.
   "shortTermRent",
@@ -281,6 +292,9 @@ const PUBLIC_RESIDENT_PRICE_KEYS = [
   "utilitiesEstimate",
   "securityDeposit",
   "pricingMode",
+  // A slot priced per day overrides the room's method, so the public "First month" row would
+  // otherwise quote the monthly-rent formula for a stay billed by the day.
+  "prorateMethod",
 ] as const satisfies readonly (keyof ManagerRoomResidentPrice)[];
 
 const PUBLIC_BATHROOM_KEYS = [

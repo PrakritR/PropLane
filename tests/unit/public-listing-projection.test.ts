@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 // import time for the catalog query it also exports.
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
 
+import { listingProratesFromDailyRate } from "@/lib/listing-price-line";
 import { publicListingProjection, resolvePublicSigningContext } from "@/lib/public-listings.server";
 import type { MockProperty } from "@/data/types";
 
@@ -218,6 +219,29 @@ describe("publicListingProjection", () => {
     });
     // A listing that never set them publishes nothing, so old payloads stay byte-identical.
     expect(allKeys(publicListingProjection(storedListing())).has("stayTimes")).toBe(false);
+  });
+
+  it("publishes which method prorates a part month, so the Costs card's First month row is true", () => {
+    // The public listing page renders `listingPriceRows` over THIS payload. Without the three
+    // method keys a per-day listing silently advertised the monthly-rent arithmetic. The per-day
+    // RATES stay internal — only which formula the first charge uses is public.
+    const listing = storedListing();
+    const sub = listing.listingSubmission as unknown as Record<string, unknown>;
+    sub.entireHomeProrateMethod = "daily_rate";
+    const room = (sub.rooms as Array<Record<string, unknown>>)[0]!;
+    room.prorateMethod = "daily_rate";
+    room.dailyRentRate = 120;
+    room.dailyUtilitiesRate = 4;
+    room.residentPrices = [{ slot: 1, monthlyRent: 900, prorateMethod: "daily_rate", dailyRentRate: 60 }];
+
+    const projected = publicListingProjection(listing).listingSubmission as unknown as Record<string, unknown>;
+    expect(projected.entireHomeProrateMethod).toBe("daily_rate");
+    const publicRoom = (projected.rooms as Array<Record<string, unknown>>)[0]!;
+    expect(publicRoom.prorateMethod).toBe("daily_rate");
+    expect((publicRoom.residentPrices as Array<Record<string, unknown>>)[0]!.prorateMethod).toBe("daily_rate");
+    expect(listingProratesFromDailyRate(projected as never)).toBe(true);
+    expect(allKeys(projected).has("dailyRentRate")).toBe(false);
+    expect(allKeys(projected).has("dailyUtilitiesRate")).toBe(false);
   });
 
   it("keeps the building compliance inputs off the public payload", () => {

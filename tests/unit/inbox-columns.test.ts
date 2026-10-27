@@ -45,4 +45,17 @@ describe("InboxTwoPane source guard", () => {
     expect(body).toContain("pickInboxColumns(");
     expect(body).toContain("new ResizeObserver(");
   });
+
+  // The panel is drawn OVER the conversation now that the details are not a third column, and
+  // `bg-card` is rebound translucent under [data-theme] (rgba .7 / .1) — the message text read
+  // straight through the rows. Same opaque-surface rule every other floating panel carries.
+  it("gives the details panel an opaque surface in both themes", () => {
+    const css = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
+    const light = css.match(/^\.portal-inbox-details-panel \{[^}]*\}/m)?.[0] ?? "";
+    const dark = css.match(/^\[data-theme="dark"\] \.portal-inbox-details-panel \{[^}]*\}/m)?.[0] ?? "";
+    expect(light).toMatch(/background-color: #ffffff !important/);
+    expect(dark).toMatch(/background-color: #111827 !important/);
+    // After the `[data-theme] .bg-card` rebind, or the rebind wins on source order.
+    expect(css.indexOf(".portal-inbox-details-panel {")).toBeGreaterThan(css.indexOf('[data-theme="light"] .bg-card {'));
+  });
 });
