@@ -33,7 +33,6 @@ import {
 } from "@/lib/one-number/lead-qualifying";
 import { redactSensitiveNumbers } from "@/lib/one-number/redact";
 import { findWorkspaceProspectCandidate, propertyLabel } from "@/lib/one-number/router-lookups.server";
-import { loadSharedLineSession, saveSharedLineRoute } from "@/lib/one-number/session.server";
 import {
   HOLD_REPLY,
   lookingForLine,
@@ -42,7 +41,7 @@ import {
   paidInterestReply,
   switchQuestion,
 } from "@/lib/one-number/home-lock";
-import { loadHome, ownerFirstName, recordPaidInterest, tagLockedHouse, workspaceIsService, writeLookingForTurn } from "@/lib/one-number/home-lock.server";
+import { claimLeadAndLock, loadHome, ownerFirstName, recordPaidInterest, tagLockedHouse, workspaceIsService, writeLookingForTurn } from "@/lib/one-number/home-lock.server";
 import { listingsNamedIn, matchListingsNamedIn, streetLine } from "@/lib/one-number/house-redirect";
 import { lineTierOf, type LineListing } from "@/lib/one-number/line-tier";
 import { paidWorkNumberFor } from "@/lib/one-number/self-serve-line.server";
@@ -441,28 +440,6 @@ const GONE_REPLY = "That room is no longer available. Send a new budget or area 
 /** The neutral line when a write the answer depends on failed: nothing is claimed, the phone keeps its previous home. */
 export const RETRY_REPLY = "I could not check rooms just now. Text me again in a minute and I will try again.";
 
-type LockRoute = { workspaceId: string; role: "prospect"; lockedPropertyId: string | null };
-type LockFirst = { ok: false } | { ok: true; undo: () => Promise<void> };
-
-/**
- * Persist the home lock BEFORE anything that tells the prospect (or a workspace) the home is theirs. A failed or thrown save
- * is `ok: false` and the caller stops: the previous lock and assignment stay as they were. `undo` puts the previous route
- * back if a later step of the same move fails.
- */
-async function lockFirst(db: SupabaseClient, phoneKey: string, route: LockRoute): Promise<LockFirst> {
-  const prior = await loadSharedLineSession(db, phoneKey).catch(() => null);
-  const saved = await saveSharedLineRoute(db, phoneKey, route).catch(() => false);
-  if (!saved) return { ok: false };
-  return {
-    ok: true,
-    undo: async () => {
-      if (prior?.currentWorkspaceId && prior.activeRole) {
-        await saveSharedLineRoute(db, phoneKey, { workspaceId: prior.currentWorkspaceId, role: prior.activeRole, lockedPropertyId: prior.lockedPropertyId ?? null }).catch(() => false);
-      }
-    },
-  };
-}
-
 /** Several homes named in one text: "Which one? 1) ... 2) ...", with the homes stored as offers so a number picks one. */
 function askWhichHome(text: string, catalog: readonly LineListing[]): { reply: string; offers: LeadOffer[] } | null {
   const hits = listingsNamedIn(text, catalog).slice(0, MAX_STRANGER_OFFERS);
@@ -526,38 +503,38 @@ export async function paidInterestTurn(
   const firstName = (await deps.firstNameOf(home.ownerUserId).catch(() => null)) ?? "";
   const reply = paidInterestReply({ label: home.label, firstName, number });
   const at = deps.now().toISOString();
-  // The lock first: a phone told "text Marcus" that is not locked to the home would route its next text to the old owner.
-  const lock = await lockFirst(db, lead.phoneKey, { workspaceId: home.workspaceId, role: "prospect", lockedPropertyId: home.propertyId });
-  if (!lock.ok) {
+  // Claim the lead, then lock the phone to the home, as one ordered conditional unit (`claimLeadAndLock`). Only after BOTH
+  // applied is the success reply recorded: a replay of this text can never be handed a success for a failed attempt.
+  const welcomed = (text: string) => (ctx.first ? toGsm7(`${WELCOME} ${text}`) : text);
+  const moved = await claimLeadAndLock(db, {
+    lead,
+    target: { workspaceId: home.workspaceId, propertyId: home.propertyId },
+    at,
+    assignedProfile: { ...lead.profile, stage: "assigned", asked: null },
+  });
+  if (moved.kind === "lost" && moved.same) {
+    // The winner already holds this exact home and lock (and recorded it): nothing more to write.
+    return { leadId: lead.id, reply: welcomed(reply), assignedWorkspaceId: null };
+  }
+  if (moved.kind !== "won") {
+    // Nothing was claimed or locked (or a different request won): say nothing about the home. The neutral line is what a
+    // replay of this text gets back, never a success.
     const retry = toGsm7(RETRY_REPLY);
     await recordReply(db, lead.id, ctx.inboundSid, retry, []);
-    return { leadId: lead.id, reply: ctx.first ? toGsm7(`${WELCOME} ${retry}`) : retry, assignedWorkspaceId: null };
+    return { leadId: lead.id, reply: welcomed(retry), assignedWorkspaceId: null };
   }
   await recordReply(db, lead.id, ctx.inboundSid, reply, []);
-  const claimed = await db
-    .from("sms_unassigned_leads")
-    .update({ status: "assigned", assigned_workspace_id: home.workspaceId, assigned_property_id: home.propertyId, assigned_at: at, profile: { ...lead.profile, stage: "assigned", asked: null }, updated_at: at })
-    .eq("id", lead.id)
-    .eq("status", "open")
-    .select("id");
-  if (!claimed.error && claimed.data?.length) {
-    const phoneE164 = e164FromPhoneKey(lead.phoneKey);
-    await recordPaidInterest(db, {
-      home,
-      phoneE164,
-      linePhone: config.sharedNumber ?? phoneE164,
-      interestText: `I'm interested in ${home.label}.`,
-      replyText: reply,
-      key: `${lead.id}:${home.propertyId}`,
-      at,
-    });
-  } else if (claimed.error) {
-    // The lead could not be marked assigned: put the previous home back rather than lock a phone nothing was recorded for.
-    await lock.undo();
-    const retry = toGsm7(RETRY_REPLY);
-    return { leadId: lead.id, reply: ctx.first ? toGsm7(`${WELCOME} ${retry}`) : retry, assignedWorkspaceId: null };
-  }
-  return { leadId: lead.id, reply: ctx.first ? toGsm7(`${WELCOME} ${reply}`) : reply, assignedWorkspaceId: null };
+  const phoneE164 = e164FromPhoneKey(lead.phoneKey);
+  await recordPaidInterest(db, {
+    home,
+    phoneE164,
+    linePhone: config.sharedNumber ?? phoneE164,
+    interestText: `I'm interested in ${home.label}.`,
+    replyText: reply,
+    key: `${lead.id}:${home.propertyId}`,
+    at,
+  });
+  return { leadId: lead.id, reply: welcomed(reply), assignedWorkspaceId: null };
 }
 
 /**
@@ -690,29 +667,18 @@ export async function assignLeadToHouse(
   const label = houseLabel || prospect.label;
 
   const at = now().toISOString();
-  // The home lock first (a house sets it; a placement by an admin with no house clears any earlier lock). If it does not
-  // save, nothing below runs: the lead stays open and the phone keeps its previous home.
-  const lock = await lockFirst(db, lead.phoneKey, { workspaceId: prospect.workspaceId, role: "prospect", lockedPropertyId: propertyId || null });
-  if (!lock.ok) return { ok: false, error: "unavailable" };
-  const claimed = await db
-    .from("sms_unassigned_leads")
-    .update({
-      status: "assigned",
-      assigned_workspace_id: prospect.workspaceId,
-      assigned_property_id: propertyId || null,
-      assigned_at: at,
-      profile: { ...lead.profile, stage: "assigned", asked: null },
-      updated_at: at,
-    })
-    .eq("id", lead.id)
-    .eq("status", "open")
-    .select("id");
-  if (claimed.error) {
-    await lock.undo();
-    return { ok: false, error: "unavailable" };
-  }
-  // A lost race: the winner wrote its own lock, so this one is not undone.
-  if (!claimed.data?.length) return { ok: false, error: "lead_not_open" };
+  // Claim the lead, then lock the phone (a house sets the lock; a placement by an admin with no house clears any earlier one),
+  // as one ordered conditional unit. A loser writes no lock; a lock that does not apply rolls the claim back. Every effect
+  // below runs only after both applied.
+  const moved = await claimLeadAndLock(db, {
+    lead,
+    target: { workspaceId: prospect.workspaceId, propertyId: propertyId || null },
+    at,
+    assignedProfile: { ...lead.profile, stage: "assigned", asked: null },
+  });
+  if (moved.kind === "unavailable") return { ok: false, error: "unavailable" };
+  // A lost race: the winner owns the lead and the lock. Same target as stored AND locked = a no-op success; else retry.
+  if (moved.kind === "lost") return moved.same ? { ok: true, workspaceId: prospect.workspaceId, ownerUserId: prospect.ownerUserId, label } : { ok: false, error: "unavailable" };
 
   const phoneE164 = e164FromPhoneKey(lead.phoneKey);
   const linePhone = config.sharedNumber ?? phoneE164;

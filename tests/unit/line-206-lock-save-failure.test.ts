@@ -99,20 +99,19 @@ let sid = 0;
 /** What an sms_line_sessions write does right now: fine, resolves with an error (a false save), or throws. */
 let saveMode: "ok" | "error" | "throw" = "ok";
 
+const failing = () => {
+  if (saveMode === "throw") return Promise.reject(new Error("connection reset"));
+  return Promise.resolve({ data: null, error: { code: "57014", message: "statement timeout" } });
+};
+/** Every WRITE to sms_line_sessions (upsert, insert, update, delete) fails in the chosen way; reads pass through. */
 const flaky = (inner: LeadFakeDb["db"]) =>
   ({
     ...(inner as object),
     from(table: string) {
       const builder = (inner as unknown as { from: (t: string) => Record<string, unknown> }).from(table);
-      if (table !== "sms_line_sessions") return builder;
-      return {
-        ...builder,
-        upsert: (...args: unknown[]) => {
-          if (saveMode === "throw") return Promise.reject(new Error("connection reset"));
-          if (saveMode === "error") return Promise.resolve({ data: null, error: { code: "57014", message: "statement timeout" } });
-          return (builder.upsert as (...a: unknown[]) => unknown)(...args);
-        },
-      };
+      if (table !== "sms_line_sessions" || saveMode === "ok") return builder;
+      const dead: Record<string, unknown> = { eq: () => dead, is: () => dead, select: () => dead, then: (a: (v: unknown) => unknown, r?: (e: unknown) => unknown) => failing().then(a, r) };
+      return { ...builder, upsert: () => dead, insert: () => dead, update: () => dead, delete: () => dead };
     },
   }) as unknown as LeadFakeDb["db"];
 

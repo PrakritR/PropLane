@@ -6,6 +6,7 @@ import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import { workspaceHasDedicatedNumber } from "@/lib/one-number/config.server";
 import type { SharedLineConfig } from "@/lib/one-number/contracts";
 import { streetLine } from "@/lib/one-number/house-redirect";
+import { readSessionSnapshot, revertSharedLineRoute, saveSharedLineRouteIf } from "@/lib/one-number/session.server";
 import type { LineTier } from "@/lib/one-number/line-tier";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { tagConversationHouse } from "@/lib/sms/conversation-houses.server";
@@ -147,4 +148,88 @@ export async function recordPaidInterest(
     createdAt: new Date(Date.parse(input.at) + 1000).toISOString(),
   }).catch(() => false);
   await tagLockedHouse(db, { ownerUserId: input.home.ownerUserId, phoneE164: input.phoneE164, propertyId: input.home.propertyId });
+}
+
+// ---------------------------------------------------------------------------
+// One ordered, conditional unit: claim the lead, then lock the phone
+// ---------------------------------------------------------------------------
+
+export type ClaimTarget = { workspaceId: string; propertyId: string | null };
+
+export type ClaimAndLock =
+  /** Both writes applied. Everything that tells anyone the home is theirs may run now. */
+  | { kind: "won" }
+  /** The claim matched no row. `same` = the lead is stored as assigned to exactly this target AND the phone's lock is this target. */
+  | { kind: "lost"; same: boolean }
+  /** Nothing is claimed or locked: an unreadable session, a claim error, or a lock that did not apply (the claim is rolled back). */
+  | { kind: "unavailable" };
+
+async function rollbackClaim(db: SupabaseClient, lead: { id: string; profile: unknown }, target: ClaimTarget, at: string): Promise<void> {
+  try {
+    let q = db
+      .from("sms_unassigned_leads")
+      .update({ status: "open", assigned_workspace_id: null, assigned_property_id: null, assigned_at: null, profile: lead.profile, updated_at: new Date().toISOString() })
+      .eq("id", lead.id)
+      .eq("status", "assigned")
+      .eq("assigned_workspace_id", target.workspaceId)
+      .eq("assigned_at", at);
+    q = target.propertyId ? q.eq("assigned_property_id", target.propertyId) : q.is("assigned_property_id", null);
+    const { error } = await q.select("id");
+    if (error) console.error("lead claim rollback failed", error.code ?? "unknown");
+  } catch {
+    console.error("lead claim rollback failed", "thrown");
+  }
+}
+
+async function storedAssignmentIs(db: SupabaseClient, leadId: string, phoneKey: string, target: ClaimTarget): Promise<boolean> {
+  try {
+    const { data, error } = await db.from("sms_unassigned_leads").select("status, assigned_workspace_id, assigned_property_id").eq("id", leadId).maybeSingle();
+    const row = data as Row | null;
+    if (error || !row) return false;
+    if (str(row.status) !== "assigned" || str(row.assigned_workspace_id) !== target.workspaceId || str(row.assigned_property_id) !== (target.propertyId ?? "")) return false;
+    const session = await readSessionSnapshot(db, phoneKey);
+    return !!session && session.exists && session.workspaceId === target.workspaceId && session.lockedPropertyId === target.propertyId;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Move a lead to ONE target and lock its phone there as one ordered unit:
+ *   1. read the session (unreadable = stop, nothing written);
+ *   2. CLAIM the lead (`status = 'open'` compare-and-swap that returns the row); no row = lost, and a loser writes no lock;
+ *   3. write the LOCK conditionally on the lock values read in step 1; if that fails or matches nothing, the claim is
+ *      rolled back (only the exact values this request set) and the move is `unavailable`.
+ * The caller records the success reply and every other effect only after `won`.
+ */
+export async function claimLeadAndLock(
+  db: SupabaseClient,
+  input: { lead: { id: string; phoneKey: string; profile: unknown }; target: ClaimTarget; at: string; assignedProfile: unknown },
+): Promise<ClaimAndLock> {
+  const { lead, target, at } = input;
+  const prior = await readSessionSnapshot(db, lead.phoneKey);
+  if (!prior) return { kind: "unavailable" };
+  let claimed: { error: unknown; rows: number };
+  try {
+    const res = await db
+      .from("sms_unassigned_leads")
+      .update({ status: "assigned", assigned_workspace_id: target.workspaceId, assigned_property_id: target.propertyId, assigned_at: at, profile: input.assignedProfile, updated_at: at })
+      .eq("id", lead.id)
+      .eq("status", "open")
+      .select("id");
+    claimed = { error: res.error, rows: res.data?.length ?? 0 };
+  } catch (error) {
+    claimed = { error, rows: 0 };
+  }
+  if (claimed.error) {
+    // The outcome is unknown: undo exactly this request's values if they did land.
+    await rollbackClaim(db, lead, target, at);
+    return { kind: "unavailable" };
+  }
+  if (claimed.rows === 0) return { kind: "lost", same: await storedAssignmentIs(db, lead.id, lead.phoneKey, target) };
+  const route = { workspaceId: target.workspaceId, role: "prospect" as const, lockedPropertyId: target.propertyId };
+  if (await saveSharedLineRouteIf(db, lead.phoneKey, route, prior, at)) return { kind: "won" };
+  await revertSharedLineRoute(db, lead.phoneKey, { workspaceId: target.workspaceId, lockedPropertyId: target.propertyId, at }, prior);
+  await rollbackClaim(db, lead, target, at);
+  return { kind: "unavailable" };
 }

@@ -105,6 +105,137 @@ export async function saveSharedLineRoute(
   return !error;
 }
 
+/**
+ * What `sms_line_sessions` holds for a phone right now, read directly so an UNREADABLE row is told apart from a MISSING one
+ * (`loadSharedLineSession` folds both into null). `null` = unreadable: the caller writes nothing.
+ */
+export type SessionSnapshot =
+  | { exists: false; hasLockColumns: boolean }
+  | {
+      exists: true;
+      hasLockColumns: boolean;
+      workspaceId: string | null;
+      role: string | null;
+      lockedPropertyId: string | null;
+      lockedAt: string | null;
+      pendingCandidates: unknown;
+      pendingAskedAt: string | null;
+    };
+
+export async function readSessionSnapshot(db: SupabaseClient, phoneKey: string): Promise<SessionSnapshot | null> {
+  try {
+    const read = (columns: string) => db.from("sms_line_sessions").select(columns).eq("phone_key", phoneKey).maybeSingle();
+    let hasLockColumns = true;
+    let res = await read("phone_key, current_workspace_id, active_role, pending_candidates, pending_asked_at, locked_property_id, locked_at");
+    if (res.error && isMissingSchemaError(res.error)) {
+      hasLockColumns = false;
+      res = await read("phone_key, current_workspace_id, active_role, pending_candidates, pending_asked_at");
+    }
+    if (res.error) return null;
+    if (!res.data) return { exists: false, hasLockColumns };
+    const row = res.data as unknown as Record<string, unknown>;
+    const text = (v: unknown) => (v == null || v === "" ? null : String(v));
+    return {
+      exists: true,
+      hasLockColumns,
+      workspaceId: text(row.current_workspace_id),
+      role: text(row.active_role),
+      lockedPropertyId: text(row.locked_property_id),
+      lockedAt: text(row.locked_at),
+      pendingCandidates: row.pending_candidates ?? null,
+      pendingAskedAt: text(row.pending_asked_at),
+    };
+  } catch {
+    return null;
+  }
+}
+
+type Guarded<T> = { eq: (c: string, v: unknown) => T; is: (c: string, v: null) => T };
+function guard<T extends Guarded<T>>(q: T, column: string, value: string | null): T {
+  return value === null ? q.is(column, null) : q.eq(column, value);
+}
+
+/**
+ * Compare-and-swap form of `saveSharedLineRoute` for a MOVE of the home lock. It applies only if the session still holds
+ * the lock values `prior` was read with (or, with no row before, only if no row exists yet), so a later winner is never
+ * overwritten by an earlier loser. `at` is the lock time written; the caller passes the same value to `revertSharedLineRoute`.
+ * Throws and errors are `false`; zero matched rows is `false`.
+ */
+export async function saveSharedLineRouteIf(
+  db: SupabaseClient,
+  phoneKey: string,
+  route: { workspaceId: string; role: SharedLineRole; lockedPropertyId: string | null },
+  prior: SessionSnapshot,
+  at: string,
+): Promise<boolean> {
+  try {
+    const base = {
+      current_workspace_id: route.workspaceId,
+      active_role: route.role,
+      pending_candidates: null,
+      pending_asked_at: null,
+      last_inbound_at: at,
+      updated_at: at,
+    };
+    const lock = prior.hasLockColumns ? { locked_property_id: route.lockedPropertyId, locked_at: route.lockedPropertyId ? at : null } : {};
+    if (!prior.exists) {
+      const { error } = await db.from("sms_line_sessions").insert({ phone_key: phoneKey, ...base, ...lock });
+      if (error) console.error("shared line session lock insert failed", error.code ?? "unknown");
+      return !error;
+    }
+    let q = db.from("sms_line_sessions").update({ ...base, ...lock }).eq("phone_key", phoneKey);
+    if (prior.hasLockColumns) {
+      q = guard(q, "locked_property_id", prior.lockedPropertyId);
+      q = guard(q, "locked_at", prior.lockedAt);
+    }
+    const { data, error } = await q.select("phone_key");
+    if (error) console.error("shared line session lock update failed", error.code ?? "unknown");
+    return !error && (data ?? []).length === 1;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Undo exactly what `saveSharedLineRouteIf` wrote: only while the session still holds that request's route and lock values.
+ * A session that did not exist before is removed (no lock, no route); one that did goes back to its prior route, lock and
+ * pending question. A newer writer's values never match the guard, so they are left alone.
+ */
+export async function revertSharedLineRoute(
+  db: SupabaseClient,
+  phoneKey: string,
+  mine: { workspaceId: string; lockedPropertyId: string | null; at: string },
+  prior: SessionSnapshot,
+): Promise<boolean> {
+  try {
+    const lockedAt = mine.lockedPropertyId ? mine.at : null;
+    const guardMine = <T extends Guarded<T>>(q: T): T => {
+      let g = q.eq("current_workspace_id", mine.workspaceId);
+      if (prior.hasLockColumns) {
+        g = guard(g, "locked_property_id", mine.lockedPropertyId);
+        g = guard(g, "locked_at", lockedAt);
+      }
+      return g;
+    };
+    if (!prior.exists) {
+      const { error } = await guardMine(db.from("sms_line_sessions").delete().eq("phone_key", phoneKey));
+      return !error;
+    }
+    const restore = {
+      current_workspace_id: prior.workspaceId,
+      active_role: prior.role,
+      pending_candidates: prior.pendingCandidates,
+      pending_asked_at: prior.pendingAskedAt,
+      updated_at: new Date().toISOString(),
+      ...(prior.hasLockColumns ? { locked_property_id: prior.lockedPropertyId, locked_at: prior.lockedAt } : {}),
+    };
+    const { error } = await guardMine(db.from("sms_line_sessions").update(restore).eq("phone_key", phoneKey));
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
 /** Drop the pending question without moving the route or the lock (a "no" to the switch question). */
 export async function clearSharedLinePending(db: SupabaseClient, phoneKey: string): Promise<boolean> {
   const now = new Date().toISOString();
