@@ -82,15 +82,6 @@ function normalizeBody(text: string): string[] {
     .map((line) => line.replace(/^[>\s]+/, "").replace(/[ \t]+/g, " ").trim());
 }
 
-/** First capture group of the first pattern that matches `value`. */
-function firstMatch(value: string, patterns: readonly RegExp[]): string | undefined {
-  for (const pattern of patterns) {
-    const hit = pattern.exec(value)?.[1];
-    if (hit) return hit;
-  }
-  return undefined;
-}
-
 /** The lines after the last header-ish line up to the first footer marker; quotes and blank edges trimmed. */
 function messageFrom(lines: string[], start: number, endMarkers: RegExp): string {
   const kept: string[] = [];
