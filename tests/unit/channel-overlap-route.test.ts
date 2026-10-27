@@ -130,6 +130,22 @@ describe("the server refuses a stay that overlaps a channel reservation", () => 
     expect(await write(seed(), record)).toMatchObject({ status: 409 });
   });
 
+  it.each(["vrbo", "ical"])("a %s reservation on the same dates is never derived into a link and still clashes", async (provider) => {
+    const db = seed({
+      external_calendar_connections: [connection({ id: "cv", room_id: "r8", provider, imported_ranges: [ELIAS] })],
+      channel_stay_details: [],
+    });
+    const record = stay({ row_data: { checkIn: "2026-10-30", checkOut: "2026-11-02" } });
+    expect(await write(db, record)).toMatchObject({ status: 409 });
+    expect(detailsOf(record)?.channelLink).toBeUndefined();
+  });
+
+  it("a closure on an Airbnb reservation's nights is never auto-linked and still clashes", async () => {
+    const closure = stay({ row_data: { residentName: "", blockKind: "closed", reason: "Painting", checkIn: "2026-10-29", checkOut: "2026-10-31" } });
+    expect(await write(seed(), closure)).toMatchObject({ status: 409 });
+    expect(detailsOf(closure)?.channelLink).toBeUndefined();
+  });
+
   it("a removed (tombstoned) reservation is not a clash", async () => {
     const tombstone = {
       id: "tomb-1",

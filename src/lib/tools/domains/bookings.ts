@@ -23,7 +23,7 @@ import {
 } from "@/lib/auth/manager-lease-scope";
 import { listManagerChannelCalendarBookings } from "@/lib/channel-calendar/bookings.server";
 import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
-import { normalizeChannelLink, type ChannelLink } from "@/lib/channel-calendar/channel-link";
+import { normalizeChannelLink, stayMayAutoLink, type ChannelLink } from "@/lib/channel-calendar/channel-link";
 import { checkStayAgainstChannels } from "@/lib/channel-calendar/channel-overlap.server";
 import { ROOM_BLOCK_KIND_CLOSED, roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
 import { emitNativeBookingEvent, type NativeBookingEvent } from "@/lib/channel-booking-events.server";
@@ -560,7 +560,7 @@ async function channelCheckForBlock(ctx: AgentContext, r: ResolvedBlock, records
     reason: r.reason,
     link,
     storedLink: link,
-    derive: !r.closed,
+    derive: stayMayAutoLink({ residentName: r.residentName, closed: r.closed, reason: r.reason }),
     ownId,
     blockRows: records,
   });

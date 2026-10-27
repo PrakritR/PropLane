@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { channelClashText, findChannelClashes, type ChannelOverlapRange } from "@/lib/channel-calendar/channel-overlap";
+import { channelClashText, findChannelClashes, linkedRangeForStay, type ChannelOverlapRange } from "@/lib/channel-calendar/channel-overlap";
 import { createFakeDb } from "../helpers/fake-table-db";
 
 const emitted = vi.hoisted(() => ({ calls: [] as Array<Record<string, unknown>> }));
@@ -28,6 +28,24 @@ const range = (over: Partial<ChannelOverlapRange> & { connectionId: string; star
 
 const airbnb = range({ connectionId: "ca", start: "2026-10-29", end: "2026-10-31" });
 const booking = range({ connectionId: "cb", provider: "booking_com", start: "2026-10-30", end: "2026-11-02", summary: "CLOSED - Not available" });
+
+describe("linkedRangeForStay only derives onto Airbnb / Booking.com", () => {
+  const input = { propertyId: P, roomId: "r8", checkIn: "2026-10-29", checkOut: "2026-11-01", reason: "" };
+  it.each(["vrbo", "ical"])("%s with matching dates yields no derived link", (provider) => {
+    const resolved = linkedRangeForStay({ ...input, ranges: [range({ connectionId: "cv", provider, start: "2026-10-29", end: "2026-10-31" })] });
+    expect(resolved).toMatchObject({ link: undefined, range: undefined, derived: false });
+  });
+  it("airbnb with matching dates still derives", () => {
+    expect(linkedRangeForStay({ ...input, ranges: [airbnb] }).derived).toBe(true);
+  });
+  it("a Vrbo reservation on a stay's nights is a clash; a closure never derives onto Airbnb", () => {
+    const vrbo = range({ connectionId: "cv", provider: "vrbo", start: "2026-10-29", end: "2026-10-31" });
+    const nativeStay = { id: "n1", name: "Kumaran", roomId: "r8", checkIn: "2026-10-29", checkOut: "2026-11-01" };
+    expect(findChannelClashes({ propertyId: P, ranges: [vrbo], natives: [nativeStay] })).toHaveLength(1);
+    const closure = { id: "n2", name: "", reason: "Painting", blockKind: "closed", roomId: "r8", checkIn: "2026-10-29", checkOut: "2026-11-01" };
+    expect(findChannelClashes({ propertyId: P, ranges: [airbnb], natives: [closure] })).toHaveLength(1);
+  });
+});
 
 describe("findChannelClashes", () => {
   it("finds Airbnb and Booking.com holding one room, once, whichever sync asks", () => {

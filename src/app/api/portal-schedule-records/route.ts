@@ -3,7 +3,7 @@ import { loadPropertyStayClock } from "@/lib/bookings/property-stay-times.server
 import { resolveRowStayTimes, stampStayRow } from "@/lib/bookings/stay-stamp";
 import { DEFAULT_PROPERTY_STAY_TIMES, staysOverlap, type PropertyStayTimes } from "@/lib/bookings/stay-times";
 import { isImportedChannelBlock } from "@/lib/channel-calendar/property-bookings";
-import { normalizeChannelLink, type ChannelLink } from "@/lib/channel-calendar/channel-link";
+import { normalizeChannelLink, stayMayAutoLink, type ChannelLink } from "@/lib/channel-calendar/channel-link";
 import { monthDay } from "@/lib/channel-calendar/channel-overlap";
 import { CHANNEL_OVERLAP_UNVERIFIED, checkStayAgainstChannels } from "@/lib/channel-calendar/channel-overlap.server";
 import { roomBlockNameShapeUnchanged, roomDateBlockNameError } from "@/lib/channel-calendar/room-block-name-rule";
@@ -590,7 +590,12 @@ const route = createJsonRecordRoute({
               channel: {
                 link: normalizeChannelLink(savedDetails.channelLink),
                 storedLink,
-                derive: Boolean(text(savedData.residentName)) && text(savedData.blockKind) !== "closed",
+                derive: stayMayAutoLink({
+                  residentName: text(savedData.residentName),
+                  blockKind: text(savedData.blockKind),
+                  cancelled: savedData.bookingStatus === "cancelled",
+                  reason: text(savedData.reason),
+                }),
                 reason: text(savedData.reason),
                 openEnded: savedData.openEnded === true,
               },

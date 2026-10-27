@@ -102,6 +102,7 @@ export function overlapContextFromBlockRows(rows: readonly BlockRow[], ownId: st
       openEnded: data.openEnded === true,
       cancelled,
       ...(link ? { link } : {}),
+      ...(data.blockKind === "closed" ? { blockKind: "closed" } : {}),
     });
     if (link && !cancelled && String(row.id ?? "") !== ownId) otherLinks.push(link);
   }
@@ -155,6 +156,7 @@ export async function checkStayAgainstChannels(
     link: input.link,
     ranges,
     otherLinks,
+    derive: input.derive,
   });
   let link = input.link;
   if (input.link && !resolved.verified && !(input.storedLink && linkTargetsRange(input.link, { provider: input.storedLink.provider, sourceUid: input.storedLink.sourceUid, reservationCode: input.storedLink.reservationCode }))) {

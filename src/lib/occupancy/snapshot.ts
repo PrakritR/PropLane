@@ -316,7 +316,10 @@ function propertyDayOccupiedBeds(
       (other) =>
         other !== entry &&
         (other.roomId || "__whole__") === roomKey &&
-        !isIcalAvailabilityBlock(other.summary),
+        !isIcalAvailabilityBlock(other.summary) &&
+        // A named stay supersedes an anonymous availability hold, but a closure (nobody in it) never hides a
+        // channel reservation, which is a person even when the feed names nobody ("Reserved").
+        (isPersonOccupant(other) || !isPersonOccupant(entry)),
     );
   });
   let wholeHome = false;

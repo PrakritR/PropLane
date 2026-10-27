@@ -7,8 +7,10 @@ import {
   reservationOptionsForStay,
   resolveChannelLinks,
   stayDetailsWithLink,
+  stayMayAutoLink,
   stayDetailsWithSource,
   withLinkedChannelStays,
+  withoutChannelStaysCoveredByLinks,
   withoutLinkedReservation,
   type LinkableRange,
 } from "@/lib/channel-calendar/channel-link";
@@ -186,6 +188,43 @@ describe("a linked stay covers its channel copy", () => {
   it("the sheet's conflict pool loses only the reservation the stay is", () => {
     expect(withoutLinkedReservation([copy, decoy], { provider: "airbnb", reservationCode: "HMRRN4XTZ8" }).map((entry) => entry.sourceUid)).toEqual(["u2"]);
     expect(withoutLinkedReservation([copy, decoy], undefined)).toHaveLength(2);
+  });
+});
+
+describe("a closure never links to a reservation", () => {
+  const copy = channel({ start: "2026-10-03", end: "2026-11-01", reservationCode: "HMRRN4XTZ8", sourceUid: "u1" });
+  const closure = () => native({ blockId: "b1", start: "2026-10-03", end: "2026-11-01", residentName: undefined, summary: "Painting", reason: "Painting", blockKind: "closed" });
+
+  it("one predicate: named guest or HM code, never closed or cancelled", () => {
+    expect(stayMayAutoLink({ residentName: "Kumaran" })).toBe(true);
+    expect(stayMayAutoLink({ residentName: "", reason: "Airbnb HMRRN4XTZ8" })).toBe(true);
+    expect(stayMayAutoLink({ residentName: "", reason: "Painting" })).toBe(false);
+    expect(stayMayAutoLink({ residentName: "Kumaran", blockKind: "closed" })).toBe(false);
+    expect(stayMayAutoLink({ residentName: "Kumaran", closed: true })).toBe(false);
+    expect(stayMayAutoLink({ residentName: "Kumaran", cancelled: true })).toBe(false);
+  });
+
+  it("a Painting closure on the dates of an Airbnb reservation is not linked and covers nothing", () => {
+    const resolved = resolveChannelLinks([copy, closure()]);
+    expect(resolved.links.size).toBe(0);
+    expect(resolved.covered.size).toBe(0);
+  });
+
+  it("the Airbnb guest is still counted and drawn next to the closure", () => {
+    const entries = [copy, closure()];
+    expect(withoutChannelStaysCoveredByLinks(entries)).toHaveLength(2);
+    const cell = occupancyForDay(entries, "2026-10-10", [P], { bedsTotal: () => 2, roomCapacity: () => 1 });
+    expect(cell.inHouse).toBe(1);
+  });
+
+  it("a nameless hold without a code never links either", () => {
+    const hold = native({ blockId: "b2", start: "2026-10-03", end: "2026-11-01", residentName: undefined, summary: "Hold", reason: "" });
+    expect(resolveChannelLinks([copy, hold]).links.size).toBe(0);
+  });
+
+  it("a named stay still auto-links (unchanged)", () => {
+    const stay = native({ blockId: "b3", start: "2026-10-03", end: "2026-11-01" });
+    expect(resolveChannelLinks([copy, stay]).derived.has("b3")).toBe(true);
   });
 });
 
