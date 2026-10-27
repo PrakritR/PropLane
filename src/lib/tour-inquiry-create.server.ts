@@ -38,6 +38,8 @@ import { proposeTourConfirmation } from "@/lib/tour-proposal.server";
 import { createApproveTourRequestTask } from "@/lib/manager-default-tasks.server";
 import { normalizeTourContactPhone, validateTourContactFields } from "@/lib/tour-contact-quality";
 import { anchorTourWindowToSlotKey, isActivePlannedTourEvent } from "@/lib/tour-slot-math";
+import { REQUESTED_TOUR_KIND, resolveRequestedTourWindow } from "@/lib/tour-request-time";
+import { listOpenTourSlots } from "@/lib/tour-availability.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -53,7 +55,11 @@ export type RequestedWindow = { start: string; end: string; adminUserId?: string
  */
 export type CreateTourInquiryResult =
   | { ok: true; row: Record<string, unknown>; inquiryId: string }
-  | { ok: false; reason: "invalid_contact" | "missing_host" | "slot_unavailable" | "application_required"; error: string }
+  | {
+      ok: false;
+      reason: "invalid_contact" | "missing_host" | "slot_unavailable" | "application_required" | "sign_in_required";
+      error: string;
+    }
   | { ok: false; reason: "conflict"; error: string }
   | { ok: false; reason: "write_failed"; error: string };
 
@@ -198,6 +204,11 @@ export async function resolveEligibleTourHostUserIds(
     propertyId: string;
     slotKey: string;
     clientCandidateHostUserIds?: string[];
+    /**
+     * A requested-time inquiry (`requestKind: "requested_time"`): the house had NO open published slot,
+     * so no host published this one. Eligibility is then "may host this property" alone.
+     */
+    requestMode?: boolean;
   },
 ): Promise<string[]> {
   const filedHost = input.filedHost.trim();
@@ -225,11 +236,63 @@ export async function resolveEligibleTourHostUserIds(
     if (eligible.has(candidate)) continue;
     const [mayHost, hasSlot] = await Promise.all([
       managerMayHostPropertyTour(db, { managerUserId: candidate, propertyId }),
-      managerHasPublishedSlot(db, { managerUserId: candidate, slotKey, propertyId }),
+      input.requestMode ? Promise.resolve(true) : managerHasPublishedSlot(db, { managerUserId: candidate, slotKey, propertyId }),
     ]);
     if (mayHost && hasSlot) eligible.add(candidate);
   }
   return [...eligible];
+}
+
+/**
+ * Requested-time mode, gated on the server.
+ *
+ * Allowed ONLY when the property truly has no open slot right now (re-read here with `listOpenTourSlots`,
+ * the one answer to "what is open" - the client's claim proves nothing), for a signed-in account, for a
+ * 30-minute time between 8:00 AM and 8:00 PM Pacific that is tomorrow or later. On success the row is
+ * rewritten in place: the window and `slotKey` are derived from the instant, the property's owner is the
+ * filed host (re-checked with `managerMayHostPropertyTour`), and `requestKind` is stamped.
+ */
+async function prepareRequestedTimeTour(
+  db: Db,
+  row: Record<string, unknown>,
+  propertyId: string,
+  verifiedApplicantEmail: string | null,
+): Promise<{ ok: true } | Extract<CreateTourInquiryResult, { ok: false }>> {
+  if (!verifiedApplicantEmail?.trim()) {
+    return { ok: false, reason: "sign_in_required", error: "Sign in to request a tour time." };
+  }
+  const first = requestedWindowsFromRow(row)[0];
+  const resolved = resolveRequestedTourWindow(first?.start ?? "");
+  if (!resolved.ok) return { ok: false, reason: "slot_unavailable", error: resolved.error };
+
+  const open = await listOpenTourSlots(db, { propertyId });
+  if (!open.ok) {
+    return { ok: false, reason: "write_failed", error: "We could not check this home's tour times. Please try again." };
+  }
+  if (open.resolution !== "resolved") {
+    return { ok: false, reason: "slot_unavailable", error: "This home is not available to tour right now." };
+  }
+  if (Object.keys(open.slotHosts).length > 0) {
+    return { ok: false, reason: "slot_unavailable", error: "This home has open tour times. Please pick one of them." };
+  }
+
+  const { data: propertyRow } = await db
+    .from("manager_property_records")
+    .select("manager_user_id")
+    .eq("id", propertyId)
+    .maybeSingle();
+  const ownerUserId = textValue((propertyRow as { manager_user_id?: unknown } | null)?.manager_user_id);
+  if (!ownerUserId || !(await managerMayHostPropertyTour(db, { managerUserId: ownerUserId, propertyId }))) {
+    return { ok: false, reason: "missing_host", error: "A host is required for tour requests." };
+  }
+
+  row.requestKind = REQUESTED_TOUR_KIND;
+  row.managerUserId = ownerUserId;
+  row.adminUserId = ownerUserId;
+  row.requestedWindows = [{ start: resolved.window.start, end: resolved.window.end, adminUserId: ownerUserId, slotKey: resolved.window.slotKey }];
+  row.proposedStart = resolved.window.start;
+  row.proposedEnd = resolved.window.end;
+  return { ok: true };
 }
 
 /**
@@ -269,6 +332,10 @@ export async function createTourInquiry(
   delete incoming.smsOrigin;
   // Server-owned like `smsOrigin`: a caller cannot pick the channel its own tour notices go out on.
   delete incoming.noticeChannel;
+  // Server-owned like the two above. A caller can only CLAIM a requested time; the claim is re-checked
+  // below (no open slot, signed in, a valid 30-minute time) and `requestKind` is stamped only when it holds.
+  const claimsRequestedTime = incoming.requestKind === REQUESTED_TOUR_KIND;
+  delete incoming.requestKind;
   const notify = args.notify !== false;
 
   const id = typeof incoming.id === "string" && incoming.id.trim() ? incoming.id.trim() : crypto.randomUUID();
@@ -308,6 +375,14 @@ export async function createTourInquiry(
   // notification — is rewritten to match it here, before the double-book check
   // runs and before anything is written or sent. A key naming no slot is a
   // request for a time that was never on offer.
+  let requestedTime = false;
+  if (claimsRequestedTime && isTour && propertyId) {
+    const requested = await prepareRequestedTimeTour(db, row, propertyId, args.verifiedApplicantEmail ?? null);
+    if (!requested.ok) return requested;
+    requestedTime = true;
+  } else if (claimsRequestedTime) {
+    return { ok: false, reason: "slot_unavailable", error: "That tour time is not available." };
+  }
   const requestedWindows: RequestedWindow[] = [];
   for (const window of requestedWindowsFromRow(row)) {
     const anchored = anchorTourWindowToSlotKey(window);
@@ -373,7 +448,8 @@ export async function createTourInquiry(
       }
       if (windowPropertyId) {
         const mayHost = await managerMayHostPropertyTour(db, { managerUserId, propertyId: windowPropertyId });
-        const hasSlot = await managerHasPublishedSlot(db, { managerUserId, slotKey, propertyId: windowPropertyId });
+        // A requested time is on no host's published calendar by definition; "may host this house" is the gate.
+        const hasSlot = requestedTime || (await managerHasPublishedSlot(db, { managerUserId, slotKey, propertyId: windowPropertyId }));
         if (!mayHost || !hasSlot) {
           return { ok: false, reason: "slot_unavailable", error: "That tour host or time is not available." };
         }
@@ -403,6 +479,7 @@ export async function createTourInquiry(
       propertyId: propertyIdForHosts,
       slotKey: slotKeyForHosts,
       clientCandidateHostUserIds: claimed,
+      requestMode: requestedTime,
     });
   }
 
@@ -517,6 +594,8 @@ export async function createTourInquiry(
       // Best-effort — a failure here must never fail the inquiry submission,
       // and nothing books or emails the tenant until the manager approves.
       void (async () => {
+        // A requested time has no open slot to propose into; the manager confirms it (or suggests another) by hand.
+        if (requestedTime) return;
         const settings = await loadManagerAutomationSettings(db, managerUserId);
         if (!settings.proposeTourConfirmations) return;
         await proposeTourConfirmation(db, { inquiry: row, managerUserId, requestedWindows });

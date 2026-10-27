@@ -23,6 +23,7 @@ const STATUS_BY_REASON: Record<string, number> = {
   missing_host: 400,
   slot_unavailable: 403,
   application_required: 403,
+  sign_in_required: 401,
   conflict: 409,
   write_failed: 500,
 };
