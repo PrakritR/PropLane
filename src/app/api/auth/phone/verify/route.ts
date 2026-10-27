@@ -56,7 +56,7 @@ export async function POST(req: Request) {
       if (error instanceof PhoneOwnFlowError) return phoneAuthResponse({ error: error.message }, 400);
       if (signIn && phoneAuthKindOf(error) === "expired") {
         // This browser's own number: tell the form whether a fresh code would still be sent, so it never spends the hourly cap blind.
-        return phoneSignInFailure("expired", { canResend: await phoneResendAllowed(db, body.challengeId) });
+        return phoneSignInFailure("expired", { canResend: await phoneResendAllowed(db, body.challengeId, browser) });
       }
       return failure(error);
     }

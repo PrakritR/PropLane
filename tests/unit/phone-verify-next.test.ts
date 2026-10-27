@@ -115,6 +115,8 @@ describe("phone verify returns where to go (straight to the portal)", () => {
     expect(await (await verify(request({}))).json()).toEqual({ error: PHONE_AUTH_COPY.expired, kind: "expired", canResend: true });
     mocks.resend.mockResolvedValue(false);
     expect((await (await verify(request({}))).json()).canResend).toBe(false);
+    // The resend check is bound to this browser's challenge: the proof-cookie value rides along.
+    expect(mocks.resend).toHaveBeenCalledWith({ service: true }, ID, "browser");
   });
 
   it("the switch turned off before the code was checked is the off state", async () => {

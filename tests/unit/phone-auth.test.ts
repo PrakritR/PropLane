@@ -637,10 +637,33 @@ describe("phoneResendAllowed", () => {
         rpc: async () => ({ data: failed, error: null }),
       } as unknown as SupabaseClient;
     };
-    expect(await phoneResendAllowed(count(1, 2, 0), ID)).toBe(true);
-    expect(await phoneResendAllowed(count(3, 3, 0), ID)).toBe(false);
-    expect(await phoneResendAllowed(count(1, 8, 0), ID)).toBe(false);
-    expect(await phoneResendAllowed(count(1, 2, 10), ID)).toBe(false);
-    expect(await phoneResendAllowed(count(1, 2, null), ID)).toBe(false);
+    expect(await phoneResendAllowed(count(1, 2, 0), ID, BROWSER)).toBe(true);
+    expect(await phoneResendAllowed(count(3, 3, 0), ID, BROWSER)).toBe(false);
+    expect(await phoneResendAllowed(count(1, 8, 0), ID, BROWSER)).toBe(false);
+    expect(await phoneResendAllowed(count(1, 2, 10), ID, BROWSER)).toBe(false);
+    expect(await phoneResendAllowed(count(1, 2, null), ID, BROWSER)).toBe(false);
+  });
+
+  it("is bound to this browser's challenge: another browser's challenge id answers false and never reads the number's budget", async () => {
+    const stored = { id: ID, browser_hash: phoneBrowserHash("another-browser"), phone_key: "2065550100", purpose: "sign_in" };
+    let budgetReads = 0;
+    const db = {
+      from: () => {
+        const filters: Record<string, unknown> = {};
+        const b: Record<string, unknown> = {};
+        b.select = () => b;
+        b.eq = (column: string, value: unknown) => { filters[column] = value; return b; };
+        b.gt = () => b;
+        b.maybeSingle = async () => ({
+          data: Object.entries(filters).every(([k, v]) => (stored as Record<string, unknown>)[k] === v) ? stored : null, error: null,
+        });
+        b.then = (resolve: (v: unknown) => unknown) => { budgetReads += 1; return resolve({ count: 0, error: null }); };
+        return b;
+      },
+      rpc: async () => ({ data: 0, error: null }),
+    } as unknown as SupabaseClient;
+    expect(await phoneResendAllowed(db, ID, BROWSER)).toBe(false);
+    expect(budgetReads).toBe(0);
+    expect(await phoneResendAllowed(db, ID, "another-browser")).toBe(true);
   });
 });

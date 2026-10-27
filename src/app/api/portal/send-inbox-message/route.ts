@@ -79,7 +79,7 @@ import { attachmentMetaFromUrls as inboxAttachmentsFromUrls } from "@/lib/inbox-
 import { normalizeInboxAttachmentUrls } from "@/lib/inbox-attachments.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
-import { assertManagerCommunicationAllowedForWorkspace } from "@/lib/manager-communication-access.server";
+import { assertManagerCommunicationAllowed, assertManagerCommunicationAllowedForWorkspace } from "@/lib/manager-communication-access.server";
 import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { isHouseThreadId } from "@/lib/house-thread-id";
@@ -660,6 +660,20 @@ export async function POST(req: Request) {
           { ok: false, error: "This conversation is with someone else. Open their conversation to reply." },
           { status: 409 },
         );
+      }
+      // A co-host's reply is delivered under the thread OWNER's workspace, not the co-host's active one checked above, so
+      // that workspace's plan gates it too. A trial or unreadable owner plan refuses before anything is stored or delivered.
+      const hostGate = replyDeliveryContext(replyTarget, { senderUserId: user.id, threadWorkspaceId: stored.workspaceId });
+      if (hostGate && !hostGate.ownedBySender) {
+        const hostAccess = hostGate.workspaceId
+          ? await assertManagerCommunicationAllowedForWorkspace(db, user.id, hostGate.workspaceId)
+          : await assertManagerCommunicationAllowed(hostGate.managerUserId);
+        if (!hostAccess.allowed) {
+          return NextResponse.json(
+            { ok: false, error: hostAccess.message, code: `communication_${hostAccess.reason}` },
+            { status: hostAccess.status },
+          );
+        }
       }
     }
 

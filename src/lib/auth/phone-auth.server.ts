@@ -248,9 +248,11 @@ export async function classifyRefusedCode(db: SupabaseClient, challengeId: strin
  * hour the database's `phone_auth_start` enforces (per purpose, and across purposes). Fail closed: unreadable = no.
  * Read-only; it never sends and never reveals anything but this browser's own number's budget.
  */
-export async function phoneResendAllowed(db: SupabaseClient, challengeId: string): Promise<boolean> {
+export async function phoneResendAllowed(db: SupabaseClient, challengeId: string, browser: string): Promise<boolean> {
   try {
-    const { data, error } = await db.from("phone_otp_challenges").select("phone_key, purpose").eq("id", challengeId).maybeSingle();
+    // Bound to THIS browser's challenge: another browser's challenge id answers nothing about its number's budget.
+    const { data, error } = await db.from("phone_otp_challenges").select("phone_key, purpose")
+      .eq("id", challengeId).eq("browser_hash", phoneBrowserHash(browser)).maybeSingle();
     if (error || !data) return false;
     const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const [own, all] = await Promise.all([
