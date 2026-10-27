@@ -8,13 +8,14 @@
 import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { InboxThreadView, type InboxBubbleMessage } from "@/components/portal/portal-inbox-ui";
+import { InboxComposer, InboxThreadView, type InboxBubbleMessage } from "@/components/portal/portal-inbox-ui";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
   assignLeadToServiceWorkspace,
   openAdminWorkspaceThread,
+  replyToLead,
   useAdminSmsWorkspaces,
 } from "@/lib/admin-sms-workspaces";
 import { formatInboxStamp } from "@/lib/portal-inbox-storage";
@@ -57,22 +58,28 @@ export function AdminWorkspaceBar({ placement }: { placement: Placement }) {
 }
 
 /**
- * A PropLane-line lead before any workspace holds it: the stranger's side of the conversation, read-only (their number
- * is masked), with the one thing admin can do - hand it to a service workspace.
+ * A PropLane-line lead before any workspace holds it: the stranger's side of the conversation (their number is masked and
+ * never reaches the browser), a composer that answers from the PropLane line, and, in the thread header, the action that
+ * hands the lead to a service workspace. The reply goes to the lead by id; the server resolves the number.
  */
 export function AdminLeadThread({
   resident,
   onBack,
   onAssigned,
+  onSent,
 }: {
   resident: ManagerSmsResidentConversation;
   onBack: () => void;
   onAssigned: () => void;
+  /** A reply was accepted; the list re-reads so the sent text shows in the thread. */
+  onSent?: () => void;
 }) {
   const { showToast } = useAppUi();
   const workspaces = useAdminSmsWorkspaces();
   const [target, setTarget] = useState("");
   const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
   const leadId = resident.unassignedLeadId?.trim() || "";
   const bubbles: InboxBubbleMessage[] = resident.messages.map((message) => ({
     id: message.id,
@@ -94,6 +101,21 @@ export function AdminLeadThread({
     showToast("Assigned to the workspace.");
     onAssigned();
   };
+  const send = async () => {
+    const text = draft.trim();
+    if (!leadId || !text || sending) return;
+    setSending(true);
+    const result = await replyToLead({ leadId, text });
+    setSending(false);
+    // Clear only on success, so a refused send (opted out, line down) never loses what was typed.
+    if (!result.ok) {
+      showToast(result.error);
+      return;
+    }
+    setDraft("");
+    showToast("Reply sent.");
+    onSent?.();
+  };
   return (
     <div className="flex h-full min-h-0 flex-col" data-attr="admin-communication-lead-thread">
       <AdminWorkspaceBar placement={resident} />
@@ -105,22 +127,34 @@ export function AdminLeadThread({
           threadKey={resident.conversationKey}
           onBack={onBack}
           emptyLabel="No messages in this conversation."
-          composer={
-            <div className="flex flex-wrap items-end gap-2 border-t border-border px-4 py-3">
-              <div className="min-w-[14rem] flex-1">
-                <FieldSingleSelect
-                  label="Assign to"
-                  value={target}
-                  onChange={setTarget}
-                  options={workspaces.map((w) => ({ value: w.id, label: w.name }))}
-                  placeholder="Choose a workspace"
-                  dataAttr="admin-communication-assign-workspace"
-                />
-              </div>
-              <Button data-attr="admin-communication-assign-submit" disabled={!target} onClick={() => assign()}>
-                Assign
-              </Button>
+          headerActions={
+            <div className="flex items-center gap-2" data-attr="admin-communication-assign-header">
+              <FieldSingleSelect
+                label="Assign to workspace"
+                hideLabel
+                variant="pill"
+                value={target}
+                onChange={setTarget}
+                options={workspaces.map((w) => ({ value: w.id, label: w.name }))}
+                placeholder="Assign to workspace"
+                dataAttr="admin-communication-assign-workspace"
+              />
+              {target ? (
+                <Button data-attr="admin-communication-assign-submit" onClick={() => assign()}>
+                  Assign
+                </Button>
+              ) : null}
             </div>
+          }
+          composer={
+            <InboxComposer
+              value={draft}
+              onChange={setDraft}
+              onSubmit={() => void send()}
+              sending={sending}
+              placeholder="Reply from the PropLane line…"
+              dataAttr="admin-communication-lead-reply"
+            />
           }
         />
       </div>

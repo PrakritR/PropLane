@@ -58,15 +58,15 @@ describe("serviceSeatVerdict", () => {
     expect(serviceSeatVerdict(seatRow({ teamRole: null }), { ownerUserId: CLIENT }, SERVICE_OWNER)).toBe("no");
   });
 
-  it("on a workspace PropLane created, an Admin / Full seat is staff and a Viewer / Custom seat is not", () => {
+  it("on a workspace PropLane created, an Admin / Full seat is staff and an unmarked Viewer / Custom seat is not", () => {
     const own = { ownerUserId: SERVICE_OWNER };
     for (const teamRole of ["admin", "full", " Admin "]) {
       expect(serviceSeatVerdict(seatRow({ inviterUserId: SERVICE_OWNER, teamRole, isServiceSeat: false }), own, SERVICE_OWNER)).toBe("staff");
     }
     for (const teamRole of ["viewer", "custom", "property_manager"]) {
-      for (const isServiceSeat of [false, true]) {
-        expect(serviceSeatVerdict(seatRow({ inviterUserId: SERVICE_OWNER, teamRole, isServiceSeat }), own, SERVICE_OWNER)).toBe("no");
-      }
+      expect(serviceSeatVerdict(seatRow({ inviterUserId: SERVICE_OWNER, teamRole, isServiceSeat: false }), own, SERVICE_OWNER)).toBe("no");
+      // Admin team: a PropLane-issued seat of any role opens the admin-style shell.
+      expect(serviceSeatVerdict(seatRow({ inviterUserId: SERVICE_OWNER, teamRole, isServiceSeat: true }), own, SERVICE_OWNER)).toBe("staff");
     }
   });
 
@@ -77,12 +77,11 @@ describe("serviceSeatVerdict", () => {
     expect(serviceSeatVerdict(seatRow({ teamRole: "full" }), attached, SERVICE_OWNER)).toBe("staff");
     // The client's own co-manager invite at an operator role: only a PropLane person.
     expect(serviceSeatVerdict(seatRow({ isServiceSeat: false }), attached, SERVICE_OWNER)).toBe("platform_person_only");
-    // A non-operator seat is no seat at all here either, marked or not: being a platform admin does not
-    // turn a Viewer / Custom / Property manager seat into staff.
+    // A non-operator seat the client wrote herself (no PropLane provenance) is no seat at all: being a platform
+    // admin does not turn it into staff. The same role WITH the marker (Admin team) is staff of the shell.
     for (const teamRole of ["viewer", "custom", "property_manager"]) {
-      for (const isServiceSeat of [false, true]) {
-        expect(serviceSeatVerdict(seatRow({ teamRole, isServiceSeat }), attached, SERVICE_OWNER), teamRole).toBe("no");
-      }
+      expect(serviceSeatVerdict(seatRow({ teamRole, isServiceSeat: false }), attached, SERVICE_OWNER), teamRole).toBe("no");
+      expect(serviceSeatVerdict(seatRow({ teamRole, isServiceSeat: true }), attached, SERVICE_OWNER), teamRole).toBe("staff");
     }
     // An unknown service owner reads every workspace as attached: fail closed.
     expect(serviceSeatVerdict(seatRow({ inviterUserId: SERVICE_OWNER, isServiceSeat: false }), { ownerUserId: SERVICE_OWNER }, null)).toBe(
@@ -287,11 +286,12 @@ describe("who is staff of a service workspace", () => {
 });
 
 describe("a limited seat on a workspace PropLane created", () => {
-  it("is not staff and gets no staff scope: it keeps only its per-house grants", async () => {
+  it("is staff of the shell only when PropLane issued it (Admin team); an unmarked one keeps only its per-house grants", async () => {
     db.tables.account_link_invites.push(seat(PLAIN, AMBIKA, "viewer", OWNER, "accepted", { serviceSeat: false }));
     db.tables.account_link_invites.push(seat(HELPER, AMBIKA, "custom", OWNER, "accepted", { serviceSeat: true }));
     expect((await mode.loadServiceStaffWorkspaces(db as never, PLAIN)).map((w) => w.name)).toEqual([]);
-    expect((await mode.loadServiceStaffWorkspaces(db as never, HELPER)).map((w) => w.name)).toEqual(["Vinod"]);
+    // HELPER's PropLane-issued Custom seat on Ambika now opens the shell on Ambika too (alongside their Vinod Admin seat).
+    expect((await mode.loadServiceStaffWorkspaces(db as never, HELPER)).map((w) => w.name)).toEqual(["Ambika", "Vinod"]);
     expect(await mode.loadServiceStaffScope(db as never, PLAIN)).toBeNull();
   });
 });

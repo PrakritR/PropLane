@@ -163,14 +163,32 @@ export async function saveProfile(db: SupabaseClient, lead: LeadRow, profile: Le
   await db.from("sms_unassigned_leads").update({ profile, updated_at: now, ...extra }).eq("id", lead.id).eq("status", "open");
 }
 
-export async function recordReply(db: SupabaseClient, leadId: string, messageSid: string, body: string, mediaUrls: string[]): Promise<void> {
-  await db.from("sms_unassigned_lead_turns").insert({
+export type RecordReplyResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Append one outbound turn to a lead's thread. `sentByUserId` is the admin who typed it (an admin reply); the turn table
+ * has no sender column, so it rides on the turn's `media` JSON beside any photo urls. The insert error is RETURNED, never
+ * swallowed: an admin reply that went out but was not saved must be reported as such.
+ */
+export async function recordReply(
+  db: SupabaseClient,
+  leadId: string,
+  messageSid: string,
+  body: string,
+  mediaUrls: string[],
+  opts: { sentByUserId?: string } = {},
+): Promise<RecordReplyResult> {
+  const media = mediaUrls.length || opts.sentByUserId
+    ? { ...(mediaUrls.length ? { urls: mediaUrls } : {}), ...(opts.sentByUserId ? { sentBy: opts.sentByUserId } : {}) }
+    : null;
+  const { error } = await db.from("sms_unassigned_lead_turns").insert({
     lead_id: leadId,
     direction: "outbound",
     body,
     message_sid: messageSid ? `reply:${messageSid}` : null,
-    media: mediaUrls.length ? { urls: mediaUrls } : null,
+    media,
   });
+  return error ? { ok: false, error: String(error.message ?? "insert failed") } : { ok: true };
 }
 
 const PICK_PROMPT = (n: number) =>

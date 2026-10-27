@@ -48,10 +48,28 @@ export function channelSiteOfAddress(address: string): ChannelSite | null {
   return CHANNEL_SITES.find((site) => domainBelongsTo(domain, CHANNEL_SITE_DOMAINS[site])) ?? null;
 }
 
+/**
+ * One strict address, lower-cased, from a bare `addr` or a single `Name <addr>`; null for anything else. A list
+ * ("evil@evil.com, x@airbnb.com"), a second angle pair or an `@` hiding in the display name is refused, because a
+ * domain test on a value that holds several addresses can pass on the one the mail never goes to.
+ */
+export function singleEmailAddress(value: string | null | undefined): string | null {
+  const text = (value ?? "").trim();
+  let candidate = text;
+  if (text.includes("<") || text.includes(">")) {
+    const open = text.indexOf("<");
+    if (open !== text.lastIndexOf("<") || !text.endsWith(">") || text.indexOf(">") !== text.length - 1) return null;
+    if (/[@<>,;]/.test(text.slice(0, open))) return null;
+    candidate = text.slice(open + 1, -1).trim();
+  }
+  candidate = candidate.toLowerCase();
+  return /^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/.test(candidate) ? candidate : null;
+}
+
 /** A relay/reply address is trusted only on the site's OWN domains: a guest-message mail cannot point replies elsewhere. */
 export function isChannelRelayAddress(site: ChannelSite, address: string | null | undefined): boolean {
-  const value = (address ?? "").trim();
-  if (!value.includes("@")) return false;
+  const value = singleEmailAddress(address);
+  if (!value) return false;
   return domainBelongsTo(domainOf(value), CHANNEL_SITE_DOMAINS[site]);
 }
 
@@ -130,7 +148,7 @@ function build(
 ): ChannelGuestMessage | null {
   const text = messageText.trim();
   if (!text) return null;
-  const reply = extras.replyTo?.trim().toLowerCase() ?? "";
+  const reply = singleEmailAddress(extras.replyTo) ?? "";
   return {
     site,
     guestName,
@@ -306,4 +324,12 @@ export function channelGuestKeyAddress(site: ChannelSite, guestName: string, ide
 
 export function isChannelGuestKeyAddress(address: string): boolean {
   return /@[a-z-]+\.guest\.invalid$/i.test(address.trim());
+}
+
+/**
+ * Where a mail that CLAIMS to be from a guest key address is filed instead: its own never-deliverable address, outside
+ * every guest key domain, so storing it can never join (or write into) the real guest's conversation.
+ */
+export function quarantinedSenderAddress(address: string): string {
+  return `x-${keyHash(address, 24)}@unverified-sender.invalid`;
 }

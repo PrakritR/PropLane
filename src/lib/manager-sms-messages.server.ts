@@ -33,6 +33,7 @@ import { conversationVisible, resolveCommunicationScope } from "@/lib/communicat
 import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
 import { projectManagerSmsEvent } from "@/lib/sms/project-manager-sms-event.server";
 import { withWorkspaceStamp } from "@/lib/one-number/workspace-stamp";
+import { resolveServiceLine } from "@/lib/one-number/service-line.server";
 import { loadSmsMediaForMessages } from "@/lib/one-number/sms-media-index.server";
 
 export type { ManagerSmsConversationsPayload, ManagerSmsMessageRow, ManagerSmsResidentConversation };
@@ -1427,9 +1428,13 @@ export async function fetchAdminSmsConversations(
   const clientOwnerIds = service.clientOwnerIds.filter((id) => !cohortIds.includes(id));
   const managerIds = [...new Set([...cohortIds, ...service.serviceOwnerIds, ...clientOwnerIds])];
   const smsConfigured = Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
+  // The number admin Communication shows and every admin reply leaves on is the PropLane line, from the one line
+  // decision. Never the first manager in scope's own (possibly retired) work number; an unresolvable line shows none.
+  const line = await resolveServiceLine(db).catch(() => null);
+  const propLaneLineNumber = line?.ok ? line.phoneNumber : null;
   if (managerIds.length === 0) {
     return {
-      workNumber: null,
+      workNumber: propLaneLineNumber,
       personalPhone: null,
       phoneVerified: false,
       forwardInbound: true,
@@ -1450,11 +1455,12 @@ export async function fetchAdminSmsConversations(
     ...(clientOwnerIds.length > 0 ? { workspaceRestriction: { ownerIds: clientOwnerIds, workspaceIds: service.workspaceIds } } : {}),
   });
   const names = await loadServiceWorkspaceNames(db, service.workspaceIds);
-  return placeAdminSmsConversations(payload, {
+  const placed = placeAdminSmsConversations(payload, {
     names,
     leads: options.includeLeads ? await loadAdminLeadConversations(db, service.serviceOwnerIds[0] ?? null) : [],
     workspaceId: options.workspaceId ?? null,
   });
+  return { ...placed, workNumber: propLaneLineNumber };
 }
 
 /** Service workspace id -> name. A failed read names nothing (a thread then reads "Unassigned" rather than a guess). */

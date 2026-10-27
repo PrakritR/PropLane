@@ -17,6 +17,7 @@
  */
 import { normalizeInboundHeaders, replyToFromHeaders } from "@/lib/inbound-email/inbound-sender-authentication";
 import { buildPortalInboxThreadUpsert } from "@/lib/portal-inbox-thread-upsert";
+import { singleEmailAddress } from "@/lib/inbound-email/channel-senders";
 import { ADMIN_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -87,8 +88,9 @@ function toEmailList(value: unknown): string[] {
 /** `reply_to` (string or list) on the payload, else the `Reply-To` header; null when neither is an address. */
 function replyToOf(data: Record<string, unknown>): string | null {
   const raw = Array.isArray(data.reply_to) ? data.reply_to[0] : data.reply_to;
-  const inlined = typeof raw === "string" ? parseEmailAddress(raw).email : "";
-  if (inlined.includes("@")) return inlined;
+  /* One strict address: a list ("evil@x.com, relay@site.com") is not a Reply-To, whatever its last entry says. */
+  const inlined = typeof raw === "string" ? singleEmailAddress(raw) : null;
+  if (inlined) return inlined;
   return replyToFromHeaders(data.headers);
 }
 

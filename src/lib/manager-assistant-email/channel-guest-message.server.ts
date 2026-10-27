@@ -20,6 +20,7 @@ import "server-only";
  *    money, a refund, a cancellation or a complaint; when the reply carries contact details a site forbids; when no valid
  *    relay address came with the mail; or when approval/quiet hours say so.
  */
+import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runLeasingEmailAgentTurn } from "@/lib/agent/leasing-email-agent.server";
 import { deliverManagerEmailReply } from "@/lib/agent/manager-email-agent.server";
@@ -30,11 +31,12 @@ import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
 import { matchChannelListing, type ChannelListingMatch, type ChannelRoomCandidate } from "@/lib/channel-calendar/channel-listing-match";
 import type { ParsedInboundEmail } from "@/lib/inbound-email/inbound-email.server";
 import { fetchResendReceivedEmailHeaders } from "@/lib/inbound-email/inbound-email-headers.server";
-import { inboundSenderAuthenticated, replyToFromHeaders } from "@/lib/inbound-email/inbound-sender-authentication";
+import { inboundSenderAuthenticated, normalizeInboundHeaders, replyToFromHeaders } from "@/lib/inbound-email/inbound-sender-authentication";
 import {
   CHANNEL_SITE_LABEL,
   channelGuestKeyAddress,
   parseChannelGuestMessage,
+  quarantinedSenderAddress,
   type ChannelGuestMessage,
   type ChannelSite,
 } from "@/lib/inbound-email/channel-senders";
@@ -46,6 +48,7 @@ import {
 } from "@/lib/manager-assistant-email/email-auto-reply-credit.server";
 import { mirrorAssistantEmailConversation } from "@/lib/manager-assistant-email/mirror-assistant-email-conversation.server";
 import { resolveListingTextNumbers, listingTextNumberKey } from "@/lib/listing-text-number.server";
+import { rateLimit } from "@/lib/rate-limit";
 import { loadServiceWorkspaceIds } from "@/lib/service/service-catalog.server";
 import { fanOutWorkspaceNotice, inboundEmailNoticeText, repliedNoticeText } from "@/lib/workspace-team-fanout.server";
 
@@ -162,16 +165,30 @@ export async function loadChannelRoomCandidates(
   }
 }
 
-/** Store the mail in Communication under its sender, answer nothing. The same posture as any inbound the assistant will not answer. */
-async function storeUnanswered(
+/** A genuine site mail replayed to one workspace more than this many times in an hour stops costing credit. */
+const CHANNEL_RELAY_TURNS_PER_HOUR = 6;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+function hashOf(value: string): string {
+  return createHash("sha256").update(value.trim().toLowerCase()).digest("hex").slice(0, 24);
+}
+
+/**
+ * Store the mail in Communication under its sender, answer nothing. The same posture as any inbound the assistant will not answer.
+ * A mail that merely CLAIMS one of our synthetic guest keys is filed under a quarantine address instead of the key, so it can
+ * never be written into the real guest's conversation.
+ */
+export async function storeChannelMailUnanswered(
   db: SupabaseClient,
-  input: ChannelGuestInput,
-  why: "not_authenticated" | "not_a_guest_message" | "not_answerable",
+  input: Pick<ChannelGuestInput, "parsed" | "managerUserId" | "workspaceId" | "inboundText" | "managerEmail">,
+  why: "not_authenticated" | "not_a_guest_message" | "not_answerable" | "replayed" | "synthetic_sender",
 ): Promise<ChannelGuestResult> {
   const { parsed, managerUserId, workspaceId, inboundText } = input;
   try {
-    const senderEmail = parsed.fromEmail.trim().toLowerCase();
-    const senderName = parsed.fromName?.trim() || senderEmail;
+    const claimed = parsed.fromEmail.trim().toLowerCase();
+    const senderEmail = why === "synthetic_sender" ? quarantinedSenderAddress(claimed) : claimed;
+    const senderName = why === "synthetic_sender" ? "Unverified sender" : parsed.fromName?.trim() || senderEmail;
     await mirrorAssistantEmailConversation(db, {
       managerUserId,
       managerEmail: input.managerEmail,
@@ -214,7 +231,7 @@ export async function handleChannelGuestEmail(db: SupabaseClient, input: Channel
   } catch {
     authenticated = false;
   }
-  if (!authenticated) return storeUnanswered(db, input, "not_authenticated");
+  if (!authenticated) return storeChannelMailUnanswered(db, input, "not_authenticated");
 
   const replyTo = parsed.replyTo ?? replyToFromHeaders(headers);
   const message: ChannelGuestMessage | null = parseChannelGuestMessage({
@@ -223,7 +240,7 @@ export async function handleChannelGuestEmail(db: SupabaseClient, input: Channel
     text: input.rawBody,
     replyTo,
   });
-  if (!message) return storeUnanswered(db, input, "not_a_guest_message");
+  if (!message) return storeChannelMailUnanswered(db, input, "not_a_guest_message");
 
   /* 2. The house and room, from the workspace's own connections for this site. */
   const candidates = await loadChannelRoomCandidates(db, { ownerUserId: managerUserId, workspaceId, site });
@@ -255,6 +272,19 @@ export async function handleChannelGuestEmail(db: SupabaseClient, input: Channel
     } catch {
       proplaneLine = null;
     }
+  }
+
+  /* A genuine site mail can be replayed (it keeps its DKIM signature) to the same workspace again and again, each a paid turn:
+     the same RFC Message-ID is answered once per workspace, and one relay thread gets a bounded number of turns an hour. No
+     new table: the shared limiter holds both counts. An unreadable limiter denies, so the mail is only stored. */
+  const workspaceKey = workspaceId ?? managerUserId;
+  const messageId = normalizeInboundHeaders(headers)["message-id"]?.[0]?.trim();
+  if (messageId && !(await rateLimit(`channel-msgid:${workspaceKey}:${hashOf(messageId)}`, 1, DAY_MS)).ok) {
+    return storeChannelMailUnanswered(db, input, "replayed");
+  }
+  const relayHash = guestKey.slice(0, guestKey.indexOf("@"));
+  if (!(await rateLimit(`channel-relay:${workspaceKey}:${relayHash}`, CHANNEL_RELAY_TURNS_PER_HOUR, HOUR_MS)).ok) {
+    return storeChannelMailUnanswered(db, input, "replayed");
   }
 
   /* 3. A paid turn: credit before any model work, the approval hold and quiet hours as for texts (unreadable = hold). */

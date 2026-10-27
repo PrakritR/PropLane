@@ -70,10 +70,12 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   open. The menu takes the slot that held the section title, so the label stays as an `sr-only` `h1` beside it.
 - **Who is staff** (`loadServiceStaffWorkspaces`, decided per seat by `serviceSeatVerdict`): the platform service owner
   for the workspaces they own, or an accepted team seat at an OPERATOR role (Admin / Full), granted by the workspace's
-  own owner. A Viewer / Custom / Property manager seat is never staff - on a workspace PropLane created or an attached
-  one, and being a platform admin does not change that; such a seat keeps only its per-house grants. On an attached
-  workspace an operator seat also needs PropLane's own provenance (`is_service_seat`) unless the holder is a PropLane
-  person. The client who owns an attached workspace is **not** staff: they keep the view-only Property portal.
+  own owner. A Viewer / Custom / Property manager seat the CLIENT wrote (no `is_service_seat`) is never staff - on a workspace
+  PropLane created or an attached one, and being a platform admin does not change that; such a seat keeps only its per-house
+  grants. A seat PropLane issued (`is_service_seat`, the Admin team below) of ANY non-owner role is staff of the shell: the shell
+  only decides which workspaces the holder sees, what they read and change inside stays the seat's own houses and module
+  levels. On an attached workspace an operator seat also needs PropLane's own provenance (`is_service_seat`) unless the
+  holder is a PropLane person. The client who owns an attached workspace is **not** staff: they keep the view-only Property portal.
 - **The gate** (`decideServiceMode`, used by the `/portal` layout and `GET /api/workspaces`): service mode iff the
   ACTIVE workspace (the cookie's, else the first, exactly what the scope readers narrow to) is a service workspace the
   viewer is staff of. The top bar reads `Admin · <workspace>`, the sidebar subtitle `PropLane Service`, the plan banner
@@ -134,3 +136,81 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
 - **Dashboard** (`/admin/dashboard`): each slow source (Stripe earnings, Subscribers, expenses, signups, feedback) has a
   9s budget (`withBudget`); a source that misses it is `null` and its card is left out, so one hung read cannot hold the
   page on Loading. The browser still gives up at 20s with a "took too long" error and Try again.
+
+## Admin team (Oct 27: Overall admins and workspace admins)
+
+Who can open PropLane admin, and as what. **Overall admin** = the `admin` row in `profile_roles` (`auth/admin-role.ts`): every
+PropLane-wide section. **Every other role** is a PropLane-issued service seat (`account_link_invites` with `is_service_seat`) on
+one or more service workspaces: the manager Team invite's roles (`TEAM_ROLE_INVITE_OPTIONS`, `Admin` reads "Workspace admin"),
+houses and per-module levels. A workspace admin signs in and lands in the service shell under `/portal` (rail: only their
+workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and the PropLane sidebar rows are
+`adminNavRowsForViewer` (none for them). Code: `src/lib/admin-team/*`, routes `src/app/api/admin/team/*`, Settings > Admin team.
+
+- **Who may grant what.** Only an Overall admin invites or promotes to Overall admin (decision 1). A workspace admin invites only
+  into workspaces where their own seat carries member rights, never above their own role, and only houses of that workspace
+  (`adminTeamGrantVerdict` + `checkAdminTeamSeatGrant`, the same `resolveServiceSeatGrant` the Team invite runs). An Overall admin
+  stands as the owner of every service workspace for these verbs (`OperatorOpts.overall`, derived from the role, never a body).
+- **The invite is a link, never a pending row.** `manager_invite_links.kind = 'admin'` (one use, 7 days, `invitee_email` bound,
+  grant stored in `admin_grant`); the email is "You're invited to PropLane admin". `/invite/<token>` shows "Create your admin
+  account" (name, mobile with the usual text code, Google or a password) or, signed in, Accept. The kind is never accepted from a
+  request body (`normalizeInviteLinkKind` still falls back to `manager`), admin links are excluded from every share-link list,
+  rotate, reveal and revoke, and an admin link with no bound email redeems as nothing.
+- **A new account proves the inbox.** The generic sign-up confirms an address with no inbox round-trip, so for admin invites the
+  invite page mails a 6-digit code to the address stored on the link (`/api/pro/invite-links/admin-account`, stateless HMAC
+  challenge) and the server creates the confirmed account only when it verifies, stamping
+  `app_metadata.admin_invite_proof = <link id>`. Five code attempts per link, across every challenge (a fresh code buys no
+  fresh guesses; the limiter's longest window is a day, so the cap renews daily); then "This invite is locked - ask for a new
+  one", and Resend mints a new link. The redeem requires that stamp of any account created after the invite, or a Google/Apple
+  identity whose own verified email IS the bound address (`identities[].identity_data.email`, `email_verified`; the providers
+  list alone proves nothing). An account that pre-dates the invite signs in as itself, but its email must be confirmed.
+  Residual: an attacker who pre-registered AND confirmed the invitee's address before any invite existed still holds that login.
+- **Invites are rate limited and cleaned.** 20 invites + resends per hour per inviter (`admin-team-invite:<user>`); the inviter's
+  profile name in the email loses URLs and angle brackets and is cut to 60 characters (`sanitizeInviterName`).
+- **Change never seats a stranger.** `changeAdminTeamMember` works only on someone who already holds an Overall role or a
+  PropLane-issued seat inside the actor's reach (otherwise 404, "Invite them instead"); every target seat is validated
+  (`checkAdminTeamSeatGrant`) BEFORE a demotion deletes the Overall role, so a refusal changes nothing; a seat the workspace's own
+  owner issued (not `is_service_seat`) is refused, never converted.
+- **The audit row says what happened.** Written `applied: false` before the change, stamped `applied: true` after it took
+  effect and `applied: false` (+ `error`) on every refused or handed-back path, the redeem undo included.
+- **Redeem** (`applyAdminInviteGrant`): the session's confirmed email must equal the bound one; the inviter is re-derived at that
+  moment (still an Overall admin for an Overall grant; still able to make the workspace grant); the audit row (`admin_team_grant`,
+  `admin_team_seat`) is written BEFORE the role; any failure hands the spent use back. Every change writes `admin_team_*` audit rows
+  first and is refused without them. `admin_team_grants` (server-only, RLS on, no client grants) is the list/trail row.
+- **Last Overall admin** cannot be removed or demoted (`lastOverallAdminVerdict`). An admin that comes from the primary-admin
+  email or legacy `profiles.role` is never removed by this pane (founders@ keeps admin, Oct 27).
+- **Routes** (`/api/admin/team`, `/invite`, `/change`, `/resend`, `/remove`) gate on `requireAdminTeamActor` (Overall admin or a seat
+  with member rights; the verbs re-check every target). Every PropLane-wide `/api/admin/*` route keeps `requireAdminRoute()`, so a
+  seat holder gets 403 there.
+- **Settings** is one page with a scope dropdown (`SettingsScopeSwitcher`): PropLane (Overall admins: Profile, Preferences,
+  Login & security, Admin team, Feedback, Account) and each workspace the viewer can open (that workspace's manager panes).
+  Switching runs the authorized open (cookie) and stays in Settings.
+
+## Managed by PropLane (Accounts > Managers, Oct 27)
+
+Accounts > Managers > row ⋯ has **Managed by PropLane...** between Copy PropLane ID and Disable (hidden when the account has no
+owned workspace left that is neither `is_service` nor archived: `unmanagedWorkspaceCount`). It opens
+`ManagedByProplaneSheet` (the Add-property pop-up frame): the account's workspaces, City, Management fee, and the owner's role
+fixed at **Property owner (view-only)** (the owner owns the workspace, so they are its owner of record by ownership and no
+membership row is written for them).
+
+- Verbs `account-workspaces` and `manage-by-proplane` on `/api/admin/service-workspaces` (`requireAdminRoute()` first;
+  `src/lib/service/managed-by-proplane.server.ts`). A body id only NAMES a row: the account's workspaces and houses are re-read
+  from the database, each id must be one of that account's own active, unmanaged workspaces, and any failed read refuses with
+  nothing written. The service owner's own account is refused.
+- **Choose workspaces** = `attachWorkspaceToService` once per workspace (audit first, never moves `owner_user_id`), then the fee
+  through `setServiceWorkspaceFee` (audited). It stops at the first refusal and says how many were attached before it.
+- **Combine all into one** = the chosen target is attached and the OTHER workspaces' houses move into it through the
+  `combine_portal_workspaces` RPC (`20261027030000_portal_workspaces_archived_combine.sql`), ONE transaction that changes only
+  `manager_property_records.workspace_id` (never an owner, lease, charge or application) and then archives the emptied
+  workspaces. One `admin_service_combine_move` audit row per source (the houses it holds) is written BEFORE the attach and the
+  move, then stamped applied or not. An owner's default workspace is where a house with no workspace lands, so an emptied
+  default one is kept listed rather than archived. Teammates' seats on an emptied workspace stay pinned to it.
+- **Archived** = `portal_workspaces.archived_at`. `loadWorkspaces` leaves an archived workspace out (and reads without the
+  column when the database has not run the migration, `src/lib/workspaces/archived.ts`). Reversible: clear `archived_at`.
+- **Owner of record in Team**: a platform admin edits the owner's role and houses like a teammate (`team-access`, audited with
+  `ownerOfRecord: true`); `is_owner_of_record` is never touched by that verb. Role Owner is re-stamped server-side (every house,
+  owner keys only); any other role stops the derived view-only reach, and the managed read-only lock (every accepted
+  `property_owner` seat) no longer applies to that seat.
+- **New workspace** sheet: Owner's role is fixed at Property owner; the server refuses any other `ownerRole` before creating
+  anything. Owner email invites exactly as the Team Owner role does (existing account: pending membership + notice; new email:
+  one-use link bound to that email).

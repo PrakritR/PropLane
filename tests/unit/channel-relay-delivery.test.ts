@@ -37,6 +37,20 @@ describe("a channel reply goes only to the site's relay address, only for an aut
     expect(mocks.postResendEmail).not.toHaveBeenCalled();
   });
 
+  it("refuses a list of recipients even when one entry is on the site's domain", async () => {
+    for (const toEmail of ["evil@evil.com, k3f9a1c2d4@reply.airbnb.com", "Evil <evil@evil.com>, X <k3f9a1c2d4@reply.airbnb.com>"]) {
+      const result = await deliverManagerEmailReply({ ...base, toEmail, channel: { site: "airbnb", authenticated: true } });
+      expect(result.ok).toBe(false);
+    }
+    expect(mocks.postResendEmail).not.toHaveBeenCalled();
+  });
+
+  it("sends a Name <addr> relay to the bare address only", async () => {
+    const result = await deliverManagerEmailReply({ ...base, toEmail: "Jose <K3F9A1C2D4@reply.airbnb.com>", channel: { site: "airbnb", authenticated: true } });
+    expect(result.ok).toBe(true);
+    expect(mocks.postResendEmail.mock.calls[0]![0].payload.to).toEqual(["k3f9a1c2d4@reply.airbnb.com"]);
+  });
+
   it("refuses any address that is not on the site's own domain, even for an authenticated message", async () => {
     for (const to of ["attacker@evil.test", "guest@gmail.com", "x@reply.airbnb.com.evil.test"]) {
       const result = await deliverManagerEmailReply({ ...base, toEmail: to, channel: { site: "airbnb", authenticated: true } });

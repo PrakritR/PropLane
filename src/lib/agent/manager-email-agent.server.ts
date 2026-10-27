@@ -16,7 +16,7 @@ import {
 } from "@/lib/agent/sms-agent-turn.server";
 import { postResendEmail } from "@/lib/resend-delivery.server";
 import { assertManagerCommunicationAllowed } from "@/lib/manager-communication-access.server";
-import { isChannelRelayAddress, type ChannelSite } from "@/lib/inbound-email/channel-senders";
+import { isChannelRelayAddress, singleEmailAddress, type ChannelSite } from "@/lib/inbound-email/channel-senders";
 
 type Db = SupabaseClient;
 
@@ -101,6 +101,7 @@ export async function deliverManagerEmailReply(args: {
 }): Promise<{ ok: boolean; error?: string }> {
   if (args.channel) {
     if (!args.channel.authenticated) return { ok: false, error: "The sender was not authenticated as the site." };
+    // One strict address on the site's own domain; a list that merely ends in one is refused before anything is sent.
     if (!isChannelRelayAddress(args.channel.site, args.toEmail)) return { ok: false, error: "Not the site's reply address." };
   }
   // A live signup trial has no Communication until it pays; an unreadable plan fails closed.
@@ -110,7 +111,7 @@ export async function deliverManagerEmailReply(args: {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return { ok: false, error: "Email delivery not configured." };
 
-  const to = args.toEmail.trim().toLowerCase();
+  const to = (args.channel ? singleEmailAddress(args.toEmail) : args.toEmail.trim().toLowerCase()) ?? "";
   if (!to.includes("@")) return { ok: false, error: "Invalid recipient." };
 
   const from = args.fromAddress.includes("<")

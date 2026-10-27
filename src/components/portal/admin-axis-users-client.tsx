@@ -23,6 +23,7 @@ import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
 import { AdminAccountRecordPage } from "@/components/portal/admin-account-record-page";
+import { ManagedByProplaneSheet } from "@/components/portal/managed-by-proplane-sheet";
 import { AdminAccountActiveDialog } from "@/components/portal/admin-account-active-dialog";
 import { useAdminAccountActions } from "@/components/portal/use-admin-account-actions";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
@@ -273,6 +274,7 @@ function AdminAccountsList({ showTestTab }: { showTestTab: boolean }) {
   // inside any one row's editor. See `PlanCreditRulesSection`'s doc comment
   // (admin-billing-client.tsx) for why it mounts here.
   const [planCreditOpen, setPlanCreditOpen] = useState(false);
+  const [managedFor, setManagedFor] = useState<{ id: string; name: string } | null>(null);
   // Seeded from `?q=` so the Billing redirect card's "Find a manager" search
   // lands with the query already applied, not a blank list to re-search.
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
@@ -445,7 +447,8 @@ function AdminAccountsList({ showTestTab }: { showTestTab: boolean }) {
 
   /**
    * The row ⋯ (and the dock for the one row it applies to): Open, Copy
-   * PropLane ID, Disable / Enable, then the red Delete last.
+   * PropLane ID, Managed by PropLane… (a manager with a workspace PropLane
+   * does not manage yet), Disable / Enable, then the red Delete last.
    */
   const bulkActions =
     selectedRows.length === 1 ? (
@@ -474,6 +477,17 @@ function AdminAccountsList({ showTestTab }: { showTestTab: boolean }) {
             }}
           >
             Copy PropLane ID
+          </Button>
+        ) : null}
+        {selectedRows[0]!.kind === "manager" && (selectedRows[0]!.unmanagedWorkspaceCount ?? 0) > 0 ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_BULK_BAR_BTN}
+            data-attr="admin-account-managed-by-proplane"
+            onClick={() => setManagedFor({ id: selectedRows[0]!.id, name: selectedRows[0]!.fullName || selectedRows[0]!.email })}
+          >
+            Managed by PropLane…
           </Button>
         ) : null}
         <Button
@@ -643,6 +657,15 @@ function AdminAccountsList({ showTestTab }: { showTestTab: boolean }) {
         locates the header dock by slicing up to the literal
         "return (\n    <ManagerPortalPageShell" string).
       */}
+      {managedFor ? (
+        <ManagedByProplaneSheet
+          key={managedFor.id}
+          open
+          account={managedFor}
+          onClose={() => setManagedFor(null)}
+          onDone={reload}
+        />
+      ) : null}
       <AdminAccountActiveDialog
         request={activeRequest}
         onClose={clearActiveRequest}

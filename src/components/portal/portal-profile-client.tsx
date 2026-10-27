@@ -65,6 +65,9 @@ import {
 } from "@/components/portal/portal-settings-ui";
 import { ManagerPlan } from "@/components/portal/pro-plan";
 import { ManagerApiKeysPanel } from "@/components/portal/pro-api-keys-panel";
+import { AdminTeamPane } from "@/components/portal/admin-team-pane";
+import { SettingsScopeSwitcher } from "@/components/portal/settings-scope-switcher";
+import { ACCOUNT_PANE_IDS_IN_PROPLANE_SCOPE, type SettingsScope } from "@/lib/admin-team/settings-scope";
 import { AssistantReplyModesSection, TeamKnowledgeSection } from "@/components/portal/assistant-learning-settings";
 import { AutomationsSection } from "@/components/portal/automations-settings";
 import { AutoSendAiDraftsRow } from "@/components/portal/pro-portal-automation-settings-panel";
@@ -181,7 +184,7 @@ export const DEVICE_TAG_PANES = new Set<SettingsGroupId>(["preferences"]);
  * classification sets so `tests/unit/settings-account-tags.test.tsx` can
  * assert every nav entry is accounted for exactly once.
  */
-export const SETTINGS_SCOPE_EXEMPT_PANES = new Set<SettingsGroupId>(["workspaces", "messaging", "spreadsheets"]);
+export const SETTINGS_SCOPE_EXEMPT_PANES = new Set<SettingsGroupId>(["workspaces", "messaging", "spreadsheets", "adminTeam"]);
 
 /** The two fields on this screen a person may write. */
 type ProfileField = "fullName" | "phone";
@@ -196,6 +199,7 @@ export type SettingsGroupId =
   | "developer"
   | "feedback"
   | "account"
+  | "adminTeam"
   | "applicationForm"
   | "leaseDocuments"
   | "payments"
@@ -252,7 +256,10 @@ export function PortalProfileClient({
   initialPhoneVerified,
   idLabel,
   idValue,
+  settingsScope = null,
 }: {
+  /** Admin Settings scope dropdown (PropLane / each service workspace). Null = the ordinary single-scope Settings. */
+  settingsScope?: SettingsScope | null;
   variant: "admin" | "manager";
   portalKind: PortalKind;
   initialFullName: string;
@@ -552,6 +559,16 @@ export function PortalProfileClient({
       icon: Lock,
       group: "Profile",
     });
+    // Admin team: PropLane-wide, so Overall admins only, and only in the PropLane scope (the admin variant).
+    if (variant === "admin" && settingsScope?.overall) {
+      list.push({
+        id: "adminTeam",
+        label: "Admin team",
+        description: "Who can open PropLane admin, and their role.",
+        icon: UserRound,
+        group: "Profile",
+      });
+    }
     // Keys authorize against the manager tool layer, so the pane is manager-only.
     // /demo must never mint a real credential.
     if (!demo && variant === "manager") {
@@ -614,8 +631,13 @@ export function PortalProfileClient({
         { id: "spreadsheets", label: "Integrations", description: "Messages, bookings, posting, and Google.", icon: Table2, group: "Workspace" },
       );
     }
+    // In a workspace scope an Overall admin's own account panes live under PropLane; a seat holder with no PropLane scope
+    // keeps them here, since this is the only Settings they have.
+    if (settingsScope?.overall && settingsScope.currentWorkspaceId) {
+      return list.filter((g) => !(ACCOUNT_PANE_IDS_IN_PROPLANE_SCOPE as readonly string[]).includes(g.id));
+    }
     return list;
-  }, [demo, idLabel, variant]);
+  }, [demo, idLabel, variant, settingsScope]);
 
   // Legacy upgrade CTAs still link to `/portal/profile#portal-plan`; the
   // canonical deep-link is `?tab=billing` (+ optional hash). Stripe returns to
@@ -910,6 +932,8 @@ export function PortalProfileClient({
         return <LeaseDocumentLibraryPanel />;
       case "account":
         return <PortalSettingsExtras currentKind={portalKind} variant="session" />;
+      case "adminTeam":
+        return settingsScope?.overall ? <AdminTeamPane /> : null;
     }
   };
 
@@ -953,6 +977,7 @@ export function PortalProfileClient({
     <ManagerPortalPageShell title="Settings" navigationProvidesTitle hideTitleOnMobileNav>
       <div ref={layoutTopRef} data-attr="settings-layout" className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
         <nav aria-label="Settings sections" className="hidden w-[216px] shrink-0 space-y-1 lg:block">
+          {settingsScope ? <SettingsScopeSwitcher scope={settingsScope} /> : null}
           {variant === "manager" ? <p className={`${groupLabelClass} pt-0`} data-attr="settings-group-profile">Profile</p> : null}
           {profileGroups.map(navButton)}
           {workspaceGroups.length > 0 ? <>
@@ -965,6 +990,7 @@ export function PortalProfileClient({
           {homeVisible ? <div className="space-y-6 lg:hidden" data-attr="settings-home">
             <button type="button" aria-label="Back" data-attr="settings-home-back" className="grid h-11 w-11 place-items-center" onClick={() => (canGoBackInApp() ? router.back() : router.replace(pathname.replace(/\/profile$/, "/dashboard")))}><ChevronLeft className="h-6 w-6" /></button>
             <h2 className="text-[30px] font-semibold tracking-tight">Settings</h2>
+            {settingsScope ? <SettingsScopeSwitcher scope={settingsScope} /> : null}
             <div className="space-y-2">
               {variant === "manager" ? <p className={`${groupLabelClass} pt-0`}>Profile</p> : null}
               {variant === "manager" ? <button type="button" data-attr="settings-open-profile" onClick={() => openGroup("profile")} className="block w-full text-left" aria-label="Open Profile">

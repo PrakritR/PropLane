@@ -368,7 +368,7 @@ async function insertAdminMembership(
 export async function createServiceWorkspace(
   db: SupabaseClient,
   operatorUserId: string,
-  input: { name: unknown; city: unknown; ownerOfRecord?: unknown; ownerContact?: unknown },
+  input: { name: unknown; city: unknown; ownerOfRecord?: unknown; ownerContact?: unknown; ownerRole?: unknown },
 ): Promise<ServiceResult<{ id: string; ownerInvite: { sent: boolean; delivery?: "account" | "link"; error?: string } | null }>> {
   const name = cleanServiceName(input.name);
   if (!name) return fail(400, "Use a workspace name of 1 to 80 characters.");
@@ -381,6 +381,11 @@ export async function createServiceWorkspace(
   const contactRaw = typeof input.ownerContact === "string" ? input.ownerContact.trim() : input.ownerContact === undefined || input.ownerContact === null ? "" : null;
   if (contactRaw === null || contactRaw.length > 120) return fail(400, "Enter the owner's email or PropLane ID.");
   if (contactRaw.includes("@") && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactRaw)) return fail(400, "Enter a valid email address.");
+  // The owner's role: Property owner (the owner of record, view-only) is the one role an owner invite carries. A different
+  // role is set from the workspace's Team once they have joined (a platform admin edits it there, audited).
+  if (input.ownerRole !== undefined && input.ownerRole !== null && input.ownerRole !== "" && input.ownerRole !== "property_owner") {
+    return fail(400, "An owner is invited as Property owner. Change their role from Team after they join.");
+  }
   const owner = await resolveServiceOwner(db);
   if (!owner.ok) return fail(owner.reason === "not_configured" ? 409 : 503, owner.reason === "not_configured" ? SERVICE_NOT_CONFIGURED : "Could not reach the service settings. Please retry.");
   const created = await db.rpc("create_portal_service_workspace", { p_owner: owner.ownerUserId, p_name: name, p_city: city });
@@ -618,9 +623,27 @@ export async function listServiceAttachCandidates(
 }
 
 /** What the operator is inside one service workspace, or a failure when it is not one / they hold nothing in it. */
-async function operatorStanding(db: SupabaseClient, operatorUserId: string, workspaceId: string) {
+/**
+ * `opts.overall` is the Admin team's verdict, derived by its routes from the Overall admin role (never from a body): an
+ * Overall admin stands as the owner of every PropLane Service workspace for team changes, member or not. Left out, the
+ * operator must hold a seat in the workspace, exactly as before.
+ */
+export type OperatorOpts = { overall?: boolean };
+
+async function operatorStanding(db: SupabaseClient, operatorUserId: string, workspaceId: string, opts: OperatorOpts = {}) {
   const workspace = await loadServiceWorkspace(db, workspaceId);
   if (!workspace) return fail(404, NOT_FOUND);
+  if (opts.overall === true) {
+    const standing = {
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+      ownerUserId: workspace.ownerUserId,
+      role: "owner" as const,
+      rights: { members: true, houses: true },
+      linkId: null,
+    };
+    return { ok: true as const, workspace, standing };
+  }
   const standing = await actorWorkspaceStanding(db, operatorUserId, workspace.id);
   if (!standing || standing.role === null) return fail(403, "Ask a teammate of this workspace to add you to its team first.");
   return { ok: true as const, workspace, standing };
@@ -873,7 +896,26 @@ async function resolveServiceSeatGrant(
   who: { workspace: { id: string; ownerUserId: string }; standing: { role: Parameters<typeof roleAssignableBy>[0] } },
   operatorUserId: string,
   body: InviteAccessInput,
+  /** Editing the owner of record's own seat: role Owner is allowed and re-stamped server-side (read-only by role). */
+  options: { allowOwner?: boolean } = {},
 ): Promise<ServiceFailure | { ok: true; grant: ServiceSeatGrant }> {
+  if (body.teamRole === "property_owner" && options.allowOwner) {
+    // The owner of record keeps the Owner role: houses and keys are re-stamped here, nothing in the body is read.
+    const houses = await workspaceHouseIds(db, who.workspace.ownerUserId, who.workspace.id);
+    // Never taken from the body: an owner sees every house of the workspace and holds the owner keys only.
+    const ownerMap = stampTeamRoleOnProperties("property_owner", houses, {});
+    return {
+      ok: true,
+      grant: {
+        teamRole: "property_owner",
+        houseScope: "selected",
+        assignedPropertyIds: houses,
+        propertyCoManagerPermissions: ownerMap,
+        coManagerPermissions: flatTeamRoleGrant("property_owner", ownerMap) ?? {},
+        workspacePermissions: {},
+      },
+    };
+  }
   // A bare "email or PropLane ID" invite (no role, no houses) is the original service invite: Admin, every house.
   const parsed = parseInviteAccess({ ...body, teamRole: body.teamRole ?? "admin", houseScope: body.houseScope ?? "all" });
   if (!parsed.ok) return fail(400, parsed.error);
@@ -891,7 +933,7 @@ async function resolveServiceSeatGrant(
     if (assignedPropertyIds.length === 0) return fail(400, "Choose at least one house, or all houses.");
   }
   let propertyMap = restampInviteHouses(body, teamRole, assignedPropertyIds, parsed.access.propertyCoManagerPermissions);
-  if (operatorUserId.trim() !== who.workspace.ownerUserId.trim()) {
+  if (operatorUserId.trim() !== who.workspace.ownerUserId.trim() && who.standing.role !== "owner") {
     const capped = await capTeamInvitePermissionsForDelegate(db, operatorUserId, who.workspace.ownerUserId, assignedPropertyIds, propertyMap);
     if (!capped.ok) return fail(capped.status, capped.error);
     propertyMap = capped.permissions;
@@ -1262,17 +1304,19 @@ async function liveServiceInviteLinks(
 }
 
 /**
- * Edit a seat's access: role, houses and module levels, validated exactly like the invite. The owner of record's
- * access is fixed (read-only by role) and is changed by replacing them, never by editing. Audited before it changes.
+ * Edit a seat's access: role, houses and module levels, validated exactly like the invite. The owner of record is
+ * edited like any teammate (a platform admin only; role Owner stays read-only by role) and KEEPS the owner-of-record
+ * flag whatever role they hold; who the owner is changes only by replacing them. Audited before it changes.
  */
 export async function updateServiceTeamAccess(
   db: SupabaseClient,
   operatorUserId: string,
   input: InviteAccessInput & { id: string; linkId: unknown },
+  opts: OperatorOpts = {},
 ): Promise<ServiceResult<object>> {
   const linkId = typeof input.linkId === "string" ? input.linkId.trim() : "";
   if (!/^[0-9a-f-]{36}$/i.test(linkId)) return fail(400, "Choose a teammate.");
-  const who = await operatorStanding(db, operatorUserId, input.id);
+  const who = await operatorStanding(db, operatorUserId, input.id, opts);
   if (!who.ok) return who;
   if (!who.standing.rights.members) return fail(403, "Only the owner or an admin of this workspace can change access.");
   const link = await db
@@ -1287,10 +1331,18 @@ export async function updateServiceTeamAccess(
   if (link.error) return fail(503, "Could not update. Please retry.");
   if (!link.data) return fail(404, "Teammate not found.");
   const target = link.data as { invitee_user_id: string; team_role: string | null; status: string; is_owner_of_record: boolean | null };
-  if (target.is_owner_of_record === true || target.team_role === "property_owner") {
-    return fail(409, "The owner's access is read-only by role. Replace the owner to change who it is.");
+  const ownerOfRecord = target.is_owner_of_record === true;
+  // A Property owner who is not the owner of record is the retired role: nothing here edits it.
+  if (!ownerOfRecord && target.team_role === "property_owner") {
+    return fail(409, "This owner's access is read-only by role. Remove them to change it.");
   }
-  const resolved = await resolveServiceSeatGrant(db, who, operatorUserId, input);
+  // The owner of record's role and houses are changed by a PLATFORM ADMIN only, re-derived here (a workspace Admin
+  // seat holder can edit teammates but not who the client is, or what they can do). The owner-of-record flag is never
+  // touched by this verb: only Replace / the owner-of-record verb move it.
+  if (ownerOfRecord && !(await userHoldsAdminRole(db, operatorUserId))) {
+    return fail(403, "Only a PropLane admin can change the owner's access.");
+  }
+  const resolved = await resolveServiceSeatGrant(db, who, operatorUserId, input, { allowOwner: ownerOfRecord });
   if (!resolved.ok) return resolved;
   const { grant } = resolved;
   const oldRole = (parseTeamRole(target.team_role).ok ? (parseTeamRole(target.team_role) as { role: TeamRoleId | null }).role : null) ?? "custom";
@@ -1313,6 +1365,7 @@ export async function updateServiceTeamAccess(
       workspaceId: who.workspace.id,
       linkId,
       inviteeUserId: target.invitee_user_id,
+      ownerOfRecord,
       previousTeamRole: target.team_role,
       teamRole: grant.teamRole,
       houseScope: grant.houseScope,
@@ -1453,13 +1506,14 @@ export async function removeServiceTeamMember(
   db: SupabaseClient,
   operatorUserId: string,
   input: { id: string; linkId?: unknown; inviteLinkId?: unknown },
+  opts: OperatorOpts = {},
 ): Promise<ServiceResult<object>> {
   // A person invited by email who has no account yet has no membership row, only an unspent invite link: withdrawing
   // them turns that link off.
   if (input.inviteLinkId !== undefined) {
     const inviteLinkId = typeof input.inviteLinkId === "string" ? input.inviteLinkId.trim() : "";
     if (!/^[0-9a-f-]{36}$/i.test(inviteLinkId)) return fail(400, "Choose a teammate.");
-    const who = await operatorStanding(db, operatorUserId, input.id);
+    const who = await operatorStanding(db, operatorUserId, input.id, opts);
     if (!who.ok) return who;
     if (!who.standing.rights.members) return fail(403, "Only the owner or an admin of this workspace can change its team.");
     const live = await liveServiceInviteLinks(db, who.workspace);
@@ -1486,7 +1540,7 @@ export async function removeServiceTeamMember(
   }
   const linkId = typeof input.linkId === "string" ? input.linkId.trim() : "";
   if (!/^[0-9a-f-]{36}$/i.test(linkId)) return fail(400, "Choose a teammate.");
-  const who = await operatorStanding(db, operatorUserId, input.id);
+  const who = await operatorStanding(db, operatorUserId, input.id, opts);
   if (!who.ok) return who;
   const link = await db
     .from("account_link_invites")
@@ -1519,4 +1573,98 @@ export async function removeServiceTeamMember(
     .eq("workspace_id", who.workspace.id);
   if (res.error) return fail(503, "Could not remove the teammate. Please retry.");
   return { ok: true };
+}
+
+/**
+ * Seat an EXISTING account on a PropLane Service workspace as an accepted, PropLane-issued team seat, with the role,
+ * houses and module levels the Admin team asked for. Used when an admin-team invite is redeemed (the inviter is the
+ * operator, re-derived at that moment), never from a request body naming the grantee. The same validators as
+ * `inviteServiceClient` decide the grant (role from the allow-list, houses of THIS workspace, no role above the
+ * operator's own); the audit row is written first and the seat refused without it.
+ */
+export async function seatAdminTeamMember(
+  db: SupabaseClient,
+  operatorUserId: string,
+  input: InviteAccessInput & { id: string; userId: string; via: "invite" | "change" },
+  opts: OperatorOpts = {},
+): Promise<ServiceResult<{ linkId: string }>> {
+  const userId = input.userId.trim();
+  if (!userId) return fail(400, "Choose a teammate.");
+  const who = await operatorStanding(db, operatorUserId, input.id, opts);
+  if (!who.ok) return who;
+  if (!who.standing.rights.members) return fail(403, "Only the owner or an admin of this workspace can invite people.");
+  if (userId === who.workspace.ownerUserId) return fail(409, "That account already owns this workspace.");
+  const resolved = await resolveServiceSeatGrant(db, who, operatorUserId, input);
+  if (!resolved.ok) return resolved;
+  const { grant } = resolved;
+  const existing = await db
+    .from("account_link_invites")
+    .select("id, status, team_role, is_owner_of_record")
+    .eq("inviter_user_id", who.workspace.ownerUserId)
+    .eq("invitee_user_id", userId)
+    .eq("workspace_id", who.workspace.id)
+    .in("status", ["accepted", "pending"])
+    .maybeSingle();
+  if (existing.error) return fail(503, "Could not add the teammate. Please retry.");
+  const current = existing.data as { id: string; status: string; is_owner_of_record: boolean | null } | null;
+  if (current?.is_owner_of_record === true) return fail(409, "That account is this workspace's owner of record.");
+  const audited = await auditServiceChange(
+    db,
+    operatorUserId,
+    who.workspace.ownerUserId,
+    "admin_team_seat",
+    {
+      workspaceId: who.workspace.id,
+      inviteeUserId: userId,
+      teamRole: grant.teamRole,
+      houseScope: grant.houseScope,
+      houseCount: grant.assignedPropertyIds.length,
+      via: input.via,
+      replacesLinkId: current?.id ?? null,
+    },
+    true,
+  );
+  if (audited) return audited;
+  // A seat the person already holds (accepted, or pending from the older invite) is accepted with the new grant
+  // rather than duplicated: one membership per workspace.
+  if (current) {
+    const res = await db
+      .from("account_link_invites")
+      .update({
+        status: "accepted",
+        responded_at: new Date().toISOString(),
+        team_role: grant.teamRole,
+        house_scope: grant.houseScope,
+        assigned_property_ids: grant.assignedPropertyIds,
+        property_co_manager_permissions: grant.propertyCoManagerPermissions,
+        co_manager_permissions: grant.coManagerPermissions,
+        workspace_permissions: grant.workspacePermissions,
+        is_service_seat: true,
+      })
+      .eq("id", current.id)
+      .eq("inviter_user_id", who.workspace.ownerUserId);
+    if (res.error) return fail(503, "Could not add the teammate. Please retry.");
+    return { ok: true, linkId: current.id };
+  }
+  const added = await insertAdminMembership(db, who.workspace.ownerUserId, who.workspace.id, userId, { grant });
+  if (!added.ok) return added;
+  return { ok: true, linkId: added.linkId };
+}
+
+/**
+ * The same validation `seatAdminTeamMember` runs, without writing anything: may this operator hand out this role, to these
+ * houses, in this workspace? The Admin team invite asks it when the invite is written, so a role above the inviter's own
+ * or a house of another workspace is refused at the sheet instead of at the moment the invitee accepts.
+ */
+export async function checkAdminTeamSeatGrant(
+  db: SupabaseClient,
+  operatorUserId: string,
+  input: InviteAccessInput & { id: string },
+  opts: OperatorOpts = {},
+): Promise<ServiceResult<object>> {
+  const who = await operatorStanding(db, operatorUserId, input.id, opts);
+  if (!who.ok) return who;
+  if (!who.standing.rights.members) return fail(403, "Only the owner or an admin of this workspace can invite people.");
+  const resolved = await resolveServiceSeatGrant(db, who, operatorUserId, input);
+  return resolved.ok ? { ok: true } : resolved;
 }

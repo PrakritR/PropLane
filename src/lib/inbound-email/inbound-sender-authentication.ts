@@ -17,6 +17,8 @@
  * all answer false. Pure function; fails closed.
  */
 
+import { singleEmailAddress } from "@/lib/inbound-email/channel-senders";
+
 export type InboundHeaders = Record<string, string | string[]> | Array<{ name?: unknown; value?: unknown }>;
 
 /** Normalise the two shapes a provider uses (object map or `[{name,value}]`) to lower-cased names. */
@@ -83,8 +85,5 @@ export function inboundSenderAuthenticated(rawHeaders: unknown, fromAddress: str
  */
 export function replyToFromHeaders(rawHeaders: unknown): string | null {
   const value = normalizeInboundHeaders(rawHeaders)["reply-to"]?.[0];
-  if (!value) return null;
-  const open = value.lastIndexOf("<");
-  const candidate = (open >= 0 && value.trim().endsWith(">") ? value.slice(open + 1, value.lastIndexOf(">")) : value).trim().toLowerCase();
-  return /^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/.test(candidate) ? candidate : null;
+  return value ? singleEmailAddress(value) : null;
 }

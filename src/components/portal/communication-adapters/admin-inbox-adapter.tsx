@@ -13,6 +13,10 @@ import { adminSmsConversationsUrl, publishAdminSmsWorkspaces } from "@/lib/admin
 import { ADMIN_UI_EVENT } from "@/lib/demo-admin-ui";
 import { AdminThreadPane } from "@/components/portal/admin-thread-pane";
 import { AdminWorkIdentityCard, publishAdminWorkNumber } from "@/components/portal/admin-work-identity-card";
+import {
+  isManagerAgentNoticeThreadId,
+  type ManagerAssistantWorkspace,
+} from "@/lib/communication-manager-assistant-thread";
 import type { CommunicationInboxAdapter } from "@/lib/communication/inbox-adapter";
 import {
   ADMIN_INBOX_STORAGE_KEY,
@@ -20,6 +24,9 @@ import {
   adminEmailMutations,
   syncAdminThreads,
 } from "@/lib/admin-inbox-source";
+
+/** The viewer's default-workspace chat (the unsuffixed `agent_notice_<id>`), whatever workspace the admin last opened. */
+const ADMIN_ASSISTANT_WORKSPACE: ManagerAssistantWorkspace = { id: "", isDefault: true };
 
 /** A successful, empty answer: the text stream is switched off, so there are no rows to read. */
 function emptySmsResponse(): Response {
@@ -43,12 +50,17 @@ export function createAdminInboxAdapter({
     storageKey: ADMIN_INBOX_STORAGE_KEY,
     threadsChangedEvent: ADMIN_UI_EVENT,
     loadCachedThreads: adminCachedThreads,
-    // Nothing is pinned into the admin list, so nothing is staged ahead of the store.
+    // The pinned Assistant chat is read from its own endpoint, never staged into the admin store.
     stageThreads: () => {},
     syncThreads: syncAdminThreads,
-    buildListThreads: (rows) => rows,
+    // An Assistant chat is private to its owner: only the viewer's own can ever be drawn, whatever the store holds.
+    buildListThreads: (rows, ctx) =>
+      rows.filter((row) => !isManagerAgentNoticeThreadId(row.id) || (Boolean(ctx.viewerId) && isManagerAgentNoticeThreadId(row.id, ctx.viewerId))),
     emailMutations: adminEmailMutations,
-    pinsAssistant: false,
+    // The viewer's OWN PropLane Assistant is first in the list: texts from their verified phone to the PropLane line land
+    // there, and no other admin's ever does.
+    pinsAssistant: true,
+    assistantWorkspace: ADMIN_ASSISTANT_WORKSPACE,
     directChat: false,
     namesSentThreadsByFrom: true,
 

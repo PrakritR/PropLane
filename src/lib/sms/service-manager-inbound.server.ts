@@ -54,7 +54,7 @@ export type ServiceManagerIdentity = ManagerSmsInboundIdentity & {
 type Candidate = { basis: "admin"; actorUserId: string } | { basis: "seat"; actorUserId: string; seats: ServiceSeat[] };
 
 /** An `admin` row in `profile_roles` ONLY (the legacy `profiles.role` and the ops email are not evidence here). Unreadable = no. */
-async function holdsAdminRole(db: SupabaseClient, userId: string): Promise<boolean> {
+export async function holdsAdminRole(db: SupabaseClient, userId: string): Promise<boolean> {
   const { data, error } = await db.from("profile_roles").select("role").eq("user_id", userId).eq("role", "admin").limit(1);
   return !error && Array.isArray(data) && data.length > 0;
 }

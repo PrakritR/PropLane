@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdminRoute } from "@/lib/admin/admin-route-guard.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
+import { listAccountWorkspacesForManaging, manageAccountByProplane } from "@/lib/service/managed-by-proplane.server";
 import {
   addServiceTeamMember,
   attachWorkspaceToService,
@@ -63,6 +64,7 @@ export async function POST(request: Request) {
         city: body.city,
         ownerOfRecord: body.ownerOfRecord,
         ownerContact: body.ownerContact,
+        ownerRole: body.ownerRole,
       });
       if (!result.ok) return failure(result);
       return NextResponse.json({ id: result.id, ownerInvite: result.ownerInvite }, { status: 201, headers: NO_STORE });
@@ -82,6 +84,32 @@ export async function POST(request: Request) {
       });
       if (!result.ok) return failure(result);
       return NextResponse.json({ id: result.id }, { status: 201, headers: NO_STORE });
+    }
+    case "account-workspaces": {
+      // Accounts > Managers > Managed by PropLane...: the account's own workspaces, re-read from the database.
+      const result = await listAccountWorkspacesForManaging(db, admin.userId, body.accountUserId);
+      if (!result.ok) return failure(result);
+      return NextResponse.json(
+        { account: result.account, workspaces: result.workspaces, managedCount: result.managedCount },
+        { headers: NO_STORE },
+      );
+    }
+    case "manage-by-proplane": {
+      // One attach per chosen workspace, or Combine all into one. Audit rows first; a failed read changes nothing.
+      const result = await manageAccountByProplane(db, admin.userId, {
+        accountUserId: body.accountUserId,
+        mode: body.mode,
+        workspaceIds: body.workspaceIds,
+        targetId: body.targetId,
+        city: body.city,
+        label: body.label,
+        feePercent: body.feePercent,
+      });
+      if (!result.ok) return failure(result);
+      return NextResponse.json(
+        { attached: result.attached, moved: result.moved, archived: result.archived, kept: result.kept, feeErrors: result.feeErrors },
+        { status: 201, headers: NO_STORE },
+      );
     }
     case "rename": {
       const result = await renameServiceWorkspace(db, admin.userId, { id, name: body.name, city: body.city, ownerOfRecord: body.ownerOfRecord });

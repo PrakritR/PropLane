@@ -25,6 +25,8 @@ const STATUS_BY_REASON: Record<string, number> = {
   application_required: 403,
   sign_in_required: 401,
   conflict: 409,
+  duplicate_request: 409,
+  rate_limited: 429,
   write_failed: 500,
 };
 
