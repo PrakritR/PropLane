@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { profilePhoneVariants, readSmsSuppressionState } from "@/lib/sms-consent";
 
 describe("profilePhoneVariants", () => {
-  it("never emits punctuation forms that break numeric profiles.phone lookups", () => {
+  it("never emits punctuation forms that break profiles.phone lookups", () => {
     for (const raw of ["+14086685132", "(408) 668-5132", "408-668-5132"]) {
       for (const variant of profilePhoneVariants(raw)) {
         expect(variant).toMatch(/^\+?\d+$/);
