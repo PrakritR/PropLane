@@ -264,11 +264,15 @@ describe("/api/portal-vendors", () => {
       select: vi.fn().mockReturnThis(),
       in: vi.fn().mockResolvedValue({ data: [{ id: "v-other", manager_user_id: "mgr-b" }], error: null }),
     };
+    // The link lookup is read twice with a different number of filters each time (the accepted
+    // co-manager links, then the derived service owner-of-record seats), so the chain stays
+    // chainable and carries the result on itself.
     const acceptedLinks = {
       select: vi.fn().mockReturnThis(),
-      eq: vi.fn(),
+      eq: vi.fn().mockReturnThis(),
+      data: [],
+      error: null,
     };
-    acceptedLinks.eq.mockReturnValueOnce(acceptedLinks).mockResolvedValueOnce({ data: [], error: null });
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
       from: vi.fn((table: string) => {
         if (table === "profiles") return profileChain;

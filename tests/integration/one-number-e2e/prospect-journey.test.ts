@@ -19,6 +19,12 @@ const sim = vi.hoisted(() => ({
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/service/service-catalog.server", () => ({ getServicePublicListings: vi.fn(async () => sim.listings) }));
+// In `shared` mode the line's catalog is not the service catalog: it is every public listing of a workspace that
+// answers on the 206 (`line-catalog.server`). That is the seam the lead flow resolves, so inject the catalog there.
+vi.mock("@/lib/one-number/line-catalog.server", () => ({
+  getLineCatalogListings: vi.fn(async () => sim.listings),
+  sharedLineCatalogListings: vi.fn(async () => sim.listings),
+}));
 vi.mock("@/lib/one-number/lead-extract.server", () => ({ extractLeadFieldsWithModel: vi.fn(async () => null) }));
 vi.mock("@/lib/one-number/send.server", () => ({
   sendSharedLineMessage: vi.fn(async (_db: unknown, send: SharedLineSend) => {
