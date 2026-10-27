@@ -70,11 +70,12 @@ async function holdsAdminOutsideRoleRow(db: SupabaseClient, userId: string): Pro
   return isPrimaryAdminEmail(profile?.email) || String(profile?.role ?? "").trim().toLowerCase() === "admin";
 }
 
-async function ensureAdminTeamProfile(
-  db: SupabaseClient,
-  userId: string,
-  role: "admin" | "manager",
-): Promise<AdminTeamFailure | null> {
+/**
+ * The profile row a new admin-team account needs. `profiles.role` is the legacy singular column and is stamped `manager`
+ * for a brand-new account on purpose (an existing value is never changed): the admin grant is the `profile_roles` row
+ * alone, so removing it removes the access. A legacy `profiles.role = 'admin'` is admin access no pane can take back.
+ */
+async function ensureAdminTeamProfile(db: SupabaseClient, userId: string): Promise<AdminTeamFailure | null> {
   const [existing, auth] = await Promise.all([
     db.from("profiles").select("role, full_name, phone, application_approved").eq("id", userId).maybeSingle(),
     db.auth.admin.getUserById(userId),
@@ -87,7 +88,7 @@ async function ensureAdminTeamProfile(
   const row: Record<string, unknown> = {
     id: userId,
     ...(email ? { email } : {}),
-    role: String(current?.role ?? "").trim() || (role === "admin" ? "admin" : primaryRoleWhenAddingManager(null)),
+    role: String(current?.role ?? "").trim() || primaryRoleWhenAddingManager(null),
     full_name: current?.full_name?.trim() || (typeof meta.full_name === "string" ? meta.full_name.trim() : "") || null,
     application_approved: current?.application_approved ?? true,
   };
@@ -135,7 +136,7 @@ export async function applyAdminInviteGrant(
   if (audited) return audited;
 
   if (grant.role === OVERALL_ADMIN_ROLE) {
-    const profile = await ensureAdminTeamProfile(db, redeemerUserId, "admin");
+    const profile = await ensureAdminTeamProfile(db, redeemerUserId);
     if (profile) return profile;
     await ensureProfileRoleRow(db, redeemerUserId, "admin");
     await recordGrant(db, { userId: redeemerUserId, grantedBy: inviterUserId, role: OVERALL_ADMIN_ROLE, workspaceIds: [] });
@@ -144,7 +145,7 @@ export async function applyAdminInviteGrant(
 
   // A workspace role: the person needs a manager portal for the service shell to open (the same account every other
   // seat holder has), then one PropLane-issued seat per chosen workspace.
-  const profile = await ensureAdminTeamProfile(db, redeemerUserId, "manager");
+  const profile = await ensureAdminTeamProfile(db, redeemerUserId);
   if (profile) return profile;
   await ensureProfileRoleRow(db, redeemerUserId, "manager");
   for (const workspaceId of grant.workspaceIds) {

@@ -161,6 +161,35 @@ describe("an admin invite", () => {
   });
 });
 
+describe("the invite page's preview", () => {
+  it("names the inviter, the role in words, the workspaces and the one address the link is for", async () => {
+    await invite(PRAKRIT, { email: "jordan@example.com", role: "property_manager", workspaceIds: [AMBIKA, VINOD] });
+    const preview = await links.previewInviteLink(client(), lastToken());
+    expect(preview).toMatchObject({
+      kind: "admin",
+      ownerName: "Name 2222",
+      adminRoleLabel: "Property manager",
+      inviteeEmail: "jordan@example.com",
+      unusableReason: null,
+    });
+    expect([...(preview?.adminWorkspaceNames ?? [])].sort()).toEqual(["1. Ambika", "2. Vinod"]);
+    await invite(PRAKRIT, { email: "aarav@example.com", role: "overall_admin" });
+    expect(await links.previewInviteLink(client(), lastToken())).toMatchObject({ kind: "admin", adminRoleLabel: "Overall admin", adminWorkspaceNames: [] });
+  });
+
+  it("a turned-off or expired invite previews as unusable", async () => {
+    await invite(PRAKRIT, { email: "aarav@example.com", role: "overall_admin" });
+    const token = lastToken();
+    db.tables.manager_invite_links[0]!.revoked_at = "2026-10-27T00:00:00Z";
+    expect(await links.previewInviteLink(client(), token)).toMatchObject({ kind: "admin", unusableReason: "revoked" });
+    db.tables.manager_invite_links[0]!.revoked_at = null;
+    db.tables.manager_invite_links[0]!.expires_at = "2020-01-01T00:00:00Z";
+    expect(await links.previewInviteLink(client(), token)).toMatchObject({ unusableReason: "expired" });
+    expect(await redeem(AARAV, token)).toMatchObject({ ok: false, status: 410 });
+    expect(roleHolders(db)).toEqual([PRAKRIT]);
+  });
+});
+
 describe("redeeming grants only for the bound email", () => {
   it("another account with a valid link is refused: no role, no spent use", async () => {
     await invite(PRAKRIT, { email: "aarav@example.com", role: "overall_admin" });
