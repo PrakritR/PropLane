@@ -31,7 +31,7 @@ import {
   withOptOut,
 } from "@/lib/sms/propline-first-text";
 import { mintSetupLink } from "@/lib/one-number/onboarding/setup-links.server";
-import { askedByLine, readOnboardingState, saveOnboardingState, SHARED_LINE_ASK, type OnboardingState } from "@/lib/one-number/onboarding/state.server";
+import { askedByLine, claimRoleQuestionAsk, readOnboardingState, saveOnboardingState, SHARED_LINE_ASK, type OnboardingState } from "@/lib/one-number/onboarding/state.server";
 import { handleUnassignedLeadInbound, type LeadDeps, type UnassignedLeadTurn } from "@/lib/one-number/unassigned-leads.server";
 
 export const ONBOARDING_COPY = {
@@ -174,7 +174,18 @@ async function runUnknownSenderTurn(db: SupabaseClient, inbound: SharedLineInbou
       const fromClarity = clarity.kind === "clear" ? ({ looking: "searcher", manage: "landlord", vendor: "vendor", resident: null } as const)[clarity.role] : null;
       const inferred = inferSenderRole(inbound.body) ?? fromClarity;
       if (!inferred) {
-        await saveOnboardingState(db, inbound.phoneKey, { askedAt: (now ?? new Date()).toISOString(), askedLine: SHARED_LINE_ASK }, now);
+        // The ask is recorded BEFORE it is sent, and only one request wins it (`claimRoleQuestionAsk` is a
+        // compare-and-swap on the `asked_at` just read), so a burst of unclear texts that arrives before the
+        // question goes out still asks once and only once.
+        const claimed = await claimRoleQuestionAsk(db, inbound.phoneKey, SHARED_LINE_ASK, state?.askedAt ?? null, now ?? new Date()).catch(() => false);
+        if (!claimed) {
+          // Lost: either another request is asking right now - this text is then a duplicate of a question already
+          // going out and says nothing - or nothing could be stored, and an ask whose answer could never be read
+          // back is not asked at all: that text takes the lead path, exactly as it did before the question existed.
+          const after = await readOnboardingState(db, inbound.phoneKey).catch(() => ({ available: false, state: null }));
+          if (askedByLine(after.state, SHARED_LINE_ASK)) return { leadId: null, reply: null, assignedWorkspaceId: null };
+          return leadPath();
+        }
         return single(ONBOARDING_COPY.askRole);
       }
       role = inferred;

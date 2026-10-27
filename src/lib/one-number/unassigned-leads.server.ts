@@ -35,6 +35,7 @@ import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import { upsertManagerSmsContact } from "@/lib/sms/manager-sms-contacts.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { resolveHouseRedirect } from "@/lib/one-number/house-redirect.server";
+import { isServiceWorkspace } from "@/lib/one-number/service-line.server";
 import { getLineCatalogListings } from "@/lib/one-number/line-catalog.server";
 
 export type UnassignedLeadTurn = {
@@ -394,12 +395,13 @@ export async function handleUnassignedLeadInbound(
 // Assignment
 // ---------------------------------------------------------------------------
 
-/** Does `workspaceId` carry the PropLane Service flag? A failed or absent read is NOT a service workspace (fail closed). */
+/**
+ * Does `workspaceId` carry the PropLane Service flag? `isServiceWorkspace` is the one place that decides it; a read
+ * it could not answer (null) is NOT a service workspace here, which is the fail-closed direction for both callers
+ * below (less access, never more).
+ */
 async function workspaceIsService(db: SupabaseClient, workspaceId: string): Promise<boolean> {
-  if (!workspaceId) return false;
-  const { data, error } = await db.from("portal_workspaces").select("is_service").eq("id", workspaceId).maybeSingle();
-  if (error) return false;
-  return (data as Row | null)?.is_service === true;
+  return (await isServiceWorkspace(db, workspaceId)) === true;
 }
 
 /**

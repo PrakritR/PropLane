@@ -312,8 +312,11 @@ export async function sendWorkOrderVendorOffers(
     .eq("work_order_id", workOrderId)
     .in("vendor_directory_id", vendorIds);
   const nowMs = Date.now();
+  const priorOfferRows = (priorOffers ?? []) as Array<{ vendor_directory_id: string; status: string; expires_at: string | null }>;
+  // What each row held before this send, so a send that does not go out can put it back exactly.
+  const priorOfferByVendor = new Map(priorOfferRows.map((offer) => [String(offer.vendor_directory_id), offer] as const));
   const liveOffers = new Set(
-    ((priorOffers ?? []) as Array<{ vendor_directory_id: string; status: string; expires_at: string | null }>)
+    priorOfferRows
       .filter((offer) => {
         if (offer.status !== "sent") return false;
         const expiry = offer.expires_at ? Date.parse(offer.expires_at) : NaN;
@@ -382,6 +385,20 @@ export async function sendWorkOrderVendorOffers(
         jobLine: [rowData.title || "Service", rowData.reference].filter(Boolean).join(" · "),
       });
       if (!inviter.ok) {
+        // The offer row goes first so an invite is never the only thing that happened - and an invite that did not
+        // go out must not leave a live offer behind either: the manager was told this vendor was not sent to, and a
+        // live row would both show them an offer and keep the open round from starting a new one. The row is put
+        // back the way this send found it (deleted when this send created it).
+        const prior = priorOfferByVendor.get(vendorId);
+        if (prior) {
+          await db
+            .from("work_order_vendor_offers")
+            .update({ status: prior.status, expires_at: prior.expires_at, updated_at: new Date().toISOString() })
+            .eq("work_order_id", workOrderId)
+            .eq("vendor_directory_id", vendorId);
+        } else {
+          await db.from("work_order_vendor_offers").delete().eq("work_order_id", workOrderId).eq("vendor_directory_id", vendorId);
+        }
         skip(vendorId, vendor.name, inviter.status === 502 || inviter.status === 503 ? "invite email could not be sent" : "invite not allowed");
         continue;
       }

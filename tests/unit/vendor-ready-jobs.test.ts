@@ -67,6 +67,10 @@ function fakeDb(tables: Record<string, { rows?: unknown; single?: unknown; error
         log.push({ table, op: "insert", row });
         return Promise.resolve({ error: null });
       };
+      builder.delete = () => {
+        log.push({ table, op: "delete" });
+        return builder;
+      };
       builder.then = (resolve: (v: unknown) => unknown) => resolve(result());
       return builder;
     },
@@ -165,12 +169,15 @@ describe("J1: an offer to a roster vendor with no account is reported, never sil
     expect(describeVendorSendOutcome({ ok: true, ...result })).toBe("Skipped Ace Roofing: no email or account.");
   });
 
-  it("a failed invite email is a skip, not a success", async () => {
+  it("a failed invite email is a skip, not a success, and leaves no live offer behind", async () => {
     hoisted.inviteOk = false;
-    const result = await sendWorkOrderVendorOffers(offerDb([{ id: "d3", vendor_user_id: null, email: "a@b.co", name: "Bee" }]), mgr, { workOrderId: "wo1", vendorIds: ["d3"] });
+    const log: Array<{ table: string; op: string; row?: Rec }> = [];
+    const result = await sendWorkOrderVendorOffers(offerDb([{ id: "d3", vendor_user_id: null, email: "a@b.co", name: "Bee" }], log), mgr, { workOrderId: "wo1", vendorIds: ["d3"] });
     if (!result.ok) throw new Error("expected ok");
     expect(result.sent).toEqual([]);
     expect(result.skippedDetails[0]!.reason).toMatch(/invite email/);
+    // The row written before the invite is taken back: the manager was told nothing was sent to this vendor.
+    expect(log.filter((l) => l.table === "work_order_vendor_offers").map((l) => l.op)).toEqual(["upsert", "delete"]);
   });
 
   it("J6a/b: a linked vendor is notified with a job link, and a re-offer carries a new event id", async () => {

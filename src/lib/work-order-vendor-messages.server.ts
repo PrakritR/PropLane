@@ -68,10 +68,58 @@ export function vendorAssignmentAlreadyAnnounced(
   });
 }
 
+/** The delivery key the invite stands in for: the linked path's event id with `:invite`, so neither dedupes the other. */
+type InviteNoticeClaim = { eventKey: string; domain: "work_order" | "task"; entityId: string };
+
+/**
+ * The invite email IS the notice for a vendor with no account, so it needs the idempotency the action-event bus gives
+ * the linked path: ONE invite per assignment. The key is claimed on `action_events` with `ignoreDuplicates` (and
+ * already processed, so the bus never tries to deliver the claim) - a double-tapped or retried assign finds it taken
+ * and emails nothing. A claim that could not be written leaves today's behaviour: the invite still goes, because a
+ * vendor hearing nothing at all is worse than one hearing twice.
+ */
+async function claimInviteNotice(db: Db, managerUserId: string, claim: InviteNoticeClaim): Promise<"claimed" | "duplicate" | "unavailable"> {
+  try {
+    const now = new Date().toISOString();
+    const { data, error } = await db
+      .from("action_events")
+      .upsert(
+        {
+          event_key: claim.eventKey,
+          domain: claim.domain,
+          event_type: "vendor_invited",
+          category: "maintenance",
+          manager_user_id: managerUserId,
+          entity_id: claim.entityId,
+          occurred_at: now,
+          processed_at: now,
+          payload: {},
+        },
+        { onConflict: "event_key", ignoreDuplicates: true },
+      )
+      .select("id")
+      .maybeSingle();
+    if (error) return "unavailable";
+    return data ? "claimed" : "duplicate";
+  } catch {
+    return "unavailable";
+  }
+}
+
+/** Hands the claim back when nothing went out, so a retry of the same assignment can still reach the vendor. */
+async function releaseInviteNotice(db: Db, eventKey: string): Promise<void> {
+  try {
+    await db.from("action_events").delete().eq("event_key", eventKey);
+  } catch {
+    // The claim stays: a retry then reports the vendor as invited instead of emailing them twice.
+  }
+}
+
 /**
  * A roster vendor with no PropLane account has no inbox, so an inbox notice reaches nobody. With a
  * usable email they get the sign-up invite (the one `Send invite` sends) naming the job; without
- * one nothing can reach them and the caller says so.
+ * one nothing can reach them and the caller says so. One invite per assignment: the same delivery
+ * key the linked path uses is claimed first, so a retry emails nothing new.
  */
 async function inviteUnlinkedVendor(
   db: Db,
@@ -81,10 +129,13 @@ async function inviteUnlinkedVendor(
     vendorDirectoryId: string;
     vendor: { name?: string | null; email?: string | null };
     jobLine: string;
+    claim: InviteNoticeClaim;
   },
 ): Promise<{ sent: false; reason: "invited" | "no_contact" }> {
   const email = (input.vendor.email ?? "").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email)) return { sent: false, reason: "no_contact" };
+  const claimed = await claimInviteNotice(db, input.managerUserId, input.claim);
+  if (claimed === "duplicate") return { sent: false, reason: "invited" };
   const invite = await sendVendorInvite(db, {
     managerUserId: input.managerUserId,
     managerName: input.managerName || "Your property manager",
@@ -94,7 +145,10 @@ async function inviteUnlinkedVendor(
     origin: resolveEmailLinkBaseUrl().replace(/\/$/, ""),
     jobLine: input.jobLine,
   });
-  return invite.ok ? { sent: false, reason: "invited" } : { sent: false, reason: "no_contact" };
+  if (invite.ok) return { sent: false, reason: "invited" };
+  // Nothing went out: the claim is handed back so a retry of this same assignment can still invite them.
+  if (claimed === "claimed") await releaseInviteNotice(db, input.claim.eventKey);
+  return { sent: false, reason: "no_contact" };
 }
 
 export type EmitVendorAssignedInput = {
@@ -155,6 +209,11 @@ export async function emitVendorAssigned(db: Db, input: EmitVendorAssignedInput)
       vendorDirectoryId: input.vendorDirectoryId,
       vendor,
       jobLine: [input.row.title || "Service", input.row.reference].filter(Boolean).join(" · "),
+      claim: {
+        eventKey: `${vendorAssignedEventId(input.workOrderId, input.vendorDirectoryId, input.assignedAt)}:invite`,
+        domain: "work_order",
+        entityId: input.workOrderId,
+      },
     });
   }
 
@@ -300,6 +359,11 @@ export async function emitVendorTaskAssigned(
       vendorDirectoryId: assignee.id.trim(),
       vendor,
       jobLine: input.task.title || "Task",
+      claim: {
+        eventKey: `task:${input.task.id}:task_assigned_vendor:${assignee.id.trim()}:${input.changedAt}:invite`,
+        domain: "task",
+        entityId: input.task.id,
+      },
     });
   }
 

@@ -76,7 +76,14 @@ export async function resolveHouseRedirect(db: SupabaseClient, text: string, dep
     const all = await (depsIn.allListings ?? allPublicListings)();
     const paidNumberOf =
       depsIn.paidNumberOf ??
-      (async (l: MockProperty) => (l.managerUserId ? paidWorkNumberFor(db, { ownerUserId: l.managerUserId, workspaceId: l.workspaceId ?? null }) : null));
+      (async (l: MockProperty) => {
+        // The number must be the one the home's OWN workspace sends from. A listing the migration never placed has no
+        // workspace, and a null workspace resolves the owner's DEFAULT line - naming it would send the texter to
+        // another workspace's inbox, so such a home is simply not named.
+        const workspaceId = String(l.workspaceId ?? "").trim();
+        if (!l.managerUserId || !workspaceId) return null;
+        return paidWorkNumberFor(db, { ownerUserId: l.managerUserId, workspaceId });
+      });
     if (depsIn.shared?.mode === "shared") {
       // Served homes were handled above. What is left of interest is a home whose manager has a personal number.
       const dedicated = all.filter((p) => workspaceHasDedicatedNumber(depsIn.shared!, p.workspaceId));

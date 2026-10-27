@@ -47,11 +47,15 @@ export function serviceOwnerViewGrant(): CoManagerPermissions {
   return grant;
 }
 
-/** A project that predates the flag columns (or the table) has no such seat: that one error shape is an empty answer. */
+/**
+ * A project that predates the flag columns (or the table) has no such seat: that one error shape is an empty answer.
+ * The SQLSTATE (or PostgREST code) decides it and nothing else - a message test also matched PostgREST's transient
+ * "could not query the database for the schema cache", which would turn a hiccup into "this viewer has no seat" and
+ * silently strip an owner of record of their whole workspace instead of failing the read.
+ */
 function isMissingColumn(error: { code?: string; message?: string } | null | undefined): boolean {
-  if (error?.code === "42703" || error?.code === "42P01" || error?.code === "PGRST205") return true;
-  const message = (error?.message ?? "").toLowerCase();
-  return message.includes("schema cache") || message.includes("does not exist") || /is_owner_of_record|is_service/.test(message);
+  const code = String(error?.code ?? "");
+  return code === "42703" || code === "42P01" || code === "PGRST205" || code === "PGRST204";
 }
 
 /**

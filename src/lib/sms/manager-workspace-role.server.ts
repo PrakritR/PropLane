@@ -351,19 +351,25 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
       .maybeSingle();
     if (error || !line) return { data: null, error: error ?? null };
     const row = line as unknown as T & { manager_user_id?: string };
-    // A line that belongs to a PropLane-managed workspace is the PropLane line, whatever id was pinned.
+    // Entitlement FIRST: this owner's own row, or one a workspace of theirs holds. A pinned id that is neither is
+    // nothing to this owner, and a managed-workspace override must not answer for it - that would hand a line the
+    // owner has no claim on (and put a self-serve manager on the shared 206, which a dedicated workspace never sends from).
+    let entitled = row.manager_user_id === ownerUserId;
+    if (!entitled) {
+      const { data: holds, error: holdsError } = await db.from("workspace_work_numbers")
+        .select("workspace_id,portal_workspaces!inner(owner_user_id)").eq("number_id", exactLine);
+      if (holdsError) return { data: null, error: holdsError };
+      entitled = (holds ?? []).some((hold) => {
+        const workspace = hold.portal_workspaces as unknown as { owner_user_id?: string } | null;
+        return workspace?.owner_user_id === ownerUserId;
+      });
+    }
+    if (!entitled) return { data: null, error: null };
+    // A line the owner IS entitled to that belongs to a PropLane-managed workspace is the PropLane line, whatever id was pinned.
     const pinnedManaged = await isServiceWorkspace(db, String(row.workspace_id ?? ""));
     if (pinnedManaged === null) return { data: null, error: { message: "Service workspace unreadable." } };
     if (pinnedManaged) return resolveManagedLineRow<T>(db, columns);
-    if (row.manager_user_id === ownerUserId) return { data: row, error: null };
-    const { data: holds, error: holdsError } = await db.from("workspace_work_numbers")
-      .select("workspace_id,portal_workspaces!inner(owner_user_id)").eq("number_id", exactLine);
-    if (holdsError) return { data: null, error: holdsError };
-    const allowed = (holds ?? []).some((hold) => {
-      const workspace = hold.portal_workspaces as unknown as { owner_user_id?: string } | null;
-      return workspace?.owner_user_id === ownerUserId;
-    });
-    return { data: allowed ? row : null, error: null };
+    return { data: row, error: null };
   }
   const noNumber = { data: null, error: { message: WORKSPACE_NO_WORK_NUMBER_MESSAGE, code: WORKSPACE_NO_WORK_NUMBER_CODE } };
 

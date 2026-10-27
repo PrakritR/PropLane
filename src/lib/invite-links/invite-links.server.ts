@@ -484,20 +484,41 @@ export async function mintInviteLink(
   // the access changes — so if the revoke itself fails, the mint must not
   // proceed and leave the old (possibly more powerful) link live alongside a
   // new one.
+  //
+  // It replaces the workspace's SHARE link only. A link bound to one address (`invitee_email`: an Admin › Service
+  // invite, Owner included) is that person's pending invite, not this workspace's shareable URL: reminting a share
+  // link must not silently cancel it, drop the pending owner from the Team list or free the one-owner slot.
   if (input.replaceActive && kind === "manager" && workspaceId) {
+    const revokedStamp = { revoked_at: new Date().toISOString(), updated_at: new Date().toISOString() };
     const { error: revokeError } = await db
       .from("manager_invite_links")
-      .update({ revoked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .update(revokedStamp)
       .eq("owner_user_id", ownerUserId)
       .eq("kind", "manager")
       .eq("workspace_id", workspaceId)
-      .is("revoked_at", null);
+      .is("revoked_at", null)
+      .is("invitee_email", null);
     if (revokeError) {
-      return {
-        ok: false,
-        status: 500,
-        error: "Could not turn off the previous link; nothing changed.",
-      };
+      // A database that has not run the `invitee_email` migration can hold no bound invite to spare (minting one
+      // writes the column and fails without it), so there the unfiltered sweep is the same set of links. Every
+      // other error still refuses the mint.
+      const missingColumn = revokeError.code === "42703" || revokeError.code === "PGRST204";
+      const unfiltered = missingColumn
+        ? await db
+            .from("manager_invite_links")
+            .update(revokedStamp)
+            .eq("owner_user_id", ownerUserId)
+            .eq("kind", "manager")
+            .eq("workspace_id", workspaceId)
+            .is("revoked_at", null)
+        : null;
+      if (!unfiltered || unfiltered.error) {
+        return {
+          ok: false,
+          status: 500,
+          error: "Could not turn off the previous link; nothing changed.",
+        };
+      }
     }
   }
 

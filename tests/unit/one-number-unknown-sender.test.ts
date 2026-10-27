@@ -100,8 +100,13 @@ describe("ask once", () => {
     const second = await run(f.db, "hmm not sure");
     expect(second.reply).toBe("LEAD: budget?");
     expect(f.rows.sms_onboarding_state![0]).toMatchObject({ role: "searcher" });
+    // The ask is claimed (update, then insert when the phone has no row) and the answer is saved; a later text
+    // writes nothing at all.
+    const writes = () => f.log.filter((l) => l.table === "sms_onboarding_state" && l.op !== "select").length;
+    const beforeThird = writes();
+    expect(beforeThird).toBe(3);
     await run(f.db, "ok");
-    expect(f.log.filter((l) => l.table === "sms_onboarding_state" && l.op === "upsert")).toHaveLength(2);
+    expect(writes()).toBe(beforeThird);
   });
 
   it("a vendor answer to the question starts the vendor intake", async () => {

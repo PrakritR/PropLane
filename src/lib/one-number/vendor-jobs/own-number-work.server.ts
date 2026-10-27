@@ -182,16 +182,22 @@ export async function buildOwnNumberJobList(db: SupabaseClient, input: { vendorU
     .map(({ sourceId: _sourceId, ...rest }, i): OwnNumberJobEntry => ({ ...rest, n: i + 1 }));
 }
 
-export function composeOwnNumberJobList(entries: OwnNumberJobEntry[]): string {
-  if (entries.length === 0) return OWN_NUMBER_COPY.empty;
+/**
+ * The reply AND the entries it actually renders. Trailing entries are dropped until the text fits two segments, so
+ * the two must be returned together: only what was SENT may be saved as the live list, or a bare "bid 5" would
+ * resolve against a job whose title, area and sender the vendor never saw.
+ */
+export function composeOwnNumberJobList(entries: OwnNumberJobEntry[]): { reply: string; shown: OwnNumberJobEntry[] } {
+  if (entries.length === 0) return { reply: OWN_NUMBER_COPY.empty, shown: [] };
   const line = (e: OwnNumberJobEntry) => `${e.n}. ${e.title}, ${e.area}, ${e.from ? `sent to you by ${e.from}` : "open to all"}.`;
+  const render = (list: OwnNumberJobEntry[]) => toGsm7(`${list.map(line).join(" ")} ${OWN_NUMBER_COPY.prompt}`);
   let shown = entries;
-  let text = "";
-  do {
-    text = toGsm7(`${shown.map(line).join(" ")} ${OWN_NUMBER_COPY.prompt}`);
+  let text = render(shown);
+  while (text.length > MAX_REPLY_CHARS && shown.length > 1) {
     shown = shown.slice(0, -1);
-  } while (text.length > MAX_REPLY_CHARS && shown.length > 0);
-  return text;
+    text = render(shown);
+  }
+  return { reply: text, shown };
 }
 
 /* ---- the saved list ------------------------------------------------------------------------------------- */
@@ -279,11 +285,12 @@ export async function handleOwnNumberWorkText(
 
   if (asksForWorkOnOwnNumber(text)) {
     const entries = await buildOwnNumberJobList(db, { vendorUserId: input.vendorUserId, phone: input.phone, now });
-    const reply = composeOwnNumberJobList(entries);
+    // Only the entries the reply actually listed are saved: the list resolves against exactly what was sent.
+    const { reply, shown } = composeOwnNumberJobList(entries);
     await saveList(db, {
       vendorUserId: input.vendorUserId, phone: input.phone, body: text.slice(0, 200), reply, sid: input.messageSid, now,
-      trace: entries.length > 0
-        ? { list_source: SOURCE, list_kind: "job_list", issued_at: now.toISOString(), entries }
+      trace: shown.length > 0
+        ? { list_source: SOURCE, list_kind: "job_list", issued_at: now.toISOString(), entries: shown }
         : { list_source: SOURCE, list_kind: "empty" },
     });
     return { handled: true, reply };

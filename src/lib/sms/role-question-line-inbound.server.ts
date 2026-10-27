@@ -129,8 +129,12 @@ export async function handleRoleQuestionInbound(
   if (awaitingAnswer) {
     const role = readRoleQuestionAnswer(body);
     if (!role) return { handled: false };
-    if (role === "resident") reply = RESIDENT_NOT_FOUND_REPLY;
-    else if (role === "manage") {
+    if (role === "resident") {
+      // The answer is recorded like every other one (clearing the ask), so this line's question is not still live
+      // for the rest of the window and a later text is never re-read as an answer to it.
+      await saveOnboardingState(db, phoneKey, { askedAt: null }, now).catch(() => false);
+      reply = RESIDENT_NOT_FOUND_REPLY;
+    } else if (role === "manage") {
       await saveOnboardingState(db, phoneKey, { role: "landlord", stage: "finish_sent", askedAt: null }, now).catch(() => false);
       reply = MANAGE_OWN_REPLY;
     } else if (role === "looking") {
