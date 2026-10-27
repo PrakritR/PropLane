@@ -1,9 +1,8 @@
-import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestAuthUser } from "@/lib/auth/request-auth-user";
 import { normalizePostAuthPath } from "@/lib/auth/normalize-post-auth-path";
-import { reconcileAuthAccountsByEmail } from "@/lib/auth/reconcile-auth-accounts-by-email";
-import { finalizeOAuthPortalRedirect } from "@/lib/auth/resolve-oauth-portal-access";
+import { LAST_PORTAL_COOKIE } from "@/lib/auth/last-portal";
+import { applyPortalCookies, resolvePostSignInDestination } from "@/lib/auth/post-sign-in-destination.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { readOAuthIntentFromRequest, readOAuthSurfaceFromRequest } from "@/lib/auth/oauth-next-cookie";
@@ -24,22 +23,18 @@ export async function GET(req: NextRequest) {
     const rawNext = url.searchParams.get("next")?.trim() ?? "/auth/continue";
     const intendedPath = normalizePostAuthPath(rawNext.startsWith("/") ? rawNext : "/auth/continue");
 
-    const service = createSupabaseServiceRoleClient();
-    const recovery = await recoverySetupRedirect(service, user.id);
-    if (recovery) return NextResponse.json({ redirectTo: recovery }, { headers: { "Cache-Control": "private, no-store" } });
-    // Password sign-in reaches this resolver without an OAuth callback, so keep
-    // email/password and OAuth portal rows merged before choosing a destination.
-    try {
-      await reconcileAuthAccountsByEmail(service, user);
-    } catch (reconcileError) {
-      console.error("[oauth-portal-access] reconcileAuthAccountsByEmail failed:", reconcileError);
-    }
-    const redirectTo = await finalizeOAuthPortalRedirect(service, user, intendedPath, {
+    const destination = await resolvePostSignInDestination({
+      service: createSupabaseServiceRoleClient(),
+      user,
+      intendedPath,
       intent: readOAuthIntentFromRequest(req),
       surface: readOAuthSurfaceFromRequest(req),
+      lastPortalRole: req.cookies.get(LAST_PORTAL_COOKIE)?.value,
     });
 
-    return NextResponse.json({ redirectTo });
+    const res = NextResponse.json({ redirectTo: destination.redirectTo }, { headers: { "Cache-Control": "private, no-store" } });
+    applyPortalCookies(res, destination, process.env.NODE_ENV === "production");
+    return res;
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
     return NextResponse.json({ error: message }, { status: 500 });
