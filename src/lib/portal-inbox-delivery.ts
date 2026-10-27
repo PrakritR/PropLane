@@ -162,6 +162,29 @@ export function coHostDisplayName(fromName: string): string {
 }
 
 /**
+ * Where a reply into a manager-side conversation is DELIVERED. The thread belongs to the workspace OWNER and is stamped with
+ * its workspace and house; the person on the other end (a resident's side of the same conversation) is found under that
+ * owner's workspace, never under whoever typed. Without this a co-host's reply resolved the other side against the co-host's
+ * OWN default workspace, found no conversation there, and never reached the resident (the reply sat in the owner's thread only).
+ * `ownedBySender` is false for a co-host: their reply is already recorded in the owner's thread, so they get no sent copy of
+ * their own. Null when the thread is not a manager-side conversation with an owner.
+ */
+export function replyDeliveryContext(
+  target: InboxThreadReplyTarget | null,
+  input: { senderUserId: string; threadWorkspaceId?: string | null },
+): { managerUserId: string; workspaceId: string | null; propertyId: string | null; ownedBySender: boolean } | null {
+  if (!target || target.scope !== MANAGER_INBOX_SCOPE || !target.ownerUserId) return null;
+  const row = target.rowData;
+  const text = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+  return {
+    managerUserId: target.ownerUserId,
+    workspaceId: text(input.threadWorkspaceId) || text(row.workspaceId) || null,
+    propertyId: text(row.propertyId) || text(row.rootHouseId) || null,
+    ownedBySender: target.ownerUserId === input.senderUserId,
+  };
+}
+
+/**
  * Resolve the thread a reply targets and authorize the sender against it: the
  * thread's owner, its participant (matched by email), or a co-manager with
  * Communication edit on that owner. Anything else resolves to `null` (a silent

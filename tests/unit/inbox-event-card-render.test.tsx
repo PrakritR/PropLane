@@ -87,11 +87,17 @@ describe("event cards in the thread", () => {
   });
 });
 
-describe("a co-host's label sits under the bubble", () => {
+describe("a co-host's label signs the turn", () => {
   const reply: InboxBubbleMessage = { id: "m-2", author: "Dev", body: "It's on the kitchen hook.", at: "Oct 25, 9:05 AM", direction: "outbound" };
 
-  it("shows senderDisplayName when the turn carries one", () => {
-    const { container } = render(<InboxBubble message={{ ...reply, senderDisplayName: "Dev · Co-host" }} />);
+  it("signs the run's header with senderDisplayName when the turn carries one (not 'Property manager')", () => {
+    const { container } = render(<InboxBubble message={{ ...reply, author: "Property manager", senderDisplayName: "Dev · Co-host" }} />);
+    expect(container.querySelector("[data-inbox-author]")?.textContent).toBe("Dev · Co-host");
+    expect(container.querySelector("[data-inbox-sender-display-name]")).toBeNull();
+  });
+
+  it("a later turn in a run has no header, so the label sits under the bubble", () => {
+    const { container } = render(<InboxBubble cluster="middle" message={{ ...reply, senderDisplayName: "Dev · Co-host" }} />);
     expect(container.querySelector("[data-inbox-sender-display-name]")?.textContent).toBe("Dev · Co-host");
   });
 

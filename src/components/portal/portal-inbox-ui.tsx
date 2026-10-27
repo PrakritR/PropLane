@@ -1551,7 +1551,10 @@ export function InboxBubble({
   const sending = message.delivery === "sending";
   const failed = message.delivery === "failed";
   const startsRun = cluster === "single" || cluster === "first" || showAvatar;
-  const author = assistant ? "PropLane" : (emailNameAsPerson ? inboxDisplayName(message.author) : message.author) || "?";
+  // A co-host's turn is signed "<first name> · Co-host" where the name is read (the header of the run), not "Property manager".
+  const coHostSignature = outbound && !assistant ? message.senderDisplayName?.trim() : "";
+  const author = assistant ? "PropLane" : coHostSignature || (emailNameAsPerson ? inboxDisplayName(message.author) : message.author) || "?";
+  const signedInHeader = startsRun && Boolean(coHostSignature);
   const clock = inboxMessageClock(message.at);
   const bookingNoticePath = assistant ? bookingRecordPathFromNotice(message.body) : null;
 
@@ -1566,7 +1569,7 @@ export function InboxBubble({
   const showDeliveryTick = outbound && !sending && !failed && (message.delivery === "sent" || message.delivery === undefined);
   const showViaLine =
     showMeta &&
-    ((showChannel && channel != null) || Boolean(statusText) || showDeliveryTick || Boolean(message.senderDisplayName));
+    ((showChannel && channel != null) || Boolean(statusText) || showDeliveryTick || Boolean(message.senderDisplayName && !signedInHeader));
 
   return (
     <div className="flex w-full min-w-0 gap-2.5" title={startsRun ? undefined : message.at}>
@@ -1632,7 +1635,7 @@ export function InboxBubble({
         </div>
         {showViaLine ? (
           <span className="mt-px flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] leading-snug text-muted/80">
-            {message.senderDisplayName ? (
+            {message.senderDisplayName && !signedInHeader ? (
               <span data-inbox-sender-display-name>{message.senderDisplayName}</span>
             ) : null}
             {showChannel && channel ? <InboxViaLine channel={channel} /> : null}
