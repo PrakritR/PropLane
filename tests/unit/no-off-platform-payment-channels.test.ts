@@ -22,11 +22,14 @@ function walk(dir: string, exts: string[]): string[] {
 }
 
 // The work-email mailbox reserved-name lists NAME these brands so a workspace can never claim venmo@ / zelle@
-// (a phishing guard), which is the opposite of supporting the channel.
+// (a phishing guard), which is the opposite of supporting the channel. The channel reply policy names them for the
+// same reason: a guest message that asks to pay by Venmo/Zelle is HELD for the manager, and a reply that tries to
+// move the payment off the booking site is never sent.
 const ALLOWED_FILES = new Set([
   "src/lib/manager-listing-submission.ts",
   "src/lib/manager-assistant-email/assistant-email-address.ts",
   "src/lib/manager-assistant-email/workspace-mailbox-local-rule.mjs",
+  "src/lib/agent/channel-reply-policy.ts",
 ]);
 
 const RETIRED = /zelle|venmo|gmail-payments|gmail_payments|paymentInboxToken|receiptAutoMark|paidViaGmail/i;
