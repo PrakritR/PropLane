@@ -27,7 +27,7 @@ export function normalizeConsentPhone(phone: string): string {
   return digits;
 }
 
-/** Values safe for `profiles.phone` lookups (Postgres numeric — no punctuation). */
+/** Values safe for `profiles.phone` lookups: digit and E.164 forms only, never punctuation. */
 function profilePhoneDbLookupValues(phone: string): string[] {
   const raw = String(phone ?? "").trim();
   const key = normalizeConsentPhone(raw);
@@ -38,9 +38,9 @@ function profilePhoneDbLookupValues(phone: string): string[] {
 /**
  * Common stored formats for one US number so consent reads can match
  * `profiles.phone` regardless of how the inbound webhook or profile row
- * formats the digits. Only digit/E.164 forms are emitted: the column is
- * numeric in Postgres, and punctuation variants make the whole `.in()`
- * query fail with `invalid input syntax for type numeric`.
+ * formats the digits. The column is E.164 text (it was numeric on production
+ * until 20261027010000, which is why the bare-digit forms are still emitted:
+ * rows written through that column kept the digits without the `+`).
  */
 export function profilePhoneVariants(phone: string): string[] {
   return profilePhoneDbLookupValues(phone);

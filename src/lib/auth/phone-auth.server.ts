@@ -8,7 +8,8 @@ import { isAllowedPhoneAuthDestination, normalizeE164 } from "@/lib/phone-e164";
 import { normalizeConsentPhone } from "@/lib/sms-consent";
 import { phoneAuthHookEnabled } from "@/lib/auth/phone-hook-flag";
 import { sendPhoneAuthCode } from "@/lib/auth/phone-otp-delivery.server";
-import { phoneCodeSignInAllowed } from "@/lib/auth/sms-proven-session.server";
+import { phoneCodeSignInAllowed, phoneCodeSignInDecision } from "@/lib/auth/sms-proven-session.server";
+import { writeAuditLog } from "@/lib/tools/audit";
 import { isAdminAccount, loadPhoneRequired, phoneSkipActive, PhoneSendFailedError } from "@/lib/auth/phone-required.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { PhoneOwnFlowError } from "@/lib/auth/phone-own-errors";
@@ -204,6 +205,28 @@ export async function mintPhoneSession(db: SupabaseClient, user: User) {
   return { access_token: data.session.access_token, refresh_token: data.session.refresh_token };
 }
 
+export const ADMIN_PHONE_CODE_SIGN_IN_AUDIT_ACTION = "admin_phone_code_sign_in";
+
+/**
+ * A texted code may open an ADMIN session (the captain's Oct 26 decision), so that door leaves the same kind of trail
+ * every other admin-privilege door does. Written before the bind, scoped to the admin's own account, and best-effort:
+ * the code was already proven, so a failed insert is logged rather than locking the account out of its own sign-in.
+ * Ids and enums only, never the number itself.
+ */
+async function recordAdminPhoneCodeSignIn(db: SupabaseClient, userId: string, provider: "local" | "supabase") {
+  try {
+    const outcome = await writeAuditLog({ db, landlordId: userId, userId }, {
+      action: ADMIN_PHONE_CODE_SIGN_IN_AUDIT_ACTION,
+      toolName: ADMIN_PHONE_CODE_SIGN_IN_AUDIT_ACTION,
+      inputSummary: { purpose: "sign_in", provider, accountUserId: userId },
+      resultSummary: { allowed: true },
+    });
+    if (!outcome.recorded) console.error("phone-auth: admin phone-code sign-in not audited", outcome);
+  } catch (error) {
+    console.error("phone-auth: admin phone-code sign-in audit failed", error);
+  }
+}
+
 /**
  * Own-phone verification finishes only a live sign_in-shaped challenge, for THIS user, aimed at the number now saved on
  * their profile. A spent, expired or exhausted challenge is "expired" (send a new one); anything else is refused generically.
@@ -275,8 +298,12 @@ export async function verifyPhoneChallenge(input: {
     }
     if (nativeUser && nativeUser.id !== user.id) throw new Error(PHONE_AUTH_ERROR);
     // A signed-out code sign-in opens any readable account, admins included. Checked before the phone is bound so a
-    // refused sign-in changes nothing.
-    if (!actor && !(await phoneCodeSignInAllowed(db, user.id))) throw new Error(PHONE_AUTH_ERROR);
+    // refused sign-in changes nothing; an admin session opened this way leaves an audit row before it is minted.
+    if (!actor) {
+      const decision = await phoneCodeSignInDecision(db, user.id);
+      if (!decision.allowed) throw new Error(PHONE_AUTH_ERROR);
+      if (decision.admin) await recordAdminPhoneCodeSignIn(db, user.id, proof.provider);
+    }
     const claimedUser = await db.rpc("phone_auth_claim_operation", { p_operation: operation, p_phone: proof.phone, p_user: user.id });
     if (claimedUser.error || claimedUser.data !== true) throw new Error(PHONE_AUTH_ERROR);
     const bound = await db.rpc("phone_auth_bind", {

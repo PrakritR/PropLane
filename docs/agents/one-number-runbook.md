@@ -138,6 +138,7 @@ branch, and `db:push` applies it only once merged):
 | 20261025110000 | `sms_onboarding_asked_line` | one additive nullable column, `sms_onboarding_state.asked_line` (`shared` or the E.164 work number that asked): the role question is asked once PER LINE, so one line asking never suppresses another; NULL rows keep their old behaviour |
 | 20261025120000 | `manager_invite_link_vendor_directory` | additive nullable `manager_invite_links.vendor_directory_id`: an Add-vendor invite link carries the manager's own vendor directory row, and redemption claims THAT row instead of inserting a second one (null = a generic link, which still creates a row) |
 | 20261027010000 | `profiles_phone_text` | `profiles.phone` numeric → text, only where it is numeric (production had drifted; dev/staging were already text): `phone_auth_bind` writes E.164 text and failed with 42804 there, so no phone could be verified or signed in. Lossless (the same digits); a no-op elsewhere |
+| 20261027020000 | `profiles_phone_e164` | re-normalizes `public.profiles.phone` to E.164 text (`public.phone_auth_e164`) for any digits-only row, because the numeric column 20261027010000 converted could not hold the leading `+` and those rows stopped matching the exact-match readers (`findResidentProfileByPhone`, the leasing bot's manager-by-personal-phone lookup, the guest short-stay account match). Idempotent; a no-op where no row drifted |
 
 Check after the push (SQL editor, read-only):
 

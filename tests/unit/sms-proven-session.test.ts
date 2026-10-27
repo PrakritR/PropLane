@@ -1,5 +1,6 @@
-// The one rule for when a text (or a code texted to a phone) may open a session: never an admin, and only a resident /
-// vendor account or one whose phone is its only proven credential. Pinned for every role mix, and for the two callers.
+// The one rule for when an INBOUND TEXT alone may open a session: never an admin, and only a resident / vendor account
+// or one whose phone is its only proven credential. Pinned for every role mix, and for the two callers. A code texted
+// to the account's own phone is the documented exception (captain, Oct 26) and is pinned here too.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -10,7 +11,9 @@ vi.mock("@/lib/rate-limit", () => ({ rateLimit: vi.fn(async () => ({ ok: true })
 vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://proplane.ai" }));
 vi.mock("@/lib/one-number/link-destinations.server", () => ({ residentPhoneMatches: vi.fn(async () => true) }));
 
-import { phoneCodeSignInAllowed, smsProvenSessionAllowed, smsProvenSessionVerdict } from "@/lib/auth/sms-proven-session.server";
+import {
+  phoneCodeSignInAllowed, phoneCodeSignInDecision, smsProvenSessionAllowed, smsProvenSessionVerdict,
+} from "@/lib/auth/sms-proven-session.server";
 import { mintResidentPortalSessionForLink } from "@/lib/one-number/link-portal-session.server";
 import { mintPhoneSignInLink } from "@/lib/one-number/signup/sign-in-link.server";
 
@@ -119,6 +122,10 @@ describe("smsProvenSessionVerdict: who a phone alone may sign in", () => {
       { roles: ["resident"] },
     ] as World[]) expect(await phoneCodeSignInAllowed(world(w).db, "u1")).toBe(true);
     expect(await phoneCodeSignInAllowed(world({ roles: ["admin"], rolesError: true }).db, "u1")).toBe(false);
+    // The same verdict names the admin, so the caller can audit the privileged sign-in without a second read.
+    expect(await phoneCodeSignInDecision(world({ roles: ["admin"] }).db, "u1")).toEqual({ allowed: true, admin: true });
+    expect(await phoneCodeSignInDecision(world({ roles: ["resident"] }).db, "u1")).toEqual({ allowed: true, admin: false });
+    expect(await phoneCodeSignInDecision(world({ roles: ["admin"], rolesError: true }).db, "u1")).toEqual({ allowed: false, admin: false });
     // an inbound text alone still never opens an admin session
     expect(await smsProvenSessionAllowed(world({ roles: ["admin"] }).db, "u1")).toBe(false);
   });

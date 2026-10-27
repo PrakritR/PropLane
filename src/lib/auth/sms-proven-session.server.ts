@@ -23,8 +23,8 @@ import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
  * DOCUMENTED EXCEPTION: a signed-out phone-code sign-in (`verifyPhoneChallenge` in `phone-auth.server.ts`) is the
  * captain's phone-first direction, so it is open for every account, admins included (captain, Oct 26: a verified
  * one-time code to the account's own verified phone is a stronger proof than an inbound text's sender id). It asks
- * `phoneCodeSignInAllowed`, which refuses only an unreadable account. An inbound text alone still never opens an
- * admin session (`smsProvenSessionAllowed`).
+ * `phoneCodeSignInDecision` (`phoneCodeSignInAllowed` is that same verdict as a boolean), which refuses only an
+ * unreadable account. An inbound text alone still never opens an admin session (`smsProvenSessionAllowed`).
  */
 
 const PLACEHOLDER_DOMAIN = "phone.proplane.invalid";
@@ -105,9 +105,17 @@ export async function smsProvenSessionAllowed(db: SupabaseClient, userId: string
 
 /**
  * Signed-out phone-code sign-in: open for every account, admins included (the documented exception above). Fails
- * closed when the account cannot be read.
+ * closed when the account cannot be read. `admin` rides along from the SAME verdict so the caller can record the
+ * privileged sign-in without asking a second time (and without a second notion of who is an admin).
  */
-export async function phoneCodeSignInAllowed(db: SupabaseClient, userId: string): Promise<boolean> {
+export async function phoneCodeSignInDecision(
+  db: SupabaseClient,
+  userId: string,
+): Promise<{ allowed: boolean; admin: boolean }> {
   const verdict = await smsProvenSessionVerdict(db, userId);
-  return verdict.ok || verdict.reason !== "unreadable";
+  return { allowed: verdict.reason !== "unreadable", admin: !verdict.ok && verdict.reason === "admin" };
+}
+
+export async function phoneCodeSignInAllowed(db: SupabaseClient, userId: string): Promise<boolean> {
+  return (await phoneCodeSignInDecision(db, userId)).allowed;
 }

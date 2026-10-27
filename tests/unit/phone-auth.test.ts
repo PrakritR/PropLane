@@ -17,8 +17,8 @@ vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.f
 
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import {
-  PHONE_AUTH_ERROR, mintPhoneSession, needsPhoneVerification, phoneBrowserHash, phoneCodeHash, readPhoneIdentity,
-  startPhoneChallenge, verifyPhoneChallenge,
+  ADMIN_PHONE_CODE_SIGN_IN_AUDIT_ACTION, PHONE_AUTH_ERROR, mintPhoneSession, needsPhoneVerification, phoneBrowserHash,
+  phoneCodeHash, readPhoneIdentity, startPhoneChallenge, verifyPhoneChallenge,
 } from "@/lib/auth/phone-auth.server";
 
 const PHONE = "+12065550100";
@@ -38,10 +38,12 @@ function database() {
     refused: new Set<string>(),
   };
   const updates = vi.fn();
+  const inserts = vi.fn();
   const from = vi.fn((table: string) => {
     const builder = {
       select: vi.fn(() => builder), eq: vi.fn(() => builder),
       update: vi.fn((patch: unknown) => { updates(table, patch); return builder; }),
+      insert: vi.fn(async (row: unknown) => { inserts(table, row); return { error: null }; }),
       maybeSingle: vi.fn(async () => ({ data: table === "profiles" ? state.profile : state.challenge, error: null })),
       ...(table === "profile_roles"
         ? { then: (resolve: (v: unknown) => unknown) => resolve(state.rolesError ? { data: null, error: { message: "read failed" } } : { data: state.roles.map((role) => ({ role })), error: null }) }
@@ -59,7 +61,7 @@ function database() {
     updateUserById: vi.fn(async () => ({ data: { user }, error: null })),
     generateLink: vi.fn(async () => ({ data: { user, properties: { hashed_token: "server-only-hash" } }, error: null })),
   };
-  return { state, rpc, from, updates, admin, db: { from, rpc, auth: { admin } } as unknown as SupabaseClient };
+  return { state, rpc, from, updates, inserts, admin, db: { from, rpc, auth: { admin } } as unknown as SupabaseClient };
 }
 
 beforeEach(() => {
@@ -240,12 +242,18 @@ describe("phone proof verification", () => {
     ["an admin profile_roles row", (s: ReturnType<typeof database>["state"]) => { s.roles = ["resident", "admin"]; }],
     ["the legacy admin profiles.role", (s: ReturnType<typeof database>["state"]) => { s.profile = { ...s.profile, role: "admin" }; }],
   ])("signs an admin in by phone code (%s): the phone is bound and a session is minted (captain, Oct 26)", async (_name, arrange) => {
-    const { db, state, rpc, admin } = database();
+    const { db, state, rpc, admin, inserts } = database();
     arrange(state);
     expect(await verify(db)).toMatchObject({ ok: true, session: { access_token: "access", refresh_token: "refresh" } });
     expect(rpc).toHaveBeenCalledWith("phone_auth_bind", expect.objectContaining({ p_user: user.id }));
     const bindIndex = rpc.mock.calls.findIndex(([name]) => name === "phone_auth_bind");
     expect(rpc.mock.invocationCallOrder[bindIndex]).toBeLessThan(admin.generateLink.mock.invocationCallOrder[0]);
+    // The privileged door leaves a trail, written before the bind, carrying no phone number.
+    expect(inserts).toHaveBeenCalledWith("audit_log", expect.objectContaining({
+      action: ADMIN_PHONE_CODE_SIGN_IN_AUDIT_ACTION, actor_user_id: user.id, landlord_id: user.id,
+    }));
+    expect(JSON.stringify(inserts.mock.calls)).not.toContain(PHONE);
+    expect(inserts.mock.invocationCallOrder[0]).toBeLessThan(rpc.mock.invocationCallOrder[bindIndex]);
   });
 
   it("signs in the primary admin email by phone code even with no admin role row", async () => {
@@ -264,10 +272,11 @@ describe("phone proof verification", () => {
     expect(rpc).toHaveBeenCalledWith("phone_auth_release_operation", expect.anything());
   });
 
-  it("still signs in a multi-role account (manager + resident): phone-first stays open", async () => {
-    const { db, state } = database();
+  it("still signs in a multi-role account (manager + resident): phone-first stays open, with no admin audit row", async () => {
+    const { db, state, inserts } = database();
     state.roles = ["resident", "manager"];
     expect(await verify(db)).toMatchObject({ ok: true, session: { access_token: "access" } });
+    expect(inserts).not.toHaveBeenCalled();
   });
 
   it("an admin who is ALREADY signed in can attach a phone", async () => {
