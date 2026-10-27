@@ -3209,6 +3209,8 @@ export function InboxThreadSkeleton() {
 const InboxFullScreenContext = createContext<{
   fullScreen: boolean;
   setFullScreen: (next: boolean) => void;
+  /** True while the pane is actually pinned over the content area (full screen asked for AND the viewport allows it). */
+  drawn: boolean;
 } | null>(null);
 
 function InboxFullScreenAction() {
@@ -3228,9 +3230,8 @@ function InboxFullScreenAction() {
 
 /**
  * Provided by a `flat` InboxTwoPane while a conversation is open. `panelMode` is true when the
- * contact details exist but the details COLUMN is not drawn (the surface is too narrow, or full
- * screen): the thread header's info icon then opens the same details as a panel over the thread's
- * right edge. `columns` says how many columns the surface draws, so the back control shows exactly
+ * contact details exist (they are never a column): the thread header's info icon opens them as a
+ * panel over the thread's right edge. `columns` says how many columns the surface draws, so the back control shows exactly
  * when the thread stands alone, at any viewport width. Absent (null) everywhere else.
  */
 type InboxDetailsPanelCtx = {
@@ -3262,17 +3263,14 @@ function InboxDetailsInfoAction() {
   const ctx = useContext(InboxDetailsPanelContext);
   if (!ctx?.panelMode) return null;
   return (
-    <button
-      type="button"
-      className={INBOX_THREAD_ICON_BTN}
-      aria-label="Contact information"
+    <PortalIconAction
+      icon={Info}
+      label="Contact information"
+      active={ctx.panelOpen}
       aria-expanded={ctx.panelOpen}
-      title="Contact information"
       data-attr="inbox-thread-details-toggle"
       onClick={ctx.togglePanel}
-    >
-      <Info className="h-4 w-4" aria-hidden />
-    </button>
+    />
   );
 }
 
@@ -3339,12 +3337,53 @@ export function InboxThreadView({
   scrollMode?: "pane" | "page";
 }) {
   const pageScroll = scrollMode === "page";
-  const inFullScreenPane = useContext(InboxFullScreenContext) !== null;
+  const fullScreenPane = useContext(InboxFullScreenContext);
+  const inFullScreenPane = fullScreenPane !== null;
+  // Full screen centres the conversation (body + composer) at a readable width; the header and the pane's
+  // background still run edge to edge.
+  const centreColumn = Boolean(fullScreenPane?.drawn); // 760px wide (INBOX_FULL_SCREEN_THREAD_MAX_PX)
   const paneColumns = useContext(InboxDetailsPanelContext)?.columns ?? null;
   const showHeader = Boolean(onBack || !hideIdentityHeader || headerActions || inFullScreenPane);
   const { scrollRef, endRef, handleScroll: handleThreadScroll } = useInboxThreadScroll(
     threadKey,
     messages.length,
+  );
+
+  const threadBody = (
+    <>
+      <div
+        ref={scrollRef}
+        onScroll={pageScroll ? undefined : handleThreadScroll}
+        className={
+          pageScroll
+            ? "portal-inbox-thread-body flex flex-col px-3 py-3 md:px-[18px] md:py-3.5"
+            : "portal-inbox-thread-body flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-3 [-webkit-overflow-scrolling:touch] md:px-[18px] md:py-3.5"
+        }
+      >
+        {messages.length === 0 && !beforeMessages && !afterMessages ? (
+          <div className={`flex flex-col items-center justify-center py-4 ${pageScroll ? "" : "min-h-full flex-1"}`}>
+            <PortalInboxEmptyState title={emptyLabel} />
+          </div>
+        ) : (
+          <div
+            className={`flex w-full min-h-min flex-col md:gap-0 ${pageScroll ? "" : "md:mt-auto"}`}
+          >
+            {beforeMessages}
+            <InboxMessageTimeline
+              messages={messages}
+              showAuthors={showAuthors}
+              alignAssistantStart={alignAssistantStart}
+              emailNameAsPerson={emailNameAsPerson}
+              eventViewer={eventViewer}
+            />
+            {afterMessages}
+            <div ref={endRef} />
+          </div>
+        )}
+      </div>
+
+      {composer ? <div className="shrink-0">{composer}</div> : null}
+    </>
   );
 
   return (
@@ -3392,38 +3431,13 @@ export function InboxThreadView({
       ) : null}
       {underHeader}
 
+      {/* Always the same element, so entering or leaving full screen never remounts the composer (a typed draft stays). */}
       <div
-        ref={scrollRef}
-        onScroll={pageScroll ? undefined : handleThreadScroll}
-        className={
-          pageScroll
-            ? "portal-inbox-thread-body flex flex-col px-3 py-3 md:px-[18px] md:py-3.5"
-            : "portal-inbox-thread-body flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-3 [-webkit-overflow-scrolling:touch] md:px-[18px] md:py-3.5"
-        }
+        className={centreColumn ? "mx-auto flex min-h-0 w-full max-w-[760px] flex-1 flex-col" : "contents"}
+        data-attr={centreColumn ? "inbox-thread-centred" : undefined}
       >
-        {messages.length === 0 && !beforeMessages && !afterMessages ? (
-          <div className={`flex flex-col items-center justify-center py-4 ${pageScroll ? "" : "min-h-full flex-1"}`}>
-            <PortalInboxEmptyState title={emptyLabel} />
-          </div>
-        ) : (
-          <div
-            className={`flex w-full min-h-min flex-col md:gap-0 ${pageScroll ? "" : "md:mt-auto"}`}
-          >
-            {beforeMessages}
-            <InboxMessageTimeline
-              messages={messages}
-              showAuthors={showAuthors}
-              alignAssistantStart={alignAssistantStart}
-              emailNameAsPerson={emailNameAsPerson}
-              eventViewer={eventViewer}
-            />
-            {afterMessages}
-            <div ref={endRef} />
-          </div>
-        )}
+        {threadBody}
       </div>
-
-      {composer ? <div className="shrink-0">{composer}</div> : null}
     </div>
   );
 }
@@ -3457,14 +3471,14 @@ export function InboxTwoPane({
    * `split` draws the list and thread as two separate cards with a gutter —
    * Communication only. Opt-in on purpose: this component has nine callers and
    * only the three Communication pages want two cards.
-   * `flat` is the redesigned Communication body: no outer cards, three panes
-   * (320px list, thread, 280px details) divided by hairlines.
+   * `flat` is the redesigned Communication body: no outer cards, two panes
+   * (320px list, thread) divided by a hairline; the contact details open on demand over the thread.
    */
   panes = "joined",
   /**
-   * `panes="flat"` only: a contact-details column at the right edge, drawn while a conversation
-   * is open and the surface itself is 1040px wide or more (`pickInboxColumns`). Narrower, it is not
-   * rendered and the thread header's info icon opens the same content as a panel over the thread.
+   * `panes="flat"` only: the contact details, offered while a conversation is open. They are never a
+   * column (captain, Oct 27): the thread header's info icon opens them as a 280px panel over the
+   * thread's right edge, at every width.
    */
   details,
   /** A thread-only pane (`listHidden`) that still offers Full screen — a record page's Communication section. */
@@ -3511,7 +3525,7 @@ export function InboxTwoPane({
     return () => observer.disconnect();
   }, [flat]);
 
-  // Contact details as a panel over the thread, for when the details column does not fit.
+  // Contact details as a panel over the thread, opened from the header's info icon.
   const [panelOpenState, setPanelOpenState] = useState(false);
   const [editContact, setEditContact] = useState<(() => void) | null>(null);
   const [panelTop, setPanelTop] = useState(0);
@@ -3581,8 +3595,8 @@ export function InboxTwoPane({
 
   const fullScreenDrawn = fullScreenOn && fullScreenRect !== null;
   const fullScreenCtx = useMemo(
-    () => (canFullScreen ? { fullScreen: storedFullScreen, setFullScreen: setStoredFullScreen } : null),
-    [canFullScreen, storedFullScreen, setStoredFullScreen],
+    () => (canFullScreen ? { fullScreen: storedFullScreen, setFullScreen: setStoredFullScreen, drawn: fullScreenDrawn } : null),
+    [canFullScreen, storedFullScreen, setStoredFullScreen, fullScreenDrawn],
   );
 
   useEffect(() => {
@@ -3661,8 +3675,12 @@ export function InboxTwoPane({
   // sections keep their own `overflow-hidden`.
   // `flat` runs to the main column's edges (the column pads 2rem from lg up) under one hairline,
   // the same bleed the list pages' header band and rows use.
+  // Full screen pins the pane over the content area at the host's own left edge and width, so the bleed
+  // (`-mx-8`) must not apply there: on a fixed element it slid the whole pane 32px left under the sidebar.
   const rootCard = flat
-    ? "lg:-mx-8 lg:border-t lg:border-border"
+    ? fullScreenDrawn
+      ? "lg:border-t lg:border-border"
+      : "lg:-mx-8 lg:border-t lg:border-border"
     : split
     ? ""
     : "rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] max-md:rounded-xl max-md:border-x-0 max-md:shadow-none";
@@ -3671,11 +3689,10 @@ export function InboxTwoPane({
     : split
       ? "rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] max-md:rounded-xl"
       : "";
-  // The details column is drawn only where it fits (1040px of this surface up); narrower, it is not
-  // in the DOM at all and the info icon opens a panel instead.
+  // The contact details are never a third column (the chat was squeezed): they open on demand from the
+  // thread header's info icon, as a panel over the thread's right edge, at every width.
   const detailsAvailable = flat && details != null && threadOpen && !listHidden;
-  const showDetails = detailsAvailable && columns === 3 && !fullScreenDrawn;
-  const panelMode = detailsAvailable && columns !== null && !showDetails;
+  const panelMode = detailsAvailable && columns !== null;
   const panelOpen = panelMode && panelOpenState;
   if (!panelMode && panelOpenState) setPanelOpenState(false);
   const closePanel = useCallback(() => setPanelOpenState(false), []);
@@ -3750,13 +3767,11 @@ export function InboxTwoPane({
           ? "flex"
           : "hidden lg:flex";
   const flatGrid =
-    flatColumns === 3
-      ? "grid-cols-[320px_minmax(440px,1fr)_280px]"
-      : flatColumns === 2
-        ? "grid-cols-[320px_minmax(440px,1fr)]"
-        : flatColumns === 1
-          ? "grid-cols-1"
-          : "lg:grid-cols-[320px_minmax(0,1fr)]";
+    flatColumns === 2
+      ? "grid-cols-[320px_minmax(440px,1fr)]"
+      : flatColumns === 1
+        ? "grid-cols-1"
+        : "lg:grid-cols-[320px_minmax(0,1fr)]";
   return (
     <div
       ref={rootRef}
@@ -3809,7 +3824,7 @@ export function InboxTwoPane({
         </section>
         <section
           ref={threadSectionRef}
-          className={`portal-inbox-thread-pane relative h-full min-h-0 min-w-0 flex-col overflow-clip ${paneCard} ${showDetails ? "border-border border-r" : ""} ${threadOpen ? "max-lg:rounded-none max-lg:border-0 max-lg:shadow-none" : ""} ${flat ? threadDisplay : listHidden || threadOpen ? "flex" : "hidden lg:flex"}`}
+          className={`portal-inbox-thread-pane relative h-full min-h-0 min-w-0 flex-col overflow-clip ${paneCard} ${threadOpen ? "max-lg:rounded-none max-lg:border-0 max-lg:shadow-none" : ""} ${flat ? threadDisplay : listHidden || threadOpen ? "flex" : "hidden lg:flex"}`}
         >
           <InboxDetailsPanelContext.Provider value={panelCtx}>
             <InboxFullScreenContext.Provider value={fullScreenCtx}>{thread}</InboxFullScreenContext.Provider>
@@ -3840,15 +3855,6 @@ export function InboxTwoPane({
             </div>
           ) : null}
         </section>
-        {showDetails && !fullScreenDrawn ? (
-          <aside
-            className="portal-inbox-details-pane flex h-full min-h-0 min-w-0 flex-col overflow-y-auto overscroll-contain"
-            data-attr="inbox-details-pane"
-            aria-label="Contact details"
-          >
-            {details}
-          </aside>
-        ) : null}
       </div>
     </div>
   );

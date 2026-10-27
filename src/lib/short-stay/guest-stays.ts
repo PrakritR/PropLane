@@ -1,5 +1,5 @@
 /**
- * The pure half of the guest portal's Stays (a returning guest books again from /resident/stays):
+ * The pure half of the guest portal's short stays (a returning guest books again from a row on the Application page):
  * the shapes the route returns, the 24-hour hold, the quick picks, the Upcoming | Past split, the
  * button wording the server's dry run decides, and the guest's texts. No server import, so the Stays
  * panel, the Book again sheet, the routes and the tests all read the same rules.

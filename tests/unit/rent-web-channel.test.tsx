@@ -141,8 +141,8 @@ describe("the anonymous booking route", () => {
     const res = await retiredShortStayRequest();
     expect(res.status).toBe(410);
     const body = (await res.json()) as { signIn: string; createAccount: string };
-    expect(decodeURIComponent(body.createAccount)).toContain("role=resident&next=/resident/stays/request");
-    expect(decodeURIComponent(body.signIn)).toContain("next=/resident/stays/request");
+    expect(decodeURIComponent(body.createAccount)).toContain("role=resident&next=/resident/applications/stay");
+    expect(decodeURIComponent(body.signIn)).toContain("next=/resident/applications/stay");
     expect(readFileSync("src/app/api/public/short-stay-request/route.ts", "utf8")).not.toMatch(/createSupabase|submitShortStayRequest|ensureGuestLogin/);
   });
 });

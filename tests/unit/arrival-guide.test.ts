@@ -13,7 +13,7 @@ import { smsSegmentCount } from "@/lib/one-number/segments";
 const STAY = {
   checkIn: "2026-10-16",
   checkInTime: "15:00",
-  staysUrl: "https://prop-lane.space/resident/stays",
+  staysUrl: "https://prop-lane.space/resident/applications/approved",
   guestName: "Alex Guest",
   propertyLabel: "5259 Brooklyn",
 };
@@ -46,7 +46,7 @@ describe("buildArrivalGuideText", () => {
     expect(text).toContain("Wi-Fi: Brooklyn5259, password pa55-word");
     expect(text).toContain("Parking: Street parking, no permit needed");
     expect(text).toContain("House rules: Quiet hours 10:00 pm to 7:00 am");
-    expect(text).toContain("Your stay: https://prop-lane.space/resident/stays");
+    expect(text).toContain("Your stay: https://prop-lane.space/resident/applications/approved");
     expect(smsSegmentCount(text)).toBeLessThanOrEqual(ARRIVAL_GUIDE_MAX_SEGMENTS);
   });
 
@@ -73,7 +73,7 @@ describe("buildArrivalGuideText", () => {
     expect(smsSegmentCount(text)).toBeLessThanOrEqual(ARRIVAL_GUIDE_MAX_SEGMENTS);
     expect(text).toContain("Check-in is at 3:00 pm on Oct 16.");
     expect(text).toContain("Door code: 001000");
-    expect(text).toContain("Your stay: https://prop-lane.space/resident/stays");
+    expect(text).toContain("Your stay: https://prop-lane.space/resident/applications/approved");
     expect(text).not.toContain(long.trim());
   });
 
@@ -101,7 +101,7 @@ describe("buildArrivalGuideSmsText", () => {
         "Door code: 001000",
         "Gate or building code: #4821",
         "Key pickup: Lockbox left of the door",
-        "Your stay: https://prop-lane.space/resident/stays",
+        "Your stay: https://prop-lane.space/resident/applications/approved",
       ].join("\n"),
     );
     expect(text.length).toBeLessThanOrEqual(ARRIVAL_GUIDE_SMS_MAX_CHARS);
@@ -116,8 +116,8 @@ describe("buildArrivalGuideSmsText", () => {
 
 describe("buildCheckoutReminderText", () => {
   it("names the checkout time today, the paid late time when bought", () => {
-    expect(buildCheckoutReminderText({ checkOutTime: "11:00", staysUrl: "https://prop-lane.space/resident/stays", guestName: "Alex Guest", propertyLabel: "5259 Brooklyn" })).toBe(
-      "Hi Alex,\nCheckout is at 11:00 am today at 5259 Brooklyn.\nYour stay: https://prop-lane.space/resident/stays",
+    expect(buildCheckoutReminderText({ checkOutTime: "11:00", staysUrl: "https://prop-lane.space/resident/applications/approved", guestName: "Alex Guest", propertyLabel: "5259 Brooklyn" })).toBe(
+      "Hi Alex,\nCheckout is at 11:00 am today at 5259 Brooklyn.\nYour stay: https://prop-lane.space/resident/applications/approved",
     );
     expect(buildCheckoutReminderText({ checkOutTime: "14:00" })).toBe("Checkout is at 2:00 pm today.");
   });

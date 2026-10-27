@@ -38,7 +38,7 @@ describe("the portal notices (requested, confirmed, approved, declined, expired,
   it.each(kinds)("%s: /resident links only, no pay link to a texted page, no phone link, no long dash", (kind) => {
     const { subject, text } = guestStayPortalNotice(kind, stay);
     expect(subject).toContain("Attic Nook at Cedar Court");
-    expect(text).toContain("https://proplane.ai/resident/stays/upcoming");
+    expect(text).toContain("https://proplane.ai/resident/applications/approved");
     for (const link of text.match(/https?:\/\/\S+/g) ?? []) expect(new URL(link).pathname.startsWith("/resident/")).toBe(true);
     expect(text).not.toMatch(/\/l\/|sms:|tel:|[–—]/);
   });

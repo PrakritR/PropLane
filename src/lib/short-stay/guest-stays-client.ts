@@ -1,11 +1,15 @@
 "use client";
 
-/** Browser calls for the guest's Stays page and the booking application (`/api/resident/stays`). */
+/** Browser calls for the guest's short stays (rows on the Application page) and the booking application (`/api/resident/stays`). */
 import type { PropertyStayTimes, StayAddOnKind } from "@/lib/bookings/stay-times";
 import type { GuestBookAction, GuestRangeResult, GuestStay } from "@/lib/short-stay/guest-stays";
 import type { StayAddOnQuoteRow } from "@/lib/short-stay/stay-add-ons";
+import { requestTimeoutSignal } from "@/lib/fetch-timeout";
 
 export const GUEST_STAYS_CHANGED = "proplane:guest-stays-changed";
+
+/** How long the guest's list may take before it shows its error and Try again. */
+export const GUEST_STAYS_TIMEOUT_MS = 15_000;
 
 export type BookableListing = {
   propertyId: string;
@@ -45,7 +49,14 @@ async function readJson<T>(res: Response): Promise<T & { error?: string }> {
 }
 
 export async function fetchGuestStays(): Promise<GuestStay[]> {
-  const res = await fetch("/api/resident/stays", { credentials: "include", cache: "no-store" });
+  // Bounded: an unanswered request used to leave the list on its skeletons for good. A timeout throws, so the
+  // list shows its error and Try again instead.
+  let res: Response;
+  try {
+    res = await fetch("/api/resident/stays", { credentials: "include", cache: "no-store", signal: requestTimeoutSignal(GUEST_STAYS_TIMEOUT_MS) });
+  } catch {
+    throw new GuestStaysError("Could not load your stays. Check your connection and try again.", 0);
+  }
   const body = await readJson<{ stays?: GuestStay[] }>(res);
   if (!res.ok) throw new GuestStaysError(body.error || "Could not load your stays.", res.status);
   return Array.isArray(body.stays) ? body.stays : [];

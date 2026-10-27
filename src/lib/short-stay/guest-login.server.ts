@@ -20,7 +20,7 @@ import "server-only";
  * lease, payments and documents. Same rule as `rowMatchesGuest` in
  * `instant-book.server.ts`, where an unverified number buys no standing either.
  *
- * The account gets the `resident` role, which is what unlocks `/resident/stays`.
+ * The account gets the `resident` role, which is what unlocks the short-stay request (`/resident/applications/stay`).
  *
  * This flow mints NO sign-in link. A text sent from a host's line is stored in that host's outbox, and a
  * live sign-in link must never sit where the host can read it, so the public stay request tells the guest

@@ -204,7 +204,7 @@ export async function releaseUnpaidConfirmedStays(db: SupabaseClient, now = new 
       const nights = Number(stay.row.quotedNights) || 0;
       const total = Number.isFinite(Number(stay.row.quotedTotal)) ? Number(stay.row.quotedTotal) : null;
       if (noticeChannelFor(next) === "portal") {
-        // Made in the portal: tell them in the portal and by email, with the Stays address; no text.
+        // Made in the portal: tell them in the portal and by email, with the Application address; no text.
         await deliverGuestPortalNotice(db, {
           ownerId: stay.managerUserId,
           propertyId: stay.propertyId,

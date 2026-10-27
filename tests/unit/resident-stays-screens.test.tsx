@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Captures the batch's new surfaces as reviewable HTML: the guest's Stays list (Upcoming · Past · the
- * empty state), the booking application (Stay with the taken nights crossed out, then Review) and the manager's Connect popup on the new Other calendar (iCal) channel.
+ * Captures the batch's new surfaces as reviewable HTML: a guest's short stays as Application rows (Sent · Approved), the booking application (Stay with the taken nights crossed out, then Review) and the manager's Connect popup on the new Other calendar (iCal) channel.
  *
  * It is a render test first - each screen must come up with the copy the reviewer is checking - and an
  * evidence writer second: set `STAYS_SCREENS_DIR=<dir>` and each screen is written there as a
@@ -10,13 +9,13 @@
  * `resident-stays-ui.test.tsx` and `channel-calendar-ical-modal.test.tsx`.
  */
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { existsSync, writeFileSync } from "node:fs";
 import type { GuestStay } from "@/lib/short-stay/guest-stays";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), prefetch: vi.fn(), replace: vi.fn() }),
-  usePathname: () => "/resident/stays/upcoming",
+  usePathname: () => "/resident/applications/approved",
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => vi.fn() }));
@@ -51,7 +50,7 @@ vi.mock("@/lib/channel-calendar/client", () => ({
 const client = vi.hoisted(() => ({ fetchGuestStays: vi.fn(), fetchBookableListing: vi.fn(), postGuestStays: vi.fn() }));
 vi.mock("@/lib/short-stay/guest-stays-client", async (orig) => ({ ...(await orig<typeof import("@/lib/short-stay/guest-stays-client")>()), ...client }));
 
-import { ResidentStaysPanel } from "@/components/portal/resident-stays-panel";
+import { StaysRowsHarness } from "../helpers/stays-rows-harness";
 import { ResidentStayRequest } from "@/components/portal/resident-stay-request";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { BookingsEditSheet } from "@/components/portal/bookings-edit-sheet";
@@ -116,31 +115,23 @@ afterAll(() => {
 });
 
 describe("the surfaces this batch adds, as a reviewer sees them", () => {
-  it("Stays · Upcoming shows both stays with their status as a plain fact", async () => {
-    render(<ResidentStaysPanel bucket="upcoming" />);
+  it("Application · Approved shows the confirmed stay as an application row with its status as a plain fact", async () => {
+    render(<StaysRowsHarness section="approved" />);
     await waitFor(() => expect(document.querySelectorAll('[data-attr="resident-stay-row"]')).toHaveLength(2));
     const text = document.body.textContent ?? "";
     expect(text).toContain("Cedar Court · Attic Nook");
+    expect(text).toContain("Short stay · Oct 20–23 · 3 nights");
     expect(text).toContain("Confirmed");
-    expect(text).toContain("Requested, expires in 22h");
     expect(text).toContain("$420");
     expect(text).not.toMatch(/work order/i);
-    capture("01-stays-upcoming", "Resident portal › Stays › Upcoming", { width: 980, label: "desktop 980px" });
+    capture("01-application-approved-stay", "Resident portal › Application › Approved (a short stay)", { width: 980, label: "desktop 980px" });
   });
 
-  it("Stays · Past shows the finished stay a Request again starts from", async () => {
-    render(<ResidentStaysPanel bucket="past" />);
+  it("Application · Sent shows the requested stay with the host's hours left", async () => {
+    render(<StaysRowsHarness section="sent" />);
     await waitFor(() => expect(document.querySelectorAll('[data-attr="resident-stay-row"]')).toHaveLength(1));
-    expect(document.body.textContent).toContain("Completed");
-    capture("02-stays-past", "Resident portal › Stays › Past", { width: 980, label: "desktop 980px" });
-  });
-
-  it("Stays · the empty state offers a way to find a room", async () => {
-    client.fetchGuestStays.mockResolvedValue([]);
-    render(<ResidentStaysPanel bucket="upcoming" />);
-    await waitFor(() => expect(document.body.textContent).toContain("No upcoming stays"));
-    expect(document.body.textContent).toContain("Find a room");
-    capture("03-stays-empty", "Resident portal › Stays › empty", { width: 980, label: "desktop 980px" });
+    expect(document.body.textContent).toContain("Requested, expires in 22h");
+    capture("02-application-sent-stay", "Resident portal › Application › Sent (a short stay)", { width: 980, label: "desktop 980px" });
   });
 
   const prefill = { listing: "prop-1", room: "r1", checkIn: "2026-10-23", checkOut: "2026-10-24", guests: 1 };

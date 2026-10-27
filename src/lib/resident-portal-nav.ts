@@ -14,8 +14,9 @@ export type ResidentPortalNavStage =
   | "application_submitted_forms"
   | "booking_residency"
   /**
-   * A guest whose only history with PropLane is a short stay (booked from a listing card or the Stays
-   * page): no application, no lease. Stays and Payments (the stay's charge lands there) are the product.
+   * A guest whose only history with PropLane is a short stay (booked from a listing card or the request
+   * page): no lease application, no lease. Their stays are rows on the Application page, and Payments (the
+   * stay's charge lands there) is the other half of the product.
    */
   | "short_stay_guest"
   | "post_approval_pre_lease"
@@ -62,18 +63,18 @@ export const RESIDENT_BOTTOM_NAV_PRIMARY: Record<ResidentPortalNavStage, readonl
   // bottom-bar tabs at that stage either, so hiding them here needs no
   // separate list.
   booking_residency: ["services", "payments", "dashboard", "communication"],
-  // The phone bar of the guest-only account: Stays · Payments · Messages (+ More).
-  short_stay_guest: ["stays", "payments", "dashboard", "communication"],
+  // The phone bar of the guest-only account: Application (their stays are rows there) · Payments · Messages (+ More).
+  short_stay_guest: ["applications", "payments", "dashboard", "communication"],
   post_lease: ["services", "payments", "dashboard", "communication"],
 };
 
 /**
- * Sections open at EVERY stage (not gated by where the account is in the lifecycle): Stays is reachable
- * by any resident account (the request page is where a new signup lands) and is DRAWN in the sidebar only
- * once the account has a stay row (the resident layout drops it from the sidebar's definition otherwise).
- * Appended to each stage's list by {@link withStageIndependentSections}, so no stage's table can forget it.
+ * Sections open at EVERY stage (not gated by where the account is in the lifecycle): Application is reachable
+ * by any resident account. Short stays live inside it (captain, Oct 27: no Stays tab), and the stay request
+ * page (`/applications/stay`) is where a brand-new signup lands, so it cannot wait for an application row or a
+ * lease. Appended to each stage's list by {@link withStageIndependentSections}, so no stage's table can forget it.
  */
-const STAGE_INDEPENDENT_SECTIONS = ["stays"] as const;
+const STAGE_INDEPENDENT_SECTIONS = ["applications"] as const;
 
 function withStageIndependentSections(
   table: Record<ResidentPortalNavStage, readonly string[]>,
@@ -123,7 +124,7 @@ const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]>
     "documents",
     "profile",
   ],
-  // A guest with only a stay: Stays + Payments (the stay's charge) and the always-open basics.
+  // A guest with only a stay: Application (the stay is a row there) + Payments (the stay's charge) and the always-open basics.
   short_stay_guest: ["tour", "applications", "payments", "dashboard", "communication", "documents", "profile"],
   post_lease: [
     "tour",
@@ -183,7 +184,7 @@ function residentPathSection(pathname: string): string {
  * Legacy section aliases. None of these is a resident nav section — every one is
  * rewritten by `renderPortalSection` to a real destination (`finances` /
  * `financials` → Payments, `inbox` → Communication, `bugs-feedback` → Settings,
- * `inspections` → My home › Inspections),
+ * `inspections` → My home › Inspections, `stays` → Application where its short stays are rows),
  * and the guard then judges THAT path.
  *
  * They must be allowed through here, in the SHARED guard, for two reasons:
@@ -194,7 +195,7 @@ function residentPathSection(pathname: string): string {
  *    never landed — this is why the fix looked correct in unit tests and was
  *    still broken in the browser.
  */
-const RESIDENT_LEGACY_SECTION_ALIASES = new Set(["inbox", "financials", "finances", "bugs-feedback", "inspections"]);
+const RESIDENT_LEGACY_SECTION_ALIASES = new Set(["inbox", "financials", "finances", "bugs-feedback", "inspections", "stays"]);
 
 /** Client + server route guard — whether the resident may open this path at their stage. */
 export function isResidentPathAllowedForAccess(
@@ -212,12 +213,6 @@ export function isResidentPathAllowedForAccess(
   if (!section) return false;
 
   if (RESIDENT_LEGACY_SECTION_ALIASES.has(section)) return true;
-
-  // Stays (the list and the booking application at `/stays/request`): open at EVERY stage for any resident
-  // account, a brand-new signup included. A web request for a stay needs a resident account and nothing
-  // else, so the request page cannot wait for a stay row, an application or a lease. The sidebar still
-  // draws the row only once the account has a stay (`hasStays`); this guard is about reachability.
-  if (section === "stays") return true;
 
   if (section === "communication" || pathname.startsWith("/resident/communication/")) {
     return residentSectionUnlockedForStage("communication", stage);
@@ -267,8 +262,9 @@ export function residentPortalHomePath(
 ): string {
   if (access.leaseAccessUnlocked) return "/resident/dashboard";
   if (access.applicationApproved) return "/resident/dashboard";
-  // A guest who has only stayed lands on their stays (a magic-link sign-in goes through here).
-  if (access.hasStays && !access.hasSubmittedApplication && !access.isBookingResidency) return "/resident/stays";
+  // A guest who has only stayed lands on their stays, which are rows on the Application page (a magic-link
+  // sign-in goes through here).
+  if (access.hasStays && !access.hasSubmittedApplication && !access.isBookingResidency) return "/resident/applications";
   // A booking-created account has nothing to review on the dashboard either —
   // move-in details (My home) is the one thing worth landing them on.
   if (access.isBookingResidency) return "/resident/move-in";

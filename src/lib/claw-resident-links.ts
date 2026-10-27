@@ -44,7 +44,8 @@ export function residentPortalPath(
     case "applications":
       return "/resident/applications";
     case "stays":
-      return "/resident/stays/upcoming";
+      // Short stays are rows on the Application page (no Stays tab); Approved is where a pay link belongs.
+      return "/resident/applications/approved";
     case "tour":
       return "/resident/tour";
     case "login":

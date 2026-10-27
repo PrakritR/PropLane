@@ -20,6 +20,7 @@
  *     own, a manager texting their line) never appear.
  */
 import { normalizeE164 } from "@/lib/phone-e164";
+import { MANAGER_SEND_DEDUPE_PREFIX } from "@/lib/sms/manager-send-dedupe";
 import {
   inboxThreadMessages,
   inboxThreadSortMs,
@@ -68,6 +69,12 @@ export type ResidentCounterparty = {
   initials: string;
 };
 
+/** Who an outbound text is labelled as: the PropLane assistant / automation, or the manager who typed it. */
+export type OutboundSender = "assistant" | "manager";
+
+/** What an assistant or automated text is called in the thread (never a person's name). */
+export const ASSISTANT_SENDER_LABEL = "PropLane";
+
 export type ResidentSmsTurn = {
   id: string;
   /** "inbound" = the resident texted the manager; "outbound" = the manager's line texted them. */
@@ -77,7 +84,40 @@ export type ResidentSmsTurn = {
   at: string;
   fromPhone: string | null;
   toPhone: string | null;
+  /** Outbound only: who it is labelled as. Absent reads as the manager (a stored row older than this field). */
+  sender?: OutboundSender;
 };
+
+/**
+ * Who sent one OUTBOUND text, for the label above its bubble (captain, Oct 27: replies written by the assistant
+ * said "Prakrit Ramachandran"). The projection turn does not say, so it is decided from the evidence it does have:
+ *
+ *   1. the turn was projected from an `automated` send                                   -> assistant
+ *   2. its outbox row (matched on the provider SID) carries a person-typed key           -> manager
+ *   3. it was relayed from the manager's own phone                                       -> manager
+ *   4. its outbox row carries any other key (assistant tool, reminder, welcome, router)  -> assistant
+ *   5. no outbox row to read: a text sent FROM a PropLane line (the shared number, or the number PropLane's own
+ *      service workspace texts on) is the assistant's - a person typing there goes through the inbox, which always
+ *      leaves an outbox row - and a text from a manager's own work number is the manager's.
+ */
+export function decideOutboundSender(input: {
+  /** `sms_projection_turns.source_ref.source`: work_number | relay | automated. */
+  source: unknown;
+  /** `sms_outbox.dedupe_key` of the row carrying this text's SID, or null when there is none. */
+  outboxDedupeKey: string | null;
+  fromPhone: string | null;
+  /** The PropLane lines (E.164): the shared number and the service line. Empty when neither is on. */
+  propLaneNumbers: readonly (string | null | undefined)[];
+}): OutboundSender {
+  const source = typeof input.source === "string" ? input.source.trim() : "";
+  if (source === "automated") return "assistant";
+  if (input.outboxDedupeKey !== null) {
+    return input.outboxDedupeKey.startsWith(MANAGER_SEND_DEDUPE_PREFIX) ? "manager" : source === "relay" ? "manager" : "assistant";
+  }
+  if (source === "relay") return "manager";
+  const from = normalizeE164(input.fromPhone);
+  return from && input.propLaneNumbers.some((line) => normalizeE164(line) === from) ? "assistant" : "manager";
+}
 
 export type ResidentSmsConversation = {
   workspaceId: string;
@@ -145,7 +185,8 @@ function smsMessage(turn: ResidentSmsTurn, counterparty: ResidentCounterparty, r
   const fromResident = turn.direction === "inbound";
   return {
     id: `${PROJECTED_SMS_TURN_PREFIX}${turn.id}`,
-    from: fromResident ? residentName : counterparty.name,
+    // The manager's own typed texts carry their name; the assistant's and automations' say PropLane.
+    from: fromResident ? residentName : turn.sender === "assistant" ? ASSISTANT_SENDER_LABEL : counterparty.name,
     body: turn.body,
     at: formatInboxStamp(new Date(turn.at)),
     // Resident rows draw the resident's own turns as outbound.
@@ -190,7 +231,9 @@ function withTurns(
     body: first.body,
     // Titled by who the resident is talking TO. The resident's own first turn
     // (their text, drawn outbound) carries their name, never the title.
-    from: first.outbound === true ? (base.counterparty?.name?.trim() || base.from) : first.from,
+    // (The assistant's text is no title either: the root bubble keeps its own label in `rootFrom`.)
+    from: first.outbound === true || first.from === ASSISTANT_SENDER_LABEL ? (base.counterparty?.name?.trim() || base.from) : first.from,
+    rootFrom: first.from === ASSISTANT_SENDER_LABEL ? first.from : undefined,
     rootAt: first.at,
     rootOutbound: first.outbound === true,
     rootChannel: first.channel,

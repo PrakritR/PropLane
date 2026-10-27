@@ -45,17 +45,17 @@ export function guestStayPortalNotice(kind: PortalNoticeKind, input: PortalNotic
     case "requested":
       return {
         subject: `Request sent: ${where}`,
-        text: `Your request for ${where}, ${when}, is with the host. They have ${SHORT_STAY_HOLD_HOURS} hours to answer, and we will tell you here and by email. See it in Stays: ${staysUrl}`,
+        text: `Your request for ${where}, ${when}, is with the host. They have ${SHORT_STAY_HOLD_HOURS} hours to answer, and we will tell you here and by email. See it in your applications: ${staysUrl}`,
       };
     case "confirmed":
       return {
         subject: `Confirmed: ${where}`,
-        text: `Confirmed: ${where}, ${when}. ${pay}\n\nCheck-in details are in Stays: ${staysUrl}`,
+        text: `Confirmed: ${where}, ${when}. ${pay}\n\nCheck-in details are in your applications: ${staysUrl}`,
       };
     case "approved":
       return {
         subject: `Approved: ${where}`,
-        text: `The host approved ${where}, ${when}. ${pay}\n\nSee it in Stays: ${staysUrl}`,
+        text: `The host approved ${where}, ${when}. ${pay}\n\nSee it in your applications: ${staysUrl}`,
       };
     case "declined":
       return {
@@ -65,12 +65,12 @@ export function guestStayPortalNotice(kind: PortalNoticeKind, input: PortalNotic
     case "expired":
       return {
         subject: `Request expired: ${where}`,
-        text: `The host did not answer in time for ${where}, ${plainRange(input)}, so those nights are free again. You can request other nights from Stays: ${staysUrl}`,
+        text: `The host did not answer in time for ${where}, ${plainRange(input)}, so those nights are free again. You can request other nights from your applications: ${staysUrl}`,
       };
     default:
       return {
         subject: `Released, unpaid: ${where}`,
-        text: `We did not get payment for ${where}, ${plainRange(input)}, within ${SHORT_STAY_PAY_HOURS} hours, so those nights are free again. You can request them again from Stays: ${staysUrl}`,
+        text: `We did not get payment for ${where}, ${plainRange(input)}, within ${SHORT_STAY_PAY_HOURS} hours, so those nights are free again. You can request them again from your applications: ${staysUrl}`,
       };
   }
 }

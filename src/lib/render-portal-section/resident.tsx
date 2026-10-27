@@ -11,7 +11,6 @@ import { ResidentMoveInShell } from "@/components/portal/resident-move-in-view";
 import { ResidentPaymentsPanel } from "@/components/portal/resident-payments-panel";
 import { ResidentProfileSection } from "@/components/portal/resident-profile-section";
 import { ResidentStayRequest } from "@/components/portal/resident-stay-request";
-import { ResidentStaysPanel } from "@/components/portal/resident-stays-panel";
 import { ResidentTourPanel } from "@/components/portal/resident-tour-panel";
 import { renderPortalSectionWith, type PortalSearchParams } from "@/lib/render-portal-section";
 import type { PortalPanels } from "@/lib/render-portal-section/panels";
@@ -35,7 +34,6 @@ const panels: PortalPanels = {
   ResidentMoveInShell,
   ResidentPaymentsPanel,
   ResidentProfileSection,
-  ResidentStaysPanel,
   ResidentStayRequest,
   ResidentTourPanel,
   loadResidentServicesPanel,

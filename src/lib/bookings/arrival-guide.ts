@@ -15,7 +15,7 @@
  * Length: kept within `ARRIVAL_GUIDE_MAX_SEGMENTS` billed text segments. When
  * the house has more to say than fits, optional sections drop first (greeting,
  * extra rules, access notes, house rules, parking, Wi-Fi). The check-in time,
- * the entry codes and the link to the guest's Stays page never drop.
+ * the entry codes and the link to the guest's Application page never drop.
  */
 import { getHouseInfoValue, type HouseInfoV1 } from "@/lib/house-info";
 import { formatStayTime, normalizeStayTime } from "@/lib/bookings/stay-times";

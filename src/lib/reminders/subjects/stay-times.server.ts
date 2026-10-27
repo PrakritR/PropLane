@@ -168,7 +168,7 @@ function houseInfoOf(record: PropertyRecord | undefined): HouseInfoV1 {
 }
 
 function staysUrl(): string {
-  return `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/resident/stays`;
+  return `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/resident/applications/approved`;
 }
 
 async function loadGuestProfiles(

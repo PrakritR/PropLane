@@ -185,7 +185,7 @@ describe("phase 1 regroup: headings and exact order per portal", () => {
 
   it("resident: home, Applying, Home, Paperwork, Money", () => {
     expect(headings("resident")).toEqual([
-      [null, ["dashboard", "stays", "communication"]],
+      [null, ["dashboard", "communication"]],
       ["Applying", ["tour", "applications"]],
       ["Home", ["move-in", "services"]],
       ["Paperwork", ["lease", "forms", "documents"]],

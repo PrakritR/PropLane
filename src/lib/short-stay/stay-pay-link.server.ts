@@ -7,7 +7,7 @@ import "server-only";
  * workspace and the guest's phone from live rows (`rentDestination`), so this module only mints.
  *
  * Returns null when there is nothing to pay (no charge raised, already paid) or a link cannot be issued;
- * the caller then texts the plain confirmation, which still points at the guest's Stays page.
+ * the caller then texts the plain confirmation, which still points at the guest's Application page.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveWorkspaceForProperty } from "@/lib/one-number/link-destinations.server";

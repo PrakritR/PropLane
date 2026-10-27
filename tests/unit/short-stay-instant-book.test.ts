@@ -150,7 +150,7 @@ describe("a returning guest books 1 night tomorrow and 3 nights next week", () =
     const body = (deliverInbox.mock.calls[0]![1] as { text: string }).text;
     expect(body).toContain("Confirmed: Attic Nook at Cedar Court, Oct 15 to 16 (1 night, $140).");
     expect(body).toContain("Pay $140 in Payments within 24 hours to keep it: https://proplane.ai/resident/payments/pending");
-    expect(body).toContain("https://proplane.ai/resident/stays/upcoming");
+    expect(body).toContain("https://proplane.ai/resident/applications/approved");
     expect(body).not.toMatch(/[–—]/);
   });
 });

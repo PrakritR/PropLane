@@ -150,6 +150,8 @@ export type PersistedInboxThread = {
   rootSubject?: string;
   /** Root-turn stamp of `InboxThreadMessage.automated` — the root lives in `body`. */
   rootAutomated?: boolean;
+  /** Who wrote the root message when that is not the row's title (a projected text the assistant sent). */
+  rootFrom?: string;
   /** Root-turn stamps of `InboxThreadMessage.eventKind` / `eventCard` / its own `recordRef` / `senderDisplayName`. */
   rootEventKind?: InboxEventKind;
   rootEventCard?: InboxEventCard;
@@ -1205,7 +1207,7 @@ export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMe
   const rootId = `${thread.id}-root`;
   const root: InboxThreadMessage = normalizeThreadMessage({
     id: rootId,
-    from: thread.from,
+    from: thread.rootFrom || thread.from,
     body: thread.body,
     at: thread.rootAt || earliestAppendedAt(thread) || thread.time,
     // An explicit direction on the row wins either way. `false` matters as much

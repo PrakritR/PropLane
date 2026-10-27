@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The short-stay booking APPLICATION (`/resident/stays/request`): prefilled from the public card's link,
+ * The short-stay booking APPLICATION (`/resident/applications/stay`): prefilled from the public card's link,
  * built like the long-term application (Stay, Guests, About the stay, Review), always a request (no Quick book,
  * no instant confirm), and submitted with the answers and the house-rules agreement. The network client is
  * mocked; its route has its own tests.
@@ -11,7 +11,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 const navigate = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), prefetch: vi.fn(), replace: vi.fn() }),
-  usePathname: () => "/resident/stays/request",
+  usePathname: () => "/resident/applications/stay",
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => navigate }));
@@ -64,7 +64,7 @@ afterEach(() => {
 describe("the request link", () => {
   it("builds and parses the portal address the public card links to", () => {
     const href = stayRequestHref({ listing: "prop-1", room: "r4", checkIn: "2026-10-22", checkOut: "2026-10-24", guests: 2 });
-    expect(href).toBe("/resident/stays/request?listing=prop-1&room=r4&checkIn=2026-10-22&checkOut=2026-10-24&guests=2");
+    expect(href).toBe("/resident/applications/stay?listing=prop-1&room=r4&checkIn=2026-10-22&checkOut=2026-10-24&guests=2");
     const params = Object.fromEntries(new URL(href, "https://x.test").searchParams);
     expect(parseStayRequestPrefill(params)).toEqual({ listing: "prop-1", room: "r4", checkIn: "2026-10-22", checkOut: "2026-10-24", guests: 2 });
     // Garbage is dropped, never trusted.
@@ -125,7 +125,7 @@ describe("the booking application", () => {
     const finish = document.querySelector('[data-attr="stay-request-finish"]') as HTMLButtonElement;
     expect(finish.textContent).toContain("Request to book");
     fireEvent.click(finish);
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/resident/stays/upcoming", { replace: true }));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/resident/applications/pending", { replace: true }));
     expect(client.postGuestStays).toHaveBeenLastCalledWith({
       propertyId: "prop-1", roomId: "r4", guests: 2, ranges: [{ checkIn: "2026-10-22", checkOut: "2026-10-24" }],
       application: { purpose: "work", message: "Landing at 9 pm.", guestNames: ["Sam Lee"], rulesAgreed: true },
@@ -146,6 +146,8 @@ describe("the booking application", () => {
     fireEvent.click(document.querySelector('[data-attr="stay-request-finish"]')!);
     expect(await screen.findByText(/Confirmed\. Pay within 24 hours\./)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Payments" })).toBeTruthy();
+    // An instantly confirmed stay is an Approved application row; a request is Sent.
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/resident/applications/approved", { replace: true }));
   });
 
   it("a 409 race sends the guest back to Stay with a plain message", async () => {

@@ -13,7 +13,6 @@ import { proPortal } from "@/lib/portals/pro";
 import {
   RESIDENT_PORTAL_BASE_PATH,
   RESIDENT_UNIFIED_PORTAL_SECTIONS,
-  withoutConditionalResidentSections,
 } from "@/lib/portals/resident-sections";
 import { vendorPortal } from "@/lib/portals/vendor";
 import type { PortalDefinition, PortalKind } from "@/lib/portal-types";
@@ -38,7 +37,7 @@ const RESIDENT_DEFINITION: PortalDefinition = {
   title: "Resident Portal",
   accent: "blue",
   // The fixture account has no stays, so the rows that show what an account HAS are not on the demo.
-  sections: withoutConditionalResidentSections(RESIDENT_UNIFIED_PORTAL_SECTIONS),
+  sections: RESIDENT_UNIFIED_PORTAL_SECTIONS,
 };
 
 const SOURCES: Record<DemoPortal, { kind: PortalKind; definition: PortalDefinition }> = {

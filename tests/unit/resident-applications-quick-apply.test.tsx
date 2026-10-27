@@ -83,12 +83,19 @@ afterEach(() => {
   searchParams = new URLSearchParams();
 });
 
+/** The round blue + is a menu (Long-term lease | Short stay): open it, choose the kind. */
+function chooseApplyKind(kind: "long-term" | "short-stay") {
+  const trigger = document.querySelector('[data-attr="resident-applications-apply"]')!;
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerId: 1 });
+  fireEvent.click(document.querySelector(`[data-attr="resident-applications-apply-${kind}"]`)!);
+}
+
 describe("ResidentApplicationsPanel - Quick apply sheet", () => {
   it("opens from the round blue + on a listing picker, then asks for room, confirmation and signature", async () => {
     await act(async () => {
       render(<ResidentApplicationsPanel />);
     });
-    fireEvent.click(document.querySelector('[data-attr="resident-applications-apply"]')!);
+    chooseApplyKind("long-term");
     // The plain picker's "Start application" is not what opens: this is Quick apply, picker first.
     expect(screen.getByText("Quick apply")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Start application" })).toBeNull();
@@ -109,7 +116,7 @@ describe("ResidentApplicationsPanel - Quick apply sheet", () => {
     await act(async () => {
       render(<ResidentApplicationsPanel />);
     });
-    fireEvent.click(document.querySelector('[data-attr="resident-applications-apply"]')!);
+    chooseApplyKind("long-term");
     expect(screen.getByText("Apply short term to a property")).toBeTruthy();
     expect(document.querySelector('[data-attr="quick-apply-sheet"]')).toBeNull();
   });
@@ -120,7 +127,7 @@ describe("ResidentApplicationsPanel - Quick apply sheet", () => {
     await act(async () => {
       render(<ResidentApplicationsPanel />);
     });
-    fireEvent.click(document.querySelector('[data-attr="resident-applications-apply"]')!);
+    chooseApplyKind("long-term");
     fireEvent.click((await screen.findAllByText("5257 Brooklyn Ave"))[0]!);
     // Pick Room 1 through the shared dropdown (a trigger + listbox, not a native select).
     const trigger = (await screen.findAllByLabelText("Room"))[0]!;

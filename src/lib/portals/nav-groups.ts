@@ -245,7 +245,7 @@ const ADMIN_GROUPS: NavGroupConfig[] = [
 // row), the Lease and its Paperwork, then Money. Stage locks and unlocks are unchanged: this only buckets the rows.
 // The group is headed "Paperwork", not "Lease", so no heading repeats its first row (R13).
 const RESIDENT_GROUPS: NavGroupConfig[] = [
-  { id: "home", label: null, sections: ["dashboard", "stays", "communication"] },
+  { id: "home", label: null, sections: ["dashboard", "communication"] },
   { id: "applying", label: "Applying", sections: ["tour", "applications"] },
   { id: "my-home", label: "Home", sections: ["move-in", "services"] },
   { id: "lease", label: "Paperwork", sections: ["lease", "forms", "documents"] },
