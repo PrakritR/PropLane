@@ -507,6 +507,21 @@ Plan `channels-sync-1027` (captain, Oct 27). No migration; one production row wa
   A derived label ("Leased until ...") is an occupancy label like "Unavailable until ...": the spans replace it, so the
   listing page never pins a room on a label it was handed. A move-in date filter has already judged the room for those
   dates and is never hidden by the label.
+- **Where the label is computed, and every surface that prints it.** `roomAvailability` (`room-availability.ts`) is the
+  one predicate for "when can a renter move into this room" — **now**, **from `<date>`** (a span ending today frees the
+  room tomorrow) or **unavailable**, and no date is ever invented. The room's own copy still counts: a dated
+  "Available from …" is a floor and manager copy that closes the room ("Leased", "Waitlist") is respected, while only
+  the occupancy fold's own labels are replaced by the spans they came from. `publicStatusFromAvailability` and
+  `formatNextOpening` put that answer in the D1 words above, and `countRoomsAvailableNow` / `nextOpeningDate`
+  (`public-listing-available-count.ts`) are how the key-facts rooms tile ("N available now"), the phone sticky price
+  bar's rooms line, the browse card and the room rows / room modal (`roomAvailabilityDisplay`) all read it, so they
+  cannot disagree. Where a count would have read "0 available" they read "Next opening Oct 15" instead — the same
+  calendar-glyph fact a browse card carries, never a pill — and the listing's static "Available now" tile is dropped
+  when live occupancy says no room is open today. While the read is in flight no count and no room label is shown at
+  all (never a static "9 available" flash); a failed read keeps each room's own static label rather than claiming a
+  date. The hero and the room tables share that one request (`useListingPublicOccupancy` through `sharedGet`), and the
+  apply wizard's own room labels (`effectiveRoomAvailabilityLabel`) use the same wording. Coverage:
+  `tests/unit/room-availability.test.ts`, `tests/unit/public-listing-available-count.test.ts`.
 - **The export feed (`/api/calendar/export/[token]`) never closes a room nobody holds.** An approved application with no
   room choice blocks nothing in a house let by the room, but holds EVERY room of one rented whole (an entire-home listing, a
   house with one room, or a listing that cannot be read: `listingRentedWhole`, `approvedRowBlocksRoom`), so a house rented whole is
