@@ -124,6 +124,10 @@ id when a co-manager is acting in a shared workspace. Regenerating the key is
 out of scope — a manager who already handed this exact URL to Zillow would
 break that registration.
 
+Because the feed reads `getPublicListings()`, `<availableOn>` and every room label follow live occupancy
+(`applyLiveRoomAvailability`): the house line is "Available now" when any room is vacant, else the first date a room
+frees ("Available <date>"), else "Not available". Never a hand-typed copy. See [`bookings.md`](bookings.md) § Channels.
+
 `ZILLOW_FEED_APPROVED=1` (deployment-wide, read only in the listing-channels GET route) marks Zillow's feed approved. Until it is set, every surface has to say the same thing: the guide's mode line reads "Posts for you once Zillow approves · by hand until then" above its by-hand steps, and the Listing sites row carries the same by-hand fact as a manual channel (`Posted by you · <date>` / `Not posted yet`), never the feed-queued count. Once it is set the guide drops the by-hand steps and shows only the status table, and the row reads `Posts for you · N of M listings`.
 
 ## Registering the feed with Zillow

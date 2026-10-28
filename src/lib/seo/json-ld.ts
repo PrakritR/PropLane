@@ -62,7 +62,7 @@ export function homeJsonLd(origin: string = PRODUCTION_APP_ORIGIN, appStoreUrl =
 export function listingJsonLd(property: MockProperty, origin: string = PRODUCTION_APP_ORIGIN): Record<string, unknown> {
   const rent = parseMonthlyRent(property.rentLabel ?? "");
   const available = (property.available ?? "").trim();
-  const availableNow = /^(now|available|immediately)/i.test(available);
+  const availableNow = /^(now|immediately)|^available(\s+now\b|\s*$)/i.test(available);
   // `property_data` is a manager-owned blob that `asProperty` only validates for identity, so every
   // fact below is published only when it is actually there and of the right type. A crawler reading
   // `petsAllowed: false` off an unanswered question is a fabricated listing fact.

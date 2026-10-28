@@ -24,6 +24,8 @@ const catalog = {
         { id: "r6", name: "Room 6", availability: "Unavailable (occupied)", occupancyCapacity: 1 }, // snapshot says free: mismatch
         { id: "r7", name: "Room 7", availability: "Available now", occupancyCapacity: 1 },          // snapshot says free: fine
         { id: "r8", name: "Room 8", availability: "Available now", occupancyCapacity: 1 },          // snapshot says occupied: mismatch
+        { id: "r9", name: "Room 9", availability: "Leased until Aug 31, 2027", occupancyCapacity: 1 }, // the live label of a held room: agrees
+        { id: "r10", name: "Room 10", availability: "Available Nov 6", occupancyCapacity: 1 },        // says "not free today" but the room is vacant: mismatch
       ] },
     },
   ],
@@ -33,6 +35,8 @@ const snapshot = {
     { roomChoice: "p4709::r6", spans: [{ start: "2020-01-01", end: "2020-12-31", count: 1 }] },
     { roomChoice: "p4709::r7", spans: [] },
     { roomChoice: "p4709::r8", spans: [{ start: "2020-01-01", end: null, count: 1 }] },
+    { roomChoice: "p4709::r9", spans: [{ start: "2020-01-01", end: "2999-08-31", count: 1 }] },
+    { roomChoice: "p4709::r10", spans: [] },
   ],
 };
 
@@ -55,8 +59,8 @@ describe("scripts/check-site-availability.mjs", () => {
     const run = await runScript([base, "--json"]);
     expect(run.status).toBe(1);
     const out = JSON.parse(run.stdout) as { rooms: number; mismatches: { room: string }[] };
-    expect(out.rooms).toBe(3);
-    expect(out.mismatches.map((m) => m.room).sort()).toEqual(["Room 6", "Room 8"]);
+    expect(out.rooms).toBe(5);
+    expect(out.mismatches.map((m) => m.room).sort()).toEqual(["Room 10", "Room 6", "Room 8"]);
     expect(new Set(methods)).toEqual(new Set(["GET"]));
   });
 

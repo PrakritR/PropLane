@@ -100,7 +100,7 @@ describe("listing surfaces share the predicate", () => {
       tone: "available",
     });
     expect(roomAvailabilityDisplay(rooms[0]!, { rows, loading: false, failed: false }, TODAY, "p")).toEqual({
-      text: "Available from Oct 15",
+      text: "Available Oct 15",
       tone: "future",
     });
     expect(roomAvailabilityDisplay(rooms[2]!, { rows, loading: false, failed: false }, TODAY, "p")).toEqual({

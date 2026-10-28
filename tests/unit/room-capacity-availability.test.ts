@@ -319,3 +319,24 @@ describe("the apply wizard refuses a room taken for the applicant's dates", () =
     expect(validateRentalWizardStep(1, { ...answers, roomChoice1: `${property.id}::server-room` }, { property }).roomChoice1).toBeUndefined();
   });
 });
+
+describe("the rich listing label uses the D1 wording (channels-sync-1027)", () => {
+  const dayKey = (offset: number) => {
+    const at = new Date();
+    at.setDate(at.getDate() + offset);
+    return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+  };
+
+  it("a room freeing in 10 days reads Available <date>, not Available from", () => {
+    holdingResident("app-1", "2020-01-01", dayKey(9));
+    const label = effectiveRoomAvailabilityLabel(ROOM, "Now");
+    expect(label).toMatch(/^Available [A-Z][a-z]{2} \d{1,2}(, \d{4})?$/);
+    expect(label).not.toMatch(/from/i);
+  });
+
+  it("a room held for months reads Leased until the last day it is held, never Available", () => {
+    holdingResident("app-1", "2020-01-01", dayKey(200));
+    const label = effectiveRoomAvailabilityLabel(ROOM, "Now");
+    expect(label).toMatch(/^Leased until [A-Z][a-z]{2} \d{1,2}, \d{4}$/);
+  });
+});
