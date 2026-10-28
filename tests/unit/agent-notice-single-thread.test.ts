@@ -95,6 +95,24 @@ describe("PropLane Assistant is one conversation", () => {
       ] },
     });
   });
+  it("rolls a booking's notices together by a key on the message, never into a second conversation (channels-sync-1027, D3)", async () => {
+    const { notifyManagerFromAgent } = await import("@/lib/agent-notify.server");
+    const { bookingNoticeRollKey, groupNoticesByBooking } = await import("@/lib/booking-notice-roll");
+    const one = bookingNoticeRollKey("airbnb:p:r1:HMONE");
+    const two = bookingNoticeRollKey("airbnb:p:r2:HMTWO");
+    for (const [subject, rollKey, idempotencyKey] of [
+      ["New Airbnb booking", one, "k1"], ["New Airbnb booking", two, "k2"], ["Check-out today", one, "k3"], ["Reminder", null, "k4"],
+    ] as const) {
+      await notifyManagerFromAgent(makeDb(rows), { landlordId: LANDLORD, subject, text: `${subject} ${idempotencyKey}`, idempotencyKey, rollKey });
+    }
+    expect(rows.size).toBe(1);
+    const messages = ([...rows.values()][0]!.row_data.messages ?? []) as Array<{ id: string; rollKey?: string }>;
+    const groups = groupNoticesByBooking(messages);
+    expect([...groups.get(one!)!].length).toBe(2);
+    expect([...groups.get(two!)!].length).toBe(1);
+    expect(messages.filter((m) => !m.rollKey)).toHaveLength(1);
+  });
+
   it("keeps every notice in a single thread", async () => {
     await notify("First", "one");
     await notify("Second", "two");

@@ -28,6 +28,7 @@ import {
 import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
 import type { NotificationCategory } from "@/lib/notification-preferences";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
+import { bookingNoticeRollKey } from "@/lib/booking-notice-roll";
 import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-preferences";
 import { reminderIsCurrent } from "@/lib/reminders/current.server";
 import { loadOffPresetResolver } from "@/lib/automations/store.server";
@@ -280,6 +281,7 @@ export async function dispatchReminderRow(
         url: typeof row.payload.url === "string" ? row.payload.url : undefined,
         category,
         idempotencyKey: row.id,
+        rollKey: bookingNoticeRollKey(row.payload.bookingKey),
       });
       await resolveReminder(db, row.id, workerId, "sent");
       return "sent";
