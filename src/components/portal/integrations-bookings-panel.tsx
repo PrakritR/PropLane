@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, CalendarPlus, ExternalLink, House, Palmtree, Plus, UsersRound } from "lucide-react";
 
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
+import { ChannelsHealthCard } from "@/components/portal/channels-health-card";
 import { IntegrationRow } from "@/components/portal/integration-row";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalSettingsGroup } from "@/components/portal/portal-settings-ui";
@@ -102,6 +103,7 @@ export function ManagerBookingChannelsPanel() {
 
   return (
     <>
+      <ChannelsHealthCard propertyIds={scopedIds} showToast={showToast} />
       <PortalSettingsGroup>
         {LIVE_CHANNELS.map(({ provider, name, icon, tone }) => (
           <IntegrationRow

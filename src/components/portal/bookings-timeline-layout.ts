@@ -1,3 +1,4 @@
+import { LONG_CLOSURE_NIGHTS } from "@/lib/channel-calendar/channel-health";
 import { bookingActiveOn, bookingCheckout, calendarOccupancy, calendarRange, type BookingCalendarView } from "@/lib/channel-calendar/bookings-calendar-view";
 import { addDaysToDateKey, bookingEntryMatchesSearch } from "@/lib/channel-calendar/bookings-ui";
 import { entryTimedStay, formatGapDuration, type EntryStayTimes } from "@/components/portal/bookings-stay-times";
@@ -252,7 +253,7 @@ export type PixelBar = PlacedBarSpec & { left: number; width: number; top: numbe
 export const CLOSURE_HATCH = "repeating-linear-gradient(135deg, rgb(148 163 184 / 0.7) 0 3px, rgb(241 245 249 / 0.95) 3px 8px)";
 
 /** A channel's own closure ("Airbnb (Not available)") longer than this is a standing closure, not a stay: drawn hatched, never as a guest. */
-export const LONG_CLOSURE_NIGHTS = 60;
+export { LONG_CLOSURE_NIGHTS };
 
 /** The channel's host block (never a reservation) that runs past {@link LONG_CLOSURE_NIGHTS}. */
 export function isLongChannelClosure(entry: Pick<PropertyBookingEntry, "source" | "summary" | "start" | "end" | "openEnded">): boolean {
