@@ -11,6 +11,7 @@ import {
   normalizeChannelImportUrl,
   normalizeIcalLabel,
 } from "@/lib/channel-calendar/airbnb-url";
+import { invalidateFeedReads } from "@/lib/channel-calendar/export-feed-reads.server";
 import { isPrivateOrInternalHostname } from "@/lib/channel-calendar/ical-host";
 import { fetchPinnedPublicHttps, NonPublicHostError } from "@/lib/sheet-sync/public-host.server";
 import {
@@ -229,10 +230,12 @@ export async function loadPropertyRecord(
   managerUserId: string | null;
   property: MockProperty | null;
   rowData: Record<string, unknown> | null;
+  /** The row's `occupancy_revision` (the compare-and-set token of {@link updateListingSubmission}); null when the read did not carry it. */
+  occupancyRevision: number | null;
 } | null> {
   const { data, error } = await db
     .from("manager_property_records")
-    .select("manager_user_id, property_data, row_data")
+    .select("manager_user_id, property_data, row_data, occupancy_revision")
     .eq("id", propertyId)
     .maybeSingle();
   if (error || !data) return null;
@@ -240,6 +243,10 @@ export async function loadPropertyRecord(
     managerUserId: data.manager_user_id ? String(data.manager_user_id) : null,
     property: (data.property_data ?? null) as MockProperty | null,
     rowData: (data.row_data ?? null) as Record<string, unknown> | null,
+    occupancyRevision: Number.isFinite(Number((data as { occupancy_revision?: unknown }).occupancy_revision))
+      && (data as { occupancy_revision?: unknown }).occupancy_revision != null
+      ? Number((data as { occupancy_revision?: unknown }).occupancy_revision)
+      : null,
   };
 }
 
@@ -354,6 +361,7 @@ export async function upsertChannelCalendarConnection(
     if (raced) ({ data, error } = await write(String(raced.id)));
   }
   if (error) throw new Error(error.message);
+  invalidateFeedReads();
   const saved = parseConnectionRow(data as Record<string, unknown>);
   // The row is already rewritten, so releasing what the old feed imported comes first: its stays,
   // listing blocks and placeholder residents are what the `priorRanges` read above was taken for,
@@ -394,16 +402,9 @@ async function releaseConnectionImportedStays(
   connection: ChannelCalendarConnectionRow,
   priorRanges: readonly ChannelCalendarImportedRange[],
 ): Promise<void> {
-  const record = await loadPropertyRecord(db, connection.property_id);
-  const submission = record?.property?.listingSubmission;
-  if (record && submission) {
-    await persistListingSubmission(
-      db,
-      connection.property_id,
-      record.property,
-      applyImportedRangesToSubmission(submission, connection.room_id, connection.id, []),
-    );
-  }
+  await updateListingSubmission(db, connection.property_id, (submission) =>
+    applyImportedRangesToSubmission(submission, connection.room_id, connection.id, []),
+  );
   const uids = [
     ...new Set(
       priorRanges
@@ -436,28 +437,70 @@ export async function deleteChannelCalendarConnection(
 
   const { error } = await db.from("external_calendar_connections").delete().eq("id", connectionId);
   if (error) throw new Error(error.message);
+  invalidateFeedReads();
 
   await releaseConnectionImportedStays(db, connection, connection.imported_ranges ?? []);
 }
 
-async function persistListingSubmission(
+/**
+ * Compare-and-set misses tolerated before a write gives up. Sync-all runs {@link SYNC_ALL_CONCURRENCY} rooms at once,
+ * and every one of them can land on the same house: one write wins per round, so the last needs that many rounds
+ * plus a spare.
+ */
+const LISTING_SUBMISSION_WRITE_ATTEMPTS = 6;
+
+export class ListingSubmissionConflictError extends Error {
+  constructor() {
+    super("The listing changed while it was being updated. Try again.");
+    this.name = "ListingSubmissionConflictError";
+  }
+}
+
+/**
+ * Read-modify-write of a house's `listingSubmission`, safe against another writer.
+ *
+ * A sync-all runs several rooms of one house at once, and each used to read the whole `property_data`, change its own
+ * room, and write the WHOLE blob back with no check: whichever finished last erased the other room's ranges (a lost
+ * update). The write is now compare-and-set on `manager_property_records.occupancy_revision` (the token the placement
+ * triggers already bump): it lands only if the revision is still the one this attempt read, and it bumps it. On a miss
+ * it re-reads and re-applies `apply` to the fresh row, up to {@link LISTING_SUBMISSION_WRITE_ATTEMPTS} times, then
+ * throws {@link ListingSubmissionConflictError} rather than overwrite. `apply` runs again on every attempt, so it must
+ * be a pure function of the submission it is handed. A house with no listing submission is left alone (returns null).
+ * A read that carries no revision (an older database) falls back to the plain write.
+ */
+export async function updateListingSubmission(
   db: SupabaseClient,
   propertyId: string,
-  property: MockProperty | null,
-  submission: ManagerListingSubmissionV1,
-): Promise<void> {
-  const nextProperty: MockProperty = {
-    ...(property ?? { id: propertyId, title: "", tagline: "", address: "", zip: "", neighborhood: "", beds: 0, baths: 0, rentLabel: "", available: "", petFriendly: false, buildingId: propertyId, buildingName: "", unitLabel: "" }),
-    listingSubmission: submission,
-  };
-  const { error } = await db
-    .from("manager_property_records")
-    .update({
-      property_data: nextProperty,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", propertyId);
-  if (error) throw new Error(error.message);
+  apply: (submission: ManagerListingSubmissionV1) => ManagerListingSubmissionV1,
+): Promise<{ property: MockProperty; submission: ManagerListingSubmissionV1 } | null> {
+  for (let attempt = 0; attempt < LISTING_SUBMISSION_WRITE_ATTEMPTS; attempt += 1) {
+    // Jittered, so writers that just collided do not collide again in step.
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 15 * attempt)));
+    const record = await loadPropertyRecord(db, propertyId);
+    const submission = record?.property?.listingSubmission;
+    if (!record || !submission) return null;
+    const next = apply(submission);
+    const nextProperty: MockProperty = { ...(record.property as MockProperty), listingSubmission: next };
+    const payload = { property_data: nextProperty, updated_at: new Date().toISOString() };
+    if (record.occupancyRevision === null) {
+      const { error } = await db.from("manager_property_records").update(payload).eq("id", propertyId);
+      if (error) throw new Error(error.message);
+      invalidateFeedReads();
+      return { property: nextProperty, submission: next };
+    }
+    const { data, error } = await db
+      .from("manager_property_records")
+      .update({ ...payload, occupancy_revision: record.occupancyRevision + 1 })
+      .eq("id", propertyId)
+      .eq("occupancy_revision", record.occupancyRevision)
+      .select("id");
+    if (error) throw new Error(error.message);
+    if (Array.isArray(data) && data.length > 0) {
+      invalidateFeedReads();
+      return { property: nextProperty, submission: next };
+    }
+  }
+  throw new ListingSubmissionConflictError();
 }
 
 /**
@@ -471,21 +514,15 @@ export async function persistConnectionImportedRanges(
   ranges: ChannelCalendarImportedRange[],
   opts: { removedUids?: readonly string[]; restoredRanges?: readonly ChannelCalendarImportedRange[] } = {},
 ): Promise<void> {
-  const record = await loadPropertyRecord(db, connection.property_id);
-  const submission = record?.property?.listingSubmission;
-  if (record && submission) {
-    await persistListingSubmission(
-      db,
-      connection.property_id,
-      record.property,
-      applyImportedRangesToSubmission(submission, connection.room_id, connection.id, ranges),
-    );
-  }
+  await updateListingSubmission(db, connection.property_id, (submission) =>
+    applyImportedRangesToSubmission(submission, connection.room_id, connection.id, ranges),
+  );
   const { error } = await db
     .from("external_calendar_connections")
     .update({ imported_ranges: ranges, updated_at: new Date().toISOString() })
     .eq("id", connection.id);
   if (error) throw new Error(error.message);
+  invalidateFeedReads();
 
   // The placeholder resident the sync filed for a removed reservation leaves with
   // it. Only the `@import.proplane.local` placeholder is ever touched — a row a
@@ -770,17 +807,12 @@ export async function syncChannelCalendarConnection(
       );
     }
 
-    const record = await loadPropertyRecord(db, connection.property_id);
-    if (!record?.property?.listingSubmission) {
-      throw new Error("Property listing data is not available to apply blocks.");
-    }
-    const updatedSubmission = applyImportedRangesToSubmission(
-      record.property.listingSubmission,
-      connection.room_id,
-      connection.id,
-      imported,
+    const applied = await updateListingSubmission(db, connection.property_id, (submission) =>
+      applyImportedRangesToSubmission(submission, connection.room_id, connection.id, imported),
     );
-    await persistListingSubmission(db, connection.property_id, record.property, updatedSubmission);
+    if (!applied) throw new Error("Property listing data is not available to apply blocks.");
+    const record = { property: applied.property };
+    const updatedSubmission = applied.submission;
     // No resident is filed for an imported stay. The import's own room block already holds those nights, so a
     // placement for the same dates is refused by `assert_room_placement_capacity` ("This room is blocked for the
     // requested dates") on every run; the Residents list derives channel guests from the booking rows instead.
@@ -797,6 +829,7 @@ export async function syncChannelCalendarConnection(
       .select("*")
       .single();
     if (saveError) throw new Error(saveError.message);
+    invalidateFeedReads();
     // A Remove that landed while this sync was reading the feed wrote its
     // tombstone after the keys above were read; re-check once so the stay it
     // removed cannot slip back in through the save we just made.
