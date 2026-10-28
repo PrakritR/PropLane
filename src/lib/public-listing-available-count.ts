@@ -4,15 +4,34 @@ import { roomAvailabilityTone, type RoomAvailabilityTone } from "@/lib/room-avai
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/room-choice-value";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 
-/** The occupancy row for one room: exact `<propertyId>::<roomId>` first, then any row ending in `::<roomId>`. */
-export function findPublicRoomOccupancy(
+/**
+ * The occupancy row for one room, by its exact `<propertyId>::<roomId>` key and nothing else.
+ *
+ * Use this, never {@link findPublicRoomOccupancy}, when the rows span MORE THAN ONE HOUSE (the catalog-wide
+ * snapshot behind `applyLiveRoomAvailability`): two houses can each own a "room-1", and the suffix fallback would
+ * then publish one house's spans as the other's. A miss here means the snapshot never saw the room.
+ */
+export function findPublicRoomOccupancyExact(
   rows: readonly PublicRoomOccupancy[],
   propertyId: string,
   roomId: string,
 ): PublicRoomOccupancy | undefined {
   const choice = `${propertyId}${LISTING_ROOM_CHOICE_SEP}${roomId}`;
+  return rows.find((entry) => entry.roomChoice === choice);
+}
+
+/**
+ * The occupancy row for one room: exact `<propertyId>::<roomId>` first, then any row ending in `::<roomId>`.
+ * The suffix fallback is for ONE house's rows, whose keys may carry a different property id than the page asks
+ * under. Rows covering several houses must go through {@link findPublicRoomOccupancyExact}.
+ */
+export function findPublicRoomOccupancy(
+  rows: readonly PublicRoomOccupancy[],
+  propertyId: string,
+  roomId: string,
+): PublicRoomOccupancy | undefined {
   return (
-    rows.find((entry) => entry.roomChoice === choice) ??
+    findPublicRoomOccupancyExact(rows, propertyId, roomId) ??
     rows.find((entry) => entry.roomChoice.endsWith(`${LISTING_ROOM_CHOICE_SEP}${roomId}`))
   );
 }

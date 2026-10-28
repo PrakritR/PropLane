@@ -7,7 +7,7 @@
  * from the same words: "Available now", "Available <date>" (frees within 60 days), "Leased until <date>", "Not available".
  */
 import type { MockProperty } from "@/data/types";
-import { findPublicRoomOccupancy } from "@/lib/public-listing-available-count";
+import { findPublicRoomOccupancyExact } from "@/lib/public-listing-available-count";
 import { pacificListingDay, type PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 import { publicRoomStatus, type PublicRoomStatus } from "@/lib/room-availability";
 
@@ -33,7 +33,9 @@ export function applyLiveRoomAvailability(
     if (!submission || submission.v !== 1 || !submission.rooms?.length) return listing;
     const statuses: PublicRoomStatus[] = [];
     const rooms = submission.rooms.map((room) => {
-      const found = findPublicRoomOccupancy(rows, listing.id, room.id);
+      // Exact key only: `rows` is the WHOLE catalog's snapshot, where a `::<roomId>` suffix match would hand this
+      // room another house's spans and publish a wrong "Leased until ..." for it.
+      const found = findPublicRoomOccupancyExact(rows, listing.id, room.id);
       // No row for the room means the snapshot never saw it (a room added after it was built): keep what was saved.
       if (!found) return room;
       const status = publicRoomStatus(room, found.spans, today);

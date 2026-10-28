@@ -11,6 +11,7 @@ import {
 import { importedRangesForFeed, type FeedConnection, type FeedPlacement } from "@/lib/channel-calendar/export-feed";
 import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
 import { stampExportFetch } from "@/lib/channel-calendar/export-fetch-stamp";
+import { EXPORT_FEED_ERROR_PREFIX } from "@/lib/channel-calendar/channel-health";
 import { cachedFeedRead } from "@/lib/channel-calendar/export-feed-reads.server";
 import { approvedRowBlocksRoom, blockEchoesToDestination, listingRentedWhole } from "@/lib/channel-calendar/export-occupancy";
 import type { ChannelCalendarProvider } from "@/lib/channel-calendar/types";
@@ -191,9 +192,6 @@ async function occupancyRangesForRoom(
   }
   return { leases, holds, importPlacements };
 }
-
-/** Prefix that tells an export failure apart from an import failure in the connection's single `last_error`. */
-const EXPORT_FEED_ERROR_PREFIX = "Export feed failed";
 
 function isExportFeedError(lastError: unknown): boolean {
   return typeof lastError === "string" && lastError.startsWith(EXPORT_FEED_ERROR_PREFIX);

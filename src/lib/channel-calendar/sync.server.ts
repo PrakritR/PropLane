@@ -435,11 +435,15 @@ export async function deleteChannelCalendarConnection(
   if (!row) throw new Error("Connection not found.");
   const connection = parseConnectionRow(row as Record<string, unknown>);
 
+  // Release BEFORE the row goes: the release is a compare-and-set write that can lose to a concurrent sync and throw
+  // (ListingSubmissionConflictError). Deleting first and releasing after left the imported ranges on the listing with
+  // no connection left to release them, so the room published as blocked forever. This order fails the other way —
+  // the ranges are gone and the connection is still there, which the next sync re-imports.
+  await releaseConnectionImportedStays(db, connection, connection.imported_ranges ?? []);
+
   const { error } = await db.from("external_calendar_connections").delete().eq("id", connectionId);
   if (error) throw new Error(error.message);
   invalidateFeedReads();
-
-  await releaseConnectionImportedStays(db, connection, connection.imported_ranges ?? []);
 }
 
 /**

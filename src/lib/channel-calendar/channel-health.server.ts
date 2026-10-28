@@ -2,21 +2,25 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { MockProperty } from "@/data/types";
+
 import { listManagerChannelCalendarBookings } from "@/lib/channel-calendar/bookings.server";
 import { buildAttentionItems, feedStateFor, type ChannelHealth, type ChannelHealthHouse, type FeedState, type HealthConnection, type HealthStay, type UnassignedApproval } from "@/lib/channel-calendar/channel-health";
 import { listingRentedWhole } from "@/lib/channel-calendar/export-occupancy";
 import { listingSubmissionFromProperty } from "@/lib/channel-calendar/connections.server";
-import { loadPropertyRecord } from "@/lib/channel-calendar/sync.server";
 import { buildVacancyPost, type VacancyRoom } from "@/lib/channel-calendar/vacancy-post";
 import { resolveListingTextNumber } from "@/lib/listing-text-number.server";
 import { pacificTodayKey } from "@/lib/public-room-live-label";
 import { loadPublicRoomOccupancy } from "@/lib/public-room-occupancy.server";
-import { findPublicRoomOccupancy } from "@/lib/public-listing-available-count";
+import { findPublicRoomOccupancyExact } from "@/lib/public-listing-available-count";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
 import { publicRoomStatus } from "@/lib/room-availability";
 import { ROOM_DATE_BLOCK_RECORD_TYPE } from "@/lib/portal-schedule-record-scope";
 
 const FEED_SEVERITY: FeedState[] = ["error", "stale", "never", "waiting", "fetched", "unmonitored"];
+
+/** Rows per page. Every read here pages to the end rather than trusting PostgREST's max-rows cut. */
+const PAGE = 500;
 
 function worstFeed(states: readonly FeedState[]): FeedState {
   return FEED_SEVERITY.find((state) => states.includes(state)) ?? "unmonitored";
@@ -29,14 +33,27 @@ function text(value: unknown): string {
 /** The house's `room_date_block` rows as the health reader needs them. */
 async function loadStays(db: SupabaseClient, propertyIds: readonly string[], roomLabels: ReadonlyMap<string, string>, houseLabels: ReadonlyMap<string, string>): Promise<HealthStay[]> {
   if (propertyIds.length === 0) return [];
-  const { data, error } = await db
-    .from("portal_schedule_records")
-    .select("id, property_id, row_data")
-    .in("property_id", [...propertyIds])
-    .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE);
-  if (error) throw new Error(error.message);
+  // Paged, like every other reader in this area: an unbounded select is silently cut at PostgREST's max-rows and the
+  // attention list would then drop closures and missing-echo checks with no signal at all.
+  const rows: Array<{ id?: unknown; property_id?: unknown; row_data?: unknown }> = [];
+  const ids = [...propertyIds];
+  for (let chunk = 0; chunk < ids.length; chunk += 100) {
+    const slice = ids.slice(chunk, chunk + 100);
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await db
+        .from("portal_schedule_records")
+        .select("id, property_id, row_data")
+        .in("property_id", slice)
+        .eq("record_type", ROOM_DATE_BLOCK_RECORD_TYPE)
+        .order("id")
+        .range(offset, offset + PAGE - 1);
+      if (error) throw new Error(error.message);
+      rows.push(...((data ?? []) as Array<{ id?: unknown; property_id?: unknown; row_data?: unknown }>));
+      if ((data ?? []).length < PAGE) break;
+    }
+  }
   const out: HealthStay[] = [];
-  for (const row of (data ?? []) as Array<{ id?: unknown; property_id?: unknown; row_data?: unknown }>) {
+  for (const row of rows) {
     const d = row.row_data && typeof row.row_data === "object" && !Array.isArray(row.row_data) ? (row.row_data as Record<string, unknown>) : null;
     const propertyId = text(row.property_id);
     const checkIn = text(d?.checkIn);
@@ -62,32 +79,88 @@ async function loadStays(db: SupabaseClient, propertyIds: readonly string[], roo
   return out;
 }
 
-async function loadVacancy(
+type HouseDetail = {
+  rooms: number;
+  vacancy: VacancyRoom[] | null;
+  label: string | null;
+  roomLabels: Array<[string, string]>;
+  rentedWhole: boolean;
+  ownerUserId: string | null;
+  workspaceId: string | null;
+};
+
+/**
+ * Every house's record in one read. `loadPropertyRecord` is per-id and `loadPublicRoomOccupancy` already takes a
+ * list, so asking per house turned a 12-house workspace into ~80 queries for the one card.
+ */
+async function loadHouseRecords(
   db: SupabaseClient,
-  propertyId: string,
-  today: string,
-): Promise<{ rooms: number; vacancy: VacancyRoom[] | null; label: string | null; roomLabels: Array<[string, string]>; rentedWhole: boolean; ownerUserId: string | null; workspaceId: string | null }> {
-  const record = await loadPropertyRecord(db, propertyId);
-  const submission = listingSubmissionFromProperty(record?.property ?? null);
-  const rooms = submission?.rooms ?? [];
-  const roomLabels: Array<[string, string]> = rooms.map((room) => [`${propertyId}::${room.id}`, room.name?.trim() || room.id]);
-  const { data: workspace } = await db.from("manager_property_records").select("workspace_id").eq("id", propertyId).maybeSingle();
-  const base = { rooms: rooms.length, rentedWhole: listingRentedWhole(submission), label: record?.property?.buildingName?.trim() || record?.property?.title?.trim() || null, roomLabels, ownerUserId: record?.managerUserId ?? null, workspaceId: workspace?.workspace_id ? String(workspace.workspace_id) : null };
-  if (!submission || rooms.length === 0) return { ...base, vacancy: [] };
-  try {
-    const occupancy = await loadPublicRoomOccupancy(db, [{ id: propertyId, listingSubmission: submission }]);
-    return {
-      ...base,
-      vacancy: rooms.map((room) => ({
-        roomId: room.id,
-        name: room.name?.trim() || room.id,
-        rentLabel: room.monthlyRent > 0 ? `${formatRoomPriceAmount(room.monthlyRent)}/mo` : "",
-        status: publicRoomStatus(room, findPublicRoomOccupancy(occupancy, propertyId, room.id)?.spans ?? [], today),
-      })),
-    };
-  } catch {
-    return { ...base, vacancy: null };
+  propertyIds: readonly string[],
+): Promise<Map<string, { property: MockProperty | null; managerUserId: string | null; workspaceId: string | null }>> {
+  const out = new Map<string, { property: MockProperty | null; managerUserId: string | null; workspaceId: string | null }>();
+  const ids = [...propertyIds];
+  for (let chunk = 0; chunk < ids.length; chunk += 100) {
+    const { data, error } = await db
+      .from("manager_property_records")
+      .select("id, manager_user_id, property_data, workspace_id")
+      .in("id", ids.slice(chunk, chunk + 100));
+    if (error) throw new Error(error.message);
+    for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+      out.set(text(row.id), {
+        property: (row.property_data ?? null) as MockProperty | null,
+        managerUserId: row.manager_user_id ? String(row.manager_user_id) : null,
+        workspaceId: row.workspace_id ? String(row.workspace_id) : null,
+      });
+    }
   }
+  return out;
+}
+
+/** Each house's rooms, labels and live vacancy. ONE occupancy read covers every house; a failed one leaves `vacancy` null. */
+async function loadVacancies(
+  db: SupabaseClient,
+  propertyIds: readonly string[],
+  today: string,
+): Promise<Map<string, HouseDetail>> {
+  const records = await loadHouseRecords(db, propertyIds);
+  const details = new Map<string, HouseDetail>();
+  const listings: Array<{ id: string; listingSubmission: NonNullable<ReturnType<typeof listingSubmissionFromProperty>> }> = [];
+  for (const propertyId of propertyIds) {
+    const record = records.get(propertyId) ?? null;
+    const submission = listingSubmissionFromProperty(record?.property ?? null);
+    const rooms = submission?.rooms ?? [];
+    details.set(propertyId, {
+      rooms: rooms.length,
+      vacancy: [],
+      label: record?.property?.buildingName?.trim() || record?.property?.title?.trim() || null,
+      roomLabels: rooms.map((room) => [`${propertyId}::${room.id}`, room.name?.trim() || room.id]),
+      rentedWhole: listingRentedWhole(submission),
+      ownerUserId: record?.managerUserId ?? null,
+      workspaceId: record?.workspaceId ?? null,
+    });
+    if (submission && rooms.length > 0) listings.push({ id: propertyId, listingSubmission: submission });
+  }
+  if (listings.length === 0) return details;
+  let occupancy: Awaited<ReturnType<typeof loadPublicRoomOccupancy>> | null = null;
+  try {
+    occupancy = await loadPublicRoomOccupancy(db, listings);
+  } catch {
+    // One read serves every house, so a failure is every house's: say nothing rather than publish a guess.
+    for (const listing of listings) details.get(listing.id)!.vacancy = null;
+    return details;
+  }
+  for (const listing of listings) {
+    const detail = details.get(listing.id)!;
+    detail.vacancy = listing.listingSubmission.rooms.map((room) => ({
+      roomId: room.id,
+      name: room.name?.trim() || room.id,
+      rentLabel: room.monthlyRent > 0 ? `${formatRoomPriceAmount(room.monthlyRent)}/mo` : "",
+      // Exact key: the one occupancy read covers every house in the workspace, so a suffix match would lend this
+      // room another house's spans.
+      status: publicRoomStatus(room, findPublicRoomOccupancyExact(occupancy, listing.id, room.id)?.spans ?? [], today),
+    }));
+  }
+  return details;
 }
 
 /**
@@ -100,14 +173,25 @@ async function loadUnassignedApprovals(db: SupabaseClient, propertyId: string, h
     "id,name:row_data->>name,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,ical_connection:row_data->>icalConnectionId,withdrawn:row_data->>withdrawnAt";
   const found = new Map<string, UnassignedApproval>();
   for (const column of ["property_id", "assigned_property_id"] as const) {
-    const { data, error } = await db.from("manager_application_records").select(select).eq("row_data->>bucket", "approved").eq(column, propertyId).limit(500);
-    if (error) throw new Error(error.message);
-    for (const row of (data ?? []) as unknown as Array<Record<string, unknown>>) {
-      if (text(row.ical_connection) || text(row.withdrawn) || text(row.choice) || text(row.preferred)) continue;
-      const start = text(row.manual_start) || text(row.lease_start);
-      const end = text(row.manual_end) || text(row.lease_end);
-      if (!start || (end && end < today)) continue;
-      found.set(text(row.id), { id: text(row.id), propertyId, houseLabel, name: text(row.name) });
+    // Paged to the end: a bare `.limit(500)` drops the rest of a large house's approvals and which ones it drops
+    // is nondeterministic, so a resident waiting on a room would silently never be surfaced.
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await db
+        .from("manager_application_records")
+        .select(select)
+        .eq("row_data->>bucket", "approved")
+        .eq(column, propertyId)
+        .order("id")
+        .range(offset, offset + PAGE - 1);
+      if (error) throw new Error(error.message);
+      for (const row of (data ?? []) as unknown as Array<Record<string, unknown>>) {
+        if (text(row.ical_connection) || text(row.withdrawn) || text(row.choice) || text(row.preferred)) continue;
+        const start = text(row.manual_start) || text(row.lease_start);
+        const end = text(row.manual_end) || text(row.lease_end);
+        if (!start || (end && end < today)) continue;
+        found.set(text(row.id), { id: text(row.id), propertyId, houseLabel, name: text(row.name) });
+      }
+      if ((data ?? []).length < PAGE) break;
     }
   }
   return [...found.values()];
@@ -123,7 +207,8 @@ export async function loadChannelHealth(
 ): Promise<ChannelHealth> {
   const today = pacificTodayKey(now);
   const properties = await listManagerChannelCalendarBookings(db, userId, propertyIds, origin);
-  const details = await Promise.all(properties.map((property) => loadVacancy(db, property.propertyId, today)));
+  const detailByProperty = await loadVacancies(db, properties.map((property) => property.propertyId), today);
+  const details = properties.map((property) => detailByProperty.get(property.propertyId)!);
   const roomLabels = new Map(details.flatMap((detail) => detail.roomLabels));
   const houseLabels = new Map(properties.map((property, index) => [property.propertyId, details[index]!.label || property.propertyLabel] as const));
   const connections: HealthConnection[] = properties.flatMap((property) =>

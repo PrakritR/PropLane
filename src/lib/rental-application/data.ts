@@ -971,10 +971,12 @@ export function applyApprovedAvailabilityToRichContent(property: MockProperty, r
       rooms: floor.rooms.map((room) => {
         const roomChoiceValue = `${property.id}${LISTING_ROOM_CHOICE_SEP}${room.id}`;
         const local = effectiveRoomAvailabilityLabel(roomChoiceValue, room.availability);
-        // This browser's own store knows approved applications only. The public catalog's label (live occupancy: channel
-        // stays, blocks, closures too, `applyLiveRoomAvailability`) says more, so when the store reads the room open
-        // and the catalog says it is not, the catalog wins. Only a public projection carries that label.
-        const catalog = property.publicProjection
+        // Without the server's spans this browser's store knows approved applications only, so the public catalog's
+        // label (live occupancy: channel stays, blocks, closures too, `applyLiveRoomAvailability`) says more and wins
+        // when the store reads the room open and the catalog says it is not. Once the spans ARE loaded the local
+        // reading is computed from that very same occupancy and is the fresher of the two: the catalog's label is a
+        // 60s snapshot behind a 60s CDN hold, so letting it win would republish a deleted block.
+        const catalog = property.publicProjection && !publicSpansForChoice(roomChoiceValue)
           ? property.listingSubmission?.rooms?.find((candidate) => candidate.id === room.id)?.availability?.trim() ?? ""
           : "";
         const catalogKind = catalog ? classifyRoomOpening(catalog).kind : "now";

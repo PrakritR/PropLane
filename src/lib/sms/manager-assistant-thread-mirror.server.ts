@@ -59,6 +59,9 @@ export type AssistantSmsMirrorInput = {
   body: string;
   /** Carry an existing notice classification (renders as a notice, not a bubble). */
   noticeType?: string;
+  /** A booking notice's roll key (`bookingNoticeRollKey`). An SMS-only notice never gets the inbox write, so the
+   * key has to ride this leg too or that reservation's notices lose their group. */
+  rollKey?: string | null;
 };
 
 export type AssistantSmsMirrorResult =
@@ -115,6 +118,7 @@ export async function appendSmsTurnToManagerAssistantThread(
             outbound: input.author === "manager",
             channel: "sms",
             ...(input.noticeType ? { noticeType: input.noticeType } : {}),
+            ...(input.rollKey?.trim() ? { rollKey: input.rollKey.trim() } : {}),
           },
         ];
       }

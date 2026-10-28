@@ -317,6 +317,7 @@ export async function notifyManagerFromAgent(
         author: "assistant",
         body: args.text,
         ...(args.threadType ? { noticeType: args.threadType } : {}),
+        ...(args.rollKey?.trim() ? { rollKey: args.rollKey.trim() } : {}),
       });
       // The text already went out; never throw here (a retry would risk a resend).
       if (!mirrored.ok) console.error("manager notice SMS sent but Assistant thread copy failed", mirrored.error);

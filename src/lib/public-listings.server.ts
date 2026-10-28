@@ -785,6 +785,8 @@ async function liveOccupancyRows(
   ).catch(() => null);
   // A cold snapshot reads every house's placements; the catalog must not wait on that without bound. Past the budget the
   // saved labels go out for this response, while the read keeps running and fills the shared snapshot for the next one.
+  // The budget is deliberately short: on a serverless host nothing guarantees the losing read finishes before the
+  // instance is frozen, so a cold instance can pay it again, and this sits on the browse page's critical path.
   let timer: ReturnType<typeof setTimeout> | undefined;
   const budget = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), LIVE_LABEL_BUDGET_MS);
@@ -797,4 +799,4 @@ async function liveOccupancyRows(
 }
 
 /** How long the catalog waits for the occupancy snapshot before serving the saved labels once (see `liveOccupancyRows`). */
-const LIVE_LABEL_BUDGET_MS = 10_000;
+const LIVE_LABEL_BUDGET_MS = 2_000;
