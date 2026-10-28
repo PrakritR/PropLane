@@ -142,7 +142,10 @@ an unresolved house, refuses it), requiring a signed-in account (`verifiedApplic
 sit exactly on a Pacific half hour, inside 8:00-19:30, tomorrow or later. It is stored pending with `requestKind` (a body value is
 stripped, never trusted), filed under the property owner after `managerMayHostPropertyTour`, eligible hosts via
 `resolveEligibleTourHostUserIds({ requestMode: true })` (no published slot needed), never proposed for auto-confirm. Confirming
-it always runs the double-book check. The manager's notice reads "<Name> wants to tour <property> on <Day, Mon D> at <h:mm AM/PM>".
+it always runs the double-book check. **One open request per account and home**: a pending requested-time row for the same
+property and verified email is refused `duplicate_request` (409) so a host's queue cannot be flooded, and the account is held to
+five requests an hour (`rate_limited`, 429); a failed read of the existing requests refuses rather than filing a second one.
+The manager's notice reads "<Name> wants to tour <property> on <Day, Mon D> at <h:mm AM/PM>".
 With open slots, only those slots are offered, exactly as before.
 
 ## What a prospect is offered = published − busy − booked

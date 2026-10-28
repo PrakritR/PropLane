@@ -575,7 +575,10 @@ co-manager's personally owned houses. Identity is
 `resident` and `vendor`, refuse any other `kind` **before** a use is spent, and each kind
 has its own redemption: `manager` writes the `account_link_invites` row this file is about,
 `resident` a pending claim, `vendor` the manager's vendor directory row
-([`vendor-portal.md`](vendor-portal.md)). Only the manager path may reach that insert —
+([`vendor-portal.md`](vendor-portal.md)). A fourth stored kind, `admin`, is written only by
+the Admin team pane and is never minted from a request body, never listed, rotated, revealed
+or revoked as a share link, and redeems down its own branch
+([`admin-service.md`](admin-service.md) § Admin team). Only the manager path may reach that insert —
 `account_link_invites.tab_kind` CHECKs `'manager'` alone, and a "vendor" link that once fell
 through to it carried the link's `assigned_property_ids` and `property_permissions` with
 neither side's Pro/Business plan checked (the gate was `kind === "manager"`-guarded). Never

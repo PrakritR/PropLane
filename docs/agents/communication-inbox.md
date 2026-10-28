@@ -156,8 +156,11 @@ adapter is everything that differs between whose conversations these are:
 
 - the thread store (`storageKey`, `loadCachedThreads`, `syncThreads`,
   `threadsChangedEvent`), what the list is built from (`buildListThreads`: the
-  manager collapses person rows and pins the PropLane Assistant, admin does
-  neither), and optional `emailMutations` for archive / restore / delete when the
+  manager collapses person rows, admin does not; both pin the VIEWER'S OWN
+  PropLane Assistant - `pinsAssistant` with `assistantWorkspace` naming which
+  workspace's chat, the manager's active one and admin's default one, and the
+  admin adapter dropping every `agent_notice_*` row that is not the viewer's),
+  and optional `emailMutations` for archive / restore / delete when the
   rows do not live in the persisted inbox cache;
 - the text stream (`loadSmsConversations`, `invalidateSmsConversations`,
   `smsDetailPath` - absent means no per-conversation read, so the inbox never asks
@@ -195,8 +198,9 @@ admin:
   `?workspaceId=` (`unassigned` or a service workspace this surface already reads, else 400/404; admin gate first).
   The thread header names the workspace with an "Open in workspace" icon action (the Admin > Service `open` action, then
   `/portal/communication/active/<key>`).
-- **PropLane-line leads** (strangers no workspace holds yet, `sms_unassigned_leads`) are read-only threads in the same list
-  (`lead:<id>`, number masked, no composer) with an Assign control: `PATCH /api/admin/unassigned-leads/<id>`
+- **PropLane-line leads** (strangers no workspace holds yet, `sms_unassigned_leads`) are threads in the same list
+  (`lead:<id>`, number masked) that are answered from the PropLane line - the server resolves the phone from the lead id
+  (`docs/agents/one-number.md` § W32) - with an Assign control in the header: `PATCH /api/admin/unassigned-leads/<id>`
   `{action:"assign", workspaceId}` runs `assignLeadToHouse` (no house; the workspace must be `is_service`) and writes one
   `admin_lead_assign_workspace` audit row.
 - **Inside a service workspace** a PropLane-line thread routed to it (`sms_projection_conversations.workspace_id` of an

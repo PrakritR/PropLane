@@ -160,7 +160,8 @@ workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and th
   challenge) and the server creates the confirmed account only when it verifies, stamping
   `app_metadata.admin_invite_proof = <link id>`. Five code attempts per link, across every challenge (a fresh code buys no
   fresh guesses; the limiter's longest window is a day, so the cap renews daily); then "This invite is locked - ask for a new
-  one", and Resend mints a new link. The redeem requires that stamp of any account created after the invite, or a Google/Apple
+  one", and Resend mints a new link. Five codes may be SENT per link per hour, so the mailing itself is not a megaphone.
+  The redeem requires that stamp of any account created after the invite, or a Google/Apple
   identity whose own verified email IS the bound address (`identities[].identity_data.email`, `email_verified`; the providers
   list alone proves nothing). An account that pre-dates the invite signs in as itself, but its email must be confirmed.
   Residual: an attacker who pre-registered AND confirmed the invitee's address before any invite existed still holds that login.

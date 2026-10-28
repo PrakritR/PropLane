@@ -362,6 +362,15 @@ and the host points the site's notification address (or a Gmail auto-forward) at
 - **Only a PROVEN site is answered.** The sender must pass `inboundSenderAuthenticated` (DKIM/SPF aligned to the site's
   domain, read off the received email's headers; a forwarded copy keeps the site's DKIM). A forged `From: airbnb.com` is stored under its
   own address and never answered; an unreadable header fetch is not a pass. Site recognition is by exact domain/subdomain, never a look-alike.
+  A mail whose `From` CLAIMS one of our synthetic `…@<site>.guest.invalid` keys is forged by definition (nothing real sends from one):
+  it is filed under a never-deliverable quarantine address (`quarantinedSenderAddress`) as "Unverified sender", so it can never be
+  written into the real guest's conversation, and no agent turn or credit is spent on it.
+- **A relay / reply address is one strict address or nothing** (`singleEmailAddress`, shared with `replyToFromHeaders`): a bare
+  `addr` or a single `Name <addr>`, lower-cased. A list ("evil@evil.com, x@airbnb.com"), a second angle pair or an `@` inside the
+  display name is refused, because a domain test on a value holding several addresses can pass on the one the mail never goes to.
+- **A genuine site mail can be replayed** (it keeps its DKIM signature), and each replay would be a paid turn: the same RFC
+  `Message-ID` is answered once per workspace, and one relay thread gets at most 6 turns an hour (the shared limiter, no new
+  table; an unreadable limiter denies). A refused replay is stored unanswered.
 - **One conversation per guest THREAD, never per name** (two "John"s must not share history the agent reads): keyed on `channelGuestKeyAddress` (a never-deliverable `.invalid` address) from the site's relay address (hashed), else the reservation code, else name + listing title through the
   normal conversation-key resolver; `row_data.channelGuest` carries site, house, room and the relay address. House/room come from the
   workspace's `external_calendar_connections` (`matchChannelListing`): a tie across houses maps nothing, never a guess.
