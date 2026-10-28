@@ -36,7 +36,6 @@ const SERVICE_WS = "ws-service";
 const transcript: string[] = [];
 const say = (line: string) => {
   transcript.push(line);
-  // eslint-disable-next-line no-console
   console.log(`  · ${line}`);
 };
 

@@ -12,7 +12,9 @@ import type { CommunicationInboxAdapter } from "@/lib/communication/inbox-adapte
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import type { InboxMessage } from "@/lib/demo-admin-partner-inbox";
 
-const syncPersistedMock = vi.fn(async (..._args: unknown[]) => ({ rows: [] as PersistedInboxThread[], ok: true }));
+const syncPersistedMock = vi.fn<(...args: unknown[]) => Promise<{ rows: PersistedInboxThread[]; ok: boolean }>>(
+  async () => ({ rows: [], ok: true }),
+);
 
 vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/portal-inbox-storage")>()),

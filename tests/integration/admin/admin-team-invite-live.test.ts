@@ -40,7 +40,6 @@ const outbox: { to: string[]; subject: string; text: string }[] = [];
 
 /** The rehearsal is run by hand, so it narrates what really happened on the database as it goes. */
 const note = (line: string) => {
-  // eslint-disable-next-line no-console
   console.log(`  · ${line}`);
 };
 

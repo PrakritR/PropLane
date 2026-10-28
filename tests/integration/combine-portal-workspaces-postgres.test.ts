@@ -42,7 +42,6 @@ const suite = url ? describe : describe.skip;
 const transcript: string[] = [];
 const say = (line: string) => {
   transcript.push(line);
-  // eslint-disable-next-line no-console
   console.log(`  · ${line}`);
 };
 
