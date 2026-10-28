@@ -21,10 +21,15 @@ export type RentalApplyFromListingParams = {
   groupLeaderAppId?: string;
   /** A specific published application form the manager chose to send (`form` query param). */
   applicationFormId?: string;
+  /** A single-use fee waiver code minted when the manager sent the link (`code` query param). */
+  waiverCode?: string;
 };
 
 /** Query param that carries the application form a manager chose when sending the link. */
 export const APPLY_FORM_PARAM = "form";
+
+/** Query param that carries the waiver code minted by "Waive application fee" on send. */
+export const APPLY_WAIVER_CODE_PARAM = "code";
 
 export function buildRentalApplyHref(p: RentalApplyFromListingParams): string {
   const q = new URLSearchParams();
@@ -38,5 +43,6 @@ export function buildRentalApplyHref(p: RentalApplyFromListingParams): string {
   if (p.rentalType === "short_term") q.set("rentalType", "short_term");
   if (p.groupLeaderAppId?.trim()) q.set("groupLeaderAppId", p.groupLeaderAppId.trim());
   if (p.applicationFormId?.trim()) q.set(APPLY_FORM_PARAM, p.applicationFormId.trim());
+  if (p.waiverCode?.trim()) q.set(APPLY_WAIVER_CODE_PARAM, p.waiverCode.trim());
   return `/rent/apply?${q.toString()}`;
 }

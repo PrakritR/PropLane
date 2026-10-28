@@ -16,6 +16,8 @@ export type ManagerApplyLinkParams = {
   rentalType?: "standard" | "short_term";
   /** The published application form the resident should get (see `send-forms.ts`). */
   applicationFormId?: string;
+  /** Single-use waiver code minted on send; the wizard auto-applies it. */
+  waiverCode?: string;
 };
 
 export function buildManagerApplyUrl(origin: string, params: ManagerApplyLinkParams): string {
@@ -28,6 +30,7 @@ export function buildManagerApplyUrl(origin: string, params: ManagerApplyLinkPar
     phone: params.phone?.trim() || undefined,
     rentalType: params.rentalType,
     applicationFormId: params.applicationFormId,
+    waiverCode: params.waiverCode,
   });
   return `${base}${path}`;
 }

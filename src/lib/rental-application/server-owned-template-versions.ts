@@ -21,6 +21,11 @@ function hasImportedSource(template: PropertyApplicationTemplate): boolean {
  * Generic property saves may edit questions, but publication history, template
  * identity, and imported-source review evidence remain server-owned. Preserve
  * them even when a client sends a partial or malformed property payload.
+ *
+ * The one exception is an explicit `listingSubmission.removedApplicationTemplateIds`
+ * (the manager's Delete): those ids, and only those, are dropped completely.
+ * The caller has already authorized the stored record, so the ids only ever
+ * name templates on a record the caller owns.
  */
 export function preserveServerOwnedApplicationVersions(
   incoming: unknown,
@@ -31,8 +36,14 @@ export function preserveServerOwnedApplicationVersions(
   const priorTemplates = previousSubmission
     ? readPropertyApplicationTemplates(previousSubmission as unknown as ManagerListingSubmissionV1)
     : [];
+  const nextForRemoval = objectRecord(objectRecord(incoming)?.listingSubmission);
+  const removedIds = new Set<string>(
+    Array.isArray(nextForRemoval?.removedApplicationTemplateIds)
+      ? (nextForRemoval.removedApplicationTemplateIds as unknown[]).filter((id): id is string => typeof id === "string" && id.length > 0)
+      : [],
+  );
   const protectedTemplates = priorTemplates.filter((template) =>
-    Boolean(template.publishedQuestionConfig || template.publishedQuestionConfigVersions?.length || hasImportedSource(template)),
+    !removedIds.has(template.id) && Boolean(template.publishedQuestionConfig || template.publishedQuestionConfigVersions?.length || hasImportedSource(template)),
   );
 
   const next = objectRecord(incoming);
@@ -44,7 +55,10 @@ export function preserveServerOwnedApplicationVersions(
     return { ...next, listingSubmission: previousSubmission };
   }
 
-  const submitted = readPropertyApplicationTemplates(nextSubmission as unknown as ManagerListingSubmissionV1);
+  // The removal list is a one-shot instruction, never stored (a later save must not re-apply it).
+  const { removedApplicationTemplateIds: _removed, ...nextSubmissionStored } = nextSubmission;
+  const submitted = readPropertyApplicationTemplates(nextSubmission as unknown as ManagerListingSubmissionV1)
+    .filter((template) => !removedIds.has(template.id));
   const priorById = new Map(priorTemplates.map((item) => [item.id, item]));
   const submittedIds = new Set(submitted.map((item) => item.id));
   const result: PropertyApplicationTemplate[] = submitted.map((template) => {
@@ -104,7 +118,7 @@ export function preserveServerOwnedApplicationVersions(
   return {
     ...next,
     listingSubmission: {
-      ...nextSubmission,
+      ...nextSubmissionStored,
       propertyApplicationTemplates: result,
     },
   };

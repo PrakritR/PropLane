@@ -35,8 +35,8 @@ type Draft = {
   propertyIds: string[];
 };
 
-function emptyDraft(appliesTo: WaiverCodeAppliesTo): Draft {
-  return { code: "", appliesTo, maxUses: "", expires: "", propertyIds: [] };
+function emptyDraft(appliesTo: WaiverCodeAppliesTo, propertyIds: string[] = []): Draft {
+  return { code: "", appliesTo, maxUses: "", expires: "", propertyIds };
 }
 
 /** `yyyy-mm-dd` in the viewer's own calendar for a stored instant. */
@@ -127,6 +127,7 @@ function CodeFields({
 export function WaiveCodesSettingsSection({
   propertyOptions,
   defaultAppliesTo = "application",
+  defaultPropertyIds,
   show,
 }: {
   propertyOptions: PropertyOption[];
@@ -134,6 +135,8 @@ export function WaiveCodesSettingsSection({
   show?: "application" | "lease";
   /** What a new code applies to until the manager changes it: the Applications tab says application, the Lease tab lease. */
   defaultAppliesTo?: WaiverCodeAppliesTo;
+  /** Properties a new code is limited to until the manager changes it (a house's own Promo codes dialog). */
+  defaultPropertyIds?: string[];
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
@@ -279,7 +282,7 @@ export function WaiveCodesSettingsSection({
           label="Add waive code"
           data-attr="waive-codes-add"
           disabled={Boolean(adding)}
-          onClick={() => setAdding(emptyDraft(defaultAppliesTo))}
+          onClick={() => setAdding(emptyDraft(defaultAppliesTo, defaultPropertyIds ?? []))}
         />
       }
     >

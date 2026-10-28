@@ -267,3 +267,5 @@ exactly as before — "missing workspace form" always falls back to today's
 behaviour. Switching a listing TO Custom still does the familiar one-time
 copy (mirrors "Same as Room X"): the workspace form's fields are copied onto
 the listing once, then edited independently.
+
+- **Short stays never fall back to the account default or $50.** A short-term/Airbnb application with no Pricing short-term fee and no form fee override is free; long-term is unchanged (`tests/unit/short-stay-application-fee-default-free.test.ts`).

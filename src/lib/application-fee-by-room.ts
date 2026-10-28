@@ -65,7 +65,7 @@ export type ApplicationFeeBasis = {
 };
 
 /** A typed amount in cents, or null for blank / non-numeric text (an unset fee, never free). */
-function centsFromRaw(raw: string): number | null {
+export function centsFromRaw(raw: string): number | null {
   const text = raw.trim();
   if (!/\d/.test(text)) return null;
   return Math.round(parseMoneyAmount(text) * 100);

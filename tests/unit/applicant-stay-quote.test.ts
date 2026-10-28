@@ -47,7 +47,8 @@ describe("applicant stay quote", () => {
     expect(quote.monthlyRent).toBe(0);
     expect(quote.signingLines.find((line) => line.key === "room_rent:room")).toMatchObject({ amount: total, dueAtSigning: false, dueLabel: "Before check-in" });
     expect(quote.signingLines.find((line) => line.key === "security_deposit")).toMatchObject({ amount: 250, dueAtSigning: false, dueLabel: "Before check-in" });
-    expect(quote.applicationFees).toEqual([{ id: "application_fee", label: "Application fee", amount: 50 }]);
+    // The fixture sets only the house application fee ($50): a stay never inherits it, so no fee line.
+    expect(quote.applicationFees).toEqual([]);
   });
 
   it.each([["", ""], ["2027-10-21", ""], ["2027-10-21", "2027-10-21"], ["2027-10-22", "2027-10-21"]])("does not invent a total for %s → %s", (leaseStart, leaseEnd) => {

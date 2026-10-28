@@ -118,8 +118,8 @@ describe("Application fee and Lease fee are bound to their step", () => {
     expect(row.shortTermLeaseFee).toBeUndefined();
     const legacy = listing({ occupancyPrices: [{ count: 1, applicationFee: "50", leaseFee: "100" }] });
     const resolved = resolveRoomTermFees({ sub: legacy, room: legacy.rooms[0], leaseTerm: "Short-Term Stay" });
-    // No short-term value of its own: the stay pays the shared one, exactly as before.
-    expect(resolved.applicationFee).toBe(50);
+    // No short-term value of its own: the stay's application fee is none (never the shared one); the lease fee still inherits.
+    expect(resolved.applicationFee).toBe(0);
     expect(resolved.leaseFee).toBe(100);
   });
 

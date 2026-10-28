@@ -155,6 +155,8 @@ export function ShareLeadLinkModal({
   const [roomChoice, setRoomChoice] = useState("");
   /** The published application form this link hands out; "" = the property's default form. */
   const [applicationFormId, setApplicationFormId] = useState("");
+  const [waiveFee, setWaiveFee] = useState(false);
+  const [waivedLink, setWaivedLink] = useState<{ base: string; url: string } | null>(null);
   const [applyRentalTypes, setApplyRentalTypes] = useState<string[]>(["standard"]);
   const [prospectName, setProspectName] = useState("");
   const [prospectEmail, setProspectEmail] = useState("");
@@ -195,6 +197,8 @@ export function ShareLeadLinkModal({
     }
     setRoomChoice("");
     setApplicationFormId("");
+    setWaiveFee(false);
+    setWaivedLink(null);
     setApplyRentalTypes(["standard"]);
     setProspectName(initialRecipient?.name?.trim() ?? "");
     setProspectEmail(initialRecipient?.email?.trim() ?? "");
@@ -326,7 +330,7 @@ export function ShareLeadLinkModal({
     setRoomChoice("");
   }, [open, kind, propertyIds.length]);
 
-  const linkUrl = useMemo(() => {
+  const baseLinkUrl = useMemo(() => {
     if (propertyIds.length === 0 || typeof window === "undefined") return "";
     const origin = linkOrigin;
     if (kind === "lease") {
@@ -376,6 +380,12 @@ export function ShareLeadLinkModal({
     prospectPhone,
     linkOrigin,
   ]);
+
+  // The single-home application link is the only one the fee can be waived on. Copying mints the
+  // single-use code on the server and shows the waived link here; a send mints its own.
+  const canWaiveFee = kind === "apply" && !isMultiApply && Boolean(singlePropertyId);
+  const waiveActive = canWaiveFee && waiveFee;
+  const linkUrl = waiveActive && waivedLink?.base === baseLinkUrl ? waivedLink.url : baseLinkUrl;
 
 
   const templatePropertyId = propertyIds[0] || "";
@@ -480,6 +490,36 @@ export function ShareLeadLinkModal({
       showToast("Select a property first.");
       return;
     }
+    if (waiveActive && waivedLink?.base !== baseLinkUrl) {
+      try {
+        const res = await fetch("/api/portal/send-lead-invite", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind,
+            linkOnly: true,
+            waiveFee: true,
+            propertyId: propertyIds[0],
+            propertyIds,
+            listingRoomId: sendListingRoomParams.listingRoomId || undefined,
+            roomName: sendListingRoomParams.roomName || undefined,
+            rentalType: applyLinkRentalType(effectiveApplyRentalTypes),
+            applicationFormId: selectedApplicationFormId || undefined,
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { ok?: boolean; linkUrl?: string; error?: string };
+        if (!res.ok || !data.ok || !data.linkUrl) {
+          showToast(data.error ?? "Could not waive the application fee.");
+          return;
+        }
+        setWaivedLink({ base: baseLinkUrl, url: data.linkUrl });
+        const copied = await copyTextToClipboard(data.linkUrl);
+        showToast(copied ? successMessage : "Could not copy link.");
+      } catch {
+        showToast("Could not waive the application fee.");
+      }
+      return;
+    }
     const ok = await copyTextToClipboard(text);
     showToast(ok ? successMessage : "Could not copy link.");
   };
@@ -527,6 +567,7 @@ export function ShareLeadLinkModal({
           listingIntro: kind === "listing" ? listingIntro : undefined,
           rentalType: kind === "apply" ? applyLinkRentalType(effectiveApplyRentalTypes) : undefined,
           applicationFormId: kind === "apply" && !isMultiApply ? selectedApplicationFormId || undefined : undefined,
+          waiveFee: waiveActive || undefined,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; mailtoHref?: string };
@@ -724,6 +765,17 @@ export function ShareLeadLinkModal({
                       dataAttr="share-lead-room"
                     />
                   </div>
+                ) : null}
+                {canWaiveFee ? (
+                  <label className="mt-3 flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={waiveFee}
+                      onChange={(e) => setWaiveFee(e.target.checked)}
+                      data-attr="share-lead-waive-fee"
+                    />
+                    Waive application fee
+                  </label>
                 ) : null}
                 <div className="mt-3 border-t border-border/60 pt-3">
                   <p className="mb-2 text-sm font-semibold">{linkLabel}</p>

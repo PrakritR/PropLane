@@ -3,7 +3,8 @@
  *
  * A stay type's own value replaces the house fee of the same kind — it never stacks a
  * second line. Empty on the stay type inherits the long-term arrangement row, then listing
- * defaults (`listingApplicationFeeRaw`, move-in preset, etc.).
+ * defaults (move-in preset, etc.) -- EXCEPT the application fee, which a stay never inherits: only a fee
+ * set for the stay (`listingApplicationFeeRaw`) applies, else the form's fee, else none.
  */
 
 import { parseMoneyAmount } from "@/lib/parse-money";
@@ -158,6 +159,7 @@ function placementFeeRawChain(
     options.entireHomeFees ? readArrangementFee({ count: 1, ...options.entireHomeFees }, kind) : undefined;
 
   const isStayTerm = leaseTerm === SHORT_TERM_LEASE_TERM || leaseTerm === AIRBNB_LEASE_TERM;
+  const isStay = options.isStay || isStayTerm;
   const fromStayFieldOnRow = (kind: PlacementStandardFeeKind) =>
     isStayTerm
       ? readStayFeeOnRow(longTermRow, kind) ??
@@ -179,10 +181,16 @@ function placementFeeRawChain(
       : undefined;
 
   const resolve = (kind: PlacementStandardFeeKind): string | undefined => {
+    // A stay's APPLICATION fee is only ever one set for the stay (captain, 2026-10-28: short stays are free by
+    // default): it never inherits the long-term row, the whole-house long-term fee or the bundle's long-term
+    // entry. Lease and move-in fees keep the inheritance.
+    const stayApplicationOnly = isStay && kind === "applicationFee";
     if (bundle) {
       return isBase
         ? fromBundle(kind, leaseTerm) ?? fromTemplate(kind)
-        : fromBundle(kind, leaseTerm) ?? fromTemplate(kind) ?? fromBundle(kind, LONG_TERM_LEASE_TERM);
+        : fromBundle(kind, leaseTerm) ??
+            fromTemplate(kind) ??
+            (stayApplicationOnly ? undefined : fromBundle(kind, LONG_TERM_LEASE_TERM));
     }
     if (isBase) {
       return fromLongTermArrangement(kind) ?? fromEntireHome(kind) ?? fromTemplate(kind);
@@ -191,8 +199,7 @@ function placementFeeRawChain(
       fromTerm(kind) ??
       fromStayFieldOnRow(kind) ??
       fromTemplate(kind) ??
-      fromLongTermArrangement(kind) ??
-      fromEntireHome(kind)
+      (stayApplicationOnly ? undefined : fromLongTermArrangement(kind) ?? fromEntireHome(kind))
     );
   };
 

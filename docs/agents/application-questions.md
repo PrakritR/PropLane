@@ -289,3 +289,8 @@ answers. Existing signed documents and submitted responses are not rewritten.
 
 Coverage: `linked-form-requests-routes`, `cosigner-submission-visibility`, `cosigner-identity-from-account`,
 `security/cosigner-identity-route`, and `linked-forms-ui`.
+
+- Delete is explicit: a delete save carries `listingSubmission.removedApplicationTemplateIds`, and `preserveServerOwnedApplicationVersions` drops exactly those ids completely (no archive; submitted applications keep their own snapshots) and never stores the list. A save without the list still re-appends published/imported forms; the panel reads the stored list back and toasts a failure if the id survived.
+
+- **Waive on send:** the Send application modal's "Waive application fee" box (single-home apply only) makes `POST /api/portal/send-lead-invite` mint, after the manager and property are re-authorized, one code (`maxUses` 1, `propertyIds` [that house], application fee only, label "Waived on send") and put it in the link as `&code=`; a mint failure fails the send, and the wizard auto-redeems it through the same `/api/public/application-fee-waiver` route as a typed code.
+- **Promo codes entry:** the property Applications header carries a ticket `PortalIconAction` "Promo codes" that opens the house-scoped dialog (new codes default to this property); the per-form ⋯ entry stays.

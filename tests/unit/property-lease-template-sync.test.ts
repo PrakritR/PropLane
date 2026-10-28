@@ -9,7 +9,7 @@ import {
   syncPropertyLeaseTemplatesFromListing,
 } from "@/lib/property-lease-template-sync";
 import { createPropertyLeaseTemplate, readPropertyLeaseTemplates } from "@/lib/property-lease-templates";
-import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { AIRBNB_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { syncPropertyApplicationTemplatesFromListing } from "@/lib/property-application-template-sync";
 import { createPropertyApplicationTemplate, readPropertyApplicationTemplates } from "@/lib/property-application-templates";
 
@@ -23,6 +23,25 @@ describe("property lease template sync", () => {
     expect(seeds.find((s) => s.seedKey === "primary")?.applicationLeaseTerms?.sort()).toEqual(
       ["12-Month", "Month-to-Month", "3-Month", "Custom"].sort(),
     );
+  });
+
+  it("keeps Airbnb out of the long-term lease terms, and heals a stored template on sync", () => {
+    const sub = createDefaultListingSubmission();
+    sub.allowedLeaseTerms = ["12-Month", AIRBNB_LEASE_TERM, SHORT_TERM_LEASE_TERM];
+    sub.shortTermRentalsAllowed = true;
+    sub.airbnbRentalsAllowed = true;
+    expect(buildLeaseTemplateSeeds(sub).find((s) => s.seedKey === "primary")?.applicationLeaseTerms).toEqual(["12-Month"]);
+
+    const added = addLeaseTemplateFromSeed(sub, "primary");
+    const stale = {
+      ...added,
+      propertyLeaseTemplates: readPropertyLeaseTemplates(added).map((t) => ({
+        ...t,
+        applicationLeaseTerms: ["12-Month", AIRBNB_LEASE_TERM],
+      })),
+    };
+    const healed = readPropertyLeaseTemplates(syncPropertyLeaseTemplatesFromListing(stale));
+    expect(healed.find((t) => t.listingSeedKey === "primary")?.applicationLeaseTerms).toEqual(["12-Month"]);
   });
 
   it("refreshes the templates a manager added, and creates none", () => {

@@ -126,17 +126,17 @@ describe("one resolver: a stay type's own fee replaces the house fee", () => {
     expect(short.moveInOverridesHouse).toBe(true);
   });
 
-  it("an empty stay-type fee inherits the long-term row, then the house value", () => {
+  it("an empty stay-type fee inherits the long-term row, then the house value (lease/move-in; the application fee is none)", () => {
     const sub = listing({ termPricing: { [SHORT_TERM_LEASE_TERM]: { leaseFee: "100" } } });
     const short = resolvePlacementStandardFees(sub, { leaseTerm: SHORT_TERM_LEASE_TERM, room: sub.rooms[0], isStay: true });
     expect(short.leaseFee).toBe(100);
-    expect(short.applicationFee).toBe(40); // inherits the long-term row
+    expect(short.applicationFee).toBe(0); // a stay never inherits the long-term application fee
     expect(short.moveInFee).toBe(50);
     const bare = listing({ longRow: { moveInFee: "", applicationFee: "" }, termPricing: {} });
     const inherit = resolvePlacementStandardFees(bare, { leaseTerm: SHORT_TERM_LEASE_TERM, room: bare.rooms[0], isStay: true });
     expect(inherit.moveInOverridesHouse).toBe(false);
     expect(inherit.applicationFeeExplicit).toBe(false);
-    expect(inherit.applicationFee).toBe(35); // the house application fee
+    expect(inherit.applicationFee).toBe(0); // nor the house application fee
     expect(resolvedMoveInFeeRaw(bare, { leaseTerm: SHORT_TERM_LEASE_TERM, room: bare.rooms[0], isStay: true })).toBe("10");
     expect(resolvedMoveInFeeRaw(sub, { leaseTerm: SHORT_TERM_LEASE_TERM, room: sub.rooms[0], isStay: true })).toBe("50");
   });

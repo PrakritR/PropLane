@@ -109,4 +109,44 @@ describe("server-owned application versions", () => {
     const next = preserveServerOwnedApplicationVersions({ listingSubmission: { marker: true } }, payload([published])) as ReturnType<typeof payload>;
     expect(next.listingSubmission.propertyApplicationTemplates).toEqual([published]);
   });
+
+  describe("explicit removal", () => {
+    const other = { ...createPropertyApplicationTemplate({ kind: "long-term" }), id: "other-form" };
+    const importedTemplate = {
+      ...createPropertyApplicationTemplate({ kind: "long-term" }),
+      draftQuestionConfig: {
+        ...draft,
+        importProvenance: { sourcePath: "owner/application-import/template/source.pdf", sourceSha256: "d".repeat(64), unresolvedCount: 0 },
+      },
+    };
+    const withRemoved = (templates: typeof published[], ids: string[]) => ({
+      listingSubmission: { ...createDefaultListingSubmission(), propertyApplicationTemplates: templates, removedApplicationTemplateIds: ids },
+    });
+
+    it("drops a published template named in the removal list, and never stores the list", () => {
+      const next = preserveServerOwnedApplicationVersions(withRemoved([], [published.id]), payload([published])) as ReturnType<typeof payload>;
+      expect(next.listingSubmission.propertyApplicationTemplates).toEqual([]);
+      expect(next.listingSubmission).not.toHaveProperty("removedApplicationTemplateIds");
+    });
+
+    it("drops an imported template named in the removal list", () => {
+      const next = preserveServerOwnedApplicationVersions(withRemoved([], [importedTemplate.id]), payload([importedTemplate])) as ReturnType<typeof payload>;
+      expect(next.listingSubmission.propertyApplicationTemplates).toEqual([]);
+    });
+
+    it("still preserves a protected id that is not in the list", () => {
+      const next = preserveServerOwnedApplicationVersions(withRemoved([], [other.id]), payload([published, other])) as ReturnType<typeof payload>;
+      expect(next.listingSubmission.propertyApplicationTemplates.map((t) => t.id)).toEqual([published.id]);
+    });
+
+    it("honors removal even if the payload still carries the removed template", () => {
+      const next = preserveServerOwnedApplicationVersions(withRemoved([published], [published.id]), payload([published])) as ReturnType<typeof payload>;
+      expect(next.listingSubmission.propertyApplicationTemplates).toEqual([]);
+    });
+
+    it("ignores a removal list on a record with nothing stored under those ids", () => {
+      const next = preserveServerOwnedApplicationVersions(withRemoved([], ["ghost"]), payload([published])) as ReturnType<typeof payload>;
+      expect(next.listingSubmission.propertyApplicationTemplates).toEqual([published]);
+    });
+  });
 });

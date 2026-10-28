@@ -124,6 +124,10 @@ export function validateManagerApplicationFeeCents(raw: unknown): ManagerApplica
  *   4. `managerFeeCents`   - the Application system setting
  *   5. the legacy $50 default, only when nothing at all is configured
  *
+ * A SHORT STAY (`shortStay`: Short-Term Stay / Airbnb) skips levels 4 and 5: it never
+ * falls back to the account default or the legacy $50, so with nothing set above it the
+ * fee is 0 (captain, 2026-10-28: short-term applications are free by default).
+ *
  * `0` at any level means free at that level. `null`/`undefined` means "use the
  * next level down". Pure - the caller (`resolveApplicationFeeProperty`) resolves
  * every input from SERVER-stored data, never a client amount.
@@ -136,6 +140,8 @@ export function effectiveApplicationFeeCents(input: {
   templateFeeCentsOverride?: number | null;
   /** The listing-level Application fee, when the room/term sets none. */
   listingFeeCents?: number | null;
+  /** A short-stay application: the account default and the legacy $50 never apply. */
+  shortStay?: boolean;
 }): number {
   if (input.roomTermFeeCents !== null && input.roomTermFeeCents !== undefined) {
     return input.roomTermFeeCents;
@@ -146,8 +152,20 @@ export function effectiveApplicationFeeCents(input: {
   if (input.listingFeeCents !== null && input.listingFeeCents !== undefined) {
     return input.listingFeeCents;
   }
+  if (input.shortStay) return 0;
   if (input.managerFeeCents !== null) return input.managerFeeCents;
   return LEGACY_DEFAULT_APPLICATION_FEE_CENTS;
+}
+
+/**
+ * What is actually charged for a resolved fee: Stripe's checkout minimum is $1 and the cap is
+ * $1,000, so anything outside that is 0. The charge path and the fee display both apply it.
+ */
+export function chargeableApplicationFeeCents(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  const x = Math.round(n);
+  if (x < 100 || x > 100_000) return 0;
+  return x;
 }
 
 export async function loadManagerApplicationSettings(

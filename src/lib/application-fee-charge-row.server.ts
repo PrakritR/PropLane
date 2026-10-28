@@ -4,6 +4,7 @@ import { resolveManagerUserIdForProperty } from "@/lib/auth/guest-application-up
 import { upsertManagerCharges } from "@/lib/household-charges.server";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { isShortStayApplication } from "@/lib/rental-application/lease-terms";
 import {
   effectiveApplicationFeeCents,
   loadManagerApplicationSettings,
@@ -156,6 +157,7 @@ export async function ensureApplicationFeeChargeRow(
       managerFeeCents: managerSettings.applicationFeeCents,
       roomTermFeeCents: basis.roomTermCents,
       listingFeeCents: basis.listingCents,
+      shortStay: isShortStayApplication({ leaseTerm: input.feeLeaseTerm }),
     });
   }
   const amount = applicationFeeCents / 100;

@@ -102,11 +102,17 @@ async function allReads(sub: ManagerListingSubmissionV1, roomChoice1: string | u
     successUrl: "https://app.test/s",
     cancelUrl: "https://app.test/c",
   });
-  expect(checkout.ok).toBe(true);
-  const passed = vi.mocked(createAxisAchCheckoutSession).mock.calls[0]?.[1] as {
-    amountCents: number;
-    metadata: Record<string, string>;
-  };
+  // A $0 stay fee is no checkout at all (422, no Stripe session).
+  const passed = checkout.ok
+    ? (vi.mocked(createAxisAchCheckoutSession).mock.calls[0]?.[1] as {
+        amountCents: number;
+        metadata: Record<string, string>;
+      })
+    : { amountCents: 0, metadata: { fee_cents: "0" } };
+  if (!checkout.ok) {
+    expect(checkout).toMatchObject({ status: 422, code: "NO_APPLICATION_FEE" });
+    expect(createAxisAchCheckoutSession).not.toHaveBeenCalled();
+  }
 
   const roomRow = roomId ? (sub.rooms ?? []).find((r) => r.id === roomId) ?? null : null;
   const resolver = resolvePlacementStandardFees(
@@ -162,9 +168,9 @@ describe("short-term application fee: preview == charged == quote == resolver(sh
     });
     const r1 = await allReads(sub, choice("r1"), "r1");
     expect(r1).toEqual({ preview: 1500, charged: 1500, metadataFee: 1500, resolver: 1500, quote: 1500 });
-    // r2 typed no Short term fee: it inherits its own long-term row, on every read.
+    // r2 typed no Short term fee: its long-term $75 is NOT inherited -- free on every read.
     const r2 = await allReads(sub, choice("r2"), "r2");
-    expect(r2).toEqual({ preview: 7500, charged: 7500, metadataFee: 7500, resolver: 7500, quote: 7500 });
+    expect(r2).toEqual({ preview: 0, charged: 0, metadataFee: 0, resolver: 0, quote: 0 });
   });
 
   it("a fee stored on the room row's short-term field reads the same everywhere", async () => {

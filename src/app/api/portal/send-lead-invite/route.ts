@@ -17,6 +17,10 @@ import {
   buildManagerTourUrl,
 } from "@/lib/manager-property-links";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
+import {
+  createApplicationFeeWaiverCode,
+  revokeApplicationFeeWaiverCode,
+} from "@/lib/application-fee-waiver";
 import { applicationFormIdForLink } from "@/lib/send-forms";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
 import { managerMayFileLeaseUnderProperty } from "@/lib/auth/manager-lease-scope";
@@ -94,6 +98,8 @@ export async function POST(req: Request) {
       listingIntro?: unknown;
       rentalType?: unknown;
       applicationFormId?: unknown;
+      waiveFee?: unknown;
+      linkOnly?: unknown;
     };
     try {
       body = (await req.json()) as typeof body;
@@ -112,6 +118,10 @@ export async function POST(req: Request) {
               ? "lease"
               : null;
     const viaSms = body.viaSms === true;
+    // `linkOnly` asks for the (waived) link without sending anything, so the modal's copy button
+    // carries the same single-use code a send would.
+    const linkOnly = body.linkOnly === true;
+    const waiveFee = body.waiveFee === true;
     const viaEmail = body.viaEmail !== false;
     const to = typeof body.to === "string" ? body.to.trim().toLowerCase() : "";
     const phoneRaw = typeof body.phone === "string" ? body.phone.trim() : "";
@@ -133,13 +143,13 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
-    if (!viaEmail && !viaSms) {
+    if (!linkOnly && !viaEmail && !viaSms) {
       return NextResponse.json({ error: "Choose email, SMS, or both." }, { status: 400 });
     }
-    if (viaEmail && (!to || !EMAIL_RE.test(to))) {
+    if (!linkOnly && viaEmail && (!to || !EMAIL_RE.test(to))) {
       return NextResponse.json({ error: "A valid recipient email is required." }, { status: 400 });
     }
-    if (viaSms && !phone) {
+    if (!linkOnly && viaSms && !phone) {
       return NextResponse.json({ error: "A valid US phone number is required for SMS." }, { status: 400 });
     }
 
@@ -233,12 +243,79 @@ export async function POST(req: Request) {
             typeof body.applicationFormId === "string" ? body.applicationFormId : "",
           )
         : undefined;
+    // A live signup trial has no Communication until it pays. The plan checked is the active
+    // workspace OWNER's, so a teammate is judged by the owner's plan. Refused before the work
+    // number is read, anything is emailed or texted.
+    if (!linkOnly && (viaEmail || viaSms)) {
+      let access: Awaited<ReturnType<typeof assertManagerCommunicationAllowedForWorkspace>>;
+      try {
+        const workspace = await resolveActiveWorkspaceFromRequest(svc, user.id);
+        access = await assertManagerCommunicationAllowedForWorkspace(svc, user.id, workspace.id);
+      } catch {
+        access = {
+          allowed: false,
+          reason: "plan_unreadable",
+          status: 503,
+          message: MANAGER_COMMUNICATION_UNREADABLE_MESSAGE,
+        };
+      }
+      if (!access.allowed) {
+        return NextResponse.json(
+          { ok: false, error: access.message, code: `communication_${access.reason}`, emailSent: false },
+          { status: access.status },
+        );
+      }
+    }
+
+    // "Waive application fee": one single-use code, scoped to THIS house and the application fee, minted
+    // here only after the manager and every property id were authorized above. A mint failure fails
+    // the whole send: a fee-charging link must never go out labelled as waived.
+    if (waiveFee && (kind !== "apply" || isMultiApply)) {
+      return NextResponse.json({ error: "The application fee can be waived on a single-home application link." }, { status: 400 });
+    }
+    let mintedWaiverCodeId: string | null = null;
+    let waiverCode: string | undefined;
+    // The redeem route looks codes up under the property record's OWNER, which is not always the sender
+    // (platform admin, co-manager, account-link inviter), so the code is minted under the owner. An
+    // unreadable or missing owner fails the send; it never falls back to the sender.
+    let waiverOwnerId = "";
+    if (waiveFee) {
+      const { data: ownerRow, error: ownerError } = await svc
+        .from("manager_property_records")
+        .select("manager_user_id")
+        .eq("id", propertyId)
+        .maybeSingle();
+      waiverOwnerId = typeof ownerRow?.manager_user_id === "string" ? ownerRow.manager_user_id.trim() : "";
+      if (ownerError || !waiverOwnerId) {
+        return NextResponse.json({ error: "Could not waive the application fee: the property owner could not be read." }, { status: 500 });
+      }
+      const minted = await createApplicationFeeWaiverCode(svc, waiverOwnerId, {
+        label: "Waived on send",
+        propertyIds: [propertyId],
+        appliesTo: "application",
+        maxUses: 1,
+      });
+      if (!minted.ok) {
+        return NextResponse.json({ error: `Could not waive the application fee: ${minted.error}` }, { status: 500 });
+      }
+      mintedWaiverCodeId = minted.code.id;
+      waiverCode = minted.code.code;
+    }
+    const discardMintedWaiver = async () => {
+      if (!mintedWaiverCodeId) return;
+      try {
+        await revokeApplicationFeeWaiverCode(svc, waiverOwnerId, mintedWaiverCodeId);
+      } catch {
+        // Best effort: an unspent single-use code on a house the manager owns is harmless.
+      }
+    };
     const applyUrl = buildManagerApplyUrl(origin, {
       propertyId,
       listingRoomId: listingRoomId || undefined,
       roomName: roomName || undefined,
       rentalType: rentalType === "short_term" ? "short_term" : undefined,
       applicationFormId,
+      waiverCode,
     });
     const tourUrl = buildManagerTourUrl(origin, propertyId);
     const listingPageUrl = buildManagerListingUrl(origin, propertyId);
@@ -260,6 +337,10 @@ export async function POST(req: Request) {
       kind === "listing" && !isMultiListing && listing
         ? buildListingShareSummary(listing, { roomChoice: roomName || undefined, roomId: listingRoomId || undefined })
         : undefined;
+
+    if (linkOnly) {
+      return NextResponse.json({ ok: true, linkUrl, waived: Boolean(waiverCode) });
+    }
 
     const from = await managerOutboundFromHeader(svc, user.id);
     const signatureNumber = kind === "listing" ? await resolveManagerWorkNumber(svc, user.id) : null;
@@ -294,30 +375,6 @@ export async function POST(req: Request) {
       managerNote: note || undefined,
     });
 
-    // A live signup trial has no Communication until it pays. The plan checked is the active
-    // workspace OWNER's, so a teammate is judged by the owner's plan. Refused before the work
-    // number is read, anything is emailed or texted.
-    if (viaEmail || viaSms) {
-      let access: Awaited<ReturnType<typeof assertManagerCommunicationAllowedForWorkspace>>;
-      try {
-        const workspace = await resolveActiveWorkspaceFromRequest(svc, user.id);
-        access = await assertManagerCommunicationAllowedForWorkspace(svc, user.id, workspace.id);
-      } catch {
-        access = {
-          allowed: false,
-          reason: "plan_unreadable",
-          status: 503,
-          message: MANAGER_COMMUNICATION_UNREADABLE_MESSAGE,
-        };
-      }
-      if (!access.allowed) {
-        return NextResponse.json(
-          { ok: false, error: access.message, code: `communication_${access.reason}`, emailSent: false },
-          { status: access.status },
-        );
-      }
-    }
-
     // Every precondition is resolved BEFORE the first send. A missing work number
     // discovered after the email went out leaves the prospect with a copy the
     // manager cannot see, and the natural retry mails them a second one.
@@ -325,6 +382,7 @@ export async function POST(req: Request) {
     if (viaSms && phone) {
       const workNumber = await resolveManagerWorkNumber(svc, user.id);
       if (!workNumber) {
+        await discardMintedWaiver();
         return NextResponse.json(
           {
             ok: false,
@@ -341,6 +399,7 @@ export async function POST(req: Request) {
     if (viaEmail) {
       const apiKey = process.env.RESEND_API_KEY?.trim();
       if (!apiKey) {
+        // The mailto fallback below carries the waived link, so the code stays live.
         return NextResponse.json(
           { ok: false, error: "Email delivery is not configured (set RESEND_API_KEY).", mailtoHref },
           { status: 503 },
@@ -356,6 +415,7 @@ export async function POST(req: Request) {
       });
       const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string };
       if (!res.ok) {
+        // The mailto fallback carries the waived link, so the code stays live.
         return NextResponse.json({ ok: false, error: payload.message ?? res.statusText, mailtoHref }, { status: 502 });
       }
       emailId = payload.id ?? null;

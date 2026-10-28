@@ -302,12 +302,17 @@ export function syncPropertyApplicationTemplatesFromListing(
 export function submissionAfterRemovingApplicationTemplate(
   sub: ManagerListingSubmissionV1,
   templates: PropertyApplicationTemplate[],
+  removedTemplateIds: string[] = [],
 ): ManagerListingSubmissionV1 {
   // Deleting an application never changes which stays the property offers ("Stays you offer" owns that). It used
   // to switch short stays off when the last short-term application went, which now would also remove the Short
   // term tab and the Quick add that brings the default back.
   return syncLegacyApplicationFieldsFromTemplates(
-    { ...sub, propertyApplicationTemplatesExplicit: true },
+    {
+      ...sub,
+      propertyApplicationTemplatesExplicit: true,
+      ...(removedTemplateIds.length > 0 ? { removedApplicationTemplateIds: removedTemplateIds } : {}),
+    },
     templates,
   );
 }
@@ -327,4 +332,13 @@ export function propertyAcceptingOnlineApplications(
 ): boolean {
   if (!sub || sub.v !== 1) return true;
   return readPropertyApplicationTemplatesForProspect(sub).length > 0;
+}
+
+/** True when a stored submission still carries the application template: the check behind "Application deleted." */
+export function submissionHasApplicationTemplate(
+  sub: ManagerListingSubmissionV1 | null | undefined,
+  templateId: string,
+): boolean {
+  if (!sub) return false;
+  return readPropertyApplicationTemplates(sub).some((row) => row.id === templateId);
 }

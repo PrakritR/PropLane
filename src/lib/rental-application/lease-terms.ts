@@ -309,6 +309,23 @@ export function applicationRentalTypeFor(rentalType?: string | null): "standard"
   return rentalType === "short_term" || rentalType === "airbnb" ? "short_term" : "standard";
 }
 
+/**
+ * True when an application is for a short stay: the Short-Term Stay or Airbnb lease type, or a rental type of
+ * short_term / airbnb. The ONE test for "short stays never fall back to the account application fee"
+ * (`effectiveApplicationFeeCents`) -- the charge path and the fee display both read it.
+ */
+export function isShortStayApplication(input: {
+  leaseTerm?: string | null;
+  rentalType?: string | null;
+}): boolean {
+  const term = String(input.leaseTerm ?? "").trim();
+  return (
+    term === SHORT_TERM_LEASE_TERM ||
+    term === AIRBNB_LEASE_TERM ||
+    applicationRentalTypeFor(input.rentalType) === "short_term"
+  );
+}
+
 /** Order lease terms into `LEASE_TERM_DISPLAY_ORDER`; unknown values sort last, stably. */
 export function sortLeaseTermsCanonical(terms: string[]): string[] {
   const rank = (t: string): number => {

@@ -94,6 +94,8 @@ filter legitimately offers all four `LEASE_TYPES` and is the one file that test 
   `defaultFor` stay it no longer covers rather than leaving a default on a stay the application is not for.
 - Coverage: `tests/unit/lease-types-four.test.ts`.
 
+Invariant: the long-term lease's `applicationLeaseTerms` (`longTermApplicationLeaseTerms`) exclude both Short-Term Stay and Airbnb, so a long-term lease reads just "Long-term"; the sync rewrites stored terms on load, so existing houses self-heal.
+
 ## Resident lease visibility and signing (Sep 2026 hotfix)
 
 Four invariants, closed together because a resident could not sign any lease

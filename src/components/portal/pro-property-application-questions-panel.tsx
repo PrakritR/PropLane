@@ -1,6 +1,7 @@
 "use client";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { CalendarDays, ClipboardList, CreditCard, FileUp, Moon, Star } from "lucide-react";
+import { CalendarDays, ClipboardList, CreditCard, FileUp, Moon, Star, Ticket } from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -59,7 +60,7 @@ import {
 import { leasingPlusMenuEntries, type LeasingPlusMenuEntry } from "@/lib/leasing-plus-menu";
 import { FormPromoCodesDialog } from "@/components/portal/form-promo-codes";
 import { missingApplicationDefaults, submissionWithApplicationDefault } from "@/lib/leasing-quick-add";
-import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
+import { normalizePropertyApplicationTemplateLabel, submissionHasApplicationTemplate } from "@/lib/property-application-template-sync";
 import { createPropertyApplicationTemplate } from "@/lib/property-application-templates";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 
@@ -285,7 +286,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
     [bulkPropertyIds, managerUserId, saveTarget, showToast],
   );
 
-  const persistRemoval = async (nextTemplates: PropertyApplicationTemplate[]) => {
+  const persistRemoval = async (nextTemplates: PropertyApplicationTemplate[], removedIds: string[]) => {
     if (!managerUserId) return false;
 
     if (bulkPropertyIds.length > 0) {
@@ -303,7 +304,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
         const persisted = await persistManagerListingSubmissionOnServer(
           hit.saveTarget,
           managerUserId,
-          submissionAfterRemovingApplicationTemplate(base, nextTemplates),
+          submissionAfterRemovingApplicationTemplate(base, nextTemplates, removedIds),
         );
         if (persisted) saved += 1;
         else failed += 1;
@@ -318,6 +319,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
       submissionAfterRemovingApplicationTemplate(
         sub.propertyApplicationTemplatesExplicit ? sub : syncedSub,
         nextTemplates,
+        removedIds,
       ),
     );
   };
@@ -475,8 +477,17 @@ export function ManagerPropertyApplicationQuestionsPanel({
 
   const handleDeleteTemplate = async (templateId: string) => {
     const next = removePropertyApplicationTemplate(templates, templateId);
-    const persisted = await persistRemoval(next);
+    const persisted = await persistRemoval(next, [templateId]);
     if (!persisted) {
+      showToast("Could not delete application.");
+      return;
+    }
+    // The server decides what survives a save: read back what it stored before saying it is gone.
+    const checkIds = bulkPropertyIds.length > 0 ? bulkPropertyIds : saveTarget ? [saveTarget.saveId] : [];
+    const stillThere = checkIds.some((propertyId) =>
+      submissionHasApplicationTemplate(resolveManagerListingSubmissionForPropertyId(managerUserId, propertyId)?.sub, templateId),
+    );
+    if (stillThere) {
       showToast("Could not delete application.");
       return;
     }
@@ -578,6 +589,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
             syncedSub,
             applicationTermsFor(template.id),
             formSetup.loaded ? formSetup.applicationSettings.applicationFeeCents : null,
+            template,
           );
           const rowLabel = normalizePropertyApplicationTemplateLabel(template.label);
           const openPreview = () => setPreviewTemplateId(template.id);
@@ -731,7 +743,17 @@ export function ManagerPropertyApplicationQuestionsPanel({
         placeholder: "Search applications",
         dataAttr: "property-application-search",
       }}
-      filter={formFilterSheet}
+      filter={
+        <>
+          {formFilterSheet}
+          <PortalIconAction
+            icon={Ticket}
+            label="Promo codes"
+            onClick={() => setPromoOpen(true)}
+            data-attr="property-application-promo-codes"
+          />
+        </>
+      }
       onAdd={openAdd}
       addMenu={addMenu}
       addLabel="Add application"

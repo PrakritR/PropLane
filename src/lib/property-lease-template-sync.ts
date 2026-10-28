@@ -73,7 +73,7 @@ function nowIso(): string {
 function longTermApplicationLeaseTerms(
   sub: Pick<ManagerListingSubmissionV1, "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed">,
 ): string[] {
-  const allowed = resolveAllowedLeaseTerms(sub).filter((t) => t !== SHORT_TERM_LEASE_TERM);
+  const allowed = resolveAllowedLeaseTerms(sub).filter((t) => t !== SHORT_TERM_LEASE_TERM && t !== AIRBNB_LEASE_TERM);
   return allowed.length > 0 ? allowed : ["12-Month"];
 }
 

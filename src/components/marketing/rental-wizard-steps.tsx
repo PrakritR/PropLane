@@ -2173,7 +2173,7 @@ function RentalWizardSectionBody(p: WizardStepsProps & { section: number }) {
                 k="Application fee"
                 v={
                   <>
-                    <span>{applicationFeeChargeLabel(applicationFeeGate)}</span>
+                    <span>{form.applicationFeeWaived ? "Waived" : applicationFeeChargeLabel(applicationFeeGate)}</span>
                     {applicationFeeReviewNote(applicationFeeGate, Boolean(form.applicationFeeWaived)) ? (
                       <span className="mt-0.5 block text-xs text-muted">
                         {applicationFeeReviewNote(applicationFeeGate, Boolean(form.applicationFeeWaived))}

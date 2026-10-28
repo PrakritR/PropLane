@@ -16,7 +16,7 @@ import {
  * before the map existed charges exactly what it did.
  *
  * Precedence: the lease type's own entry → the legacy short-term fee (stays
- * only) → the one amount. A retired fixed length (3/6/9/12-Month) is Long-term.
+ * only, and a stay stops there: it never reads the one amount) → the one amount (long-term). A retired fixed length (3/6/9/12-Month) is Long-term.
  */
 
 /** The key a stored lease term is priced under. */
@@ -43,8 +43,8 @@ export function listingApplicationFeeRaw(
     if (own !== "") return own;
   }
   if (rentalType === "short_term" || isStayTerm(key)) {
-    const st = String(listing.shortTermApplicationFee ?? "").trim();
-    if (st !== "") return st;
+    // A stay never inherits the house's general application fee: only a fee set for the stay applies.
+    return String(listing.shortTermApplicationFee ?? "").trim();
   }
   return String(listing.applicationFee ?? "").trim();
 }

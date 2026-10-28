@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import { normalizeManagerSkuTier } from "@/lib/manager-access";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import {
+  chargeableApplicationFeeCents,
   effectiveApplicationFeeCents,
   loadManagerApplicationSettings,
 } from "@/lib/manager-application-settings";
@@ -21,6 +22,7 @@ import {
 } from "@/lib/payment-policy";
 import { applicationFeeLeaseTypeKey } from "@/lib/listing-application-fee";
 import { resolveApplicationFeeBasis } from "@/lib/application-fee-by-room";
+import { isShortStayApplication } from "@/lib/rental-application/lease-terms";
 import { listingApplicationFeeChannels } from "@/lib/rental-application/application-fee-channel";
 import {
   APPLICATION_FEE_CHECKOUT_PURPOSE,
@@ -64,13 +66,6 @@ function listingFromPropertyData(propertyData: unknown): ManagerListingSubmissio
   if (!submission || typeof submission !== "object") return null;
   if ((submission as { v?: unknown }).v !== 1) return null;
   return normalizeManagerListingSubmissionV1(submission as ManagerListingSubmissionV1);
-}
-
-function clampAmountCents(n: number): number {
-  if (!Number.isFinite(n)) return 0;
-  const x = Math.round(n);
-  if (x < 100 || x > 100_000) return 0;
-  return x;
 }
 
 export { listingApplicationFeeRaw } from "@/lib/listing-application-fee";
@@ -277,12 +272,15 @@ export async function resolveApplicationFeeProperty(
         : basis.listingCents !== null
           ? "listing"
           : "account";
-  const applicationFeeCents = clampAmountCents(
+  const applicationFeeCents = chargeableApplicationFeeCents(
     effectiveApplicationFeeCents({
       managerFeeCents: managerSettings.applicationFeeCents,
       roomTermFeeCents: basis.roomTermCents,
       templateFeeCentsOverride: templateCents,
       listingFeeCents: basis.listingCents,
+      shortStay:
+        offeredRentalType(listing, input.rentalType) === "short_term" ||
+        isShortStayApplication({ leaseTerm: feeLeaseTerm }),
     }),
   );
   if (applicationFeeCents <= 0 && !opts?.allowZeroFee) {

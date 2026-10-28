@@ -122,10 +122,10 @@ describe("resolveApplicationFeeBasis - the room's fee for the lease type", () =>
     expect(resolveApplicationFeeBasis(sub, { roomChoice1: choice("r2"), leaseTerm: "Long-term" }).roomTermCents).toBe(7500);
   });
 
-  it("a stay reads the short-term fee, and follows the shared one when it has none of its own", () => {
+  it("a stay reads the short-term fee, and never follows the shared one when it has none of its own", () => {
     const st = { leaseTerm: SHORT_TERM_LEASE_TERM, rentalType: "short_term" as const };
     expect(resolveApplicationFeeBasis(sub, { roomChoice1: choice("r1"), ...st }).roomTermCents).toBe(1500);
-    expect(resolveApplicationFeeBasis(sub, { roomChoice1: choice("r2"), ...st }).roomTermCents).toBe(7500);
+    expect(resolveApplicationFeeBasis(sub, { roomChoice1: choice("r2"), ...st }).roomTermCents).toBeNull();
   });
 
   it("a typed 0 is a real answer (free), distinct from nothing set", () => {

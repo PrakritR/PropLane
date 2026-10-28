@@ -119,7 +119,7 @@ import {
 import { applicationConfigForApplicant } from "@/lib/rental-application/application-template-config";
 import { applicationPinForStayTerm } from "@/lib/property-form-stay-type-routing";
 import { applicationPinForLinkedForm } from "@/lib/send-forms";
-import { APPLY_FORM_PARAM } from "@/lib/rental-application/apply-from-listing";
+import { APPLY_FORM_PARAM, APPLY_WAIVER_CODE_PARAM } from "@/lib/rental-application/apply-from-listing";
 import { digitsOnly, maskSsnInput } from "@/lib/rental-application/masks";
 import { countValidationErrors, validateRentalWizardStep } from "@/lib/rental-application/validate";
 import {
@@ -446,6 +446,9 @@ function RentalApplicationWizardInner({
   const groupOnlyInvite = !searchParams.get("propertyId")?.trim() && Boolean(parseGroupLeaderAppIdParam(searchParams.get(GROUP_LEADER_APP_ID_PARAM)));
   // "Send application" can name the form the resident gets; that pick outranks the lease type's form.
   const linkedFormIdRef = useRef(searchParams.get(APPLY_FORM_PARAM)?.trim() || "");
+  // A waiver code minted by "Waive application fee" on send. Frozen at mount: the URL is rewritten as steps change.
+  const linkedWaiverCodeRef = useRef(searchParams.get(APPLY_WAIVER_CODE_PARAM)?.trim() || "");
+  const linkedWaiverAttemptedRef = useRef(false);
   const feeCheckoutReturn = searchParams.get("fee_checkout");
   // A Stripe reload has identity only. Keep all draft writes paused until the
   // server confirms promotion; failures retain these params for a safe retry.
@@ -2002,6 +2005,20 @@ function RentalApplicationWizardInner({
       setWaiverCodeBusy(false);
     }
   }, [ensureApplicationId, form, maxStepReached, showToast, step]);
+
+  // Prefill the waiver field from the link and redeem it through the same route a typed code uses, once
+  // the email and property are known. A used or invalid code leaves the normal fee and the existing error.
+  useEffect(() => {
+    const linked = linkedWaiverCodeRef.current;
+    if (!linked || linkedWaiverAttemptedRef.current || form.applicationFeeWaived) return;
+    if (form.applicationFeeWaiverCode !== linked) {
+      setForm((f) => (f.applicationFeeWaiverCode ? f : { ...f, applicationFeeWaiverCode: linked }));
+      return;
+    }
+    if (!form.propertyId.trim() || !form.email.trim().includes("@") || waiverCodeBusy) return;
+    linkedWaiverAttemptedRef.current = true;
+    void handleApplyWaiverCode();
+  }, [form.applicationFeeWaived, form.applicationFeeWaiverCode, form.propertyId, form.email, waiverCodeBusy, handleApplyWaiverCode]);
 
   const finalizeApplicationSubmit = useCallback(
     async (

@@ -95,15 +95,15 @@ describe("application fee charged = the quote's application fee for that stay ty
     }
   });
 
-  it("falls back to the listing-level fee, then the account default, when no stay-type fee applies", async () => {
+  it("has NO fee (never the house/listing fee or the account default) when no stay-type fee applies", async () => {
     const stay = { leaseTerm: SHORT_TERM_LEASE_TERM, rentalType: "short_term" as const };
-    // Two rooms and none chosen: nothing stay-type specific applies; the listing-level fee does (the quote shows it too).
-    expect(await charged(submission(true, true), stay)).toBe(3500);
-    expect(await charged(submission(false), { roomChoice1: "room-1", ...stay })).toBe(3500);
+    // Two rooms and none chosen: nothing stay-type specific applies, and the listing-level (house) fee never carries into a stay.
+    expect(await charged(submission(true, true), stay)).toBe(0);
+    expect(await charged(submission(false), { roomChoice1: "room-1", ...stay })).toBe(0);
     expect(await charged(submission(), { roomChoice1: "no-such-room", ...stay, })).toBe(1500); // one-room listing: its only room
-    expect(await charged(submission(true, true), { roomChoice1: "no-such-room", ...stay })).toBe(3500);
-    // No listing-level fee either: the account's Application system fee.
-    expect(await charged(submission(false, true, ""), stay)).toBe(5000);
+    expect(await charged(submission(true, true), { roomChoice1: "no-such-room", ...stay })).toBe(0);
+    // No listing-level fee either: a short stay is free. The account's Application system fee never applies to it.
+    expect(await charged(submission(false, true, ""), stay)).toBe(0);
     // A one-room listing needs no room choice: its only room's stay fee applies.
     expect(await charged(submission(), stay)).toBe(1500);
   });

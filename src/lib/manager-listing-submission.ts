@@ -1304,6 +1304,11 @@ export type ManagerListingSubmissionV1 = {
    * auto-seeded defaults are not re-created after deletion (including an empty list).
    */
   propertyApplicationTemplatesExplicit?: boolean;
+  /**
+   * One-shot instruction on a save: application template ids the manager deleted. The server drops exactly these
+   * (otherwise it preserves published/imported forms) and never stores the list.
+   */
+  removedApplicationTemplateIds?: string[];
   /** Move-in form definitions per property (same owner and save path as `propertyApplicationTemplates`). Absent = the five OFF starters. */
   moveInFormTemplates?: MoveInFormTemplate[];
   /** Move-in tab settings (reminders, submit notice). Absent = the defaults. */

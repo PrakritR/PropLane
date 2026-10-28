@@ -54,6 +54,7 @@ export function FormPromoCodesDialog({
       <WaiveCodesSettingsSection
         propertyOptions={id ? [{ id, label: propertyLabel?.trim() || "This property" }] : []}
         defaultAppliesTo={kind}
+        defaultPropertyIds={id ? [id] : undefined}
         show={kind}
       />
     </PortalDialog>
