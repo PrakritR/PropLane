@@ -63,7 +63,12 @@ export function singleEmailAddress(value: string | null | undefined): string | n
     candidate = text.slice(open + 1, -1).trim();
   }
   candidate = candidate.toLowerCase();
-  return /^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/.test(candidate) ? candidate : null;
+  // Linear by construction: the classes exclude `@`, so the one split point is fixed, and the domain's
+  // "a dot with a character either side" rule is a scan. A second dot-separated class matching `.` itself
+  // backtracks quadratically on a long failing run of `!.` (CodeQL: polynomial regular expression).
+  if (!/^[^\s@<>,;]+@[^\s@<>,;]+$/.test(candidate)) return null;
+  const domain = candidate.slice(candidate.indexOf("@") + 1);
+  return domain.slice(1, -1).includes(".") ? candidate : null;
 }
 
 /** A relay/reply address is trusted only on the site's OWN domains: a guest-message mail cannot point replies elsewhere. */
