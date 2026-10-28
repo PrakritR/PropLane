@@ -43,6 +43,11 @@ The auth screens (`AuthSplitShell`) use the same font and tokens, with a full-bl
   `GET /api/listing-geocode?propertyId=` for the second half of a cold load): a street hit counts only inside
   the listing's own ZIP, the fallback is that ZIP's centroid, and a listing with no ZIP draws the neutral
   fallback centre — never a city centre, and never the free-text `/api/geocode` match.
+- **A room's availability is computed from live occupancy, never read from the saved string** (plan
+  `channels-sync-1027`). The catalog (`getPublicListings`) carries the label `applyLiveRoomAvailability` wrote, so a
+  leased room never says "Available now". A room freeing within 60 days reads "Available <date>"; a room leased
+  longer reads "Leased until <date>" on its listing page and is left off the browse card; one closed with no end is
+  "Not available". Full rules and guards: [`bookings.md`](bookings.md) § Channels: true availability.
 - Room type on browse derives from `listingSubmission.listingPlaceCategoryId`; an option shows only when some
   loaded listing has it.
 

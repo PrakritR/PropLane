@@ -55,6 +55,8 @@ export async function notifyManagerFromAgent(
     notify?: { push: boolean; sms: boolean };
     /** Stable identity for retryable notices. Makes inbox + SMS retries idempotent. */
     idempotencyKey?: string;
+    /** A booking notice's roll key (`bookingNoticeRollKey`): stamped on the message so one reservation's notices group together. */
+    rollKey?: string | null;
     /** PII-minimized copy for push/SMS lock screens. Inbox keeps the full text. */
     externalText?: string;
     /** When set, the notice lands in that house's workspace assistant chat. */
@@ -180,7 +182,8 @@ export async function notifyManagerFromAgent(
         messages: [
           ...priorMessages,
           { id: messageId, from: "PropLane Assistant", body: args.text, at: nowIso, outbound: false,
-            ...(args.threadType ? { noticeType: args.threadType } : {}) },
+            ...(args.threadType ? { noticeType: args.threadType } : {}),
+            ...(args.rollKey?.trim() ? { rollKey: args.rollKey.trim() } : {}) },
         ],
       };
 

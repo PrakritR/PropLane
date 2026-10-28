@@ -11,6 +11,9 @@ import {
 import { importedRangesForFeed, type FeedConnection, type FeedPlacement } from "@/lib/channel-calendar/export-feed";
 import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
 import { stampExportFetch } from "@/lib/channel-calendar/export-fetch-stamp";
+import { cachedFeedRead } from "@/lib/channel-calendar/export-feed-reads.server";
+import { approvedRowBlocksRoom, blockEchoesToDestination, listingRentedWhole } from "@/lib/channel-calendar/export-occupancy";
+import type { ChannelCalendarProvider } from "@/lib/channel-calendar/types";
 import { generateIcsCalendar } from "@/lib/ical/generate";
 import { exportBlockedRanges } from "@/lib/occupancy/snapshot";
 import { loadOccupancyAuthors, occupancyAuthorTrusted } from "@/lib/occupancy/row-authorship.server";
@@ -22,6 +25,9 @@ function day(raw: unknown): string | null {
   const value = String(raw ?? "").trim();
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
+
+/** The columns a feed reads off a house's connections: never the import url or the released-identity history. */
+const FEED_SIBLING_COLUMNS = "id, room_id, provider, imported_ranges, export_token";
 
 const APPROVED_ROW_SELECT =
   "id,manager_user_id,assigned_property_id,property_id,choice:row_data->>assignedRoomChoice,preferred:row_data->application->>roomChoice1,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manually_added:row_data->>manuallyAdded,bucket:row_data->>bucket,ical_connection:row_data->>icalConnectionId";
@@ -123,14 +129,17 @@ async function occupancyRangesForRoom(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   propertyId: string,
   roomId: string,
+  /** The channel this feed is pasted into; its own stays are not sent back to it. `null` = every channel. */
+  destination: ChannelCalendarProvider | null,
+  /** The listing is rented as one unit, so an approved resident with no room choice still holds every room. */
+  rentedWhole: boolean,
 ): Promise<{ leases: { start: string; end: string }[]; holds: { start: string; end: string }[]; importPlacements: FeedPlacement[] }> {
-  const data = await readApprovedRowsForProperty(db, propertyId);
+  const data = await cachedFeedRead("approved", propertyId, () => readApprovedRowsForProperty(db, propertyId));
   // A row counts for this house only when its author is the owner or a teammate linked to it: the
   // read is by property, so an approved row any other manager wrote naming this house is not its occupancy.
   const authors = await loadOccupancyAuthors(db, [propertyId]);
   const leases: { start: string; end: string }[] = [];
   const holds: { start: string; end: string }[] = [];
-  const roomToken = `::${roomId}`;
   const importPlacements: FeedPlacement[] = [];
   for (const row of data ?? []) {
     if (row.ical_connection) {
@@ -142,8 +151,9 @@ async function occupancyRangesForRoom(
     }
     const property = String(row.assigned_property_id || row.property_id || "").trim();
     if (property !== propertyId && !String(row.choice || row.preferred || "").startsWith(`${propertyId}::`)) continue;
-    const choice = String(row.choice || row.preferred || "");
-    if (choice && !choice.endsWith(roomToken) && choice !== roomId) continue;
+    // An approved application that names no room holds no room of a house let by the room (the old test let an empty
+    // choice through and closed EVERY room until the manager picked one); in a house rented whole it holds them all.
+    if (!approvedRowBlocksRoom({ choice: row.choice, preferred: row.preferred, propertyId, roomId, rentedWhole })) continue;
     const start = day(row.manual_start) || day(row.lease_start);
     if (!start) continue;
     const end = day(row.manual_end) || day(row.lease_end) || start;
@@ -172,6 +182,8 @@ async function occupancyRangesForRoom(
     const row = block.row_data as Record<string, unknown> | null;
     if (!row || row.bookingStatus === "cancelled") continue;
     if (row.roomId && row.roomId !== roomId) continue;
+    // A stay this channel brought in is already on the channel: sending it back would re-block the dates for good.
+    if (blockEchoesToDestination(row, destination)) continue;
     const start = day(row.checkIn);
     const checkout = day(row.checkOut);
     if (!start || !checkout || checkout <= start) continue;
@@ -180,11 +192,29 @@ async function occupancyRangesForRoom(
   return { leases, holds, importPlacements };
 }
 
+/** Prefix that tells an export failure apart from an import failure in the connection's single `last_error`. */
+const EXPORT_FEED_ERROR_PREFIX = "Export feed failed";
+
+function isExportFeedError(lastError: unknown): boolean {
+  return typeof lastError === "string" && lastError.startsWith(EXPORT_FEED_ERROR_PREFIX);
+}
+
+/** Best-effort: stamps (or clears, with `null`) the export failure on the connection; never throws past the response. */
+async function recordExportFeedError(db: ReturnType<typeof createSupabaseServiceRoleClient>, connectionId: string, error: unknown): Promise<void> {
+  try {
+    const message = error === null ? null : `${EXPORT_FEED_ERROR_PREFIX}: ${error instanceof Error ? error.message : "unknown error"}`.slice(0, 300);
+    await db.from("external_calendar_connections").update({ last_error: message }).eq("id", connectionId);
+  } catch {
+    /* the response is the outcome; this note is a courtesy */
+  }
+}
+
 /** Public iCal export for Airbnb "Import calendar" — token is the only auth. */
 export async function GET(
   req: Request,
   context: { params: Promise<{ token: string }> },
 ) {
+  let failing: { id: string } | null = null;
   try {
     const { token: rawToken } = await context.params;
     const exportToken = decodeURIComponent(rawToken).replace(/\.ics$/i, "").trim();
@@ -198,34 +228,36 @@ export async function GET(
       return new NextResponse("Not found", { status: 404 });
     }
 
+    failing = { id: connection.id };
     // "Airbnb checked PropLane": best-effort and throttled, never part of the feed's outcome.
     await stampExportFetch(db, connection, req.headers.get("user-agent"));
 
     const record = await loadPropertyRecord(db, connection.property_id);
     const submission = listingSubmissionFromProperty(record?.property ?? null);
     const typedBlocks = roomUnavailableRangesForExport(submission, connection.room_id);
-    const occupancy = await occupancyRangesForRoom(
-      db,
-      connection.property_id,
-      connection.room_id,
-    );
     // The token's connection names the channel this link is pasted into; its own bookings are
     // left out so they do not echo back. A token shared by several connections (older links) or
     // a `?channels=all` link (any other site) carries every channel's bookings instead.
-    const { data: siblingRows } = await db
-      .from("external_calendar_connections")
-      .select("*")
-      .eq("property_id", connection.property_id);
-    const siblings: FeedConnection[] = (siblingRows ?? []).map((row) => {
-      const parsed = parseConnectionRow(row as Record<string, unknown>);
-      return { id: parsed.id, roomId: parsed.room_id, provider: parsed.provider, importedRanges: parsed.imported_ranges ?? [], exportToken: parsed.export_token };
+    // A failed read throws: a silent empty list would publish imported nights as free.
+    const siblings = await cachedFeedRead("siblings", connection.property_id, async (): Promise<FeedConnection[]> => {
+      const { data: siblingRows, error: siblingError } = await db
+        .from("external_calendar_connections")
+        .select(FEED_SIBLING_COLUMNS)
+        .eq("property_id", connection.property_id);
+      if (siblingError) throw new Error(siblingError.message);
+      return (siblingRows ?? []).map((row) => {
+        const parsed = parseConnectionRow(row as unknown as Record<string, unknown>);
+        return { id: parsed.id, roomId: parsed.room_id, provider: parsed.provider, importedRanges: parsed.imported_ranges ?? [], exportToken: parsed.export_token };
+      });
     });
     const sharesToken = siblings.filter((c) => c.exportToken === exportToken).length > 1;
     const allChannels = sharesToken || new URL(req.url).searchParams.get("channels") === "all";
+    const destination = allChannels ? null : connection.provider;
+    const occupancy = await occupancyRangesForRoom(db, connection.property_id, connection.room_id, destination, listingRentedWhole(submission));
     const imported = importedRangesForFeed({
       propertyId: connection.property_id,
       roomId: connection.room_id,
-      destination: allChannels ? null : connection.provider,
+      destination,
       ownConnectionId: connection.id,
       connections: siblings,
       placements: occupancy.importPlacements,
@@ -238,6 +270,8 @@ export async function GET(
     const room = submission?.rooms.find((r) => r.id === connection.room_id);
     const calendarName = connection.label?.trim() || room?.name?.trim() || "PropLane calendar";
     const body = generateIcsCalendar(ranges, { calendarName, uidPrefix: connection.id });
+    // A feed that built clears an earlier "Export feed failed" note (the import sync clears its own errors itself).
+    if (isExportFeedError(connection.last_error)) await recordExportFeedError(db, connection.id, null);
 
     return new NextResponse(body, {
       status: 200,
@@ -247,7 +281,11 @@ export async function GET(
         "Cache-Control": "no-store",
       },
     });
-  } catch {
+  } catch (error) {
+    // The channel keeps its last good calendar when a fetch fails, so a broken feed is invisible unless it is said
+    // somewhere the manager looks: the connection's error, which Integrations and the Channels card read.
+    console.error("calendar export failed", error instanceof Error ? error.message : error);
+    if (failing) await recordExportFeedError(createSupabaseServiceRoleClient(), failing.id, error);
     return new NextResponse("Failed to build calendar.", { status: 500 });
   }
 }

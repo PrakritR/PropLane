@@ -356,6 +356,8 @@ export async function notifyPropertyScopedManagersFromAgent(
     url?: string;
     category?: ManagerNotificationCategory;
     idempotencyKey?: string;
+    /** A booking notice's roll key, stamped on the owner's message (`bookingNoticeRollKey`). */
+    rollKey?: string | null;
     /** People already served another way (the actor who did the thing). */
     excludeUserIds?: readonly string[];
     /** Important: teammates are told directly too. Emergency priority / URGENT_REMINDER_KINDS only. */
@@ -407,6 +409,7 @@ export async function notifyPropertyScopedManagersFromAgent(
         url: input.url,
         category: input.category,
         idempotencyKey: input.idempotencyKey,
+        rollKey: input.rollKey,
         propertyId: input.propertyId ?? null,
         workspaceId: input.workspaceId ?? null,
         senderOwnerId: ownerId,

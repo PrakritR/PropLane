@@ -1,5 +1,5 @@
 import type { ListingRoomRow } from "@/data/listing-rich-content";
-import { formatRoomAvailability, roomAvailability, type RoomAvailability } from "@/lib/room-availability";
+import { publicStatusFromAvailability, roomAvailability, type RoomAvailability } from "@/lib/room-availability";
 import { roomAvailabilityTone, type RoomAvailabilityTone } from "@/lib/room-availability-style";
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/room-choice-value";
 import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
@@ -72,9 +72,10 @@ export function roomAvailabilityDisplay(
 ): { text: string; tone: RoomAvailabilityTone } | null {
   if (occupancy.loading) return null;
   if (occupancy.failed) return { text: room.availability, tone: roomAvailabilityTone(room.availability) };
-  const result = resolveRoomAvailability(room, occupancy.rows, today, propertyId);
+  const spans = findPublicRoomOccupancy(occupancy.rows, propertyId, room.id)?.spans ?? [];
+  const status = publicStatusFromAvailability(roomAvailability(room, spans, today), spans, room.occupancyCapacity, today);
   return {
-    text: formatRoomAvailability(result, today),
-    tone: result.kind === "now" ? "available" : result.kind === "from" ? "future" : "unavailable",
+    text: status.text,
+    tone: status.kind === "now" ? "available" : status.kind === "soon" ? "future" : "unavailable",
   };
 }

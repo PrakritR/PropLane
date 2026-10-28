@@ -8,7 +8,7 @@ type StoredRecord = {
   row_data: Record<string, unknown>;
 };
 
-const state = vi.hoisted(() => ({ records: [] as unknown[], blocks: [] as unknown[] }));
+const state = vi.hoisted(() => ({ records: [] as unknown[], blocks: [] as unknown[], siblingError: false, connectionUpdates: [] as unknown[], submission: null as unknown }));
 
 function pathValue(record: Record<string, unknown>, column: string): unknown {
   if (!column.startsWith("row_data")) return record[column];
@@ -26,6 +26,7 @@ vi.mock("@/lib/supabase/service", () => ({
       const filters: Array<(row: Record<string, unknown>) => boolean> = [];
       const chain = {
         select: () => chain,
+        update: (payload: unknown) => (state.connectionUpdates.push({ table, payload }), chain),
         in: () => chain,
         eq: (column: string, value: unknown) => (filters.push((row) => pathValue(row, column) === value), chain),
         like: (column: string, pattern: string) => {
@@ -56,6 +57,8 @@ vi.mock("@/lib/supabase/service", () => ({
                 ical_connection: pathValue(row, "row_data->>icalConnectionId"),
               })),
             });
+          } else if (table === "external_calendar_connections" && state.siblingError) {
+            resolve({ error: { message: "connection read failed" }, data: null });
           } else if (table === "manager_property_records") {
             resolve({ error: null, data: [{ id: "prop-1", manager_user_id: "owner-user" }] });
           } else if (table === "account_link_invites") {
@@ -82,7 +85,7 @@ vi.mock("@/lib/channel-calendar/sync.server", () => ({
     provider: "airbnb",
     manager_user_id: "owner-user",
   }),
-  loadPropertyRecord: async () => ({ property: null }),
+  loadPropertyRecord: async () => ({ property: state.submission ? { listingSubmission: state.submission } : null }),
 }));
 
 import { GET } from "@/app/api/calendar/export/[token]/route";
@@ -111,9 +114,17 @@ function manualResident(id: string, roomId: string, managerUserId: string | null
   };
 }
 
+/** A listing submission with `count` rooms, rented by the room (`shared_home`) or as one unit (`entire_home`). */
+function submissionWith(category: string, count: number) {
+  return { v: 1, listingPlaceCategoryId: category, rooms: Array.from({ length: count }, (_, i) => ({ id: `room-${i + 1}`, name: `Room ${i + 1}` })) };
+}
+
 beforeEach(() => {
   state.records = [];
   state.blocks = [];
+  state.siblingError = false;
+  state.connectionUpdates = [];
+  state.submission = submissionWith("shared_home", 3);
 });
 
 describe("export feed holds for manually added residents", () => {
@@ -160,5 +171,88 @@ describe("export feed holds for manually added residents", () => {
     pending.row_data.bucket = "pending";
     state.records = [otherProperty, pending];
     expect(await (await request()).text()).not.toContain("BEGIN:VEVENT");
+  });
+});
+
+/** A `room_date_block` row as the schedule-records store keeps it. */
+function roomBlock(id: string, roomId: string, checkIn: string, checkOut: string, extra: Record<string, unknown> = {}) {
+  return { id, property_id: "prop-1", record_type: "room_date_block", row_data: { roomId, checkIn, checkOut, bookingStatus: "confirmed", ...extra } };
+}
+
+describe("export feed honesty (plan channels-sync-1027, BUG 2)", () => {
+  /** An approved resident whose application never chose a room. */
+  const noRoomResident = () => {
+    const row = manualResident("app-no-room", "x", "owner-user", "2026-10-09", "2027-10-08");
+    row.row_data.assignedRoomChoice = "";
+    (row.row_data.application as Record<string, unknown>).roomChoice1 = "";
+    return row;
+  };
+
+  it("an approved application that names no room blocks no room of a house let by the room", async () => {
+    state.records = [noRoomResident()];
+    expect(await (await request()).text()).not.toContain("BEGIN:VEVENT");
+  });
+
+  it("the same application blocks every room of an entire-home listing, so a house rented whole is never published free", async () => {
+    state.submission = submissionWith("entire_home", 3);
+    state.records = [noRoomResident()];
+    expect(await (await request()).text()).toContain("DTSTART;VALUE=DATE:20261009");
+  });
+
+  it("and every room of a house with a single room", async () => {
+    state.submission = submissionWith("shared_home", 1);
+    state.records = [noRoomResident()];
+    expect(await (await request()).text()).toContain("DTSTART;VALUE=DATE:20261009");
+  });
+
+  it("and when the listing cannot be read at all (over-blocking never double-books)", async () => {
+    state.submission = null;
+    state.records = [noRoomResident()];
+    expect(await (await request()).text()).toContain("DTSTART;VALUE=DATE:20261009");
+  });
+
+  it("still blocks the room the application names (a room choice with a room is unchanged)", async () => {
+    state.records = [manualResident("app-room", "room-1789775850636-3", "owner-user", "2026-10-09", "2026-10-12")];
+    expect(await (await request()).text()).toContain("DTSTART;VALUE=DATE:20261009");
+  });
+
+  it("does not send a stay Airbnb brought in (the Airbnb import marker) back to Airbnb", async () => {
+    state.blocks = [roomBlock("blk-airbnb", "room-1789775850636-3", "2026-11-01", "2026-11-04", { reason: "Airbnb" })];
+    expect(await (await request()).text()).not.toContain("BEGIN:VEVENT");
+  });
+
+  it("does not echo a PropLane stay linked to its Airbnb reservation either", async () => {
+    state.blocks = [
+      roomBlock("blk-linked", "room-1789775850636-3", "2026-11-01", "2026-11-04", {
+        residentName: "Guest",
+        stayDetails: { channelLink: { provider: "airbnb", reservationCode: "HMABCDEFGH" } },
+      }),
+    ];
+    expect(await (await request()).text()).not.toContain("BEGIN:VEVENT");
+  });
+
+  it("exports a direct stay, and a stay another channel brought in (Booking.com) still closes the room on Airbnb", async () => {
+    state.blocks = [
+      roomBlock("blk-direct", "room-1789775850636-3", "2026-10-27", "2026-10-30", { residentName: "Direct guest", reason: "Direct" }),
+      roomBlock("blk-booking", "room-1789775850636-3", "2026-12-01", "2026-12-03", { reason: "Booking" }),
+    ];
+    const body = await (await request()).text();
+    expect(body).toContain("DTSTART;VALUE=DATE:20261027");
+    expect(body).toContain("DTSTART;VALUE=DATE:20261201");
+  });
+});
+
+describe("a feed that cannot be built says so (plan channels-sync-1027)", () => {
+  it("fails the fetch and stamps the connection instead of publishing imported nights as free", async () => {
+    state.siblingError = true;
+    const res = await request();
+    expect(res.status).toBe(500);
+    const stamped = (state.connectionUpdates as Array<{ table: string; payload: { last_error?: string } }>).find((u) => u.table === "external_calendar_connections");
+    expect(stamped?.payload.last_error).toMatch(/^Export feed failed: connection read failed/);
+  });
+
+  it("a feed that builds writes no error", async () => {
+    expect((await request()).status).toBe(200);
+    expect(state.connectionUpdates).toEqual([]);
   });
 });

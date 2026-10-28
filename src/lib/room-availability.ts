@@ -21,7 +21,7 @@ export type RoomAvailability =
 export type RoomAvailabilityRoom = { availability?: string | null; occupancyCapacity?: unknown };
 
 /** The static label the occupancy fold itself writes ("Unavailable until …", "Unavailable (occupied)"): spans replace it. */
-const OCCUPANCY_DERIVED_LABEL = /^\s*unavailable\s*(?:until\b|\()/i;
+const OCCUPANCY_DERIVED_LABEL = /^\s*(?:unavailable\s*(?:until\b|\()|leased until\b)/i;
 
 function localDayKey(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -153,6 +153,67 @@ export function formatRoomAvailability(availability: RoomAvailability, today: st
   const label = formatOpeningDate(availability.date, today);
   // A month-and-year label ("Sep 2027") reads without "from".
   return /^[A-Za-z]{3,4} \d{4}$/.test(label) ? `Available ${label}` : `Available from ${label}`;
+}
+
+/** A room that frees within this many days is advertised as "Available <date>"; one that frees later reads "Leased until <date>". */
+export const PUBLIC_SOON_WINDOW_DAYS = 60;
+
+export type PublicRoomStatus = {
+  /** `now` vacant, `soon` free on a date inside the window (or a dated opening), `leased` held past the window, `closed` no end date. */
+  kind: "now" | "soon" | "leased" | "closed";
+  /** The public wording. The one string every reader (browse card, listing page, feeds, share card, assistant) prints. */
+  text: string;
+  /** First free day for `soon`; the last held day for `leased`. */
+  date?: string;
+};
+
+function daysBetweenKeys(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
+}
+
+function formatLeasedThrough(day: string): string {
+  return new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+}
+
+/** The wording for a room held today that frees on `freeDay` (D1: Available <date> within 60 days, else Leased until <date>). */
+export function freeingRoomStatus(freeDay: string, today: string): PublicRoomStatus {
+  if (daysBetweenKeys(today, freeDay) <= PUBLIC_SOON_WINDOW_DAYS) {
+    return { kind: "soon", text: `Available ${formatOpeningDate(freeDay, today)}`, date: freeDay };
+  }
+  const lastHeld = previousDayKey(freeDay);
+  return { kind: "leased", text: `Leased until ${formatLeasedThrough(lastHeld)}`, date: lastHeld };
+}
+
+/**
+ * The one public label for a room, computed from live spans and never from the saved `availability` string:
+ * vacant -> "Available now"; a held room freeing inside 60 days -> "Available <date>"; a held room freeing later
+ * -> "Leased until <date>"; a room closed with no end -> "Not available". A vacant room whose own opening date
+ * (`moveInAvailableDate`) is ahead is not leased: it reads "Available <date>" however far out.
+ */
+export function publicRoomStatus(
+  room: { occupancyCapacity?: unknown; moveInAvailableDate?: string | null },
+  spans: PublicRoomOccupancy["spans"],
+  today: string,
+): PublicRoomStatus {
+  const floor = /^\d{4}-\d{2}-\d{2}$/.test(room.moveInAvailableDate ?? "") && (room.moveInAvailableDate as string) > today
+    ? `Available from ${formatLeasedThrough(room.moveInAvailableDate as string)}`
+    : "";
+  const result = roomAvailability({ availability: floor, occupancyCapacity: room.occupancyCapacity }, spans, today);
+  return publicStatusFromAvailability(result, spans, room.occupancyCapacity, today);
+}
+
+/** `roomAvailability`'s answer in public wording (D1). A dated opening on a room nobody holds today is "Available <date>" however far out. */
+export function publicStatusFromAvailability(
+  result: RoomAvailability,
+  spans: PublicRoomOccupancy["spans"],
+  occupancyCapacity: unknown,
+  today: string,
+): PublicRoomStatus {
+  if (result.kind === "now") return { kind: "now", text: "Available now" };
+  if (result.kind === "unavailable") return { kind: "closed", text: "Not available" };
+  const held = occupiedBedsOn(spans, today) >= normalizeRoomOccupancyCapacity(occupancyCapacity);
+  if (!held) return { kind: "soon", text: `Available ${formatOpeningDate(result.date, today)}`, date: result.date };
+  return freeingRoomStatus(result.date, today);
 }
 
 /** The glyph-fact line: "Next opening Oct 15". */

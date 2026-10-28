@@ -184,6 +184,8 @@ export async function emitChannelBookingEvent(
       start: input.range.start,
       end: input.range.end,
       nights: stay.nights,
+      // The reservation's record key: every notice about it (booking, change, check-out) rolls into one group.
+      bookingKey: channelStayBookingKey({ provider: input.provider, propertyId: input.propertyId, roomId: input.roomId, ...input.range }),
       // What the stay is called everywhere else; no contact data is in the feed.
       guestLabel,
     },

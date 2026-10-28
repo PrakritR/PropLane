@@ -177,6 +177,9 @@ function availabilityLabel(room: ListingRoomRow, roomChoiceValue: string): strin
   const a = raw.toLowerCase();
   if (/\bunavailable\b|not available|no longer available/i.test(a)) return raw;
   if (/available\s+after/i.test(raw)) return raw;
+  // A dated opening ("Available Nov 14") and a leased room ("Leased until ...") say their own date; "1 available" would hide it.
+  const opening = classifyRoomOpening(raw);
+  if (opening.kind === "later" || opening.kind === "unavailable") return raw;
   if (/\bwaitlist\b|available soon\b/i.test(a)) return raw;
   if (a.includes("available")) {
     // A single-occupancy room keeps the exact wording it has always had; only a
@@ -205,6 +208,15 @@ export function classifyRoomAvailability(raw: string): RoomAvailabilityKind {
   const { kind } = classifyRoomOpening(raw);
   if (kind === "unknown") return "later";
   return kind;
+}
+
+/**
+ * D1: a card advertises rooms a renter can fill soon. A room leased past the 60-day window ("Leased until <date>"),
+ * closed with no end, or fully booked stays off the browse card (and out of its room count) but keeps its listing
+ * page. A move-in date filter has already judged the room for those dates, so it is never hidden here.
+ */
+export function roomHiddenFromBrowse(availabilityRaw: string): boolean {
+  return classifyRoomOpening(availabilityRaw).kind === "unavailable";
 }
 
 /** The short "Private bath" / "Shared bath" a browse card can carry; empty when the listing does not say. */
@@ -406,7 +418,9 @@ function browseRoomEntries(
           // Shared rooms: same rent per resident — never project unequal slot lines (PLAN-0924-0718).
           occupancyCapacity: normalizeRoomOccupancyCapacity(r.occupancyCapacity),
           shortLeaseNote: roomShortLeaseListingNote(r) ?? undefined,
-          availability: "Available now",
+          // The live label the public catalog carries (`applyLiveRoomAvailability`); a record that never went through
+          // it (a manager's own preview) has no claim to make and reads as open.
+          availability: r.availability?.trim() || "Available now",
           modal: BROWSE_ROOM_MODAL_STUB,
         };
         floor.rooms.push(room);
@@ -810,6 +824,7 @@ export function buildPropertyBrowseCards(
       ? new Set(filters.propertyIds.map((id) => id.trim()).filter(Boolean))
       : null;
   const scopedProperties = idSet ? properties.filter((p) => idSet.has(p.id)) : properties;
+  const hasDateFilter = Boolean(filters.moveIn?.trim() || filters.moveOut?.trim());
   const roomRows = filterRoomListings(scopedProperties, {
     zipRaw: "",
     radiusMiles: 50,
@@ -822,7 +837,7 @@ export function buildPropertyBrowseCards(
     petFriendly: filters.petFriendly,
     neighborhood: filters.neighborhood,
     leaseTypes: filters.leaseTypes,
-  });
+  }).filter((row) => hasDateFilter || !roomHiddenFromBrowse(row.availabilityRaw));
 
   return sortPropertyBrowseCards(aggregateRoomRowsToPropertyCards(roomRows), opts?.sort ?? "price-asc");
 }

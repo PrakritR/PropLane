@@ -487,3 +487,53 @@ PropLane exports its residents, holds and blocks to Airbnb as unavailable, and A
 - A sync never writes over a name a person put on an Airbnb resident. `channel_stay_details.guest_name`
   wins; failing that a stored name the sync did not invent (anything but "Airbnb guest · HM…" or a
   generic feed summary) is kept, so a rename in Residents survives the next sync.
+
+## Channels: true availability, no echo double-bookings, feed health
+
+Plan `channels-sync-1027` (captain, Oct 27). No migration; one production row was removed by hand (a Booking.com connection with no URL).
+
+- **The public label comes from live spans, never from the saved `availability` string.** `getPublicListings` runs
+  `applyLiveRoomAvailability` last (`public-room-live-label.ts`), reading the one cached occupancy snapshot
+  (`loadPublicOccupancySnapshot`, shared with `/api/public/approved-room-occupancy`, which passes
+  `liveAvailability: false` because the labels are derived from it). Every catalog reader therefore starts from the same
+  words: browse card, listing page, share card, the syndication feeds (`available` follows the rooms) and
+  `list_live_listings`. The catalog waits at most 10 seconds (`LIVE_LABEL_BUDGET_MS`) for a cold snapshot, then serves the saved labels once while the read fills the shared snapshot for the next response. The browser's rich listing (`applyApprovedAvailabilityToRichContent`) keeps its own store's label unless the store reads the room open and the public catalog's label says it is not (leased, dated, closed), so the browse card hides leased rooms even when this browser knows no application for them; only a public projection carries that label. A failed occupancy read leaves the saved labels untouched and verified by nobody; a room the
+  snapshot never saw keeps its saved label. `scripts/check-site-availability.mjs` now compares those live labels with the
+  spans and passes. Guard: `tests/unit/public-room-live-label.test.ts`.
+- **D1 wording (`publicRoomStatus`, `room-availability.ts`).** Vacant: "Available now". Held and freeing within 60 days
+  (`PUBLIC_SOON_WINDOW_DAYS`): "Available <date>". Held and freeing later: "Leased until <last held day>" and the room is
+  hidden from the browse card and its room count (`roomHiddenFromBrowse`) but stays on its listing page. Closed with no
+  end: "Not available". A vacant room with its own `moveInAvailableDate` ahead is "Available <date>", never "Leased".
+  A derived label ("Leased until ...") is an occupancy label like "Unavailable until ...": the spans replace it, so the
+  listing page never pins a room on a label it was handed. A move-in date filter has already judged the room for those
+  dates and is never hidden by the label.
+- **The export feed (`/api/calendar/export/[token]`) never closes a room nobody holds.** An approved application with no
+  room choice blocks nothing in a house let by the room, but holds EVERY room of one rented whole (an entire-home listing, a
+  house with one room, or a listing that cannot be read: `listingRentedWhole`, `approvedRowBlocksRoom`), so a house rented whole is
+  never published free; a whole-house choice still holds every room. In a house let by the room that resident becomes a Channels
+  item, "Approved application with no room assigned — <first name>, <house>", until the manager picks the room. A stay a channel
+  brought in is not sent back to THAT channel (`blockEchoesToDestination`: the "Airbnb" / "Booking" import reason, a
+  `channelLink`, or Source Airbnb / Booking.com) but still closes the room on the other channels; a shared or
+  `?channels=all` link carries everything. A failed read throws (sibling connections used to be read with the error
+  dropped), and a failed build stamps `last_error` with "Export feed failed: ..." on the connection (cleared by the next good
+  build). The feed reads named sibling columns only and keeps its sibling and approved-application reads for 60 seconds per
+  house (`export-feed-reads.server.ts`), cleared by every write to a connection's ranges.
+- **Listing writes are compare-and-set.** `updateListingSubmission` (`sync.server.ts`) replaces the blind
+  `persistListingSubmission`: it writes `property_data` only if `occupancy_revision` is still the value it read, bumps
+  it, and re-reads and re-applies on a miss (6 attempts, jittered; `ListingSubmissionConflictError` rather than overwrite).
+  Sync-all runs 4 rooms of one house at once, so the last needs 4 rounds. Coverage:
+  `channel-calendar-listing-write-cas.test.ts`.
+- **Feed health (`channel-health.ts`, D2 = 6 hours).** `feedStateFor`: an Airbnb connection whose export was last fetched
+  more than 6 hours ago is stale, one never fetched on a link synced for longer is "never", a failed export is an error;
+  only Airbnb's crawler is recognised (`isAirbnbFetcher`), so no other channel is ever called stale. A missing echo is a
+  PropLane stay that existed when Airbnb last read the feed, is still ahead, and is not covered by Airbnb's imported ranges
+  after PropLane synced at least 30 minutes later (one poll). A manager closure with no end, or over 60 nights, becomes
+  "Reopen" (`reopenClosureEdit`: ends today, or cancels one that has not started); a channel host block over 60 nights
+  becomes "Open on Airbnb". All of it reaches Integrations › Bookings through `GET /api/portal/channel-calendar/health`
+  (`channel-health.server.ts`, same house authorization as the bookings read). Coverage: `channel-health.test.ts`.
+- **Booking notices roll per booking (D3), within the one Assistant.** The Assistant is one conversation per person per
+  workspace (an `agent_notice_*` row cannot be archived or deleted, and `merge-assistant-team-threads.mjs` folds
+  duplicates), so a thread per booking was NOT built: every booking notice ("New Airbnb booking", "cancelled",
+  "Check-in tomorrow", "Check-out today") carries `rollKey` (`bookingNoticeRollKey` of the booking record key) on its
+  message, and `groupNoticesByBooking` returns one reservation's notices together. Existing messages stay as history.
+

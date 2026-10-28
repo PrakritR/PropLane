@@ -419,6 +419,8 @@ export async function sweepBookingReminders(db: SupabaseClient, now: Date = new 
       propertyLabel: stay.propertyLabel,
       counterpartyName: stay.guestName,
       url,
+      // One reservation's check-in and check-out notices roll together with its booking notice.
+      ...(stay.recordKey ? { bookingKey: stay.recordKey } : {}),
       notificationCategory: "leases" as const,
     };
 

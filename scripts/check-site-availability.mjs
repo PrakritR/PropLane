@@ -6,7 +6,7 @@
  *   node scripts/check-site-availability.mjs https://proplane.ai --json
  *
  * For each live listing from `GET <base>/api/property-records/public` (the catalog the /rent pages render) the script reads
- * the availability each room SHOWS (the room's saved `availability` label, which the page, the feeds and the share cards
+ * the availability each room SHOWS (the catalog's live `availability` label, which the page, the feeds and the share cards
  * start from) and the room's occupancy spans from `GET <base>/api/public/approved-room-occupancy` (the snapshot the listing
  * page itself computes its live label from), works out whether the room is free today (Pacific), and reports every room
  * where the two disagree. It never writes anything: only
@@ -40,9 +40,16 @@ function occupiedOn(spans, capacity, day) {
   return count >= Math.max(1, Number(capacity) || 1);
 }
 
-/** "Unavailable ..." / "Unavailable (occupied)" read as occupied now; "Available ..." and an empty label as free now. */
+/**
+ * The catalog now carries the LIVE label (`applyLiveRoomAvailability`), so this reads the words a renter sees:
+ * "Available now [until ...]" and an empty label are free today; "Available <date>", "Leased until <date>",
+ * "Not available", "Unavailable ..." and "Occupied/Blocked" are not.
+ */
 function shownIsOccupied(label) {
-  return /^\s*unavailable/i.test(label ?? "") || /^\s*(occupied|blocked)/i.test(label ?? "");
+  const text = String(label ?? "").trim();
+  if (!text) return false;
+  if (/^(not available|unavailable|leased|occupied|blocked|fully booked)/i.test(text)) return true;
+  return /^available\s+(?!now\b)\S/i.test(text);
 }
 
 async function main() {

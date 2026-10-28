@@ -13,6 +13,7 @@ import {
   notifyPropertyScopedManagersFromAgent,
   postTeamNoticeLineForEvent,
 } from "@/lib/co-manager-notification-recipients.server";
+import { bookingNoticeRollKey } from "@/lib/booking-notice-roll";
 import { serviceRecordRefForEvent } from "@/lib/service-record-ref";
 import { buildTeamNoticeLine } from "@/lib/team-notice-line";
 import type { RecordRef } from "@/lib/portals/record-kinds";
@@ -404,6 +405,7 @@ async function deliverProjection(
         threadType: "action_event",
         category: managerNotificationCategoryForEvent(input.category),
         idempotencyKey: `action-event:${input.eventKey}:manager`,
+        rollKey: bookingNoticeRollKey(input.payload?.bookingKey),
         urgent: input.urgent,
         teamNotice: teamNoticeFor(input),
       });
