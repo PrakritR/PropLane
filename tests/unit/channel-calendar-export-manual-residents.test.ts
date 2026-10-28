@@ -8,7 +8,7 @@ type StoredRecord = {
   row_data: Record<string, unknown>;
 };
 
-const state = vi.hoisted(() => ({ records: [] as unknown[], blocks: [] as unknown[], siblingError: false, connectionUpdates: [] as unknown[] }));
+const state = vi.hoisted(() => ({ records: [] as unknown[], blocks: [] as unknown[], siblingError: false, connectionUpdates: [] as unknown[], submission: null as unknown }));
 
 function pathValue(record: Record<string, unknown>, column: string): unknown {
   if (!column.startsWith("row_data")) return record[column];
@@ -85,7 +85,7 @@ vi.mock("@/lib/channel-calendar/sync.server", () => ({
     provider: "airbnb",
     manager_user_id: "owner-user",
   }),
-  loadPropertyRecord: async () => ({ property: null }),
+  loadPropertyRecord: async () => ({ property: state.submission ? { listingSubmission: state.submission } : null }),
 }));
 
 import { GET } from "@/app/api/calendar/export/[token]/route";
@@ -114,11 +114,17 @@ function manualResident(id: string, roomId: string, managerUserId: string | null
   };
 }
 
+/** A listing submission with `count` rooms, rented by the room (`shared_home`) or as one unit (`entire_home`). */
+function submissionWith(category: string, count: number) {
+  return { v: 1, listingPlaceCategoryId: category, rooms: Array.from({ length: count }, (_, i) => ({ id: `room-${i + 1}`, name: `Room ${i + 1}` })) };
+}
+
 beforeEach(() => {
   state.records = [];
   state.blocks = [];
   state.siblingError = false;
   state.connectionUpdates = [];
+  state.submission = submissionWith("shared_home", 3);
 });
 
 describe("export feed holds for manually added residents", () => {
@@ -174,12 +180,35 @@ function roomBlock(id: string, roomId: string, checkIn: string, checkOut: string
 }
 
 describe("export feed honesty (plan channels-sync-1027, BUG 2)", () => {
-  it("an approved application that names no room blocks no room, instead of every room of the house", async () => {
-    const noRoom = manualResident("app-no-room", "x", "owner-user", "2026-10-09", "2027-10-08");
-    noRoom.row_data.assignedRoomChoice = "";
-    (noRoom.row_data.application as Record<string, unknown>).roomChoice1 = "";
-    state.records = [noRoom];
+  /** An approved resident whose application never chose a room. */
+  const noRoomResident = () => {
+    const row = manualResident("app-no-room", "x", "owner-user", "2026-10-09", "2027-10-08");
+    row.row_data.assignedRoomChoice = "";
+    (row.row_data.application as Record<string, unknown>).roomChoice1 = "";
+    return row;
+  };
+
+  it("an approved application that names no room blocks no room of a house let by the room", async () => {
+    state.records = [noRoomResident()];
     expect(await (await request()).text()).not.toContain("BEGIN:VEVENT");
+  });
+
+  it("the same application blocks every room of an entire-home listing, so a house rented whole is never published free", async () => {
+    state.submission = submissionWith("entire_home", 3);
+    state.records = [noRoomResident()];
+    expect(await (await request()).text()).toContain("DTSTART;VALUE=DATE:20261009");
+  });
+
+  it("and every room of a house with a single room", async () => {
+    state.submission = submissionWith("shared_home", 1);
+    state.records = [noRoomResident()];
+    expect(await (await request()).text()).toContain("DTSTART;VALUE=DATE:20261009");
+  });
+
+  it("and when the listing cannot be read at all (over-blocking never double-books)", async () => {
+    state.submission = null;
+    state.records = [noRoomResident()];
+    expect(await (await request()).text()).toContain("DTSTART;VALUE=DATE:20261009");
   });
 
   it("still blocks the room the application names (a room choice with a room is unchanged)", async () => {

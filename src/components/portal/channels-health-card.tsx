@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, ExternalLink, House } from "lucide-react";
+import { AlertTriangle, ExternalLink, House } from "lucide-react";
 
 import { IntegrationRow } from "@/components/portal/integration-row";
 import { CopyIconAction, PortalIconAction } from "@/components/portal/portal-icon-action";
@@ -149,7 +149,7 @@ export function ChannelsHealthCard({
             <IntegrationRow
               stackOnPhone
               key={item.id}
-              icon={CheckCircle2}
+              icon={AlertTriangle}
               tone="text-amber-600"
               name={item.text}
               dataAttr={`settings-channels-item-${item.kind}`}

@@ -71,6 +71,7 @@ vi.mock("@/data/mock-properties", () => ({
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
 import {
+  applyApprovedAvailabilityToRichContent,
   effectiveRoomAvailabilityLabel,
   getRoomUnavailabilityWindows,
   isRoomApprovedConflict,
@@ -338,5 +339,24 @@ describe("the rich listing label uses the D1 wording (channels-sync-1027)", () =
     holdingResident("app-1", "2020-01-01", dayKey(200));
     const label = effectiveRoomAvailabilityLabel(ROOM, "Now");
     expect(label).toMatch(/^Leased until [A-Z][a-z]{2} \d{1,2}, \d{4}$/);
+  });
+});
+
+describe("the public catalog's label beats a browser store that knows only approved applications", () => {
+  const richFor = (catalogLabel: string, publicProjection: boolean) =>
+    applyApprovedAvailabilityToRichContent(
+      { id: "prop-1", publicProjection, listingSubmission: { v: 1, rooms: [{ id: "r1", availability: catalogLabel }] } } as never,
+      { floorPlans: [{ rooms: [{ id: "r1", availability: "Available now" }] }] } as never,
+    ).floorPlans[0]!.rooms[0]!.availability;
+
+  it("a room the catalog says is leased is not painted Available now (it leaves the browse card)", () => {
+    expect(richFor("Leased until May 15, 2027", true)).toBe("Leased until May 15, 2027");
+    expect(richFor("Not available", true)).toBe("Not available");
+  });
+
+  it("a dated opening comes through, an open room stays open, and a manager's own copy (no public projection) is never overridden", () => {
+    expect(richFor("Available Nov 7", true)).toBe("Available Nov 7");
+    expect(richFor("Available now", true)).toBe("Available now");
+    expect(richFor("Leased until May 15, 2027", false)).toBe("Available now");
   });
 });

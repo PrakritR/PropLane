@@ -1,6 +1,7 @@
 import { isHostBlockRange } from "@/lib/channel-calendar/host-block";
 import { nextDayKey, occupiedBedSpans, type RoomBedSpan } from "@/lib/room-occupancy-rule";
 import { freeingRoomStatus } from "@/lib/room-availability";
+import { classifyRoomOpening } from "@/lib/room-availability-style";
 import { composePropertyTitle } from "@/lib/property-title";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { readPublicRoomOccupancy } from "@/lib/public-room-occupancy-client";
@@ -969,9 +970,18 @@ export function applyApprovedAvailabilityToRichContent(property: MockProperty, r
       ...floor,
       rooms: floor.rooms.map((room) => {
         const roomChoiceValue = `${property.id}${LISTING_ROOM_CHOICE_SEP}${room.id}`;
+        const local = effectiveRoomAvailabilityLabel(roomChoiceValue, room.availability);
+        // This browser's own store knows approved applications only. The public catalog's label (live occupancy: channel
+        // stays, blocks, closures too, `applyLiveRoomAvailability`) says more, so when the store reads the room open
+        // and the catalog says it is not, the catalog wins. Only a public projection carries that label.
+        const catalog = property.publicProjection
+          ? property.listingSubmission?.rooms?.find((candidate) => candidate.id === room.id)?.availability?.trim() ?? ""
+          : "";
+        const catalogKind = catalog ? classifyRoomOpening(catalog).kind : "now";
+        const useCatalog = classifyRoomOpening(local).kind === "now" && (catalogKind === "later" || catalogKind === "unavailable");
         return {
           ...room,
-          availability: effectiveRoomAvailabilityLabel(roomChoiceValue, room.availability),
+          availability: useCatalog ? catalog : local,
         };
       }),
     })),

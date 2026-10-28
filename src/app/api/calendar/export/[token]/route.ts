@@ -12,7 +12,7 @@ import { importedRangesForFeed, type FeedConnection, type FeedPlacement } from "
 import { parseConnectionRow } from "@/lib/channel-calendar/connections.server";
 import { stampExportFetch } from "@/lib/channel-calendar/export-fetch-stamp";
 import { cachedFeedRead } from "@/lib/channel-calendar/export-feed-reads.server";
-import { approvedRowBlocksRoom, blockEchoesToDestination } from "@/lib/channel-calendar/export-occupancy";
+import { approvedRowBlocksRoom, blockEchoesToDestination, listingRentedWhole } from "@/lib/channel-calendar/export-occupancy";
 import type { ChannelCalendarProvider } from "@/lib/channel-calendar/types";
 import { generateIcsCalendar } from "@/lib/ical/generate";
 import { exportBlockedRanges } from "@/lib/occupancy/snapshot";
@@ -131,6 +131,8 @@ async function occupancyRangesForRoom(
   roomId: string,
   /** The channel this feed is pasted into; its own stays are not sent back to it. `null` = every channel. */
   destination: ChannelCalendarProvider | null,
+  /** The listing is rented as one unit, so an approved resident with no room choice still holds every room. */
+  rentedWhole: boolean,
 ): Promise<{ leases: { start: string; end: string }[]; holds: { start: string; end: string }[]; importPlacements: FeedPlacement[] }> {
   const data = await cachedFeedRead("approved", propertyId, () => readApprovedRowsForProperty(db, propertyId));
   // A row counts for this house only when its author is the owner or a teammate linked to it: the
@@ -149,9 +151,9 @@ async function occupancyRangesForRoom(
     }
     const property = String(row.assigned_property_id || row.property_id || "").trim();
     if (property !== propertyId && !String(row.choice || row.preferred || "").startsWith(`${propertyId}::`)) continue;
-    // An approved application that names no room holds no room: the old test let an empty choice through, so it
-    // closed EVERY room of the house until the manager picked one.
-    if (!approvedRowBlocksRoom({ choice: row.choice, preferred: row.preferred, propertyId, roomId })) continue;
+    // An approved application that names no room holds no room of a house let by the room (the old test let an empty
+    // choice through and closed EVERY room until the manager picked one); in a house rented whole it holds them all.
+    if (!approvedRowBlocksRoom({ choice: row.choice, preferred: row.preferred, propertyId, roomId, rentedWhole })) continue;
     const start = day(row.manual_start) || day(row.lease_start);
     if (!start) continue;
     const end = day(row.manual_end) || day(row.lease_end) || start;
@@ -251,7 +253,7 @@ export async function GET(
     const sharesToken = siblings.filter((c) => c.exportToken === exportToken).length > 1;
     const allChannels = sharesToken || new URL(req.url).searchParams.get("channels") === "all";
     const destination = allChannels ? null : connection.provider;
-    const occupancy = await occupancyRangesForRoom(db, connection.property_id, connection.room_id, destination);
+    const occupancy = await occupancyRangesForRoom(db, connection.property_id, connection.room_id, destination, listingRentedWhole(submission));
     const imported = importedRangesForFeed({
       propertyId: connection.property_id,
       roomId: connection.room_id,

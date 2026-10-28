@@ -8,18 +8,31 @@
  *    already holds it, and re-exporting it turns Airbnb's own reservation into a second "Not available" block that
  *    then outlives the reservation. Other channels still receive it, so a room stays closed everywhere.
  */
+import { isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { channelLinkProviderForSource, normalizeChannelLink } from "@/lib/channel-calendar/channel-link";
 import { isImportedAirbnbBlock, isImportedBookingBlock } from "@/lib/channel-calendar/property-bookings";
 import type { ChannelCalendarProvider } from "@/lib/channel-calendar/types";
 
 /**
+ * A listing rented as ONE unit: an entire-home listing, or a house with one room (or none). An approved resident there
+ * holds the whole house whether or not a room was chosen.
+ */
+export function listingRentedWhole(submission: { listingPlaceCategoryId?: string; rooms?: readonly unknown[] } | null | undefined): boolean {
+  // A listing that cannot be read cannot be shown to be let by the room, and over-blocking never double-books.
+  if (!submission) return true;
+  return isEntireHomeListing({ listingPlaceCategoryId: submission.listingPlaceCategoryId }) || (submission.rooms?.length ?? 0) <= 1;
+}
+
+/**
  * Does an approved application row (found by property) hold `roomId`? `choice` is the assigned room choice, else
  * the first room choice the applicant picked. A whole-house choice (the property id itself) holds every room; a
- * room choice holds that room only (with or without the `propertyId::` prefix); NO choice holds nothing.
+ * room choice holds that room only (with or without the `propertyId::` prefix). NO choice holds every room of a
+ * listing rented whole (`rentedWhole`: failing open there would publish a rented house as free) and nothing
+ * otherwise, where the manager still has to pick the room (the Channels card raises that).
  */
-export function approvedRowBlocksRoom(input: { choice: unknown; preferred: unknown; propertyId: string; roomId: string }): boolean {
+export function approvedRowBlocksRoom(input: { choice: unknown; preferred: unknown; propertyId: string; roomId: string; rentedWhole?: boolean }): boolean {
   const choice = String(input.choice || input.preferred || "").trim();
-  if (!choice) return false;
+  if (!choice) return input.rentedWhole === true;
   if (choice === input.propertyId) return true;
   return choice.endsWith(`::${input.roomId}`) || choice === input.roomId;
 }

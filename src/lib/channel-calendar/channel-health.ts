@@ -45,6 +45,8 @@ export type HealthConnection = {
   propertyId: string;
   roomId: string;
   roomLabel: string;
+  /** The house's name, so two houses that both have a "Room 3" read apart. Optional. */
+  houseLabel?: string;
   provider: ChannelCalendarProvider;
   label: string | null;
   lastSyncedAt: string | null;
@@ -61,6 +63,7 @@ export type HealthStay = {
   /** "" = the whole home. */
   roomId: string;
   roomLabel: string;
+  houseLabel?: string;
   name: string;
   reason: string;
   checkIn: string;
@@ -73,7 +76,7 @@ export type HealthStay = {
 
 export type ChannelAttentionItem = {
   id: string;
-  kind: "stale_feed" | "feed_error" | "missing_echo" | "manager_closure" | "channel_closure";
+  kind: "stale_feed" | "feed_error" | "missing_echo" | "manager_closure" | "channel_closure" | "unassigned_approval";
   propertyId: string;
   roomId: string;
   /** One plain sentence. No subtext. */
@@ -110,6 +113,11 @@ function ms(iso: string | null | undefined): number {
   return Number.isFinite(value) ? value : NaN;
 }
 
+/** "5257 Brooklyn · " when the house is known. */
+function housePrefix(house: string | undefined): string {
+  return house?.trim() ? `${house.trim()} \u00b7 ` : "";
+}
+
 function channelName(provider: ChannelCalendarProvider, label: string | null): string {
   if (provider === "airbnb") return "Airbnb";
   if (provider === "booking_com") return "Booking.com";
@@ -141,7 +149,7 @@ function feedItems(connections: readonly HealthConnection[], now: Date, threshol
   const items: ChannelAttentionItem[] = [];
   for (const connection of connections) {
     const state = feedStateFor(connection, now, thresholdMs);
-    const place = `${channelName(connection.provider, connection.label)} · ${connection.roomLabel}`;
+    const place = `${housePrefix(connection.houseLabel)}${channelName(connection.provider, connection.label)} \u00b7 ${connection.roomLabel}`;
     if (state === "stale") {
       const since = now.getTime() - ms(connection.exportLastFetchedAt);
       items.push({ id: `stale_feed:${connection.id}`, kind: "stale_feed", propertyId: connection.propertyId, roomId: connection.roomId, text: `${place} has not read PropLane's calendar in ${hoursText(since)}` });
@@ -199,7 +207,7 @@ function echoItems(connections: readonly HealthConnection[], stays: readonly Hea
         kind: "missing_echo",
         propertyId: connection.propertyId,
         roomId: connection.roomId,
-        text: `${stay.roomLabel || connection.roomLabel}: ${stay.name.trim() || "A PropLane stay"} (${shortDay(first.start)}${first.end && first.end !== first.start ? ` – ${shortDay(first.end)}` : ""}) is not on ${channelName(connection.provider, connection.label)} yet`,
+        text: `${housePrefix(connection.houseLabel)}${stay.roomLabel || connection.roomLabel}: ${stay.name.trim() || "A PropLane stay"} (${shortDay(first.start)}${first.end && first.end !== first.start ? ` – ${shortDay(first.end)}` : ""}) is not on ${channelName(connection.provider, connection.label)} yet`,
       });
     }
   }
@@ -214,7 +222,7 @@ function managerClosureItems(stays: readonly HealthStay[], today: string): Chann
     const last = lastNightOf(stay);
     if (stay.checkIn > today) continue;
     if (last !== null && (last < today || dayDiff(stay.checkIn, last) + 1 <= LONG_CLOSURE_NIGHTS)) continue;
-    const where = stay.roomLabel || "The whole home";
+    const where = `${housePrefix(stay.houseLabel)}${stay.roomLabel || "The whole home"}`;
     items.push({
       id: `manager_closure:${stay.id}`,
       kind: "manager_closure",
@@ -240,12 +248,32 @@ function channelClosureItems(connections: readonly HealthConnection[], today: st
         kind: "channel_closure",
         propertyId: connection.propertyId,
         roomId: connection.roomId,
-        text: `${connection.roomLabel} is closed on ${channelName(connection.provider, connection.label)} until ${longDay(nextDayKey(end))}`,
+        text: `${housePrefix(connection.houseLabel)}${connection.roomLabel} is closed on ${channelName(connection.provider, connection.label)} until ${longDay(nextDayKey(end))}`,
         action: { kind: "open_on_channel", provider: connection.provider },
       });
     }
   }
   return items;
+}
+
+/** An approved resident whose application never chose a room, in a house let by the room (the manager picks it). */
+export type UnassignedApproval = { id: string; propertyId: string; houseLabel: string; name: string };
+
+/**
+ * The export holds no room for such a resident (it cannot tell which), so the nights stay open on every channel until
+ * the manager assigns one. Said plainly, once per resident.
+ */
+function unassignedApprovalItems(approvals: readonly UnassignedApproval[]): ChannelAttentionItem[] {
+  return approvals.map((approval) => {
+    const first = approval.name.trim().split(/\s+/)[0] || "A resident";
+    return {
+      id: `unassigned_approval:${approval.id}`,
+      kind: "unassigned_approval" as const,
+      propertyId: approval.propertyId,
+      roomId: "",
+      text: `Approved application with no room assigned \u2014 ${first}, ${approval.houseLabel}`,
+    };
+  });
 }
 
 /** Every finding, stalest feed first, then echoes, then closures. */
@@ -256,12 +284,14 @@ export function buildAttentionItems(input: {
   /** Pacific wall day, YYYY-MM-DD. */
   today: string;
   thresholdMs?: number;
+  unassigned?: readonly UnassignedApproval[];
 }): ChannelAttentionItem[] {
   return [
     ...feedItems(input.connections, input.now, input.thresholdMs ?? FEED_STALE_AFTER_MS),
     ...echoItems(input.connections, input.stays, input.today),
     ...managerClosureItems(input.stays, input.today),
     ...channelClosureItems(input.connections, input.today),
+    ...unassignedApprovalItems(input.unassigned ?? []),
   ];
 }
 

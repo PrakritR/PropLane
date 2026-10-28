@@ -778,12 +778,23 @@ async function liveOccupancyRows(
   projected: MockProperty[],
   opts: { testWorkspaceId?: string | null; workspaceIds?: readonly string[] } | undefined,
 ): Promise<PublicRoomOccupancy[] | null> {
+  const load: Promise<PublicRoomOccupancy[] | null> = (
+    opts?.testWorkspaceId
+      ? loadPublicRoomOccupancy(db, projected)
+      : loadPublicOccupancySnapshot(() => (opts?.workspaceIds ? getPublicListings({ liveAvailability: false }) : Promise.resolve(projected)))
+  ).catch(() => null);
+  // A cold snapshot reads every house's placements; the catalog must not wait on that without bound. Past the budget the
+  // saved labels go out for this response, while the read keeps running and fills the shared snapshot for the next one.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const budget = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), LIVE_LABEL_BUDGET_MS);
+  });
   try {
-    if (opts?.testWorkspaceId) return await loadPublicRoomOccupancy(db, projected);
-    return await loadPublicOccupancySnapshot(() =>
-      opts?.workspaceIds ? getPublicListings({ liveAvailability: false }) : Promise.resolve(projected),
-    );
-  } catch {
-    return null;
+    return await Promise.race([load, budget]);
+  } finally {
+    clearTimeout(timer);
   }
 }
+
+/** How long the catalog waits for the occupancy snapshot before serving the saved labels once (see `liveOccupancyRows`). */
+const LIVE_LABEL_BUDGET_MS = 10_000;

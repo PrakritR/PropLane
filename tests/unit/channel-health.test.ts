@@ -51,6 +51,13 @@ describe("feed health (D2: 6 hours)", () => {
   });
 });
 
+describe("two houses with the same room names read apart", () => {
+  it("prefixes the house when it is known", () => {
+    const items = buildAttentionItems({ connections: [airbnb({ houseLabel: "5257 Brooklyn", exportLastFetchedAt: hoursAgo(9) })], stays: [], now: NOW, today: TODAY });
+    expect(items[0]!.text).toBe("5257 Brooklyn \u00b7 Airbnb \u00b7 Room 4 has not read PropLane's calendar in 9 hours");
+  });
+});
+
 describe("missing echo (one poll)", () => {
   const polled = { exportLastFetchedAt: hoursAgo(3), lastSyncedAt: hoursAgo(1) };
 
@@ -109,6 +116,20 @@ describe("long closures (GAP 5)", () => {
   it("Reopen ends a started closure today and cancels one that has not started", () => {
     expect(reopenClosureEdit({ checkIn: "2026-09-30", openEnded: true }, TODAY)).toEqual({ openEnded: false, checkOut: TODAY });
     expect(reopenClosureEdit({ checkIn: "2026-11-02" }, TODAY)).toEqual({ bookingStatus: "cancelled" });
+  });
+});
+
+describe("approved applications with no room (house let by the room)", () => {
+  it("raises one item per resident naming the first name and the house", () => {
+    const items = buildAttentionItems({
+      connections: [], stays: [], now: NOW, today: TODAY,
+      unassigned: [{ id: "app-1", propertyId: "p5257", houseLabel: "5257 Brooklyn", name: "Maya Patel" }, { id: "app-2", propertyId: "p5257", houseLabel: "5257 Brooklyn", name: "" }],
+    });
+    expect(items.map((item) => item.text)).toEqual([
+      "Approved application with no room assigned \u2014 Maya, 5257 Brooklyn",
+      "Approved application with no room assigned \u2014 A resident, 5257 Brooklyn",
+    ]);
+    expect(items.every((item) => item.kind === "unassigned_approval")).toBe(true);
   });
 });
 

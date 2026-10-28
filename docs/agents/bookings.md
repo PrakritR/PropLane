@@ -497,7 +497,7 @@ Plan `channels-sync-1027` (captain, Oct 27). No migration; one production row wa
   (`loadPublicOccupancySnapshot`, shared with `/api/public/approved-room-occupancy`, which passes
   `liveAvailability: false` because the labels are derived from it). Every catalog reader therefore starts from the same
   words: browse card, listing page, share card, the syndication feeds (`available` follows the rooms) and
-  `list_live_listings`. A failed occupancy read leaves the saved labels untouched and verified by nobody; a room the
+  `list_live_listings`. The catalog waits at most 10 seconds (`LIVE_LABEL_BUDGET_MS`) for a cold snapshot, then serves the saved labels once while the read fills the shared snapshot for the next response. The browser's rich listing (`applyApprovedAvailabilityToRichContent`) keeps its own store's label unless the store reads the room open and the public catalog's label says it is not (leased, dated, closed), so the browse card hides leased rooms even when this browser knows no application for them; only a public projection carries that label. A failed occupancy read leaves the saved labels untouched and verified by nobody; a room the
   snapshot never saw keeps its saved label. `scripts/check-site-availability.mjs` now compares those live labels with the
   spans and passes. Guard: `tests/unit/public-room-live-label.test.ts`.
 - **D1 wording (`publicRoomStatus`, `room-availability.ts`).** Vacant: "Available now". Held and freeing within 60 days
@@ -508,7 +508,10 @@ Plan `channels-sync-1027` (captain, Oct 27). No migration; one production row wa
   listing page never pins a room on a label it was handed. A move-in date filter has already judged the room for those
   dates and is never hidden by the label.
 - **The export feed (`/api/calendar/export/[token]`) never closes a room nobody holds.** An approved application with no
-  room choice blocks nothing (`approvedRowBlocksRoom`; a whole-house choice still holds every room). A stay a channel
+  room choice blocks nothing in a house let by the room, but holds EVERY room of one rented whole (an entire-home listing, a
+  house with one room, or a listing that cannot be read: `listingRentedWhole`, `approvedRowBlocksRoom`), so a house rented whole is
+  never published free; a whole-house choice still holds every room. In a house let by the room that resident becomes a Channels
+  item, "Approved application with no room assigned — <first name>, <house>", until the manager picks the room. A stay a channel
   brought in is not sent back to THAT channel (`blockEchoesToDestination`: the "Airbnb" / "Booking" import reason, a
   `channelLink`, or Source Airbnb / Booking.com) but still closes the room on the other channels; a shared or
   `?channels=all` link carries everything. A failed read throws (sibling connections used to be read with the error
