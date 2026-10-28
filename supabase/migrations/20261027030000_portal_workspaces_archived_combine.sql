@@ -27,7 +27,7 @@ as $$
 declare
   v_expected integer;
   v_found integer;
-  v_moved uuid[];
+  v_moved text[];
   v_archived uuid[];
   v_kept uuid[];
 begin
@@ -63,7 +63,7 @@ begin
      where manager_user_id = p_owner and workspace_id = any (p_sources)
     returning id
   )
-  select coalesce(pg_catalog.array_agg(id), '{}'::uuid[]) into v_moved from moved;
+  select coalesce(pg_catalog.array_agg(id), '{}'::text[]) into v_moved from moved;
 
   -- An owner's default workspace is where a house with no workspace lands, so it stays listed (emptied, not archived).
   with archived as (

@@ -327,6 +327,8 @@ export const DELETE_ORDER = [
   "manager_bills",
   "manager_bank_statements",
   "manager_invite_links",
+  // Admin team trail: the grant follows the account it was given to.
+  "admin_team_grants",
   "manager_documents",
   "agent_sessions",
   "action_events",

@@ -45,12 +45,12 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
     }
     return withArchive;
   };
-  const [owned, links] = await Promise.all([
-    ownedWorkspaces(),
-    db.from("account_link_invites")
-      .select("id,inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions,workspace_id,workspace_permissions,team_role,house_scope")
-      .eq("invitee_user_id", userId).eq("status", "accepted"),
-  ]);
+  // The links read is built BEFORE the first promise exists: if `db` cannot answer, the throw is synchronous and
+  // leaves no already-pending `ownedWorkspaces()` rejection behind for nobody to handle.
+  const linksRead = db.from("account_link_invites")
+    .select("id,inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions,workspace_id,workspace_permissions,team_role,house_scope")
+    .eq("invitee_user_id", userId).eq("status", "accepted");
+  const [owned, links] = await Promise.all([ownedWorkspaces(), linksRead]);
   if (owned.error || links.error) throw new Error("Could not load workspace access. Please retry.");
   // The owner of record of a PropLane Service workspace sees all of it, view only: derived from the seat flag and
   // `is_service` at read time (never written into the row), replacing the seat's own owner-keys-only grant.
