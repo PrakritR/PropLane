@@ -410,7 +410,7 @@ Authoritative copy: [`docs/agents/communication-inbox.md`](docs/agents/communica
   included. The one list of them is the manager Filter's phone-only "Scheduled N".
 - A message enters the store **after** the send is authorized. Copy the resident panel, not the manager/vendor ones.
 - Stamp `time` with `formatInboxStamp` (Pacific). It is both label and sort key.
-- SMS **UI** is gated by `SMS_COMM_UI_ENABLED` (default off). Transport and agents stay live. Keep inbound SMS visible when the UI is hidden.
+- SMS **UI** is gated by `SMS_COMM_UI_ENABLED` (default off) on the manager-side portals (manager / resident / vendor); admin Communication operates the PropLane line and stays on in both states. Transport and agents stay live. Keep inbound SMS visible when the UI is hidden.
 - Residents schedule from the thread composer only — New message hides the schedule fields for them (deliberate).
 - A thread's `row_data` may carry a `recordRef: {kind,id,label}`; a record page's
   Communication section (`record-communication-section.tsx`) merges the same

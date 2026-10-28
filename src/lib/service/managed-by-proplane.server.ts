@@ -20,10 +20,11 @@ import { isArchivedWorkspaceRow, isMissingArchivedColumn } from "@/lib/workspace
  * ones. It adds no new way to do that: every workspace goes through `attachWorkspaceToService` (a flag plus memberships;
  * the audit row is written first; `owner_user_id` never moves; the account stays the owner of record, view-only).
  *
- * "Combine all into one" attaches ONE chosen workspace and moves the owner's OTHER workspaces' houses into it, through
+ * "Combine all into one" moves the owner's OTHER workspaces' houses into ONE chosen workspace through
  * `combine_portal_workspaces` (one transaction: only `manager_property_records.workspace_id` changes - never an owner,
- * lease, charge or application - then the emptied workspaces are archived, reversibly). Each move is audited BEFORE
- * anything changes, and every read that fails refuses the whole request with nothing written.
+ * lease, charge or application - then the emptied workspaces are archived, reversibly), and attaches that workspace
+ * afterwards. Each move is audited BEFORE anything changes, and every read that fails refuses the whole request with
+ * nothing written. A refused move leaves every workspace unmanaged and listed, so the admin can simply try again.
  *
  * The caller proved the operator is a platform admin (`requireAdminRoute`); this layer re-derives that, the account's
  * workspaces and their houses from the database. A body id is a name, never a grant.
@@ -243,19 +244,16 @@ export async function manageAccountByProplane(
     audits.push({ key, ownerId: accountId });
   }
 
-  const attachFailed = await attachOne(targetId);
-  if (attachFailed) {
-    await markAudits(db, operatorUserId, audits, { applied: false, error: "attach_failed" });
-    return attachFailed;
-  }
-
+  // The move runs BEFORE the attach, and the RPC does not care whether the target is managed yet. The other order
+  // leaves a refused move unretryable: the attached target drops out of the sheet (`listAccountWorkspacesForManaging`
+  // lists only unmanaged workspaces) and the pre-flight above refuses it by name, with the sources still loose.
   const combined = await db.rpc("combine_portal_workspaces", { p_owner: accountId, p_target: resolve(targetId).id, p_sources: plan.map((s) => s.from) });
   if (combined.error || !combined.data || typeof combined.data !== "object") {
     await markAudits(db, operatorUserId, audits, { applied: false, error: "move_refused" });
     const stale = combined.error?.code === "23514";
     return fail(
       stale ? 409 : 503,
-      `${resolve(targetId).name} is now managed by PropLane, but the other workspaces were not combined into it and nothing was moved${stale ? ": they changed while you were working. Reload and try again." : ". Please retry."}`,
+      `The workspaces were not combined, nothing was moved and none of them is managed by PropLane${stale ? ": they changed while you were working. Reload and try again." : ". Please retry."}`,
     );
   }
   const answer = combined.data as { moved?: unknown; archived?: unknown; kept?: unknown };
@@ -265,5 +263,13 @@ export async function manageAccountByProplane(
   result.kept = strings(answer.kept);
   result.moved = plan.map((step) => ({ from: step.from, to: resolve(targetId).id, houseIds: step.houseIds.filter((id) => movedIds.has(id)) }));
   await markAudits(db, operatorUserId, audits, { applied: true, moved: movedIds.size, archived: result.archived.length });
+
+  const attachFailed = await attachOne(targetId);
+  if (attachFailed) {
+    return fail(
+      attachFailed.status,
+      `${attachFailed.error} The homes are all in ${resolve(targetId).name} now, which is not managed by PropLane yet - choose just that workspace to finish.`,
+    );
+  }
   return { ok: true, ...result };
 }

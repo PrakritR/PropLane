@@ -486,9 +486,11 @@ with the admin email conversations (`createAdminInboxAdapter`,
 `/admin/communication/email|sms/*` links redirect there via
 `render-portal-section.tsx`).
 
-⚠️ **Every portal's Communication SMS panel is hidden by default** (manager,
-resident, vendor, admin) — the sections render only when `SMS_COMM_UI_ENABLED`
-is on. Nothing in this document's transport, webhook, provisioning or agent
+⚠️ **The manager-side Communication SMS panels are hidden by default** (manager,
+resident, vendor) — those sections render only when `SMS_COMM_UI_ENABLED` is on.
+**Admin Communication is outside the flag** (Admin team, Oct 27): admin operates
+the PropLane line, so it reads the text stream and keeps its composers in both
+states. Nothing in this document's transport, webhook, provisioning or agent
 paths is affected; the flag gates UI only. The full rule, including the
 inbound-notice fall-through that keeps texts visible while the panel is hidden,
 lives with the inbox invariants in AGENTS.md → "Communication is one unified,

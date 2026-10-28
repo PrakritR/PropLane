@@ -199,12 +199,15 @@ membership row is written for them).
   nothing written. The service owner's own account is refused.
 - **Choose workspaces** = `attachWorkspaceToService` once per workspace (audit first, never moves `owner_user_id`), then the fee
   through `setServiceWorkspaceFee` (audited). It stops at the first refusal and says how many were attached before it.
-- **Combine all into one** = the chosen target is attached and the OTHER workspaces' houses move into it through the
+- **Combine all into one** = the OTHER workspaces' houses move into the chosen target through the
   `combine_portal_workspaces` RPC (`20261027030000_portal_workspaces_archived_combine.sql`), ONE transaction that changes only
   `manager_property_records.workspace_id` (never an owner, lease, charge or application) and then archives the emptied
-  workspaces. One `admin_service_combine_move` audit row per source (the houses it holds) is written BEFORE the attach and the
-  move, then stamped applied or not. An owner's default workspace is where a house with no workspace lands, so an emptied
-  default one is kept listed rather than archived. Teammates' seats on an emptied workspace stay pinned to it.
+  workspaces, and the target is attached AFTER that move. One `admin_service_combine_move` audit row per source (the houses it
+  holds) is written BEFORE the move and the attach, then stamped applied or not. The move goes first on purpose: a refused move
+  leaves every workspace unmanaged and still listed, so the same combine can simply be tried again (the sheet lists only
+  unmanaged workspaces, and an already-managed one is refused by name). An owner's default workspace is where a house with no
+  workspace lands, so an emptied default one is kept listed rather than archived. Teammates' seats on an emptied workspace stay
+  pinned to it.
 - **Archived** = `portal_workspaces.archived_at`. `loadWorkspaces` leaves an archived workspace out (and reads without the
   column when the database has not run the migration, `src/lib/workspaces/archived.ts`). Reversible: clear `archived_at`.
 - **Owner of record in Team**: a platform admin edits the owner's role and houses like a teammate (`team-access`, audited with

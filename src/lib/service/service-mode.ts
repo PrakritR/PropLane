@@ -80,7 +80,6 @@ export function serviceSeatVerdict(
   if (!PROPLANE_SEAT_ROLES.has((seat.teamRole ?? "").trim().toLowerCase())) return "no";
   // A workspace PropLane created: the client grants nothing there, so the operator seat alone is staff.
   if (serviceOwnerId && workspace.ownerUserId === serviceOwnerId) return "staff";
-  if (seat.isServiceSeat) return "staff";
   return "platform_person_only";
 }
 

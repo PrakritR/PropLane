@@ -4,6 +4,7 @@ import { listAdminUserIds, userHoldsAdminRole } from "@/lib/auth/admin-role";
 import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { primaryRoleWhenAddingManager } from "@/lib/auth/profile-primary-role";
+import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { actorWorkspaceStanding } from "@/lib/workspaces/membership.server";
 import { loadServiceStaffWorkspaces } from "@/lib/service/service-mode.server";
 import { checkAdminTeamSeatGrant, removeServiceTeamMember, seatAdminTeamMember } from "@/lib/service/service-workspaces.server";
@@ -29,6 +30,13 @@ import {
 export type AdminTeamResult<T> = ({ ok: true } & T) | AdminTeamFailure;
 const fail = (status: number, error: string): AdminTeamFailure => ({ ok: false, status, error });
 
+/**
+ * One PropLane-issued seat. A Property owner seat or an owner of record is the CLIENT side of a managed workspace, so
+ * every read here drops it (`withoutOwnerLinks` plus the flag): the pane never counts one as the actor's reach, never
+ * reads it as a grant still held, and never cancels one.
+ */
+type AdminTeamSeatRow = { id: string; workspace_id: string; team_role: string | null; is_owner_of_record: boolean | null };
+
 /** Overall admin = the Overall admin role; manageable = the service workspaces whose team the viewer may change. */
 export async function resolveAdminTeamActor(db: SupabaseClient, userId: string): Promise<AdminTeamActor> {
   const overall = await userHoldsAdminRole(db, userId);
@@ -48,9 +56,30 @@ export async function resolveAdminTeamActor(db: SupabaseClient, userId: string):
   return { overall, manageableWorkspaceIds: manageable };
 }
 
-async function profileOf(db: SupabaseClient, userId: string) {
-  const { data } = await db.from("profiles").select("id, email, full_name, role").eq("id", userId).maybeSingle();
-  return data as { id: string; email: string | null; full_name: string | null; role: string | null } | null;
+/**
+ * `profile_roles` is the one thing an admin grant writes, so every path that is about to delete that row must first
+ * know whether the account holds admin some OTHER way. A read that fails answers nothing: it refuses (503), never
+ * "no legacy admin here", which would let a demotion stamp `applied: true` over access it did not remove.
+ */
+async function holdsAdminOutsideRoleRow(db: SupabaseClient, userId: string): Promise<AdminTeamResult<{ holds: boolean }>> {
+  const { data, error } = await db.from("profiles").select("id, email, role").eq("id", userId).maybeSingle();
+  if (error) return fail(503, "Could not read that account. Please retry.");
+  const profile = data as { email: string | null; role: string | null } | null;
+  return { ok: true, holds: isPrimaryAdminEmail(profile?.email) || String(profile?.role ?? "").trim().toLowerCase() === "admin" };
+}
+
+/**
+ * `ensureProfileRoleRow` throws on any Postgres error. Every grant path owes the caller a failure it can undo (the
+ * spent invite use handed back, the audit row stamped), so the throw is caught here and answered as one.
+ */
+async function writeRoleRow(db: SupabaseClient, userId: string, role: "admin" | "manager"): Promise<boolean> {
+  try {
+    await ensureProfileRoleRow(db, userId, role);
+    return true;
+  } catch (error) {
+    console.error("[admin-team] could not write the role row", error instanceof Error ? error.message : "unknown");
+    return false;
+  }
 }
 
 /** Every account currently holding the `admin` row in `profile_roles` (the only thing an Overall-admin grant writes). */
@@ -58,16 +87,6 @@ async function overallRoleHolderIds(db: SupabaseClient): Promise<string[]> {
   const { data, error } = await db.from("profile_roles").select("user_id").eq("role", "admin");
   if (error) throw new Error("Could not read admins.");
   return ((data ?? []) as { user_id: string }[]).map((row) => String(row.user_id));
-}
-
-/**
- * Admin access that no `profile_roles` row grants: the legacy `profiles.role = 'admin'` and the primary-admin email
- * fallback (src/lib/auth/admin-role.ts). Removing the row would not remove the access, so this refuses instead of
- * pretending (captain, Oct 27: founders@ keeps its admin; nothing here removes it).
- */
-async function holdsAdminOutsideRoleRow(db: SupabaseClient, userId: string): Promise<boolean> {
-  const profile = await profileOf(db, userId);
-  return isPrimaryAdminEmail(profile?.email) || String(profile?.role ?? "").trim().toLowerCase() === "admin";
 }
 
 /**
@@ -141,10 +160,24 @@ export async function applyAdminInviteGrant(
       await audited.finish(false, { error: "profile_failed" });
       return profile;
     }
-    await ensureProfileRoleRow(db, redeemerUserId, "admin");
+    if (!(await writeRoleRow(db, redeemerUserId, "admin"))) {
+      await audited.finish(false, { error: "role_failed" });
+      return fail(503, "Could not finish setting up your access. Try again in a moment.");
+    }
     await recordGrant(db, { userId: redeemerUserId, grantedBy: inviterUserId, role: OVERALL_ADMIN_ROLE, workspaceIds: [] });
     await audited.finish(true);
     return { ok: true, role: grant.role, workspaceIds: [] };
+  }
+
+  // Every refusal a seat can raise is asked up front, with nothing written. Seating workspace A and then failing on B
+  // would leave a standing PropLane seat on A while the caller hands the use back and the trail says the grant did not
+  // stand - the silent partial grant this flow exists to make impossible.
+  for (const workspaceId of grant.workspaceIds) {
+    const checked = await checkAdminTeamSeatGrant(db, inviterUserId, { ...grant.access, teamRole: grant.role, id: workspaceId }, { overall: actor.overall });
+    if (!checked.ok) {
+      await audited.finish(false, { error: "seat_failed" });
+      return fail(checked.status, checked.error);
+    }
   }
 
   // A workspace role: the person needs a manager portal for the service shell to open (the same account every other
@@ -154,7 +187,11 @@ export async function applyAdminInviteGrant(
     await audited.finish(false, { error: "profile_failed" });
     return profile;
   }
-  await ensureProfileRoleRow(db, redeemerUserId, "manager");
+  if (!(await writeRoleRow(db, redeemerUserId, "manager"))) {
+    await audited.finish(false, { error: "role_failed" });
+    return fail(503, "Could not finish setting up your access. Try again in a moment.");
+  }
+  const seatedWorkspaceIds: string[] = [];
   for (const workspaceId of grant.workspaceIds) {
     const seated = await seatAdminTeamMember(
       db,
@@ -163,10 +200,12 @@ export async function applyAdminInviteGrant(
       { overall: actor.overall },
     );
     if (!seated.ok) {
-      // The caller hands the spent use back and undoes the redemption; the trail says the grant did not stand.
-      await audited.finish(false, { error: "seat_failed" });
+      // The caller hands the spent use back and undoes the redemption; the trail says the grant did not stand, and
+      // names any seat that was already written so a partial state is visible rather than silent.
+      await audited.finish(false, { error: "seat_failed", seatedWorkspaceIds });
       return fail(seated.status, seated.error);
     }
+    seatedWorkspaceIds.push(workspaceId);
   }
   await recordGrant(db, { userId: redeemerUserId, grantedBy: inviterUserId, role: grant.role, workspaceIds: grant.workspaceIds });
   await audited.finish(true);
@@ -196,6 +235,35 @@ async function revokeGrants(db: SupabaseClient, userId: string, revokedBy: strin
     .is("revoked_at", null);
   const { error } = await (role === "all" ? query : query.eq("role", role));
   if (error) console.error("[admin-team] could not mark grants revoked", error.message);
+}
+
+/**
+ * The grant rows an actor who is NOT an Overall admin may mark revoked: a workspace grant whose every workspace is one
+ * they manage. An Overall-admin row, or a row that also names a workspace out of their reach, is left live - the trail
+ * must never record a revocation its writer had no authority over.
+ */
+async function revokeGrantsForWorkspaces(db: SupabaseClient, userId: string, revokedBy: string, workspaceIds: string[]): Promise<void> {
+  const reach = new Set(workspaceIds);
+  if (reach.size === 0) return;
+  const { data, error } = await db.from("admin_team_grants").select("id, role, workspace_ids").eq("user_id", userId).is("revoked_at", null);
+  if (error) {
+    console.error("[admin-team] could not read grants to revoke", error.message);
+    return;
+  }
+  const ids = ((data ?? []) as { id: string; role: string | null; workspace_ids: string[] | null }[])
+    .filter((row) => row.role !== OVERALL_ADMIN_ROLE)
+    .filter((row) => {
+      const named = (row.workspace_ids ?? []).map(String);
+      return named.length > 0 && named.every((id) => reach.has(id));
+    })
+    .map((row) => String(row.id));
+  if (ids.length === 0) return;
+  const { error: updateError } = await db
+    .from("admin_team_grants")
+    .update({ revoked_at: new Date().toISOString(), revoked_by: revokedBy })
+    .in("id", ids)
+    .is("revoked_at", null);
+  if (updateError) console.error("[admin-team] could not mark grants revoked", updateError.message);
 }
 
 function houseLabel(rowData: unknown): string {
@@ -404,17 +472,21 @@ export async function changeAdminTeamMember(
   } catch {
     return fail(503, "Could not read admins. Please retry.");
   }
-  const targetIsOverall = overallHolders.includes(userId) || (await holdsAdminOutsideRoleRow(db, userId));
+  const outside = await holdsAdminOutsideRoleRow(db, userId);
+  if (!outside.ok) return outside;
+  const targetIsOverall = overallHolders.includes(userId) || outside.holds;
   if (targetIsOverall && !actor.overall) return fail(403, "Only an Overall admin can change an Overall admin.");
 
-  const seatsNow = await db
-    .from("account_link_invites")
-    .select("id, workspace_id")
-    .eq("invitee_user_id", userId)
-    .eq("is_service_seat", true)
-    .in("status", ["accepted", "pending"]);
+  const seatsNow = withoutOwnerLinks(
+    await db
+      .from("account_link_invites")
+      .select("id, workspace_id, team_role, is_owner_of_record")
+      .eq("invitee_user_id", userId)
+      .eq("is_service_seat", true)
+      .in("status", ["accepted", "pending"]),
+  );
   if (seatsNow.error) return fail(503, "Could not change the role. Please retry.");
-  const currentSeats = (seatsNow.data ?? []) as { id: string; workspace_id: string }[];
+  const currentSeats = ((seatsNow.data ?? []) as AdminTeamSeatRow[]).filter((seat) => seat.is_owner_of_record !== true);
   if (!targetIsOverall && !currentSeats.some((seat) => actor.manageableWorkspaceIds.has(seat.workspace_id))) {
     return fail(404, NOT_ON_TEAM_ERROR);
   }
@@ -423,7 +495,10 @@ export async function changeAdminTeamMember(
     if (overallHolders.includes(userId)) return { ok: true };
     const audited = await auditAdminTeam(db, actorUserId, "admin_team_grant", { inviteeUserId: userId, role: OVERALL_ADMIN_ROLE, workspaceIds: [], via: "change" });
     if (!audited.ok) return audited;
-    await ensureProfileRoleRow(db, userId, "admin");
+    if (!(await writeRoleRow(db, userId, "admin"))) {
+      await audited.finish(false, { error: "role_failed" });
+      return fail(503, "Could not change the role. Please retry.");
+    }
     await recordGrant(db, { userId, grantedBy: actorUserId, role: OVERALL_ADMIN_ROLE, workspaceIds: [] });
     await audited.finish(true);
     return { ok: true };
@@ -455,7 +530,7 @@ export async function changeAdminTeamMember(
   if (overallHolders.includes(userId)) {
     const last = lastOverallAdminVerdict(await allOverallAdminIds(db), userId);
     if (!last.ok) return last;
-    if (await holdsAdminOutsideRoleRow(db, userId)) {
+    if (outside.holds) {
       return fail(409, "This account is an admin through the primary-admin email or a legacy role, which this pane does not remove.");
     }
     demotionAudit = await auditAdminTeam(db, actorUserId, "admin_team_revoke", { targetUserId: userId, role: OVERALL_ADMIN_ROLE, via: "change" });
@@ -468,8 +543,8 @@ export async function changeAdminTeamMember(
   }
   const restoreOverall = async (error: string) => {
     if (!demotionAudit?.ok) return;
-    await ensureProfileRoleRow(db, userId, "admin");
-    await demotionAudit.finish(false, { error });
+    const restored = await writeRoleRow(db, userId, "admin");
+    await demotionAudit.finish(false, { error, ...(restored ? {} : { restored: false }) });
   };
 
   for (const workspaceId of chosen) {
@@ -551,7 +626,27 @@ export async function removeAdminTeamMember(
   } catch {
     return fail(503, "Could not read admins. Please retry.");
   }
-  if (overallHolders.includes(userId) || (await holdsAdminOutsideRoleRow(db, userId))) {
+  const outside = await holdsAdminOutsideRoleRow(db, userId);
+  if (!outside.ok) return outside;
+  const targetIsOverall = overallHolders.includes(userId) || outside.holds;
+
+  const seats = withoutOwnerLinks(
+    await db
+      .from("account_link_invites")
+      .select("id, workspace_id, team_role, is_owner_of_record")
+      .eq("invitee_user_id", userId)
+      .eq("is_service_seat", true)
+      .in("status", ["accepted", "pending"]),
+  );
+  if (seats.error) return fail(503, "Could not remove the teammate. Please retry.");
+  const reachable = ((seats.data ?? []) as AdminTeamSeatRow[]).filter(
+    (seat) => seat.is_owner_of_record !== true && actor.manageableWorkspaceIds.has(seat.workspace_id),
+  );
+  // The same reach `changeAdminTeamMember` asks for, and asked BEFORE anything is written: a user id in the body names
+  // someone, it never hands the actor authority over an account they do not manage - including over its grant trail.
+  if (!targetIsOverall && reachable.length === 0) return fail(404, NOT_ON_TEAM_ERROR);
+
+  if (targetIsOverall) {
     if (!actor.overall) return fail(403, "Only an Overall admin can remove an Overall admin.");
     const last = lastOverallAdminVerdict(await allOverallAdminIds(db), userId);
     if (!last.ok) return last;
@@ -568,33 +663,32 @@ export async function removeAdminTeamMember(
     await revokeGrants(db, userId, actorUserId, OVERALL_ADMIN_ROLE);
     await audited.finish(true);
   }
-  const seats = await db
-    .from("account_link_invites")
-    .select("id, workspace_id")
-    .eq("invitee_user_id", userId)
-    .eq("is_service_seat", true)
-    .in("status", ["accepted", "pending"]);
-  if (seats.error) return fail(503, "Could not remove the teammate. Please retry.");
-  for (const seat of (seats.data ?? []) as { id: string; workspace_id: string }[]) {
-    if (!actor.manageableWorkspaceIds.has(seat.workspace_id)) continue;
+  for (const seat of reachable) {
     const removed = await removeServiceTeamMember(db, actorUserId, { id: seat.workspace_id, linkId: seat.id }, { overall: actor.overall });
     if (!removed.ok) return fail(removed.status, removed.error);
   }
-  await revokeGrants(db, userId, actorUserId, "all");
+  // An Overall admin reaches every service workspace, so every remaining grant row is theirs to close. A workspace
+  // admin closes only the rows that name the workspaces they just emptied.
+  if (actor.overall) await revokeGrants(db, userId, actorUserId, "all");
+  else await revokeGrantsForWorkspaces(db, userId, actorUserId, reachable.map((seat) => seat.workspace_id));
   return { ok: true };
 }
 
 /** Does this account still hold what an admin grant gave it? (The same-account re-open message must not lie.) */
 export async function adminGrantStillHeld(db: SupabaseClient, userId: string, grant: StoredAdminGrant): Promise<boolean> {
   if (grant.role === OVERALL_ADMIN_ROLE) return userHoldsAdminRole(db, userId);
-  const { data, error } = await db
-    .from("account_link_invites")
-    .select("workspace_id")
-    .eq("invitee_user_id", userId)
-    .eq("is_service_seat", true)
-    .eq("status", "accepted")
-    .in("workspace_id", grant.workspaceIds);
+  const { data, error } = withoutOwnerLinks(
+    await db
+      .from("account_link_invites")
+      .select("workspace_id, team_role, is_owner_of_record")
+      .eq("invitee_user_id", userId)
+      .eq("is_service_seat", true)
+      .eq("status", "accepted")
+      .in("workspace_id", grant.workspaceIds),
+  );
   if (error) return false;
-  const held = new Set(((data ?? []) as { workspace_id: string }[]).map((row) => String(row.workspace_id)));
+  const held = new Set(
+    ((data ?? []) as AdminTeamSeatRow[]).filter((row) => row.is_owner_of_record !== true).map((row) => String(row.workspace_id)),
+  );
   return grant.workspaceIds.every((id) => held.has(id));
 }

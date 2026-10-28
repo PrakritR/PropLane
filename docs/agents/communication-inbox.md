@@ -186,7 +186,8 @@ admin:
   `endpoint="/api/admin/sms-conversations"`, `allowDelete={false}` and
   `allowArchive={false}` - archive state is the manager's
   (`/api/manager/tour-follow-ups`), admin oversight of the shared line has none, so
-  admin text rows have no row menu. `smsUiEnabled` off = the stream is not read.
+  admin text rows have no row menu. Admin reads the stream and keeps every composer whatever
+  `SMS_COMM_UI_ENABLED` says - admin operates the PropLane line (see the flag below).
 - **Workspace placement (PropLane Service, Oct 20).** Every text thread carries `workspaceId` / `workspaceName`: the
   `is_service` workspace the router stamped on its messages (`placeAdminSmsConversations`), else "Unassigned" - a stamp on
   any other workspace is never named. The row draws it as one plain line under the preview (`placeLine`, no pill); the
@@ -533,13 +534,20 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   paged transcript; a list preview is never treated as history. Bubbles render
   the full body (pre-wrap, no clamp).
 - **SMS compose is gated by `isSmsCommUiEnabled()`** (`src/lib/sms-comm-ui-flag.server.ts`,
-  env `SMS_COMM_UI_ENABLED`, default OFF, server-resolved). `render-portal-section.tsx`
-  threads it as the `smsUiEnabled` prop into all four Communication components
-  (manager / resident / vendor / admin). For manager Communication, the flag
-  controls SMS compose and chrome; authorized projected history and unresolved
-  compatibility notices remain visible in both states. The server removes only
-  exact original notice turns whose replacement is visible to that viewer.
-  Other portals keep their existing flag behavior. SMS transport, both SMS
+  env `SMS_COMM_UI_ENABLED`, default OFF, server-resolved). It governs the
+  MANAGER-side portals: `render-portal-section.tsx` threads it as the
+  `smsUiEnabled` prop into manager / resident / vendor Communication. For manager
+  Communication, the flag controls SMS compose and chrome; authorized projected
+  history and unresolved compatibility notices remain visible in both states. The
+  server removes only exact original notice turns whose replacement is visible to
+  that viewer. Resident and vendor keep their existing flag behavior.
+  **Admin Communication is deliberately outside the flag** (Admin team, Oct 27):
+  admin operates the PropLane line, so it reads the text stream and keeps every
+  composer in both states (`admin-communication.tsx` / `admin-thread-pane.tsx`
+  pin it on; the prop is still declared and ignored, and
+  `tests/unit/admin-communication-shared-inbox.test.tsx` proves it). Turning the
+  flag off hides the manager-side SMS UI only - `docs/agents/one-number.md` § W32.
+  SMS transport, both SMS
   agents, and phone provisioning stay live. Coverage:
   `tests/unit/unified-conversation-inbox.test.tsx`,
   `tests/unit/resident-conversation-inbox.test.tsx`,
