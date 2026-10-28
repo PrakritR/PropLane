@@ -108,10 +108,11 @@ function RoomAvailabilityLoading({ className = "h-3 w-20" }: { className?: strin
  * cell stays narrow enough to leave the Details button on screen.
  *
  * The tail is matched by its PREPOSITION or by its own date shape, never the preposition alone:
- * `formatRoomAvailability` deliberately drops "from" for an opening more than six months out
- * ("Available Oct 2027" reads better than "Available from Oct 2027"), which left that wording with
- * no keyword to break on — it stayed one line and the 16%-wide column truncated it to
- * "Available O…", so a renter could not read the month without hovering for the title tooltip.
+ * the public label (`publicStatusFromAvailability` through `formatOpeningDate`) carries no
+ * preposition at all for a dated opening ("Available Oct 15", "Available Oct 2027" — which reads
+ * better than "Available from Oct 2027"), leaving that wording with no keyword to break on — it
+ * stayed one line and the 16%-wide column truncated it to "Available O…", so a renter could not
+ * read the month without hovering for the title tooltip. "Leased until <date>" breaks on "until".
  */
 function RoomAvailabilityCell({ display }: { display: { text: string; tone: RoomAvailabilityTone } | null }) {
   if (!display) return <RoomAvailabilityLoading />;

@@ -275,11 +275,13 @@ Coverage: `tests/unit/channel-calendar-export-url.test.ts`,
 ### The Channels card
 
 Above the channel rows, Integrations › Bookings draws `ChannelsHealthCard` (`channels-health-card.tsx`), fed by
-`GET /api/portal/channel-calendar/health`: one row per house (open rooms, then each channel as `Airbnb 14/14`, plus
-"not reading" when the feed is stale), a Copy post icon that copies the house's vacancy post
+`GET /api/portal/channel-calendar/health`: one row per house (open rooms — "Availability unavailable" when that read
+failed — then each channel as `Airbnb 14/14`, with "· not reading" when the feed is stale or was never fetched and
+"· error" when the last export failed), a Copy post icon that copies the house's vacancy post
 (`buildVacancyPost`: the live labels of the rooms a renter can fill soon, and the workspace's text number from
 `resolveListingTextNumber`, never a literal), and a second group of attention items (stale feed, an export that failed, a
-stay missing from Airbnb, a closure with no end or over 60 nights) with Reopen or Open on Airbnb. Nothing is drawn while
+stay missing from Airbnb, a closure with no end or over 60 nights, an approved application with no room assigned) with
+Reopen or Open on Airbnb. Nothing is drawn while
 there is nothing to say. The card is read-only except Reopen, which is the manager's own Unblock/end-date save through
 `saveRoomDateBlock`. Feed-health and closure rules: [`bookings.md`](bookings.md) § Channels: true availability.
 
