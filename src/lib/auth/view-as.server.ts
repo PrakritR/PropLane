@@ -218,7 +218,17 @@ export async function resolveViewAsIdentity(realUserId: string): Promise<ActiveV
  */
 export async function recordViewAsStarted(
   db: SupabaseClient,
-  args: { adminId: string; targetId: string; portal: ViewAsPortal; reason: string; sid: string; iat: number; exp: number },
+  args: {
+    adminId: string;
+    targetId: string;
+    portal: ViewAsPortal;
+    reason: string;
+    sid: string;
+    iat: number;
+    exp: number;
+    /** The workspace the session opens in, when "View workspace" started it. */
+    workspaceId?: string | null;
+  },
 ): Promise<boolean> {
   const outcome = await writeAuditLog(
     { db, landlordId: args.targetId, userId: args.adminId },
@@ -233,6 +243,7 @@ export async function recordViewAsStarted(
         startedAt: new Date(args.iat * 1000).toISOString(),
         expiresAt: new Date(args.exp * 1000).toISOString(),
         durationSeconds: args.exp - args.iat,
+        ...(args.workspaceId ? { workspaceId: args.workspaceId } : {}),
       },
       resultSummary: { readOnly: true },
       dedupeKey: `view_as_started:${args.sid}`,

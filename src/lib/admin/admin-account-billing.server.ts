@@ -40,6 +40,8 @@ export type AdminAccountBillingPayment = {
   description: string;
   number: string | null;
   invoiceUrl: string | null;
+  /** A subscription invoice: the only kind the Refund action accepts. */
+  subscriptionInvoice: boolean;
 };
 
 export type AdminAccountBilling = {
@@ -59,6 +61,12 @@ export type AdminAccountBilling = {
     trialEndsAt: string | null;
     complimentary: boolean;
     promoCode: string | null;
+    /** The plan line's monthly amount in cents when the subscription bills monthly; else `null`. */
+    monthlyCents: number | null;
+    /** A staff-set custom monthly price is live (not the rate card). */
+    customPrice: boolean;
+    /** The subscription is set to end at the close of the period. */
+    cancelAtPeriodEnd: boolean;
   };
   limits: {
     /** Listing cap actually enforced; `null` = uncapped. */
@@ -70,6 +78,8 @@ export type AdminAccountBilling = {
   payments: AdminAccountBillingPayment[];
   stripe: {
     linked: boolean;
+    /** The account has a Stripe subscription (what Change price, Cancel and End promo act on). */
+    subscriptionLinked: boolean;
     /** Stripe could not be read, so the subscription facts and payments are the database's only. */
     available: boolean;
     testMode: boolean;
@@ -129,6 +139,7 @@ export function invoiceToPayment(invoice: Stripe.Invoice): AdminAccountBillingPa
     description: describeInvoice(invoice),
     number: invoice.number ?? null,
     invoiceUrl: invoice.hosted_invoice_url ?? null,
+    subscriptionInvoice: invoice.parent?.type === "subscription_details",
   };
 }
 
@@ -228,6 +239,9 @@ function databasePlan(
     complimentary: overrides.complimentary,
     // The code the customer redeemed at checkout, else the waiver code. Display only.
     promoCode: text(purchase?.stripe_promotion_code) || text(purchase?.promo_code) || null,
+    monthlyCents: null,
+    customPrice: false,
+    cancelAtPeriodEnd: false,
   };
 }
 
@@ -277,6 +291,14 @@ export async function loadAdminAccountBilling(
         // In this API version the period lives on the item, not the subscription.
         plan.renewsAt = iso(sub.items?.data?.[0]?.current_period_end);
         plan.renewsLabel = sub.cancel_at_period_end ? "Ends" : "Renews";
+        plan.cancelAtPeriodEnd = Boolean(sub.cancel_at_period_end);
+        const planItem = (sub.items?.data ?? []).find(
+          (i) => !(typeof i.price === "object" && (i.price.lookup_key ?? "").startsWith("proplane_door_overage_")),
+        );
+        if (planItem?.price?.recurring?.interval === "month" && (planItem.price.recurring.interval_count ?? 1) === 1) {
+          plan.monthlyCents = planItem.price.unit_amount ?? null;
+        }
+        plan.customPrice = Boolean(sub.metadata?.axis_custom_monthly_cents);
         const interval = sub.items?.data?.[0]?.price?.recurring?.interval;
         const cadence = interval === "year" ? "annual" : interval === "month" ? "monthly" : null;
         if (tier && tier !== "free" && cadence) plan.planLabel = `${PLAN_LABELS[tier]} ${cadence}`;
@@ -328,6 +350,7 @@ export async function loadAdminAccountBilling(
     payments,
     stripe: {
       linked: Boolean(subscriptionId || customerId),
+      subscriptionLinked: Boolean(subscriptionId),
       available: stripeAvailable,
       testMode: !isStripeLiveMode(),
       customerUrl: customerId ? stripeCustomerDashboardUrl(customerId) : null,

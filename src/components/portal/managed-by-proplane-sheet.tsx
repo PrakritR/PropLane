@@ -30,11 +30,14 @@ const houses = (n: number) => `${n} ${n === 1 ? "house" : "houses"}`;
 export function ManagedByProplaneSheet({
   open,
   account,
+  initialWorkspaceId,
   onClose,
   onDone,
 }: {
   open: boolean;
   account: { id: string; name: string };
+  /** A workspace row's ⋯ opens the sheet on that one workspace. Ignored when it is not among the account's unmanaged ones. */
+  initialWorkspaceId?: string;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -67,10 +70,11 @@ export function ManagedByProplaneSheet({
           setLoadError(json.error ?? "Could not load the workspaces.");
           return;
         }
+        const preselected = initialWorkspaceId ? json.workspaces.find((w) => w.id === initialWorkspaceId) : undefined;
         setWorkspaces(json.workspaces);
-        setPicked(json.workspaces.map((w) => w.id));
-        setTargetId(json.workspaces[0]?.id ?? "");
-        setCity(json.workspaces[0]?.city ?? "");
+        setPicked(preselected ? [preselected.id] : json.workspaces.map((w) => w.id));
+        setTargetId(preselected?.id ?? json.workspaces[0]?.id ?? "");
+        setCity((preselected ?? json.workspaces[0])?.city ?? "");
         setLabel(json.workspaces.length === 1 ? json.workspaces[0]!.name : "");
         setMode("pick");
       } catch {
@@ -80,7 +84,7 @@ export function ManagedByProplaneSheet({
     return () => {
       cancelled = true;
     };
-  }, [open, account.id]);
+  }, [open, account.id, initialWorkspaceId]);
 
   const list = useMemo(() => workspaces ?? [], [workspaces]);
   const single = list.length === 1;

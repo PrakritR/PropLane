@@ -74,3 +74,11 @@ A new GET that heals/backfills/provisions on read must check `isViewAsSessionOpe
 because the deferred callback no longer has the request's cookies to read.
 A new GET that streams private bytes or mints a signed URL goes in
 `PRIVATE_BYTES_PATTERNS`. Never read the viewing cookie yourself.
+
+## View workspace (optional `workspaceId`)
+
+`POST /api/admin/preview` also accepts `workspaceId` (manager portal only). It is validated server-side against
+`loadWorkspaces(<target>)` (owned or a membership; an unreadable list refuses), written to the audit row, signed into the
+cookie payload as `wid` (a non-UUID `wid` voids the token), and mirrored into the portal's own `proplane-workspace` cookie
+for the session's 30 minutes (End clears it). The portal still re-validates that cookie against the viewed account's own
+workspaces on every read, so `wid` names a landing spot, never a grant.

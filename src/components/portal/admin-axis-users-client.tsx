@@ -24,6 +24,7 @@ import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
 import { AdminAccountRecordPage } from "@/components/portal/admin-account-record-page";
 import { ManagedByProplaneSheet } from "@/components/portal/managed-by-proplane-sheet";
+import { useViewWorkspace } from "@/components/portal/admin-view-as-dialog";
 import { AdminAccountActiveDialog } from "@/components/portal/admin-account-active-dialog";
 import { useAdminAccountActions } from "@/components/portal/use-admin-account-actions";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
@@ -125,6 +126,30 @@ function lastSignInLabel(iso: string | null, known = true): string {
  * a real component rendered as a `FilterFieldsAccordion` child, so
  * `useFilterAccordionClose` resolves the enclosing accordion's context.
  */
+/**
+ * The Managers row's "View workspace" (read-only View as, landing in one of the account's workspaces). Drawn
+ * only for an allowlisted operator and an account the server would let them view; the dialog asks which
+ * workspace when the account has several.
+ */
+function ViewWorkspaceRowAction({ accountId, accountName }: { accountId: string; accountName: string }) {
+  const view = useViewWorkspace(accountId, accountName);
+  if (!view.canView) return null;
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_BULK_BAR_BTN}
+        data-attr="admin-account-view-workspace"
+        onClick={() => view.open()}
+      >
+        View workspace
+      </Button>
+      {view.dialog}
+    </>
+  );
+}
+
 function AccountStatusFilterField({
   value,
   options,
@@ -478,6 +503,13 @@ function AdminAccountsList({ showTestTab }: { showTestTab: boolean }) {
           >
             Copy PropLane ID
           </Button>
+        ) : null}
+        {selectedRows[0]!.kind === "manager" && (selectedRows[0]!.workspaceCount ?? 0) > 0 ? (
+          <ViewWorkspaceRowAction
+            key={selectedRows[0]!.id}
+            accountId={selectedRows[0]!.id}
+            accountName={selectedRows[0]!.fullName || selectedRows[0]!.email}
+          />
         ) : null}
         {selectedRows[0]!.kind === "manager" && (selectedRows[0]!.unmanagedWorkspaceCount ?? 0) > 0 ? (
           <Button

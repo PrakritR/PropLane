@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CalendarPlus, Check, ExternalLink, Gift, Minus, Pencil, Plus, Tag } from "lucide-react";
 import { AdminBillingActionDialog } from "@/components/portal/admin-billing-action-dialog";
+import { useBillingMoneyActions } from "@/components/portal/admin-billing-money-actions";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { RecordFactCard, RecordFactRow } from "@/components/portal/portal-record-overview-kit";
 import { Button } from "@/components/ui/button";
@@ -397,6 +398,7 @@ export function ManagerBillingCards({
   };
 
   const loadingValue = billingState === "loading" ? "…" : "—";
+  const moneyActions = useBillingMoneyActions({ userId: row.id, billing, onChanged, showToast });
 
   return (
     <>
@@ -414,6 +416,7 @@ export function ManagerBillingCards({
               />
             ) : null}
             <PortalIconAction icon={Pencil} label="Change plan" data-attr="admin-billing-change-plan" onClick={() => open("plan")} />
+            {moneyActions.icons}
           </>
         }
       >
@@ -486,6 +489,8 @@ export function ManagerBillingCards({
         />
         <ProcessingFeesRow managerUserId={row.id} showToast={showToast} />
       </RecordFactCard>
+
+      {moneyActions.dialogs}
 
       <AdminBillingActionDialog
         open={dialog === "plan"}

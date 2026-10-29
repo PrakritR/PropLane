@@ -48,7 +48,15 @@ export type ViewAsPayload = {
   exp: number;
   /** Ties the cookie to its `admin_view_as_started` / `admin_view_as_ended` audit rows. */
   sid: string;
+  /**
+   * The workspace the preview opens in ("View workspace"). Validated server-side at start as one the
+   * viewed account owns or is a member of; the portal still re-validates the workspace cookie against
+   * the viewed account's own workspaces on every read, so this names a landing spot, never a grant.
+   */
+  wid?: string;
 };
+
+const WORKSPACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -144,6 +152,8 @@ export async function verifyViewAsToken(
   ) {
     return null;
   }
+  // A workspace id is optional, but a present one that is not a UUID makes the whole token invalid.
+  if (p.wid !== undefined && (typeof p.wid !== "string" || !WORKSPACE_ID_RE.test(p.wid))) return null;
   // A token can never outlive its fixed window, whatever the payload claims.
   if (p.exp - p.iat > VIEW_AS_TTL_SECONDS) return null;
   const nowSec = Math.floor((opts.nowMs ?? Date.now()) / 1000);
@@ -156,6 +166,7 @@ export async function verifyViewAsToken(
     iat: p.iat,
     exp: p.exp,
     sid: p.sid,
+    ...(typeof p.wid === "string" ? { wid: p.wid } : {}),
   };
 }
 

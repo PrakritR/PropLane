@@ -31,6 +31,8 @@ export type AdminAccountDetail = {
       id: string;
       name: string;
       isDefault: boolean;
+      /** Already PropLane-managed (`is_service`): "Managed by PropLane…" is not offered. */
+      isService: boolean;
       createdAt: string | null;
       payoutsEnabled: boolean | null;
     }[];
@@ -129,7 +131,7 @@ export async function loadAdminAccountDetail(db: SupabaseClient, id: string): Pr
         : Promise.resolve({ data: [] as Row[] }),
       db
         .from("portal_workspaces")
-        .select("id, name, is_default, created_at, stripe_connect_payouts_enabled")
+        .select("id, name, is_default, is_service, created_at, stripe_connect_payouts_enabled")
         .eq("owner_user_id", id)
         .order("created_at", { ascending: true }),
       db
@@ -188,7 +190,7 @@ export async function loadAdminAccountDetail(db: SupabaseClient, id: string): Pr
   if (wsRes.error) {
     const fallback = await db
       .from("portal_workspaces")
-      .select("id, name, is_default, created_at")
+      .select("id, name, is_default, is_service, created_at")
       .eq("owner_user_id", id)
       .order("created_at", { ascending: true });
     workspaceRows = (fallback.data ?? []) as Row[];
@@ -296,6 +298,7 @@ export async function loadAdminAccountDetail(db: SupabaseClient, id: string): Pr
         id: str(row.id),
         name: str(row.name),
         isDefault: row.is_default === true,
+        isService: row.is_service === true,
         createdAt: strOrNull(row.created_at),
         payoutsEnabled: payoutsKnown ? row.stripe_connect_payouts_enabled === true : null,
       })),

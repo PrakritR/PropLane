@@ -71,3 +71,15 @@ roster (round + adds; the selected row's bar edits, pauses or removes). Every `/
 `/api/admin/service-manager` verb starts with `requireAdminRoute()`; the roster layer re-derives the service owner and
 touches only roster rows it owns. The manager phone is verified with a code texted to the NEW number and every change is
 audited before it applies. Details: [`one-number.md`](one-number.md) § W27.
+
+## Money actions and workspace rows (Oct 28)
+
+- **Change price / Refund / Cancel** on a manager's Subscription card are `POST /api/admin/accounts/<id>/billing/(price|refund|cancel)`
+  (`admin-billing-money-actions.server.ts`, gate `resolveAdminBillingTarget`): `requireAdminRoute()` (Overall admin only, a
+  workspace admin or seat holder is 403), the path id must be a manager account, a missing reason is 400 before any Stripe call,
+  and the audit row is written FIRST (no row = no Stripe mutation; a Stripe failure after it adds a `<field>Failed` row). Price
+  applies from the next invoice (`proration_behavior: "none"`, monthly subscriptions only); a refund is capped at what Stripe
+  says is still refundable on the invoice's charge, re-read server-side, with an idempotency key from invoice + amount + nonce.
+- **Workspace rows**: Account > Workspaces rows (and the Managers row) carry "View workspace" (allowlisted operators only) and
+  "Managed by PropLane…" (hidden once `is_service`; opens `ManagedByProplaneSheet` with `initialWorkspaceId`).
+  Coverage: `tests/unit/admin-billing-money-routes.test.ts`, `admin-account-workspace-row-menu.test.tsx`.
