@@ -41,14 +41,18 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 const LEAD_ID = "11111111-1111-4111-8111-111111111111";
 const LINE = "+12066781909";
+// The lead texted an hour ago, so an admin answer is a REPLY inside `ADMIN_LEAD_REPLY_WINDOW_MS`
+// (and so not held by the outreach quiet hours) whenever this suite runs - a fixed instant turns
+// these cases into a clock-dependent refusal once the window has passed.
+const RECENT_INBOUND = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
 function world(extra: Record<string, Record<string, unknown>[]> = {}) {
   return leadFakeDb(
     {
       sms_runtime_config: [{ singleton: true, line_mode: "shared", shared_number_e164: LINE, shared_messaging_service_sid: "MGline" }],
       profiles: [{ id: "mgr-ambika", sms_from_number: "+18146793694", phone: "+18146793694" }],
-      sms_unassigned_leads: [{ id: LEAD_ID, phone_key: "5106489423", status: "open", profile: {}, last_inbound_at: "2026-10-27T17:00:00Z", updated_at: "2026-10-27T17:00:00Z" }],
-      sms_unassigned_lead_turns: [{ id: "t1", lead_id: LEAD_ID, direction: "inbound", body: "which rooms are free?", created_at: "2026-10-27T17:00:00Z" }],
+      sms_unassigned_leads: [{ id: LEAD_ID, phone_key: "5106489423", status: "open", profile: {}, last_inbound_at: RECENT_INBOUND, updated_at: RECENT_INBOUND }],
+      sms_unassigned_lead_turns: [{ id: "t1", lead_id: LEAD_ID, direction: "inbound", body: "which rooms are free?", created_at: RECENT_INBOUND }],
       ...extra,
     },
     { constraints: LEAD_CONSTRAINTS },
@@ -102,7 +106,7 @@ describe("admin replies to an Unassigned lead from the PropLane line", () => {
 
   it("refuses an empty text, an unknown lead and a lead that is no longer open, and sends nothing", async () => {
     const fake = world({ sms_unassigned_leads: [
-      { id: LEAD_ID, phone_key: "5106489423", status: "assigned", profile: {}, last_inbound_at: "2026-10-27T17:00:00Z", updated_at: "2026-10-27T17:00:00Z" },
+      { id: LEAD_ID, phone_key: "5106489423", status: "assigned", profile: {}, last_inbound_at: RECENT_INBOUND, updated_at: RECENT_INBOUND },
     ] });
     expect(await sendAdminLeadReply(fake.db, { leadId: LEAD_ID, text: "  " })).toMatchObject({ ok: false, status: 400 });
     expect(await sendAdminLeadReply(fake.db, { leadId: "99999999-9999-4999-8999-999999999999", text: "hi" })).toMatchObject({ ok: false, status: 404 });

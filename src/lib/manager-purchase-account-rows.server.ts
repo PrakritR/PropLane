@@ -63,14 +63,14 @@ export async function loadAccountPurchaseRows<T extends { id: string }>(
 ): Promise<{ rows: T[]; readFailed: boolean }> {
   const id = userId.trim();
   if (!id) return { rows: [], readFailed: false };
-  // `id` is interpolated into a PostgREST `or` filter below, so only a real auth uuid is accepted.
-  if (!UUID_PATTERN.test(id)) return { rows: [], readFailed: true };
+  // Only a real auth uuid reaches the by-email half, whose claim filter is interpolated into a
+  // PostgREST `or`. The `user_id` read below is parameterized, so it still answers for any id -
+  // an id that is not an auth uuid simply owns no `profiles` row and so no email-linked row.
+  const isAuthId = UUID_PATTERN.test(id);
 
-  const { data: profile, error: profileError } = await db
-    .from("profiles")
-    .select("email")
-    .eq("id", id)
-    .maybeSingle();
+  const { data: profile, error: profileError } = isAuthId
+    ? await db.from("profiles").select("email").eq("id", id).maybeSingle()
+    : { data: null, error: null };
   const email = String((profile as { email?: unknown } | null)?.email ?? "").trim().toLowerCase();
 
   const [byUserId, byEmail] = await Promise.all([
