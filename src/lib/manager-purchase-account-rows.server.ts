@@ -14,6 +14,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * (zero rows) and mean opposite things to a quota or a refusal. A failed `profiles` read counts: it blanks
  * the email and silently drops the by-email half.
  */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
 export async function loadAccountPurchaseRows<T extends { id: string }>(
   db: SupabaseClient,
   userId: string,
@@ -22,6 +28,8 @@ export async function loadAccountPurchaseRows<T extends { id: string }>(
 ): Promise<{ rows: T[]; readFailed: boolean }> {
   const id = userId.trim();
   if (!id) return { rows: [], readFailed: false };
+  // `id` is interpolated into a PostgREST `or` filter below, so only a real auth uuid is accepted.
+  if (!UUID_PATTERN.test(id)) return { rows: [], readFailed: true };
 
   const { data: profile, error: profileError } = await db
     .from("profiles")
@@ -33,7 +41,14 @@ export async function loadAccountPurchaseRows<T extends { id: string }>(
   const [byUserId, byEmail] = await Promise.all([
     db.from("manager_purchases").select(select).eq("user_id", id),
     email
-      ? db.from("manager_purchases").select(select).ilike("email", email)
+      ? db
+          .from("manager_purchases")
+          .select(select)
+          // Exact, case-insensitive match: `_` and `%` in an address are LIKE wildcards, so they are
+          // escaped or `a_b@x.com` would pull in `a.b@x.com`'s rows. A by-email row already claimed by a
+          // DIFFERENT account is never this account's.
+          .ilike("email", escapeLikePattern(email))
+          .or(`user_id.is.null,user_id.eq.${id}`)
       : Promise.resolve({ data: [] as unknown[], error: null }),
   ]);
 

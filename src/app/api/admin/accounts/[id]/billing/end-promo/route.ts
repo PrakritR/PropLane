@@ -89,7 +89,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const { error: writeError } = await db
       .from("manager_purchases")
       .update({ promo_ends_at: endsIso })
-      .in("id", withCode.map((row) => row.id));
+      .in("id", withCode.map((row) => row.id))
+      // Never end a row another account owns, whatever the email lookup returned.
+      .or(`user_id.is.null,user_id.eq.${managerUserId}`);
     if (writeError) {
       console.error("end-promo: write failed", writeError);
       return json({ error: "Could not save that change." }, 500);
