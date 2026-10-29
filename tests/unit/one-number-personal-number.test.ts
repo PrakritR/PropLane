@@ -35,7 +35,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   addOn.entitled = false;
   delete process.env.PROPLANE_SERVICE_OWNER_USER_ID;
-  mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "pro" });
+  mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "pro", billablePlan: true });
   mocks.loadManagerPlanAddonQuantities.mockResolvedValue({ ok: true, quantities: { extra_work_number: 0 } });
   mocks.provisionManagerNumber.mockResolvedValue({ ok: true, number: "+12065550001", state: "provisioning", alreadyProvisioned: false });
 });
@@ -52,9 +52,10 @@ describe("the plan rule", () => {
     expect(planMayHavePersonalNumber(null)).toBe(false);
   });
 
-  it("the Free refusal is neutral: no plan names, no price", () => {
-    expect(PERSONAL_NUMBER_FREE_REFUSAL.error).toBe("This workspace texts from the PropLane line.");
-    expect(PERSONAL_NUMBER_FREE_REFUSAL.error).not.toMatch(/\b(pro|business|upgrade)\b|\$/i);
+  it("the refusal is the one message the number-request error slot shows", () => {
+    expect(PERSONAL_NUMBER_FREE_REFUSAL.error).toBe(
+      "Your plan uses the PropLane line. A number of your own needs a paid plan or the $5 PropLane Number.",
+    );
   });
 });
 
@@ -62,7 +63,7 @@ describe("provisionNumberForWorkspace by plan", () => {
   it("refuses a Free account with a neutral reason and never reaches the provider", async () => {
     mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "free" });
     const result = await provisionNumberForWorkspace(seed() as never, OWNER, { workspaceId: WS });
-    expect(result).toMatchObject({ ok: false, code: "not_entitled", error: "This workspace texts from the PropLane line." });
+    expect(result).toMatchObject({ ok: false, code: "not_entitled", error: PERSONAL_NUMBER_FREE_REFUSAL.error });
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 
@@ -98,7 +99,7 @@ describe("provisionNumberForWorkspace by plan", () => {
 
   it("Pro and Business provision inside their budget", async () => {
     for (const tier of ["pro", "business"]) {
-      mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier });
+      mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier, billablePlan: true });
       expect(await provisionNumberForWorkspace(seed() as never, OWNER, { workspaceId: WS })).toMatchObject({ ok: true });
     }
   });

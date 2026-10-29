@@ -13,6 +13,7 @@ import {
 } from "@/lib/manager-access";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { waiverGrantedFromPromoCodeServer } from "@/lib/payment-policy.server";
+import { promoGrantEndedMessage } from "@/lib/promo-code-expiry";
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import { getStripe } from "@/lib/stripe";
 import {
@@ -105,7 +106,7 @@ export async function GET() {
       }
     }
 
-    const { tier, billing, stripeSubscriptionId, appleOriginalTransactionId, paidAt, promoCode, readFailed } =
+    const { tier, billing, stripeSubscriptionId, appleOriginalTransactionId, paidAt, promoCode, readFailed, waiverEndedCode } =
       await getManagerPurchaseSku(user.id);
     let stripeManaged = false;
     if (businessAccess.kind === "normal") {
@@ -161,6 +162,8 @@ export async function GET() {
       paymentCoverageUnknown: paymentSettings === null || readFailed,
       stripeManaged,
       appleManaged,
+      // A waiver grant staff ended reads Free above; this is the one line the plan page shows for it.
+      promoEnded: waiverEndedCode ? { code: waiverEndedCode, message: promoGrantEndedMessage(waiverEndedCode) } : null,
       cancelAtPeriodEnd,
       currentPeriodEnd,
       scheduledDowngrade,

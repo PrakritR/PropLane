@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarClock, Copy, Power, PowerOff, Tag, Users } from "lucide-react";
+import { CalendarClock, CalendarX, Copy, Power, PowerOff, Tag, Users } from "lucide-react";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -10,6 +10,7 @@ import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import { RecordFactCard, RecordFactRow, RecordRowsCard } from "@/components/portal/portal-record-overview-kit";
+import { AdminExpirePromoDialog } from "@/components/portal/admin-expire-promo-dialog";
 import { AdminNewPromoCodeWizard } from "@/components/portal/admin-new-promo-code-wizard";
 import { Button } from "@/components/ui/button";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
@@ -52,9 +53,16 @@ function usesLabel(code: Pick<AdminPromoCode, "timesRedeemed" | "maxRedemptions"
   return code.maxRedemptions ? `${code.timesRedeemed} of ${code.maxRedemptions} used` : `${code.timesRedeemed} used`;
 }
 
+/** The Ends column: when the code stops working, "Ends never" for a code with no end. */
 function expiryLabel(code: Pick<AdminPromoCode, "expiresAt" | "status">): string {
-  if (!code.expiresAt) return "No expiry";
-  return `${code.status === "expired" ? "Expired" : "Expires"} ${formatPromoDate(code.expiresAt)}`;
+  if (!code.expiresAt) return "Ends never";
+  const passed = Date.parse(code.expiresAt) <= Date.now();
+  return `${passed || code.status === "expired" ? "Ended" : "Ends"} ${formatPromoDate(code.expiresAt)}`;
+}
+
+/** A code staff can expire: a payment-waiver code, or a Stripe code that is still on. */
+function canExpire(code: Pick<AdminPromoCode, "kind" | "status">): boolean {
+  return code.kind === "waiver" || (code.kind === "stripe_promo_code" && code.status === "active");
 }
 
 async function readJson<T>(res: Response): Promise<T & { error?: string }> {
@@ -86,6 +94,7 @@ function PromoCodeList() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [expiring, setExpiring] = useState<AdminPromoCode | null>(null);
 
   const reload = useCallback(() => {
     setLoadError(null);
@@ -171,6 +180,11 @@ function PromoCodeList() {
       <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-promo-copy" onClick={() => void copyCode(selected)}>
         Copy code
       </Button>
+      {canExpire(selected) ? (
+        <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} data-attr="admin-promo-expire" onClick={() => setExpiring(selected)}>
+          Expire
+        </Button>
+      ) : null}
       {selected.kind !== "stripe_promo_code" ? null : selected.status === "active" ? (
         <Button type="button" variant="outline" className={PORTAL_BULK_BAR_BTN} disabled={busyId === selected.id} data-attr="admin-promo-deactivate" onClick={() => void setActive(selected, false)}>
           Deactivate
@@ -236,8 +250,8 @@ function PromoCodeList() {
               code.kind === "stripe_promo_code"
                 ? { icon: Users, label: usesLabel(code), srLabel: "Uses" }
                 : { icon: Users, label: accountsLabel(code), srLabel: "Accounts" },
-              ...(code.kind === "stripe_promo_code" || code.expiresAt
-                ? [{ icon: CalendarClock, label: expiryLabel(code), srLabel: "Expiry" }]
+              ...(code.kind === "stripe_promo_code" || code.kind === "waiver" || code.expiresAt
+                ? [{ icon: CalendarClock, label: expiryLabel(code), srLabel: "Ends" }]
                 : []),
             ]}
             figure={
@@ -258,6 +272,16 @@ function PromoCodeList() {
           />
         ))}
       </PortalRecordListSurface>
+      <AdminExpirePromoDialog
+        code={expiring}
+        onClose={() => setExpiring(null)}
+        onExpired={(message) => {
+          setExpiring(null);
+          setSelectedId(null);
+          showToast(message);
+          reload();
+        }}
+      />
       <AdminNewPromoCodeWizard
         open={wizardOpen}
         onClose={() => setWizardOpen(false)}
@@ -279,6 +303,7 @@ function PromoCodeRecord({ id }: { id: string }) {
   const [state, setState] = useState<"loading" | "ready" | "missing" | "error">("loading");
   const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [expiring, setExpiring] = useState<AdminPromoCode | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -373,6 +398,9 @@ function PromoCodeRecord({ id }: { id: string }) {
               );
             }}
           />
+          {canExpire(code) ? (
+            <PortalIconAction ring tone="danger" icon={CalendarX} label="Expire" data-attr="admin-promo-record-expire" onClick={() => setExpiring(code)} />
+          ) : null}
           {code.status === "active" ? (
             <PortalIconAction ring tone="danger" icon={PowerOff} label="Deactivate" disabled={busy} data-attr="admin-promo-record-deactivate" onClick={() => void setActive(false)} />
           ) : code.status === "inactive" ? (
@@ -382,13 +410,22 @@ function PromoCodeRecord({ id }: { id: string }) {
       }
     >
       <div className="flex flex-col gap-4 px-4 py-4 sm:px-6">
+        <AdminExpirePromoDialog
+          code={expiring}
+          onClose={() => setExpiring(null)}
+          onExpired={(message) => {
+            setExpiring(null);
+            showToast(message);
+            setTick((n) => n + 1);
+          }}
+        />
         <RecordFactCard title="Terms" dataAttr="admin-promo-terms">
           <RecordFactRow label="Status" value={STATUS_LABEL[code.status]} tone={code.status === "active" ? "ok" : undefined} />
           <RecordFactRow label="Discount" value={code.summary} />
           <RecordFactRow label="Applies to" value={describePromoPlans(code.plans)} />
           <RecordFactRow label="New customers only" value={code.firstTimeOnly ? "Yes" : "No"} />
           <RecordFactRow label="Uses" value={usesLabel(code)} />
-          <RecordFactRow label="Expires" value={code.expiresAt ? formatPromoDate(code.expiresAt) : "Never"} />
+          <RecordFactRow label="Ends" value={code.expiresAt ? formatPromoDate(code.expiresAt) : "Never"} />
           <RecordFactRow label="Given" value={code.givenCents > 0 ? `−${formatCents(code.givenCents)}` : formatCents(0)} />
           <RecordFactRow label="Created" value={formatPromoDate(code.createdAt)} />
         </RecordFactCard>

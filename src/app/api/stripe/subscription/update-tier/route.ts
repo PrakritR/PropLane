@@ -12,6 +12,9 @@ import {
 import { META_SCHEDULED_BILLING, META_SCHEDULED_TIER } from "@/lib/stripe-subscription-metadata";
 import { track } from "@/lib/analytics/posthog";
 import { getPaymentWaiverCode, normalizePaymentWaiverCode, paymentWaiverCodeMatches } from "@/lib/server-env";
+import { waiverRedeemedMessage, waiverTierForRequest } from "@/lib/payment-waiver-grant";
+import { PROMO_CODE_EXPIRED_MESSAGE } from "@/lib/promo-code-expiry";
+import { accountPromoEnded, checkPromoCodeRedeemable, promoRedeemRefusal } from "@/lib/promo-code-policy.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
@@ -120,12 +123,24 @@ async function handleUpdateTier(req: Request, ctx: { userId: string | null }) {
       );
     }
 
-    const targetTier = tierRaw;
+    // A payment-waiver code covers Pro only. Business with a code switches the pick to Pro; Business
+    // requires paying. A Free pick stays Free.
+    const targetTier = waiverValid ? waiverTierForRequest(tierRaw) : tierRaw;
     const { stripeSubscriptionId } = await getManagerPurchaseSku(user.id);
     const supabase = createSupabaseServiceRoleClient();
     const stripeManaged = await stripeSubscriptionIsBillable(stripeSubscriptionId);
 
     if (waiverValid && targetTier !== "free") {
+      // An expired code, or an account staff ended the promo on, redeems nothing. An unreadable
+      // policy refuses too (a new redemption fails closed).
+      const redeemable = await checkPromoCodeRedeemable(promoStored, { db: supabase });
+      if (!redeemable.ok) {
+        const refusal = promoRedeemRefusal(redeemable);
+        return NextResponse.json({ error: refusal.error, code: refusal.code }, { status: refusal.status });
+      }
+      if (await accountPromoEnded(supabase, user.id)) {
+        return NextResponse.json({ error: PROMO_CODE_EXPIRED_MESSAGE, code: "PROMO_EXPIRED" }, { status: 400 });
+      }
       if (stripeManaged) {
         return NextResponse.json(
           {
@@ -150,7 +165,7 @@ async function handleUpdateTier(req: Request, ctx: { userId: string | null }) {
         waiverApplied: true,
         tier: targetTier,
         billing,
-        message: `Promo code applied — you're now on ${targetTier === "business" ? "Business" : "Pro"}. No payment needed.`,
+        message: waiverRedeemedMessage(tierRaw, promoStored),
       });
     }
 

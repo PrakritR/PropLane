@@ -42,7 +42,7 @@ function seed(extra: Record<string, Record<string, unknown>[]> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "business" });
+  mocks.getEffectiveManagerSkuTier.mockResolvedValue({ ok: true, tier: "business", billablePlan: true });
   mocks.loadManagerPlanAddonQuantities.mockResolvedValue({
     ok: true,
     quantities: { extra_comms_credit: 0, extra_resident: 0, extra_work_number: 0, extra_workspace: 0, extra_seat: 0 },

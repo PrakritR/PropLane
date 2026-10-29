@@ -21,6 +21,9 @@ import { resolveServiceFeePayerFor, type ServiceFeePayer } from "@/lib/payment-p
 import { track } from "@/lib/analytics/posthog";
 import { isViewAsSessionOpen } from "@/lib/auth/view-as-guard";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
+import { waiverGrantTier } from "@/lib/payment-waiver-grant";
+import { isWaiverOnlyGrant } from "@/lib/promo-code-expiry";
+import { waiverGrantEndedFor } from "@/lib/promo-code-policy.server";
 
 /**
  * Server-only manager_purchases reads/writes (service role). Split out of
@@ -83,6 +86,10 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
   appleOriginalTransactionId: string | null;
   paidAt: string | null;
   readFailed: boolean;
+  /** The waiver code whose grant has ended (policy expiry or this row's `promo_ends_at`); every field above then reads Free. */
+  waiverEndedCode: string | null;
+  /** A Stripe subscription or an Apple grant backs the stored plan: the only BILLABLE sources. */
+  billableSource: boolean;
 }> => {
   const { rows, readFailed } = await loadManagerPurchaseRowsResult(userId);
   const best = pickBestManagerPurchaseRow(rows, userId);
@@ -98,11 +105,15 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
       appleOriginalTransactionId: null,
       paidAt: null,
       readFailed,
+      waiverEndedCode: null,
+      billableSource: false,
     };
   }
-  return {
+  const view = {
     hasPurchaseRow: true,
     readFailed,
+    waiverEndedCode: null as string | null,
+    billableSource: false,
     tier: best.tier != null ? String(best.tier) : null,
     billing: best.billing != null ? String(best.billing) : null,
     stripeCustomerId:
@@ -127,6 +138,37 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
         : null,
     paidAt: best.paid_at != null ? String(best.paid_at) : null,
   };
+
+  view.billableSource =
+    Boolean(view.stripeSubscriptionId) || isAppleBilledManagerPurchase(view.billing, view.appleOriginalTransactionId);
+
+  // An ENDED waiver grant (code expired by staff, or this account's promo ended) resolves to Free in
+  // this view only - the stored row is never rewritten, exactly like a lapsed signup trial. Only a
+  // waiver-ONLY grant can end; a Stripe, Apple, admin or trial row is paid or comped by something else.
+  // An unreadable policy leaves the grant valid (`waiverGrantEndedFor` fails safe).
+  const tier = normalizeManagerSkuTier(view.tier);
+  if (
+    (tier === "pro" || tier === "business") &&
+    isWaiverOnlyGrant({
+      promoCode: view.promoCode,
+      billing: view.billing,
+      stripeSubscriptionId: view.stripeSubscriptionId,
+      stripeCheckoutSessionId: view.stripeCheckoutSessionId,
+      appleOriginalTransactionId: view.appleOriginalTransactionId,
+    }) &&
+    (await waiverGrantEndedFor({ promoCode: view.promoCode, rowId: String(best.id) }))
+  ) {
+    const endedCode = view.promoCode;
+    return {
+      ...view,
+      tier: "free",
+      billing: "free",
+      promoCode: null,
+      waiverEndedCode: endedCode,
+      billableSource: false,
+    };
+  }
+  return view;
 });
 
 /**
@@ -396,6 +438,8 @@ export async function getManagerPurchaseSku(userId: string): Promise<{
   /** Trial start. Needed to expire a lapsed signup trial by date. */
   paidAt: string | null;
   readFailed: boolean;
+  /** The waiver code whose grant has ended; the plan fields above then read Free. */
+  waiverEndedCode: string | null;
 }> {
   const row = await getManagerPurchaseRowByUserId(userId);
   return {
@@ -410,6 +454,7 @@ export async function getManagerPurchaseSku(userId: string): Promise<{
     promoCode: row.promoCode,
     appleOriginalTransactionId: row.appleOriginalTransactionId,
     readFailed: row.readFailed,
+    waiverEndedCode: row.waiverEndedCode,
   };
 }
 
@@ -437,6 +482,13 @@ export type ManagerEffectiveSkuTierResult =
        * refuses its sends. Absent/false for every other plan, including a lapsed trial (Free).
        */
       liveSignupTrial?: boolean;
+      /**
+       * True only when a Stripe subscription or an Apple grant backs a Pro/Business plan. A signup
+       * trial, a payment-waiver (FREE100) grant and an admin comp / portal grant are NOT billable:
+       * they keep every plan feature but do not entitle a NEW personalized number
+       * (`managerPersonalNumberEntitlement`).
+       */
+      billablePlan?: boolean;
     }
   | { ok: false; error: string };
 
@@ -446,6 +498,7 @@ export async function getEffectiveManagerSkuTier(userId: string): Promise<Manage
   const appleManaged = isAppleBilledManagerPurchase(row.billing, row.appleOriginalTransactionId);
   return {
     ok: true,
+    billablePlan: row.billableSource,
     liveSignupTrial: isLiveSignupTrialPurchase({
       tier: row.tier,
       billing: row.billing,
@@ -479,6 +532,11 @@ export async function setManagerPurchaseTier(
   opts?: { adminOverride?: boolean; waiver?: { promoCode: string; billing: "monthly" | "annual" } },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const waiver = tier !== "free" ? opts?.waiver : undefined;
+  // A payment-waiver code covers Pro only (`waiverGrantTier`); Business requires paying. The redeem
+  // routes coerce the pick first, so this is the backstop that no caller can write Business on a waiver.
+  if (waiver && !opts?.adminOverride && tier !== waiverGrantTier()) {
+    return { ok: false, error: "Business requires a paid plan." };
+  }
   if (!opts?.adminOverride && !waiver && tier !== "free") {
     return { ok: false, error: "Paid plans require Stripe checkout or an admin assignment." };
   }

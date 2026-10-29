@@ -310,10 +310,21 @@ export async function provisionNumberForWorkspace(
     return { ok: false, error: "Could not verify your add-ons.", state: "failed", code: "budget_exceeded" };
   }
   const ownedCount = (ownedWorkspaces ?? []).length;
-  const included = personal.via === "plan" ? includedNumbersPerOwnedWorkspace(tierResult.tier) * ownedCount : 1;
+  // A grandfathered number (a waiver / comp plan that predates the paid-plan rule) keeps working but never buys
+  // another: its budget is the numbers already held, plus whatever extra-number add-on the account pays for.
+  const heldHomeNumbers = (homeNumbers ?? []).length;
+  const included =
+    personal.via === "plan"
+      ? includedNumbersPerOwnedWorkspace(tierResult.tier) * ownedCount
+      : personal.via === "grandfathered"
+        ? heldHomeNumbers
+        : 1;
   const extra = Math.max(0, addons.quantities.extra_work_number ?? 0);
   const budget = included + extra;
-  const held = (homeNumbers ?? []).length;
+  const held = heldHomeNumbers;
+  if (personal.via === "grandfathered" && held >= budget) {
+    return { ok: false, error: PERSONAL_NUMBER_FREE_REFUSAL.error, state: "failed", code: "not_entitled" };
+  }
   if (held >= budget) {
     return {
       ok: false,

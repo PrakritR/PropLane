@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { completeFreeManagerTierForUser } from "@/lib/auth/manager-pricing-selection";
 import { generateManagerId } from "@/lib/manager-id";
 import { newAxisIntentSessionId } from "@/lib/manager-signup-intent";
-import { paymentWaiverCodeMatches } from "@/lib/server-env";
+import { normalizePaymentWaiverCode, paymentWaiverCodeMatches } from "@/lib/server-env";
+import { waiverRedeemedMessage, waiverTierForRequest } from "@/lib/payment-waiver-grant";
+import { checkPromoCodeRedeemable, promoRedeemRefusal } from "@/lib/promo-code-policy.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -64,6 +66,20 @@ export async function POST(req: Request) {
     }
 
     const supabase = createSupabaseServiceRoleClient();
+
+    // A payment-waiver code covers Pro only (Business requires paying), and an expired code redeems
+    // nothing. An unreadable policy refuses a NEW redemption (fail closed).
+    const grantedTier = skipStripeForPromo ? waiverTierForRequest(tierRaw) : tierRaw;
+    const promoStored = skipStripeForPromo ? normalizePaymentWaiverCode(promo) : "";
+    if (skipStripeForPromo) {
+      const redeemable = await checkPromoCodeRedeemable(promoStored, { db: supabase });
+      if (!redeemable.ok) {
+        const refusal = promoRedeemRefusal(redeemable);
+        return NextResponse.json({ error: refusal.error, code: refusal.code }, { status: refusal.status });
+      }
+    }
+    const waiverNote = skipStripeForPromo && tierRaw !== "free" ? waiverRedeemedMessage(tierRaw, promoStored) : undefined;
+
     const supabaseAuth = await createSupabaseServerClient();
     const {
       data: { user: authUser },
@@ -75,11 +91,11 @@ export async function POST(req: Request) {
           userId: authUser.id,
           email,
           fullName,
-          tier: tierRaw,
+          tier: grantedTier,
           billing: billingRaw,
-          promo: skipStripeForPromo ? promo : null,
+          promo: skipStripeForPromo ? promoStored : null,
         });
-        return NextResponse.json({ action: "portal", managerId });
+        return NextResponse.json({ action: "portal", managerId, tier: grantedTier, ...(waiverNote ? { message: waiverNote } : {}) });
       } catch (e) {
         const message = e instanceof Error ? e.message : "Could not create signup.";
         if (message.includes("already exists")) {
@@ -104,9 +120,9 @@ export async function POST(req: Request) {
       stripe_checkout_session_id: sessionId,
       email,
       manager_id: managerId,
-      tier: tierRaw,
+      tier: grantedTier,
       billing: billingRaw,
-      promo_code: skipStripeForPromo ? promo : null,
+      promo_code: skipStripeForPromo ? promoStored : null,
       paid_at: new Date().toISOString(),
       full_name: fullName,
     });
@@ -115,7 +131,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: insErr.message }, { status: 500 });
     }
 
-    return NextResponse.json({ sessionId });
+    return NextResponse.json({ sessionId, tier: grantedTier, ...(waiverNote ? { message: waiverNote } : {}) });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not create signup.";
     return NextResponse.json({ error: message }, { status: 500 });

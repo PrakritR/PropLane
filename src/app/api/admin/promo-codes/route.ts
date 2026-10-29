@@ -8,7 +8,9 @@ import {
   setPromoCodeActive,
   setPromoCodeActiveSchema,
 } from "@/lib/admin/admin-promo-codes.server";
+import { expirePromoCode, expirePromoCodeSchema } from "@/lib/admin/admin-promo-expiry.server";
 import { requireAdminRoute } from "@/lib/admin/admin-route-guard.server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
@@ -61,11 +63,27 @@ export async function POST(req: Request) {
   }
 }
 
-/** PATCH /api/admin/promo-codes — `{ id, active }`; `active` defaults to false (deactivate). */
+/**
+ * PATCH /api/admin/promo-codes
+ *  - `{ id, active }`: turn a Stripe promotion code off or on (`active` defaults to false).
+ *  - `{ verb: "expire", code, id?, expiresAt: "now" | "YYYY-MM-DD", reason, endStripeDiscounts? }`: expire a
+ *    payment-waiver code (policy row; every waiver grant on it drops to Free) or a Stripe code (inactive, and
+ *    optionally its discount comes off each subscriber). A reason is required and the audit row is written first.
+ */
 export async function PATCH(req: Request) {
   const gate = await requireAdminRoute();
   if (!gate.ok) return gate.response;
-  const parsed = setPromoCodeActiveSchema.safeParse(await readBody(req));
+  const body = await readBody(req);
+  if (body && typeof body === "object" && (body as { verb?: unknown }).verb === "expire") {
+    const expire = expirePromoCodeSchema.safeParse(body);
+    if (!expire.success) return invalid(expire.error);
+    try {
+      return json({ expired: await expirePromoCode(expire.data, { db: createSupabaseServiceRoleClient(), actorUserId: gate.userId }) });
+    } catch (error) {
+      return failure("PATCH expire", error);
+    }
+  }
+  const parsed = setPromoCodeActiveSchema.safeParse(body);
   if (!parsed.success) return invalid(parsed.error);
   try {
     return json({ code: await setPromoCodeActive(parsed.data.id, parsed.data.active) });

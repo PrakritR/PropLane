@@ -18,6 +18,11 @@ vi.mock("@/lib/server-env", () => ({
   paymentWaiverCodeMatches: (promo: string) =>
     promo.trim().toUpperCase().replace(/[^A-Z0-9]/g, "") === "FREE100",
 }));
+vi.mock("@/lib/promo-code-policy.server", () => ({
+  checkPromoCodeRedeemable: vi.fn(async () => ({ ok: true })),
+  accountPromoEnded: vi.fn(async () => false),
+  promoRedeemRefusal: vi.fn(),
+}));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/stripe", () => ({
   getStripe: vi.fn(() => {
@@ -66,7 +71,7 @@ describe("POST /api/stripe/subscription/update-tier payment waiver", () => {
     expect(getStripe).not.toHaveBeenCalled();
   });
 
-  it("activates Business with FREE100 for lifetime comp access (no Stripe)", async () => {
+  it("FREE100 covers Pro only: a Business pick is switched to Pro (no Stripe)", async () => {
     const response = await updateTier(jsonRequest("http://localhost/api/stripe/subscription/update-tier", {
       method: "POST",
       body: { tier: "business", billing: "monthly", promo: "FREE100" },
@@ -83,10 +88,11 @@ describe("POST /api/stripe/subscription/update-tier payment waiver", () => {
     expect(data).toEqual(expect.objectContaining({
       ok: true,
       waiverApplied: true,
-      tier: "business",
+      tier: "pro",
       billing: "monthly",
+      message: "FREE100 covers Pro. Your plan is Pro. No payment needed.",
     }));
-    expect(setManagerPurchaseTier).toHaveBeenCalledWith("manager-1", "business", {
+    expect(setManagerPurchaseTier).toHaveBeenCalledWith("manager-1", "pro", {
       waiver: { promoCode: "FREE100", billing: "monthly" },
     });
     expect(getStripe).not.toHaveBeenCalled();
@@ -102,7 +108,7 @@ describe("POST /api/stripe/subscription/update-tier payment waiver", () => {
     expect(getStripe).not.toHaveBeenCalled();
   });
 
-  it("activates Business with FREE100 when a canceled Stripe subscription id is still on file", async () => {
+  it("activates Pro with FREE100 (Business pick) when a canceled Stripe subscription id is still on file", async () => {
     vi.mocked(getManagerPurchaseSku).mockResolvedValue({
       stripeSubscriptionId: "sub_canceled_1",
     } as Awaited<ReturnType<typeof getManagerPurchaseSku>>);
@@ -126,9 +132,9 @@ describe("POST /api/stripe/subscription/update-tier payment waiver", () => {
     expect(data).toEqual(expect.objectContaining({
       ok: true,
       waiverApplied: true,
-      tier: "business",
+      tier: "pro",
     }));
-    expect(setManagerPurchaseTier).toHaveBeenCalledWith("manager-1", "business", {
+    expect(setManagerPurchaseTier).toHaveBeenCalledWith("manager-1", "pro", {
       waiver: { promoCode: "FREE100", billing: "monthly" },
     });
   });
