@@ -23,7 +23,10 @@ import {
 } from "@/lib/application-fee-waiver";
 import { applicationFormIdForLink } from "@/lib/send-forms";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
-import { managerMayFileLeaseUnderProperty } from "@/lib/auth/manager-lease-scope";
+import {
+  managerHasCoManagerPermissionForProperty,
+  managerMayFileLeaseUnderProperty,
+} from "@/lib/auth/manager-lease-scope";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import {
   assertManagerCommunicationAllowedForWorkspace,
@@ -209,6 +212,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "You cannot share links for one or more of these properties." }, { status: 403 });
     }
 
+    // Waiving the application fee mints a code under the property OWNER's id, so it is a money grant,
+    // not a share. `getShareablePropertyForUser` also passes a promotion-only co-manager, the account
+    // link inviter fallback and a platform admin; none of those may waive. Only the record owner, or a
+    // co-manager holding `payments` or `applications` at edit (empty permissions = no access), may.
+    // Refused before anything is minted or sent: a fee-charging link never goes out in its place.
+    if (waiveFee) {
+      let mayWaive = false;
+      for (const permission of ["payments", "applications"] as const) {
+        if (await managerHasCoManagerPermissionForProperty(svc, user.id, effectiveIds[0], permission, "edit")) {
+          mayWaive = true;
+          break;
+        }
+      }
+      if (!mayWaive) {
+        return NextResponse.json(
+          {
+            error: "Only the property owner, or a co-manager with edit access to Payments or Applications, can waive the application fee.",
+            code: "waive_fee_forbidden",
+            emailSent: false,
+          },
+          { status: 403 },
+        );
+      }
+    }
+
     if (kind === "apply" && rentalType === "short_term") {
       const shortTermBlocked = authorized.some(
         (entry) => !entry.listing?.listingSubmission?.shortTermRentalsAllowed,
@@ -300,6 +328,13 @@ export async function POST(req: Request) {
       }
       mintedWaiverCodeId = minted.code.id;
       waiverCode = minted.code.code;
+      // The waiver table records the owner, not the sender, so the sender is logged here.
+      console.info("[send-lead-invite] application fee waiver minted", {
+        senderUserId: user.id,
+        ownerUserId: waiverOwnerId,
+        propertyId,
+        codeId: minted.code.id,
+      });
     }
     const discardMintedWaiver = async () => {
       if (!mintedWaiverCodeId) return;

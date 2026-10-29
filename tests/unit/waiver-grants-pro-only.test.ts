@@ -141,6 +141,8 @@ describe("update-tier (an existing account)", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("This code has expired.");
     expect(mocks.setManagerPurchaseTier).not.toHaveBeenCalled();
+    // A new redemption asks the ended-promo question fail-closed (an unreadable read refuses).
+    expect(mocks.accountEnded).toHaveBeenCalledWith(expect.anything(), "mgr-1", expect.any(Number), { failClosed: true });
   });
 });
 

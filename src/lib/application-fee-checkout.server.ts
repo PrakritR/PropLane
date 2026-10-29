@@ -254,12 +254,16 @@ export async function resolveApplicationFeeProperty(
   // room id and term are selectors only.
   const managerSettings = await loadManagerApplicationSettings(db, ownerUserId);
   const feeLeaseTerm = offeredLeaseTerm(listing, input.leaseTerm);
+  // Whether this is a stay comes from the OFFERED lease term alone. The client's `rentalType` is a
+  // selector the applicant controls, so `short_term` beside a long-term (or blank) term is priced as
+  // long-term and charged the house fee, never the free stay default.
+  const feeIsStay = isShortStayApplication({ leaseTerm: feeLeaseTerm });
   const basis = resolveApplicationFeeBasis(listing, {
     roomChoice1: input.roomChoice1,
     bundleId: input.bundleId,
     applicationTemplateId: matchedTemplate?.id,
     leaseTerm: feeLeaseTerm,
-    rentalType: offeredRentalType(listing, input.rentalType),
+    rentalType: feeIsStay ? offeredRentalType(listing, "short_term") : "standard",
   });
   // The resolver's placement level already folds in the template's fee under the room's own override
   // (room override -> template fee); the template value below is the same figure for an unplaced listing.
@@ -278,9 +282,7 @@ export async function resolveApplicationFeeProperty(
       roomTermFeeCents: basis.roomTermCents,
       templateFeeCentsOverride: templateCents,
       listingFeeCents: basis.listingCents,
-      shortStay:
-        offeredRentalType(listing, input.rentalType) === "short_term" ||
-        isShortStayApplication({ leaseTerm: feeLeaseTerm }),
+      shortStay: feeIsStay,
     }),
   );
   if (applicationFeeCents <= 0 && !opts?.allowZeroFee) {
