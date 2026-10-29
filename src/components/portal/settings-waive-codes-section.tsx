@@ -129,6 +129,7 @@ export function WaiveCodesSettingsSection({
   defaultAppliesTo = "application",
   defaultPropertyIds,
   show,
+  listPropertyId,
 }: {
   propertyOptions: PropertyOption[];
   /** Only list the codes that waive this fee (a form card's Promo codes dialog). Absent = every code. */
@@ -137,6 +138,8 @@ export function WaiveCodesSettingsSection({
   defaultAppliesTo?: WaiverCodeAppliesTo;
   /** Properties a new code is limited to until the manager changes it (a house's own Promo codes dialog). */
   defaultPropertyIds?: string[];
+  /** List the codes covering this property under its owner (a teammate or PropLane staff seated on the workspace), not the signed-in account's own. */
+  listPropertyId?: string;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
@@ -149,7 +152,12 @@ export function WaiveCodesSettingsSection({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/manager/application-fee-waivers", { credentials: "include" });
+      const res = await fetch(
+        listPropertyId
+          ? `/api/manager/application-fee-waivers?propertyId=${encodeURIComponent(listPropertyId)}`
+          : "/api/manager/application-fee-waivers",
+        { credentials: "include" },
+      );
       const data = (await res.json().catch(() => ({}))) as { codes?: ApplicationFeeWaiverCode[]; error?: string };
       if (!res.ok) {
         showToast(data.error ?? "Could not load waive codes.");
@@ -163,7 +171,7 @@ export function WaiveCodesSettingsSection({
     } finally {
       setLoaded(true);
     }
-  }, [showToast]);
+  }, [showToast, listPropertyId]);
 
   useEffect(() => {
     // /demo never writes real rows, so it never reads them either.

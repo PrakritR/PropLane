@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import {
-  assertPropertiesOwnedByManager,
   revokeApplicationFeeWaiverCode,
   updateApplicationFeeWaiverCode,
   type UpdateWaiverCodeInput,
 } from "@/lib/application-fee-waiver";
+import { resolveWaiverPropertiesScope } from "@/lib/application-fee-waiver-scope.server";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 
 export const runtime = "nodejs";
@@ -20,9 +20,13 @@ type PatchBody = {
 
 /**
  * PATCH - `{ action: "revoke" }` disables a waiver code; `{ action: "update", ... }` edits an active one
- * (what it applies to, its property limit, use cap, expiry, label). Both are scoped to the signed-in
- * manager's OWN codes (the lib filters on `manager_user_id`), so a manager can never change - or discover
- * the existence of - another manager's code.
+ * (what it applies to, its property limit, use cap, expiry, label).
+ *
+ * A code belongs to its OWNER (`manager_user_id`), read from the stored row, never the body or the caller. The
+ * caller must be that owner, or hold Applications at `edit` on EVERY property the code covers (a co-manager, or
+ * PropLane staff seated on a service workspace); a portfolio-wide code is the owner's alone. Every write is
+ * scoped to the owner's id by the lib, so nobody can change - or discover - a code outside that rule.
+ * A property limit in an update is authorized the same way and must stay inside the code's own portfolio.
  */
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const ctx = await requireManagerRouteUser();
@@ -30,8 +34,29 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as PatchBody;
 
+  const { data: row } = await ctx.db
+    .from("manager_application_fee_waiver_codes")
+    .select("manager_user_id, property_id, property_ids")
+    .eq("id", id.trim())
+    .maybeSingle();
+  const stored = row as { manager_user_id?: string | null; property_id?: string | null; property_ids?: string[] | null } | null;
+  const ownerUserId = String(stored?.manager_user_id ?? "").trim();
+  if (!stored || !ownerUserId) return NextResponse.json({ error: "Code not found." }, { status: 404 });
+  if (ownerUserId !== ctx.userId) {
+    const covered = Array.isArray(stored.property_ids) && stored.property_ids.length > 0
+      ? stored.property_ids.map(String)
+      : stored.property_id
+        ? [String(stored.property_id)]
+        : [];
+    // A portfolio-wide code is the owner's own; it is not discoverable by anyone else.
+    if (covered.length === 0) return NextResponse.json({ error: "Code not found." }, { status: 404 });
+    const access = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, covered, "edit");
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    if (access.ownerUserId !== ownerUserId) return NextResponse.json({ error: "Code not found." }, { status: 404 });
+  }
+
   if (body.action === "revoke") {
-    const result = await revokeApplicationFeeWaiverCode(ctx.db, ctx.userId, id);
+    const result = await revokeApplicationFeeWaiverCode(ctx.db, ownerUserId, id);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 404 });
     return NextResponse.json({ ok: true });
   }
@@ -41,13 +66,21 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if ("appliesTo" in body) input.appliesTo = body.appliesTo as UpdateWaiverCodeInput["appliesTo"];
     if ("propertyIds" in body) {
       input.propertyIds = Array.isArray(body.propertyIds) ? body.propertyIds.map(String) : [];
-      const owned = await assertPropertiesOwnedByManager(ctx.db, ctx.userId, input.propertyIds);
-      if (!owned.ok) return NextResponse.json({ error: owned.error }, { status: 400 });
+      if (input.propertyIds.length > 0) {
+        const scope = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, input.propertyIds, "edit");
+        if (!scope.ok) return NextResponse.json({ error: scope.error }, { status: scope.status });
+        if (scope.ownerUserId !== ownerUserId) {
+          return NextResponse.json({ error: "Pick properties from your own portfolio." }, { status: 400 });
+        }
+      } else if (ownerUserId !== ctx.userId) {
+        // Dropping the limit makes the code portfolio-wide: the owner's decision.
+        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
     }
     if ("maxUses" in body) input.maxUses = body.maxUses ?? null;
     if ("expiresAt" in body) input.expiresAt = body.expiresAt ?? null;
     if ("label" in body) input.label = body.label ?? null;
-    const result = await updateApplicationFeeWaiverCode(ctx.db, ctx.userId, id, input);
+    const result = await updateApplicationFeeWaiverCode(ctx.db, ownerUserId, id, input);
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
     return NextResponse.json({ code: result.code });
   }

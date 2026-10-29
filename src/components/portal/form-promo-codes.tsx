@@ -56,6 +56,7 @@ export function FormPromoCodesDialog({
         defaultAppliesTo={kind}
         defaultPropertyIds={id ? [id] : undefined}
         show={kind}
+        listPropertyId={id || undefined}
       />
     </PortalDialog>
   );
@@ -106,13 +107,15 @@ export function FormPromoCodesRow({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(API, { credentials: "include" });
+      // With a property the server lists the codes of that property's OWNER that cover it, so a teammate or
+      // PropLane staff seated on the workspace sees the same codes the owner does.
+      const res = await fetch(scopeId ? `${API}?propertyId=${encodeURIComponent(scopeId)}` : API, { credentials: "include" });
       const data = (await res.json().catch(() => ({}))) as { codes?: ApplicationFeeWaiverCode[] };
       if (res.ok && Array.isArray(data.codes)) setCodes(data.codes);
     } catch {
       // The list is a convenience; typing a code still works without it.
     }
-  }, []);
+  }, [scopeId]);
 
   useEffect(() => {
     // /demo never writes real rows, so it never reads them either (the row stays, inert); a draft with no id has none yet.
