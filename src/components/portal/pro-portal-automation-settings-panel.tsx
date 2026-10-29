@@ -165,6 +165,7 @@ export const REMINDER_KIND_MODULE: Record<ReminderSubjectKind, CoManagerPermissi
   inspection_acknowledge: "residents",
   stay_arrival_guide: "calendar",
   stay_checkout_reminder: "calendar",
+  move_in_arrival: "residents",
 };
 
 

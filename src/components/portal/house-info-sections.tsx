@@ -6,6 +6,7 @@ import { PortalTableExpandChevron } from "@/components/portal/portal-data-table"
 import { CountStepper, FactRow } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import {
   HOUSE_INFO_SECTIONS,
+  HOUSE_INTERNAL_SECTION_ID,
   getHouseInfoValue,
   houseInfoRenderSections,
   houseInfoSectionCount,
@@ -229,15 +230,22 @@ function EditorSection({
   defaultOpen: boolean;
 }) {
   const count = houseInfoSectionCount(info, spec);
+  const staffOnly = spec.id === HOUSE_INTERNAL_SECTION_ID;
   return (
     <HouseDetailsExpandable
       defaultOpen={defaultOpen}
       dataAttr={`house-info-section-${spec.id}`}
       title={spec.label}
       badge={
-        <span className="portal-badge-info rounded-full px-2 py-0.5 text-[10px] font-semibold">
-          Residents only
-        </span>
+        staffOnly ? (
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-900 dark:bg-amber-500/20 dark:text-amber-200">
+            Staff only
+          </span>
+        ) : (
+          <span className="portal-badge-info rounded-full px-2 py-0.5 text-[10px] font-semibold">
+            Residents only
+          </span>
+        )
       }
       count={count}
     >
@@ -293,6 +301,7 @@ export function HouseInfoEditor({
   onOtherChange,
   sectionIds,
   layout = "sections",
+  showInternal = false,
 }: {
   info: HouseInfoV1;
   onChange: (sectionId: HouseInfoSectionId, key: string, value: string) => void;
@@ -300,16 +309,21 @@ export function HouseInfoEditor({
   /** When set, only these sections render (single-section popup). */
   sectionIds?: readonly HouseInfoSectionId[];
   layout?: "sections" | "rows";
+  /** The staff-only Internal section. Off unless the viewer is staff or a manager with Properties access. */
+  showInternal?: boolean;
 }) {
   const [showOptional, setShowOptional] = useState(
     () => !HOUSE_INFO_SECTIONS.every((spec) => !spec.optional || houseInfoSectionIsEmpty(info, spec)),
   );
 
-  const visible = HOUSE_INFO_SECTIONS.filter((spec) => {
+  const eligible = HOUSE_INFO_SECTIONS.filter((spec) => showInternal || spec.id !== HOUSE_INTERNAL_SECTION_ID);
+  const visible = eligible.filter((spec) => {
     if (sectionIds?.length && !sectionIds.includes(spec.id)) return false;
     return !spec.optional || showOptional || !houseInfoSectionIsEmpty(info, spec);
   });
-  const hiddenCount = HOUSE_INFO_SECTIONS.length - visible.length;
+  const hiddenCount = eligible.filter(
+    (spec) => (!sectionIds?.length || sectionIds.includes(spec.id)) && !visible.includes(spec),
+  ).length;
 
   if (layout === "rows" && sectionIds?.length) {
     return (

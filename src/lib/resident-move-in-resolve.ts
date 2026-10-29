@@ -3,7 +3,15 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { splitLineList } from "@/data/manager-listing-presets";
 import type { MockProperty } from "@/data/types";
-import { emptyHouseInfo, getHouseInfoValue, houseInfoIsEmpty, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
+import {
+  emptyHouseInfo,
+  getHouseInfoValue,
+  houseInfoIsEmpty,
+  houseInfoWithoutInternal,
+  houseInfoWithoutSecrets,
+  normalizeHouseInfo,
+  type HouseInfoV1,
+} from "@/lib/house-info";
 import { normalizeManagerListingSubmissionV1, isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
 
@@ -79,7 +87,17 @@ export type ResidentMoveInResolved = {
   houseMoveInPhotoDataUrls: string[];
   houseMoveInVideoDataUrl: string | null;
   /**
+   * The resident's room door code (structured, `ManagerRoomSubmission.doorCode`) and a real photo of that
+   * door. A SECRET: null until the check-in reveal (`checkInReveal`, `maskUnrevealedCheckIn`).
+   */
+  roomDoorCode: string | null;
+  roomDoorPhotoDataUrl: string | null;
+  /** Real photos of the front door and the house from the street (Check-in steps). Never a stock image. */
+  frontDoorPhotoDataUrl: string | null;
+  exteriorPhotoDataUrl: string | null;
+  /**
    * Structured house details — door code, Wi-Fi, trash, rules, contacts.
+   * The staff-only Internal section is ALWAYS empty here (`houseInfoWithoutInternal`).
    * Empty when the manager has not filled any section in, in which case the
    * free-text fields below are still what the resident reads.
    */
@@ -266,6 +284,8 @@ export function resolveResidentMoveInFromApplications(
   let houseMoveInPhotoDataUrls: string[] = [];
   let houseMoveInVideoDataUrl: string | null = null;
   let roomId: string | null = null;
+  let roomDoorCode: string | null = null;
+  let roomDoorPhotoDataUrl: string | null = null;
   let residentSection: ResidentMoveInResidentSection | null = null;
   if (sub) {
     // A room listing has two levels of move-in detail and the resident needs
@@ -291,6 +311,8 @@ export function resolveResidentMoveInFromApplications(
 
     if (room) {
       roomId = room.id;
+      roomDoorCode = room.doorCode?.trim() || null;
+      roomDoorPhotoDataUrl = room.doorPhotoDataUrl?.trim() || null;
       const rn = room.name.trim();
       if (rn && !isPropertyFallbackLabel(rn)) roomLabel = rn;
       if (!isEntireHomeListing(sub)) {
@@ -330,7 +352,8 @@ export function resolveResidentMoveInFromApplications(
       firstNonEmpty(row.manualResidentDetails?.moveInDate, row.application?.leaseStart, listingMoveInDate) ?? "",
     ) || null;
   const instructions = firstNonEmpty(roomLevelInstructions, row.moveInInstructions);
-  const houseInfo = normalizeHouseInfo(sub?.houseInfo);
+  // The staff-only Internal section never rides a resident payload (pantry / lockbox / mailbox codes).
+  const houseInfo = houseInfoWithoutInternal(normalizeHouseInfo(sub?.houseInfo));
   const generalHouseInfo = sub?.generalHouseInfo?.trim() || null;
   const houseRulesText = sub?.houseRulesText?.trim() || null;
   const amenities = sub ? splitLineList(sub.amenitiesText ?? "") : [];
@@ -357,6 +380,10 @@ export function resolveResidentMoveInFromApplications(
     houseInstructions,
     houseMoveInPhotoDataUrls,
     houseMoveInVideoDataUrl,
+    roomDoorCode,
+    roomDoorPhotoDataUrl,
+    frontDoorPhotoDataUrl: sub?.frontDoorPhotoDataUrl?.trim() || null,
+    exteriorPhotoDataUrl: sub?.exteriorPhotoDataUrl?.trim() || null,
     houseInfo,
     generalHouseInfo,
     houseRulesText,
@@ -383,11 +410,38 @@ export function redactMoveInDetails(resolved: ResidentMoveInResolved): ResidentM
     houseInstructions: null,
     houseMoveInPhotoDataUrls: [],
     houseMoveInVideoDataUrl: null,
+    roomDoorCode: null,
+    roomDoorPhotoDataUrl: null,
+    frontDoorPhotoDataUrl: null,
+    exteriorPhotoDataUrl: null,
     houseInfo: emptyHouseInfo(),
     generalHouseInfo: null,
     houseRulesText: null,
     amenities: [],
     wifiNetworkName: null,
+    wifiPassword: null,
+    residentSection: null,
+  };
+}
+
+/**
+ * The Check-in tab before the reveal (`checkInReveal`): the steps and their photos stay, every code
+ * goes. Removes, from the data the browser is sent, every secret house field (door, gate, lockbox,
+ * Wi-Fi password, alarm), the room door code, the legacy Wi-Fi password, and the free-text move-in
+ * instructions and media (a manager types codes into those). Applied server-side; the browser never
+ * holds a code it is not yet meant to show.
+ */
+export function maskUnrevealedCheckIn(resolved: ResidentMoveInResolved): ResidentMoveInResolved {
+  return {
+    ...resolved,
+    instructions: null,
+    moveInPhotoDataUrls: [],
+    moveInVideoDataUrl: null,
+    houseInstructions: null,
+    houseMoveInPhotoDataUrls: [],
+    houseMoveInVideoDataUrl: null,
+    roomDoorCode: null,
+    houseInfo: houseInfoWithoutSecrets(resolved.houseInfo),
     wifiPassword: null,
     residentSection: null,
   };

@@ -21,6 +21,8 @@ const seed = () => ({
   property_knowledge_entries: [],
   portal_work_order_records: [{ id: "wo1", manager_user_id: "owner", row_data: { propertyId: "p1" } }],
   portal_lease_pipeline_records: [{ manager_user_id: "owner", resident_email: "r@example.com", row_data: { propertyId: "p1", status: "Active" } }],
+  // The check-in reveal reads the resident's tenancy row: an approved resident with no move-in date on file is already in.
+  manager_application_records: [{ id: "app-r", manager_user_id: "owner", resident_email: "r@example.com", row_data: { bucket: "approved", stage: "Approved", name: "R", propertyId: "p1", assignedPropertyId: "p1" } }],
 });
 
 const question = "what is the door code, gate code, wifi password, alarm code and trash day";

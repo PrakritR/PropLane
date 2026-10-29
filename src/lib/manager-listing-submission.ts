@@ -245,6 +245,14 @@ export type ManagerRoomSubmission = {
   /** Optional move-in walkthrough video (resident portal only). */
   moveInVideoDataUrl: string | null;
   /**
+   * The room's own door code, structured (the Check-in tab and the arrival message read it directly
+   * instead of digging it out of `moveInInstructions`). A SECRET: resident-only after the check-in
+   * reveal (`checkInReveal`), never on a public listing (not in `PUBLIC_ROOM_KEYS`), never in a post.
+   */
+  doorCode?: string;
+  /** A real photo of this room's door (resident Check-in step). Real upload only, never a stock image. */
+  doorPhotoDataUrl?: string | null;
+  /**
    * One entry per resident slot of a room holding 2+ residents — what only that
    * resident needs (their bed, their closet, their spot). Index + 1 = slot number,
    * same convention as {@link residentPrices}. Room-level move-in fields above
@@ -940,6 +948,10 @@ export type ManagerListingSubmissionV1 = {
   houseMoveInInstructions?: string;
   /** Move-in instruction photos for entire-home listings (resident portal only). */
   houseMoveInPhotoDataUrls?: string[];
+  /** A real photo of the front door (resident Check-in step). Resident-only, never public. */
+  frontDoorPhotoDataUrl?: string | null;
+  /** A real photo of the house from the street (resident Check-in step). Resident-only, never public. */
+  exteriorPhotoDataUrl?: string | null;
   /** Optional move-in walkthrough video for entire-home listings (resident portal only). */
   houseMoveInVideoDataUrl?: string | null;
   /** General house photos (common areas, exterior, kitchen) shown at the top of the public listing. */
@@ -2508,6 +2520,14 @@ function normalizeManagerListingSubmissionV1Base(
         typeof (legacyRoom as ManagerRoomSubmission & { moveInVideoDataUrl?: unknown }).moveInVideoDataUrl === "string"
           ? (legacyRoom as ManagerRoomSubmission & { moveInVideoDataUrl: string }).moveInVideoDataUrl || null
           : null,
+      doorCode:
+        typeof (legacyRoom as ManagerRoomSubmission).doorCode === "string" && (legacyRoom as ManagerRoomSubmission).doorCode!.trim()
+          ? (legacyRoom as ManagerRoomSubmission).doorCode!.trim()
+          : undefined,
+      doorPhotoDataUrl:
+        typeof (legacyRoom as ManagerRoomSubmission).doorPhotoDataUrl === "string" && (legacyRoom as ManagerRoomSubmission).doorPhotoDataUrl!.trim()
+          ? (legacyRoom as ManagerRoomSubmission).doorPhotoDataUrl!.trim()
+          : undefined,
       prorateMethod: (legacyRoom.prorateMethod === "daily_rate" ? "daily_rate" : "auto") as "auto" | "daily_rate",
       // Prorated per-day rent and per-day utilities are SEPARATE again (the earlier all-in
       // fold was reversed). Each is read straight from storage; charge generation reads a
@@ -3076,6 +3096,10 @@ function normalizeManagerListingSubmissionV1Base(
         : [],
     houseMoveInVideoDataUrl:
       typeof sub.houseMoveInVideoDataUrl === "string" ? sub.houseMoveInVideoDataUrl || null : null,
+    frontDoorPhotoDataUrl:
+      typeof sub.frontDoorPhotoDataUrl === "string" && sub.frontDoorPhotoDataUrl.trim() ? sub.frontDoorPhotoDataUrl.trim() : undefined,
+    exteriorPhotoDataUrl:
+      typeof sub.exteriorPhotoDataUrl === "string" && sub.exteriorPhotoDataUrl.trim() ? sub.exteriorPhotoDataUrl.trim() : undefined,
     shortTermRentalsAllowed: Boolean(sub.shortTermRentalsAllowed),
     airbnbRentalsAllowed: Boolean(sub.airbnbRentalsAllowed),
     shortTermRequirements: typeof sub.shortTermRequirements === "string" ? sub.shortTermRequirements : "",
@@ -4482,4 +4506,19 @@ export function legacyAdminFieldsToSubmission(row: {
   const nBaths = Math.max(1, Math.min(Math.floor(row.baths) || 1, 12));
   sub.bathrooms = Array.from({ length: nBaths }, (_, i) => emptyBathroom(i));
   return sub;
+}
+
+/**
+ * Secrets that live on the rooms rather than in `houseInfo`: each room's structured door code. Joined
+ * with `houseInfoSecretValues` wherever a message is checked for a leaked code (`containsHouseSecret`).
+ */
+export function listingRoomSecretValues(
+  sub: { rooms?: ReadonlyArray<{ doorCode?: string | null }> | null } | null | undefined,
+): string[] {
+  const out: string[] = [];
+  for (const room of sub?.rooms ?? []) {
+    const code = typeof room?.doorCode === "string" ? room.doorCode.trim() : "";
+    if (code) out.push(code);
+  }
+  return out;
 }

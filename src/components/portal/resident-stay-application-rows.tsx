@@ -10,7 +10,9 @@
  * and checkout (`StayTimesSheet`) and Request again. See docs/agents/bookings.md § Guest portal stays.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Clock, CreditCard, Luggage, Users, CalendarCheck, CalendarX } from "lucide-react";
+import { Clock, CreditCard, DoorOpen, Luggage, Users, CalendarCheck, CalendarX } from "lucide-react";
+import { ResidentStayCheckIn } from "@/components/portal/resident-check-in-guide";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { StayTimesSheet } from "@/components/portal/stay-times-sheet";
 import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { Button } from "@/components/ui/button";
@@ -39,6 +41,8 @@ export type ResidentGuestStays = {
   /** The Check-in and checkout sheet for the stay a row (or the text link) opened; null when closed. */
   sheet: ReactNode;
   openTimes: (stay: GuestStay) => void;
+  /** Opens the numbered Check-in guide for a confirmed stay (`ResidentStayCheckIn`). */
+  openGuide: (stay: GuestStay) => void;
 };
 
 export function useResidentGuestStays({ enabled = true }: { enabled?: boolean } = {}): ResidentGuestStays {
@@ -46,6 +50,7 @@ export function useResidentGuestStays({ enabled = true }: { enabled?: boolean } 
   const [state, setState] = useState<GuestStaysState>(enabled ? { status: "loading" } : { status: "ready", stays: [] });
   // The Check-in and checkout sheet, opened from a stay's ⋯ menu or by the text link (`?stay=&addOn=&time=`).
   const [timesSheet, setTimesSheet] = useState<{ stay: GuestStay; link: StayAddOnLink | null } | null>(null);
+  const [guideStay, setGuideStay] = useState<GuestStay | null>(null);
   const linkHandled = useRef(false);
 
   const load = useCallback(async () => {
@@ -84,7 +89,19 @@ export function useResidentGuestStays({ enabled = true }: { enabled?: boolean } 
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [load]);
 
-  const sheet = timesSheet ? (
+  const guideSheet = guideStay ? (
+    <PortalDialog
+      open
+      onClose={() => setGuideStay(null)}
+      title={`Check-in · ${guideStay.roomLabel || guideStay.propertyLabel}`}
+      dataAttr="stay-check-in-guide"
+      primaryAction={null}
+    >
+      <ResidentStayCheckIn blockId={guideStay.id} />
+    </PortalDialog>
+  ) : null;
+
+  const timesSheetNode = timesSheet ? (
     <StayTimesSheet
       stay={timesSheet.stay}
       preselect={timesSheet.link}
@@ -96,6 +113,12 @@ export function useResidentGuestStays({ enabled = true }: { enabled?: boolean } 
       onChanged={() => void load()}
     />
   ) : null;
+  const sheet = (
+    <>
+      {timesSheetNode}
+      {guideSheet}
+    </>
+  );
 
   return {
     state,
@@ -103,6 +126,7 @@ export function useResidentGuestStays({ enabled = true }: { enabled?: boolean } 
     reload: () => void load(),
     sheet,
     openTimes: (stay) => setTimesSheet({ stay, link: null }),
+    openGuide: (stay) => setGuideStay(stay),
   };
 }
 
@@ -119,12 +143,14 @@ export function ResidentStayApplicationRows({
   today,
   basePath = "/resident",
   onOpenTimes,
+  onOpenGuide,
 }: {
   stays: readonly GuestStay[];
   /** A Pacific YYYY-MM-DD. */
   today: string;
   basePath?: string;
   onOpenTimes: (stay: GuestStay) => void;
+  onOpenGuide?: (stay: GuestStay) => void;
 }) {
   const navigate = usePortalNavigate();
   const requestAgain = (stay: GuestStay) =>
@@ -138,7 +164,8 @@ export function ResidentStayApplicationRows({
         const Icon = statusIcon(stay);
         const place = guestStayPlaceLine(stay);
         const figure = guestStayFigure(stay);
-        const anyAction = can.payNow || can.checkInTimes || can.requestAgain;
+        const showGuide = can.checkInGuide && Boolean(onOpenGuide);
+        const anyAction = can.payNow || can.checkInTimes || can.requestAgain || showGuide;
         return (
           <RecordActionContext.Provider
             key={stay.id}
@@ -151,6 +178,12 @@ export function ResidentStayApplicationRows({
                     <Button data-attr="resident-stay-menu-pay" onClick={payNow}>
                       <CreditCard className="size-4 shrink-0" aria-hidden />
                       Pay now
+                    </Button>
+                  ) : null}
+                  {showGuide ? (
+                    <Button data-attr="resident-stay-menu-guide" onClick={() => onOpenGuide?.(stay)}>
+                      <DoorOpen className="size-4 shrink-0" aria-hidden />
+                      Check-in
                     </Button>
                   ) : null}
                   {can.checkInTimes ? (

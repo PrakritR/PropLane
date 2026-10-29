@@ -27,6 +27,8 @@ export function calendarStatus(entry: PropertyBookingEntry, today: string): stri
   if (entry.source === "vrbo") return "Vrbo";
   if (entry.source === "ical") return entry.channelLabel?.trim() || "Other calendar";
   if (!entry.openEnded && entry.end < today) return "Checked out";
+  // The guest tapped "I'm in" on their Check-in guide (server-owned `stayDetails.checkedInAt`).
+  if (entry.stayDetails?.checkedInAt?.trim()) return "Checked in";
   if ((entry.bookingStatus === "confirmed" || entry.statusLabel?.toLowerCase() === "confirmed")) return entry.start <= today ? "In-house" : "Confirmed";
   // A resident (an approved application's `hold` entry) is never a pending hold: their dates decide it.
   if (isResidentStay(entry)) return entry.start <= today ? "In-house" : "Confirmed";
@@ -36,7 +38,7 @@ export function calendarStatus(entry: PropertyBookingEntry, today: string): stri
   return entry.start <= today ? "In-house" : "Confirmed";
 }
 /** Statuses with a colour of their own; any other status is a channel's typed name (Houfy). */
-const KNOWN_CALENDAR_STATUSES = new Set(["Hold", "Confirmed", "In-house", "Checked out", "Cancelled", "Blocked"]);
+const KNOWN_CALENDAR_STATUSES = new Set(["Hold", "Confirmed", "In-house", "Checked in", "Checked out", "Cancelled", "Blocked"]);
 export function calendarStatusClass(status: string): string {
   // One colour per site a manager books on, so the legend and the bars agree: Airbnb rust, Booking.com navy, PadSplit violet.
   if (status === "Booking.com") return "bg-[#003b95] text-white";
@@ -44,7 +46,7 @@ export function calendarStatusClass(status: string): string {
   if (status === "Airbnb" || status === "Vrbo" || !KNOWN_CALENDAR_STATUSES.has(status)) return "bg-[#9a4b1a] text-white";
   if (status === "Hold") return "border border-dashed border-amber-600 bg-amber-100 text-amber-900";
   if (status === "Confirmed") return "bg-[#3d7d46] text-white";
-  if (status === "In-house") return "bg-primary text-white";
+  if (status === "In-house" || status === "Checked in") return "bg-primary text-white";
   // slate-500 (4.76:1 against white); slate-400 was 2.5:1 and failed WCAG AA for the bar's text.
   return "bg-slate-500 text-white";
 }

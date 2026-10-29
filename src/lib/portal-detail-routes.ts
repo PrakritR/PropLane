@@ -1190,7 +1190,7 @@ export type ResidentMoveInTabId = (typeof RESIDENT_MOVE_IN_TABS)[number];
 
 export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = {
   placement: "Your placement",
-  info: "Move-in details",
+  info: "Check-in",
   housemates: "Roommates",
   inspections: "Inspections",
 };
@@ -1198,7 +1198,7 @@ export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = 
 /** Compact labels for house-details sub-tabs on phone-width layouts. */
 export const RESIDENT_MOVE_IN_TAB_SHORT_LABELS: Record<ResidentMoveInTabId, string> = {
   placement: "Placement",
-  info: "Details",
+  info: "Check-in",
   housemates: "Roommates",
   inspections: "Inspections",
 };
@@ -1207,7 +1207,7 @@ export const RESIDENT_MOVE_IN_TAB_SHORT_LABELS: Record<ResidentMoveInTabId, stri
  * Retired sub-tabs keep their URL rather than silently dropping a resident on Placement:
  * `instructions` (arrival details) and `amenities` both live under Move-in details now.
  */
-const RESIDENT_MOVE_IN_TAB_ALIASES: Record<string, ResidentMoveInTabId> = { instructions: "info", amenities: "info" };
+const RESIDENT_MOVE_IN_TAB_ALIASES: Record<string, ResidentMoveInTabId> = { instructions: "info", amenities: "info", "check-in": "info" };
 
 /** A pre-split address: `/move-in/forms` (resident My home, manager record) now lives in the Forms section. */
 export function isRetiredMoveInFormsTab(raw: string | undefined | null): boolean {

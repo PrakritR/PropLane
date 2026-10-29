@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { DoorOpen, FileText, Home, Image as ImageIcon, KeyRound, Users, Video, Wifi } from "lucide-react";
+import { DoorOpen, FileText, Home, Image as ImageIcon, KeyRound, Pencil, Users, Video, Wifi } from "lucide-react";
+import { CopyIconAction, PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Textarea } from "@/components/ui/input";
 import { MoveInMediaFields } from "@/components/portal/move-in-media-fields";
 import { ManagerSettingsGear } from "@/components/portal/manager-settings-gear";
@@ -19,7 +20,7 @@ import {
 } from "@/components/portal/property-move-in-editor-modal";
 import { PropertySectionPreviewModal } from "@/components/portal/property-section-preview-modal";
 import { MoveInResidentPreviewCard } from "@/components/portal/move-in-resident-preview-card";
-import { getHouseInfoValue, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
+import { getHouseInfoValue, houseInfoInternalRows, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
 import {
   updateExtraListingFromSubmission,
@@ -88,6 +89,45 @@ export function MoveInCardFields({
   );
 }
 
+/**
+ * The staff-only Internal card (amber): pantry, lockbox and mailbox codes and notes, with a copy button
+ * on each. Drawn only for a manager with Properties edit access or PropLane staff; a resident, guest,
+ * owner viewer or vendor is never sent this data, so there is nothing here for them to find.
+ */
+function InternalHouseCard({ info, canEdit, onEdit }: { info: HouseInfoV1; canEdit: boolean; onEdit: () => void }) {
+  const rows = houseInfoInternalRows(info);
+  if (rows.length === 0 && !canEdit) return null;
+  return (
+    <section
+      className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-500/40 dark:bg-amber-500/10"
+      data-attr="property-internal-card"
+      aria-label="Internal (staff only)"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-amber-950 dark:text-amber-100">Internal (staff only)</h3>
+        {canEdit ? <PortalIconAction icon={Pencil} label="Edit internal info" onClick={onEdit} data-attr="property-internal-edit" /> : null}
+      </div>
+      <dl className="mt-1 divide-y divide-amber-200/70 dark:divide-amber-500/20">
+        {rows.map((row) => (
+          <div key={row.label} className="flex items-center justify-between gap-3 py-2">
+            <dt className="text-xs font-semibold text-amber-900/80 dark:text-amber-200/80">{row.label}</dt>
+            <dd className="flex items-center gap-1.5">
+              <span className="ph-no-capture ph-no-record font-mono text-base font-semibold text-amber-950 dark:text-amber-50">{row.value}</span>
+              {row.copyable ? (
+                <CopyIconAction
+                  label={`Copy ${row.label.toLowerCase()}`}
+                  onCopy={() => navigator.clipboard?.writeText(row.value)}
+                  data-attr="property-internal-copy"
+                />
+              ) : null}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 export function ManagerPropertyRoomMoveInPanel({
   sub,
   saveTarget,
@@ -97,6 +137,7 @@ export function ManagerPropertyRoomMoveInPanel({
   showToast,
   propertyLabel,
   onAddResident,
+  canViewInternal,
 }: {
   sub: ManagerListingSubmissionV1;
   saveTarget: RoomSaveTarget;
@@ -108,13 +149,22 @@ export function ManagerPropertyRoomMoveInPanel({
   propertyLabel?: string;
   /** The round blue + (studio: "Add resident"). Omitted = no + (nothing to open it). */
   onAddResident?: () => void;
+  /**
+   * The staff-only Internal card (pantry / lockbox / mailbox codes). Defaults to `canEdit`: a manager
+   * with Properties edit access and PropLane staff. A viewer or owner seat never gets the data at all
+   * (`GET /api/property-records` strips it), so this only decides whether the card is drawn.
+   */
+  canViewInternal?: boolean;
 }) {
+  const showInternalCard = canViewInternal ?? canEdit;
   const entireHome = isEntireHomeListing(sub);
   const roomIndices = useMemo(() => roomIndicesInListingOrder(sub.rooms), [sub.rooms]);
 
   const [houseInstructions, setHouseInstructions] = useState(sub.houseMoveInInstructions ?? "");
   const [housePhotos, setHousePhotos] = useState(sub.houseMoveInPhotoDataUrls ?? []);
   const [houseVideo, setHouseVideo] = useState(sub.houseMoveInVideoDataUrl ?? null);
+  const [frontDoorPhoto, setFrontDoorPhoto] = useState(sub.frontDoorPhotoDataUrl ?? null);
+  const [exteriorPhoto, setExteriorPhoto] = useState(sub.exteriorPhotoDataUrl ?? null);
   const [copyingToRooms, setCopyingToRooms] = useState(false);
   const [moveTab, setMoveTab] = useState<"house" | "rooms">("house");
   const [moveQuery, setMoveQuery] = useState("");
@@ -129,6 +179,8 @@ export function ManagerPropertyRoomMoveInPanel({
     setHouseInstructions(sub.houseMoveInInstructions ?? "");
     setHousePhotos(sub.houseMoveInPhotoDataUrls ?? []);
     setHouseVideo(sub.houseMoveInVideoDataUrl ?? null);
+    setFrontDoorPhoto(sub.frontDoorPhotoDataUrl ?? null);
+    setExteriorPhoto(sub.exteriorPhotoDataUrl ?? null);
     setHouseInfoDraft(normalizeHouseInfo(sub.houseInfo));
   }, [sub]);
 
@@ -318,6 +370,8 @@ export function ManagerPropertyRoomMoveInPanel({
     instructions: string;
     photos: string[];
     video: string | null;
+    frontDoorPhoto: string | null;
+    exteriorPhoto: string | null;
   }) => {
     setMoveSaving(true);
     const ok = persistSubmission(
@@ -328,6 +382,8 @@ export function ManagerPropertyRoomMoveInPanel({
         houseMoveInAvailableDate: sub.houseMoveInAvailableDate ?? "",
         houseMoveInPhotoDataUrls: [...payload.photos],
         houseMoveInVideoDataUrl: payload.video,
+        frontDoorPhotoDataUrl: payload.frontDoorPhoto ?? undefined,
+        exteriorPhotoDataUrl: payload.exteriorPhoto ?? undefined,
       },
       "Move-in details saved.",
     );
@@ -336,6 +392,8 @@ export function ManagerPropertyRoomMoveInPanel({
       setHouseInstructions(payload.instructions);
       setHousePhotos(payload.photos);
       setHouseVideo(payload.video);
+      setFrontDoorPhoto(payload.frontDoorPhoto);
+      setExteriorPhoto(payload.exteriorPhoto);
       setHouseInfoDraft(payload.houseInfo);
       setMoveEditorOpen(false);
     }
@@ -379,6 +437,8 @@ export function ManagerPropertyRoomMoveInPanel({
                 moveInAvailableDate: row.moveInAvailableDate ?? "",
                 moveInPhotoDataUrls: [...(draft.moveInPhotoDataUrls ?? [])],
                 moveInVideoDataUrl: draft.moveInVideoDataUrl ?? null,
+                doorCode: draft.doorCode?.trim() || undefined,
+                doorPhotoDataUrl: draft.doorPhotoDataUrl?.trim() || undefined,
               })
             : row,
         ),
@@ -406,6 +466,13 @@ export function ManagerPropertyRoomMoveInPanel({
   return (
     <PortalPropertyDetailSection>
       <div className="space-y-2" data-attr="property-move-in-list">
+        {showInternalCard && activeMoveTab === "house" ? (
+          <InternalHouseCard
+            info={houseInfoDraft}
+            canEdit={canEdit}
+            onEdit={() => openMoveEditor({ kind: "house" })}
+          />
+        ) : null}
         <PortalRecordListSurface
           listControls={
             <PortalListControlStack
@@ -509,11 +576,17 @@ export function ManagerPropertyRoomMoveInPanel({
                     title={label}
                     leading={<PortalRowIconTile icon={DoorOpen} />}
                     leadingShape="square"
-                    facts={moveRowFacts(
-                      room.moveInInstructions ?? "",
-                      room.moveInPhotoDataUrls ?? [],
-                      room.moveInVideoDataUrl ?? null,
-                    )}
+                    facts={[
+                      ...moveRowFacts(
+                        room.moveInInstructions ?? "",
+                        room.moveInPhotoDataUrls ?? [],
+                        room.moveInVideoDataUrl ?? null,
+                      ),
+                      // A room with no structured code is the manager's to-do: the resident's step says "Ask your manager".
+                      <PortalRowFact key="door-code" icon={KeyRound}>
+                        {room.doorCode?.trim() ? "Door code" : "Missing room code"}
+                      </PortalRowFact>,
+                    ]}
                     onOpen={() => openMoveEditor({ kind: "room", roomId: room.id })}
                     dataAttr={`property-move-in-room-row-${room.id}`}
                     actions={moveRowMenu(label, { kind: "room", roomId: room.id }, roomMenuExtras(room, label))}
@@ -578,6 +651,9 @@ export function ManagerPropertyRoomMoveInPanel({
           houseInstructions={houseInstructions}
           housePhotos={housePhotos}
           houseVideo={houseVideo}
+          frontDoorPhoto={frontDoorPhoto}
+          exteriorPhoto={exteriorPhoto}
+          canSeeInternal={showInternalCard}
           room={
             moveEditorTarget?.kind === "room" || moveEditorTarget?.kind === "roomResident"
               ? sub.rooms.find((r) => r.id === moveEditorTarget.roomId) ?? null

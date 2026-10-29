@@ -111,6 +111,8 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   // Bookings made in PropLane itself (the owner also gets an email for each, whatever this switch or their alert destination says).
   { domain: "channel_booking", event: "booking_created", area: "tours", label: "New PropLane booking", audiences: ["manager"], placeholders: ["propertyTitle", "roomLabel", "stayLabel", "url"] },
   { domain: "channel_booking", event: "booking_cancelled", area: "tours", label: "PropLane booking cancelled", audiences: ["manager"], placeholders: ["propertyTitle", "roomLabel", "stayLabel", "url"] },
+  // The guest or resident tapped "I'm in" on their Check-in guide (one Assistant notice, idempotent per stay).
+  { domain: "channel_booking", event: "resident_checked_in", area: "tours", label: "Resident checked in", audiences: ["manager"], placeholders: ["residentName", "propertyTitle", "roomLabel", "url"] },
   // ---- Inspections (a report has two sides; the resident submits theirs, the manager may reopen it) ----
   { domain: "inspection", event: "submitted", area: "inspections", label: "Resident submitted their photos", audiences: ["manager"], placeholders: ["residentName", "propertyTitle", "kind", "url"] },
   { domain: "inspection", event: "reopened", area: "inspections", label: "Report reopened for the resident", audiences: ["resident"], placeholders: ["residentName", "propertyTitle", "kind", "url"] },

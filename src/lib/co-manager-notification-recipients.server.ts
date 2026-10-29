@@ -91,6 +91,7 @@ export const REMINDER_SUBJECT_CO_MANAGER_MODULE: Record<ReminderSubjectKind, CoM
   inspection_acknowledge: "residents",
   stay_arrival_guide: "calendar",
   stay_checkout_reminder: "calendar",
+  move_in_arrival: "residents",
 };
 
 /**

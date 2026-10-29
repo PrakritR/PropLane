@@ -212,7 +212,8 @@ time a second way.
   - **Who gets them.** Only to the guest of a CONFIRMED stay with a login.
   - **When.** The arrival guide goes 24 h before check-in; it is quiet-hour held but never sent after check-in. The checkout reminder
     goes at 8:00 am on checkout day.
-  - **What the guide says.** It is built at send time from `houseInfo` (`bookings/arrival-guide.ts`). The door code goes only in that
+  - **Checked in.** A guest's "I'm in" tap on the stay's Check-in guide stamps `stayDetails.checkedInAt` (server-owned, carried through a manager's save) and the stay reads "Checked in" on Bookings (`calendarStatus`, `bookingStatusLabel`).
+  - **What the guide says.** It is built at send time from `houseInfo` (`bookings/arrival-guide.ts`), with the room's structured door code and the house's Checkout lines. The door code goes only in that
     guest's own message and is never stored in the queue.
   - **Cleaning runs.** They take the window checkout → next check-in (`vendor-dispatch/turnover-window.ts`).
   - **The manager's switch.** Each text is a Settings → Automations row (`arrival_guide` / `checkout_reminder`). It is

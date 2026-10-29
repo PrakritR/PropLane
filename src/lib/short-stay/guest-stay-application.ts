@@ -44,6 +44,8 @@ export type GuestStayRowActions = {
   payNow: boolean;
   /** A live request or an approved stay that has not ended: the Check-in and checkout sheet. */
   checkInTimes: boolean;
+  /** A confirmed stay that has not ended: the numbered Check-in guide. */
+  checkInGuide: boolean;
   /** The listing still takes short stays: Request again. */
   requestAgain: boolean;
 };
@@ -54,6 +56,8 @@ export function guestStayRowActions(stay: Pick<GuestStay, "status" | "payment" |
   return {
     payNow: stay.status === "confirmed" && stay.payment === "due" && live,
     checkInTimes: (stay.status === "confirmed" || stay.status === "pending") && live,
+    // The numbered Check-in guide (door photos, codes from 24 h before arrival, "I'm in"): a confirmed stay only.
+    checkInGuide: stay.status === "confirmed" && live,
     requestAgain: stay.canBookAgain,
   };
 }

@@ -51,6 +51,8 @@ export type PropertyBookingEntry = {
     source?: string;
     holdExpiresAt?: string;
     decision?: string;
+    /** ISO: the guest tapped "I'm in" on their Check-in guide (server-owned, `POST /api/resident/check-in`). */
+    checkedInAt?: string;
     /** Paid early check-in / late checkout on this stay (server-owned: its payments write it). */
     addOns?: StayAddOns;
     /** "HH:MM" the guest expects to arrive. */
@@ -365,7 +367,7 @@ export function roomBlockEntries(
       summary: roomBlockSummary(block),
       start,
       end,
-      statusLabel: block.bookingStatus === "cancelled" ? "Cancelled" : block.bookingStatus === "confirmed" ? "Confirmed" : block.residentName?.trim() ? "Hold" : "Blocked",
+      statusLabel: block.bookingStatus === "cancelled" ? "Cancelled" : block.bookingStatus === "confirmed" ? (block.stayDetails?.checkedInAt ? "Checked in" : "Confirmed") : block.residentName?.trim() ? "Hold" : "Blocked",
       bookingStatus: block.bookingStatus,
       ...(block.openEnded ? { openEnded: true } : {}),
       rate: block.rate,

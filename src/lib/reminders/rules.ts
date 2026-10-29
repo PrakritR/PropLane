@@ -101,6 +101,9 @@ export const REMINDER_SUBJECT_KINDS = [
   // check-in / check-out instants (`bookingTimeline`), not a whole-day anchor. ----
   "stay_arrival_guide",
   "stay_checkout_reminder",
+  // ---- Move-in arrival (checkin-1028): the long-term resident's twin of `stay_arrival_guide`, at the
+  // check-in reveal (24 h before move-in), with a link to the Check-in tab. ----
+  "move_in_arrival",
 ] as const;
 
 export type ReminderSubjectKind = (typeof REMINDER_SUBJECT_KINDS)[number];
@@ -308,6 +311,7 @@ export const COMPACT_RULE_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<Remi
   "deposit_return_notice",
   "stay_arrival_guide",
   "stay_checkout_reminder",
+  "move_in_arrival",
 ]);
 
 type RuleShape = {
@@ -416,6 +420,12 @@ const PLAN_0915_DEFAULT_RULES: Omit<
   // the send with it. Both ride the guest's own channel preferences (inbox always, email, text).
   stay_arrival_guide: rule({ timings: ["before:1440"], audience: COUNTERPARTY, sms: true }),
   stay_checkout_reminder: rule({ timings: ["before:180"], audience: COUNTERPARTY, sms: true }),
+  // Move-in arrival (checkin-1028). The long-term resident, once, at the check-in reveal: 24 h before the
+  // move-in instant (the move-in date at the property's check-in time). The timing is nominal like the stay
+  // kinds: the sweeper (`subjects/move-in-arrival.server.ts`) anchors on that instant. Email + resident inbox
+  // always; text only where the row's notice channel allows (`noticeChannelFor`). Same switch as
+  // `stay_arrival_guide`: Settings -> Automations `arrival_guide`.
+  move_in_arrival: rule({ timings: ["before:1440"], audience: COUNTERPARTY, sms: true }),
 };
 
 const PLAN_0915_SUBJECT_META: Record<keyof typeof PLAN_0915_DEFAULT_RULES, ReminderSubjectMeta> = {
@@ -457,6 +467,7 @@ const PLAN_0915_SUBJECT_META: Record<keyof typeof PLAN_0915_DEFAULT_RULES, Remin
   inspection_acknowledge: { kind: "inspection_acknowledge", label: "Acknowledge reminder", anchorLabel: "the report was shared", counterpartyLabel: "resident" },
   stay_arrival_guide: { kind: "stay_arrival_guide", label: "Arrival guide to the guest", anchorLabel: "the guest checks in", counterpartyLabel: "guest" },
   stay_checkout_reminder: { kind: "stay_checkout_reminder", label: "Checkout reminder to the guest", anchorLabel: "the guest checks out", counterpartyLabel: "guest" },
+  move_in_arrival: { kind: "move_in_arrival", label: "Check-in steps to the resident", anchorLabel: "the resident moves in", counterpartyLabel: "resident" },
 };
 
 export type ReminderSubjectMeta = {

@@ -542,6 +542,8 @@ const PLAN_0915_META: Partial<Record<ReminderSubjectKind, ReminderSubjectSetting
   // (`buildArrivalGuideText`), so the saved wording is a preview of the shape, not a template. ----
   stay_arrival_guide: compactMeta({ directions: ["before"], timingLabel: "Send before check-in", counterparty: "Guest", recipientPreview: "Alex Guest",
     subject: "Your arrival guide for {propertyTitle}", body: ["Check-in is at {whenLabel}.", "Door code, Wi-Fi, parking and house rules are in this message.", "", "Your stay: {url}"], preview: { whenLabel: "3:00 pm on Oct 16", url: "https://proplane.ai/resident/applications/approved" } }),
+  move_in_arrival: compactMeta({ directions: ["before"], timingLabel: "Send before move-in", counterparty: "Resident", recipientPreview: "Alex Resident",
+    subject: "Your check-in for {propertyTitle}", body: ["You can check in from {whenLabel}.", "Door code, room code and Wi-Fi are in this message.", "", "Check-in steps: {url}"], preview: { whenLabel: "3:00 pm on Oct 30", url: "https://proplane.ai/resident/move-in/check-in" } }),
   stay_checkout_reminder: compactMeta({ directions: ["before"], timingLabel: "Send the morning of checkout", counterparty: "Guest", recipientPreview: "Alex Guest",
     subject: "Checkout is at {whenLabel} today", body: ["Checkout at {propertyTitle} is at {whenLabel} today.", "", "Your stay: {url}"], preview: { whenLabel: "11:00 am", url: "https://proplane.ai/resident/applications/approved" } }),
 };

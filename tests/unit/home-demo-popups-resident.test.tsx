@@ -83,8 +83,9 @@ describe("My home", () => {
     for (const id of RESIDENT_MOVE_IN_TABS) expect(screen.getByRole("button", { name: new RegExp(`^${RESIDENT_MOVE_IN_TAB_LABELS[id]}`) })).toBeInTheDocument();
     expect(await screen.findByText("Assigned room")).toBeInTheDocument();
     expect(screen.getAllByText("Lease signed").length).toBeGreaterThan(0);
-    await user.click(screen.getByRole("button", { name: /^Move-in details/ }));
-    for (const section of HOUSE_INFO_SECTIONS) expect((await screen.findAllByText(section.label)).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: /^Check-in/ }));
+    // Internal is staff-only (never drawn to a resident); Checkout is a step of the live Check-in guide.
+    for (const section of HOUSE_INFO_SECTIONS.filter((s) => s.id !== "internal" && s.id !== "checkout")) expect((await screen.findAllByText(section.label)).length).toBeGreaterThan(0);
     expect(screen.queryByText("How your portal works")).toBeNull();
     expect(container.textContent).not.toMatch(/work[\s-]?order/i);
   });

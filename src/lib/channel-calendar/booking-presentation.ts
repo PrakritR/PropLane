@@ -16,6 +16,8 @@ export function bookingRateLabel(entry: PropertyBookingEntry): string {
 export function bookingStatusLabel(entry: PropertyBookingEntry, today = dateKey(new Date())): string {
   if (entry.bookingStatus === "cancelled") return "Cancelled";
   if (!entry.openEnded && entry.end < today) return "Checked out";
+  // The guest tapped "I'm in" (server-owned `stayDetails.checkedInAt`).
+  if (entry.stayDetails?.checkedInAt?.trim()) return "Checked in";
   // An approved resident (a `hold` entry from an application) is never a pending hold: In-house once
   // the dates have started, Confirmed before. Needs no applicationId, so a calendar-only viewer reads it too.
   if (entry.source === "hold") return entry.start <= today ? "In-house" : "Confirmed";

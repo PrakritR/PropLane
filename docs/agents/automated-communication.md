@@ -77,6 +77,11 @@ the resident as cards in their one conversation (event cards: [`communication-in
 - Both ride the normal rail: the workspace's "approve resident messages first" setting holds them as drafts, the
   resident's channel preferences gate email and text, and a portal-channel resident gets email plus inbox only.
 
+## Check-in steps and "I'm in" (checkin-1028)
+
+- **`move_in_arrival`** is the long-term resident's twin of `stay_arrival_guide` (`reminders/subjects/move-in-arrival.server.ts`, swept by the dispatch cron): once, 24 h before the move-in instant (move-in date at the property's check-in time, its own zone), only after the lease is signed (`checkInReveal`), built from the house's current details at send time (door, room and Wi-Fi codes verbatim, never stored in the queue) with a link to My home > Check-in. Email + resident inbox always; text only where `noticeChannelFor` allows (a portal-made request is never texted). Same Automations switch as the guest's guide (`arrival_guide`). The staff-only Internal section is never read.
+- **`resident_checked_in`** (domain `channel_booking`, so no migration) is ONE manager Assistant notice, "<First name> checked in to <house> <room>", idempotent on `resident_checked_in:<stay|tenancy>:<id>`; the Team chat gets its usual one routine line.
+
 ## The vendor loop
 
 ```

@@ -71,12 +71,12 @@ describe("My home sections", () => {
   it("is placement, Move-in details, Roommates, Inspections — never a Forms tab, Amenities or an Inspections sidebar twin", () => {
     expect(RESIDENT_MOVE_IN_TABS.map((id) => RESIDENT_MOVE_IN_TAB_LABELS[id])).toEqual([
       "Your placement",
-      "Move-in details",
+      "Check-in",
       "Roommates",
       "Inspections",
     ]);
     shell("placement");
-    for (const label of ["Your placement", "Move-in details", "Roommates", "Inspections"]) {
+    for (const label of ["Your placement", "Check-in", "Roommates", "Inspections"]) {
       expect(screen.getByRole("link", { name: new RegExp(label) })).toBeTruthy();
     }
     expect(screen.queryByRole("link", { name: /Amenities/ })).toBeNull();
