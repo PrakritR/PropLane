@@ -154,6 +154,27 @@ describe("the policy read", () => {
     const live = dbWith({ manager_purchases: [purchase({ promo_ends_at: FUTURE })] });
     expect(await accountPromoEnded(live as never, USER, NOW)).toBe(false);
   });
+
+  it("an unreadable purchase read: existing-grant callers fail safe, a NEW redemption fails closed", async () => {
+    const failing = {
+      from: () => {
+        const builder: Record<string, unknown> = {
+          select: () => builder,
+          eq: () => builder,
+          then: (resolve: (v: unknown) => void) => resolve({ data: null, error: { code: "XX000", message: "boom" } }),
+        };
+        return builder;
+      },
+    };
+    const throwing = { from: () => { throw new Error("down"); } };
+    expect(await accountPromoEnded(failing as never, USER, NOW)).toBe(false);
+    expect(await accountPromoEnded(failing as never, USER, NOW, { failClosed: true })).toBe(true);
+    expect(await accountPromoEnded(throwing as never, USER, NOW)).toBe(false);
+    expect(await accountPromoEnded(throwing as never, USER, NOW, { failClosed: true })).toBe(true);
+    // A readable answer is unaffected by the flag.
+    const live = dbWith({ manager_purchases: [purchase({ promo_ends_at: FUTURE })] });
+    expect(await accountPromoEnded(live as never, USER, NOW, { failClosed: true })).toBe(false);
+  });
 });
 
 describe("the plan the product enforces", () => {

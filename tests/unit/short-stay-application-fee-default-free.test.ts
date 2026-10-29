@@ -13,6 +13,7 @@ vi.mock("@/lib/manager-manual-payment-settings", () => ({ loadManagerManualPayme
 import { resolveApplicationFeeProperty } from "@/lib/application-fee-checkout.server";
 import { applicationFeeFactForTerms } from "@/lib/form-resolved-fee";
 import { effectiveApplicationFeeCents } from "@/lib/manager-application-settings";
+import { listingApplicationFeeRaw } from "@/lib/listing-application-fee";
 import {
   createDefaultListingSubmission,
   emptyRoom,
@@ -156,7 +157,49 @@ describe("short stays default to no application fee; charge == display", () => {
   it("isShortStayApplication", () => {
     expect(isShortStayApplication({ leaseTerm: SHORT_TERM_LEASE_TERM })).toBe(true);
     expect(isShortStayApplication({ leaseTerm: AIRBNB_LEASE_TERM })).toBe(true);
-    expect(isShortStayApplication({ rentalType: "airbnb" })).toBe(true);
-    expect(isShortStayApplication({ leaseTerm: LONG_TERM_LEASE_TERM, rentalType: "standard" })).toBe(false);
+    expect(isShortStayApplication({ leaseTerm: LONG_TERM_LEASE_TERM })).toBe(false);
+    // The lease term alone decides: a blank or unknown term is long-term.
+    expect(isShortStayApplication({})).toBe(false);
+    expect(isShortStayApplication({ leaseTerm: "" })).toBe(false);
+    expect(isShortStayApplication({ leaseTerm: "Whatever" })).toBe(false);
+  });
+
+  // Exploit: the applicant-supplied rentalType must not turn a long-term term into a free stay.
+  describe("rentalType short_term beside a non-stay lease term is long-term (house fee charged)", () => {
+    for (const term of [LONG_TERM_LEASE_TERM, "", "Not-A-Term"]) {
+      for (const setup of ["nothing", "account", "longfee"] as Setup[]) {
+        it(`term ${JSON.stringify(term)} x ${setup}`, async () => {
+          const sub = listing(setup, LONG_TERM_LEASE_TERM);
+          const accountFee = setup === "account" ? 6000 : null;
+          const res = await resolveApplicationFeeProperty(
+            dbFor(sub, accountFee),
+            {
+              propertyId: PID,
+              managerUserId: MGR,
+              roomChoice1: `${PID}${LISTING_ROOM_CHOICE_SEP}r1`,
+              leaseTerm: term || undefined,
+              rentalType: "short_term",
+              applicationTemplateId: TEMPLATE_ID,
+            },
+            { allowZeroFee: true },
+          );
+          if (!res.ok) throw new Error(res.error);
+          expect(res.value.applicationFeeCents).toBe(expected(setup, false));
+          expect(res.value.applicationFeeCents).toBeGreaterThan(0);
+        });
+      }
+    }
+
+    it("listingApplicationFeeRaw: a long-term term beats a short_term rentalType", () => {
+      const sub = normalizeManagerListingSubmissionV1({
+        ...createDefaultListingSubmission(),
+        applicationFee: "40",
+        shortTermApplicationFee: "",
+      });
+      expect(listingApplicationFeeRaw(sub, "short_term", LONG_TERM_LEASE_TERM)).toBe("40");
+      expect(listingApplicationFeeRaw(sub, "short_term", SHORT_TERM_LEASE_TERM)).toBe("");
+      // No term (portfolio display range): the rental type stands in.
+      expect(listingApplicationFeeRaw(sub, "short_term", null)).toBe("");
+    });
   });
 });

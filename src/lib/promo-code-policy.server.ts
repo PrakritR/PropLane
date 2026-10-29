@@ -134,16 +134,20 @@ export async function waiverGrantEndedFor(input: {
 /**
  * Has staff ended the promo on this ACCOUNT (any of its purchase rows has a `promo_ends_at` in the
  * past)? Used to refuse a fresh redemption on an account whose promo was ended on purpose, so ending
- * a promo cannot be undone by typing the code again. A failed read or a missing column answers false:
- * the code-level policy ({@link checkPromoCodeRedeemable}) is the fail-closed gate.
+ * a promo cannot be undone by typing the code again. By default a failed read or a missing column
+ * answers false (evaluating a grant that already exists keeps its documented fail-safe). A NEW
+ * redemption passes `failClosed: true`: if staff may have ended this account's promo and the read
+ * cannot say, the redemption is refused rather than allowed.
  */
 export async function accountPromoEnded(
   db: SupabaseClient,
   userId: string,
   nowMs: number = Date.now(),
+  opts: { failClosed?: boolean } = {},
 ): Promise<boolean> {
   const id = userId.trim();
-  if (!id) return false;
+  const unreadable = opts.failClosed === true;
+  if (!id) return unreadable;
   try {
     // The same rows "end promo" writes: by `user_id` OR the account's email, so an email-linked signup
     // waiver row that staff ended is not invisible here.
@@ -152,9 +156,9 @@ export async function accountPromoEnded(
       id,
       "id, promo_ends_at",
     );
-    if (readFailed) return false;
+    if (readFailed) return unreadable;
     return rows.some((row) => promoInstantHasPassed(row.promo_ends_at, nowMs));
   } catch {
-    return false;
+    return unreadable;
   }
 }

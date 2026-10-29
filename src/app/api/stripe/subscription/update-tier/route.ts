@@ -138,7 +138,7 @@ async function handleUpdateTier(req: Request, ctx: { userId: string | null }) {
         const refusal = promoRedeemRefusal(redeemable);
         return NextResponse.json({ error: refusal.error, code: refusal.code }, { status: refusal.status });
       }
-      if (await accountPromoEnded(supabase, user.id)) {
+      if (await accountPromoEnded(supabase, user.id, Date.now(), { failClosed: true })) {
         return NextResponse.json({ error: PROMO_CODE_EXPIRED_MESSAGE, code: "PROMO_EXPIRED" }, { status: 400 });
       }
       if (stripeManaged) {

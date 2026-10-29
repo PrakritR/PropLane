@@ -97,6 +97,30 @@ describe("server application fee submission authority", () => {
       .toEqual({ ok: true });
   });
 
+  it("rejects a short-term/airbnb rentalType whose leaseTerm is not a stay term (free-stay exploit), before resolving a fee", async () => {
+    const { db } = database();
+    for (const rentalType of ["short_term", "airbnb"]) {
+      for (const leaseTerm of ["Long-term", "", undefined]) {
+        const row = applicant("app-mismatch");
+        Object.assign(row.application, { rentalType, leaseTerm });
+        const res = await authorizeApplicationFeeSubmission(db as never, row as never);
+        expect(res).toMatchObject({ ok: false, status: 400, reason: "unverifiable" });
+      }
+    }
+    expect(resolveFee).not.toHaveBeenCalled();
+  });
+
+  it("does not reject consistent stay and long-term applications on the mismatch rule", async () => {
+    const { db } = database();
+    resolveFee.mockResolvedValue({ ok: true, value: { managerUserId: "manager-1",
+      applicationFeeCents: 0, feeRoomId: "", feeLeaseTerm: "", listing: null } });
+    for (const [rentalType, leaseTerm] of [["short_term", "Short-Term Stay"], ["airbnb", "Airbnb"], ["standard", "Long-term"]]) {
+      const row = applicant("app-ok");
+      Object.assign(row.application, { rentalType, leaseTerm });
+      expect(await authorizeApplicationFeeSubmission(db as never, row as never)).toEqual({ ok: true });
+    }
+  });
+
   it("fails closed on a fee resolver read failure", async () => {
     resolveFee.mockRejectedValueOnce(new Error("listing unavailable"));
     const { db } = database();

@@ -35,6 +35,8 @@ export type AdminAccountBillingPayment = {
   id: string;
   at: string | null;
   amountCents: number;
+  /** Cents of this invoice's charge already refunded (Stripe `charge.amount_refunded`); 0 when none. */
+  refundedCents: number;
   currency: string;
   status: string;
   /** What was bought — the invoice's first line, else its number. */
@@ -135,6 +137,7 @@ export function invoiceToPayment(invoice: Stripe.Invoice): AdminAccountBillingPa
     id: invoice.id ?? "",
     at: iso(invoice.status_transitions?.paid_at ?? invoice.created),
     amountCents: invoice.amount_paid ?? 0,
+    refundedCents: 0,
     currency: invoice.currency ?? "usd",
     status: invoice.status ?? "unknown",
     description: describeInvoice(invoice),
@@ -142,6 +145,50 @@ export function invoiceToPayment(invoice: Stripe.Invoice): AdminAccountBillingPa
     invoiceUrl: invoice.hosted_invoice_url ?? null,
     subscriptionInvoice: invoice.parent?.type === "subscription_details",
   };
+}
+
+function stripeId(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v && typeof v === "object" && typeof (v as { id?: unknown }).id === "string") return (v as { id: string }).id;
+  return "";
+}
+
+/**
+ * Cents already refunded on each paid invoice, keyed by invoice id. An invoice's `amount_paid` never
+ * drops when a refund is issued, so "paid to date" nets the refunds out of the charges the invoices
+ * were paid with (`charge.amount_refunded`). Charges are read once for the customer and matched to
+ * an invoice through its payment rows (the charge itself, else its payment intent). Throws when
+ * Stripe cannot be read: the caller then reports no total rather than one that ignores a refund.
+ */
+async function refundedCentsByInvoice(
+  stripe: Stripe,
+  customerId: string,
+  invoices: readonly Stripe.Invoice[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (invoices.length === 0) return out;
+  const charges = await stripe.charges.list({ customer: customerId, limit: 100 });
+  const byCharge = new Map<string, number>();
+  const byIntent = new Map<string, number>();
+  for (const charge of charges.data ?? []) {
+    const refunded = charge.amount_refunded ?? 0;
+    if (refunded <= 0) continue;
+    byCharge.set(charge.id, (byCharge.get(charge.id) ?? 0) + refunded);
+    const intent = stripeId(charge.payment_intent);
+    if (intent) byIntent.set(intent, (byIntent.get(intent) ?? 0) + refunded);
+  }
+  for (const invoice of invoices) {
+    let refunded = 0;
+    for (const row of invoice.payments?.data ?? []) {
+      if (row.status !== "paid") continue;
+      const payment = row.payment as { charge?: unknown; payment_intent?: unknown } | null | undefined;
+      const chargeId = stripeId(payment?.charge);
+      const intentId = stripeId(payment?.payment_intent);
+      refunded += (chargeId ? byCharge.get(chargeId) : undefined) ?? (intentId ? byIntent.get(intentId) : undefined) ?? 0;
+    }
+    if (refunded > 0) out.set(invoice.id ?? "", Math.min(refunded, invoice.amount_paid ?? 0));
+  }
+  return out;
 }
 
 async function readPurchase(db: SupabaseClient, managerUserId: string): Promise<PurchaseRow | null> {
@@ -329,9 +376,20 @@ export async function loadAdminAccountBilling(
         plan.promoCode = codes.length > 0 ? codes.join(", ") : plan.promoCode;
       }
       if (customerId) {
-        const list = await stripe.invoices.list({ customer: customerId, limit: 100 });
-        payments = list.data.filter((i) => i.status === "paid" && (i.amount_paid ?? 0) > 0).map(invoiceToPayment);
-        paidToDateCents = payments.reduce((sum, p) => sum + p.amountCents, 0);
+        const list = await stripe.invoices.list({ customer: customerId, limit: 100, expand: ["data.payments"] });
+        const paidInvoices = list.data.filter((i) => i.status === "paid" && (i.amount_paid ?? 0) > 0);
+        payments = paidInvoices.map(invoiceToPayment);
+        try {
+          const refunded = await refundedCentsByInvoice(stripe, customerId, paidInvoices);
+          payments = payments.map((p) => ({ ...p, refundedCents: refunded.get(p.id) ?? 0 }));
+          // Paid to date is net of refunds: a refunded dollar was not kept.
+          paidToDateCents = payments.reduce((sum, p) => sum + p.amountCents - p.refundedCents, 0);
+        } catch (e) {
+          // A total that ignores a refund overstates what was kept; report none (a number Stripe did
+          // not give is `null`, never a guess) and keep the payments list.
+          console.error("admin account billing: Stripe refund read failed", e);
+          paidToDateCents = null;
+        }
         if (list.data[0]?.currency) currency = list.data[0].currency;
       }
     } catch (e) {

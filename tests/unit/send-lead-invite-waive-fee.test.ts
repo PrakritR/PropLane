@@ -9,10 +9,17 @@ const ownerRow = vi.hoisted(() => ({ value: { manager_user_id: "owner-1" } as { 
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/application-fee-waiver", () => ({
   createApplicationFeeWaiverCode: mint,
+  // The route reuses an unspent waive-on-send code or mints one; drive the mint path through `mint`.
+  ensureWaiveOnSendWaiverCode: (db: unknown, owner: string, propertyId: string) =>
+    mint(db, owner, { label: "Waived on send", propertyIds: [propertyId], appliesTo: "application", maxUses: 1 }),
   revokeApplicationFeeWaiverCode: revoke,
 }));
 vi.mock("@/lib/manager-property-share-access", () => ({ getShareablePropertyForUser: getShareable }));
-vi.mock("@/lib/auth/manager-lease-scope", () => ({ managerMayFileLeaseUnderProperty: vi.fn() }));
+const hasPerm = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/auth/manager-lease-scope", () => ({
+  managerMayFileLeaseUnderProperty: vi.fn(),
+  managerHasCoManagerPermissionForProperty: hasPerm,
+}));
 vi.mock("@/lib/proplane-sms-transport.server", () => ({ sendFromManagerWorkNumber: vi.fn() }));
 vi.mock("@/lib/manager-communication-access.server", () => ({
   assertManagerCommunicationAllowedForWorkspace: vi.fn(async () => ({ allowed: true })),
@@ -61,6 +68,7 @@ describe("send application: Waive application fee", () => {
     getShareable.mockImplementation(async (_u: string, id: string) =>
       id === "prop-1" ? { title: "House", listingSubmission: {} } : null);
     ownerRow.value = { manager_user_id: "owner-1" };
+    hasPerm.mockResolvedValue(true);
     mint.mockResolvedValue({ ok: true, code: { id: "code-1", code: "WAIVED-AB12" } });
     postEmail.mockResolvedValue({ ok: true, json: async () => ({ id: "e1" }) });
   });
@@ -130,6 +138,41 @@ describe("send application: Waive application fee", () => {
     expect(res.status).toBe(502);
     expect(decodeURIComponent(data.mailtoHref)).toContain("code=WAIVED-AB12");
     expect(revoke).not.toHaveBeenCalled();
+  });
+
+  it("refuses 403 and mints and sends nothing for a sender without owner or payments/applications edit", async () => {
+    hasPerm.mockResolvedValue(false);
+    const res = await post({ waiveFee: true });
+    expect(res.status).toBe(403);
+    expect(mint).not.toHaveBeenCalled();
+    expect(postEmail).not.toHaveBeenCalled();
+    const linkOnly = await post({ waiveFee: true, linkOnly: true, to: "" });
+    expect(linkOnly.status).toBe(403);
+    expect(mint).not.toHaveBeenCalled();
+  });
+
+  it("allows a co-manager with applications edit but not payments", async () => {
+    hasPerm.mockImplementation(async (_db: unknown, _u: string, _p: string, perm: string, level: string) =>
+      perm === "applications" && level === "edit");
+    const res = await post({ waiveFee: true });
+    expect(res.status).toBe(200);
+    expect(mint).toHaveBeenCalledTimes(1);
+  });
+
+  it("only asks edit-level payments/applications, never promotion", async () => {
+    await post({ waiveFee: true });
+    expect(hasPerm).toHaveBeenCalled();
+    for (const call of hasPerm.mock.calls) {
+      expect(["payments", "applications"]).toContain(call[3]);
+      expect(call[4]).toBe("edit");
+    }
+  });
+
+  it("does not consult the permission check when the fee is not waived", async () => {
+    hasPerm.mockResolvedValue(false);
+    const res = await post({});
+    expect(res.status).toBe(200);
+    expect(hasPerm).not.toHaveBeenCalled();
   });
 
   it("revokes under the owner when nothing usable goes back (SMS without a work number)", async () => {

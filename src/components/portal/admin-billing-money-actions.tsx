@@ -1,11 +1,18 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { Ban, CircleDollarSign, TicketX, Undo2 } from "lucide-react";
+import { MoreHorizontal } from "lucide-react";
 import { AdminBillingActionDialog } from "@/components/portal/admin-billing-action-dialog";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { RecordFactRow } from "@/components/portal/portal-record-overview-kit";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { DateField } from "@/components/ui/date-field";
 import { Input } from "@/components/ui/input";
 import { formatPacificDate } from "@/lib/pacific-time";
@@ -13,14 +20,14 @@ import type { AdminAccountBilling } from "@/lib/admin/admin-account-billing.serv
 
 /**
  * Staff money actions on a manager's Subscription card (Oct 28): Change price, Refund, Cancel and
- * End promo. Icons in the card header (word = tooltip), each opening the same reason popup as every
+ * End promo. Four icons crowd the card header past a phone's width (the red Cancel clipped at 390px),
+ * so they live behind ONE ⋯ in the header at every width, each opening the same reason popup as every
  * other billing change. The server is the authority on every limit (the refundable amount is
  * re-read from Stripe there); the popups only keep an obviously wrong value from being sent.
  */
 
 type MoneyDialog = "price" | "refund" | "cancel" | "endpromo" | null;
 
-const NO_CARD = "No card subscription";
 const REFUND_INVOICE_LIMIT = 12;
 
 const money = (cents: number) =>
@@ -33,6 +40,9 @@ export function dollarsToCents(raw: string): number | null {
   const cents = Math.round(Number(t) * 100);
   return cents > 0 ? cents : null;
 }
+
+/** What can still be refunded on an invoice: paid, less what was already refunded. */
+const refundable = (p: { amountCents: number; refundedCents?: number }) => Math.max(0, p.amountCents - (p.refundedCents ?? 0));
 
 const tomorrowIso = () => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
@@ -80,7 +90,7 @@ export function useBillingMoneyActions({
   const base = `/api/admin/accounts/${encodeURIComponent(userId)}/billing`;
 
   const invoices = useMemo(
-    () => (billing?.payments ?? []).filter((p) => p.subscriptionInvoice).slice(0, REFUND_INVOICE_LIMIT),
+    () => (billing?.payments ?? []).filter((p) => p.subscriptionInvoice && refundable(p) > 0).slice(0, REFUND_INVOICE_LIMIT),
     [billing],
   );
   const invoice = invoices.find((p) => p.id === invoiceId) ?? null;
@@ -99,7 +109,7 @@ export function useBillingMoneyActions({
   const openRefund = () => {
     const first = invoices[0];
     setInvoiceId(first?.id ?? "");
-    setRefundDraft(first ? (first.amountCents / 100).toFixed(2) : "");
+    setRefundDraft(first ? (refundable(first) / 100).toFixed(2) : "");
     setNonce(crypto.randomUUID());
     setDialog("refund");
   };
@@ -147,33 +157,33 @@ export function useBillingMoneyActions({
   };
 
   const icons = (
-    <>
-      <PortalIconAction
-        icon={CircleDollarSign}
-        label={hasSubscription ? "Change price" : NO_CARD}
-        disabled={!hasSubscription}
-        data-attr="admin-billing-change-price"
-        onClick={openPrice}
-      />
-      <PortalIconAction
-        icon={Undo2}
-        label={invoices.length > 0 ? "Refund" : NO_CARD}
-        disabled={invoices.length === 0}
-        data-attr="admin-billing-refund"
-        onClick={openRefund}
-      />
-      <PortalIconAction
-        icon={Ban}
-        label={hasSubscription ? "Cancel subscription" : NO_CARD}
-        tone="danger"
-        disabled={!hasSubscription}
-        data-attr="admin-billing-cancel"
-        onClick={openCancel}
-      />
-      {promoCode ? (
-        <PortalIconAction icon={TicketX} label="End promo" data-attr="admin-billing-end-promo" onClick={openEndPromo} />
-      ) : null}
-    </>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <PortalIconAction icon={MoreHorizontal} label="More billing actions" data-attr="admin-billing-more" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" rowSheet>
+        <DropdownMenuItem disabled={!hasSubscription} data-attr="admin-billing-change-price" onSelect={openPrice}>
+          Change price
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={invoices.length === 0} data-attr="admin-billing-refund" onSelect={openRefund}>
+          Refund
+        </DropdownMenuItem>
+        {promoCode ? (
+          <DropdownMenuItem data-attr="admin-billing-end-promo" onSelect={openEndPromo}>
+            End promo
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="text-red-700 focus:text-red-700"
+          disabled={!hasSubscription}
+          data-attr="admin-billing-cancel"
+          onSelect={openCancel}
+        >
+          Cancel subscription
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 
   const dialogs = (
@@ -221,7 +231,7 @@ export function useBillingMoneyActions({
         title="Refund"
         submitLabel={refundCents ? `Refund ${money(refundCents)}` : "Refund"}
         dataAttr="admin-billing-refund-dialog"
-        canSubmit={Boolean(invoice) && refundCents !== null && refundCents <= (invoice?.amountCents ?? 0)}
+        canSubmit={Boolean(invoice) && refundCents !== null && refundCents <= (invoice ? refundable(invoice) : 0)}
         onClose={() => setDialog(null)}
         onSubmit={submitRefund}
       >
@@ -230,12 +240,12 @@ export function useBillingMoneyActions({
           value={invoiceId}
           options={invoices.map((p) => ({
             value: p.id,
-            label: `${formatPacificDate(p.at ?? "", { month: "short", day: "numeric", year: "numeric" })} · ${money(p.amountCents)}${p.number ? ` · ${p.number}` : ""}`,
+            label: `${formatPacificDate(p.at ?? "", { month: "short", day: "numeric", year: "numeric" })} · ${money(refundable(p))}${p.number ? ` · ${p.number}` : ""}`,
           }))}
           onChange={(next) => {
             setInvoiceId(next);
             const picked = invoices.find((p) => p.id === next);
-            if (picked) setRefundDraft((picked.amountCents / 100).toFixed(2));
+            if (picked) setRefundDraft((refundable(picked) / 100).toFixed(2));
           }}
           dataAttr="admin-billing-refund-invoice"
         />

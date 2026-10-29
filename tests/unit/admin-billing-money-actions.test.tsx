@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * The money icons on a manager's Subscription card: Change price / Refund / Cancel are disabled with the tooltip
- * "No card subscription" when there is no Stripe subscription, End promo exists only when the account has a promo code,
- * and the Refund popup posts the picked invoice, the amount in cents and a per-dialog nonce.
+ * The money actions on a manager's Subscription card sit behind ONE ⋯ in the header (four icons clipped the red Cancel at 390px).
+ * Change price / Refund / Cancel are disabled when there is no Stripe subscription, End promo exists only when the account has
+ * a promo code, and the Refund popup posts the picked invoice, the amount in cents and a per-dialog nonce.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React from "react";
@@ -39,6 +39,15 @@ const payment = (id: string, amountCents: number) => ({
   subscriptionInvoice: true,
 });
 
+/** Open the one ⋯ and return the menu item by name. */
+async function menuItem(name: string): Promise<HTMLElement> {
+  if (!screen.queryByRole("menu")) {
+    fireEvent.keyDown(screen.getByRole("button", { name: "More billing actions" }), { key: "ArrowDown" });
+  }
+  return screen.findByRole("menuitem", { name });
+}
+const isDisabled = (el: HTMLElement) => el.hasAttribute("data-disabled") || el.getAttribute("aria-disabled") === "true";
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -56,19 +65,25 @@ describe("dollarsToCents", () => {
   });
 });
 
-describe("billing money icons", () => {
-  it("without a card subscription Change price and Cancel are disabled with the tooltip, Refund too with no invoice, no End promo", () => {
-    render(<Harness b={billing({ subscriptionLinked: false })} onChanged={vi.fn()} />);
-    const disabled = screen.getAllByRole("button", { name: "No card subscription" }) as HTMLButtonElement[];
-    expect(disabled).toHaveLength(3);
-    expect(disabled.every((b) => b.disabled)).toBe(true);
-    expect(screen.queryByRole("button", { name: "End promo" })).toBeNull();
+describe("billing money actions", () => {
+  it("is one header button, not four icons", () => {
+    render(<Harness b={billing({ promoCode: "FREE100", payments: [payment("in_1", 4000)] })} onChanged={vi.fn()} />);
+    expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "More billing actions" })).toBeTruthy();
   });
 
-  it("with a subscription and a promo code all four are live", () => {
+  it("without a card subscription Change price and Cancel are disabled, Refund too with no invoice, no End promo", async () => {
+    render(<Harness b={billing({ subscriptionLinked: false })} onChanged={vi.fn()} />);
+    for (const name of ["Change price", "Refund", "Cancel subscription"]) {
+      expect(isDisabled(await menuItem(name))).toBe(true);
+    }
+    expect(screen.queryByRole("menuitem", { name: "End promo" })).toBeNull();
+  });
+
+  it("with a subscription and a promo code all four are live", async () => {
     render(<Harness b={billing({ promoCode: "FREE100", payments: [payment("in_1", 4000)] })} onChanged={vi.fn()} />);
     for (const name of ["Change price", "Refund", "Cancel subscription", "End promo"]) {
-      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(false);
+      expect(isDisabled(await menuItem(name))).toBe(false);
     }
   });
 
@@ -77,7 +92,7 @@ describe("billing money icons", () => {
     vi.stubGlobal("fetch", fetchMock);
     const onChanged = vi.fn();
     render(<Harness b={billing({ payments: [payment("in_1", 4000)] })} onChanged={onChanged} />);
-    fireEvent.click(screen.getByRole("button", { name: "Refund" }));
+    fireEvent.click(await menuItem("Refund"));
     const amount = document.querySelector('[data-attr="admin-billing-refund-amount"]') as HTMLInputElement;
     expect(amount.value).toBe("40.00");
     fireEvent.change(amount, { target: { value: "15.50" } });
@@ -93,9 +108,9 @@ describe("billing money icons", () => {
     expect(String(body.nonce).length).toBeGreaterThanOrEqual(8);
   });
 
-  it("will not submit a refund above the invoice amount", () => {
+  it("will not submit a refund above the invoice amount", async () => {
     render(<Harness b={billing({ payments: [payment("in_1", 4000)] })} onChanged={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "Refund" }));
+    fireEvent.click(await menuItem("Refund"));
     fireEvent.change(document.querySelector('[data-attr="admin-billing-refund-amount"]') as HTMLInputElement, { target: { value: "40.01" } });
     fireEvent.change(document.querySelector('[data-attr="admin-billing-refund-dialog-reason"]') as HTMLInputElement, { target: { value: "x" } });
     expect((document.querySelector('[data-attr="admin-billing-refund-dialog-submit"]') as HTMLButtonElement).disabled).toBe(true);
@@ -105,7 +120,7 @@ describe("billing money icons", () => {
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true }) }));
     vi.stubGlobal("fetch", fetchMock);
     render(<Harness b={billing({ promoCode: "FREE100" })} onChanged={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "End promo" }));
+    fireEvent.click(await menuItem("End promo"));
     fireEvent.change(document.querySelector('[data-attr="admin-billing-end-promo-dialog-reason"]') as HTMLInputElement, { target: { value: "Promo over" } });
     fireEvent.click(document.querySelector('[data-attr="admin-billing-end-promo-dialog-submit"]') as HTMLButtonElement);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());

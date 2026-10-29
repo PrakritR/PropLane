@@ -439,14 +439,16 @@ export function projectPromoCode(
 
   const expiresMs = promo.expires_at ? promo.expires_at * 1000 : null;
   const spent = promo.max_redemptions !== null && promo.times_redeemed >= promo.max_redemptions;
+  // A code staff ended with Expire stamps when (`expirePromoCode`) and is switched off in Stripe; that is
+  // an ended code (Expired), not a merely deactivated one (Inactive). The list shows it in the Ends column.
+  const switchedOffAt = Date.parse(promo.metadata?.proplane_expired_at ?? "");
+  const expiredByStaff = !promo.active && Number.isFinite(switchedOffAt) && switchedOffAt <= now;
   const status: PromoStatus =
-    (expiresMs !== null && expiresMs <= now) || spent || coupon?.valid === false
+    (expiresMs !== null && expiresMs <= now) || spent || coupon?.valid === false || expiredByStaff
       ? "expired"
       : promo.active
         ? "active"
         : "inactive";
-  // A code staff turned off stamps when (`expirePromoCode`); the list shows it in the Ends column.
-  const switchedOffAt = Date.parse(promo.metadata?.proplane_expired_at ?? "");
   const endsMs = expiresMs ?? (!promo.active && Number.isFinite(switchedOffAt) ? switchedOffAt : null);
 
   return {

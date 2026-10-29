@@ -5,7 +5,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { applicationFeeBasisFromSessionMetadata, applicationFeePaymentSatisfiesTemplate,
   resolveApplicationFeeProperty } from "@/lib/application-fee-checkout.server";
 import { shouldWaiveApplicationFeeForResidentServer } from "@/lib/rental-application/application-policy.server";
-import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
+import { applicationRentalTypeFor, isShortStayApplication } from "@/lib/rental-application/lease-terms";
 import { loadManagerApplicationSettings } from "@/lib/manager-application-settings";
 import { resolveApplicationFeeChargePolicy } from "@/lib/rental-application/listing-application-fee-policy";
 
@@ -17,7 +17,7 @@ export type ApplicationFeeRefusalReason = "unpaid" | "unverifiable";
 
 export type ApplicationFeeSubmitGuard =
   | { ok: true }
-  | { ok: false; status: 409 | 500; error: string; reason: ApplicationFeeRefusalReason };
+  | { ok: false; status: 400 | 409 | 500; error: string; reason: ApplicationFeeRefusalReason };
 
 /**
  * A verdict this request already produced, with the row it was produced for, so one submit verifies
@@ -82,6 +82,17 @@ export async function authorizeApplicationFeeSubmission(
   const answers = row.application;
   if (!applicationId || !propertyId || !email.includes("@") || !answers) {
     return { ok: false, status: 409, error: "Application fee source cannot be verified.", reason: "unverifiable" };
+  }
+  // The fee is priced from the lease term alone, so a short-term/Airbnb rental type riding a term that
+  // is not itself a stay is a contradiction (the way to ask for the free stay default on a long-term
+  // application). Refused before any fee is resolved; it is malformed, never "go and pay".
+  if (applicationRentalTypeFor(answers.rentalType) === "short_term" && !isShortStayApplication({ leaseTerm: answers.leaseTerm })) {
+    return {
+      ok: false,
+      status: 400,
+      error: "A short-term application must use the Short-Term Stay or Airbnb lease type.",
+      reason: "unverifiable",
+    };
   }
   try {
     const resolved = await resolveApplicationFeeProperty(db, {

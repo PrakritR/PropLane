@@ -42,7 +42,11 @@ export function listingApplicationFeeRaw(
     const own = String(listing.applicationFeeByLeaseType?.[key] ?? "").trim();
     if (own !== "") return own;
   }
-  if (rentalType === "short_term" || isStayTerm(key)) {
+  // The lease term decides whether this is a stay when one is given; `rentalType` only stands in for a
+  // missing term (the portfolio-wide display range). A client-supplied rental type never turns a
+  // long-term term into a stay.
+  const isStay = key ? isStayTerm(key) : rentalType === "short_term";
+  if (isStay) {
     // A stay never inherits the house's general application fee: only a fee set for the stay applies.
     return String(listing.shortTermApplicationFee ?? "").trim();
   }
