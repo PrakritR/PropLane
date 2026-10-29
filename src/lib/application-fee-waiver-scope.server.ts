@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { waiverCodeLimitedPropertyIds } from "@/lib/application-fee-waiver";
 import { NO_MODULE_ACCESS_ERROR, assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 
@@ -109,4 +110,51 @@ export async function resolveWaiverPropertiesScope(
     return { ok: false, status: 403, error: NO_MODULE_ACCESS_ERROR };
   }
   return { ok: true, ownerUserId, callerIsOwner: false, knownPropertyIds: ids };
+}
+
+/** Which houses of `ownerUserId` the caller may WRITE applications on, and which of `propertyIds` still exist. */
+export type WaiverWriteScope = { editable: Set<string>; existing: Set<string> };
+
+/**
+ * One read each for "does this house still exist" and "may I write applications on it", for the whole set of
+ * houses a list of codes covers. Resolved once per request so {@link waiverCodeIsReadOnly} can answer for every
+ * listed code without a query per code, let alone per house.
+ *
+ * `propertyIdsByOwner` rather than the flat `propertyIds`: a grant issued by owner X never authorizes writing a
+ * code that belongs to owner Y, the same pairing `assertCoManagerModuleAccess` makes.
+ */
+export async function resolveWaiverWriteScope(
+  db: SupabaseClient,
+  callerUserId: string,
+  ownerUserId: string,
+  propertyIds: readonly string[],
+): Promise<WaiverWriteScope> {
+  const ids = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
+  if (ids.length === 0) return { editable: new Set(), existing: new Set() };
+  const [{ data }, grant] = await Promise.all([
+    db.from("manager_property_records").select("id").in("id", ids),
+    linkedOwnerScopeForModule(db as never, callerUserId, "applications", "edit"),
+  ]);
+  const existing = new Set(((data ?? []) as { id: string }[]).map((r) => String(r.id)));
+  return { editable: grant.propertyIdsByOwner.get(ownerUserId) ?? new Set(), existing };
+}
+
+/**
+ * This code is listed for the caller but they may not change it, so the row shows its terms with no controls.
+ *
+ * Two shapes qualify, and both are exactly what `PATCH /[id]` refuses: a portfolio-wide code (the owner's alone,
+ * 404 to anybody else), and a code covering a house the caller holds no `applications: edit` on (403). Offering
+ * an edit that comes back refused is worse than showing none, so the two decisions are derived from one rule.
+ *
+ * A house that no longer exists is ignored on both sides, matching the `ignoreUnknown` write gates: a deleted
+ * house grants nothing and blocks nothing. A code left covering ONLY deleted houses is therefore writable - it
+ * is also unlistable, because it covers no house anybody can open.
+ */
+export function waiverCodeIsReadOnly(
+  code: { propertyId?: string | null; propertyIds?: readonly string[] | null },
+  scope: WaiverWriteScope,
+): boolean {
+  const limited = waiverCodeLimitedPropertyIds(code);
+  if (limited.length === 0) return true;
+  return limited.filter((id) => scope.existing.has(id)).some((id) => !scope.editable.has(id));
 }

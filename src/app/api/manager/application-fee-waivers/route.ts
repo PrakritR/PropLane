@@ -9,9 +9,15 @@ import {
   normalizeWaiverCode,
   updateApplicationFeeWaiverCode,
   waiverCodeCoversProperty,
+  waiverCodeLimitedPropertyIds,
   type ApplicationFeeWaiverCode,
 } from "@/lib/application-fee-waiver";
-import { resolveWaiverCodeScope, resolveWaiverPropertiesScope } from "@/lib/application-fee-waiver-scope.server";
+import {
+  resolveWaiverCodeScope,
+  resolveWaiverPropertiesScope,
+  resolveWaiverWriteScope,
+  waiverCodeIsReadOnly,
+} from "@/lib/application-fee-waiver-scope.server";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 
 export const runtime = "nodejs";
@@ -27,9 +33,10 @@ export const runtime = "nodejs";
  * applicant's email, so returning the code's other houses' rows would hand a caller scoped to one house the
  * applicants of every other house the code touches.
  *
- * A portfolio-wide code belongs to the owner alone - `PATCH /[id]` refuses one to anybody else - so it is marked
- * `readOnly` for a non-owner. The row still shows (it really does waive on this house) with its controls hidden,
- * rather than offering edits that would come back 404.
+ * A code the caller may read but not write is marked `readOnly` (`waiverCodeIsReadOnly`): a portfolio-wide code,
+ * which is the owner's alone, and a multi-house code covering a house the caller holds no `applications: edit`
+ * on. The row still shows (it really does waive on this house) with its write controls hidden, rather than
+ * offering edits that `PATCH /[id]` would come back 404 or 403 on.
  */
 export async function GET(req: Request) {
   const ctx = await requireManagerRouteUser({ fast: true });
@@ -51,9 +58,7 @@ export async function GET(req: Request) {
     ]);
     const covering = all.filter((c) => waiverCodeCoversProperty(c, propertyId));
     const ids = new Set(covering.map((c) => c.id));
-    const codes = scope.callerIsOwner
-      ? covering
-      : covering.map((c) => (limitedPropertyIds(c).length === 0 ? { ...c, readOnly: true } : c));
+    const codes = scope.callerIsOwner ? covering : await markReadOnly(ctx, scope.ownerUserId, covering);
     return NextResponse.json({
       codes,
       redemptions: allRedemptions.filter((r) => ids.has(r.codeId) && r.propertyId === propertyId),
@@ -75,10 +80,22 @@ type CreateBody = {
   propertyIds?: string[] | null;
 };
 
-/** Properties a stored code is limited to (the list, else the legacy single id); empty = portfolio-wide. */
-function limitedPropertyIds(code: ApplicationFeeWaiverCode): string[] {
-  if (code.propertyIds.length > 0) return code.propertyIds;
-  return code.propertyId ? [code.propertyId] : [];
+/**
+ * Stamp `readOnly` on every code in `codes` the caller may not write, from ONE grant read for the whole set.
+ * The owner never needs this and never calls it.
+ */
+async function markReadOnly(
+  ctx: { db: Parameters<typeof resolveWaiverWriteScope>[0]; userId: string },
+  ownerUserId: string,
+  codes: ApplicationFeeWaiverCode[],
+): Promise<ApplicationFeeWaiverCode[]> {
+  const write = await resolveWaiverWriteScope(
+    ctx.db,
+    ctx.userId,
+    ownerUserId,
+    codes.flatMap((c) => waiverCodeLimitedPropertyIds(c)),
+  );
+  return codes.map((c) => (waiverCodeIsReadOnly(c, write) ? { ...c, readOnly: true } : c));
 }
 
 /**
@@ -111,7 +128,8 @@ function conflictingTerm(existing: ApplicationFeeWaiverCode, body: CreateBody): 
  * response carries `extended: true` so the screen says the code was added to an existing one rather than created.
  * A request that also asks for a DIFFERENT cap, expiry or label is a 409 instead: extending only widens where a
  * code works, so those terms would be dropped, and the manager would be told a code was created with terms it
- * does not have.
+ * does not have. An extend response carries the same `readOnly` stamp GET computes for this caller, because the
+ * inline row merges it straight into its list - an unstamped copy put the dead controls back.
  */
 export async function POST(req: Request) {
   const ctx = await requireManagerRouteUser();
@@ -146,10 +164,11 @@ export async function POST(req: Request) {
         if (conflictingTerm(existing, body)) {
           return NextResponse.json({ error: "That code already exists. Edit it from Settings." }, { status: 409 });
         }
-        const current = limitedPropertyIds(existing);
+        const current = waiverCodeLimitedPropertyIds(existing);
         const wanted = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
         if (wanted.every((id) => waiverCodeCoversProperty(existing, id))) {
-          return NextResponse.json({ code: existing, extended: true });
+          const [code] = ownerUserId === ctx.userId ? [existing] : await markReadOnly(ctx, ownerUserId, [existing]);
+          return NextResponse.json({ code, extended: true });
         }
         if (ownerUserId !== ctx.userId) {
           // Widening a code also widens what it waives on its other houses: a teammate may only do that when they
@@ -165,7 +184,8 @@ export async function POST(req: Request) {
           propertyIds: [...new Set([...current, ...wanted])],
         });
         if (!updated.ok) return NextResponse.json({ error: updated.error }, { status: updated.status });
-        return NextResponse.json({ code: updated.code, extended: true });
+        const [code] = ownerUserId === ctx.userId ? [updated.code] : await markReadOnly(ctx, ownerUserId, [updated.code]);
+        return NextResponse.json({ code, extended: true });
       }
     }
   }

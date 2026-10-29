@@ -117,9 +117,13 @@ export async function allocateAssistantMailboxLocal(
   opts: { service?: boolean } = {},
 ): Promise<string> {
   const base = baseMailboxLocal(profile, workspaceName, opts.service === true);
+  // The token is base64url, whose alphabet includes `-` and `_`. A raw slice yielded locals like
+  // `ambikahomes-a-b1`, which `localFollowsBase` does not match, so an address PropLane had just minted read as
+  // customized and a later rename silently refused to follow the workspace's new name.
+  const suffix = compactLetters(tokenSuffix ?? "");
   const candidates = [base];
-  if (tokenSuffix) {
-    candidates.push(`${base}-${tokenSuffix.slice(0, 4).toLowerCase()}`);
+  if (suffix.length >= 4) {
+    candidates.push(`${base}-${suffix.slice(0, 4)}`);
   }
   for (let i = 2; i <= 9; i += 1) {
     candidates.push(`${base}-${i}`);
@@ -136,7 +140,7 @@ export async function allocateAssistantMailboxLocal(
     if (!data) return candidate;
   }
 
-  const fallback = `${MAILBOX_LOCAL_PREFIX}${(tokenSuffix ?? "x").slice(0, 8).toLowerCase()}`;
+  const fallback = `${MAILBOX_LOCAL_PREFIX}${(suffix || "x").slice(0, 8)}`;
   return isAllocatableMailboxLocal(fallback) ? fallback : `${MAILBOX_LOCAL_PREFIX}inbox`;
 }
 

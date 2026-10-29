@@ -6,9 +6,13 @@
  * Same semantics as setWorkspaceAssistantMailboxLocal: update the local, hold the
  * old one as a 30-day alias. Idempotent: a row already on the rule is skipped.
  *
- * --service: PropLane-managed (is_service) workspaces only, by the service rule ("1. Ambika" -> ambikahomes):
- * mints an address for each non-archived one that has none and renames one whose address is not already that
- * rule's output. Prints the plan table; writes only with --apply.
+ * --service: PropLane-managed (is_service) workspaces only, by the service rule ("1. Ambika" -> ambikahomes).
+ * It MINTS for each non-archived one that has no address, and otherwise leaves an existing address alone: a
+ * workspace that ran self-serve before PropLane took it over is on a published `{workspace-slug}@`, and a staff
+ * one may be hand-picked, so nothing here may move it (the same invariant `attachWorkspaceToService` keeps).
+ * --rename-workspace <workspaceId> (repeatable) is the explicit opt-in for the one workspace an operator does
+ * want moved onto its service-rule local, whatever its address came from. Prints the plan table; writes only
+ * with --apply.
  *
  * Refuses the production project unless --allow-production is passed (any mode).
  */
@@ -71,8 +75,13 @@ export function planRenames(rows, aliasesByLocal = new Map()) {
  * emailId, mailboxLocal (current or null), next}]. A row already on the service rule's local (or its -2..-9 suffix) is
  * left alone, so a second run plans nothing. Locals held by any row, planned or existing, and another owner's live alias
  * are never handed out.
+ *
+ * A workspace that ALREADY holds an address is only planned when its id is in `renameWorkspaceIds`
+ * (`--rename-workspace`). Without that opt-in the pass is mint-only: the address may be a self-serve
+ * `{workspace-slug}@` published on listings and in the public listing payload, and this script must not do what
+ * the attach path was fixed to never do - retire a live address behind a 30-day alias.
  */
-export function planServiceEmails(rows, aliasesByLocal = new Map()) {
+export function planServiceEmails(rows, aliasesByLocal = new Map(), renameWorkspaceIds = new Set()) {
   const held = new Map();
   for (const r of rows) if (r.email) held.set(r.email.mailboxLocal, r.email.id ?? r.workspaceId);
   const aliases = new Map(aliasesByLocal);
@@ -82,6 +91,7 @@ export function planServiceEmails(rows, aliasesByLocal = new Map()) {
     if (!base) continue;
     const current = row.email?.mailboxLocal ?? null;
     if (current && localFollowsBase(current, base)) continue;
+    if (current && !renameWorkspaceIds.has(row.workspaceId)) continue;
     const holderId = row.email ? (row.email.id ?? row.workspaceId) : row.workspaceId;
     const taken = new Set();
     for (const [local, id] of held) if (id !== holderId) taken.add(local);
@@ -116,7 +126,7 @@ export function formatServicePlan(plans) {
   return [fmt(header), fmt(widths.map((w) => "-".repeat(w))), ...lines.map(fmt)].join("\n");
 }
 
-async function runService(db, apply) {
+async function runService(db, apply, renameWorkspaceIds = new Set()) {
   const { data: workspaces, error: wsErr } = await db
     .from("portal_workspaces")
     .select("id, name, owner_user_id")
@@ -159,7 +169,11 @@ async function runService(db, apply) {
   const others = (allActive ?? [])
     .filter((e) => !serviceEmailIds.has(e.id))
     .map((e) => ({ workspaceId: `other:${e.id}`, workspaceName: "", ownerId: `other:${e.id}`, ownerFirst: "", email: { id: e.id, mailboxLocal: String(e.mailbox_local).toLowerCase() } }));
-  const plans = planServiceEmails([...rows, ...others], aliasesByLocal).filter((p) => !String(p.workspaceId).startsWith("other:"));
+  const plans = planServiceEmails([...rows, ...others], aliasesByLocal, renameWorkspaceIds).filter(
+    (p) => !String(p.workspaceId).startsWith("other:"),
+  );
+  const unknownAsked = [...renameWorkspaceIds].filter((id) => !rows.some((r) => r.workspaceId === id));
+  if (unknownAsked.length) console.log(`--rename-workspace named ${unknownAsked.length} id(s) that are not live service workspaces: ${unknownAsked.join(", ")}`);
 
   console.log(`${apply ? "APPLY" : "DRY RUN"} (service): ${plans.length} of ${rows.length} service workspaces to change`);
   if (plans.length) console.log(formatServicePlan(plans));
@@ -207,6 +221,9 @@ async function runService(db, apply) {
 async function main() {
   const apply = process.argv.includes("--apply");
   const service = process.argv.includes("--service");
+  const renameWorkspaceIds = new Set(
+    process.argv.flatMap((arg, i) => (arg === "--rename-workspace" ? [String(process.argv[i + 1] ?? "").trim()] : [])).filter(Boolean),
+  );
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
@@ -214,7 +231,8 @@ async function main() {
     throw new Error("SUPABASE_URL is the production project. Refusing; pass --allow-production to run against it.");
   }
   const db = createClient(url, key, { auth: { persistSession: false } });
-  if (service) return runService(db, apply);
+  if (service) return runService(db, apply, renameWorkspaceIds);
+  if (renameWorkspaceIds.size) throw new Error("--rename-workspace only applies to --service.");
 
   const { data: emails, error } = await db
     .from("manager_assistant_emails")

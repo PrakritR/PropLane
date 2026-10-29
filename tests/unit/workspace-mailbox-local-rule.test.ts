@@ -7,6 +7,7 @@ import {
 import { RESERVED_MAILBOX_LOCALS } from "@/lib/manager-assistant-email/assistant-email-address";
 import {
   RESERVED,
+  localFollowsBase,
   mailboxLocalIsDerivedFrom,
   serviceWorkspaceMailboxLocalFor,
 } from "@/lib/manager-assistant-email/workspace-mailbox-local-rule.mjs";
@@ -51,6 +52,21 @@ describe("allocateAssistantMailboxLocal", () => {
   it("falls back to the owner's first name for a short name", async () => {
     const db = createMemoryDb({ manager_assistant_emails: [] });
     await expect(allocateAssistantMailboxLocal(db as never, profile, undefined, "HQ")).resolves.toBe("hqprakrit");
+  });
+
+  it("builds the token collision suffix from letters and digits only, so the rule still recognizes it", async () => {
+    // The token is base64url: a raw slice could emit `seattlehomes-a-b1`, which `localFollowsBase` misses, and a
+    // later rename then refused to follow the workspace's new name because PropLane's own address read customized.
+    const db = createMemoryDb({ manager_assistant_emails: [{ manager_user_id: "x", mailbox_local: "seattlehomes", provision_state: "active" }] });
+    const local = await allocateAssistantMailboxLocal(db as never, profile, "a-b1_cd9", "Seattle Homes");
+    expect(local).toBe("seattlehomes-ab1c");
+    expect(localFollowsBase(local, "seattlehomes")).toBe(true);
+    expect(mailboxLocalIsDerivedFrom("Seattle Homes", "Prakrit", local)).toBe(true);
+  });
+
+  it("skips the token candidate when the token has fewer than four usable characters", async () => {
+    const db = createMemoryDb({ manager_assistant_emails: [{ manager_user_id: "x", mailbox_local: "seattlehomes", provision_state: "active" }] });
+    await expect(allocateAssistantMailboxLocal(db as never, profile, "a-_", "Seattle Homes")).resolves.toBe("seattlehomes-2");
   });
 });
 
@@ -146,12 +162,14 @@ describe("backfill --service plan (dry run)", () => {
   const ws = (over: Record<string, unknown>) => ({
     workspaceId: "w1", workspaceName: "1. Ambika", ownerId: "o1", ownerFirst: "Prakrit", email: null, ...over,
   });
-  it("mints for a workspace with no address and renames one off the service rule", () => {
-    const plans = planServiceEmails([
-      ws({}),
-      ws({ workspaceId: "w2", workspaceName: "2. Vinod", email: { id: "e2", mailboxLocal: "vinod" } }),
-    ]);
-    expect(plans.map((p: { kind: string; workspaceName: string; mailboxLocal: string | null; next: string }) => `${p.kind} ${p.workspaceName}: ${p.mailboxLocal} -> ${p.next}`)).toEqual([
+  const described = (plans: { kind: string; workspaceName: string; mailboxLocal: string | null; next: string }[]) =>
+    plans.map((p) => `${p.kind} ${p.workspaceName}: ${p.mailboxLocal} -> ${p.next}`);
+
+  it("mints for a workspace with no address and leaves a workspace that has one alone", () => {
+    const rows = [ws({}), ws({ workspaceId: "w2", workspaceName: "2. Vinod", email: { id: "e2", mailboxLocal: "vinod" } })];
+    expect(described(planServiceEmails(rows))).toEqual(["mint 1. Ambika: null -> ambikahomes"]);
+    // Named explicitly, that second workspace moves onto its service-rule local.
+    expect(described(planServiceEmails(rows, new Map(), new Set(["w2"])))).toEqual([
       "mint 1. Ambika: null -> ambikahomes",
       "rename 2. Vinod: vinod -> vinodhomes",
     ]);
@@ -159,6 +177,29 @@ describe("backfill --service plan (dry run)", () => {
   it("is idempotent and leaves a suffixed rule output alone", () => {
     expect(planServiceEmails([ws({ email: { id: "e1", mailboxLocal: "ambikahomes" } })])).toEqual([]);
     expect(planServiceEmails([ws({ email: { id: "e1", mailboxLocal: "ambikahomes-2" } })])).toEqual([]);
+  });
+
+  it("is MINT-ONLY: an address the workspace already holds is never moved without the explicit opt-in", () => {
+    // Same invariant `attachWorkspaceToService` keeps: `seattlerentals@` may be on listings and in the public
+    // listing payload, and retiring it behind a 30-day alias bounces replies once the alias lapses.
+    const selfServe = ws({ workspaceName: "2. Vinod", email: { id: "e2", mailboxLocal: "seattlerentals" } });
+    expect(planServiceEmails([selfServe])).toEqual([]);
+    expect(planServiceEmails([ws({ email: { id: "e1", mailboxLocal: "frontdesk" } })])).toEqual([]);
+    // A workspace with no address at all is still minted in the same run.
+    expect(planServiceEmails([selfServe, ws({ workspaceId: "w3", workspaceName: "3. Birch" })]).map((p) => `${p.kind} ${p.next}`)).toEqual([
+      "mint birchhomes",
+    ]);
+  });
+
+  it("--rename-workspace moves that one workspace, and only that one", () => {
+    const rows = [
+      ws({ workspaceName: "2. Vinod", email: { id: "e2", mailboxLocal: "seattlerentals" } }),
+      ws({ workspaceId: "w3", workspaceName: "3. Birch", email: { id: "e3", mailboxLocal: "birchwood" } }),
+    ];
+    const plans = planServiceEmails(rows, new Map(), new Set(["w1"]));
+    expect(plans.map((p: { kind: string; workspaceId: string; mailboxLocal: string; next: string }) => `${p.kind} ${p.workspaceId}: ${p.mailboxLocal} -> ${p.next}`)).toEqual([
+      "rename w1: seattlerentals -> vinodhomes",
+    ]);
   });
   it("suffixes on a collision with another holder or another owner's live alias", () => {
     const held = [{ workspaceId: "other:1", workspaceName: "", ownerId: "other:1", ownerFirst: "", email: { id: "x", mailboxLocal: "ambikahomes" } }];

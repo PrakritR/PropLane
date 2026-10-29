@@ -70,8 +70,9 @@ const API = "/api/manager/application-fee-waivers";
  * lease fee on a lease), limited to this property. The codes already on the form list underneath as plain
  * rows: the code, what it does (the waive model has one effect, "Free"), its uses, and a ⋯ menu.
  *
- * A code the server marked `readOnly` (the owner's own portfolio-wide code, which only they may change) lists as
- * a plain row with no ⋯ menu: every action on it would be refused.
+ * A code the server marked `readOnly` (the owner's own portfolio-wide code, or one covering a house this caller
+ * holds no edit grant on) keeps Copy - handing the text to an applicant is the everyday action and it really does
+ * waive on this house - and loses only the write entries, which would be refused.
  *
  * The client sends only the code text, the fee and the property id; the server re-derives the manager from
  * the session and refuses a property that is not theirs. A brand-new draft has no property id yet, so it is
@@ -252,7 +253,7 @@ export function FormPromoCodesRow({
           <span className="ml-auto shrink-0 text-[13px] tabular-nums text-muted">
             {code.maxUses == null ? `Used ${code.usedCount}` : `Used ${code.usedCount} of ${code.maxUses}`}
           </span>
-          {code.readOnly ? null : offId === code.id ? (
+          {offId === code.id ? (
             <span className="flex shrink-0 items-center">
               <PortalIconAction label="Confirm turn off" icon={Check} tone="danger" disabled={busy} data-attr="form-promo-code-off-confirm" onClick={() => turnOff(code.id)} />
               <PortalIconAction label="Keep code" icon={X} disabled={busy} data-attr="form-promo-code-off-cancel" onClick={() => setOffId(null)} />
@@ -271,12 +272,16 @@ export function FormPromoCodesRow({
                 <DropdownMenuItem data-attr="form-promo-code-copy" onSelect={() => void copy(code.code)}>
                   Copy
                 </DropdownMenuItem>
-                <DropdownMenuItem data-attr="form-promo-code-manage" onSelect={() => setManageOpen(true)}>
-                  Manage codes
-                </DropdownMenuItem>
-                <DropdownMenuItem className="text-danger" data-attr="form-promo-code-off" onSelect={() => setOffId(code.id)}>
-                  Turn off
-                </DropdownMenuItem>
+                {code.readOnly ? null : (
+                  <>
+                    <DropdownMenuItem data-attr="form-promo-code-manage" onSelect={() => setManageOpen(true)}>
+                      Manage codes
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="text-danger" data-attr="form-promo-code-off" onSelect={() => setOffId(code.id)}>
+                      Turn off
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}

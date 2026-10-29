@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   revokeApplicationFeeWaiverCode,
   updateApplicationFeeWaiverCode,
+  waiverCodeLimitedPropertyIds,
   type UpdateWaiverCodeInput,
 } from "@/lib/application-fee-waiver";
 import { resolveWaiverPropertiesScope } from "@/lib/application-fee-waiver-scope.server";
@@ -43,15 +44,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const ownerUserId = String(stored?.manager_user_id ?? "").trim();
   if (!stored || !ownerUserId) return NextResponse.json({ error: "Code not found." }, { status: 404 });
   if (ownerUserId !== ctx.userId) {
-    const covered = Array.isArray(stored.property_ids) && stored.property_ids.length > 0
-      ? stored.property_ids.map(String)
-      : stored.property_id
-        ? [String(stored.property_id)]
-        : [];
+    const covered = waiverCodeLimitedPropertyIds({ propertyId: stored.property_id, propertyIds: stored.property_ids });
     // A portfolio-wide code is the owner's own; it is not discoverable by anyone else.
     if (covered.length === 0) return NextResponse.json({ error: "Code not found." }, { status: 404 });
-    const access = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, covered, "edit");
+    // `property_ids` has no foreign key, so a DELETED house leaves a stale id. It must not block a teammate from
+    // turning the code off on the houses that do exist - the same rule the POST widen gate applies.
+    const access = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, covered, "edit", { ignoreUnknown: true });
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    // Every house it covers is gone, so no grant of theirs reaches it: an absent house authorizes nothing either.
+    if (access.knownPropertyIds.length === 0) return NextResponse.json({ error: "Code not found." }, { status: 404 });
     if (access.ownerUserId !== ownerUserId) return NextResponse.json({ error: "Code not found." }, { status: 404 });
   }
 

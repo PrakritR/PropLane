@@ -357,6 +357,34 @@ describe("GET ?propertyId= lists the OWNER's codes that cover the property", () 
     const asOwner = (await (await get(`?propertyId=${OWNED}`)).json()) as { codes: { code: string; readOnly?: boolean }[] };
     expect(asOwner.codes.every((c) => c.readOnly === undefined)).toBe(true);
   });
+
+  it("marks a multi-house code readOnly when the teammate holds edit on only some of its houses", async () => {
+    // PATCH's gate authorizes EVERY house the code covers, so an un-flagged row offered a Disable that 403s.
+    tables.manager_application_fee_waiver_codes!.push(code({ code: "BOTH-HOUSES", property_ids: [OWNED, OWNED_3] }));
+    asCaller(TEAMMATE);
+    const body = (await (await get(`?propertyId=${OWNED}`)).json()) as { codes: { code: string; readOnly?: boolean }[] };
+    expect(body.codes.find((c) => c.code === "BOTH-HOUSES")!.readOnly).toBe(true);
+    expect((await patch("c-BOTH-HOUSES", { action: "revoke" })).status).toBe(403);
+  });
+
+  it("a house that no longer exists neither flags the row nor blocks the write", async () => {
+    tables.manager_application_fee_waiver_codes!.push(code({ code: "WITH-GHOST", property_ids: [OWNED, "prop-deleted"] }));
+    asCaller(TEAMMATE);
+    const body = (await (await get(`?propertyId=${OWNED}`)).json()) as { codes: { code: string; readOnly?: boolean }[] };
+    expect(body.codes.find((c) => c.code === "WITH-GHOST")!.readOnly).toBeUndefined();
+    expect((await patch("c-WITH-GHOST", { action: "revoke" })).status).toBe(200);
+    expect(owned().find((r) => r.code === "WITH-GHOST")!.status).toBe("revoked");
+  });
+
+  it("an extend response carries the same readOnly stamp, so the inline row keeps its controls hidden", async () => {
+    // `FormPromoCodesRow.add` merges the response straight into state: an unstamped copy put the dead ⋯ back.
+    asCaller(TEAMMATE);
+    const res = await post({ code: "EVERYWHERE", appliesTo: "application", propertyIds: [OWNED] });
+    expect(res.status).toBe(200);
+    expect((await res.json()) as unknown).toMatchObject({ extended: true, code: { code: "EVERYWHERE", readOnly: true } });
+    const widened = await post({ code: "ONE-HOUSE", appliesTo: "application", propertyIds: [OWNED] });
+    expect(((await widened.json()) as { code: { readOnly?: boolean } }).code.readOnly).toBeUndefined();
+  });
 });
 
 describe("PATCH by a teammate acts on the owner's code", () => {

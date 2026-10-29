@@ -142,7 +142,9 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   alias. Staff with member rights (the rename standing,
   `authorizeServiceWorkEmailEdit`) change it from the Communication "Work email" card Edit icon; the write is audited
   (`admin_service_work_email`) first. Existing workspaces: `scripts/backfill-workspace-mailbox-locals.mjs --service` (dry run;
-  `--apply` writes; production needs `--allow-production`).
+  `--apply` writes; production needs `--allow-production`) is MINT-ONLY - it fills in a workspace with no address and
+  never moves one that has one, so it cannot undo the invariant above; `--rename-workspace <workspaceId>`
+  (repeatable) is the explicit opt-in to move that one workspace onto its service-rule local.
 - **Dashboard** (`/admin/dashboard`): each slow source (Stripe earnings, Subscribers, expenses, signups, feedback) has a
   9s budget (`withBudget`); a source that misses it is `null` and its card is left out, so one hung read cannot hold the
   page on Loading. The browser still gives up at 20s with a "took too long" error and Try again.
