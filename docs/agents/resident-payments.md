@@ -278,9 +278,10 @@ redemptions with a null application ID need explicit source review and are not
 automatically assigned to every new draft.
 
 **`manager_application_fee_waiver_codes` is the only authority on which code is
-live.** Two surfaces write it: Applications settings
-(`PATCH /api/portal/manager-application-settings`) and the listing save
-(`POST /api/property-records`, via `upsertPropertyApplicationFeeWaiverCode`). The
+live.** Three surfaces write it: Applications settings
+(`PATCH /api/portal/manager-application-settings`), the listing save
+(`POST /api/property-records`, via `upsertPropertyApplicationFeeWaiverCode`) and the
+waive-on-send mint (`ensureWaiveOnSendWaiverCode`, § Application fee: waive on send, and short stays). The
 listing save writes only when the request CHANGES the submitted code against the
 persisted listing submission, or when the row is being published out of `draft`
 for the first time (a draft save deliberately never writes the codes table, so
@@ -373,7 +374,8 @@ room + lease type (the resolver) -> the application template's own fee -> the
 listing-level fee -> the Application system setting
 (`manager_automation_settings.row_data.applicationSettings`, Settings ->
 Applications -> Application system) -> legacy $50**. A typed `0` at any level is
-free. `roomChoice1` and `leaseTerm` are selectors only (an unoffered term, a stay
+free. **A SHORT STAY stops two levels early** and is free when nothing priced it
+(§ Application fee: waive on send, and short stays). `roomChoice1` and `leaseTerm` are selectors only (an unoffered term, a stay
 on a listing that lets none, or a room the listing lacks falls back); the body
 never carries an amount. The Stripe session and the paid household charge record
 the room, lease type and chain level the amount was computed for (`fee_room_id`
@@ -937,6 +939,8 @@ A resident pays rent from a text: tap a `/l/<token>` link, a six-digit code is t
 - **Code budget.** `requestPhoneOtp` allows 3 sends per phone PER PURPOSE per hour with a ceiling of 8 across purposes, so sign-in or apply codes cannot lock a phone out of its rent link.
 - Tests: `rent-reminder-sms`, `sms-link-format`, `paysms-rent-send`, `paysms-rent-link-lifecycle`, `rent-due-day-links`, `payment-reminder-delivery`, `weekly-rent-reminder`, `one-number-link-destinations`, `one-number-phone-otp`. Dev proof: `node --conditions react-server --import tsx scripts/one-number/paysms-proof.ts` (takes the e2e lock).
 
-- **Waive on send is single-use and house-scoped:** a "Waived on send" code is minted server-side only after authorization, spends through the atomic `redeem_application_fee_waiver_code`, and the submit guard accepts only a redemption row for that application, house and email; a used code leaves the normal fee.
+## Application fee: waive on send, and short stays (Oct 28)
 
-- **Short stays are free by default (2026-10-28).** A Short-Term Stay or Airbnb application never falls back to the account application fee or the legacy $50: house Pricing short-term fee, else the form's `feeCentsOverride`, else $0 (`effectiveApplicationFeeCents` with `shortStay`, test `isShortStayApplication`). The Application tab (`applicationFeeFactForTerms`) runs the same resolver, so shown == charged; a $0 fee creates no Stripe session.
+- **Waive on send is single-use and house-scoped:** a "Waived on send" code is minted server-side only after authorization, spends through the atomic `redeem_application_fee_waiver_code`, and the submit guard accepts only a redemption row for that application, house and email; a used code leaves the normal fee. Waiving is a money grant, not a share: only the property record's owner, or a co-manager holding `payments` or `applications` at `edit`, may ask for it (`managerHasCoManagerPermissionForProperty`) — a promotion-only co-manager, the account-link inviter fallback and a platform admin all pass `getShareablePropertyForUser` and are refused 403 `waive_fee_forbidden` before anything is minted or sent, so a fee-charging link never goes out in a waived one's place. The code is minted under the property OWNER's id (the redeem route looks it up there), and an unreadable owner fails the send rather than falling back to the sender. Coverage: `tests/unit/send-lead-invite-waive-fee.test.ts`.
+
+- **Short stays are free by default (2026-10-28).** A Short-Term Stay or Airbnb application never falls back to the account application fee or the legacy $50: house Pricing short-term fee, else the form's `feeCentsOverride`, else $0 (`effectiveApplicationFeeCents` with `shortStay`, test `isShortStayApplication`). The Application tab (`applicationFeeFactForTerms`) runs the same resolver, so shown == charged; a $0 fee creates no Stripe session. **The LEASE TERM alone decides it**, never the applicant-supplied `rentalType`: a submit carrying `rentalType: "short_term"` on a term that is not a stay is refused 400 as malformed before any fee is resolved (`authorizeApplicationFeeSubmission`), because trusting the selector priced a long-term application as a free stay. `rentalType` stands in only where no term is given (the portfolio-wide display range).

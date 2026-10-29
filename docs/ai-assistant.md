@@ -727,6 +727,10 @@ Move-in **forms Blocks** reach the agent too: `get_move_in_info` redacts through
 `redactMoveInDetails` while a move-in-details-blocking form is unsubmitted (`ResidentAgentContext.moveInDetailsLocked`
 is required, so a context builder that forgets it withholds), and `set_resident_approval` honours the approval gate like
 every other approve path. Contract: [move-in forms](agents/move-in-forms.md) § Forms section, Blocks.
+The CODES inside those details carry one more gate, the check-in reveal: `get_move_in_info` masks door codes, the
+Wi-Fi password and the manager's free-text instructions until 24 h before move-in and answers with a `codesNotice`
+instead, and the staff-only Internal section never reaches a resident tool at all. Owner:
+[resident My home](agents/resident-my-home.md) § Check-in.
 
 ### Actual utility bills, move-out deposit review and bank matching
 

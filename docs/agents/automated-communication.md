@@ -38,7 +38,7 @@ Invariants:
 | Area (on the Reminders hub) | Rows (reminders) | Messages sent automatically (events) |
 | --- | --- | --- |
 | Services | Acknowledge new requests (promise), unassigned / emergency escalations, **vendor silent after accept (re-offer)**, add-on decision, approved-but-unpaid, offers expire, tell me when no vendor answers, require On my way, ask resident to confirm the fix (+ auto-close), share ratings, offer expiring (vendor), no On my way, invoice nudge, invoice approval, vendor document expiry, visit reminders (You / Team / Resident / **Vendor**) | filed, offered, **new service offered to your preferred vendor**, **vendor assigned**, expiring, expired, filled, declined, accepted, scheduled, rescheduled, cancelled, on the way, done, confirmed, reopened, auto-closed, rated, invoiced, invoice approved/disputed, paid, **vendor silent**; add-on submitted/approved/denied/returned |
-| Lease | Lease ending (you 90/60/30, resident 60/30), **renewal offer (60d)**, renewal offer expiry, countersignature overdue, move-in (7/1), payment method missing, move-out (30/7/1), **move-out instructions (14d)**, **deposit return notice (day of)**, schedule move-out inspection, deposit accounting (+ deadline days), signing reminders, document signature reminder | created, sent, signed by resident, countersigned, fully signed, voided, move-out date set, lease extended |
+| Lease | Lease ending (you 90/60/30, resident 60/30), **renewal offer (60d)**, renewal offer expiry, countersignature overdue, move-in (7/1), **check-in steps to the resident (24 h before move-in; § Check-in steps and "I'm in")**, payment method missing, move-out (30/7/1), **move-out instructions (14d)**, **deposit return notice (day of)**, schedule move-out inspection, deposit accounting (+ deadline days), signing reminders, document signature reminder | created, sent, signed by resident, countersigned, fully signed, voided, move-out date set, lease extended |
 | Applications | Response promise, decision reminder, approved-no-lease, incomplete application (applicant / you), post-tour apply link | submitted, approved, declined, withdrawn |
 | Tours | Guest and manager tour reminders now ship on fixed defaults, not a per-workspace rule (C191) — see "What PropLane sends" above | confirmed, cancelled by guest, claimed by a teammate (team); bookings: new / cancelled on any linked channel calendar, Other calendar included, plus new / cancelled for a booking made in PropLane itself (manager, `channel_booking` domain; owned by [`bookings.md`](bookings.md) § Booking alerts and reminders). The guest short-stay notices (requested / confirmed / declined / expired) ride the same domain and are owned by [`bookings.md`](bookings.md) § Guest portal stays; they have no `AUTOMATED_MESSAGE_CATALOG` entry yet, so "What PropLane sends" does not list them |
 | Payments | Rent reminder schedule, my payment alerts, delinquency, outgoing payments | charge created, processing, received, partial, failed, refunded, late fee applied, deposit received |
@@ -61,13 +61,16 @@ the resident as cards in their one conversation (event cards: [`communication-in
 
 | Event | Fires | Text |
 | --- | --- | --- |
-| `move_in_details` | The `resident_welcome` reminder (now ON by default, one timing: 5 minutes after the account is created) or a manager's own send (`emitMoveInDetails`) | Date and window ("Sun, Nov 1 after 3:00 pm", the house's standard check-in time), street address, room, parking; "entry code in the lease packet" when the house keeps any secret. Built from the house's Move-in card (`resolveResidentMoveInFromApplications`). |
+| `move_in_details` | The `resident_welcome` reminder (now ON by default, one timing: 5 minutes after the account is created) or a manager's own send (`emitMoveInDetails`) | Date and window ("Sun, Nov 1 after 3:00 pm", the house's standard check-in time), street address, room, parking; "entry code in the lease packet" only when the house keeps a real entry CODE (`houseInfoEntryCodeValues`: door, gate, lockbox, alarm, Wi-Fi password — a free-text access note or a staff-only Internal code never makes that claim). Built from the house's Move-in card (`resolveResidentMoveInFromApplications`). |
 | `room_assigned` | After the write commits, when a manager sets or changes an approved resident's `assignedRoomChoice` (`signed-in-application-write.server.ts` -> `emitRoomAssignment`); never for the applicant's own first pick | "You have been assigned Room 3 at 4709A." / "Your room at 4709A is now Room 4." |
 
-- **Never a secret in the text.** The Move-in card holds door and gate codes, the lockbox and the Wi-Fi password. None
+- **Never a secret in the text.** The Move-in card holds door and gate codes, the lockbox and the Wi-Fi password, and
+  each ROOM carries its own door code outside `houseInfo` (`roomSecrets`, from `listingRoomSecretValues`). None
   of them is ever written into a move-in message, a card fact or the stored event payload; every fact the card prints
-  is also checked against `containsHouseSecret` and dropped if it matches. The resident reads the codes on their own
-  Move-in page. Same rule as [`house-printables.md`](house-printables.md): a code never travels as text.
+  is also checked against `containsHouseSecret` (house secrets AND the room codes) and dropped if it matches. The
+  resident reads the codes on their own Check-in tab, once the reveal has opened
+  ([`resident-my-home.md`](resident-my-home.md) § Check-in). Same rule as
+  [`house-printables.md`](house-printables.md): a code never travels as text.
 - **One card, whoever sends it.** `move_in_details` is idempotent on `move_in_details:<resident>:<home>`; the welcome
   reminder, its later timings and a manager's manual send all go through `emitMoveInDetails`, so the bus drops every
   second one (the welcome rule has a single timing for that reason). A resident with no placed, approved home (or a

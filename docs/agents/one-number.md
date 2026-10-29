@@ -14,9 +14,10 @@ work number for their workspace; keep overall service PropLane separate." (W16)
 - **Dedicated = a working number AND a paid entitlement** (captain addendum, Oct 18: current accounts move to this model too; free
   has only the default PropLane line). A workspace is dedicated only when it holds a `manager_sms_numbers` home row that is live
   (`active`, has a phone, registration approved: `managerCanSendFromOwnNumber`) and not released (or a `workspace_work_numbers`
-  link to one) AND the number's owner pays for a personalized number: a Pro / Business plan (`getEffectiveManagerSkuTier`, a live
-  signup trial does not count) or an active standalone **PropLane Number** subscription (`numberServiceEntitled`: active | past_due).
-  `managerPersonalNumberEntitlement` is the one answer. A number with no entitlement, a lapsed add-on, a number still provisioning
+  link to one) AND the number's owner pays for a personalized number. Who that is, is owned by
+  [`comms-billing.md`](comms-billing.md) § Who may hold a personalized number: `managerPersonalNumberEntitlement` is the one
+  answer (a billable Pro / Business plan or the $5 PropLane Number add-on; a trial, a FREE100 waiver and an admin comp get the
+  line, with pre-2026-10-29 numbers grandfathered). A number with no entitlement, a lapsed add-on, a number still provisioning
   or awaiting registration, a failed or released one: the workspace stays on the PropLane line. Nobody pays today, so in shared
   mode every existing workspace lands on the shared line. `loadSharedLineConfig` puts dedicated workspaces in
   `dedicatedWorkspaceIds` (read only while the mode is `shared`; an unreadable number table or entitlement = fail closed to
@@ -50,10 +51,11 @@ Files and invariants:
    default workspace (`dedicatedWorkspaceId`, shared mode only); `resolveConversationSendLine` ignores the shared-line
    hint for a house in a dedicated workspace; `sendWorkspacePhoneText` (link and code texts) pins the workspace. Vendor dispatch, alerts and
    lead assignment already branch on `workspaceOnSharedLine`.
-3. **Entitlement** (`personal-number.ts`, `personal-number-entitlement.server.ts`): `POST /api/manager/messaging-number` `request_number` and
-   `provisionNumberForWorkspace` allow Pro / Business (plan read through `resolveEffectiveManagerSkuTier`) or an active PropLane Number
-   subscription; PropLane's managed service has no exemption (and a PropLane-managed workspace never takes one: it texts on the PropLane line, W29). A Free workspace gets 403 `personal_number_needs_paid_plan` ("This workspace texts from the
-   PropLane line."), provisioning code `not_entitled`. Plan words never appear in the refusal.
+3. **Entitlement** (`personal-number.ts`, `personal-number-entitlement.server.ts`): `POST /api/manager/messaging-number` `request_number`
+   and `provisionNumberForWorkspace` both ask `managerPersonalNumberEntitlement` ([`comms-billing.md`](comms-billing.md) § Who may hold a
+   personalized number owns the rule); PropLane's managed service has no exemption (and a PropLane-managed workspace never takes one: it
+   texts on the PropLane line, W29). A workspace without one gets 403 `personal_number_needs_paid_plan`
+   (`PERSONAL_NUMBER_FREE_REFUSAL`), provisioning code `not_entitled`. Plan names never appear in the refusal.
 4. **Settings > Communication > Channels** (`pro-messaging-settings-panel.tsx`): `status.sharedLine = { number, onSharedLine }`
    (null in `per_workspace`, so nothing changes there). A workspace on the line shows a "PropLane line" row (number, Copy,
    no remove); with `canRequest` it also shows "Get your own number" (existing request modal). A workspace with its own
@@ -154,7 +156,11 @@ Invariants:
    only. A `propertyId` from the model is checked against `manager_property_records` for that owner and dropped if it is not theirs. An owner
    with several workspaces and no house resolves to nothing (`needs_house`), never a guess. The shared catalog line (`crossCatalog`) reads nothing.
 2. **House details** (`houseInfo`) join the result only for a manager, or a resident past the move-in lock (`phase approved` and
-   `moveInDetailsLocked === false`, the same rule as `get_move_in_info`). Never for prospects or vendors.
+   `moveInDetailsLocked === false`, the same rule as `get_move_in_info`). Never for prospects or vendors. Their SECRETS are a second
+   decision: `includeHouseSecrets` is true for a manager, and for a resident only once the check-in reveal has opened
+   ([`resident-my-home.md`](resident-my-home.md) § Check-in), so trash day and the rules answer straight away while codes, the Wi-Fi
+   password and free-text access notes do not. Every brief reader goes through `houseInfoForScope`, and the staff-only Internal
+   section is stripped from a brief (`houseInfoWithoutInternal`) before any scope sees it.
 3. **Answer from facts only.** Prompt rules (`prompt.ts`, appended in `agent/system-prompts.ts`): no result = "Let me check with the team" + escalate;
    money, legal, safety and fair housing always escalate (`mustEscalate` in the result, `ALWAYS_ESCALATE_TOPICS`).
 4. **Capture.** Escalation tools (leasing, vendor job, resident `send_message_to_manager` over SMS) record `sms_escalated_questions`
@@ -525,15 +531,19 @@ one text per resident (never a name, amount or secret either way). `approveHeldR
 there NOW; `reconcileHeldRuns` follows a draft the manager handled from the thread.
 
 **Templates** (`templates.ts`). `{variable}` from a fixed list, filled from data only (never an AI-written amount); a sentence whose
-variable is empty is dropped whole; GSM-7. `groupTextViolations` refuses money, any resident's first name and any house secret in
-the RENDERED group text (templates, announcements alike).
+variable is empty is dropped whole; GSM-7. `groupTextViolations` refuses money, any resident's first name and any secret in
+the RENDERED group text — the house's own and each ROOM's door code (`roomSecrets`, carried on every house subject)
+(templates, announcements alike).
 
 **House facts** (`src/lib/house-info.ts`, additive). New fields: recycling day, manager contact, `rules.escalateAfter` (complaint
 threshold, a `count` stepper). `HouseInfoField.secret` marks door code, gate code, lockbox, Wi-Fi password and alarm
 (`houseInfoSecretValues`, `containsHouseSecret`); `.internal` marks the threshold (never drawn to a resident or printed). Recycling day
 is resident-only: `TRASH_PUBLIC_KEYS` no longer lists it, so the public page and printables are unchanged (C2-RE12). Secrets reach only a
-verified current resident past the move-in lock (W6 lookup scope, `loadMoveInDetailsLock` in the move-in text), never a prospect, a
-vendor, the public listing or a group post.
+verified current resident past the move-in lock (W6 lookup scope, `loadMoveInDetailsLock` in the move-in text) AND past the check-in
+reveal ([`resident-my-home.md`](resident-my-home.md) § Check-in), never a prospect, a vendor, the public listing or a group post. Two
+later sections: **Checkout** (a resident's way out, a Check-in step) and **Internal (staff only)** — pantry / lockbox / mailbox codes and
+notes, stripped by id from every non-staff reader's data (`HOUSE_INTERNAL_SECTION_ID`, `houseInfoWithoutInternal`); free-text secrets
+(`secretFreeText`) mask with the codes but never prove the house keeps an entry code (`houseInfoEntryCodeValues`).
 
 **Announce.** `announce.server.ts` `announceToHouses` (houses re-derived from the actor's workspace; a co-manager only their own);
 route `POST /api/portal/automations/announce`; manager chat/SMS tool `announce_to_house` (confirm gate; with several houses and none
@@ -633,7 +643,8 @@ prospects keep their durable QStash burst queue (`prospect-sms-burst*.ts`, 10 s 
 
 **Resident fast path.** `resident-fast-path.ts` (pure matcher) + `resident-fast-path.server.ts` (scope). Runs before the resident agent,
 shared line only, for a phone VERIFIED on a profile texting its manager's line. Scope is `resolveResidentKnowledgeScope`: the resident's
-lease house, house details only past the move-in lock (`includeHouseInfo`), approved Q&A only in the resident's audiences. Topics: Wi-Fi,
+lease house, house details only past the move-in lock (`includeHouseInfo`) and their codes only once the check-in reveal has opened
+(`includeHouseSecrets`), approved Q&A only in the resident's audiences. Topics: Wi-Fi,
 door/gate code, parking, trash / recycling day, laundry, quiet hours, guests, smoking, pets, manager / emergency contact, house chat link;
 then approved Q&A with >= 60% question coverage. It answers only when the text is obviously a house question (no other intent rule matches,
 no always-escalate topic, <= 160 chars, <= 2 question marks), every needed fact is on file, and the reply fits one segment; otherwise null

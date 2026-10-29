@@ -192,7 +192,9 @@ Accounts > Managers > row ⋯ has **Managed by PropLane...** between Copy PropLa
 owned workspace left that is neither `is_service` nor archived: `unmanagedWorkspaceCount`). It opens
 `ManagedByProplaneSheet` (the Add-property pop-up frame): the account's workspaces, City, Management fee, and the owner's role
 fixed at **Property owner (view-only)** (the owner owns the workspace, so they are its owner of record by ownership and no
-membership row is written for them).
+membership row is written for them). A workspace row on the account record opens the same sheet on that one workspace
+(`initialWorkspaceId`, ignored when it is not one of the account's unmanaged workspaces —
+[`admin-accounts.md`](admin-accounts.md) § Money actions and workspace rows).
 
 - Verbs `account-workspaces` and `manage-by-proplane` on `/api/admin/service-workspaces` (`requireAdminRoute()` first;
   `src/lib/service/managed-by-proplane.server.ts`). A body id only NAMES a row: the account's workspaces and houses are re-read

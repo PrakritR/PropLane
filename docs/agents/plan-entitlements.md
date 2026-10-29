@@ -420,7 +420,9 @@ read - `GET /api/admin/accounts/[id]/billing`
 
 - **Subscription**: Plan (`Pro monthly`), Source (Stripe / App Store / Admin /
   Promo code / Trial / None), Status, Since, Renews (or Ends, when set to cancel),
-  Paid to date, Promo. Icon actions top right: Open in Stripe, Change plan.
+  Paid to date, Promo. Icon actions top right: Open in Stripe, Change plan, and the
+  ⋯ overflow holding the money actions (Change price, Refund, Cancel, End promo) —
+  owned by [`admin-accounts.md`](admin-accounts.md) § Money actions and workspace rows.
 - **Trial & discounts**: Trial ends, Complimentary, Promo. Icon actions: Extend
   trial, Apply promo code, Make/Remove complimentary.
 - **Limits**: Property cap (stepper; its check icon saves it) and Processing fees
@@ -432,8 +434,11 @@ The plan, and the property cap, come from the SAME resolvers enforcement uses. T
 subscription facts, promo code and complimentary state are read from Stripe when
 there is a subscription (the subscription is the truth), otherwise from the
 purchase row and the staff record. "Paid to date" and the payments list are paid,
-non-zero invoices for this account's own `stripe_customer_id`, read server-side;
-refunds are not netted. **If Stripe cannot be reached the database facts still
+non-zero invoices for this account's own `stripe_customer_id`, read server-side.
+**Refunds are netted out of "Paid to date"** from each paid invoice's own charge
+(`charge.amount_refunded`; an invoice's `amount_paid` never drops), and a charge
+history too long to scan refuses the read rather than reporting a figure that
+ignores a refund. **If Stripe cannot be reached the database facts still
 render, `stripe.available` is `false`, and the Stripe-derived numbers are `null`
 ("-"), never `0`.** There is no grey block over the values and no sentence under a
 field (the no-subtext rule); Change plan / Extend trial / Apply promo code / Make

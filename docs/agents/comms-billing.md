@@ -4,7 +4,8 @@
 number and no communication credit; Pro includes one number; Business includes one per
 workspace. A signup or Stripe trial is not yet paying and cannot provision a number
 (`reconcileManagerSmsEntitlement` refuses `trialing` on the number path); a FREE100 /
-admin comp grant counts as paid. Provisioning, phone verification, carrier registration,
+admin comp grant counts as paid for communication CREDIT, but not for a number of its own
+(§ Who may hold a personalized number). Provisioning, phone verification, carrier registration,
 consent and runtime rollout controls still apply. The phone itself has no setup or monthly
 usage deduction. Work email uses the same verified plan entitlement and remains unmetered
 (sending is free, but the assistant turn that writes an auto-reply to a prospect or resident is a
@@ -22,9 +23,10 @@ Subscription and credit figures above are `RATE_CARD` (`src/lib/billing/rate-car
 version `2026-09-door-v1`) — read that file rather than re-typing figures here;
 it is the one source these numbers can drift from.
 
-Numbers held by Free accounts from the earlier every-plan policy are released once per
-environment after the deploy: `POST /api/admin/release-free-work-numbers` (admin-gated;
-`{ "dryRun": false }` to release, default is a dry run that lists them).
+Numbers held by accounts with no entitlement are released once per environment after the deploy:
+`POST /api/admin/release-free-work-numbers` (admin-gated; `{ "dryRun": false }` to release, default is a dry
+run that lists them). It asks the same `managerPersonalNumberEntitlement` the product does and skips every
+grandfathered number, so today it releases nothing — see § Who may hold a personalized number below.
 
 ## Vendor work number (Oct 6): covered by the service fee, not a wallet
 
@@ -275,7 +277,8 @@ RevenueCat fulfillment need separate setup before native top-ups can be offered;
 Settings → Billing & plan owns the current plan, payment methods, communication
 balance, Buy credit checkout, usage, and Alert at. Promo codes belong on checkout
 (and signup), not on that page. Communication settings owns work-number setup:
-a free trial must Activate paid plan first; FREE100 / waiver counts as paid.
+a free trial must Activate paid plan first, and so must a FREE100 / waiver or comp grant
+(§ Who may hold a personalized number).
 
 `/api/manager/payment-methods` lists masked cards, opens Stripe Checkout in `setup`
 mode, and sets an explicitly selected default. Setup collects no payment. Stripe
