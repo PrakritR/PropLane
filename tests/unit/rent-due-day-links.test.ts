@@ -10,7 +10,7 @@ vi.mock("@/lib/payments/rent-reminder-links.server", () => ({ mintRentReminderPa
 import { sendRentDueDayLinks } from "@/lib/automations/rent-due-links.server";
 import type { HouseSubject, LeaseSubject } from "@/lib/automations/moments";
 
-const house = { ownerUserId: "mgr", workspaceId: "ws", propertyId: "prop-1", propertyLabel: "5259 Brooklyn" } as HouseSubject;
+const house = { ownerUserId: "mgr", workspaceId: "ws", propertyId: "prop-1", propertyLabel: "5259 Brooklyn", roomSecrets: [] } as HouseSubject;
 const lease = (over: Partial<LeaseSubject> = {}): LeaseSubject => ({
   leaseId: "l1", ownerUserId: "mgr", workspaceId: "ws", propertyId: "prop-1", propertyLabel: "5259 Brooklyn", roomLabel: null,
   residentName: "Maya Lee", firstName: "Maya", residentUserId: "res-1", residentEmail: "maya@example.com", phoneKey: "2065550142",

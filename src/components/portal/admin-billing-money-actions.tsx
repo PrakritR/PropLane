@@ -140,7 +140,7 @@ export function useBillingMoneyActions({
     return done(cancelWhen === "now" ? "Subscription canceled." : "Subscription will end at the close of the period.");
   };
   const submitEndPromo = async (reason: string) => {
-    const endsAt = promoWhen === "now" ? "now" : `${promoDate}T23:59:00.000Z`;
+    const endsAt = promoWhen === "now" ? "now" : promoDate;
     const r = await post(`${base}/end-promo`, { endsAt, reason }, "Could not end the promo.");
     if (r.error) return r.error;
     return done(promoWhen === "now" ? "Promo ended." : `Promo ends ${formatPacificDate(`${promoDate}T12:00:00.000Z`, { year: "numeric", month: "short", day: "numeric" })}.`);

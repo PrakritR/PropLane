@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadAccountPurchaseRows } from "@/lib/manager-purchase-account-rows.server";
 import { createTtlCache, serverSnapshotCacheEnabled } from "@/lib/server-ttl-cache";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import {
@@ -144,11 +145,15 @@ export async function accountPromoEnded(
   const id = userId.trim();
   if (!id) return false;
   try {
-    const { data, error } = await db.from("manager_purchases").select("promo_ends_at").eq("user_id", id);
-    if (error) return false;
-    return ((data ?? []) as Array<{ promo_ends_at?: string | null }>).some((row) =>
-      promoInstantHasPassed(row.promo_ends_at, nowMs),
+    // The same rows "end promo" writes: by `user_id` OR the account's email, so an email-linked signup
+    // waiver row that staff ended is not invisible here.
+    const { rows, readFailed } = await loadAccountPurchaseRows<{ id: string; promo_ends_at?: string | null }>(
+      db,
+      id,
+      "id, promo_ends_at",
     );
+    if (readFailed) return false;
+    return rows.some((row) => promoInstantHasPassed(row.promo_ends_at, nowMs));
   } catch {
     return false;
   }

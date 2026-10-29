@@ -124,6 +124,8 @@ export type GroupTextContext = {
   residentFirstNames: readonly string[];
   /** The house's details; a door code, gate code, lockbox, Wi-Fi password or alarm in the text is refused. */
   houseInfo: HouseInfoV1 | null | undefined;
+  /** Secrets that live on the rooms rather than in `houseInfo`: `listingRoomSecretValues`. */
+  roomSecrets: readonly string[];
 };
 
 export type GroupTextViolation = "money" | "name" | "secret";
@@ -145,7 +147,7 @@ export function groupTextViolations(text: string, context: GroupTextContext): Gr
       break;
     }
   }
-  if (containsHouseSecret(text, context.houseInfo)) out.push("secret");
+  if (containsHouseSecret(text, context.houseInfo, context.roomSecrets)) out.push("secret");
   return out;
 }
 

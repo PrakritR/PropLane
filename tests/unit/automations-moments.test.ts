@@ -38,6 +38,7 @@ const house = (set: (i: ReturnType<typeof emptyHouseInfo>) => ReturnType<typeof 
   propertyId: "P1",
   propertyLabel: "5259 Brooklyn",
   houseInfo: set(emptyHouseInfo()),
+  roomSecrets: [],
 });
 
 describe("date helpers", () => {

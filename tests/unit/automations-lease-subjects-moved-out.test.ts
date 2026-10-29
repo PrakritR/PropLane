@@ -21,6 +21,7 @@ const house: HouseSubject = {
   propertyId: "prop-1",
   propertyLabel: "5259 Brooklyn",
   houseInfo: {} as HouseSubject["houseInfo"],
+  roomSecrets: [],
 };
 const houses = new Map([["prop-1", house]]);
 

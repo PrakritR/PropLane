@@ -1,6 +1,8 @@
 import "server-only";
 import { cache } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { loadAccountPurchaseRows } from "@/lib/manager-purchase-account-rows.server";
 import { generateManagerId } from "@/lib/manager-id";
 import {
   isLiveSignupTrialPurchase,
@@ -32,6 +34,12 @@ import { waiverGrantEndedFor } from "@/lib/promo-code-policy.server";
  * client bundle.
  */
 
+const MANAGER_PURCHASE_BASE_SELECT =
+  "id, tier, billing, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id, promo_code, apple_original_transaction_id, paid_at, user_id";
+
+/** `promo_ends_at` rides along so the waiver-grant check never needs a second round-trip by row id. */
+const MANAGER_PURCHASE_ACCESS_SELECT = `${MANAGER_PURCHASE_BASE_SELECT}, promo_ends_at`;
+
 /**
  * `readFailed` distinguishes "this account has no purchase row" from "we could
  * not find out". They look identical here — a PostgREST error yields zero rows
@@ -41,34 +49,14 @@ import { waiverGrantEndedFor } from "@/lib/promo-code-policy.server";
  */
 async function loadManagerPurchaseRowsResult(
   userId: string,
+  db?: SupabaseClient,
 ): Promise<{ rows: ManagerPurchaseRowRecord[]; readFailed: boolean }> {
-  const supabase = createSupabaseServiceRoleClient();
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("email")
-    .eq("id", userId)
-    .maybeSingle();
-  const email = profile?.email?.trim().toLowerCase() ?? "";
-
-  const select =
-    "id, tier, billing, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id, promo_code, apple_original_transaction_id, paid_at, user_id";
-  const [byUserId, byEmail] = await Promise.all([
-    supabase.from("manager_purchases").select(select).eq("user_id", userId),
-    email
-      ? supabase.from("manager_purchases").select(select).ilike("email", email)
-      : Promise.resolve({ data: [] as ManagerPurchaseRowRecord[], error: null }),
-  ]);
-
-  const merged = new Map<string, ManagerPurchaseRowRecord>();
-  for (const row of [...(byUserId.data ?? []), ...(byEmail.data ?? [])]) {
-    merged.set(String(row.id), row as ManagerPurchaseRowRecord);
-  }
-  return {
-    rows: [...merged.values()],
-    // A failed profiles read also counts: it blanks the email, which silently
-    // drops the by-email half of the lookup rather than erroring.
-    readFailed: Boolean(profileError) || Boolean(byUserId.error) || Boolean(byEmail.error),
-  };
+  const client = db ?? createSupabaseServiceRoleClient();
+  const read = await loadAccountPurchaseRows<ManagerPurchaseRowRecord>(client, userId, MANAGER_PURCHASE_ACCESS_SELECT);
+  if (!read.readFailed) return read;
+  // This code can run before the `promo_ends_at` migration lands. An absent column must not blank the
+  // plan on every portal read; it simply means no account's promo has been ended yet.
+  return loadAccountPurchaseRows<ManagerPurchaseRowRecord>(client, userId, MANAGER_PURCHASE_BASE_SELECT);
 }
 
 async function loadManagerPurchaseRowsForUser(userId: string): Promise<ManagerPurchaseRowRecord[]> {
@@ -91,7 +79,8 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
   /** A Stripe subscription or an Apple grant backs the stored plan: the only BILLABLE sources. */
   billableSource: boolean;
 }> => {
-  const { rows, readFailed } = await loadManagerPurchaseRowsResult(userId);
+  const db = createSupabaseServiceRoleClient();
+  const { rows, readFailed } = await loadManagerPurchaseRowsResult(userId, db);
   const best = pickBestManagerPurchaseRow(rows, userId);
   if (!best) {
     return {
@@ -156,7 +145,7 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
       stripeCheckoutSessionId: view.stripeCheckoutSessionId,
       appleOriginalTransactionId: view.appleOriginalTransactionId,
     }) &&
-    (await waiverGrantEndedFor({ promoCode: view.promoCode, rowId: String(best.id) }))
+    (await waiverGrantEndedFor({ promoCode: view.promoCode, promoEndsAt: best.promo_ends_at ?? null, db }))
   ) {
     const endedCode = view.promoCode;
     return {

@@ -5,6 +5,7 @@ import { resolveExpiryInstant } from "@/lib/admin/admin-promo-expiry.server";
 import { requireAdminRoute } from "@/lib/admin/admin-route-guard.server";
 import { normalizeAdminAuditReason, writeAdminBillingAudit } from "@/lib/admin-billing-audit.server";
 import { invalidateManagerTierCache } from "@/lib/manager-tier-sync-cache";
+import { loadAccountPurchaseRows } from "@/lib/manager-purchase-account-rows.server";
 import { isWaiverOnlyGrant, promoPolicyKey } from "@/lib/promo-code-expiry";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -15,6 +16,7 @@ const json = (body: unknown, status = 200) => NextResponse.json(body, { status, 
 
 type PurchaseRow = {
   id: string;
+  user_id: string | null;
   tier: string | null;
   billing: string | null;
   promo_code: string | null;
@@ -60,17 +62,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const endsIso = new Date(endsMs).toISOString();
 
     const db = createSupabaseServiceRoleClient();
-    const { data, error: readError } = await db
-      .from("manager_purchases")
-      .select(
-        "id, tier, billing, promo_code, promo_ends_at, stripe_subscription_id, stripe_checkout_session_id, apple_original_transaction_id",
-      )
-      .eq("user_id", managerUserId);
-    if (readError) {
-      console.error("end-promo: purchase read failed", readError);
+    // The same lookup the plan resolver uses: a pre-auth signup row carries the email and no `user_id`,
+    // and it is the row that grants Pro, so a `user_id`-only read would leave that promo unendable.
+    const { rows, readFailed } = await loadAccountPurchaseRows<PurchaseRow>(
+      db,
+      managerUserId,
+      "id, user_id, tier, billing, promo_code, promo_ends_at, stripe_subscription_id, stripe_checkout_session_id, apple_original_transaction_id",
+    );
+    if (readFailed) {
+      console.error("end-promo: purchase read failed");
       return json({ error: "Could not read this account's billing." }, 500);
     }
-    const withCode = ((data ?? []) as PurchaseRow[]).filter((row) => promoPolicyKey(row.promo_code));
+    const withCode = rows.filter((row) => promoPolicyKey(row.promo_code));
     if (withCode.length === 0) return json({ error: "This account has no promo code to end." }, 409);
 
     const before = withCode.map((row) => row.promo_ends_at).find((v) => Boolean(v)) ?? null;
@@ -86,7 +89,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const { error: writeError } = await db
       .from("manager_purchases")
       .update({ promo_ends_at: endsIso })
-      .eq("user_id", managerUserId)
       .in("id", withCode.map((row) => row.id));
     if (writeError) {
       console.error("end-promo: write failed", writeError);

@@ -28,6 +28,7 @@ import {
   type ResidentMoveInResolved,
 } from "@/lib/resident-move-in-resolve";
 import { propertyIdFromAppRow } from "@/lib/resident-move-in-info";
+import { listingRoomSecretValues } from "@/lib/manager-listing-submission";
 import {
   moveInDetailsEventKey,
   renderMoveInDetails,
@@ -47,6 +48,8 @@ type MoveInContext = {
   residentUserId: string | null;
   residentEmail: string;
   residentName: string;
+  /** Every room's door code on this listing: a secret no fact line may carry. */
+  roomSecrets: string[];
 };
 
 /**
@@ -105,6 +108,7 @@ async function loadMoveInContext(
     residentUserId,
     residentEmail: email,
     residentName: String(row.name ?? "").trim(),
+    roomSecrets: listingRoomSecretValues(property?.listingSubmission),
   };
 }
 
@@ -135,6 +139,7 @@ export async function emitMoveInDetails(
     moveInDateLabel: context.resolved.earliestMoveInDateLabel,
     checkInTime: context.checkInTime,
     houseInfo: context.resolved.houseInfo,
+    roomSecrets: context.roomSecrets,
   });
   if (!rendered) return { ok: false, reason: "no_address" };
   const sender = input.sender ?? (await managerSender(db, input.managerUserId));
@@ -202,6 +207,7 @@ export async function emitRoomAssignment(
         roomLabel: context.resolved.roomLabel,
         changed: transition.changed,
         houseInfo: context.resolved.houseInfo,
+        roomSecrets: context.roomSecrets,
       })
     : null;
   if (!context || !rendered) return { ok: false, reason: "no_room" };

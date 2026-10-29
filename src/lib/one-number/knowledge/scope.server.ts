@@ -5,6 +5,7 @@ import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import { resolveResidentForwardHouseId } from "@/lib/sms/inbound-forward-team.server";
 import { houseInfoWithoutInternal, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
+import { listingRoomSecretValues } from "@/lib/manager-listing-submission";
 import { residentCheckInReveal } from "@/lib/check-in.server";
 import type { KnowledgeScopeResult } from "./types";
 
@@ -20,6 +21,8 @@ export type PropertyBrief = {
   workspaceId: string | null;
   label: string;
   houseInfo: HouseInfoV1;
+  /** Each room's structured door code - secrets that live outside `houseInfo` and must never travel as text. */
+  roomSecrets: string[];
 };
 
 /** Pull the structured house details out of a property record (listing submission). */
@@ -42,6 +45,7 @@ export function propertyBriefFromRow(row: Record<string, unknown>): PropertyBrie
     label,
     // The staff-only Internal section is never part of a brief an assistant answers from.
     houseInfo: houseInfoWithoutInternal(normalizeHouseInfo(submission?.houseInfo)),
+    roomSecrets: listingRoomSecretValues(submission as { rooms?: ReadonlyArray<{ doorCode?: string | null }> | null } | null),
   };
 }
 

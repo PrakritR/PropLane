@@ -67,7 +67,7 @@ describe("validateTemplate", () => {
 });
 
 describe("groupTextViolations", () => {
-  const ctx = { residentFirstNames: ["Maya", "Jo"], houseInfo: info };
+  const ctx = { residentFirstNames: ["Maya", "Jo"], houseInfo: info, roomSecrets: [] };
   it("lets a neutral house text through", () => {
     expect(groupTextViolations("Friendly reminder: rent is due today. Check your texts for your pay link.", ctx)).toEqual([]);
     expect(groupTextViolations(renderTemplate(getAutomationPreset("rent_due_day")!.template, SAMPLE_VARS), ctx)).toEqual([]);

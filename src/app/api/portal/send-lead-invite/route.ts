@@ -18,7 +18,7 @@ import {
 } from "@/lib/manager-property-links";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
 import {
-  createApplicationFeeWaiverCode,
+  ensureWaiveOnSendWaiverCode,
   revokeApplicationFeeWaiverCode,
 } from "@/lib/application-fee-waiver";
 import { applicationFormIdForLink } from "@/lib/send-forms";
@@ -267,9 +267,11 @@ export async function POST(req: Request) {
       }
     }
 
-    // "Waive application fee": one single-use code, scoped to THIS house and the application fee, minted
-    // here only after the manager and every property id were authorized above. A mint failure fails
-    // the whole send: a fee-charging link must never go out labelled as waived.
+    // "Waive application fee": ONE single-use code per house, scoped to the application fee and resolved
+    // here only after the manager and every property id were authorized above. An unspent code from an
+    // earlier copy of the same link is reused rather than superseded, so one waive interaction can never
+    // leave two live waivers behind. A failure fails the whole send: a fee-charging link must never go
+    // out labelled as waived.
     if (waiveFee && (kind !== "apply" || isMultiApply)) {
       return NextResponse.json({ error: "The application fee can be waived on a single-home application link." }, { status: 400 });
     }
@@ -289,16 +291,12 @@ export async function POST(req: Request) {
       if (ownerError || !waiverOwnerId) {
         return NextResponse.json({ error: "Could not waive the application fee: the property owner could not be read." }, { status: 500 });
       }
-      const minted = await createApplicationFeeWaiverCode(svc, waiverOwnerId, {
-        label: "Waived on send",
-        propertyIds: [propertyId],
-        appliesTo: "application",
-        maxUses: 1,
-      });
+      const minted = await ensureWaiveOnSendWaiverCode(svc, waiverOwnerId, propertyId);
       if (!minted.ok) {
         return NextResponse.json({ error: `Could not waive the application fee: ${minted.error}` }, { status: 500 });
       }
-      mintedWaiverCodeId = minted.code.id;
+      // Only a code THIS request created may be discarded; a reused one belongs to a link already copied out.
+      mintedWaiverCodeId = minted.reused ? null : minted.code.id;
       waiverCode = minted.code.code;
     }
     const discardMintedWaiver = async () => {

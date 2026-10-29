@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadWorkspaceProperties } from "@/lib/one-number/knowledge/scope.server";
 import { fireAutomation, type FireOutcome } from "./fire.server";
 import { loadHouseDirectory, loadLeaseSubjects } from "./sources.server";
-import { GROUP_VIOLATION_MESSAGES, groupTextViolations } from "./templates";
+import { GROUP_VIOLATION_MESSAGES, groupTextViolations, type GroupTextContext } from "./templates";
 
 /**
  * "announce: water off Tuesday 9-12", from a manager's text or the dashboard button. One announcement
@@ -32,11 +32,11 @@ export type AnnounceResult =
 export const MAX_ANNOUNCEMENT_LENGTH = 300;
 
 /** Pure: why this announcement cannot go to a house group, for the composer to show before sending. */
-export function announcementProblem(text: string, input: { residentFirstNames: readonly string[]; houseInfo: Parameters<typeof groupTextViolations>[1]["houseInfo"] }): string | null {
+export function announcementProblem(text: string, input: GroupTextContext): string | null {
   const clean = String(text ?? "").trim();
   if (!clean) return "Write the announcement.";
   if (clean.length > MAX_ANNOUNCEMENT_LENGTH) return `Keep it under ${MAX_ANNOUNCEMENT_LENGTH} characters.`;
-  const violations = groupTextViolations(clean, { residentFirstNames: input.residentFirstNames, houseInfo: input.houseInfo });
+  const violations = groupTextViolations(clean, input);
   return violations.length > 0 ? GROUP_VIOLATION_MESSAGES[violations[0]!] : null;
 }
 
