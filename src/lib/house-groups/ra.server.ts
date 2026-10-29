@@ -74,6 +74,7 @@ async function defaultLookup(
   input: { workspaceId: string; ownerUserId: string; propertyId: string; question: string; askerUserId?: string | null },
 ): Promise<LookupLike> {
   const { lookupPropertyKnowledge } = await import("@/lib/one-number/knowledge/lookup.server");
+  const moveInOpen = await askerMoveInDetailsOpen(db, input.askerUserId ?? null);
   return lookupPropertyKnowledge(
     db,
     {
@@ -85,7 +86,9 @@ async function defaultLookup(
       audiences: ["all", "residents"],
       // House details (door code, Wi-Fi) only on the resident assistant's own terms: the asker's
       // move-in details must be open. An unknown asker, or a lock read that fails, stays locked.
-      includeHouseInfo: await askerMoveInDetailsOpen(db, input.askerUserId ?? null),
+      // A secret never reaches the group itself - `groupReplyPlan` sends one to the asker privately.
+      includeHouseInfo: moveInOpen,
+      includeHouseSecrets: moveInOpen,
     },
     input.question,
   );

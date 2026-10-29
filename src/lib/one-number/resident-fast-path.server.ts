@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import { loadAnswerableEntries } from "@/lib/one-number/knowledge/store.server";
 import { loadOwnedProperty, resolveResidentKnowledgeScope } from "@/lib/one-number/knowledge/scope.server";
+import { houseInfoForScope } from "@/lib/one-number/knowledge/types";
 import {
   isFastPathCandidate,
   matchResidentFastPath,
@@ -16,8 +17,10 @@ import {
  * managers). The scope is the same one the knowledge tool reads, so the rules are
  * not re-invented here:
  *   - the house is the resident's lease house, never one named in the text;
- *   - house details (Wi-Fi, door code, parking, trash, rules) only past the
- *     move-in lock (`includeHouseInfo`), exactly the `get_move_in_info` rule;
+ *   - house details (parking, trash, rules) only past the move-in lock
+ *     (`includeHouseInfo`), and the codes and the Wi-Fi password only once the
+ *     check-in reveal has opened (`includeHouseSecrets`) - exactly the
+ *     `get_move_in_info` rule;
  *   - approved Q&A only in the audiences a resident may hear.
  * A door code therefore reaches only a current resident of that house. Any scope
  * miss (several managers, no house, an unresolved workspace) answers null and the
@@ -38,7 +41,7 @@ export async function tryResidentFastPath(
     let houseInfo = null;
     if (scope.includeHouseInfo) {
       const property = await loadOwnedProperty(db, scope.ownerUserId, scope.focusPropertyId);
-      if (property && property.workspaceId === scope.workspaceId) houseInfo = property.houseInfo;
+      if (property && property.workspaceId === scope.workspaceId) houseInfo = houseInfoForScope(scope, property);
     }
     const entries = await loadAnswerableEntries(db, {
       workspaceId: scope.workspaceId,

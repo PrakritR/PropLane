@@ -45,6 +45,36 @@ describe("loadAccountPurchaseRows email match", () => {
     expect(calls.or).toEqual([`user_id.is.null,user_id.eq.${USER}`]);
   });
 
+  it("re-checks the address in JS, so a pattern match never takes another signup's row", async () => {
+    // PostgREST reads `*` in a LIKE pattern as `%` whatever the escaping, so the read can come back
+    // wider than the address asked for; only an exactly equal email is this account's.
+    const purchases = () => {
+      const q = {
+        select: () => q,
+        eq: () => Promise.resolve({ data: [], error: null }),
+        ilike: () => q,
+        or: () =>
+          Promise.resolve({
+            data: [
+              { id: "mine", email: "A*b@x.com" },
+              { id: "theirs", email: "aXb@x.com" },
+            ],
+            error: null,
+          }),
+      };
+      return q;
+    };
+    const profiles = {
+      select: () => profiles,
+      eq: () => profiles,
+      maybeSingle: () => Promise.resolve({ data: { email: "a*b@x.com" }, error: null }),
+    };
+    const db = { from: (table: string) => (table === "profiles" ? profiles : purchases()) } as never;
+    const { rows, readFailed } = await loadAccountPurchaseRows<{ id: string }>(db, USER, "id");
+    expect(rows.map((r) => r.id)).toEqual(["mine"]);
+    expect(readFailed).toBe(false);
+  });
+
   it("refuses a non-uuid account id instead of interpolating it", async () => {
     const { db } = fakeDb("a@x.com");
     await expect(loadAccountPurchaseRows(db, "x,user_id.not.is.null", "id")).resolves.toEqual({ rows: [], readFailed: true });

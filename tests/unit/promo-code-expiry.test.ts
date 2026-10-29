@@ -19,6 +19,7 @@ import {
 } from "@/lib/promo-code-expiry";
 import {
   accountPromoEnded,
+  accountPromoEndedForEmail,
   checkPromoCodeRedeemable,
   clearPromoCodePolicyCache,
   readPromoCodePolicies,
@@ -153,6 +154,18 @@ describe("the policy read", () => {
     expect(await accountPromoEnded(ended as never, USER, NOW)).toBe(true);
     const live = dbWith({ manager_purchases: [purchase({ promo_ends_at: FUTURE })] });
     expect(await accountPromoEnded(live as never, USER, NOW)).toBe(false);
+  });
+
+  it("the same question by email, for a signup that has no user id yet", async () => {
+    const ended = dbWith({ manager_purchases: [purchase({ user_id: null, promo_ends_at: PAST })] });
+    expect(await accountPromoEndedForEmail(ended as never, "M@Example.com", NOW)).toBe(true);
+    const live = dbWith({ manager_purchases: [purchase({ user_id: null, promo_ends_at: FUTURE })] });
+    expect(await accountPromoEndedForEmail(live as never, "m@example.com", NOW)).toBe(false);
+    // Another signup's address is not this one's row, and a read that cannot answer fails closed.
+    expect(await accountPromoEndedForEmail(ended as never, "other@example.com", NOW)).toBe(false);
+    const throwing = { from: () => { throw new Error("down"); } };
+    expect(await accountPromoEndedForEmail(throwing as never, "m@example.com", NOW)).toBe(false);
+    expect(await accountPromoEndedForEmail(throwing as never, "m@example.com", NOW, { failClosed: true })).toBe(true);
   });
 
   it("an unreadable purchase read: existing-grant callers fail safe, a NEW redemption fails closed", async () => {

@@ -10,8 +10,14 @@ vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/application-fee-waiver", () => ({
   createApplicationFeeWaiverCode: mint,
   // The route reuses an unspent waive-on-send code or mints one; drive the mint path through `mint`.
-  ensureWaiveOnSendWaiverCode: (db: unknown, owner: string, propertyId: string) =>
-    mint(db, owner, { label: "Waived on send", propertyIds: [propertyId], appliesTo: "application", maxUses: 1 }),
+  // Reuse is keyed on the recipient, so the label the route asks for carries them.
+  ensureWaiveOnSendWaiverCode: (db: unknown, owner: string, propertyId: string, recipient?: string | null) =>
+    mint(db, owner, {
+      label: recipient ? `Waived on send - ${String(recipient).toLowerCase()}` : "Waived on send",
+      propertyIds: [propertyId],
+      appliesTo: "application",
+      maxUses: 1,
+    }),
   revokeApplicationFeeWaiverCode: revoke,
 }));
 vi.mock("@/lib/manager-property-share-access", () => ({ getShareablePropertyForUser: getShareable }));
@@ -79,9 +85,23 @@ describe("send application: Waive application fee", () => {
     expect(res.status).toBe(200);
     expect(mint).toHaveBeenCalledTimes(1);
     expect(mint.mock.calls[0][1]).toBe("owner-1");
-    expect(mint.mock.calls[0][2]).toMatchObject({ maxUses: 1, propertyIds: ["prop-1"], appliesTo: "application", label: "Waived on send" });
+    expect(mint.mock.calls[0][2]).toMatchObject({
+      maxUses: 1,
+      propertyIds: ["prop-1"],
+      appliesTo: "application",
+      label: "Waived on send - p@example.com",
+    });
     expect(data.linkUrl).toContain("code=WAIVED-AB12");
     expect(postEmail.mock.calls[0][0].payload.text).toContain("code=WAIVED-AB12");
+  });
+
+  it("keys the code on the recipient, so two prospects for one house never share one single use", async () => {
+    await post({ waiveFee: true, to: "first@example.com" });
+    await post({ waiveFee: true, to: "second@example.com" });
+    expect(mint.mock.calls.map((call) => (call[2] as { label: string }).label)).toEqual([
+      "Waived on send - first@example.com",
+      "Waived on send - second@example.com",
+    ]);
   });
 
   it("mints nothing when the box is unchecked", async () => {

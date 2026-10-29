@@ -1,3 +1,4 @@
+import { houseInfoWithoutSecrets, type HouseInfoV1 } from "@/lib/house-info";
 import type { KnowledgeEntryStatus } from "../contracts";
 import type { ReplyTopic } from "./topics";
 
@@ -43,8 +44,26 @@ export type KnowledgeScope = {
   audiences: readonly KnowledgeAudience[];
   /** Structured house details (Wi-Fi, trash, rules...). Never for prospects or vendors. */
   includeHouseInfo: boolean;
+  /**
+   * May the SECRET fields of those details travel (door and gate codes, the lockbox, the Wi-Fi
+   * password, free-text access notes)? A resident past the move-in lock reads trash day and the house
+   * rules straight away; the codes wait for the check-in reveal (`houseInfoWithoutSecrets`).
+   */
+  includeHouseSecrets: boolean;
 };
 
 export type KnowledgeScopeResult =
   | { ok: true; scope: KnowledgeScope }
   | { ok: false; reason: "needs_house" | "unresolved" | "not_available" };
+
+/**
+ * The house details a scope may quote: the brief's own, less every secret field when the scope has not
+ * opened the codes (`includeHouseSecrets`). Every reader of a brief goes through here, so a new one
+ * cannot quote a code the asker is not yet meant to have.
+ */
+export function houseInfoForScope(
+  scope: Pick<KnowledgeScope, "includeHouseSecrets">,
+  brief: { houseInfo: HouseInfoV1 },
+): HouseInfoV1 {
+  return scope.includeHouseSecrets ? brief.houseInfo : houseInfoWithoutSecrets(brief.houseInfo);
+}

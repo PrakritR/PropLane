@@ -20,6 +20,41 @@ function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
 }
 
+function sameEmail(stored: unknown, address: string): boolean {
+  return typeof stored === "string" && stored.trim().toLowerCase() === address;
+}
+
+/** The select list the by-email read needs: `email` comes back so the match can be re-checked here. */
+function withEmailColumn(select: string): string {
+  return /(^|,)\s*(email|\*)\s*(,|$)/.test(select) ? select : `${select}, email`;
+}
+
+/**
+ * Rows whose `email` is EXACTLY this address (case-insensitive).
+ *
+ * `ilike` is a LIKE pattern: `%` and `_` in an address are escaped, and PostgREST reads `*` as `%`
+ * whatever the escaping, so the address is compared again in JS - a wildcard can never widen the
+ * match. `claimedBy` additionally keeps a row another account already claimed out of the answer.
+ */
+export async function loadPurchaseRowsByEmail<T extends { id: string }>(
+  db: SupabaseClient,
+  email: string,
+  /** PostgREST select list; `email` is added when absent. */
+  select: string,
+  opts: { claimedBy?: string | null } = {},
+): Promise<{ rows: T[]; readFailed: boolean }> {
+  const address = email.trim().toLowerCase();
+  if (!address) return { rows: [], readFailed: false };
+  const claimedBy = (opts.claimedBy ?? "").trim();
+  // `claimedBy` is interpolated into a PostgREST `or` filter, so only a real auth uuid is accepted.
+  if (claimedBy && !UUID_PATTERN.test(claimedBy)) return { rows: [], readFailed: true };
+
+  const base = db.from("manager_purchases").select(withEmailColumn(select)).ilike("email", escapeLikePattern(address));
+  const { data, error } = await (claimedBy ? base.or(`user_id.is.null,user_id.eq.${claimedBy}`) : base);
+  const rows = ((data ?? []) as unknown as Array<T & { email?: unknown }>).filter((row) => sameEmail(row.email, address));
+  return { rows, readFailed: Boolean(error) };
+}
+
 export async function loadAccountPurchaseRows<T extends { id: string }>(
   db: SupabaseClient,
   userId: string,
@@ -40,24 +75,19 @@ export async function loadAccountPurchaseRows<T extends { id: string }>(
 
   const [byUserId, byEmail] = await Promise.all([
     db.from("manager_purchases").select(select).eq("user_id", id),
+    // Exact, case-insensitive match; a by-email row already claimed by a DIFFERENT account is never
+    // this account's (`loadPurchaseRowsByEmail`).
     email
-      ? db
-          .from("manager_purchases")
-          .select(select)
-          // Exact, case-insensitive match: `_` and `%` in an address are LIKE wildcards, so they are
-          // escaped or `a_b@x.com` would pull in `a.b@x.com`'s rows. A by-email row already claimed by a
-          // DIFFERENT account is never this account's.
-          .ilike("email", escapeLikePattern(email))
-          .or(`user_id.is.null,user_id.eq.${id}`)
-      : Promise.resolve({ data: [] as unknown[], error: null }),
+      ? loadPurchaseRowsByEmail<T>(db, email, select, { claimedBy: id })
+      : Promise.resolve({ rows: [] as T[], readFailed: false }),
   ]);
 
   const merged = new Map<string, T>();
-  for (const row of [...(byUserId.data ?? []), ...(byEmail.data ?? [])]) {
+  for (const row of [...(byUserId.data ?? []), ...byEmail.rows]) {
     merged.set(String((row as { id?: unknown }).id), row as T);
   }
   return {
     rows: [...merged.values()],
-    readFailed: Boolean(profileError) || Boolean(byUserId.error) || Boolean(byEmail.error),
+    readFailed: Boolean(profileError) || Boolean(byUserId.error) || byEmail.readFailed,
   };
 }

@@ -191,6 +191,36 @@ describe("a Stripe-billed account", () => {
     ]);
   });
 
+  it("pages the charges until every invoice's charge is seen, so a refund past page one still nets out", async () => {
+    asAdmin();
+    stripe.invoices.list.mockResolvedValue({
+      data: [invoice("a", 4900, { payments: { data: [{ status: "paid", payment: { charge: "ch_old" } }] } })],
+    });
+    stripe.charges.list.mockImplementation(async (params: { starting_after?: string }) =>
+      params.starting_after === "ch_new"
+        ? { data: [{ id: "ch_old", amount_refunded: 1500 }], has_more: false }
+        : { data: [{ id: "ch_new", amount_refunded: 0 }], has_more: true },
+    );
+    const body = await (await call(MGR)).json();
+    expect(stripe.charges.list).toHaveBeenCalledTimes(2);
+    expect(stripe.charges.list).toHaveBeenLastCalledWith({ customer: "cus_1", limit: 100, starting_after: "ch_new" });
+    expect(body.paidToDateCents).toBe(3400);
+    expect(body.payments[0].refundedCents).toBe(1500);
+  });
+
+  it("reports no total rather than one that ignores a refund when the charge history cannot be scanned", async () => {
+    asAdmin();
+    stripe.invoices.list.mockResolvedValue({
+      data: [invoice("a", 4900, { payments: { data: [{ status: "paid", payment: { charge: "ch_ancient" } }] } })],
+    });
+    let n = 0;
+    stripe.charges.list.mockImplementation(async () => ({ data: [{ id: `ch_${++n}`, amount_refunded: 0 }], has_more: true }));
+    const body = await (await call(MGR)).json();
+    expect(body.paidToDateCents).toBeNull();
+    expect(body.payments).toHaveLength(1);
+    expect(body.stripe.available).toBe(true);
+  });
+
   it("never nets more than an invoice paid, and reports no total when refunds cannot be read", async () => {
     asAdmin();
     stripe.invoices.list.mockResolvedValue({

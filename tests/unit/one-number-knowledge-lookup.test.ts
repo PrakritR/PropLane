@@ -245,6 +245,34 @@ describe("lookup_property_knowledge: resident", () => {
     expect(out).not.toContain("Friday");
   });
 
+  it("before the check-in reveal the codes wait; the rest of the house brief still answers", async () => {
+    // Move-in is months out, so `checkInReveal` is closed - the same split `get_move_in_info` makes:
+    // the Wi-Fi password and the codes are withheld, the network name and trash day are not.
+    const fake = knowledgeFakeDb(seed({
+      ...lease,
+      manager_application_records: [
+        {
+          id: "app-r",
+          manager_user_id: "ownerA",
+          resident_email: "r@example.com",
+          row_data: {
+            bucket: "approved",
+            stage: "Approved",
+            name: "R",
+            propertyId: "p1",
+            assignedPropertyId: "p1",
+            manualResidentDetails: { moveInDate: "2099-06-01" },
+          },
+        },
+      ],
+    }));
+    const out = (await lookupPropertyKnowledgeResidentTool.handler(residentCtx(fake.db), {
+      question: "wifi password and trash day",
+    })) as KnowledgeLookup;
+    expect(text(out)).not.toContain("tea-kettle-42");
+    expect(out.houseDetails.map((hit) => hit.section)).toContain("Trash & cleaning");
+  });
+
   it("withholds house details while the move-in lock holds, but still answers approved entries", async () => {
     const fake = knowledgeFakeDb(seed(lease));
     const out = text(await lookupPropertyKnowledgeResidentTool.handler(residentCtx(fake.db, { moveInDetailsLocked: true }), { question: "wifi password and trash day" }));

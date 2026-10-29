@@ -86,7 +86,10 @@ export function useBillingMoneyActions({
   const [promoDate, setPromoDate] = useState("");
 
   const hasSubscription = billing?.stripe.subscriptionLinked ?? false;
-  const promoCode = billing?.plan.promoCode ?? null;
+  // End promo writes `promo_ends_at` on a purchase row that carries a waiver code, so the item exists
+  // only when there is such a code. A Stripe-side promotion code (`plan.promoCode`) is not endable
+  // here and the route would refuse it with a 409.
+  const waiverPromoCode = billing?.plan.waiverPromoCode ?? null;
   const base = `/api/admin/accounts/${encodeURIComponent(userId)}/billing`;
 
   const invoices = useMemo(
@@ -168,7 +171,7 @@ export function useBillingMoneyActions({
         <DropdownMenuItem disabled={invoices.length === 0} data-attr="admin-billing-refund" onSelect={openRefund}>
           Refund
         </DropdownMenuItem>
-        {promoCode ? (
+        {waiverPromoCode ? (
           <DropdownMenuItem data-attr="admin-billing-end-promo" onSelect={openEndPromo}>
             End promo
           </DropdownMenuItem>

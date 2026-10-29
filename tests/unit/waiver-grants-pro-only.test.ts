@@ -1,7 +1,8 @@
 /**
  * Captain, Oct 28: "FREE100 should give full access to just Pro, not Business." Every waiver redeem path
- * writes Pro whatever was picked, an expired code is refused, and a policy that cannot be read refuses a NEW
- * redemption (fail closed). The three paths: `update-tier`, `signup-intent`, `pricing-oauth-continue`.
+ * writes Pro whatever was picked, an expired code is refused, a policy that cannot be read refuses a NEW
+ * redemption (fail closed), and an account whose promo staff ended cannot redeem again on ANY of the
+ * three paths: `update-tier`, `signup-intent`, `pricing-oauth-continue`.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   getManagerPurchaseSku: vi.fn(),
   check: vi.fn(),
   accountEnded: vi.fn(),
+  emailEnded: vi.fn(),
   completeFree: vi.fn(),
   inserted: [] as Array<Record<string, unknown>>,
 }));
@@ -45,6 +47,7 @@ vi.mock("@/lib/promo-code-policy.server", async () => {
   return {
     checkPromoCodeRedeemable: mocks.check,
     accountPromoEnded: mocks.accountEnded,
+    accountPromoEndedForEmail: mocks.emailEnded,
     promoRedeemRefusal: (check: { reason: "expired" | "unreadable" }) =>
       check.reason === "expired"
         ? { error: actual.PROMO_CODE_EXPIRED_MESSAGE, code: "PROMO_EXPIRED", status: 400 }
@@ -89,6 +92,7 @@ beforeEach(() => {
   mocks.setManagerPurchaseTier.mockResolvedValue({ ok: true });
   mocks.check.mockResolvedValue({ ok: true });
   mocks.accountEnded.mockResolvedValue(false);
+  mocks.emailEnded.mockResolvedValue(false);
   mocks.completeFree.mockResolvedValue({ managerId: "MGR-1", alreadyLinked: true });
 });
 
@@ -190,6 +194,18 @@ describe("signup-intent (a new account)", () => {
     expect(res.status).toBe(503);
     expect(mocks.inserted).toHaveLength(0);
   });
+
+  it("refuses a signup whose promo staff already ended, asked by email and fail-closed", async () => {
+    mocks.emailEnded.mockResolvedValue(true);
+    mocks.getUser.mockResolvedValue({ data: { user: null } });
+    const res = await signupIntent(post(url, body("pro")));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("This code has expired.");
+    expect(mocks.inserted).toHaveLength(0);
+    expect(mocks.emailEnded).toHaveBeenCalledWith(expect.anything(), "new@example.com", expect.any(Number), {
+      failClosed: true,
+    });
+  });
 });
 
 describe("pricing-oauth-continue (Google sign-in on pricing)", () => {
@@ -213,5 +229,14 @@ describe("pricing-oauth-continue (Google sign-in on pricing)", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("This code has expired.");
     expect(mocks.completeFree).not.toHaveBeenCalled();
+  });
+
+  it("refuses an account whose promo staff already ended, fail-closed", async () => {
+    mocks.accountEnded.mockResolvedValue(true);
+    const res = await oauthContinue(post(url, { tier: "pro", billing: "monthly", promo: "FREE100" }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("This code has expired.");
+    expect(mocks.completeFree).not.toHaveBeenCalled();
+    expect(mocks.accountEnded).toHaveBeenCalledWith(expect.anything(), "mgr-1", expect.any(Number), { failClosed: true });
   });
 });

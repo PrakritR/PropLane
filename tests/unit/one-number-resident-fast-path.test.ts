@@ -119,12 +119,18 @@ describe("tryResidentFastPath scoping", () => {
     scope.entries.mockReset().mockResolvedValue([]);
   });
 
-  const resident = { ok: true, scope: { viewer: "resident", workspaceId: "ws1", ownerUserId: "o1", allowedPropertyIds: ["h1"], focusPropertyId: "h1", audiences: ["all", "residents"], includeHouseInfo: true } };
+  const resident = { ok: true, scope: { viewer: "resident", workspaceId: "ws1", ownerUserId: "o1", allowedPropertyIds: ["h1"], focusPropertyId: "h1", audiences: ["all", "residents"], includeHouseInfo: true, includeHouseSecrets: true } };
 
   it("a current resident of the house gets the door code", async () => {
     scope.resolve.mockResolvedValue(resident);
     await expect(tryResidentFastPath(db, ctx, "door code?")).resolves.toMatchObject({ reply: "Door code 4821, gate 77#." });
     expect(scope.owned).toHaveBeenCalledWith(db, "o1", "h1");
+  });
+
+  it("before the check-in reveal the codes are withheld, the rest of the house still answers", async () => {
+    scope.resolve.mockResolvedValue({ ok: true, scope: { ...resident.scope, includeHouseSecrets: false } });
+    await expect(tryResidentFastPath(db, ctx, "door code?")).resolves.toBeNull();
+    await expect(tryResidentFastPath(db, ctx, "what day is trash")).resolves.toMatchObject({ reply: "Trash day is Tuesday." });
   });
 
   it("before the move-in lock lifts, house details are never read", async () => {

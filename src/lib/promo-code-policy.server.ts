@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { loadAccountPurchaseRows } from "@/lib/manager-purchase-account-rows.server";
+import { loadAccountPurchaseRows, loadPurchaseRowsByEmail } from "@/lib/manager-purchase-account-rows.server";
 import { createTtlCache, serverSnapshotCacheEnabled } from "@/lib/server-ttl-cache";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import {
@@ -154,6 +154,34 @@ export async function accountPromoEnded(
     const { rows, readFailed } = await loadAccountPurchaseRows<{ id: string; promo_ends_at?: string | null }>(
       db,
       id,
+      "id, promo_ends_at",
+    );
+    if (readFailed) return unreadable;
+    return rows.some((row) => promoInstantHasPassed(row.promo_ends_at, nowMs));
+  } catch {
+    return unreadable;
+  }
+}
+
+/**
+ * Has staff ended the promo on the account this EMAIL signs up as? The same question as
+ * {@link accountPromoEnded} for a path that has no `user_id` yet (the pre-auth signup intent writes the
+ * waiver row with the email alone), so re-typing the code on a new signup cannot undo an ended promo.
+ * A NEW redemption passes `failClosed: true`: an unreadable answer refuses rather than grants.
+ */
+export async function accountPromoEndedForEmail(
+  db: SupabaseClient,
+  email: string,
+  nowMs: number = Date.now(),
+  opts: { failClosed?: boolean } = {},
+): Promise<boolean> {
+  const address = email.trim().toLowerCase();
+  const unreadable = opts.failClosed === true;
+  if (!address) return unreadable;
+  try {
+    const { rows, readFailed } = await loadPurchaseRowsByEmail<{ id: string; promo_ends_at?: string | null }>(
+      db,
+      address,
       "id, promo_ends_at",
     );
     if (readFailed) return unreadable;

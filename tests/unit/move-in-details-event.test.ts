@@ -69,6 +69,13 @@ describe("move-in details copy", () => {
     expect(rendered.text).not.toMatch(/lease packet/i);
   });
 
+  it("free-text access notes are masked but are not an entry code waiting in the packet", () => {
+    const notesOnly = setHouseInfoValue(emptyHouseInfo(), "access", "notes", "Side gate sticks - lift and push");
+    const rendered = renderMoveInDetails({ ...FACTS, houseInfo: notesOnly })!;
+    expect(rendered.text).not.toMatch(/lease packet/i);
+    expect(rendered.cardFact).not.toMatch(/entry code/i);
+  });
+
   it("says nothing when there is no address to arrive at", () => {
     expect(renderMoveInDetails({ ...FACTS, addressLine: "", propertyLabel: "" })).toBeNull();
   });

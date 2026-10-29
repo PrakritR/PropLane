@@ -4,7 +4,8 @@ import { generateManagerId } from "@/lib/manager-id";
 import { newAxisIntentSessionId } from "@/lib/manager-signup-intent";
 import { normalizePaymentWaiverCode, paymentWaiverCodeMatches } from "@/lib/server-env";
 import { waiverRedeemedMessage, waiverTierForRequest } from "@/lib/payment-waiver-grant";
-import { checkPromoCodeRedeemable, promoRedeemRefusal } from "@/lib/promo-code-policy.server";
+import { accountPromoEndedForEmail, checkPromoCodeRedeemable, promoRedeemRefusal } from "@/lib/promo-code-policy.server";
+import { PROMO_CODE_EXPIRED_MESSAGE } from "@/lib/promo-code-expiry";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -68,7 +69,8 @@ export async function POST(req: Request) {
     const supabase = createSupabaseServiceRoleClient();
 
     // A payment-waiver code covers Pro only (Business requires paying), and an expired code redeems
-    // nothing. An unreadable policy refuses a NEW redemption (fail closed).
+    // nothing. An unreadable policy refuses a NEW redemption (fail closed), and so does an account
+    // whose promo staff ended: ending a promo is never undone by typing the code again on a signup.
     const grantedTier = skipStripeForPromo ? waiverTierForRequest(tierRaw) : tierRaw;
     const promoStored = skipStripeForPromo ? normalizePaymentWaiverCode(promo) : "";
     if (skipStripeForPromo) {
@@ -76,6 +78,9 @@ export async function POST(req: Request) {
       if (!redeemable.ok) {
         const refusal = promoRedeemRefusal(redeemable);
         return NextResponse.json({ error: refusal.error, code: refusal.code }, { status: refusal.status });
+      }
+      if (await accountPromoEndedForEmail(supabase, email, Date.now(), { failClosed: true })) {
+        return NextResponse.json({ error: PROMO_CODE_EXPIRED_MESSAGE, code: "PROMO_EXPIRED" }, { status: 400 });
       }
     }
     const waiverNote = skipStripeForPromo && tierRaw !== "free" ? waiverRedeemedMessage(tierRaw, promoStored) : undefined;

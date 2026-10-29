@@ -9,7 +9,8 @@ import { createManagerCheckoutSession } from "@/lib/stripe/manager-checkout";
 import { getStripe } from "@/lib/stripe";
 import { normalizePaymentWaiverCode, paymentWaiverCodeMatches } from "@/lib/server-env";
 import { waiverRedeemedMessage, waiverTierForRequest } from "@/lib/payment-waiver-grant";
-import { checkPromoCodeRedeemable, promoRedeemRefusal } from "@/lib/promo-code-policy.server";
+import { accountPromoEnded, checkPromoCodeRedeemable, promoRedeemRefusal } from "@/lib/promo-code-policy.server";
+import { PROMO_CODE_EXPIRED_MESSAGE } from "@/lib/promo-code-expiry";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { MANAGER_PORTAL_ENTRY_PATH } from "@/lib/auth/manager-google-services-onboarding";
@@ -140,12 +141,16 @@ export async function POST(req: Request) {
 
     if (skipStripeForPromo) {
       // A payment-waiver code covers Pro only (Business requires paying), and an expired code
-      // redeems nothing. An unreadable policy refuses a NEW redemption (fail closed).
+      // redeems nothing. An unreadable policy refuses a NEW redemption (fail closed), and so does an
+      // account whose promo staff ended: ending it is never undone by typing the code again.
       const promoStored = normalizePaymentWaiverCode(promo);
       const redeemable = await checkPromoCodeRedeemable(promoStored, { db: supabase });
       if (!redeemable.ok) {
         const refusal = promoRedeemRefusal(redeemable);
         return NextResponse.json({ error: refusal.error, code: refusal.code }, { status: refusal.status });
+      }
+      if (await accountPromoEnded(supabase, user.id, Date.now(), { failClosed: true })) {
+        return NextResponse.json({ error: PROMO_CODE_EXPIRED_MESSAGE, code: "PROMO_EXPIRED" }, { status: 400 });
       }
       const grantedTier = waiverTierForRequest(tierRaw);
       const { managerId: finalizedId } = await completeFreeManagerTierForUser(supabase, {

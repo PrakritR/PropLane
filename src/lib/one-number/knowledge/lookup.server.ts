@@ -6,7 +6,7 @@ import { rankByOverlap } from "./ranking";
 import { loadAnswerableEntries, recordEntryUse } from "./store.server";
 import { loadOwnedProperty, loadWorkspaceProperties, type PropertyBrief } from "./scope.server";
 import { detectAlwaysEscalate, REPLY_TOPIC_LABELS, type AlwaysEscalateTopic } from "./topics";
-import type { KnowledgeScope } from "./types";
+import { houseInfoForScope, type KnowledgeScope } from "./types";
 
 export type KnowledgeAnswer = {
   question: string;
@@ -54,7 +54,8 @@ export async function lookupPropertyKnowledge(
 
   const houseDetails: HouseDetailHit[] = [];
   // includeHouseInfo is only true when the scope already proved the asker may read house details
-  // (a manager, or a resident past the move-in lock). Prospects and vendors never get here.
+  // (a manager, or a resident past the move-in lock). Prospects and vendors never get here, and the
+  // codes inside those details wait for `includeHouseSecrets` (`houseInfoForScope`).
   if (scope.includeHouseInfo) {
     let houses: PropertyBrief[] = [];
     if (scope.focusPropertyId) {
@@ -64,7 +65,7 @@ export async function lookupPropertyKnowledge(
       houses = await loadWorkspaceProperties(db, scope.ownerUserId, scope.workspaceId, scope.allowedPropertyIds);
     }
     const sections = houses.flatMap((house) =>
-      houseInfoRenderSections(house.houseInfo)
+      houseInfoRenderSections(houseInfoForScope(scope, house))
         .map((section) => ({ house, section })),
     );
     const rankedSections = rankByOverlap(

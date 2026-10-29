@@ -44,6 +44,8 @@ describe("POST /api/manager/signup-intent", () => {
       from: vi.fn().mockReturnValue({
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockResolvedValue({ data: [] }),
+          // The waiver path also asks whether staff ended this email's promo (`accountPromoEndedForEmail`).
+          ilike: vi.fn().mockResolvedValue({ data: [], error: null }),
         }),
         insert,
       }),

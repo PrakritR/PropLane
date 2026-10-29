@@ -67,6 +67,12 @@ export type HouseInfoField = {
    */
   secret?: boolean;
   /**
+   * A `secret` that is FREE TEXT rather than a code. It is masked and withheld exactly like a code
+   * (a manager may type one into it), but it is never on its own evidence that the house keeps an
+   * entry code the resident can look up — that question reads `houseInfoEntryCodeValues`.
+   */
+  secretFreeText?: boolean;
+  /**
    * A manager-side setting that rides the house record: never drawn to a resident, never printed on
    * a public page or door card (`houseInfoRenderSections`, `buildHousePublicPage` both skip it).
    */
@@ -114,6 +120,7 @@ export const HOUSE_INFO_SECTIONS: readonly HouseInfoSectionSpec[] = [
         placeholder: "Side gate sticks — lift and push. Package room is the second door on the left.",
         // Free text is where a manager types a code: it unlocks and masks with the codes.
         secret: true,
+        secretFreeText: true,
       },
     ],
   },
@@ -278,7 +285,7 @@ export const HOUSE_INFO_SECTIONS: readonly HouseInfoSectionSpec[] = [
       { key: "pantryCode", label: "Pantry code", kind: "text", copyable: true, secret: true, internal: true },
       { key: "lockboxCode", label: "Lockbox code", kind: "text", copyable: true, secret: true, internal: true },
       { key: "mailboxCode", label: "Mailbox code", kind: "text", copyable: true, secret: true, internal: true },
-      { key: "notes", label: "Notes", kind: "textarea", secret: true, internal: true },
+      { key: "notes", label: "Notes", kind: "textarea", secret: true, secretFreeText: true, internal: true },
     ],
   },
 ] as const;
@@ -517,11 +524,28 @@ export function houseInfoRenderSections(info: HouseInfoV1 | null | undefined): H
  * before they leave: `containsHouseSecret`.
  */
 export function houseInfoSecretValues(info: HouseInfoV1 | null | undefined): string[] {
+  return secretValues(info, () => true);
+}
+
+/**
+ * The house's entry CODES: the door, gate, lockbox, Wi-Fi password and alarm fields a resident can
+ * look up in PropLane. Free-text secrets (`secretFreeText`) and the staff-only section are not codes
+ * the resident is ever pointed at, so neither one makes the house "keeps an entry code"
+ * (`houseKeepsEntrySecrets`) true on its own.
+ */
+export function houseInfoEntryCodeValues(info: HouseInfoV1 | null | undefined): string[] {
+  return secretValues(info, (field) => !field.secretFreeText && !field.internal);
+}
+
+function secretValues(
+  info: HouseInfoV1 | null | undefined,
+  include: (field: HouseInfoField) => boolean,
+): string[] {
   if (!info) return [];
   const out: string[] = [];
   for (const spec of HOUSE_INFO_SECTIONS) {
     for (const field of spec.fields) {
-      if (!field.secret) continue;
+      if (!field.secret || !include(field)) continue;
       const value = getHouseInfoValue(info, spec.id, field.key).trim();
       if (value) out.push(value);
     }

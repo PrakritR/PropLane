@@ -10,7 +10,7 @@
  * room name cannot leak it through the card. Same rule as the house printables: a code never travels as text.
  */
 import type { DemoApplicantRow } from "@/data/demo-portal";
-import { containsHouseSecret, getHouseInfoValue, houseInfoSecretValues, type HouseInfoV1 } from "@/lib/house-info";
+import { containsHouseSecret, getHouseInfoValue, houseInfoEntryCodeValues, type HouseInfoV1 } from "@/lib/house-info";
 import { formatStayTime, normalizeStayTime } from "@/lib/bookings/stay-times";
 
 export type MoveInDetailsFacts = {
@@ -70,9 +70,13 @@ function safeLine(
   return line && !containsHouseSecret(line, houseInfo, roomSecrets) ? line : "";
 }
 
-/** Does the house keep any entry secret (door, gate, lockbox, Wi-Fi password)? Then the packet holds it. */
+/**
+ * Does the house keep an entry CODE (door, gate, lockbox, Wi-Fi password, alarm)? Then the packet holds
+ * it. A free-text access note or a staff-only code is not a code the resident is pointed at, so a house
+ * with only those never claims an entry code is waiting in the packet (`houseInfoEntryCodeValues`).
+ */
 export function houseKeepsEntrySecrets(houseInfo: HouseInfoV1 | null | undefined): boolean {
-  return houseInfoSecretValues(houseInfo).length > 0;
+  return houseInfoEntryCodeValues(houseInfo).length > 0;
 }
 
 export type MoveInDetailsRendered = {

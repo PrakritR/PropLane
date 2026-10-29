@@ -10,9 +10,16 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { dollarsToCents, useBillingMoneyActions } from "@/components/portal/admin-billing-money-actions";
 import type { AdminAccountBilling } from "@/lib/admin/admin-account-billing.server";
 
-const billing = (over: { subscriptionLinked?: boolean; promoCode?: string | null; payments?: AdminAccountBilling["payments"] } = {}): AdminAccountBilling =>
+const billing = (
+  over: {
+    subscriptionLinked?: boolean;
+    promoCode?: string | null;
+    waiverPromoCode?: string | null;
+    payments?: AdminAccountBilling["payments"];
+  } = {},
+): AdminAccountBilling =>
   ({
-    plan: { promoCode: over.promoCode ?? null, monthlyCents: 4000 },
+    plan: { promoCode: over.promoCode ?? null, waiverPromoCode: over.waiverPromoCode ?? null, monthlyCents: 4000 },
     payments: over.payments ?? [],
     stripe: { subscriptionLinked: over.subscriptionLinked ?? true },
   }) as unknown as AdminAccountBilling;
@@ -67,7 +74,7 @@ describe("dollarsToCents", () => {
 
 describe("billing money actions", () => {
   it("is one header button, not four icons", () => {
-    render(<Harness b={billing({ promoCode: "FREE100", payments: [payment("in_1", 4000)] })} onChanged={vi.fn()} />);
+    render(<Harness b={billing({ promoCode: "FREE100", waiverPromoCode: "FREE100", payments: [payment("in_1", 4000)] })} onChanged={vi.fn()} />);
     expect(screen.getAllByRole("button")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "More billing actions" })).toBeTruthy();
   });
@@ -80,8 +87,14 @@ describe("billing money actions", () => {
     expect(screen.queryByRole("menuitem", { name: "End promo" })).toBeNull();
   });
 
+  it("hides End promo for a Stripe-side promotion code, which the route cannot end", async () => {
+    render(<Harness b={billing({ promoCode: "SUMMER25", payments: [payment("in_1", 4000)] })} onChanged={vi.fn()} />);
+    await menuItem("Refund");
+    expect(screen.queryByRole("menuitem", { name: "End promo" })).toBeNull();
+  });
+
   it("with a subscription and a promo code all four are live", async () => {
-    render(<Harness b={billing({ promoCode: "FREE100", payments: [payment("in_1", 4000)] })} onChanged={vi.fn()} />);
+    render(<Harness b={billing({ promoCode: "FREE100", waiverPromoCode: "FREE100", payments: [payment("in_1", 4000)] })} onChanged={vi.fn()} />);
     for (const name of ["Change price", "Refund", "Cancel subscription", "End promo"]) {
       expect(isDisabled(await menuItem(name))).toBe(false);
     }
@@ -119,7 +132,7 @@ describe("billing money actions", () => {
   it("End promo posts { endsAt: 'now', reason } to the end-promo route", async () => {
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true }) }));
     vi.stubGlobal("fetch", fetchMock);
-    render(<Harness b={billing({ promoCode: "FREE100" })} onChanged={vi.fn()} />);
+    render(<Harness b={billing({ promoCode: "FREE100", waiverPromoCode: "FREE100" })} onChanged={vi.fn()} />);
     fireEvent.click(await menuItem("End promo"));
     fireEvent.change(document.querySelector('[data-attr="admin-billing-end-promo-dialog-reason"]') as HTMLInputElement, { target: { value: "Promo over" } });
     fireEvent.click(document.querySelector('[data-attr="admin-billing-end-promo-dialog-submit"]') as HTMLButtonElement);

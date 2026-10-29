@@ -145,6 +145,7 @@ export function resolveManagerKnowledgeScope(
       focusPropertyId: focus,
       audiences: ["all", "residents", "team"],
       includeHouseInfo: true,
+      includeHouseSecrets: true,
     },
   };
 }
@@ -170,6 +171,7 @@ export async function resolveLeasingKnowledgeScope(
       focusPropertyId: property?.id ?? null,
       audiences: ["all"],
       includeHouseInfo: false,
+      includeHouseSecrets: false,
     },
   };
 }
@@ -204,14 +206,17 @@ export async function resolveVendorKnowledgeScope(db: SupabaseClient, ctx: Agent
       focusPropertyId: property?.id ?? null,
       audiences: ["all"],
       includeHouseInfo: false,
+      includeHouseSecrets: false,
     },
   };
 }
 
 /**
  * Resident: their lease's house; entries for everyone and for residents. House details only on the
- * same terms as `get_move_in_info` (approved stage, no unsubmitted blocking form, and the check-in
- * reveal: no door code or Wi-Fi password before 24 hours ahead of move-in, `checkInReveal`).
+ * same terms as `get_move_in_info` (approved stage and no unsubmitted blocking form), and its SECRETS
+ * only once the check-in reveal has opened: no door code, Wi-Fi password or free-text access note
+ * before 24 hours ahead of move-in (`checkInReveal`). Trash day, the rules and the rest of the brief
+ * are not codes and are not withheld with them - the same split `get_move_in_info` makes.
  */
 export async function resolveResidentKnowledgeScope(db: SupabaseClient, ctx: ResidentAgentContext): Promise<KnowledgeScopeResult> {
   const owners = ctx.activeManagerId ? [ctx.activeManagerId] : [...new Set(ctx.managerIds)];
@@ -236,7 +241,8 @@ export async function resolveResidentKnowledgeScope(db: SupabaseClient, ctx: Res
       allowedPropertyIds: property ? [property.id] : [],
       focusPropertyId: property?.id ?? null,
       audiences: approved ? ["all", "residents"] : ["all"],
-      includeHouseInfo: revealed,
+      includeHouseInfo: Boolean(property) && approved && ctx.moveInDetailsLocked === false,
+      includeHouseSecrets: revealed,
     },
   };
 }

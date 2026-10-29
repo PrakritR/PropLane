@@ -287,29 +287,43 @@ export async function createApplicationFeeWaiverCode(
 export const WAIVE_ON_SEND_LABEL = "Waived on send";
 
 /**
- * The ONE live single-use waiver code for this property's send link: an unspent one is reused, and only
- * a property with none gets a fresh code.
+ * The label a waive-on-send code is reused by: the recipient the waived link is for, so one prospect
+ * can never spend the single use the next prospect's link was labelled with. A link copied with no
+ * recipient keys off the bare label.
+ */
+export function waiveOnSendLabel(recipient: string | null | undefined): string {
+  const who = String(recipient ?? "").trim().toLowerCase().slice(0, 120);
+  return who ? `${WAIVE_ON_SEND_LABEL} - ${who}` : WAIVE_ON_SEND_LABEL;
+}
+
+/**
+ * The ONE live single-use waiver code for this property's send link TO THIS RECIPIENT: an unspent one
+ * is reused, and only a (property, recipient) pair with none gets a fresh code.
  *
  * Minting per request is what leaves live waivers behind, because one waive interaction asks several
  * times - copying the link mints, changing the form or room re-mints, then the send mints again - and a
- * superseded code stays redeemable on a link the manager already copied out. One code per property means
- * the link the manager copied and the link the prospect is sent are the same single use.
+ * superseded code stays redeemable on a link the manager already copied out. Reuse is keyed on the
+ * recipient rather than the property alone, because two prospects for one house are two waives: with a
+ * shared single use the first to apply consumes it and the second is charged a fee the manager waived.
  */
 export async function ensureWaiveOnSendWaiverCode(
   db: SupabaseClient,
   managerUserId: string,
   propertyId: string,
+  /** Who the waived link is for (email or phone). Empty for a copied link with no recipient yet. */
+  recipient: string | null | undefined = null,
 ): Promise<CreateWaiverCodeResult & { reused?: boolean }> {
   const managerId = managerUserId.trim();
   const property = propertyId.trim();
   if (!managerId || !property) return { ok: false, error: "managerUserId and propertyId are required." };
+  const label = waiveOnSendLabel(recipient);
 
   const { data, error } = await db
     .from("manager_application_fee_waiver_codes")
     .select("*")
     .eq("manager_user_id", managerId)
     .eq("status", "active")
-    .eq("label", WAIVE_ON_SEND_LABEL)
+    .eq("label", label)
     .eq("max_uses", 1)
     .eq("used_count", 0)
     .order("created_at", { ascending: false });
@@ -329,7 +343,7 @@ export async function ensureWaiveOnSendWaiverCode(
   if (reusable) return { ok: true, code: reusable, reused: true };
 
   const created = await createApplicationFeeWaiverCode(db, managerId, {
-    label: WAIVE_ON_SEND_LABEL,
+    label,
     propertyIds: [property],
     appliesTo: "application",
     maxUses: 1,

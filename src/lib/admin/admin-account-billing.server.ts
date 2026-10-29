@@ -64,6 +64,12 @@ export type AdminAccountBilling = {
     trialEndsAt: string | null;
     complimentary: boolean;
     promoCode: string | null;
+    /**
+     * The waiver code stored on the account's own purchase row — the ONLY promo End promo can end
+     * (it writes `promo_ends_at` on a row with a `promo_code`). A Stripe-side promotion code shows in
+     * `promoCode` and is not endable here.
+     */
+    waiverPromoCode: string | null;
     /** The plan line's monthly amount in cents when the subscription bills monthly; else `null`. */
     monthlyCents: number | null;
     /** A staff-set custom monthly price is live (not the rate card). */
@@ -153,12 +159,19 @@ function stripeId(v: unknown): string {
   return "";
 }
 
+/** Pages of `charges.list` one refund read may scan before it refuses to answer. */
+const CHARGE_PAGE_LIMIT = 100;
+const CHARGE_PAGE_MAX = 20;
+
 /**
  * Cents already refunded on each paid invoice, keyed by invoice id. An invoice's `amount_paid` never
  * drops when a refund is issued, so "paid to date" nets the refunds out of the charges the invoices
- * were paid with (`charge.amount_refunded`). Charges are read once for the customer and matched to
- * an invoice through its payment rows (the charge itself, else its payment intent). Throws when
- * Stripe cannot be read: the caller then reports no total rather than one that ignores a refund.
+ * were paid with (`charge.amount_refunded`). Each paid invoice names its charge (else its payment
+ * intent) in its payment rows, and the customer's charges are paged until every one of those ids has
+ * been seen — a customer whose add-on invoices push the subscription's charges past the first page
+ * would otherwise net out nothing and overstate what was kept. Throws when Stripe cannot be read, or
+ * when the history is longer than this read may scan: the caller then reports no total rather than
+ * one that ignores a refund.
  */
 async function refundedCentsByInvoice(
   stripe: Stripe,
@@ -167,23 +180,60 @@ async function refundedCentsByInvoice(
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (invoices.length === 0) return out;
-  const charges = await stripe.charges.list({ customer: customerId, limit: 100 });
-  const byCharge = new Map<string, number>();
-  const byIntent = new Map<string, number>();
-  for (const charge of charges.data ?? []) {
-    const refunded = charge.amount_refunded ?? 0;
-    if (refunded <= 0) continue;
-    byCharge.set(charge.id, (byCharge.get(charge.id) ?? 0) + refunded);
-    const intent = stripeId(charge.payment_intent);
-    if (intent) byIntent.set(intent, (byIntent.get(intent) ?? 0) + refunded);
-  }
+
+  const paidBy = new Map<string, { chargeId: string; intentId: string }[]>();
+  const unseen = new Set<string>();
   for (const invoice of invoices) {
-    let refunded = 0;
+    const keys: { chargeId: string; intentId: string }[] = [];
     for (const row of invoice.payments?.data ?? []) {
       if (row.status !== "paid") continue;
       const payment = row.payment as { charge?: unknown; payment_intent?: unknown } | null | undefined;
       const chargeId = stripeId(payment?.charge);
       const intentId = stripeId(payment?.payment_intent);
+      if (!chargeId && !intentId) continue;
+      keys.push({ chargeId, intentId });
+      if (chargeId) unseen.add(chargeId);
+      if (intentId) unseen.add(intentId);
+    }
+    if (keys.length > 0) paidBy.set(invoice.id ?? "", keys);
+  }
+  if (unseen.size === 0) return out;
+
+  const byCharge = new Map<string, number>();
+  const byIntent = new Map<string, number>();
+  let startingAfter = "";
+  let pages = 0;
+  while (unseen.size > 0) {
+    if (pages >= CHARGE_PAGE_MAX) {
+      throw new Error("This customer's charge history is longer than the refund read can scan.");
+    }
+    const page = await stripe.charges.list({
+      customer: customerId,
+      limit: CHARGE_PAGE_LIMIT,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    });
+    pages += 1;
+    const rows = page.data ?? [];
+    for (const charge of rows) {
+      unseen.delete(charge.id);
+      const intent = stripeId(charge.payment_intent);
+      if (intent) unseen.delete(intent);
+      const refunded = charge.amount_refunded ?? 0;
+      if (refunded <= 0) continue;
+      byCharge.set(charge.id, (byCharge.get(charge.id) ?? 0) + refunded);
+      if (intent) byIntent.set(intent, (byIntent.get(intent) ?? 0) + refunded);
+    }
+    // A charge an invoice names may not be on this customer at all (a merged customer); the page
+    // the API says is the last one is where the scan stops, not a reason to refuse the total.
+    if (!page.has_more || rows.length === 0) break;
+    startingAfter = rows[rows.length - 1]?.id ?? "";
+    if (!startingAfter) break;
+  }
+
+  for (const invoice of invoices) {
+    const keys = paidBy.get(invoice.id ?? "") ?? [];
+    let refunded = 0;
+    for (const { chargeId, intentId } of keys) {
       refunded += (chargeId ? byCharge.get(chargeId) : undefined) ?? (intentId ? byIntent.get(intentId) : undefined) ?? 0;
     }
     if (refunded > 0) out.set(invoice.id ?? "", Math.min(refunded, invoice.amount_paid ?? 0));
@@ -287,6 +337,7 @@ function databasePlan(
     complimentary: overrides.complimentary,
     // The code the customer redeemed at checkout, else the waiver code. Display only.
     promoCode: text(purchase?.stripe_promotion_code) || text(purchase?.promo_code) || null,
+    waiverPromoCode: text(purchase?.promo_code) || null,
     monthlyCents: null,
     customPrice: false,
     cancelAtPeriodEnd: false,
