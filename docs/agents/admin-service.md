@@ -135,8 +135,11 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   [`owner-management.md`](owner-management.md) § Automatic management fee.
 - **Work email** (`service-work-email.server.ts`): a service workspace mints `<name>homes@` (service rule: "1. Ambika" ->
   `ambikahomes@proplane.ai`, `serviceWorkspaceMailboxLocalFor`) when it is added or attached, not gated on the owner's plan;
-  a failed mint is a warning on create, never a failure. A rename moves the address to the new name only while it still
-  follows the rule (a customized one stays; the old local is a 30-day alias). Staff with member rights (the rename standing,
+  a failed mint is a warning on create, never a failure. An attach only MINTS: a workspace that already has an address
+  keeps it, because a client's address is already on listings, in syndication posts and in the public listing payload. A
+  rename moves the address only while it still follows the SERVICE rule for the old name (`mailboxLocalIsDerivedFrom`) -
+  a customized one, and a self-serve `{workspace-slug}@` minted before the takeover, stay put; the old local is a 30-day
+  alias. Staff with member rights (the rename standing,
   `authorizeServiceWorkEmailEdit`) change it from the Communication "Work email" card Edit icon; the write is audited
   (`admin_service_work_email`) first. Existing workspaces: `scripts/backfill-workspace-mailbox-locals.mjs --service` (dry run;
   `--apply` writes; production needs `--allow-production`).

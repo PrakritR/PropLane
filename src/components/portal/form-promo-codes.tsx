@@ -70,6 +70,9 @@ const API = "/api/manager/application-fee-waivers";
  * lease fee on a lease), limited to this property. The codes already on the form list underneath as plain
  * rows: the code, what it does (the waive model has one effect, "Free"), its uses, and a ⋯ menu.
  *
+ * A code the server marked `readOnly` (the owner's own portfolio-wide code, which only they may change) lists as
+ * a plain row with no ⋯ menu: every action on it would be refused.
+ *
  * The client sends only the code text, the fee and the property id; the server re-derives the manager from
  * the session and refuses a property that is not theirs. A brand-new draft has no property id yet, so it is
  * saved first through `ensureSaved` (the same save the PDF upload uses). With neither an id nor
@@ -249,7 +252,7 @@ export function FormPromoCodesRow({
           <span className="ml-auto shrink-0 text-[13px] tabular-nums text-muted">
             {code.maxUses == null ? `Used ${code.usedCount}` : `Used ${code.usedCount} of ${code.maxUses}`}
           </span>
-          {offId === code.id ? (
+          {code.readOnly ? null : offId === code.id ? (
             <span className="flex shrink-0 items-center">
               <PortalIconAction label="Confirm turn off" icon={Check} tone="danger" disabled={busy} data-attr="form-promo-code-off-confirm" onClick={() => turnOff(code.id)} />
               <PortalIconAction label="Keep code" icon={X} disabled={busy} data-attr="form-promo-code-off-cancel" onClick={() => setOffId(null)} />

@@ -843,12 +843,32 @@ describe("a service workspace's work email (<name>homes@, minted on add)", () =>
     expect(db.tables.portal_workspaces[0]!.name).toBe("3. Birch");
   });
 
-  it("mints one on attach when the workspace has none, and follows the label when the name changes", async () => {
+  it("mints one on attach when the workspace has none", async () => {
+    db.tables.portal_workspaces.push({ id: CLIENT_WS_EMAIL, owner_user_id: CLIENT, name: "Ambika", is_default: true, is_service: false });
+    const attached = await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS_EMAIL, city: "Seattle", label: "1. Ambika", reason: "managed now" });
+    expect(attached.ok).toBe(true);
+    expect(emails()).toMatchObject([{ workspace_id: CLIENT_WS_EMAIL, mailbox_local: "ambikahomes" }]);
+  });
+
+  it("NEVER moves an address the workspace already has, even when the label renames it", async () => {
+    // The workspace ran self-serve, so `ensureOwnedWorkspaceAssistantEmails` minted `{workspace-slug}@` and that
+    // address is already on listings and syndication posts. Attaching must not retire it behind a 30-day alias.
     db.tables.portal_workspaces.push({ id: CLIENT_WS_EMAIL, owner_user_id: CLIENT, name: "Ambika", is_default: true, is_service: false });
     (db.tables.manager_assistant_emails ??= []).push({ id: "e-old", manager_user_id: CLIENT, workspace_id: CLIENT_WS_EMAIL, inbox_token: "tok123456789", mailbox_local: "ambika", provision_state: "active" });
     const attached = await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS_EMAIL, city: "Seattle", label: "1. Ambika", reason: "managed now" });
     expect(attached.ok).toBe(true);
-    expect(emails().find((e) => e.id === "e-old")!.mailbox_local).toBe("ambikahomes");
+    expect(emails()).toHaveLength(1);
+    expect(emails()[0]).toMatchObject({ id: "e-old", mailbox_local: "ambika" });
+    expect(db.tables.manager_assistant_email_aliases ?? []).toHaveLength(0);
+  });
+
+  it("a later rename does not claim a self-serve-derived address either", async () => {
+    db.tables.portal_workspaces.push({ id: CLIENT_WS_EMAIL, owner_user_id: CLIENT, name: "Ambika", is_default: true, is_service: false });
+    (db.tables.manager_assistant_emails ??= []).push({ id: "e-old", manager_user_id: CLIENT, workspace_id: CLIENT_WS_EMAIL, inbox_token: "tok123456789", mailbox_local: "ambika", provision_state: "active" });
+    await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS_EMAIL, city: "Seattle", label: "1. Ambika", reason: "managed now" });
+    expect(await svc.renameServiceWorkspace(client(), ADMIN_A, { id: CLIENT_WS_EMAIL, name: "1. Ambika Rao", city: "Seattle" })).toEqual({ ok: true });
+    expect(emails()[0]!.mailbox_local).toBe("ambika");
+    expect(db.tables.manager_assistant_email_aliases ?? []).toHaveLength(0);
   });
 
   describe("staff may change it (the same standing a rename needs)", () => {

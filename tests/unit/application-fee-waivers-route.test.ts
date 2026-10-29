@@ -228,6 +228,53 @@ describe("a teammate adds a promo code on the owner's property", () => {
     expect(owned()[0]!.property_ids).toEqual([OWNED_3, OWNED]);
   });
 
+  it("a DELETED house still named on the code never blocks its owner", async () => {
+    // `property_ids` has no foreign key, so deleting a house leaves a stale id. Re-authorizing the stored list
+    // refused the owner with "Pick properties from your own portfolio" - about houses they never chose - and the
+    // unique (manager, code) index blocked a fresh create too, so the code could never move again.
+    tables.manager_application_fee_waiver_codes!.push(code({ code: "APPWAIVE", property_ids: [OWNED_3, "prop-deleted"] }));
+    const res = await post({ code: "APPWAIVE", appliesTo: "application", propertyIds: [OWNED] });
+    expect(res.status).toBe(200);
+    expect(owned()[0]!.property_ids).toEqual([OWNED_3, "prop-deleted", OWNED]);
+  });
+
+  it("a deleted house does not block a teammate either, and grants nothing", async () => {
+    tables.manager_application_fee_waiver_codes!.push(code({ code: "APPWAIVE", property_ids: [OWNED, "prop-deleted"] }));
+    asCaller(TEAMMATE);
+    expect((await post({ code: "APPWAIVE", appliesTo: "application", propertyIds: [OWNED_2] })).status).toBe(200);
+    expect(owned()[0]!.property_ids).toEqual([OWNED, "prop-deleted", OWNED_2]);
+    // The house it still covers that they hold nothing on is what refuses them, exactly as before.
+    tables.manager_application_fee_waiver_codes!.push(code({ code: "NOGRANT", property_ids: [OWNED_3, "prop-deleted"] }));
+    expect((await post({ code: "NOGRANT", appliesTo: "application", propertyIds: [OWNED] })).status).toBe(403);
+  });
+
+  it("says the code was EXTENDED, not created, so the screen never claims a new code", async () => {
+    tables.manager_application_fee_waiver_codes!.push(code({ code: "APPWAIVE", property_ids: [OWNED] }));
+    asCaller(TEAMMATE);
+    const widened = await post({ code: "APPWAIVE", appliesTo: "application", propertyIds: [OWNED_2] });
+    expect(((await widened.json()) as { extended?: boolean }).extended).toBe(true);
+    const already = await post({ code: "APPWAIVE", appliesTo: "application", propertyIds: [OWNED] });
+    expect(((await already.json()) as { extended?: boolean }).extended).toBe(true);
+    const fresh = await post({ code: "BRANDNEW", appliesTo: "application", propertyIds: [OWNED] });
+    expect(((await fresh.json()) as { extended?: boolean }).extended).toBeUndefined();
+  });
+
+  it("refuses (409) when the request also asks for a cap, expiry or label the existing code does not have", async () => {
+    const soon = new Date(Date.now() + 90 * 86_400_000).toISOString();
+    tables.manager_application_fee_waiver_codes!.push(code({ code: "APPWAIVE", property_ids: [OWNED], label: "Spring" }));
+    asCaller(TEAMMATE);
+    for (const body of [{ maxUses: 3 }, { expiresAt: soon }, { label: "Summer" }]) {
+      const res = await post({ code: "APPWAIVE", appliesTo: "application", propertyIds: [OWNED_2], ...body });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toMatch(/Edit it from Settings/);
+    }
+    expect(owned()[0]).toMatchObject({ property_ids: [OWNED], max_uses: null, expires_at: null, label: "Spring" });
+    // "No cap" / "never expires" / the same label ask for nothing: still extended.
+    const ok = await post({ code: "APPWAIVE", appliesTo: "application", propertyIds: [OWNED_2], maxUses: null, expiresAt: null, label: "Spring" });
+    expect(ok.status).toBe(200);
+    expect(owned()[0]!.property_ids).toEqual([OWNED, OWNED_2]);
+  });
+
   it("returns a portfolio-wide code with the same text unchanged (200), writing nothing", async () => {
     tables.manager_application_fee_waiver_codes!.push(code({ code: "APPWAIVE" }));
     asCaller(TEAMMATE);
@@ -285,6 +332,30 @@ describe("GET ?propertyId= lists the OWNER's codes that cover the property", () 
     asCaller(TEAMMATE);
     const body = (await (await get()).json()) as { codes: unknown[] };
     expect(body.codes).toHaveLength(0);
+  });
+
+  it("returns ONLY this property's redemptions: an applicant on another house is never disclosed", async () => {
+    tables.application_fee_waiver_redemptions = [
+      { id: "r-here", code_id: "c-EVERYWHERE", manager_user_id: MANAGER, property_id: OWNED, resident_email: "here@example.com", kind: "application", redeemed_at: "2026-01-01T00:00:00.000Z" },
+      { id: "r-elsewhere", code_id: "c-EVERYWHERE", manager_user_id: MANAGER, property_id: OWNED_3, resident_email: "elsewhere@example.com", kind: "application", redeemed_at: "2026-01-02T00:00:00.000Z" },
+      { id: "r-other-code", code_id: "c-OTHER-HOUSE", manager_user_id: MANAGER, property_id: OWNED_3, resident_email: "other@example.com", kind: "application", redeemed_at: "2026-01-03T00:00:00.000Z" },
+    ];
+    asCaller(TEAMMATE);
+    const body = (await (await get(`?propertyId=${OWNED}`)).json()) as { redemptions: { id: string }[] };
+    expect(body.redemptions.map((r) => r.id)).toEqual(["r-here"]);
+    expect(JSON.stringify(body)).not.toMatch(/elsewhere@example.com|other@example.com/);
+  });
+
+  it("marks the owner's portfolio-wide code readOnly for a teammate, editable for the owner", async () => {
+    asCaller(TEAMMATE);
+    const asTeammate = (await (await get(`?propertyId=${OWNED}`)).json()) as { codes: { code: string; readOnly?: boolean }[] };
+    // PATCH refuses a portfolio-wide code to anyone but its owner (404), so the row shows without its controls.
+    expect(asTeammate.codes.find((c) => c.code === "EVERYWHERE")!.readOnly).toBe(true);
+    expect(asTeammate.codes.find((c) => c.code === "ONE-HOUSE")!.readOnly).toBeUndefined();
+    expect((await patch("c-EVERYWHERE", { action: "revoke" })).status).toBe(404);
+    asCaller(MANAGER);
+    const asOwner = (await (await get(`?propertyId=${OWNED}`)).json()) as { codes: { code: string; readOnly?: boolean }[] };
+    expect(asOwner.codes.every((c) => c.readOnly === undefined)).toBe(true);
   });
 });
 

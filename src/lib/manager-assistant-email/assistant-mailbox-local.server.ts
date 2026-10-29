@@ -68,7 +68,7 @@ export function serviceWorkspaceMailboxLocalFor(
   return rule.serviceWorkspaceMailboxLocalFor(workspaceName, ownerFirstName) as string;
 }
 
-/** The address still follows the naming rule for `workspaceName` (never customized), with or without a -2..-9 suffix. */
+/** The address still follows the SERVICE naming rule for `workspaceName` (PropLane minted it, nobody moved it). */
 export function mailboxLocalIsDerivedFrom(
   workspaceName: string | null | undefined,
   ownerFirstName: string | null | undefined,

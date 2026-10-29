@@ -124,14 +124,21 @@ describe("serviceWorkspaceMailboxLocalFor", () => {
 });
 
 describe("mailboxLocalIsDerivedFrom", () => {
-  it("is true for the rule's output (either rule, with or without a collision suffix) and false once customized", () => {
+  it("is true for the SERVICE rule's output (with or without a collision suffix) and false once customized", () => {
     expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "ambikahomes")).toBe(true);
     expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "ambikahomes-2")).toBe(true);
-    expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "1ambika")).toBe(true);
     expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "frontdesk")).toBe(false);
     expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "ambikahomes-x7k2")).toBe(true);
     expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "ambikahomes-12")).toBe(false);
     expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "")).toBe(false);
+  });
+
+  it("does NOT claim a self-serve-derived address: that one was published before PropLane took over", () => {
+    // `ensureOwnedWorkspaceAssistantEmails` mints `{workspace-slug}@` for a self-serve workspace. Reading it as
+    // "never customized" let a rename move a live, published address and bounce replies after the alias lapsed.
+    expect(workspaceMailboxLocalFor("1. Ambika", "P")).toBe("1ambika");
+    expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "1ambika")).toBe(false);
+    expect(mailboxLocalIsDerivedFrom("Seattle Rentals", "P", "seattlerentals")).toBe(false);
   });
 });
 

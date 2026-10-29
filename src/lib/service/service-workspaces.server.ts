@@ -547,10 +547,10 @@ export async function attachWorkspaceToService(
   await updateAuditResult(actor, auditKey, { applied: true });
   // The automatic management fee (no signature): the client who owns the attached workspace is its owner of record.
   await ensureServiceFeePolicy(db, workspace.id, { role: "admin", userId: operatorUserId });
-  // The work email: minted when it has none; when the label renamed the workspace, an address that was never customized
-  // follows the new name. Neither can fail the attach.
-  if (label && label !== workspace.name) await followServiceWorkspaceRename(db, workspace.id, workspace.name);
-  else await mintServiceWorkspaceWorkEmail(db, workspace.id);
+  // The work email is MINTED when the workspace has none, and only then. The workspace already belonged to a
+  // client, so its address may be printed on listings, in syndication posts and on the public listing payload:
+  // the attach label never moves it, even when that label renames the workspace. Cannot fail the attach.
+  await mintServiceWorkspaceWorkEmail(db, workspace.id);
   return { ok: true, id: workspace.id };
 }
 

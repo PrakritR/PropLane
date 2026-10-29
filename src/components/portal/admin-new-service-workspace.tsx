@@ -76,14 +76,17 @@ export function AdminNewServiceWorkspace({
       setCity("");
       setClient("");
       setContact("");
-      // The workspace exists whatever happened to the invite; say plainly when the invite did not go.
-      if (json.ownerInvite && !json.ownerInvite.sent) {
-        showToast(`Workspace created. The owner invite did not send: ${json.ownerInvite.error ?? "try again from Team."}`);
-      } else if (json.ownerInvite?.sent) {
-        showToast("Workspace created. Invite sent to the owner.");
-      } else if (json.workEmail?.warning) {
-        showToast(`Workspace created. ${json.workEmail.warning}`);
-      }
+      // The workspace exists whatever happened to the invite or the work email; both are reported, never one
+      // instead of the other - a sent invite used to hide the fact that the workspace got no work email.
+      const notes = [
+        json.ownerInvite && !json.ownerInvite.sent
+          ? `The owner invite did not send: ${json.ownerInvite.error ?? "try again from Team."}`
+          : json.ownerInvite?.sent
+            ? "Invite sent to the owner."
+            : "",
+        json.workEmail?.warning ?? "",
+      ].filter(Boolean);
+      if (notes.length > 0) showToast(`Workspace created. ${notes.join(" ")}`);
       onCreated(json.id, created);
     } catch {
       setError("Could not reach the server. Try again.");

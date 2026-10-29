@@ -10,7 +10,7 @@ export type CoManagerAccessResult =
   | { ok: true }
   | { ok: false; status: 403 | 404; error: string };
 
-const NO_MODULE_ACCESS_ERROR = "You do not have access to this section for this property.";
+export const NO_MODULE_ACCESS_ERROR = "You do not have access to this section for this property.";
 
 /**
  * THE gate: may this manager use `permission` at `level` on this property?

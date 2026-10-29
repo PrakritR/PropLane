@@ -60,11 +60,15 @@ export function localFollowsBase(local, base) {
 }
 
 /**
- * True when `local` is what a naming rule would have given `workspaceName` on its own (the service rule or the
- * self-serve one, with or without the -2..-9 collision suffix) - i.e. nobody customized the address. A rename of a
- * workspace re-derives only such an address.
+ * True when `local` is exactly what the SERVICE rule would have given `workspaceName` (with or without the
+ * allocator's collision suffix) - i.e. PropLane minted it for this name and nobody has moved it since. A rename of
+ * a service workspace re-derives only such an address.
+ *
+ * Deliberately NOT the self-serve rule as well. A workspace that ran self-serve before PropLane took it over was
+ * minted `{workspace-slug}@` by `ensureOwnedWorkspaceAssistantEmails`, and that address is already published - on
+ * listings, in syndication posts, in the public listing payload. Treating it as "never customized" let a rename
+ * move a live address, leaving the old local as a 30-day alias and bouncing every reply after that.
  */
 export function mailboxLocalIsDerivedFrom(workspaceName, ownerFirstName, local) {
-  const bases = [serviceWorkspaceMailboxLocalFor(workspaceName, ownerFirstName), workspaceMailboxLocalFor(workspaceName, ownerFirstName)];
-  return bases.some((base) => localFollowsBase(local, base));
+  return localFollowsBase(local, serviceWorkspaceMailboxLocalFor(workspaceName, ownerFirstName));
 }

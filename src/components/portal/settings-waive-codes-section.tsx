@@ -17,6 +17,9 @@ import { waiverCodeAppliesToFee, type ApplicationFeeWaiverCode, type WaiverCodeA
  * the ones picked (workspace-wide by default); it can carry a use cap and an expiry. Every row edits in place and
  * saves as it changes. Disabling a code is permanent (a retired code keeps its text and its use count), so it is
  * the one control that confirms. The server owns every rule (`/api/manager/application-fee-waivers`).
+ *
+ * A code the server marked `readOnly` (a portfolio-wide code of the owner's, listed on a house for a teammate)
+ * shows its terms with every control inert: the write would be refused, so the row never offers it.
  */
 
 const APPLIES_TO_OPTIONS: { value: WaiverCodeAppliesTo; label: string }[] = [
@@ -267,13 +270,14 @@ export function WaiveCodesSettingsSection({
           expiresAt: endOfDayIso(draft.expires),
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as { error?: string; extended?: boolean };
       if (!res.ok) {
         showToast(data.error ?? "Could not create that code.");
         return;
       }
       setAdding(null);
-      showToast("Waive code created.");
+      // The server extends a code the owner already has rather than minting a second one: say which happened.
+      showToast(data.extended ? "Added to existing code." : "Waive code created.");
       await load();
     } catch {
       showToast("Could not create that code.");
@@ -343,14 +347,14 @@ export function WaiveCodesSettingsSection({
                 idPrefix="waive-codes-row"
                 draft={draft}
                 propertyOptions={propertyOptions}
-                disabled={busyId === code.id}
+                disabled={busyId === code.id || code.readOnly === true}
                 onChange={(patch, commit) => {
                   const next = { ...draft, ...patch };
                   setDrafts((prev) => ({ ...prev, [code.id]: next }));
                   if (commit) void save(code.id, next);
                 }}
               />
-              {confirmDisableId === code.id ? (
+              {code.readOnly ? null : confirmDisableId === code.id ? (
                 <div className="flex items-center gap-1">
                   <PortalIconAction label="Confirm disable" icon={Check} tone="danger" disabled={busyId === code.id} data-attr="waive-codes-disable-confirm" onClick={() => disable(code.id)} />
                   <PortalIconAction label="Keep code" icon={X} data-attr="waive-codes-disable-cancel" onClick={() => setConfirmDisableId(null)} />

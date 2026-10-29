@@ -21,6 +21,15 @@ export const runtime = "nodejs";
  * (the Settings list). With it, the codes belong to that property's OWNER and are filtered to the ones covering
  * it, for the owner or a teammate holding Applications at `read` on it (a co-manager, or PropLane staff seated on
  * a service workspace). Never another manager's codes for a property the caller has no grant on.
+ *
+ * The property-scoped branch answers about ONE house and nothing else. A code covering several houses (or the
+ * whole portfolio) is still listed, but its redemption history is cut to THIS property: a redemption carries an
+ * applicant's email, so returning the code's other houses' rows would hand a caller scoped to one house the
+ * applicants of every other house the code touches.
+ *
+ * A portfolio-wide code belongs to the owner alone - `PATCH /[id]` refuses one to anybody else - so it is marked
+ * `readOnly` for a non-owner. The row still shows (it really does waive on this house) with its controls hidden,
+ * rather than offering edits that would come back 404.
  */
 export async function GET(req: Request) {
   const ctx = await requireManagerRouteUser({ fast: true });
@@ -40,9 +49,15 @@ export async function GET(req: Request) {
       listApplicationFeeWaiverCodes(ctx.db, scope.ownerUserId),
       listApplicationFeeWaiverRedemptions(ctx.db, scope.ownerUserId),
     ]);
-    const codes = all.filter((c) => waiverCodeCoversProperty(c, propertyId));
-    const ids = new Set(codes.map((c) => c.id));
-    return NextResponse.json({ codes, redemptions: allRedemptions.filter((r) => ids.has(r.codeId)) });
+    const covering = all.filter((c) => waiverCodeCoversProperty(c, propertyId));
+    const ids = new Set(covering.map((c) => c.id));
+    const codes = scope.callerIsOwner
+      ? covering
+      : covering.map((c) => (limitedPropertyIds(c).length === 0 ? { ...c, readOnly: true } : c));
+    return NextResponse.json({
+      codes,
+      redemptions: allRedemptions.filter((r) => ids.has(r.codeId) && r.propertyId === propertyId),
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not load waiver codes.";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -67,12 +82,36 @@ function limitedPropertyIds(code: ApplicationFeeWaiverCode): string[] {
 }
 
 /**
+ * Terms the request asks for that the code the owner already holds does NOT have. Extending an existing code can
+ * only widen WHERE it works - its cap, expiry and label stay whatever the owner set - so a request carrying a
+ * different one is a conflict to report, never a term to silently drop on the floor.
+ *
+ * Only a value actually supplied counts: the Settings row always sends `maxUses: null` / `expiresAt: null` for
+ * "no cap" and "never expires", which asks for nothing and must not read as a demand to clear the owner's terms.
+ */
+function conflictingTerm(existing: ApplicationFeeWaiverCode, body: CreateBody): boolean {
+  if (body.maxUses != null && Math.round(Number(body.maxUses)) !== existing.maxUses) return true;
+  const asked = typeof body.expiresAt === "string" ? Date.parse(body.expiresAt) : NaN;
+  if (Number.isFinite(asked)) {
+    const held = existing.expiresAt ? Date.parse(existing.expiresAt) : NaN;
+    if (!Number.isFinite(held) || held !== asked) return true;
+  }
+  const label = body.label?.trim() ?? "";
+  if (label && label !== (existing.label ?? "")) return true;
+  return false;
+}
+
+/**
  * POST - create a waiver code. A code belongs to the PROPERTY'S OWNER (redemption looks codes up under the owner),
  * so a property limit is resolved from the database, never the body: every property must belong to one owner, and
  * the caller must be that owner or hold Applications at `edit` on each (a co-manager, or PropLane staff seated on a
  * service workspace - the seat IS that grant). A code with no property limit stays the caller's own portfolio-wide
  * code. Adding text the owner already has is idempotent: an active property-limited code gains this property,
- * a portfolio-wide one already covers it, and a turned-off / expired / used-up one is a 409, never revived.
+ * a portfolio-wide one already covers it, and a turned-off / expired / used-up one is a 409, never revived. Such a
+ * response carries `extended: true` so the screen says the code was added to an existing one rather than created.
+ * A request that also asks for a DIFFERENT cap, expiry or label is a 409 instead: extending only widens where a
+ * code works, so those terms would be dropped, and the manager would be told a code was created with terms it
+ * does not have.
  */
 export async function POST(req: Request) {
   const ctx = await requireManagerRouteUser();
@@ -104,22 +143,29 @@ export async function POST(req: Request) {
         if (existing.appliesTo !== "both" && existing.appliesTo !== asked) {
           return NextResponse.json({ error: "That code already exists for a different fee. Pick a different code." }, { status: 409 });
         }
+        if (conflictingTerm(existing, body)) {
+          return NextResponse.json({ error: "That code already exists. Edit it from Settings." }, { status: 409 });
+        }
         const current = limitedPropertyIds(existing);
         const wanted = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
         if (wanted.every((id) => waiverCodeCoversProperty(existing, id))) {
-          return NextResponse.json({ code: existing });
+          return NextResponse.json({ code: existing, extended: true });
         }
-        // Widening a code also widens what it waives on its other houses: a teammate may only do that when they
-        // hold Applications at edit on every house it already covers.
-        const widen = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, current, "edit");
-        if (!widen.ok || widen.ownerUserId !== ownerUserId) {
-          return NextResponse.json({ error: widen.ok ? "Forbidden." : widen.error }, { status: widen.ok ? 403 : widen.status });
+        if (ownerUserId !== ctx.userId) {
+          // Widening a code also widens what it waives on its other houses: a teammate may only do that when they
+          // hold Applications at edit on every house it already covers. A house that was since DELETED is dropped
+          // first - a stale id in `property_ids` (the column has no foreign key) must not lock the code forever.
+          const widen = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, current, "edit", { ignoreUnknown: true });
+          if (!widen.ok) return NextResponse.json({ error: widen.error }, { status: widen.status });
+          if (widen.knownPropertyIds.length > 0 && widen.ownerUserId !== ownerUserId) {
+            return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+          }
         }
         const updated = await updateApplicationFeeWaiverCode(ctx.db, ownerUserId, existing.id, {
           propertyIds: [...new Set([...current, ...wanted])],
         });
         if (!updated.ok) return NextResponse.json({ error: updated.error }, { status: updated.status });
-        return NextResponse.json({ code: updated.code });
+        return NextResponse.json({ code: updated.code, extended: true });
       }
     }
   }

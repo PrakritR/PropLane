@@ -73,6 +73,12 @@ export type ApplicationFeeWaiverCode = {
   expiresAt: string | null;
   createdAt: string;
   revokedAt: string | null;
+  /**
+   * The viewer may see this code on a property but not change it: a portfolio-wide code listed for a teammate,
+   * which `PATCH /[id]` refuses to anyone but its owner. Decided server-side by the route that listed it; a
+   * stored row never carries it.
+   */
+  readOnly?: boolean;
 };
 
 export type ApplicationFeeWaiverRedemption = {
