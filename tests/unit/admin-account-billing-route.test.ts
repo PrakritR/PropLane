@@ -17,6 +17,7 @@ const stripe = {
   subscriptions: { retrieve: vi.fn() },
   promotionCodes: { retrieve: vi.fn() },
   invoices: { list: vi.fn() },
+  charges: { list: vi.fn() },
 };
 
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: (...a: unknown[]) => isAdminUser(...a) }));
@@ -86,6 +87,7 @@ beforeEach(() => {
     items: { data: [{ current_period_end: seconds("2026-11-12T00:00:00.000Z"), price: { recurring: { interval: "month" } } }] },
   });
   stripe.invoices.list.mockResolvedValue({ data: [invoice("a", 4900), invoice("b", 4900), invoice("c", 4900)] });
+  stripe.charges.list.mockResolvedValue({ data: [] });
   stripe.promotionCodes.retrieve.mockResolvedValue({ id: "promo_1", code: "FREEFIRST" });
 });
 
@@ -129,7 +131,7 @@ describe("a Stripe-billed account", () => {
       complimentary: false,
       promoCode: null,
     });
-    expect(stripe.invoices.list).toHaveBeenCalledWith({ customer: "cus_1", limit: 100 });
+    expect(stripe.invoices.list).toHaveBeenCalledWith({ customer: "cus_1", limit: 100, expand: ["data.payments"] });
     expect(body.paidToDateCents).toBe(14700);
     expect(body.payments).toHaveLength(3);
     expect(body.payments[0]).toMatchObject({
@@ -159,6 +161,48 @@ describe("a Stripe-billed account", () => {
     const body = await (await call(MGR)).json();
     expect(body.paidToDateCents).toBe(4900);
     expect(body.payments.map((p: { id: string }) => p.id)).toEqual(["a"]);
+  });
+
+  it("nets refunds out of paid to date (a $5 refund on a $49 invoice is $44), by charge or by payment intent", async () => {
+    asAdmin();
+    const paidVia = (payment: Record<string, unknown>) => ({ payments: { data: [{ status: "paid", payment }] } });
+    stripe.invoices.list.mockResolvedValue({
+      data: [
+        invoice("a", 4900, paidVia({ charge: "ch_a" })),
+        invoice("b", 4900, paidVia({ payment_intent: "pi_b" })),
+        invoice("c", 4900, paidVia({ charge: "ch_c" })),
+      ],
+    });
+    stripe.charges.list.mockResolvedValue({
+      data: [
+        { id: "ch_a", payment_intent: "pi_a", amount_refunded: 500 },
+        { id: "ch_b", payment_intent: "pi_b", amount_refunded: 4900 },
+        { id: "ch_c", payment_intent: "pi_c", amount_refunded: 0 },
+        { id: "ch_other", payment_intent: "pi_other", amount_refunded: 9999 },
+      ],
+    });
+    const body = await (await call(MGR)).json();
+    expect(stripe.charges.list).toHaveBeenCalledWith({ customer: "cus_1", limit: 100 });
+    expect(body.paidToDateCents).toBe(4400 + 0 + 4900);
+    expect(body.payments.map((p: { id: string; refundedCents: number }) => [p.id, p.refundedCents])).toEqual([
+      ["a", 500],
+      ["b", 4900],
+      ["c", 0],
+    ]);
+  });
+
+  it("never nets more than an invoice paid, and reports no total when refunds cannot be read", async () => {
+    asAdmin();
+    stripe.invoices.list.mockResolvedValue({
+      data: [invoice("a", 4900, { payments: { data: [{ status: "paid", payment: { charge: "ch_a" } }] } })],
+    });
+    stripe.charges.list.mockResolvedValue({ data: [{ id: "ch_a", amount_refunded: 99999 }] });
+    expect((await (await call(MGR)).json()).paidToDateCents).toBe(0);
+    stripe.charges.list.mockRejectedValue(new Error("stripe down"));
+    const body = await (await call(MGR)).json();
+    expect(body.paidToDateCents).toBeNull();
+    expect(body.payments).toHaveLength(1);
+    expect(body.stripe.available).toBe(true);
   });
 
   it("shows the live trial end, a promo code, and complimentary from the subscription itself", async () => {
@@ -225,7 +269,7 @@ describe("a Stripe-billed account", () => {
     serviceRoleFactory.mockImplementation(() => db);
     await call(MGR);
     expect(stripe.invoices.list).toHaveBeenCalledTimes(1);
-    expect(stripe.invoices.list).toHaveBeenCalledWith({ customer: "cus_1", limit: 100 });
+    expect(stripe.invoices.list).toHaveBeenCalledWith({ customer: "cus_1", limit: 100, expand: ["data.payments"] });
   });
 });
 

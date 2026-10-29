@@ -306,6 +306,17 @@ describe("usage and projection", () => {
     expect(projectPromoCode(promo({}, { valid: false }), undefined, {}, now).status).toBe("expired");
   });
 
+  it("a code ended with Expire is Expired, not Inactive; a plain deactivation stays Inactive", () => {
+    const now = Date.parse("2026-10-08T00:00:00Z");
+    const endedAt = new Date(now - 60_000).toISOString();
+    const expired = projectPromoCode(promo({ active: false, metadata: { proplane_expired_at: endedAt } }), undefined, {}, now);
+    expect(expired.status).toBe("expired");
+    expect(expired.expiresAt).toBe(endedAt);
+    expect(projectPromoCode(promo({ active: false }), undefined, {}, now).status).toBe("inactive");
+    // A stamp on a code that is live again does not make it Expired.
+    expect(projectPromoCode(promo({ active: true, metadata: { proplane_expired_at: endedAt } }), undefined, {}, now).status).toBe("active");
+  });
+
   it("falls back to the coupon's products when it has no plan metadata", () => {
     const row = projectPromoCode(
       promo({}, { metadata: {}, applies_to: { products: ["prod_business"] } }),
