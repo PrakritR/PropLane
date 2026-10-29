@@ -55,10 +55,19 @@ on an account with five listings and no paywall anywhere).
   expired code, or an account staff ended the promo on, refuses a redemption ("This code
   has expired."). Fail safe both ways: an UNREADABLE policy leaves an existing grant valid
   (never a Free knock-down on a database blip) and refuses a NEW redemption
-  (`promo-code-policy.server.ts`, one 30s snapshot). Staff end a code or one account in
+  (`promo-code-policy.server.ts`, one 30s snapshot). Schema parity is the one exception, and
+  it is not a fail-open: a database where migration `20261029010000` has not landed answers a
+  real "no promo was ended here", because `promo_ends_at` is where ending is stored — the
+  missing TABLE (`isMissingSchema`) and the missing COLUMN (`isMissingColumnError`) are told
+  apart from a genuine read failure, which still refuses. Staff end a code or one account in
   Admin > Money > Promo codes and `POST /api/admin/accounts/[id]/billing/end-promo`
-  (reason required, audit row first). Coverage: `tests/unit/promo-code-expiry.test.ts`,
-  `waiver-grants-pro-only.test.ts`, `admin-promo-expire.test.ts`.
+  (reason required, audit row first). An account's purchase rows are only its OWN:
+  `loadAccountPurchaseRows` merges the `user_id` rows with the rows whose `email` matches
+  the account's EXACTLY (`%` / `_` escaped before the filter and the address re-compared in
+  JS), so the email half reaches an email-linked signup waiver row without ever ending or
+  reading a lookalike account's row. Coverage: `tests/unit/promo-code-expiry.test.ts`,
+  `waiver-grants-pro-only.test.ts`, `admin-promo-expire.test.ts`,
+  `manager-purchase-account-rows-email-match.test.ts`.
   **Promo codes are Stripe-native, and two columns must never be confused.**
   `manager_purchases.promo_code` is the payment-WAIVER column (FREE100 /
   WAIVEPROCESS1 / onboarding grants): any non-empty value is paid access with no

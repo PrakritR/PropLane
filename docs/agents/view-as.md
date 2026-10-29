@@ -80,5 +80,11 @@ A new GET that streams private bytes or mints a signed URL goes in
 `POST /api/admin/preview` also accepts `workspaceId` (manager portal only). It is validated server-side against
 `loadWorkspaces(<target>)` (owned or a membership; an unreadable list refuses), written to the audit row, signed into the
 cookie payload as `wid` (a non-UUID `wid` voids the token), and mirrored into the portal's own `proplane-workspace` cookie
-for the session's 30 minutes (End clears it). The portal still re-validates that cookie against the viewed account's own
+for the session's 30 minutes. The portal still re-validates that cookie against the viewed account's own
 workspaces on every read, so `wid` names a landing spot, never a grant.
+
+Ending the session puts the operator back on the workspace they were working in: the selection their own
+`proplane-workspace` cookie held when the preview overwrote it is read BEFORE the response and signed in as `owid`
+(validated like `wid`; a non-UUID voids the token), and End restores it — with nothing to restore the cookie is
+cleared instead, so none of the viewed account's state is left behind either way. `owid` is not a grant: the portal
+re-validates the restored id against the operator's own workspaces.

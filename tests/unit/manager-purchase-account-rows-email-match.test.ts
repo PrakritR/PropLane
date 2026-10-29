@@ -77,7 +77,7 @@ describe("loadAccountPurchaseRows email match", () => {
 
   it("never interpolates a non-uuid account id: only the parameterized user_id read runs", async () => {
     const { db, calls } = fakeDb("a@x.com");
-    await expect(loadAccountPurchaseRows(db, "x,user_id.not.is.null", "id")).resolves.toEqual({ rows: [], readFailed: false });
+    await expect(loadAccountPurchaseRows(db, "x,user_id.not.is.null", "id")).resolves.toEqual({ rows: [], readFailed: false, error: null });
     expect(calls.or).toEqual([]);
     expect(calls.ilike).toBeUndefined();
   });
