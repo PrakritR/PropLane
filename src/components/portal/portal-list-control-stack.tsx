@@ -31,6 +31,7 @@ import {
   Landmark,
   ArrowLeft,
   ArrowUpFromLine,
+  Ticket,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { DestinationNav, type DestinationNavItem } from "@/components/ui/destination-nav";
@@ -73,6 +74,7 @@ const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
   Landmark, // Bank (vendor Finances band: payout destination)
   ArrowUpFromLine, // Withdraw (vendor Finances band)
   ArrowLeft, // Back to reports (Money → a report's own page)
+  Ticket, // Promo codes (property Applications band)
 ]);
 
 /** `Add <noun>` — the one accessible-name shape a list band's primary uses. */
