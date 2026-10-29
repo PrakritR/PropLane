@@ -15,6 +15,8 @@ import {
   type PromoPlanId,
 } from "@/lib/stripe-promos";
 import { AdminInputError } from "@/lib/admin/admin-input-error";
+import { promoInstantHasPassed, promoPolicyKey } from "@/lib/promo-code-expiry";
+import { readPromoCodePolicies } from "@/lib/promo-code-policy.server";
 import { pacificEndOfDayMs } from "@/lib/pacific-time";
 import {
   describePromoDiscount,
@@ -443,6 +445,9 @@ export function projectPromoCode(
       : promo.active
         ? "active"
         : "inactive";
+  // A code staff turned off stamps when (`expirePromoCode`); the list shows it in the Ends column.
+  const switchedOffAt = Date.parse(promo.metadata?.proplane_expired_at ?? "");
+  const endsMs = expiresMs ?? (!promo.active && Number.isFinite(switchedOffAt) ? switchedOffAt : null);
 
   return {
     id: promo.id,
@@ -458,7 +463,7 @@ export function projectPromoCode(
     firstTimeOnly: Boolean(promo.restrictions?.first_time_transaction),
     timesRedeemed: promo.times_redeemed,
     maxRedemptions: promo.max_redemptions,
-    expiresAt: expiresMs ? new Date(expiresMs).toISOString() : null,
+    expiresAt: endsMs ? new Date(endsMs).toISOString() : null,
     createdAt: new Date(promo.created * 1000).toISOString(),
     givenCents: usage?.givenCents ?? 0,
     kind: "stripe_promo_code",
@@ -533,6 +538,9 @@ const accountsHref = (code: string) => `${ACCOUNTS_PATH}?category=management&pla
 export function buildWaiverCodeRows(
   purchases: readonly WaiverPurchaseRow[],
   activeWaiverCode: string | null,
+  /** Expiry decisions by normalized code (`manager_promo_code_policies`); a passed one makes the code Expired. */
+  policyExpiresAt: ReadonlyMap<string, string | null> = new Map(),
+  now: number = Date.now(),
 ): AdminPromoCode[] {
   type Group = { code: string; accounts: Set<string>; granted: number; total: number; firstAt: string | null };
   const groups = new Map<string, Group>();
@@ -568,12 +576,14 @@ export function buildWaiverCodeRows(
     const staffGrant = g.total > 0 && g.granted === g.total && !redeemableSignup;
     const kind: PromoKind = isFeeWaiver ? "fee_waiver" : staffGrant ? "staff_grant" : "waiver";
     const accounts = g.accounts.size;
-    const redeemable = kind === "fee_waiver" || (kind === "waiver" && redeemableSignup);
+    const endsAt = kind === "fee_waiver" ? null : policyExpiresAt.get(promoPolicyKey(g.code)) ?? null;
+    const ended = promoInstantHasPassed(endsAt, now);
+    const redeemable = !ended && (kind === "fee_waiver" || (kind === "waiver" && redeemableSignup));
     out.push({
       id: `waiver:${g.code}`,
       code: g.code,
       name: g.code,
-      status: redeemable ? "active" : "inactive",
+      status: ended ? "expired" : redeemable ? "active" : "inactive",
       summary: kind === "fee_waiver" ? "Listing processing fee waived" : "Free paid plan",
       discountType: "percent",
       value: 100,
@@ -583,7 +593,7 @@ export function buildWaiverCodeRows(
       firstTimeOnly: false,
       timesRedeemed: accounts,
       maxRedemptions: null,
-      expiresAt: null,
+      expiresAt: endsAt,
       createdAt: g.firstAt ?? "",
       givenCents: 0,
       kind,
@@ -596,7 +606,7 @@ export function buildWaiverCodeRows(
 
 export type AdminPromoCodeList = { codes: AdminPromoCode[]; counts: Record<PromoStatus, number> };
 
-async function loadWaiverPurchases(db: ReturnType<typeof createSupabaseServiceRoleClient>): Promise<WaiverPurchaseRow[]> {
+export async function loadWaiverPurchases(db: ReturnType<typeof createSupabaseServiceRoleClient>): Promise<WaiverPurchaseRow[]> {
   const out: WaiverPurchaseRow[] = [];
   const PAGE = 1000;
   for (let from = 0; ; from += PAGE) {
@@ -646,7 +656,13 @@ export async function listPromoCodes(
   } catch (error) {
     console.error("waiver code read failed", error);
   }
-  const waivers = buildWaiverCodeRows(waiverPurchases, getPaymentWaiverCode());
+  // Expiry decisions are best-effort for the list: an unreadable table lists the codes without an end date.
+  const policies = await readPromoCodePolicies(deps.db);
+  const waivers = buildWaiverCodeRows(
+    waiverPurchases,
+    getPaymentWaiverCode(),
+    policies.ok ? policies.expiresAtByCode : new Map(),
+  );
 
   const codes = [...promos.map((promo) => projectPromoCode(promo, usage.get(promo.id), products)), ...coupons, ...waivers].sort(
     (a, b) => b.accounts - a.accounts || b.createdAt.localeCompare(a.createdAt),

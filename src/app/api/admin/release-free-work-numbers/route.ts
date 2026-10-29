@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
+import { isGrandfatheredNumberRow, type GrandfatherNumberRow } from "@/lib/one-number/personal-number";
 import { releaseManagerNumber } from "@/lib/sms/manager-number-provisioning.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -21,7 +22,7 @@ export const runtime = "nodejs";
  * that cannot use it), then the row is marked released. A Twilio refusal
  * leaves the row untouched and is reported per account.
  *
- * Paid, trial, comp and unreadable plans are skipped: only an account whose
+ * Numbers provisioned before 2026-10-29 are grandfathered and skipped, whatever the plan. Paid, trial, comp and unreadable plans are skipped: only an account whose
  * EFFECTIVE plan resolves to Free loses its line, and an unreadable plan is
  * not Free.
  */
@@ -40,7 +41,7 @@ export async function POST(req: Request) {
     const db = createSupabaseServiceRoleClient();
     const { data: rows, error } = await db
       .from("manager_sms_numbers")
-      .select("manager_user_id, workspace_id, phone_number, phone_number_sid, provision_state")
+      .select("manager_user_id, workspace_id, phone_number, phone_number_sid, provision_state, released_at, provisioned_at, requested_at")
       .neq("provision_state", "released");
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -51,6 +52,12 @@ export async function POST(req: Request) {
     for (const row of rows ?? []) {
       const managerUserId = String(row.manager_user_id ?? "");
       if (!managerUserId) continue;
+      // A number provisioned before 2026-10-29 is grandfathered (paid-plan rule, Oct 28): an account that drops to
+      // Free because a waiver code expired keeps the line it already holds; this sweep never releases it.
+      if (isGrandfatheredNumberRow(row as GrandfatherNumberRow)) {
+        skipped.push({ managerUserId, reason: "grandfathered" });
+        continue;
+      }
       const tier = await getEffectiveManagerSkuTier(managerUserId);
       if (!tier.ok) {
         skipped.push({ managerUserId, reason: "plan_unreadable" });

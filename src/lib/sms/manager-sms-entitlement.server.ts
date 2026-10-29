@@ -3,6 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isWaiverGrantedManagerPurchase } from "@/lib/manager-access";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
+import { isWaiverOnlyGrant } from "@/lib/promo-code-expiry";
+import { waiverGrantEndedFor } from "@/lib/promo-code-policy.server";
 import { getStripe } from "@/lib/stripe";
 import { isSignupTrialManagerPurchase, managerPurchasePeriodEndMs } from "@/lib/manager-tier-expiry";
 import { isTrialWorkNumberOnboardingEnabled } from "@/lib/sms/number-registration-policy";
@@ -319,7 +321,7 @@ export async function getStoredManagerSmsEntitlement(
     if (data.source === "none") {
       const { data: purchase, error: purchaseError } = await db
         .from("manager_purchases")
-        .select("tier, billing, stripe_checkout_session_id, promo_code")
+        .select("id, tier, billing, stripe_checkout_session_id, promo_code")
         .eq("user_id", managerUserId)
         .maybeSingle();
       if (purchaseError || !purchase || purchase.tier !== tier || !isCompGrant({
@@ -328,6 +330,18 @@ export async function getStoredManagerSmsEntitlement(
         promoCode: purchase.promo_code,
       })) {
         return { eligible: false, reason: "plan_unreadable" };
+      }
+      // A waiver grant staff has ended (code expired, or this account's promo ended) is Free: the stored
+      // eligibility must not outlive it just because no billing event has re-reconciled since.
+      if (
+        isWaiverOnlyGrant({
+          promoCode: purchase.promo_code,
+          billing: purchase.billing,
+          stripeCheckoutSessionId: purchase.stripe_checkout_session_id,
+        }) &&
+        (await waiverGrantEndedFor({ promoCode: purchase.promo_code, rowId: purchase.id ? String(purchase.id) : null, db }))
+      ) {
+        return { eligible: false, reason: "free" };
       }
       // Admin-comp grants surface as stripe-shaped eligibility to callers; the
       // source column is only used to pick the revalidation path above.

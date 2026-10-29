@@ -487,6 +487,7 @@ const PUBLIC_PROVISIONING_ERROR_PATTERNS: RegExp[] = [
   /^You're at your included work numbers\. Add an extra work number in Billing & plan to buy another\.$/,
   /^You cannot request a number for that workspace\.$/,
   /^This workspace texts from the PropLane line\.$/,
+  /^Your plan uses the PropLane line\. A number of your own needs a paid plan or the \$5 PropLane Number\.$/,
 ];
 
 function publicProvisioningError(error: string): string {
@@ -651,6 +652,15 @@ export async function POST(req: Request) {
       );
     }
     return NextResponse.json({ error: "We could not verify your communication plan. Try again." }, { status: 503 });
+  }
+
+  // Messaging eligibility alone is not enough for a NUMBER (captain, Oct 28): a payment-waiver (FREE100) grant or an
+  // admin comp is messaging-eligible but keeps the PropLane line; only a billable plan, the $5 PropLane Number, or a
+  // number that already existed (grandfathered) entitles one. An unreadable answer falls through: the provisioning
+  // call below re-checks and fails closed.
+  const numberGate = await managerPersonalNumberEntitlement(actor.db, actor.userId);
+  if (numberGate.ok && !numberGate.entitled) {
+    return NextResponse.json(PERSONAL_NUMBER_FREE_REFUSAL, { status: 403, headers: { "Cache-Control": "private, no-store" } });
   }
 
   const { data: runtimeConfig, error: runtimeError } = await actor.db

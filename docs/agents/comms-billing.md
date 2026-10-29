@@ -123,6 +123,16 @@ The free vendor number above becomes the subscription; flag off, the "Vendor wor
 - **Account deletion cancels the subscription** before its rows are purged ([vendor-portal.md](vendor-portal.md)
   § PropLane Number). Unspent credit is forfeited with the account.
 
+### Who may hold a personalized number (captain, Oct 28): a billable plan or the $5 add-on, nothing else
+
+`managerPersonalNumberEntitlement` is the one answer and it needs money behind the plan: a Pro/Business plan counts only when a Stripe subscription or an
+Apple grant backs it (`billablePlan` on `getEffectiveManagerSkuTier`), or the $5 PropLane Number is `active | past_due`. A signup trial, a payment-waiver
+(FREE100) grant and an admin comp / portal grant keep every plan feature but get the shared PropLane line, and a request says the single line "Your plan
+uses the PropLane line. A number of your own needs a paid plan or the $5 PropLane Number." (`PERSONAL_NUMBER_FREE_REFUSAL`). Grandfather: an owner on such a
+plan who already holds a LIVE number provisioned before 2026-10-29 Pacific stays entitled (`via: "grandfathered"`) for that number only; it never buys
+another, and `release-free-work-numbers` skips it, so this rule releases nothing. Unreadable plan or number table = not entitled for a NEW number and never
+a release. A waiver grant staff ended (expired code, End promo) is Free for number purposes too.
+
 ### Manager side (Oct 25): the Free manager's add-on bills the number credit, not the empty wallet
 
 A Free manager who holds the standalone $5/month + usage PropLane Number (`number_subscriptions.owner_role = 'manager'`, entitled = `active | past_due`;

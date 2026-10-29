@@ -52,6 +52,8 @@ type SubPayload = {
   cancelAtPeriodEnd?: boolean;
   currentPeriodEnd?: number | null;
   scheduledDowngrade?: { tier: string; billing: string } | null;
+  /** A payment-waiver grant staff ended: the account reads Free and this is the line shown for it. */
+  promoEnded?: { code: string; message: string } | null;
 };
 
 function committedTier(sub: SubPayload | null): ManagerSkuTier {
@@ -453,7 +455,7 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
       }
       setPlanModal(null);
       setPromoCode("");
-      showToast(body.message ?? `Promo code applied. You're now on ${tierLabel(tier)}.`);
+      showToast(body.message ?? `Promo code applied. You're now on ${tierLabel(tier === "business" ? "pro" : tier)}.`);
       await load();
       startTransition(() => router.refresh());
       return true;
@@ -642,6 +644,14 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
    * (`cancelAtPeriodEnd`) is shown in Cancellation below instead, so this
    * banner is only for a still-active plan moving to a different tier or
    * billing interval at the next renewal. */
+  const promoEndedBanner = sub?.promoEnded?.message ? (
+    <div className="border-t border-[var(--status-pending-bg)] bg-[var(--status-pending-bg)] px-4 py-3.5">
+      <p className="text-sm text-[var(--status-pending-fg)]" data-attr="billing-promo-ended-banner" role="status">
+        {sub.promoEnded.message}
+      </p>
+    </div>
+  ) : null;
+
   const pendingChangeBanner =
     sub && sub.stripeManaged && sub.scheduledDowngrade && !sub.cancelAtPeriodEnd ? (
       <div className="border-t border-[var(--status-pending-bg)] bg-[var(--status-pending-bg)] px-4 py-3.5">
@@ -723,6 +733,7 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
                 </Button>
               )}
             </div>
+            {promoEndedBanner}
             {pendingChangeBanner}
           </PortalSettingsGroup>
         )}

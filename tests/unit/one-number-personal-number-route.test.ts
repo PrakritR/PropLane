@@ -82,7 +82,19 @@ describe("request_number by plan", () => {
     mocks.personal.mockResolvedValue({ ok: true, entitled: false, tier: "free" });
     const response = await post();
     expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ code: "personal_number_needs_paid_plan", error: "This workspace texts from the PropLane line." });
+    expect(await response.json()).toEqual({ code: "personal_number_needs_paid_plan", error: "Your plan uses the PropLane line. A number of your own needs a paid plan or the $5 PropLane Number." });
+    expect(mocks.provision).not.toHaveBeenCalled();
+  });
+
+  it("a messaging-eligible waiver or comp account that is not number-entitled gets the paid-plan message and never provisions", async () => {
+    mocks.reconcileManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "pro", source: "stripe" });
+    mocks.personal.mockResolvedValue({ ok: true, entitled: false, tier: "pro" });
+    const response = await post();
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      code: "personal_number_needs_paid_plan",
+      error: "Your plan uses the PropLane line. A number of your own needs a paid plan or the $5 PropLane Number.",
+    });
     expect(mocks.provision).not.toHaveBeenCalled();
   });
 

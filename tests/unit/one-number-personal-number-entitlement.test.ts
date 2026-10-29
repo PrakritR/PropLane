@@ -20,7 +20,7 @@ beforeEach(() => {
 describe("managerPersonalNumberEntitlement", () => {
   it("Pro and Business include a personalized number", async () => {
     for (const tier of ["pro", "business"]) {
-      mocks.tier.mockResolvedValue({ ok: true, tier });
+      mocks.tier.mockResolvedValue({ ok: true, tier, billablePlan: true });
       expect(await managerPersonalNumberEntitlement(db, "u1")).toMatchObject({ ok: true, entitled: true, via: "plan" });
     }
     expect(mocks.addOn).not.toHaveBeenCalled();

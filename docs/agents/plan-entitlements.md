@@ -39,6 +39,26 @@ on an account with five listings and no paywall anywhere).
   A validated promo waiver (FREE100 / `promo_code` on the purchase row) **is
   paid**, same as Stripe or Apple. Managers enter promo codes on checkout (and
   signup), never on the Billing & plan page.
+  **A payment waiver covers Pro only (captain, Oct 28).** Every redeem path
+  (`signup-intent`, `pricing-oauth-continue`, `update-tier`) writes `waiverGrantTier()`
+  (`src/lib/payment-waiver-grant.ts` = `"pro"`) even when Business was picked
+  ("FREE100 covers Pro."); `setManagerPurchaseTier` refuses a Business waiver as the
+  backstop. Business requires paying.
+  **A waiver grant can end, and ending it never rewrites the row.** It resolves to
+  Free (like a lapsed trial) when the normalized code has a `manager_promo_code_policies`
+  row with `expires_at <= now`, or the purchase row's own `promo_ends_at <= now`; only a
+  waiver-ONLY grant (no Stripe, Apple, admin or trial behind it: `isWaiverOnlyGrant`) can
+  end. The void is applied in ONE place, the request-scoped purchase loader
+  (`getManagerPurchaseRowByUserId`), so the nav lock, quotas, Settings and the SMS
+  entitlement all read Free together; the plan page says "Your FREE100 access ended.
+  Choose a plan to keep going." (`promoEnded` on `GET /api/manager/subscription`). An
+  expired code, or an account staff ended the promo on, refuses a redemption ("This code
+  has expired."). Fail safe both ways: an UNREADABLE policy leaves an existing grant valid
+  (never a Free knock-down on a database blip) and refuses a NEW redemption
+  (`promo-code-policy.server.ts`, one 30s snapshot). Staff end a code or one account in
+  Admin > Money > Promo codes and `POST /api/admin/accounts/[id]/billing/end-promo`
+  (reason required, audit row first). Coverage: `tests/unit/promo-code-expiry.test.ts`,
+  `waiver-grants-pro-only.test.ts`, `admin-promo-expire.test.ts`.
   **Promo codes are Stripe-native, and two columns must never be confused.**
   `manager_purchases.promo_code` is the payment-WAIVER column (FREE100 /
   WAIVEPROCESS1 / onboarding grants): any non-empty value is paid access with no
@@ -560,6 +580,15 @@ restricting one to some plans is the coupon's `applies_to` products
   so. A waiver row opens `/admin/axis-users?category=management&plan=promo&q=CODE`. The `promo_code`
   waiver column and `stripe_promotion_code` are never conflated; the + button still
   creates only Stripe promotion codes.
+- **Expire (Oct 28).** Every waiver row and every active Stripe promo code has an
+  Expire action (`PATCH /api/admin/promo-codes` with `verb: "expire"`, `requireAdminRoute()`,
+  a required reason, the audit row written BEFORE anything changes and a failed audit
+  write refusing the action). A waiver code (FREE100) upserts `manager_promo_code_policies`
+  (service role only; "Now" or a Pacific date, ending at the close of that day): from then
+  it no longer redeems and every waiver-only grant on it drops to Free. A Stripe code is set
+  inactive now (Stripe cannot schedule it) and, with `endStripeDiscounts`, the discount comes
+  off each subscriber found through `stripe_promotion_code` (other discounts kept, idempotent
+  per code and subscription). The "Ends" column reads the policy / Stripe expiry.
 
 Coverage: `tests/unit/admin-revenue.test.ts`, `admin-subscribers.test.ts`,
 `admin-promo-codes.test.ts`, `admin-promo-codes-route.test.ts`,
