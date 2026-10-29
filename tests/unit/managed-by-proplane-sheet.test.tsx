@@ -137,6 +137,24 @@ describe("ManagedByProplaneSheet", () => {
     expect(writes(fetchMock)[0]).not.toHaveProperty("label");
   });
 
+  it("a workspace row's Managed by PropLane… opens preselected to that workspace and posts only it", async () => {
+    const fetchMock = stubFetch(THREE);
+    render(<ManagedByProplaneSheet open account={{ id: "u", name: "Marc" }} initialWorkspaceId="ws-b" onClose={vi.fn()} onDone={vi.fn()} />);
+    expect(((await screen.findByLabelText(/Marc Rentals · 1 house$/)) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText(/Marc Homes · 2 houses$/) as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByLabelText(/Marc Lofts · 1 house$/) as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Manage by PropLane" }));
+    await waitFor(() => expect(writes(fetchMock)).toHaveLength(1));
+    expect(writes(fetchMock)[0]).toMatchObject({ mode: "pick", workspaceIds: ["ws-b"] });
+  });
+
+  it("an initialWorkspaceId that is not among the unmanaged ones (already managed) falls back to all", async () => {
+    stubFetch(THREE);
+    render(<ManagedByProplaneSheet open account={{ id: "u", name: "Marc" }} initialWorkspaceId="ws-gone" onClose={vi.fn()} onDone={vi.fn()} />);
+    expect(((await screen.findByLabelText(/Marc Rentals · 1 house$/)) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText(/Marc Homes · 2 houses$/) as HTMLInputElement).checked).toBe(true);
+  });
+
   it("several: Combine all into one names the workspace that stays and shows what moves and what is archived", async () => {
     const fetchMock = stubFetch(THREE, { ok: true, body: { attached: ["ws-b"], archived: ["ws-c"] } });
     render(<ManagedByProplaneSheet open account={{ id: "u", name: "Marc" }} onClose={vi.fn()} onDone={vi.fn()} />);

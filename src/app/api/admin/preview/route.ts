@@ -23,6 +23,8 @@ import {
 } from "@/lib/auth/view-as.server";
 import { createRealIdentitySupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { loadWorkspaces } from "@/lib/workspaces/server";
+import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 
 export const runtime = "nodejs";
 
@@ -41,7 +43,7 @@ export const runtime = "nodejs";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PORTALS: ViewAsPortal[] = ["manager", "resident", "vendor"];
 
-type Body = { targetUserId?: unknown; portal?: unknown; reason?: unknown };
+type Body = { targetUserId?: unknown; portal?: unknown; reason?: unknown; workspaceId?: unknown };
 
 function deny(status = 403) {
   return NextResponse.json({ error: "Forbidden." }, { status });
@@ -125,6 +127,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "A reason of 3 to 300 characters is required." }, { status: 400 });
     }
 
+    // "View workspace": an optional landing workspace, manager portal only. A body id only NAMES a
+    // workspace; it is checked below against what the VIEWED account itself can open.
+    const rawWorkspaceId = body.workspaceId;
+    const workspaceId =
+      rawWorkspaceId === undefined || rawWorkspaceId === null || rawWorkspaceId === ""
+        ? null
+        : typeof rawWorkspaceId === "string"
+          ? rawWorkspaceId.trim()
+          : "invalid";
+    if (workspaceId !== null && (!UUID_RE.test(workspaceId) || portal !== "manager")) {
+      return NextResponse.json({ error: "That workspace cannot be viewed." }, { status: 400 });
+    }
+
     const db = createSupabaseServiceRoleClient();
     const decision = await decideViewAsStart(db, {
       operatorId: operator.id,
@@ -132,6 +147,18 @@ export async function POST(req: Request) {
       portal: portal as ViewAsPortal,
     });
     if (!decision.ok) return NextResponse.json({ error: decision.error }, { status: decision.status });
+
+    if (workspaceId !== null) {
+      // Owned by, or a membership of, the target: `loadWorkspaces` is the list the portal itself offers
+      // that account. An unreadable list is a refusal, never a pass.
+      let visible = false;
+      try {
+        visible = (await loadWorkspaces(db, targetUserId)).some((w) => w.id === workspaceId);
+      } catch {
+        visible = false;
+      }
+      if (!visible) return NextResponse.json({ error: "That workspace cannot be viewed." }, { status: 400 });
+    }
 
     const nowSec = Math.floor(Date.now() / 1000);
     const payload: ViewAsPayload = {
@@ -142,6 +169,7 @@ export async function POST(req: Request) {
       iat: nowSec,
       exp: nowSec + VIEW_AS_TTL_SECONDS,
       sid: crypto.randomUUID(),
+      ...(workspaceId ? { wid: workspaceId } : {}),
     };
 
     // Sessions this operator left to time out (tab closed) get their ended row now.
@@ -156,6 +184,7 @@ export async function POST(req: Request) {
       sid: payload.sid,
       iat: payload.iat,
       exp: payload.exp,
+      workspaceId,
     });
     if (!recorded) {
       return NextResponse.json({ error: "Could not record the audit entry, so viewing was not started." }, { status: 500 });
@@ -167,6 +196,17 @@ export async function POST(req: Request) {
       expiresAt: new Date(payload.exp * 1000).toISOString(),
     });
     res.cookies.set(VIEW_AS_COOKIE, await signViewAsToken(payload, secret), viewAsCookieOptions());
+    if (workspaceId) {
+      // The portal selects its workspace from this cookie and re-validates it against the viewed
+      // account's own list on every read; it lives only as long as the session.
+      res.cookies.set(WORKSPACE_COOKIE, workspaceId, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        path: "/",
+        maxAge: VIEW_AS_TTL_SECONDS,
+      });
+    }
     return res;
   } catch {
     return NextResponse.json({ error: "Could not start viewing." }, { status: 500 });
@@ -203,6 +243,8 @@ export async function DELETE(req: Request) {
     // The cookie is cleared whatever happened above: ending must never trap a session open.
     const res = NextResponse.json({ ok: true, audited });
     clearCookie(res);
+    // A "View workspace" session set the workspace cookie; leave nothing of the viewed account behind.
+    if (payload?.wid) res.cookies.set(WORKSPACE_COOKIE, "", { path: "/", maxAge: 0 });
     return res;
   } catch {
     const res = NextResponse.json({ ok: true, audited: false });

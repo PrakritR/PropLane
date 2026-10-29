@@ -16,6 +16,15 @@ const state = vi.hoisted(() => ({
   cookieValue: undefined as string | undefined,
   db: null as unknown,
   testClassification: { kind: "normal" } as { kind: string },
+  /** What `loadWorkspaces(db, <target>)` answers: the workspaces the viewed account owns or is a member of. */
+  workspacesByUser: {} as Record<string, string[] | "throw">,
+}));
+vi.mock("@/lib/workspaces/server", () => ({
+  loadWorkspaces: vi.fn(async (_db: unknown, userId: string) => {
+    const ids = state.workspacesByUser[userId] ?? [];
+    if (ids === "throw") throw new Error("workspace read failed");
+    return ids.map((id) => ({ id }));
+  }),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -72,6 +81,7 @@ beforeEach(() => {
   state.isAdmin = true;
   state.cookieValue = undefined;
   state.testClassification = { kind: "normal" };
+  state.workspacesByUser = {};
   seedDb();
 });
 
@@ -370,5 +380,104 @@ describe("GET /api/admin/preview (state for the admin UI)", () => {
   it("offers no portals for an admin target", async () => {
     const res = await route.GET(get(`?targetUserId=${UUID.admin2}`));
     expect(await res.json()).toMatchObject({ canViewAs: true, portals: [] });
+  });
+});
+
+
+describe("POST /api/admin/preview with a workspaceId (View workspace)", () => {
+  const WS_OWNED = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const WS_OTHER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+  it("lands in a workspace the target owns: signed into the session, audited first, cookie scoped to the session", async () => {
+    state.workspacesByUser[UUID.manager] = [WS_OWNED];
+    const fake = seedDb();
+    const res = await route.POST(post({ ...valid, workspaceId: WS_OWNED }));
+    expect(res.status).toBe(200);
+    expect(fake.audit).toHaveLength(1);
+    expect(fake.audit[0]!.input_summary).toMatchObject({ workspaceId: WS_OWNED, targetUserId: UUID.manager });
+
+    const cookie = setCookieOf(res)!;
+    const parsed = await verifyViewAsToken(decodeURIComponent(cookie.split(";")[0]!.split("=")[1]!), SECRET);
+    expect(parsed).toMatchObject({ adminId: UUID.admin, targetId: UUID.manager, portal: "manager", wid: WS_OWNED });
+    expect(parsed!.exp - parsed!.iat).toBe(VIEW_AS_TTL_SECONDS);
+
+    const ws = setCookieOf(res, "proplane-workspace")!;
+    expect(ws).toContain(`proplane-workspace=${WS_OWNED}`);
+    expect(ws).toMatch(/HttpOnly/i);
+    expect(ws).toMatch(new RegExp(`Max-Age=${VIEW_AS_TTL_SECONDS}`));
+  });
+
+  it("refuses a workspace the target does not own or belong to: no audit row, no cookie", async () => {
+    state.workspacesByUser[UUID.manager] = [WS_OWNED];
+    const fake = seedDb();
+    const res = await route.POST(post({ ...valid, workspaceId: WS_OTHER }));
+    expect(res.status).toBe(400);
+    expect(setCookieOf(res)).toBeUndefined();
+    expect(setCookieOf(res, "proplane-workspace")).toBeUndefined();
+    expect(fake.audit).toHaveLength(0);
+  });
+
+  it("fails closed when the target's workspace list cannot be read", async () => {
+    state.workspacesByUser[UUID.manager] = "throw";
+    const fake = seedDb();
+    const res = await route.POST(post({ ...valid, workspaceId: WS_OWNED }));
+    expect(res.status).toBe(400);
+    expect(fake.audit).toHaveLength(0);
+    expect(setCookieOf(res)).toBeUndefined();
+  });
+
+  it("refuses a malformed id and a non-manager portal", async () => {
+    state.workspacesByUser[UUID.manager] = [WS_OWNED];
+    state.workspacesByUser[UUID.resident] = [WS_OWNED];
+    for (const workspaceId of ["not-a-uuid", 7, { id: WS_OWNED }]) {
+      expect((await route.POST(post({ ...valid, workspaceId }))).status).toBe(400);
+    }
+    const resident = { targetUserId: UUID.resident, portal: "resident", reason: "Support ticket", workspaceId: WS_OWNED };
+    expect((await route.POST(post(resident))).status).toBe(400);
+  });
+
+  it("keeps every other invariant: non-operators are refused before the workspace is even looked up", async () => {
+    state.workspacesByUser[UUID.manager] = [WS_OWNED];
+    state.realUser = { id: UUID.admin2 };
+    const res = await route.POST(post({ ...valid, workspaceId: WS_OWNED }));
+    expect(res.status).toBe(403);
+    expect(setCookieOf(res, "proplane-workspace")).toBeUndefined();
+    const reasonless = await (async () => {
+      state.realUser = { id: UUID.admin };
+      return route.POST(post({ targetUserId: UUID.manager, portal: "manager", workspaceId: WS_OWNED }));
+    })();
+    expect(reasonless.status).toBe(400);
+  });
+
+  it("without a workspaceId the session carries no wid and sets no workspace cookie", async () => {
+    const res = await route.POST(post(valid));
+    expect(res.status).toBe(200);
+    const parsed = await verifyViewAsToken(decodeURIComponent(setCookieOf(res)!.split(";")[0]!.split("=")[1]!), SECRET);
+    expect(parsed).not.toHaveProperty("wid");
+    expect(setCookieOf(res, "proplane-workspace")).toBeUndefined();
+  });
+
+  it("ending a workspace session clears the workspace cookie too", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const payload: ViewAsPayload = {
+      v: 1,
+      adminId: UUID.admin,
+      targetId: UUID.manager,
+      portal: "manager",
+      iat: nowSec,
+      exp: nowSec + VIEW_AS_TTL_SECONDS,
+      sid: "sid-ws",
+      wid: WS_OWNED,
+    };
+    state.cookieValue = await signViewAsToken(payload, SECRET);
+    const res = await route.DELETE(new Request("https://proplane.ai/api/admin/preview", { method: "DELETE" }));
+    expect(res.status).toBe(200);
+    expect(setCookieOf(res, "proplane-workspace")).toMatch(/Max-Age=0/);
+  });
+
+  it("a tampered wid invalidates the signed token", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const bad = { v: 1, adminId: UUID.admin, targetId: UUID.manager, portal: "manager", iat: nowSec, exp: nowSec + 60, sid: "s", wid: "not-a-uuid" } as unknown as ViewAsPayload;
+    expect(await verifyViewAsToken(await signViewAsToken(bad, SECRET), SECRET)).toBeNull();
   });
 });

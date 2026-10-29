@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Building2, Eye } from "lucide-react";
+import { useViewWorkspace } from "@/components/portal/admin-view-as-dialog";
+import { ManagedByProplaneSheet } from "@/components/portal/managed-by-proplane-sheet";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalRowMenu, type PortalRowMenuItem } from "@/components/portal/portal-row-menu";
 import { RecordFactCard, RecordFactRow, RecordRowsCard } from "@/components/portal/portal-record-overview-kit";
 import { ManagerBillingCards } from "@/components/portal/admin-manager-account-detail";
 import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
@@ -78,7 +83,54 @@ export function AccountOverviewSection({
   );
 }
 
-export function AccountWorkspacesSection({ detail }: { detail: AdminAccountDetail }) {
+export function AccountWorkspacesSection({
+  detail,
+  kind,
+  onChanged,
+}: {
+  detail: AdminAccountDetail;
+  kind?: AdminAccountRowKind;
+  /** Re-read the record after "Managed by PropLane…" landed. */
+  onChanged?: () => void;
+}) {
+  const accountName = detail.fullName || detail.email;
+  const viewWorkspace = useViewWorkspace(detail.id, accountName);
+  const [managedFor, setManagedFor] = useState<string | null>(null);
+  const isManager = kind === "manager";
+  /** The ⋯ on a workspace row: View workspace (read-only View as, for an allowlisted operator) and Managed by PropLane…. */
+  const rowMenu = (w: AdminAccountDetail["workspaces"]["owned"][number]) => {
+    const items: PortalRowMenuItem[] = [];
+    if (isManager && viewWorkspace.canView) {
+      items.push({
+        id: "view-workspace",
+        label: "View workspace",
+        dataAttr: "admin-workspace-view",
+        onSelect: () => viewWorkspace.open(w.id, w.name || "workspace"),
+      });
+    }
+    if (isManager && !w.isService) {
+      items.push({
+        id: "managed-by-proplane",
+        label: "Managed by PropLane…",
+        dataAttr: "admin-workspace-managed-by-proplane",
+        onSelect: () => setManagedFor(w.id),
+      });
+    }
+    if (items.length === 0) return null;
+    // A menu holding exactly one action is that action's icon instead.
+    if (items.length === 1) {
+      const only = items[0]!;
+      return (
+        <PortalIconAction
+          icon={only.id === "view-workspace" ? Eye : Building2}
+          label={only.label.replace("…", "")}
+          data-attr={only.dataAttr}
+          onClick={only.onSelect}
+        />
+      );
+    }
+    return <PortalRowMenu label={w.name || "Workspace"} items={items} dataAttr="admin-workspace-menu" />;
+  };
   return (
     <>
       <RecordFactCard title="Roles" count={detail.roles.length} dataAttr="admin-account-roles">
@@ -96,12 +148,27 @@ export function AccountWorkspacesSection({ detail }: { detail: AdminAccountDetai
           id: w.id,
           title: w.name || "Workspace",
           sub: `${w.isDefault ? "Default · " : ""}Created ${dateOnly(w.createdAt)}`,
-          figure:
-            w.payoutsEnabled === null ? undefined : (
-              <Status value={w.payoutsEnabled ? "Payouts on" : "Payouts off"} bad={!w.payoutsEnabled} />
-            ),
+          figure: (
+            <span className="inline-flex items-center gap-2">
+              {w.payoutsEnabled === null ? null : (
+                <Status value={w.payoutsEnabled ? "Payouts on" : "Payouts off"} bad={!w.payoutsEnabled} />
+              )}
+              {rowMenu(w)}
+            </span>
+          ),
         }))}
       />
+      {viewWorkspace.dialog}
+      {managedFor ? (
+        <ManagedByProplaneSheet
+          key={managedFor}
+          open
+          account={{ id: detail.id, name: accountName }}
+          initialWorkspaceId={managedFor}
+          onClose={() => setManagedFor(null)}
+          onDone={() => onChanged?.()}
+        />
+      ) : null}
       <RecordRowsCard
         title="Linked accounts"
         dataAttr="admin-account-links"

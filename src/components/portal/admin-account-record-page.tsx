@@ -144,7 +144,7 @@ export function AdminAccountRecordPage({
   const body = (() => {
     switch (section) {
       case "workspaces":
-        return <AccountWorkspacesSection detail={detail} />;
+        return <AccountWorkspacesSection detail={detail} kind={kind} onChanged={reload} />;
       case "billing":
         return <AccountBillingSection detail={detail} onRefresh={reload} showToast={showToast} />;
       case "payments":
