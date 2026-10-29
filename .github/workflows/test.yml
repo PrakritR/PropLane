@@ -269,11 +269,24 @@ jobs:
       - name: Bind local QA build origin
         if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
         run: echo "NEXT_PUBLIC_APP_URL=http://localhost:3010" >> "$GITHUB_ENV"
+      # The type gate, on its own process. This project's check needs the full
+      # 6 GB heap `typecheck` gives it; inside `next build` it gets that heap in a
+      # worker while the parent still holds Turbopack's compiled graph, and both
+      # peaks together have been killed by the runner mid-check ("The operation was
+      # canceled", no type error). Same `tsc --noEmit -p .`, one step earlier.
+      - name: Type-check (the gate the build below no longer repeats)
+        run: npm run typecheck
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
       - run: npm run build
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          # Checked by the step above, on a clean heap. Never set for Vercel.
+          PROPLANE_TYPECHECK_SEPARATELY: "1"
       - name: Run property metadata ship preflight
         if: success() && github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'
         run: npm run ship:preflight

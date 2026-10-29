@@ -63,6 +63,20 @@ const nextConfig: NextConfig = {
       return config;
     },
   } : {}),
+  typescript: {
+    // `next build` type-checks in a worker that is allowed the whole 6 GB heap
+    // this project's check needs (4 GB dies with "heap out of memory"), while the
+    // parent still holds Turbopack's compiled graph. Both peaks at once crossed a
+    // 16 GB CI runner and the kernel killed the step mid-check — reported only as
+    // "The operation was canceled", with no type error to show for it.
+    //
+    // So the CI build job runs `npm run typecheck` as its OWN step first, where
+    // the check gets that heap on a clean process, and sets this flag so the build
+    // does not immediately repeat it against a loaded one. The gate is not weakened:
+    // the same `tsc --noEmit -p .` still has to pass, one step earlier. Unset
+    // everywhere else, so Vercel and a local `npm run build` keep checking in-build.
+    ignoreBuildErrors: process.env.PROPLANE_TYPECHECK_SEPARATELY === "1",
+  },
   experimental: {
     // Opt-in local validation on constrained machines; deployment defaults stay
     // unchanged. Next's documented Webpack memory optimization avoids swap/disk
