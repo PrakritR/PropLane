@@ -2,8 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { waiverCodeLimitedPropertyIds } from "@/lib/application-fee-waiver";
-import { NO_MODULE_ACCESS_ERROR, assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
-import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
+import { NO_MODULE_ACCESS_ERROR } from "@/lib/auth/co-manager-access";
+import { linkedOwnerScopeForModule, type LinkedOwnerScope } from "@/lib/auth/co-manager-module-scope";
 
 export type WaiverScopeResult =
   | { ok: true; ownerUserId: string; callerIsOwner: boolean }
@@ -13,6 +13,56 @@ export type WaiverScopeResult =
 export type WaiverPropertiesScopeResult =
   | { ok: true; ownerUserId: string; callerIsOwner: boolean; knownPropertyIds: string[] }
   | { ok: false; status: number; error: string };
+
+/** The caller's `applications` link graph at one level. Call it as often as you like; it reads at most once. */
+export type WaiverGrantReader = (level: "read" | "edit") => Promise<LinkedOwnerScope>;
+
+/**
+ * ONE link-graph read per request, shared by every gate below.
+ *
+ * Resolving a co-manager's grant costs ~4 sequential queries (`profiles`, `account_link_invites`, the service
+ * seats, the inviters' `profiles`), and a single promo-code request asks the same question up to three times:
+ * the list/entry gate, the widen gate, and the read-only stamp. Thread one reader through them and they share
+ * the answer. Memoized per level, because a `read` gate and an `edit` gate are different questions - but see
+ * {@link grantCovers}, which asks `edit` first precisely so the common caller only ever needs the one.
+ *
+ * Caller-scoped by construction: the reader closes over `callerUserId`, so it can never answer for another
+ * user, and it lives no longer than the request that made it.
+ */
+export function createWaiverGrantReader(db: SupabaseClient, callerUserId: string): WaiverGrantReader {
+  const byLevel = new Map<string, Promise<LinkedOwnerScope>>();
+  return (level) => {
+    const hit = byLevel.get(level);
+    if (hit) return hit;
+    const pending = linkedOwnerScopeForModule(db as never, callerUserId, "applications", level);
+    byLevel.set(level, pending);
+    return pending;
+  };
+}
+
+/**
+ * Does the caller hold `applications` at `level` on EVERY one of `ids`, granted by `ownerUserId`?
+ *
+ * `propertyIdsByOwner` pairs the house with the owner who granted it, so a grant from one manager can never
+ * authorize acting on another manager's code - the same pairing `assertCoManagerModuleAccess` makes, in one
+ * lookup instead of two.
+ *
+ * `edit` is asked first even for a `read` gate: an `edit` grant implies `read` (`grantAllows` answers "read"
+ * for an edit-only grant), so a teammate who can write needs no second graph read, and the stamp that follows
+ * reuses the very same answer. Only a genuinely read-only teammate pays for the second level.
+ */
+async function grantCovers(
+  grant: WaiverGrantReader,
+  ownerUserId: string,
+  ids: readonly string[],
+  level: "read" | "edit",
+): Promise<boolean> {
+  const editable = (await grant("edit")).propertyIdsByOwner.get(ownerUserId) ?? new Set<string>();
+  if (ids.every((id) => editable.has(id))) return true;
+  if (level === "edit") return false;
+  const readable = (await grant("read")).propertyIdsByOwner.get(ownerUserId) ?? new Set<string>();
+  return ids.every((id) => readable.has(id));
+}
 
 /**
  * Whose waiver codes this request may read or write for one property.
@@ -25,20 +75,27 @@ export type WaiverPropertiesScopeResult =
  * the previous behaviour and exposes nothing new.
  *
  * A co-manager holding `{}` on this property must not read or rewrite the
- * owner's waiver code, which is why `assertCoManagerModuleAccess` resolves
- * through `coManagerModuleAllowed` rather than the retired empty-means-full
- * sentinel.
+ * owner's waiver code, which is why the decision resolves through
+ * `coManagerModuleAllowed` (inside `linkedOwnerScopeForModule`) rather than the
+ * retired empty-means-full sentinel.
  *
  * PropLane staff in a service (`is_service`) workspace are admitted by the same
  * rule: their seat is an accepted `account_link_invites` row (`is_service_seat`)
  * carrying `assigned_property_ids` + per-module levels, which is exactly what
- * `assertCoManagerModuleAccess` reads. No separate staff rule exists here.
+ * that graph reads. No separate staff rule exists here.
+ *
+ * The grant check is {@link grantCovers}, shared with
+ * {@link resolveWaiverPropertiesScope}: one house is just a list of one, and
+ * two gates answering the same question two ways is how they drift. It replaces
+ * `assertCoManagerModuleAccess`, whose own property-row read duplicated the one
+ * right above it.
  */
 export async function resolveWaiverCodeScope(
   db: SupabaseClient,
   callerUserId: string,
   propertyId: string,
   level: "read" | "edit",
+  grant: WaiverGrantReader = createWaiverGrantReader(db, callerUserId),
 ): Promise<WaiverScopeResult> {
   if (!propertyId) return { ok: true, ownerUserId: callerUserId, callerIsOwner: true };
   const { data } = await db
@@ -50,11 +107,9 @@ export async function resolveWaiverCodeScope(
   if (!ownerUserId || ownerUserId === callerUserId) {
     return { ok: true, ownerUserId: ownerUserId || callerUserId, callerIsOwner: true };
   }
-  const access = await assertCoManagerModuleAccess(db as never, callerUserId, propertyId, "applications", {
-    ownerManagerUserId: ownerUserId,
-    level,
-  });
-  if (!access.ok) return { ok: false, status: access.status, error: access.error };
+  if (!(await grantCovers(grant, ownerUserId, [propertyId], level))) {
+    return { ok: false, status: 403, error: NO_MODULE_ACCESS_ERROR };
+  }
   return { ok: true, ownerUserId, callerIsOwner: false };
 }
 
@@ -71,18 +126,20 @@ export async function resolveWaiverCodeScope(
  * stale id behind, and refusing the whole request over it would lock the code out of every later edit. A house
  * that no longer exists grants nothing and blocks nothing.
  *
- * The grant is resolved ONCE for the whole list (`linkedOwnerScopeForModule`) rather than per id: the per-id
- * gate re-read the property row and the caller's whole link graph for every entry, so a 20-house code cost
- * ~100 sequential queries. The per-id property-owner short-circuit inside that gate is redundant here - every
- * id was just read into `ownerById`, and a caller who owns them all has already returned above.
+ * The grant is resolved ONCE for the whole list ({@link grantCovers}) rather than per id: the per-id gate
+ * re-read the property row and the caller's whole link graph for every entry, so a 20-house code cost ~100
+ * sequential queries. The per-id property-owner short-circuit inside that gate is redundant here - every id was
+ * just read into `ownerById`, and a caller who owns them all has already returned above. Pass `grant` to share
+ * one link-graph read with the rest of the request.
  */
 export async function resolveWaiverPropertiesScope(
   db: SupabaseClient,
   callerUserId: string,
   propertyIds: readonly string[],
   level: "read" | "edit",
-  opts: { ignoreUnknown?: boolean } = {},
+  opts: { ignoreUnknown?: boolean; grant?: WaiverGrantReader } = {},
 ): Promise<WaiverPropertiesScopeResult> {
+  const grant = opts.grant ?? createWaiverGrantReader(db, callerUserId);
   const asked = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
   const nothing: WaiverPropertiesScopeResult = { ok: true, ownerUserId: callerUserId, callerIsOwner: true, knownPropertyIds: [] };
   if (asked.length === 0) return nothing;
@@ -105,38 +162,51 @@ export async function resolveWaiverPropertiesScope(
   }
   const ownerUserId = [...owners][0]!;
   if (ownerUserId === callerUserId) return { ok: true, ownerUserId, callerIsOwner: true, knownPropertyIds: ids };
-  const grant = await linkedOwnerScopeForModule(db as never, callerUserId, "applications", level);
-  if (!ids.every((id) => grant.propertyIds.has(id)) || !grant.ownerIds.has(ownerUserId)) {
+  if (!(await grantCovers(grant, ownerUserId, ids, level))) {
     return { ok: false, status: 403, error: NO_MODULE_ACCESS_ERROR };
   }
   return { ok: true, ownerUserId, callerIsOwner: false, knownPropertyIds: ids };
 }
 
 /** Which houses of `ownerUserId` the caller may WRITE applications on, and which of `propertyIds` still exist. */
-export type WaiverWriteScope = { editable: Set<string>; existing: Set<string> };
+export type WaiverWriteScope = {
+  editable: Set<string>;
+  existing: Set<string>;
+  /**
+   * The "does this house still exist" read failed, so `existing` is a guess, not an answer. Every non-owner
+   * code reads as read-only while this is set: a scope we cannot substantiate must never present itself as
+   * permission.
+   */
+  unavailable: boolean;
+};
 
 /**
  * One read each for "does this house still exist" and "may I write applications on it", for the whole set of
  * houses a list of codes covers. Resolved once per request so {@link waiverCodeIsReadOnly} can answer for every
  * listed code without a query per code, let alone per house.
  *
- * `propertyIdsByOwner` rather than the flat `propertyIds`: a grant issued by owner X never authorizes writing a
- * code that belongs to owner Y, the same pairing `assertCoManagerModuleAccess` makes.
+ * Both halves fail CLOSED, and they must agree on the direction. `linkedOwnerScopeForModule` swallows its own
+ * errors into empty sets, which marks a row read-only; dropping the property read's `error` did the opposite -
+ * an empty `existing` made every covered house read as deleted, so nothing was left to compare against the
+ * grant and a code the caller could not write came back fully editable. On a failed read every asked house is
+ * therefore treated as live, which is the answer that withholds controls rather than offering dead ones.
  */
 export async function resolveWaiverWriteScope(
   db: SupabaseClient,
   callerUserId: string,
   ownerUserId: string,
   propertyIds: readonly string[],
+  grant: WaiverGrantReader = createWaiverGrantReader(db, callerUserId),
 ): Promise<WaiverWriteScope> {
   const ids = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
-  if (ids.length === 0) return { editable: new Set(), existing: new Set() };
-  const [{ data }, grant] = await Promise.all([
+  if (ids.length === 0) return { editable: new Set(), existing: new Set(), unavailable: false };
+  const [{ data, error }, edit] = await Promise.all([
     db.from("manager_property_records").select("id").in("id", ids),
-    linkedOwnerScopeForModule(db as never, callerUserId, "applications", "edit"),
+    grant("edit"),
   ]);
-  const existing = new Set(((data ?? []) as { id: string }[]).map((r) => String(r.id)));
-  return { editable: grant.propertyIdsByOwner.get(ownerUserId) ?? new Set(), existing };
+  const editable = edit.propertyIdsByOwner.get(ownerUserId) ?? new Set<string>();
+  if (error) return { editable, existing: new Set(ids), unavailable: true };
+  return { editable, existing: new Set(((data ?? []) as { id: string }[]).map((r) => String(r.id))), unavailable: false };
 }
 
 /**
@@ -149,11 +219,15 @@ export async function resolveWaiverWriteScope(
  * A house that no longer exists is ignored on both sides, matching the `ignoreUnknown` write gates: a deleted
  * house grants nothing and blocks nothing. A code left covering ONLY deleted houses is therefore writable - it
  * is also unlistable, because it covers no house anybody can open.
+ *
+ * A scope that could not be resolved (`unavailable`) makes every code read-only. The row still shows what it
+ * waives; what it withholds is a control whose write we cannot promise.
  */
 export function waiverCodeIsReadOnly(
   code: { propertyId?: string | null; propertyIds?: readonly string[] | null },
   scope: WaiverWriteScope,
 ): boolean {
+  if (scope.unavailable) return true;
   const limited = waiverCodeLimitedPropertyIds(code);
   if (limited.length === 0) return true;
   return limited.filter((id) => scope.existing.has(id)).some((id) => !scope.editable.has(id));

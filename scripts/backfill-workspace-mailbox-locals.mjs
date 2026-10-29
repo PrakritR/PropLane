@@ -10,9 +10,10 @@
  * It MINTS for each non-archived one that has no address, and otherwise leaves an existing address alone: a
  * workspace that ran self-serve before PropLane took it over is on a published `{workspace-slug}@`, and a staff
  * one may be hand-picked, so nothing here may move it (the same invariant `attachWorkspaceToService` keeps).
- * --rename-workspace <workspaceId> (repeatable) is the explicit opt-in for the one workspace an operator does
- * want moved onto its service-rule local, whatever its address came from. Prints the plan table; writes only
- * with --apply.
+ * --rename-workspace=<workspaceId> (or `--rename-workspace <workspaceId>`; repeatable) is the explicit opt-in
+ * for the one workspace an operator does want moved onto its service-rule local, whatever its address came
+ * from. The value must be a UUID; anything else exits non-zero rather than running mint-only in silence.
+ * Prints the plan table; writes only with --apply.
  *
  * Refuses the production project unless --allow-production is passed (any mode).
  */
@@ -29,6 +30,33 @@ export function isProductionSupabaseUrl(url) {
 }
 
 const ALIAS_DAYS = 30;
+
+const WORKSPACE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const RENAME_FLAG = "--rename-workspace";
+
+/**
+ * Pure: the `--rename-workspace` ids, in either `--rename-workspace <id>` or `--rename-workspace=<id>` form.
+ * Throws on a missing or malformed value, so `main` exits non-zero rather than running mint-only and leaving
+ * the operator to conclude nothing needed renaming - the kind of silence somebody retries with --apply.
+ */
+export function parseRenameWorkspaceIds(argv) {
+  const out = new Set();
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = String(argv[i] ?? "");
+    const inline = arg.startsWith(`${RENAME_FLAG}=`);
+    if (arg !== RENAME_FLAG && !inline) continue;
+    const raw = (inline ? arg.slice(RENAME_FLAG.length + 1) : String(argv[i + 1] ?? "")).trim();
+    if (!raw || raw.startsWith("--")) {
+      throw new Error(`${RENAME_FLAG} needs a workspace id, e.g. ${RENAME_FLAG}=00000000-0000-4000-8000-000000000000`);
+    }
+    if (!WORKSPACE_ID_PATTERN.test(raw)) {
+      throw new Error(`${RENAME_FLAG}: "${raw}" is not a workspace id (expected a UUID).`);
+    }
+    out.add(raw.toLowerCase());
+    if (!inline) i += 1;
+  }
+  return out;
+}
 
 /** Pure: pick the first free candidate (base, base-2 … base-9). `taken` is a Set of locals held by OTHER rows/owners. */
 export function pickLocal(base, taken) {
@@ -221,9 +249,7 @@ async function runService(db, apply, renameWorkspaceIds = new Set()) {
 async function main() {
   const apply = process.argv.includes("--apply");
   const service = process.argv.includes("--service");
-  const renameWorkspaceIds = new Set(
-    process.argv.flatMap((arg, i) => (arg === "--rename-workspace" ? [String(process.argv[i + 1] ?? "").trim()] : [])).filter(Boolean),
-  );
+  const renameWorkspaceIds = parseRenameWorkspaceIds(process.argv.slice(2));
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");

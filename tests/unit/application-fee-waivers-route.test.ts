@@ -14,6 +14,7 @@ vi.mock("@/lib/manager-route-guard.server", () => ({ requireManagerRouteUser: as
 
 import { GET, POST } from "@/app/api/manager/application-fee-waivers/route";
 import { PATCH } from "@/app/api/manager/application-fee-waivers/[id]/route";
+import { resolveWaiverWriteScope, waiverCodeIsReadOnly } from "@/lib/application-fee-waiver-scope.server";
 
 let tables: Record<string, Row[]>;
 
@@ -424,5 +425,46 @@ describe("PATCH by a teammate acts on the owner's code", () => {
     tables.account_link_invites = [seat(STAFF, [OWNED, OWNED_2], { is_service_seat: true, team_role: "admin", workspace_id: "ws-service" })];
     asCaller(STAFF);
     expect((await patch("c-TWO-HOUSE", { action: "revoke" })).status).toBe(200);
+  });
+});
+
+
+/* ----------------------------------------------------------------------------------------------------------------
+ * The read-only stamp decides whether a row offers a control the write gate would then refuse. Both halves of it
+ * must fail CLOSED: an answer we cannot substantiate is never permission.
+ * -------------------------------------------------------------------------------------------------------------- */
+
+describe("resolveWaiverWriteScope fails closed", () => {
+  /** The real fake, except the "do these houses still exist" read reports a transient failure. */
+  function dbWithFailedPropertyRead(rows: Record<string, Row[]>) {
+    const real = fakeSupabaseClient(rows);
+    return {
+      from(table: string) {
+        if (table !== "manager_property_records") return real.from(table);
+        return { select: () => ({ in: async () => ({ data: null, error: { message: "connection reset" } }) }) };
+      },
+    };
+  }
+
+  it("marks every non-owner code read-only when the property read fails", async () => {
+    // Dropping the error made `existing` empty, so every covered house read as deleted, nothing was left to
+    // compare against the grant, and a code the teammate cannot write came back with a live Disable.
+    tables.manager_property_records!.push({ id: OWNED, manager_user_id: MANAGER }, { id: OWNED_3, manager_user_id: MANAGER });
+    tables.account_link_invites = [seat(TEAMMATE, [OWNED])];
+    const db = dbWithFailedPropertyRead(tables);
+    const scope = await resolveWaiverWriteScope(db as never, TEAMMATE, MANAGER, [OWNED, OWNED_3]);
+    expect(scope.unavailable).toBe(true);
+    expect(waiverCodeIsReadOnly({ propertyIds: [OWNED] }, scope)).toBe(true);
+    expect(waiverCodeIsReadOnly({ propertyIds: [OWNED, OWNED_3] }, scope)).toBe(true);
+    expect(waiverCodeIsReadOnly({ propertyIds: [] }, scope)).toBe(true);
+  });
+
+  it("still answers normally when the read succeeds", async () => {
+    tables.manager_property_records!.push({ id: OWNED, manager_user_id: MANAGER }, { id: OWNED_3, manager_user_id: MANAGER });
+    tables.account_link_invites = [seat(TEAMMATE, [OWNED])];
+    const scope = await resolveWaiverWriteScope(fakeSupabaseClient(tables) as never, TEAMMATE, MANAGER, [OWNED, OWNED_3]);
+    expect(scope.unavailable).toBe(false);
+    expect(waiverCodeIsReadOnly({ propertyIds: [OWNED] }, scope)).toBe(false);
+    expect(waiverCodeIsReadOnly({ propertyIds: [OWNED, OWNED_3] }, scope)).toBe(true);
   });
 });

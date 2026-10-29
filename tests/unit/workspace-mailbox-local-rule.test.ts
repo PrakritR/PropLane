@@ -12,7 +12,7 @@ import {
   serviceWorkspaceMailboxLocalFor,
 } from "@/lib/manager-assistant-email/workspace-mailbox-local-rule.mjs";
 // @ts-expect-error plain-JS script, no types
-import { formatServicePlan, isProductionSupabaseUrl, pickLocal, planRenames, planServiceEmails } from "../../scripts/backfill-workspace-mailbox-locals.mjs";
+import { formatServicePlan, isProductionSupabaseUrl, parseRenameWorkspaceIds, pickLocal, planRenames, planServiceEmails } from "../../scripts/backfill-workspace-mailbox-locals.mjs";
 
 const profile = { fullName: "Prakrit Ramachandran", email: "p@example.com" };
 
@@ -214,5 +214,33 @@ describe("backfill --service plan (dry run)", () => {
   it("recognizes the production project so the script can refuse it", () => {
     expect(isProductionSupabaseUrl("https://qahnczmilgptcedaqype.supabase.co")).toBe(true);
     expect(isProductionSupabaseUrl("https://emstjswhotsnyksqhqyf.supabase.co")).toBe(false);
+  });
+});
+
+describe("--rename-workspace parsing", () => {
+  const WS = "11111111-2222-4333-8444-555555555555";
+  const WS2 = "66666666-7777-4888-8999-aaaaaaaaaaaa";
+
+  it("accepts both the spaced and the = form, and is repeatable", () => {
+    expect([...parseRenameWorkspaceIds(["--service", "--rename-workspace", WS])]).toEqual([WS]);
+    expect([...parseRenameWorkspaceIds(["--service", `--rename-workspace=${WS}`])]).toEqual([WS]);
+    expect([...parseRenameWorkspaceIds([`--rename-workspace=${WS}`, "--rename-workspace", WS2, "--apply"])]).toEqual([WS, WS2]);
+    expect([...parseRenameWorkspaceIds(["--service", "--apply"])]).toEqual([]);
+  });
+
+  it("does not swallow the next flag as the id", () => {
+    // `--rename-workspace --apply` used to take "--apply" as the workspace id while --apply still registered.
+    expect(() => parseRenameWorkspaceIds(["--rename-workspace", "--apply"])).toThrow(/needs a workspace id/);
+    expect(() => parseRenameWorkspaceIds(["--rename-workspace"])).toThrow(/needs a workspace id/);
+    expect(() => parseRenameWorkspaceIds(["--rename-workspace="])).toThrow(/needs a workspace id/);
+  });
+
+  it("refuses a value that is not a workspace id instead of running mint-only in silence", () => {
+    expect(() => parseRenameWorkspaceIds(["--rename-workspace=w1"])).toThrow(/not a workspace id/);
+    expect(() => parseRenameWorkspaceIds(["--rename-workspace", "ambika"])).toThrow(/not a workspace id/);
+  });
+
+  it("normalizes case, so an id pasted from a console matches the stored row", () => {
+    expect([...parseRenameWorkspaceIds([`--rename-workspace=${WS.toUpperCase()}`])]).toEqual([WS]);
   });
 });

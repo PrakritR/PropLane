@@ -13,10 +13,12 @@ import {
   type ApplicationFeeWaiverCode,
 } from "@/lib/application-fee-waiver";
 import {
+  createWaiverGrantReader,
   resolveWaiverCodeScope,
   resolveWaiverPropertiesScope,
   resolveWaiverWriteScope,
   waiverCodeIsReadOnly,
+  type WaiverGrantReader,
 } from "@/lib/application-fee-waiver-scope.server";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 
@@ -50,7 +52,8 @@ export async function GET(req: Request) {
       ]);
       return NextResponse.json({ codes, redemptions });
     }
-    const scope = await resolveWaiverCodeScope(ctx.db, ctx.userId, propertyId, "read");
+    const grant = createWaiverGrantReader(ctx.db, ctx.userId);
+    const scope = await resolveWaiverCodeScope(ctx.db, ctx.userId, propertyId, "read", grant);
     if (!scope.ok) return NextResponse.json({ error: scope.error }, { status: scope.status });
     const [all, allRedemptions] = await Promise.all([
       listApplicationFeeWaiverCodes(ctx.db, scope.ownerUserId),
@@ -58,7 +61,7 @@ export async function GET(req: Request) {
     ]);
     const covering = all.filter((c) => waiverCodeCoversProperty(c, propertyId));
     const ids = new Set(covering.map((c) => c.id));
-    const codes = scope.callerIsOwner ? covering : await markReadOnly(ctx, scope.ownerUserId, covering);
+    const codes = scope.callerIsOwner ? covering : await markReadOnly(ctx, scope.ownerUserId, covering, grant);
     return NextResponse.json({
       codes,
       redemptions: allRedemptions.filter((r) => ids.has(r.codeId) && r.propertyId === propertyId),
@@ -81,19 +84,21 @@ type CreateBody = {
 };
 
 /**
- * Stamp `readOnly` on every code in `codes` the caller may not write, from ONE grant read for the whole set.
+ * Stamp `readOnly` on every code in `codes` the caller may not write, from the request's one grant read.
  * The owner never needs this and never calls it.
  */
 async function markReadOnly(
   ctx: { db: Parameters<typeof resolveWaiverWriteScope>[0]; userId: string },
   ownerUserId: string,
   codes: ApplicationFeeWaiverCode[],
+  grant: WaiverGrantReader,
 ): Promise<ApplicationFeeWaiverCode[]> {
   const write = await resolveWaiverWriteScope(
     ctx.db,
     ctx.userId,
     ownerUserId,
     codes.flatMap((c) => waiverCodeLimitedPropertyIds(c)),
+    grant,
   );
   return codes.map((c) => (waiverCodeIsReadOnly(c, write) ? { ...c, readOnly: true } : c));
 }
@@ -142,8 +147,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "propertyIds must be a list." }, { status: 400 });
   }
   let ownerUserId = ctx.userId;
+  const grant = createWaiverGrantReader(ctx.db, ctx.userId);
   if (propertyIds && propertyIds.length > 0) {
-    const scope = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, propertyIds, "edit");
+    const scope = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, propertyIds, "edit", { grant });
     if (!scope.ok) return NextResponse.json({ error: scope.error }, { status: scope.status });
     ownerUserId = scope.ownerUserId;
 
@@ -167,14 +173,14 @@ export async function POST(req: Request) {
         const current = waiverCodeLimitedPropertyIds(existing);
         const wanted = [...new Set(propertyIds.map((id) => id.trim()).filter(Boolean))];
         if (wanted.every((id) => waiverCodeCoversProperty(existing, id))) {
-          const [code] = ownerUserId === ctx.userId ? [existing] : await markReadOnly(ctx, ownerUserId, [existing]);
+          const [code] = ownerUserId === ctx.userId ? [existing] : await markReadOnly(ctx, ownerUserId, [existing], grant);
           return NextResponse.json({ code, extended: true });
         }
         if (ownerUserId !== ctx.userId) {
           // Widening a code also widens what it waives on its other houses: a teammate may only do that when they
           // hold Applications at edit on every house it already covers. A house that was since DELETED is dropped
           // first - a stale id in `property_ids` (the column has no foreign key) must not lock the code forever.
-          const widen = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, current, "edit", { ignoreUnknown: true });
+          const widen = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, current, "edit", { ignoreUnknown: true, grant });
           if (!widen.ok) return NextResponse.json({ error: widen.error }, { status: widen.status });
           if (widen.knownPropertyIds.length > 0 && widen.ownerUserId !== ownerUserId) {
             return NextResponse.json({ error: "Forbidden." }, { status: 403 });
@@ -184,7 +190,7 @@ export async function POST(req: Request) {
           propertyIds: [...new Set([...current, ...wanted])],
         });
         if (!updated.ok) return NextResponse.json({ error: updated.error }, { status: updated.status });
-        const [code] = ownerUserId === ctx.userId ? [updated.code] : await markReadOnly(ctx, ownerUserId, [updated.code]);
+        const [code] = ownerUserId === ctx.userId ? [updated.code] : await markReadOnly(ctx, ownerUserId, [updated.code], grant);
         return NextResponse.json({ code, extended: true });
       }
     }

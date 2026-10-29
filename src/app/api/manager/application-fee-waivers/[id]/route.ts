@@ -5,7 +5,7 @@ import {
   waiverCodeLimitedPropertyIds,
   type UpdateWaiverCodeInput,
 } from "@/lib/application-fee-waiver";
-import { resolveWaiverPropertiesScope } from "@/lib/application-fee-waiver-scope.server";
+import { createWaiverGrantReader, resolveWaiverPropertiesScope } from "@/lib/application-fee-waiver-scope.server";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 
 export const runtime = "nodejs";
@@ -35,6 +35,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const body = (await req.json().catch(() => ({}))) as PatchBody;
 
+  const grant = createWaiverGrantReader(ctx.db, ctx.userId);
+
   const { data: row } = await ctx.db
     .from("manager_application_fee_waiver_codes")
     .select("manager_user_id, property_id, property_ids")
@@ -49,7 +51,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (covered.length === 0) return NextResponse.json({ error: "Code not found." }, { status: 404 });
     // `property_ids` has no foreign key, so a DELETED house leaves a stale id. It must not block a teammate from
     // turning the code off on the houses that do exist - the same rule the POST widen gate applies.
-    const access = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, covered, "edit", { ignoreUnknown: true });
+    const access = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, covered, "edit", { ignoreUnknown: true, grant });
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     // Every house it covers is gone, so no grant of theirs reaches it: an absent house authorizes nothing either.
     if (access.knownPropertyIds.length === 0) return NextResponse.json({ error: "Code not found." }, { status: 404 });
@@ -68,7 +70,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if ("propertyIds" in body) {
       input.propertyIds = Array.isArray(body.propertyIds) ? body.propertyIds.map(String) : [];
       if (input.propertyIds.length > 0) {
-        const scope = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, input.propertyIds, "edit");
+        const scope = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, input.propertyIds, "edit", { grant });
         if (!scope.ok) return NextResponse.json({ error: scope.error }, { status: scope.status });
         if (scope.ownerUserId !== ownerUserId) {
           return NextResponse.json({ error: "Pick properties from your own portfolio." }, { status: 400 });
