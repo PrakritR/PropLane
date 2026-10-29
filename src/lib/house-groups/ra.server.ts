@@ -96,8 +96,10 @@ async function defaultLookup(
 }
 
 /**
- * The move-in lock the resident assistant honours (`loadMoveInDetailsLock`) and the check-in reveal
- * (`residentCheckInReveal`), for one group member. Fails closed: any unreadable step is locked.
+ * The move-in lock the resident assistant honours and the check-in reveal (`residentCheckInReveal`),
+ * for one group member. Both halves of the reveal are the member's own: the lease unlock
+ * (`leaseAccessUnlocked` - a signed lease or an attested tenancy, read for THIS owner) and the 24
+ * hours before move-in. Fails closed: any unreadable step is locked.
  */
 async function askerHouseAccess(
   db: SupabaseClient,
@@ -107,14 +109,25 @@ async function askerHouseAccess(
   const locked = { moveInOpen: false, revealed: false };
   if (!userId) return locked;
   try {
-    const { data } = await db.from("profiles").select("email").eq("id", userId).maybeSingle();
-    const email = String((data as { email?: unknown } | null)?.email ?? "").trim().toLowerCase();
+    const { data } = await db.from("profiles").select("email, role").eq("id", userId).maybeSingle();
+    const profile = data as { email?: unknown; role?: unknown } | null;
+    const email = String(profile?.email ?? "").trim().toLowerCase();
     if (!email) return locked;
-    const { loadMoveInDetailsLock } = await import("@/lib/tools/resident-context");
-    const lock = await loadMoveInDetailsLock(db, { email, userId });
-    if (lock.moveInDetailsLocked !== false) return locked;
+    // The same access state every resident surface derives its phase and its forms lock from, scoped
+    // to the house's owner - never a second rule of this surface's own.
+    const { loadResidentPortalAccessState } = await import("@/lib/resident-portal-access");
+    const access = await loadResidentPortalAccessState({
+      userId,
+      role: typeof profile?.role === "string" ? profile.role : null,
+      email,
+      managerUserId: ownerUserId,
+    });
+    const { moveInDetailsLockFromBlocking } = await import("@/lib/tools/resident-context");
+    if (moveInDetailsLockFromBlocking(access.blockingFormsPending).moveInDetailsLocked !== false) return locked;
+    const leaseUnlocked = access.leaseAccessUnlocked === true;
+    if (!leaseUnlocked) return { moveInOpen: true, revealed: false };
     const { residentCheckInReveal } = await import("@/lib/check-in.server");
-    const reveal = await residentCheckInReveal(db, email, { managerUserId: ownerUserId, leaseUnlocked: true });
+    const reveal = await residentCheckInReveal(db, email, { managerUserId: ownerUserId, leaseUnlocked });
     return { moveInOpen: true, revealed: reveal.revealed === true };
   } catch {
     return locked;

@@ -321,7 +321,7 @@ export async function getStoredManagerSmsEntitlement(
     if (data.source === "none") {
       const { data: purchase, error: purchaseError } = await db
         .from("manager_purchases")
-        .select("id, tier, billing, stripe_checkout_session_id, promo_code")
+        .select("id, tier, billing, stripe_checkout_session_id, stripe_subscription_id, apple_original_transaction_id, promo_code")
         .eq("user_id", managerUserId)
         .maybeSingle();
       if (purchaseError || !purchase || purchase.tier !== tier || !isCompGrant({
@@ -338,6 +338,8 @@ export async function getStoredManagerSmsEntitlement(
           promoCode: purchase.promo_code,
           billing: purchase.billing,
           stripeCheckoutSessionId: purchase.stripe_checkout_session_id,
+          stripeSubscriptionId: purchase.stripe_subscription_id,
+          appleOriginalTransactionId: purchase.apple_original_transaction_id,
         }) &&
         (await waiverGrantEndedFor({ promoCode: purchase.promo_code, rowId: purchase.id ? String(purchase.id) : null, db }))
       ) {

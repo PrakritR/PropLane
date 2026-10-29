@@ -96,6 +96,14 @@ class FakeQuery implements PromiseLike<{ data: Row[] | null; error: { message: s
   ilike(): this {
     return this;
   }
+  /** Real LIKE, so a caller that narrows by a label PREFIX is actually narrowed here. */
+  like(col: string, pattern: string): this {
+    const re = new RegExp(
+      `^${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".")}$`,
+    );
+    this.working = this.working.filter((r) => re.test(String(r[col] ?? "")));
+    return this;
+  }
 
   eq(col: string, val: unknown): this {
     this.working = this.working.filter((r) => matches(r, col, val));

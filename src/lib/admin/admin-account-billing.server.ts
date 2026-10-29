@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import { getStripe, isStripeLiveMode } from "@/lib/stripe";
 import { COMPLIMENTARY_COUPON_ID } from "@/lib/admin/admin-billing-constants";
+import { CUSTOM_PRICE_METADATA_KEY, subscriptionPlanItem } from "@/lib/admin/admin-billing-money-actions.server";
 import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
 import {
   isWaiverGrantedManagerPurchase,
@@ -391,13 +392,13 @@ export async function loadAdminAccountBilling(
         plan.renewsAt = iso(sub.items?.data?.[0]?.current_period_end);
         plan.renewsLabel = sub.cancel_at_period_end ? "Ends" : "Renews";
         plan.cancelAtPeriodEnd = Boolean(sub.cancel_at_period_end);
-        const planItem = (sub.items?.data ?? []).find(
-          (i) => !(typeof i.price === "object" && (i.price.lookup_key ?? "").startsWith("proplane_door_overage_")),
-        );
+        // The SAME item and metadata key Change price acts on, so the card never shows a monthly
+        // price staff cannot move.
+        const planItem = subscriptionPlanItem(sub);
         if (planItem?.price?.recurring?.interval === "month" && (planItem.price.recurring.interval_count ?? 1) === 1) {
           plan.monthlyCents = planItem.price.unit_amount ?? null;
         }
-        plan.customPrice = Boolean(sub.metadata?.axis_custom_monthly_cents);
+        plan.customPrice = Boolean(sub.metadata?.[CUSTOM_PRICE_METADATA_KEY]);
         const interval = sub.items?.data?.[0]?.price?.recurring?.interval;
         const cadence = interval === "year" ? "annual" : interval === "month" ? "monthly" : null;
         if (tier && tier !== "free" && cadence) plan.planLabel = `${PLAN_LABELS[tier]} ${cadence}`;

@@ -54,6 +54,12 @@ export type ViewAsPayload = {
    * the viewed account's own workspaces on every read, so this names a landing spot, never a grant.
    */
   wid?: string;
+  /**
+   * The OPERATOR's own workspace selection, as their cookie held it when the preview overwrote it, so
+   * ending the session puts them back where they were working instead of on their default. Never a
+   * grant either: the portal re-validates the restored id against the operator's own workspaces.
+   */
+  owid?: string;
 };
 
 const WORKSPACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -154,6 +160,7 @@ export async function verifyViewAsToken(
   }
   // A workspace id is optional, but a present one that is not a UUID makes the whole token invalid.
   if (p.wid !== undefined && (typeof p.wid !== "string" || !WORKSPACE_ID_RE.test(p.wid))) return null;
+  if (p.owid !== undefined && (typeof p.owid !== "string" || !WORKSPACE_ID_RE.test(p.owid))) return null;
   // A token can never outlive its fixed window, whatever the payload claims.
   if (p.exp - p.iat > VIEW_AS_TTL_SECONDS) return null;
   const nowSec = Math.floor((opts.nowMs ?? Date.now()) / 1000);
@@ -167,6 +174,7 @@ export async function verifyViewAsToken(
     exp: p.exp,
     sid: p.sid,
     ...(typeof p.wid === "string" ? { wid: p.wid } : {}),
+    ...(typeof p.owid === "string" ? { owid: p.owid } : {}),
   };
 }
 

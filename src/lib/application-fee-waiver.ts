@@ -318,29 +318,33 @@ export async function ensureWaiveOnSendWaiverCode(
   if (!managerId || !property) return { ok: false, error: "managerUserId and propertyId are required." };
   const label = waiveOnSendLabel(recipient);
 
-  const { data, error } = await db
-    .from("manager_application_fee_waiver_codes")
-    .select("*")
-    .eq("manager_user_id", managerId)
-    .eq("status", "active")
-    .eq("label", label)
-    .eq("max_uses", 1)
-    .eq("used_count", 0)
-    .order("created_at", { ascending: false });
-  // An unreadable list never silently mints a second code on top of a live one.
-  if (error) return { ok: false, error: error.message };
+  const live = await loadLiveWaiveOnSendCodes(db, managerId, property);
+  if (!live.ok) return { ok: false, error: live.error };
 
-  const now = Date.now();
-  const reusable = (data as WaiverCodeRow[] | null ?? [])
-    .map(rowToCode)
-    .find(
-      (code) =>
-        code.appliesTo === "application" &&
-        code.propertyIds.length === 1 &&
-        code.propertyIds[0] === property &&
-        (!code.expiresAt || Date.parse(code.expiresAt) > now),
-    );
+  const reusable = live.codes.find((code) => code.label === label);
   if (reusable) return { ok: true, code: reusable, reused: true };
+
+  // The link may already have been copied out before the recipient was known (the copy mints under
+  // the bare label). That unspent code IS this waive interaction's code, so it is adopted and
+  // relabelled rather than superseded; minting beside it is what leaves two live waivers on one
+  // house. A failed relabel still reuses it: one live waiver matters more than the label.
+  const pending = label !== WAIVE_ON_SEND_LABEL ? live.codes.find((code) => code.label === WAIVE_ON_SEND_LABEL) : undefined;
+  if (pending) {
+    const { data: relabelled, error: relabelError } = await db
+      .from("manager_application_fee_waiver_codes")
+      .update({ label })
+      .eq("manager_user_id", managerId)
+      .eq("id", pending.id)
+      .eq("status", "active")
+      .eq("used_count", 0)
+      .select("*")
+      .maybeSingle();
+    // Matched: the copied link's code is now this recipient's. Failed: keep reusing it anyway, since
+    // one live waiver matters more than its label. Matched nothing: it was spent or revoked in the
+    // meantime, so there is no live waiver to adopt and a fresh code is minted below.
+    if (relabelled) return { ok: true, code: rowToCode(relabelled as WaiverCodeRow), reused: true };
+    if (relabelError) return { ok: true, code: pending, reused: true };
+  }
 
   const created = await createApplicationFeeWaiverCode(db, managerId, {
     label,
@@ -349,6 +353,38 @@ export async function ensureWaiveOnSendWaiverCode(
     maxUses: 1,
   });
   return created.ok ? { ...created, reused: false } : created;
+}
+
+/**
+ * Every unspent single-use waive-on-send code on THIS house, newest first. An unreadable list never
+ * silently mints a second code on top of a live one.
+ */
+async function loadLiveWaiveOnSendCodes(
+  db: SupabaseClient,
+  managerId: string,
+  propertyId: string,
+): Promise<{ ok: true; codes: ApplicationFeeWaiverCode[] } | { ok: false; error: string }> {
+  const { data, error } = await db
+    .from("manager_application_fee_waiver_codes")
+    .select("*")
+    .eq("manager_user_id", managerId)
+    .eq("status", "active")
+    .eq("max_uses", 1)
+    .eq("used_count", 0)
+    .like("label", `${WAIVE_ON_SEND_LABEL}%`)
+    .order("created_at", { ascending: false });
+  if (error) return { ok: false, error: error.message };
+  const now = Date.now();
+  const codes = (data as WaiverCodeRow[] | null ?? [])
+    .map(rowToCode)
+    .filter(
+      (code) =>
+        code.appliesTo === "application" &&
+        code.propertyIds.length === 1 &&
+        code.propertyIds[0] === propertyId &&
+        (!code.expiresAt || Date.parse(code.expiresAt) > now),
+    );
+  return { ok: true, codes };
 }
 
 export async function listApplicationFeeWaiverCodes(

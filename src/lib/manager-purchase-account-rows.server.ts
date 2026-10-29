@@ -12,9 +12,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *
  * `readFailed` separates "this account has no row" from "we could not find out" - they look identical
  * (zero rows) and mean opposite things to a quota or a refusal. A failed `profiles` read counts: it blanks
- * the email and silently drops the by-email half.
+ * the email and silently drops the by-email half. `error` rides along so a caller that selected a column
+ * added by a migration can tell "that column is not there yet" (schema parity is a manual `db:push`,
+ * `AGENTS.md` § Database environments) from a real read failure, instead of refusing every request.
  */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export type PurchaseRowsRead<T> = {
+  rows: T[];
+  readFailed: boolean;
+  /** The first database error behind `readFailed`, so a caller can ask `isMissingColumnError`. */
+  error: { code?: string | null; message?: string | null; details?: string | null } | null;
+};
 
 function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
@@ -42,17 +51,17 @@ export async function loadPurchaseRowsByEmail<T extends { id: string }>(
   /** PostgREST select list; `email` is added when absent. */
   select: string,
   opts: { claimedBy?: string | null } = {},
-): Promise<{ rows: T[]; readFailed: boolean }> {
+): Promise<PurchaseRowsRead<T>> {
   const address = email.trim().toLowerCase();
-  if (!address) return { rows: [], readFailed: false };
+  if (!address) return { rows: [], readFailed: false, error: null };
   const claimedBy = (opts.claimedBy ?? "").trim();
   // `claimedBy` is interpolated into a PostgREST `or` filter, so only a real auth uuid is accepted.
-  if (claimedBy && !UUID_PATTERN.test(claimedBy)) return { rows: [], readFailed: true };
+  if (claimedBy && !UUID_PATTERN.test(claimedBy)) return { rows: [], readFailed: true, error: null };
 
   const base = db.from("manager_purchases").select(withEmailColumn(select)).ilike("email", escapeLikePattern(address));
   const { data, error } = await (claimedBy ? base.or(`user_id.is.null,user_id.eq.${claimedBy}`) : base);
   const rows = ((data ?? []) as unknown as Array<T & { email?: unknown }>).filter((row) => sameEmail(row.email, address));
-  return { rows, readFailed: Boolean(error) };
+  return { rows, readFailed: Boolean(error), error: error ?? null };
 }
 
 export async function loadAccountPurchaseRows<T extends { id: string }>(
@@ -60,9 +69,9 @@ export async function loadAccountPurchaseRows<T extends { id: string }>(
   userId: string,
   /** PostgREST select list; it MUST include `id`, which is how the two halves are merged. */
   select: string,
-): Promise<{ rows: T[]; readFailed: boolean }> {
+): Promise<PurchaseRowsRead<T>> {
   const id = userId.trim();
-  if (!id) return { rows: [], readFailed: false };
+  if (!id) return { rows: [], readFailed: false, error: null };
   // Only a real auth uuid reaches the by-email half, whose claim filter is interpolated into a
   // PostgREST `or`. The `user_id` read below is parameterized, so it still answers for any id -
   // an id that is not an auth uuid simply owns no `profiles` row and so no email-linked row.
@@ -79,7 +88,7 @@ export async function loadAccountPurchaseRows<T extends { id: string }>(
     // this account's (`loadPurchaseRowsByEmail`).
     email
       ? loadPurchaseRowsByEmail<T>(db, email, select, { claimedBy: id })
-      : Promise.resolve({ rows: [] as T[], readFailed: false }),
+      : Promise.resolve({ rows: [] as T[], readFailed: false, error: null }),
   ]);
 
   const merged = new Map<string, T>();
@@ -89,5 +98,6 @@ export async function loadAccountPurchaseRows<T extends { id: string }>(
   return {
     rows: [...merged.values()],
     readFailed: Boolean(profileError) || Boolean(byUserId.error) || byEmail.readFailed,
+    error: profileError ?? byUserId.error ?? byEmail.error ?? null,
   };
 }

@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isMissingColumnError } from "@/lib/db-missing-column";
 import { loadAccountPurchaseRows, loadPurchaseRowsByEmail } from "@/lib/manager-purchase-account-rows.server";
 import { createTtlCache, serverSnapshotCacheEnabled } from "@/lib/server-ttl-cache";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -74,6 +75,15 @@ export async function readPromoCodePolicies(db?: SupabaseClient): Promise<PromoP
 /** Drops this instance's snapshot (after a staff write, and in tests). */
 export function clearPromoCodePolicyCache(): void {
   policyCache.clear();
+}
+
+/**
+ * The read failed only because `promo_ends_at` has not been added here yet (migration
+ * 20261029010000). The column is what "ended" is stored in, so until it exists no account's promo
+ * can have been ended and the answer is a real "no", not an unknown.
+ */
+function promoEndsAtColumnMissing(error: unknown): boolean {
+  return isMissingColumnError(error, "promo_ends_at");
 }
 
 export type PromoRedeemCheck = { ok: true } | { ok: false; reason: "expired" | "unreadable" };
@@ -151,12 +161,12 @@ export async function accountPromoEnded(
   try {
     // The same rows "end promo" writes: by `user_id` OR the account's email, so an email-linked signup
     // waiver row that staff ended is not invisible here.
-    const { rows, readFailed } = await loadAccountPurchaseRows<{ id: string; promo_ends_at?: string | null }>(
+    const { rows, readFailed, error } = await loadAccountPurchaseRows<{ id: string; promo_ends_at?: string | null }>(
       db,
       id,
       "id, promo_ends_at",
     );
-    if (readFailed) return unreadable;
+    if (readFailed) return promoEndsAtColumnMissing(error) ? false : unreadable;
     return rows.some((row) => promoInstantHasPassed(row.promo_ends_at, nowMs));
   } catch {
     return unreadable;
@@ -179,12 +189,12 @@ export async function accountPromoEndedForEmail(
   const unreadable = opts.failClosed === true;
   if (!address) return unreadable;
   try {
-    const { rows, readFailed } = await loadPurchaseRowsByEmail<{ id: string; promo_ends_at?: string | null }>(
+    const { rows, readFailed, error } = await loadPurchaseRowsByEmail<{ id: string; promo_ends_at?: string | null }>(
       db,
       address,
       "id, promo_ends_at",
     );
-    if (readFailed) return unreadable;
+    if (readFailed) return promoEndsAtColumnMissing(error) ? false : unreadable;
     return rows.some((row) => promoInstantHasPassed(row.promo_ends_at, nowMs));
   } catch {
     return unreadable;

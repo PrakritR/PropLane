@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { portalDashboardPath } from "@/lib/auth/portal-roles";
@@ -42,6 +43,27 @@ export const runtime = "nodejs";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PORTALS: ViewAsPortal[] = ["manager", "resident", "vendor"];
+
+/** The workspace cookie, as every other writer of it sets it (a year, or cleared with `maxAge: 0`). */
+function workspaceCookieOptions(maxAge: number) {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge,
+  };
+}
+
+/** The operator's own workspace selection before the preview overwrites it, when it is a real id. */
+async function currentWorkspaceSelection(): Promise<string | null> {
+  try {
+    const value = (await cookies()).get(WORKSPACE_COOKIE)?.value?.trim() ?? "";
+    return UUID_RE.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 type Body = { targetUserId?: unknown; portal?: unknown; reason?: unknown; workspaceId?: unknown };
 
@@ -160,6 +182,10 @@ export async function POST(req: Request) {
       if (!visible) return NextResponse.json({ error: "That workspace cannot be viewed." }, { status: 400 });
     }
 
+    // Read BEFORE the response overwrites it: ending the session hands the operator back their own
+    // selection rather than silently dropping them on their default workspace.
+    const operatorWorkspaceId = workspaceId ? await currentWorkspaceSelection() : null;
+
     const nowSec = Math.floor(Date.now() / 1000);
     const payload: ViewAsPayload = {
       v: 1,
@@ -170,6 +196,7 @@ export async function POST(req: Request) {
       exp: nowSec + VIEW_AS_TTL_SECONDS,
       sid: crypto.randomUUID(),
       ...(workspaceId ? { wid: workspaceId } : {}),
+      ...(operatorWorkspaceId && operatorWorkspaceId !== workspaceId ? { owid: operatorWorkspaceId } : {}),
     };
 
     // Sessions this operator left to time out (tab closed) get their ended row now.
@@ -199,13 +226,7 @@ export async function POST(req: Request) {
     if (workspaceId) {
       // The portal selects its workspace from this cookie and re-validates it against the viewed
       // account's own list on every read; it lives only as long as the session.
-      res.cookies.set(WORKSPACE_COOKIE, workspaceId, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "lax",
-        path: "/",
-        maxAge: VIEW_AS_TTL_SECONDS,
-      });
+      res.cookies.set(WORKSPACE_COOKIE, workspaceId, workspaceCookieOptions(VIEW_AS_TTL_SECONDS));
     }
     return res;
   } catch {
@@ -243,8 +264,15 @@ export async function DELETE(req: Request) {
     // The cookie is cleared whatever happened above: ending must never trap a session open.
     const res = NextResponse.json({ ok: true, audited });
     clearCookie(res);
-    // A "View workspace" session set the workspace cookie; leave nothing of the viewed account behind.
-    if (payload?.wid) res.cookies.set(WORKSPACE_COOKIE, "", { path: "/", maxAge: 0 });
+    // A "View workspace" session set the workspace cookie; leave nothing of the viewed account behind,
+    // and put the operator back on the workspace they were in when they started (`owid`).
+    if (payload?.wid) {
+      if (payload.owid) {
+        res.cookies.set(WORKSPACE_COOKIE, payload.owid, workspaceCookieOptions(60 * 60 * 24 * 365));
+      } else {
+        res.cookies.set(WORKSPACE_COOKIE, "", { path: "/", maxAge: 0 });
+      }
+    }
     return res;
   } catch {
     const res = NextResponse.json({ ok: true, audited: false });

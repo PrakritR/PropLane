@@ -10,6 +10,7 @@ import {
 import { normalizeManagerSkuTier } from "@/lib/manager-access";
 import { reconcileManagerPurchaseByStripeSubscriptionId } from "@/lib/manager-stripe-subscription-sync";
 import { invalidateManagerTierCache } from "@/lib/manager-tier-sync-cache";
+import { isDoorOverageLookupKey } from "@/lib/billing/quantity-sync.server";
 import { assertManagerPriceMatchesRateCard } from "@/lib/stripe/resolve-manager-price";
 import { stripePriceIdForPaidTier, managerSkuToPaidTier } from "@/lib/stripe-price-ids";
 import { assertTestWorkspaceProviderEffectAllowed } from "@/lib/test-workspaces/effects.server";
@@ -50,7 +51,6 @@ type PurchaseRow = {
 /** Longest custom monthly price accepted: $10,000.00. A typo guard, not a business rule. */
 export const MAX_CUSTOM_MONTHLY_CENTS = 1_000_000;
 const NONCE_RE = /^[A-Za-z0-9_-]{8,64}$/;
-const DOOR_OVERAGE_LOOKUP_PREFIX = "proplane_door_overage_";
 export const CUSTOM_PRICE_METADATA_KEY = "axis_custom_monthly_cents";
 
 const fail = (status: number, error: string): MoneyActionFailure => ({ ok: false, status, error });
@@ -137,11 +137,15 @@ async function reconcileQuietly(subscriptionId: string, managerUserId: string): 
   invalidateManagerTierCache(managerUserId);
 }
 
-/** The plan's own line: the one item that is not the per-door overage item. */
-function mainItem(sub: Stripe.Subscription): Stripe.SubscriptionItem | null {
+/**
+ * The plan's own line: the one item that is not the per-door overage item. Exported because the admin
+ * billing CARD must name the same item this file's Change price acts on; two rules would show a
+ * monthly price staff cannot change.
+ */
+export function subscriptionPlanItem(sub: Stripe.Subscription): Stripe.SubscriptionItem | null {
   const items = (sub.items?.data ?? []).filter((item) => {
     const key = typeof item.price === "object" && item.price ? (item.price.lookup_key ?? "") : "";
-    return !key.startsWith(DOOR_OVERAGE_LOOKUP_PREFIX);
+    return !isDoorOverageLookupKey(key);
   });
   return items.length === 1 ? items[0]! : null;
 }
@@ -201,7 +205,7 @@ export async function changeAccountPrice(
   if (sub.status === "canceled" || sub.status === "incomplete_expired") {
     return fail(409, "That subscription is canceled, so there is no price to change.");
   }
-  const item = mainItem(sub);
+  const item = subscriptionPlanItem(sub);
   const price = item && typeof item.price === "object" ? item.price : null;
   if (!item || !price) return fail(409, "This subscription's plan line could not be identified.");
   if (price.recurring?.interval !== "month" || (price.recurring?.interval_count ?? 1) !== 1) {

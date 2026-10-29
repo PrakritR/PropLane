@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createApplicationFeeWaiverCode,
+  ensureWaiveOnSendWaiverCode,
   lookupWaiverCodeForFee,
   pickPortfolioApplicationFeeWaiverCode,
   pickPrimaryApplicationFeeWaiverCode,
@@ -257,5 +258,65 @@ describe("editing a code", () => {
     expect(tables.manager_application_fee_waiver_codes!.find((r) => r.id === "mine")!.applies_to).toBe("application");
     await updateApplicationFeeWaiverCode(db, MANAGER, "mine", { label: "Spring" });
     expect(tables.manager_application_fee_waiver_codes!.find((r) => r.id === "mine")!.code).toBe("MINE");
+  });
+});
+
+
+/**
+ * MONEY: "Waive application fee" on a send link. One waive interaction asks for the code several
+ * times (copy, then send), and each live single-use code is a free application on that house, so the
+ * invariant is one live waiver per (house, recipient) - never a second one beside it.
+ */
+describe("waive on send: one live code per house and recipient", () => {
+  const HOUSE = "prop-1";
+  const sendCode = (over: Record<string, unknown>) =>
+    codeRow({ property_ids: [HOUSE], applies_to: "application", max_uses: 1, used_count: 0, ...over });
+  const labels = (tables: Record<string, Row[]>) => tables.manager_application_fee_waiver_codes!.map((r) => r.label);
+
+  it("reuses the recipient's own unspent code rather than minting a second", async () => {
+    const { db, tables } = setup([sendCode({ id: "live", code: "LIVE", code_normalized: "LIVE", label: "Waived on send - p@example.com" })]);
+    const again = await ensureWaiveOnSendWaiverCode(db, MANAGER, HOUSE, "P@Example.com");
+    expect(again).toMatchObject({ ok: true, reused: true });
+    expect(again.ok && again.code.id).toBe("live");
+    expect(tables.manager_application_fee_waiver_codes!).toHaveLength(1);
+  });
+
+  it("adopts the code a copied link already carries, so copy-then-send leaves one waiver", async () => {
+    const { db, tables } = setup([sendCode({ id: "copied", code: "COPIED", code_normalized: "COPIED", label: "Waived on send" })]);
+    const sent = await ensureWaiveOnSendWaiverCode(db, MANAGER, HOUSE, "p@example.com");
+    expect(sent).toMatchObject({ ok: true, reused: true });
+    expect(sent.ok && sent.code.code).toBe("COPIED");
+    expect(tables.manager_application_fee_waiver_codes!).toHaveLength(1);
+    expect(labels(tables)).toEqual(["Waived on send - p@example.com"]);
+  });
+
+  it("still gives a second prospect their own code, and never crosses houses", async () => {
+    const { db, tables } = setup([sendCode({ id: "first", code: "FIRST", code_normalized: "FIRST", label: "Waived on send - first@example.com" })]);
+    expect(await ensureWaiveOnSendWaiverCode(db, MANAGER, HOUSE, "second@example.com")).toMatchObject({ ok: true, reused: false });
+    expect(await ensureWaiveOnSendWaiverCode(db, MANAGER, "prop-2", "first@example.com")).toMatchObject({ ok: true, reused: false });
+    expect(tables.manager_application_fee_waiver_codes!).toHaveLength(3);
+    expect(labels(tables)[0]).toBe("Waived on send - first@example.com");
+  });
+
+  it("never reuses a spent, revoked or another manager's code", async () => {
+    const { db, tables } = setup([
+      sendCode({ id: "spent", code: "SPENT", code_normalized: "SPENT", label: "Waived on send", used_count: 1 }),
+      sendCode({ id: "gone", code: "GONE", code_normalized: "GONE", label: "Waived on send", status: "revoked" }),
+      sendCode({ id: "theirs", code: "THEIRS", code_normalized: "THEIRS", manager_user_id: OTHER, label: "Waived on send" }),
+    ]);
+    expect(await ensureWaiveOnSendWaiverCode(db, MANAGER, HOUSE, "p@example.com")).toMatchObject({ ok: true, reused: false });
+    expect(tables.manager_application_fee_waiver_codes!).toHaveLength(4);
+  });
+
+  it("an unreadable list mints nothing: a second live waiver is worse than a failed send", async () => {
+    const db = {
+      from: () => ({
+        select() { return this; },
+        eq() { return this; },
+        like() { return this; },
+        order: async () => ({ data: null, error: { message: "boom" } }),
+      }),
+    } as never;
+    expect(await ensureWaiveOnSendWaiverCode(db, MANAGER, HOUSE, "p@example.com")).toMatchObject({ ok: false, error: "boom" });
   });
 });

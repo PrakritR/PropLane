@@ -14,8 +14,10 @@ const seen = vi.hoisted(() => ({
   scopes: [] as Array<{ includeHouseInfo: boolean; includeHouseSecrets: boolean }>,
   lock: { moveInDetailsLocked: true } as { moveInDetailsLocked: boolean },
   throwLock: false,
+  leaseUnlocked: true,
   revealed: false,
   throwReveal: false,
+  revealCalls: [] as Array<{ leaseUnlocked: boolean }>,
 }));
 vi.mock("@/lib/one-number/knowledge/lookup.server", () => ({
   lookupPropertyKnowledge: async (_db: unknown, scope: { includeHouseInfo: boolean; includeHouseSecrets: boolean }) => {
@@ -23,15 +25,28 @@ vi.mock("@/lib/one-number/knowledge/lookup.server", () => ({
     return { found: false, mustEscalate: null, answers: [], houseDetails: [] };
   },
 }));
-vi.mock("@/lib/tools/resident-context", () => ({
-  loadMoveInDetailsLock: async () => {
+// The surface reads ONE access state (the resident portal's own) for both the forms lock and the
+// lease unlock, so the fixture drives them together.
+vi.mock("@/lib/resident-portal-access", () => ({
+  loadResidentPortalAccessState: async () => {
     if (seen.throwLock) throw new Error("forms unreadable");
-    return seen.lock;
+    return {
+      blockingFormsPending: seen.lock.moveInDetailsLocked ? { moveInDetails: { id: "f1" } } : {},
+      leaseAccessUnlocked: seen.leaseUnlocked,
+    };
+  },
+}));
+vi.mock("@/lib/tools/resident-context", () => ({
+  moveInDetailsLockFromBlocking: (blocking: { moveInDetails?: unknown } | null | undefined) => {
+    if (!blocking) return { moveInDetailsLocked: true, moveInDetailsLockFormId: null, moveInDetailsLockReadFailed: true };
+    if (!blocking.moveInDetails) return { moveInDetailsLocked: false, moveInDetailsLockFormId: null, moveInDetailsLockReadFailed: false };
+    return { moveInDetailsLocked: true, moveInDetailsLockFormId: "f1", moveInDetailsLockReadFailed: false };
   },
 }));
 
 vi.mock("@/lib/check-in.server", () => ({
-  residentCheckInReveal: async () => {
+  residentCheckInReveal: async (_db: unknown, _email: string, opts: { leaseUnlocked: boolean }) => {
+    seen.revealCalls.push({ leaseUnlocked: opts.leaseUnlocked });
     if (seen.throwReveal) throw new Error("tenancy unreadable");
     return { revealed: seen.revealed, reason: seen.revealed ? "open" : "too_early", revealAtIso: null };
   },
@@ -65,8 +80,10 @@ beforeEach(() => {
   seen.scopes = [];
   seen.lock = { moveInDetailsLocked: true };
   seen.throwLock = false;
+  seen.leaseUnlocked = true;
   seen.revealed = false;
   seen.throwReveal = false;
+  seen.revealCalls = [];
 });
 
 describe("group lookups honour the move-in lock", () => {
@@ -116,5 +133,23 @@ describe("group lookups honour the move-in lock", () => {
     seen.revealed = true;
     await ask(world("u1").db, deps());
     expect(seen.scopes[0]!.includeHouseSecrets).toBe(false);
+  });
+
+  it("an unsigned lease keeps the codes locked, and the reveal is never asked as unlocked", async () => {
+    seen.lock = { moveInDetailsLocked: false };
+    seen.leaseUnlocked = false;
+    seen.revealed = true;
+    await ask(world("u1").db, deps());
+    expect(seen.scopes[0]!.includeHouseInfo).toBe(true);
+    expect(seen.scopes[0]!.includeHouseSecrets).toBe(false);
+    expect(seen.revealCalls).toEqual([]);
+  });
+
+  it("a signed lease asks the reveal on the member's own unlock", async () => {
+    seen.lock = { moveInDetailsLocked: false };
+    seen.revealed = true;
+    await ask(world("u1").db, deps());
+    expect(seen.revealCalls).toEqual([{ leaseUnlocked: true }]);
+    expect(seen.scopes[0]!.includeHouseSecrets).toBe(true);
   });
 });

@@ -174,7 +174,11 @@ export function resolveRateCardVersionMetadataPatch(
 
 const DOOR_OVERAGE_LOOKUP_PREFIX = "proplane_door_overage_";
 
-function isDoorOverageLookupKey(key: unknown): key is string {
+/**
+ * Is this Price the per-door overage line? Every surface that has to tell the plan's own item from
+ * the door item asks here, so the prefix lives in one place with `doorOverageLookupKey`.
+ */
+export function isDoorOverageLookupKey(key: unknown): key is string {
   return typeof key === "string" && key.startsWith(DOOR_OVERAGE_LOOKUP_PREFIX);
 }
 
