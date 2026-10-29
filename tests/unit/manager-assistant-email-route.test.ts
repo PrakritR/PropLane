@@ -22,8 +22,19 @@ const mocks = vi.hoisted(() => ({
   isPureCoManagerWorkspace: vi.fn(),
   probeAssistantEmailStorageReady: vi.fn(),
   resolveWorkspaceWorkEmails: vi.fn(),
+  checkWorkspaceAssistantMailboxLocal: vi.fn(),
+  setWorkspaceAssistantMailboxLocal: vi.fn(),
+  authorizeServiceWorkEmailEdit: vi.fn(),
+  setServiceWorkspaceWorkEmail: vi.fn(),
+  rateLimit: vi.fn(),
   track: vi.fn(),
 }));
+
+vi.mock("@/lib/service/service-workspaces.server", () => ({
+  authorizeServiceWorkEmailEdit: mocks.authorizeServiceWorkEmailEdit,
+  setServiceWorkspaceWorkEmail: mocks.setServiceWorkspaceWorkEmail,
+}));
+vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.rateLimit }));
 
 vi.mock("@/lib/manager-route-guard.server", () => ({
   requireManagerRouteUser: mocks.requireManagerRouteUser,
@@ -60,6 +71,8 @@ vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({
     error.code === "PGRST205" || /manager_assistant_emails/i.test(error.message ?? ""),
   probeAssistantEmailStorageReady: mocks.probeAssistantEmailStorageReady,
   resolveWorkspaceWorkEmails: mocks.resolveWorkspaceWorkEmails,
+  checkWorkspaceAssistantMailboxLocal: mocks.checkWorkspaceAssistantMailboxLocal,
+  setWorkspaceAssistantMailboxLocal: mocks.setWorkspaceAssistantMailboxLocal,
   WorkspaceEmailSharedError,
   WorkspaceNotOwnedError,
 }));
@@ -148,6 +161,11 @@ beforeEach(() => {
   mocks.probeAssistantEmailStorageReady.mockResolvedValue(true);
   mocks.activeWorkspace = null;
   mocks.resolveWorkspaceWorkEmails.mockResolvedValue({ role: "primary", emails: [] });
+  mocks.rateLimit.mockResolvedValue({ ok: true });
+  mocks.authorizeServiceWorkEmailEdit.mockResolvedValue({ ok: false, status: 404, error: "Service workspace not found." });
+  mocks.checkWorkspaceAssistantMailboxLocal.mockResolvedValue({ ok: true, state: "available" });
+  mocks.setWorkspaceAssistantMailboxLocal.mockResolvedValue({ ok: true, address: "frontdesk@proplane.ai" });
+  mocks.setServiceWorkspaceWorkEmail.mockResolvedValue({ ok: true, address: "frontdesk@proplane.ai" });
 });
 
 /**
@@ -517,5 +535,110 @@ describe("the work email is judged by the workspace owner's plan", () => {
     expect(response.status).toBe(402);
     expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
     expect(mocks.ensureManagerAssistantEmail).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Who may change a workspace's address: its owner, or staff with member rights on a PropLane-managed
+ * (service) workspace. Everyone else keeps today's owner-only refusal.
+ */
+describe("changing the address: owner, or staff on a service workspace", () => {
+  const SERVICE_WS = { id: "ws-service", name: "1. Ambika", ownerUserId: "service-owner", owned: false, isDefault: false, propertyIds: [] as string[] };
+  const post = (action: "check_address" | "set_address", workspaceId?: string) =>
+    POST(
+      new Request("https://prop-lane.test/api/manager/assistant-email", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, local: "frontdesk", ...(workspaceId ? { workspaceId } : {}) }),
+      }),
+    );
+  const staffAllowed = { ok: true, workspace: { id: "ws-service", ownerUserId: "service-owner" } };
+
+  beforeEach(() => {
+    vi.stubEnv("RESEND_API_KEY", "test-key");
+    mocks.activeWorkspace = SERVICE_WS;
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "pro", source: "stripe" });
+    mocks.resolveWorkspaceWorkEmails.mockResolvedValue({
+      role: "co_manager",
+      emails: [{ workspaceId: "ws-service", workspaceName: "1. Ambika", owned: false, isDefault: false, ownerUserId: "service-owner", ownerName: "PropLane", address: "ambikahomes@proplane.ai" }],
+    });
+  });
+
+  it("staff with rights check availability against the workspace's owner and set through the audited service path", async () => {
+    mocks.authorizeServiceWorkEmailEdit.mockResolvedValue(staffAllowed);
+    const check = await post("check_address", "ws-service");
+    expect(check.status).toBe(200);
+    expect(mocks.checkWorkspaceAssistantMailboxLocal).toHaveBeenCalledWith(expect.anything(), "ws-service", "frontdesk", "service-owner");
+
+    const set = await post("set_address", "ws-service");
+    expect(set.status).toBe(200);
+    expect(mocks.setServiceWorkspaceWorkEmail).toHaveBeenCalledWith(expect.anything(), MANAGER, { workspaceId: "ws-service", local: "frontdesk" });
+    expect(mocks.setWorkspaceAssistantMailboxLocal).not.toHaveBeenCalled();
+    expect(mocks.track).toHaveBeenCalledWith("assistant_email_local_changed", MANAGER, {});
+  });
+
+  it("maps a taken address from the service path to 409 with its state", async () => {
+    mocks.authorizeServiceWorkEmailEdit.mockResolvedValue(staffAllowed);
+    mocks.setServiceWorkspaceWorkEmail.mockResolvedValue({ ok: false, status: 409, error: "That address is already in use.", state: "taken" });
+    const res = await post("set_address", "ws-service");
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ state: "taken" });
+  });
+
+  it("refuses 403 for a workspace that is not a service workspace, or staff without rights", async () => {
+    for (const refusal of [
+      { ok: false, status: 404, error: "Service workspace not found." },
+      { ok: false, status: 403, error: "Only the owner or an admin of this workspace can change its work email." },
+    ]) {
+      // The service path re-authorizes inside the write; both reads refuse the same way.
+      mocks.authorizeServiceWorkEmailEdit.mockResolvedValue(refusal);
+      mocks.setServiceWorkspaceWorkEmail.mockResolvedValue(refusal);
+      for (const action of ["check_address", "set_address"] as const) {
+        const res = await post(action, "ws-service");
+        expect(res.status).toBe(403);
+        expect((await res.json()).code).toBe("workspace_not_owned");
+      }
+    }
+    expect(mocks.checkWorkspaceAssistantMailboxLocal).not.toHaveBeenCalled();
+    expect(mocks.setWorkspaceAssistantMailboxLocal).not.toHaveBeenCalled();
+  });
+
+  it("a shared (non-service) workspace stays owner-only for a non-staff co-manager", async () => {
+    mocks.activeWorkspace = SHARED_WS;
+    mocks.setServiceWorkspaceWorkEmail.mockResolvedValue({ ok: false, status: 404, error: "Service workspace not found." });
+    for (const action of ["check_address", "set_address"] as const) {
+      const res = await post(action, SHARED_WS.id);
+      expect(res.status).toBe(403);
+    }
+    expect(mocks.setWorkspaceAssistantMailboxLocal).not.toHaveBeenCalled();
+    expect(mocks.checkWorkspaceAssistantMailboxLocal).not.toHaveBeenCalled();
+  });
+
+  it("the owner is unchanged: checks and sets through the owner path, never the service one", async () => {
+    mocks.activeWorkspace = MY_WS;
+    expect((await post("check_address", MY_WS.id)).status).toBe(200);
+    expect(mocks.checkWorkspaceAssistantMailboxLocal).toHaveBeenCalledWith(expect.anything(), "ws-mine", "frontdesk", MANAGER);
+    expect((await post("set_address", MY_WS.id)).status).toBe(200);
+    expect(mocks.setWorkspaceAssistantMailboxLocal).toHaveBeenCalled();
+    expect(mocks.setServiceWorkspaceWorkEmail).not.toHaveBeenCalled();
+    expect(mocks.authorizeServiceWorkEmailEdit).not.toHaveBeenCalled();
+  });
+
+  it("GET exposes canEditAddress to the owner with an address and to authorized staff, never otherwise", async () => {
+    mocks.loadManagerAssistantEmail.mockResolvedValue({ address: "assistant@test.invalid", workspaceId: "ws-mine" });
+    mocks.activeWorkspace = MY_WS;
+    expect((await (await GET(new Request("http://localhost"))).json()).canEditAddress).toBe(true);
+
+    mocks.activeWorkspace = SERVICE_WS;
+    mocks.authorizeServiceWorkEmailEdit.mockResolvedValue(staffAllowed);
+    expect((await (await GET(new Request("http://localhost"))).json()).canEditAddress).toBe(true);
+
+    mocks.authorizeServiceWorkEmailEdit.mockResolvedValue({ ok: false, status: 403, error: "no" });
+    expect((await (await GET(new Request("http://localhost"))).json()).canEditAddress).toBe(false);
+
+    // The owner with no address yet has nothing to edit.
+    mocks.loadManagerAssistantEmail.mockResolvedValue(null);
+    mocks.activeWorkspace = MY_WS;
+    expect((await (await GET(new Request("http://localhost"))).json()).canEditAddress).toBe(false);
   });
 });

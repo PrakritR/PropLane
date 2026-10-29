@@ -780,3 +780,112 @@ describe("owner-of-record and team changes leave an audit row first", () => {
     expect(links()).toBe(before);
   });
 });
+
+describe("a service workspace's work email (<name>homes@, minted on add)", () => {
+  const emails = () => db.tables.manager_assistant_emails ?? [];
+  async function made(name = "1. Ambika") {
+    const res = await svc.createServiceWorkspace(client(), ADMIN_A, { name, city: "Seattle" });
+    return res as { ok: true; id: string; workEmail: { address: string | null; warning?: string } };
+  }
+
+  it("mints ambikahomes on create, owned by the service owner, whatever the owner's plan", async () => {
+    const res = await made("1. Ambika");
+    expect(res.ok).toBe(true);
+    expect(res.workEmail.warning).toBeUndefined();
+    expect(res.workEmail.address).toMatch(/^ambikahomes@/);
+    expect(emails()).toHaveLength(1);
+    expect(emails()[0]).toMatchObject({ manager_user_id: OWNER, workspace_id: res.id, mailbox_local: "ambikahomes", provision_state: "active" });
+    // Nothing about the owner's communication entitlement was read or needed.
+    expect(db.tables.sms_manager_entitlements ?? []).toHaveLength(0);
+  });
+
+  it("suffixes a collision and names the next one by its own client", async () => {
+    await made("1. Ambika");
+    await made("1. Ambika");
+    await made("2. Vinod");
+    const locals = emails().map((e) => String(e.mailbox_local));
+    expect(locals[0]).toBe("ambikahomes");
+    expect(locals[1]).toMatch(/^ambikahomes-[a-z0-9]{1,4}$/);
+    expect(locals[2]).toBe("vinodhomes");
+  });
+
+  it("does not fail the create when the mint fails; it reports a warning", async () => {
+    db.failInsertOn.add("manager_assistant_emails");
+    const res = await made("1. Ambika");
+    expect(res.ok).toBe(true);
+    expect(db.tables.portal_workspaces).toHaveLength(1);
+    expect(res.workEmail).toMatchObject({ address: null });
+    expect(res.workEmail.warning).toBeTruthy();
+    expect(emails()).toHaveLength(0);
+  });
+
+  it("follows a rename when the address was never customized, and holds the old one as an alias", async () => {
+    const res = await made("1. Ambika");
+    expect(await svc.renameServiceWorkspace(client(), ADMIN_A, { id: res.id, name: "1. Ambika Rao", city: "Seattle" })).toEqual({ ok: true });
+    expect(emails()[0]!.mailbox_local).toBe("ambikaraohomes");
+    expect(db.tables.manager_assistant_email_aliases).toMatchObject([{ mailbox_local: "ambikahomes", owner_user_id: OWNER }]);
+  });
+
+  it("leaves a customized address alone on rename", async () => {
+    const res = await made("1. Ambika");
+    emails()[0]!.mailbox_local = "frontdesk";
+    expect(await svc.renameServiceWorkspace(client(), ADMIN_A, { id: res.id, name: "1. Ambika Rao", city: "Seattle" })).toEqual({ ok: true });
+    expect(emails()[0]!.mailbox_local).toBe("frontdesk");
+    expect(db.tables.manager_assistant_email_aliases ?? []).toHaveLength(0);
+  });
+
+  it("does not touch the address when the name is unchanged, and a failed follow never fails the rename", async () => {
+    const res = await made("1. Ambika");
+    expect(await svc.renameServiceWorkspace(client(), ADMIN_A, { id: res.id, name: "1. Ambika", city: "Portland" })).toEqual({ ok: true });
+    expect(emails()[0]!.mailbox_local).toBe("ambikahomes");
+    db.failUpdateOn.add("manager_assistant_emails");
+    expect(await svc.renameServiceWorkspace(client(), ADMIN_A, { id: res.id, name: "3. Birch", city: "Portland" })).toEqual({ ok: true });
+    expect(db.tables.portal_workspaces[0]!.name).toBe("3. Birch");
+  });
+
+  it("mints one on attach when the workspace has none, and follows the label when the name changes", async () => {
+    db.tables.portal_workspaces.push({ id: CLIENT_WS_EMAIL, owner_user_id: CLIENT, name: "Ambika", is_default: true, is_service: false });
+    (db.tables.manager_assistant_emails ??= []).push({ id: "e-old", manager_user_id: CLIENT, workspace_id: CLIENT_WS_EMAIL, inbox_token: "tok123456789", mailbox_local: "ambika", provision_state: "active" });
+    const attached = await svc.attachWorkspaceToService(client(), ADMIN_A, { workspaceId: CLIENT_WS_EMAIL, city: "Seattle", label: "1. Ambika", reason: "managed now" });
+    expect(attached.ok).toBe(true);
+    expect(emails().find((e) => e.id === "e-old")!.mailbox_local).toBe("ambikahomes");
+  });
+
+  describe("staff may change it (the same standing a rename needs)", () => {
+    it("authorizes a member with the members right on a service workspace only", async () => {
+      const res = await made();
+      expect(await svc.authorizeServiceWorkEmailEdit(client(), ADMIN_A, res.id)).toMatchObject({ ok: true });
+      expect(await svc.authorizeServiceWorkEmailEdit(client(), ADMIN_B, res.id)).toMatchObject({ ok: false, status: 403 });
+      db.tables.account_link_invites.push({ id: "viewer-link", inviter_user_id: OWNER, invitee_user_id: ADMIN_B, workspace_id: res.id, team_role: "viewer", status: "accepted" });
+      expect(await svc.authorizeServiceWorkEmailEdit(client(), ADMIN_B, res.id)).toMatchObject({ ok: false, status: 403 });
+      db.tables.portal_workspaces.push({ id: "99999999-9999-4999-8999-999999999999", owner_user_id: ADMIN_A, name: "Plain", is_service: false });
+      expect(await svc.authorizeServiceWorkEmailEdit(client(), ADMIN_A, "99999999-9999-4999-8999-999999999999")).toMatchObject({ ok: false, status: 404 });
+    });
+
+    it("sets the address, audit row first, holding the old one as an alias", async () => {
+      const res = await made();
+      const set = await svc.setServiceWorkspaceWorkEmail(client(), ADMIN_A, { workspaceId: res.id, local: "ambika-front" });
+      expect(set).toMatchObject({ ok: true });
+      expect(emails()[0]!.mailbox_local).toBe("ambika-front");
+      expect(db.tables.audit_log.map((r) => r.action)).toEqual(["admin_service_create", "admin_service_work_email"]);
+      expect(db.tables.audit_log[1]).toMatchObject({ actor_user_id: ADMIN_A, landlord_id: OWNER });
+      expect(db.tables.manager_assistant_email_aliases).toMatchObject([{ mailbox_local: "ambikahomes" }]);
+    });
+
+    it("refuses a taken address (409) and a non-member (403) without changing anything", async () => {
+      const res = await made();
+      await made("2. Vinod");
+      expect(await svc.setServiceWorkspaceWorkEmail(client(), ADMIN_A, { workspaceId: res.id, local: "vinodhomes" })).toMatchObject({ ok: false, status: 409, state: "taken" });
+      expect(await svc.setServiceWorkspaceWorkEmail(client(), ADMIN_B, { workspaceId: res.id, local: "hijack" })).toMatchObject({ ok: false, status: 403 });
+      expect(emails().map((e) => e.mailbox_local)).toEqual(["ambikahomes", "vinodhomes"]);
+    });
+
+    it("changes nothing when the audit row cannot be written", async () => {
+      const res = await made();
+      db.failInsertOn.add("audit_log");
+      expect(await svc.setServiceWorkspaceWorkEmail(client(), ADMIN_A, { workspaceId: res.id, local: "ambika-front" })).toMatchObject({ ok: false, status: 503 });
+      expect(emails()[0]!.mailbox_local).toBe("ambikahomes");
+    });
+  });
+});
+const CLIENT_WS_EMAIL = "bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb";

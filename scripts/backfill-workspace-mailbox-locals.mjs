@@ -5,10 +5,24 @@
  * Dry-run by default; --apply writes. Reads SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
  * Same semantics as setWorkspaceAssistantMailboxLocal: update the local, hold the
  * old one as a 30-day alias. Idempotent: a row already on the rule is skipped.
+ *
+ * --service: PropLane-managed (is_service) workspaces only, by the service rule ("1. Ambika" -> ambikahomes):
+ * mints an address for each non-archived one that has none and renames one whose address is not already that
+ * rule's output. Prints the plan table; writes only with --apply.
+ *
+ * Refuses the production project unless --allow-production is passed (any mode).
  */
 import { createClient } from "@supabase/supabase-js";
 import { pathToFileURL } from "node:url";
-import { workspaceMailboxLocalFor } from "../src/lib/manager-assistant-email/workspace-mailbox-local-rule.mjs";
+import { randomBytes } from "node:crypto";
+import { localFollowsBase, serviceWorkspaceMailboxLocalFor, workspaceMailboxLocalFor } from "../src/lib/manager-assistant-email/workspace-mailbox-local-rule.mjs";
+
+const PROD_REF = (process.env.AXIS_PROD_SUPABASE_REF || "qahnczmilgptcedaqype").trim();
+
+/** Pure: whether `url` names the production Supabase project (host match, like assertNonProdDatabase). */
+export function isProductionSupabaseUrl(url) {
+  return [PROD_REF, "qahnczmilgptcedaqype"].some((ref) => String(url ?? "").includes(`${ref}.supabase.co`));
+}
 
 const ALIAS_DAYS = 30;
 
@@ -51,12 +65,156 @@ export function planRenames(rows, aliasesByLocal = new Map()) {
   return plans;
 }
 
+/**
+ * Pure: plan the service-workspace pass. rows: [{workspaceId, workspaceName, ownerId, ownerFirst, email}] where email is
+ * null (no active address) or {id, mailboxLocal}. Returns [{kind: "mint" | "rename", workspaceId, workspaceName, ownerId,
+ * emailId, mailboxLocal (current or null), next}]. A row already on the service rule's local (or its -2..-9 suffix) is
+ * left alone, so a second run plans nothing. Locals held by any row, planned or existing, and another owner's live alias
+ * are never handed out.
+ */
+export function planServiceEmails(rows, aliasesByLocal = new Map()) {
+  const held = new Map();
+  for (const r of rows) if (r.email) held.set(r.email.mailboxLocal, r.email.id ?? r.workspaceId);
+  const aliases = new Map(aliasesByLocal);
+  const plans = [];
+  for (const row of rows) {
+    const base = serviceWorkspaceMailboxLocalFor(row.workspaceName, row.ownerFirst);
+    if (!base) continue;
+    const current = row.email?.mailboxLocal ?? null;
+    if (current && localFollowsBase(current, base)) continue;
+    const holderId = row.email ? (row.email.id ?? row.workspaceId) : row.workspaceId;
+    const taken = new Set();
+    for (const [local, id] of held) if (id !== holderId) taken.add(local);
+    for (const [local, owner] of aliases) if (owner !== row.ownerId) taken.add(local);
+    const next = pickLocal(base, taken);
+    if (!next || next === current) continue;
+    if (current) {
+      held.delete(current);
+      aliases.set(current, row.ownerId);
+    }
+    held.set(next, holderId);
+    if (aliases.get(next) === row.ownerId) aliases.delete(next);
+    plans.push({
+      kind: current ? "rename" : "mint",
+      workspaceId: row.workspaceId,
+      workspaceName: row.workspaceName,
+      ownerId: row.ownerId,
+      emailId: row.email?.id ?? null,
+      mailboxLocal: current,
+      next,
+    });
+  }
+  return plans;
+}
+
+/** Pure: the plan as an aligned table (workspace id, name, current -> new). */
+export function formatServicePlan(plans) {
+  const header = ["workspace id", "name", "current", "new"];
+  const lines = plans.map((p) => [p.workspaceId, p.workspaceName || "(unnamed)", p.mailboxLocal ?? "(none)", p.next]);
+  const widths = header.map((h, i) => Math.max(h.length, ...lines.map((l) => String(l[i]).length)));
+  const fmt = (cells) => cells.map((c, i) => String(c).padEnd(widths[i])).join("  ").trimEnd();
+  return [fmt(header), fmt(widths.map((w) => "-".repeat(w))), ...lines.map(fmt)].join("\n");
+}
+
+async function runService(db, apply) {
+  const { data: workspaces, error: wsErr } = await db
+    .from("portal_workspaces")
+    .select("id, name, owner_user_id")
+    .eq("is_service", true)
+    .is("archived_at", null)
+    .order("name");
+  if (wsErr) throw wsErr;
+  const wsIds = (workspaces ?? []).map((w) => w.id);
+  const ownerIds = [...new Set((workspaces ?? []).map((w) => w.owner_user_id))];
+  const [{ data: emails, error: emErr }, { data: profiles }, { data: aliases }, { data: allActive }] = await Promise.all([
+    wsIds.length
+      ? db.from("manager_assistant_emails").select("id, workspace_id, mailbox_local").eq("provision_state", "active").in("workspace_id", wsIds)
+      : Promise.resolve({ data: [], error: null }),
+    ownerIds.length ? db.from("profiles").select("id, full_name, email").in("id", ownerIds) : Promise.resolve({ data: [] }),
+    db.from("manager_assistant_email_aliases").select("mailbox_local, owner_user_id, expires_at"),
+    // Every active local, so a collision with a non-service workspace is seen too.
+    db.from("manager_assistant_emails").select("id, mailbox_local").eq("provision_state", "active").not("mailbox_local", "is", null),
+  ]);
+  if (emErr) throw emErr;
+  const prof = new Map((profiles ?? []).map((p) => [p.id, p]));
+  const now = Date.now();
+  const aliasesByLocal = new Map(
+    (aliases ?? []).filter((a) => new Date(a.expires_at).getTime() > now).map((a) => [a.mailbox_local, a.owner_user_id]),
+  );
+  const byWorkspace = new Map((emails ?? []).map((e) => [e.workspace_id, e]));
+  const rows = (workspaces ?? []).map((w) => {
+    const p = prof.get(w.owner_user_id);
+    const first = String(p?.full_name ?? "").trim().split(/\s+/)[0] || String(p?.email ?? "").split("@")[0] || "";
+    const e = byWorkspace.get(w.id);
+    return {
+      workspaceId: w.id,
+      workspaceName: String(w.name ?? "").trim(),
+      ownerId: w.owner_user_id,
+      ownerFirst: first,
+      email: e ? { id: e.id, mailboxLocal: String(e.mailbox_local ?? "").toLowerCase() } : null,
+    };
+  });
+  // Locals held by non-service rows are taken as well: model them as extra rows with no plan of their own.
+  const serviceEmailIds = new Set(rows.map((r) => r.email?.id).filter(Boolean));
+  const others = (allActive ?? [])
+    .filter((e) => !serviceEmailIds.has(e.id))
+    .map((e) => ({ workspaceId: `other:${e.id}`, workspaceName: "", ownerId: `other:${e.id}`, ownerFirst: "", email: { id: e.id, mailboxLocal: String(e.mailbox_local).toLowerCase() } }));
+  const plans = planServiceEmails([...rows, ...others], aliasesByLocal).filter((p) => !String(p.workspaceId).startsWith("other:"));
+
+  console.log(`${apply ? "APPLY" : "DRY RUN"} (service): ${plans.length} of ${rows.length} service workspaces to change`);
+  if (plans.length) console.log(formatServicePlan(plans));
+  if (!apply) return;
+  let failed = 0;
+  for (const p of plans) {
+    const nowIso = new Date().toISOString();
+    if (p.kind === "mint") {
+      const { error } = await db.from("manager_assistant_emails").insert({
+        manager_user_id: p.ownerId,
+        workspace_id: p.workspaceId,
+        inbox_token: randomBytes(9).toString("base64url").slice(0, 12),
+        mailbox_local: p.next,
+        provision_state: "active",
+        created_at: nowIso,
+        updated_at: nowIso,
+      });
+      if (error) {
+        console.log(`  failed (mint ${p.workspaceName || p.workspaceId}): ${error.message}`);
+        failed += 1;
+      }
+      continue;
+    }
+    const expires = new Date(now + ALIAS_DAYS * 86400000).toISOString();
+    const { error: aliasErr } = await db.from("manager_assistant_email_aliases").upsert(
+      { mailbox_local: p.mailboxLocal, assistant_email_id: p.emailId, owner_user_id: p.ownerId, released_at: nowIso, expires_at: expires },
+      { onConflict: "mailbox_local" },
+    );
+    if (aliasErr) {
+      console.log(`  failed (alias ${p.workspaceName || p.workspaceId}): ${aliasErr.message}`);
+      failed += 1;
+      continue;
+    }
+    const { error: upErr } = await db.from("manager_assistant_emails").update({ mailbox_local: p.next, updated_at: nowIso }).eq("id", p.emailId).eq("provision_state", "active");
+    if (upErr) {
+      console.log(`  failed (rename ${p.workspaceName || p.workspaceId}): ${upErr.message}`);
+      failed += 1;
+      continue;
+    }
+    await db.from("manager_assistant_email_aliases").delete().eq("mailbox_local", p.next).eq("owner_user_id", p.ownerId);
+  }
+  console.log(`${failed} failed of ${plans.length}`);
+}
+
 async function main() {
   const apply = process.argv.includes("--apply");
+  const service = process.argv.includes("--service");
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
+  if (isProductionSupabaseUrl(url) && !process.argv.includes("--allow-production")) {
+    throw new Error("SUPABASE_URL is the production project. Refusing; pass --allow-production to run against it.");
+  }
   const db = createClient(url, key, { auth: { persistSession: false } });
+  if (service) return runService(db, apply);
 
   const { data: emails, error } = await db
     .from("manager_assistant_emails")

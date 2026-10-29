@@ -32,7 +32,14 @@ import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligib
 import { resolveServiceLine, type ServiceLine } from "@/lib/one-number/service-line.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { releaseManagerNumber } from "@/lib/sms/manager-number-provisioning.server";
-import { isPlatformServiceOwner, loadServiceWorkspace, resolveServiceOwner } from "@/lib/service/service-owner.server";
+import { isPlatformServiceOwner, loadServiceWorkspace, resolveServiceOwner, type ServiceWorkspaceRow } from "@/lib/service/service-owner.server";
+import {
+  followServiceWorkspaceRename,
+  mintServiceWorkspaceWorkEmail,
+  setServiceWorkspaceWorkEmailLocal,
+  type ServiceWorkEmailResult,
+  type ServiceWorkEmailSetResult,
+} from "@/lib/service/service-work-email.server";
 import { ensureServiceFeePolicy, setServiceManagementFee, PolicyError, type ServiceManagementFee } from "@/lib/owner-management/policies.server";
 import { MANAGEMENT_FEE_RANGE_MESSAGE, feePercentForOwnerShareBps, ownerShareBpsForFeePercent } from "@/lib/owner-management/fee-percent";
 
@@ -369,7 +376,7 @@ export async function createServiceWorkspace(
   db: SupabaseClient,
   operatorUserId: string,
   input: { name: unknown; city: unknown; ownerOfRecord?: unknown; ownerContact?: unknown; ownerRole?: unknown },
-): Promise<ServiceResult<{ id: string; ownerInvite: { sent: boolean; delivery?: "account" | "link"; error?: string } | null }>> {
+): Promise<ServiceResult<{ id: string; ownerInvite: { sent: boolean; delivery?: "account" | "link"; error?: string } | null; workEmail: ServiceWorkEmailResult }>> {
   const name = cleanServiceName(input.name);
   if (!name) return fail(400, "Use a workspace name of 1 to 80 characters.");
   const city = cleanServiceCity(input.city);
@@ -422,7 +429,10 @@ export async function createServiceWorkspace(
     });
     ownerInvite = invited.ok ? { sent: true, delivery: invited.delivery } : { sent: false, error: invited.error };
   }
-  return { ok: true, id, ownerInvite };
+  // PropLane runs this workspace, so its work email (`ambikahomes@`) is minted now, not gated on the owner's plan. A
+  // failed mint is reported as a warning; the workspace stays created.
+  const workEmail = await mintServiceWorkspaceWorkEmail(db, id);
+  return { ok: true, id, ownerInvite, workEmail };
 }
 
 export const ADMIN_SERVICE_ATTACH_AUDIT_ACTION = "admin_service_attach";
@@ -537,6 +547,10 @@ export async function attachWorkspaceToService(
   await updateAuditResult(actor, auditKey, { applied: true });
   // The automatic management fee (no signature): the client who owns the attached workspace is its owner of record.
   await ensureServiceFeePolicy(db, workspace.id, { role: "admin", userId: operatorUserId });
+  // The work email: minted when it has none; when the label renamed the workspace, an address that was never customized
+  // follows the new name. Neither can fail the attach.
+  if (label && label !== workspace.name) await followServiceWorkspaceRename(db, workspace.id, workspace.name);
+  else await mintServiceWorkspaceWorkEmail(db, workspace.id);
   return { ok: true, id: workspace.id };
 }
 
@@ -675,7 +689,47 @@ export async function renameServiceWorkspace(
     .eq("owner_user_id", who.workspace.ownerUserId)
     .eq("is_service", true);
   if (res.error) return fail(503, "Could not rename the workspace. Please retry.");
+  // The work email follows the name unless it was customized; a failure never fails the rename.
+  if (name !== who.workspace.name) await followServiceWorkspaceRename(db, who.workspace.id, who.workspace.name);
   return { ok: true };
+}
+
+export const ADMIN_SERVICE_WORK_EMAIL_AUDIT_ACTION = "admin_service_work_email";
+
+/**
+ * Whether the operator may change a PropLane-managed workspace's work email: the SAME standing a rename needs
+ * (`operatorStanding`, then `rights.members`), on a workspace that carries the service flag. Everything else about the
+ * request (the id, the local part) is a name, never a grant.
+ */
+export async function authorizeServiceWorkEmailEdit(
+  db: SupabaseClient,
+  operatorUserId: string,
+  workspaceId: string,
+): Promise<ServiceResult<{ workspace: ServiceWorkspaceRow }>> {
+  const who = await operatorStanding(db, operatorUserId, workspaceId);
+  if (!who.ok) return who;
+  if (!who.standing.rights.members) return fail(403, "Only the owner or an admin of this workspace can change its work email.");
+  return { ok: true, workspace: who.workspace };
+}
+
+/** Staff changing a service workspace's work email: authorized as above, the audit row written first (no row, no change). */
+export async function setServiceWorkspaceWorkEmail(
+  db: SupabaseClient,
+  operatorUserId: string,
+  input: { workspaceId: string; local: string },
+): Promise<ServiceWorkEmailSetResult> {
+  const allowed = await authorizeServiceWorkEmailEdit(db, operatorUserId, input.workspaceId);
+  if (!allowed.ok) return allowed;
+  const audited = await auditServiceChange(
+    db,
+    operatorUserId,
+    allowed.workspace.ownerUserId,
+    ADMIN_SERVICE_WORK_EMAIL_AUDIT_ACTION,
+    { workspaceId: allowed.workspace.id, local: input.local.trim().toLowerCase() },
+    true,
+  );
+  if (audited) return audited;
+  return setServiceWorkspaceWorkEmailLocal(db, allowed.workspace, input.local);
 }
 
 /** Open: only a member (or the owner) may switch into it; the caller then sets the workspace cookie. */

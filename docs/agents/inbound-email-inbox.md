@@ -282,7 +282,9 @@ The code is ready; these steps must be done in the Resend dashboard + DNS:
    dual-accepting legacy `prop-lane.space` on inbound during cutover via
    `assistantEmailAcceptedDomains()`). Each owned workspace auto-mints one
    address as `{workspace-slug}@proplane.ai` on Messaging GET and on workspace
-   create (`ensureOwnedWorkspaceAssistantEmails`); the owner may still Edit.
+   create (`ensureOwnedWorkspaceAssistantEmails`); the owner may still Edit. A PropLane-managed (service) workspace
+   mints `<name>homes@` on add instead, ungated, and staff with member rights may Edit it
+   ([`admin-service.md`](admin-service.md) § Service mode).
    Prefer a subdomain for support MX so existing root-domain MX for other mail
    is untouched; the MX in step 1 must cover the work-email domain, not only
    `support@`.

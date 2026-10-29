@@ -57,7 +57,32 @@ export function workspaceMailboxLocalFor(
   return rule.workspaceMailboxLocalFor(workspaceName, ownerFirstName) as string;
 }
 
-function firstNameOf(fullName: string, email: string): string {
+/**
+ * The rule for a PropLane-managed (service) workspace: "1. Ambika" -> `ambikahomes`. Falls back to
+ * {@link workspaceMailboxLocalFor} when the name gives nothing usable. Shared with the backfill script.
+ */
+export function serviceWorkspaceMailboxLocalFor(
+  workspaceName: string | null | undefined,
+  ownerFirstName: string | null | undefined,
+): string {
+  return rule.serviceWorkspaceMailboxLocalFor(workspaceName, ownerFirstName) as string;
+}
+
+/** The address still follows the naming rule for `workspaceName` (never customized), with or without a -2..-9 suffix. */
+export function mailboxLocalIsDerivedFrom(
+  workspaceName: string | null | undefined,
+  ownerFirstName: string | null | undefined,
+  local: string | null | undefined,
+): boolean {
+  return rule.mailboxLocalIsDerivedFrom(workspaceName, ownerFirstName, local) as boolean;
+}
+
+/** `local` is `base` or `base` plus the allocator's collision suffix. */
+export function localFollowsBase(local: string | null | undefined, base: string): boolean {
+  return rule.localFollowsBase(local, base) as boolean;
+}
+
+export function firstNameOf(fullName: string, email: string): string {
   const first = fullName.trim().split(/\s+/)[0] ?? "";
   if (compactLetters(first)) return first;
   return (email.trim().split("@")[0] ?? "").replace(/\+.*/, "");
@@ -69,9 +94,14 @@ function firstNameOf(fullName: string, email: string): string {
  * "workspace", which would hand every unnamed workspace the same local part and queue them behind
  * `workspace-2`, `workspace-3`, … with the owner's name silently discarded.
  */
-function baseMailboxLocal(profile: { fullName: string; email: string }, workspaceName?: string | null): string {
-  const rule = workspaceMailboxLocalFor(workspaceName, firstNameOf(profile.fullName, profile.email));
-  if (rule) return rule;
+function baseMailboxLocal(
+  profile: { fullName: string; email: string },
+  workspaceName?: string | null,
+  service = false,
+): string {
+  const first = firstNameOf(profile.fullName, profile.email);
+  const derived = service ? serviceWorkspaceMailboxLocalFor(workspaceName, first) : workspaceMailboxLocalFor(workspaceName, first);
+  if (derived) return derived;
   return baseMailboxLocalFromProfile(profile.fullName, profile.email);
 }
 
@@ -84,8 +114,9 @@ export async function allocateAssistantMailboxLocal(
   profile: { fullName: string; email: string },
   tokenSuffix?: string,
   workspaceName?: string | null,
+  opts: { service?: boolean } = {},
 ): Promise<string> {
-  const base = baseMailboxLocal(profile, workspaceName);
+  const base = baseMailboxLocal(profile, workspaceName, opts.service === true);
   const candidates = [base];
   if (tokenSuffix) {
     candidates.push(`${base}-${tokenSuffix.slice(0, 4).toLowerCase()}`);

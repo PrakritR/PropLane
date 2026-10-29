@@ -21,11 +21,27 @@ vi.mock("next/link", () => ({
 }));
 
 const statusState = vi.fn();
+const toast = vi.hoisted(() => vi.fn());
 vi.mock("@/hooks/use-manager-messaging-number-status", () => ({
   useManagerMessagingNumberStatus: () => statusState(),
 }));
 vi.mock("@/lib/demo/demo-session", () => ({
   isDemoModeActive: () => false,
+}));
+
+vi.mock("@/components/providers/app-ui-provider", () => ({
+  useAppUi: () => ({ showToast: toast }),
+}));
+// The shell (Radix / Vaul presentation) is not what this file covers: a plain stand-in renders the same title, body and footer.
+vi.mock("@/components/ui/modal", () => ({
+  Modal: ({ open, title, children, footer }: { open: boolean; title: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode }) =>
+    open ? (
+      <div role="dialog" aria-label={String(title)}>
+        {children}
+        {footer}
+      </div>
+    ) : null,
+  ModalFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
 import { ManagerWorkNumberCard } from "@/components/portal/pro-work-number-card";
@@ -171,5 +187,75 @@ describe("ManagerWorkNumberCard identity", () => {
     expect(screen.getByRole("link", { name: /Set up work email/ }).getAttribute("data-attr")).toBe(
       "manager-work-email-setup",
     );
+  });
+});
+
+describe("ManagerWorkNumberCard work email edit", () => {
+  function stubEditableEmail(canEditAddress: boolean | undefined) {
+    let address = "ambikahomes@proplane.ai";
+    const posts: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (!url.includes("/api/manager/assistant-email")) return new Response(null, { status: 404 });
+        if (init?.method === "POST") {
+          const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+          posts.push(body);
+          if (body.action === "check_address") {
+            return Response.json(body.local === "taken" ? { ok: false, state: "taken", message: "That address is already in use." } : { ok: true, state: "available" });
+          }
+          address = `${body.local}@proplane.ai`;
+          return Response.json({ ...assistantEmailPayload(address), canEditAddress });
+        }
+        return Response.json({ ...assistantEmailPayload(address), workspaceRole: "co_manager", canEditAddress });
+      }),
+    );
+    return { posts };
+  }
+  const mountCard = () => {
+    statusState.mockReturnValue({ ready: true, resolved: true, statusError: false, status: status(), retry: () => {} });
+    render(<ManagerWorkNumberCard />);
+  };
+
+  it("shows no Edit icon unless the server says the viewer may edit the address", async () => {
+    stubEditableEmail(false);
+    mountCard();
+    await waitFor(() => expect(screen.getByText("ambikahomes@proplane.ai")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    cleanup();
+    resetSharedGets();
+    stubEditableEmail(undefined);
+    mountCard();
+    await waitFor(() => expect(screen.getByText("ambikahomes@proplane.ai")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+  });
+
+  it("opens a modal from the Edit icon, checks availability live and saves the new address", async () => {
+    const { posts } = stubEditableEmail(true);
+    mountCard();
+    const edit = await screen.findByRole("button", { name: "Edit" });
+    expect(edit.getAttribute("data-attr")).toBe("manager-work-email-edit");
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(edit);
+    const input = (await screen.findByLabelText("Address")) as HTMLInputElement;
+    expect(input.value).toBe("ambikahomes");
+    expect(screen.getByText("@proplane.ai")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(input, { target: { value: "taken" } });
+    await waitFor(() => expect(screen.getByText("Taken")).toBeTruthy());
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(input, { target: { value: "ambika.front" } });
+    await waitFor(() => expect(screen.getByText("Available")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(posts.some((p) => p.action === "set_address")).toBe(true));
+    expect(posts.find((p) => p.action === "set_address")).toMatchObject({ local: "ambika.front" });
+    await waitFor(() => expect(screen.getByText("ambika.front@proplane.ai")).toBeTruthy());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(toast).toHaveBeenCalledWith("Work email changed to ambika.front@proplane.ai.");
   });
 });

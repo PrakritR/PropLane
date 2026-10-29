@@ -5,9 +5,13 @@ import {
   workspaceMailboxLocalFor,
 } from "@/lib/manager-assistant-email/assistant-mailbox-local.server";
 import { RESERVED_MAILBOX_LOCALS } from "@/lib/manager-assistant-email/assistant-email-address";
-import { RESERVED } from "@/lib/manager-assistant-email/workspace-mailbox-local-rule.mjs";
+import {
+  RESERVED,
+  mailboxLocalIsDerivedFrom,
+  serviceWorkspaceMailboxLocalFor,
+} from "@/lib/manager-assistant-email/workspace-mailbox-local-rule.mjs";
 // @ts-expect-error plain-JS script, no types
-import { pickLocal, planRenames } from "../../scripts/backfill-workspace-mailbox-locals.mjs";
+import { formatServicePlan, isProductionSupabaseUrl, pickLocal, planRenames, planServiceEmails } from "../../scripts/backfill-workspace-mailbox-locals.mjs";
 
 const profile = { fullName: "Prakrit Ramachandran", email: "p@example.com" };
 
@@ -86,5 +90,81 @@ describe("backfill plan (dry run)", () => {
       ["e1", "alpharentals"],
       ["e2", "seattlehomes-2"],
     ]);
+  });
+});
+
+describe("serviceWorkspaceMailboxLocalFor", () => {
+  it("names a managed workspace after the client plus homes", () => {
+    expect(serviceWorkspaceMailboxLocalFor("1. Ambika", "Prakrit")).toBe("ambikahomes");
+    expect(serviceWorkspaceMailboxLocalFor("2. Vinod", "Prakrit")).toBe("vinodhomes");
+    expect(serviceWorkspaceMailboxLocalFor("12) Lake View", "Prakrit")).toBe("lakeviewhomes");
+    expect(serviceWorkspaceMailboxLocalFor("#3 - Birch", "Prakrit")).toBe("birchhomes");
+  });
+  it("does not double the suffix", () => {
+    expect(serviceWorkspaceMailboxLocalFor("Seattle Homes", "Prakrit")).toBe("seattlehomes");
+    expect(serviceWorkspaceMailboxLocalFor("4. Ida Cares Homes", "")).toBe("idacareshomes");
+  });
+  it("never lets a reserved or brand word through on its own", () => {
+    expect(serviceWorkspaceMailboxLocalFor("Support", "Maya")).toBe("supporthomes");
+    expect(serviceWorkspaceMailboxLocalFor("1. Stripe", "Maya")).toBe("stripehomes");
+  });
+  it("falls back to the self-serve rule when the name has no letters or is too long", () => {
+    expect(serviceWorkspaceMailboxLocalFor("123", "Maya")).toBe(workspaceMailboxLocalFor("123", "Maya"));
+    expect(serviceWorkspaceMailboxLocalFor("1. 42", "Maya")).toBe(workspaceMailboxLocalFor("1. 42", "Maya"));
+    const long = "A".repeat(40);
+    expect(serviceWorkspaceMailboxLocalFor(long, "Maya")).toBe(workspaceMailboxLocalFor(long, "Maya"));
+    expect(serviceWorkspaceMailboxLocalFor("", "")).toBe("");
+  });
+  it("leaves the self-serve outputs unchanged", () => {
+    expect(workspaceMailboxLocalFor("SEATTLE HOMES", "Prakrit")).toBe("seattlehomes");
+    expect(workspaceMailboxLocalFor("My workspace", "Prakrit")).toBe("myworkspace");
+    expect(workspaceMailboxLocalFor("Ida Cares Homes #2", "")).toBe("idacareshomes2");
+    expect(workspaceMailboxLocalFor("1. Ambika", "Prakrit")).toBe("1ambika");
+  });
+});
+
+describe("mailboxLocalIsDerivedFrom", () => {
+  it("is true for the rule's output (either rule, with or without a collision suffix) and false once customized", () => {
+    expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "ambikahomes")).toBe(true);
+    expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "ambikahomes-2")).toBe(true);
+    expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "1ambika")).toBe(true);
+    expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "frontdesk")).toBe(false);
+    expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "ambikahomes-x7k2")).toBe(true);
+    expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "ambikahomes-12")).toBe(false);
+    expect(mailboxLocalIsDerivedFrom("1. Ambika", "P", "")).toBe(false);
+  });
+});
+
+describe("backfill --service plan (dry run)", () => {
+  const ws = (over: Record<string, unknown>) => ({
+    workspaceId: "w1", workspaceName: "1. Ambika", ownerId: "o1", ownerFirst: "Prakrit", email: null, ...over,
+  });
+  it("mints for a workspace with no address and renames one off the service rule", () => {
+    const plans = planServiceEmails([
+      ws({}),
+      ws({ workspaceId: "w2", workspaceName: "2. Vinod", email: { id: "e2", mailboxLocal: "vinod" } }),
+    ]);
+    expect(plans.map((p: { kind: string; workspaceName: string; mailboxLocal: string | null; next: string }) => `${p.kind} ${p.workspaceName}: ${p.mailboxLocal} -> ${p.next}`)).toEqual([
+      "mint 1. Ambika: null -> ambikahomes",
+      "rename 2. Vinod: vinod -> vinodhomes",
+    ]);
+  });
+  it("is idempotent and leaves a suffixed rule output alone", () => {
+    expect(planServiceEmails([ws({ email: { id: "e1", mailboxLocal: "ambikahomes" } })])).toEqual([]);
+    expect(planServiceEmails([ws({ email: { id: "e1", mailboxLocal: "ambikahomes-2" } })])).toEqual([]);
+  });
+  it("suffixes on a collision with another holder or another owner's live alias", () => {
+    const held = [{ workspaceId: "other:1", workspaceName: "", ownerId: "other:1", ownerFirst: "", email: { id: "x", mailboxLocal: "ambikahomes" } }];
+    expect(planServiceEmails([ws({}), ...held])[0].next).toBe("ambikahomes-2");
+    expect(planServiceEmails([ws({})], new Map([["ambikahomes", "someone-else"]]))[0].next).toBe("ambikahomes-2");
+  });
+  it("prints a table with the workspace id, name, current and new", () => {
+    const table = formatServicePlan(planServiceEmails([ws({})]));
+    expect(table.split("\n")[0]).toMatch(/workspace id\s+name\s+current\s+new/);
+    expect(table).toMatch(/w1\s+1\. Ambika\s+\(none\)\s+ambikahomes/);
+  });
+  it("recognizes the production project so the script can refuse it", () => {
+    expect(isProductionSupabaseUrl("https://qahnczmilgptcedaqype.supabase.co")).toBe(true);
+    expect(isProductionSupabaseUrl("https://emstjswhotsnyksqhqyf.supabase.co")).toBe(false);
   });
 });

@@ -67,7 +67,7 @@ export async function POST(request: Request) {
         ownerRole: body.ownerRole,
       });
       if (!result.ok) return failure(result);
-      return NextResponse.json({ id: result.id, ownerInvite: result.ownerInvite }, { status: 201, headers: NO_STORE });
+      return NextResponse.json({ id: result.id, ownerInvite: result.ownerInvite, workEmail: result.workEmail }, { status: 201, headers: NO_STORE });
     }
     case "attach-candidates": {
       const result = await listServiceAttachCandidates(db, admin.userId, body.query);

@@ -439,6 +439,8 @@ export async function ensureManagerAssistantEmail(
   db: SupabaseClient,
   managerUserId: string,
   workspace?: (Pick<ActiveWorkspace, "id" | "ownerUserId" | "owned" | "isDefault"> & { name?: string }) | null,
+  /** `service`: a PropLane-managed workspace is named by the service rule (`ambikahomes`), not the self-serve one. */
+  opts: { service?: boolean } = {},
 ): Promise<ManagerAssistantEmailRow> {
   let target = workspace ?? null;
   if (!target) {
@@ -478,7 +480,7 @@ export async function ensureManagerAssistantEmail(
   const profile = await loadManagerProfile(db, managerUserId);
   const workspaceName =
     ("name" in target && typeof target.name === "string" ? target.name.trim() : "") || null;
-  const mailboxLocal = await allocateAssistantMailboxLocal(db, profile, token, workspaceName);
+  const mailboxLocal = await allocateAssistantMailboxLocal(db, profile, token, workspaceName, { service: opts.service === true });
   const now = new Date().toISOString();
   const { error } = await db.from("manager_assistant_emails").insert({
     manager_user_id: managerUserId,

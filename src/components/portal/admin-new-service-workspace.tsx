@@ -65,6 +65,7 @@ export function AdminNewServiceWorkspace({
         id?: string;
         error?: string;
         ownerInvite?: { sent: boolean; error?: string } | null;
+        workEmail?: { address: string | null; warning?: string } | null;
       };
       if (!res.ok || !json.id) {
         setError(json.error ?? "Could not create the workspace.");
@@ -80,6 +81,8 @@ export function AdminNewServiceWorkspace({
         showToast(`Workspace created. The owner invite did not send: ${json.ownerInvite.error ?? "try again from Team."}`);
       } else if (json.ownerInvite?.sent) {
         showToast("Workspace created. Invite sent to the owner.");
+      } else if (json.workEmail?.warning) {
+        showToast(`Workspace created. ${json.workEmail.warning}`);
       }
       onCreated(json.id, created);
     } catch {

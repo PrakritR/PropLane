@@ -133,6 +133,13 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   `GET /api/workspaces/service-fee`, never sent by the client); the owner and other seats see it read-only ("PropLane 10% ·
   You 90%"). The same control stays in Service > Workspaces > ⋯ > Management fee. See
   [`owner-management.md`](owner-management.md) § Automatic management fee.
+- **Work email** (`service-work-email.server.ts`): a service workspace mints `<name>homes@` (service rule: "1. Ambika" ->
+  `ambikahomes@proplane.ai`, `serviceWorkspaceMailboxLocalFor`) when it is added or attached, not gated on the owner's plan;
+  a failed mint is a warning on create, never a failure. A rename moves the address to the new name only while it still
+  follows the rule (a customized one stays; the old local is a 30-day alias). Staff with member rights (the rename standing,
+  `authorizeServiceWorkEmailEdit`) change it from the Communication "Work email" card Edit icon; the write is audited
+  (`admin_service_work_email`) first. Existing workspaces: `scripts/backfill-workspace-mailbox-locals.mjs --service` (dry run;
+  `--apply` writes; production needs `--allow-production`).
 - **Dashboard** (`/admin/dashboard`): each slow source (Stripe earnings, Subscribers, expenses, signups, feedback) has a
   9s budget (`withBudget`); a source that misses it is `null` and its card is left out, so one hung read cannot hold the
   page on Loading. The browser still gives up at 20s with a "took too long" error and Try again.

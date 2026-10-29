@@ -32,6 +32,7 @@ import {
 } from "@/lib/sms/manager-sms-entitlement.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { resolveWorkspaceFromSettingsRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
+import { authorizeServiceWorkEmailEdit, setServiceWorkspaceWorkEmail } from "@/lib/service/service-workspaces.server";
 
 export const runtime = "nodejs";
 
@@ -118,6 +119,12 @@ async function buildStatus(
 
   const canUse = commsBillingAllowed && channelEnabled && Boolean(row);
 
+  // Who may change the address: its owner, or staff with member rights on a PropLane-managed workspace (the same
+  // standing a rename needs, re-derived from the workspace row here, never from the request).
+  const hasAddress = pureCoManager ? Boolean(workspaceEmail?.address) : Boolean(row);
+  const canEditAddress =
+    hasAddress && (workspace.owned || (await authorizeServiceWorkEmailEdit(db, userId, workspace.id)).ok);
+
   /**
    * What the card renders, in the work number's own vocabulary.
    *
@@ -163,6 +170,7 @@ async function buildStatus(
       address: channelEnabled ? e.address : null,
     })),
     address: row?.address ?? null,
+    canEditAddress,
     state,
     // One address per workspace, exactly like the number: a pure co-manager
     // sends from the owner's address and never sees a Request button.
@@ -236,8 +244,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
   }
 
+  // Only the owner changes a workspace's address - or staff with member rights on a PropLane-managed one.
+  const notOwnerBody = {
+    error: "This workspace already has a work email. Mail goes out from the address its owner set up.",
+    code: "workspace_not_owned",
+  };
+
   if (action === "check_address") {
     const local = typeof body.local === "string" ? body.local : "";
+    if (!workspace.owned && !(await authorizeServiceWorkEmailEdit(actor.db, actor.userId, workspace.id)).ok) {
+      return NextResponse.json(notOwnerBody, { status: 403, headers: { "Cache-Control": "private, no-store" } });
+    }
     // A cheap read, but still an authenticated per-user throttle so a page
     // holding a key down cannot turn this into a lookup flood.
     const limit = await rateLimit(`work-email-address-check:${actor.userId}`, 30, 60_000);
@@ -253,24 +270,30 @@ export async function POST(req: Request) {
         { status: 429, headers: { "Retry-After": "60", "Cache-Control": "private, no-store" } },
       );
     }
-    const result = await checkWorkspaceAssistantMailboxLocal(actor.db, workspace.id, local, actor.userId);
+    const result = await checkWorkspaceAssistantMailboxLocal(actor.db, workspace.id, local, workspace.ownerUserId);
     return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
   }
 
   if (action === "set_address") {
     // One address per workspace, minted/renamed only by its owner — same
     // refusal `request_address` already gives a co-manager.
-    if (!workspace.owned) {
-      return NextResponse.json(
-        {
-          error:
-            "This workspace already has a work email. Mail goes out from the address its owner set up.",
-          code: "workspace_not_owned",
-        },
-        { status: 403, headers: { "Cache-Control": "private, no-store" } },
-      );
-    }
     const local = typeof body.local === "string" ? body.local : "";
+    if (!workspace.owned) {
+      const staff = await setServiceWorkspaceWorkEmail(actor.db, actor.userId, { workspaceId: workspace.id, local });
+      if (!staff.ok) {
+        if (staff.status === 403 || staff.status === 404) {
+          return NextResponse.json(notOwnerBody, { status: 403, headers: { "Cache-Control": "private, no-store" } });
+        }
+        return NextResponse.json(
+          { error: staff.error, ...("state" in staff && staff.state ? { state: staff.state } : {}) },
+          { status: staff.status, headers: { "Cache-Control": "private, no-store" } },
+        );
+      }
+      track("assistant_email_local_changed", actor.userId, {});
+      return NextResponse.json(await buildStatus(actor.db, actor.userId, workspace), {
+        headers: { "Cache-Control": "private, no-store" },
+      });
+    }
     let result: Awaited<ReturnType<typeof setWorkspaceAssistantMailboxLocal>>;
     try {
       result = await setWorkspaceAssistantMailboxLocal(actor.db, actor.userId, workspace, local);
