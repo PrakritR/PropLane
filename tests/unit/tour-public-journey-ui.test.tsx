@@ -3,9 +3,10 @@
  * The public tour page (the prospect journey, `.ps`) draws open days as a row of day cells and times as
  * hairline buttons. The resident portal renders the SAME flow with `embedded`, and keeps its month grid.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { MockProperty } from "@/data/types";
+import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useConfirm: () => () => Promise.resolve(true),
@@ -22,9 +23,21 @@ vi.mock("@/lib/supabase/browser", () => ({
 
 import { TourScheduleFlow } from "@/components/marketing/tour-schedule-flow";
 
+// The month grid opens on the machine's current month while a slotKey is Pacific wall time, so an open
+// day has to land in the month the grid is showing. Both moved with the runner's clock and zone: in UTC
+// on the 29th, "three days out" fell into the next month and the grid showed no open day. Pin the clock
+// mid-month (only `Date`, so `waitFor`'s timers stay real) - October 10 is the 10th in every zone, and
+// three days later is still October.
+const FIXED_NOW = new Date("2026-10-10T18:00:00.000Z");
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"], now: FIXED_NOW });
+});
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 const PROPERTY: MockProperty = {
@@ -44,14 +57,11 @@ const PROPERTY: MockProperty = {
   unitLabel: "Room A",
 };
 
-function ymd(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
 function stubOpenSlots() {
-  const day = new Date(Date.now() + 3 * 864e5);
+  // A slotKey's date is Pacific, not the runner's zone.
+  const day = pacificCalendarDateYmd(Date.now() + 3 * 864e5);
   const host = [{ userId: "m1", label: "Manager", propertyId: PROPERTY.id }];
-  const slotHosts = { [`${ymd(day)}:20`]: host, [`${ymd(day)}:22`]: host };
+  const slotHosts = { [`${day}:20`]: host, [`${day}:22`]: host };
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ slotHosts }) }) as unknown as Response),

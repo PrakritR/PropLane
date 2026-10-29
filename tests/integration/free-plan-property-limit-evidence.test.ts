@@ -28,6 +28,34 @@ const DB: Record<string, Row[]> = {
 
 let SESSION: { id: string; email: string } | null = null;
 
+/**
+ * PostgREST reads an `ilike` value as a LIKE pattern (`*` is its `%`), and the purchase-row loader
+ * escapes `%` / `_` / `\` so an address can never widen the match. The double matches the same way,
+ * so an escaped pattern here means exactly what it means in Postgres.
+ */
+function likeMatches(pattern: string, value: string): boolean {
+  let rx = "";
+  for (let i = 0; i < pattern.length; i += 1) {
+    const ch = pattern[i];
+    if (ch === "\\" && i + 1 < pattern.length) {
+      rx += pattern[i + 1].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      i += 1;
+    } else if (ch === "%" || ch === "*") rx += ".*";
+    else if (ch === "_") rx += ".";
+    else rx += ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${rx}$`, "i").test(value);
+}
+
+/** One `col.op.value` term of a PostgREST `or=(...)` filter. Only the ops this suite's code emits. */
+function orTerm(term: string): (r: Row) => boolean {
+  const [col, op, ...rest] = term.split(".");
+  const val = rest.join(".");
+  if (op === "is" && val === "null") return (r) => r[col] === null || r[col] === undefined;
+  if (op === "eq") return (r) => String(r[col] ?? "") === val;
+  throw new Error(`unsupported or() term: ${term}`);
+}
+
 function query(table: string, opts: { count?: string; head?: boolean } = {}) {
   const filters: Array<(r: Row) => boolean> = [];
   const rows = () => (DB[table] ?? []).filter((r) => filters.every((f) => f(r)));
@@ -45,8 +73,12 @@ function query(table: string, opts: { count?: string; head?: boolean } = {}) {
       return api;
     },
     ilike(col: string, val: string) {
-      const want = String(val).toLowerCase();
-      filters.push((r) => String(r[col] ?? "").toLowerCase() === want);
+      filters.push((r) => likeMatches(String(val), String(r[col] ?? "")));
+      return api;
+    },
+    or(expr: string) {
+      const terms = String(expr).split(",").map(orTerm);
+      filters.push((r) => terms.some((t) => t(r)));
       return api;
     },
     order() {
