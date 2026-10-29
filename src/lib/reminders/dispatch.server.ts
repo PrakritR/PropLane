@@ -33,6 +33,7 @@ import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-
 import { reminderIsCurrent } from "@/lib/reminders/current.server";
 import { loadOffPresetResolver } from "@/lib/automations/store.server";
 import { isStayTimeReminderKind, renderStayTimeReminder } from "@/lib/reminders/subjects/stay-times.server";
+import { renderMoveInArrival } from "@/lib/reminders/subjects/move-in-arrival.server";
 import type { VendorNotificationTopic } from "@/lib/vendor-notification-settings";
 import { recordRefFromReminderRow } from "@/lib/reminders/reminder-record-ref";
 
@@ -116,6 +117,7 @@ const CATEGORY_BY_KIND: Record<ReminderSubjectKind, NotificationCategory> = {
   // A guest's stay silences with leases, like the manager-side booking reminder.
   stay_arrival_guide: "leases",
   stay_checkout_reminder: "leases",
+  move_in_arrival: "leases",
 };
 
 /**
@@ -248,8 +250,28 @@ export async function dispatchReminderRow(
       return "failed";
     }
   }
+  // The long-term resident's twin of the guest's arrival guide: the same one-person, send-time-built
+  // message (it carries the door and room codes), gated by the same Automations switch and by the
+  // check-in reveal (an unsigned lease or a move-in outside the window renders nothing).
+  let moveInRendered: Awaited<ReturnType<typeof renderMoveInArrival>> = null;
+  if (row.kind === "move_in_arrival") {
+    if (row.recipientRole !== "counterparty") {
+      await resolveReminder(db, row.id, workerId, "failed", "check-in steps go to the resident alone");
+      return "failed";
+    }
+    moveInRendered = await renderMoveInArrival(db, row);
+    if (!moveInRendered) {
+      await resolveReminder(db, row.id, workerId, "failed", "subject changed, or the check-in reveal has not opened");
+      return "failed";
+    }
+    if ((await loadOffPresetResolver(db, row.managerUserId)).isOff("arrival_guide", moveInRendered.propertyId || null)) {
+      await resolveReminder(db, row.id, workerId, "failed", "switched off in Automations");
+      return "failed";
+    }
+  }
   const { subject, body } =
     stayRendered ??
+    moveInRendered ??
     renderReminder({
       kind: row.kind,
       leadMinutes: row.leadMinutes,
@@ -313,7 +335,16 @@ export async function dispatchReminderRow(
         fromName: sender.name,
         subject,
         text: body,
-        ...(stayRendered
+        ...(moveInRendered
+          ? {
+              // Same proof as the guest's: the resident is the login on the application row re-read just
+              // now (this sender's, approved, same email as the queued row).
+              toUserIds: [moveInRendered.guestUserId],
+              recipientsAuthorizedByCaller: true,
+              propertyId: moveInRendered.propertyId || null,
+              ...(moveInRendered.smsText ? { smsText: moveInRendered.smsText } : {}),
+            }
+          : stayRendered
           ? {
               // The guest is the login on the stay row re-read just now (manager = this sender,
               // confirmed, same user as the queued row), which is the proof the inbox's
@@ -329,7 +360,7 @@ export async function dispatchReminderRow(
             : { toEmails: [row.recipientEmail] }),
         deliverToPortalInbox: channels.inbox,
         deliverViaEmail: channels.email,
-        deliverViaSms: channels.sms,
+        deliverViaSms: channels.sms && moveInRendered?.smsAllowed !== false,
         eventCategory: CATEGORY_BY_KIND[row.kind],
         automated: true,
         senderRole: "manager",

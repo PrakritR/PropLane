@@ -1336,7 +1336,7 @@ export function ResidentApplicationsPanel({
         >
           {renderRoutedList(listRows)}
           {staysForSection.length > 0 ? (
-            <ResidentStayApplicationRows stays={staysForSection} today={staysToday} basePath={basePath} onOpenTimes={guestStays.openTimes} />
+            <ResidentStayApplicationRows stays={staysForSection} today={staysToday} basePath={basePath} onOpenTimes={guestStays.openTimes} onOpenGuide={guestStays.openGuide} />
           ) : null}
           {staysFailed && !nothingToShow ? (
             <div role="alert" className="flex items-center justify-between gap-3 px-4 py-3 text-[13px] text-muted" data-attr="resident-stays-load-error">

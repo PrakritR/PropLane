@@ -230,7 +230,11 @@ describe("lookup_property_knowledge: resident", () => {
       phase: "approved", managerTier: "pro", moveInDetailsLocked: false, landlordId: "r1", db, ...over,
     } as ResidentAgentContext;
   }
-  const lease = { portal_lease_pipeline_records: [{ manager_user_id: "ownerA", resident_email: "r@example.com", row_data: { propertyId: "p1", status: "Active" } }] };
+  const lease = {
+    portal_lease_pipeline_records: [{ manager_user_id: "ownerA", resident_email: "r@example.com", row_data: { propertyId: "p1", status: "Active" } }],
+    // The check-in reveal reads the resident's tenancy row: an approved resident with no move-in date on file is already in.
+    manager_application_records: [{ id: "app-r", manager_user_id: "ownerA", resident_email: "r@example.com", row_data: { bucket: "approved", stage: "Approved", name: "R", propertyId: "p1", assignedPropertyId: "p1" } }],
+  };
 
   it("hears residents' answers and the house's details once move-in is unlocked", async () => {
     const fake = knowledgeFakeDb(seed(lease));

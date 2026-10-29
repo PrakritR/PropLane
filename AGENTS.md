@@ -444,6 +444,7 @@ answer. Fail closed to `true`.
 | Area | Read first | Never violate |
 | --- | --- | --- |
 | Resident My home | `docs/agents/resident-my-home.md` | Peer details redacted server-side; missing prefs disclose nothing |
+| Check-in (codes) | `docs/agents/resident-my-home.md` § Check-in | `checkInReveal` is the one reveal decision (24 h before check-in/move-in; signed lease / confirmed stay); codes are `null` in the data until then, never hidden in markup; `houseInfo.internal` (pantry/lockbox/mailbox) is staff-only and removed from every non-staff reader's data (`houseInfoWithoutInternal`); one guide for residents and guests; "I'm in" is session-derived and idempotent |
 | Services system | `docs/agents/services-system.md` | One vocabulary: Open · Assigned · Scheduled · Completed (`service-lifecycle.ts`); only a submitted bid is approvable; offered vendors see the general area only |
 | Vendor portal | `docs/agents/vendor-portal.md` | Scope by `vendor_user_id = auth.uid()`; accepted bid `amount_cents` is immutable |
 | Financials | `docs/agents/financials.md` | Ledger is write-through (`syncLedger*`); `security_deposit` is liability |

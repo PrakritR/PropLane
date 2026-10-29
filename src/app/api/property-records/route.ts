@@ -28,6 +28,7 @@ import { reconcileListingApplicationFormOnWrite } from "@/lib/listing-applicatio
 import { OPERATIONS_SETTINGS_KEY } from "@/lib/settings/property-overrides.server";
 import { resolveCreateListingOwner } from "@/lib/auth/workspace-add-property.server";
 import { preserveServerOwnedApplicationVersions } from "@/lib/rental-application/server-owned-template-versions";
+import { propertyRecordWithoutInternal } from "@/lib/house-info-visibility";
 import { resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { normalizeLegacyLeaseTerms } from "@/lib/rental-application/lease-terms";
 import {
@@ -246,6 +247,15 @@ export async function GET(req: Request) {
       const seen = new Set(rows.map((row) => row.id));
       rows = [...rows, ...((linkedRows ?? []).filter((row) => !seen.has(row.id)))];
     }
+
+    // The staff-only Internal section (pantry / lockbox / mailbox codes) goes to the row's own manager
+    // and to a teammate holding Properties at EDIT on that house. A Viewer, an owner seat or anyone
+    // else reads the house without it: removed from the payload, not hidden in the page.
+    rows = rows.map((row) =>
+      String(row.manager_user_id ?? "") === user.id || coManagerModuleAllowed(permsByProperty.get(String(row.id)), String(row.id), "properties", "edit")
+        ? row
+        : propertyRecordWithoutInternal(row),
+    );
 
     // Return authoritative linked ids from the same invite query so the client
     // does not re-scope with a stale/empty local relationship cache (which used

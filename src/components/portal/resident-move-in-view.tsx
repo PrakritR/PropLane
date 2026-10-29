@@ -7,6 +7,8 @@ import { ResidentHousemateSharing } from "@/components/portal/resident-housemate
 import { ResidentFormsLock } from "@/components/portal/move-in-forms/resident-forms-lock";
 import { ResidentMoveInMediaGallery } from "@/components/portal/move-in-media-fields";
 import { HouseInfoReadSections } from "@/components/portal/house-info-sections";
+import { ResidentCheckInGuide } from "@/components/portal/resident-check-in-guide";
+import type { CheckInGuide } from "@/lib/check-in-guide";
 import { houseInfoIsEmpty } from "@/lib/house-info";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -448,17 +450,24 @@ export function InstructionsTabContent({
 
 function ResidentMoveInTabContent({
   activeTab,
-  resolved,
+  resolved: resolvedForTab,
   focusRoomId,
   basePath,
   leaseSigned,
+  checkIn,
 }: {
   activeTab: ResidentMoveInTabId;
   resolved: ResidentMoveInResolved;
   focusRoomId?: string;
   basePath: string;
   leaseSigned: boolean;
+  checkIn?: CheckInGuide | null;
 }) {
+  // With a check-in guide, the door, Wi-Fi and checkout sections are its numbered steps; the rest of
+  // the house (rules, trash, contacts), the manager's own instructions and the amenities follow it.
+  const resolved: ResidentMoveInResolved = checkIn
+    ? { ...resolvedForTab, houseInfo: { ...resolvedForTab.houseInfo, access: {}, wifi: {}, checkout: {} } }
+    : resolvedForTab;
   switch (activeTab) {
     case "placement":
       return <PlacementTabContent resolved={resolved} basePath={basePath} leaseSigned={leaseSigned} />;
@@ -469,6 +478,16 @@ function ResidentMoveInTabContent({
       // and a "Move-in" tab beside "Inspections" read as a second inspection.
       // One block per part that has content; one empty state when none does.
       const parts = residentMoveInInfoParts(resolved);
+      if (checkIn) {
+        return (
+          <div className="space-y-6">
+            <ResidentCheckInGuide guide={checkIn} />
+            {parts.hasInfo ? <InfoTabContent resolved={resolved} /> : null}
+            {parts.hasArrival ? <InstructionsTabContent resolved={resolved} focusRoomId={focusRoomId} /> : null}
+            <AmenitiesSection resolved={resolved} />
+          </div>
+        );
+      }
       if (parts.isEmpty) {
         return (
           <PageBody>
@@ -500,6 +519,7 @@ export function ResidentMoveInShell({
   leaseSigned = false,
   formsLock,
   inspectionsTypeFilter,
+  checkIn,
 }: {
   activeTab?: string;
   basePath?: string;
@@ -517,6 +537,8 @@ export function ResidentMoveInShell({
   leaseSigned?: boolean;
   /** My home › Inspections list preselected to one type (`.../inspections/{move-in|move-out}`). */
   inspectionsTypeFilter?: ResidentInspectionTypeFilter;
+  /** The Check-in tab's numbered steps, built server-side with the codes already masked or revealed. */
+  checkIn?: CheckInGuide | null;
 }) {
   const tabId = parseResidentMoveInTab(activeTab);
 
@@ -569,7 +591,7 @@ export function ResidentMoveInShell({
           {formsLock && tabId === "info" ? (
             <ResidentFormsLock basePath={basePath} formId={formsLock.formId} readFailed={formsLock.readFailed} />
           ) : (
-          <ResidentMoveInTabContent activeTab={tabId} resolved={resolved} focusRoomId={focusRoomId} basePath={basePath} leaseSigned={leaseSigned} />
+          <ResidentMoveInTabContent activeTab={tabId} resolved={resolved} focusRoomId={focusRoomId} basePath={basePath} leaseSigned={leaseSigned} checkIn={checkIn} />
           )}
         </>
       )}

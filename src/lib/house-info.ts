@@ -24,7 +24,18 @@ export type HouseInfoSectionId =
   | "rules"
   | "contacts"
   | "laundry"
-  | "safety";
+  | "safety"
+  /** What a resident does on the way out: trash, keys, lights (Check-in tab, checkout step). */
+  | "checkout"
+  /**
+   * STAFF ONLY: pantry, lockbox and mailbox codes and notes. Managers with Properties access and
+   * PropLane staff read it; a resident, guest, owner viewer, vendor, the public page, a printable and
+   * every outbound message never do (`houseInfoWithoutInternal`, `HOUSE_INTERNAL_SECTION_ID`).
+   */
+  | "internal";
+
+/** The one staff-only section. Everything that serves a non-staff reader strips it by this id. */
+export const HOUSE_INTERNAL_SECTION_ID = "internal" satisfies HouseInfoSectionId;
 
 /**
  * `timeRange` owns TWO stored keys (`key` and `pairKey`) and renders as one
@@ -76,7 +87,7 @@ export type HouseInfoSectionSpec = {
 };
 
 /** Shown on Move-in (whole house), not the House details resident list. */
-export const HOUSE_INFO_MOVE_IN_SECTION_IDS: readonly HouseInfoSectionId[] = ["access", "wifi"];
+export const HOUSE_INFO_MOVE_IN_SECTION_IDS: readonly HouseInfoSectionId[] = ["access", "wifi", "checkout"];
 
 export const HOUSE_INFO_SECTIONS: readonly HouseInfoSectionSpec[] = [
   {
@@ -101,6 +112,8 @@ export const HOUSE_INFO_SECTIONS: readonly HouseInfoSectionSpec[] = [
         label: "Other access notes",
         kind: "textarea",
         placeholder: "Side gate sticks — lift and push. Package room is the second door on the left.",
+        // Free text is where a manager types a code: it unlocks and masks with the codes.
+        secret: true,
       },
     ],
   },
@@ -247,6 +260,27 @@ export const HOUSE_INFO_SECTIONS: readonly HouseInfoSectionSpec[] = [
       { key: "extinguisher", label: "Extinguisher & first aid", kind: "text", placeholder: "Under the kitchen sink" },
     ],
   },
+  {
+    id: "checkout",
+    label: "Checkout",
+    fields: [
+      { key: "timeNote", label: "Checkout time", kind: "text", placeholder: "By 11:00 AM on your last day" },
+      { key: "trash", label: "Trash", kind: "text", placeholder: "Take your trash to the bin" },
+      { key: "keys", label: "Keys and doors", kind: "text", placeholder: "Leave the room door unlocked" },
+      { key: "lights", label: "Lights and windows", kind: "text", placeholder: "Lights off, windows closed" },
+      { key: "other", label: "Anything else", kind: "textarea", placeholder: "Strip the bed and leave the linens by the door." },
+    ],
+  },
+  {
+    id: "internal",
+    label: "Internal (staff only)",
+    fields: [
+      { key: "pantryCode", label: "Pantry code", kind: "text", copyable: true, secret: true, internal: true },
+      { key: "lockboxCode", label: "Lockbox code", kind: "text", copyable: true, secret: true, internal: true },
+      { key: "mailboxCode", label: "Mailbox code", kind: "text", copyable: true, secret: true, internal: true },
+      { key: "notes", label: "Notes", kind: "textarea", secret: true, internal: true },
+    ],
+  },
 ] as const;
 
 /** Every stored section is a flat bag of strings — see {@link HOUSE_INFO_SECTIONS}. */
@@ -261,6 +295,9 @@ export type HouseInfoV1 = {
   contacts: HouseInfoSectionValues;
   laundry: HouseInfoSectionValues;
   safety: HouseInfoSectionValues;
+  checkout: HouseInfoSectionValues;
+  /** Staff only: see {@link HOUSE_INTERNAL_SECTION_ID}. Empty on anything a non-staff reader gets. */
+  internal: HouseInfoSectionValues;
   /** The escape hatch, and where unmatched legacy text lands verbatim. */
   other: string;
   /**
@@ -328,6 +365,46 @@ export function emptyHouseInfo(): HouseInfoV1 {
   return normalizeHouseInfo(null);
 }
 
+/**
+ * The house details with the staff-only section emptied. The one function every non-staff reader
+ * (resident payload, assistant, printable, public projection, outbound message) goes through, so a
+ * new reader cannot forget the section: it is removed from the DATA, not hidden in the markup.
+ */
+export function houseInfoWithoutInternal(info: HouseInfoV1 | null | undefined): HouseInfoV1 {
+  const normalized = normalizeHouseInfo(info);
+  return { ...normalized, internal: {} };
+}
+
+/**
+ * The house details with every SECRET field emptied (door, gate, lockbox, Wi-Fi password, alarm, and
+ * the staff section): what a resident is sent before the check-in reveal. Removed from the data, so
+ * the browser never holds a code it was not yet meant to show.
+ */
+export function houseInfoWithoutSecrets(info: HouseInfoV1 | null | undefined): HouseInfoV1 {
+  const out = houseInfoWithoutInternal(info);
+  for (const spec of HOUSE_INFO_SECTIONS) {
+    const bag = { ...out[spec.id] };
+    for (const field of spec.fields) {
+      if (field.secret) delete bag[field.key];
+    }
+    out[spec.id] = bag;
+  }
+  return out;
+}
+
+/** The staff card's rows: pantry, lockbox and mailbox codes and notes. Empty values are dropped. */
+export function houseInfoInternalRows(info: HouseInfoV1 | null | undefined): HouseInfoRow[] {
+  if (!info) return [];
+  const spec = HOUSE_INFO_SECTIONS.find((s) => s.id === HOUSE_INTERNAL_SECTION_ID);
+  if (!spec) return [];
+  const rows: HouseInfoRow[] = [];
+  for (const field of spec.fields) {
+    const value = getHouseInfoValue(info, HOUSE_INTERNAL_SECTION_ID, field.key);
+    if (value) rows.push({ label: field.label, value, copyable: Boolean(field.copyable) });
+  }
+  return rows;
+}
+
 export function getHouseInfoValue(info: HouseInfoV1, sectionId: HouseInfoSectionId, key: string): string {
   return info[sectionId]?.[key] ?? "";
 }
@@ -373,6 +450,7 @@ export function houseInfoResidentsReadTabSections(
   return HOUSE_INFO_SECTIONS.filter(
     (spec) =>
       spec.id !== "rules" &&
+      spec.id !== HOUSE_INTERNAL_SECTION_ID &&
       !HOUSE_INFO_MOVE_IN_SECTION_IDS.includes(spec.id) &&
       (!spec.optional || !houseInfoSectionIsEmpty(info, spec)),
   );
@@ -460,10 +538,15 @@ function squashForSecretMatch(value: string): string {
  * the same code), and a secret shorter than four characters is matched only as a whole token so a
  * two-digit code does not flag every number.
  */
-export function containsHouseSecret(text: string, info: HouseInfoV1 | null | undefined): boolean {
+export function containsHouseSecret(
+  text: string,
+  info: HouseInfoV1 | null | undefined,
+  /** Secrets that live outside `houseInfo` (a room's door code): `listingRoomSecretValues`. */
+  extraSecrets: readonly string[] = [],
+): boolean {
   const haystack = squashForSecretMatch(text);
   if (!haystack) return false;
-  for (const secret of houseInfoSecretValues(info)) {
+  for (const secret of [...houseInfoSecretValues(info), ...extraSecrets]) {
     const needle = squashForSecretMatch(secret);
     if (!needle) continue;
     if (needle.length < 4) {

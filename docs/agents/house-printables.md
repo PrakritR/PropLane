@@ -19,7 +19,8 @@ of those records, so they cannot drift from what the manager typed.
 
 `buildHousePublicPage` (`src/lib/house-printables/model.ts`) is an **allowlist**
 over `HOUSE_PUBLIC_SECTIONS = ["rules", "trash"]`. It never reads the access,
-wifi, contacts, safety or laundry sections, and the bin location and
+wifi, contacts, safety, laundry, checkout or **internal** sections (Internal is the
+staff-only pantry / lockbox / mailbox card: not even the welcome sheet prints it), and the bin location and
 between-cleanings chores are dropped from trash too. The door card and poster
 render from the same model. `tests/unit/house-printables-privacy.test.ts` fills
 every field of every section with a self-naming value and asserts none reaches

@@ -38,7 +38,7 @@ import {
   type BookingTimeline,
   type StayAddOns,
 } from "@/lib/bookings/stay-times";
-import { normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
+import { houseInfoWithoutInternal, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
 import { ROOM_DATE_BLOCK_RECORD_TYPE } from "@/lib/portal-schedule-record-scope";
 import { reminderAnchorMatches } from "@/lib/reminders/current.server";
 import { materializeReminders, type ReminderQueueRow, type ReminderRecipient } from "@/lib/reminders/queue.server";
@@ -164,7 +164,23 @@ function propertyLabel(record: PropertyRecord | undefined): string {
 
 function houseInfoOf(record: PropertyRecord | undefined): HouseInfoV1 {
   const submission = asRecord(asRecord(record?.property_data).listingSubmission);
-  return normalizeHouseInfo(submission.houseInfo);
+  // The staff-only Internal section (pantry / lockbox / mailbox codes) never reaches a guest message.
+  return houseInfoWithoutInternal(normalizeHouseInfo(submission.houseInfo));
+}
+
+/** The guest's room as the manager named it, with its structured door code (a secret: send time only). */
+function roomOf(record: PropertyRecord | undefined, roomId: string): { label: string; doorCode: string } {
+  const submission = asRecord(asRecord(record?.property_data).listingSubmission);
+  const rooms = Array.isArray(submission.rooms) ? submission.rooms : [];
+  const room = rooms.map(asRecord).find((candidate) => text(candidate.id) === roomId);
+  return { label: text(room?.name), doorCode: text(room?.doorCode) };
+}
+
+/** The house's own checkout steps (trash, keys, lights, anything else), from its Checkout section. */
+function checkoutLinesOf(info: HouseInfoV1): string[] {
+  return ["trash", "keys", "lights", "other"]
+    .map((key) => (info.checkout?.[key] ?? "").trim())
+    .filter(Boolean);
 }
 
 function staysUrl(): string {
@@ -382,7 +398,17 @@ export async function renderStayTimeReminder(db: SupabaseClient, row: ReminderQu
   const guestName = text(row.payload.recipientName) || stay.guestName;
   if (row.kind === "stay_arrival_guide") {
     const houseInfo = houseInfoOf(property);
-    const input = { checkIn: stay.checkIn, checkInTime: stay.checkInTime, staysUrl: url, guestName, propertyLabel: place };
+    const room = roomOf(property, stay.roomId);
+    const input = {
+      checkIn: stay.checkIn,
+      checkInTime: stay.checkInTime,
+      staysUrl: url,
+      guestName,
+      propertyLabel: place,
+      roomLabel: room.label,
+      roomDoorCode: room.doorCode,
+      checkOutTime: stay.checkOutTime,
+    };
     return {
       subject: place ? `Your arrival guide for ${place}` : "Your arrival guide",
       body: buildArrivalGuideText(houseInfo, input),
@@ -391,7 +417,13 @@ export async function renderStayTimeReminder(db: SupabaseClient, row: ReminderQu
       propertyId: stay.propertyId,
     };
   }
-  const body = buildCheckoutReminderText({ checkOutTime: stay.checkOutTime, staysUrl: url, guestName, propertyLabel: place });
+  const body = buildCheckoutReminderText({
+    checkOutTime: stay.checkOutTime,
+    staysUrl: url,
+    guestName,
+    propertyLabel: place,
+    checkoutLines: checkoutLinesOf(houseInfoOf(property)),
+  });
   return {
     subject: `Checkout is at ${formatStayTime(stay.checkOutTime)} today`,
     body,

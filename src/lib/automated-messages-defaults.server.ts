@@ -5,6 +5,7 @@ import "server-only";
  * renderers with sample facts, so the Settings modal shows a manager exactly
  * what goes out today before they change it.
  */
+import { checkedInNoticeText } from "@/lib/check-in-notice-text";
 import { AUTOMATED_MESSAGE_CATALOG, type AutomatedMessageAudience } from "@/lib/automated-messages-settings";
 import {
   renderApplicationActionEvent,
@@ -113,6 +114,10 @@ function renderDefault(domain: string, event: string, audience: AutomatedMessage
       },
       "5259 Brooklyn Ave",
     );
+  }
+  if (domain === "channel_booking" && audience === "manager" && event === "resident_checked_in") {
+    const text = checkedInNoticeText({ residentName: "Alex Guest", propertyLabel: "5259 Brooklyn Ave", roomLabel: "Room 3" });
+    return { subject: "Checked in", text };
   }
   if (domain === "channel_booking" && audience === "manager") {
     return renderChannelBookingEvent(event as ChannelBookingEvent, { provider: "airbnb", propertyLabel: "5259 Brooklyn Ave", roomLabel: "Room 3", start: "2026-10-12", end: "2026-10-14" });

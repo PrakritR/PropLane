@@ -43,6 +43,9 @@ export const HOUSE_PRIVATE_SECTIONS: readonly HouseInfoSectionId[] = [
   "contacts",
   "safety",
   "laundry",
+  "checkout",
+  // Staff only: not even the resident's own welcome sheet reads it (`sectionLines` skips `internal` fields).
+  "internal",
 ] as const;
 
 export type HousePrintableLine = { label: string; value: string };

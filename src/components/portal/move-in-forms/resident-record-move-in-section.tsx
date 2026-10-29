@@ -209,7 +209,8 @@ export function ResidentRecordMoveInSection({
 
   const tabItems = RESIDENT_MOVE_IN_TABS.map((id) => ({
     id,
-    label: id === "placement" ? "Placement" : RESIDENT_MOVE_IN_TAB_LABELS[id],
+    // The resident's tab is Check-in; the manager's record tab is still the house's details (no steps, no reveal).
+    label: id === "placement" ? "Placement" : id === "info" ? "Move-in details" : RESIDENT_MOVE_IN_TAB_LABELS[id],
     dataAttr: `resident-move-in-tab-${id}`,
   }));
   const openPropertyMoveIn = () => navigate(propertyDetailHref(basePath, "all", propertyId, "move-in"));

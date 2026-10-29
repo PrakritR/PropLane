@@ -69,6 +69,11 @@ export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRo
     const { stayTimeReminderIsCurrent } = await import("./subjects/stay-times.server");
     return stayTimeReminderIsCurrent(db, row);
   }
+  if (row.kind === "move_in_arrival") {
+    // The resident's check-in steps re-read the tenancy: same resident, same move-in instant.
+    const { moveInArrivalIsCurrent } = await import("./subjects/move-in-arrival.server");
+    return moveInArrivalIsCurrent(db, row);
+  }
   const expectedAnchor = row.payload.anchorIso;
   // Backward compatibility for rows created before anchor snapshots shipped.
   if (!iso(expectedAnchor)) return true;

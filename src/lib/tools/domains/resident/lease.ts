@@ -9,6 +9,8 @@ import {
   hasBothLeaseSignatures,
 } from "@/lib/lease-amendment.server";
 import { houseInfoRenderSections } from "@/lib/house-info";
+import { formatRevealLabel } from "@/lib/check-in-reveal";
+import { residentCheckInReveal } from "@/lib/check-in.server";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   asObject,
@@ -16,6 +18,7 @@ import {
   resolveBestResidentRow,
   resolveResidentMoveInFromApplications,
   redactMoveInDetails,
+  maskUnrevealedCheckIn,
 } from "@/lib/resident-move-in-resolve";
 import { loadResidentEmailRows, untrustedText } from "./load-resident-rows";
 import { applicationPropertyId } from "./property-research-application";
@@ -152,14 +155,26 @@ export const getMoveInInfoTool = defineTool({
     // The agent withholds exactly the same content through the same function. Anything other than an
     // explicit `false` locks (a context built without the flag, or after a failed forms read).
     const moveInDetailsLocked = ctx.moveInDetailsLocked !== false;
-    const resolved = moveInDetailsLocked ? redactMoveInDetails(resolvedFull) : resolvedFull;
+    const redacted = moveInDetailsLocked ? redactMoveInDetails(resolvedFull) : resolvedFull;
     // Door, gate and alarm codes, the lockbox and the Wi-Fi password are exactly
     // what the portal's My home section withholds until the lease is signed
     // (`STAGE_UNLOCKED_SECTIONS` unlocks `move-in` only at `post_lease`).
     // `ctx.phase` is that same unlock — `leaseAccessUnlocked`, a signed lease or
     // an attested tenancy — so an approved applicant who has not signed gets the
     // address and the date and nothing that opens the door.
-    const houseAccessUnlocked = ctx.phase === "approved";
+    //
+    // The check-in reveal is one more condition on the same unlock (`checkInReveal`, the SAME decision the
+    // Check-in tab makes): codes, the Wi-Fi password and the manager's free-text instructions are withheld
+    // until 24 hours before move-in, however the question is asked. The staff-only Internal section is not
+    // in `resolved` at all (`houseInfoWithoutInternal`), so no question can surface it.
+    const leaseUnlocked = ctx.phase === "approved";
+    const reveal = leaseUnlocked
+      ? await residentCheckInReveal(ctx.db, ctx.email, { managerUserId: ctx.activeManagerId, leaseUnlocked })
+      : null;
+    const houseAccessUnlocked = leaseUnlocked && Boolean(reveal?.revealed);
+    const resolved = houseAccessUnlocked || moveInDetailsLocked ? redacted : maskUnrevealedCheckIn(redacted);
+    const codesUnlockLabel =
+      leaseUnlocked && reveal && !reveal.revealed ? formatRevealLabel(reveal.revealAtIso) : null;
     let lockedNotice: string | null = null;
     if (moveInDetailsLocked) {
       if (ctx.moveInDetailsLockReadFailed || ctx.moveInDetailsLocked === undefined || !ctx.moveInDetailsLockFormId) {
@@ -185,6 +200,9 @@ export const getMoveInInfoTool = defineTool({
     }
     return {
       ...(lockedNotice ? { moveInDetailsLocked: true, lockedNotice } : {}),
+      ...(codesUnlockLabel
+        ? { codesLocked: true, codesNotice: `Your door codes and Wi-Fi password unlock ${codesUnlockLabel}, 24 hours before check-in.` }
+        : {}),
       moveIn: {
         propertyLabel: resolved.propertyLabel,
         addressLine: resolved.addressLine,
@@ -193,10 +211,11 @@ export const getMoveInInfoTool = defineTool({
         amenities: resolved.amenities,
         wifiNetworkName: houseAccessUnlocked ? resolved.wifiNetworkName : null,
         wifiPassword: houseAccessUnlocked ? resolved.wifiPassword : null,
+        roomDoorCode: houseAccessUnlocked ? resolved.roomDoorCode : null,
         // Structured house details, so "what is the door code" is answered from
         // a field instead of by quoting a paragraph back at the resident. Still
         // the manager's words, so still untrusted.
-        houseDetails: (houseAccessUnlocked ? houseInfoRenderSections(resolved.houseInfo) : []).map((section) => ({
+        houseDetails: (leaseUnlocked ? houseInfoRenderSections(resolved.houseInfo) : []).map((section) => ({
           section: section.label,
           rows: section.rows.map((row) => ({
             label: row.label,

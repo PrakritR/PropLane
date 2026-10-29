@@ -12,6 +12,10 @@
  * projection. The caller (`subjects/stay-times.server.ts`) builds it at send
  * time and never stores it in a reminder payload.
  *
+ * The room's own door code is the structured `ManagerRoomSubmission.doorCode` (passed in by the caller,
+ * never read out of the free-text instructions). The staff-only Internal section (pantry / lockbox /
+ * mailbox codes) is NEVER read here: only the named `access` / `wifi` / `rules` / `checkout` keys are.
+ *
  * Length: kept within `ARRIVAL_GUIDE_MAX_SEGMENTS` billed text segments. When
  * the house has more to say than fits, optional sections drop first (greeting,
  * extra rules, access notes, house rules, parking, Wi-Fi). The check-in time,
@@ -35,6 +39,15 @@ export type ArrivalGuideStay = {
   staysUrl?: string | null;
   guestName?: string | null;
   propertyLabel?: string | null;
+  /** The guest's room and its structured door code (a SECRET: verbatim, priority 0). */
+  roomLabel?: string | null;
+  roomDoorCode?: string | null;
+  /** The stay's real checkout, "HH:MM": the guide ends with "Checkout is at 11:00 am." */
+  checkOutTime?: string | null;
+  /** The Check-in tab (steps and photos) the message links to. Wins over `staysUrl` when both are set. */
+  checkInUrl?: string | null;
+  /** The street address, when the message should lead with where to go (the long-term move-in message). */
+  addressLine?: string | null;
 };
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -77,6 +90,8 @@ function guideBlocks(houseInfo: HouseInfoV1 | null | undefined, stay: ArrivalGui
   if (time) {
     blocks.push({ priority: 0, lines: [`Check-in is at ${formatStayTime(time)}${day ? ` on ${day}` : ""}.`] });
   }
+  const address = toGsm7(String(stay.addressLine ?? "").trim());
+  if (address) blocks.push({ priority: 2, lines: [`Address: ${address}`] });
   blocks.push({
     priority: 0,
     lines: [
@@ -85,8 +100,15 @@ function guideBlocks(houseInfo: HouseInfoV1 | null | undefined, stay: ArrivalGui
       line("Key pickup", get("access", "keyPickup")),
     ].filter(Boolean),
   });
+  const roomCode = String(stay.roomDoorCode ?? "").trim();
+  if (roomCode) {
+    const roomName = toGsm7(String(stay.roomLabel ?? "").trim());
+    blocks.push({ priority: 0, lines: [line(roomName ? `${roomName} code` : "Room code", roomCode, { verbatim: true })] });
+  }
+  const checkInUrl = String(stay.checkInUrl ?? "").trim();
   const staysUrl = String(stay.staysUrl ?? "").trim();
-  if (staysUrl) blocks.push({ priority: 3, lines: [`Your stay: ${staysUrl}`] });
+  if (checkInUrl) blocks.push({ priority: 3, lines: [`Steps and photos: ${checkInUrl}`] });
+  else if (staysUrl) blocks.push({ priority: 3, lines: [`Your stay: ${staysUrl}`] });
   const network = get("wifi", "network");
   const password = get("wifi", "password");
   if (network || password) {
@@ -98,6 +120,8 @@ function guideBlocks(houseInfo: HouseInfoV1 | null | undefined, stay: ArrivalGui
     });
   }
   blocks.push({ priority: 5, lines: [line("Parking", get("access", "parking"))].filter(Boolean) });
+  const checkOut = normalizeStayTime(stay.checkOutTime);
+  if (checkOut) blocks.push({ priority: 6, lines: [`Checkout is at ${formatStayTime(checkOut)}.`] });
   blocks.push({ priority: 7, lines: [line("Access notes", get("access", "notes"))].filter(Boolean) });
 
   const quietFrom = get("rules", "quietFrom");
@@ -168,9 +192,11 @@ export type CheckoutReminderStay = {
   staysUrl?: string | null;
   guestName?: string | null;
   propertyLabel?: string | null;
+  /** The house's Checkout section, one line each (trash, keys, lights). Appended after the time. */
+  checkoutLines?: readonly string[];
 };
 
-/** "Checkout is at 11:00 am today." plus the guest's Stays link. */
+/** "Checkout is at 11:00 am today." plus the house's checkout steps and the guest's Stays link. */
 export function buildCheckoutReminderText(stay: CheckoutReminderStay): string {
   const time = normalizeStayTime(stay.checkOutTime);
   const first = firstName(stay.guestName);
@@ -179,6 +205,7 @@ export function buildCheckoutReminderText(stay: CheckoutReminderStay): string {
   return [
     first ? `Hi ${toGsm7(first)},` : "",
     time ? `Checkout is at ${formatStayTime(time)} today${place ? ` at ${place}` : ""}.` : `Checkout is today${place ? ` at ${place}` : ""}.`,
+    ...(stay.checkoutLines ?? []).map((value) => toGsm7(value).replace(/\s*\n+\s*/g, " ")).filter(Boolean),
     staysUrl ? `Your stay: ${staysUrl}` : "",
   ]
     .filter(Boolean)

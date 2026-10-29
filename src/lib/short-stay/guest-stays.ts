@@ -258,7 +258,7 @@ export function withGuestSignInPrompt(text: string, origin: string | null | unde
 
 /* ─────────────────── what a manager's save must not strip ─────────────────── */
 
-const CARRIED_STAY_DETAIL_KEYS = ["guests", "holdExpiresAt", "decision", "confirmedAt", "decidedAt", "application"] as const;
+const CARRIED_STAY_DETAIL_KEYS = ["guests", "holdExpiresAt", "decision", "confirmedAt", "decidedAt", "application", "checkedInAt"] as const;
 
 /**
  * The booking editor posts back only the fields it draws. For a guest's stay, the guest's login

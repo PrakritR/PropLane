@@ -50,6 +50,71 @@ function MediaPickTrigger({
   );
 }
 
+/**
+ * One real photo (a front door, a room's door, the house from the street). A real upload only: with no
+ * file the slot is empty and the resident's step simply has no photo; nothing is ever substituted.
+ */
+export function SinglePhotoField({
+  label,
+  url,
+  disabled,
+  onChange,
+  onError,
+  dataAttr,
+}: {
+  label: string;
+  url: string | null | undefined;
+  disabled: boolean;
+  onChange: (url: string | null) => void;
+  onError: (message: string) => void;
+  dataAttr?: string;
+}) {
+  const [uploading, setUploading] = useState(false);
+
+  const onPick = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file || disabled) return;
+    setUploading(true);
+    try {
+      const [uploaded] = await uploadListingImageFiles([file]);
+      if (uploaded) onChange(uploaded);
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Photo upload failed.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div data-attr={dataAttr}>
+      <p className="text-xs font-semibold text-muted">{label}</p>
+      {url ? (
+        <div className="relative mt-2 h-24 w-32 overflow-hidden rounded-lg border border-border">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={url} alt={label} className="h-full w-full object-cover" />
+          {!disabled ? (
+            <button
+              type="button"
+              aria-label={`Remove ${label.toLowerCase()}`}
+              className="absolute right-1 top-1 rounded-full bg-background/90 p-0.5 text-foreground shadow"
+              onClick={() => onChange(null)}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {!disabled ? (
+        <div className="mt-2">
+          <MediaPickTrigger accept="image/*" disabled={uploading} onFiles={(files) => { void onPick(files); }}>
+            {uploading ? "Uploading…" : url ? "Replace photo" : "Add photo"}
+          </MediaPickTrigger>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function MoveInMediaFields({
   photoDataUrls,
   videoDataUrl,

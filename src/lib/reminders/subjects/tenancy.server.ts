@@ -7,6 +7,8 @@
  * `leaseStart` / `leaseEnd`. Everything here anchors on those:
  *
  *   move_in                     7 and 1 days before move-in, resident + manager
+ *   move_in_arrival             24 h before the move-in instant: check-in steps + codes, resident
+ *                               (own file: subjects/move-in-arrival.server.ts)
  *   move_in_payment_method      before the first charge is due, when no card is on file
  *   lease_ending                60 and 30 days before the lease ends, resident
  *   lease_ending_manager        90, 60 and 30 days before, manager
@@ -30,7 +32,9 @@ import {
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
 import { loadLeaseAutomationSettingsForManagers } from "@/lib/lease-automation-settings.server";
 import { loadOffPresetResolver, type OffPresetResolver } from "@/lib/automations/store.server";
-import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
+import { formatIsoDateInput, parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
+import { wallInstantIso } from "@/lib/bookings/stay-times";
+import type { PropertyStayClock } from "@/lib/bookings/property-stay-times.server";
 
 const MAX_ROWS = 1000;
 
@@ -94,7 +98,15 @@ export function tenancyRowFromRecord(record: {
   };
 }
 
-async function loadTenancies(db: SupabaseClient): Promise<TenancyRow[]> {
+/**
+ * The move-in INSTANT (ISO): the move-in date at the property's check-in time in its own zone. Where
+ * the check-in reveal (`checkInReveal`) and the move-in arrival message (`move_in_arrival`) both anchor.
+ */
+export function tenancyMoveInInstantIso(moveIn: Date, clock: PropertyStayClock): string {
+  return wallInstantIso(formatIsoDateInput(moveIn), clock.times.checkInTime, clock.timeZone);
+}
+
+export async function loadTenancies(db: SupabaseClient): Promise<TenancyRow[]> {
   const { data, error } = await db
     .from("manager_application_records")
     .select("id, manager_user_id, resident_email, row_data")

@@ -4,7 +4,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import { resolveResidentForwardHouseId } from "@/lib/sms/inbound-forward-team.server";
-import { normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
+import { houseInfoWithoutInternal, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
+import { residentCheckInReveal } from "@/lib/check-in.server";
 import type { KnowledgeScopeResult } from "./types";
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -39,7 +40,8 @@ export function propertyBriefFromRow(row: Record<string, unknown>): PropertyBrie
     id: String(row.id ?? ""),
     workspaceId: row.workspace_id ? String(row.workspace_id) : null,
     label,
-    houseInfo: normalizeHouseInfo(submission?.houseInfo),
+    // The staff-only Internal section is never part of a brief an assistant answers from.
+    houseInfo: houseInfoWithoutInternal(normalizeHouseInfo(submission?.houseInfo)),
   };
 }
 
@@ -204,7 +206,8 @@ export async function resolveVendorKnowledgeScope(db: SupabaseClient, ctx: Agent
 
 /**
  * Resident: their lease's house; entries for everyone and for residents. House details only on the
- * same terms as `get_move_in_info` (approved stage and no unsubmitted blocking form).
+ * same terms as `get_move_in_info` (approved stage, no unsubmitted blocking form, and the check-in
+ * reveal: no door code or Wi-Fi password before 24 hours ahead of move-in, `checkInReveal`).
  */
 export async function resolveResidentKnowledgeScope(db: SupabaseClient, ctx: ResidentAgentContext): Promise<KnowledgeScopeResult> {
   const owners = ctx.activeManagerId ? [ctx.activeManagerId] : [...new Set(ctx.managerIds)];
@@ -216,6 +219,10 @@ export async function resolveResidentKnowledgeScope(db: SupabaseClient, ctx: Res
   const ws = await workspaceForOwner(db, ownerUserId, property);
   if (!ws.ok) return ws;
   const approved = ctx.phase === "approved";
+  const revealed =
+    Boolean(property) && approved && ctx.moveInDetailsLocked === false
+      ? (await residentCheckInReveal(db, ctx.email, { managerUserId: ownerUserId, leaseUnlocked: true })).revealed
+      : false;
   return {
     ok: true,
     scope: {
@@ -225,7 +232,7 @@ export async function resolveResidentKnowledgeScope(db: SupabaseClient, ctx: Res
       allowedPropertyIds: property ? [property.id] : [],
       focusPropertyId: property?.id ?? null,
       audiences: approved ? ["all", "residents"] : ["all"],
-      includeHouseInfo: Boolean(property) && approved && ctx.moveInDetailsLocked === false,
+      includeHouseInfo: revealed,
     },
   };
 }
