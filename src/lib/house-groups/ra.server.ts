@@ -74,7 +74,7 @@ async function defaultLookup(
   input: { workspaceId: string; ownerUserId: string; propertyId: string; question: string; askerUserId?: string | null },
 ): Promise<LookupLike> {
   const { lookupPropertyKnowledge } = await import("@/lib/one-number/knowledge/lookup.server");
-  const moveInOpen = await askerMoveInDetailsOpen(db, input.askerUserId ?? null);
+  const { moveInOpen, revealed } = await askerHouseAccess(db, input.askerUserId ?? null, input.ownerUserId);
   return lookupPropertyKnowledge(
     db,
     {
@@ -84,28 +84,40 @@ async function defaultLookup(
       allowedPropertyIds: [input.propertyId],
       focusPropertyId: input.propertyId,
       audiences: ["all", "residents"],
-      // House details (door code, Wi-Fi) only on the resident assistant's own terms: the asker's
-      // move-in details must be open. An unknown asker, or a lock read that fails, stays locked.
-      // A secret never reaches the group itself - `groupReplyPlan` sends one to the asker privately.
+      // House details only on the resident assistant's own terms: the asker's move-in details must be
+      // open, and the codes (door code, Wi-Fi) wait for the check-in reveal (`residentCheckInReveal`,
+      // 24 h before move-in). An unknown asker, or a read that fails, stays locked. A secret never
+      // reaches the group itself - `groupReplyPlan` sends one to the asker privately.
       includeHouseInfo: moveInOpen,
-      includeHouseSecrets: moveInOpen,
+      includeHouseSecrets: moveInOpen && revealed,
     },
     input.question,
   );
 }
 
-/** The move-in lock the resident assistant honours (`loadMoveInDetailsLock`), for one group member. Fails closed. */
-async function askerMoveInDetailsOpen(db: SupabaseClient, userId: string | null): Promise<boolean> {
-  if (!userId) return false;
+/**
+ * The move-in lock the resident assistant honours (`loadMoveInDetailsLock`) and the check-in reveal
+ * (`residentCheckInReveal`), for one group member. Fails closed: any unreadable step is locked.
+ */
+async function askerHouseAccess(
+  db: SupabaseClient,
+  userId: string | null,
+  ownerUserId: string,
+): Promise<{ moveInOpen: boolean; revealed: boolean }> {
+  const locked = { moveInOpen: false, revealed: false };
+  if (!userId) return locked;
   try {
     const { data } = await db.from("profiles").select("email").eq("id", userId).maybeSingle();
     const email = String((data as { email?: unknown } | null)?.email ?? "").trim().toLowerCase();
-    if (!email) return false;
+    if (!email) return locked;
     const { loadMoveInDetailsLock } = await import("@/lib/tools/resident-context");
     const lock = await loadMoveInDetailsLock(db, { email, userId });
-    return lock.moveInDetailsLocked === false;
+    if (lock.moveInDetailsLocked !== false) return locked;
+    const { residentCheckInReveal } = await import("@/lib/check-in.server");
+    const reveal = await residentCheckInReveal(db, email, { managerUserId: ownerUserId, leaseUnlocked: true });
+    return { moveInOpen: true, revealed: reveal.revealed === true };
   } catch {
-    return false;
+    return locked;
   }
 }
 

@@ -10,9 +10,15 @@ vi.mock("@/lib/comms-billing/wallet.server", () => ({
   finishCommsCredit: vi.fn(async () => undefined),
 }));
 
-const seen = vi.hoisted(() => ({ scopes: [] as Array<{ includeHouseInfo: boolean }>, lock: { moveInDetailsLocked: true } as { moveInDetailsLocked: boolean }, throwLock: false }));
+const seen = vi.hoisted(() => ({
+  scopes: [] as Array<{ includeHouseInfo: boolean; includeHouseSecrets: boolean }>,
+  lock: { moveInDetailsLocked: true } as { moveInDetailsLocked: boolean },
+  throwLock: false,
+  revealed: false,
+  throwReveal: false,
+}));
 vi.mock("@/lib/one-number/knowledge/lookup.server", () => ({
-  lookupPropertyKnowledge: async (_db: unknown, scope: { includeHouseInfo: boolean }) => {
+  lookupPropertyKnowledge: async (_db: unknown, scope: { includeHouseInfo: boolean; includeHouseSecrets: boolean }) => {
     seen.scopes.push(scope);
     return { found: false, mustEscalate: null, answers: [], houseDetails: [] };
   },
@@ -21,6 +27,13 @@ vi.mock("@/lib/tools/resident-context", () => ({
   loadMoveInDetailsLock: async () => {
     if (seen.throwLock) throw new Error("forms unreadable");
     return seen.lock;
+  },
+}));
+
+vi.mock("@/lib/check-in.server", () => ({
+  residentCheckInReveal: async () => {
+    if (seen.throwReveal) throw new Error("tenancy unreadable");
+    return { revealed: seen.revealed, reason: seen.revealed ? "open" : "too_early", revealAtIso: null };
   },
 }));
 
@@ -52,6 +65,8 @@ beforeEach(() => {
   seen.scopes = [];
   seen.lock = { moveInDetailsLocked: true };
   seen.throwLock = false;
+  seen.revealed = false;
+  seen.throwReveal = false;
 });
 
 describe("group lookups honour the move-in lock", () => {
@@ -76,5 +91,30 @@ describe("group lookups honour the move-in lock", () => {
     seen.throwLock = false;
     await ask(world(null).db, deps());
     expect(seen.scopes.map((s) => s.includeHouseInfo)).toEqual([false, false]);
+  });
+
+  it("door code and Wi-Fi wait for the check-in reveal (24 h before move-in)", async () => {
+    seen.lock = { moveInDetailsLocked: false };
+    await ask(world("u1").db, deps());
+    seen.revealed = true;
+    await ask(world("u1").db, deps());
+    expect(seen.scopes.map((s) => [s.includeHouseInfo, s.includeHouseSecrets])).toEqual([
+      [true, false],
+      [true, true],
+    ]);
+  });
+
+  it("an unreadable reveal keeps the codes locked", async () => {
+    seen.lock = { moveInDetailsLocked: false };
+    seen.revealed = true;
+    seen.throwReveal = true;
+    await ask(world("u1").db, deps());
+    expect(seen.scopes[0]!.includeHouseSecrets).toBe(false);
+  });
+
+  it("a locked member never gets codes even when the reveal says open", async () => {
+    seen.revealed = true;
+    await ask(world("u1").db, deps());
+    expect(seen.scopes[0]!.includeHouseSecrets).toBe(false);
   });
 });
