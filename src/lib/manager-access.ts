@@ -313,6 +313,8 @@ export type ManagerPurchaseRowRecord = {
   stripe_checkout_session_id: string | null;
   /** Optional: only the access-resolution path selects/needs this. */
   promo_code?: string | null;
+  /** Staff ended this account's promo at this instant; only the access-resolution path selects it. */
+  promo_ends_at?: string | null;
   /** Apple IAP anchor (App Store original transaction id); only the access path needs it. */
   apple_original_transaction_id?: string | null;
   paid_at: string | null;

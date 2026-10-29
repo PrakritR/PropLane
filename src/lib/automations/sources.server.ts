@@ -67,6 +67,7 @@ export async function loadHouseDirectory(
       propertyId: brief.id,
       propertyLabel: brief.label,
       houseInfo: brief.houseInfo,
+      roomSecrets: brief.roomSecrets,
     });
   }
   return out;

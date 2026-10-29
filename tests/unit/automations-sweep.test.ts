@@ -65,7 +65,7 @@ function seedHouse() {
   info = setHouseInfoValue(info, "wifi", "network", "BrooklynNet");
   info = setHouseInfoValue(info, "wifi", "password", "Sunset-Maple-9");
   info = setHouseInfoValue(info, "access", "parking", "Street parking");
-  const house: HouseSubject = { ownerUserId: "owner", workspaceId: "ws", propertyId: "P1", propertyLabel: "5259 Brooklyn", houseInfo: info };
+  const house: HouseSubject = { ownerUserId: "owner", workspaceId: "ws", propertyId: "P1", propertyLabel: "5259 Brooklyn", houseInfo: info, roomSecrets: [] };
   return house;
 }
 

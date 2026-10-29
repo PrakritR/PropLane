@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import { isGrandfatheredNumberRow, type GrandfatherNumberRow } from "@/lib/one-number/personal-number";
+import { managerPersonalNumberEntitlement } from "@/lib/one-number/personal-number-entitlement.server";
 import { releaseManagerNumber } from "@/lib/sms/manager-number-provisioning.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -22,9 +22,11 @@ export const runtime = "nodejs";
  * that cannot use it), then the row is marked released. A Twilio refusal
  * leaves the row untouched and is reported per account.
  *
- * Numbers provisioned before 2026-10-29 are grandfathered and skipped, whatever the plan. Paid, trial, comp and unreadable plans are skipped: only an account whose
- * EFFECTIVE plan resolves to Free loses its line, and an unreadable plan is
- * not Free.
+ * Numbers provisioned before 2026-10-29 are grandfathered and skipped, whatever the plan. Past that, who
+ * may hold a line is the ONE entitlement decision `managerPersonalNumberEntitlement` - a billable Pro /
+ * Business plan or the standalone PropLane Number subscription - so this sweep can never release a line the
+ * product would still answer on (a Free manager paying for the number add-on keeps theirs), nor leave one
+ * behind that it would not. An unreadable entitlement is never "not entitled": the row is skipped.
  */
 export async function POST(req: Request) {
   try {
@@ -58,13 +60,13 @@ export async function POST(req: Request) {
         skipped.push({ managerUserId, reason: "grandfathered" });
         continue;
       }
-      const tier = await getEffectiveManagerSkuTier(managerUserId);
-      if (!tier.ok) {
+      const entitlement = await managerPersonalNumberEntitlement(db, managerUserId);
+      if (!entitlement.ok) {
         skipped.push({ managerUserId, reason: "plan_unreadable" });
         continue;
       }
-      if (tier.tier !== "free") {
-        skipped.push({ managerUserId, reason: `plan_${tier.tier ?? "unknown"}` });
+      if (entitlement.entitled) {
+        skipped.push({ managerUserId, reason: `entitled_${entitlement.via}` });
         continue;
       }
       if (dryRun) {

@@ -26,6 +26,8 @@ export type MoveInDetailsFacts = {
   /** The house's standard check-in time, "HH:MM" wall time; the window is "after <time>". */
   checkInTime?: string | null;
   houseInfo?: HouseInfoV1 | null;
+  /** Each room's door code; a secret that lives on the room rather than in `houseInfo`. */
+  roomSecrets?: readonly string[] | null;
 };
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
@@ -59,9 +61,13 @@ function realRoom(label: string | null | undefined): string {
 }
 
 /** A fact line survives only when it carries none of the house's secrets. */
-function safeLine(value: string, houseInfo: HouseInfoV1 | null | undefined): string {
+function safeLine(
+  value: string,
+  houseInfo: HouseInfoV1 | null | undefined,
+  roomSecrets: readonly string[] = [],
+): string {
   const line = value.trim();
-  return line && !containsHouseSecret(line, houseInfo) ? line : "";
+  return line && !containsHouseSecret(line, houseInfo, roomSecrets) ? line : "";
 }
 
 /** Does the house keep any entry secret (door, gate, lockbox, Wi-Fi password)? Then the packet holds it. */
@@ -80,13 +86,14 @@ export type MoveInDetailsRendered = {
 /** The resident's Move-in details copy. `null` when there is no address to arrive at. */
 export function renderMoveInDetails(facts: MoveInDetailsFacts): MoveInDetailsRendered | null {
   const info = facts.houseInfo ?? null;
-  const address = safeLine(String(facts.addressLine ?? ""), info);
-  const place = safeLine(String(facts.propertyLabel ?? ""), info);
+  const secrets = facts.roomSecrets ?? [];
+  const address = safeLine(String(facts.addressLine ?? ""), info, secrets);
+  const place = safeLine(String(facts.propertyLabel ?? ""), info, secrets);
   const where = address || place;
   if (!where) return null;
-  const when = safeLine(moveInWhenLabel(facts.moveInDateLabel, facts.checkInTime), info);
-  const room = safeLine(realRoom(facts.roomLabel), info);
-  const parking = safeLine(info ? getHouseInfoValue(info, "access", "parking") : "", info);
+  const when = safeLine(moveInWhenLabel(facts.moveInDateLabel, facts.checkInTime), info, secrets);
+  const room = safeLine(realRoom(facts.roomLabel), info, secrets);
+  const parking = safeLine(info ? getHouseInfoValue(info, "access", "parking") : "", info, secrets);
   const packet = houseKeepsEntrySecrets(info) ? "entry code in the lease packet" : "";
   const first = firstName(facts.residentName);
   const lead = first ? `Hi ${first}, here are your move-in details.` : "Here are your move-in details.";
@@ -110,14 +117,17 @@ export type RoomAssignedFacts = {
   /** The resident already had a room and it changed. */
   changed?: boolean;
   houseInfo?: HouseInfoV1 | null;
+  /** Each room's door code; a secret that lives on the room rather than in `houseInfo`. */
+  roomSecrets?: readonly string[] | null;
 };
 
 /** The resident's Room assigned copy. `null` when the room has no real name. */
 export function renderRoomAssigned(facts: RoomAssignedFacts): MoveInDetailsRendered | null {
   const info = facts.houseInfo ?? null;
-  const room = safeLine(realRoom(facts.roomLabel), info);
+  const secrets = facts.roomSecrets ?? [];
+  const room = safeLine(realRoom(facts.roomLabel), info, secrets);
   if (!room) return null;
-  const place = safeLine(String(facts.propertyLabel ?? ""), info);
+  const place = safeLine(String(facts.propertyLabel ?? ""), info, secrets);
   const at = place ? ` at ${place}` : "";
   const text = facts.changed
     ? `Your room${at} is now ${room}.`

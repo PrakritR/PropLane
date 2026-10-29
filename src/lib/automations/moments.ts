@@ -36,6 +36,8 @@ export type HouseSubject = {
   propertyId: string;
   propertyLabel: string;
   houseInfo: HouseInfoV1;
+  /** Each room's door code: a secret that lives on the room, not in `houseInfo`. */
+  roomSecrets: readonly string[];
 };
 
 export type ResidentMoment = {

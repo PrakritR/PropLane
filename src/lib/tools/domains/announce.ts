@@ -69,6 +69,7 @@ export const announceToHouseTool = defineWriteTool({
       const problem = announcementProblem(input.text, {
         residentFirstNames: leases.filter((l) => l.propertyId === house.id).map((l) => l.firstName),
         houseInfo: subject.houseInfo,
+        roomSecrets: subject.roomSecrets,
       });
       if (problem) throw new Error(`${problem} (${house.label})`);
     }

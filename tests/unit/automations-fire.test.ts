@@ -41,7 +41,7 @@ const lease = (over: Partial<LeaseSubject> = {}): LeaseSubject => ({
 
 let info = emptyHouseInfo();
 info = setHouseInfoValue(info, "access", "doorCode", "4821");
-const house: HouseSubject = { ownerUserId: "owner", workspaceId: "ws", propertyId: "P1", propertyLabel: "5259 Brooklyn", houseInfo: info };
+const house: HouseSubject = { ownerUserId: "owner", workspaceId: "ws", propertyId: "P1", propertyLabel: "5259 Brooklyn", houseInfo: info, roomSecrets: [] };
 const roster = [lease(), lease({ leaseId: "L2", firstName: "Jo", phoneKey: "2065550111", residentUserId: "u2" }), lease({ leaseId: "L3", firstName: "Sam", phoneKey: null, residentUserId: "u3" })];
 
 const residentTarget = { kind: "resident" as const, phoneKey: "2065550100", residentUserId: "u1", residentEmail: "maya@example.com" };

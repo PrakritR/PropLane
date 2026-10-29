@@ -283,6 +283,60 @@ export async function createApplicationFeeWaiverCode(
   return { ok: true, code: rowToCode(data as WaiverCodeRow) };
 }
 
+/** The label every "waive the application fee on this link" code carries, and how one is recognised again. */
+export const WAIVE_ON_SEND_LABEL = "Waived on send";
+
+/**
+ * The ONE live single-use waiver code for this property's send link: an unspent one is reused, and only
+ * a property with none gets a fresh code.
+ *
+ * Minting per request is what leaves live waivers behind, because one waive interaction asks several
+ * times - copying the link mints, changing the form or room re-mints, then the send mints again - and a
+ * superseded code stays redeemable on a link the manager already copied out. One code per property means
+ * the link the manager copied and the link the prospect is sent are the same single use.
+ */
+export async function ensureWaiveOnSendWaiverCode(
+  db: SupabaseClient,
+  managerUserId: string,
+  propertyId: string,
+): Promise<CreateWaiverCodeResult & { reused?: boolean }> {
+  const managerId = managerUserId.trim();
+  const property = propertyId.trim();
+  if (!managerId || !property) return { ok: false, error: "managerUserId and propertyId are required." };
+
+  const { data, error } = await db
+    .from("manager_application_fee_waiver_codes")
+    .select("*")
+    .eq("manager_user_id", managerId)
+    .eq("status", "active")
+    .eq("label", WAIVE_ON_SEND_LABEL)
+    .eq("max_uses", 1)
+    .eq("used_count", 0)
+    .order("created_at", { ascending: false });
+  // An unreadable list never silently mints a second code on top of a live one.
+  if (error) return { ok: false, error: error.message };
+
+  const now = Date.now();
+  const reusable = (data as WaiverCodeRow[] | null ?? [])
+    .map(rowToCode)
+    .find(
+      (code) =>
+        code.appliesTo === "application" &&
+        code.propertyIds.length === 1 &&
+        code.propertyIds[0] === property &&
+        (!code.expiresAt || Date.parse(code.expiresAt) > now),
+    );
+  if (reusable) return { ok: true, code: reusable, reused: true };
+
+  const created = await createApplicationFeeWaiverCode(db, managerId, {
+    label: WAIVE_ON_SEND_LABEL,
+    propertyIds: [property],
+    appliesTo: "application",
+    maxUses: 1,
+  });
+  return created.ok ? { ...created, reused: false } : created;
+}
+
 export async function listApplicationFeeWaiverCodes(
   db: SupabaseClient,
   managerUserId: string,

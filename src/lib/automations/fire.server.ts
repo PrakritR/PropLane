@@ -126,6 +126,7 @@ async function deliver(
   const violations = groupTextViolations(input.body, {
     residentFirstNames: target.roster.map((r) => r.firstName),
     houseInfo: target.house.houseInfo,
+    roomSecrets: target.house.roomSecrets,
   });
   if (violations.length > 0) return { ok: false, retry: false, reason: `group_text:${violations[0]}` };
 
@@ -215,6 +216,7 @@ export async function fireAutomation(db: SupabaseClient, request: FireRequest): 
     const violations = groupTextViolations(body, {
       residentFirstNames: request.target.roster.map((r) => r.firstName),
       houseInfo: request.target.house.houseInfo,
+      roomSecrets: request.target.house.roomSecrets,
     });
     if (violations.length > 0) {
       const runId = await claimRun(db, {

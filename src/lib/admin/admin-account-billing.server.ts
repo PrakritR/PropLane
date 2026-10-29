@@ -12,6 +12,7 @@ import {
   type ManagerSkuTier,
 } from "@/lib/manager-access";
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
+import { loadAccountPurchaseRows } from "@/lib/manager-purchase-account-rows.server";
 import {
   loadManagerBillingOverrides,
   resolveManagerPropertyCap,
@@ -144,15 +145,15 @@ export function invoiceToPayment(invoice: Stripe.Invoice): AdminAccountBillingPa
 }
 
 async function readPurchase(db: SupabaseClient, managerUserId: string): Promise<PurchaseRow | null> {
-  const { data, error } = await db
-    .from("manager_purchases")
-    .select(
-      "id, tier, billing, paid_at, user_id, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id, promo_code, stripe_promotion_code, apple_original_transaction_id",
-    )
-    .eq("user_id", managerUserId);
+  // By `user_id` OR the account's email, exactly as the plan resolver reads it: an email-linked signup
+  // waiver row is what grants Pro, so a `user_id`-only read would show the card a plan nobody has.
+  const { rows, readFailed } = await loadAccountPurchaseRows<PurchaseRow>(
+    db,
+    managerUserId,
+    "id, tier, billing, paid_at, user_id, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id, promo_code, stripe_promotion_code, apple_original_transaction_id",
+  );
   // An unreadable plan is not the Free plan: the caller turns this into a 500, never a default.
-  if (error) throw new Error("Could not read this account's purchases.");
-  const rows = (data ?? []) as PurchaseRow[];
+  if (readFailed) throw new Error("Could not read this account's purchases.");
   return (
     (pickBestManagerPurchaseRow(
       rows.map((r) => ({ ...r, promo_code: r.promo_code ?? null })),

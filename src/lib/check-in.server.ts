@@ -200,7 +200,15 @@ export async function loadStayCheckIn(
   if (!stay || stay.guestUserId !== userId.trim()) return null;
 
   const timeline = stayTimelineFor(stay, clock);
-  const reveal = checkInReveal({ kind: "stay", checkInAtIso: timeline.checkInAt, checkOutAtIso: timeline.checkOutAt, status: "confirmed" }, now);
+  const reveal = checkInReveal(
+    {
+      kind: "stay",
+      checkInAtIso: timeline.checkInAt,
+      checkOutAtIso: timeline.checkOutAt,
+      status: text(rowData.bookingStatus),
+    },
+    now,
+  );
 
   const propertyData = asObject(property?.property_data) ?? {};
   const submissionRaw = asObject(propertyData.listingSubmission) ?? asObject(asObject(property?.row_data)?.submission);
@@ -221,7 +229,7 @@ export async function loadStayCheckIn(
     checkOutTimeLabel: formatStayTime(stay.checkOutTime),
   };
   const guide = buildCheckInGuide(source, reveal, {
-    checkedInAt: text(rowData.checkedInAt) || null,
+    checkedInAt: text(asObject(rowData.stayDetails)?.checkedInAt) || null,
     checkInKey: `stay:${stay.blockId}`,
     timeZone: clock.timeZone,
   });
