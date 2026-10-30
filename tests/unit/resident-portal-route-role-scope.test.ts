@@ -29,9 +29,10 @@ const OTHER_RESIDENT_ROW = { residentUserId: "other-user", id: "wo-theirs", titl
 const MANAGER_ONLY_ROW = { id: "wo-portfolio", title: "Portfolio roof", residentEmail: "tenant@example.com" };
 
 const ALL_RECORDS = [
-  { id: RESIDENT_ROW.id, resident_email: RESIDENT_EMAIL, row_data: RESIDENT_ROW, updated_at: "2026-02-01T00:00:00Z" },
+  { id: RESIDENT_ROW.id, resident_user_id: USER_ID, resident_email: RESIDENT_EMAIL, row_data: RESIDENT_ROW, updated_at: "2026-02-01T00:00:00Z" },
   {
     id: OTHER_RESIDENT_ROW.id,
+    resident_user_id: "other-user",
     resident_email: "tenant@example.com",
     row_data: OTHER_RESIDENT_ROW,
     updated_at: "2026-01-01T00:00:00Z",
@@ -85,7 +86,7 @@ function makeDb() {
       const rowsFor = () => {
         if (table === "portal_work_order_records" || table === "portal_service_request_records") {
           return ALL_RECORDS.filter((row) =>
-            filters.every(([col, val]) => col === "resident_email" ? row.resident_email === val : col === "row_data->>residentUserId" ? row.row_data.residentUserId === val : true),
+            filters.every(([col, val]) => col === "resident_email" ? row.resident_email === val : col === "resident_user_id" ? row.resident_user_id === val : true),
           );
         }
         if (table === "profile_roles") return PROFILE_ROLES.map(role => ({ role }));

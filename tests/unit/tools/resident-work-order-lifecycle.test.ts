@@ -39,6 +39,9 @@ function workOrder(owner: { id: string; email: string }, id: string, extra: Reco
     id,
     manager_user_id: MANAGER,
     resident_email: owner.email,
+    resident_user_id: owner.id,
+    updated_at: "2026-01-01T00:00:00Z",
+    row_revision: 0,
     property_id: "prop_1",
     assigned_property_id: "prop_1",
     row_data: {

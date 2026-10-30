@@ -37,8 +37,6 @@ const JSON_EMAIL_FIELDS: Record<string, string[]> = {
   portal_household_charge_records: ["residentEmail"],
   portal_recurring_rent_profile_records: ["residentEmail"],
   portal_lease_pipeline_records: ["residentEmail"],
-  portal_work_order_records: ["residentEmail"],
-  portal_service_request_records: ["residentEmail"],
   portal_resident_lease_upload_records: ["residentEmail"],
   portal_inbox_thread_records: ["email", "fromEmail"],
   portal_scheduled_inbox_message_records: ["recipientEmail", "senderEmail"],

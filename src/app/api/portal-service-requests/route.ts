@@ -51,6 +51,7 @@ function recordFromRow(row: ServiceRequest) {
   return {
     id: normalized.id,
     manager_user_id: managerUserId || null,
+    resident_user_id: normalized.residentUserId || null,
     resident_email: residentEmail || null,
     property_id: propertyId || null,
     status: normalized.status || null,
@@ -130,7 +131,7 @@ export async function GET(req: Request) {
 
     // Residents see only their own requests; admin oversight sees all.
     if (!oversight && role === "resident") {
-      query = query.eq("row_data->>residentUserId", user.id);
+      query = query.eq("resident_user_id", user.id);
     }
 
     const { data, error } = await query;
@@ -151,12 +152,12 @@ type Actor = { userId: string; email: string; admin: boolean; role: string };
  * to, or the resident it is for. Admins may act on any row. */
 function actorOwnsRecord(
   actor: Actor,
-  rec: { manager_user_id?: string | null; resident_email?: string | null; row_data?: { residentUserId?: string | null } | null } | null,
+  rec: { resident_user_id?: string | null; manager_user_id?: string | null; resident_email?: string | null; row_data?: { residentUserId?: string | null } | null } | null,
 ): boolean {
   if (actor.admin) return true;
   if (!rec) return false;
   if (actor.role === "manager" && rec.manager_user_id && rec.manager_user_id === actor.userId) return true;
-  if (rec.row_data?.residentUserId === actor.userId) return true;
+  if (rec.resident_user_id === actor.userId) return true;
   return false;
 }
 
@@ -227,11 +228,12 @@ export async function POST(req: Request) {
     };
 
     const ownsExisting = async (id: string, candidatePropertyId?: string | null): Promise<boolean> => {
-      const { data } = await db
+      const { data, error } = await db
         .from("portal_service_request_records")
-        .select("manager_user_id, resident_email, property_id, row_data")
+        .select("manager_user_id, resident_user_id, resident_email, property_id, row_data, row_revision")
         .eq("id", id)
         .maybeSingle();
+      if (error) throw new Error("Could not verify service ownership.");
       // A brand-new id (no existing row) is allowed to be created, subject to
       // the same workspace gate a manager actor's create must land inside.
       if (data == null) {
@@ -261,10 +263,23 @@ export async function POST(req: Request) {
       };
     };
 
-    const storedSubject = async (id: string): Promise<string | null> => {
-      const result = await db.from("portal_service_request_records").select("row_data").eq("id", id).maybeSingle();
-      if (result.error) throw new Error("Could not verify record ownership.");
-      return (result.data?.row_data as ServiceRequest | null)?.residentUserId ?? null;
+    const saveRow = async (row: ServiceRequest) => {
+      const { data: existing, error: readError } = await db.from("portal_service_request_records")
+        .select("id,manager_user_id,resident_user_id,resident_email,property_id,row_data,row_revision")
+        .eq("id", row.id).maybeSingle();
+      if (readError) return null;
+      if (existing && (!actorOwnsRecord(actor, existing) || (isManagerActor && !rowInWorkspaceScope(existing.property_id ? String(existing.property_id) : null, workspaceScope)))) return null;
+      if (!existing && isManagerActor && !rowInWorkspaceScope(row.propertyId?.trim() || null, workspaceScope)) return null;
+      const record = recordForActor(actor, role, row, existing?.resident_user_id ?? null);
+      if (!existing) {
+        const { error } = await db.from("portal_service_request_records").insert(record);
+        return error ? null : { record, existing: null };
+      }
+      let update = db.from("portal_service_request_records").update(record).eq("id", row.id).eq("row_revision", existing.row_revision);
+      if (role === "resident" && !actor.admin) update = update.eq("resident_user_id", actor.userId);
+      else if (!actor.admin && existing.manager_user_id) update = update.eq("manager_user_id", existing.manager_user_id);
+      const { data, error } = await update.select("id");
+      return error || !data?.length ? null : { record, existing };
     };
 
     if (body.action === "replace") {
@@ -274,7 +289,7 @@ export async function POST(req: Request) {
         if (!(await ownsExisting(row.id, row.propertyId?.trim() || null))) continue;
         const stamped = await stampResidentRow(row);
         if (!stamped) continue;
-        await db.from("portal_service_request_records").upsert(recordForActor(actor, role, stamped, await storedSubject(row.id)), { onConflict: "id" });
+        if (!(await saveRow(stamped))) return NextResponse.json({ error: "The request changed; please retry." }, { status: 409 });
       }
       return NextResponse.json({ ok: true });
     }
@@ -284,7 +299,7 @@ export async function POST(req: Request) {
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const { data: existing } = await db
         .from("portal_service_request_records")
-        .select("manager_user_id, resident_email, property_id, row_data")
+        .select("manager_user_id, resident_user_id, resident_email, property_id, row_data, row_revision")
         .eq("id", id)
         .maybeSingle();
       if (!existing) return NextResponse.json({ ok: true });
@@ -294,7 +309,10 @@ export async function POST(req: Request) {
       if (isManagerActor && !rowInWorkspaceScope(existing.property_id ? String(existing.property_id) : null, workspaceScope)) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
-      const { error } = await db.from("portal_service_request_records").delete().eq("id", id);
+      let deletion = db.from("portal_service_request_records").delete().eq("id", id).eq("row_revision", existing.row_revision);
+      if (role === "resident" && !actor.admin) deletion = deletion.eq("resident_user_id", actor.userId);
+      const { data: deleted, error } = await deletion.select("id");
+      if (!error && !deleted?.length) return NextResponse.json({ error: "The request changed; please retry." }, { status: 409 });
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true });
     }
@@ -307,24 +325,10 @@ export async function POST(req: Request) {
     if (!stamped) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
-    // The client mirrors both creates and edits through this same single-row
-    // upsert, so a genuinely new submission (vs an update) is detected with an
-    // existence check BEFORE the write — only brand-new rows notify.
-    const { data: preExisting } = await db
-      .from("portal_service_request_records")
-      // `row_data` comes along so the status BEFORE this write is known. Without
-      // it, approve / deny / returned were indistinguishable from any other edit
-      // and notified neither party.
-      .select("id, row_data")
-      .eq("id", body.row.id)
-      .maybeSingle();
-    const previousStatus =
-      (preExisting?.row_data as ServiceRequest | null | undefined)?.status ?? null;
-    const record = recordForActor(actor, role, stamped, (preExisting?.row_data as ServiceRequest | null)?.residentUserId ?? null);
-    const { error } = await db
-      .from("portal_service_request_records")
-      .upsert(record, { onConflict: "id" });
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const saved = await saveRow(stamped);
+    if (!saved) return NextResponse.json({ error: "The request changed; please retry." }, { status: 409 });
+    const { record, existing: preExisting } = saved;
+    const previousStatus = (preExisting?.row_data as ServiceRequest | null | undefined)?.status ?? null;
     const managerUserId = record.manager_user_id;
     if (!preExisting && !actor.admin && managerUserId) {
       const rowData = record.row_data as ServiceRequest;

@@ -26,6 +26,7 @@ export type ResidentWorkOrderRecord = {
   property_id: string | null;
   assigned_property_id: string | null;
   row_data: DemoManagerWorkOrderRow;
+  row_revision: number;
 };
 
 export type ResidentWorkOrderScope = {
@@ -47,9 +48,9 @@ export async function loadResidentOwnWorkOrder(
   if (!workOrderId || !scope.residentUserId.trim()) return null;
   let query = db
     .from("portal_work_order_records")
-    .select("id, manager_user_id, resident_email, property_id, assigned_property_id, row_data")
+    .select("id, manager_user_id, resident_email, property_id, assigned_property_id, row_data, row_revision")
     .eq("id", workOrderId)
-    .eq("row_data->>residentUserId", scope.residentUserId);
+    .eq("resident_user_id", scope.residentUserId);
   if (scope.activeManagerId) query = query.eq("manager_user_id", scope.activeManagerId);
   const { data, error } = await query.maybeSingle();
   if (error) throw new Error(error.message);
@@ -61,6 +62,7 @@ export async function loadResidentOwnWorkOrder(
     property_id: (data.property_id as string | null) ?? null,
     assigned_property_id: (data.assigned_property_id as string | null) ?? null,
     row_data: data.row_data as DemoManagerWorkOrderRow,
+    row_revision: Number(data.row_revision),
   };
 }
 
@@ -167,10 +169,12 @@ export async function updateResidentWorkOrder(
     return { ok: false, error: residentWorkOrderClosedReason(record.row_data), code: "closed" };
   }
   const nextRow = applyResidentWorkOrderPatch(record.row_data, patch);
-  const { data, error } = await db.from("portal_work_order_records")
+  const update = db.from("portal_work_order_records")
     .update({ row_data: nextRow, updated_at: new Date().toISOString() })
-    .eq("id", record.id).eq("row_data->>residentUserId", scope.residentUserId)
-    .select("id");
+    .eq("id", record.id).eq("resident_user_id", scope.residentUserId)
+    .eq("row_data->>bucket", "open")
+    .eq("row_revision", record.row_revision);
+  const { data, error } = await update.select("id");
   if (error || !data?.length) return { ok: false, error: error?.message ?? "The request changed; please retry.", code: "write_failed" };
   return { ok: true, row: nextRow };
 }
@@ -184,13 +188,14 @@ export async function updateResidentWorkOrder(
  */
 export async function deleteWorkOrderRecord(
   db: ServiceClient,
-  existing: { id: string; manager_user_id: string | null; row_data: DemoManagerWorkOrderRow | null },
+  existing: { id: string; manager_user_id: string | null; row_data: DemoManagerWorkOrderRow | null; row_revision?: number },
   residentUserId?: string,
 ): Promise<{ error: string | null }> {
   const row = existing.row_data;
   const managerUserId = existing.manager_user_id ?? row?.managerUserId ?? null;
   let query = db.from("portal_work_order_records").delete().eq("id", existing.id);
-  if (residentUserId) query = query.eq("row_data->>residentUserId", residentUserId);
+  if (residentUserId) query = query.eq("resident_user_id", residentUserId);
+  if (existing.row_revision !== undefined) query = query.eq("row_revision", existing.row_revision);
   const { data, error } = await query.select("id");
   if (error || !data?.length) return { error: error?.message ?? "The request changed; please retry." };
   if (row && managerUserId) {

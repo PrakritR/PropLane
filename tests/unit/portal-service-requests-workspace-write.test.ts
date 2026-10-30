@@ -20,6 +20,8 @@ const state = {
   rows: new Map<string, Row>(),
   upserted: [] as Row[],
   deletedIds: [] as string[],
+  conflict: false,
+  filters: [] as Array<[string, unknown]>,
 };
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -66,17 +68,26 @@ vi.mock("@/lib/supabase/service", () => ({
               maybeSingle: async () => ({ data: state.rows.get(id) ?? null }),
             }),
           }),
-          upsert: async (row: Row) => {
+          insert: async (row: Row) => {
             state.upserted.push(row);
             state.rows.set(String(row.id), row);
             return { data: null, error: null };
           },
-          delete: () => ({
-            eq: async (_col: string, id: string) => {
+          update: (row: Row) => {
+            const query = { eq: (column: string, value: unknown) => { state.filters.push([column, value]); return query; }, select: async () => {
+              if (!state.conflict) state.upserted.push(row);
+              return { data: state.conflict ? [] : [{ id: row.id }], error: null };
+            } };
+            return query;
+          },
+          delete: () => {
+            let id = "";
+            const query = { eq: (column: string, value: string) => { if (column === "id") id = value; return query; }, select: async () => {
               state.deletedIds.push(id);
-              return { data: null, error: null };
-            },
-          }),
+              return { data: [{ id }], error: null };
+            } };
+            return query;
+          },
         };
       }
       throw new Error(`unexpected table: ${table}`);
@@ -97,6 +108,8 @@ beforeEach(() => {
   state.rows = new Map();
   state.upserted = [];
   state.deletedIds = [];
+  state.conflict = false;
+  state.filters = [];
   getUser.mockResolvedValue({ data: { user: { id: "mgr-1", email: "mgr@test.local" } } });
 });
 
@@ -144,4 +157,16 @@ describe("upsert — a new request must land in the active workspace", () => {
     expect(res.status).toBe(200);
     expect(state.upserted.map((r) => r.id)).toEqual(["sr-new"]);
   });
+});
+
+
+it("refuses a stale manager edit after a concurrent row update", async () => {
+  resolveManagerWorkspaceRowScope.mockResolvedValue({ propertyIds: ["prop-a"], untaggedOwnedVisible: true });
+  state.rows.set("sr-race", { id: "sr-race", manager_user_id: "mgr-1", property_id: "prop-a", row_revision: 9, row_data: { status: "pending" } });
+  state.conflict = true;
+  const res = await post({ row: { id: "sr-race", propertyId: "prop-a", status: "pending" } });
+  expect(res.status).toBe(409);
+  expect(state.filters).toContainEqual(["row_revision", 9]);
+  expect(state.filters).toContainEqual(["manager_user_id", "mgr-1"]);
+  expect(state.upserted).toEqual([]);
 });

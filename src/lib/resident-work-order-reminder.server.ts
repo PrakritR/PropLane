@@ -48,12 +48,12 @@ export async function deliverResidentWorkOrderReminder(
 
   const { data: workOrder } = await db
     .from("portal_work_order_records")
-    .select("manager_user_id, resident_email, row_data")
+    .select("manager_user_id, resident_user_id, resident_email, row_data")
     .eq("id", workOrderId)
     .maybeSingle();
   if (!workOrder) return { ok: false, error: "Work order not found." };
 
-  const subject = (workOrder.row_data && typeof workOrder.row_data === "object" ? workOrder.row_data as Record<string, unknown> : {}).residentUserId;
+  const subject = workOrder.resident_user_id;
   if (subject !== input.residentUserId) return { ok: false, error: "Forbidden." };
 
   const managerUserId = String(workOrder.manager_user_id ?? "").trim();

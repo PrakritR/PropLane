@@ -230,7 +230,7 @@ export async function GET(req: Request) {
       .limit(500);
 
     if (!oversight && role === "resident") {
-      query = query.eq("row_data->>residentUserId", user.id);
+      query = query.eq("resident_user_id", user.id);
     }
 
     const { data, error } = await query;
@@ -248,7 +248,7 @@ export async function GET(req: Request) {
 
 type Actor = { userId: string; email: string; admin: boolean; role: string };
 
-type OwnerCols = { manager_user_id?: string | null; resident_email?: string | null; row_data?: { residentUserId?: string | null } | null };
+type OwnerCols = { resident_user_id?: string | null; manager_user_id?: string | null; resident_email?: string | null; row_data?: { residentUserId?: string | null } | null };
 
 /** Whether the caller POSITIVELY owns a row: the manager it is stamped to, the
  * resident it is addressed to, or an admin.
@@ -262,7 +262,7 @@ function actorOwnsRecord(actor: Actor, rec: OwnerCols | null): boolean {
   if (actor.admin) return true;
   if (!rec) return false;
   if (actor.role === "manager" && rec.manager_user_id && rec.manager_user_id === actor.userId) return true;
-  if (actor.role === "resident" && rec.row_data?.residentUserId === actor.userId) return true;
+  if (actor.role === "resident" && rec.resident_user_id === actor.userId) return true;
   return false;
 }
 
@@ -319,7 +319,7 @@ async function resolveVendorOwnerManagerUserId(
 /** Build the persisted record, binding scope columns to the authenticated caller
  * so a client cannot spoof ownership. */
 function recordForActor(actor: Actor, row: DemoManagerWorkOrderRow, vendorUserId: string | null, previous: OwnerCols | null) {
-  const normalized = { ...normalizeRow(row), residentUserId: actor.role === "resident" && !actor.admin ? actor.userId : previous?.row_data?.residentUserId ?? null };
+  const normalized = { ...normalizeRow(row), residentUserId: actor.role === "resident" && !actor.admin ? actor.userId : previous?.resident_user_id ?? null };
   const withManager: DemoManagerWorkOrderRow =
     actor.admin || actor.role === "resident"
       ? normalized
@@ -327,6 +327,7 @@ function recordForActor(actor: Actor, row: DemoManagerWorkOrderRow, vendorUserId
   const base = {
     id: withManager.id,
     manager_user_id: withManager.managerUserId || null,
+    resident_user_id: normalized.residentUserId || null,
     resident_email: withManager.residentEmail?.trim().toLowerCase() || null,
     property_id: withManager.propertyId || null,
     assigned_property_id: withManager.assignedPropertyId || null,
@@ -465,14 +466,27 @@ export async function POST(req: Request) {
       rows?: DemoManagerWorkOrderRow[];
     };
 
-    type ExistingRecord = OwnerCols & { dispatch?: unknown; row_data?: DemoManagerWorkOrderRow | null };
+    type ExistingRecord = OwnerCols & { row_revision: number; dispatch?: unknown; row_data?: DemoManagerWorkOrderRow | null };
     const findExisting = async (id: string): Promise<ExistingRecord | null> => {
-      const { data } = await db
+      const { data, error } = await db
         .from("portal_work_order_records")
-        .select("manager_user_id, resident_email, dispatch:row_data->dispatch, row_data")
+        .select("manager_user_id, resident_user_id, resident_email, row_revision, dispatch:row_data->dispatch, row_data")
         .eq("id", id)
         .maybeSingle();
+      if (error) throw new Error("Could not verify service ownership.");
       return (data as ExistingRecord | null) ?? null;
+    };
+
+    const persistRecord = async (record: ReturnType<typeof recordForActor>, existing: ExistingRecord | null) => {
+      if (!existing) {
+        const { error } = await db.from("portal_work_order_records").insert(record);
+        return !error;
+      }
+      let update = db.from("portal_work_order_records").update(record).eq("id", record.id).eq("row_revision", existing.row_revision);
+      if (actor.role === "resident" && !actor.admin) update = update.eq("resident_user_id", actor.userId);
+      else if (!actor.admin && existing.manager_user_id) update = update.eq("manager_user_id", existing.manager_user_id);
+      const { data, error } = await update.select("id");
+      return !error && Boolean(data?.length);
     };
 
     /** May this caller write or delete this existing row?
@@ -711,10 +725,9 @@ export async function POST(req: Request) {
         if (rejected) continue;
         const persisted = recordForActor(actor, timedRow, vendorUserId, existing);
         preserveServerDispatch(persisted.row_data, existing);
-        const { error: upsertError } = await db
-          .from("portal_work_order_records")
-          .upsert(persisted, { onConflict: "id" });
-        if (!upsertError) {
+        const saved = await persistRecord(persisted, existing);
+        if (!saved) return NextResponse.json({ error: "The request changed; please retry." }, { status: 409 });
+        if (saved) {
           if (!existing) {
             await emitCreatedWorkOrder(db, actor, timedRow, persisted.manager_user_id);
           }
@@ -733,7 +746,7 @@ export async function POST(req: Request) {
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const { data: existing } = await db
         .from("portal_work_order_records")
-        .select("manager_user_id, resident_email, row_data")
+        .select("manager_user_id, resident_user_id, resident_email, row_data, row_revision")
         .eq("id", id)
         .maybeSingle();
       if (!existing) return NextResponse.json({ ok: true });
@@ -746,7 +759,8 @@ export async function POST(req: Request) {
         id,
         manager_user_id: (existing.manager_user_id as string | null) ?? null,
         row_data: existing.row_data as DemoManagerWorkOrderRow | null,
-      });
+        row_revision: Number(existing.row_revision),
+      }, actor.role === "resident" && !actor.admin ? actor.userId : undefined);
       if (error) return NextResponse.json({ error }, { status: 500 });
       return NextResponse.json({ ok: true });
     }
@@ -777,10 +791,7 @@ export async function POST(req: Request) {
     // above) being null means a genuinely new row → notify the resident.
     const persisted = recordForActor(actor, timedRow, vendorUserId, existing);
     preserveServerDispatch(persisted.row_data, existing);
-    const { error } = await db
-      .from("portal_work_order_records")
-      .upsert(persisted, { onConflict: "id" });
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (!(await persistRecord(persisted, existing))) return NextResponse.json({ error: "The request changed; please retry." }, { status: 409 });
     if (!existing) {
       await emitCreatedWorkOrder(db, actor, timedRow, persisted.manager_user_id);
     }

@@ -70,7 +70,12 @@ function makeDb() {
         select: vi.fn(() => builder),
         eq: vi.fn(() => builder),
         limit: async () => ({ data: [], error: null }),
-        upsert: vi.fn(() => Promise.resolve({ error: null })),
+        insert: vi.fn(() => Promise.resolve({ error: null })),
+        update: vi.fn(() => {
+          const write = { eq: vi.fn(), select: async () => ({ data: [{ id: "saved" }], error: null }) };
+          write.eq.mockReturnValue(write);
+          return write;
+        }),
       };
       if (table === "profiles") {
         builder.maybeSingle = async () => ({ data: { email: "caller@test.proplane.local", role: "manager" }, error: null });

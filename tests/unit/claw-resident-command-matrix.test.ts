@@ -76,6 +76,8 @@ describe("leasing prospect command matrix", () => {
   }
 });
 
+const verifiedPhone = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/one-number/router-lookups.server", () => ({ findVerifiedProfileByPhone: verifiedPhone }));
 const createWorkOrder = vi.fn();
 const createServiceRequest = vi.fn();
 
@@ -105,6 +107,7 @@ vi.mock("@/lib/supabase/service", () => {
 describe("runResidentSmsAction command handlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    verifiedPhone.mockResolvedValue(null);
     createWorkOrder.mockResolvedValue({ created: false, error: "not_maintenance" });
     createServiceRequest.mockResolvedValue({ created: true, requestId: "SR-1", title: "Parking" });
   });
@@ -149,6 +152,17 @@ describe("runResidentSmsAction command handlers", () => {
     expect(result.classification.intent).toBe("maintenance");
     expect(createWorkOrder).toHaveBeenCalled();
     expect(result.residentReply).toMatch(/detail|work order/i);
+  });
+
+  it("stamps only the subject proven by the verified phone", async () => {
+    const { runResidentSmsAction } = await import("@/lib/claw-resident-actions.server");
+    const args = { text: "maintenance", residentPhone: "+15105551234", managerUserId: "mgr-1", residentEmail: "r@example.com", residentUserId: "res-1" };
+    verifiedPhone.mockResolvedValue({ id: "other-subject", email: "r@example.com" });
+    await runResidentSmsAction(args);
+    expect(createWorkOrder).toHaveBeenLastCalledWith(expect.objectContaining({ residentUserId: null }));
+    verifiedPhone.mockResolvedValue({ id: "res-1", email: "r@example.com" });
+    await runResidentSmsAction(args);
+    expect(createWorkOrder).toHaveBeenLastCalledWith(expect.objectContaining({ residentUserId: "res-1" }));
   });
 
   it("i_paid points at PropLane payments instead of filing an off-platform payment (PLAN-0916)", async () => {

@@ -960,7 +960,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "portal_service_request_records",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
-    resident: { emails: ["resident_email"] },
+    resident: { ids: ["resident_user_id"] },
   },
   {
     table: "portal_schedule_records",
@@ -1348,7 +1348,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "portal_work_order_records",
     phase: 3,
     manager: { ids: ["manager_user_id"] },
-    resident: { emails: ["resident_email"] },
+    resident: { ids: ["resident_user_id"] },
     // Dispatch history belongs to the manager; only the vendor pointer clears.
     vendor: { detachIds: ["vendor_user_id"] },
   },
@@ -1516,6 +1516,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
  * does.
  */
 export const NON_OWNERSHIP_COLUMNS: Readonly<Record<string, string>> = {
+  "portal_work_order_records.resident_email": "Contact address; resident ownership is resident_user_id.",
+  "portal_service_request_records.resident_email": "Contact address; resident ownership is resident_user_id.",
   "workspace_work_number_recipients.email": "Contact address of an \"Also notify\" person on the owner's list, not a PropLane login; the row goes with the owner.",
   "manager_payees.email": "Contact address of a payee the manager pays (lender, utility), not a PropLane login.",
   "manager_property_owners.owner_email": "Contact address for a third-party property owner, not a PropLane login.",

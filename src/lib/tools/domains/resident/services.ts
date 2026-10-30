@@ -223,9 +223,10 @@ export const createServiceRequestTool = defineWriteTool({
     };
     // Same record shape as the portal-service-requests route, with the
     // resident_email scope column pinned to the authenticated resident.
-    const { error } = await ctx.db.from("portal_service_request_records").upsert(
+    const { error } = await ctx.db.from("portal_service_request_records").insert(
       {
         id: row.id,
+        resident_user_id: ctx.userId,
         manager_user_id: routing.managerId,
         resident_email: ctx.email,
         property_id: routing.propertyId || null,
@@ -233,7 +234,6 @@ export const createServiceRequestTool = defineWriteTool({
         row_data: stampSmsTestProvenance({ ...row, residentUserId: ctx.userId } as unknown as Record<string, unknown>),
         updated_at: now,
       },
-      { onConflict: "id" },
     );
     if (error) {
       await updateAuditResult(ctx, dedupeKey, { failed: true }, { clearDedupeKey: true });
@@ -303,9 +303,9 @@ export const addServiceRequestNoteTool = defineWriteTool({
     // Re-resolve the full record, scoped to the resident's own email.
     let query = ctx.db
       .from("portal_service_request_records")
-      .select("id, manager_user_id, resident_email, property_id, status, row_data")
+      .select("id, manager_user_id, resident_email, property_id, status, row_data, row_revision")
       .eq("id", requestId)
-      .eq("row_data->>residentUserId", ctx.userId);
+      .eq("resident_user_id", ctx.userId);
     if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
     const { data: record, error: readError } = await query.maybeSingle();
     if (readError) throw new Error(readError.message);
@@ -330,21 +330,12 @@ export const addServiceRequestNoteTool = defineWriteTool({
     const stamp = new Date().toISOString().slice(0, 10);
     const appended = current.notes?.trim() ? `${current.notes}\n\n[${stamp}] ${note}` : `[${stamp}] ${note}`;
     const now = new Date().toISOString();
-    const { error: writeError } = await ctx.db.from("portal_service_request_records").upsert(
-      {
-        id: record.id,
-        manager_user_id: record.manager_user_id,
-        resident_email: record.resident_email,
-        property_id: record.property_id,
-        status: record.status,
-        row_data: stampSmsTestProvenance({ ...current, notes: appended } as Record<string, unknown>),
-        updated_at: now,
-      },
-      { onConflict: "id" },
-    );
-    if (writeError) {
+    const { data: updated, error: writeError } = await ctx.db.from("portal_service_request_records")
+      .update({ row_data: stampSmsTestProvenance({ ...current, notes: appended } as Record<string, unknown>), updated_at: now })
+      .eq("id", record.id).eq("resident_user_id", ctx.userId).eq("row_revision", record.row_revision).select("id");
+    if (writeError || !updated?.length) {
       await updateAuditResult(ctx, dedupeKey, { failed: true }, { clearDedupeKey: true });
-      throw new Error(writeError.message);
+      throw new Error(writeError?.message ?? "The request changed; please retry.");
     }
 
     await updateAuditResult(ctx, dedupeKey, { requestId });

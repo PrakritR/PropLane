@@ -49,7 +49,7 @@ export async function loadResidentEmailRows<T>(
     let query = ctx.db
       .from(table)
       .select("row_data")
-      .eq(table === "portal_lease_pipeline_records" ? "resident_user_id" : "row_data->>residentUserId", ctx.userId);
+      .eq("resident_user_id", ctx.userId);
     if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
     const { data, error } = await query.order("id", { ascending: true }).range(from, from + PAGE_SIZE - 1);
     if (error) throw new Error(error.message);

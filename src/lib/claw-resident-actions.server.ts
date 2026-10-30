@@ -20,6 +20,7 @@ import {
 import { managerPortalUrlFromPath, residentPortalUrl } from "@/lib/claw-resident-links";
 import { residentInboundAck, type ClawThreadTopic } from "@/lib/claw-resident-messaging.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { findVerifiedProfileByPhone } from "@/lib/one-number/router-lookups.server";
 
 export type ResidentSmsActionResult = {
   classification: ClassifiedResidentSms;
@@ -249,6 +250,11 @@ export async function runResidentSmsAction(args: {
     }
   }
 
+  const verifiedSubject = classification.intent === "maintenance" || classification.intent === "service_request"
+    ? await findVerifiedProfileByPhone(createSupabaseServiceRoleClient(), args.residentPhone).catch(() => null)
+    : null;
+  const filingSubject = verifiedSubject?.id === args.residentUserId ? verifiedSubject.id : null;
+
   switch (classification.intent) {
     case "help":
     case "greeting": {
@@ -266,10 +272,10 @@ export async function runResidentSmsAction(args: {
       const wo = await createWorkOrderFromResidentSms({
         managerUserId: args.managerUserId,
         residentPhone: args.residentPhone,
-        residentUserId: args.residentUserId,
+        residentUserId: filingSubject,
         residentEmail,
         text,
-        senderUserId: args.residentUserId,
+        senderUserId: filingSubject,
       });
       residentReply =
         maintenanceWorkOrderResidentAck(wo) ||

@@ -202,14 +202,16 @@ export async function createWorkOrderFromResidentSms(args: {
 
   // Dedupe near-identical opens from the same resident.
   const cutoff = new Date(Date.now() - DEDUPE_WINDOW_MS).toISOString();
-  const { data: recent } = await db
+  const recentQuery = db
     .from("portal_work_order_records")
     .select("id, row_data, updated_at")
     .eq("manager_user_id", managerUserId)
     .eq("resident_email", residentEmail)
-    .gte("updated_at", cutoff)
-    .order("updated_at", { ascending: false })
-    .limit(8);
+    .gte("updated_at", cutoff);
+  const { data: recent } = args.residentUserId?.trim()
+    ? await recentQuery.eq("resident_user_id", args.residentUserId.trim())
+      .order("updated_at", { ascending: false }).limit(8)
+    : { data: [] };
 
   for (const row of recent ?? []) {
     const rd = ((row as { row_data?: DemoManagerWorkOrderRow }).row_data ?? {}) as DemoManagerWorkOrderRow;
@@ -310,6 +312,7 @@ export async function createWorkOrderFromResidentSms(args: {
     .upsert(
       {
         id,
+        resident_user_id: args.residentUserId?.trim() || null,
         manager_user_id: managerUserId,
         resident_email: residentEmail,
         property_id: ctx.propertyId,

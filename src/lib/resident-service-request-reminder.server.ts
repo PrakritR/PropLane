@@ -55,12 +55,12 @@ export async function deliverResidentServiceRequestReminder(
 
   const { data: record } = await db
     .from("portal_service_request_records")
-    .select("manager_user_id, resident_email, property_id, row_data")
+    .select("manager_user_id, resident_user_id, resident_email, property_id, row_data")
     .eq("id", requestId)
     .maybeSingle();
   if (!record) return { ok: false, error: "Request not found." };
 
-  const subject = (record.row_data && typeof record.row_data === "object" ? record.row_data as Record<string, unknown> : {}).residentUserId;
+  const subject = record.resident_user_id;
   if (subject !== input.residentUserId) return { ok: false, error: "Forbidden." };
 
   const managerUserId = String(record.manager_user_id ?? "").trim();
