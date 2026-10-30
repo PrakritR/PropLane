@@ -91,6 +91,7 @@ function mockSupabaseWithRoles(existingRoles: string[]) {
                 maybeSingle: () =>
                   Promise.resolve({ data: existingRoles.includes(role) ? { role } : null, error: null }),
               }),
+              in: () => Promise.resolve({ data: existingRoles.filter((role) => role === "manager" || role === "admin").map((role) => ({ role })), error: null }),
               maybeSingle: () => Promise.resolve({ data: null, error: null }),
             }),
           }),
@@ -111,6 +112,13 @@ describe("ensureFreeManagerPortalAccess", () => {
     ensureProfileRoleRow.mockResolvedValue(undefined);
   });
 
+  it("does not treat a resident's legacy profile role as a manager grant", async () => {
+    const { ensureFreeManagerPortalAccess } = await import("@/lib/auth/manager-portal-provision");
+    const db = mockSupabaseWithRoles(["resident"]);
+    const result = await ensureFreeManagerPortalAccess(db as never, testUser({ user_metadata: { role: "manager" } }));
+    expect(result).toEqual({ status: "skipped", reason: "resident_only" });
+    expect(provisionPendingManagerAccount).not.toHaveBeenCalled();
+  });
   it("does not let an unsigned same-email intent block free provisioning", async () => {
     const { ensureFreeManagerPortalAccess } = await import("@/lib/auth/manager-portal-provision");
     findManagerPurchaseForAccount.mockResolvedValue(null);

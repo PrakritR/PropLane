@@ -23,36 +23,18 @@ function oauthFullName(user: User): string | null {
 }
 
 async function hasManagerPortalAccess(supabase: SupabaseClient, userId: string): Promise<boolean> {
-  const { data: managerRow } = await supabase
-    .from("profile_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("role", "manager")
-    .maybeSingle();
-  if (managerRow) return true;
-  // An admin `profile_roles` row also counts: an admin who has explicitly added
-  // the property portal (or the primary admin, who always holds both) already
-  // has manager-portal access and must never be treated as resident-only.
-  const { data: adminRow } = await supabase
-    .from("profile_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("role", "admin")
-    .maybeSingle();
-  if (adminRow) return true;
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
-  return profile?.role === "manager" || profile?.role === "admin";
+  try {
+    const { data, error } = await supabase.from("profile_roles").select("role").eq("user_id", userId).in("role", ["manager", "admin"]);
+    return !error && (data ?? []).some((row) => row.role === "manager" || row.role === "admin");
+  } catch { return false; }
 }
 
 async function isResidentOnlyAccount(supabase: SupabaseClient, userId: string): Promise<boolean> {
-  const { data: residentRole } = await supabase
-    .from("profile_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("role", "resident")
-    .maybeSingle();
-  if (!residentRole) return false;
-  return !(await hasManagerPortalAccess(supabase, userId));
+  try {
+    const { data, error } = await supabase.from("profile_roles").select("role").eq("user_id", userId).eq("role", "resident").maybeSingle();
+    if (error) return true;
+    return Boolean(data) && !(await hasManagerPortalAccess(supabase, userId));
+  } catch { return true; }
 }
 
 /**
