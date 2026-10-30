@@ -136,7 +136,7 @@ describe("resolveOAuthPortalRedirect", () => {
     const supabase = {
       from: (table: string) => {
         if (table === "profile_roles") {
-          return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+          return { select: () => ({ eq: () => Promise.resolve({ data: [{ role: "manager" }], error: null }) }) };
         }
         if (table === "profiles") {
           return {
@@ -154,7 +154,7 @@ describe("resolveOAuthPortalRedirect", () => {
                 maybeSingle: () => Promise.resolve({ data: null, error: null }),
                 is: () => ({
                   order: () => ({
-                    limit: () => Promise.resolve({ data: [], error: null }),
+                    limit: () => Promise.resolve({ data: [{ role: "manager" }], error: null }),
                   }),
                 }),
               }),
@@ -164,7 +164,7 @@ describe("resolveOAuthPortalRedirect", () => {
         if (table === "manager_application_records") {
           return {
             select: () => ({
-              eq: () => Promise.resolve({ data: [], error: null }),
+              eq: () => Promise.resolve({ data: [{ role: "manager" }], error: null }),
             }),
           };
         }
@@ -198,7 +198,7 @@ describe("resolveOAuthPortalRedirect", () => {
     const supabase = {
       from: (table: string) => {
         if (table === "profile_roles") {
-          return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+          return { select: () => ({ eq: () => Promise.resolve({ data: [{ role: "manager" }], error: null }) }) };
         }
         if (table === "profiles") {
           return {
@@ -216,7 +216,7 @@ describe("resolveOAuthPortalRedirect", () => {
                 maybeSingle: () => Promise.resolve({ data: null, error: null }),
                 is: () => ({
                   order: () => ({
-                    limit: () => Promise.resolve({ data: [], error: null }),
+                    limit: () => Promise.resolve({ data: [{ role: "manager" }], error: null }),
                   }),
                 }),
               }),
@@ -226,7 +226,7 @@ describe("resolveOAuthPortalRedirect", () => {
         if (table === "manager_application_records") {
           return {
             select: () => ({
-              eq: () => Promise.resolve({ data: [], error: null }),
+              eq: () => Promise.resolve({ data: [{ role: "manager" }], error: null }),
             }),
           };
         }
@@ -296,28 +296,12 @@ describe("resolveOAuthPortalRedirect", () => {
     );
   });
 
-  it("routes failed approved resident signup to create-account with error", async () => {
+  it("never claims a prior application solely from a reused email", async () => {
     const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
-    completeResidentSignupFromOAuth.mockResolvedValue({
-      ok: false,
-      status: 409,
-      error: "This email already has a different login.",
-    });
-
-    const user = { id: "user-1", email: "resident@example.com" } as User;
-    const supabase = mockSupabase([
-      {
-        id: "APP-1",
-        resident_email: "resident@example.com",
-        row_data: { bucket: "approved" },
-      },
-    ]);
-
-    const path = await resolveOAuthPortalRedirect(supabase as never, user, "/portal/dashboard");
-
-    expect(path).toContain("/auth/create-account");
-    expect(path).toContain("message=resident_signup_failed");
-    expect(path).toContain("error=This+email+already+has+a+different+login.");
+    const supabase = mockSupabase([{ id: "APP-1", resident_email: "resident@example.com", row_data: { bucket: "approved", residentUserId: "prior-subject" } }]);
+    const user = { id: "new-subject", email: "resident@example.com", email_confirmed_at: "confirmed" } as User;
+    expect(await resolveOAuthPortalRedirect(supabase as never, user, "/auth/continue", { intent: "resident" })).toBe("/auth/get-started?role=resident");
+    expect(completeResidentSignupFromOAuth).not.toHaveBeenCalled();
   });
 
   it("routes primary admin with manager intent to the manager portal (not admin)", async () => {

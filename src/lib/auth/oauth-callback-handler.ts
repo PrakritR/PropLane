@@ -1,4 +1,3 @@
-import { isManagerPurchaseReadError } from "@/lib/auth/manager-onboarding";
 import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import { resolveRequestOrigin } from "@/lib/app-url";
 import { reconcileAuthAccountsByEmail } from "@/lib/auth/reconcile-auth-accounts-by-email";
@@ -187,7 +186,7 @@ export async function handleOAuthCallback(
     }
   } catch (syncError) {
     console.error("OAuth profile sync failed:", syncError);
-    if (isManagerPurchaseReadError(syncError)) applyRedirect(new URL("/auth/continue", requestOrigin));
+    applyRedirect(new URL("/auth/continue", requestOrigin));
   }
 
   clearOAuthNextCookie(response);

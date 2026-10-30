@@ -44,14 +44,14 @@ export async function completeResidentSignupFromOAuth(
 
   const matchingApplication = (applicationRows ?? []).find((row) => {
     const rowEmail = row.resident_email?.trim().toLowerCase() ?? "";
-    return rowEmail === normalEmail;
+    const data = row.row_data && typeof row.row_data === "object" && !Array.isArray(row.row_data) ? row.row_data as Record<string, unknown> : null;
+    return rowEmail === normalEmail && data?.residentUserId === userId;
   });
 
   const matchingRowData =
     matchingApplication?.row_data && typeof matchingApplication.row_data === "object" && !Array.isArray(matchingApplication.row_data)
       ? (matchingApplication.row_data as Record<string, unknown>)
       : null;
-  const applicationApproved = String(matchingRowData?.bucket ?? "").toLowerCase() === "approved";
 
   if (!matchingApplication) {
     const hasDifferentEmailMatch = (applicationRows ?? []).length > 0;
@@ -86,7 +86,7 @@ export async function completeResidentSignupFromOAuth(
       role: primaryRoleWhenAddingResident(existingProfile?.role as string | undefined),
       full_name: existingProfile?.full_name ?? (typeof matchingRowData?.name === "string" ? matchingRowData.name : null),
       manager_id: profileAxisId,
-      application_approved: applicationApproved || existingProfile?.application_approved || false,
+      ...(existingProfile ? {} : { application_approved: false }),
     },
     { onConflict: "id" },
   );

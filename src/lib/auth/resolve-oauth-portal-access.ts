@@ -15,7 +15,6 @@ import {
   type OAuthSignInIntent,
   type OAuthSurface,
 } from "@/lib/auth/post-oauth-routing";
-import { completeResidentSignupFromOAuth } from "@/lib/auth/complete-resident-signup-oauth";
 import {
   findManagerPurchaseForAccount,
   isManagerOnboardingComplete,
@@ -69,11 +68,6 @@ async function managerPortalDestination(
     return resolveManagerPortalEntryPath(supabase, userId);
   }
   return safeIntended;
-}
-
-function applicationBucket(rowData: unknown): string {
-  if (!rowData || typeof rowData !== "object" || Array.isArray(rowData)) return "";
-  return String((rowData as Record<string, unknown>).bucket ?? "").toLowerCase();
 }
 
 /** Primary admin signing up or continuing as a property manager — not ops admin. */
@@ -170,11 +164,9 @@ export async function resolveOAuthPortalRedirect(
 
   const emailVerified = Boolean(user.email_confirmed_at);
 
-  const [{ data: roleRows }, { data: profile }] = await Promise.all([
-    supabase.from("profile_roles").select("role").eq("user_id", user.id),
-    supabase.from("profiles").select("role, manager_id, full_name, application_approved").eq("id", user.id).maybeSingle(),
-  ]);
-  const roles = normalizePortalRoles(roleRows, profile?.role);
+  const { data: roleRows, error: roleError } = await supabase.from("profile_roles").select("role").eq("user_id", user.id);
+  if (roleError) throw new Error("Could not verify account roles.");
+  const roles = normalizePortalRoles(roleRows, null);
   if (options?.trace) options.trace.roles = roles;
 
   // Multi-role users (e.g. admin+manager) always pick their portal explicitly — the chooser
@@ -261,29 +253,8 @@ export async function resolveOAuthPortalRedirect(
     return finish(safeIntended);
   }
 
-  // Link by rental application (approved OR pending). A pending applicant lands in the
-  // resident portal in a limited state — never bounced back to create-account.
-  const { data: applicationRows } = await supabase
-    .from("manager_application_records")
-    .select("id, resident_email, row_data")
-    .eq("resident_email", email);
-
-  const approvedApplication = (applicationRows ?? []).find((row) => applicationBucket(row.row_data) === "approved");
-  const linkableApplication = approvedApplication ?? (applicationRows ?? [])[0];
-  if (linkableApplication) {
-    const linked = await completeResidentSignupFromOAuth(supabase, user.id, email, linkableApplication.id);
-    if (linked.ok) {
-      const access = await loadResidentPortalAccessState({
-        userId: user.id,
-        role: "resident",
-        email,
-      });
-      return finish(residentPortalHomePath(access));
-    }
-    const params = new URLSearchParams({ role: "resident", message: "resident_signup_failed" });
-    if (linked.error) params.set("error", linked.error);
-    return finish(`/auth/create-account?${params.toString()}`);
-  }
+  // An email match is not an application claim. Only an exact setup-capability
+  // handoff can bind an application to this subject.
 
   // Unknown account: no role, no purchase, no application.
   //
@@ -319,11 +290,9 @@ export async function finalizeOAuthPortalRedirect(
   if (resolved !== "/auth/continue") return resolved;
 
   const email = user.email?.trim().toLowerCase() ?? "";
-  const [{ data: roleRows }, { data: profile }] = await Promise.all([
-    supabase.from("profile_roles").select("role").eq("user_id", user.id),
-    supabase.from("profiles").select("role").eq("id", user.id).maybeSingle(),
-  ]);
-  const roles = normalizePortalRoles(roleRows, profile?.role);
+  const { data: roleRows, error: roleError } = await supabase.from("profile_roles").select("role").eq("user_id", user.id);
+  if (roleError) throw new Error("Could not verify account roles.");
+  const roles = normalizePortalRoles(roleRows, null);
   if (roles.length === 1) {
     if (roles[0] === "resident") {
       const access = await loadResidentPortalAccessState({
