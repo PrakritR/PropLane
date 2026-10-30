@@ -6,7 +6,6 @@ import { AuthOAuthLoading } from "@/components/auth/auth-oauth-loading";
 import { GET_STARTED_PATH } from "@/lib/auth/get-started-path";
 import { normalizePostAuthPath } from "@/lib/auth/normalize-post-auth-path";
 import {
-  resolveClientPostAuthDestination,
   resolvePostAuthDestination,
 } from "@/lib/auth/resolve-post-auth-destination";
 import { waitForOAuthUser } from "@/lib/auth/wait-for-oauth-user";
@@ -111,23 +110,7 @@ function ContinueContent() {
         }
 
         if (resolutionFailed) {
-          const clientDestination = await resolveClientPostAuthDestination(supabase, nextPath);
-          if (clientDestination) {
-            didRedirectRef.current = true;
-            window.location.replace(nativeAwarePath(clientDestination));
-            return;
-          }
-
-          const fallback =
-            nextPath.startsWith("/") && nextPath !== "/auth/continue" ? normalizePostAuthPath(nextPath) : null;
-          if (fallback && fallback !== "/auth/continue") {
-            didRedirectRef.current = true;
-            window.location.replace(nativeAwarePath(fallback));
-            return;
-          }
-
-          didRedirectRef.current = true;
-          window.location.replace(nativeAwarePath(GET_STARTED_PATH));
+          setErrorText("Account access is temporarily unavailable. Refresh to try again.");
           return;
         }
 

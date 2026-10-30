@@ -10,6 +10,15 @@ describe("resolvePostAuthDestination allowlist", () => {
     expect(MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH).toBe("/auth/connect-google-services");
   });
 
+  it("classifies server unavailability without returning a portal destination", async () => {
+    const mod = await import("@/lib/auth/resolve-post-auth-destination");
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await mod.resolvePostAuthDestination("/portal/dashboard", "token")).toEqual({ redirectTo: null, resolutionFailed: true, serverUnavailable: true });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+  });
+
   it("accepts connect-google-services as a post-auth destination (via module contract)", async () => {
     const mod = await import("@/lib/auth/resolve-post-auth-destination");
     const fetchMock = vi.fn().mockResolvedValue({

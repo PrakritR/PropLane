@@ -75,6 +75,7 @@ export async function resolvePostAuthDestination(
 ): Promise<{
   redirectTo: string | null;
   resolutionFailed: boolean;
+  serverUnavailable?: boolean;
 }> {
   const next = nextPath.startsWith("/") ? nextPath : "/auth/continue";
   const authHeaders: Record<string, string> = {};
@@ -93,6 +94,7 @@ export async function resolvePostAuthDestination(
         continue;
       }
 
+      if (res.status === 503) return { redirectTo: null, resolutionFailed: true, serverUnavailable: true };
       if (!res.ok) {
         if (attempt < RESOLVE_ATTEMPTS - 1) {
           await sleep(RESOLVE_BASE_DELAY_MS + attempt * 250);

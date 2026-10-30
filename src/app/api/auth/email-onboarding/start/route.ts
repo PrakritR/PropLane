@@ -30,7 +30,6 @@ export async function POST(req: Request) {
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const from = process.env.RESEND_FROM?.trim();
   if (!apiKey || !from) return NextResponse.json({ error: "Email verification is unavailable." }, { status: 503 });
-  const tourRequest = body.intent === "tour";
   try {
     const db = createSupabaseServiceRoleClient();
     const cleanup = await db.rpc("purge_expired_email_onboarding_handoffs");
@@ -120,7 +119,7 @@ export async function POST(req: Request) {
     }
     const recent = await db.from("email_onboarding_handoffs").select("id").eq("user_id", id).in("status", ["pending", "processing"]).gte("created_at", new Date(Date.now() - 60_000).toISOString()).gt("expires_at", new Date().toISOString()).limit(1);
     if (recent.error) return NextResponse.json({ error: "Email verification is unavailable." }, { status: 503 });
-    if ((recent.data ?? []).length > 0) return NextResponse.json(GENERIC);
+    if ((recent.data ?? []).length > 0) return NextResponse.json({ error: "Check for an existing link or try again shortly." }, { status: 503 });
     let tourHandoffId: string | null = null;
     let tourPlaceholder: string | null = null;
     if (intent === "tour") {
@@ -154,7 +153,7 @@ export async function POST(req: Request) {
     }
   } catch {
     console.error("Email onboarding could not be started");
-    if (tourRequest) return NextResponse.json({ error: "Tour verification is unavailable. Please try again." }, { status: 503 });
+    return NextResponse.json({ error: "Email verification is unavailable. Please try again." }, { status: 503 });
   }
   return NextResponse.json(GENERIC);
 }

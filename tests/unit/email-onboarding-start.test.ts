@@ -140,13 +140,36 @@ describe("email onboarding start", () => {
     expect(response.status).toBe(503);
     expect(m.send).toHaveBeenCalledOnce();
   });
+  it("does not remint after ambiguous delivery until the pending window passes", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test"); vi.stubGlobal("fetch", m.send.mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ ok: true }));
+    m.find.mockResolvedValue("user-1");
+    m.get.mockResolvedValue({ data: { user: { id: "user-1", email_confirmed_at: "confirmed" } } });
+    m.link.mockResolvedValue({ data: { user: { id: "user-1" }, properties: { hashed_token: "synthetic", verification_type: "magiclink" } } });
+    m.insert.mockResolvedValue({ error: null });
+    m.recent.mockResolvedValueOnce({ data: [], error: null }).mockResolvedValueOnce({ data: [{ id: "pending" }], error: null }).mockResolvedValueOnce({ data: [], error: null });
+    expect((await POST(request())).status).toBe(503);
+    expect((await POST(request())).status).toBe(503);
+    expect(m.link).toHaveBeenCalledTimes(1);
+    expect(m.send).toHaveBeenCalledTimes(1);
+    expect((await POST(request())).status).toBe(200);
+    expect(m.link).toHaveBeenCalledTimes(2);
+    expect(m.send).toHaveBeenCalledTimes(2);
+  });
+  it("returns retryable failure when a database helper throws before minting", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test");
+    m.rpc.mockRejectedValueOnce(new Error("unavailable"));
+    expect((await POST(request())).status).toBe(503);
+    expect(m.link).not.toHaveBeenCalled();
+    expect(m.send).not.toHaveBeenCalled();
+  });
   it("does not mint a replacement for a recent pending handoff", async () => {
     vi.stubEnv("RESEND_API_KEY", "test");
     m.find.mockResolvedValue("user-1");
     m.get.mockResolvedValue({ data: { user: { id: "user-1", email_confirmed_at: "confirmed" } } });
     m.recent.mockResolvedValue({ data: [{ id: "pending" }], error: null });
     const response = await POST(request());
-    expect(await response.json()).toEqual({ ok: true });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Check for an existing link or try again shortly." });
     expect(m.link).not.toHaveBeenCalled();
     expect(m.send).not.toHaveBeenCalled();
   });
