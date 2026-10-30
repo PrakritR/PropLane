@@ -273,6 +273,7 @@ function workOrder(
     id,
     manager_user_id: MANAGER,
     vendor_user_id: vendorUserId,
+    row_revision: 1,
     updated_at: "2026-07-01T00:00:00.000Z",
     row_data: {
       id,

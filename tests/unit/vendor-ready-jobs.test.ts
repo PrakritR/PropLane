@@ -233,14 +233,14 @@ describe("J3: completion photos", () => {
     expect(hoisted.events).toHaveLength(0);
   });
 
-  it("a double tap writes the done status once: the update re-asserts it, and a lost race fires nothing", async () => {
+  it("a double tap writes the done status once: a lost revision race returns 409 and fires nothing", async () => {
     const log: Array<{ table: string; op: string; row?: Rec }> = [];
     // The row still reads as not-done (the stale SELECT both requests made), but the conditional UPDATE matches no row
     // because the winner already stamped automationStatus.
     const base = fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: { id: "wo1", bucket: "scheduled", title: "T", reference: "R" } }, rows: [] } }, log) as unknown as Rec;
     const db = { ...base, storage: { from: () => ({ upload: async () => ({ error: null }) }) } } as never;
     hoisted.events.length = 0;
-    expect(await markWorkOrderDoneByVendor(db, actor(), { workOrderId: "wo1" })).toMatchObject({ ok: false, status: 400 });
+    expect(await markWorkOrderDoneByVendor(db, actor(), { workOrderId: "wo1" })).toMatchObject({ ok: false, status: 409 });
     expect(hoisted.events).toHaveLength(0);
   });
 });
