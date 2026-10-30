@@ -17,6 +17,9 @@ import { residentSetupIdFromUrlParams } from "@/lib/auth/resident-setup-links";
 import { FIELD_LABEL_CLASS, READONLY_INPUT_CLASS } from "@/lib/ui-styles";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 
+const EXISTING_ACCOUNT_EMAIL_LINK_MESSAGE =
+  "This email already has a PropLane account. We'll email you a link to sign in.";
+
 function ResidentSetupFallback() {
   return (
     <AuthCard variant="blend">
@@ -118,8 +121,11 @@ function ResidentSetupInner() {
       });
       const body = (await res.json()) as { error?: string; redirectTo?: string; axisId?: string };
       if (!res.ok) {
-        const message = body.error ?? "Could not create resident account.";
-        setSubmitError({ message, emailLinkRecovery: res.status === 401 });
+        const emailLinkRecovery = res.status === 401;
+        const message = emailLinkRecovery
+          ? EXISTING_ACCOUNT_EMAIL_LINK_MESSAGE
+          : body.error ?? "Could not create resident account.";
+        setSubmitError({ message, emailLinkRecovery });
         showToast(message);
         return;
       }

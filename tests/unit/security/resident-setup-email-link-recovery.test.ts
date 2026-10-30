@@ -17,6 +17,13 @@ describe("resident setup recovery", () => {
     expect(CLIENT).toMatch(/\/auth\/forgot-password\?email=\$\{encodeURIComponent\(email\)\}/);
   });
 
+  it("says what the button does instead of echoing an unfollowable instruction", () => {
+    expect(CLIENT).toContain("This email already has a PropLane account. We'll email you a link to sign in.");
+    expect(CLIENT).toMatch(/emailLinkRecovery\s*\n?\s*\?\s*EXISTING_ACCOUNT_EMAIL_LINK_MESSAGE/);
+    expect(CLIENT).not.toContain("Enter the same password you use for that account");
+    expect(CLIENT).not.toContain("EXISTING_ACCOUNT_PASSWORD_MISMATCH");
+  });
+
   it("never mints a credential or confirmation from the setup page itself", () => {
     expect(CLIENT).not.toMatch(/confirm-resident-email|email_confirm|updateUserById/);
   });
