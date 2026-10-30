@@ -144,9 +144,9 @@ export async function resolveResidentConfirmation(
  */
 export async function resolveResidentConfirmationBySms(
   db: SupabaseClient,
-  input: { managerUserId: string; residentUserId?: string; residentEmail?: string; verdict: "fixed" | "not_fixed"; note?: string; now?: Date },
+  input: { managerUserId: string; residentUserId: string; verdict: "fixed" | "not_fixed"; note?: string; now?: Date },
 ): Promise<{ ok: true; title: string; reopened: boolean } | null> {
-  const residentUserId = input.residentUserId?.trim() ?? "";
+  const residentUserId = input.residentUserId.trim();
   if (!residentUserId) return null;
   const { data } = await db
     .from("portal_work_order_records")
@@ -194,6 +194,17 @@ async function resolveConfirmationRecord(
   const { data: updated, error: updateError } = await update.select("id").maybeSingle();
   if (updateError || !updated) return { ok: false, reason: "invalid" };
 
+  await emitResidentConfirmationEvent(db, record, input.verdict, confirmation.requestedAt, now, note, input.ratingUrl);
+
+  return { ok: true, ratingUrl: reopened ? null : input.ratingUrl ?? null };
+}
+
+/** Send the exact committed confirmation event; the dispatch RPC caller invokes this only after winning. */
+export async function emitResidentConfirmationEvent(
+  db: SupabaseClient, record: WorkOrderRecord, verdict: "fixed" | "not_fixed", requestedAt: string,
+  now: Date, note?: string, ratingUrl?: string | null, residentUserId?: string,
+): Promise<void> {
+  const reopened = verdict === "not_fixed";
   const sender = await senderFor(db, record.manager_user_id);
   const residentEmail = (record.row_data.residentEmail ?? "").trim();
   const facts = {
@@ -203,12 +214,12 @@ async function resolveConfirmationRecord(
     vendorName: record.row_data.vendorName || record.row_data.assignee?.name || undefined,
     residentName: record.row_data.residentName || undefined,
     note,
-    ratingUrl: reopened ? undefined : input.ratingUrl ?? undefined,
+    ratingUrl: reopened ? undefined : ratingUrl ?? undefined,
     url: `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/portal/services/work-orders`,
   };
   const managers = await managerRecipients(db, record);
   await workOrderEvent(db, {
-    eventId: `${record.id}:${reopened ? "resident_reopened" : "resident_confirmed"}:${confirmation.requestedAt}`,
+    eventId: `${record.id}:${reopened ? "resident_reopened" : "resident_confirmed"}:${requestedAt}`,
     event: reopened ? "resident_reopened" : "resident_confirmed",
     managerUserId: record.manager_user_id,
     workOrderId: record.id,
@@ -217,14 +228,13 @@ async function resolveConfirmationRecord(
     senderName: sender.fullName,
     facts,
     recipients: [
-      ...(residentEmail.includes("@") ? [{ audience: "resident" as const, email: residentEmail }] : []),
+      ...(residentUserId ? [{ audience: "resident" as const, userId: residentUserId }] : residentEmail.includes("@") ? [{ audience: "resident" as const, email: residentEmail }] : []),
       ...managers,
       ...(reopened && record.vendor_user_id ? [{ audience: "vendor" as const, userId: record.vendor_user_id }] : []),
     ],
     now,
   }).catch(() => undefined);
 
-  return { ok: true, ratingUrl: reopened ? null : facts.ratingUrl ?? null };
 }
 
 /** The resident's star rating after confirming the fix; relayed to the vendor only when the manager shares ratings. */

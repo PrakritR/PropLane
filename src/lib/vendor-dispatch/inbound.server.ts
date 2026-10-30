@@ -552,11 +552,11 @@ export async function handleVendorDispatchReply(
 /** A resident's bare YES / NO while a finished job waits on "Is it fixed?". */
 export async function handleResidentDispatchReply(
   db: SupabaseClient,
-  input: { ownerUserId: string; residentEmail: string; body: string; now?: Date },
+  input: { ownerUserId: string; residentUserId: string; residentEmail: string; body: string; now?: Date },
 ): Promise<InboundHandled> {
   const verdict = parseResidentFixedReply(input.body);
   if (!verdict) return { handled: false };
-  const result = await handleResidentFixedReply(db, { ownerUserId: input.ownerUserId, residentEmail: input.residentEmail, verdict, now: input.now }).catch(
+  const result = await handleResidentFixedReply(db, { ownerUserId: input.ownerUserId, residentUserId: input.residentUserId, residentEmail: input.residentEmail, verdict, now: input.now }).catch(
     () => ({ handled: false as const }),
   );
   return result.handled ? { handled: true, reply: result.reply } : { handled: false };

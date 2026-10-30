@@ -8,7 +8,7 @@ import { assertFinancialsTier } from "@/lib/reports/auth";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
 import { insertVendorInvoiceRow, prepareVendorInvoiceSubmission } from "@/lib/vendor-invoice-submit.server";
 import { ensureSubmittedVendorInvoiceForMarkedDone } from "@/lib/work-order-vendor-invoice.server";
-import { requestResidentConfirmation, resolveResidentConfirmationBySms } from "@/lib/work-order-resident-confirmation.server";
+import { emitResidentConfirmationEvent, requestResidentConfirmation } from "@/lib/work-order-resident-confirmation.server";
 import { workOrderEvent } from "@/lib/work-order-events.server";
 import { recordDispatchEvent } from "@/lib/vendor-dispatch/audit.server";
 import { canActorApprove, loadAttempts, loadRun, loadVendorContacts, notifyApprovers, notifyOutcome } from "@/lib/vendor-dispatch/engine.server";
@@ -168,7 +168,7 @@ export type ResidentFixedOutcome = { handled: false } | { handled: true; reply: 
  */
 export async function handleResidentFixedReply(
   db: SupabaseClient,
-  input: { ownerUserId: string; residentEmail: string; verdict: "fixed" | "not_fixed"; now?: Date },
+  input: { ownerUserId: string; residentUserId: string; residentEmail: string; verdict: "fixed" | "not_fixed"; now?: Date },
 ): Promise<ResidentFixedOutcome> {
   const now = input.now ?? new Date();
   const nowIso = now.toISOString();
@@ -180,51 +180,26 @@ export async function handleResidentFixedReply(
     .eq("owner_user_id", input.ownerUserId)
     .eq("resident_email", email)
     .eq("completion_state", "awaiting_resident")
-    .eq("status", "accepted");
+    .eq("status", "accepted")
+    .order("created_at", { ascending: false })
+    .limit(100);
   const runs = ((data ?? []) as DispatchRunRow[]).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-  const run = runs[0];
-  if (!run) return { handled: false };
-
-  const nextState = input.verdict === "fixed" ? "confirmed" : "reopened";
-  const { data: claimed } = await db
-    .from("vendor_dispatch_runs")
-    .update(
-      input.verdict === "fixed"
-        ? { status: "completed", completion_state: nextState, completed_at: nowIso, updated_at: nowIso }
-        : { completion_state: nextState, vendor_done_at: null, updated_at: nowIso },
-    )
-    .eq("id", run.id)
-    .eq("completion_state", "awaiting_resident")
-    .select("id");
-  if (!claimed || (claimed as unknown[]).length === 0) return { handled: false };
-
-  // The existing confirmation (when the manager has that step on) sends its own notices; run it first, then layer our fields.
-  await resolveResidentConfirmationBySms(db, {
-    managerUserId: run.owner_user_id,
-    residentEmail: email,
-    verdict: input.verdict,
-    now,
-  }).catch(() => null);
-
-  const record = await readWorkOrder(db, run);
+  if (!input.residentUserId.trim()) return { handled: false };
+  let run: DispatchRunRow | undefined;
+  let result: { applied?: boolean; confirmation_applied?: boolean; confirmation_requested_at?: string } | undefined;
+  for (const candidate of runs) {
+    const claimed = await db.rpc("resolve_resident_dispatch_confirmation", {
+      p_run: candidate.id, p_owner: input.ownerUserId, p_resident: input.residentUserId, p_verdict: input.verdict,
+    });
+    if (claimed.error) return { handled: false };
+    if (claimed.data?.applied === true) { run = candidate; result = claimed.data; break; }
+  }
+  if (!run || !result) return { handled: false };
   const houseLabel = String(run.details.houseLabel || run.details.area || "the house");
-  if (record) {
-    const row = record.row_data;
-    const next: DemoManagerWorkOrderRow =
-      input.verdict === "fixed"
-        ? {
-            ...row,
-            bucket: "completed",
-            status: "Completed",
-            completedAt: nowIso,
-            ...(row.vendorCostCents == null && run.agreed_cents != null ? { vendorCostCents: run.agreed_cents } : {}),
-          }
-        : { ...row, automationStatus: undefined, vendorMarkedDoneAt: undefined, reopenedAt: nowIso };
-    await db
-      .from("portal_work_order_records")
-      .update({ row_data: stampSmsTestProvenance(next as unknown as Record<string, unknown>), updated_at: nowIso })
-      .eq("id", run.source_id)
-      .eq("manager_user_id", run.owner_user_id);
+  const record = await readWorkOrder(db, run);
+  const confirmation = record?.row_data.residentConfirmation;
+  if (record && result.confirmation_applied === true && typeof result.confirmation_requested_at === "string" && confirmation?.requestedAt === result.confirmation_requested_at) {
+    await emitResidentConfirmationEvent(db, { ...record, updated_at: null }, input.verdict, confirmation.requestedAt, now, undefined, null, input.residentUserId).catch(() => undefined);
   }
 
   await recordDispatchEvent(db, {

@@ -21,7 +21,7 @@ function fixture(owner: string, race = false) {
 it("denies reused-email or missing subject without update or notice", async () => {
   events.mockClear(); const f = fixture("original");
   expect(await resolveResidentConfirmationBySms(f.db as never, { managerUserId: "manager", residentUserId: "replacement", verdict: "fixed" })).toBeNull();
-  expect(await resolveResidentConfirmationBySms(f.db as never, { managerUserId: "manager", residentEmail: "same@example.test", verdict: "fixed" })).toBeNull();
+  expect(await resolveResidentConfirmationBySms(f.db as never, { managerUserId: "manager", residentUserId: "", verdict: "fixed" })).toBeNull();
   expect(f.writes()).toBe(0); expect(events).not.toHaveBeenCalled();
 });
 it("allows the bound subject and writes before notification", async () => {

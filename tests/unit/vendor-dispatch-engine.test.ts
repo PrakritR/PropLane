@@ -177,7 +177,7 @@ function world(options: { rules?: Row[]; vendors?: Row[]; extra?: Record<string,
       { rule_id: "r1", vendor_directory_id: "v2", position: 1 },
       { rule_id: "r1", vendor_directory_id: "v3", position: 2 },
     ],
-    portal_work_order_records: [{ id: "wo-1", manager_user_id: OWNER, vendor_user_id: null, row_data: workOrderRow() }],
+    portal_work_order_records: [{ id: "wo-1", manager_user_id: OWNER, resident_user_id: "resident-1", vendor_user_id: null, row_data: workOrderRow() }],
     profiles: [{ id: "owner-1", email: "owner@example.com", full_name: "Olive Owner" }],
     ...options.extra,
   });
@@ -719,12 +719,29 @@ describe("after the accept", () => {
     expect(rows(db, "portal_work_order_records")[0]!.row_data).toMatchObject({ automationStatus: "vendor_marked_done" });
     expect(await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attempt.id), now: T0 })).toBe("already");
 
-    const stranger = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentEmail: "someone@else.com", body: "YES", now: T0 });
+    const stranger = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: "other", residentEmail: "someone@else.com", body: "YES", now: T0 });
     expect(stranger).toEqual({ handled: false });
-    const fixed = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentEmail: "dana@example.com", body: "YES", now: T0 });
+    const noticesBefore = sent.team.length;
+    const replacement = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: "replacement", residentEmail: "dana@example.com", body: "YES", now: T0 });
+    expect(replacement).toEqual({ handled: false });
+    expect(runById(db, run.id)).toMatchObject({ status: "accepted", completion_state: "awaiting_resident" });
+    expect(sent.team).toHaveLength(noticesBefore);
+    const fixed = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: "resident-1", residentEmail: "dana@example.com", body: "YES", now: T0 });
     expect(fixed).toMatchObject({ handled: true });
     expect(runById(db, run.id)).toMatchObject({ status: "completed", completion_state: "confirmed" });
     expect(rows(db, "portal_work_order_records")[0]!.row_data).toMatchObject({ bucket: "completed", status: "Completed" });
+  });
+
+  it("skips a newer same-email run belonging to another resident", async () => {
+    const { db, run } = await accepted();
+    await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), now: T0 });
+    const existing = runById(db, run.id)!;
+    db.__tables.vendor_dispatch_runs!.push({ ...existing, id: "foreign-run", source_id: "foreign-job", created_at: "2099-01-01T00:00:00Z" });
+    db.__tables.portal_work_order_records!.push({ id: "foreign-job", manager_user_id: OWNER, resident_user_id: "replacement", row_data: workOrderRow() });
+    const answer = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: "resident-1", residentEmail: "dana@example.com", body: "YES", now: T0 });
+    expect(answer).toMatchObject({ handled: true });
+    expect(runById(db, run.id)).toMatchObject({ status: "completed" });
+    expect(runById(db, "foreign-run")).toMatchObject({ status: "accepted", completion_state: "awaiting_resident" });
   });
 
   it("a NO reopens the service for the vendor and alerts the manager", async () => {
@@ -732,7 +749,7 @@ describe("after the accept", () => {
     await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), now: T0 });
     sent.vendor.length = 0;
     sent.team.length = 0;
-    const answer = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentEmail: "dana@example.com", body: "no", now: T0 });
+    const answer = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: "resident-1", residentEmail: "dana@example.com", body: "no", now: T0 });
     expect(answer).toMatchObject({ handled: true });
     expect(runById(db, run.id)).toMatchObject({ status: "accepted", completion_state: "reopened" });
     expect(rows(db, "portal_work_order_records")[0]!.row_data).toMatchObject({ bucket: "scheduled" });

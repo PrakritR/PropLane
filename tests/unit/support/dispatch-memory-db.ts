@@ -12,6 +12,15 @@ export function createDispatchDb(seed: Record<string, Row[]> = {}): MemoryDb {
   return {
     ...base,
     rpc: async (fn, args = {}) => {
+      if (fn === "resolve_resident_dispatch_confirmation") {
+        const run = base.__tables.vendor_dispatch_runs?.find((row) => row.id === args.p_run && row.owner_user_id === args.p_owner && row.source_type === "work_order" && row.status === "accepted" && row.completion_state === "awaiting_resident");
+        const job = base.__tables.portal_work_order_records?.find((row) => row.id === run?.source_id && row.manager_user_id === args.p_owner && row.resident_user_id === args.p_resident);
+        if (!run || !job) return { data: { applied: false }, error: null };
+        run.status = args.p_verdict === "fixed" ? "completed" : "accepted";
+        run.completion_state = args.p_verdict === "fixed" ? "confirmed" : "reopened";
+        if (args.p_verdict === "fixed") job.row_data = { ...(job.row_data as Row), bucket: "completed", status: "Completed" };
+        return { data: { applied: true }, error: null };
+      }
       if (fn === "next_vendor_dispatch_handle") {
         const owner = String(args.p_owner ?? "");
         const next = (counters.get(owner) ?? 0) + 1;
