@@ -3,6 +3,7 @@ import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { readListingSource } from "@/lib/listing-channels/lead-source.server";
 import { openApplicantRow, prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
 import { NextResponse, after } from "next/server";
+import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { loadOccupancyAuthors, occupancyAuthorTrusted } from "@/lib/occupancy/row-authorship.server";
 import { prepareGuestApplicationUpsert } from "@/lib/auth/guest-application-upsert";
@@ -310,8 +311,11 @@ async function resolvePortalRole(
   user: NonNullable<Awaited<ReturnType<typeof sessionUser>>>,
 ) {
   const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
-  const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
+  const { data: roleRows, error } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+  const roles = error ? [] : (roleRows ?? []).map((row) => String(row.role).toLowerCase());
+  const primary = String(profile?.role ?? "").toLowerCase();
+  const role = roles.includes(primary) ? primary : roles.includes("resident") ? "resident" : roles.find(isManagerPortalRole) ?? "";
+  const email = verifiedSessionEmail(user, profile?.email);
   return { role, email };
 }
 
@@ -324,8 +328,8 @@ async function assertManagerOrAdminWriteAccess(
   user: NonNullable<Awaited<ReturnType<typeof sessionUser>>>,
 ): Promise<NextResponse | null> {
   if (await isAdminUser(user.id)) return null;
-  const { role } = await resolvePortalRole(db, user);
-  if (!isManagerPortalRole(role)) {
+  const { data, error } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+  if (error || !(data ?? []).some((row) => isManagerPortalRole(String(row.role).toLowerCase()))) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 403 });
   }
   return null;
@@ -823,9 +827,7 @@ async function assertCanDeleteApplicationRecords(
   const admin = await isAdminUser(user.id);
   if (admin) return null;
 
-  const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
-  const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
+  const { role, email } = await resolvePortalRole(db, user);
 
   if (role === "resident") {
     for (const record of records) {

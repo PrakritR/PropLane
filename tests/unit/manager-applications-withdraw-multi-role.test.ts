@@ -70,6 +70,7 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: PROFILE ? [{ role: PROFILE.role }] : [], error: null }).then(resolve);
           if (table === "manager_application_records") {
             const rows = state.ids ? STORED_ROWS.filter((r) => state.ids?.includes(r.id)) : STORED_ROWS;
             return Promise.resolve({ data: rows, error: null }).then(resolve);
@@ -117,7 +118,7 @@ beforeEach(() => {
   // `manager`/`owner`, but its EMAIL owns the application it is withdrawing.
   PROFILE = { role: "owner", email: APPLICANT_EMAIL };
   getUser.mockResolvedValue({
-    data: { user: { id: "multi-role-user-1", email: APPLICANT_EMAIL, user_metadata: {} } },
+    data: { user: { id: "multi-role-user-1", email: APPLICANT_EMAIL, email_confirmed_at: "confirmed", user_metadata: {} } },
     error: null,
   });
   STORED_ROWS = [{ id: APP_ID, row_data: storedRow(), resident_email: APPLICANT_EMAIL }];
@@ -138,7 +139,7 @@ describe("POST /api/manager-applications — withdraw for a multi-role account",
   it("still refuses withdrawing SOMEONE ELSE's application (email mismatch)", async () => {
     PROFILE = { role: "owner", email: "different-person@example.com" };
     getUser.mockResolvedValue({
-      data: { user: { id: "other-user", email: "different-person@example.com", user_metadata: {} } },
+      data: { user: { id: "other-user", email: "different-person@example.com", email_confirmed_at: "confirmed", user_metadata: {} } },
       error: null,
     });
 
