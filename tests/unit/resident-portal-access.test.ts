@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   loadResidentPortalAccessState,
   residentPortalHomePath,
+  verifiedTourFallbackEmail,
 } from "@/lib/resident-portal-access";
 import {
   isResidentPathAllowedForAccess,
@@ -25,6 +26,7 @@ function makeDbMock(options: {
   const { applicationRows = [], profile = null, axisRecord = null, profileRoles = [] } = options;
 
   return {
+    auth: { admin: { getUserById: vi.fn(async (id: string) => ({ data: { user: { email: ({ "user-drift": "drifted@example.com", "user-second": "second-apply@example.com", "user-both": "both@example.com" } as Record<string, string>)[id] ?? "resident@example.com", email_confirmed_at: "confirmed" } }, error: null })) } },
     from: vi.fn().mockImplementation((table: string) => {
       if (table === "manager_application_records") {
         return {
@@ -105,9 +107,29 @@ function makeDbMock(options: {
   };
 }
 
+describe("resident history mailbox proof", () => {
+  it.each([
+    [{ email: "resident@example.com" }, ""],
+    [{ email: "other@example.com", email_confirmed_at: "confirmed" }, ""],
+    [{ email: "Resident@Example.com", email_confirmed_at: "confirmed" }, "resident@example.com"],
+  ])("uses only a confirmed matching Auth mailbox", async (user, expected) => {
+    const db = { auth: { admin: { getUserById: vi.fn().mockResolvedValue({ data: { user }, error: null }) } } };
+    expect(await verifiedTourFallbackEmail(db as never, "u1", "resident@example.com")).toBe(expected);
+  });
+});
+
 describe("resident portal access state", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("does not load email history when Auth mailbox is unconfirmed", async () => {
+    const db = makeDbMock({ applicationRows: [{ resident_email: "resident@example.com", row_data: { id: "A", bucket: "approved", stage: "Approved" } }] });
+    db.auth.admin.getUserById.mockResolvedValueOnce({ data: { user: { email: "resident@example.com", email_confirmed_at: "" } }, error: null });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    const access = await loadResidentPortalAccessState({ userId: "unconfirmed", role: "resident", email: "resident@example.com" });
+    expect(access.applicationApproved).toBe(false);
+    expect(access.hasSubmittedApplication).toBe(false);
   });
 
   it("never derives access from a stale profile application id owned by another email", async () => {

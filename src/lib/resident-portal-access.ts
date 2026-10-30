@@ -253,14 +253,17 @@ const loadResidentPortalAccessStateCached = cache(
     const roleOk = await authorizeResidentRole(db, { userId, legacyRole: role });
     if (!roleOk) return emptyAccessState(managerSubscriptionTier);
 
+    // Email-keyed historical records require a confirmed matching Auth mailbox.
+    // Explicit user-id links and stays continue to work without one.
+    email = userId ? await verifiedTourFallbackEmail(db, userId, email) : "";
     let applicationQuery = db
       .from("manager_application_records")
       .select("row_data, updated_at, resident_email, manager_user_id")
       .eq("resident_email", email);
     if (managerUserId) applicationQuery = applicationQuery.eq("manager_user_id", managerUserId);
     const [applicationResult, leaseSigned, hasTourLink, hasStays] = await Promise.all([
-      applicationQuery.order("updated_at", { ascending: false }),
-      loadResidentLeaseSignedStatus(email, managerUserId ?? undefined),
+      email ? applicationQuery.order("updated_at", { ascending: false }) : Promise.resolve({ data: [] }),
+      email ? loadResidentLeaseSignedStatus(email, managerUserId ?? undefined) : Promise.resolve(false),
       userId ? residentHasTourLinks(db, userId, email) : Promise.resolve(false),
       userId ? residentHasStays(db, userId) : Promise.resolve(false),
     ]);
@@ -333,7 +336,7 @@ const loadResidentPortalAccessStateCached = cache(
     // either (PRP-239).
     const attestedTenancy = leaseSigned
       ? false
-      : await loadResidentManagerAttestedTenancy(email, managerUserId ?? undefined);
+      : email ? await loadResidentManagerAttestedTenancy(email, managerUserId ?? undefined) : false;
     const leaseAccessUnlocked = leaseSigned || attestedTenancy;
     const isPreLeaseResident =
       roleOk &&
@@ -373,6 +376,17 @@ const loadResidentPortalAccessStateCached = cache(
     };
   },
 );
+
+export async function verifiedTourFallbackEmail(db: ReturnType<typeof createSupabaseServiceRoleClient>, userId: string, email: string): Promise<string> {
+  try {
+    const { data, error } = await db.auth.admin.getUserById(userId);
+    const authEmail = data.user?.email?.trim().toLowerCase() ?? "";
+    if (!error && data.user?.email_confirmed_at && authEmail === email && !authEmail.endsWith("@phone.proplane.invalid")) return authEmail;
+  } catch {
+    // A failed Auth read never grants email-derived access.
+  }
+  return "";
+}
 
 export async function loadResidentPortalAccessState(params: {
   userId: string | null | undefined;
