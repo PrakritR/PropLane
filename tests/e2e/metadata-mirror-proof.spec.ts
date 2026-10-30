@@ -42,18 +42,27 @@ test("exact live property partial upsert preserves stored row metadata", async (
   expect(initial.data.row_data).toEqual(rowData);
   manifest.rowDataDigest = createHash("sha256").update(JSON.stringify(initial.data.row_data)).digest("hex");
   manifest.updatedAt = initial.data.updated_at; manifest.state = "saved"; persistMetadataManifest(file, manifest);
+  const blockedPageWrites: string[] = [];
+  await page.route(/\/api\/property-records(?:\?|$)/, async (route) => {
+    if (route.request().method() === "GET") { await route.continue(); return; }
+    blockedPageWrites.push(route.request().method());
+    await route.abort();
+  });
   await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
   await expect(page.getByText(marker).first()).toBeVisible({ timeout: 30_000 });
+  expect(blockedPageWrites).toEqual([]);
   const listed = await page.request.get("/api/property-records");
   expect(listed.status()).toBe(200);
   const listedBody = await listed.json() as { snapshot?: unknown };
   expect(JSON.stringify(listedBody.snapshot)).toContain(propertyId);
   // Portfolio hydration now reads the authoritative snapshot. Exercise the
   // route's omitted-rowData contract with one explicit, authenticated write.
-  const partial = await page.request.post("/api/property-records", { data: {
+  const partialBody = {
     action: "upsert", id: propertyId, managerUserId: managerId, status: "live",
     propertyData: initial.data.property_data,
-  } });
+  };
+  expect("rowData" in partialBody).toBe(false);
+  const partial = await page.request.post("/api/property-records", { data: partialBody });
   expect(partial.status()).toBe(200);
   const after = await db.from("manager_property_records").select("updated_at,row_data").eq("id", propertyId).eq("manager_user_id", managerId).eq("workspace_id", workspaceId).single();
   if (after.error || !after.data?.updated_at) throw new Error("Synthetic property missing after mirror.");

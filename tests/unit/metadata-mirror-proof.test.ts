@@ -20,8 +20,11 @@ function fixture(opts: { connection?: boolean; descendant?: boolean; wrongOwner?
 describe("metadata property proof safety", () => {
   it("allows only the fixture's metadata-omitting mirror", () => {
     const source = readFileSync("tests/e2e/metadata-mirror-proof.spec.ts", "utf8");
-    expect(source).toContain('body.id !== propertyId');
-    expect(source).toContain('"rowData" in body');
+    expect(source).toContain('await page.route(/\\/api\\/property-records');
+    expect(source).toContain('expect(blockedPageWrites).toEqual([])');
+    expect(source).toContain('action: "upsert", id: propertyId, managerUserId: managerId');
+    expect(source).toContain('expect("rowData" in partialBody).toBe(false)');
+    expect(source).toContain('page.request.post("/api/property-records", { data: partialBody })');
     expect(source).toContain('expect(after.data.row_data).toEqual(initial.data.row_data)');
   });
   it("accepts exact owned live property with no dependencies", async () => { await expect(preflightMetadata(fixture(), input, "live")).resolves.toBeUndefined(); });
