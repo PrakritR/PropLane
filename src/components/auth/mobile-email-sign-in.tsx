@@ -21,18 +21,6 @@ function continueHref(nextPath: string): string {
   return `/auth/continue?next=${encodeURIComponent(nextPath)}`;
 }
 
-async function tryResidentAutoConfirm(email: string): Promise<boolean> {
-  try {
-    const res = await fetch("/api/auth/confirm-resident-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: normalizeAuthEmail(email) }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Compact email/password sign-in. Currently unused by `/auth/sign-in` (that
@@ -77,7 +65,7 @@ export function MobileEmailSignIn({
     setBusy(true);
     try {
       const supabase = createSupabaseBrowserClient();
-      let authResult = (await Promise.race([
+      const authResult = (await Promise.race([
         supabase.auth.signInWithPassword({
           email: normalizeAuthEmail(credentials.email),
           password: credentials.password,
@@ -87,20 +75,10 @@ export function MobileEmailSignIn({
         ),
       ])) as SignInResult;
 
-      let { data, error } = authResult;
-      if (error?.message.toLowerCase().includes("email not confirmed")) {
-        const repaired = await tryResidentAutoConfirm(credentials.email);
-        if (repaired) {
-          authResult = (await supabase.auth.signInWithPassword({
-            email: normalizeAuthEmail(credentials.email),
-            password: credentials.password,
-          })) as SignInResult;
-          data = authResult.data;
-          error = authResult.error;
-        }
-      }
+      const { data, error } = authResult;
+
       if (error) {
-        setErrorText(error.message);
+        setErrorText(error.message.toLowerCase().includes("email not confirmed") ? "Verify your email using the link sent to you, then sign in." : error.message);
         return;
       }
       if (!data.user) {

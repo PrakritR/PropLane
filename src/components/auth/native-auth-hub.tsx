@@ -43,18 +43,6 @@ import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 import { PHONE_AUTH_COPY } from "@/lib/auth/phone-auth-errors";
 import { readLastLoginMethod, readRememberedLoginEmail, rememberLoginMethod, REMEMBERED_LOGIN_EMAIL_KEY } from "@/lib/auth/remembered-login";
 
-async function tryResidentAutoConfirm(email: string): Promise<boolean> {
-  try {
-    const res = await fetch("/api/auth/confirm-resident-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: email.trim() }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
 
 /** Role-agnostic create-account URL — portal type is chosen on /auth/get-started after signup. */
 function buildCreateAccountHref(searchParams: URLSearchParams): string {
@@ -287,23 +275,13 @@ function NativeAuthHubInner({ defaultMode = "sign-in", phoneFirst = false }: Nat
     setBusy(true);
     try {
       const supabase = createSupabaseBrowserClient();
-      let { data, error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email: normalizeAuthEmail(credentials.email),
         password: credentials.password,
       });
-      if (error?.message.toLowerCase().includes("email not confirmed")) {
-        const repaired = await tryResidentAutoConfirm(credentials.email);
-        if (repaired) {
-          const retry = await supabase.auth.signInWithPassword({
-            email: normalizeAuthEmail(credentials.email),
-            password: credentials.password,
-          });
-          data = retry.data;
-          error = retry.error;
-        }
-      }
+
       if (error) {
-        setSignInError(presentSignInError(error.message));
+        setSignInError(error.message.toLowerCase().includes("email not confirmed") ? "Verify your email using the link sent to you, then sign in." : presentSignInError(error.message));
         setFailedSignInAttempts((n) => n + 1);
         return;
       }
