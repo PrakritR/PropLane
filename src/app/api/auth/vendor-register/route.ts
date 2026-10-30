@@ -131,13 +131,19 @@ async function registerFromInvite(
 
   const userId = opts.userId;
 
-  const provisioned = await provisionVendorAccountByEmail(supabase, {
-    userId,
-    email,
-    fullName: opts.fullName || null,
-    invite: invite as VendorInviteRow,
-    confirmEmail: true,
-  });
+  let provisioned: Awaited<ReturnType<typeof provisionVendorAccountByEmail>>;
+  try {
+    provisioned = await provisionVendorAccountByEmail(supabase, {
+      userId,
+      email,
+      fullName: opts.fullName || null,
+      invite: invite as VendorInviteRow,
+      confirmEmail: true,
+    });
+  } catch (error) {
+    await releaseVendorInvite(supabase, invite.id);
+    throw error;
+  }
   if (!provisioned.ok) {
     // Hand the invite back: this failure was not the invitee's doing, and a
     // burned token would leave them with no way in and the manager unaware.
