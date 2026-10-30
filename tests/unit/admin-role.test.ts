@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterAdminUserIds, listAdminUserIds, userHoldsAdminRole } from "@/lib/auth/admin-role";
+import { filterAdminUserIds, listAdminUserIds, userHoldsAdminRole, userHoldsAdminRoleStrict } from "@/lib/auth/admin-role";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 
 /**
@@ -115,4 +115,5 @@ it("fails closed for role lookup errors, including the full admin list", async (
   const db = { from: () => query } as never;
   expect(await userHoldsAdminRole(db, "u")).toBe(false);
   await expect(listAdminUserIds(db)).rejects.toThrow();
+  await expect(userHoldsAdminRoleStrict(db, "u")).rejects.toThrow();
 });

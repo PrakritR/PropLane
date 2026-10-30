@@ -6,6 +6,7 @@ export type FakeDbOptions = {
   tables?: Record<string, Row[]>;
   /** Make every audit_log insert fail. */
   auditError?: { code?: string; message: string } | null;
+  roleError?: boolean;
   /** auth.admin.getUserById answer by id; absent id = purged. */
   authUsers?: Record<string, { banned_until?: string | null }>;
 };
@@ -51,7 +52,7 @@ export function makeFakeDb(options: FakeDbOptions = {}) {
       (tables.audit_log ??= []).push(row);
       return { error: null };
     };
-    q.then = (resolve: (v: unknown) => unknown) => resolve({ data: rows(), error: null });
+    q.then = (resolve: (v: unknown) => unknown) => resolve({ data: rows(), error: table === "profile_roles" && options.roleError ? { message: "unavailable" } : null });
     return q;
   }
 

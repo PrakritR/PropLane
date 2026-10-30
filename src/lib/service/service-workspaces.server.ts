@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { listAdminUserIds, userHoldsAdminRole } from "@/lib/auth/admin-role";
+import { listAdminUserIds, userHoldsAdminRole, userHoldsAdminRoleStrict } from "@/lib/auth/admin-role";
 import { ensureProfileProplaneId } from "@/lib/manager-access-server";
 import { isReservedMailboxLocal, isValidMailboxLocal } from "@/lib/manager-assistant-email/assistant-email-address";
 import {
@@ -1093,7 +1093,10 @@ export async function inviteServiceClient(
   if (!targetUserId && !rawEmail) return fail(404, "No account found with this PropLane ID.");
   if (targetUserId) {
     if (targetUserId === who.workspace.ownerUserId) return fail(409, "That account already owns this workspace.");
-    if (flag && (await userHoldsAdminRole(db, targetUserId))) return fail(409, "A PropLane admin cannot be the owner of record.");
+    if (flag) {
+      try { if (await userHoldsAdminRoleStrict(db, targetUserId)) return fail(409, "A PropLane admin cannot be the owner of record."); }
+      catch { return fail(503, "Could not verify the account role."); }
+    }
   }
   // An account that exists but has no property portal cannot hold a teammate seat; an owner can still be invited,
   // because the invite page gives an owner a property-portal account when they accept.
@@ -1504,7 +1507,8 @@ export async function setServiceOwnerOfRecord(
     // The owner of record is a Property owner (the owner portal). An operator's seat is never converted, and a
     // member is only converted when the workspace keeps an Admin without them.
     if (target.team_role !== "property_owner") {
-      if (await userHoldsAdminRole(db, target.invitee_user_id)) return fail(409, "A PropLane admin cannot be the owner of record.");
+      try { if (await userHoldsAdminRoleStrict(db, target.invitee_user_id)) return fail(409, "A PropLane admin cannot be the owner of record."); }
+      catch { return fail(503, "Could not verify the account role."); }
       if (target.status === "accepted") {
         const verdict = canActOnMember({
           actorRole: who.standing.role,

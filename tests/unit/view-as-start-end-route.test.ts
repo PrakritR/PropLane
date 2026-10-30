@@ -220,11 +220,19 @@ describe("POST /api/admin/preview (start)", () => {
     expect(setCookieOf(res)).toBeUndefined();
     expect(fake.audit).toHaveLength(0);
 
-    // A legacy profiles.role alone, with no profile_roles row, still counts (same rule as portal-access).
+    // A legacy profiles.role alone cannot authorize a view.
     const tables = standardTables();
     tables.profile_roles = tables.profile_roles!.filter((r) => r.user_id !== UUID.manager);
     seedDb({ tables });
-    expect((await route.POST(post(valid))).status).toBe(200);
+    expect((await route.POST(post(valid))).status).toBe(400);
+  });
+
+  it("refuses when target role evidence cannot be read", async () => {
+    const fake = seedDb({ roleError: true });
+    const res = await route.POST(post(valid));
+    expect(res.status).toBe(400);
+    expect(fake.audit).toHaveLength(0);
+    expect(setCookieOf(res)).toBeUndefined();
   });
 
   it("refuses an admin target and yourself", async () => {
