@@ -345,7 +345,6 @@ export const nudgeManagerOnWorkOrderTool = defineWriteTool({
       workOrderId,
       residentUserId: ctx.userId,
       residentEmail: ctx.email,
-    residentUserId: ctx.userId,
       residentName: record.row_data.residentName?.trim() || "",
     });
     if (!result.ok) {

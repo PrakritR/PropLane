@@ -112,6 +112,7 @@ export async function deliverResidentWorkOrderReminder(
     toUserIds: profiles.map((profile) => profile.userId),
   });
 
+  const recordEmail = (workOrder.resident_email ?? "").trim().toLowerCase() || null;
   const nextRow: DemoManagerWorkOrderRow = {
     ...rowData,
     residentReminderSentAt: new Date().toISOString(),

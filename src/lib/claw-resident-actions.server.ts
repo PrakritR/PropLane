@@ -253,7 +253,7 @@ export async function runResidentSmsAction(args: {
   const verifiedSubject = classification.intent === "maintenance" || classification.intent === "service_request"
     ? await findVerifiedProfileByPhone(createSupabaseServiceRoleClient(), args.residentPhone).catch(() => null)
     : null;
-  const filingSubject = verifiedSubject?.id === args.residentUserId ? verifiedSubject.id : null;
+  const filingSubject = verifiedSubject && verifiedSubject.id === args.residentUserId ? verifiedSubject.id : null;
 
   switch (classification.intent) {
     case "help":

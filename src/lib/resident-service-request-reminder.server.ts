@@ -60,8 +60,8 @@ export async function deliverResidentServiceRequestReminder(
     .maybeSingle();
   if (!record) return { ok: false, error: "Request not found." };
 
-  const subject = record.resident_user_id;
-  if (subject !== input.residentUserId) return { ok: false, error: "Forbidden." };
+  const residentSubjectId = record.resident_user_id;
+  if (residentSubjectId !== input.residentUserId) return { ok: false, error: "Forbidden." };
 
   const managerUserId = String(record.manager_user_id ?? "").trim();
   if (!managerUserId) return { ok: false, error: "Request has no manager." };
@@ -124,6 +124,7 @@ export async function deliverResidentServiceRequestReminder(
     audience: "manager",
   });
 
+  const recordEmail = (record.resident_email ?? "").trim().toLowerCase() || null;
   const nextRow: ServiceRequest = {
     ...rowData,
     residentReminderSentAt: new Date().toISOString(),
