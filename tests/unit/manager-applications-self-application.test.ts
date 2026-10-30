@@ -268,9 +268,9 @@ describe("GET /api/manager-applications?scope=self", () => {
     expect((await response.json()).rows).toEqual([]);
   });
 
-  it("does not grant manager reads from editable metadata", async () => {
+  it.each(["manager", "admin"])("does not grant %s reads from editable metadata", async (role) => {
     PROFILE = null;
-    getUser.mockResolvedValue({ data: { user: { id: CALLER, email: CALLER_EMAIL, email_confirmed_at: "confirmed", user_metadata: { role: "manager" } } }, error: null });
+    getUser.mockResolvedValue({ data: { user: { id: CALLER, email: CALLER_EMAIL, email_confirmed_at: "confirmed", user_metadata: { role } } }, error: null });
     const { GET } = await import("@/app/api/manager-applications/route");
     const response = await GET(new Request("http://localhost/api/manager-applications"));
     expect(response.status).toBe(403);
