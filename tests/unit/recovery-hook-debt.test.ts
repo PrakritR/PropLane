@@ -31,7 +31,7 @@ function observedCatalog(): Record<string, string> {
 function scopedSourceDigest(): string {
   const migrations = readdirSync("supabase/migrations").filter((name) => name.endsWith(".sql"))
     .map((name) => `supabase/migrations/${name}`)
-    .filter((path) => /account_recovery_|resident_move_in_forms|create table|drop table|alter table/i.test(readFileSync(path, "utf8")));
+    .filter((path) => /admin_team_atomic_revoke/.test(path) || /account_recovery_|resident_move_in_forms|create table|drop table|alter table/i.test(readFileSync(path, "utf8")));
   const paths = [...migrations, "src/lib/auth/account-purge-manifest.ts", "src/lib/auth/account-recovery-policy.ts"].sort();
   const hash = createHash("sha256");
   for (const path of paths) hash.update(path).update("\0").update(readFileSync(path)).update("\0");

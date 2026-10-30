@@ -122,9 +122,13 @@ beforeEach(async () => {
     if (fn !== "demote_admin_team_role") return baseRpc(fn, args);
     const actor = String(args.p_actor), target = String(args.p_target);
     if (!roleHolders(db).includes(actor)) return { data: "forbidden", error: null };
+    if (!roleHolders(db).includes(target)) {
+      const applied = db.tables.audit_log.some((row) => row.action === "admin_team_revoke" && (row.input_summary as { targetUserId?: string; via?: string })?.targetUserId === target && (row.input_summary as { via?: string })?.via === args.p_via && (row.result_summary as { applied?: boolean })?.applied === true);
+      return { data: args.p_check_only === true && args.p_via === "remove" && applied ? "already_revoked" : "stale", error: null };
+    }
     if (roleHolders(db).length <= 1) return { data: "last_admin", error: null };
     db.tables.profile_roles = db.tables.profile_roles.filter((row) => !(row.user_id === target && row.role === "admin"));
-    db.tables.audit_log.push({ action: "admin_team_revoke", actor_user_id: actor, result_summary: { applied: true } });
+    db.tables.audit_log.push({ action: "admin_team_revoke", actor_user_id: actor, input_summary: { targetUserId: target, via: args.p_via }, result_summary: { applied: true } });
     const plan = args.p_plan as Array<{ workspaceId: string; ownerUserId: string; grant: { teamRole: string } }>;
     for (const seat of db.tables.account_link_invites) if (seat.invitee_user_id === target && seat.is_service_seat === true && !plan.some((p) => p.workspaceId === seat.workspace_id)) seat.status = "cancelled";
     for (const p of plan) {
@@ -537,6 +541,17 @@ describe("the last Overall admin", () => {
     expect(await team.removeAdminTeamMember(client(), PRAKRIT, actor, { userId: PRAKRIT })).toMatchObject({ ok: false, status: 409 });
   });
 
+  it("repeating a completed removal is a no-op with an exact applied audit marker", async () => {
+    await invite(PRAKRIT, { email: "aarav@example.com", role: "overall_admin" });
+    await redeem(AARAV, lastToken());
+    const actor = await actorOf(PRAKRIT);
+    expect(await team.removeAdminTeamMember(client(), PRAKRIT, actor, { userId: AARAV })).toEqual({ ok: true });
+    const audits = db.tables.audit_log.length;
+    expect(await team.removeAdminTeamMember(client(), PRAKRIT, actor, { userId: AARAV })).toEqual({ ok: true });
+    expect(db.tables.audit_log).toHaveLength(audits);
+    expect(await team.removeAdminTeamMember(client(), PRAKRIT, actor, { userId: STRANGER })).toMatchObject({ ok: false, status: 404 });
+  });
+
   it("an Overall admin can be demoted to a workspace role once another exists", async () => {
     await invite(PRAKRIT, { email: "aarav@example.com", role: "overall_admin" });
     await redeem(AARAV, lastToken());
@@ -858,6 +873,18 @@ describe("changing a teammate never seats a stranger or breaks a demotion halfwa
     expect(seat).toMatchObject({ team_role: "viewer", is_service_seat: false, status: "accepted" });
     // Nothing else moved: Vinod is still the viewer seat it was.
     expect(db.tables.account_link_invites.find((l) => l.invitee_user_id === SAM && l.workspace_id === VINOD)).toMatchObject({ team_role: "viewer" });
+  });
+
+  it("treats a matching completed seat change as a read-only retry", async () => {
+    await invite(PRAKRIT, { email: "sam@example.com", role: "viewer", workspaceIds: [AMBIKA] });
+    await redeem(SAM, lastToken());
+    const actor = await actorOf(PRAKRIT);
+    const before = db.tables.audit_log.length;
+    const original = db.rpc.bind(db);
+    db.rpc = async (fn, args) => fn === "demote_admin_team_role" && args.p_check_only === true
+      ? { data: "already_revoked", error: null } : original(fn, args);
+    expect(await team.changeAdminTeamMember(client(), PRAKRIT, actor, { userId: SAM, role: "viewer", workspaceIds: [AMBIKA], access: {} })).toEqual({ ok: true });
+    expect(db.tables.audit_log).toHaveLength(before);
   });
 
   it("someone already on the team can still be changed", async () => {

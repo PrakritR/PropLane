@@ -526,6 +526,23 @@ export async function changeAdminTeamMember(
     }
   }
 
+  // Check a possible completed retry under the same database lifecycle lock.
+  // A different current state remains an ordinary authorized seat edit.
+  if (!targetIsOverall && actor.overall) {
+    const plan = [];
+    for (const workspaceId of chosen) {
+      const prepared = await prepareAdminTeamSeatGrant(db, actorUserId, { ...input.access, teamRole: input.role, id: workspaceId, userId });
+      if (!prepared.ok) return fail(prepared.status, prepared.error);
+      plan.push({ workspaceId, ownerUserId: prepared.ownerUserId, grant: prepared.grant });
+    }
+    const gate = await requireAdminRoute();
+    if (!gate.ok || gate.userId !== actorUserId) return fail(403, "Only an Overall admin can check this change.");
+    const retry = await db.rpc("demote_admin_team_role", { p_actor: actorUserId, p_target: userId, p_plan: plan, p_expected_seats: [], p_via: "change", p_check_only: true });
+    if (retry.error) return fail(503, "Could not check the role. Please retry.");
+    if (retry.data === "already_revoked") return { ok: true };
+    if (retry.data !== "stale") return fail(retry.data === "forbidden" ? 403 : 409, "This teammate changed. Refresh and try again.");
+  }
+
   // An Overall demotion is one transaction with its workspace-seat changes.
   if (overallHolders.includes(userId)) {
     const gate = await requireAdminRoute();
@@ -638,7 +655,17 @@ export async function removeAdminTeamMember(
   );
   // The same reach `changeAdminTeamMember` asks for, and asked BEFORE anything is written: a user id in the body names
   // someone, it never hands the actor authority over an account they do not manage - including over its grant trail.
-  if (!targetIsOverall && reachable.length === 0) return fail(404, NOT_ON_TEAM_ERROR);
+  if (!targetIsOverall && reachable.length === 0) {
+    if (actor.overall) {
+      const gate = await requireAdminRoute();
+      if (!gate.ok || gate.userId !== actorUserId) return fail(403, "Only an Overall admin can check this removal.");
+      const marker = await db.rpc("demote_admin_team_role", { p_actor: actorUserId, p_target: userId, p_plan: [], p_expected_seats: [], p_via: "remove", p_check_only: true });
+      if (marker.error) return fail(503, "Could not check the removal. Please retry.");
+      if (marker.data === "already_revoked") return { ok: true };
+      if (marker.data !== "stale") return fail(marker.data === "forbidden" ? 403 : 409, "This teammate changed. Refresh and try again.");
+    }
+    return fail(404, NOT_ON_TEAM_ERROR);
+  }
 
   if (targetIsOverall) {
     if (!actor.overall) return fail(403, "Only an Overall admin can remove an Overall admin.");

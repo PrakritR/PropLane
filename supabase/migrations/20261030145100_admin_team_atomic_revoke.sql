@@ -1,28 +1,63 @@
 -- The exclusive lifecycle lock serializes guarded account and membership writes.
 -- p_plan is an internal server-normalized grant, never the request body. The
 -- RPC re-derives durable ownership and rejects stale seat/property context.
-create or replace function public.demote_admin_team_role(p_actor uuid, p_target uuid, p_plan jsonb, p_expected_seats jsonb, p_via text)
+create or replace function public.demote_admin_team_role(p_actor uuid, p_target uuid, p_plan jsonb, p_expected_seats jsonb, p_via text, p_check_only boolean default false)
 returns text language plpgsql security definer set search_path = '' as $$
 declare item jsonb; seat record; workspace record; grant_data jsonb; target_profile record; owner_profile record; seat_id uuid; target_axis text; owner_axis text; assigned jsonb; expected jsonb; actual jsonb;
 begin
-  if p_actor is null or p_target is null or p_plan is null or p_expected_seats is null or p_via is null or p_via not in ('change','remove') or pg_catalog.jsonb_typeof(p_plan) <> 'array' or pg_catalog.jsonb_typeof(p_expected_seats) <> 'array' then return 'invalid'; end if;
+  if p_actor is null or p_target is null or p_plan is null or p_expected_seats is null or p_check_only is null or p_via is null or p_via not in ('change','remove') or pg_catalog.jsonb_typeof(p_plan) <> 'array' or pg_catalog.jsonb_typeof(p_expected_seats) <> 'array' then return 'invalid'; end if;
   perform pg_catalog.pg_advisory_xact_lock(723081447301::bigint);
   if not exists(select 1 from public.profile_roles where user_id=p_actor and role='admin') then return 'forbidden'; end if;
   select * into target_profile from public.profiles where id=p_target for update;
   if not found then return 'stale'; end if;
   perform 1 from public.profile_roles where user_id=p_target order by role for update;
-  if not exists(select 1 from public.profile_roles where user_id=p_target and role='admin') then return 'already_revoked'; end if;
-  if (select count(*) from public.profile_roles where role='admin') <= 1 then return 'last_admin'; end if;
   -- Lock selected and existing affected workspaces in a single deterministic order.
   perform w.id from public.portal_workspaces w
     where w.id in (select s.workspace_id from public.account_link_invites s where s.invitee_user_id=p_target and s.is_service_seat=true and coalesce(s.is_owner_of_record,false)=false and s.team_role is distinct from 'property_owner' and s.status in ('accepted','pending'))
        or w.id in (select (x->>'workspaceId')::uuid from pg_catalog.jsonb_array_elements(p_plan) x)
     order by w.id for update;
+  -- A retry is successful only if the requested final state actually exists.
+  -- No audit or write occurs on this path.
+  if not exists(select 1 from public.profile_roles where user_id=p_target and role='admin') then
+    if p_via='remove' then
+      if pg_catalog.jsonb_array_length(p_plan) <> 0 then return 'invalid'; end if;
+      if p_check_only and not exists(select 1 from public.audit_log a where a.action='admin_team_revoke' and a.input_summary @> pg_catalog.jsonb_build_object('targetUserId',p_target,'via','remove') and a.result_summary @> '{"applied":true}'::jsonb) then return 'stale'; end if;
+      if exists(select 1 from pg_catalog.jsonb_array_elements(p_expected_seats) e
+        where not exists(select 1 from public.account_link_invites s join public.portal_workspaces w on w.id=s.workspace_id
+          where s.id::text=e->>'id' and s.invitee_user_id=p_target and s.workspace_id::text=e->>'workspaceId'
+            and s.inviter_user_id=w.owner_user_id and w.is_service=true and s.is_service_seat=true and s.status='cancelled'))
+        or exists(select 1 from public.account_link_invites s join public.portal_workspaces w on w.id=s.workspace_id
+          where s.invitee_user_id=p_target and s.is_service_seat=true and coalesce(s.is_owner_of_record,false)=false
+            and s.team_role is distinct from 'property_owner' and s.status in ('accepted','pending') and w.is_service=true)
+        then return 'stale'; end if;
+    else
+      if exists(select 1 from pg_catalog.jsonb_array_elements(p_plan) x where x->>'workspaceId' is null or x->>'ownerUserId' is null or pg_catalog.jsonb_typeof(x->'grant') is distinct from 'object' or x->'grant'->>'teamRole' is null or x->'grant'->>'houseScope' is null or pg_catalog.jsonb_typeof(x->'grant'->'assignedPropertyIds') is distinct from 'array' or pg_catalog.jsonb_typeof(x->'grant'->'propertyCoManagerPermissions') is distinct from 'object' or pg_catalog.jsonb_typeof(x->'grant'->'coManagerPermissions') is distinct from 'object' or pg_catalog.jsonb_typeof(x->'grant'->'workspacePermissions') is distinct from 'object') then return 'invalid'; end if;
+      if exists(select 1 from pg_catalog.jsonb_array_elements(p_plan) x group by x->>'workspaceId' having count(*)>1) then return 'invalid'; end if;
+      if (select count(*) from public.account_link_invites s join public.portal_workspaces w on w.id=s.workspace_id
+          where s.invitee_user_id=p_target and s.is_service_seat=true and coalesce(s.is_owner_of_record,false)=false
+            and s.team_role is distinct from 'property_owner' and s.status in ('accepted','pending') and w.is_service=true)
+          <> pg_catalog.jsonb_array_length(p_plan) then return 'stale'; end if;
+      if exists(select 1 from pg_catalog.jsonb_array_elements(p_plan) x where not exists(
+        select 1 from public.account_link_invites s join public.portal_workspaces w on w.id=s.workspace_id
+        where s.invitee_user_id=p_target and s.workspace_id::text=x->>'workspaceId' and w.is_service=true
+          and w.owner_user_id::text=x->>'ownerUserId' and s.inviter_user_id=w.owner_user_id
+          and s.is_service_seat=true and coalesce(s.is_owner_of_record,false)=false and s.status='accepted'
+          and s.team_role is not distinct from x->'grant'->>'teamRole'
+          and s.house_scope is not distinct from x->'grant'->>'houseScope'
+          and s.assigned_property_ids is not distinct from x->'grant'->'assignedPropertyIds'
+          and s.property_co_manager_permissions is not distinct from x->'grant'->'propertyCoManagerPermissions'
+          and s.co_manager_permissions is not distinct from x->'grant'->'coManagerPermissions'
+          and s.workspace_permissions is not distinct from x->'grant'->'workspacePermissions')) then return 'stale'; end if;
+    end if;
+    return 'already_revoked';
+  end if;
+  if p_check_only then return 'stale'; end if;
+  if (select count(*) from public.profile_roles where role='admin') <= 1 then return 'last_admin'; end if;
   select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('id',s.id,'status',s.status,'workspaceId',s.workspace_id,'role',s.team_role,'inviterUserId',s.inviter_user_id,'houseScope',s.house_scope,'assignedPropertyIds',s.assigned_property_ids,'propertyCoManagerPermissions',s.property_co_manager_permissions,'coManagerPermissions',s.co_manager_permissions,'workspacePermissions',s.workspace_permissions) order by s.id),'[]'::jsonb)
     into actual from public.account_link_invites s where s.invitee_user_id=p_target and s.is_service_seat=true and coalesce(s.is_owner_of_record,false)=false and s.team_role is distinct from 'property_owner' and s.status in ('accepted','pending') and exists(select 1 from public.portal_workspaces w where w.id=s.workspace_id and w.is_service=true);
   select coalesce(pg_catalog.jsonb_agg(e order by e->>'id'),'[]'::jsonb) into expected from pg_catalog.jsonb_array_elements(p_expected_seats) e;
   if actual <> expected then return 'stale'; end if;
-  if exists(select 1 from public.account_link_invites s join public.portal_workspaces w on w.id=s.workspace_id where s.invitee_user_id=p_target and s.is_service_seat=true and coalesce(s.is_owner_of_record,false)=false and s.team_role is distinct from 'property_owner' and s.status in ('accepted','pending') and w.is_service=true and s.inviter_user_id<>w.owner_user_id) then return 'stale'; end if;
+  if exists(select 1 from public.account_link_invites s join public.portal_workspaces w on w.id=s.workspace_id where s.invitee_user_id=p_target and s.is_service_seat=true and coalesce(s.is_owner_of_record,false)=false and s.team_role is distinct from 'property_owner' and s.status in ('accepted','pending') and w.is_service=true and s.inviter_user_id is distinct from w.owner_user_id) then return 'stale'; end if;
   if exists(select 1 from pg_catalog.jsonb_array_elements(p_plan) x group by x->>'workspaceId' having count(*)>1) then return 'invalid'; end if;
   -- Validate every selected workspace and property before any mutation.
   for item in select value from pg_catalog.jsonb_array_elements(p_plan) order by value->>'workspaceId' loop
@@ -70,5 +105,5 @@ begin
   end loop;
   return 'revoked';
 end $$;
-revoke all on function public.demote_admin_team_role(uuid,uuid,jsonb,jsonb,text) from public,anon,authenticated;
-grant execute on function public.demote_admin_team_role(uuid,uuid,jsonb,jsonb,text) to service_role;
+revoke all on function public.demote_admin_team_role(uuid,uuid,jsonb,jsonb,text,boolean) from public,anon,authenticated;
+grant execute on function public.demote_admin_team_role(uuid,uuid,jsonb,jsonb,text,boolean) to service_role;
