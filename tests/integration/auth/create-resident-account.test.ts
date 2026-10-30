@@ -56,7 +56,7 @@ function fakeService(existingProfile: { role?: string } | null, existingRoleRows
 
 function signedInAs(userId: string | null, email = "multi@axis.test") {
   vi.mocked(createSupabaseServerClient).mockResolvedValue({
-    auth: { getUser: vi.fn().mockResolvedValue({ data: { user: userId ? { id: userId, email } : null } }) },
+    auth: { getUser: vi.fn().mockResolvedValue({ data: { user: userId ? { id: userId, email, email_confirmed_at: "confirmed" } : null } }) },
   } as never);
 }
 
@@ -92,7 +92,6 @@ describe("POST /api/auth/create-resident-account", () => {
     expect(reconcileProspectInboxThreadsForResident).toHaveBeenCalledWith(service, {
       userId: "mgr-1",
       contactEmail: "multi@axis.test",
-      authEmail: undefined,
       phone: undefined,
     });
     // …and the manager's profile is untouched: role unchanged, so no update, no insert.

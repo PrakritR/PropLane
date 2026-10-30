@@ -1,3 +1,5 @@
+const session = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: session } }) }));
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
 
@@ -20,6 +22,7 @@ import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 describe("POST /api/auth/register-admin", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    session.mockResolvedValue({ data: { user: { id: "user-1", email: "a@test.com", email_confirmed_at: "confirmed" } } });
     // The route validates against server env; pin it so the suite doesn't
     // depend on whatever AXIS_ADMIN_REGISTER_KEY the ambient shell carries.
     vi.stubEnv("AXIS_ADMIN_REGISTER_KEY", "prakrit-admin-register");
@@ -60,7 +63,8 @@ describe("POST /api/auth/register-admin", () => {
     expect(res.status).toBe(400);
   });
 
-  it("creates admin user on valid request", async () => {
+  it("grants the existing verified primary admin account on valid request", async () => {
+    session.mockResolvedValue({ data: { user: { id: "user-1", email: PRIMARY_ADMIN_EMAIL, email_confirmed_at: "confirmed" } } });
     const mockFrom = vi.fn().mockReturnValue({
       select: vi.fn().mockReturnValue({
         eq: vi.fn().mockReturnValue({ maybeSingle: vi.fn().mockResolvedValue({ data: null }) }),
@@ -70,8 +74,8 @@ describe("POST /api/auth/register-admin", () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
       auth: {
         admin: {
-          createUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-1" } }, error: null }),
-          listUsers: vi.fn(),
+          createUser: vi.fn().mockResolvedValue({ data: null, error: { message: "already registered" } }),
+          listUsers: vi.fn().mockResolvedValue({ data: { users: [{ id: "user-1", email: PRIMARY_ADMIN_EMAIL }] }, error: null }),
         },
       },
       from: mockFrom,
