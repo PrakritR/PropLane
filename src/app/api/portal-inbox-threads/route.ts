@@ -47,7 +47,7 @@ import {
 } from "@/lib/house-chat/mailbox.server";
 import { asNoticeMarker, reduceSmsNoticeRow, type NoticeMarker } from "@/lib/sms-notice-reduction";
 import { ensureResidentAgentThread } from "@/lib/agent/resident-inbox-agent.server";
-import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
+import { residentSubjectManagerIds } from "@/lib/auth/resident-subject-evidence.server";
 import {
   collapseAssistantInboxThreads,
   collapsePersonInboxThreads,
@@ -220,7 +220,7 @@ async function settleCollapsedSiblingsRead(
     .select("id, row_data, thread_type")
     .in("id", ids)
     .eq("scope", scopeKey);
-  query = applyPortalInboxThreadScope(query, user, []) as typeof query;
+  query = applyPortalInboxThreadScope(query, user, [], { ownerOnly: scopeKey === RESIDENT_INBOX_SCOPE }) as typeof query;
   const { data, error: readError } = await query;
   // A refused read looks exactly like "no siblings": say so, or folded rows stay unread with
   // nothing anywhere to explain why the badge came back.
@@ -275,7 +275,7 @@ export async function GET(request: Request) {
     // must never take down the inbox, so it is swallowed.
     if (scopeParam === RESIDENT_INBOX_SCOPE && ctx.user.id && ctx.user.email && !viewAsOpen) {
       try {
-        const managerIds = await managerIdsOwningResident(ctx.db, ctx.user.email);
+        const managerIds = await residentSubjectManagerIds(ctx.db, ctx.user.id, ctx.user.email);
         // Bound to ONE manager when known — the first that owns this resident.
         await ensureResidentAgentThread(ctx.db, {
           residentUserId: ctx.user.id,
@@ -329,6 +329,8 @@ export async function GET(request: Request) {
       }
       query = applyPortalInboxThreadScope(query, ctx.user, communicationScope ? inboxStoreOwnerIds(communicationScope) : [], {
         participantOnlyWhenUnowned: scopeParam === MANAGER_INBOX_SCOPE,
+        ownerOnly: scopeParam === RESIDENT_INBOX_SCOPE,
+        excludeResidentEmail: !scopeParam,
       }) as typeof query;
       if (scopeParam) {
         query = query.eq("scope", scopeParam) as typeof query;
@@ -695,7 +697,7 @@ export async function POST(req: Request) {
       const editScope = await resolveCommunicationScope(ctx.db, ctx.user.id, "edit");
       const extraOwnerIds = inboxStoreOwnerIds(editScope);
       let query = ctx.db.from("portal_inbox_thread_records").select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type, workspace_id").in("id", ids);
-      query = applyPortalInboxThreadScope(query, ctx.user, extraOwnerIds, { participantOnlyWhenUnowned: true }) as typeof query;
+      query = applyPortalInboxThreadScope(query, ctx.user, extraOwnerIds, { participantOnlyWhenUnowned: true, ownerOnly: false }) as typeof query;
       const { data, error } = await query;
       if (error) throw error;
       const records: PortalInboxReadRecord[] = await filterVisibleInboxThreadRecords(
@@ -720,7 +722,7 @@ export async function POST(req: Request) {
             changed = result.data === true;
             if (changed || attempt === 1) break;
             let retryQuery = ctx.db.from("portal_inbox_thread_records").select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type, workspace_id").eq("id", record.id).eq("scope", scopeKey);
-            retryQuery = applyPortalInboxThreadScope(retryQuery, ctx.user, extraOwnerIds, { participantOnlyWhenUnowned: true }) as typeof retryQuery;
+            retryQuery = applyPortalInboxThreadScope(retryQuery, ctx.user, extraOwnerIds, { participantOnlyWhenUnowned: true, ownerOnly: false }) as typeof retryQuery;
             const { data: retryData, error: retryError } = await retryQuery.maybeSingle();
             if (retryError) throw retryError;
             if (!retryData) { results.push({ id: record.id, status: "changed", unread: true }); break; }
@@ -759,6 +761,7 @@ export async function POST(req: Request) {
         .eq("scope", scopeKey);
       clearQuery = applyPortalInboxThreadScope(clearQuery, ctx.user, clearScope ? inboxStoreOwnerIds(clearScope) : [], {
         participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE,
+        ownerOnly: scopeKey === RESIDENT_INBOX_SCOPE,
       }) as typeof clearQuery;
       const { data: clearTarget, error: clearError } = await clearQuery.maybeSingle();
       if (clearError) return NextResponse.json({ error: clearError.message }, { status: 500 });
@@ -813,6 +816,7 @@ export async function POST(req: Request) {
         .select("id, owner_user_id, participant_email, thread_type, scope, workspace_id, row_data").in("id", ids);
       query = applyPortalInboxThreadScope(query, ctx.user, folderScope ? inboxStoreOwnerIds(folderScope) : [], {
         participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE,
+        ownerOnly: scopeKey === RESIDENT_INBOX_SCOPE,
       }) as typeof query;
       const { data: fetchedFolderRows, error } = await query;
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -853,7 +857,7 @@ export async function POST(req: Request) {
           ? await resolveCommunicationScope(ctx.db, ctx.user.id, "delete")
           : null;
       const extraOwnerIds = deleteScope ? inboxStoreOwnerIds(deleteScope) : [];
-      const scopeOptions = { participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE };
+      const scopeOptions = { participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE, ownerOnly: scopeKey === RESIDENT_INBOX_SCOPE };
       let deleted = 0;
       for (const id of ids) {
         let targetQuery = ctx.db.from("portal_inbox_thread_records")
@@ -926,6 +930,7 @@ export async function POST(req: Request) {
         let visibleQuery = ctx.db.from("portal_inbox_thread_records").select("id").eq("id", id).limit(1);
         visibleQuery = applyPortalInboxThreadScope(visibleQuery, ctx.user, upsertScope ? inboxStoreOwnerIds(upsertScope) : [], {
           participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE,
+        ownerOnly: scopeKey === RESIDENT_INBOX_SCOPE,
         }) as typeof visibleQuery;
         const { data: visible, error: visibleError } = await visibleQuery;
         if (visibleError) return NextResponse.json({ error: visibleError.message }, { status: 500 });

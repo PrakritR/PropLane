@@ -14,7 +14,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
-import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
+import { residentSubjectManagerIds } from "@/lib/auth/resident-subject-evidence.server";
 import { moveInDetailsLockFromBlocking, type ResidentAgentContext } from "@/lib/tools/resident-context";
 
 export type ResidentInboxIdentity =
@@ -65,7 +65,7 @@ export async function resolveResidentInboxAgentContext(
   const roles = roleList.length > 0 ? roleList : legacyRole ? [legacyRole] : [];
   if (!roles.includes("resident")) return { ok: false, reason: "not_a_resident" };
 
-  const managerIds = await managerIdsOwningResident(db, email);
+  const managerIds = await residentSubjectManagerIds(db, userId, email);
   // The tenant binding. A thread owned by manager B never grants scope against
   // manager A's data.
   if (!managerIds.includes(ownerManagerUserId)) {

@@ -1,3 +1,4 @@
+import { tourCapabilityEligible } from "@/lib/tour-resident-link.server";
 import { tourCapabilityDigest } from "@/lib/auth/tour-signup-capability.server";
 import { createHash, randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
@@ -18,6 +19,7 @@ export async function POST(req: Request) {
   if (!email.includes("@") || email.length > 254) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return NextResponse.json({ error: "Email verification is unavailable." }, { status: 503 });
+  const tourRequest = body.intent === "tour";
   try {
     const db = createSupabaseServiceRoleClient();
     const cleanup = await db.rpc("purge_expired_email_onboarding_handoffs");
@@ -26,6 +28,7 @@ export async function POST(req: Request) {
     let applicationId: string | null = null;
     let tourInquiryId: string | null = null;
     let tourTokenDigest: string | null = null;
+    let tourConsumedUserId: string | null = null;
     let managerPurchaseId: string | null = null;
     let vendorInviteId: string | null = null;
     if (intent === "vendor_invite") {
@@ -75,9 +78,11 @@ export async function POST(req: Request) {
     if (intent === "tour") {
       if (typeof body.tourInquiryId !== "string" || !body.tourInquiryId.trim() || typeof body.tourToken !== "string" || !/^[a-f0-9]{64}$/.test(body.tourToken)) return NextResponse.json({ error: "This tour invitation is unavailable. Request a new tour from the listing." }, { status: 410 });
       tourTokenDigest = tourCapabilityDigest(body.tourToken);
-      const capability = await db.from("tour_signup_capabilities").select("id").eq("token_digest", tourTokenDigest).eq("inquiry_id", body.tourInquiryId.trim()).eq("recipient_email", email).is("consumed_at", null).gt("expires_at", new Date().toISOString()).maybeSingle();
+      const capability = await db.from("tour_signup_capabilities").select("id, inquiry_id, recipient_email, manager_user_id, property_id, tour_group_id, consumed_user_id").eq("token_digest", tourTokenDigest).eq("inquiry_id", body.tourInquiryId.trim()).eq("recipient_email", email).gt("expires_at", new Date().toISOString()).maybeSingle();
       if (capability.error) return NextResponse.json({ error: "Tour verification is unavailable. Please try again." }, { status: 503 });
       if (!capability.data) return NextResponse.json({ error: "This tour invitation has expired or was used. Request a new tour from the listing." }, { status: 410 });
+      if (!(await tourCapabilityEligible(db, capability.data))) return NextResponse.json({ error: "This tour is no longer available. Request a new tour from the listing." }, { status: 410 });
+      tourConsumedUserId = capability.data.consumed_user_id;
       tourInquiryId = body.tourInquiryId.trim();
     }
     if (body.applicationId !== undefined || body.setupToken !== undefined) {
@@ -92,6 +97,7 @@ export async function POST(req: Request) {
       if (created.error || !created.data.user) return NextResponse.json(GENERIC);
       id = created.data.user.id;
     }
+    if (tourConsumedUserId && tourConsumedUserId !== id) return NextResponse.json({ error: "This tour invitation has expired or was used. Request a new tour from the listing." }, { status: 410 });
     const found = await db.auth.admin.getUserById(id);
     const account = found.data?.user;
     if (found.error || !account) return NextResponse.json(GENERIC);
@@ -106,14 +112,27 @@ export async function POST(req: Request) {
     const digest = createHash("sha256").update(hash).digest("hex");
     if (intent === "tour") {
       const claimed = await db.rpc("claim_tour_signup_capability", { p_digest: tourTokenDigest, p_inquiry_id: tourInquiryId, p_email: email, p_user_id: id, p_token_digest: digest });
-      if (claimed.error || claimed.data !== true) return NextResponse.json(GENERIC);
+      if (claimed.error) return NextResponse.json({ error: "Tour verification is unavailable. Please try again." }, { status: 503 });
+      if (claimed.data !== true) return NextResponse.json({ error: "This tour invitation has expired or was used. Request a new tour from the listing." }, { status: 410 });
     } else {
     const { error } = await db.from("email_onboarding_handoffs").insert({ user_id: id, application_id: applicationId, tour_inquiry_id: tourInquiryId, manager_purchase_id: managerPurchaseId, vendor_invite_id: vendorInviteId, property_id: propertyId, listing_room_id: listingRoomId, bundle_id: bundleId, application_form_id: applicationFormId, rental_type: rentalType, tier, billing, intent: applicationId ? "application" : intent, token_digest: digest, expires_at: new Date(Date.now() + 3600000).toISOString() });
     if (error) return NextResponse.json(GENERIC);
     }
     const href = `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/auth/confirm?token_hash=${encodeURIComponent(hash)}&type=${verificationType}`;
-    const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>", to: [email], subject: "Verify your PropLane email", text: `Use this link to verify your email and continue:\n\n${href}\n\nIf you did not request this, ignore this email.` }) });
-    if (!response.ok) console.error("Email onboarding delivery failed", response.status);
-  } catch { console.error("Email onboarding could not be started"); }
+    let response: Response;
+    try {
+      response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>", to: [email], subject: "Verify your PropLane email", text: `Use this link to verify your email and continue:\n\n${href}\n\nIf you did not request this, ignore this email.` }) });
+    } catch {
+      if (intent === "tour") return NextResponse.json({ error: "Could not send the verification email. Please try again." }, { status: 503 });
+      return NextResponse.json(GENERIC);
+    }
+    if (!response.ok) {
+      console.error("Email onboarding delivery failed", response.status);
+      if (intent === "tour") return NextResponse.json({ error: "Could not send the verification email. Please try again." }, { status: 503 });
+    }
+  } catch {
+    console.error("Email onboarding could not be started");
+    if (tourRequest) return NextResponse.json({ error: "Tour verification is unavailable. Please try again." }, { status: 503 });
+  }
   return NextResponse.json(GENERIC);
 }

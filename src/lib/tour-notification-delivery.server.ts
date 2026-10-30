@@ -43,6 +43,7 @@ import {
   buildTourRescheduledTenantBody,
   formatTourTimeRange,
   buildTourRequestTenantBody,
+  tourRequestNotificationContexts,
 } from "@/lib/tour-notifications";
 
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
@@ -223,6 +224,7 @@ async function upsertInboxThread(
     scope: string;
     ownerUserId: string | null;
     participantEmail: string;
+    residentUserId?: string;
     folder: "inbox" | "sent";
     fromName: string;
     fromEmail: string;
@@ -296,12 +298,15 @@ export async function recordResidentProspectInboxMessage(
     propertyTitle?: string;
   },
 ): Promise<void> {
+  const ownerUserId = input.residentUserId?.trim() ?? "";
+  if (!ownerUserId) return;
   const managerUserId = input.managerUserId?.trim() ?? "";
   const propertyId = input.propertyId?.trim() ?? "";
   const propertyTitle = input.propertyTitle?.trim() ?? "";
   if (managerUserId && propertyId) {
     await appendResidentPropertyManagerInboxMessage(db, {
       participantEmail: input.participantEmail,
+      residentUserId: ownerUserId,
       managerUserId,
       propertyId,
       propertyTitle: propertyTitle || propertyId,
@@ -317,8 +322,6 @@ export async function recordResidentProspectInboxMessage(
 
   const guestEmail = input.participantEmail.trim().toLowerCase();
   if (!guestEmail.includes("@")) return;
-  const { data: guestProfile } = await db.from("profiles").select("id").eq("email", guestEmail).maybeSingle();
-  const ownerUserId = (guestProfile?.id as string | null) ?? null;
   const residentMessage = input.residentMessage?.trim() ?? "";
   const counterpartyEmail = input.counterpartyEmail?.trim().toLowerCase() || input.fromEmail || "tours@axis.local";
 
@@ -688,12 +691,10 @@ export async function notifyTenantTourRequestReceived(
     managerUserId: textField(inquiry as Record<string, unknown>, "managerUserId"), propertyId,
     tourGroupId: textField(inquiry as Record<string, unknown>, "tourGroupId"),
   }).catch(() => null);
-  const emailCtx = capability && ctx.createAccountUrl
-    ? { ...ctx, createAccountUrl: `${ctx.createAccountUrl}#tour_token=${encodeURIComponent(capability)}` }
-    : ctx;
+  const { email: emailCtx, clean: cleanCtx } = tourRequestNotificationContexts(ctx, capability);
   const subject = TOUR_REQUEST_TENANT_SUBJECT;
   const portalChannel = noticeChannelFor(inquiry) === "portal";
-  const text = portalChannel ? withResidentPortalLink(buildTourRequestTenantBody(ctx), "tour") : buildTourRequestTenantBody(ctx);
+  const text = portalChannel ? withResidentPortalLink(buildTourRequestTenantBody(cleanCtx), "tour") : buildTourRequestTenantBody(cleanCtx);
   const emailText = portalChannel ? withResidentPortalLink(buildTourRequestTenantBody(emailCtx), "tour") : buildTourRequestTenantBody(emailCtx);
   const email = await deliverEmail([guestEmail], subject, emailText, undefined, undefined, {
     db,
@@ -712,9 +713,7 @@ export async function notifyTenantTourRequestReceived(
 
   const guestPhone = textField(inquiry as Record<string, unknown>, "phone") || null;
   const listingLink = propertyId ? `${origin}/rent/listings/${propertyId}` : origin;
-  const accountPrompt = ctx.createAccountUrl?.trim()
-    ? ` Create your free account to track it: ${ctx.createAccountUrl.trim()}`
-    : "";
+  const accountPrompt = "";
   await textTourGuest({
     db,
     managerUserId: textField(inquiry as Record<string, unknown>, "managerUserId"),

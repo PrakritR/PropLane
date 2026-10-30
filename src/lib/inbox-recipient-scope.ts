@@ -8,7 +8,7 @@ import {
   type RecipientReach,
 } from "@/lib/auth/resident-relationship";
 import { postgrestFilterValue } from "@/lib/supabase/or-filter";
-import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
+import { residentSubjectManagerIds } from "@/lib/auth/resident-subject-evidence.server";
 import { assertTestWorkspacePrincipalCompatibility } from "@/lib/test-workspaces/index.server";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { managerMayMessageOwner, ownerInviteeIdsForManagers } from "@/lib/property-owner/access.server";
@@ -180,6 +180,7 @@ async function housemateEmailsForResident(
   db: SupabaseClient,
   managerIds: string[],
   residentEmail: string,
+  residentUserId: string,
 ): Promise<Set<string>> {
   const emails = new Set<string>();
   if (managerIds.length === 0 || !residentEmail) return emails;
@@ -196,7 +197,7 @@ async function housemateEmailsForResident(
 
   const ownPropertyIds = new Set(
     rows
-      .filter((r) => r.email === residentEmail)
+      .filter((r) => r.email === residentEmail && r.data.residentUserId === residentUserId)
       .map((r) => String(r.data.assignedPropertyId ?? r.data.propertyId ?? "").trim())
       .filter(Boolean),
   );
@@ -406,7 +407,7 @@ async function managerIdsConnectedToResident(
   sender: { id: string; email: string },
 ): Promise<string[]> {
   const [residentManagerIds, tourManagerIds] = await Promise.all([
-    managerIdsOwningResident(db, sender.email),
+    residentSubjectManagerIds(db, sender.id, sender.email),
     managerIdsFromResidentTours(db, sender.id),
   ]);
   return [...new Set([...residentManagerIds, ...tourManagerIds])];
@@ -569,7 +570,7 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
   const allowedEmails = await coManagerEmailsForManagers(db, managerIds);
   // Same authoritative co-manager source as the manager/vendor branches.
   const coManagerIds = await accountLinkCoManagerIdsForManagers(db, managerIds);
-  const housemateEmails = await housemateEmailsForResident(db, managerIds, senderEmail);
+  const housemateEmails = await housemateEmailsForResident(db, managerIds, senderEmail, sender.id);
   const lookupIds = [...new Set([...managerIds, ...coManagerIds])];
   if (lookupIds.length > 0) {
     const { data } = await db.from("profiles").select("id, email").in("id", lookupIds);

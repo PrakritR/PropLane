@@ -658,6 +658,7 @@ component and no table exception (`admin-inbox-client.tsx` is gone). See
   `tests/unit/communication-visibility.test.ts`,
   `tests/unit/portal-inbox-thread-scope.test.ts`,
   `tests/unit/portal-inbox-thread-reply.test.ts`.
+- Resident inbox reads and replies require the current Auth subject's `owner_user_id`; matching `participant_email` never adopts a legacy or other account's thread. House and manager context additionally require confirmed Auth email and subject-bound housing evidence. Email-only legacy history stays unavailable until explicitly bound.
 - **One Team chat per workspace, server-owned and shared, for people only.**
   `thread_type: "team"`, id `team-thread:<owner>:ws:<workspaceId>`
   (`src/lib/team-comms.server.ts`, pure id helpers in `team-thread-id.ts`),

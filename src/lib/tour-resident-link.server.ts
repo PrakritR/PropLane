@@ -5,12 +5,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
 import { INQUIRIES_RECORD_ID } from "@/lib/tour-inquiry.server";
-import { inboxThreadSortMs, parseInboxStampMs } from "@/lib/portal-inbox-storage";
-import { propertyManagerConversationThreadId } from "@/lib/property-manager-inbox-thread.server";
 import { normalizeE164 } from "@/lib/twilio";
 
-const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
-const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 
 type Db = SupabaseClient;
 
@@ -142,253 +138,11 @@ export async function linkTourInquiryToResident(
   const managerUserId = textField(inquiry, "managerUserId") || textField(inquiry, "adminUserId") || null;
   const propertyId = textField(inquiry, "propertyId") || null;
 
-  const { error } = await db.from("resident_tour_links").upsert(
-    {
-      resident_user_id: params.userId,
-      inquiry_id: inquiryId,
-      tour_group_id: tourGroupId,
-      manager_user_id: managerUserId,
-      property_id: propertyId,
-      attendee_email: email,
-      linked_at: new Date().toISOString(),
-    },
-    { onConflict: "resident_user_id,inquiry_id" },
-  );
+  const { data, error } = await db.rpc("bind_resident_tour_link", { p_user_id: params.userId, p_inquiry_id: inquiryId, p_group_id: tourGroupId, p_manager_id: managerUserId, p_property_id: propertyId, p_email: email });
   if (error) return { ok: false, status: 400, error: error.message };
+  if (data !== true) return { ok: false, status: 403, error: "This tour is linked to another account." };
 
-  await attachInboxThreadsToResident(db, params.userId, email);
   return { ok: true, linked: true, inquiryId };
-}
-
-/**
- * Backfill owner_user_id on inbox threads that were created before the account
- * existed (participant_email match only).
- */
-export async function attachInboxThreadsToResident(db: Db, userId: string, email: string): Promise<void> {
-  const normalized = normalizeEmail(email);
-  if (!normalized) return;
-  const { data: threads, error } = await db
-    .from("portal_inbox_thread_records")
-    .select("id, owner_user_id")
-    .eq("scope", RESIDENT_INBOX_SCOPE)
-    .eq("participant_email", normalized)
-    .is("owner_user_id", null)
-    .limit(200);
-  if (error || !threads?.length) return;
-
-  const ids = threads.map((t) => t.id).filter(Boolean);
-  if (!ids.length) return;
-  await db
-    .from("portal_inbox_thread_records")
-    .update({ owner_user_id: userId, updated_at: new Date().toISOString() })
-    .in("id", ids)
-    .is("owner_user_id", null);
-}
-
-type InboxThreadMessage = {
-  id: string;
-  from: string;
-  body: string;
-  at: string;
-  outbound?: boolean;
-  channel?: string;
-};
-
-function threadMessages(rowData: Record<string, unknown> | null): InboxThreadMessage[] {
-  if (!Array.isArray(rowData?.messages)) return [];
-  return rowData.messages.filter(
-    (item): item is InboxThreadMessage =>
-      Boolean(item) && typeof item === "object" && typeof (item as InboxThreadMessage).id === "string",
-  );
-}
-
-function messageSortKey(message: InboxThreadMessage, threadId: string): number {
-  return parseInboxStampMs(message.at) ?? inboxThreadSortMs(threadId, message.at);
-}
-
-function mergeThreadMessages(
-  primary: Record<string, unknown>,
-  secondary: Record<string, unknown>,
-  primaryId: string,
-  secondaryId: string,
-): InboxThreadMessage[] {
-  const seen = new Set<string>();
-  const merged: InboxThreadMessage[] = [];
-  for (const message of [...threadMessages(primary), ...threadMessages(secondary)]) {
-    if (seen.has(message.id)) continue;
-    seen.add(message.id);
-    merged.push(message);
-  }
-  merged.sort(
-    (a, b) => messageSortKey(a, primaryId) - messageSortKey(b, secondaryId) || a.id.localeCompare(b.id),
-  );
-  return merged;
-}
-
-function latestThreadActivity(rowData: Record<string, unknown>, messages: InboxThreadMessage[]): string {
-  const latestMessage = messages[messages.length - 1];
-  if (latestMessage?.at) return latestMessage.at;
-  const time = typeof rowData.time === "string" ? rowData.time : "";
-  return time;
-}
-
-async function mergeInboxThreadRecords(
-  db: Db,
-  input: {
-    keepId: string;
-    removeId: string;
-    scope: string;
-    participantEmail: string;
-    ownerUserId?: string | null;
-  },
-): Promise<void> {
-  if (input.keepId === input.removeId) return;
-
-  const [{ data: keepRow }, { data: removeRow }] = await Promise.all([
-    db.from("portal_inbox_thread_records").select("id, row_data, owner_user_id").eq("id", input.keepId).maybeSingle(),
-    db.from("portal_inbox_thread_records").select("id, row_data").eq("id", input.removeId).maybeSingle(),
-  ]);
-
-  if (!removeRow?.row_data) return;
-
-  const keepData = asObject(keepRow?.row_data) ?? {};
-  const removeData = asObject(removeRow.row_data) ?? {};
-  const messages = mergeThreadMessages(keepData, removeData, input.keepId, input.removeId);
-  const activityTime = latestThreadActivity(
-    messages.length ? { time: messages[messages.length - 1]?.at } : keepData,
-    messages,
-  );
-  const previewSource =
-    (typeof keepData.preview === "string" && keepData.preview.trim()) ||
-    (typeof removeData.preview === "string" && removeData.preview.trim()) ||
-    messages[messages.length - 1]?.body?.slice(0, 100).replace(/\n/g, " ") ||
-    "";
-
-  await db.from("portal_inbox_thread_records").upsert(
-    {
-      id: input.keepId,
-      scope: input.scope,
-      owner_user_id:
-        input.ownerUserId ??
-        (keepRow as { owner_user_id?: string | null } | null)?.owner_user_id ??
-        null,
-      participant_email: input.participantEmail,
-      thread_type: "portal_message",
-      row_data: {
-        ...removeData,
-        ...keepData,
-        id: input.keepId,
-        time: activityTime || keepData.time || removeData.time,
-        preview: previewSource,
-        unread: Boolean(keepData.unread) || Boolean(removeData.unread),
-        ...(messages.length ? { messages } : {}),
-      },
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" },
-  );
-
-  await db.from("portal_inbox_thread_records").delete().eq("id", input.removeId);
-}
-
-async function mergePropertyManagerThreadPair(
-  db: Db,
-  input: {
-    userId: string;
-    contactEmail: string;
-    authEmail: string;
-    managerUserId: string;
-    propertyId: string;
-  },
-): Promise<void> {
-  const canonicalId = propertyManagerConversationThreadId({
-    residentEmail: input.contactEmail,
-    managerUserId: input.managerUserId,
-    propertyId: input.propertyId,
-  });
-  const alternateId = propertyManagerConversationThreadId({
-    residentEmail: input.authEmail,
-    managerUserId: input.managerUserId,
-    propertyId: input.propertyId,
-  });
-  if (canonicalId === alternateId) return;
-
-  for (const scope of [RESIDENT_INBOX_SCOPE, MANAGER_INBOX_SCOPE] as const) {
-    const ownerUserId = scope === RESIDENT_INBOX_SCOPE ? input.userId : input.managerUserId;
-    const participantEmail = input.contactEmail;
-
-    const [{ data: canonical }, { data: alternate }] = await Promise.all([
-      db.from("portal_inbox_thread_records").select("id").eq("id", canonicalId).eq("scope", scope).maybeSingle(),
-      db.from("portal_inbox_thread_records").select("id").eq("id", alternateId).eq("scope", scope).maybeSingle(),
-    ]);
-
-    if (!alternate) continue;
-
-    if (!canonical) {
-      const { data: alternateRow } = await db
-        .from("portal_inbox_thread_records")
-        .select("row_data, owner_user_id, thread_type")
-        .eq("id", alternateId)
-        .maybeSingle();
-      if (!alternateRow?.row_data) continue;
-      await db.from("portal_inbox_thread_records").upsert(
-        {
-          id: canonicalId,
-          scope,
-          owner_user_id: ownerUserId,
-          participant_email: participantEmail,
-          thread_type: alternateRow.thread_type ?? "portal_message",
-          row_data: { ...(asObject(alternateRow.row_data) ?? {}), id: canonicalId, email: participantEmail },
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "id" },
-      );
-      await db.from("portal_inbox_thread_records").delete().eq("id", alternateId);
-      continue;
-    }
-
-    await mergeInboxThreadRecords(db, {
-      keepId: canonicalId,
-      removeId: alternateId,
-      scope,
-      participantEmail,
-      ownerUserId,
-    });
-  }
-}
-
-/** Collect property-scoped thread pairs that may exist under two prospect emails. */
-async function propertyManagerPairsForEmails(
-  db: Db,
-  emails: string[],
-): Promise<Array<{ managerUserId: string; propertyId: string }>> {
-  const pairs = new Map<string, { managerUserId: string; propertyId: string }>();
-  for (const email of emails) {
-    const { data } = await db
-      .from("portal_inbox_thread_records")
-      .select("row_data")
-      .eq("participant_email", email)
-      .in("scope", [RESIDENT_INBOX_SCOPE, MANAGER_INBOX_SCOPE])
-      .limit(200);
-    for (const row of data ?? []) {
-      const rowData = asObject(row.row_data);
-      const propertyId = textField(rowData, "propertyId");
-      const managerUserId = textField(rowData, "managerUserId");
-      if (!propertyId || !managerUserId) continue;
-      pairs.set(`${managerUserId}\0${propertyId}`, { managerUserId, propertyId });
-    }
-  }
-  return [...pairs.values()];
-}
-
-async function mergeProspectInboxThreadsAcrossEmails(
-  db: Db,
-  input: { userId: string; contactEmail: string; authEmail: string },
-): Promise<void> {
-  const pairs = await propertyManagerPairsForEmails(db, [input.contactEmail, input.authEmail]);
-  for (const pair of pairs) {
-    await mergePropertyManagerThreadPair(db, { ...pair, ...input });
-  }
 }
 
 import { isBlockedSelfServiceProfileEmail } from "@/lib/auth/prospect-contact-trust";
@@ -437,24 +191,8 @@ export async function reconcileProspectInboxThreadsForResident(
   },
 ): Promise<void> {
   const contact = normalizeEmail(params.contactEmail);
-  const auth = normalizeEmail(params.authEmail);
   if (!contact.includes("@")) return;
-
-  await attachInboxThreadsToResident(db, params.userId, contact);
-  if (auth && auth !== contact) {
-    await attachInboxThreadsToResident(db, params.userId, auth);
-    await mergeProspectInboxThreadsAcrossEmails(db, {
-      userId: params.userId,
-      contactEmail: contact,
-      authEmail: auth,
-    });
-  }
-
-  await applyProspectMessagingContactToProfile(db, {
-    userId: params.userId,
-    contactEmail: contact,
-    phone: params.phone,
-  });
+  await applyProspectMessagingContactToProfile(db, { userId: params.userId, contactEmail: contact, phone: params.phone });
 }
 
 export type ResidentTourView = {
@@ -537,14 +275,16 @@ function viewFromPlannedEvent(event: Record<string, unknown>, link: ResidentTour
   };
 }
 
-/** Link the exact inquiry authorized by a consumed, server-owned invitation. */
-export async function linkTourFromCapability(db: Db, input: { userId: string; email: string; inquiryId: string; capabilityId: string }): Promise<boolean> {
-  const { data: cap, error } = await db.from("tour_signup_capabilities").select("id, inquiry_id, recipient_email, manager_user_id, property_id, tour_group_id, consumed_at").eq("id", input.capabilityId).maybeSingle();
-  if (error || !cap || !cap.consumed_at || cap.inquiry_id !== input.inquiryId || cap.recipient_email !== normalizeEmail(input.email)) return false;
-  const inquiry = await loadTourInquiryById(db, input.inquiryId);
+type TourCapabilitySource = { inquiry_id: string; recipient_email: string; manager_user_id: string; property_id: string; tour_group_id: string | null };
+
+/** The source must still be pending or a matching, non-cancelled confirmed tour. */
+export async function tourCapabilityEligible(db: Db, cap: TourCapabilitySource): Promise<boolean> {
+  const inquiry = await loadTourInquiryById(db, cap.inquiry_id);
   let source: Record<string, unknown> | undefined;
   if (inquiry) {
     source = inquiry;
+    const status = textField(source, "status").toLowerCase();
+    if (status && status !== "pending") return false;
     if (normalizeEmail(textField(source, "email")) !== cap.recipient_email || textField(source, "propertyId") !== cap.property_id || (textField(source, "managerUserId") || textField(source, "adminUserId")) !== cap.manager_user_id || (textField(source, "tourGroupId") || null) !== cap.tour_group_id) return false;
   } else {
     const { data: planned, error: plannedError } = await db.from("portal_schedule_records").select("row_data").eq("id", PLANNED_RECORD_ID).maybeSingle();
@@ -552,8 +292,16 @@ export async function linkTourFromCapability(db: Db, input: { userId: string; em
     source = plannedEventsFromRecord(planned?.row_data).find((event) => textField(event, "kind") === "tour" && !textField(event, "canceledAt") && (textField(event, "sourceInquiryId") === cap.inquiry_id || (cap.tour_group_id && textField(event, "tourGroupId") === cap.tour_group_id)) && textField(event, "propertyId") === cap.property_id && (textField(event, "sourceManagerUserId") || textField(event, "managerUserId") || textField(event, "adminUserId")) === cap.manager_user_id && normalizeEmail(textField(event, "attendeeEmail")) === cap.recipient_email);
     if (!source) return false;
   }
-  const linked = await db.from("resident_tour_links").upsert({ resident_user_id: input.userId, inquiry_id: cap.inquiry_id, tour_group_id: cap.tour_group_id, manager_user_id: cap.manager_user_id, property_id: cap.property_id, attendee_email: cap.recipient_email, linked_at: new Date().toISOString() }, { onConflict: "resident_user_id,inquiry_id" });
-  return !linked.error;
+  return true;
+}
+
+/** Link the exact inquiry authorized by a consumed, server-owned invitation. */
+export async function linkTourFromCapability(db: Db, input: { userId: string; email: string; inquiryId: string; capabilityId: string }): Promise<boolean> {
+  const { data: cap, error } = await db.from("tour_signup_capabilities").select("id, inquiry_id, recipient_email, manager_user_id, property_id, tour_group_id, consumed_at, consumed_user_id").eq("id", input.capabilityId).maybeSingle();
+  if (error || !cap || !cap.consumed_at || cap.consumed_user_id !== input.userId || cap.inquiry_id !== input.inquiryId || cap.recipient_email !== normalizeEmail(input.email)) return false;
+  if (!(await tourCapabilityEligible(db, cap))) return false;
+  const linked = await db.rpc("bind_resident_tour_link", { p_user_id: input.userId, p_inquiry_id: cap.inquiry_id, p_group_id: cap.tour_group_id, p_manager_id: cap.manager_user_id, p_property_id: cap.property_id, p_email: cap.recipient_email });
+  return !linked.error && linked.data === true;
 }
 
 /** Load tour views scoped to linked inquiry ids. */

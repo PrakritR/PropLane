@@ -12,6 +12,6 @@ export async function issueTourSignupCapability(db: SupabaseClient, input: { inq
   const cleanup = await db.rpc("purge_expired_tour_signup_capabilities");
   if (cleanup.error) return null;
   const token = randomBytes(32).toString("hex");
-  const { error } = await db.from("tour_signup_capabilities").insert({ token_digest: tourCapabilityDigest(token), inquiry_id: input.inquiryId, recipient_email: input.email.trim().toLowerCase(), manager_user_id: input.managerUserId, property_id: input.propertyId, tour_group_id: input.tourGroupId || null, expires_at: new Date(Date.now() + 7 * 86400_000).toISOString() });
-  return error ? null : token;
+  const { data, error } = await db.rpc("issue_tour_signup_capability", { p_digest: tourCapabilityDigest(token), p_inquiry_id: input.inquiryId, p_email: input.email.trim().toLowerCase(), p_manager_id: input.managerUserId, p_property_id: input.propertyId, p_group_id: input.tourGroupId || null, p_expires_at: new Date(Date.now() + 7 * 86400_000).toISOString() });
+  return error || data !== true ? null : token;
 }

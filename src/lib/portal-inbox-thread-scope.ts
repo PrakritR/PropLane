@@ -36,6 +36,9 @@ export type PortalInboxThreadScopeOptions = {
    * invited them. Resident / vendor / admin scopes keep the plain match.
    */
   participantOnlyWhenUnowned?: boolean;
+  /** Resident history belongs to the Auth subject, never a recycled email. */
+  ownerOnly?: boolean;
+  excludeResidentEmail?: boolean;
 };
 
 /** PostgREST OR filter for inbox row ownership (matches GET visibility). */
@@ -51,15 +54,14 @@ export function portalInboxThreadScopeFilter(
     ownerIds.length <= 1
       ? [`owner_user_id.eq.${ownerIds[0] ?? user.id}`]
       : [`owner_user_id.in.(${ownerIds.join(",")})`];
-  if (user.email) {
+  if (user.email && !(options.ownerOnly ?? user.role === "resident")) {
     const email = postgrestFilterValue(user.email);
-    clauses.push(
-      options.participantOnlyWhenUnowned
+    const emailClause = options.participantOnlyWhenUnowned
         ? `and(owner_user_id.is.null,participant_email.eq.${email})`
-        : `participant_email.eq.${email}`,
-    );
+        : `participant_email.eq.${email}`;
+    clauses.push(options.excludeResidentEmail ? `and(scope.neq.${RESIDENT_INBOX_SCOPE},${emailClause})` : emailClause);
   }
-  if (user.role === "admin") clauses.push(`scope.eq.${ADMIN_INBOX_SCOPE}`);
+  if (user.role === "admin" && !options.ownerOnly) clauses.push(`scope.eq.${ADMIN_INBOX_SCOPE}`);
   return clauses.join(",");
 }
 
@@ -99,9 +101,12 @@ export async function resolveInboxScopeUser(scope: string): Promise<{
   if (!admin && scope === MANAGER_INBOX_SCOPE && (await withholdManagerSurface(db, authUser.id))) return null;
 
   let actorId = authUser.id;
-  let actorEmail = (profile?.email ?? authUser.email ?? "").trim().toLowerCase() || null;
+  const authEmail = authUser.email?.trim().toLowerCase() ?? "";
+  const profileEmail = profile?.email?.trim().toLowerCase() ?? "";
+  let actorEmail = authUser.email_confirmed_at && authEmail && (!profileEmail || profileEmail === authEmail) ? authEmail : null;
   let actorName = String(profile?.full_name ?? "").trim() || null;
-  const role = admin ? "admin" : String(profile?.role ?? authUser.user_metadata?.role ?? "").toLowerCase();
+  const legacyRole = String(profile?.role ?? "").toLowerCase();
+  const role = admin ? "admin" : legacyRole === "admin" ? "" : legacyRole;
 
   if (admin && scope !== ADMIN_INBOX_SCOPE) {
     const portal = portalForScope(scope);
@@ -119,7 +124,10 @@ export async function resolveInboxScopeUser(scope: string): Promise<{
           .select("email, full_name")
           .eq("id", effectiveId)
           .maybeSingle();
-        actorEmail = (effectiveProfile?.email ?? "").trim().toLowerCase() || null;
+        const { data: effectiveAuth, error: effectiveError } = await db.auth.admin.getUserById(effectiveId);
+        const effectiveEmail = effectiveAuth.user?.email?.trim().toLowerCase() ?? "";
+        const effectiveProfileEmail = effectiveProfile?.email?.trim().toLowerCase() ?? "";
+        actorEmail = !effectiveError && effectiveAuth.user?.email_confirmed_at && effectiveEmail && (!effectiveProfileEmail || effectiveProfileEmail === effectiveEmail) ? effectiveEmail : null;
         actorName = String(effectiveProfile?.full_name ?? "").trim() || null;
       }
     }

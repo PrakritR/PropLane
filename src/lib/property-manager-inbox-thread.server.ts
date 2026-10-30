@@ -370,6 +370,7 @@ async function appendResidentPropertyManagerInboxMessageOnce(
   db: Db,
   input: {
     participantEmail: string;
+    residentUserId?: string;
     managerUserId: string;
     propertyId: string;
     propertyTitle: string;
@@ -385,9 +386,8 @@ async function appendResidentPropertyManagerInboxMessageOnce(
 ): Promise<void> {
   const guestEmail = input.participantEmail.trim().toLowerCase();
   if (!guestEmail.includes("@")) return;
-
-  const { data: guestProfile } = await db.from("profiles").select("id").eq("email", guestEmail).maybeSingle();
-  const ownerUserId = (guestProfile?.id as string | null) ?? null;
+  const ownerUserId = input.residentUserId?.trim() ?? "";
+  if (!ownerUserId) return;
   const target = await resolvePropertyManagerThread(db, {
     side: "resident",
     residentEmail: guestEmail,

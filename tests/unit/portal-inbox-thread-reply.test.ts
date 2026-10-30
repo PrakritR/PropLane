@@ -68,7 +68,7 @@ describe("appendInboxThreadReply", () => {
     expect(rowData.unread).toBe(false);
   });
 
-  it("appends when the sender is the thread participant (by email)", async () => {
+  it("refuses a resident thread owned by another account despite matching email", async () => {
     const { db, store } = makeDb([
       {
         id: "t1",
@@ -79,8 +79,8 @@ describe("appendInboxThreadReply", () => {
       },
     ]);
     const result = await appendInboxThreadReply(db, { ...baseOpts, threadId: "t1" });
-    expect(result.ok).toBe(true);
-    expect((store.portal_inbox_thread_records![0]!.row_data as { messages: unknown[] }).messages).toHaveLength(1);
+    expect(result.ok).toBe(false);
+    expect((store.portal_inbox_thread_records![0]!.row_data as { messages: unknown[] }).messages).toHaveLength(0);
   });
 
   it("is a no-op for a thread the sender neither owns nor participates in", async () => {

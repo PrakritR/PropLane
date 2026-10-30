@@ -33,7 +33,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { profilePhoneVariants } from "@/lib/sms-consent";
-import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
+import { residentSubjectManagerIds } from "@/lib/auth/resident-subject-evidence.server";
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
 import { moveInDetailsLockFromBlocking, type ResidentAgentContext } from "@/lib/tools/resident-context";
@@ -114,7 +114,7 @@ export async function resolveResidentSmsAgentContext(
   const roles = roleList.length > 0 ? roleList : legacyRole ? [legacyRole] : [];
   if (!roles.includes("resident")) return { ok: false, reason: "not_a_resident" };
 
-  const managerIds = await managerIdsOwningResident(db, email);
+  const managerIds = await residentSubjectManagerIds(db, userId, email);
   // The tenant binding. Texting manager B never exposes manager A's resident.
   if (!managerIds.includes(ownerManagerUserId)) {
     return { ok: false, reason: "manager_not_linked" };

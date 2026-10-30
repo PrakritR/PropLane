@@ -2,7 +2,6 @@ import { pendingAccountRecovery } from "@/lib/auth/account-recovery.server";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import { primaryRoleWhenAddingResident } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
-import { attachInboxThreadsToResident } from "@/lib/tour-resident-link.server";
 import { normalizeE164 } from "@/lib/twilio";
 import { generateAxisId } from "@/lib/manager-id";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -178,6 +177,5 @@ export async function provisionResidentAccountByEmail(
   }
 
   await ensureProfileRoleRow(supabase, opts.userId, "resident");
-  if (emailProven) await attachInboxThreadsToResident(supabase, opts.userId, normalEmail).catch(() => undefined);
   return { ok: true, axisId, linkedApplication };
 }

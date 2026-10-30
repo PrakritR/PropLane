@@ -4,7 +4,6 @@ import { openApplicantRow } from "@/lib/security/applicant-identity";
 import { normalizeE164 } from "@/lib/twilio";
 import { pendingAccountRecovery } from "@/lib/auth/account-recovery.server";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
-import { attachInboxThreadsToResident } from "@/lib/tour-resident-link.server";
 
 /** Idempotent verified handoff. Existing profile fields are never copied from a stale read. */
 export async function provisionVerifiedResidentHandoff(db: SupabaseClient, input: { userId: string; email: string; applicationId?: string | null }): Promise<boolean> {
@@ -33,6 +32,5 @@ export async function provisionVerifiedResidentHandoff(db: SupabaseClient, input
     if (manager.error) throw manager.error;
   }
   await ensureProfileRoleRow(db, input.userId, "resident");
-  await attachInboxThreadsToResident(db, input.userId, email);
   return true;
 }

@@ -10,7 +10,7 @@ import { getEffectiveSessionForPortal } from "@/lib/auth/effective-session";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { isTestWorkspaceActorAllowed } from "@/lib/test-workspaces/index.server";
-import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
+import { residentSubjectManagerIds } from "@/lib/auth/resident-subject-evidence.server";
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
 import type { ManagerSubscriptionTier } from "@/lib/manager-access";
@@ -139,7 +139,7 @@ export async function resolveResidentAgentContext(): Promise<ResidentAgentContex
 
   const managerId = String(profile?.manager_id ?? "").trim();
   const [managerIds, managerTier, access] = await Promise.all([
-    managerIdsOwningResident(db, email),
+    residentSubjectManagerIds(db, user.id, email),
     managerId ? getManagerSubscriptionTierByManagerId(managerId) : Promise.resolve(null),
     loadResidentPortalAccessState({
       userId: user.id,

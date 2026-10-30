@@ -231,6 +231,7 @@ export async function resolveInboxThreadReplyTarget(
   // access to it — that clause covers only legacy rows written with no owner.
   // The other owner never invited this manager (see conversation-visibility).
   const isParticipant =
+    String(threadRow.scope ?? "") !== RESIDENT_INBOX_SCOPE &&
     String(threadRow.participant_email ?? "").toLowerCase() === senderEmail && (!managerScope || !ownerUserId);
   let delegatedOwner = false;
   if (!isOwner && !isParticipant && ownerUserId && managerScope) {

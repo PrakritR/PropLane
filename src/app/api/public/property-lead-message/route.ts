@@ -135,6 +135,7 @@ export async function POST(req: Request) {
     if (!unverifiedLead) {
       await recordResidentProspectInboxMessage(db, {
         participantEmail: email,
+        residentUserId: signedInAs === email ? signedInUser?.id : undefined,
         subject: `We received your message — ${topic}`,
         body: ackBody,
         residentMessage: message,

@@ -59,6 +59,7 @@ function ConfirmContent() {
           if (!cancelled) setCompletionUnavailable(true);
           return;
         }
+        if (completed.ok) { try { sessionStorage.removeItem("proplane_tour_invite"); } catch { /* unavailable */ } }
         // Ordinary magic links have no onboarding claim and retain their existing destination.
         if (!completed.ok && (error || completed.status !== 409)) { setFailedType(type); return; }
       } else if (error) {

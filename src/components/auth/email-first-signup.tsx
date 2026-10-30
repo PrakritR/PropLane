@@ -64,7 +64,7 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
       });
       const body = await res.json().catch(() => ({})) as { error?: string; redirectTo?: string };
       if (!res.ok) { setError(body.error || "Could not continue. Please try again."); return; }
-      if (!verifiedEmail) { if (intent === "tour") { try { sessionStorage.removeItem("proplane_tour_invite"); } catch { /* unavailable */ } } setSent(true); return; }
+      if (!verifiedEmail) { setSent(true); return; }
       const applyParams = new URLSearchParams();
       if (listing?.propertyId) applyParams.set("propertyId", listing.propertyId);
       if (listing?.listingRoomId) applyParams.set("listingRoomId", listing.listingRoomId);

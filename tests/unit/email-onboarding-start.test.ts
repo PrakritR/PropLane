@@ -1,18 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => ({ find: vi.fn(), create: vi.fn(), get: vi.fn(), link: vi.fn(), insert: vi.fn(), send: vi.fn(), inquiry: vi.fn(), purchase: vi.fn(), invite: vi.fn(), property: vi.fn(), effective: vi.fn(), pin: vi.fn(), rpc: vi.fn(), rate: vi.fn(), capability: vi.fn() }));
+const m = vi.hoisted(() => ({ find: vi.fn(), create: vi.fn(), get: vi.fn(), link: vi.fn(), insert: vi.fn(), send: vi.fn(), inquiry: vi.fn(), purchase: vi.fn(), invite: vi.fn(), property: vi.fn(), effective: vi.fn(), pin: vi.fn(), rpc: vi.fn(), rate: vi.fn(), capability: vi.fn(), eligible: vi.fn() }));
 vi.mock("@/lib/rate-limit", () => ({ clientIpFrom: () => "test", rateLimit: m.rate }));
 vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://example.test" }));
 vi.mock("@/lib/auth/find-auth-user-id-by-email", () => ({ findAuthUserIdByEmail: m.find }));
 vi.mock("@/lib/rental-application/validate-application-submit.server", () => ({ memoizeEffectiveApplicationProperty: () => m.effective }));
 vi.mock("@/lib/send-forms", () => ({ applicationPinForLinkedForm: m.pin }));
 vi.mock("@/lib/auth/provision-vendor-account", () => ({ findPendingVendorInviteByToken: m.invite }));
-vi.mock("@/lib/tour-resident-link.server", () => ({ loadTourInquiryById: m.inquiry }));
+vi.mock("@/lib/tour-resident-link.server", () => ({ loadTourInquiryById: m.inquiry, tourCapabilityEligible: m.eligible }));
 vi.mock("@/lib/auth/resident-setup-token", () => ({ findApplicationForResidentSetup: vi.fn() }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ rpc: m.rpc, auth: { admin: { createUser: m.create, getUserById: m.get, generateLink: m.link } }, from: (table: string) => table === "tour_signup_capabilities" ? { select: () => { const q = { eq: () => q, is: () => q, gt: () => q, maybeSingle: m.capability }; return q; } } : ({ insert: m.insert, select: () => ({ eq: () => ({ maybeSingle: table === "manager_property_records" ? m.property : m.purchase }) }) }) }) }));
 import { POST } from "@/app/api/auth/email-onboarding/start/route";
 const request = () => new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", password: "attacker-known" }) });
 m.rpc.mockResolvedValue({ data: 0, error: null });
 m.rate.mockResolvedValue({ ok: true });
+m.eligible.mockResolvedValue(true);
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 describe("email onboarding start", () => {
   it.each(["wrong", "expired", "reused"])("refuses a %s tour capability before account creation", async () => {
@@ -33,6 +34,36 @@ describe("email onboarding start", () => {
     expect((await POST(req)).status).toBe(200);
     expect(m.rpc).toHaveBeenCalledWith("claim_tour_signup_capability", expect.objectContaining({ p_inquiry_id: "tour-1", p_email: "guest@example.com", p_user_id: "new-user" }));
     expect(m.send).toHaveBeenCalledOnce();
+  });
+  it("retries delivery for the same capability and Auth subject after a transport failure", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test"); vi.stubGlobal("fetch", m.send.mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ ok: true }));
+    m.capability.mockResolvedValueOnce({ data: { id: "cap", consumed_user_id: null }, error: null }).mockResolvedValueOnce({ data: { id: "cap", consumed_user_id: "new-user" }, error: null });
+    m.find.mockResolvedValueOnce(null).mockResolvedValueOnce("new-user");
+    m.create.mockResolvedValue({ data: { user: { id: "new-user" } }, error: null });
+    m.get.mockResolvedValue({ data: { user: { id: "new-user", email_confirmed_at: null, app_metadata: { proplane_email_onboarding: true } } } });
+    m.link.mockResolvedValue({ data: { user: { id: "new-user" }, properties: { hashed_token: "synthetic", verification_type: "signup" } } });
+    m.rpc.mockResolvedValueOnce({ data: 0, error: null }).mockResolvedValueOnce({ data: true, error: null }).mockResolvedValueOnce({ data: 0, error: null }).mockResolvedValueOnce({ data: true, error: null });
+    const request = () => new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "tour", tourInquiryId: "tour-1", tourToken: "a".repeat(64) }) });
+    expect((await POST(request())).status).toBe(503);
+    expect((await POST(request())).status).toBe(200);
+    expect(m.rpc.mock.calls.filter(([name]) => name === "claim_tour_signup_capability")).toHaveLength(2);
+    expect(m.send).toHaveBeenCalledTimes(2);
+  });
+  it("refuses a consumed capability for a different Auth subject", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test");
+    m.capability.mockResolvedValue({ data: { id: "cap", consumed_user_id: "old-user" }, error: null });
+    m.find.mockResolvedValue("new-user");
+    const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "tour", tourInquiryId: "tour-1", tourToken: "a".repeat(64) }) });
+    expect((await POST(req)).status).toBe(410);
+    expect(m.link).not.toHaveBeenCalled();
+  });
+  it("refuses a cancelled or changed tour before generating a link", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test");
+    m.capability.mockResolvedValue({ data: { id: "cap" }, error: null });
+    m.eligible.mockResolvedValueOnce(false);
+    const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "tour", tourInquiryId: "tour-1", tourToken: "a".repeat(64) }) });
+    expect((await POST(req)).status).toBe(410);
+    expect(m.link).not.toHaveBeenCalled();
   });
   it.each(["signup", "magiclink"])("emails the provider's %s verification link without client credentials or redirect", async (type) => {
     vi.stubEnv("RESEND_API_KEY", "test"); vi.stubGlobal("fetch", m.send.mockResolvedValue({ ok: true }));
