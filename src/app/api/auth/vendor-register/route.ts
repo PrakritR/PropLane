@@ -9,7 +9,6 @@ import {
   vendorUnlinkedNotice,
   type VendorInviteRow,
 } from "@/lib/auth/provision-vendor-account";
-import { assertPasswordMatchesExistingAuthUser } from "@/lib/auth/verify-auth-password";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
@@ -64,7 +63,6 @@ export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Body;
     const token = typeof body.token === "string" ? body.token.trim() : "";
-    const password = typeof body.password === "string" ? body.password : "";
     const fullName = typeof body.fullName === "string" ? body.fullName.trim() : "";
     // Required (phone-first accounts): every account, invited or self-serve, puts its number in. Normalised so a stored
     // number is always E.164, never whatever the keypad produced.
@@ -73,15 +71,15 @@ export async function POST(req: Request) {
     if (!phone) {
       return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
     }
-    if (token && password.length < 8) {
-      return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
-    }
 
     const supabase = createSupabaseServiceRoleClient();
 
     if (token) {
       const confirmEmail = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-      return await registerFromInvite(supabase, { token, password, fullName, phone, confirmEmail });
+      const auth = await createSupabaseServerClient();
+      const { data: { user } } = await auth.auth.getUser();
+      if (!user?.id || !user.email_confirmed_at || !user.email) return NextResponse.json({ error: "Verify your email and sign in before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
+      return await registerFromInvite(supabase, { token, fullName, phone, confirmEmail, userId: user.id, verifiedEmail: user.email.trim().toLowerCase() });
     }
 
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
@@ -100,25 +98,17 @@ export async function POST(req: Request) {
   }
 }
 
-/**
- * Invite path — the emailed link is the possession proof, so the account is
- * confirmed immediately. Two things guard that:
- *
- * - the address is taken from the INVITE, never from the request body, and a
- *   body that names a different one is refused rather than quietly ignored, so
- *   the token can never be redeemed toward an address the manager did not name;
- * - the invite is claimed atomically before anything is provisioned, so the
- *   token is single-use in fact and not merely by convention.
- */
+/** An invite authorizes the vendor relationship, not ownership of its email. */
 async function registerFromInvite(
   supabase: ReturnType<typeof createSupabaseServiceRoleClient>,
-  opts: { token: string; password: string; fullName: string; phone?: string; confirmEmail?: string },
+  opts: { token: string; fullName: string; phone?: string; confirmEmail?: string; userId: string; verifiedEmail: string },
 ) {
   const invite = await findPendingVendorInviteByToken(supabase, opts.token);
   if (!invite) {
     return NextResponse.json({ error: "This invite link is invalid or has expired." }, { status: 404 });
   }
   const email = invite.vendor_email.trim().toLowerCase();
+  if (opts.verifiedEmail !== email) return NextResponse.json({ error: "Sign in with the verified email used on the invite.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
   if (opts.confirmEmail && opts.confirmEmail !== email) {
     return NextResponse.json(
       { error: "This invite was sent to a different email address." },
@@ -127,12 +117,9 @@ async function registerFromInvite(
   }
 
   const existingId = await findAuthUserIdByEmail(supabase, email);
-  const recovery = existingId ? await recoverySetupRedirect(supabase, existingId) : null;
-  if (recovery) {
-    const verified = await assertPasswordMatchesExistingAuthUser(email, opts.password);
-    if (!verified.ok) return NextResponse.json({ error: verified.message }, { status: 401 });
-    return NextResponse.json({ ok: true, existingAccount: true, recoveryRequired: true, redirectTo: recovery });
-  }
+  if (existingId !== opts.userId) return NextResponse.json({ error: "Verify your email and sign in before continuing." }, { status: 403 });
+  const recovery = await recoverySetupRedirect(supabase, opts.userId);
+  if (recovery) return NextResponse.json({ ok: true, existingAccount: true, recoveryRequired: true, redirectTo: recovery });
 
   // Claim FIRST. Two concurrent redemptions of the same token both used to pass
   // the pending check and both proceed, because the flip to `accepted` happened
@@ -142,19 +129,10 @@ async function registerFromInvite(
     return NextResponse.json({ error: "This invite has already been used." }, { status: 409 });
   }
 
-  const { userId, error } = await createOrLinkAuthUser(supabase, {
-    email,
-    password: opts.password,
-    fullName: opts.fullName,
-    emailConfirm: true,
-  });
-  if (error) {
-    await releaseVendorInvite(supabase, invite.id);
-    return error;
-  }
+  const userId = opts.userId;
 
   const provisioned = await provisionVendorAccountByEmail(supabase, {
-    userId: userId!,
+    userId,
     email,
     fullName: opts.fullName || null,
     invite: invite as VendorInviteRow,
@@ -169,7 +147,7 @@ async function registerFromInvite(
 
   await applyVendorPhone(supabase, userId, opts.phone ?? "");
 
-  track("vendor_account_created", userId!, { signup_method: "invite" });
+  track("vendor_account_created", userId, { signup_method: "invite" });
 
   return NextResponse.json({
     ok: true,
@@ -206,40 +184,3 @@ async function registerSelfServe(
     unlinkedNotice: vendorUnlinkedNotice(provisioned.unlinkedReason, { confirmed: true }),
     redirectTo: "/vendor/onboarding" });
 }
-
-async function createOrLinkAuthUser(
-  supabase: ReturnType<typeof createSupabaseServiceRoleClient>,
-  opts: { email: string; password: string; fullName: string; emailConfirm: boolean },
-): Promise<{ userId?: string; error?: NextResponse }> {
-  const { data: created, error: createErr } = await supabase.auth.admin.createUser({
-    email: opts.email,
-    password: opts.password,
-    email_confirm: opts.emailConfirm,
-    user_metadata: { role: "vendor", full_name: opts.fullName || undefined },
-  });
-
-  if (!createErr) {
-    if (!created?.user?.id) {
-      return { error: NextResponse.json({ error: "Could not create account." }, { status: 500 }) };
-    }
-    return { userId: created.user.id };
-  }
-
-  const exists =
-    createErr.message.toLowerCase().includes("already") || createErr.message.toLowerCase().includes("registered");
-  if (!exists) {
-    return { error: NextResponse.json({ error: createErr.message }, { status: 400 }) };
-  }
-  const existingId = await findAuthUserIdByEmail(supabase, opts.email);
-  if (!existingId) {
-    return {
-      error: NextResponse.json({ error: "Could not locate existing account for this email." }, { status: 400 }),
-    };
-  }
-  const pwCheck = await assertPasswordMatchesExistingAuthUser(opts.email, opts.password);
-  if (!pwCheck.ok) {
-    return { error: NextResponse.json({ error: pwCheck.message }, { status: 401 }) };
-  }
-  return { userId: existingId };
-}
-
