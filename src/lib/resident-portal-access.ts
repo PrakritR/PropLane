@@ -295,12 +295,14 @@ const loadResidentPortalAccessStateCached = cache(
       ) {
         const { data: axisRecord } = await db
           .from("manager_application_records")
-          .select("row_data, updated_at, manager_user_id")
+          .select("row_data, updated_at, manager_user_id, resident_email")
           .eq("id", profileAxisId)
           .maybeSingle();
 
         if (
           axisRecord?.row_data &&
+          typeof axisRecord.resident_email === "string" &&
+          axisRecord.resident_email.trim().toLowerCase() === email &&
           typeof axisRecord.row_data === "object" &&
           !Array.isArray(axisRecord.row_data) &&
           (!managerUserId || axisRecord.manager_user_id === managerUserId)

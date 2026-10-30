@@ -18,7 +18,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 function makeDbMock(options: {
   applicationRows?: Array<{ row_data: unknown; updated_at?: string; resident_email?: string }>;
   profile?: { application_approved?: boolean; manager_id?: string | null } | null;
-  axisRecord?: { row_data: unknown } | null;
+  axisRecord?: { row_data: unknown; resident_email?: string | null } | null;
   /** Roles held in `profile_roles` — the multi-role source of truth. */
   profileRoles?: string[];
 }) {
@@ -108,6 +108,20 @@ function makeDbMock(options: {
 describe("resident portal access state", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("never derives access from a stale profile application id owned by another email", async () => {
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(makeDbMock({ profile: { manager_id: "PROPLANE-OTHER", application_approved: false }, axisRecord: { resident_email: "victim@example.com", row_data: { id: "PROPLANE-OTHER", bucket: "approved", stage: "Approved" } } }) as never);
+    const access = await loadResidentPortalAccessState({ userId: "user-1", role: "resident", email: "resident@example.com" });
+    expect(access.hasSubmittedApplication).toBe(false);
+    expect(access.applicationApproved).toBe(false);
+  });
+
+  it("accepts the exact owned email on the legacy application fallback", async () => {
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(makeDbMock({ profile: { manager_id: "PROPLANE-OWN", application_approved: false }, axisRecord: { resident_email: " Resident@Example.com ", row_data: { id: "PROPLANE-OWN", bucket: "approved", stage: "Approved" } } }) as never);
+    const access = await loadResidentPortalAccessState({ userId: "user-1", role: "resident", email: "resident@example.com" });
+    expect(access.hasSubmittedApplication).toBe(true);
+    expect(access.applicationApproved).toBe(true);
   });
 
   it("marks pre-application residents before any submission", async () => {
