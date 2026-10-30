@@ -1,5 +1,7 @@
 "use client";
 
+import { EmailFirstSignup } from "@/components/auth/email-first-signup";
+
 import posthog from "posthog-js";
 import { AuthCard } from "@/components/auth/auth-card";
 import { AuthBrandHeader, AuthDivider, AuthLegalConsent } from "@/components/auth/auth-mobile-primitives";
@@ -148,7 +150,7 @@ function pickerRoleFromParam(value: string): AuthPortalPickerId | null {
  * collects. Both are gone; role and plan are still resolved AFTER
  * authentication, so this screen has no role toggle and no plan selection.
  */
-export function PortalAuthForm() {
+function LegacyPortalAuthForm() {
   const router = useRouter();
   const { showToast } = useAppUi();
   const { isNative } = useIsNativeApp();
@@ -495,4 +497,11 @@ export function PortalAuthForm() {
         </div>
       </div>
     );
+}
+
+export function PortalAuthForm() {
+  const params = useSearchParams();
+  if (params.get("tour_inquiry") || params.get("handoff") === "message") return <p>Tour account setup is temporarily unavailable. Please try again later.</p>;
+  const intent = params.get("role") === "resident" ? "resident" : "generic";
+  return <AuthCard variant="blend"><EmailFirstSignup intent={intent} initialEmail={params.get("email") ?? ""} /></AuthCard>;
 }

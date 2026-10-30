@@ -1,5 +1,7 @@
 "use client";
 
+import { EmailFirstSignup } from "@/components/auth/email-first-signup";
+
 import posthog from "posthog-js";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -34,7 +36,7 @@ type RegisterResponse = {
  * application, not an empty dashboard. Shares the auth-hub compact skeleton with the
  * manager/vendor signup forms.
  */
-export function ResidentSignupForm({
+function LegacyResidentSignupForm({
   initialEmail = "",
   nextPath = "/resident/applications",
   axisId,
@@ -294,4 +296,8 @@ export function ResidentSignupForm({
       {!hideLegalFooter ? <AuthLegalConsent action="create" className="mt-2" /> : null}
     </div>
   );
+}
+
+export function ResidentSignupForm(props: Parameters<typeof LegacyResidentSignupForm>[0]) {
+  return <EmailFirstSignup intent="resident" initialEmail={props.initialEmail} disabled={props.disabled} hideLegalFooter={props.hideLegalFooter} />;
 }

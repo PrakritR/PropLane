@@ -3,7 +3,7 @@
 import { ResidentSignupBlocked } from "@/components/auth/resident-signup-blocked";
 import { AuthCard } from "@/components/auth/auth-card";
 import { useSearchParams } from "next/navigation";
-import CreateAccountClient from "./create-account-client";
+
 import { CreateAccountRoleGateway } from "./create-account-role-gateway";
 
 /**
@@ -18,7 +18,7 @@ export default function CreateAccountRouter() {
   const axisId = searchParams.get("axis_id")?.trim() ?? "";
 
   if (sessionId) {
-    return <CreateAccountClient />;
+    return <AuthCard variant="blend"><p>Paid account setup is temporarily unavailable. Please return to pricing later.</p></AuthCard>;
   }
 
   if (axisId) {

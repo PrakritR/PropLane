@@ -1,5 +1,7 @@
 "use client";
 
+import { EmailFirstSignup } from "@/components/auth/email-first-signup";
+
 import posthog from "posthog-js";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -34,7 +36,7 @@ type RegisterResponse = {
 };
 
 /** Vendor account creation — Google or email/password; reused in auth hub, invite page, and public marketing. */
-export function VendorSignupForm({
+function LegacyVendorSignupForm({
   inviteToken,
   initialEmail = "",
   initialFullName = "",
@@ -388,4 +390,9 @@ export function VendorSignupForm({
       {!hideLegalFooter ? <AuthLegalConsent action="create" className="mt-2" /> : null}
     </div>
   );
+}
+
+export function VendorSignupForm(props: Parameters<typeof LegacyVendorSignupForm>[0]) {
+  if (props.inviteToken) return <LegacyVendorSignupForm {...props} />;
+  return <EmailFirstSignup intent="vendor" initialEmail={props.initialEmail} disabled={props.disabled} hideLegalFooter={props.hideLegalFooter} />;
 }
