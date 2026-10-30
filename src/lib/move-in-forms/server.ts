@@ -451,7 +451,7 @@ type NewRow = {
 
 async function insertRow(db: SupabaseClient, input: NewRow): Promise<{ row: MoveInFormRow; created: true } | { row: null; created: false }> {
   const { residency, ownerId, template } = input;
-  const { data, error } = await db.from(TABLE).insert({
+  const { data, error } = await db.rpc("insert_bound_move_in_form", { p_form: {
     application_id: residency.id,
     manager_user_id: ownerId,
     property_id: residency.identity.property_id,
@@ -467,7 +467,7 @@ async function insertRow(db: SupabaseClient, input: NewRow): Promise<{ row: Move
     status: "sent",
     answers: [],
     due_at: input.dueAt,
-  }).select("*").single();
+  } });
   // The partial unique index (one SENT copy per residency and form) makes a concurrent second send a no-op.
   if (error?.code === "23505") return { row: null, created: false };
   if (error || !data) throw new MoveInFormError("Could not send the form.", 500);

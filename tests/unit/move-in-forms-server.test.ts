@@ -95,6 +95,11 @@ const storage = {
 };
 const db = {
   from: builder,
+  rpc: async (name: string, args: { p_form: Row }) => {
+    if (name !== "insert_bound_move_in_form") throw new Error("unexpected RPC");
+    const q = builder("resident_move_in_forms") as { insert: (row: Row) => { single: () => Promise<unknown> } };
+    return q.insert(args.p_form).single();
+  },
   storage,
   auth: { admin: { getUserById: async (id: string) => ({ data: { user: authUsers[id] ?? null }, error: null }) } },
 };
