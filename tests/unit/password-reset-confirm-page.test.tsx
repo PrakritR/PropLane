@@ -77,6 +77,18 @@ describe("/auth/confirm for a recovery link", () => {
     await waitFor(() => expect(replaced).toEqual(["/auth/continue"]));
   });
 
+  it.each([{ status: 500, code: "unexpected_failure", message: "private backend detail" }, { status: 503, message: "private backend detail" }])("offers retry without finishing on provider failure", async (error) => {
+    verifyOtp.mockResolvedValue({ error });
+    const finish = vi.fn();
+    vi.stubGlobal("fetch", finish);
+    search = `token_hash=${TOKEN}&type=signup`;
+    render(<ConfirmPage />);
+    expect(await screen.findByText(/could not complete verification/i)).toBeTruthy();
+    expect(screen.queryByText(/private backend detail/i)).toBeNull();
+    expect(finish).not.toHaveBeenCalled();
+    expect(replaced).toEqual([]);
+  });
+
   it("shows failure when onboarding completion cannot be reached", async () => {
     verifyOtp.mockResolvedValue({ error: null });
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));

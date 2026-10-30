@@ -145,28 +145,20 @@ describe("authorizeResidentRole — an absent legacy role falls through to profi
     await expect(authorize("manager")).resolves.toBe(true);
   });
 
-  /**
-   * The legacy acceptance is what stops the fail-closed change locking out a
-   * resident whose `profile_roles` row was never backfilled. Dropping it would
-   * make the predicate depend entirely on a table that may not have caught up.
-   */
-  it("admits a legacy resident with NO profile_roles row at all", async () => {
+  it("denies a legacy resident without a stored role", async () => {
     PROFILE_ROLES = [];
-
-    await expect(authorize("resident")).resolves.toBe(true);
-    await expect(authorize("  Resident  ")).resolves.toBe(true);
+    await expect(authorize("resident")).resolves.toBe(false);
   });
 
-  it("keeps the single-role resident hot path query-free", async () => {
+  it("checks the stored role even for a legacy resident", async () => {
     PROFILE_ROLES = ["resident"];
-    PROFILE_ROLES_READS = 0;
-
-    await authorize("resident");
-    expect(PROFILE_ROLES_READS).toBe(0);
-
-    // Only an account the legacy column cannot answer for pays the extra read.
-    await authorize(null);
+    await expect(authorize("resident")).resolves.toBe(true);
     expect(PROFILE_ROLES_READS).toBe(1);
+  });
+
+  it("denies a legacy resident when the stored-role read fails", async () => {
+    const failedDb = { from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { message: "unavailable" } }) }) }) }) }) };
+    await expect(authorizeResidentRole(failedDb as never, { userId: USER_ID, legacyRole: "resident" })).resolves.toBe(false);
   });
 
   it("refuses rather than guesses when there is no user id to look up", async () => {

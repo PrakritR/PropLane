@@ -23,7 +23,7 @@ function makeDbMock(options: {
   /** Roles held in `profile_roles` — the multi-role source of truth. */
   profileRoles?: string[];
 }) {
-  const { applicationRows = [], profile = null, axisRecord = null, profileRoles = [] } = options;
+  const { applicationRows = [], profile = null, axisRecord = null, profileRoles = ["resident"] } = options;
 
   return {
     auth: { admin: { getUserById: vi.fn(async (id: string) => ({ data: { user: { email: ({ "user-drift": "drifted@example.com", "user-second": "second-apply@example.com", "user-both": "both@example.com" } as Record<string, string>)[id] ?? "resident@example.com", email_confirmed_at: "confirmed" } }, error: null })) } },

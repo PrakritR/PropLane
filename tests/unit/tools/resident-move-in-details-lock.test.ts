@@ -18,6 +18,7 @@ function houseTables(): Record<string, FakeRow[]> {
         updated_at: "2026-06-01T00:00:00.000Z",
         row_data: {
           id: "APP-A",
+          residentUserId: RESIDENT.id,
           email: RESIDENT.email,
           bucket: "approved",
           stage: "Approved",

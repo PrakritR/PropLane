@@ -23,7 +23,7 @@ export const getHousematesTool = defineTool({
   name: "get_housemates", description: "Read roommates and housemates for the resident's own approved home. Only details each person explicitly chose to share are returned. Private details must never be inferred.", inputSchema: z.object({}).strict(),
   handler: async (ctx: ResidentAgentContext) => {
     if (ctx.phase !== "approved" || (ctx.activeManagerId && !ctx.managerIds.includes(ctx.activeManagerId))) return { housemates: [] };
-    const home = await loadResidentMoveInForEmail(ctx.email, { db: ctx.db, managerUserId: ctx.activeManagerId });
+    const home = await loadResidentMoveInForEmail(ctx.email, { db: ctx.db, managerUserId: ctx.activeManagerId, residentUserId: ctx.userId });
     return { housemates: home?.housemates ?? [] };
   },
 });

@@ -49,8 +49,18 @@ function ConfirmContent() {
     let cancelled = false;
     void (async () => {
       const supabase = createSupabaseBrowserClient();
-      const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
+      let error: { status?: number; code?: string; message: string } | null;
+      try {
+        ({ error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type }));
+      } catch {
+        if (!cancelled) setCompletionUnavailable(true);
+        return;
+      }
       if (cancelled) return;
+      if (error && ((error.status ?? 0) >= 500 || error.code === "unexpected_failure")) {
+        setCompletionUnavailable(true);
+        return;
+      }
       if (type === "magiclink" || type === "signup") {
         let completed: Response;
         try {
@@ -74,7 +84,7 @@ function ConfirmContent() {
   }, [searchParams]);
 
   if (completionUnavailable) {
-    return <AuthCard><h1>Could not complete verification</h1><p>Check your connection and open this link again.</p></AuthCard>;
+    return <AuthCard><h1>Could not complete verification</h1><p>Check your connection and open this link again, or request another link.</p><Link href={searchParams.get("type") === "recovery" ? "/auth/forgot-password" : "/auth/create-account"}>Request another link</Link></AuthCard>;
   }
 
   if (failedType) {
