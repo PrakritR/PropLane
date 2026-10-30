@@ -11,7 +11,7 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!dir || !path.isAbsolute(dir) || url !== "https://emstjswhotsnyksqhqyf.supabase.co" || !key || process.env.AUTH_PROOF_SERVER_EXIT_VERIFIED !== "1") throw new Error("Invalid cleanup environment.");
 const files = readdirSync(dir).filter((name) => /^manager-[a-f0-9]{64}\.manifest\.json$/.test(name));
-if (files.length === 0) { if (readdirSync(dir).length !== 0) throw new Error("Untracked capture without manifest."); return; }
+if (files.length === 0) { if (readdirSync(dir).some((name) => name !== "phases.json")) throw new Error("Untracked capture without manifest."); return; }
 if (files.length !== 1) throw new Error("Expected exactly one private manifest.");
 const file = path.join(dir, files[0]!);
 const manifest = JSON.parse(readFileSync(file, "utf8")) as SyntheticManagerManifest;
