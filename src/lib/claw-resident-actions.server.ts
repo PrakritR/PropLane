@@ -220,11 +220,14 @@ export async function runResidentSmsAction(args: {
     : /^\s*(no|n|nope|not fixed|still broken|still a problem)\s*[.!]*$/i.test(text)
       ? "not_fixed"
       : null;
-  if (confirmVerdict && residentEmail) {
+  const verifiedSender = confirmVerdict && args.residentUserId
+    ? await findVerifiedProfileByPhone(createSupabaseServiceRoleClient(), args.residentPhone).catch(() => null)
+    : null;
+  if (confirmVerdict && verifiedSender && verifiedSender.id === args.residentUserId) {
     const { resolveResidentConfirmationBySms } = await import("@/lib/work-order-resident-confirmation.server");
     const answered = await resolveResidentConfirmationBySms(createSupabaseServiceRoleClient(), {
       managerUserId: args.managerUserId,
-      residentEmail,
+      residentUserId: verifiedSender.id,
       verdict: confirmVerdict,
     }).catch(() => null);
     if (answered) {

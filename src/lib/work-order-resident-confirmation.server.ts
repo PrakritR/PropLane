@@ -143,15 +143,15 @@ export async function resolveResidentConfirmation(
  */
 export async function resolveResidentConfirmationBySms(
   db: SupabaseClient,
-  input: { managerUserId: string; residentEmail: string; verdict: "fixed" | "not_fixed"; note?: string; now?: Date },
+  input: { managerUserId: string; residentUserId?: string; residentEmail?: string; verdict: "fixed" | "not_fixed"; note?: string; now?: Date },
 ): Promise<{ ok: true; title: string; reopened: boolean } | null> {
-  const email = input.residentEmail.trim().toLowerCase();
-  if (!email.includes("@")) return null;
+  const residentUserId = input.residentUserId?.trim() ?? "";
+  if (!residentUserId) return null;
   const { data } = await db
     .from("portal_work_order_records")
     .select("id, manager_user_id, vendor_user_id, row_data, updated_at")
     .eq("manager_user_id", input.managerUserId)
-    .eq("resident_email", email)
+    .eq("resident_user_id", residentUserId)
     .not("row_data->residentConfirmation", "is", null)
     .order("updated_at", { ascending: false })
     .limit(20);
@@ -159,7 +159,7 @@ export async function resolveResidentConfirmationBySms(
     (candidate) => candidate.row_data.residentConfirmation && !candidate.row_data.residentConfirmation.respondedAt,
   );
   if (!record) return null;
-  const result = await resolveConfirmationRecord(db, record, { verdict: input.verdict, note: input.note, now: input.now, ratingUrl: null });
+  const result = await resolveConfirmationRecord(db, record, { verdict: input.verdict, note: input.note, now: input.now, ratingUrl: null, residentUserId });
   if (!result.ok) return null;
   return { ok: true, title: record.row_data.title || "your service request", reopened: input.verdict === "not_fixed" };
 }
@@ -167,7 +167,7 @@ export async function resolveResidentConfirmationBySms(
 async function resolveConfirmationRecord(
   db: SupabaseClient,
   record: WorkOrderRecord | null,
-  input: { verdict: "fixed" | "not_fixed"; note?: string; now?: Date; ratingUrl: string | null },
+  input: { verdict: "fixed" | "not_fixed"; note?: string; now?: Date; ratingUrl: string | null; residentUserId?: string },
 ): Promise<{ ok: true; ratingUrl: string | null } | { ok: false; reason: "invalid" | "expired" | "answered" }> {
   const now = input.now ?? new Date();
   const confirmation = record?.row_data.residentConfirmation;
@@ -185,7 +185,10 @@ async function resolveConfirmationRecord(
     // stands, so the invoice nudge and the manager's approval step both wait.
     ...(reopened ? { automationStatus: undefined, vendorMarkedDoneAt: undefined, reopenedAt: now.toISOString() } : {}),
   };
-  await db.from("portal_work_order_records").update({ row_data: next, updated_at: now.toISOString() }).eq("id", record.id);
+  let update = db.from("portal_work_order_records").update({ row_data: next, updated_at: now.toISOString() }).eq("id", record.id);
+  if (input.residentUserId) update = update.eq("resident_user_id", input.residentUserId);
+  const { data: updated, error: updateError } = await update.select("id").maybeSingle();
+  if (updateError || !updated) return { ok: false, reason: "invalid" };
 
   const sender = await senderFor(db, record.manager_user_id);
   const residentEmail = (record.row_data.residentEmail ?? "").trim();
