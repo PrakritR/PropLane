@@ -38,6 +38,7 @@ function ConfirmContent() {
   const searchParams = useSearchParams();
   const [failedType, setFailedType] = useState<EmailOtpType | "unknown" | null>(null);
   const [completionUnavailable, setCompletionUnavailable] = useState(false);
+  const [restartRequired, setRestartRequired] = useState(false);
 
   useEffect(() => {
     const tokenHash = searchParams.get("token_hash");
@@ -70,6 +71,8 @@ function ConfirmContent() {
           return;
         }
         if (completed.ok) { try { sessionStorage.removeItem("proplane_tour_invite"); } catch { /* unavailable */ } }
+        if (!completed.ok && completed.status === 403 && !error) { setRestartRequired(true); return; }
+        if (!completed.ok && completed.status >= 500) { setCompletionUnavailable(true); return; }
         // Ordinary magic links have no onboarding claim and retain their existing destination.
         if (!completed.ok && (error || completed.status !== 409)) { setFailedType(type); return; }
       } else if (error) {
@@ -82,6 +85,10 @@ function ConfirmContent() {
       cancelled = true;
     };
   }, [searchParams]);
+
+  if (restartRequired) {
+    return <AuthCard><h1>Request a new verification link</h1><p>Return to the original application or invitation and request another verification email. Your saved application stays in its original context.</p><button type="button" onClick={() => window.history.back()}>Return to previous page</button></AuthCard>;
+  }
 
   if (completionUnavailable) {
     return <AuthCard><h1>Could not complete verification</h1><p>Check your connection and open this link again, or request another link.</p><Link href={searchParams.get("type") === "recovery" ? "/auth/forgot-password" : "/auth/create-account"}>Request another link</Link></AuthCard>;

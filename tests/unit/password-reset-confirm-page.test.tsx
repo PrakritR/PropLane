@@ -89,6 +89,27 @@ describe("/auth/confirm for a recovery link", () => {
     expect(replaced).toEqual([]);
   });
 
+  it("explains how to restart a legacy application handoff without redirecting elsewhere", async () => {
+    verifyOtp.mockResolvedValue({ error: null });
+    const finish = vi.fn().mockResolvedValue({ ok: false, status: 403 });
+    vi.stubGlobal("fetch", finish);
+    search = `token_hash=${TOKEN}&type=signup`;
+    render(<ConfirmPage />);
+    expect(await screen.findByText(/return to the original application or invitation/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /return to previous page/i })).toBeTruthy();
+    expect(replaced).toEqual([]);
+    expect(finish).toHaveBeenCalled();
+  });
+
+  it("offers retry when onboarding completion is unavailable", async () => {
+    verifyOtp.mockResolvedValue({ error: null });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503 }));
+    search = `token_hash=${TOKEN}&type=signup`;
+    render(<ConfirmPage />);
+    expect(await screen.findByText(/could not complete verification/i)).toBeTruthy();
+    expect(replaced).toEqual([]);
+  });
+
   it("shows failure when onboarding completion cannot be reached", async () => {
     verifyOtp.mockResolvedValue({ error: null });
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
