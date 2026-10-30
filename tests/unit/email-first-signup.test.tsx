@@ -9,7 +9,7 @@ const social = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/supabase/browser", () => ({ createSupabaseBrowserClient: () => ({ auth: { getUser, signOut } }) }));
 vi.mock("@/components/auth/oauth-social-stack", () => ({ OAuthSocialStack: (props: unknown) => { social(props); return <div>Social sign in</div>; } }));
 vi.mock("@/components/auth/auth-mobile-primitives", () => ({ AuthLegalConsent: () => null }));
-vi.mock("@/components/ui/phone-number-field", () => ({ PhoneNumberField: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => <input aria-label="Phone number" value={value} onChange={(e) => onChange(e.target.value)} /> }));
+vi.mock("@/components/ui/phone-number-field", () => ({ PhoneNumberField: ({ id, value, onChange }: { id?: string; value: string; onChange: (v: string) => void }) => <div><button type="button" aria-label="Country code">+1</button><input id={id} type="tel" value={value} onChange={(e) => onChange(e.target.value)} /></div> }));
 import { EmailFirstSignup } from "@/components/auth/email-first-signup";
 beforeEach(() => { getUser.mockResolvedValue({ data: { user: null } }); signOut.mockResolvedValue({ error: null }); clearCache.mockClear(); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -44,7 +44,7 @@ describe("email-first signup", () => {
     render(<EmailFirstSignup intent="manager" tier="pro" />);
     expect(await screen.findByRole("heading", { level: 1, name: "Complete your property account" })).toBeTruthy();
     fireEvent.change(await screen.findByLabelText("Full name"), { target: { value: "Alex" } });
-    fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "+12065550123" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Phone" }), { target: { value: "+12065550123" } });
     fireEvent.click(screen.getByText("Complete account"));
     await screen.findByText("Go to portal");
     expect(fetchMock.mock.calls[0]![0]).toBe("/api/auth/manager-register");
@@ -92,7 +92,7 @@ describe("email-first signup", () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }); vi.stubGlobal("fetch", fetchMock);
     render(<EmailFirstSignup intent="manager_paid" checkoutSessionId="cs_1" />);
     fireEvent.change(await screen.findByLabelText("Full name"), { target: { value: "Alex" } });
-    fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "+12065550123" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Phone" }), { target: { value: "+12065550123" } });
     fireEvent.click(screen.getByText("Complete account"));
     await screen.findByText("Go to portal");
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ sessionId: "cs_1", fullName: "Alex", phone: "+12065550123" });

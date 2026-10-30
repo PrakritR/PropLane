@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -27,6 +27,7 @@ const heading: Record<Intent, string> = {
 export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, listing, checkoutSessionId, tourInquiryId, tourToken, oauthNextPath, social, disabled = false, hideLegalFooter = false }: {
   intent: Intent; initialEmail?: string; tier?: string; billing?: "monthly" | "annual"; listing?: ListingContext; checkoutSessionId?: string; tourInquiryId?: string; tourToken?: string; oauthNextPath?: string; social?: ReactNode; disabled?: boolean; hideLegalFooter?: boolean;
 }) {
+  const phoneId = useId();
   const [email, setEmail] = useState(initialEmail);
   const [tourCapability, setTourCapability] = useState(tourToken ?? "");
   const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
@@ -105,7 +106,7 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
     <h1 className="text-xl font-semibold">{verifiedEmail ? completionHeading[intent] : heading[intent]}</h1>
     {!verifiedEmail ? <>{intent !== "manager_paid" && intent !== "tour" ? social ?? <OAuthSocialStack nextPath={oauthNextPath} intent={intent === "generic" ? null : intent} disabled={busy || disabled} /> : null}<label className="block text-sm">Email<Input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy || disabled} /></label></> : <>
       <p>Verified email: {verifiedEmail}</p>
-      <><label className="block text-sm">Full name<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy || disabled} /></label><label className="block text-sm">Phone<PhoneNumberField value={phone} onChange={setPhone} disabled={busy || disabled} /></label></>
+      <><label className="block text-sm">Full name<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy || disabled} /></label><label className="block text-sm" htmlFor={phoneId}>Phone</label><PhoneNumberField id={phoneId} value={phone} onChange={setPhone} disabled={busy || disabled} /></>
     </>}
     <Button type="button" disabled={busy || disabled} onClick={() => void submit()}>{busy ? "Please wait…" : verifiedEmail ? "Complete account" : "Continue with email"}</Button>
     {verifiedEmail && intent === "manager" ? <Button type="button" variant="ghost" disabled={busy || disabled} onClick={() => void createDifferentAccount()}>Create a different property account</Button> : null}
