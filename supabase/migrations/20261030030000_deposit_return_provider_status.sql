@@ -1,6 +1,6 @@
 -- Bind provider evidence to a previously reserved attempt. Terminal and
 -- reconciled states cannot be regressed by a late pending event.
-create function public.bind_security_deposit_refund(p_attempt uuid,p_refund text,p_charge text,p_amount bigint,p_status text)
+create or replace function public.bind_security_deposit_refund(p_attempt uuid,p_refund text,p_charge text,p_amount bigint,p_status text)
 returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
 declare a public.security_deposit_return_attempts%rowtype; e public.platform_source_refund_evidence%rowtype;
 begin
@@ -25,7 +25,7 @@ revoke all on function public.bind_security_deposit_refund(uuid,text,text,bigint
 grant execute on function public.bind_security_deposit_refund(uuid,text,text,bigint,text) to service_role;
 
 -- Provider refunds that did not carry a disposition attempt remain visible for review.
-create table public.security_deposit_unmatched_refunds (
+create table if not exists public.security_deposit_unmatched_refunds (
   stripe_refund_id text primary key,
   stripe_charge_id text not null,
   source_charge_id text not null,

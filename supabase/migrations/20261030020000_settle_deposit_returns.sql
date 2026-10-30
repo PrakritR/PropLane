@@ -1,6 +1,6 @@
 -- Account for a provider refund only after its canonical financial records exist.
 -- This transaction never creates a second refund journal.
-create function public.settle_security_deposit_return(p_attempt uuid) returns jsonb
+create or replace function public.settle_security_deposit_return(p_attempt uuid) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   a public.security_deposit_return_attempts%rowtype;

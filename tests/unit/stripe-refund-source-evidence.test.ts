@@ -20,7 +20,7 @@ import { handleStripeRefund } from "@/lib/stripe-webhook-financials";
 
 function fixture(allocation = false, mixed = false, reservationOwner = "manager",
   tamper?: "owner" | "category" | "principal", centralReturn = false, externalDeposit = false) {
-  const rpc = vi.fn(async () => ({ data: true, error: null }));
+  const rpc = vi.fn(async (name: string) => ({ data: name === "reconcile_external_security_deposit_refund" ? { status: "reconciled" } : true, error: null }));
   const from = vi.fn((table: string) => {
     let sourceId: string | null = null;
     const query: Record<string, unknown> = {
@@ -108,6 +108,14 @@ describe("signed Stripe refund source evidence", () => {
     expect(f.from).toHaveBeenCalledWith("security_deposit_unmatched_refunds");
     expect(f.rpc).toHaveBeenCalledWith("reconcile_external_security_deposit_refund", { p_refund: "re_exact", p_source: "charge-1" });
     expect(postGl.mock.invocationCallOrder[0]).toBeLessThan(f.rpc.mock.invocationCallOrder.at(-1)!);
+  });
+
+  it("fails the webhook when an external deposit still requires review", async () => {
+    const f = fixture(false, false, "manager", undefined, false, true);
+    f.rpc.mockImplementation(async (name: string) => ({ data: name === "reconcile_external_security_deposit_refund" ? { status: "review" } : true, error: null }));
+    const refund = { ...f.refund, metadata: { proplane_charge_id: "charge-1" } };
+    providerRetrieve.mockResolvedValueOnce(refund);
+    await expect(handleStripeRefund(f.db as never, refund as never, "ch_exact")).rejects.toThrow(/requires reconciliation/);
   });
 
   it("records pending evidence but does not debit a hold or book a paid refund", async () => {

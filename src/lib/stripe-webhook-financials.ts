@@ -473,10 +473,10 @@ async function reconcileDepositRefund(db: SupabaseClient, refund: Stripe.Refund,
     source_charge_id: sourceChargeId, amount_cents: componentCents,
   }, { onConflict: "stripe_refund_id,source_charge_id", ignoreDuplicates: true });
   if (flagError) throw new Error("Could not flag unreserved deposit refund for reconciliation.");
-  const { error: reconcileError } = await db.rpc("reconcile_external_security_deposit_refund", {
+  const { data: reconciliation, error: reconcileError } = await db.rpc("reconcile_external_security_deposit_refund", {
     p_refund: refund.id, p_source: sourceChargeId,
   });
-  if (reconcileError) throw new Error("Could not reconcile unreserved deposit refund.");
+  if (reconcileError || reconciliation?.status !== "reconciled") throw new Error("Unreserved deposit refund requires reconciliation.");
 }
 
 export async function handleStripeRefund(

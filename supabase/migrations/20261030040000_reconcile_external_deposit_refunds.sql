@@ -1,11 +1,18 @@
 -- Preserve a review queue and allow an operator or webhook replay to retry it.
-alter table public.security_deposit_unmatched_refunds add column status text not null default 'review' check (status in ('review','reconciled'));
-alter table public.security_deposit_unmatched_refunds add column reason text not null default 'Awaiting canonical refund accounting';
-alter table public.security_deposit_unmatched_refunds add column updated_at timestamptz not null default now();
-alter table public.security_deposit_unmatched_refunds drop constraint security_deposit_unmatched_refunds_pkey;
-alter table public.security_deposit_unmatched_refunds add primary key (stripe_refund_id,source_charge_id);
+alter table public.security_deposit_unmatched_refunds add column if not exists status text not null default 'review' check (status in ('review','reconciled'));
+alter table public.security_deposit_unmatched_refunds add column if not exists reason text not null default 'Awaiting canonical refund accounting';
+alter table public.security_deposit_unmatched_refunds add column if not exists updated_at timestamptz not null default now();
+do $$ begin
+  if not exists (
+    select 1 from pg_constraint c where c.conrelid='public.security_deposit_unmatched_refunds'::regclass
+      and c.contype='p' and pg_get_constraintdef(c.oid)='PRIMARY KEY (stripe_refund_id, source_charge_id)'
+  ) then
+    alter table public.security_deposit_unmatched_refunds drop constraint if exists security_deposit_unmatched_refunds_pkey;
+    alter table public.security_deposit_unmatched_refunds add primary key (stripe_refund_id,source_charge_id);
+  end if;
+end $$;
 
-create function public.reconcile_external_security_deposit_refund(p_refund text,p_source text) returns jsonb
+create or replace function public.reconcile_external_security_deposit_refund(p_refund text,p_source text) returns jsonb
 language plpgsql security definer set search_path=public,pg_temp as $$
 declare u public.security_deposit_unmatched_refunds%rowtype; d public.security_deposit_ledger%rowtype;
   a public.security_deposit_return_attempts%rowtype;
@@ -40,7 +47,7 @@ grant execute on function public.reconcile_external_security_deposit_refund(text
 
 -- A cart's Stripe charge is shared: a central reservation must name exactly
 -- this deposit component, not merely share the same provider charge.
-create function public.bind_security_deposit_refund(p_attempt uuid,p_refund text,p_charge text,p_amount bigint,p_status text,p_platform_attempt uuid)
+create or replace function public.bind_security_deposit_refund(p_attempt uuid,p_refund text,p_charge text,p_amount bigint,p_status text,p_platform_attempt uuid)
 returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
 declare a public.security_deposit_return_attempts%rowtype; h public.platform_hold_refund_attempts%rowtype;
 begin

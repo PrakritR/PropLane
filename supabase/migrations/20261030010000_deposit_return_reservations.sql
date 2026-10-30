@@ -1,6 +1,6 @@
 -- Reserve a provider return under the same deposit lock as offline dispositions.
 -- A succeeded refund stays active until its accounting has been reconciled.
-create table public.security_deposit_return_attempts (
+create table if not exists public.security_deposit_return_attempts (
   id uuid primary key default gen_random_uuid(),
   deposit_id uuid references public.security_deposit_ledger(id) on delete set null,
   manager_user_id uuid references auth.users(id) on delete set null,
@@ -16,14 +16,14 @@ create table public.security_deposit_return_attempts (
   updated_at timestamptz not null default now(),
   check (refund_cents + withhold_cents <= expected_held_cents)
 );
-create unique index security_deposit_return_one_active
+create unique index if not exists security_deposit_return_one_active
   on public.security_deposit_return_attempts(deposit_id)
   where deposit_id is not null and status in ('reserved','pending','unknown','succeeded');
 alter table public.security_deposit_return_attempts enable row level security;
 revoke all on public.security_deposit_return_attempts from public, anon, authenticated;
 grant all on public.security_deposit_return_attempts to service_role;
 
-create function public.reserve_security_deposit_return(
+create or replace function public.reserve_security_deposit_return(
   p_owner uuid, p_deposit uuid, p_charge text, p_request_key text,
   p_expected_held bigint, p_refund bigint, p_withhold bigint, p_itemization jsonb
 ) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
@@ -60,10 +60,14 @@ grant execute on function public.reserve_security_deposit_return(uuid,uuid,text,
 
 -- The wrapper shares the deposit lock with reservation. The existing implementation
 -- retains its history and journal semantics; it is no longer directly callable.
-alter function public.commit_security_deposit_disposition(uuid,uuid,bigint,bigint,bigint,text,date,jsonb,text,jsonb)
-  rename to commit_security_deposit_disposition_unreserved;
+do $$ begin
+  if to_regprocedure('public.commit_security_deposit_disposition_unreserved(uuid,uuid,bigint,bigint,bigint,text,date,jsonb,text,jsonb)') is null then
+    alter function public.commit_security_deposit_disposition(uuid,uuid,bigint,bigint,bigint,text,date,jsonb,text,jsonb)
+      rename to commit_security_deposit_disposition_unreserved;
+  end if;
+end $$;
 revoke all on function public.commit_security_deposit_disposition_unreserved(uuid,uuid,bigint,bigint,bigint,text,date,jsonb,text,jsonb) from public, anon, authenticated, service_role;
-create function public.commit_security_deposit_disposition(
+create or replace function public.commit_security_deposit_disposition(
   p_owner uuid, p_deposit uuid, p_expected_held bigint, p_refund bigint, p_withhold bigint,
   p_type text, p_date date, p_itemization jsonb, p_memo text, p_history jsonb default null
 ) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$

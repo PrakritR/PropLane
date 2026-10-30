@@ -18,6 +18,7 @@ type DisposeBody = {
   itemization?: { label: string; amountCents: number }[];
   dispositionDate?: string;
   memo?: string;
+  offlineReturn?: { method: "cash" | "check" | "bank_transfer" | "other"; reference: string };
 };
 
 export async function POST(
@@ -47,6 +48,7 @@ export async function POST(
       itemization: body.itemization,
       dispositionDate: body.dispositionDate,
       memo: body.memo,
+      offlineReturn: body.offlineReturn,
     });
 
     track("security_deposit_disposed", auth.userId, {
