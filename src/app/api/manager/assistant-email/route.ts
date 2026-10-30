@@ -32,7 +32,10 @@ import {
 } from "@/lib/sms/manager-sms-entitlement.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { resolveWorkspaceFromSettingsRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
-import { authorizeServiceWorkEmailEdit, setServiceWorkspaceWorkEmail } from "@/lib/service/service-workspaces.server";
+import {
+  authorizeServiceWorkEmailEditForManagerRoute,
+  setServiceWorkspaceWorkEmailForManagerRoute,
+} from "@/lib/service/service-mode.server";
 
 export const runtime = "nodejs";
 
@@ -123,7 +126,7 @@ async function buildStatus(
   // standing a rename needs, re-derived from the workspace row here, never from the request).
   const hasAddress = pureCoManager ? Boolean(workspaceEmail?.address) : Boolean(row);
   const canEditAddress =
-    hasAddress && (workspace.owned || (await authorizeServiceWorkEmailEdit(db, userId, workspace.id)).ok);
+    hasAddress && (workspace.owned || (await authorizeServiceWorkEmailEditForManagerRoute(db, userId, workspace.id)).ok);
 
   /**
    * What the card renders, in the work number's own vocabulary.
@@ -252,7 +255,7 @@ export async function POST(req: Request) {
 
   if (action === "check_address") {
     const local = typeof body.local === "string" ? body.local : "";
-    if (!workspace.owned && !(await authorizeServiceWorkEmailEdit(actor.db, actor.userId, workspace.id)).ok) {
+    if (!workspace.owned && !(await authorizeServiceWorkEmailEditForManagerRoute(actor.db, actor.userId, workspace.id)).ok) {
       return NextResponse.json(notOwnerBody, { status: 403, headers: { "Cache-Control": "private, no-store" } });
     }
     // A cheap read, but still an authenticated per-user throttle so a page
@@ -279,7 +282,7 @@ export async function POST(req: Request) {
     // refusal `request_address` already gives a co-manager.
     const local = typeof body.local === "string" ? body.local : "";
     if (!workspace.owned) {
-      const staff = await setServiceWorkspaceWorkEmail(actor.db, actor.userId, { workspaceId: workspace.id, local });
+      const staff = await setServiceWorkspaceWorkEmailForManagerRoute(actor.db, actor.userId, { workspaceId: workspace.id, local });
       if (!staff.ok) {
         if (staff.status === 403 || staff.status === 404) {
           return NextResponse.json(notOwnerBody, { status: 403, headers: { "Cache-Control": "private, no-store" } });

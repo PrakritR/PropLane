@@ -30,9 +30,11 @@ const mocks = vi.hoisted(() => ({
   track: vi.fn(),
 }));
 
-vi.mock("@/lib/service/service-workspaces.server", () => ({
-  authorizeServiceWorkEmailEdit: mocks.authorizeServiceWorkEmailEdit,
-  setServiceWorkspaceWorkEmail: mocks.setServiceWorkspaceWorkEmail,
+// The route reaches the Service layer only through the one reviewed bridge (`tests/unit/admin-service-guards.test.ts`
+// § never lets a manager route reach the Service layer), so the bridge is what this route test stands in for.
+vi.mock("@/lib/service/service-mode.server", () => ({
+  authorizeServiceWorkEmailEditForManagerRoute: mocks.authorizeServiceWorkEmailEdit,
+  setServiceWorkspaceWorkEmailForManagerRoute: mocks.setServiceWorkspaceWorkEmail,
 }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.rateLimit }));
 
