@@ -1,6 +1,6 @@
 import { tourCapabilityEligible } from "@/lib/tour-resident-link.server";
 import { tourCapabilityDigest } from "@/lib/auth/tour-signup-capability.server";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
@@ -105,15 +105,22 @@ export async function POST(req: Request) {
       const retired = await db.rpc("retire_unconfirmed_email_password", { p_user_id: id, p_email: email });
       if (retired.error || retired.data !== true) return NextResponse.json(GENERIC);
     }
+    let tourHandoffId: string | null = null;
+    let tourPlaceholder: string | null = null;
+    if (intent === "tour") {
+      tourHandoffId = randomUUID();
+      tourPlaceholder = randomBytes(32).toString("hex");
+      const reserved = await db.rpc("preclaim_tour_email_handoff", { p_digest: tourTokenDigest, p_inquiry: tourInquiryId, p_email: email, p_user: id, p_handoff: tourHandoffId, p_placeholder: tourPlaceholder });
+      if (reserved.error || reserved.data !== true) return NextResponse.json({ error: "Check your email for an existing verification link, or try again." }, { status: 503 });
+    }
     const link = await db.auth.admin.generateLink({ type: "magiclink", email });
     const hash = link.data?.properties?.hashed_token;
     const verificationType = link.data?.properties?.verification_type;
-    if (link.error || !hash || link.data.user?.id !== id || (verificationType !== "magiclink" && verificationType !== "signup")) return NextResponse.json(GENERIC);
+    if (link.error || !hash || link.data.user?.id !== id || (verificationType !== "magiclink" && verificationType !== "signup")) return intent === "tour" ? NextResponse.json({ error: "Tour verification is unavailable. Please try again." }, { status: 503 }) : NextResponse.json(GENERIC);
     const digest = createHash("sha256").update(hash).digest("hex");
     if (intent === "tour") {
-      const claimed = await db.rpc("claim_tour_signup_capability", { p_digest: tourTokenDigest, p_inquiry_id: tourInquiryId, p_email: email, p_user_id: id, p_token_digest: digest });
-      if (claimed.error) return NextResponse.json({ error: "Tour verification is unavailable. Please try again." }, { status: 503 });
-      if (claimed.data !== true) return NextResponse.json({ error: "Check your email for an existing verification link, or try again." }, { status: 503 });
+      const bound = await db.rpc("bind_tour_email_handoff", { p_user: id, p_handoff: tourHandoffId, p_placeholder: tourPlaceholder, p_digest: digest });
+      if (bound.error || bound.data !== true) return NextResponse.json({ error: "Tour verification is unavailable. Please try again." }, { status: 503 });
     } else {
     const { error } = await db.from("email_onboarding_handoffs").insert({ user_id: id, application_id: applicationId, tour_inquiry_id: tourInquiryId, manager_purchase_id: managerPurchaseId, vendor_invite_id: vendorInviteId, property_id: propertyId, listing_room_id: listingRoomId, bundle_id: bundleId, application_form_id: applicationFormId, rental_type: rentalType, tier, billing, intent: applicationId ? "application" : intent, token_digest: digest, expires_at: new Date(Date.now() + 3600000).toISOString() });
     if (error) return NextResponse.json(GENERIC);

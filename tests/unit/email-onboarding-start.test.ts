@@ -34,7 +34,31 @@ describe("email onboarding start", () => {
     const response = await POST(req);
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "Check your email for an existing verification link, or try again." });
+    expect(m.link).not.toHaveBeenCalled();
     expect(m.send).not.toHaveBeenCalled();
+  });
+  it("leaves a reserved tour retryable when provider minting fails", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test"); vi.stubGlobal("fetch", m.send);
+    m.capability.mockResolvedValue({ data: { id: "cap" }, error: null });
+    m.find.mockResolvedValue(null); m.create.mockResolvedValue({ data: { user: { id: "new-user" } }, error: null });
+    m.get.mockResolvedValue({ data: { user: { id: "new-user", email_confirmed_at: null, app_metadata: { proplane_email_onboarding: true } } } });
+    m.link.mockResolvedValue({ data: null, error: { message: "unavailable" } });
+    m.rpc.mockResolvedValueOnce({ data: 0, error: null }).mockResolvedValueOnce({ data: true, error: null });
+    const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "tour", tourInquiryId: "tour-1", tourToken: "a".repeat(64) }) });
+    expect((await POST(req)).status).toBe(503);
+    expect(m.rpc.mock.calls.some(([name]) => name === "bind_tour_email_handoff")).toBe(false);
+    expect(m.send).not.toHaveBeenCalled();
+  });
+  it("does not send when binding the minted digest fails", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test"); vi.stubGlobal("fetch", m.send);
+    m.capability.mockResolvedValue({ data: { id: "cap" }, error: null });
+    m.find.mockResolvedValue(null); m.create.mockResolvedValue({ data: { user: { id: "new-user" } }, error: null });
+    m.get.mockResolvedValue({ data: { user: { id: "new-user", email_confirmed_at: null, app_metadata: { proplane_email_onboarding: true } } } });
+    m.link.mockResolvedValue({ data: { user: { id: "new-user" }, properties: { hashed_token: "synthetic", verification_type: "signup" } } });
+    m.rpc.mockResolvedValueOnce({ data: 0, error: null }).mockResolvedValueOnce({ data: true, error: null }).mockResolvedValueOnce({ data: false, error: null });
+    const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "tour", tourInquiryId: "tour-1", tourToken: "a".repeat(64) }) });
+    expect((await POST(req)).status).toBe(503);
+    expect(m.link).toHaveBeenCalledOnce(); expect(m.send).not.toHaveBeenCalled();
   });
   it("atomically binds an exact tour capability to the emailed proof", async () => {
     vi.stubEnv("RESEND_API_KEY", "test"); vi.stubGlobal("fetch", m.send.mockResolvedValue({ ok: true }));
@@ -42,10 +66,12 @@ describe("email onboarding start", () => {
     m.find.mockResolvedValue(null); m.create.mockResolvedValue({ data: { user: { id: "new-user" } }, error: null });
     m.get.mockResolvedValue({ data: { user: { id: "new-user", email_confirmed_at: null, app_metadata: { proplane_email_onboarding: true } } } });
     m.link.mockResolvedValue({ data: { user: { id: "new-user" }, properties: { hashed_token: "synthetic", verification_type: "signup" } } });
-    m.rpc.mockResolvedValueOnce({ data: 0, error: null }).mockResolvedValueOnce({ data: true, error: null });
+    m.rpc.mockResolvedValueOnce({ data: 0, error: null }).mockResolvedValueOnce({ data: true, error: null }).mockResolvedValueOnce({ data: true, error: null });
     const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "tour", tourInquiryId: "tour-1", tourToken: "a".repeat(64) }) });
     expect((await POST(req)).status).toBe(200);
-    expect(m.rpc).toHaveBeenCalledWith("claim_tour_signup_capability", expect.objectContaining({ p_inquiry_id: "tour-1", p_email: "guest@example.com", p_user_id: "new-user" }));
+    expect(m.rpc).toHaveBeenCalledWith("preclaim_tour_email_handoff", expect.objectContaining({ p_inquiry: "tour-1", p_email: "guest@example.com", p_user: "new-user" }));
+    expect(m.rpc).toHaveBeenCalledWith("bind_tour_email_handoff", expect.objectContaining({ p_user: "new-user" }));
+    expect(m.rpc.mock.invocationCallOrder[1]).toBeLessThan(m.link.mock.invocationCallOrder[0]);
     expect(m.send).toHaveBeenCalledOnce();
   });
   it("retries delivery for the same capability and Auth subject after a transport failure", async () => {
@@ -55,11 +81,11 @@ describe("email onboarding start", () => {
     m.create.mockResolvedValue({ data: { user: { id: "new-user" } }, error: null });
     m.get.mockResolvedValue({ data: { user: { id: "new-user", email_confirmed_at: null, app_metadata: { proplane_email_onboarding: true } } } });
     m.link.mockResolvedValue({ data: { user: { id: "new-user" }, properties: { hashed_token: "synthetic", verification_type: "signup" } } });
-    m.rpc.mockResolvedValueOnce({ data: 0, error: null }).mockResolvedValueOnce({ data: true, error: null }).mockResolvedValueOnce({ data: 0, error: null }).mockResolvedValueOnce({ data: true, error: null });
+    m.rpc.mockResolvedValueOnce({ data: 0, error: null }).mockResolvedValueOnce({ data: true, error: null }).mockResolvedValueOnce({ data: true, error: null }).mockResolvedValueOnce({ data: 0, error: null }).mockResolvedValueOnce({ data: true, error: null }).mockResolvedValueOnce({ data: true, error: null });
     const request = () => new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "tour", tourInquiryId: "tour-1", tourToken: "a".repeat(64) }) });
     expect((await POST(request())).status).toBe(503);
     expect((await POST(request())).status).toBe(200);
-    expect(m.rpc.mock.calls.filter(([name]) => name === "claim_tour_signup_capability")).toHaveLength(2);
+    expect(m.rpc.mock.calls.filter(([name]) => name === "preclaim_tour_email_handoff")).toHaveLength(2);
     expect(m.send).toHaveBeenCalledTimes(2);
   });
   it("refuses a consumed capability for a different Auth subject", async () => {
