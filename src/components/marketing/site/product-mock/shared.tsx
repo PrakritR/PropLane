@@ -254,12 +254,24 @@ export function DemoTarget({ id, children }: { id: string; children: ReactNode }
   );
 }
 
-/** A tiny, non-persisting confirmation toast — closes itself after a beat. */
+/**
+ * A tiny, non-persisting confirmation toast — closes itself after a beat. The
+ * close timer is owned by a ref and cleared on unmount, so a panel that goes
+ * away before the beat is up never sets state on a dead component.
+ */
 export function useFixtureToast() {
   const [text, setText] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timer.current !== null) clearTimeout(timer.current);
+  }, []);
   const show = (message: string) => {
     setText(message);
-    window.setTimeout(() => setText(null), 2400);
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      setText(null);
+    }, 2400);
   };
   const node = text ? (
     <div role="status" className="pointer-events-none absolute inset-x-0 bottom-3 z-30 flex justify-center px-3">
