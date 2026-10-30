@@ -40,7 +40,7 @@ import {
   workOrderGoogleCalendarSyncChanged,
 } from "@/lib/google-calendar/sync.server";
 import { attachManagerNamesToWorkOrders } from "@/lib/work-order-manager-names.server";
-import { projectWorkOrderForHiredVendor, projectWorkOrderForOfferedVendor } from "@/lib/work-order-vendor-privacy";
+import { projectWorkOrderForHiredVendor, projectWorkOrderForOfferedVendor, assignedVendorDirectoryId, normalizeAssignedVendorAssignee } from "@/lib/work-order-vendor-privacy";
 import { restoreServerPublishState } from "@/lib/service-publish-state";
 import { alertPhonesOf } from "@/lib/one-number/ops-alerts.server";
 
@@ -59,8 +59,10 @@ async function sessionUser() {
 }
 
 async function vendorScopedWorkOrderRows(db: Db, vendorUserId: string): Promise<DemoManagerWorkOrderRow[]> {
-  const { data: vendorDirectoryRows } = await db.from("manager_vendor_records").select("id").eq("vendor_user_id", vendorUserId);
-  const vendorDirectoryIds = (vendorDirectoryRows ?? []).map((row) => String(row.id ?? "")).filter(Boolean);
+  const { data: vendorDirectoryRows, error: directoryError } = await db.from("manager_vendor_records").select("id, manager_user_id").eq("vendor_user_id", vendorUserId);
+  if (directoryError) throw new Error("Vendor directory unavailable.");
+  const directory = (vendorDirectoryRows ?? []).flatMap((row) => typeof row.id === "string" && typeof row.manager_user_id === "string" ? [{ id: row.id, managerId: row.manager_user_id }] : []);
+  const vendorDirectoryIds = directory.map((row) => row.id).filter((id) => id !== vendorUserId);
 
   const offeredIds = new Set<string>();
   const { data: offersByUser } = await db
@@ -81,7 +83,7 @@ async function vendorScopedWorkOrderRows(db: Db, vendorUserId: string): Promise<
 
   const { data: assigned } = await db
     .from("portal_work_order_records")
-    .select("id, row_data, updated_at")
+    .select("id, manager_user_id, row_data, updated_at")
     .eq("vendor_user_id", vendorUserId)
     .order("updated_at", { ascending: false })
     .limit(500);
@@ -89,7 +91,12 @@ async function vendorScopedWorkOrderRows(db: Db, vendorUserId: string): Promise<
   const byId = new Map<string, { row: DemoManagerWorkOrderRow; hired: boolean }>();
   for (const record of assigned ?? []) {
     const row = record.row_data as DemoManagerWorkOrderRow | null;
-    if (row) byId.set(record.id as string, { row, hired: true });
+    const managerId = typeof record.manager_user_id === "string" ? record.manager_user_id : "";
+    const vendorId = managerId && row ? assignedVendorDirectoryId(row.vendorId, managerId, vendorUserId, directory, row.residentUserId) : null;
+    if (row && managerId && vendorId) {
+      const assignee = normalizeAssignedVendorAssignee(row, vendorId);
+      byId.set(record.id as string, { row: { ...row, managerUserId: managerId, vendorId, assignee }, hired: true });
+    }
   }
 
   // Everything above is a job this vendor HOLDS (`vendor_user_id` names them), so it is served
@@ -99,10 +106,11 @@ async function vendorScopedWorkOrderRows(db: Db, vendorUserId: string): Promise<
   // presentation on top of this, never instead of it.
   const missingIds = [...offeredIds].filter((id) => !byId.has(id));
   if (missingIds.length > 0) {
-    const { data: offeredRows } = await db.from("portal_work_order_records").select("id, row_data").in("id", missingIds);
+    const { data: offeredRows } = await db.from("portal_work_order_records").select("id, manager_user_id, row_data").in("id", missingIds);
     for (const record of offeredRows ?? []) {
       const row = record.row_data as DemoManagerWorkOrderRow | null;
-      if (row) byId.set(record.id as string, { row, hired: false });
+      const managerId = typeof record.manager_user_id === "string" ? record.manager_user_id : "";
+      if (row && managerId) byId.set(record.id as string, { row: { ...row, managerUserId: managerId }, hired: false });
     }
   }
 

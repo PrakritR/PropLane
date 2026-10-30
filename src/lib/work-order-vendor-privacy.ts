@@ -90,6 +90,17 @@ export function vendorLeadMapsQuery(row: DemoManagerWorkOrderRow): string {
 
 const VENDOR_PRIVATE_SUBJECT_KEYS = new Set(["residentUserId", "managerUserId", "vendorUserId", "resident_user_id", "manager_user_id", "vendor_user_id", "userId", "user_id", "resident_email"]);
 
+/** A vendor-directory ID must belong to this viewer and this job's manager. */
+export function assignedVendorDirectoryId(rowId: unknown, managerId: string, viewerId: string, directory: Array<{ id: string; managerId: string }>, residentId?: string | null): string | null {
+  const ids = [...new Set(directory.filter((item) => item.managerId === managerId && item.id !== viewerId && item.id !== managerId && item.id !== residentId).map((item) => item.id))];
+  if (typeof rowId === "string" && ids.includes(rowId)) return rowId;
+  return ids.length === 1 ? ids[0]! : null;
+}
+
+export function normalizeAssignedVendorAssignee(row: DemoManagerWorkOrderRow, vendorId: string): DemoManagerWorkOrderRow["assignee"] {
+  return row.assignee?.type === "vendor" ? { ...row.assignee, id: vendorId } : row.assignee;
+}
+
 /** Strip Auth subjects from the entire stored payload while retaining opaque job/directory IDs. */
 function withoutAuthSubjects(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withoutAuthSubjects);
@@ -136,6 +147,9 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
     materialsCostCents: _materialsCostCents,
     vendorPriceSetAt: _vendorPriceSetAt,
     photoDataUrls,
+    vendorId: _vendorId,
+    vendorAssignedAt: _vendorAssignedAt,
+    assignee: _assignee,
     ...rest
   } = row;
   // An add-on's vendor job carries only what the manager published. A row saved before that rule may still hold

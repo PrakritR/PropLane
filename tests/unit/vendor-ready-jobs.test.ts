@@ -41,7 +41,7 @@ import { MAX_COMPLETION_PHOTO_BYTES, validateCompletionPhotos } from "@/lib/comp
 import { markWorkOrderDoneByVendor, scheduleAssignedVisit, bookedVisitPatch } from "@/lib/work-order-bids.server";
 import { sendWorkOrderVendorOffers } from "@/lib/work-order-offers.server";
 import { describeVendorSendOutcome } from "@/lib/work-order-vendor-offers";
-import { projectWorkOrderForHiredVendor, projectWorkOrderForOfferedVendor } from "@/lib/work-order-vendor-privacy";
+import { projectWorkOrderForHiredVendor, projectWorkOrderForOfferedVendor, assignedVendorDirectoryId, normalizeAssignedVendorAssignee } from "@/lib/work-order-vendor-privacy";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 
 type Rec = Record<string, unknown>;
@@ -272,6 +272,27 @@ describe("J4: Assigned -> Scheduled through the vendor's own picker", () => {
   });
 });
 
+describe("assigned vendor directory normalization", () => {
+  const directory = [{ id: "directory-a", managerId: "manager-a" }, { id: "directory-b", managerId: "manager-b" }];
+  it("replaces an Auth ID with the exact manager-scoped directory ID", () => {
+    expect(assignedVendorDirectoryId("vendor-auth-id", "manager-a", "vendor-auth-id", directory)).toBe("directory-a");
+    expect(assignedVendorDirectoryId("directory-a", "manager-a", "vendor-auth-id", directory)).toBe("directory-a");
+    expect(assignedVendorDirectoryId("directory-b", "manager-a", "vendor-auth-id", directory)).toBe("directory-a");
+  });
+  it("replaces a nested vendor Auth ID while retaining the vendor display name", () => {
+    const row = { assignee: { type: "vendor", id: "vendor-auth-id", name: "Vendor" } } as DemoManagerWorkOrderRow;
+    expect(normalizeAssignedVendorAssignee(row, "directory-a")).toEqual({ type: "vendor", id: "directory-a", name: "Vendor" });
+    expect(projectWorkOrderForOfferedVendor(row)).not.toHaveProperty("assignee");
+  });
+  it("denies missing, viewer-ID and ambiguous manager-scoped matches", () => {
+    expect(assignedVendorDirectoryId("vendor-auth-id", "missing", "vendor-auth-id", directory)).toBeNull();
+    expect(assignedVendorDirectoryId("vendor-auth-id", "manager-a", "vendor-auth-id", [{ id: "vendor-auth-id", managerId: "manager-a" }])).toBeNull();
+    expect(assignedVendorDirectoryId("vendor-auth-id", "manager-a", "vendor-auth-id", [...directory, { id: "directory-c", managerId: "manager-a" }])).toBeNull();
+    expect(assignedVendorDirectoryId("manager-a", "manager-a", "vendor-auth-id", [{ id: "manager-a", managerId: "manager-a" }])).toBeNull();
+    expect(assignedVendorDirectoryId("resident-id", "manager-a", "vendor-auth-id", [{ id: "resident-id", managerId: "manager-a" }], "resident-id")).toBeNull();
+  });
+});
+
 describe("J6c: what a vendor read carries", () => {
   const row = {
     id: "wo1",
@@ -308,7 +329,8 @@ describe("J6c: what a vendor read carries", () => {
   it("an offered vendor also loses assignedRoomChoice", () => {
     const out = projectWorkOrderForOfferedVendor(row) as unknown as Rec;
     expect(out).not.toHaveProperty("residentUserId");
-    expect(out.vendorId).toBe("directory-id");
+    expect(out).not.toHaveProperty("vendorId");
+    expect(out).not.toHaveProperty("assignee");
     expect(out.managerName).toBe("Property Manager");
     expect(out).not.toHaveProperty("resident_email");
     expect(JSON.stringify(out)).not.toMatch(/(?:resident|manager|vendor)-private-id/);
