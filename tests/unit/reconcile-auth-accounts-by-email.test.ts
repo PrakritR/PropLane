@@ -153,7 +153,7 @@ describe("reconcileAuthAccountsByEmail", () => {
     expect(db.purchaseUpdates).toEqual([]);
   });
 
-  it("ensures manager role for an existing primary-admin profile on reconcile", async () => {
+  it("does not grant roles based on a primary-admin email", async () => {
     const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
     const { ensureProfileRoleRow } = await import("@/lib/auth/profile-role-row");
     const db = mockDb({
@@ -169,7 +169,6 @@ describe("reconcileAuthAccountsByEmail", () => {
       user_metadata: {},
     } as never);
 
-    expect(ensureProfileRoleRow).toHaveBeenCalledWith(db, "session-user", "admin");
-    expect(ensureProfileRoleRow).toHaveBeenCalledWith(db, "session-user", "manager");
+    expect(ensureProfileRoleRow).not.toHaveBeenCalled();
   });
 });
