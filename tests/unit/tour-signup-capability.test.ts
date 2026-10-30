@@ -69,6 +69,15 @@ describe("tour invitation capability", () => {
     expect(await linkTourFromCapability(db as never, { ...input, inquiryId: "other" })).toBe(false);
     expect(await linkTourFromCapability(db as never, { ...input, capabilityId: "missing" })).toBe(false);
   });
+  it("retains hashed subject bindings through either Auth deletion cascade", () => {
+    const sql = readFileSync("supabase/migrations/20261030144000_tour_signup_capabilities.sql", "utf8");
+    const table = sql.split("create table if not exists public.tour_subject_bindings (")[1].split(");")[0];
+    expect(table).not.toMatch(/manager_user_id|resident_user_id|references auth\.users/i);
+    expect(sql).toMatch(/if tg_op = 'DELETE' then r := old/);
+    expect(sql).toMatch(/public\.account_identity_hash\(r\.resident_user_id::text\)/);
+    expect(sql).toMatch(/insert into public\.tour_subject_bindings\(binding_key, subject_hash\) values \(k, h\)/);
+    expect(sql).toMatch(/before insert or update or delete on public\.resident_tour_links/);
+  });
   it("atomically claims an unexpired, unused exact capability and limits RPC privileges", () => {
     const sql = readFileSync("supabase/migrations/20261030144000_tour_signup_capabilities.sql", "utf8");
     expect(sql).toMatch(/consumed_user_id is null or consumed_user_id = p_user_id/);

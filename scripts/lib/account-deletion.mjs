@@ -83,7 +83,6 @@ export const EMAIL_COLUMNS = [
 export const DELETE_ORDER = [
   "email_onboarding_handoffs",
   "tour_signup_capabilities",
-  "tour_subject_bindings",
   // 1. child rows, and the GL/vendor chains that must clear first
   "gl_journal_lines",
   "ledger_entries",

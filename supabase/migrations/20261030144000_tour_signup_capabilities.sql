@@ -68,7 +68,6 @@ grant execute on function public.bind_resident_tour_link(uuid,text,text,uuid,tex
 create table if not exists public.tour_subject_bindings (
   binding_key text primary key,
   subject_hash text not null,
-  manager_user_id uuid references auth.users(id) on delete cascade,
   created_at timestamptz not null default now()
 );
 alter table public.tour_subject_bindings enable row level security;
@@ -88,7 +87,7 @@ begin
     if k is null then continue; end if;
     select subject_hash into existing_hash from public.tour_subject_bindings where binding_key = k;
     if tg_op <> 'DELETE' and existing_hash is not null and existing_hash <> h then raise exception 'Tour is bound to another account'; end if;
-    insert into public.tour_subject_bindings(binding_key, subject_hash, manager_user_id) values (k, h, r.manager_user_id) on conflict (binding_key) do nothing;
+    insert into public.tour_subject_bindings(binding_key, subject_hash) values (k, h) on conflict (binding_key) do nothing;
   end loop;
   if tg_op = 'DELETE' then return old; end if;
   delete from public.tour_signup_capabilities where consumed_user_id is null and (inquiry_id = r.inquiry_id or (r.tour_group_id is not null and tour_group_id = r.tour_group_id));

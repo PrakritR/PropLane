@@ -47,7 +47,6 @@ export type PurgeTableRule = {
 };
 
 export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
-  { table: "tour_subject_bindings", phase: 1, manager: { ids: ["manager_user_id"] } },
   { table: "tour_signup_capabilities", phase: 1, resident: { ids: ["consumed_user_id"], emails: ["recipient_email"] }, manager: { ids: ["manager_user_id"] } },
   { table: "email_onboarding_handoffs", phase: 1, resident: { ids: ["user_id"] }, manager: { ids: ["user_id"] }, vendor: { ids: ["user_id"] } },
   {
@@ -1397,6 +1396,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  tour_subject_bindings: "Retained inquiry/group keys and hashed resident subject prevent historical tour reassignment after resident or manager deletion; no raw Auth IDs are stored.",
   manager_promo_code_policies: "Global promo-code expiry decisions (a code and when it stops working); not per-user and holds no account data. updated_by only names the staff member who set it and is nulled if that login is deleted.",
   channel_stay_details: "Child of external_calendar_connections: the guest name and note a manager typed for an imported channel stay. The connection is purged by manager_user_id and this row is deleted by cascade with it; updated_by only records which teammate typed it.",
   resident_charge_payment_slots: "Identity-free child of a charge, checkout attempt, or autopay run; those account-owned parents delete it by cascade.",
