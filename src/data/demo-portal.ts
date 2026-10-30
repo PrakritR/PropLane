@@ -268,6 +268,8 @@ export type DemoManagerWorkOrderRow = {
   /** Stable human handle, unique within the owning manager (for example WO-1042). */
   reference?: string;
   propertyName: string;
+  /** Area assigned by the server when projecting an offered service. */
+  offeredGeneralArea?: string;
   unit: string;
   title: string;
   priority: string;

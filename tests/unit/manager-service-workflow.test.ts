@@ -116,6 +116,13 @@ describe("managerServiceWorkflow", () => {
       biddingOpen: true,
     });
     expect(workOrderGeneralArea(row)).toBe("Seattle");
+    expect(workOrderGeneralArea({ propertyAddress: "123 Main St", propertyName: "Proof House" })).toBe("Nearby");
+    const forgedHint = { propertyAddress: "123 Main St", propertyName: "Proof House", offeredGeneralArea: "Proof House" };
+    expect(workOrderGeneralArea(forgedHint)).toBe("Nearby");
+    expect(workOrderGeneralArea({ propertyAddress: "Proof House, Seattle", propertyName: "Proof House" })).toBe("Nearby");
+    expect(workOrderGeneralArea({ propertyAddress: "123 Main St, Unit A, Seattle", propertyName: "Proof House" })).toBe("Nearby");
+    expect(workOrderGeneralArea({ propertyAddress: "123 Main St, Unit A, WA", propertyName: "Proof House" })).toBe("Nearby");
+    expect(workOrderGeneralArea({ propertyAddress: "123 Main St, Seattle, WA 98105", propertyName: "Proof House" })).toBe("Seattle");
     expect(vendorCanSeeFullWorkOrderSite(row, null)).toBe(false);
     expect(
       vendorCanSeeFullWorkOrderSite(row, {

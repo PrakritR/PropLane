@@ -95,6 +95,11 @@ describe("publicServiceProjection (allowlist)", () => {
     });
   });
 
+  it("does not expose a distinctive house name when the address lacks a city", () => {
+    const row = { ...privateService(), propertyName: "Proof House", propertyAddress: "123 Main St", offeredGeneralArea: "Proof House" };
+    expect(publicServiceProjection(row, "").area).toBe("Nearby");
+    expect(publicServiceProjection({ ...row, propertyAddress: "123 Main St, Seattle, WA 98101" }, "").area).toBe("Seattle");
+  });
   it("falls back to Nearby, never the street, when only an address-shaped name exists", () => {
     const row = { ...privateService(), propertyAddress: undefined, propertyName: "1420 Alder St" };
     expect(publicServiceProjection(row, "").area).toBe("Nearby");

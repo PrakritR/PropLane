@@ -3,36 +3,22 @@ import type { WorkOrderBid } from "@/lib/work-order-bids";
 import { formatServiceVisitLabel } from "@/lib/schedule-service-visit";
 import type { ServiceWorkflowStep } from "@/lib/manager-service-workflow";
 
-/** A name that is really a street address ("123 Main St", "42 Alder Ave, Unit 2") must never stand in for an area. */
-function looksLikeStreetAddress(value: string): boolean {
-  const text = value.trim();
-  if (!text) return false;
-  if (/^\d/.test(text)) return true;
-  return /\b(?:st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|ln|lane|way|ct|court|pl|place|ter|terrace|pkwy|parkway)\b\.?(?:\s|,|$)/i.test(text) && /\d/.test(text);
-}
-
 /** Vendors see a general area before hire — never the street address or entry notes. */
 export function workOrderGeneralArea(row: Pick<DemoManagerWorkOrderRow, "propertyAddress" | "propertyName">): string {
   const addr = row.propertyAddress?.trim();
   if (addr) {
     const parts = addr.split(",").map((p) => p.trim()).filter(Boolean);
-    if (parts.length >= 2) {
+    if (parts.length >= 3 && /^[A-Za-z]{2}(?:\s+\d{5}(?:-\d{4})?)?$/.test(parts.at(-1) ?? "")) {
       const city = parts[parts.length - 2];
-      if (city && !/^\d/.test(city)) return city;
+      if (city && /^[A-Za-z][A-Za-z .'-]*$/.test(city) && !/\b(?:unit|suite|apt|apartment|floor|street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln)\b/i.test(city)) return city;
     }
-  }
-  const name = row.propertyName?.trim();
-  if (name) {
-    const parts = name.split(",").map((p) => p.trim()).filter(Boolean);
-    if (parts.length >= 2) {
-      if (!looksLikeStreetAddress(parts[0]!)) return parts[0]!;
-      // "123 Main St, Seattle, WA": the street goes, the city stays.
-      const city = parts.slice(1).find((part) => !looksLikeStreetAddress(part) && !/^[A-Za-z]{2}(?:\s+\d{5}(?:-\d{4})?)?$/.test(part) && !/^\d/.test(part));
-      return city || "Nearby";
-    }
-    if (!looksLikeStreetAddress(name)) return name;
   }
   return "Nearby";
+}
+
+/** Offered rows carry the area computed by the server projection. */
+export function vendorVisibleGeneralArea(row: DemoManagerWorkOrderRow): string {
+  return row.offeredGeneralArea || workOrderGeneralArea(row);
 }
 
 /** After hire the vendor sees the full site (address, resident, entry). */
@@ -59,7 +45,7 @@ export function vendorServiceWorkflowSteps(
   const paid = row.automationStatus === "paid";
 
   const raw = [
-    { id: "lead", label: "Lead", done: true, detail: workOrderGeneralArea(row) },
+    { id: "lead", label: "Lead", done: true, detail: vendorVisibleGeneralArea(row) },
     { id: "quoted", label: "Quoted", done: quoted, detail: "" },
     { id: "hired", label: "Hired", done: hired, detail: "" },
     {
@@ -84,7 +70,7 @@ export function vendorServiceWorkflowSteps(
 }
 
 export function vendorLeadMapsQuery(row: DemoManagerWorkOrderRow): string {
-  const area = workOrderGeneralArea(row);
+  const area = vendorVisibleGeneralArea(row);
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(area)}`;
 }
 
@@ -158,9 +144,11 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
   // `assignedRoomChoice` is not on the typed row but can ride a work order's payload; it names a room.
   const offered = { ...rest } as Record<string, unknown>;
   delete offered.assignedRoomChoice;
+  for (const key of ["propertyId", "assignedPropertyId", "workspaceId", "property_id", "assigned_property_id", "workspace_id"]) delete offered[key];
   return {
     ...(withoutAuthSubjects(offered) as typeof rest),
     propertyName: area,
+    offeredGeneralArea: area,
     unit: "—",
     cost: "",
     ...(isAddOnJob ? { description: row.title } : {}),

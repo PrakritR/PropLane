@@ -88,10 +88,10 @@ describe("what an offered vendor may read of an add-on job", () => {
     const base = buildAddOnVendorJobRow(addOn(), { propertyName: "x", managerUserId: "mgr-1" });
     const cases: Array<[string, string]> = [
       ["12 Alder St", "Nearby"],
-      ["12 Alder St, Seattle, WA", "Seattle"],
+      ["12 Alder St, Seattle, WA", "Nearby"],
       ["4709A 8th Ave", "Nearby"],
-      ["Alder House", "Alder House"],
-      ["Alder House, Seattle", "Alder House"],
+      ["Alder House", "Nearby"],
+      ["Alder House, Seattle", "Nearby"],
     ];
     for (const [propertyName, expected] of cases) {
       const projected = projectWorkOrderForOfferedVendor({ ...base, propertyName, propertyAddress: undefined });

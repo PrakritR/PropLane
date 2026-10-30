@@ -41,7 +41,7 @@ import { MAX_COMPLETION_PHOTO_BYTES, validateCompletionPhotos } from "@/lib/comp
 import { markWorkOrderDoneByVendor, scheduleAssignedVisit, bookedVisitPatch } from "@/lib/work-order-bids.server";
 import { sendWorkOrderVendorOffers } from "@/lib/work-order-offers.server";
 import { describeVendorSendOutcome } from "@/lib/work-order-vendor-offers";
-import { projectWorkOrderForHiredVendor, projectWorkOrderForOfferedVendor, assignedVendorDirectoryId, normalizeAssignedVendorAssignee } from "@/lib/work-order-vendor-privacy";
+import { projectWorkOrderForHiredVendor, projectWorkOrderForOfferedVendor, assignedVendorDirectoryId, normalizeAssignedVendorAssignee, vendorVisibleGeneralArea, vendorLeadMapsQuery, vendorServiceWorkflowSteps } from "@/lib/work-order-vendor-privacy";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 
 type Rec = Record<string, unknown>;
@@ -308,6 +308,8 @@ describe("J6c: what a vendor read carries", () => {
     residentEmail: "resident@example.test",
     resident_email: "resident@example.test",
     managerName: "Property Manager",
+    propertyId: "public-listing-id", assignedPropertyId: "public-listing-id", workspaceId: "private-workspace-id",
+    property_id: "public-listing-id", assigned_property_id: "public-listing-id", workspace_id: "private-workspace-id",
     assignee: { type: "team", id: "manager-private-id", name: "Manager" },
     nested: { managerUserId: "manager-private-id" },
     residentChargeCents: 9900,
@@ -326,6 +328,18 @@ describe("J6c: what a vendor read carries", () => {
     expect(JSON.stringify(out)).not.toMatch(/(?:resident|manager|vendor)-private-id/);
     for (const k of ["residentUserId", "residentChargeCents", "residentChargeId", "expenseEntryIds", "residentConfirmation"]) expect(out, k).not.toHaveProperty(k);
   });
+  it("uses only an address city for offered area, preserving hired site details", () => {
+    const distinctive = { ...row, propertyName: "Proof House", propertyAddress: "1 Main Street" } as DemoManagerWorkOrderRow;
+    expect(projectWorkOrderForOfferedVendor(distinctive).propertyName).toBe("Nearby");
+    expect(projectWorkOrderForOfferedVendor({ ...distinctive, propertyAddress: "1 Main Street, Seattle, WA" }).propertyName).toBe("Seattle");
+    expect(projectWorkOrderForHiredVendor(distinctive).propertyName).toBe("Proof House");
+    const offered = projectWorkOrderForOfferedVendor({ ...distinctive, propertyAddress: "1 Main Street, Seattle, WA", offeredGeneralArea: "Untrusted House" });
+    expect(offered.offeredGeneralArea).toBe("Seattle");
+    expect(vendorVisibleGeneralArea(offered)).toBe("Seattle");
+    expect(vendorLeadMapsQuery(offered)).toContain("Seattle");
+    expect(vendorServiceWorkflowSteps(offered)[0]?.detail).toBe("Seattle");
+    expect(vendorVisibleGeneralArea(distinctive)).toBe("Nearby");
+  });
   it("an offered vendor also loses assignedRoomChoice", () => {
     const out = projectWorkOrderForOfferedVendor(row) as unknown as Rec;
     expect(out).not.toHaveProperty("residentUserId");
@@ -335,6 +349,7 @@ describe("J6c: what a vendor read carries", () => {
     expect(out).not.toHaveProperty("resident_email");
     expect(JSON.stringify(out)).not.toMatch(/(?:resident|manager|vendor)-private-id/);
     expect(out).not.toHaveProperty("assignedRoomChoice");
+    for (const key of ["propertyId", "assignedPropertyId", "workspaceId", "property_id", "assigned_property_id", "workspace_id"]) expect(out).not.toHaveProperty(key);
     expect(out).not.toHaveProperty("propertyAddress");
   });
 });
