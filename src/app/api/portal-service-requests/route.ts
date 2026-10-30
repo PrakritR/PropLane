@@ -250,7 +250,7 @@ export async function POST(req: Request) {
     const stampResidentRow = async (row: ServiceRequest): Promise<ServiceRequest | null> => {
       if (actor.admin || role !== "resident") return row;
       const scope = await resolveResidentFilingScope(db, {
-        residentEmail: actor.email,
+        residentUserId: actor.userId,
         claimedManagerUserId: row.managerUserId,
         claimedPropertyId: row.propertyId,
       });

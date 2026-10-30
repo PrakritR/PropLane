@@ -6,9 +6,8 @@
  * `resident-work-order-reminder.server.ts`, the same server code the panel's
  * routes run, so chat can never do something the portal would refuse.
  *
- * `portal_work_order_records` carries ONLY `resident_email` (no
- * `resident_user_id`), so every lookup here scopes on that column via
- * `loadResidentOwnWorkOrder`; the id the model passes is a target, never proof.
+ * `loadResidentOwnWorkOrder` scopes each lookup to the authenticated
+ * `resident_user_id`; the id the model passes is a target, never proof.
  */
 import { z } from "zod";
 import { defineWriteTool } from "../../registry";

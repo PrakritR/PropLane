@@ -629,7 +629,7 @@ export async function POST(req: Request) {
     ): Promise<DemoManagerWorkOrderRow | null> => {
       if (actor.admin || actor.role !== "resident") return row;
       const scope = await resolveResidentFilingScope(db, {
-        residentEmail: actor.email,
+        residentUserId: actor.userId,
         claimedManagerUserId: row.managerUserId,
         claimedPropertyId: row.propertyId || row.assignedPropertyId,
       });

@@ -6,8 +6,7 @@ const PAGE_SIZE = 1000;
 
 /**
  * Load the complete set of the resident's records from a portal table, scoped
- * by resident identity (`resident_user_id` OR `resident_email` — the same
- * filter the resident-facing API routes use) and paginated by a stable column
+ * by the authenticated `resident_user_id` and paginated by a stable column
  * so nothing is silently truncated.
  */
 export async function loadResidentIdentityRows<T>(
@@ -34,8 +33,7 @@ export async function loadResidentIdentityRows<T>(
 }
 
 /**
- * Loader for tables whose resident-facing routes scope by lowercased
- * `resident_email` only (service requests, work orders, applications, leases).
+ * Load service and lease records scoped by the authenticated resident subject.
  */
 export async function loadResidentEmailRows<T>(
   ctx: ResidentAgentContext,
@@ -43,7 +41,7 @@ export async function loadResidentEmailRows<T>(
   map: (rowData: unknown) => T,
 ): Promise<T[]> {
   const out: T[] = [];
-  // Same rule as the identity loader: an empty email must match nothing.
+  // An absent subject must never trigger an unscoped read.
   if (!ctx.userId) return out;
   for (let from = 0; ; from += PAGE_SIZE) {
     let query = ctx.db

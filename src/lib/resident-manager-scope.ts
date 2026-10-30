@@ -158,18 +158,18 @@ function preferApprovedThenRecent(rows: ApplicationScopeRow[]): ApplicationScope
 export async function resolveResidentFilingScope(
   db: ServiceRoleDb,
   params: {
-    residentEmail: string;
+    residentUserId: string;
     claimedManagerUserId?: string | null;
     claimedPropertyId?: string | null;
   },
 ): Promise<{ managerUserId: string; propertyId: string } | null> {
-  const residentEmail = params.residentEmail.trim().toLowerCase();
-  if (!residentEmail) return null;
+  const residentUserId = params.residentUserId.trim();
+  if (!residentUserId) return null;
 
   const { data, error } = await db
     .from("manager_application_records")
     .select("manager_user_id, property_id, assigned_property_id, row_data, updated_at")
-    .eq("resident_email", residentEmail)
+    .eq("row_data->>residentUserId", residentUserId)
     .order("updated_at", { ascending: false })
     .limit(25);
   if (error) throw new Error(error.message);

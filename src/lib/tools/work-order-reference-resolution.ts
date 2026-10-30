@@ -82,7 +82,7 @@ export async function resolveManagerWorkOrderReference(
   return resolveVisibleWorkOrderReference(text, await loadManagerWorkOrders(ctx));
 }
 
-/** Resident scope: email plus the active manager when the request came by SMS. */
+/** Resident scope: authenticated subject plus the active manager for SMS. */
 export async function resolveResidentWorkOrderReference(
   ctx: ResidentAgentContext,
   text: string,
