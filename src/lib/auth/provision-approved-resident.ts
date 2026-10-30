@@ -6,7 +6,6 @@ import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { randomBytes } from "node:crypto";
 
-
 export async function provisionApprovedResidentAccount(
   supabase: SupabaseClient,
   row: DemoApplicantRow,
