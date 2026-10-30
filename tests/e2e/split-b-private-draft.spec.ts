@@ -23,10 +23,14 @@ test("verified synthetic free manager saves one private draft", async ({ browser
   for (const file of [phaseAFile, inputFile, managerManifestFile]) {
     if ((lstatSync(file).mode & 0o777) !== 0o600) throw new Error("Private Phase A evidence required.");
   }
-  const phaseA = JSON.parse(readFileSync(phaseAFile, "utf8")) as { stage?: string; browserOk?: boolean; serverExited?: boolean; portClosed?: boolean };
+  const phaseA = JSON.parse(readFileSync(phaseAFile, "utf8")) as { stage?: string; browserOk?: boolean; serverExited?: boolean; portClosed?: boolean; draftCleanupExit?: number; accountRetained?: boolean; sessionRetained?: boolean };
   const input = JSON.parse(readFileSync(inputFile, "utf8")) as { version?: number; managerId?: string; workspaceId?: string; expectedEmail?: string; storageStateFile?: string; phoneMarker?: string };
   const managerManifest = JSON.parse(readFileSync(managerManifestFile, "utf8")) as { state?: string; authId?: string; email?: string };
-  if (phaseA.stage !== "phase_a_complete" || phaseA.browserOk !== true || phaseA.serverExited !== true || phaseA.portClosed !== true ||
+  const normalPhaseA = phaseA.stage === "phase_a_complete" && phaseA.browserOk === true && phaseA.serverExited === true && phaseA.portClosed === true;
+  const verifiedPrebrowserRetry = process.env.SPLIT_B_VERIFIED_PREBROWSER_RETRY === "1" && phaseA.stage === "phase_b_browser_failed_draft_checked" &&
+    phaseA.browserOk === false && phaseA.serverExited === true && phaseA.portClosed === true && phaseA.draftCleanupExit === 0 &&
+    phaseA.accountRetained === true && phaseA.sessionRetained === true;
+  if ((!normalPhaseA && !verifiedPrebrowserRetry) ||
     input.version !== 1 || input.managerId !== managerId || input.workspaceId !== workspaceId || input.expectedEmail?.toLowerCase() !== expectedEmail.toLowerCase() ||
     path.resolve(input.storageStateFile ?? "") !== storageStateFile || input.phoneMarker !== "synthetic_test_only_no_sms" ||
     managerManifest.state !== "identified" || managerManifest.authId !== managerId || managerManifest.email?.toLowerCase() !== expectedEmail.toLowerCase()) {
