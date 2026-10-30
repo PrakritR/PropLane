@@ -21,6 +21,13 @@ type Row = Record<string, unknown>;
 
 const DB: Record<string, Row[]> = {
   profiles: [],
+  /**
+   * The Auth users the service-role client answers for. A legacy email-matched `manager_purchases`
+   * row is entitled against the account's CONFIRMED Auth mailbox, never `profiles.email`
+   * (`manager-purchase-account-rows.server.ts`), so the plan resolver reads this table through
+   * `auth.admin.getUserById`.
+   */
+  auth_users: [],
   manager_purchases: [],
   manager_property_records: [],
   account_link_invites: [],
@@ -99,6 +106,22 @@ function query(table: string, opts: { count?: string; head?: boolean } = {}) {
 }
 
 const serviceClient = {
+  /**
+   * The one Auth admin read the plan code makes. An id with no seeded row gets the conclusive
+   * "no such account" 404 the real Auth API returns - that answer means the account owns no
+   * email-linked purchase row, never that the plan is unreadable.
+   */
+  auth: {
+    admin: {
+      async getUserById(id: string) {
+        const user = DB.auth_users.find((row) => String(row.id) === String(id));
+        if (!user) {
+          return { data: { user: null }, error: { status: 404, code: "user_not_found", message: "User not found" } };
+        }
+        return { data: { user }, error: null };
+      },
+    },
+  },
   from(table: string) {
     return {
       select: (_cols: string, opts?: { count?: string; head?: boolean }) => query(table, opts ?? {}),
@@ -142,6 +165,7 @@ function say(text = "") {
 
 function seedManager(id: string, email: string, purchase: Row | null) {
   DB.profiles.push({ id, email });
+  DB.auth_users.push({ id, email, email_confirmed_at: new Date().toISOString() });
   if (purchase) DB.manager_purchases.push({ id: `pur-${id}`, user_id: id, email, ...purchase });
 }
 
