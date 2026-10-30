@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getUserOrRejection } from "@/lib/auth/session-rejection";
-import { normalizePortalRoles } from "@/lib/auth/portal-roles";
 import { rateLimit } from "@/lib/rate-limit";
 import { track } from "@/lib/analytics/posthog";
 import { collectManagerExport } from "@/lib/account-export/collect-manager-export.server";
@@ -56,12 +55,12 @@ export async function POST(req: Request) {
 
     const [{ data: roleRows, error: roleError }, { data: profile }] = await Promise.all([
       db.from("profile_roles").select("role").eq("user_id", user.id),
-      db.from("profiles").select("role, email").eq("id", user.id).maybeSingle(),
+      db.from("profiles").select("email").eq("id", user.id).maybeSingle(),
     ]);
     if (roleError) {
       return NextResponse.json({ error: "Could not confirm your account role." }, { status: 500 });
     }
-    const roles = normalizePortalRoles(roleRows as { role: string }[] | null, profile?.role ?? null);
+    const roles = (roleRows ?? []).map((row) => row.role);
     if (!roles.includes("manager")) {
       return NextResponse.json({ error: "Only a property manager account can export data." }, { status: 403 });
     }

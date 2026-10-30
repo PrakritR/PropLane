@@ -15,6 +15,7 @@ type Row = Record<string, unknown>;
 function fixture() {
   const tables: Record<string, Row[]> = {
     profiles: [{ id: "actor", role: "manager" }],
+    profile_roles: [{ user_id: "actor", role: "manager" }],
     manager_vendor_records: [{ id: "vendor", manager_user_id: "other", row_data: { name: "Original" } }],
     manager_property_records: [{ id: "own-house", manager_user_id: "actor" }, { id: "other-house", manager_user_id: "other" }],
   };
@@ -76,6 +77,13 @@ beforeEach(() => {
 });
 
 describe("vendor writes use stored owner and current services grants", () => {
+  it("denies a forged legacy manager role and unreadable role rows", async () => {
+    const f = fixture(); f.tables.profile_roles = [];
+    expect((await POST(request({ row: row({ id: "new" }) }))).status).toBe(403);
+    f.failures.add("profile_roles");
+    expect((await POST(request({ row: row({ id: "new" }) }))).status).toBe(403);
+    expect(f.writes).toEqual([]);
+  });
   it("rejects a foreign vendor even with the actor's own property and spoofed owner", async () => {
     const f = fixture();
     expect((await POST(request())).status).toBe(403);
@@ -141,7 +149,7 @@ describe("vendor writes use stored owner and current services grants", () => {
     expect(f.writes).toEqual([]);
   });
   it("preserves ownership even for an administrator's edit (oversight)", async () => {
-    const f = fixture(); mocks.admin.mockResolvedValue(true);
+    const f = fixture(); f.tables.profile_roles.push({ user_id: "actor", role: "admin" });
     expect((await POST(request(undefined, "?oversight=admin"))).status).toBe(200);
     expect(f.tables.manager_vendor_records[0].manager_user_id).toBe("other");
   });
@@ -156,7 +164,7 @@ describe("vendor writes use stored owner and current services grants", () => {
     expect(mocks.db).not.toHaveBeenCalled();
   });
   it("rejects a resident portal actor before vendor reads or writes", async () => {
-    const f = fixture(); f.tables.profiles[0].role = "resident";
+    const f = fixture(); f.tables.profiles[0].role = "resident"; f.tables.profile_roles = [{ user_id: "actor", role: "resident" }];
     expect((await POST(request())).status).toBe(403);
     expect(f.writes).toEqual([]);
     expect(mocks.scope).not.toHaveBeenCalled();

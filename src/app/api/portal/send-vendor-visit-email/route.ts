@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
-import { isAdminUser } from "@/lib/auth/admin-preview";
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { sendVendorNotification } from "@/lib/vendor-notification-delivery";
@@ -21,12 +21,17 @@ export async function POST(req: Request) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
       return NextResponse.json({ ok: false, error: "Vendor access is unavailable for this account." }, { status: 403 });
     }
-    const admin = await isAdminUser(user.id);
-    const { data: profile } = await db.from("profiles").select("role, email, full_name").eq("id", user.id).maybeSingle();
-    const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-    if (!admin && role !== "manager" && role !== "pro") {
+    const [{ data: roles, error: roleError }, { data: profile }] = await Promise.all([
+      db.from("profile_roles").select("role").eq("user_id", user.id),
+      db.from("profiles").select("email, full_name").eq("id", user.id).maybeSingle(),
+    ]);
+    if (roleError) return NextResponse.json({ ok: false, error: "Forbidden." }, { status: 403 });
+    const roleNames = (roles ?? []).map((row) => String(row.role).toLowerCase());
+    const admin = roleNames.includes("admin");
+    if (!admin && !roleNames.includes("manager")) {
       return NextResponse.json({ ok: false, error: "Forbidden." }, { status: 403 });
     }
+    const oversight = await resolveAdminOversight(req, user.id, admin);
 
     const body = (await req.json().catch(() => ({}))) as {
       kind?: "visit" | "bid_offer";
@@ -47,7 +52,7 @@ export async function POST(req: Request) {
     if (!workOrderId) {
       return NextResponse.json({ ok: false, error: "Work order id required." }, { status: 400 });
     }
-    if (!admin) {
+    if (!oversight) {
       const { data: workOrder } = await db
         .from("portal_work_order_records")
         .select("manager_user_id")

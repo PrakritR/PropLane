@@ -92,8 +92,7 @@ async function requirePortalActor(preferredRole?: PortalRole): Promise<PortalAct
   const isResident = roleList.includes("resident");
   if (!isManager && !isResident) return null;
 
-  const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
-  if (!email) return null;
+  const email = user.email_confirmed_at ? (user.email ?? "").trim().toLowerCase() : "";
 
   let role: PortalRole;
   if (isManager && isResident) {
