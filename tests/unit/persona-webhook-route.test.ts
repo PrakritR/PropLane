@@ -4,7 +4,7 @@ const rpc = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ rpc }) }));
 import { POST } from "@/app/api/webhooks/persona/route";
 const saved = { ...process.env };
-afterEach(() => { process.env = { ...saved }; rpc.mockReset(); });
+afterEach(() => { process.env = { ...saved }; rpc.mockReset(); vi.unstubAllGlobals(); });
 
 describe("Persona webhook", () => {
   it("does not write until a signature is verified and passes only minimal fields", async () => {
@@ -18,6 +18,12 @@ describe("Persona webhook", () => {
     expect(invalid.status).toBe(401);
     expect(rpc).not.toHaveBeenCalled();
     const signature = createHmac("sha256", "secret").update(`${timestamp}.${body}`).digest("hex");
+    const provider = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { id: "inq_1", attributes: { "reference-id": "12345678-1234-1234-1234-123456789012", status: "completed" } } }) });
+    vi.stubGlobal("fetch", provider);
+    const pending = await POST(new Request("http://localhost", { method: "POST", body, headers: { "persona-signature": `t=${timestamp},v1=${signature}` } }));
+    expect(pending.status).toBe(503);
+    expect(rpc).not.toHaveBeenCalled();
+    provider.mockResolvedValue({ ok: true, json: async () => ({ data: { id: "inq_1", attributes: { "reference-id": "12345678-1234-1234-1234-123456789012", status: "approved" } } }) });
     rpc.mockResolvedValue({ data: "applied", error: null });
     const response = await POST(new Request("http://localhost", { method: "POST", body, headers: { "persona-signature": `t=${timestamp},v1=${signature}` } }));
     expect(response.status).toBe(200);

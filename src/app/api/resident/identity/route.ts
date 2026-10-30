@@ -3,8 +3,21 @@ import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { createPersonaInquiry, personaEnabled, resumePersonaInquiry } from "@/lib/resident-identity/persona.server";
+import { residentIdentityActor } from "@/lib/resident-identity/auth.server";
 
 export const runtime = "nodejs";
+
+export async function GET() {
+  const actor = await residentIdentityActor();
+  if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  if (process.env.RESIDENT_IDENTITY_ENABLED !== "true") return NextResponse.json({ status: "unavailable", manualReview: null }, { headers: { "Cache-Control": "no-store" } });
+  const [subject, review] = await Promise.all([
+    actor.db.from("resident_identity_subjects").select("status").eq("resident_user_id", actor.userId).maybeSingle(),
+    actor.db.from("resident_identity_manual_reviews").select("status").eq("resident_user_id", actor.userId).in("status", ["requested", "in_review"]).maybeSingle(),
+  ]);
+  if (subject.error || review.error) return NextResponse.json({ error: "Verification is unavailable." }, { status: 503 });
+  return NextResponse.json({ status: personaEnabled() ? (subject.data?.status ?? "not_started") : "unavailable", manualReview: review.data?.status ?? null }, { headers: { "Cache-Control": "no-store" } });
+}
 
 export async function POST() {
   if (!personaEnabled()) return NextResponse.json({ error: "Verification is unavailable." }, { status: 503 });
