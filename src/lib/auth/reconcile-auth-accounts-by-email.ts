@@ -76,7 +76,7 @@ async function syncProfileForUser(db: ServiceDb, user: User): Promise<void> {
  */
 export async function reconcileAuthAccountsByEmail(db: ServiceDb, sessionUser: User): Promise<void> {
   const email = normalizeEmail(sessionUser.email);
-  if (!email) return;
+  if (!email || !sessionUser.email_confirmed_at) return;
 
   if (await pendingAccountRecovery(db, sessionUser.id)) return;
   const users = await findAuthUsersByEmail(db, email);
@@ -94,7 +94,7 @@ export async function reconcileAuthAccountsByEmail(db: ServiceDb, sessionUser: U
     .is("user_id", null);
 
   for (const purchase of purchaseRows ?? []) {
-    await db.from("manager_purchases").update({ user_id: sessionUser.id }).eq("id", purchase.id);
+    await db.from("manager_purchases").update({ user_id: sessionUser.id }).eq("id", purchase.id).is("user_id", null);
   }
 
   await syncProfileForUser(db, sessionUser);
@@ -116,7 +116,6 @@ export async function reconcileAuthAccountsByEmail(db: ServiceDb, sessionUser: U
 
   if (hasProvider(sessionUser, "google")) {
     await db.auth.admin.updateUserById(sessionUser.id, {
-      email_confirm: true,
       user_metadata: {
         ...(sessionUser.user_metadata ?? {}),
         google_linked_at: new Date().toISOString(),

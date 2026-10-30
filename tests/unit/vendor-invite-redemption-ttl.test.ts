@@ -7,6 +7,8 @@ import {
   vendorUnlinkedNotice,
 } from "@/lib/auth/provision-vendor-account";
 
+const vendorBalances = vi.hoisted(() => ({ claim: vi.fn(async () => undefined), rekey: vi.fn(async () => undefined) }));
+vi.mock("@/lib/managed-finance/directory-vendor.server", () => ({ claimWaitingDirectoryBalances: vendorBalances.claim, rekeyDirectoryBalances: vendorBalances.rekey }));
 vi.mock("@/lib/auth/account-recovery.server", () => ({ pendingAccountRecovery: vi.fn().mockResolvedValue(null) }));
 
 /**
@@ -238,7 +240,7 @@ function provisioningDb(opts: {
     from,
     auth: {
       admin: {
-        getUserById: vi.fn().mockResolvedValue({ data: { user: { user_metadata: {} } } }),
+        getUserById: vi.fn().mockResolvedValue({ data: { user: { email: "vendor@example.com", email_confirmed_at: "2026-01-01", user_metadata: {} } } }),
         updateUserById: vi.fn().mockResolvedValue({ data: null, error: null }),
         listUsers: vi.fn().mockResolvedValue({ data: { users: [] }, error: null }),
       },
@@ -257,6 +259,14 @@ const REVOKED_DIRECTORY_INVITE = {
 };
 
 describe("provisionVendorAccountByEmail — every way of finishing unlinked reports why", () => {
+  it("does not treat a phone-proven account's unconfirmed real email as balance proof", async () => {
+    vendorBalances.claim.mockClear();
+    const { db } = provisioningDb();
+    (db as { auth: { admin: { getUserById: ReturnType<typeof vi.fn> } } }).auth.admin.getUserById.mockResolvedValue({ data: { user: { email: "vendor@example.com", email_confirmed_at: null, user_metadata: {} } } });
+    await provisionVendorAccountByEmail(db, { userId: "user-1", email: "vendor@example.com", invite: null, confirmEmail: true });
+    expect(vendorBalances.claim).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ emailProven: false }));
+  });
+
   it("still creates the account, unlinked, when the invite has expired", async () => {
     const { db } = provisioningDb({ anyPending: { id: "inv-1" } });
     await expect(

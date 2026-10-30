@@ -17,6 +17,7 @@ export async function POST() {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
+    if (!user.email_confirmed_at || !user.email) return NextResponse.json({ error: "Verify your email before linking accounts.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
     const service = createSupabaseServiceRoleClient();
     await reconcileAuthAccountsByEmail(service, user);
 

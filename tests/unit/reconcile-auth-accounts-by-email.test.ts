@@ -55,7 +55,7 @@ function mockDb(options: {
         update: (patch: unknown) => ({
           eq: (_col: string, id: string) => {
             purchaseUpdates.push({ id, patch });
-            return { error: null };
+            return { is: () => ({ error: null }) };
           },
         }),
       };
@@ -96,6 +96,15 @@ describe("reconcileAuthAccountsByEmail", () => {
     vi.clearAllMocks();
   });
 
+  it("does not reconcile or claim purchases for an unconfirmed session", async () => {
+    const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
+    const db = mockDb({ users: [{ id: "other", email: "victim@test.com" }], purchases: [{ id: "purchase", user_id: null }] });
+    await reconcileAuthAccountsByEmail(db as never, { id: "attacker", email: "victim@test.com", email_confirmed_at: null } as never);
+    expect(migratePortalUserId).not.toHaveBeenCalled();
+    expect(db.purchaseUpdates).toEqual([]);
+    expect(db.from).not.toHaveBeenCalled();
+  });
+
   it("migrates portal data from duplicate auth users into the session user", async () => {
     const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
     const db = mockDb({
@@ -108,6 +117,7 @@ describe("reconcileAuthAccountsByEmail", () => {
 
     await reconcileAuthAccountsByEmail(db as never, {
       id: "session-user",
+      email_confirmed_at: "2026-01-01",
       email: "mgr@test.com",
       identities: [{ provider: "google" }],
       user_metadata: {},
@@ -126,6 +136,7 @@ describe("reconcileAuthAccountsByEmail", () => {
 
     await reconcileAuthAccountsByEmail(db as never, {
       id: "session-user",
+      email_confirmed_at: "2026-01-01",
       email: "mgr@test.com",
       identities: [],
       user_metadata: {},
@@ -144,6 +155,7 @@ describe("reconcileAuthAccountsByEmail", () => {
 
     await reconcileAuthAccountsByEmail(db as never, {
       id: "session-user",
+      email_confirmed_at: "2026-01-01",
       email: "admin@axis.test",
       identities: [],
       user_metadata: {},

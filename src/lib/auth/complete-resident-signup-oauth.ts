@@ -30,6 +30,11 @@ export async function completeResidentSignupFromOAuth(
     return { ok: false, status: 400, error: "Email and application ID are required." };
   }
 
+  const { data: verifiedAuth, error: verifiedError } = await supabase.auth.admin.getUserById(userId);
+  if (verifiedError || !verifiedAuth.user?.email_confirmed_at || verifiedAuth.user.email?.trim().toLowerCase() !== normalEmail) {
+    return { ok: false, status: 403, error: "Sign in with your verified email before continuing." };
+  }
+
   const { data: applicationRows, error: applicationError } = await supabase
     .from("manager_application_records")
     .select("id, resident_email, row_data")
@@ -69,7 +74,6 @@ export async function completeResidentSignupFromOAuth(
   const { data: existingAuth } = await supabase.auth.admin.getUserById(userId);
   const metadata = existingAuth.user?.user_metadata as Record<string, unknown> | undefined;
   await supabase.auth.admin.updateUserById(userId, {
-    email_confirm: true,
     user_metadata: {
       ...(metadata ?? {}),
       role: "resident",

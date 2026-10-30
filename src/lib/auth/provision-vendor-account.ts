@@ -270,11 +270,7 @@ export async function provisionVendorAccountByEmail(
     email: string;
     fullName?: string | null;
     invite?: VendorInviteRow | null;
-    /**
-     * Defaults to true (invite links and existing-account password verification are
-     * already a possession proof). Pass false only when the caller is about to send its
-     * own Supabase email-confirmation link — confirming here would skip that check.
-     */
+    /** Legacy caller option; email proof is derived from the Auth record, never this flag. */
     confirmEmail?: boolean;
   },
 ): Promise<ProvisionVendorResult> {
@@ -284,11 +280,17 @@ export async function provisionVendorAccountByEmail(
     return { ok: false, status: 400, error: "Enter a valid email address." };
   }
 
+  const { data: existingAuth, error: authError } = await supabase.auth.admin.getUserById(opts.userId);
+  if (authError || !existingAuth.user || existingAuth.user.email?.trim().toLowerCase() !== normalEmail) {
+    return { ok: false, status: 403, error: "Sign in with the account that owns this email before continuing." };
+  }
+  const emailProven = Boolean(existingAuth.user.email_confirmed_at);
+  if (opts.invite && !emailProven) return { ok: false, status: 403, error: "Verify your email before accepting the invite." };
   let invite: VendorInviteRow | null;
   let unlinkedReason: VendorUnlinkedReason | null = null;
   if (opts.invite !== undefined) {
     invite = opts.invite;
-  } else {
+  } else if (emailProven) {
     const lookup = await lookupVendorInviteByEmail(supabase, normalEmail);
     // An expired invite is never redeemed, but it must not fail the signup
     // either: the caller has already created the auth user by this point, so
@@ -296,6 +298,8 @@ export async function provisionVendorAccountByEmail(
     // Provision unlinked and report it, so the vendor is told why.
     if (lookup.kind === "expired") unlinkedReason = "invite_expired";
     invite = lookup.kind === "redeemable" ? lookup.invite : null;
+  } else {
+    invite = null;
   }
 
   if (invite?.vendor_directory_id) {
@@ -315,7 +319,6 @@ export async function provisionVendorAccountByEmail(
     return { ok: false, status: 403, error: "Sign in with the account that owns this email before continuing." };
   }
 
-  const { data: existingAuth } = await supabase.auth.admin.getUserById(opts.userId);
   const metadata = existingAuth.user?.user_metadata as Record<string, unknown> | undefined;
   const axisId = metadata?.axis_id?.toString() ?? generateAxisId();
 
@@ -389,10 +392,9 @@ export async function provisionVendorAccountByEmail(
       .eq("status", "accepted");
   }
 
-  // A directory vendor texted by a manager before they had a login: claim by the account's own email, proven only when this
-  // path confirmed it (an invite link or a verified password), never by a typed-in address.
+  // Email-based balance claims require the Auth account's confirmed matching email.
   await claimWaitingDirectoryBalances(supabase, {
-    userId: opts.userId, email: normalEmail, emailProven: opts.confirmEmail !== false,
+    userId: opts.userId, email: normalEmail, emailProven,
   }).catch((e) => console.error("[vendor signup] waiting balance claim failed", e instanceof Error ? e.message : "unknown"));
 
   return { ok: true, axisId, linkedManagerId, unlinkedReason };
