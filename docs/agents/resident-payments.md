@@ -376,7 +376,8 @@ listing-level fee -> the Application system setting
 (`manager_automation_settings.row_data.applicationSettings`, Settings ->
 Applications -> Application system) -> free**. **Nothing configured at any level = free
 (captain, 2026-10-29): there is no built-in $50.** A manager's saved fee (including a saved
-$50) still wins; a typed `0` at any level is free. **A SHORT STAY stops two levels early** and is free when nothing priced it
+$50) still wins; a typed `0` at any level is free. **A SHORT STAY skips the Application system setting** (the one
+level it stops short of, now that there is no legacy default below it) and is free when nothing priced it
 (§ Application fee: waive on send, and short stays). `roomChoice1` and `leaseTerm` are selectors only (an unoffered term, a stay
 on a listing that lets none, or a room the listing lacks falls back); the body
 never carries an amount. The Stripe session and the paid household charge record

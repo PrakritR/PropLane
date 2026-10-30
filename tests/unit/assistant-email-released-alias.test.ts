@@ -230,6 +230,34 @@ describe("an alias belongs to the workspace of the mailbox row it routes to", ()
       state: "taken",
     });
   });
+
+  it("a legacy alias is TAKEN when the owner's workspace read comes back empty", async () => {
+    // `every` on an empty list is true, so a successful read returning no rows once read as "this is their sole
+    // workspace" and handed the alias away. Nothing says it is theirs, so nothing claims it.
+    const db = seedDb();
+    (db.__tables.manager_assistant_emails as Array<Record<string, unknown>>).push({
+      id: "row-legacy",
+      manager_user_id: owner,
+      workspace_id: null,
+      inbox_token: "tok000000005",
+      mailbox_local: "legacynow",
+      provision_state: "active",
+    });
+    db.__tables.manager_assistant_email_aliases = [
+      {
+        mailbox_local: "legacyold",
+        assistant_email_id: "row-legacy",
+        owner_user_id: owner,
+        released_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+      },
+    ];
+    db.__tables.portal_workspaces = [];
+    await expect(checkWorkspaceAssistantMailboxLocal(db as never, "ws-owner", "legacyold", owner)).resolves.toMatchObject({
+      ok: false,
+      state: "taken",
+    });
+  });
 });
 
 describe("the claim check fails closed when the alias read fails", () => {

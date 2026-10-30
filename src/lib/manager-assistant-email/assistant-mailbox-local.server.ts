@@ -248,7 +248,9 @@ export async function releaseMailboxLocalAsAlias(
  * one owner user, so a user-keyed check would let any of them take another's released local.
  *
  * A legacy alias whose mailbox row carries no workspace (or no longer exists) falls back to the owner-user rule, and
- * only when `workspaceId` is that owner's sole workspace; otherwise it is treated as taken. Throws when a read fails.
+ * only when `workspaceId` is that owner's sole workspace; otherwise it is treated as taken. A read that fails
+ * throws, and a read that comes back with NO workspace at all is taken too - an owner with no workspace cannot be
+ * claiming through one, so an empty answer must never read as "their sole workspace".
  */
 export async function mailboxAliasClaimableBy(
   db: SupabaseClient,
@@ -272,7 +274,8 @@ export async function mailboxAliasClaimableBy(
     .select("id")
     .eq("owner_user_id", ownerUserId);
   if (ownedError) throw new Error(ownedError.message);
-  return ((owned ?? []) as Array<{ id?: string }>).every((w) => String(w.id ?? "").trim() === claimant);
+  const rows = (owned ?? []) as Array<{ id?: string }>;
+  return rows.length > 0 && rows.every((w) => String(w.id ?? "").trim() === claimant);
 }
 
 /**

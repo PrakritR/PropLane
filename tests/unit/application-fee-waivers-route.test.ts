@@ -303,7 +303,7 @@ describe("a teammate adds a promo code on the owner's property", () => {
   });
 });
 
-describe("GET ?propertyId= lists the OWNER's codes that cover the property", () => {
+describe("GET lists the OWNER's codes that cover the houses the caller reaches", () => {
   const get = (qs = "") => GET(new Request(`http://localhost/api/manager/application-fee-waivers${qs}`));
   beforeEach(() => {
     tables.manager_property_records!.push({ id: OWNED, manager_user_id: MANAGER }, { id: OWNED_3, manager_user_id: MANAGER });
@@ -329,22 +329,65 @@ describe("GET ?propertyId= lists the OWNER's codes that cover the property", () 
     expect((await get(`?propertyId=${OWNED_3}`)).status).toBe(403);
   });
 
-  it("without a property the caller still gets only their own codes", async () => {
-    asCaller(TEAMMATE);
-    const body = (await (await get()).json()) as { codes: unknown[] };
-    expect(body.codes).toHaveLength(0);
-  });
-
-  it("returns ONLY this property's redemptions: an applicant on another house is never disclosed", async () => {
+  it("discloses NO redemption history on the property-scoped branch", async () => {
+    // Settings and the house dialog never show a use history, so the scoped branch never reads the table - an
+    // applicant's email is not something to fetch and discard. The unscoped branch still answers for own codes.
     tables.application_fee_waiver_redemptions = [
       { id: "r-here", code_id: "c-EVERYWHERE", manager_user_id: MANAGER, property_id: OWNED, resident_email: "here@example.com", kind: "application", redeemed_at: "2026-01-01T00:00:00.000Z" },
       { id: "r-elsewhere", code_id: "c-EVERYWHERE", manager_user_id: MANAGER, property_id: OWNED_3, resident_email: "elsewhere@example.com", kind: "application", redeemed_at: "2026-01-02T00:00:00.000Z" },
-      { id: "r-other-code", code_id: "c-OTHER-HOUSE", manager_user_id: MANAGER, property_id: OWNED_3, resident_email: "other@example.com", kind: "application", redeemed_at: "2026-01-03T00:00:00.000Z" },
     ];
     asCaller(TEAMMATE);
-    const body = (await (await get(`?propertyId=${OWNED}`)).json()) as { redemptions: { id: string }[] };
+    const body = (await (await get(`?propertyId=${OWNED}`)).json()) as { redemptions?: unknown };
+    expect(body.redemptions).toBeUndefined();
+    expect(JSON.stringify(body)).not.toMatch(/here@example.com|elsewhere@example.com/);
+  });
+
+  it("without a property a teammate sees the OWNER's covering codes, stamped by the same write rule", async () => {
+    // Settings -> Applications / Leasing render the list with no propertyId, and POST stores a teammate's code
+    // under the house owner: listing only the caller's own rows made the code they just created vanish.
+    asCaller(TEAMMATE);
+    const body = (await (await get()).json()) as { codes: { code: string; readOnly?: boolean }[] };
+    expect(body.codes.map((c) => c.code).sort()).toEqual(["EVERYWHERE", "ONE-HOUSE"]);
+    expect(body.codes.find((c) => c.code === "ONE-HOUSE")!.readOnly).toBeUndefined();
+    expect(body.codes.find((c) => c.code === "EVERYWHERE")!.readOnly).toBe(true);
+  });
+
+  it("a code a teammate just created under the owner comes back in that same list", async () => {
+    asCaller(TEAMMATE);
+    expect((await post({ code: "NEWCODE", appliesTo: "application", propertyIds: [OWNED] })).status).toBe(200);
+    const body = (await (await get()).json()) as { codes: { code: string }[] };
+    expect(body.codes.map((c) => c.code)).toContain("NEWCODE");
+  });
+
+  it("lists nothing of an owner whose houses the caller holds no grant on", async () => {
+    tables.manager_application_fee_waiver_codes!.push(
+      code({ code: "THEIR-HOUSE", manager_user_id: OTHER, property_ids: ["prop-theirs"] }),
+    );
+    asCaller(TEAMMATE);
+    const body = (await (await get()).json()) as { codes: { code: string }[] };
+    expect(body.codes.map((c) => c.code)).not.toContain("THEIR-HOUSE");
+    expect(body.codes.map((c) => c.code)).not.toContain("THEIRS");
+  });
+
+  it("a read-only grant lists the same codes with every row readOnly", async () => {
+    tables.account_link_invites = [
+      seat(TEAMMATE, [OWNED], { property_co_manager_permissions: { [OWNED]: { applications: { read: true } } } }),
+    ];
+    asCaller(TEAMMATE);
+    const body = (await (await get()).json()) as { codes: { code: string; readOnly?: boolean }[] };
+    expect(body.codes.map((c) => c.code).sort()).toEqual(["EVERYWHERE", "ONE-HOUSE"]);
+    expect(body.codes.every((c) => c.readOnly === true)).toBe(true);
+  });
+
+  it("the owner's own unscoped list is unchanged: their codes, with their use history, never stamped", async () => {
+    tables.application_fee_waiver_redemptions = [
+      { id: "r-here", code_id: "c-EVERYWHERE", manager_user_id: MANAGER, property_id: OWNED, resident_email: "here@example.com", kind: "application", redeemed_at: "2026-01-01T00:00:00.000Z" },
+    ];
+    asCaller(MANAGER);
+    const body = (await (await get()).json()) as { codes: { code: string; readOnly?: boolean }[]; redemptions: { id: string }[] };
+    expect(body.codes.map((c) => c.code).sort()).toEqual(["EVERYWHERE", "ONE-HOUSE", "OTHER-HOUSE"]);
+    expect(body.codes.every((c) => c.readOnly === undefined)).toBe(true);
     expect(body.redemptions.map((r) => r.id)).toEqual(["r-here"]);
-    expect(JSON.stringify(body)).not.toMatch(/elsewhere@example.com|other@example.com/);
   });
 
   it("marks the owner's portfolio-wide code readOnly for a teammate, editable for the owner", async () => {

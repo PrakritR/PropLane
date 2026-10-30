@@ -25,15 +25,16 @@ import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 export const runtime = "nodejs";
 
 /**
- * GET - list waiver codes and redemption history. Without `?propertyId=` these are the signed-in manager's OWN
- * (the Settings list). With it, the codes belong to that property's OWNER and are filtered to the ones covering
- * it, for the owner or a teammate holding Applications at `read` on it (a co-manager, or PropLane staff seated on
- * a service workspace). Never another manager's codes for a property the caller has no grant on.
+ * GET - list waiver codes. Without `?propertyId=` (the Settings list) these are the signed-in manager's OWN plus,
+ * for a teammate, every code of the owners who granted them Applications at `read` that covers one of the granted
+ * houses - see {@link linkedOwnersCodes}. With a `?propertyId=` the codes belong to that property's OWNER and are
+ * filtered to the ones covering it, for the owner or a teammate holding Applications at `read` on it (a
+ * co-manager, or PropLane staff seated on a service workspace). Never another manager's codes for a property the
+ * caller has no grant on.
  *
- * The property-scoped branch answers about ONE house and nothing else. A code covering several houses (or the
- * whole portfolio) is still listed, but its redemption history is cut to THIS property: a redemption carries an
- * applicant's email, so returning the code's other houses' rows would hand a caller scoped to one house the
- * applicants of every other house the code touches.
+ * Redemption history (which carries an applicant's email) is returned only on the unscoped branch, and only for
+ * the caller's OWN codes - the one consumer that reads it (`ProApplicationFeeWaiverCodesModal`) asks there. The
+ * property-scoped surfaces never show a use history, so they never ask the table for one.
  *
  * A code the caller may read but not write is marked `readOnly` (`waiverCodeIsReadOnly`): a portfolio-wide code,
  * which is the owner's alone, and a multi-house code covering a house the caller holds no `applications: edit`
@@ -45,31 +46,56 @@ export async function GET(req: Request) {
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   try {
     const propertyId = new URL(req.url).searchParams.get("propertyId")?.trim() ?? "";
+    const grant = createWaiverGrantReader(ctx.db, ctx.userId);
     if (!propertyId) {
-      const [codes, redemptions] = await Promise.all([
+      const [own, redemptions, linked] = await Promise.all([
         listApplicationFeeWaiverCodes(ctx.db, ctx.userId),
         listApplicationFeeWaiverRedemptions(ctx.db, ctx.userId),
+        linkedOwnersCodes(ctx, grant),
       ]);
-      return NextResponse.json({ codes, redemptions });
+      return NextResponse.json({ codes: [...own, ...linked], redemptions });
     }
-    const grant = createWaiverGrantReader(ctx.db, ctx.userId);
     const scope = await resolveWaiverCodeScope(ctx.db, ctx.userId, propertyId, "read", grant);
     if (!scope.ok) return NextResponse.json({ error: scope.error }, { status: scope.status });
-    const [all, allRedemptions] = await Promise.all([
-      listApplicationFeeWaiverCodes(ctx.db, scope.ownerUserId),
-      listApplicationFeeWaiverRedemptions(ctx.db, scope.ownerUserId),
-    ]);
+    const all = await listApplicationFeeWaiverCodes(ctx.db, scope.ownerUserId);
     const covering = all.filter((c) => waiverCodeCoversProperty(c, propertyId));
-    const ids = new Set(covering.map((c) => c.id));
     const codes = scope.callerIsOwner ? covering : await markReadOnly(ctx, scope.ownerUserId, covering, grant);
-    return NextResponse.json({
-      codes,
-      redemptions: allRedemptions.filter((r) => ids.has(r.codeId) && r.propertyId === propertyId),
-    });
+    return NextResponse.json({ codes });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not load waiver codes.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+/**
+ * The codes the Settings list owes a TEAMMATE: for every owner who granted them `applications` at `read`, that
+ * owner's codes covering at least one of the granted houses - a portfolio-wide code of that owner included,
+ * because it waives on those houses too.
+ *
+ * Settings renders this surface with no `listPropertyId` (Applications and Leasing are account-level screens), so
+ * the unscoped branch is what a co-manager or seated PropLane staff member actually sees. Listing only the
+ * caller's own rows made a code they had just created under the house owner vanish from the very screen that
+ * created it, with no way to edit or turn it off.
+ *
+ * Every row is stamped by {@link markReadOnly}, the same rule the property-scoped branch uses, so the screen
+ * offers exactly the writes `PATCH /[id]` would accept. The owner's own list is untouched: this only ever ADDS
+ * another owner's rows to the caller's view, and only ones the grant already covers.
+ */
+async function linkedOwnersCodes(
+  ctx: { db: Parameters<typeof resolveWaiverWriteScope>[0]; userId: string },
+  grant: WaiverGrantReader,
+): Promise<ApplicationFeeWaiverCode[]> {
+  const readable = (await grant("read")).propertyIdsByOwner;
+  const out: ApplicationFeeWaiverCode[] = [];
+  for (const [ownerUserId, granted] of readable) {
+    if (!ownerUserId || ownerUserId === ctx.userId || granted.size === 0) continue;
+    const covering = (await listApplicationFeeWaiverCodes(ctx.db, ownerUserId)).filter((c) =>
+      [...granted].some((id) => waiverCodeCoversProperty(c, id)),
+    );
+    if (covering.length === 0) continue;
+    out.push(...(await markReadOnly(ctx, ownerUserId, covering, grant)));
+  }
+  return out;
 }
 
 type CreateBody = {

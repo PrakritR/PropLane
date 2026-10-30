@@ -18,8 +18,12 @@ import { waiverCodeAppliesToFee, type ApplicationFeeWaiverCode, type WaiverCodeA
  * saves as it changes. Disabling a code is permanent (a retired code keeps its text and its use count), so it is
  * the one control that confirms. The server owns every rule (`/api/manager/application-fee-waivers`).
  *
- * A code the server marked `readOnly` (a portfolio-wide code of the owner's, listed on a house for a teammate)
- * shows its terms with every control inert: the write would be refused, so the row never offers it.
+ * Without `listPropertyId` the server lists the signed-in account's own codes PLUS, for a teammate, the codes of
+ * the owners who granted them Applications that cover one of the granted houses - a code a co-manager or seated
+ * PropLane staff member creates here is stored under the house owner, so it has to come back here too.
+ *
+ * A code the server marked `readOnly` (a portfolio-wide code of the owner's, or one covering a house the viewer
+ * holds no edit on) shows its terms with every control inert: the write would be refused, so the row never offers it.
  */
 
 const APPLIES_TO_OPTIONS: { value: WaiverCodeAppliesTo; label: string }[] = [

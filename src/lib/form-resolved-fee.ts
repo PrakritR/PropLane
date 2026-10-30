@@ -96,8 +96,8 @@ export function resolvedFormFees(
  * It runs the SAME resolver the checkout charges (`effectiveApplicationFeeCents` over the placement's own fee,
  * the template's `feeCentsOverride`, the listing fee and `accountFeeCents`, then `chargeableApplicationFeeCents`),
  * so the number shown is the number charged: a short stay never reads the account default, and
- * a long-term row with nothing set reads $50. `template` is the application this row is (the selector the
- * checkout also receives).
+ * a row with nothing set at any level reads `No fee` (captain, 2026-10-29: applications are free by default).
+ * `template` is the application this row is (the selector the checkout also receives).
  */
 export function applicationFeeFactForTerms(
   sub: ManagerListingSubmissionV1,
