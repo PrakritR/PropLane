@@ -23,10 +23,10 @@ describe("metadata property proof safety", () => {
     expect(source).toContain('"rowData" in body');
     expect(source).toContain('expect(after.data.row_data).toEqual(initial.data.row_data)');
   });
-  it("accepts exact owned draft with no dependencies", async () => { await expect(preflightMetadata(fixture(), input, "live")).resolves.toBeUndefined(); });
+  it("accepts exact owned live property with no dependencies", async () => { await expect(preflightMetadata(fixture(), input, "live")).resolves.toBeUndefined(); });
   it("pins the entire eligible terminal orphan and rejects subsequent drift", async () => {
     const candidate = { ...input, channelSnapshot: undefined };
-    await preflightMetadata(fixture({ post: "full-row-before" }), candidate, "absent").catch((error: Error) => { if (!/Draft ownership/.test(error.message)) throw error; });
+    await preflightMetadata(fixture({ post: "full-row-before" }), candidate, "absent").catch((error: Error) => { if (!/Metadata property ownership/.test(error.message)) throw error; });
     expect(candidate.channelSnapshot).toMatch(/^[a-f0-9]{64}$/);
     await preflightMetadata(fixture({ post: "full-row-before" }), candidate, "live");
     await expect(preflightMetadata(fixture({ post: "full-row-after" }), candidate, "live")).rejects.toThrow(/post changed/);
@@ -37,6 +37,22 @@ describe("metadata property proof safety", () => {
     await expect(preflightMetadata(fixture(), { ...input, channelSnapshot: "changed" }, "live")).rejects.toThrow(/post changed/);
   });
   it("denies a connected workspace, a descendant, or owner drift", async () => { for (const options of [{ connection: true }, { descendant: true }, { wrongOwner: true }]) await expect(preflightMetadata(fixture(options), input, "live")).rejects.toThrow(); });
+  it("preflights the live property and deletes only the captured revision", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "metadata-proof-"));
+    try {
+      const manifest: MetadataMirrorManifest = { ...input, state: "saved" };
+      const filters: Array<[string, unknown]> = [];
+      let deleting = false;
+      const query = { select: () => query, eq: (key: string, value: unknown) => { filters.push([key, value]); return query; }, limit: () => query, delete: () => { deleting = true; return query; }, then: (resolve: (v: unknown) => unknown) => resolve({ data: [{ id: input.propertyId }], error: null }) };
+      const preflight = vi.fn(async (_input: unknown, _state: "absent" | "live") => {});
+      await cleanupMetadataProperty({ from: () => query } as never, manifest, path.join(dir, "manifest.json"), { serverStopped: true, preflight });
+      expect(preflight.mock.calls.map((args) => args[1])).toEqual(["live", "absent"]);
+      expect(deleting).toBe(true);
+      expect(filters).toContainEqual(["status", "live"]);
+      expect(filters).toContainEqual(["updated_at", input.updatedAt]);
+      expect(manifest.state).toBe("cleaned");
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
   it("retains manifest when the captured revision loses the delete race", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "split-b-"));
     try {
