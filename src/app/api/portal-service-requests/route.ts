@@ -1,3 +1,4 @@
+import { residentSubjectHasHouse } from "@/lib/auth/resident-subject-evidence.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse } from "next/server";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
@@ -77,7 +78,6 @@ export async function GET(req: Request) {
       legacyRole: profile?.role,
     });
     if (role === "denied" && !oversight) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
-    const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
 
     // Managers/pro see the requests they own plus rows on properties they own
     // or share via co-manager services access — catches mis-stamped manager_user_id
@@ -130,60 +130,13 @@ export async function GET(req: Request) {
 
     // Residents see only their own requests; admin oversight sees all.
     if (!oversight && role === "resident") {
-      query = query.eq("resident_email", email);
+      query = query.eq("row_data->>residentUserId", user.id);
     }
 
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    let rows = (data ?? []).map((record) => record.row_data).filter(Boolean) as ServiceRequest[];
-
-    // Resident load: re-stamp any of their rows that lost manager/property so
-    // the matching manager portal can pick them up on next sync.
-    if (!oversight && role === "resident" && email) {
-      const healed: ServiceRequest[] = [];
-      const scopeCache = new Map<
-        string,
-        Promise<{ managerUserId: string; propertyId: string } | null>
-      >();
-      const resolveScopeCached = (row: ServiceRequest) => {
-        const key = `${row.managerUserId?.trim() ?? ""}|${row.propertyId?.trim() ?? ""}`;
-        let pending = scopeCache.get(key);
-        if (!pending) {
-          pending = resolveResidentFilingScope(db, {
-            residentEmail: email,
-            claimedManagerUserId: row.managerUserId,
-            claimedPropertyId: row.propertyId,
-          }).catch(() => null);
-          scopeCache.set(key, pending);
-        }
-        return pending;
-      };
-      for (const row of rows) {
-        const scope = await resolveScopeCached(row);
-        if (!scope) {
-          healed.push(row);
-          continue;
-        }
-        const needsHeal =
-          row.managerUserId?.trim() !== scope.managerUserId ||
-          (!row.propertyId?.trim() && Boolean(scope.propertyId));
-        if (!needsHeal) {
-          healed.push(row);
-          continue;
-        }
-        const next: ServiceRequest = {
-          ...row,
-          managerUserId: scope.managerUserId,
-          propertyId: row.propertyId?.trim() || scope.propertyId,
-          residentEmail: email,
-        };
-        const record = recordFromRow(next);
-        await db.from("portal_service_request_records").upsert(record, { onConflict: "id" });
-        healed.push(next);
-      }
-      rows = healed;
-    }
+    const rows = (data ?? []).map((record) => record.row_data).filter(Boolean) as ServiceRequest[];
 
     return NextResponse.json({ rows });
   } catch (e) {
@@ -192,18 +145,18 @@ export async function GET(req: Request) {
   }
 }
 
-type Actor = { userId: string; email: string; admin: boolean };
+type Actor = { userId: string; email: string; admin: boolean; role: string };
 
 /** A caller may write/delete a row only if they own it: the manager it belongs
  * to, or the resident it is for. Admins may act on any row. */
 function actorOwnsRecord(
   actor: Actor,
-  rec: { manager_user_id?: string | null; resident_email?: string | null } | null,
+  rec: { manager_user_id?: string | null; resident_email?: string | null; row_data?: { residentUserId?: string | null } | null } | null,
 ): boolean {
   if (actor.admin) return true;
   if (!rec) return false;
-  if (rec.manager_user_id && rec.manager_user_id === actor.userId) return true;
-  if (rec.resident_email && actor.email && rec.resident_email.trim().toLowerCase() === actor.email) return true;
+  if (actor.role === "manager" && rec.manager_user_id && rec.manager_user_id === actor.userId) return true;
+  if (rec.row_data?.residentUserId === actor.userId) return true;
   return false;
 }
 
@@ -213,7 +166,8 @@ function actorOwnsRecord(
  * are pinned to their own email. Manager/property for residents are server-
  * resolved from residency records, not trusted from the client alone.
  */
-function recordForActor(actor: Actor, role: string, row: ServiceRequest) {
+function recordForActor(actor: Actor, role: string, row: ServiceRequest, storedSubject: string | null) {
+  row = { ...row, residentUserId: role === "resident" && !actor.admin ? actor.userId : storedSubject };
   if (actor.admin) return recordFromRow(row);
   if (role === "resident") {
     const pinned: ServiceRequest = {
@@ -255,6 +209,7 @@ export async function POST(req: Request) {
       userId: user.id,
       email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
       admin: oversight,
+      role,
     };
     const isManagerActor = !oversight && role !== "resident";
     // The active workspace refuses a write outside it: a create must land in
@@ -274,7 +229,7 @@ export async function POST(req: Request) {
     const ownsExisting = async (id: string, candidatePropertyId?: string | null): Promise<boolean> => {
       const { data } = await db
         .from("portal_service_request_records")
-        .select("manager_user_id, resident_email, property_id")
+        .select("manager_user_id, resident_email, property_id, row_data")
         .eq("id", id)
         .maybeSingle();
       // A brand-new id (no existing row) is allowed to be created, subject to
@@ -297,13 +252,19 @@ export async function POST(req: Request) {
         claimedManagerUserId: row.managerUserId,
         claimedPropertyId: row.propertyId,
       });
-      if (!scope) return null;
+      if (!scope || !scope.propertyId || !(await residentSubjectHasHouse(db, actor.userId, actor.email, scope.managerUserId, scope.propertyId))) return null;
       return {
         ...row,
         managerUserId: scope.managerUserId,
         propertyId: scope.propertyId || row.propertyId?.trim() || "",
         residentEmail: actor.email || row.residentEmail,
       };
+    };
+
+    const storedSubject = async (id: string): Promise<string | null> => {
+      const result = await db.from("portal_service_request_records").select("row_data").eq("id", id).maybeSingle();
+      if (result.error) throw new Error("Could not verify record ownership.");
+      return (result.data?.row_data as ServiceRequest | null)?.residentUserId ?? null;
     };
 
     if (body.action === "replace") {
@@ -313,7 +274,7 @@ export async function POST(req: Request) {
         if (!(await ownsExisting(row.id, row.propertyId?.trim() || null))) continue;
         const stamped = await stampResidentRow(row);
         if (!stamped) continue;
-        await db.from("portal_service_request_records").upsert(recordForActor(actor, role, stamped), { onConflict: "id" });
+        await db.from("portal_service_request_records").upsert(recordForActor(actor, role, stamped, await storedSubject(row.id)), { onConflict: "id" });
       }
       return NextResponse.json({ ok: true });
     }
@@ -323,7 +284,7 @@ export async function POST(req: Request) {
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
       const { data: existing } = await db
         .from("portal_service_request_records")
-        .select("manager_user_id, resident_email, property_id")
+        .select("manager_user_id, resident_email, property_id, row_data")
         .eq("id", id)
         .maybeSingle();
       if (!existing) return NextResponse.json({ ok: true });
@@ -359,7 +320,7 @@ export async function POST(req: Request) {
       .maybeSingle();
     const previousStatus =
       (preExisting?.row_data as ServiceRequest | null | undefined)?.status ?? null;
-    const record = recordForActor(actor, role, stamped);
+    const record = recordForActor(actor, role, stamped, (preExisting?.row_data as ServiceRequest | null)?.residentUserId ?? null);
     const { error } = await db
       .from("portal_service_request_records")
       .upsert(record, { onConflict: "id" });

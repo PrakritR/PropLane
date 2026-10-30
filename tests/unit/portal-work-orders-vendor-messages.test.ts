@@ -34,6 +34,7 @@ vi.mock("@/lib/auth/co-manager-module-scope", async (importOriginal) => ({
 vi.mock("@/lib/auth/resident-role-access", () => ({
   resolveResidentScopedActorRole: (...a: unknown[]) => resolveResidentScopedActorRole(...(a as [])),
 }));
+vi.mock("@/lib/auth/resident-subject-evidence.server", () => ({ residentSubjectHasHouse: async () => true }));
 vi.mock("@/lib/resident-manager-scope", () => ({
   resolveResidentFilingScope: async () => ({ managerUserId: "mgr-1", propertyId: "prop-a" }),
 }));
@@ -186,7 +187,7 @@ describe("a resident files a service", () => {
   });
 
   it("a resident edit of an existing service offers nothing", async () => {
-    STORED_ROW = { manager_user_id: "mgr-1", resident_email: "alex@resident.test", dispatch: undefined, row_data: filed };
+    STORED_ROW = { manager_user_id: "mgr-1", resident_email: "alex@resident.test", dispatch: undefined, row_data: { ...filed, residentUserId: "res-1" } };
     await post({ ...filed, title: "Leaking sink!" });
     await flush();
     expect(offerNewService).not.toHaveBeenCalled();

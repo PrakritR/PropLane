@@ -124,7 +124,7 @@ export async function resolveServiceRequestRouting(ctx: ResidentAgentContext): P
   let query = ctx.db
     .from("manager_application_records")
     .select("manager_user_id, row_data, updated_at")
-    .eq("resident_email", ctx.email);
+    .eq("row_data->>residentUserId", ctx.userId);
   if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
   const { data } = await query.order("updated_at", { ascending: false });
   const approved = (data ?? []).find((r: { manager_user_id: unknown; row_data: unknown }) => {
@@ -230,7 +230,7 @@ export const createServiceRequestTool = defineWriteTool({
         resident_email: ctx.email,
         property_id: routing.propertyId || null,
         status: row.status,
-        row_data: stampSmsTestProvenance(row as unknown as Record<string, unknown>),
+        row_data: stampSmsTestProvenance({ ...row, residentUserId: ctx.userId } as unknown as Record<string, unknown>),
         updated_at: now,
       },
       { onConflict: "id" },
@@ -305,7 +305,7 @@ export const addServiceRequestNoteTool = defineWriteTool({
       .from("portal_service_request_records")
       .select("id, manager_user_id, resident_email, property_id, status, row_data")
       .eq("id", requestId)
-      .eq("resident_email", ctx.email);
+      .eq("row_data->>residentUserId", ctx.userId);
     if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
     const { data: record, error: readError } = await query.maybeSingle();
     if (readError) throw new Error(readError.message);

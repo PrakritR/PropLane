@@ -6,7 +6,7 @@ import {
   resolvePropertyScopedManagerRecipientIds,
 } from "@/lib/co-manager-notification-recipients.server";
 import { notifyWorkOrderEvent } from "@/lib/work-order-notification.server";
-import { residentBelongsToManager } from "@/lib/resident-manager-scope";
+import { residentSubjectManagerIds } from "@/lib/auth/resident-subject-evidence.server";
 import { buildResidentWorkOrderReminderEmail } from "@/lib/resident-work-order-reminder-email";
 import { RESIDENT_WORK_ORDER_REMINDER_COOLDOWN_MS } from "@/lib/resident-work-order-reminder-email";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -53,16 +53,14 @@ export async function deliverResidentWorkOrderReminder(
     .maybeSingle();
   if (!workOrder) return { ok: false, error: "Work order not found." };
 
-  const recordEmail = String(workOrder.resident_email ?? "").trim().toLowerCase();
-  if (recordEmail !== residentEmail) {
-    return { ok: false, error: "Forbidden." };
-  }
+  const subject = (workOrder.row_data && typeof workOrder.row_data === "object" ? workOrder.row_data as Record<string, unknown> : {}).residentUserId;
+  if (subject !== input.residentUserId) return { ok: false, error: "Forbidden." };
 
   const managerUserId = String(workOrder.manager_user_id ?? "").trim();
   if (!managerUserId) return { ok: false, error: "Work order has no manager." };
 
-  const belongs = await residentBelongsToManager(db, { residentEmail, managerUserId });
-  if (!belongs) return { ok: false, error: "Forbidden." };
+  const managers = await residentSubjectManagerIds(db, input.residentUserId, residentEmail);
+  if (!managers.includes(managerUserId)) return { ok: false, error: "Forbidden." };
 
   const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
   if (!isPendingResidentWorkOrder(rowData)) {

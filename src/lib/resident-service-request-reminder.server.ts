@@ -5,7 +5,7 @@ import {
   resolveManagerRecipientProfiles,
   resolvePropertyScopedManagerRecipientIds,
 } from "@/lib/co-manager-notification-recipients.server";
-import { residentBelongsToManager } from "@/lib/resident-manager-scope";
+import { residentSubjectManagerIds } from "@/lib/auth/resident-subject-evidence.server";
 import { getPropertyById } from "@/lib/rental-application/data";
 import {
   buildResidentServiceRequestReminderEmail,
@@ -60,16 +60,14 @@ export async function deliverResidentServiceRequestReminder(
     .maybeSingle();
   if (!record) return { ok: false, error: "Request not found." };
 
-  const recordEmail = String(record.resident_email ?? "").trim().toLowerCase();
-  if (recordEmail !== residentEmail) {
-    return { ok: false, error: "Forbidden." };
-  }
+  const subject = (record.row_data && typeof record.row_data === "object" ? record.row_data as Record<string, unknown> : {}).residentUserId;
+  if (subject !== input.residentUserId) return { ok: false, error: "Forbidden." };
 
   const managerUserId = String(record.manager_user_id ?? "").trim();
   if (!managerUserId) return { ok: false, error: "Request has no manager." };
 
-  const belongs = await residentBelongsToManager(db, { residentEmail, managerUserId });
-  if (!belongs) return { ok: false, error: "Forbidden." };
+  const managers = await residentSubjectManagerIds(db, input.residentUserId, residentEmail);
+  if (!managers.includes(managerUserId)) return { ok: false, error: "Forbidden." };
 
   const rowData = (record.row_data ?? {}) as ServiceRequest;
   if (rowData.status !== "pending") {

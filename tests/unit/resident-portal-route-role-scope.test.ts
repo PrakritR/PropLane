@@ -24,8 +24,8 @@ let PORTAL_ROLES: string[] = [];
 let EFFECTIVE_ROLE: string | null = null;
 let PORTAL_CONTEXT_THROWS = false;
 
-const RESIDENT_ROW = { id: "wo-mine", title: "My leaky sink", residentEmail: RESIDENT_EMAIL };
-const OTHER_RESIDENT_ROW = { id: "wo-theirs", title: "Someone else's sink", residentEmail: "tenant@example.com" };
+const RESIDENT_ROW = { residentUserId: USER_ID, id: "wo-mine", title: "My leaky sink", residentEmail: RESIDENT_EMAIL };
+const OTHER_RESIDENT_ROW = { residentUserId: "other-user", id: "wo-theirs", title: "Someone else's sink", residentEmail: "tenant@example.com" };
 const MANAGER_ONLY_ROW = { id: "wo-portfolio", title: "Portfolio roof", residentEmail: "tenant@example.com" };
 
 const ALL_RECORDS = [
@@ -85,7 +85,7 @@ function makeDb() {
       const rowsFor = () => {
         if (table === "portal_work_order_records" || table === "portal_service_request_records") {
           return ALL_RECORDS.filter((row) =>
-            filters.every(([col, val]) => (col === "resident_email" ? row.resident_email === val : true)),
+            filters.every(([col, val]) => col === "resident_email" ? row.resident_email === val : col === "row_data->>residentUserId" ? row.row_data.residentUserId === val : true),
           );
         }
         if (table === "profile_roles") return PROFILE_ROLES.map(role => ({ role }));

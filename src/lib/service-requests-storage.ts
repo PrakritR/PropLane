@@ -34,6 +34,7 @@ export function isCustomServiceRequest(req: Pick<ServiceRequest, "offerId">): bo
 
 export type ServiceRequest = {
   id: string;
+  residentUserId?: string | null;
   // Offer snapshot at time of request
   offerId: string;
   offerName: string;

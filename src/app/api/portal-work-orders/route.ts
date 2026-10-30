@@ -1,3 +1,4 @@
+import { residentSubjectHasHouse } from "@/lib/auth/resident-subject-evidence.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse, after } from "next/server";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
@@ -141,7 +142,6 @@ export async function GET(req: Request) {
       legacyRole: profile?.role,
     });
     if (role === "denied" && !oversight) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
-    const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
 
     // A manager+vendor account resolves to "manager" above (profiles.role is the role it was
     // created as); the portal the request came from decides, via profile_roles + the active-portal cookie.
@@ -230,7 +230,7 @@ export async function GET(req: Request) {
       .limit(500);
 
     if (!oversight && role === "resident") {
-      query = query.eq("resident_email", email);
+      query = query.eq("row_data->>residentUserId", user.id);
     }
 
     const { data, error } = await query;
@@ -248,7 +248,7 @@ export async function GET(req: Request) {
 
 type Actor = { userId: string; email: string; admin: boolean; role: string };
 
-type OwnerCols = { manager_user_id?: string | null; resident_email?: string | null };
+type OwnerCols = { manager_user_id?: string | null; resident_email?: string | null; row_data?: { residentUserId?: string | null } | null };
 
 /** Whether the caller POSITIVELY owns a row: the manager it is stamped to, the
  * resident it is addressed to, or an admin.
@@ -261,8 +261,8 @@ type OwnerCols = { manager_user_id?: string | null; resident_email?: string | nu
 function actorOwnsRecord(actor: Actor, rec: OwnerCols | null): boolean {
   if (actor.admin) return true;
   if (!rec) return false;
-  if (rec.manager_user_id && rec.manager_user_id === actor.userId) return true;
-  if (rec.resident_email && actor.email && rec.resident_email.trim().toLowerCase() === actor.email) return true;
+  if (actor.role === "manager" && rec.manager_user_id && rec.manager_user_id === actor.userId) return true;
+  if (actor.role === "resident" && rec.row_data?.residentUserId === actor.userId) return true;
   return false;
 }
 
@@ -318,8 +318,8 @@ async function resolveVendorOwnerManagerUserId(
 
 /** Build the persisted record, binding scope columns to the authenticated caller
  * so a client cannot spoof ownership. */
-function recordForActor(actor: Actor, row: DemoManagerWorkOrderRow, vendorUserId: string | null) {
-  const normalized = normalizeRow(row);
+function recordForActor(actor: Actor, row: DemoManagerWorkOrderRow, vendorUserId: string | null, previous: OwnerCols | null) {
+  const normalized = { ...normalizeRow(row), residentUserId: actor.role === "resident" && !actor.admin ? actor.userId : previous?.row_data?.residentUserId ?? null };
   const withManager: DemoManagerWorkOrderRow =
     actor.admin || actor.role === "resident"
       ? normalized
@@ -619,7 +619,7 @@ export async function POST(req: Request) {
         claimedManagerUserId: row.managerUserId,
         claimedPropertyId: row.propertyId || row.assignedPropertyId,
       });
-      if (!scope) return null;
+      if (!scope || !scope.propertyId || !(await residentSubjectHasHouse(db, actor.userId, actor.email, scope.managerUserId, scope.propertyId))) return null;
       // The link between a service and the add-on request that spawned a vendor job is manager-owned: a resident
       // who set it could hide their own service from the manager's lists and skip the manager notice. Only a
       // value the server already stored survives a resident write.
@@ -709,7 +709,7 @@ export async function POST(req: Request) {
           await resolveVendorOwnerManagerUserId(db, actor, timedRow),
         );
         if (rejected) continue;
-        const persisted = recordForActor(actor, timedRow, vendorUserId);
+        const persisted = recordForActor(actor, timedRow, vendorUserId, existing);
         preserveServerDispatch(persisted.row_data, existing);
         const { error: upsertError } = await db
           .from("portal_work_order_records")
@@ -775,7 +775,7 @@ export async function POST(req: Request) {
     if (rejected) return NextResponse.json({ error: "Forbidden: vendor not available to this manager." }, { status: 403 });
     // Single-row upserts also serve both create and edit; `existing` (fetched
     // above) being null means a genuinely new row → notify the resident.
-    const persisted = recordForActor(actor, timedRow, vendorUserId);
+    const persisted = recordForActor(actor, timedRow, vendorUserId, existing);
     preserveServerDispatch(persisted.row_data, existing);
     const { error } = await db
       .from("portal_work_order_records")

@@ -25,6 +25,7 @@ vi.mock("@/lib/auth/co-manager-module-scope", async (importOriginal) => ({
   resolveManagerWorkspaceRowScope: async () => ({ propertyIds: null, untaggedOwnedVisible: true }),
 }));
 vi.mock("@/lib/auth/resident-role-access", () => ({ resolveResidentScopedActorRole: async () => "resident" }));
+vi.mock("@/lib/auth/resident-subject-evidence.server", () => ({ residentSubjectHasHouse: async () => true }));
 vi.mock("@/lib/resident-manager-scope", () => ({
   resolveResidentFilingScope: async () => ({ managerUserId: "mgr-1", propertyId: "prop-a" }),
 }));
@@ -101,6 +102,7 @@ describe("a resident cannot mark their own work order as an add-on vendor job", 
     const res = await postRow({ id: "wo-res-1", title: "Leaking tap", propertyId: "prop-a", linkedServiceRequestId: "sr-victim", linkedWorkOrderId: "wo-x" });
     expect(res.status).toBe(200);
     expect(UPSERTS).toHaveLength(1);
+    expect(UPSERTS[0]!.row_data.residentUserId).toBe("res-1");
     expect(UPSERTS[0]!.row_data).not.toHaveProperty("linkedServiceRequestId");
     expect(UPSERTS[0]!.row_data).not.toHaveProperty("linkedWorkOrderId");
     // The created-service notice to the manager's team was not skipped.
@@ -113,7 +115,7 @@ describe("a resident cannot mark their own work order as an add-on vendor job", 
       manager_user_id: "mgr-1",
       resident_email: "res@example.com",
       dispatch: null,
-      row_data: { id: "wo-res-2", title: "Add-on job", linkedServiceRequestId: "sr-real" },
+      row_data: { residentUserId: "res-1", id: "wo-res-2", title: "Add-on job", linkedServiceRequestId: "sr-real" },
     };
     await postRow({ id: "wo-res-2", title: "Edited", propertyId: "prop-a", linkedServiceRequestId: "sr-other" });
     expect(UPSERTS[0]!.row_data.linkedServiceRequestId).toBe("sr-real");
@@ -121,5 +123,11 @@ describe("a resident cannot mark their own work order as an add-on vendor job", 
     UPSERTS = [];
     await postRow({ id: "wo-res-2", title: "Edited", propertyId: "prop-a" });
     expect(UPSERTS[0]!.row_data.linkedServiceRequestId).toBe("sr-real");
+  });
+  it("does not let the same mailbox edit another subject's service", async () => {
+    STORED_ROW = { manager_user_id: "mgr-1", resident_email: "res@example.com", row_data: { id: "wo-other", residentUserId: "other-subject" } };
+    const res = await postRow({ id: "wo-other", propertyId: "prop-a", residentUserId: "res-1" });
+    expect(res.status).toBe(403);
+    expect(UPSERTS).toHaveLength(0);
   });
 });
