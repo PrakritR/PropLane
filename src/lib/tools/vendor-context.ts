@@ -35,10 +35,10 @@ export async function resolveVendorAgentContext(): Promise<VendorAgentContext | 
   if (!user) return null;
 
   const db = createSupabaseServiceRoleClient();
-  const { data: roleRows } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+  const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+  if (roleError) return null;
   const roleList = (roleRows ?? []).map((r) => String(r.role).toLowerCase());
-  const legacyRole = String(profile?.role ?? "").toLowerCase();
-  const roles = roleList.length > 0 ? roleList : legacyRole ? [legacyRole] : [];
+  const roles = roleList;
   if (!roles.includes("vendor")) return null;
 
   const email = String(profile?.email ?? user.email ?? "").trim().toLowerCase();

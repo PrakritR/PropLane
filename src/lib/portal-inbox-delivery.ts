@@ -1211,7 +1211,7 @@ export async function deliverPortalInboxMessage(
   // (mirrors send-inbox-message) since profiles.role may not literally be "admin".
   const senderIsAdmin =
     opts.recipientsAuthorizedByCaller === true ||
-    senderRole === "admin" ||
+    opts.senderRole === "admin" ||
     (await userHoldsAdminRole(db, opts.senderUserId));
   if (!senderIsAdmin) {
     // Same narrowing the interactive route applies: the workspace this send

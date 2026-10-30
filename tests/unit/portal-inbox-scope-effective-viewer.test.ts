@@ -30,6 +30,7 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({
 const db = {
   auth: { admin: { getUserById: vi.fn(async () => ({ data: { user: { email: "manager@example.com", email_confirmed_at: "confirmed" } }, error: null })) } },
   from: vi.fn((table: string) => {
+    if (table === "profile_roles") return { select: () => ({ eq: async () => ({ data: state.admin ? [{ role: "admin" }] : [{ role: "resident" }], error: null }) }) };
     let ids: string[] | null = null;
     const chain = {
       select: () => chain,

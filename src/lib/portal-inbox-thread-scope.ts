@@ -105,8 +105,11 @@ export async function resolveInboxScopeUser(scope: string): Promise<{
   const profileEmail = profile?.email?.trim().toLowerCase() ?? "";
   let actorEmail = authUser.email_confirmed_at && authEmail && (!profileEmail || profileEmail === authEmail) ? authEmail : null;
   let actorName = String(profile?.full_name ?? "").trim() || null;
-  const legacyRole = String(profile?.role ?? "").toLowerCase();
-  const role = admin ? "admin" : legacyRole === "admin" ? "" : legacyRole;
+  const { data: storedRoles, error: storedRoleError } = await db.from("profile_roles").select("role").eq("user_id", authUser.id);
+  if (storedRoleError) return null;
+  const scopeRole = portalForScope(scope);
+  const roles = normalizePortalRoles(storedRoles, null);
+  const role = admin ? "admin" : scopeRole && roles.includes(scopeRole) ? scopeRole : "";
 
   if (admin && scope !== ADMIN_INBOX_SCOPE) {
     const portal = portalForScope(scope);
@@ -142,7 +145,7 @@ export async function resolveInboxScopeUser(scope: string): Promise<{
 /**
  * May this caller WRITE a row into `scope`? A scope names whose inbox a row
  * lands in, so it has to match a portal the caller really holds (profile_roles,
- * legacy profiles.role as the fallback) - and the admin inbox is admin-only.
+ * and no legacy profile fallback) - and the admin inbox is admin-only.
  * Everything else is refused, so an unknown scope string never reaches the table.
  */
 export async function callerMayWriteInboxScope(
@@ -154,7 +157,8 @@ export async function callerMayWriteInboxScope(
   const portal = portalForScope(scope);
   if (!portal) return false;
   if (user.role === "admin") return true;
-  const { data } = await db.from("profile_roles").select("role").eq("user_id", user.id);
-  const roles = normalizePortalRoles((data ?? []) as { role: string }[], user.role);
+  const { data, error } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+  if (error) return false;
+  const roles = normalizePortalRoles((data ?? []) as { role: string }[], null);
   return roles.includes(portal);
 }
