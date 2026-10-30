@@ -14,15 +14,12 @@ export type AdminBillingRouteTarget = {
   body: Record<string, unknown>;
 };
 
-/** True only for an account that holds the manager role (`profile_roles`; legacy `profiles.role` as the fallback). */
+/** True only for an account with a stored manager role grant. */
 async function isManagerAccount(db: SupabaseClient, userId: string): Promise<boolean | null> {
   const roles = await db.from("profile_roles").select("role").eq("user_id", userId);
   if (roles.error) return null;
   const rows = (roles.data ?? []) as { role?: string | null }[];
-  if (rows.length > 0) return rows.some((r) => String(r.role ?? "").trim().toLowerCase() === "manager");
-  const profile = await db.from("profiles").select("role").eq("id", userId).maybeSingle();
-  if (profile.error) return null;
-  return String((profile.data as { role?: string | null } | null)?.role ?? "").trim().toLowerCase() === "manager";
+  return rows.some((r) => String(r.role ?? "").trim().toLowerCase() === "manager");
 }
 
 /**
