@@ -12,6 +12,12 @@ begin
   select * into w from public.portal_work_order_records where id=r.source_id and manager_user_id=p_owner and resident_user_id=p_resident for update;
   if not found then return jsonb_build_object('applied',false); end if;
   if pg_catalog.jsonb_typeof(w.row_data) is distinct from 'object' then return jsonb_build_object('applied',false); end if;
+  -- An independently terminal service must never be reopened or overwritten.
+  if pg_catalog.lower(pg_catalog.btrim(coalesce(w.row_data->>'bucket',''))) in ('completed','cancelled','canceled')
+     or pg_catalog.lower(pg_catalog.btrim(coalesce(w.row_data->>'status',''))) in ('completed','cancelled','canceled')
+     or nullif(w.row_data->>'completedAt','') is not null then
+    return jsonb_build_object('applied',false);
+  end if;
   next_row := w.row_data;
   confirmation := next_row->'residentConfirmation';
   if pg_catalog.jsonb_typeof(confirmation)='object' and nullif(confirmation->>'respondedAt','') is null then
