@@ -36,7 +36,7 @@ import { withAuthTimeout } from "@/lib/auth/with-timeout";
  * implementation backs the integrated pricing-page signup — the ONLY manager signup
  * surface on the web.
  */
-function LegacyManagerSignupPanel({
+export function ManagerSignupPanel({
   tier,
   billing,
   planTiers = MANAGER_PLAN_TIERS,
@@ -330,8 +330,4 @@ function LegacyManagerSignupPanel({
       {!hideLegalFooter ? <AuthLegalConsent action="create" className="mt-2" /> : null}
     </div>
   );
-}
-
-export function ManagerSignupPanel(_props: Parameters<typeof LegacyManagerSignupPanel>[0]) {
-  return <p>Paid account setup is temporarily unavailable. Please return to pricing later.</p>;
 }
