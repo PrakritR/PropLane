@@ -123,6 +123,7 @@ function seed() {
         updated_at: "2026-06-01T00:00:00.000Z",
         row_data: {
           id: "APP-A",
+          residentUserId: RES_A.id,
           name: "Res A",
           email: RES_A.email,
           bucket: "approved",
@@ -139,6 +140,7 @@ function seed() {
         updated_at: "2026-06-01T00:00:00.000Z",
         row_data: {
           id: "APP-B",
+          residentUserId: RES_B.id,
           name: "Res B",
           email: RES_B.email,
           bucket: "approved",

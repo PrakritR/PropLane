@@ -281,7 +281,7 @@ function NativeAuthHubInner({ defaultMode = "sign-in", phoneFirst = false }: Nat
       });
 
       if (error) {
-        setSignInError(presentSignInError(error.message.toLowerCase().includes("email not confirmed") ? "Verify your email using the link sent to you, then sign in." : error.message));
+        setSignInError(presentSignInError(error.message));
         setFailedSignInAttempts((n) => n + 1);
         return;
       }

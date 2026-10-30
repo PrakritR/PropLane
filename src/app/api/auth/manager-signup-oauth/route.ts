@@ -22,7 +22,7 @@ export async function POST(req: Request) {
       data: { session },
     } = await supabaseAuth.auth.getSession();
 
-    if (!user?.id || !user.email) {
+    if (!user?.id || !user.email || !user.email_confirmed_at) {
       return NextResponse.json({ error: "Sign in with Google first." }, { status: 401 });
     }
 

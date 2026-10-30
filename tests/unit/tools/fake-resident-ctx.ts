@@ -222,6 +222,10 @@ export function makeResidentToolCtx(
 ): FakeResidentSetup {
   const mutations: FakeMutation[] = [];
   const db = {
+    auth: { admin: { getUserById: async (id: string) => {
+      const profile = tables.profiles?.find((row) => row.id === id);
+      return { data: { user: profile ? { id, email: profile.email, email_confirmed_at: "2026-01-01" } : null }, error: null };
+    } } },
     async rpc(name: string, args: FakeRow) {
       if (name !== "commit_room_lease_extension") throw new Error(`Unexpected RPC ${name}`);
       const lease = tables.portal_lease_pipeline_records?.find(r => r.id === args.p_lease_id && r.manager_user_id === args.p_owner);

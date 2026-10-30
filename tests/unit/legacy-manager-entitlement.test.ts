@@ -19,8 +19,11 @@ describe("verified legacy manager entitlement", () => {
   it("refuses an unconfirmed session", async () => {
     await expect(hasVerifiedLegacyManagerEntitlement(db() as never, { ...user, email_confirmed_at: undefined } as User)).resolves.toBe(false);
   });
-  it.each([{ authEmail: "other@example.test" }, { profileEmail: "other@example.test" }, { owner: "00000000-0000-4000-8000-0000000000bb" }, { sessionId: "axis_pending_123" }])("does not use mismatched, other-owned, or pending rows", async (options) => {
+  it.each([{ authEmail: "other@example.test" }, { owner: "00000000-0000-4000-8000-0000000000bb" }, { sessionId: "axis_pending_123" }])("does not use mismatched, other-owned, or pending rows", async (options) => {
     await expect(hasVerifiedLegacyManagerEntitlement(db(options) as never, user)).resolves.toBe(false);
+  });
+  it("does not depend on a stale mutable profile email", async () => {
+    await expect(hasVerifiedLegacyManagerEntitlement(db({ profileEmail: "other@example.test" }) as never, user)).resolves.toBe(true);
   });
   it("fails closed when account verification cannot be read", async () => {
     await expect(hasVerifiedLegacyManagerEntitlement(db({ failAuth: true }) as never, user)).rejects.toThrow(/try again/i);

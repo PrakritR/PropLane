@@ -175,11 +175,11 @@ describe("provisionResidentAccountByEmail default-deny", () => {
     expect(attachInboxThreadsToResident).not.toHaveBeenCalled();
   });
 
-  it("the explicitly proven path attaches the inbox threads", async () => {
+  it("the explicitly proven path does not attach historical threads by email", async () => {
     vi.clearAllMocks();
     findAuthUserIdByEmail.mockResolvedValue("user-1");
     const { client } = mockSupabase();
     await provisionResidentAccountByEmail(client as never, { userId: "user-1", email: "guest@example.com", emailProven: true });
-    expect(attachInboxThreadsToResident).toHaveBeenCalledWith(expect.anything(), "user-1", "guest@example.com");
+    expect(attachInboxThreadsToResident).not.toHaveBeenCalled();
   });
 });

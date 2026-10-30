@@ -278,11 +278,12 @@ async function upsertInboxThread(
   }
 }
 
-/** Prospect/resident inbox row for tour acks, lead invites, etc. — backfilled on account creation. */
+/** Resident inbox row only when the caller has established its exact subject. */
 export async function recordResidentProspectInboxMessage(
   db: Db,
   input: {
     participantEmail: string;
+    residentUserId?: string;
     subject: string;
     body: string;
     fromName?: string;
@@ -382,12 +383,26 @@ async function recordGuestInboxCopy(
   input: Parameters<typeof recordResidentProspectInboxMessage>[1],
 ): Promise<{ sent: boolean; error?: string }> {
   try {
-    await recordResidentProspectInboxMessage(db, input);
+    const owner = await linkedTourNoticeOwner(db, inquiryId, input.managerUserId, input.propertyId);
+    if (!owner) return { sent: false };
+    await recordResidentProspectInboxMessage(db, { ...input, residentUserId: owner });
     return { sent: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not record the guest inbox copy.";
     console.warn("[tour-notification] guest inbox copy skipped", { inquiryId, error: message });
     return { sent: false, error: message };
+  }
+}
+
+/** Exact inquiry binding, never a profile or email match, authorizes an inbox copy. */
+async function linkedTourNoticeOwner(db: Db, inquiryId: string | null, managerId?: string | null, propertyId?: string | null): Promise<string | null> {
+  if (!inquiryId || !managerId || !propertyId) return null;
+  try {
+    const { data, error } = await db.from("resident_tour_links").select("resident_user_id").eq("inquiry_id", inquiryId).eq("manager_user_id", managerId).eq("property_id", propertyId).limit(2);
+    if (error || !data || data.length !== 1) return null;
+    return typeof data[0]?.resident_user_id === "string" ? data[0].resident_user_id : null;
+  } catch {
+    return null;
   }
 }
 
@@ -921,8 +936,9 @@ async function notifyTenantTourChanged(
   const hasGuestEmail = guestEmail.includes("@");
   if (hasGuestEmail) {
     const manager = await resolveTourManagerIdentity(db, managerUserId);
-    if (manager && propertyId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
-      participantEmail: guestEmail, managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
+    const residentUserId = await linkedTourNoticeOwner(db, textField(row, "id") || null, managerUserId, propertyId);
+    if (manager && propertyId && residentUserId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
+      participantEmail: guestEmail, residentUserId, managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
       subject, body: text, counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name,
       messageId: `tour:${textField(row, "id") || propertyId}:${input.kind}:${input.rescheduleGeneration?.trim() || `${input.previousWindow?.start ?? ""}:${input.previousWindow?.end ?? ""}:${input.window.start}:${input.window.end}`}`,
     }).then(() => true).catch(() => false);
@@ -1093,8 +1109,9 @@ async function deliverTenantTourConfirmed(
   const hasGuestEmail = guestEmail.includes("@");
   if (hasGuestEmail) {
     const manager = await resolveTourManagerIdentity(db, window.managerUserId);
-    if (manager && propertyId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
-      participantEmail: guestEmail, managerUserId: window.managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
+    const residentUserId = await linkedTourNoticeOwner(db, textField(inquiry as Record<string, unknown>, "id") || null, window.managerUserId, propertyId);
+    if (manager && propertyId && residentUserId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
+      participantEmail: guestEmail, residentUserId, managerUserId: window.managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
       subject, body: text, counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name,
       messageId: `tour:${textField(inquiry as Record<string, unknown>, "id") || propertyId}:confirmed:${window.start}:${window.end}`,
     }).then(() => true).catch(() => false);
