@@ -1,14 +1,13 @@
 import { NextResponse, after } from "next/server";
-import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import {
   consumeResidentSetupTokenOnApplication,
   findApplicationForResidentSetup,
   residentSetupIdFromUrlParams,
 } from "@/lib/auth/resident-setup-token";
 import { provisionResidentAccountByEmail } from "@/lib/auth/provision-resident-account";
-import { assertPasswordMatchesExistingAuthUser } from "@/lib/auth/verify-auth-password";
 import { sendResidentPropLaneAssistantIntro } from "@/lib/claw-onboarding-sms.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { normalizeE164 } from "@/lib/phone-e164";
 
 export const runtime = "nodejs";
@@ -96,41 +95,16 @@ export async function POST(req: Request) {
       );
     }
 
-    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: {
-        role: "resident",
-        full_name: fullName || lookup.name || undefined,
-        axis_id: lookup.axisId,
-      },
-    });
-
-    let userId: string;
-
-    if (createErr) {
-      const exists =
-        createErr.message.toLowerCase().includes("already") ||
-        createErr.message.toLowerCase().includes("registered");
-      if (!exists) {
-        return NextResponse.json({ error: createErr.message }, { status: 400 });
-      }
-      const existingId = await findAuthUserIdByEmail(supabase, email);
-      if (!existingId) {
-        return NextResponse.json({ error: "Could not locate existing account for this email." }, { status: 400 });
-      }
-      const pwCheck = await assertPasswordMatchesExistingAuthUser(email, password);
-      if (!pwCheck.ok) {
-        return NextResponse.json({ error: pwCheck.message }, { status: 401 });
-      }
-      userId = existingId;
-    } else {
-      if (!created?.user?.id) {
-        return NextResponse.json({ error: "Could not create account." }, { status: 500 });
-      }
-      userId = created.user.id;
+    // A setup token can be delivered to a guest browser during draft autosave;
+    // possession of it is not proof that the applicant owns the email address.
+    // It must never be used to create a confirmed account or inherit a record.
+    const auth = await createSupabaseServerClient();
+    const { data: { user } } = await auth.auth.getUser();
+    if (!user || user.email?.trim().toLowerCase() !== lookup.email || !user.email_confirmed_at) {
+      return NextResponse.json({ error: "Verify your email and sign in before completing account setup.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
     }
+
+    const userId = user.id;
 
     const provisioned = await provisionResidentAccountByEmail(supabase, {
       userId,

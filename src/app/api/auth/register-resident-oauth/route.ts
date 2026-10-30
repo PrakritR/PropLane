@@ -8,7 +8,6 @@ import {
 import {
   consumeResidentSetupTokenOnApplication,
   findApplicationForResidentSetup,
-  relinkResidentSetupApplicationEmail,
 } from "@/lib/auth/resident-setup-token";
 import { provisionResidentAccountByEmail } from "@/lib/auth/provision-resident-account";
 import { scheduleResidentSetupLinkEmail } from "@/lib/auth/schedule-resident-setup-link";
@@ -140,15 +139,13 @@ export async function POST(req: Request) {
     if (!lookup.ok) {
       return NextResponse.json({ error: lookup.error }, { status: lookup.status });
     }
-
-    // A valid setup token already authorizes this handoff, so a Google email that
-    // differs from the one on the application is not an error — the applicant just
-    // chose a different Google account. Relink the application onto the account
-    // they actually control instead of rejecting them.
-    let applicationRow = lookup.row;
-    if (oauthEmail !== lookup.email) {
-      applicationRow = await relinkResidentSetupApplicationEmail(service, lookup.row, oauthEmail);
+    // Draft setup tokens can be returned to the browser and do not prove
+    // control of the original applicant's email. OAuth proves only its own email.
+    if (oauthEmail !== lookup.email || !user.email_confirmed_at) {
+      return NextResponse.json({ error: "Sign in with the verified email used on the application.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
     }
+
+    const applicationRow = lookup.row;
 
     const fullName = oauthFullName(user.user_metadata) ?? lookup.name;
 
@@ -172,7 +169,6 @@ export async function POST(req: Request) {
       ok: true,
       axisId: lookup.axisId,
       linkedApplication: true,
-      relinkedEmail: oauthEmail !== lookup.email ? oauthEmail : undefined,
       redirectTo: "/resident/applications",
     });
   } catch (e) {

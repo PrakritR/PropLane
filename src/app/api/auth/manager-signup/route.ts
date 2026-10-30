@@ -1,3 +1,4 @@
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
@@ -23,6 +24,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
     }
 
+    const auth = await createSupabaseServerClient();
+    const { data: { user } } = await auth.auth.getUser();
+    if (!user?.email_confirmed_at || !user.email) return NextResponse.json({ error: "Verify your email and sign in before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
     const supabase = createSupabaseServiceRoleClient();
 
     if (isAxisIntentSessionId(sessionId)) {
@@ -41,6 +45,7 @@ export async function POST(req: Request) {
 
       const fullName = purchase.full_name?.trim() ?? "";
       const email = purchase.email;
+      if (user.email!.trim().toLowerCase() !== email.trim().toLowerCase()) return NextResponse.json({ error: "Verify the purchase email before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
 
       const { data: created, error: cErr } = await supabase.auth.admin.createUser({
         email,
@@ -131,6 +136,7 @@ export async function POST(req: Request) {
 
     const fullName = session.metadata?.full_name?.trim() ?? "";
     const email = purchase.email;
+    if (user.email!.trim().toLowerCase() !== email.trim().toLowerCase()) return NextResponse.json({ error: "Verify the purchase email before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
 
     let userId: string;
 

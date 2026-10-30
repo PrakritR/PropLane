@@ -6,6 +6,7 @@ import { provisionResidentAccountByEmail } from "@/lib/auth/provision-resident-a
 import { scheduleResidentSetupLinkEmail } from "@/lib/auth/schedule-resident-setup-link";
 import { assertPasswordMatchesExistingAuthUser } from "@/lib/auth/verify-auth-password";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
@@ -45,6 +46,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
     }
 
+    const auth = await createSupabaseServerClient();
+    const { data: { user } } = await auth.auth.getUser();
+    if (!user?.email_confirmed_at || user.email?.trim().toLowerCase() !== email) {
+      return NextResponse.json({ error: "Verify your email and sign in before completing account setup.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
+    }
     const supabase = createSupabaseServiceRoleClient();
 
     const { data: created, error: createErr } = await supabase.auth.admin.createUser({

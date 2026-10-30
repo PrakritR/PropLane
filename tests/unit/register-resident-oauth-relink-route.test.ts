@@ -3,10 +3,7 @@ vi.mock("@/lib/auth/account-recovery.server", () => ({ pendingAccountRecovery: v
 
 /**
  * POST /api/auth/register-resident-oauth — resident account creation via Google,
- * authorized by the setup token + axis id. Captain rule: a Google email that
- * DIFFERS from the application email is allowed — relink the application onto the
- * account the applicant actually controls instead of rejecting them. A matching
- * email must NOT trigger a relink.
+ * A browser-issued setup token cannot prove control of another person's email.
  */
 
 const { getUserMock, findLookup, relinkMock, provisionMock, consumeMock } = vi.hoisted(() => ({
@@ -67,23 +64,18 @@ describe("POST /api/auth/register-resident-oauth — email mismatch relink", () 
     getUserMock.mockReset();
   });
 
-  it("relinks the application to the different Google email instead of rejecting", async () => {
-    getUserMock.mockResolvedValue({ data: { user: { id: "user-1", email: "different.google@example.com", user_metadata: {} } } });
+  it("refuses to relink an application to a different Google email", async () => {
+    getUserMock.mockResolvedValue({ data: { user: { id: "user-1", email: "different.google@example.com", email_confirmed_at: "2026-10-30T00:00:00Z", user_metadata: {} } } });
 
     const res = await POST(post({ axisId: "PROPLANE-OAUTH01", token: "tok" }));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok?: boolean; relinkedEmail?: string };
-    expect(body.ok).toBe(true);
-    expect(body.relinkedEmail).toBe("different.google@example.com");
-    expect(relinkMock).toHaveBeenCalledWith(expect.anything(), APP_ROW, "different.google@example.com");
-    expect(provisionMock).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ email: "different.google@example.com", phone: "(206) 555-0142" }),
-    );
+    expect(res.status).toBe(403);
+    expect(relinkMock).not.toHaveBeenCalled();
+    expect(provisionMock).not.toHaveBeenCalled();
+    expect(consumeMock).not.toHaveBeenCalled();
   });
 
   it("does not relink when the Google email matches the application", async () => {
-    getUserMock.mockResolvedValue({ data: { user: { id: "user-1", email: "Applied@Example.com", user_metadata: {} } } });
+    getUserMock.mockResolvedValue({ data: { user: { id: "user-1", email: "Applied@Example.com", email_confirmed_at: "2026-10-30T00:00:00Z", user_metadata: {} } } });
 
     const res = await POST(post({ axisId: "PROPLANE-OAUTH01", token: "tok" }));
     expect(res.status).toBe(200);

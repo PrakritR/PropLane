@@ -1,3 +1,4 @@
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { isValidAdminRegisterKey } from "@/lib/auth/admin-register-key";
 import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
@@ -20,6 +21,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Valid email and password (8+ chars) required." }, { status: 400 });
     }
 
+    const auth = await createSupabaseServerClient();
+    const { data: { user } } = await auth.auth.getUser();
+    if (!user?.email_confirmed_at || user.email?.trim().toLowerCase() !== email.trim().toLowerCase()) return NextResponse.json({ error: "Verify your email and sign in before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
     const normalEmail = email.trim().toLowerCase();
     if (!isPrimaryAdminEmail(normalEmail)) {
       return NextResponse.json({ error: "Admin registration is restricted to the primary PropLane admin email." }, { status: 403 });

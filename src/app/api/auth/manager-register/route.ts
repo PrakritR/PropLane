@@ -1,3 +1,4 @@
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -91,6 +92,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
     }
 
+    const auth = await createSupabaseServerClient();
+    const { data: { user } } = await auth.auth.getUser();
+    if (!user?.email_confirmed_at || user.email?.trim().toLowerCase() !== email) return NextResponse.json({ error: "Verify your email and sign in before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
     const supabase = createSupabaseServiceRoleClient();
 
     const { data: created, error: createErr } = await supabase.auth.admin.createUser({

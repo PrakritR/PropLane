@@ -1,6 +1,7 @@
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { assertPasswordMatchesExistingAuthUser } from "@/lib/auth/verify-auth-password";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { NextResponse } from "next/server";
 
@@ -46,6 +47,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
     }
 
+    const auth = await createSupabaseServerClient();
+    const { data: { user } } = await auth.auth.getUser();
+    if (!user?.email_confirmed_at || user.email?.trim().toLowerCase() !== email) {
+      return NextResponse.json({ error: "Verify your email and sign in before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
+    }
     const supabase = createSupabaseServiceRoleClient();
     const { error: createErr } = await supabase.auth.admin.createUser({
       email,
