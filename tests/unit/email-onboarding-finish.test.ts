@@ -31,6 +31,21 @@ describe("email onboarding completion", () => {
     expect((await POST(request())).status).toBe(200);
     expect(m.provision).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ userId: "resident", applicationId: "application" }));
   });
+  it("converges when two requests finish the same verified claim", async () => {
+    const claim = { id: "claim", application_id: "application", status: "processing" };
+    m.claim.mockResolvedValueOnce({ data: claim, error: null })
+      .mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({ data: claim, error: null })
+      .mockResolvedValueOnce({ data: { id: "claim" }, error: null })
+      .mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({ data: { status: "completed" }, error: null });
+    m.application.mockResolvedValue({ data: { resident_email: "owner@example.com" }, error: null });
+    m.provision.mockResolvedValue(true);
+    const responses = await Promise.all([POST(request()), POST(request())]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    expect(m.provision).toHaveBeenCalledTimes(2);
+    for (const call of m.provision.mock.calls) expect(call[1]).toMatchObject({ userId: "resident", applicationId: "application" });
+  });
   it("refuses a paid purchase whose current email differs from the session", async () => {
     m.claim.mockResolvedValue({ data: { id: "claim", intent: "manager_paid", manager_purchase_id: "purchase" }, error: null });
     m.purchase.mockResolvedValue({ data: { email: "victim@example.com", user_id: null }, error: null });
