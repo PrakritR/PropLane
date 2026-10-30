@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { parseResidentIdentityStatus } from "@/lib/resident-identity/status";
 
-const sql = readFileSync("supabase/migrations/20261029120000_resident_identity_verification.sql", "utf8");
+const sql = readFileSync("supabase/migrations/20261030120000_resident_identity_verification.sql", "utf8");
 const tables = ["subjects", "inquiries", "webhook_events", "manual_reviews"];
 
 describe("resident identity storage boundary", () => {
