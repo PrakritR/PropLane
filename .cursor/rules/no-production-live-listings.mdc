@@ -58,3 +58,10 @@ houses (`mgr-listing-1x3tiu0489ha` = 5257, `mgr-5257-brooklyn-ave-copy-9-rooms-7
 `scripts/one-shot/live-application-fee-zero-20261030.sh` (backup first, writes only
 `property_data.listingSubmission.applicationFee` where it reads "50", reads back). Nothing else on these listings
 is edited. Do not re-run.
+
+## Waiver — 2026-10-30 (captain, explicit, one shot)
+
+Captain: "yes you can make that change" — set 4709A (`mgr-5259-brooklyn-ave-copy-9-rooms-7mdlyj0h2vfg`) Room 9
+(`room-1789775929962-30`) weekly price to 350 and nightly (`shortTermRent`) to "55", the same as Room 1 in that house.
+Applied once by claude-2 with a guarded `jsonb_set` on that room id only (both fields absent before), after a full-row
+backup; read back verified. Nothing else on the listing was edited. Do not re-run.
