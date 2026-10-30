@@ -183,6 +183,29 @@ beforeEach(() => {
 });
 
 describe("POST /api/manager-applications — self-application by a non-resident login", () => {
+  it("blocks new submissions without identity while allowing drafts", async () => {
+    vi.stubEnv("RESIDENT_IDENTITY_ENABLED", "true");
+    vi.stubEnv("PERSONA_API_KEY", "key");
+    vi.stubEnv("PERSONA_TEMPLATE_ID", "template");
+    vi.stubEnv("PERSONA_WEBHOOK_SECRET", "secret");
+    const submitted = await upsert(inProgressRow({ stage: "Submitted" }));
+    expect(submitted.status).toBe(403);
+    expect(submitted.body.blocked).toBe("identity");
+    expect(INSERTS).toHaveLength(0);
+    const draft = await upsert(inProgressRow());
+    expect(draft.status).toBe(200);
+  });
+  it("refuses a guest submission under the identity flag", async () => {
+    vi.stubEnv("RESIDENT_IDENTITY_ENABLED", "true");
+    vi.stubEnv("PERSONA_API_KEY", "key");
+    vi.stubEnv("PERSONA_TEMPLATE_ID", "template");
+    vi.stubEnv("PERSONA_WEBHOOK_SECRET", "secret");
+    getUser.mockResolvedValue({ data: { user: null }, error: null });
+    const result = await upsert(inProgressRow({ stage: "Submitted" }));
+    expect(result.status).toBe(403);
+    expect(result.body.blocked).toBe("identity");
+    expect(INSERTS).toHaveLength(0);
+  });
   it("persists the caller's OWN in-progress application to a listing they do not manage (no 403)", async () => {
     const res = await upsert(inProgressRow());
 

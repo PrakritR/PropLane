@@ -7,6 +7,7 @@ import { applicationWriteErrorResponse } from "@/lib/rental-application/signed-i
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
+import { resolveBaselineResidentIdentity } from "@/lib/resident-identity/baseline.server";
 
 export const runtime = "nodejs";
 
@@ -50,6 +51,12 @@ export async function POST(req: Request) {
     }
     const email = String(profile?.email ?? user.email ?? "").trim().toLowerCase();
     if (!email) return NextResponse.json({ error: "Sign in to apply." }, { status: 401 });
+
+    if (body.dryRun !== true) {
+      const identity = await resolveBaselineResidentIdentity(db, user.id);
+      if (identity === "required") return NextResponse.json({ error: "Verify your identity to submit an application.", blocked: "identity", href: "/resident/profile?tab=profile#verification" }, { status: 403 });
+      if (identity === "unavailable") return NextResponse.json({ error: "Identity verification is unavailable.", blocked: "identity_unavailable", href: "/resident/profile?tab=profile#verification" }, { status: 503 });
+    }
 
     const outcome = await runQuickApply(
       db,

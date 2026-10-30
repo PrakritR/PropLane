@@ -7,7 +7,10 @@ export async function POST() {
   if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const { error: subjectError } = await actor.db.from("resident_identity_subjects").upsert({ resident_user_id: actor.userId }, { onConflict: "resident_user_id", ignoreDuplicates: true });
   if (subjectError) return NextResponse.json({ error: "Verification is unavailable." }, { status: 503 });
-  const { error } = await actor.db.from("resident_identity_manual_reviews").insert({ resident_user_id: actor.userId });
+  const { data: created, error } = await actor.db.from("resident_identity_manual_reviews").insert({ resident_user_id: actor.userId }).select("id").maybeSingle();
   if (error && error.code !== "23505") return NextResponse.json({ error: "Verification is unavailable." }, { status: 503 });
-  return NextResponse.json({ status: "requested" });
+  if (created?.id) return NextResponse.json({ status: "requested", reviewId: created.id });
+  const { data: existing, error: readError } = await actor.db.from("resident_identity_manual_reviews").select("id").eq("resident_user_id", actor.userId).in("status", ["requested", "in_review"]).maybeSingle();
+  if (readError || !existing?.id) return NextResponse.json({ error: "Verification is unavailable." }, { status: 503 });
+  return NextResponse.json({ status: "requested", reviewId: existing.id });
 }

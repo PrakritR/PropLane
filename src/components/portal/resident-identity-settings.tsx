@@ -43,8 +43,9 @@ export function ResidentIdentitySettings() {
         {state.status === "approved" && state.provider && <PortalSettingsRow label="Provider"><span className="text-sm">{state.provider}</span></PortalSettingsRow>}
         {state.status === "approved" && state.verifiedAt && <PortalSettingsRow label="Verified on"><time className="text-sm" dateTime={state.verifiedAt}>{new Date(state.verifiedAt).toLocaleDateString("en-US", { timeZone: "UTC", year: "numeric", month: "short", day: "numeric" })}</time></PortalSettingsRow>}
         <PortalSettingsRow label="Manual review">
-          {state.manualReview ? <span className="text-sm">Requested</span> : state.status === "unavailable" ? <Link className="text-sm text-primary" href="/resident/communication/active">Contact support</Link> : <button type="button" className="text-sm text-primary" disabled={busy || state.status === "loading"} onClick={() => void action("manual-review")}>Request</button>}
+          {state.manualReview ? <span className="text-sm">Requested</span> : state.status === "unavailable" ? <Link className="text-sm text-primary" href="/resident/profile?tab=feedback">Contact PropLane support</Link> : <button type="button" className="text-sm text-primary" disabled={busy || state.status === "loading"} onClick={() => void action("manual-review")}>Request</button>}
         </PortalSettingsRow>
+        {state.manualReview && <PortalSettingsRow label="PropLane support"><Link className="text-sm text-primary" href="/resident/profile?tab=feedback">Contact support</Link></PortalSettingsRow>}
         {error && <PortalSettingsRow label={<span role="alert">{error}</span>} />}
       </PortalSettingsGroup>
     </PortalSettingsSection>

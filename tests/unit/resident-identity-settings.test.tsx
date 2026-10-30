@@ -7,8 +7,8 @@ describe("resident identity settings", () => {
   it("offers support when verification is unavailable", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "unavailable", manualReview: null }) }));
     render(<ResidentIdentitySettings />);
-    const link = await screen.findByRole("link", { name: "Contact support" });
-    expect(link.getAttribute("href")).toBe("/resident/communication/active");
+    const link = await screen.findByRole("link", { name: "Contact PropLane support" });
+    expect(link.getAttribute("href")).toBe("/resident/profile?tab=feedback");
     expect(screen.queryByRole("button", { name: "Verify" })).toBeNull();
   });
   it("shows pending and exposes a resume action", async () => {

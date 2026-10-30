@@ -1,4 +1,5 @@
 import { shortStayApprovalBlocker } from "@/lib/short-stay-pricing-gate.server";
+import { resolveBaselineResidentIdentity } from "@/lib/resident-identity/baseline.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { readListingSource } from "@/lib/listing-channels/lead-source.server";
 import { openApplicantRow, prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
@@ -1318,6 +1319,11 @@ export async function POST(req: Request) {
     if (workspaceGate) return workspaceGate;
     let residentSelfWrite = false;
     if (!user) {
+      if (!isDraftShapedApplicationRow(row)) {
+        const identity = await resolveBaselineResidentIdentity(db, null);
+        if (identity === "required") return NextResponse.json({ error: "Sign in and verify your identity to submit an application.", blocked: "identity", href: "/resident/profile?tab=profile#verification" }, { status: 403 });
+        if (identity === "unavailable") return NextResponse.json({ error: "Identity verification is unavailable.", blocked: "identity_unavailable" }, { status: 503 });
+      }
       const ids = idVariants(requestedRowId);
       const { data: records, error: loadError } = await db
         .from("manager_application_records")
