@@ -6,7 +6,6 @@ import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { randomBytes } from "node:crypto";
 
-export const AUTO_RESIDENT_PASSWORD = "123Password$";
 
 export async function provisionApprovedResidentAccount(
   supabase: SupabaseClient,
@@ -27,7 +26,8 @@ export async function provisionApprovedResidentAccount(
   if (!userId) {
     const { data, error } = await supabase.auth.admin.createUser({
       email,
-      password: options?.mode === "silent_migration" ? randomBytes(32).toString("base64url") : AUTO_RESIDENT_PASSWORD,
+      // Never a known password: the resident gets in through an emailed link, which only the inbox owner can open.
+      password: randomBytes(32).toString("base64url"),
       email_confirm: options?.mode !== "silent_migration",
       user_metadata: {
         role: "resident",
