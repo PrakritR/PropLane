@@ -4,7 +4,7 @@ import ts from "typescript";
 import { expect, it } from "vitest";
 
 /** Identify each call independently, including renamed and namespace imports. */
-function unsafeCalls(source: string, name = "fixture.ts"): Array<{ line: number; call: string }> {
+function unsafeCalls(source: string, name = "fixture.ts"): Array<{ line: number; call: string; owner: string | null }> {
   const file = ts.createSourceFile(name, source, ts.ScriptTarget.Latest, true, name.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const aliases = new Set<string>();
   const namespaces = new Set<string>();
@@ -18,13 +18,21 @@ function unsafeCalls(source: string, name = "fixture.ts"): Array<{ line: number;
       }
     }
   }
-  const unsafe: Array<{ line: number; call: string }> = [];
+  const unsafe: Array<{ line: number; call: string; owner: string | null }> = [];
   function visit(node: ts.Node): void {
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const matches = (ts.isIdentifier(callee) && aliases.has(callee.text)) ||
         (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && namespaces.has(callee.expression.text) && callee.name.text === "normalizePortalRoles");
-      if (matches && node.arguments[1]?.kind !== ts.SyntaxKind.NullKeyword) unsafe.push({ line: file.getLineAndCharacterOfPosition(node.getStart()).line + 1, call: node.getText(file) });
+      if (matches && node.arguments[1]?.kind !== ts.SyntaxKind.NullKeyword) {
+        let parent: ts.Node | undefined = node.parent;
+        while (parent && !ts.isFunctionDeclaration(parent)) parent = parent.parent;
+        unsafe.push({
+          line: file.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+          call: node.getText(file),
+          owner: parent && ts.isFunctionDeclaration(parent) ? parent.name?.text ?? null : null,
+        });
+      }
     }
     ts.forEachChild(node, visit);
   }
@@ -43,13 +51,15 @@ roles(\n rows,\n null\n); portal.normalizePortalRoles(rows, user.role);`;
 
 it("keeps legacy role fallback confined to reviewed display and navigation", () => {
   const root = join(process.cwd(), "src");
-  const exceptions: Record<string, string[]> = {
+  const exceptions: Record<string, Array<{ owner: string; call: string }>> = {
     // These exact calls support contact autofill and client post-auth navigation only.
     "hooks/use-prospect-contact-autofill.ts": [
-      "normalizePortalRoles(roleRows, profile?.role ?? user.user_metadata?.role)",
-      "normalizePortalRoles(null, meta?.role)",
+      { owner: "sync", call: "normalizePortalRoles(roleRows, profile?.role ?? user.user_metadata?.role)" },
+      { owner: "sync", call: "normalizePortalRoles(null, meta?.role)" },
     ],
-    "lib/auth/resolve-post-auth-destination.ts": ["normalizePortalRoles(roleRows, profile?.role)"],
+    "lib/auth/resolve-post-auth-destination.ts": [
+      { owner: "resolveClientPostAuthDestination", call: "normalizePortalRoles(roleRows, profile?.role)" },
+    ],
   };
   function scan(dir: string): void {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -59,7 +69,7 @@ it("keeps legacy role fallback confined to reviewed display and navigation", () 
         const name = relative(root, path);
         const source = readFileSync(path, "utf8");
         const expected = exceptions[name] ?? [];
-        expect(unsafeCalls(source, name).map((item) => item.call), name).toEqual(expected);
+        expect(unsafeCalls(source, name).map(({ owner, call }) => ({ owner, call })), name).toEqual(expected);
         if (name === "hooks/use-prospect-contact-autofill.ts") expect(source).toMatch(/^"use client";/);
         if (name === "lib/auth/resolve-post-auth-destination.ts") expect(source).toContain("resolveClientPostAuthDestination");
       }
