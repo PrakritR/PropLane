@@ -1,3 +1,4 @@
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse } from "next/server";
 import { purgeOrphanedCoManagerLinks } from "@/lib/auth/purge-orphaned-co-manager-links";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -5,7 +6,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
     const auth = await createSupabaseServerClient();
     const {
@@ -18,8 +19,9 @@ export async function POST() {
     if (roleError) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     const admin = (roleRows ?? []).some((row) => row.role === "admin");
     if (!admin && !(roleRows ?? []).some((row) => row.role === "manager")) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    const oversight = await resolveAdminOversight(req, user.id, admin);
 
-    const result = await purgeOrphanedCoManagerLinks(db, { managerUserId: admin ? null : user.id });
+    const result = await purgeOrphanedCoManagerLinks(db, { managerUserId: oversight ? null : user.id });
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to purge orphaned co-manager links.";
