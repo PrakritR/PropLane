@@ -58,7 +58,7 @@ export async function assertSyntheticSessionsAbsentOnDev(authId: string): Promis
 }
 export async function optionalPurgeTableAbsent(db: Db, table: string): Promise<boolean> {
   if (!new Set(["payment_reminder_occurrences", "phone_required_skips", "scheduled_inbox_channel_deliveries"]).has(table)) return false;
-  const result = await db.query("select to_regclass(format('public.%I', $1)) is null as absent", [table]);
+  const result = await db.query("select to_regclass(format('public.%I', $1::text)) is null as absent", [table]);
   return result.rows.length === 1 && result.rows[0]?.absent === true;
 }
 /** PGRST205 is skippable only for these optional tables after a live catalog check. */
