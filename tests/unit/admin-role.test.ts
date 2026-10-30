@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterAdminUserIds, userHoldsAdminRole } from "@/lib/auth/admin-role";
+import { filterAdminUserIds, listAdminUserIds, userHoldsAdminRole } from "@/lib/auth/admin-role";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 
 /**
@@ -47,20 +47,20 @@ describe("userHoldsAdminRole", () => {
     expect(await userHoldsAdminRole(db, "u1")).toBe(true);
   });
 
-  it("accepts a legacy profiles.role = 'admin' account without a profile_roles row", async () => {
+  it("denies a legacy profiles.role = 'admin' account without a profile_roles row", async () => {
     const db = makeDb({
       profile_roles: [],
       profiles: [{ id: "u2", email: "legacy-admin@test.proplane.local", role: "admin" }],
     });
-    expect(await userHoldsAdminRole(db, "u2")).toBe(true);
+    expect(await userHoldsAdminRole(db, "u2")).toBe(false);
   });
 
-  it("keeps the primary-admin email as an always-admin fallback", async () => {
+  it("denies the primary-admin email without a stored role", async () => {
     const db = makeDb({
       profile_roles: [],
       profiles: [{ id: "u3", email: PRIMARY_ADMIN_EMAIL, role: "manager" }],
     });
-    expect(await userHoldsAdminRole(db, "u3")).toBe(true);
+    expect(await userHoldsAdminRole(db, "u3")).toBe(false);
   });
 
   it("does not grant admin to Prakrit's Gmail via the primary-email fallback", async () => {
@@ -101,11 +101,18 @@ describe("filterAdminUserIds", () => {
       ],
     });
     const admins = await filterAdminUserIds(db, ["role-admin", "legacy-admin", "primary", "mgr", "ghost"]);
-    expect([...admins].sort()).toEqual(["legacy-admin", "primary", "role-admin"]);
+    expect([...admins].sort()).toEqual(["role-admin"]);
   });
 
   it("returns an empty set for no ids without querying", async () => {
     const db = makeDb({});
     expect((await filterAdminUserIds(db, [])).size).toBe(0);
   });
+});
+
+it("fails closed for role lookup errors, including the full admin list", async () => {
+  const query = { select: () => query, eq: () => query, in: () => query, then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [{ user_id: "u" }], error: { message: "unavailable" } }).then(resolve) };
+  const db = { from: () => query } as never;
+  expect(await userHoldsAdminRole(db, "u")).toBe(false);
+  await expect(listAdminUserIds(db)).rejects.toThrow();
 });

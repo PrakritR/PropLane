@@ -50,7 +50,7 @@ describe("syncOAuthProfile", () => {
     expect(supabase.update).toHaveBeenCalled();
   });
 
-  it("provisions primary admin when profile is missing, admin role only", async () => {
+  it("does not grant admin for a primary-email OAuth user without a profile", async () => {
     const supabase = mockSupabase(null);
 
     await syncOAuthProfile(supabase as never, {
@@ -59,12 +59,11 @@ describe("syncOAuthProfile", () => {
       user_metadata: { name: "Prakrit" },
     } as never);
 
-    expect(supabase.upsert).toHaveBeenCalled();
-    // Admin-ONLY: the ops admin must never also receive a manager role row.
-    expect(supabase.profileRolesUpsert).toHaveBeenCalledTimes(1);
+    expect(supabase.upsert).not.toHaveBeenCalled();
+    expect(supabase.profileRolesUpsert).not.toHaveBeenCalled();
   });
 
-  it("re-asserts admin and skips manager provisioning for an existing primary admin", async () => {
+  it("does not re-grant a revoked admin role on OAuth sign-in", async () => {
     const supabase = mockSupabase({
       id: "admin-1",
       email: PRIMARY_ADMIN_EMAIL,
@@ -81,6 +80,6 @@ describe("syncOAuthProfile", () => {
     } as never);
 
     expect(supabase.update).toHaveBeenCalled();
-    expect(supabase.profileRolesUpsert).toHaveBeenCalledTimes(1);
+    expect(supabase.profileRolesUpsert).not.toHaveBeenCalled();
   });
 });
