@@ -50,8 +50,29 @@ export async function assertSyntheticSessionsAbsentOnDev(authId: string): Promis
   const client = await connectNonproductionDatabase(nonproductionDatabaseConfig("emstjswhotsnyksqhqyf"));
   try {
     await client.query("BEGIN READ ONLY");
+    await client.query("SET LOCAL ROLE postgres");
     const result = await client.query("select (select count(*) from auth.sessions where user_id=$1::uuid)::int sessions, (select count(*) from auth.refresh_tokens where user_id::text=$1)::int refresh_tokens", [authId]);
     if (result.rows[0]?.sessions !== 0 || result.rows[0]?.refresh_tokens !== 0) throw new Error("Synthetic sessions remain.");
     await client.query("ROLLBACK");
+  } finally { await client.end(); }
+}
+export async function optionalPurgeTableAbsent(db: Db, table: string): Promise<boolean> {
+  if (!new Set(["payment_reminder_occurrences", "phone_required_skips", "scheduled_inbox_channel_deliveries"]).has(table)) return false;
+  const result = await db.query("select to_regclass(format('public.%I', $1)) is null as absent", [table]);
+  return result.rows.length === 1 && result.rows[0]?.absent === true;
+}
+/** PGRST205 is skippable only for these optional tables after a live catalog check. */
+export async function optionalPurgeTableAbsentOnDev(table: string): Promise<boolean> {
+  const optional = new Set(["payment_reminder_occurrences", "phone_required_skips", "scheduled_inbox_channel_deliveries"]);
+  if (!optional.has(table) || !process.env.SUPABASE_DB_SSL_CA_FILE || !isAbsolute(process.env.SUPABASE_DB_SSL_CA_FILE)) return false;
+  const modulePath = "../../scripts/security/nonproduction-database.mjs";
+  const { nonproductionDatabaseConfig, connectNonproductionDatabase } = await import(/* @vite-ignore */ modulePath);
+  const client = await connectNonproductionDatabase(nonproductionDatabaseConfig("emstjswhotsnyksqhqyf"));
+  try {
+    await client.query("BEGIN READ ONLY");
+    await client.query("SET LOCAL ROLE postgres");
+    const absent = await optionalPurgeTableAbsent(client, table);
+    await client.query("ROLLBACK");
+    return absent;
   } finally { await client.end(); }
 }

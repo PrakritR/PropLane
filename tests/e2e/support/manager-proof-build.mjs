@@ -10,7 +10,7 @@ export function productFingerprint() {
   const untracked = spawnSync("git", ["ls-files", "--others", "--exclude-standard", "src", "public"], { encoding: "utf8" });
   if (untracked.status !== 0 || untracked.stdout.trim()) throw new Error("Untracked product files prevent a proof build.");
   const hash = createHash("sha256");
-  const harness = ["tests/e2e/support/no-delivery-preload.mjs", "tests/e2e/support/manager-proof-build.mjs", "tests/e2e/support/manager-two-phase-runner.mjs", "tests/e2e/support/manager-two-phase-cleanup.ts"];
+  const harness = ["tests/e2e/support/no-delivery-preload.mjs", "tests/e2e/support/manager-proof-build.mjs", "tests/e2e/support/manager-two-phase-runner.mjs", "tests/e2e/support/manager-two-phase-cleanup.ts", "tests/e2e/support/manager-catalog-preflight.ts", "tests/helpers/synthetic-manager-cleanup.ts", "tests/helpers/synthetic-workspace-preflight.ts", "tests/e2e/support/draft-fk-catalog.json"];
   for (const name of [...list.stdout.toString().split("\0").filter(Boolean), ...harness].sort()) { hash.update(name).update("\0").update(readFileSync(name)).update("\0"); }
   return hash.digest("hex");
 }
@@ -51,7 +51,9 @@ export function validatedEnvironment(source, cwd = process.cwd()) {
 export function envDigest(cwd = process.cwd(), source = process.env) {
   const env = validatedEnvironment(source, cwd);
   const values = Object.keys(env).filter((key) => key.startsWith("NEXT_PUBLIC_")).sort().map((key) => [key, env[key]]);
-  return createHash("sha256").update(readFileSync(path.join(cwd, ".env.test"))).update(JSON.stringify(values)).digest("hex");
+  const hash = createHash("sha256");
+  for (const name of readdirSync(cwd).filter((name) => /^\.env(?:\.|$)/.test(name) && !name.startsWith(".env.production")).sort()) hash.update(name).update("\0").update(readFileSync(path.join(cwd, name))).update("\0");
+  return hash.update(JSON.stringify(values)).digest("hex");
 }
 if (process.argv[1]?.endsWith("manager-proof-build.mjs")) {
   const env = validatedEnvironment(process.env);

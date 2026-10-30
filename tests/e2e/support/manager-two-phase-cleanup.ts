@@ -2,7 +2,7 @@
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
-import { captureSyntheticManagerWorkspace, cleanupSyntheticManagerWorkspace, cleanupSyntheticManager, type SyntheticManagerManifest } from "../../helpers/synthetic-manager-cleanup";
+import { captureSyntheticManagerWorkspace, cleanupSyntheticManagerWorkspace, cleanupSyntheticManager, identifySyntheticManager, syntheticManagerExists, finishAbsentSyntheticReservation, type SyntheticManagerManifest } from "../../helpers/synthetic-manager-cleanup";
 import { preflightSyntheticWorkspaceOnDev, assertSyntheticSessionsAbsentOnDev } from "../../helpers/synthetic-workspace-preflight";
 
 let stage = "validate";
@@ -18,7 +18,11 @@ const file = path.join(dir, files[0]!);
 stage = "load_manifest";
 const manifest = JSON.parse(readFileSync(file, "utf8")) as SyntheticManagerManifest;
 const db = createClient(url, key, { auth: { persistSession: false } });
-if (!manifest.authId) { throw new Error("Synthetic Auth identity must be resolved before session inspection."); }
+if (!manifest.authId) {
+  if (!await syntheticManagerExists(db, url, manifest)) { await finishAbsentSyntheticReservation(db, url, manifest, file); return; }
+  await identifySyntheticManager(db, url, manifest, file);
+}
+if (!manifest.authId) throw new Error("Synthetic Auth identity unavailable.");
 stage = "inspect_sessions";
 await assertSyntheticSessionsAbsentOnDev(manifest.authId);
 stage = "inspect_workspace";

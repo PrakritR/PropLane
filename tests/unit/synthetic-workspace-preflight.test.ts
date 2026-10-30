@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import catalog from "../e2e/support/draft-fk-catalog.json";
-import { preflightSyntheticWorkspace } from "../helpers/synthetic-workspace-preflight";
+import { preflightSyntheticWorkspace, optionalPurgeTableAbsent } from "../helpers/synthetic-workspace-preflight";
 const input = { authId: "11111111-1111-4111-8111-111111111111", workspaceId: "22222222-2222-4222-8222-222222222222", smsId: "33333333-3333-4333-8333-333333333333", smsMissing: false, workspaceMissing: false };
 function fixture({ extra = false, drift = false, smsMissing = false, workspaceMissing = false } = {}) {
   return { async query(sql: string) {
@@ -15,6 +15,13 @@ function fixture({ extra = false, drift = false, smsMissing = false, workspaceMi
   } };
 }
 describe("synthetic workspace preflight", () => {
+  it("skips only an explicitly optional table proven absent by catalog", async () => {
+    const absent = { query: async () => ({ rows: [{ absent: true }] }) };
+    const present = { query: async () => ({ rows: [{ absent: false }] }) };
+    expect(await optionalPurgeTableAbsent(absent, "phone_required_skips")).toBe(true);
+    expect(await optionalPurgeTableAbsent(present, "phone_required_skips")).toBe(false);
+    expect(await optionalPurgeTableAbsent(absent, "manager_purchases")).toBe(false);
+  });
   it("accepts only the expected pending SMS descendant", async () => { await expect(preflightSyntheticWorkspace(fixture(), input)).resolves.toBeUndefined(); });
   it("denies changed owner and unexpected non-FK reference", async () => {
     await expect(preflightSyntheticWorkspace(fixture({ drift: true }), input)).rejects.toThrow();

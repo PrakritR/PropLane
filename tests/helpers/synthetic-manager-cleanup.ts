@@ -3,6 +3,7 @@ import { existsSync, openSync, closeSync, fsyncSync, lstatSync, readFileSync, re
 import path from "node:path";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import ts from "typescript";
+import { optionalPurgeTableAbsentOnDev } from "./synthetic-workspace-preflight";
 
 const DEV = "https://emstjswhotsnyksqhqyf.supabase.co";
 const EMAIL = /^get-started-e2e-[0-9]+@example\.invalid$/;
@@ -39,6 +40,16 @@ export async function reserveSyntheticManager(db: SupabaseClient, url: string, e
   const manifest: SyntheticManagerManifest = { email, authId: null, absentBeforeSignup: true, children: [], state: "reserved" };
   save(manifestFile, manifest);
   return manifest;
+}
+/** Resolve only the previously reserved synthetic email; no mutation. */
+export async function syntheticManagerExists(db: SupabaseClient, url: string, manifest: SyntheticManagerManifest): Promise<boolean> {
+  validateTarget(url, manifest.email);
+  if (!manifest.absentBeforeSignup) throw new Error("Synthetic signup was not reserved.");
+  return Boolean(await findExactUser(db, manifest.email));
+}
+export async function finishAbsentSyntheticReservation(db: SupabaseClient, url: string, manifest: SyntheticManagerManifest, manifestFile: string): Promise<void> {
+  if (manifest.authId || await syntheticManagerExists(db, url, manifest)) throw new Error("Synthetic reservation is not empty.");
+  manifest.state = "cleaned"; save(manifestFile, manifest);
 }
 export async function identifySyntheticManager(db: SupabaseClient, url: string, manifest: SyntheticManagerManifest, manifestFile: string): Promise<string> {
   validateTarget(url, manifest.email);
@@ -95,6 +106,7 @@ function checkPurchase(row: Row) {
 async function readRows(db: SupabaseClient, table: string, column: string, value: string): Promise<Row[]> {
   const result = await db.from(table).select("*").eq(column, value).limit(3);
   if (result.error) {
+    if (result.error.code === "PGRST205" && await optionalPurgeTableAbsentOnDev(table)) return [];
     throw new Error(`Synthetic scope read failed: ${table}`);
   }
   if ((result.data ?? []).length >= 3) throw new Error(`Synthetic scope exceeds bound: ${table}`);
