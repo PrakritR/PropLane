@@ -136,6 +136,26 @@ describe("reconcileAuthAccountsByEmail", () => {
     expect(db.purchaseUpdates).toEqual([]);
   });
 
+  it("does not auto-confirm a Google session's mailbox", async () => {
+    const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
+    const db = mockDb({
+      users: [{ id: "session-user", email: "mgr@test.com", identities: [{ provider: "google" }] }],
+      profile: { role: "manager" },
+    });
+
+    await reconcileAuthAccountsByEmail(db as never, {
+      id: "session-user",
+      email: "mgr@test.com",
+      email_confirmed_at: "2026-01-01",
+      identities: [{ provider: "google" }],
+      user_metadata: {},
+    } as never);
+
+    // The old path stamped `email_confirm: true` plus `google_linked_at` for any Google identity, which
+    // is a mailbox proof written from the session itself.
+    expect(db.auth.admin.updateUserById).not.toHaveBeenCalled();
+  });
+
   it("does not grant roles from a primary-admin email or legacy profile", async () => {
     const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
     const { ensureProfileRoleRow } = await import("@/lib/auth/profile-role-row");
