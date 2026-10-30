@@ -42,3 +42,16 @@ export async function preflightSyntheticWorkspaceOnDev(input: Input): Promise<vo
   const client = await connectNonproductionDatabase(nonproductionDatabaseConfig("emstjswhotsnyksqhqyf"));
   try { await client.query("BEGIN READ ONLY"); await client.query("SET LOCAL ROLE postgres"); await preflightSyntheticWorkspace(client, input); await client.query("ROLLBACK"); } finally { await client.end(); }
 }
+/** Confirm no live synthetic sessions before any cleanup mutation. */
+export async function assertSyntheticSessionsAbsentOnDev(authId: string): Promise<void> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(authId) || !process.env.SUPABASE_DB_SSL_CA_FILE || !isAbsolute(process.env.SUPABASE_DB_SSL_CA_FILE)) throw new Error("Verified DEV session inspection required.");
+  const modulePath = "../../scripts/security/nonproduction-database.mjs";
+  const { nonproductionDatabaseConfig, connectNonproductionDatabase } = await import(/* @vite-ignore */ modulePath);
+  const client = await connectNonproductionDatabase(nonproductionDatabaseConfig("emstjswhotsnyksqhqyf"));
+  try {
+    await client.query("BEGIN READ ONLY");
+    const result = await client.query("select (select count(*) from auth.sessions where user_id=$1::uuid)::int sessions, (select count(*) from auth.refresh_tokens where user_id::text=$1)::int refresh_tokens", [authId]);
+    if (result.rows[0]?.sessions !== 0 || result.rows[0]?.refresh_tokens !== 0) throw new Error("Synthetic sessions remain.");
+    await client.query("ROLLBACK");
+  } finally { await client.end(); }
+}

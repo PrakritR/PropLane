@@ -18,6 +18,7 @@ function fixture() {
   };
   const deletes: string[] = [];
   let authDeleted = false;
+  let missingCatalogTable = false;
   let loseSmsResponse = false;
   const db = {
     auth: { admin: { getUserById: vi.fn(async () => authDeleted ? ({ data: { user: null }, error: { code: "user_not_found" } }) : ({ data: { user: { id, email, app_metadata: { proplane_email_onboarding: true }, identities: [{ provider: "email" }] } }, error: null })), deleteUser: vi.fn(async () => { deletes.push("auth"); authDeleted = true; return { error: null }; }) } },
@@ -27,6 +28,7 @@ function fixture() {
         select: () => query, is: (key: string, value: unknown) => { filters.push([key, value]); return query; }, eq: (key: string, value: unknown) => { filters.push([key, value]); return query; }, limit: () => query,
         delete: () => { deleting = true; deletes.push(table); return query; },
         then: (resolve: (value: unknown) => unknown) => {
+          if (missingCatalogTable && table === "manager_purchases") return resolve({ data: null, error: { code: "PGRST205" } });
           const matching = (tables[table] ?? []).filter((row) => filters.every(([key, value]) => row[key] === value));
           if (deleting) tables[table] = (tables[table] ?? []).filter((row) => !matching.includes(row));
           if (deleting && table === "manager_sms_numbers" && loseSmsResponse) { loseSmsResponse = false; return resolve({ data: null, error: { message: "response lost" } }); }
@@ -37,9 +39,14 @@ function fixture() {
     },
   };
   const manifest: SyntheticManagerManifest = { email, authId: id, absentBeforeSignup: true, children: [], state: "identified" };
-  return { db: db as never, tables, deletes, manifest, file: path.join(dir, "manifest.json"), loseSms: () => { loseSmsResponse = true; } };
+  return { db: db as never, tables, deletes, manifest, file: path.join(dir, "manifest.json"), loseSms: () => { loseSmsResponse = true; }, missingCatalog: () => { missingCatalogTable = true; } };
 }
 describe("synthetic manager cleanup preflight", () => {
+  it("fails closed on an unverified PostgREST missing-table response", async () => {
+    const f = fixture(); f.missingCatalog();
+    await expect(cleanupSyntheticManager(f.db, "https://emstjswhotsnyksqhqyf.supabase.co", f.manifest, f.file)).rejects.toThrow(/scope read failed/);
+    expect(f.deletes).toEqual([]);
+  });
   it("deletes only the captured pending SMS and workspace before Auth", async () => {
     const f = fixture();
     const ws = "22222222-2222-4222-8222-222222222222", sms = "33333333-3333-4333-8333-333333333333";

@@ -4,12 +4,12 @@ import { existsSync, mkdtempSync, lstatSync, readFileSync, writeFileSync } from 
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { productFingerprint, validatedEnvironment } from "./manager-proof-build.mjs";
+import { productFingerprint, validatedEnvironment, envDigest } from "./manager-proof-build.mjs";
 const safeEnv = validatedEnvironment(process.env);
 if (!safeEnv.SUPABASE_DB_SSL_CA_FILE || !path.isAbsolute(safeEnv.SUPABASE_DB_SSL_CA_FILE) || !lstatSync(safeEnv.SUPABASE_DB_SSL_CA_FILE).isFile()) throw new Error("Absolute verified CA required.");
 if (!existsSync(".next/auth-proof-build.json") || !existsSync(".next/BUILD_ID")) throw new Error("Safe proof build required.");
 const marker = JSON.parse(readFileSync(".next/auth-proof-build.json", "utf8"));
-if (marker.fingerprint !== productFingerprint() || marker.project !== "emstjswhotsnyksqhqyf" || marker.origin !== "http://localhost:3007" || marker.buildId !== readFileSync(".next/BUILD_ID", "utf8").trim()) throw new Error("Proof build no longer matches source.");
+if (marker.fingerprint !== productFingerprint() || marker.envDigest !== envDigest() || marker.project !== "emstjswhotsnyksqhqyf" || marker.origin !== "http://localhost:3007" || marker.buildId !== readFileSync(".next/BUILD_ID", "utf8").trim()) throw new Error("Proof build no longer matches source.");
 await new Promise((resolve, reject) => { const s = createServer(); s.once("error", reject); s.listen(3007, "127.0.0.1", () => s.close(resolve)); });
 const dir = mkdtempSync(path.join(os.tmpdir(), "proplane-auth-proof-"));
 if ((lstatSync(dir).mode & 0o777) !== 0o700) throw new Error("Private capture directory required.");
@@ -19,6 +19,9 @@ const server = spawn(process.execPath, ["--import", preload, "node_modules/next/
 let serverExited = false;
 const serverExit = new Promise((resolve) => server.once("exit", () => { serverExited = true; resolve(); }));
 let browserOk = false;
+let stage = "readiness";
+let portClosed = false;
+let cleanupExit = null;
 try {
   for (let i = 0; i < 100; i++) {
     if (serverExited) throw new Error("Proof server exited before readiness.");
@@ -26,6 +29,7 @@ try {
     if (i === 99) throw new Error("Proof server did not become ready.");
     await new Promise((resolve) => setTimeout(resolve, 300));
   }
+  stage = "browser";
   const result = spawnSync("node_modules/.bin/playwright", ["test", "tests/e2e/manager-get-started-signed-in.spec.ts", "--project=chromium", "--grep", "signed-in manager can create a SECOND account", "--no-deps"], { env, encoding: "utf8", timeout: 150000 });
   browserOk = result.status === 0;
   const phases = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.split("\n").filter((line) => /^\[synthetic-manager-e2e\] (phase=[a-z-]+ last_http_status=(?:[0-9]+|not-observed)|failed_phase=[a-z-]+ last_http_status=(?:[0-9]+|not-observed))$/.test(line));
@@ -34,9 +38,14 @@ try {
   browserOk = false;
 } finally {
   if (!serverExited) server.kill("SIGTERM");
-  await Promise.race([serverExit, new Promise((_, reject) => setTimeout(() => reject(new Error("Proof server did not exit; fixture retained.")), 10000))]);
+  try { await Promise.race([serverExit, new Promise((_, reject) => setTimeout(() => reject(new Error("Proof server did not exit; fixture retained.")), 10000))]); }
+  catch { stage = "server_exit_failed"; writeFileSync(path.join(dir, "status.json"), JSON.stringify({ stage, serverExited, browserOk }), { mode: 0o600 }); throw new Error("Proof server did not exit; fixture retained."); }
 }
-await new Promise((resolve, reject) => { const s = createServer(); s.once("error", () => reject(new Error("Proof port remains occupied; fixture retained."))); s.listen(3007, "127.0.0.1", () => s.close(resolve)); });
+try { await new Promise((resolve, reject) => { const s = createServer(); s.once("error", () => reject(new Error("Proof port remains occupied; fixture retained."))); s.listen(3007, "127.0.0.1", () => s.close(resolve)); }); portClosed = true; }
+catch { stage = "port_occupied"; writeFileSync(path.join(dir, "status.json"), JSON.stringify({ stage, serverExited, browserOk }), { mode: 0o600 }); throw new Error("Proof port remains occupied; fixture retained."); }
+stage = "cleanup";
 const cleanup = spawnSync("node_modules/.bin/tsx", ["tests/e2e/support/manager-two-phase-cleanup.ts"], { env: { ...env, AUTH_PROOF_SERVER_EXIT_VERIFIED: "1" }, stdio: "ignore", timeout: 120000 });
-writeFileSync(path.join(dir, "status.json"), JSON.stringify({ serverExited, portClosed: true, browserOk, cleanupExit: cleanup.status }), { mode: 0o600 });
+cleanupExit = cleanup.status;
+stage = cleanupExit === 0 ? "complete" : "cleanup_failed";
+writeFileSync(path.join(dir, "status.json"), JSON.stringify({ stage, serverExited, portClosed, browserOk, cleanupExit }), { mode: 0o600 });
 if (!browserOk || cleanup.status !== 0) throw new Error("Proof or cleanup failed; inspect the private manifest.");

@@ -95,7 +95,6 @@ function checkPurchase(row: Row) {
 async function readRows(db: SupabaseClient, table: string, column: string, value: string): Promise<Row[]> {
   const result = await db.from(table).select("*").eq(column, value).limit(3);
   if (result.error) {
-    if (["42P01", "PGRST205"].includes(result.error.code ?? "")) return [];
     throw new Error(`Synthetic scope read failed: ${table}`);
   }
   if ((result.data ?? []).length >= 3) throw new Error(`Synthetic scope exceeds bound: ${table}`);
