@@ -43,32 +43,55 @@ export function isManagerOnboardingComplete(purchase: ManagerPurchaseRow | null 
   return !isAxisIntentSessionId(purchase.stripe_checkout_session_id);
 }
 
+const PURCHASE_SELECT =
+  "id, email, manager_id, tier, billing, stripe_checkout_session_id, user_id, full_name, paid_at";
+
+/** The account's own mailbox is proven (confirmed Auth address, or a just-verified password). */
+export type PurchaseEmailProof = { emailVerified?: boolean };
+
+/**
+ * The `manager_purchases` row this account owns.
+ *
+ * By `user_id` first. The by-email half exists only for the pre-auth signup row (`email` / `manager_id`,
+ * no `user_id` yet), and it is an ENTITLEMENT - it hands over a tier, a workspace and the manager role -
+ * so matching an ADDRESS is never ownership of someone else's account:
+ *
+ * - it reads UNCLAIMED rows only, so a row another account already holds can never be adopted (the
+ *   `user_id` read above already covers rows this account holds);
+ * - `emailVerified: false` drops it entirely, for a session whose mailbox nothing has proven;
+ * - a read error returns null, so nothing is granted from an answer we could not get.
+ */
 export async function findManagerPurchaseForAccount(
   supabase: SupabaseClient,
   userId: string,
   email: string,
+  proof: PurchaseEmailProof = {},
 ): Promise<ManagerPurchaseRow | null> {
-  const { data: byUser } = await supabase
+  const { data: byUser, error: byUserError } = await supabase
     .from("manager_purchases")
-    .select("id, email, manager_id, tier, billing, stripe_checkout_session_id, user_id, full_name, paid_at")
+    .select(PURCHASE_SELECT)
     .eq("user_id", userId)
     .order("paid_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
+  if (byUserError) return null;
   if (byUser) return byUser as ManagerPurchaseRow;
 
+  if (proof.emailVerified === false) return null;
   const normalized = email.trim().toLowerCase();
   if (!normalized) return null;
 
-  const { data: byEmail } = await supabase
+  const { data: byEmail, error: byEmailError } = await supabase
     .from("manager_purchases")
-    .select("id, email, manager_id, tier, billing, stripe_checkout_session_id, user_id, full_name, paid_at")
+    .select(PURCHASE_SELECT)
     .eq("email", normalized)
+    .is("user_id", null)
     .order("paid_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
+  if (byEmailError) return null;
   return (byEmail as ManagerPurchaseRow | null) ?? null;
 }
 
@@ -76,8 +99,9 @@ export async function managerNeedsPricingSelection(
   supabase: SupabaseClient,
   userId: string,
   email: string,
+  proof: PurchaseEmailProof = {},
 ): Promise<boolean> {
-  const purchase = await findManagerPurchaseForAccount(supabase, userId, email);
+  const purchase = await findManagerPurchaseForAccount(supabase, userId, email, proof);
   return !isManagerOnboardingComplete(purchase);
 }
 

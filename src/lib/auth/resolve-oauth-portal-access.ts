@@ -167,6 +167,10 @@ export async function resolveOAuthPortalRedirect(
   if (!email) {
     return finish(MANAGER_PRICING_ENTRY_PATH);
   }
+  // A legacy `manager_purchases` row matched by ADDRESS is an entitlement, not proof of ownership: the
+  // branches below hand it the manager role and adopt its workspace, so it counts only once Auth has
+  // confirmed this exact mailbox for this account. Same-email duplicate logins are separate accounts.
+  const emailVerified = Boolean(user.email_confirmed_at);
 
   const [{ data: roleRows }, { data: profile }] = await Promise.all([
     supabase.from("profile_roles").select("role").eq("user_id", user.id),
@@ -220,7 +224,7 @@ export async function resolveOAuthPortalRedirect(
     if (isGenericOAuthContinuePath(safeIntended) && ownerOnly) {
       return finish("/portal/dashboard");
     }
-    if (await managerNeedsPricingSelection(supabase, user.id, email)) {
+    if (await managerNeedsPricingSelection(supabase, user.id, email, { emailVerified })) {
       return finish(MANAGER_PRICING_ENTRY_PATH);
     }
     return finish(await managerPortalDestination(supabase, user.id, safeIntended));
@@ -233,7 +237,7 @@ export async function resolveOAuthPortalRedirect(
     return finish(isGenericOAuthContinuePath(safeIntended) ? portalDashboardPath("admin") : safeIntended);
   }
 
-  const linkedPurchase = await findManagerPurchaseForAccount(supabase, user.id, email);
+  const linkedPurchase = await findManagerPurchaseForAccount(supabase, user.id, email, { emailVerified });
   if (linkedPurchase && !isManagerOnboardingComplete(linkedPurchase)) {
     return finish(MANAGER_PRICING_ENTRY_PATH);
   }
@@ -257,13 +261,17 @@ export async function resolveOAuthPortalRedirect(
     return finish(safeIntended);
   }
 
-  const { data: pendingPurchases } = await supabase
-    .from("manager_purchases")
-    .select("stripe_checkout_session_id, user_id, paid_at")
-    .eq("email", email)
-    .is("user_id", null)
-    .order("paid_at", { ascending: false })
-    .limit(1);
+  // `/auth/manager-oauth-finish` LINKS this purchase to the signed-in account, so the same confirmed
+  // mailbox is the price of admission here as above.
+  const { data: pendingPurchases } = emailVerified
+    ? await supabase
+        .from("manager_purchases")
+        .select("stripe_checkout_session_id, user_id, paid_at")
+        .eq("email", email)
+        .is("user_id", null)
+        .order("paid_at", { ascending: false })
+        .limit(1)
+    : { data: null };
 
   const pendingPurchase = pendingPurchases?.[0];
   if (pendingPurchase?.stripe_checkout_session_id && pendingPurchase.paid_at) {

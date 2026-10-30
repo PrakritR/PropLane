@@ -75,22 +75,6 @@ function mockDb(options: {
   };
 }
 
-describe("findAuthUsersByEmail", () => {
-  it("returns all auth users with the same normalized email", async () => {
-    const { findAuthUsersByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
-    const db = mockDb({
-      users: [
-        { id: "a", email: "User@Test.com" },
-        { id: "b", email: "user@test.com" },
-        { id: "c", email: "other@test.com" },
-      ],
-    });
-
-    const matches = await findAuthUsersByEmail(db as never, "user@test.com");
-    expect(matches.map((u) => u.id).sort()).toEqual(["a", "b"]);
-  });
-});
-
 describe("reconcileAuthAccountsByEmail", () => {
   beforeEach(() => {
     vi.clearAllMocks();

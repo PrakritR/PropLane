@@ -23,12 +23,10 @@ function fakeDb(email: string) {
     };
     return q;
   };
-  const profiles = {
-    select: () => profiles,
-    eq: () => profiles,
-    maybeSingle: () => Promise.resolve({ data: { email }, error: null }),
+  const db = {
+    from: () => purchases(),
+    auth: { admin: { getUserById: async () => ({ data: { user: { email, email_confirmed_at: "2026-01-01" } }, error: null }) } },
   };
-  const db = { from: (table: string) => (table === "profiles" ? profiles : purchases()), auth: { admin: { getUserById: async () => ({ data: { user: { email, email_confirmed_at: "2026-01-01" } }, error: null }) } } };
   return { db: db as never, calls };
 }
 
@@ -64,12 +62,10 @@ describe("loadAccountPurchaseRows email match", () => {
       };
       return q;
     };
-    const profiles = {
-      select: () => profiles,
-      eq: () => profiles,
-      maybeSingle: () => Promise.resolve({ data: { email: "a*b@x.com" }, error: null }),
-    };
-    const db = { from: (table: string) => (table === "profiles" ? profiles : purchases()), auth: { admin: { getUserById: async () => ({ data: { user: { email: "a*b@x.com", email_confirmed_at: "2026-01-01" } }, error: null }) } } } as never;
+    const db = {
+      from: () => purchases(),
+      auth: { admin: { getUserById: async () => ({ data: { user: { email: "a*b@x.com", email_confirmed_at: "2026-01-01" } }, error: null }) } },
+    } as never;
     const { rows, readFailed } = await loadAccountPurchaseRows<{ id: string }>(db, USER, "id");
     expect(rows.map((r) => r.id)).toEqual(["mine"]);
     expect(readFailed).toBe(false);
