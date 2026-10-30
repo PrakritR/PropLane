@@ -25,6 +25,13 @@ export async function preflightSyntheticWorkspace(db: Db, input: Input): Promise
     const count = await db.query(`select count(*)::int count from public.${ident(row.table_name)} where workspace_id::text=$1`, [input.workspaceId]);
     if (Number(count.rows[0]?.count) !== (row.table_name === "manager_sms_numbers" && !input.smsMissing ? 1 : 0)) throw new Error(`Unexpected workspace reference: ${row.table_name}`);
   }
+  const numberRefs = await db.query(`select child.relname child_table,pg_get_constraintdef(c.oid) definition from pg_constraint c join pg_class child on child.oid=c.conrelid join pg_namespace ns on ns.oid=child.relnamespace where c.contype='f' and ns.nspname='public' and c.confrelid='public.manager_sms_numbers'::regclass`);
+  for (const row of numberRefs.rows) {
+    const match = /^FOREIGN KEY \(([a-z_][a-z0-9_]*)\) REFERENCES [a-z_][a-z0-9_]*\(id\)/.exec(String(row.definition));
+    if (!match || typeof row.child_table !== "string") throw new Error("Unsupported number FK.");
+    const count = await db.query(`select count(*)::int count from public.${ident(row.child_table)} where ${ident(match[1])}=$1`, [input.smsId]);
+    if (Number(count.rows[0]?.count) !== 0) throw new Error(`Unexpected number descendant: ${row.child_table}`);
+  }
   const sms = await db.query("select id::text,manager_user_id::text,workspace_id::text from public.manager_sms_numbers where id=$1", [input.smsId]);
   if (input.smsMissing ? sms.rows.length !== 0 : sms.rows.length !== 1 || sms.rows[0]?.manager_user_id !== input.authId || sms.rows[0]?.workspace_id !== input.workspaceId) throw new Error("Synthetic SMS identity changed.");
 }

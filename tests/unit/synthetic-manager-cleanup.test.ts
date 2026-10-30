@@ -18,6 +18,7 @@ function fixture() {
   };
   const deletes: string[] = [];
   let authDeleted = false;
+  let loseSmsResponse = false;
   const db = {
     auth: { admin: { getUserById: vi.fn(async () => authDeleted ? ({ data: { user: null }, error: { code: "user_not_found" } }) : ({ data: { user: { id, email, app_metadata: { proplane_email_onboarding: true }, identities: [{ provider: "email" }] } }, error: null })), deleteUser: vi.fn(async () => { deletes.push("auth"); authDeleted = true; return { error: null }; }) } },
     from(table: string) {
@@ -28,6 +29,7 @@ function fixture() {
         then: (resolve: (value: unknown) => unknown) => {
           const matching = (tables[table] ?? []).filter((row) => filters.every(([key, value]) => row[key] === value));
           if (deleting) tables[table] = (tables[table] ?? []).filter((row) => !matching.includes(row));
+          if (deleting && table === "manager_sms_numbers" && loseSmsResponse) { loseSmsResponse = false; return resolve({ data: null, error: { message: "response lost" } }); }
           return resolve({ data: matching, error: null });
         },
       };
@@ -35,7 +37,7 @@ function fixture() {
     },
   };
   const manifest: SyntheticManagerManifest = { email, authId: id, absentBeforeSignup: true, children: [], state: "identified" };
-  return { db: db as never, tables, deletes, manifest, file: path.join(dir, "manifest.json") };
+  return { db: db as never, tables, deletes, manifest, file: path.join(dir, "manifest.json"), loseSms: () => { loseSmsResponse = true; } };
 }
 describe("synthetic manager cleanup preflight", () => {
   it("deletes only the captured pending SMS and workspace before Auth", async () => {
@@ -46,6 +48,9 @@ describe("synthetic manager cleanup preflight", () => {
     f.tables.manager_sms_numbers = [{ id: sms, manager_user_id: id, workspace_id: ws, provider: "twilio", provision_state: "pending_registration", registration_state: "pending", attachment_state: "not_attached", number_registration_state: "not_submitted", ...Object.fromEntries(nullFields.map((field) => [field, null])) }];
     const preflight = vi.fn(async () => {});
     await captureSyntheticManagerWorkspace(f.db, f.manifest, f.file, preflight);
+    f.loseSms();
+    await expect(cleanupSyntheticManagerWorkspace(f.db, "https://emstjswhotsnyksqhqyf.supabase.co", f.manifest, f.file, { serverStopped: true, preflight })).rejects.toThrow(/uncertain/);
+    expect(f.manifest.workspace?.smsDeleteStarted).toBe(true);
     await cleanupSyntheticManagerWorkspace(f.db, "https://emstjswhotsnyksqhqyf.supabase.co", f.manifest, f.file, { serverStopped: true, preflight });
     expect(f.deletes).toEqual(["manager_sms_numbers", "portal_workspaces", "manager_purchases", "profile_roles", "profiles", "auth"]);
     expect(f.manifest.state).toBe("cleaned");
