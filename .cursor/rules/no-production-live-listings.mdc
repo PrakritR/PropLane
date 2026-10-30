@@ -48,3 +48,13 @@ Captain: "yes you have my explicit permissions for this change" — move the SEA
 ("1. Ambika", "2. Vinod") and make both owner accounts. Scope: ONE run of
 `scripts/one-number/move-houses-to-service.mjs` per owner in production, with backup, journal and verify.
 Ownership transfer only; listing content (pricing, rooms, photos, move-in) is not edited. Do not re-run.
+
+## Waiver — 2026-10-30 (captain, explicit, one shot)
+
+Captain: "no change it to be $0 for 5259 5257 and 4709a when shipped change everything i give you permission" —
+after the free-applications-by-default release ships, set the listing-level Application fee of the three live
+houses (`mgr-listing-1x3tiu0489ha` = 5257, `mgr-5257-brooklyn-ave-copy-9-rooms-7mbwr0uza0nq` = 5259,
+`mgr-5259-brooklyn-ave-copy-9-rooms-7mdlyj0h2vfg` = 4709A) from $50 to $0. Scope: ONE apply of
+`scripts/one-shot/live-application-fee-zero-20261030.sh` (backup first, writes only
+`property_data.listingSubmission.applicationFee` where it reads "50", reads back). Nothing else on these listings
+is edited. Do not re-run.
