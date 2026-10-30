@@ -16,6 +16,7 @@
  * concurrent accept can't be overwritten by a stale read.
  */
 import { track } from "@/lib/analytics/posthog";
+import { isTerminalService } from "@/lib/vendor-dispatch/work-order-open.server";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { workOrderEvent } from "@/lib/work-order-events.server";
 import { fillSiblingOffers } from "@/lib/work-order-offer-expiry.server";
@@ -1183,7 +1184,7 @@ export async function markWorkOrderDoneByVendor(
 
   const { data: workOrder } = await db
     .from("portal_work_order_records")
-    .select("manager_user_id, vendor_user_id, row_data")
+    .select("manager_user_id, vendor_user_id, resident_user_id, row_revision, row_data")
     .eq("id", workOrderId)
     .maybeSingle();
   if (!workOrder) return { ok: false, status: 403, error: "Forbidden." };
@@ -1231,17 +1232,23 @@ export async function markWorkOrderDoneByVendor(
     .from("portal_work_order_records")
     .update({ row_data: stampSmsTestProvenance(nextRowData as unknown as Record<string, unknown>), updated_at: now })
     .eq("id", workOrderId)
+    .eq("row_revision", workOrder.row_revision)
     .is("row_data->>automationStatus", null)
     .select("id");
   if (error) return { ok: false, status: 500, error: error.message };
   if (!(claimed ?? []).length) {
-    return { ok: false, status: 400, error: "This service has already been marked done." };
+    return { ok: false, status: 409, error: "The service changed; refresh and try again." };
   }
 
   // "Was this fixed?" — a signed link for the resident when the manager has the
   // step on. The stamp lives on the row so the answer can be matched back.
   const confirmation = await requestResidentConfirmation(db, workOrderId, String(workOrder.manager_user_id), nextRowData).catch(() => null);
   const finalRowData = confirmation?.rowData ?? nextRowData;
+  const { data: latest } = await db.from("portal_work_order_records")
+    .select("resident_user_id, row_data").eq("id", workOrderId)
+    .eq("manager_user_id", workOrder.manager_user_id).maybeSingle();
+  const residentRecipient = latest?.resident_user_id === workOrder.resident_user_id
+    && latest?.resident_user_id && !isTerminalService(latest.row_data) ? String(latest.resident_user_id) : null;
 
   await workOrderEvent(db, {
     eventId: `${workOrderId}:completed:${now}`,
@@ -1262,7 +1269,7 @@ export async function markWorkOrderDoneByVendor(
     },
     recipients: [
       { audience: "manager", userId: String(workOrder.manager_user_id) },
-      ...(rowData.residentEmail ? [{ audience: "resident" as const, email: rowData.residentEmail }] : []),
+      ...(residentRecipient ? [{ audience: "resident" as const, userId: residentRecipient }] : []),
     ],
   }).catch(() => undefined);
 

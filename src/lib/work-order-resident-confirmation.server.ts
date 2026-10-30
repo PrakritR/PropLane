@@ -78,23 +78,27 @@ export async function requestResidentConfirmation(
   db: SupabaseClient,
   workOrderId: string,
   managerUserId: string,
-  rowData: DemoManagerWorkOrderRow,
+  _rowData: DemoManagerWorkOrderRow,
   now: Date = new Date(),
 ): Promise<{ rowData: DemoManagerWorkOrderRow; confirmUrl: string } | null> {
-  // A house with its own service automation settings gets them; a work order
-  // with no property, or an un-customized house, falls through workspace then
-  // account (phase C).
-  const propertyId = rowData.assignedPropertyId || rowData.propertyId || null;
-  const settings = await resolveServiceAutomationSettingsForRow(db, createSettingsScopeCache(), managerUserId, propertyId).catch(() => null);
-  if (!settings?.residentConfirmation) return null;
-  if (!(rowData.residentEmail ?? "").includes("@")) return null;
-  const token = randomBytes(24).toString("base64url");
+  const { data, error } = await db.from("portal_work_order_records")
+    .select("row_data, row_revision, resident_user_id")
+    .eq("id", workOrderId).eq("manager_user_id", managerUserId).maybeSingle();
+  const current = data as { row_data?: DemoManagerWorkOrderRow; row_revision?: number; resident_user_id?: string | null } | null;
+  if (error || !current?.row_data || current.row_revision === undefined || !current.resident_user_id || isTerminalService(current.row_data)) return null;
+  const prepared = await prepareResidentConfirmation(db, managerUserId, current.row_data);
+  if (!prepared) return null;
   const next: DemoManagerWorkOrderRow = {
-    ...rowData,
-    residentConfirmation: { requestedAt: now.toISOString(), tokenId: hashToken(token) },
+    ...current.row_data,
+    residentConfirmation: { requestedAt: now.toISOString(), tokenId: prepared.tokenDigest },
   };
-  await db.from("portal_work_order_records").update({ row_data: next, updated_at: now.toISOString() }).eq("id", workOrderId);
-  return { rowData: next, confirmUrl: residentConfirmationUrl(token) };
+  const { data: updated, error: updateError } = await db.from("portal_work_order_records")
+    .update({ row_data: next, updated_at: now.toISOString() })
+    .eq("id", workOrderId).eq("manager_user_id", managerUserId)
+    .eq("resident_user_id", current.resident_user_id).eq("row_revision", current.row_revision)
+    .select("id").maybeSingle();
+  if (updateError || !updated) return null;
+  return { rowData: next, confirmUrl: prepared.confirmUrl };
 }
 
 async function findByToken(db: SupabaseClient, token: string): Promise<WorkOrderRecord | null> {
