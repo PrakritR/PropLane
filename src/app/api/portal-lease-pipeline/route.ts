@@ -139,8 +139,8 @@ async function getUserContext(req: Request) {
     userId: user.id,
     legacyRole: profile?.role,
   });
-  if (scopedRole === "denied") return null;
   const oversight = scopedRole !== "resident" && (await resolveAdminOversight(req, user.id));
+  if (scopedRole === "denied" && !oversight) return null;
   // A legacy `profiles.role` of "admin" must not read as oversight on its own.
   const role = scopedRole === "resident" ? "resident" : oversight ? "admin" : scopedRole === "admin" ? "manager" : scopedRole;
   return {
@@ -170,7 +170,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * Row fields that alone establish an existing tenancy (`loadResidentManagerAttestedTenancy`). Only the server
  * writes them, so a resident-scoped save keeps the stored value and may never supply one.
  */
-export const SERVER_OWNED_TENANCY_FIELDS = ["signedLeaseSnapshots", "managerAttestedTenancyAt"] as const;
+const SERVER_OWNED_TENANCY_FIELDS = ["signedLeaseSnapshots", "managerAttestedTenancyAt"] as const;
 
 /** row_data may carry synthetic/demo ids ("demo-resident") — only uuid-shaped
  *  values may reach the uuid column, else the whole upsert 500s. */

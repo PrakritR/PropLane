@@ -239,6 +239,17 @@ describe("portal-lease-pipeline — admin", () => {
     expect(ids).toEqual(MANAGER_PIPELINE.map((lease) => lease.id));
   });
 
+  it("permits a stored admin-only account only when explicit oversight is requested", async () => {
+    PROFILE_ROLES = ["admin"];
+    PORTAL_ROLES = ["admin"];
+    EFFECTIVE_ROLE = "admin";
+    const withoutOversight = await loadLeases();
+    expect(withoutOversight.status).toBe(401);
+    const oversight = await loadLeases("?oversight=admin");
+    expect(oversight.status).toBe(200);
+    expect(oversight.ids).toEqual(ALL_LEASES.map((lease) => lease.id));
+  });
+
   it("still reads every lease, unscoped, when the request asks for oversight", async () => {
     const { status, ids } = await read("?oversight=admin");
     expect(status).toBe(200);

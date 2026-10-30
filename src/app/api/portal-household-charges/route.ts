@@ -114,7 +114,7 @@ function incrementalCutoffFromRequest(req: Request | undefined, nowMs: number): 
   return new Date(ms - INCREMENTAL_OVERLAP_MS).toISOString();
 }
 
-export async function GET(req?: Request) {
+export async function GET(req: Request) {
   try {
     const ctx = await getUserContext(req);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
