@@ -22,8 +22,10 @@ function makeDbMock(options: {
   axisRecord?: { row_data: unknown; resident_email?: string | null } | null;
   /** Roles held in `profile_roles` — the multi-role source of truth. */
   profileRoles?: string[];
+  leaseOwner?: string;
+  tourOwner?: string;
 }) {
-  const { applicationRows = [], profile = null, axisRecord = null, profileRoles = ["resident"] } = options;
+  const { applicationRows = [], profile = null, axisRecord = null, profileRoles = ["resident"], leaseOwner, tourOwner } = options;
 
   return {
     auth: { admin: { getUserById: vi.fn(async (id: string) => ({ data: { user: { email: ({ "user-drift": "drifted@example.com", "user-second": "second-apply@example.com", "user-both": "both@example.com" } as Record<string, string>)[id] ?? "resident@example.com", email_confirmed_at: "confirmed" } }, error: null })) } },
@@ -85,16 +87,16 @@ function makeDbMock(options: {
       if (table === "resident_tour_links") {
         return {
           select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockResolvedValue({ count: 0, error: null }),
+            eq: vi.fn().mockImplementation((_column: string, id: string) => Promise.resolve({ count: id === tourOwner ? 1 : 0, error: null })),
           }),
         };
       }
       if (table === "portal_lease_pipeline_records") {
         return {
           select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              order: vi.fn().mockResolvedValue({ data: [], error: null }),
-            }),
+            eq: vi.fn().mockImplementation((_column: string, id: string) => ({
+              order: vi.fn().mockResolvedValue({ data: id === leaseOwner ? [{ row_data: { managerSignature: { name: "M", signedAtIso: "now" }, residentSignature: { name: "R", signedAtIso: "now" } } }] : [], error: null }),
+            })),
           }),
         };
       }
@@ -130,6 +132,19 @@ describe("resident portal access state", () => {
     const access = await loadResidentPortalAccessState({ userId: "unconfirmed", role: "resident", email: "resident@example.com" });
     expect(access.applicationApproved).toBe(false);
     expect(access.hasSubmittedApplication).toBe(false);
+  });
+
+  it("loads phone-only exact-subject applications, leases and tours without crossing subjects", async () => {
+    const db = makeDbMock({ applicationRows: [{ row_data: { id: "OWN", residentUserId: "phone-owner", bucket: "approved", stage: "Approved" } }], leaseOwner: "phone-owner", tourOwner: "phone-owner" });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    const owned = await loadResidentPortalAccessState({ userId: "phone-owner", role: "resident", email: "" });
+    expect(owned.applicationApproved).toBe(true);
+    expect(owned.leaseSigned).toBe(true);
+    expect(owned.hasTourLink).toBe(true);
+    const other = await loadResidentPortalAccessState({ userId: "phone-other", role: "resident", email: "" });
+    expect(other.applicationApproved).toBe(false);
+    expect(other.leaseSigned).toBe(false);
+    expect(other.hasTourLink).toBe(false);
   });
 
   it("recognizes an exact subject-bound application without a mailbox", async () => {

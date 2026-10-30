@@ -244,7 +244,7 @@ const loadResidentPortalAccessStateCached = cache(
     managerSubscriptionTier: ManagerSubscriptionTier,
     managerUserId: string | null,
   ): Promise<ResidentPortalAccessState> => {
-    if (!email) return emptyAccessState(managerSubscriptionTier);
+    if (!userId) return emptyAccessState(managerSubscriptionTier);
 
     const db = createSupabaseServiceRoleClient();
     // Fast path stays query-free for the single-role resident (the common case);
