@@ -41,6 +41,7 @@ function ResidentSetupInner() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [submitError, setSubmitError] = useState<{ message: string; emailLinkRecovery: boolean } | null>(null);
 
   useEffect(() => {
     if (!token || !axisIdFromUrl) {
@@ -101,6 +102,7 @@ function ResidentSetupInner() {
       return;
     }
     setBusy(true);
+    setSubmitError(null);
     try {
       const res = await fetch("/api/auth/resident-setup", {
         method: "POST",
@@ -116,7 +118,9 @@ function ResidentSetupInner() {
       });
       const body = (await res.json()) as { error?: string; redirectTo?: string; axisId?: string };
       if (!res.ok) {
-        showToast(body.error ?? "Could not create resident account.");
+        const message = body.error ?? "Could not create resident account.";
+        setSubmitError({ message, emailLinkRecovery: res.status === 401 });
+        showToast(message);
         return;
       }
       const supabase = createSupabaseBrowserClient();
@@ -133,6 +137,7 @@ function ResidentSetupInner() {
       showToast("Resident account created.");
       window.location.replace(body.redirectTo?.startsWith("/") ? body.redirectTo : "/resident/applications");
     } catch {
+      setSubmitError({ message: "Network error.", emailLinkRecovery: false });
       showToast("Network error.");
     } finally {
       setBusy(false);
@@ -261,6 +266,20 @@ function ResidentSetupInner() {
             }}
           />
         </div>
+        {submitError ? (
+          <div className="space-y-2">
+            <p className="text-center text-xs text-rose-600">{submitError.message}</p>
+            {submitError.emailLinkRecovery ? (
+              <Link
+                href={`/auth/forgot-password?email=${encodeURIComponent(email)}`}
+                data-attr="resident-setup-email-me-a-link"
+                className="inline-flex min-h-[44px] w-full items-center justify-center rounded-full border border-border px-6 text-[15px] font-semibold text-foreground"
+              >
+                Email me a link
+              </Link>
+            ) : null}
+          </div>
+        ) : null}
         <Button
           type="button"
           className="btn-cobalt w-full rounded-full py-2.5 text-[15px] font-semibold"

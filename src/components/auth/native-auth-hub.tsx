@@ -43,7 +43,6 @@ import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 import { PHONE_AUTH_COPY } from "@/lib/auth/phone-auth-errors";
 import { readLastLoginMethod, readRememberedLoginEmail, rememberLoginMethod, REMEMBERED_LOGIN_EMAIL_KEY } from "@/lib/auth/remembered-login";
 
-
 /** Role-agnostic create-account URL — portal type is chosen on /auth/get-started after signup. */
 function buildCreateAccountHref(searchParams: URLSearchParams): string {
   const params = new URLSearchParams();
@@ -281,7 +280,7 @@ function NativeAuthHubInner({ defaultMode = "sign-in", phoneFirst = false }: Nat
       });
 
       if (error) {
-        setSignInError(error.message.toLowerCase().includes("email not confirmed") ? "Verify your email using the link sent to you, then sign in." : presentSignInError(error.message));
+        setSignInError(presentSignInError(error.message));
         setFailedSignInAttempts((n) => n + 1);
         return;
       }

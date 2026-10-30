@@ -14,7 +14,17 @@ describe("resident email confirmation", () => {
     for (const path of ["src/components/auth/mobile-email-sign-in.tsx", "src/components/auth/native-auth-hub.tsx"]) {
       const source = readFileSync(path, "utf8");
       expect(source).not.toContain("/api/auth/confirm-resident-email");
-      expect(source).toContain("Verify your email using the link sent to you");
+      expect(source).not.toMatch(/tryResidentAutoConfirm|email_confirm/);
+      expect(source).toMatch(/presentSignInError\(error\.message\)/);
+    }
+  });
+  it("routes the unconfirmed-email case through the one copy owner", async () => {
+    const { presentSignInError } = await import("@/lib/auth/sign-in-error");
+    const presented = presentSignInError("Email not confirmed");
+    expect(presented.credentialMismatch).toBe(false);
+    expect(presented.message.toLowerCase()).toContain("email");
+    for (const path of ["src/components/auth/mobile-email-sign-in.tsx", "src/components/auth/native-auth-hub.tsx"]) {
+      expect(readFileSync(path, "utf8")).not.toContain("email not confirmed");
     }
   });
 });
