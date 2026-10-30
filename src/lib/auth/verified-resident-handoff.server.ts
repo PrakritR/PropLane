@@ -18,10 +18,8 @@ export async function provisionVerifiedResidentHandoff(db: SupabaseClient, input
     const { data: app, error } = await db.from("manager_application_records").select("resident_email, row_data").eq("id", input.applicationId).maybeSingle();
     if (error || !app || String(app.resident_email ?? "").trim().toLowerCase() !== email) return false;
     const opened = openApplicantRow(app.row_data, input.applicationId);
-    const row = opened && typeof opened === "object" && !Array.isArray(opened) ? opened as Record<string, unknown> : {};
-    const application = row.application && typeof row.application === "object" && !Array.isArray(row.application) ? row.application as Record<string, unknown> : {};
-    const rawName = row.name ?? application.fullLegalName;
-    const rawPhone = application.phone ?? row.phone;
+    const rawName = opened.name ?? opened.application?.fullLegalName;
+    const rawPhone = opened.application?.phone;
     name = typeof rawName === "string" && rawName.trim() ? rawName.trim() : null;
     phone = typeof rawPhone === "string" ? normalizeE164(rawPhone) : null;
   }
@@ -30,14 +28,6 @@ export async function provisionVerifiedResidentHandoff(db: SupabaseClient, input
   // Legacy consumers of profiles.application_approved may need separate repair.
   const inserted = await db.from("profiles").upsert({ id: input.userId, email, role: "resident", manager_id: input.applicationId || null, full_name: name, phone, application_approved: false }, { onConflict: "id", ignoreDuplicates: true });
   if (inserted.error) throw inserted.error;
-  if (name) {
-    const filledName = await db.from("profiles").update({ full_name: name }).eq("id", input.userId).is("full_name", null);
-    if (filledName.error) throw filledName.error;
-  }
-  if (phone) {
-    const filledPhone = await db.from("profiles").update({ phone }).eq("id", input.userId).is("phone", null).is("phone_verified_at", null);
-    if (filledPhone.error) throw filledPhone.error;
-  }
   if (input.applicationId) {
     const manager = await db.from("profiles").update({ manager_id: input.applicationId }).eq("id", input.userId).eq("role", "resident").is("manager_id", null);
     if (manager.error) throw manager.error;

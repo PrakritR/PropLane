@@ -13,13 +13,9 @@ describe("verified resident handoff", () => {
     const update = vi.fn().mockReturnValue(chain);
     const db = { auth: { admin: { getUserById: async () => ({ data: { user: { email: "owner@example.com", email_confirmed_at: "2026-01-01" } }, error: null }) } }, from: (table: string) => table === "profiles" ? { upsert, update } : { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { resident_email: "owner@example.com", row_data: { bucket: "approved", name: "Applicant", application: { phone: "+12065550100" } } }, error: null }) }) }) } };
     expect(await provisionVerifiedResidentHandoff(db as never, { userId: "user", email: "owner@example.com", applicationId: "app" })).toBe(true);
-    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ application_approved: false }), { onConflict: "id", ignoreDuplicates: true });
-    expect(update).toHaveBeenCalledWith({ full_name: "Applicant" });
-    expect(update).toHaveBeenCalledWith({ phone: "+12065550100" });
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ application_approved: false, full_name: "Applicant", phone: "+12065550100" }), { onConflict: "id", ignoreDuplicates: true });
     expect(update).toHaveBeenCalledWith({ manager_id: "app" });
-    expect(is).toHaveBeenCalledWith("full_name", null);
-    expect(is).toHaveBeenCalledWith("phone", null);
-    expect(is).toHaveBeenCalledWith("phone_verified_at", null);
+    expect(update).toHaveBeenCalledTimes(1);
     expect(chain.eq).toHaveBeenCalledWith("role", "resident");
     expect(is).toHaveBeenCalledWith("manager_id", null);
   });
