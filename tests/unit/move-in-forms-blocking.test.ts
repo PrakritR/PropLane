@@ -12,7 +12,7 @@ import { defaultMoveInFormBlocks, resolveMoveInFormBlocks } from "@/lib/move-in-
 import { normalizeMoveInFormTemplates } from "@/lib/move-in-forms/templates";
 
 const row = (patch: Record<string, unknown> = {}) => ({
-  id: "r1", form_id: "f1", status: "sent", sent_at: "2026-10-01T00:00:00Z", snapshot: { kind: "other" as const }, ...patch,
+  id: "r1", resident_user_id: "u1", form_id: "f1", status: "sent", sent_at: "2026-10-01T00:00:00Z", snapshot: { kind: "other" as const }, ...patch,
 });
 
 describe("what a form blocks defaults by kind and is read from the snapshot", () => {
@@ -90,14 +90,14 @@ function fakeDb(result: { data?: unknown[]; error?: { code?: string; message?: s
 }
 
 describe("loading what a resident or an application is blocked on", () => {
-  it("reads a resident's SENT copies by login email, honours the login a copy is tied to, and can narrow to one house", async () => {
+  it("reads a resident's SENT copies by login ID and can narrow to one house", async () => {
     const { db, calls } = fakeDb({ data: [
       row({ id: "mine", resident_user_id: "u1", snapshot: { blocks: "lease_signing" } }),
       row({ id: "theirs", resident_user_id: "u2", snapshot: { blocks: "approval" } }),
     ] });
     const result = await loadResidentBlockingForms(db, { email: " A@Example.TEST ", userId: "u1", propertyId: "p1" });
     expect(result).toMatchObject({ leaseSigning: true, approval: false });
-    expect(calls).toEqual(expect.arrayContaining([["eq", "resident_email", "a@example.test"], ["eq", "status", "sent"], ["eq", "property_id", "p1"]]));
+    expect(calls).toEqual(expect.arrayContaining([["eq", "resident_user_id", "u1"], ["eq", "status", "sent"], ["eq", "property_id", "p1"]]));
   });
 
   it("a manager's read only counts forms the caller holds, and a scope check that throws fails closed", async () => {
@@ -162,7 +162,7 @@ describe("loading what a resident or an application is blocked on", () => {
 describe("one read answers both resident forms facts", () => {
   /** The row shape the facts select actually returns: the two snapshot keys, projected out of the jsonb. */
   const factsRow = (patch: Record<string, unknown> = {}) => ({
-    id: "r1", form_id: "f1", status: "sent", sent_at: "2026-10-01T00:00:00Z", snapshot_kind: "other", snapshot_blocks: null, ...patch,
+    id: "r1", resident_user_id: "u1", form_id: "f1", status: "sent", sent_at: "2026-10-01T00:00:00Z", snapshot_kind: "other", snapshot_blocks: null, ...patch,
   });
 
   it("asks once, excluding cancelled copies, and derives hasForms and the blocks together", async () => {
@@ -173,17 +173,24 @@ describe("one read answers both resident forms facts", () => {
     const facts = await loadResidentFormsFacts(db, { email: " A@Example.TEST ", userId: "u1" });
     expect(facts.hasForms).toBe(true);
     expect(facts.blocking).toMatchObject({ approval: true, leaseSigning: false, moveInDetails: false });
-    expect(calls).toEqual([["eq", "resident_email", "a@example.test"], ["neq", "status", "cancelled"]]);
+    expect(calls).toEqual([["eq", "resident_user_id", "u1"], ["neq", "status", "cancelled"]]);
   });
 
   // Every resident page runs this read, so it must never drag the whole snapshot (questions + PDF
   // metadata) along for the two keys a block is derived from.
   it("selects only the columns it reads, projecting the two snapshot keys out of the jsonb", async () => {
     const { db, selects } = fakeDb({ data: [] });
-    await loadResidentFormsFacts(db, { email: "a@example.test" });
+    await loadResidentFormsFacts(db, { email: "a@example.test", userId: "u1" });
     expect(selects).toHaveLength(1);
     expect(selects[0]).toBe("id, form_id, status, sent_at, resident_user_id, snapshot_kind:snapshot->>kind, snapshot_blocks:snapshot->>blocks");
     expect(selects[0]).not.toMatch(/(^|[ ,])snapshot([ ,]|$)/);
+  });
+
+  it("phone-only exact ownership blocks signing and excludes unbound historical copies", async () => {
+    const { db, calls } = fakeDb({ data: [row({ resident_user_id: "u1", snapshot: { blocks: "lease_signing" } }), row({ resident_user_id: null, snapshot: { blocks: "approval" } })] });
+    const result = await loadResidentBlockingForms(db, { email: "", userId: "u1" });
+    expect(result).toMatchObject({ leaseSigning: true, approval: false });
+    expect(calls).toContainEqual(["eq", "resident_user_id", "u1"]);
   });
 
   it("a copy tied to another login is neither a form of theirs nor a block", async () => {
@@ -195,26 +202,26 @@ describe("one read answers both resident forms facts", () => {
 
   it("a submitted-only resident has forms but nothing blocked", async () => {
     const { db } = fakeDb({ data: [factsRow({ id: "done", status: "submitted", snapshot_kind: "intake" })] });
-    const facts = await loadResidentFormsFacts(db, { email: "a@example.test" });
+    const facts = await loadResidentFormsFacts(db, { email: "a@example.test", userId: "u1" });
     expect(facts.hasForms).toBe(true);
     expect(facts.blocking).toMatchObject({ moveInDetails: false });
   });
 
   it("falls back to the kind's default, and to the form id when the snapshot has no kind", async () => {
     const intake = fakeDb({ data: [factsRow({ snapshot_kind: "intake" })] });
-    expect((await loadResidentFormsFacts(intake.db, { email: "a@example.test" })).blocking.moveInDetails).toBe(true);
+    expect((await loadResidentFormsFacts(intake.db, { email: "a@example.test", userId: "u1" })).blocking.moveInDetails).toBe(true);
     const byFormId = fakeDb({ data: [factsRow({ form_id: "default-intake", snapshot_kind: null })] });
-    expect((await loadResidentFormsFacts(byFormId.db, { email: "a@example.test" })).blocking.moveInDetails).toBe(true);
+    expect((await loadResidentFormsFacts(byFormId.db, { email: "a@example.test", userId: "u1" })).blocking.moveInDetails).toBe(true);
     const explicitNothing = fakeDb({ data: [factsRow({ snapshot_kind: "intake", snapshot_blocks: "nothing" })] });
-    expect((await loadResidentFormsFacts(explicitNothing.db, { email: "a@example.test" })).blocking.moveInDetails).toBe(false);
+    expect((await loadResidentFormsFacts(explicitNothing.db, { email: "a@example.test", userId: "u1" })).blocking.moveInDetails).toBe(false);
   });
 
   it("fails closed on a read error without claiming a form exists; a missing table blocks nothing", async () => {
-    expect(await loadResidentFormsFacts(fakeDb({ error: { code: "500", message: "boom" } }).db, { email: "a@example.test" }))
+    expect(await loadResidentFormsFacts(fakeDb({ error: { code: "500", message: "boom" } }).db, { email: "a@example.test", userId: "u1" }))
       .toEqual({ hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED });
-    expect(await loadResidentFormsFacts(fakeDb("throw").db, { email: "a@example.test" }))
+    expect(await loadResidentFormsFacts(fakeDb("throw").db, { email: "a@example.test", userId: "u1" }))
       .toEqual({ hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED });
-    expect(await loadResidentFormsFacts(fakeDb({ error: { code: "42P01", message: 'relation "x" does not exist' } }).db, { email: "a@example.test" }))
+    expect(await loadResidentFormsFacts(fakeDb({ error: { code: "42P01", message: 'relation "x" does not exist' } }).db, { email: "a@example.test", userId: "u1" }))
       .toEqual({ hasForms: false, blocking: NO_BLOCKING_FORMS });
     expect(await loadResidentFormsFacts(fakeDb({ data: [] }).db, { email: " " })).toEqual({ hasForms: false, blocking: NO_BLOCKING_FORMS });
   });

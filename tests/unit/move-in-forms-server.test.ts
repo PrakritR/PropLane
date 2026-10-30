@@ -179,6 +179,10 @@ describe("authorization: a foreign id is a 404, never a 403", () => {
 
   it("does not match another resident reusing the email with a different login", async () => {
     await expect(moveInFormDetail(resident("imposter", "a@example.test"), ID)).rejects.toMatchObject({ status: 404 });
+    forms[0]!.resident_user_id = null;
+    await expect(moveInFormDetail(resident(), ID)).rejects.toMatchObject({ status: 404 });
+    forms[0]!.resident_user_id = "res-a";
+    expect((await moveInFormDetail(resident("res-a", ""), ID)).form.id).toBe(ID);
   });
 });
 
@@ -405,6 +409,8 @@ describe("files", () => {
     const photo = `${ID}/room_photos/${UUID}.jpg`;
     expect(await moveInFormFileUrl(manager(), ID, photo)).toBe(`https://signed.example/${photo}`);
     expect(await moveInFormFileUrl(resident(), ID, photo)).toBe(`https://signed.example/${photo}`);
+    await expect(moveInFormFileUrl(resident("imposter", "a@example.test"), ID, photo)).rejects.toMatchObject({ status: 404 });
+    expect(await moveInFormFileUrl(resident("res-a", ""), ID, photo)).toBe(`https://signed.example/${photo}`);
     await expect(moveInFormFileUrl(manager(), ID, `${OTHER_ID}/room_photos/${UUID}.jpg`)).rejects.toMatchObject({ status: 404 });
     await expect(moveInFormFileUrl(manager(), ID, `${ID}/room_photos/${OTHER_ID}.jpg`)).rejects.toMatchObject({ status: 404 });
     await expect(moveInFormFileUrl(manager("other-owner"), ID, photo)).rejects.toMatchObject({ status: 404 });

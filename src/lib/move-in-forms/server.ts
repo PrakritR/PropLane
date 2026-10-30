@@ -144,9 +144,7 @@ type Identity = { resident_email: string; resident_user_id?: string | null; mana
 
 function authorized(actor: MoveInFormActor, scope: Scope, row: Identity): boolean {
   if (actor.role === "resident") {
-    const email = actor.context.email;
-    return Boolean(email) && row.resident_email.trim().toLowerCase() === email &&
-      (!row.resident_user_id || row.resident_user_id === actor.context.userId);
+    return Boolean(actor.context.userId) && row.resident_user_id === actor.context.userId;
   }
   if (!(scope.owners.has(row.manager_user_id) || scope.properties.has(row.property_id))) return false;
   return scope.workspace === null || scope.workspace.has(row.property_id);
@@ -168,7 +166,7 @@ type RowFilters = { id?: string; propertyId?: string; applicationId?: string; st
 
 async function scopedRows(actor: MoveInFormActor, scope: Scope, only: RowFilters = {}): Promise<MoveInFormRow[]> {
   const filters: { column: string; values: string[] }[] = actor.role === "resident"
-    ? [{ column: "resident_email", values: [actor.context.email] }]
+    ? [{ column: "resident_user_id", values: actor.context.userId ? [actor.context.userId] : [] }]
     : [{ column: "manager_user_id", values: [...scope.owners] }, { column: "property_id", values: [...scope.properties] }];
   const rows = new Map<string, MoveInFormRow>();
   for (const filter of filters) {

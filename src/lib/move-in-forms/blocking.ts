@@ -89,7 +89,7 @@ export type BlockingFormOwnership = { manager_user_id: string | null; property_i
 /**
  * The application ids a lease row belongs to (its primary application and every joint member's), for
  * `loadResidentBlockingForms({ applicationIds })`. The forms read is already pinned to the signing
- * resident's own email, so another member's id can only ever match that resident's own copies.
+ * resident's own user id, so another member's id can only ever match that resident's own copies.
  */
 export function leaseApplicationIds(row: {
   axisId?: string | null;
@@ -101,8 +101,8 @@ export function leaseApplicationIds(row: {
 }
 
 /**
- * A resident's blocking forms: their own sent copies by login email (and login, when the copy is tied
- * to one). `propertyId` narrows to one house (a lease is for one property); omitted = every house.
+ * A resident's blocking forms use their authenticated user id. Manager approval callers without a
+ * user id retain the historical email lookup. `propertyId` narrows to one house; omitted = every house.
  *
  * `callerHolds` is for a MANAGER asking about someone else's resident: only forms the caller may judge
  * by count, so another landlord's form neither blocks this manager nor reveals itself. A predicate
@@ -125,17 +125,18 @@ export async function loadResidentBlockingForms(
   },
 ): Promise<BlockingFormsPending> {
   const email = who.email.trim().toLowerCase();
-  if (!email) return NO_BLOCKING_FORMS;
+  if (!who.userId && !email) return NO_BLOCKING_FORMS;
   try {
     const appIds = new Set((who.applicationIds ?? []).map((id) => id.trim().toUpperCase()).filter(Boolean));
     // With application ids the property narrowing moves in memory: it is an OR with the application match.
     const orScope = Boolean(who.propertyId) && appIds.size > 0;
-    let query = db.from("resident_move_in_forms").select(who.callerHolds || orScope ? SCOPED_SELECT : SELECT).eq("resident_email", email).eq("status", "sent");
+    let query = db.from("resident_move_in_forms").select(who.callerHolds || orScope ? SCOPED_SELECT : SELECT)
+      .eq(who.userId ? "resident_user_id" : "resident_email", who.userId || email).eq("status", "sent");
     if (who.propertyId && !orScope) query = query.eq("property_id", who.propertyId);
     const { data, error } = await query;
     if (error) return tableMissing(error) ? NO_BLOCKING_FORMS : BLOCKING_FORMS_FAIL_CLOSED;
     let rows = ((data ?? []) as unknown as Array<BlockingRow & { resident_user_id?: string | null; manager_user_id?: string | null; property_id?: string | null; application_id?: string | null }>).filter(
-      (row) => !row.resident_user_id || !who.userId || row.resident_user_id === who.userId,
+      (row) => !who.userId || row.resident_user_id === who.userId,
     );
     if (orScope) {
       rows = rows.filter((row) => row.property_id === who.propertyId || appIds.has(String(row.application_id ?? "").trim().toUpperCase()));
@@ -192,19 +193,18 @@ export async function loadResidentFormsFacts(
   db: SupabaseClient,
   who: { email: string; userId?: string | null },
 ): Promise<{ hasForms: boolean; blocking: BlockingFormsPending }> {
-  const email = who.email.trim().toLowerCase();
-  if (!email) return { hasForms: false, blocking: NO_BLOCKING_FORMS };
+  if (!who.userId) return { hasForms: false, blocking: NO_BLOCKING_FORMS };
   try {
     const { data, error } = await db
       .from("resident_move_in_forms")
       .select(FACTS_SELECT)
-      .eq("resident_email", email)
+      .eq("resident_user_id", who.userId)
       .neq("status", "cancelled");
     if (error) {
       return { hasForms: false, blocking: tableMissing(error) ? NO_BLOCKING_FORMS : BLOCKING_FORMS_FAIL_CLOSED };
     }
     const rows = ((data ?? []) as FormsFactsRow[]).filter(
-      (row) => !row.resident_user_id || !who.userId || row.resident_user_id === who.userId,
+      (row) => row.resident_user_id === who.userId,
     );
     return { hasForms: rows.length > 0, blocking: blockingFormsFromRows(rows.map(factsRowAsBlockingRow)) };
   } catch {
