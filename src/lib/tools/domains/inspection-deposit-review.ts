@@ -13,6 +13,7 @@ const schema = z.object({
   inspectionId: z.string().uuid(), depositId: z.string().uuid(),
   deductions: z.array(z.object({ itemId: z.string().min(1), billId: z.string().uuid(), amountCents: z.number().int().positive(), reason: z.string().trim().min(1).max(1000) }).strict()).max(100),
   expectedDigest: z.string().length(64).optional(),
+  offlineReturn: z.object({ method: z.enum(["cash", "check", "bank_transfer", "other"]), reference: z.string().trim().min(1).max(300) }).strict().optional(),
 }).strict();
 type Input = z.infer<typeof schema>;
 const money = (n: number) => `$${(n / 100).toFixed(2)}`;
@@ -74,11 +75,13 @@ export const disposeInspectionDepositTool = defineWriteTool({
   description: "Finalize explicitly manager-reviewed deposit deductions backed by a photographed move-out inspection and approved bills. Computes the refund, preserves evidence links and enables the existing disposition PDF. Never infer liability. Does not send money or notify the resident.", inputSchema: schema,
   preview: async (ctx: AgentContext, input) => {
     const r = await resolveReview(ctx, input);
+    if (r.split.refundCents > 0 && !input.offlineReturn) throw new Error("Provide the completed offline return method and reference.");
     return { kind: "dispose_inspection_deposit", title: "Finalize move-out deposit review", confirmLabel: "Post reviewed disposition", fields: [
       { label: "Resident", value: r.report.resident_name }, { label: "Inspection", value: r.report.inspection_date },
       { label: "Baseline", value: r.baselineId ? "Completed move-in inspection linked" : "No move-in baseline" },
       { label: "Held", value: money(r.deposit.amountHeldCents) }, ...r.lines.map(l => ({ label: l.label, value: money(l.amountCents) })),
       { label: "Refund", value: money(r.split.refundCents) },
+      ...(input.offlineReturn ? [{ label: "Offline return method", value: input.offlineReturn.method }, { label: "Return reference", value: input.offlineReturn.reference }] : []),
     ], warnings: ["You are reviewing liability and each deduction. A photo, condition rating, or resident acknowledgment does not establish liability.", "Posting records the accounting disposition; it does not transfer a refund."], confirmedInput: { ...input, expectedDigest: r.digest } };
   },
   handler: async (ctx: AgentContext, input) => {
@@ -86,7 +89,7 @@ export const disposeInspectionDepositTool = defineWriteTool({
     if (!input.expectedDigest || input.expectedDigest !== r.digest) throw new Error("Evidence, bills or deposit changed. Review a fresh proposal");
     const audit = await writeAuditLog(ctx, { action: "dispose_inspection_deposit", toolName: "dispose_inspection_deposit", inputSummary: { depositId: r.deposit.id, inspectionId: r.report.id, withholdCents: r.split.withholdCents, refundCents: r.split.refundCents } });
     if (!audit.recorded) throw new Error("Could not audit the disposition");
-    await disposeSecurityDeposit(ctx.db, { managerUserId: ctx.landlordId, depositId: r.deposit.id, ...r.split, itemization: r.lines, memo: `Reviewed move-out inspection ${r.report.id}` });
+    await disposeSecurityDeposit(ctx.db, { managerUserId: ctx.landlordId, depositId: r.deposit.id, ...r.split, itemization: r.lines, offlineReturn: input.offlineReturn, memo: `Reviewed move-out inspection ${r.report.id}` });
     track("security_deposit_disposed", ctx.userId, { depositId: r.deposit.id, dispositionType: r.split.dispositionType, refundCents: r.split.refundCents, withholdCents: r.split.withholdCents });
     return { reply: "Reviewed disposition posted. Download the deposit packet from Financials.", resultSummary: { depositId: r.deposit.id, inspectionId: r.report.id, ...r.split, packetUrl: `/api/reports/deposit-disposition/export?depositId=${encodeURIComponent(r.deposit.id)}` } };
   },
