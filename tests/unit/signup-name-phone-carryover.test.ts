@@ -8,20 +8,22 @@ vi.mock("@/lib/tour-resident-link.server", () => ({
 }));
 vi.mock("@/lib/auth/profile-role-row", () => ({ ensureProfileRoleRow: vi.fn(async () => undefined) }));
 
+import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
+import { ensureMayAccessResidentPortal } from "@/lib/auth/ensure-resident-portal-access.server";
 import { ensureSignedInResidentAccount } from "@/lib/auth/ensure-signed-in-resident.server";
 import { readPhoneIdentity } from "@/lib/auth/phone-auth.server";
 import { linkAllTourInquiriesForEmail, reconcileProspectInboxThreadsForResident } from "@/lib/tour-resident-link.server";
 
 type Call = { table: string; op: string; payload?: unknown };
 
-function db(profile: Record<string, unknown> | null) {
+function db(profile: Record<string, unknown> | null, roleError = false) {
   const calls: Call[] = [];
   const client = {
     from: (table: string) => ({
       select: () => ({
         eq: () => ({
           maybeSingle: async () => ({ data: table === "profiles" ? profile : null, error: null }),
-          then: (resolve: (v: unknown) => void) => resolve({ data: [], error: null }),
+          then: (resolve: (v: unknown) => void) => resolve({ data: [], error: roleError ? { message: "failed" } : null }),
         }),
       }),
       insert: (payload: unknown) => { calls.push({ table, op: "insert", payload }); return Promise.resolve({ error: null }); },
@@ -97,3 +99,19 @@ describe("the verify screen is prefilled with the number typed at signup", () =>
     await expect(readPhoneIdentity(identityDb(null, undefined), "u1")).resolves.toEqual({ phone: null, verified: false });
   });
 });
+
+ describe("resident provisioning stored role boundary", () => {
+  it("never resurrects revoked legacy admin when granting resident", async () => {
+    vi.clearAllMocks();
+    const { client } = db({ role: "admin", email: "w@example.com" });
+    expect((await ensureSignedInResidentAccount(client, { id: "u1", email: "w@example.com" })).ok).toBe(true);
+    expect(ensureProfileRoleRow).toHaveBeenCalledWith(client, "u1", "resident");
+    expect(ensureProfileRoleRow).not.toHaveBeenCalledWith(client, "u1", "admin");
+  });
+  it("denies portal provisioning on role read failure without granting anything", async () => {
+    vi.clearAllMocks();
+    const { client } = db({ role: "admin", email: "w@example.com" }, true);
+    expect(await ensureMayAccessResidentPortal(client, { id: "u1", email: "w@example.com" })).toMatchObject({ ok: false, status: 500 });
+    expect(ensureProfileRoleRow).not.toHaveBeenCalled();
+  });
+ });

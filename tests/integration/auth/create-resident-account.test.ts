@@ -109,32 +109,13 @@ describe("POST /api/auth/create-resident-account", () => {
     expect(ensureProfileRoleRow).toHaveBeenCalledWith(service, "new-1", "resident");
   });
 
-  it("backfills a legacy-only manager role so adding resident never collapses it away", async () => {
-    // profile_roles is EMPTY — the manager role resolves solely from the legacy
-    // profiles.role column. normalizePortalRoles ignores that fallback once
-    // profile_roles has ANY row, so the route must materialize the manager row
-    // BEFORE inserting resident, or roles collapse to ["resident"] only.
-    signedInAs("legacy-mgr-1");
-    const { service } = fakeService({ role: "manager" }, []);
+  it("does not resurrect a revoked legacy admin role", async () => {
+    signedInAs("revoked-admin");
+    const { service } = fakeService({ role: "admin" }, []);
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(service as never);
-
-    const res = await createResidentAccount(postRequest());
-    expect(res.status).toBe(200);
-    expect(ensureProfileRoleRow).toHaveBeenCalledWith(service, "legacy-mgr-1", "manager");
-    expect(ensureProfileRoleRow).toHaveBeenCalledWith(service, "legacy-mgr-1", "resident");
-    const calls = vi.mocked(ensureProfileRoleRow).mock.calls.map((c) => c[2]);
-    expect(calls.indexOf("manager")).toBeLessThan(calls.indexOf("resident"));
-  });
-
-  it("maps a legacy 'owner' profiles.role to a manager profile_roles row", async () => {
-    signedInAs("legacy-owner-1");
-    const { service } = fakeService({ role: "owner" }, []);
-    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(service as never);
-
-    const res = await createResidentAccount(postRequest());
-    expect(res.status).toBe(200);
-    expect(ensureProfileRoleRow).toHaveBeenCalledWith(service, "legacy-owner-1", "manager");
-    expect(ensureProfileRoleRow).toHaveBeenCalledWith(service, "legacy-owner-1", "resident");
+    expect((await createResidentAccount(postRequest())).status).toBe(200);
+    expect(ensureProfileRoleRow).toHaveBeenCalledWith(service, "revoked-admin", "resident");
+    expect(ensureProfileRoleRow).not.toHaveBeenCalledWith(service, "revoked-admin", "admin");
   });
 
   it("is idempotent — re-running for a user who already holds resident does not remove other roles", async () => {

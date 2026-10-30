@@ -46,8 +46,9 @@ export async function ensureSignedInResidentAccount(
   const signupName = typeof meta.full_name === "string" ? meta.full_name.trim().slice(0, 200) : "";
   const signupPhone = normalizeE164(typeof meta.phone === "string" ? meta.phone : "");
 
-  const { data: existingRoleRows } = await service.from("profile_roles").select("role").eq("user_id", user.id);
-  const currentRoles = normalizePortalRoles(existingRoleRows, existingProfile?.role as string | undefined);
+  const { data: existingRoleRows, error: roleError } = await service.from("profile_roles").select("role").eq("user_id", user.id);
+  if (roleError) return { ok: false, error: "Unable to verify account roles." };
+  const currentRoles = normalizePortalRoles(existingRoleRows, null);
   const hadResidentRole = currentRoles.includes("resident");
 
   if (!hadResidentRole) {
@@ -62,11 +63,6 @@ export async function ensureSignedInResidentAccount(
       if (error) return { ok: false, error: error.message };
     }
 
-    for (const role of currentRoles) {
-      if (role !== "resident") {
-        await ensureProfileRoleRow(service, user.id, role);
-      }
-    }
     await ensureProfileRoleRow(service, user.id, "resident");
   }
 
