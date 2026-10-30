@@ -37,7 +37,7 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    void createSupabaseBrowserClient().auth.getUser().then(({ data }) => {
+    void createSupabaseBrowserClient().auth.getUser().then(({ data }: { data: { user: { email_confirmed_at?: string | null; email?: string | null } | null } }) => {
       if (!alive) return;
       if (intent !== "tour" && data.user?.email_confirmed_at && data.user.email) setVerifiedEmail(data.user.email);
     }).catch(() => undefined).finally(() => { if (alive) setLoading(false); });

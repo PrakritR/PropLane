@@ -66,7 +66,7 @@ describe("POST /api/auth/link-tour-inquiry", () => {
 
   it("promotes managers and links the tour", async () => {
     vi.mocked(getEffectiveSessionForPortal).mockResolvedValue({
-      user: { id: "mgr-1" },
+      user: { id: "mgr-1", email: "mgr@example.com", email_confirmed_at: "confirmed" },
       profile: { role: "manager", email: "mgr@example.com" },
     } as never);
     accessContext(["manager"]);
@@ -88,7 +88,7 @@ describe("POST /api/auth/link-tour-inquiry", () => {
 
   it("links a tour for authenticated residents", async () => {
     vi.mocked(getEffectiveSessionForPortal).mockResolvedValue({
-      user: { id: "res-1", email: "res@example.com" },
+      user: { id: "res-1", email: "res@example.com", email_confirmed_at: "confirmed" },
       profile: { role: "resident", email: "res@example.com" },
     } as never);
     accessContext(["resident"]);

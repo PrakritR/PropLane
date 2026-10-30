@@ -44,7 +44,7 @@ function signInResident() {
   vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({} as never);
   vi.mocked(hasRole).mockImplementation((_ctx, role) => role === "resident");
   vi.mocked(getEffectiveSessionForPortal).mockResolvedValue({
-    user: { id: "res-1" },
+    user: { id: "res-1", email: "res@example.com", email_confirmed_at: "confirmed" },
     profile: { role: "resident", email: "res@example.com" },
   } as never);
 }
@@ -53,7 +53,7 @@ describe("GET /api/portal-resident-tours never reports a failure as zero tours",
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getPortalAccessContext).mockResolvedValue({
-      user: { id: "res-1" },
+      user: { id: "res-1", email: "res@example.com", email_confirmed_at: "confirmed" },
       profile: null,
       roles: [],
       effectiveRole: null,

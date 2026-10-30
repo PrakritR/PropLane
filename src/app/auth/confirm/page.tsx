@@ -37,6 +37,7 @@ function destinationForType(type: EmailOtpType): string {
 function ConfirmContent() {
   const searchParams = useSearchParams();
   const [failedType, setFailedType] = useState<EmailOtpType | "unknown" | null>(null);
+  const [completionUnavailable, setCompletionUnavailable] = useState(false);
 
   useEffect(() => {
     const tokenHash = searchParams.get("token_hash");
@@ -51,7 +52,13 @@ function ConfirmContent() {
       const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
       if (cancelled) return;
       if (type === "magiclink" || type === "signup") {
-        const completed = await fetch("/api/auth/email-onboarding/finish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tokenHash }) });
+        let completed: Response;
+        try {
+          completed = await fetch("/api/auth/email-onboarding/finish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tokenHash }) });
+        } catch {
+          if (!cancelled) setCompletionUnavailable(true);
+          return;
+        }
         // Ordinary magic links have no onboarding claim and retain their existing destination.
         if (!completed.ok && (error || completed.status !== 409)) { setFailedType(type); return; }
       } else if (error) {
@@ -64,6 +71,10 @@ function ConfirmContent() {
       cancelled = true;
     };
   }, [searchParams]);
+
+  if (completionUnavailable) {
+    return <AuthCard><h1>Could not complete verification</h1><p>Check your connection and open this link again.</p></AuthCard>;
+  }
 
   if (failedType) {
     const isRecovery = failedType === "recovery";

@@ -26,7 +26,7 @@ export function VendorInviteEmailSignup({ inviteToken, email, initialFullName = 
   const matches = verifiedEmail?.trim().toLowerCase() === invited;
   useEffect(() => {
     let active = true;
-    void createSupabaseBrowserClient().auth.getUser().then(({ data }) => {
+    void createSupabaseBrowserClient().auth.getUser().then(({ data }: { data: { user: { email_confirmed_at?: string | null; email?: string | null } | null } }) => {
       if (active && data.user?.email_confirmed_at && data.user.email) setVerifiedEmail(data.user.email);
     }).catch(() => undefined).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };

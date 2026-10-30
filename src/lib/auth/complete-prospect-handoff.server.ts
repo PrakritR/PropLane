@@ -89,7 +89,7 @@ export async function completeProspectHandoffForUser(
   }
   const email = trustedContact.contactEmail;
   const authEmail = trustedContact.authEmail;
-  if (normalizeEmail(email) !== normalizeEmail(authEmail)) {
+  if (normalizeEmail(email) !== normalizeEmail(authEmail ?? "")) {
     return { ok: false, status: 403, error: "Sign in with the verified email used for this request." };
   }
 

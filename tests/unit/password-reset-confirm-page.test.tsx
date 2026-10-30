@@ -25,6 +25,7 @@ let replaced: string[] = [];
 
 beforeEach(() => {
   verifyOtp.mockReset();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 409 }));
   replaced = [];
   Object.defineProperty(window, "location", {
     configurable: true,
@@ -32,7 +33,7 @@ beforeEach(() => {
   });
 });
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("/auth/confirm for a recovery link", () => {
   it("verifies the token with no pre-existing browser state and lands on the reset form", async () => {
@@ -74,6 +75,15 @@ describe("/auth/confirm for a recovery link", () => {
     render(<ConfirmPage />);
 
     await waitFor(() => expect(replaced).toEqual(["/auth/continue"]));
+  });
+
+  it("shows failure when onboarding completion cannot be reached", async () => {
+    verifyOtp.mockResolvedValue({ error: null });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    search = `token_hash=${TOKEN}&type=signup`;
+    render(<ConfirmPage />);
+    expect(await screen.findByText(/could not complete verification/i)).toBeTruthy();
+    expect(replaced).toEqual([]);
   });
 
   it("never takes its destination from a query param", async () => {
