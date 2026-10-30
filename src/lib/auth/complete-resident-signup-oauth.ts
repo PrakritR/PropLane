@@ -1,5 +1,3 @@
-import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
-import { migratePortalUserId } from "@/lib/auth/migrate-portal-user-id";
 import { primaryRoleWhenAddingResident } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { generateAxisId } from "@/lib/manager-id";
@@ -64,11 +62,6 @@ export async function completeResidentSignupFromOAuth(
         ? "This application ID belongs to a different email address. Sign in with the same Google account used on your rental application."
         : "Application ID not found. Check the ID and try again.",
     };
-  }
-
-  const existingAuthId = await findAuthUserIdByEmail(supabase, normalEmail);
-  if (existingAuthId && existingAuthId !== userId) {
-    await migratePortalUserId(supabase, existingAuthId, userId);
   }
 
   const { data: existingAuth } = await supabase.auth.admin.getUserById(userId);

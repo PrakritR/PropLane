@@ -106,13 +106,14 @@ export async function ensureFreeManagerPortalAccess(
     return { status: "portal_ready", managerId: purchase.manager_id, provisioned: false };
   }
 
-  const { data: unlinkedPaid } = await supabase
+  const { data: unlinkedPaid, error: unlinkedPaidError } = await supabase
     .from("manager_purchases")
     .select("id")
     .ilike("email", email)
     .is("user_id", null)
     .not("paid_at", "is", null)
     .limit(1);
+  if (unlinkedPaidError) return { status: "skipped", reason: "purchase_unavailable" };
   if (unlinkedPaid?.length) return { status: "skipped", reason: "unlinked_paid_purchase" };
 
   let managerId: string;

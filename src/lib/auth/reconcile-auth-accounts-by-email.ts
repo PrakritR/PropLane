@@ -1,5 +1,4 @@
 import { pendingAccountRecovery } from "@/lib/auth/account-recovery.server";
-import { migratePortalUserId } from "@/lib/auth/migrate-portal-user-id";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -70,33 +69,12 @@ async function syncProfileForUser(db: ServiceDb, user: User): Promise<void> {
   await ensureProfileRoleRow(db, user.id, "manager");
 }
 
-/**
- * Merge portal data for every other auth user with the same email into the signed-in user.
- * Ensures Google and email/password logins reach the same portal state.
- */
+/** Synchronize this verified Auth user's own profile and roles only. */
 export async function reconcileAuthAccountsByEmail(db: ServiceDb, sessionUser: User): Promise<void> {
   const email = normalizeEmail(sessionUser.email);
   if (!email || !sessionUser.email_confirmed_at) return;
 
   if (await pendingAccountRecovery(db, sessionUser.id)) return;
-  const users = await findAuthUsersByEmail(db, email);
-  for (const user of users) if (await pendingAccountRecovery(db, user.id)) throw new Error("Finish the original account recovery decision before linking logins.");
-  const others = users.filter((user) => user.id !== sessionUser.id);
-
-  for (const other of others) {
-    await migratePortalUserId(db, other.id, sessionUser.id);
-  }
-
-  const { data: purchaseRows } = await db
-    .from("manager_purchases")
-    .select("id, user_id")
-    .eq("email", email)
-    .is("user_id", null);
-
-  for (const purchase of purchaseRows ?? []) {
-    await db.from("manager_purchases").update({ user_id: sessionUser.id }).eq("id", purchase.id).is("user_id", null);
-  }
-
   await syncProfileForUser(db, sessionUser);
 
   const { data: profile } = await db.from("profiles").select("role").eq("id", sessionUser.id).maybeSingle();

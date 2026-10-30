@@ -105,7 +105,7 @@ describe("reconcileAuthAccountsByEmail", () => {
     expect(db.from).not.toHaveBeenCalled();
   });
 
-  it("migrates portal data from duplicate auth users into the session user", async () => {
+  it("does not migrate another Auth user solely by matching email", async () => {
     const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
     const db = mockDb({
       users: [
@@ -123,10 +123,10 @@ describe("reconcileAuthAccountsByEmail", () => {
       user_metadata: {},
     } as never);
 
-    expect(migratePortalUserId).toHaveBeenCalledWith(db, "email-user", "session-user");
+    expect(migratePortalUserId).not.toHaveBeenCalled();
   });
 
-  it("links orphan manager purchases by email", async () => {
+  it("does not claim orphan manager purchases solely by email", async () => {
     const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
     const db = mockDb({
       users: [{ id: "session-user", email: "mgr@test.com" }],
@@ -142,7 +142,7 @@ describe("reconcileAuthAccountsByEmail", () => {
       user_metadata: {},
     } as never);
 
-    expect(db.purchaseUpdates).toEqual([{ id: "purchase-1", patch: { user_id: "session-user" } }]);
+    expect(db.purchaseUpdates).toEqual([]);
   });
 
   it("ensures manager role for an existing primary-admin profile on reconcile", async () => {

@@ -46,9 +46,10 @@ export function isManagerOnboardingComplete(purchase: ManagerPurchaseRow | null 
 export async function findManagerPurchaseForAccount(
   supabase: SupabaseClient,
   userId: string,
-  email: string,
+  _email: string,
 ): Promise<ManagerPurchaseRow | null> {
-  const { data: byUser } = await supabase
+  void _email; // Retained for callers; email alone is not purchase ownership.
+  const { data: byUser, error } = await supabase
     .from("manager_purchases")
     .select("id, email, manager_id, tier, billing, stripe_checkout_session_id, user_id, full_name, paid_at")
     .eq("user_id", userId)
@@ -56,20 +57,8 @@ export async function findManagerPurchaseForAccount(
     .limit(1)
     .maybeSingle();
 
-  if (byUser) return byUser as ManagerPurchaseRow;
-
-  const normalized = email.trim().toLowerCase();
-  if (!normalized) return null;
-
-  const { data: byEmail } = await supabase
-    .from("manager_purchases")
-    .select("id, email, manager_id, tier, billing, stripe_checkout_session_id, user_id, full_name, paid_at")
-    .eq("email", normalized)
-    .order("paid_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  return (byEmail as ManagerPurchaseRow | null) ?? null;
+  if (error) throw error;
+  return (byUser as ManagerPurchaseRow | null) ?? null;
 }
 
 export async function managerNeedsPricingSelection(
