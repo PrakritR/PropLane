@@ -158,6 +158,7 @@ function seed() {
         status: "pending",
         row_data: {
           id: "SR-A",
+          residentUserId: RES_A.id,
           offerId: "custom",
           offerName: "Parking spot",
           residentEmail: RES_A.email,
@@ -175,7 +176,7 @@ function seed() {
         manager_user_id: MANAGER,
         resident_email: RES_B.email,
         status: "pending",
-        row_data: { id: "SR-B", offerName: "B thing", residentEmail: RES_B.email, status: "pending", notes: "" },
+        row_data: { id: "SR-B", residentUserId: RES_B.id, offerName: "B thing", residentEmail: RES_B.email, status: "pending", notes: "" },
       },
     ],
     portal_work_order_records: [
@@ -185,6 +186,7 @@ function seed() {
         resident_email: RES_A.email,
         row_data: {
           id: "WO-A",
+          residentUserId: RES_A.id,
           title: "Leaky faucet",
           status: "Open",
           bucket: "open",
@@ -199,7 +201,7 @@ function seed() {
         id: "WO-B",
         manager_user_id: MANAGER,
         resident_email: RES_B.email,
-        row_data: { id: "WO-B", title: "B SECRET ORDER", status: "Open" },
+        row_data: { id: "WO-B", residentUserId: RES_B.id, title: "B SECRET ORDER", status: "Open" },
       },
     ],
     portal_inbox_thread_records: [

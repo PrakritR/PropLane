@@ -1044,16 +1044,14 @@ export { MANAGER_ROLE_REQUIRED_CODE } from "@/lib/invite-links/invite-link-model
  */
 
 async function userHasManagerPortalRole(db: SupabaseClient, userId: string): Promise<boolean> {
-  const { data: roleRow } = await db
+  const { data: roleRow, error } = await db
     .from("profile_roles")
     .select("role")
     .eq("user_id", userId)
     .eq("role", "manager")
     .maybeSingle();
-  if (roleRow) return true;
-  const { data: profile } = await db.from("profiles").select("role").eq("id", userId).maybeSingle();
-  const legacy = String(profile?.role ?? "").trim().toLowerCase();
-  return legacy === "manager" || legacy === "owner";
+  if (error) throw new Error("Could not verify manager access.");
+  return Boolean(roleRow);
 }
 
 async function acceptPendingMembership(

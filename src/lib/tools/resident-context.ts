@@ -1,3 +1,4 @@
+import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
 /**
  * ResidentAgentContext is resolved server-side from the authenticated Supabase
  * session (admin preview supported via the same effective-session helper the
@@ -134,8 +135,8 @@ export async function resolveResidentAgentContext(): Promise<ResidentAgentContex
   const roles = roleList;
   if (!roles.includes("resident")) return null;
 
-  const email = String(profile?.email ?? user.email ?? "").trim().toLowerCase();
-  if (!email) return null;
+  const { data: authData, error: authError } = await db.auth.admin.getUserById(user.id);
+  const email = authError || !authData.user ? "" : verifiedSessionEmail(authData.user, profile?.email);
 
   const managerId = String(profile?.manager_id ?? "").trim();
   const [managerIds, managerTier, access] = await Promise.all([

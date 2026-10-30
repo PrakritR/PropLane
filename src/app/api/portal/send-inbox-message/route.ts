@@ -8,6 +8,7 @@ import {
 } from "@/lib/agent/vendor-agent.server";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { filterRecipientsBySenderScope, recipientReachFromScope } from "@/lib/inbox-recipient-scope";
 import { applyOwnerMessageInboxScope } from "@/lib/property-owner/access.server";
 import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
@@ -489,7 +490,7 @@ export async function POST(req: Request) {
     }
 
     let toUserIds = normalizeUserIds(body.toUserIds);
-    const senderIsAdmin = await isAdminUser(user.id);
+    const senderIsAdmin = await resolveAdminOversight(req, user.id, await isAdminUser(user.id));
     const { data: senderProfile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
     const portalParam = String(body.senderPortal ?? "").trim().toLowerCase();
     const senderPortal =
@@ -500,6 +501,7 @@ export async function POST(req: Request) {
       portal: senderPortal,
       isAdmin: senderIsAdmin,
     });
+    if (!senderRole) return NextResponse.json({ ok: false, error: "Forbidden." }, { status: 403 });
     // External vendor delivery has a sponsored identity and durable outbox.
     // Do not let legacy callers borrow the generic manager/resident transports.
     if (String(senderRole ?? "").trim().toLowerCase() === "vendor" && (deliverViaEmail || deliverViaSms)) {

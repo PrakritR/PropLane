@@ -1,5 +1,5 @@
 import type { ResidentAgentContext } from "../../resident-context";
-import { residentManagerIds, residentScopeOrFilter } from "../../resident-context";
+import { residentManagerIds } from "../../resident-context";
 import { wrapUntrustedContent } from "../../untrusted-content";
 
 const PAGE_SIZE = 1000;
@@ -17,13 +17,12 @@ export async function loadResidentIdentityRows<T>(
 ): Promise<T[]> {
   const out: T[] = [];
   // No identity means no rows — never an unfiltered read of a shared table.
-  const scope = residentScopeOrFilter(ctx);
-  if (!scope) return out;
+  if (!ctx.userId) return out;
   for (let from = 0; ; from += PAGE_SIZE) {
     let query = ctx.db
       .from(table)
       .select("row_data")
-      .or(scope);
+      .eq("resident_user_id", ctx.userId);
     if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
     const { data, error } = await query.order("id", { ascending: true }).range(from, from + PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
@@ -45,12 +44,12 @@ export async function loadResidentEmailRows<T>(
 ): Promise<T[]> {
   const out: T[] = [];
   // Same rule as the identity loader: an empty email must match nothing.
-  if (!ctx.email?.trim()) return out;
+  if (!ctx.userId) return out;
   for (let from = 0; ; from += PAGE_SIZE) {
     let query = ctx.db
       .from(table)
       .select("row_data")
-      .eq("resident_email", ctx.email);
+      .eq(table === "portal_lease_pipeline_records" ? "resident_user_id" : "row_data->>residentUserId", ctx.userId);
     if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
     const { data, error } = await query.order("id", { ascending: true }).range(from, from + PAGE_SIZE - 1);
     if (error) throw new Error(error.message);

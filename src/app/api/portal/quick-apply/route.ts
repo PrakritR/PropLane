@@ -42,7 +42,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Application access is unavailable for this account." }, { status: 403 });
     }
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
-    const legacyRole = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
+    const legacyRole = String(profile?.role ?? "").toLowerCase();
     if (!(await authorizeResidentRole(db, { userId: user.id, legacyRole }))) {
       // Authenticated, just not a resident: 403, never 401 — a 401 reads as an expired session and
       // sends the client back through sign-in for an account that is already signed in.
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
 
     const outcome = await runQuickApply(
       db,
-      { user, role: legacyRole, email, leadSource: await readListingSource(req) },
+      { user, role: "resident", email, leadSource: await readListingSource(req) },
       body,
     );
     return NextResponse.json(outcome.body, { status: outcome.status });

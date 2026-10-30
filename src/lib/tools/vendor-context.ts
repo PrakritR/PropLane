@@ -1,3 +1,4 @@
+import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
 /**
  * VendorAgentContext is resolved server-side from the authenticated Supabase
  * session. The vendor's auth user id is the only scope key (matching the
@@ -41,8 +42,9 @@ export async function resolveVendorAgentContext(): Promise<VendorAgentContext | 
   const roles = roleList;
   if (!roles.includes("vendor")) return null;
 
-  const email = String(profile?.email ?? user.email ?? "").trim().toLowerCase();
-  const managerIds = await managerIdsOwningVendor(db, { userId: user.id, email });
+  const { data: authData, error: authError } = await db.auth.admin.getUserById(user.id);
+  const email = authError || !authData.user ? "" : verifiedSessionEmail(authData.user, profile?.email);
+  const managerIds = await managerIdsOwningVendor(db, { userId: user.id, email: "" });
 
   return {
     kind: "vendor",

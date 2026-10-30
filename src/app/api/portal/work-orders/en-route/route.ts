@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveSessionActorRole } from "@/lib/auth/vendor-api-access";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
       email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
       fullName: profile?.full_name?.trim() || "",
       admin,
-      role: String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase(),
+      role: await resolveSessionActorRole(profile?.role),
     };
     const body = (await req.json().catch(() => ({}))) as { workOrderId?: string; etaMinutes?: number };
     const result = await markVendorEnRoute(db, actor, body);

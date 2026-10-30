@@ -76,7 +76,7 @@ export async function GET(req: Request) {
       userId: user.id,
       legacyRole: profile?.role,
     });
-    if (role === "denied") return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    if (role === "denied" && !oversight) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
 
     // Managers/pro see the requests they own plus rows on properties they own
@@ -250,7 +250,7 @@ export async function POST(req: Request) {
       userId: user.id,
       legacyRole: profile?.role,
     });
-    if (role === "denied") return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    if (role === "denied" && !oversight) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     const actor: Actor = {
       userId: user.id,
       email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),

@@ -71,11 +71,11 @@ export const getMyApplicationStatusTool = defineTool({
   inputSchema: z.object({}).strict(),
   handler: async (ctx: ResidentAgentContext) => {
     const rows: { id: string; row_data: DemoApplicantRow; property_id: string | null; assigned_property_id: string | null }[] = [];
-    if (ctx.email?.trim()) {
+    if (ctx.userId) {
       for (let from = 0; ; from += 1000) {
         let query = ctx.db.from("manager_application_records")
           .select("id, row_data, property_id, assigned_property_id")
-          .eq("resident_email", ctx.email);
+          .eq("row_data->>residentUserId", ctx.userId);
         if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
         const { data, error } = await query.order("id", { ascending: true }).range(from, from + 999);
         if (error) throw new Error(error.message);
