@@ -259,6 +259,13 @@ const REVOKED_DIRECTORY_INVITE = {
 };
 
 describe("provisionVendorAccountByEmail — every way of finishing unlinked reports why", () => {
+  it("refuses an invite for another email even with a confirmed account", async () => {
+    const { db, writes } = provisioningDb();
+    const result = await provisionVendorAccountByEmail(db, { userId: "user-1", email: "vendor@example.com", invite: { ...REVOKED_DIRECTORY_INVITE, vendor_email: "victim@example.com" } });
+    expect(result).toMatchObject({ ok: false, status: 403 });
+    expect(writes).toEqual([]);
+  });
+
   it("does not treat a phone-proven account's unconfirmed real email as balance proof", async () => {
     vendorBalances.claim.mockClear();
     const { db } = provisioningDb();

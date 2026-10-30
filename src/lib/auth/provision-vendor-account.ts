@@ -285,7 +285,7 @@ export async function provisionVendorAccountByEmail(
     return { ok: false, status: 403, error: "Sign in with the account that owns this email before continuing." };
   }
   const emailProven = Boolean(existingAuth.user.email_confirmed_at);
-  if (opts.invite && !emailProven) return { ok: false, status: 403, error: "Verify your email before accepting the invite." };
+  if (opts.invite && (!emailProven || opts.invite.vendor_email.trim().toLowerCase() !== normalEmail)) return { ok: false, status: 403, error: "Verify the email on the invite before continuing." };
   let invite: VendorInviteRow | null;
   let unlinkedReason: VendorUnlinkedReason | null = null;
   if (opts.invite !== undefined) {
