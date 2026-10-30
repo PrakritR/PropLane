@@ -11,7 +11,6 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import { managerCanAccessApplicationRecord, managerOwnedPropertyIdSet } from "@/lib/auth/manager-application-access";
 import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lease-scope";
 import { linkedOwnerForProperty, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
-import { provisionApprovedResidentAccount } from "@/lib/auth/provision-approved-resident";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import {
   anchorServerOwnedSmsConsent,
@@ -874,58 +873,6 @@ async function assertCanDeleteApplicationRecords(
   return "Unauthorized.";
 }
 
-const BACKFILL_MAX_ROWS_PER_CALL = 3;
-const BACKFILL_ATTEMPT_TTL_MS = 10 * 60 * 1000;
-const BACKFILL_ATTEMPTED_MAX = 2000;
-const backfillAttemptedAt = new Map<string, number>();
-
-/** Fire-and-forget backfill of approved applications with no resident profile. Never throws. */
-function scheduleApprovedResidentBackfill(
-  db: ReturnType<typeof createSupabaseServiceRoleClient>,
-  scopedRows: DemoApplicantRow[],
-): void {
-  try {
-    const now = Date.now();
-    for (const [id, at] of backfillAttemptedAt) {
-      if (now - at >= BACKFILL_ATTEMPT_TTL_MS) backfillAttemptedAt.delete(id);
-    }
-    const approved = scopedRows.filter(
-      (r) => r.bucket === "approved" && r.email?.trim().includes("@") && !backfillAttemptedAt.has(r.id),
-    );
-    if (approved.length === 0) return;
-
-    const work = async () => {
-      // One batch profiles read finds the rows that are really missing an account;
-      // only those count toward the per-call cap, so a long approved list of
-      // provisioned residents never starves the one that needs it.
-      const emails = [...new Set(approved.map((r) => r.email!.trim().toLowerCase()))];
-      const { data: existing } = await db.from("profiles").select("email").in("email", emails);
-      const existingSet = new Set((existing ?? []).map((p) => (p.email ?? "").trim().toLowerCase()).filter(Boolean));
-      const unprovisioned = approved
-        .filter((r) => !existingSet.has(r.email!.trim().toLowerCase()))
-        .slice(0, BACKFILL_MAX_ROWS_PER_CALL);
-      const at = Date.now();
-      for (const row of unprovisioned) backfillAttemptedAt.set(row.id, at);
-      while (backfillAttemptedAt.size > BACKFILL_ATTEMPTED_MAX) {
-        const oldest = backfillAttemptedAt.keys().next().value;
-        if (oldest === undefined) break;
-        backfillAttemptedAt.delete(oldest);
-      }
-      await Promise.allSettled(unprovisioned.map((row) => provisionApprovedResidentAccount(db, row).catch(
-        bestEffortFailed("approved resident account provisioning", { application: row.id }),
-      )));
-    };
-    const run = () => work().catch(bestEffortFailed("approved resident backfill"));
-    try {
-      after(run);
-    } catch {
-      void run();
-    }
-  } catch {
-    /* best-effort; the read response is unaffected */
-  }
-}
-
 export async function GET(req: Request) {
   const timer = createApplicationsPhaseTimer();
   try {
@@ -1057,14 +1004,6 @@ export async function GET(req: Request) {
             }),
           )
         : rows;
-
-    // Approved residents are provisioned when the approval is WRITTEN (persist path
-    // above). This read only backfills rows that were never provisioned (restored
-    // via SQL migration, or a write-time failure) and is read-only for the caller:
-    // bounded, after the response, never awaited, one attempt per row per 10 min.
-    // It used to run inline and its auth lookup (listUsers) cost seconds per call.
-    // A view-as session is read-only: it must not provision accounts either.
-    if (!(await isViewAsSessionOpen())) scheduleApprovedResidentBackfill(db, scopedRows);
 
     const total = timer.total();
     if (total > SLOW_APPLICATIONS_READ_MS) {
@@ -1598,6 +1537,7 @@ export async function POST(req: Request) {
       }
       return NextResponse.json({
         ok: true,
+        residentAccess: "invitation_required",
         existingResidentOnboarding: {
           leaseId: onboarding.leaseId,
           welcomeEmailSent: onboarding.welcomeEmailSent,
@@ -1611,10 +1551,11 @@ export async function POST(req: Request) {
       residentSelfWrite
         ? {
             ok: true,
+            ...(row.bucket === "approved" ? { residentAccess: "invitation_required" } : {}),
             row: prepareApplicantIdentityWrite(row, null, row.id),
             ...(linkedForms.length > 0 ? { linkedForms } : {}),
           }
-        : { ok: true },
+        : { ok: true, ...(row.bucket === "approved" ? { residentAccess: "invitation_required" } : {}) },
     );
   } catch (e) {
     const mapped = applicationWriteErrorResponse(e, "Failed to save application.");

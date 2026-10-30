@@ -251,6 +251,9 @@ async function createResident(
   row.detail = `Imported from ${fileName}.`;
   row.manualResidentDetails = { ...row.manualResidentDetails, importedAt: new Date().toISOString() };
 
+  const provision = await provisionApprovedResidentAccount(db, row, { mode: "silent_migration" });
+  if (!provision.ok) throw new Error(provision.error);
+
   const sealed = sealApplicantRow(row, row.id, actor.userId);
   const { error: upsertError } = await db.from("manager_application_records").upsert(
     {
@@ -265,9 +268,6 @@ async function createResident(
     { onConflict: "id" },
   );
   if (upsertError) throw new Error(upsertError.message);
-
-  const provision = await provisionApprovedResidentAccount(db, row, { mode: "silent_migration" });
-  if (!provision.ok) throw new Error(provision.error);
 
   const onboarding = await runExistingResidentOnboarding(db, actor, row, { sendWelcomeEmail: opts.sendInvites });
   if (!onboarding.ok) throw new Error(onboarding.error);

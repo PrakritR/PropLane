@@ -206,7 +206,7 @@ export async function persistNormalizedRow(
   if (row.bucket === "approved") {
     try {
       const provisioned = await provisionApprovedResidentAccount(db, row);
-      if (!provisioned.ok) {
+      if (!provisioned.ok && provisioned.reason !== "invitation_required") {
         console.error("Approved application persisted but resident provisioning failed:", {
           applicationId: row.id,
           error: provisioned.error,

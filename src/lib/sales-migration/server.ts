@@ -224,14 +224,16 @@ export async function executeSalesMigration(
           const appId = stay.existingApplicationId ? normalizeApplicationAxisId(stay.existingApplicationId) : `PROPLANE-${id.replace(/-/g, "").toUpperCase()}`;
           let row = await loadApplication(db, owner, appId);
           if (!row && stay.existingApplicationId) throw new Error("Mapped existing application was not found");
+          const existingRow = Boolean(row);
           if (row) assertStayMatch(row, property, stay);
-          else {
-            row = applicationFor(owner, property, stay, appId);
-            const { error } = await db.from("manager_application_records").insert({ id: appId, manager_user_id: owner, resident_email: row.email, property_id: property.propertyId, assigned_property_id: property.propertyId, row_data: sealApplicantRow(row, appId, owner) });
-            check(error); // Atomic shared-room trigger arbitrates the last bed before any account/lease side effect.
-          }
+          else row = applicationFor(owner, property, stay, appId);
+          // Check identity eligibility before inserting a new application or linking an account.
           const provisioned = await provisionApprovedResidentAccount(db, row, { mode: "silent_migration" });
           if (!provisioned.ok) throw new Error(provisioned.error);
+          if (!existingRow) {
+            const { error } = await db.from("manager_application_records").insert({ id: appId, manager_user_id: owner, resident_email: row.email, property_id: property.propertyId, assigned_property_id: property.propertyId, row_data: sealApplicantRow(row, appId, owner) });
+            check(error);
+          }
           // Read again to preserve concurrent manager edits, then use a revision predicate.
           const { data: current, error: readError } = await db.from("manager_application_records").select("row_data,updated_at").eq("id", appId).eq("manager_user_id", owner).single();
           check(readError);
