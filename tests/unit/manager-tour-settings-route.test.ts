@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getUser = vi.fn();
+const roleRead = vi.fn();
 const loadManagerTourSettings = vi.fn();
 const saveManagerTourSettings = vi.fn();
 
@@ -19,7 +20,7 @@ function managerDb() {
       if (table === "profile_roles") {
         return {
           select: () => ({
-            eq: () => Promise.resolve({ data: [{ role: "manager" }] }),
+            eq: () => ({ eq: () => ({ maybeSingle: roleRead }) }),
           }),
         };
       }
@@ -60,6 +61,7 @@ const route = await import("@/app/api/portal/manager-tour-settings/route");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  roleRead.mockResolvedValue({ data: { role: "manager" }, error: null });
   getUser.mockResolvedValue({ data: { user: { id: "mgr-1", user_metadata: { role: "manager" } } } });
   loadManagerTourSettings.mockResolvedValue({ tourNoticeDays: 0 });
   saveManagerTourSettings.mockResolvedValue({ tourNoticeDays: 1 });
@@ -79,6 +81,13 @@ describe("GET /api/portal/manager-tour-settings", () => {
     expect(loadManagerTourSettings).toHaveBeenCalledWith(expect.anything(), "mgr-1");
   });
 
+  it("refuses forged manager metadata and a failed stored-role read", async () => {
+    roleRead.mockResolvedValue({ data: null, error: null });
+    expect((await route.GET(new Request("http://localhost/api/portal/manager-tour-settings"))).status).toBe(401);
+    roleRead.mockResolvedValue({ data: null, error: { message: "unavailable" } });
+    expect((await route.GET(new Request("http://localhost/api/portal/manager-tour-settings"))).status).toBe(401);
+    expect(loadManagerTourSettings).not.toHaveBeenCalled();
+  });
   it("refuses unauthenticated callers", async () => {
     getUser.mockResolvedValue({ data: { user: null } });
     const res = await route.GET(new Request("http://localhost/api/portal/manager-tour-settings"));

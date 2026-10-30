@@ -30,7 +30,7 @@ vi.mock("@/lib/supabase/service", () => ({
       const chain = {
         select: () => chain,
         eq: () => chain,
-        maybeSingle: async () => ({ data: table === "profiles" ? { role: "manager" } : null }),
+        maybeSingle: async () => ({ data: table === "profile_roles" ? { role: "manager" } : null }),
         then: (resolve: (v: unknown) => void) => resolve({ data: table === "profile_roles" ? [{ role: "manager" }] : [] }),
       };
       return chain;

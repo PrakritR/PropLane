@@ -1,3 +1,4 @@
+import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
 import { NextResponse } from "next/server";
 
 import { resolveRequestOrigin } from "@/lib/app-url";
@@ -21,15 +22,7 @@ export async function GET(req: Request) {
     } = await supabaseAuth.auth.getUser();
     if (!user?.id) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const db = createSupabaseServiceRoleClient();
-    const [{ data: profile }, { data: roles }] = await Promise.all([
-      db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
-      db.from("profile_roles").select("role").eq("user_id", user.id),
-    ]);
-    const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
-    const legacy = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-    if (!(roleList.includes("manager") || legacy === "manager" || legacy === "admin")) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    }
+      if (!(await userHoldsManagerRole(db, user.id))) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const refused = await refuseOwnerOnly(db, user.id);
     if (refused) return refused;
     const ids = (new URL(req.url).searchParams.get("propertyIds") ?? "").split(",").map((id) => id.trim()).filter(Boolean);
