@@ -120,7 +120,6 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
     entryNotes: _entryNotes,
     entryPermission: _entryPermission,
     residentName: _residentName,
-    preferredArrival: _preferredArrival,
     residentEmail: _residentEmail,
     residentConfirmation: _residentConfirmation,
     residentChargeCents: _residentChargeCents,
@@ -146,6 +145,7 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
   const offered = { ...rest } as Record<string, unknown>;
   delete offered.assignedRoomChoice;
   delete offered.generalArea;
+  delete offered.preferredArrival;
   for (const key of ["propertyId", "assignedPropertyId", "workspaceId", "property_id", "assigned_property_id", "workspace_id"]) delete offered[key];
   return {
     ...(withoutAuthSubjects(offered) as typeof rest),
