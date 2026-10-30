@@ -15,6 +15,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/auth-handoff-cleanup",
+      "schedule": "17 * * * *"
+    },
+    {
       "path": "/api/cron/growth-draft",
       "schedule": "0 9 * * *"
     },

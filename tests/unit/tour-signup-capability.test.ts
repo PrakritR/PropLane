@@ -82,12 +82,13 @@ describe("tour invitation capability", () => {
     const sql = readFileSync("supabase/migrations/20261030144000_tour_signup_capabilities.sql", "utf8");
     expect(sql).toMatch(/consumed_user_id is null or consumed_user_id = p_user_id/);
     expect(sql).toMatch(/expires_at > now\(\)/);
-    expect(sql).toMatch(/token_digest = p_digest and inquiry_id = p_inquiry_id and recipient_email = p_email/);
+    expect(sql).toMatch(/token_digest = p_digest and inquiry_id = p_inquiry_id and recipient_email = pg_catalog\.lower\(pg_catalog\.btrim\(p_email\)\)/);
     expect(sql).toMatch(/insert into public\.email_onboarding_handoffs/);
     expect(sql).toMatch(/revoke all on function public\.claim_tour_signup_capability.*from public, anon, authenticated/);
     expect(sql).toMatch(/public\.account_identity_hash\(r\.resident_user_id::text\)/);
-    expect(sql).toMatch(/revoke insert, update, delete on public\.resident_tour_links from public, anon, authenticated/);
+    expect(sql).toMatch(/revoke all on public\.resident_tour_links from public, anon, authenticated/);
     expect(sql).toMatch(/before insert or update or delete on public\.resident_tour_links/);
+    expect(sql).toMatch(/values \(p_digest, p_inquiry_id, pg_catalog\.lower\(pg_catalog\.btrim\(p_email\)\)/);
     expect(sql).toMatch(/binding_key = 'inquiry:' \|\| p_inquiry_id/);
   });
 });

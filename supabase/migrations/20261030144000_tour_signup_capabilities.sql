@@ -24,7 +24,7 @@ returns boolean language plpgsql security definer set search_path = '' as $$
 declare cap_id uuid;
 begin
   update public.tour_signup_capabilities set consumed_at = coalesce(consumed_at, now()), consumed_user_id = p_user_id
-  where token_digest = p_digest and inquiry_id = p_inquiry_id and recipient_email = p_email
+  where token_digest = p_digest and inquiry_id = p_inquiry_id and recipient_email = pg_catalog.lower(pg_catalog.btrim(p_email))
     and (consumed_user_id is null or consumed_user_id = p_user_id) and expires_at > now()
   returning id into cap_id;
   if cap_id is null then return false; end if;
@@ -73,7 +73,7 @@ create table if not exists public.tour_subject_bindings (
 alter table public.tour_subject_bindings enable row level security;
 revoke all on public.tour_subject_bindings from public, anon, authenticated;
 grant all on public.tour_subject_bindings to service_role;
-revoke insert, update, delete on public.resident_tour_links from public, anon, authenticated;
+revoke all on public.resident_tour_links from public, anon, authenticated;
 create or replace function public.guard_tour_subject_binding()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare r public.resident_tour_links; k text; h text; existing_hash text;
@@ -104,7 +104,7 @@ begin
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('tour-inquiry:' || p_inquiry_id, 0));
   if exists (select 1 from public.tour_subject_bindings where binding_key = 'inquiry:' || p_inquiry_id or (p_group_id is not null and binding_key = 'group:' || p_group_id)) then return false; end if;
   if exists (select 1 from public.resident_tour_links where inquiry_id = p_inquiry_id or (p_group_id is not null and tour_group_id = p_group_id)) then return false; end if;
-  insert into public.tour_signup_capabilities(token_digest, inquiry_id, recipient_email, manager_user_id, property_id, tour_group_id, expires_at) values (p_digest, p_inquiry_id, p_email, p_manager_id, p_property_id, p_group_id, p_expires_at);
+  insert into public.tour_signup_capabilities(token_digest, inquiry_id, recipient_email, manager_user_id, property_id, tour_group_id, expires_at) values (p_digest, p_inquiry_id, pg_catalog.lower(pg_catalog.btrim(p_email)), p_manager_id, p_property_id, p_group_id, p_expires_at);
   return true;
 end;
 $$;
