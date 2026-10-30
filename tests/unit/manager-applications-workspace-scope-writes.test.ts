@@ -140,6 +140,7 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: PROFILE?.role ? [{ role: PROFILE?.role }] : [], error: null }).then(resolve);
           return Promise.resolve({ data: rowsFor(), error: null }).then(resolve);
         },
       };
@@ -202,7 +203,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   PROFILE = { role: "manager", email: MANAGER_EMAIL };
   getUser.mockResolvedValue({
-    data: { user: { id: MANAGER, email: MANAGER_EMAIL, user_metadata: {} } },
+    data: { user: { id: MANAGER, email: MANAGER_EMAIL, email_confirmed_at: "confirmed", user_metadata: {} } },
     error: null,
   });
   PROPERTIES = [

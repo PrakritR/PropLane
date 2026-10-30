@@ -53,6 +53,7 @@ function makeDb() {
         maybeSingle: () =>
           Promise.resolve({ data: table === "profiles" ? { role: ROLE, email: "mgr@test.local" } : null, error: null }),
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: ROLE ? [{ role: ROLE }] : [], error: null }).then(resolve);
           return Promise.resolve({ data: table === "manager_property_records" ? PROPERTIES : table === "manager_application_records" ? STORED : [], error: null }).then(resolve);
         },
       };
@@ -103,7 +104,7 @@ beforeEach(() => {
     { id: OWN_HOUSE, manager_user_id: ATTACKER },
     { id: VICTIM_HOUSE, manager_user_id: "mgr-victim" },
   ];
-  getUser.mockResolvedValue({ data: { user: { id: ATTACKER, email: "mgr@test.local", user_metadata: { role: "manager" } } }, error: null });
+  getUser.mockResolvedValue({ data: { user: { id: ATTACKER, email: "mgr@test.local", email_confirmed_at: "confirmed", user_metadata: { role: "manager" } } }, error: null });
 });
 
 describe("manager application writes may only name houses the writer runs", () => {

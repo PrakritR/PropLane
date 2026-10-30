@@ -78,6 +78,7 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: PROFILE?.role ? [{ role: PROFILE?.role }] : [], error: null }).then(resolve);
           if (table === "manager_application_records") {
             if (selected) applicationLoadCount += 1;
             if (
@@ -175,7 +176,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   PROFILE = { role: "resident", email: "maya.alvarez@example.com" };
   getUser.mockResolvedValue({
-    data: { user: { id: "resident-user-1", email: "maya.alvarez@example.com", user_metadata: {} } },
+    data: { user: { id: "resident-user-1", email: "maya.alvarez@example.com", email_confirmed_at: "confirmed", user_metadata: {} } },
     error: null,
   });
   PROPERTY_RECORDS = {
