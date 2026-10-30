@@ -2,16 +2,17 @@
 import { expect, test } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { lstatSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import { E2E_ACCOUNTS } from "../fixtures";
-import { signInAsManager } from "../helpers/auth";
 import { persistMetadataManifest, preflightMetadataOnDev, type MetadataMirrorManifest } from "../helpers/metadata-mirror-proof";
-test.use({ trace: "off", screenshot: "off", video: "off" });
+const storageState = process.env.SPLIT_B_STORAGE_STATE;
+test.use({ trace: "off", screenshot: "off", video: "off", ...(storageState ? { storageState } : {}) });
 test("exact live property mirror preserves stored row metadata", async ({ page }) => {
   test.skip(process.env.METADATA_PROOF_RUNNER !== "1", "Dedicated metadata proof required");
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const managerId = process.env.SPLIT_B_MANAGER_ID, workspaceId = process.env.SPLIT_B_WORKSPACE_ID, dir = process.env.METADATA_PROOF_DIR;
-  if (url !== "https://emstjswhotsnyksqhqyf.supabase.co" || !key || !managerId || !workspaceId || !dir || !path.isAbsolute(dir)) throw new Error("Exact DEV fixture required.");
+  const managerId = process.env.SPLIT_B_MANAGER_ID, workspaceId = process.env.SPLIT_B_WORKSPACE_ID, dir = process.env.METADATA_PROOF_DIR, expectedEmail = process.env.SPLIT_B_EXPECTED_EMAIL;
+  if (url !== "https://emstjswhotsnyksqhqyf.supabase.co" || !key || !managerId || !workspaceId || !expectedEmail || !/^[a-z0-9][a-z0-9-]{10,80}@example\.invalid$/.test(expectedEmail) || !storageState || !path.isAbsolute(storageState) || (!lstatSync(storageState).isFile() || (lstatSync(storageState).mode & 0o777) !== 0o600) || !dir || !path.isAbsolute(dir)) throw new Error("Exact DEV fixture required.");
   const db = createClient(url, key, { auth: { persistSession: false } });
   let propertyId = "";
   let mirrorSeen = false;
@@ -21,13 +22,12 @@ test("exact live property mirror preserves stored row metadata", async ({ page }
     if (!propertyId || mirrorSeen || body.action !== "upsert" || body.id !== propertyId || !("propertyData" in body) || "rowData" in body) { await route.abort(); return; }
     mirrorSeen = true; await route.continue();
   });
-  await signInAsManager(page);
   const encoded = (await page.context().cookies()).filter((cookie) => /^sb-.+-auth-token(\.\d+)?$/.test(cookie.name)).sort((a, b) => a.name.localeCompare(b.name)).map((cookie) => decodeURIComponent(cookie.value)).join("");
   const json = encoded.startsWith("base64-") ? Buffer.from(encoded.slice(7), "base64").toString("utf8") : encoded;
   const accessToken = (JSON.parse(json) as { access_token?: string }).access_token;
   if (!accessToken) throw new Error("Manager session unavailable.");
   const auth = await db.auth.getUser(accessToken);
-  if (auth.error || auth.data.user?.id !== managerId || !auth.data.user.email_confirmed_at || auth.data.user.email?.toLowerCase() !== E2E_ACCOUNTS.manager.email.toLowerCase()) throw new Error("Canonical verified manager required.");
+  if (auth.error || auth.data.user?.id !== managerId || !auth.data.user.email_confirmed_at || auth.data.user.email?.toLowerCase() !== expectedEmail) throw new Error("Exact verified synthetic manager required.");
   const roles = await db.from("profile_roles").select("role").eq("user_id", managerId).eq("role", "manager");
   if (roles.error || roles.data?.length !== 1) throw new Error("Stored manager role required.");
   const active = await page.request.get("/api/workspaces");
@@ -47,6 +47,7 @@ test("exact live property mirror preserves stored row metadata", async ({ page }
   const initial = await db.from("manager_property_records").select("updated_at,row_data").eq("id", propertyId).eq("manager_user_id", managerId).eq("workspace_id", workspaceId).single();
   if (initial.error || !initial.data?.updated_at) throw new Error("Synthetic property revision unavailable.");
   expect(initial.data.row_data).toEqual(rowData);
+  manifest.rowDataDigest = createHash("sha256").update(JSON.stringify(initial.data.row_data)).digest("hex");
   manifest.updatedAt = initial.data.updated_at; manifest.state = "saved"; persistMetadataManifest(file, manifest);
   const mirror = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/property-records" && response.request().postData()?.includes(propertyId) === true, { timeout: 30000 });
   await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });

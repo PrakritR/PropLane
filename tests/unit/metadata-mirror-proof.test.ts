@@ -1,10 +1,11 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import catalog from "../e2e/support/draft-fk-catalog.json";
 import { cleanupMetadataProperty, preflightMetadata, type MetadataMirrorManifest } from "../helpers/metadata-mirror-proof";
-const input = { managerId: "11111111-1111-4111-8111-111111111111", workspaceId: "22222222-2222-4222-8222-222222222222", propertyId: "33333333-3333-4333-8333-333333333333", marker: "metadata-proof-44444444-4444-4444-8444-444444444444", updatedAt: "2026-10-30T00:00:00Z", channelSnapshot: "none" };
+const input = { managerId: "11111111-1111-4111-8111-111111111111", workspaceId: "22222222-2222-4222-8222-222222222222", propertyId: "33333333-3333-4333-8333-333333333333", marker: "metadata-proof-44444444-4444-4444-8444-444444444444", updatedAt: "2026-10-30T00:00:00Z", channelSnapshot: "none", rowDataDigest: createHash("sha256").update(JSON.stringify({ name: "metadata-proof-44444444-4444-4444-8444-444444444444" })).digest("hex") };
 function fixture(opts: { connection?: boolean; descendant?: boolean; wrongOwner?: boolean; post?: string; active?: boolean; postWrongOwner?: boolean } = {}) {
   return { async query(sql: string) {
     if (sql.includes("select owner_user_id")) return { rows: [{ owner_user_id: opts.wrongOwner ? input.workspaceId : input.managerId, is_service: false }] };
@@ -43,7 +44,7 @@ describe("metadata property proof safety", () => {
       const manifest: MetadataMirrorManifest = { ...input, state: "saved" };
       const filters: Array<[string, unknown]> = [];
       let deleting = false;
-      const query = { select: () => query, eq: (key: string, value: unknown) => { filters.push([key, value]); return query; }, limit: () => query, delete: () => { deleting = true; return query; }, then: (resolve: (v: unknown) => unknown) => resolve({ data: [{ id: input.propertyId }], error: null }) };
+      const query = { select: () => query, eq: (key: string, value: unknown) => { filters.push([key, value]); return query; }, contains: (key: string, value: unknown) => { filters.push([key, value]); return query; }, limit: () => query, delete: () => { deleting = true; return query; }, then: (resolve: (v: unknown) => unknown) => resolve({ data: [{ id: input.propertyId }], error: null }) };
       const preflight = vi.fn(async (value: unknown, state: "absent" | "live") => { void value; void state; });
       await cleanupMetadataProperty({ from: () => query } as never, manifest, path.join(dir, "manifest.json"), { serverStopped: true, preflight });
       expect(preflight.mock.calls.map((args) => args[1])).toEqual(["live", "absent"]);
@@ -59,7 +60,7 @@ describe("metadata property proof safety", () => {
       const manifest: MetadataMirrorManifest = { ...input, state: "saved" };
       const filters: Array<[string, unknown]> = [];
       let deleting = false;
-      const query = { select: () => query, eq: (key: string, value: unknown) => { filters.push([key, value]); return query; }, limit: () => query, delete: () => { deleting = true; return query; }, then: (resolve: (v: unknown) => unknown) => resolve({ data: deleting ? [] : [{ id: input.propertyId }], error: null }) };
+      const query = { select: () => query, eq: (key: string, value: unknown) => { filters.push([key, value]); return query; }, contains: (key: string, value: unknown) => { filters.push([key, value]); return query; }, limit: () => query, delete: () => { deleting = true; return query; }, then: (resolve: (v: unknown) => unknown) => resolve({ data: deleting ? [] : [{ id: input.propertyId }], error: null }) };
       const db = { from: () => query };
       await expect(cleanupMetadataProperty(db as never, manifest, path.join(dir, "manifest.json"), { serverStopped: true, preflight: vi.fn(async () => {}) })).rejects.toThrow(/uncertain/);
       expect(filters).toContainEqual(["updated_at", input.updatedAt]);

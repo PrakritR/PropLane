@@ -5,7 +5,7 @@ import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import catalog from "../e2e/support/draft-fk-catalog.json";
 
-type Input = { managerId: string; workspaceId: string; propertyId: string; marker: string; updatedAt?: string; channelSnapshot?: string };
+type Input = { managerId: string; workspaceId: string; propertyId: string; marker: string; updatedAt?: string; channelSnapshot?: string; rowDataDigest?: string };
 type Db = { query(sql: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }> };
 export type MetadataMirrorManifest = Input & { state: "reserved" | "saved" | "delete_started" | "cleaned" };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -35,7 +35,7 @@ export async function preflightMetadata(db: Db, input: Input, expected: "absent"
   if (input.channelSnapshot === undefined && expected === "absent") input.channelSnapshot = snapshot;
   else if (input.channelSnapshot !== snapshot) throw new Error("Existing channel post changed.");
   const property = await db.query("select status,manager_user_id::text,workspace_id::text,updated_at::text,row_data,property_data from public.manager_property_records where id=$1", [input.propertyId]);
-  if (expected === "absent" ? property.rows.length !== 0 : property.rows.length !== 1 || property.rows[0]?.status !== "live" || property.rows[0]?.manager_user_id !== input.managerId || property.rows[0]?.workspace_id !== input.workspaceId || (input.updatedAt != null && Date.parse(String(property.rows[0]?.updated_at)) !== Date.parse(input.updatedAt)) || !JSON.stringify([property.rows[0]?.row_data, property.rows[0]?.property_data]).includes(input.marker)) throw new Error("Metadata property ownership or state changed.");
+  if (expected === "absent" ? property.rows.length !== 0 : property.rows.length !== 1 || property.rows[0]?.status !== "live" || property.rows[0]?.manager_user_id !== input.managerId || property.rows[0]?.workspace_id !== input.workspaceId || (input.rowDataDigest != null && createHash("sha256").update(JSON.stringify(property.rows[0]?.row_data)).digest("hex") !== input.rowDataDigest) || (input.updatedAt != null && Date.parse(String(property.rows[0]?.updated_at)) !== Date.parse(input.updatedAt)) || !JSON.stringify([property.rows[0]?.row_data, property.rows[0]?.property_data]).includes(input.marker)) throw new Error("Metadata property ownership or state changed.");
   const constraints = await db.query(`select c.conname,child.relname child_table,parent.relname parent_table,pg_get_constraintdef(c.oid) definition,c.confdeltype from pg_constraint c join pg_class child on child.oid=c.conrelid join pg_namespace ns on ns.oid=child.relnamespace join pg_class parent on parent.oid=c.confrelid join pg_namespace pn on pn.oid=parent.relnamespace where c.contype='f' and ns.nspname='public' and pn.nspname='public' and parent.relname='manager_property_records'`);
   const key = (r: Record<string, unknown>) => [r.parent_table,r.child_table,r.conname,r.definition,r.confdeltype].join("|");
   if (JSON.stringify(constraints.rows.map(key).sort()) !== JSON.stringify(catalog.rows.filter((r) => r.parent_table === "manager_property_records").map(key).sort())) throw new Error("Property catalog changed.");
@@ -54,7 +54,7 @@ export async function preflightMetadata(db: Db, input: Input, expected: "absent"
 }
 /** Caller independently verifies the exact proof server has exited. */
 export async function cleanupMetadataProperty(db: SupabaseClient, manifest: MetadataMirrorManifest, file: string, opts: { serverStopped: boolean; preflight: (input: Input, expected: "absent" | "live") => Promise<void> }): Promise<void> {
-  if (!opts.serverStopped || !manifest.updatedAt || !Number.isFinite(Date.parse(manifest.updatedAt)) || !["saved", "delete_started"].includes(manifest.state)) throw new Error("Stopped server and saved metadata property required.");
+  if (!opts.serverStopped || !manifest.rowDataDigest || !/^[a-f0-9]{64}$/.test(manifest.rowDataDigest) || !manifest.updatedAt || !Number.isFinite(Date.parse(manifest.updatedAt)) || !["saved", "delete_started"].includes(manifest.state)) throw new Error("Stopped server and saved metadata property required.");
   const found = await db.from("manager_property_records").select("id").eq("id", manifest.propertyId).limit(2);
   if (found.error || (found.data?.length ?? 0) > 1) throw new Error("Metadata property read failed.");
   const missing = !found.data?.length;
@@ -62,7 +62,7 @@ export async function cleanupMetadataProperty(db: SupabaseClient, manifest: Meta
   await opts.preflight(manifest, missing ? "absent" : "live");
   if (!missing) {
     manifest.state = "delete_started"; persistMetadataManifest(file, manifest);
-    const result = await db.from("manager_property_records").delete().eq("id", manifest.propertyId).eq("manager_user_id", manifest.managerId).eq("workspace_id", manifest.workspaceId).eq("status", "live").eq("updated_at", manifest.updatedAt).select("id");
+    const result = await db.from("manager_property_records").delete().eq("id", manifest.propertyId).eq("manager_user_id", manifest.managerId).eq("workspace_id", manifest.workspaceId).eq("status", "live").contains("row_data", { testRunId: manifest.marker }).eq("updated_at", manifest.updatedAt).select("id");
     if (result.error || result.data?.length !== 1) throw new Error("Metadata property deletion uncertain; retain manifest.");
   }
   await opts.preflight(manifest, "absent");
