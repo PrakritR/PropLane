@@ -549,7 +549,7 @@ export async function linkTourFromCapability(db: Db, input: { userId: string; em
   } else {
     const { data: planned, error: plannedError } = await db.from("portal_schedule_records").select("row_data").eq("id", PLANNED_RECORD_ID).maybeSingle();
     if (plannedError) return false;
-    source = plannedEventsFromRecord(planned?.row_data).find((event) => textField(event, "kind") === "tour" && !textField(event, "canceledAt") && (textField(event, "sourceInquiryId") === cap.inquiry_id || (cap.tour_group_id && textField(event, "tourGroupId") === cap.tour_group_id)) && textField(event, "propertyId") === cap.property_id && (textField(event, "managerUserId") || textField(event, "adminUserId")) === cap.manager_user_id && normalizeEmail(textField(event, "attendeeEmail")) === cap.recipient_email);
+    source = plannedEventsFromRecord(planned?.row_data).find((event) => textField(event, "kind") === "tour" && !textField(event, "canceledAt") && (textField(event, "sourceInquiryId") === cap.inquiry_id || (cap.tour_group_id && textField(event, "tourGroupId") === cap.tour_group_id)) && textField(event, "propertyId") === cap.property_id && (textField(event, "sourceManagerUserId") || textField(event, "managerUserId") || textField(event, "adminUserId")) === cap.manager_user_id && normalizeEmail(textField(event, "attendeeEmail")) === cap.recipient_email);
     if (!source) return false;
   }
   const linked = await db.from("resident_tour_links").upsert({ resident_user_id: input.userId, inquiry_id: cap.inquiry_id, tour_group_id: cap.tour_group_id, manager_user_id: cap.manager_user_id, property_id: cap.property_id, attendee_email: cap.recipient_email, linked_at: new Date().toISOString() }, { onConflict: "resident_user_id,inquiry_id" });

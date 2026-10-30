@@ -30,6 +30,10 @@ describe("tour invitation capability", () => {
     const db = setup([], [{ kind: "tour", sourceInquiryId: "inq", managerUserId: "manager", propertyId: "property", attendeeEmail: cap.recipient_email }]);
     expect(await linkTourFromCapability(db as never, input)).toBe(true);
   });
+  it("preserves the original manager provenance when the tour host changes", async () => {
+    const db = setup([], [{ kind: "tour", sourceInquiryId: "inq", sourceManagerUserId: "manager", managerUserId: "new-host", propertyId: "property", attendeeEmail: cap.recipient_email }]);
+    expect(await linkTourFromCapability(db as never, input)).toBe(true);
+  });
   it("refuses a confirmed event with different provenance", async () => {
     const db = setup([], [{ kind: "tour", sourceInquiryId: "inq", managerUserId: "other", propertyId: "property", attendeeEmail: cap.recipient_email }]);
     expect(await linkTourFromCapability(db as never, input)).toBe(false);
