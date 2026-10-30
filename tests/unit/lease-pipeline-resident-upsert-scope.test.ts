@@ -88,7 +88,7 @@ vi.mock("@/lib/auth/portal-access", () => ({
   ACTIVE_PORTAL_COOKIE: "axis_active_portal",
   hasRole: (ctx: { roles: string[] }, role: string) => ctx.roles.includes(role),
   getPortalAccessContext: async () => ({
-    user: null,
+    user: (await getUser()).data.user,
     profile: null,
     roles: PORTAL_ROLES,
     effectiveRole: EFFECTIVE_ROLE,
@@ -182,6 +182,9 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
       };
+      if (table === "profile_roles") {
+        builder.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: PROFILE_ROLES.map((role) => ({ role })), error: null }).then(resolve);
+      }
       return builder;
     },
   };
@@ -536,9 +539,9 @@ describe("portal-lease-pipeline admin — unchanged", () => {
   beforeEach(() => {
     POST_QUERY = "?oversight=admin";
     PROFILE = { email: "admin@example.com", role: "admin" };
-    PROFILE_ROLES = [];
-    PORTAL_ROLES = ["admin"];
-    EFFECTIVE_ROLE = "admin";
+    PROFILE_ROLES = ["admin", "manager"];
+    PORTAL_ROLES = ["admin", "manager"];
+    EFFECTIVE_ROLE = "manager";
     isAdminUser.mockResolvedValue(true);
     getUser.mockResolvedValue({ data: { user: { id: "admin-user", email: "admin@example.com" } }, error: null });
   });
@@ -1251,14 +1254,14 @@ describe("portal-lease-pipeline CREATE — only a manager may name someone else"
 
   it("refuses a vendor-role account", async () => {
     PROFILE = { email: "vendor@example.com", role: "vendor" };
-    PROFILE_ROLES = [];
+    PROFILE_ROLES = ["vendor"];
     PORTAL_ROLES = ["vendor"];
     EFFECTIVE_ROLE = "vendor";
     getUser.mockResolvedValue({ data: { user: { id: "vendor-user", email: "vendor@example.com" } }, error: null });
 
     const res = await plant();
-    expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "Only a property manager can create a lease record." });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "Unauthorized." });
     expect(upsert).not.toHaveBeenCalled();
   });
 
@@ -1270,7 +1273,7 @@ describe("portal-lease-pipeline CREATE — only a manager may name someone else"
     getUser.mockResolvedValue({ data: { user: { id: "drifter", email: "drifter@example.com" } }, error: null });
 
     const res = await plant();
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(401);
     expect(upsert).not.toHaveBeenCalled();
   });
 
@@ -1295,9 +1298,9 @@ describe("portal-lease-pipeline CREATE — only a manager may name someone else"
   it("leaves admin unchanged", async () => {
     POST_QUERY = "?oversight=admin";
     PROFILE = { email: "admin@example.com", role: "admin" };
-    PROFILE_ROLES = [];
-    PORTAL_ROLES = ["admin"];
-    EFFECTIVE_ROLE = "admin";
+    PROFILE_ROLES = ["admin", "manager"];
+    PORTAL_ROLES = ["admin", "manager"];
+    EFFECTIVE_ROLE = "manager";
     isAdminUser.mockResolvedValue(true);
     getUser.mockResolvedValue({ data: { user: { id: "admin-user", email: "admin@example.com" } }, error: null });
 

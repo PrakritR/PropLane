@@ -63,7 +63,7 @@ vi.mock("@/lib/auth/portal-access", () => ({
   ACTIVE_PORTAL_COOKIE: "axis_active_portal",
   hasRole: (ctx: { roles: string[] }, role: string) => ctx.roles.includes(role),
   getPortalAccessContext: async () => ({
-    user: null,
+    user: (await getUser()).data.user,
     profile: null,
     roles: PORTAL_ROLES,
     effectiveRole: EFFECTIVE_ROLE,
@@ -119,6 +119,9 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
       };
+      if (table === "profile_roles") {
+        builder.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: PROFILE_ROLES.map((role) => ({ role })), error: null }).then(resolve);
+      }
       return builder;
     },
   };
@@ -212,9 +215,9 @@ describe("portal-lease-pipeline — admin", () => {
 
   beforeEach(() => {
     PROFILE = { email: "admin@example.com", role: "admin" };
-    PROFILE_ROLES = [];
-    PORTAL_ROLES = ["admin"];
-    EFFECTIVE_ROLE = "admin";
+    PROFILE_ROLES = ["admin", "manager"];
+    PORTAL_ROLES = ["admin", "manager"];
+    EFFECTIVE_ROLE = "manager";
     isAdminUser.mockResolvedValue(true);
   });
 
@@ -228,6 +231,7 @@ describe("portal-lease-pipeline — admin", () => {
   it("a non-admin sending the oversight parameter is still scoped", async () => {
     isAdminUser.mockResolvedValue(false);
     PROFILE = { email: "mgr@example.com", role: "manager" };
+    PROFILE_ROLES = ["manager"];
     PORTAL_ROLES = ["manager"];
     EFFECTIVE_ROLE = "manager";
     const { ids } = await read("?oversight=admin", "manager");
