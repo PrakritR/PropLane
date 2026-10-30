@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { createDefaultListingSubmission, emptyRoom } from "@/lib/manager-listing-submission";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
+import { tryAutoOrderScreening } from "@/lib/screening/order-screening";
 
 const getUser = vi.fn();
 let PROFILE: { role: string; email: string } | null = null;
@@ -190,6 +191,18 @@ async function upsert(row: DemoApplicantRow) {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action: "upsert", row }),
+    }),
+  );
+  return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+}
+
+async function replace(rows: DemoApplicantRow[]) {
+  const { POST } = await import("@/app/api/manager-applications/route");
+  const res = await POST(
+    new Request("http://localhost/api/manager-applications", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "replace", rows }),
     }),
   );
   return { status: res.status, body: (await res.json()) as Record<string, unknown> };
@@ -430,6 +443,14 @@ describe("POST /api/manager-applications — approving a per-resident room's slo
 });
 
 describe("manager application subject fence", () => {
+  it("uses the persisted subject for post-replace screening work", async () => {
+    const original = applicationRow("AXIS-FENCEMIRROR", { residentUserId: "stored-subject" });
+    STORED_ROWS = [{ id: original.id, row_data: original, manager_user_id: OWNER }];
+    const result = await replace([{ ...original, residentUserId: "forged-subject", application: { ...original.application!, consentCredit: true } }]);
+    expect(result.status, JSON.stringify(result.body)).toBe(200);
+    expect(UPSERTS[0]?.row_data.residentUserId).toBe("stored-subject");
+    expect(vi.mocked(tryAutoOrderScreening).mock.calls[0]?.[1].residentUserId).toBe("stored-subject");
+  });
   it("keeps the stored subject despite forged input", async () => {
     const original = applicationRow("AXIS-FENCEOWNED", { residentUserId: "stored-subject" });
     STORED_ROWS = [{ id: original.id, row_data: original, manager_user_id: OWNER }];
