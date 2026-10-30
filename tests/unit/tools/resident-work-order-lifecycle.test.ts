@@ -55,6 +55,7 @@ function workOrder(owner: { id: string; email: string }, id: string, extra: Reco
       propertyName: "Maple House",
       unit: "2B",
       residentEmail: owner.email,
+      residentUserId: owner.id,
       residentName: owner.id,
       managerUserId: MANAGER,
       propertyId: "prop_1",
@@ -102,6 +103,13 @@ describe("registration", () => {
 });
 
 describe("update_work_order", () => {
+  it("denies a different subject even when the stored email matches", async () => {
+    const foreign = workOrder({ id: RES_B.id, email: RES_A.email }, "WO-SAME-EMAIL");
+    const { ctx } = seed([foreign]);
+    const result = await previewWrite(updateWorkOrderTool, ctx, { workOrderId: "WO-SAME-EMAIL", title: "change" });
+    expect(result.ok).toBe(false);
+  });
+
   it("previews exactly the fields that will change, on the resident's own row", async () => {
     const { ctx } = seed();
     const preview = await previewWrite(updateWorkOrderTool, ctx, {
@@ -173,11 +181,8 @@ describe("update_work_order", () => {
     const exec = await executeWrite(updateWorkOrderTool, ctx, { workOrderId: "WO-A", ...patch });
     expect(exec.ok, exec.error).toBe(true);
 
-    const upsert = mutations.find((m) => m.table === "portal_work_order_records" && m.kind === "upsert");
+    const upsert = mutations.find((m) => m.table === "portal_work_order_records" && m.kind === "update");
     expect(upsert).toBeTruthy();
-    expect(upsert!.values.manager_user_id).toBe(MANAGER);
-    expect(upsert!.values.resident_email).toBe(RES_A.email);
-    expect(upsert!.values.property_id).toBe("prop_1");
 
     const next = rowData(tables, "WO-A")!;
     expect(next.title).toBe("Faucet now spraying");

@@ -40,6 +40,7 @@ async function requireOwnWorkOrder(ctx: ResidentAgentContext, workOrderId: strin
   const record = await loadResidentOwnWorkOrder(ctx.db, {
     workOrderId,
     residentEmail: ctx.email,
+    residentUserId: ctx.userId,
     activeManagerId: ctx.activeManagerId,
   });
   if (!record) throw new Error(NOT_YOURS);
@@ -193,7 +194,8 @@ export const updateWorkOrderTool = defineWriteTool({
 
     const result = await updateResidentWorkOrder(
       ctx.db,
-      { workOrderId, residentEmail: ctx.email, activeManagerId: ctx.activeManagerId },
+      { workOrderId, residentEmail: ctx.email,
+    residentUserId: ctx.userId, activeManagerId: ctx.activeManagerId },
       patch,
     );
     if (!result.ok) {
@@ -262,6 +264,7 @@ export const cancelWorkOrderTool = defineWriteTool({
     const result = await cancelResidentWorkOrder(ctx.db, {
       workOrderId,
       residentEmail: ctx.email,
+    residentUserId: ctx.userId,
       activeManagerId: ctx.activeManagerId,
     });
     if (!result.ok) {
@@ -343,6 +346,7 @@ export const nudgeManagerOnWorkOrderTool = defineWriteTool({
       workOrderId,
       residentUserId: ctx.userId,
       residentEmail: ctx.email,
+    residentUserId: ctx.userId,
       residentName: record.row_data.residentName?.trim() || "",
     });
     if (!result.ok) {

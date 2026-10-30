@@ -265,6 +265,7 @@ export async function createWorkOrderFromResidentSms(args: {
   const id = `REQ-SMS-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const draftRow: DemoManagerWorkOrderRow = {
     id,
+    residentUserId: args.residentUserId?.trim() || undefined,
     propertyName: ctx.propertyName,
     propertyId: ctx.propertyId ?? undefined,
     propertyAddress: ctx.propertyAddress,

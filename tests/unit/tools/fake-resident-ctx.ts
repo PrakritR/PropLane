@@ -178,16 +178,18 @@ class FakeResidentQuery {
 
     if (this.pending.kind === "update") {
       const patch = this.pending.values;
-      for (const row of this.apply()) Object.assign(row, patch);
+      const changed = this.apply();
+      for (const row of changed) Object.assign(row, patch);
       this.mutations.push({ table: this.table, kind: "update", values: { ...patch } });
-      return { data: null, error: null };
+      return { data: changed, error: null };
     }
 
+    const removed = this.apply();
     const remaining = this.rows.filter((row) => !this.predicates.every((match) => match(row)));
     this.rows.length = 0;
     this.rows.push(...remaining);
     this.mutations.push({ table: this.table, kind: "delete", values: {} });
-    return { data: null, error: null };
+    return { data: removed, error: null };
   }
 
   maybeSingle() {

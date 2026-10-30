@@ -97,6 +97,7 @@ export async function createServiceRequestFromResidentSms(args: {
   const id = `SR-SMS-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const row: ServiceRequest = {
     id,
+    residentUserId: args.residentUserId?.trim() || undefined,
     offerId: CUSTOM_SERVICE_REQUEST_OFFER_ID,
     offerName: title,
     offerDescription: text,
