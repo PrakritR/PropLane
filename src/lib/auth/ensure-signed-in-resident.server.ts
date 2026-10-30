@@ -25,11 +25,12 @@ export async function ensureSignedInResidentAccount(
   user: { id: string; email?: string | null; email_confirmed_at?: string | null; user_metadata?: Record<string, unknown> | null },
   options?: { contactEmail?: string | null; phone?: string | null },
 ): Promise<EnsureSignedInResidentResult> {
-  const { data: existingProfile } = await service
+  const { data: existingProfile, error: profileError } = await service
     .from("profiles")
     .select("role, email, full_name, phone")
     .eq("id", user.id)
     .maybeSingle();
+  if (profileError) return { ok: false, error: "Unable to verify account profile." };
 
   const authEmail = normalizeEmail(user.email);
   if (!authEmail.includes("@")) {

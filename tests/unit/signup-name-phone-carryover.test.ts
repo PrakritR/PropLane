@@ -16,14 +16,14 @@ import { linkAllTourInquiriesForEmail, reconcileProspectInboxThreadsForResident 
 
 type Call = { table: string; op: string; payload?: unknown };
 
-function db(profile: Record<string, unknown> | null, roleError = false) {
+function db(profile: Record<string, unknown> | null, roleError = false, profileError = false, roles: { role: string }[] = []) {
   const calls: Call[] = [];
   const client = {
     from: (table: string) => ({
       select: () => ({
         eq: () => ({
-          maybeSingle: async () => ({ data: table === "profiles" ? profile : null, error: null }),
-          then: (resolve: (v: unknown) => void) => resolve({ data: [], error: roleError ? { message: "failed" } : null }),
+          maybeSingle: async () => ({ data: table === "profiles" ? profile : null, error: profileError ? { message: "failed" } : null }),
+          then: (resolve: (v: unknown) => void) => resolve({ data: roles, error: roleError ? { message: "failed" } : null }),
         }),
       }),
       insert: (payload: unknown) => { calls.push({ table, op: "insert", payload }); return Promise.resolve({ error: null }); },
@@ -107,6 +107,19 @@ describe("the verify screen is prefilled with the number typed at signup", () =>
     expect((await ensureSignedInResidentAccount(client, { id: "u1", email: "w@example.com" })).ok).toBe(true);
     expect(ensureProfileRoleRow).toHaveBeenCalledWith(client, "u1", "resident");
     expect(ensureProfileRoleRow).not.toHaveBeenCalledWith(client, "u1", "admin");
+  });
+  it("never replays stored nonresident roles that could be concurrently revoked", async () => {
+    vi.clearAllMocks();
+    const { client } = db({ role: "admin", email: "w@example.com" }, false, false, [{ role: "admin" }, { role: "manager" }]);
+    expect((await ensureSignedInResidentAccount(client, { id: "u1", email: "w@example.com" })).ok).toBe(true);
+    expect(vi.mocked(ensureProfileRoleRow).mock.calls.map((call) => call[2])).toEqual(["resident"]);
+  });
+  it("denies profile read errors before any profile or role write", async () => {
+    vi.clearAllMocks();
+    const { client, calls } = db(null, false, true);
+    expect((await ensureSignedInResidentAccount(client, { id: "u1", email: "w@example.com" })).ok).toBe(false);
+    expect(calls).toEqual([]);
+    expect(ensureProfileRoleRow).not.toHaveBeenCalled();
   });
   it("denies portal provisioning on role read failure without granting anything", async () => {
     vi.clearAllMocks();
