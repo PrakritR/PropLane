@@ -1,3 +1,4 @@
+import { hasUnlinkedPaidManagerPurchase } from "@/lib/auth/unlinked-manager-paid-purchase";
 import { normalizeManagerSkuTier } from "@/lib/manager-access";
 import { ensureSandboxManagerLandlordProfile } from "@/lib/manager-landlord-profile";
 import { generateManagerId } from "@/lib/manager-id";
@@ -100,6 +101,8 @@ export async function provisionPendingManagerAccount(
     throw new Error("A manager account already exists for this email.");
   }
 
+  if (await hasUnlinkedPaidManagerPurchase(supabase, opts.userId, email)) throw new Error("A paid checkout requires verified completion.");
+
   if (existingPurchase && isAxisPendingSessionId(existingPurchase.stripe_checkout_session_id)) {
     const { data: existingProfile } = await supabase.from("profiles").select("*").eq("id", opts.userId).maybeSingle();
     await supabase.from("profiles").upsert(
@@ -194,6 +197,7 @@ export async function finalizePendingManagerFreeTier(
   if (!purchase) {
     throw new Error("No manager signup found for this account.");
   }
+  if (await hasUnlinkedPaidManagerPurchase(supabase, opts.userId, opts.email)) throw new Error("A paid checkout requires verified completion.");
   if (purchase.stripe_checkout_session_id.startsWith("cs_")) {
     throw new Error("A checkout is already in progress. Finish that checkout before choosing another plan.");
   }

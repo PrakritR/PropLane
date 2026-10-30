@@ -8,13 +8,13 @@ import { createMemoryDb } from "./support/memory-supabase";
 const opts = { userId: "user", email: "manager@example.test", tier: "free" as const, billing: "free" as const };
 const row = { id: "purchase", user_id: "user", email: opts.email, manager_id: "manager", tier: null, billing: null, paid_at: null, stripe_checkout_session_id: "cs_test_live_reservation" };
 it("keeps a live Stripe reservation intact for the later paid webhook", async () => {
-  const db = createMemoryDb({ manager_purchases: [row] });
+  const db = createMemoryDb({ auth_users: [{ id: "user", email: opts.email, email_confirmed_at: "now" }], manager_purchases: [row] });
   await expect(finalizePendingManagerFreeTier(db as never, opts)).rejects.toThrow(/checkout is already in progress/i);
   expect(db.__tables.manager_purchases![0]!.stripe_checkout_session_id).toBe("cs_test_live_reservation");
   await expect(resolveManagerCheckoutPurchase(db as never, { id: "cs_test_live_reservation", customer_email: opts.email, metadata: { userId: "user", manager_id: "manager" } } as never)).resolves.toMatchObject({ id: "purchase", userId: "user" });
 });
 it("refuses a free finalize when checkout reserves the same row after the read", async () => {
-  const db = createMemoryDb({ manager_purchases: [{ ...row, stripe_checkout_session_id: "axis_pending_original" }] });
+  const db = createMemoryDb({ auth_users: [{ id: "user", email: opts.email, email_confirmed_at: "now" }], manager_purchases: [{ ...row, stripe_checkout_session_id: "axis_pending_original" }] });
   const from = db.from;
   const interleaved = { ...db, from: (table: string) => {
     const builder = from(table);

@@ -1,3 +1,4 @@
+import { hasUnlinkedPaidManagerPurchase } from "@/lib/auth/unlinked-manager-paid-purchase";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import {
   finalizePendingManagerFreeTier,
@@ -106,16 +107,9 @@ export async function ensureFreeManagerPortalAccess(
     return { status: "portal_ready", managerId: purchase.manager_id, provisioned: false };
   }
 
-  const { data: unlinkedPaid, error: unlinkedPaidError } = await supabase
-    .from("manager_purchases")
-    .select("id,stripe_checkout_session_id")
-    .eq("email", email)
-    .is("user_id", null)
-    .not("paid_at", "is", null)
-    .like("stripe_checkout_session_id", "cs\\_%")
-    .limit(1);
-  if (unlinkedPaidError) return { status: "skipped", reason: "purchase_unavailable" };
-  if (unlinkedPaid?.some((row) => typeof row.stripe_checkout_session_id === "string" && row.stripe_checkout_session_id.startsWith("cs_"))) return { status: "skipped", reason: "unlinked_paid_purchase" };
+  try {
+    if (await hasUnlinkedPaidManagerPurchase(supabase, user.id, email)) return { status: "skipped", reason: "unlinked_paid_purchase" };
+  } catch { return { status: "skipped", reason: "purchase_unavailable" }; }
 
   let managerId: string;
   let provisioned = false;

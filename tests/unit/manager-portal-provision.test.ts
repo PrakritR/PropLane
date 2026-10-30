@@ -38,6 +38,7 @@ function testUser(partial: Partial<User> = {}): User {
 
 function mockSupabase(unlinkedRows: Array<{ id: string; stripe_checkout_session_id: string }> = []) {
   return {
+    auth: { admin: { getUserById: async () => ({ data: { user: { email: "new@test.com", email_confirmed_at: "now" } }, error: null }) } },
     from: (table: string) => {
       if (table === "profile_roles") {
         return {
@@ -61,10 +62,10 @@ function mockSupabase(unlinkedRows: Array<{ id: string; stripe_checkout_session_
       if (table === "manager_purchases") {
         return {
           select: () => ({
-            eq: () => ({
+            ilike: () => ({
               is: () => ({
                 not: () => ({
-                  like: () => ({ limit: () => Promise.resolve({ data: unlinkedRows.filter((row) => row.stripe_checkout_session_id.startsWith("cs_")), error: null }) }),
+                  like: () => ({ limit: () => Promise.resolve({ data: unlinkedRows.filter((row) => row.stripe_checkout_session_id.startsWith("cs_")).map((row) => ({ ...row, email: "new@test.com" })), error: null }) }),
                 }),
               }),
             }),
@@ -80,6 +81,7 @@ function mockSupabase(unlinkedRows: Array<{ id: string; stripe_checkout_session_
 /** Like `mockSupabase()`, but `profile_roles` reports the given roles as present. */
 function mockSupabaseWithRoles(existingRoles: string[]) {
   return {
+    auth: { admin: { getUserById: async () => ({ data: { user: { email: "new@test.com", email_confirmed_at: "now" } }, error: null }) } },
     from: (table: string) => {
       if (table === "profile_roles") {
         return {

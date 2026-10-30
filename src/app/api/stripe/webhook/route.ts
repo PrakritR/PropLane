@@ -40,6 +40,7 @@ import {
   reconcileManagerPurchaseWithStripe,
 } from "@/lib/manager-stripe-subscription-sync";
 import {
+  checkoutSessionIndicatesPaidPurchase,
   recordPaidManagerCheckoutSession,
   resolveManagerCheckoutPurchase,
 } from "@/lib/manager-purchase-from-session";
@@ -473,6 +474,7 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
         // Stripe setup attaches the card to its authenticated manager customer.
         // No plan or credit is granted, and default selection is an explicit action.
       } else {
+        if (!checkoutSessionIndicatesPaidPurchase(session)) return NextResponse.json({ received: true }, { status: 200 });
         try {
           await recordPaidManagerCheckoutSession(session);
           const uid = session.metadata?.userId?.trim();
