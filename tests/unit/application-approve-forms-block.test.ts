@@ -28,9 +28,12 @@ function makeDb() {
   return {
     from(table: string) {
       const state: { ids: string[] | null; eqManagerUserId: string | null } = { ids: null, eqManagerUserId: null };
+      let pending: { id: string; row_data: DemoApplicantRow } | null = null;
+      const filters: Record<string, string | null> = {};
       const builder: Record<string, unknown> = {
         select: () => builder,
-        update: () => builder,
+        update: (values: typeof pending) => { pending = values; return builder; },
+        is: (column: string) => { filters[column] = null; return builder; },
         insert: () => Promise.resolve({ error: null }),
         upsert(values: { id: string; row_data: DemoApplicantRow }) {
           if (table === "manager_application_records") UPSERTS.push(values);
@@ -38,6 +41,7 @@ function makeDb() {
         },
         delete: () => builder,
         eq(column: string, value: string) {
+          filters[column] = value;
           if (column === "manager_user_id") state.eqManagerUserId = value;
           if (table === "resident_move_in_forms") FORM_QUERIES.push({ column, values: value });
           return builder;
@@ -64,6 +68,11 @@ function makeDb() {
           if (table === "profile_roles") return Promise.resolve({ data: [{ role: "manager" }], error: null }).then(resolve);
           if (table === "resident_move_in_forms") {
             return Promise.resolve(FORMS_ERROR ? { data: null, error: FORMS_ERROR } : { data: FORMS, error: null }).then(resolve);
+          }
+          if (table === "manager_application_records" && pending) {
+            const match = STORED_ROWS.find((row) => row.id === filters.id && (row.row_data.residentUserId ?? null) === filters["row_data->>residentUserId"] && ((row as { updated_at?: string | null }).updated_at ?? null) === filters.updated_at);
+            if (match) UPSERTS.push(pending);
+            return Promise.resolve({ data: match ? [{ id: match.id }] : [], error: null }).then(resolve);
           }
           if (table === "manager_application_records") {
             let out = STORED_ROWS;

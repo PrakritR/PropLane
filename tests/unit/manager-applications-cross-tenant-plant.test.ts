@@ -38,6 +38,13 @@ function makeDb() {
     from(table: string) {
       const builder: Record<string, unknown> = {
         select: () => builder,
+        insert(values: { id: string; manager_user_id: string | null }) {
+          if (table === "manager_application_records") {
+            if (STORED.some((row) => row.id === values.id)) return Promise.resolve({ error: { code: "23505" } });
+            UPSERTS.push(values);
+          }
+          return Promise.resolve({ error: null });
+        },
         upsert(values: { id: string; manager_user_id: string | null }) {
           if (table === "manager_application_records") UPSERTS.push(values);
           return Promise.resolve({ error: null });

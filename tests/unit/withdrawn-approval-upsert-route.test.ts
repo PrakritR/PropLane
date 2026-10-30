@@ -56,13 +56,14 @@ function makeDb() {
   return {
     from(table: string) {
       const state: { ids: string[] | null } = { ids: null };
+      let pending: { id: string; row_data: DemoApplicantRow } | null = null;
+      const filters: Record<string, string | null> = {};
       const builder: Record<string, unknown> = {
         select() {
           return builder;
         },
-        update() {
-          return builder;
-        },
+        update(values: typeof pending) { pending = values; return builder; },
+        is(column: string) { filters[column] = null; return builder; },
         insert() {
           return Promise.resolve({ error: null });
         },
@@ -73,9 +74,7 @@ function makeDb() {
         delete() {
           return builder;
         },
-        eq() {
-          return builder;
-        },
+        eq(column: string, value: string) { filters[column] = value; return builder; },
         ilike() {
           return builder;
         },
@@ -97,6 +96,11 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "manager_application_records" && pending) {
+            const match = STORED_ROWS.find((row) => row.id === filters.id && (row.row_data.residentUserId ?? null) === filters["row_data->>residentUserId"] && ((row as { updated_at?: string | null }).updated_at ?? null) === filters.updated_at);
+            if (match) UPSERTS.push(pending);
+            return Promise.resolve({ data: match ? [{ id: match.id }] : [], error: null }).then(resolve);
+          }
           if (table === "manager_application_records") {
             if (STORED_ERROR) return Promise.resolve({ data: null, error: STORED_ERROR }).then(resolve);
             const rows = state.ids ? STORED_ROWS.filter((r) => state.ids?.includes(r.id)) : STORED_ROWS;
