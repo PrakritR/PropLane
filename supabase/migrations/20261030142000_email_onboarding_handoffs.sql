@@ -15,11 +15,13 @@ create table if not exists public.email_onboarding_handoffs (
   intent text not null default 'generic' check (intent in ('generic','resident','manager','vendor','tour','manager_paid','application')),
   status text not null default 'pending' check (status in ('pending','processing','completed','consumed')),
   created_at timestamptz not null default now(),
-  expires_at timestamptz not null
+  expires_at timestamptz not null,
+  check (expires_at > created_at)
 );
 alter table public.email_onboarding_handoffs enable row level security;
 revoke all on public.email_onboarding_handoffs from public, anon, authenticated;
 grant all on public.email_onboarding_handoffs to service_role;
+create index if not exists email_onboarding_handoffs_user_idx on public.email_onboarding_handoffs (user_id);
 create index if not exists email_onboarding_handoffs_expiry_idx on public.email_onboarding_handoffs (expires_at);
 create or replace function public.purge_expired_email_onboarding_handoffs()
 returns integer language plpgsql security definer set search_path = '' as $$
