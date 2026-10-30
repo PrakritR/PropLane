@@ -113,6 +113,8 @@ export async function POST(req: Request) {
       phone,
       // The one-time setup token proves email control — safe to inherit the
       // matching application's identity/approval (default-deny opt-in).
+      emailProven: true,
+      applicationId: lookup.axisId,
       inheritFromApplication: true,
     });
     if (!provisioned.ok) {

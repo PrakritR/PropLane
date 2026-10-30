@@ -1,6 +1,5 @@
 import { pendingAccountRecovery } from "@/lib/auth/account-recovery.server";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
-import { migratePortalUserId } from "@/lib/auth/migrate-portal-user-id";
 import { primaryRoleWhenAddingResident } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { attachInboxThreadsToResident } from "@/lib/tour-resident-link.server";
@@ -45,21 +44,15 @@ function applicationName(row: ApplicationRow): string | null {
   return typeof rowData?.name === "string" ? rowData.name : null;
 }
 
-async function findApplicationByEmail(
+async function findApplicationById(
   supabase: SupabaseClient,
   email: string,
+  applicationId: string,
 ): Promise<ApplicationRow | null> {
-  const { data, error } = await supabase
-    .from("manager_application_records")
-    .select("id, resident_email, row_data")
-    .eq("resident_email", email)
-    .order("updated_at", { ascending: false })
-    .limit(5);
-
+  const { data, error } = await supabase.from("manager_application_records")
+    .select("id, resident_email, row_data").eq("id", applicationId).eq("resident_email", email).maybeSingle();
   if (error) throw new Error(error.message);
-  const rows = (data ?? []) as ApplicationRow[];
-  if (rows.length === 0) return null;
-  return rows.find((row) => applicationApproved(row)) ?? rows[0] ?? null;
+  return data as ApplicationRow | null;
 }
 
 export type ProvisionResidentResult =
@@ -87,11 +80,12 @@ export async function provisionResidentAccountByEmail(
     phone?: string | null;
     inheritFromApplication?: boolean;
     /**
-     * Has the caller proved control of `email`? Defaults to true (today's behaviour). `false` means the
+     * Has the caller proved control of `email`? `false` means the
      * address is a claim or a placeholder: no application inheritance, no merging of another account
      * that owns the address, no attaching the address's inbox threads.
      */
-    emailProven?: boolean;
+    emailProven: boolean;
+    applicationId?: string;
   },
 ): Promise<ProvisionResidentResult> {
   if (await pendingAccountRecovery(supabase, opts.userId)) return { ok: false, status: 409, error: "Sign in to recover your saved account or start fresh before continuing setup." };
@@ -106,9 +100,21 @@ export async function provisionResidentAccountByEmail(
   // Default-deny: only an explicit opt-in (proven email control) looks up the
   // application at all. Otherwise `matchingApplication` stays null and every
   // downstream field treats it as a clean, un-inheriting profile.
-  const emailProven = opts.emailProven !== false;
-  const matchingApplication =
-    emailProven && opts.inheritFromApplication === true ? await findApplicationByEmail(supabase, normalEmail) : null;
+  const emailProven = opts.emailProven === true;
+  if (emailProven) {
+    const { data, error } = await supabase.auth.admin.getUserById(opts.userId);
+    if (error || !data.user?.email_confirmed_at || data.user.email?.trim().toLowerCase() !== normalEmail) {
+      return { ok: false, status: 403, error: "Sign in with your verified email before continuing." };
+    }
+  }
+  if (opts.inheritFromApplication && (!emailProven || !opts.applicationId)) {
+    return { ok: false, status: 403, error: "A verified application is required." };
+  }
+  const matchingApplication = opts.inheritFromApplication && opts.applicationId
+    ? await findApplicationById(supabase, normalEmail, opts.applicationId) : null;
+  if (opts.inheritFromApplication && !matchingApplication) {
+    return { ok: false, status: 403, error: "Application email could not be verified." };
+  }
   const linkedApplication = Boolean(matchingApplication);
 
   const shared = (await loadSharedLineConfig(supabase)).mode === "shared";
@@ -122,7 +128,7 @@ export async function provisionResidentAccountByEmail(
 
   const existingAuthId = emailProven ? await findAuthUserIdByEmail(supabase, normalEmail) : null;
   if (existingAuthId && existingAuthId !== opts.userId) {
-    await migratePortalUserId(supabase, existingAuthId, opts.userId);
+    return { ok: false, status: 403, error: "Sign in with the account that owns this email before continuing." };
   }
 
   const { data: existingAuth } = await supabase.auth.admin.getUserById(opts.userId);
@@ -130,7 +136,6 @@ export async function provisionResidentAccountByEmail(
   const axisId = matchingApplication?.id ?? metadata?.axis_id?.toString() ?? generateAxisId();
 
   await supabase.auth.admin.updateUserById(opts.userId, {
-    email_confirm: true,
     user_metadata: {
       ...(metadata ?? {}),
       role: "resident",

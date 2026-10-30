@@ -38,7 +38,7 @@ function mockSupabase(options: { shared?: boolean; profile?: Record<string, unkn
   const captured: { upsert: UpsertPayload | null } = { upsert: null };
   const appLookup = {
     select: () => ({
-      eq: () => ({ order: () => ({ limit: async () => ({ data: [APPROVED_APP], error: null }) }) }),
+      eq: (column: string, id: string) => ({ eq: (_emailColumn: string, email: string) => ({ maybeSingle: async () => ({ data: id === APPROVED_APP.id && email === APPROVED_APP.resident_email ? APPROVED_APP : null, error: null }) }) }),
     }),
   };
   const profiles = {
@@ -58,7 +58,7 @@ function mockSupabase(options: { shared?: boolean; profile?: Record<string, unkn
         : (table === "manager_application_records" ? appLookup : profiles),
     auth: {
       admin: {
-        getUserById: async () => ({ data: { user: { user_metadata: {} } } }),
+        getUserById: async () => ({ data: { user: { email: "guest@example.com", email_confirmed_at: "2026-01-01", user_metadata: {} } } }),
         updateUserById: async () => ({ data: {}, error: null }),
       },
     },
@@ -93,6 +93,7 @@ describe("provisionResidentAccountByEmail default-deny", () => {
       email: "guest@example.com",
       fullName: "New Person",
       phone: "2065559999",
+      emailProven: false,
       inheritFromApplication: false,
     });
     expect(result.ok).toBe(true);
@@ -111,6 +112,7 @@ describe("provisionResidentAccountByEmail default-deny", () => {
       userId: "user-1",
       email: "guest@example.com",
       fullName: "New Person",
+      emailProven: false,
       // No inheritFromApplication flag at all → default-deny.
     });
     expect(result.ok).toBe(true);
@@ -125,12 +127,34 @@ describe("provisionResidentAccountByEmail default-deny", () => {
       userId: "user-1",
       email: "guest@example.com",
       // No fullName so we can observe the application's name being inherited.
+      emailProven: true,
+      applicationId: APPROVED_APP.id,
       inheritFromApplication: true,
     });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.linkedApplication).toBe(true);
     expect(captured.upsert?.application_approved).toBe(true);
     expect(captured.upsert?.full_name).toBe("Prior Guest");
+  });
+
+  it("refuses inheritance for a different application", async () => {
+    const { client, captured } = mockSupabase();
+    const result = await provisionResidentAccountByEmail(client as never, {
+      userId: "user-1", email: "guest@example.com", emailProven: true,
+      applicationId: "OTHER-APPLICATION", inheritFromApplication: true,
+    });
+    expect(result).toMatchObject({ ok: false, status: 403 });
+    expect(captured.upsert).toBeNull();
+  });
+
+  it("refuses a proven-email claim when auth reports an unconfirmed mailbox", async () => {
+    const { client, captured } = mockSupabase();
+    client.auth.admin.getUserById = async () => ({ data: { user: { email: "guest@example.com", email_confirmed_at: "", user_metadata: {} } } });
+    const result = await provisionResidentAccountByEmail(client as never, {
+      userId: "user-1", email: "guest@example.com", emailProven: true,
+    });
+    expect(result).toMatchObject({ ok: false, status: 403 });
+    expect(captured.upsert).toBeNull();
   });
 
   it("emailProven:false skips every email-keyed inheritance: application, account merge and inbox threads", async () => {
@@ -144,20 +168,18 @@ describe("provisionResidentAccountByEmail default-deny", () => {
       inheritFromApplication: true,
       emailProven: false,
     });
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.linkedApplication).toBe(false);
-    expect(captured.upsert?.application_approved).toBe(false);
-    expect(captured.upsert?.full_name).toBe("Stranger");
+    expect(result).toMatchObject({ ok: false, status: 403 });
+    expect(captured.upsert).toBeNull();
     expect(findAuthUserIdByEmail).not.toHaveBeenCalled();
     expect(migratePortalUserId).not.toHaveBeenCalled();
     expect(attachInboxThreadsToResident).not.toHaveBeenCalled();
   });
 
-  it("the default (proven) path still attaches the inbox threads", async () => {
+  it("the explicitly proven path attaches the inbox threads", async () => {
     vi.clearAllMocks();
     findAuthUserIdByEmail.mockResolvedValue("user-1");
     const { client } = mockSupabase();
-    await provisionResidentAccountByEmail(client as never, { userId: "user-1", email: "guest@example.com" });
+    await provisionResidentAccountByEmail(client as never, { userId: "user-1", email: "guest@example.com", emailProven: true });
     expect(attachInboxThreadsToResident).toHaveBeenCalledWith(expect.anything(), "user-1", "guest@example.com");
   });
 });

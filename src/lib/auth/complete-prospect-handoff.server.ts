@@ -89,6 +89,9 @@ export async function completeProspectHandoffForUser(
   }
   const email = trustedContact.contactEmail;
   const authEmail = trustedContact.authEmail;
+  if (normalizeEmail(email) !== normalizeEmail(authEmail)) {
+    return { ok: false, status: 403, error: "Sign in with the verified email used for this request." };
+  }
 
   const phone =
     normalizeTourContactPhone(input.phone ?? "") ??
@@ -105,6 +108,7 @@ export async function completeProspectHandoffForUser(
     email,
     fullName,
     phone: phone || undefined,
+    emailProven: true,
     inheritFromApplication: false,
   });
   if (!provisioned.ok) {

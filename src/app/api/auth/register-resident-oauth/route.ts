@@ -115,7 +115,8 @@ export async function POST(req: Request) {
         userId: user.id,
         email: oauthEmail,
         fullName,
-        inheritFromApplication: false,
+        emailProven: true,
+      inheritFromApplication: false,
       });
       if (!result.ok) {
         return NextResponse.json({ error: result.error }, { status: result.status });
@@ -156,6 +157,8 @@ export async function POST(req: Request) {
       phone: lookup.phone,
       // OAuth + setup token authorize this flow — email control is proven, so
       // inherit the matching application's identity/approval (default-deny opt-in).
+      emailProven: true,
+      applicationId: lookup.axisId,
       inheritFromApplication: true,
     });
     if (!result.ok) {

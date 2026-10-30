@@ -98,6 +98,7 @@ export async function POST(req: Request) {
       email,
       fullName,
       phone,
+      emailProven: true,
       inheritFromApplication: false,
     });
     if (!provisioned.ok) {

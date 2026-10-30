@@ -10,14 +10,8 @@ import {
   type VendorInviteRow,
 } from "@/lib/auth/provision-vendor-account";
 import { assertPasswordMatchesExistingAuthUser } from "@/lib/auth/verify-auth-password";
-import { mayLogVendorConfirmLinkLocally } from "@/lib/auth/vendor-register-local-dev";
-import { resolveAppOrigin } from "@/lib/app-url";
-import {
-  buildVendorSignupConfirmEmailBody,
-  buildVendorSignupConfirmEmailHtml,
-  VENDOR_SIGNUP_CONFIRM_SUBJECT,
-} from "@/lib/vendor-signup-confirm-email";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { normalizeE164 } from "@/lib/twilio";
 
@@ -94,7 +88,12 @@ export async function POST(req: Request) {
     if (!email.includes("@")) {
       return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
     }
-    return await registerSelfServe(req, supabase, { email, password, fullName, phone });
+    const auth = await createSupabaseServerClient();
+    const { data: { user } } = await auth.auth.getUser();
+    if (!user?.id || !user.email_confirmed_at || user.email?.trim().toLowerCase() !== email) {
+      return NextResponse.json({ error: "Verify your email and sign in before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
+    }
+    return await registerSelfServe(supabase, { email, userId: user.id, fullName, phone });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not create vendor account.";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -183,139 +182,31 @@ async function registerFromInvite(
   });
 }
 
-/** Self-serve path — no invite, so nothing proves the caller owns this email yet; require real confirmation. */
+/** Self-serve role provisioning requires the authenticated, verified mailbox owner. */
 async function registerSelfServe(
-  req: Request,
   supabase: ReturnType<typeof createSupabaseServiceRoleClient>,
-  opts: { email: string; password: string; fullName: string; phone?: string },
+  opts: { email: string; userId: string; fullName: string; phone?: string },
 ) {
-  const { email, password, fullName } = opts;
-  const existingId = await findAuthUserIdByEmail(supabase, email);
-
-  if (existingId) {
-    // Signing into (and adding the vendor role to) an account that already exists —
-    // the caller just proved ownership with the correct password.
-    const pwCheck = await assertPasswordMatchesExistingAuthUser(email, password);
-    if (!pwCheck.ok) {
-      return NextResponse.json({ error: pwCheck.message }, { status: 401 });
-    }
-    const recovery = await recoverySetupRedirect(supabase, existingId);
-    if (recovery) return NextResponse.json({ ok: true, existingAccount: true, recoveryRequired: true, redirectTo: recovery });
-    const provisioned = await provisionVendorAccountByEmail(supabase, {
-      userId: existingId,
-      email,
-      fullName: fullName || null,
-    });
-    if (!provisioned.ok) {
-      return NextResponse.json({ error: provisioned.error }, { status: provisioned.status });
-    }
-    await applyVendorPhone(supabase, existingId, opts.phone ?? "");
-    track("vendor_account_created", existingId, { signup_method: "self_serve_existing_account" });
-    return NextResponse.json({
-      ok: true,
-      confirmed: true,
-      axisId: provisioned.axisId,
-      linkedManagerId: provisioned.linkedManagerId,
-      // A stale invite never blocks an otherwise-legitimate sign-in; it is
-      // reported so the vendor knows why no manager is attached.
-      unlinkedReason: provisioned.unlinkedReason,
-      unlinkedNotice: vendorUnlinkedNotice(provisioned.unlinkedReason, { confirmed: true }),
-      redirectTo: "/vendor/onboarding",
-    });
+  const existingId = await findAuthUserIdByEmail(supabase, opts.email);
+  if (existingId !== opts.userId) {
+    return NextResponse.json({ error: "Verify your email and sign in before continuing." }, { status: 403 });
   }
-
-  const origin = resolveAppOrigin(req);
-  const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
-    type: "signup",
-    email,
-    password,
-    options: {
-      data: { role: "vendor", full_name: fullName || undefined },
-    },
-  });
-  if (linkErr || !linkData?.user?.id) {
-    return NextResponse.json({ error: linkErr?.message ?? "Could not create account." }, { status: 400 });
-  }
-
+  const recovery = await recoverySetupRedirect(supabase, existingId);
+  if (recovery) return NextResponse.json({ ok: true, existingAccount: true, recoveryRequired: true, redirectTo: recovery });
   const provisioned = await provisionVendorAccountByEmail(supabase, {
-    userId: linkData.user.id,
-    email,
-    fullName: fullName || null,
-    confirmEmail: false,
+    userId: existingId,
+    email: opts.email,
+    fullName: opts.fullName || null,
   });
-  if (!provisioned.ok) {
-    await rollbackSelfServeVendorSignup(supabase, linkData.user.id);
-    return NextResponse.json({ error: provisioned.error }, { status: provisioned.status });
-  }
-
-  await applyVendorPhone(supabase, linkData.user.id, opts.phone ?? "");
-
-  // Not yet a completed signup — the account can't sign in until the vendor confirms.
-  track("vendor_signup_started", linkData.user.id, { signup_method: "self_serve" });
-
-  // Build our own confirm link from the token hash rather than using `action_link`
-  // (Supabase's hosted verify redirect, which appends session tokens as a URL hash) —
-  // this app's browser client is PKCE-only, so it can't pick up an implicit-flow hash
-  // fragment. `/auth/confirm` exchanges the hash via `verifyOtp`, which works either way.
-  const confirmLink = `${origin}/auth/confirm?token_hash=${encodeURIComponent(linkData.properties.hashed_token)}&type=signup`;
-  const apiKey = process.env.RESEND_API_KEY?.trim();
-  const logConfirmLinkLocally = mayLogVendorConfirmLinkLocally(req);
-  const createdUserId = linkData.user.id;
-
-  const emailDeliveryFailure = async (errorMessage: string, status: number) => {
-    if (!logConfirmLinkLocally) {
-      await rollbackSelfServeVendorSignup(supabase, createdUserId);
-    } else {
-      console.info("[vendor-register] confirmation link (local dev only):", confirmLink);
-    }
-    return NextResponse.json(
-      {
-        error: errorMessage,
-        ...(logConfirmLinkLocally ? { confirmLinkLoggedLocally: true } : {}),
-      },
-      { status },
-    );
-  };
-
-  if (!apiKey) {
-    return emailDeliveryFailure(
-      logConfirmLinkLocally
-        ? "Email delivery is not configured. Check the server console for a local confirmation link."
-        : "Email delivery is not configured. Contact support to confirm your account.",
-      503,
-    );
-  }
-
-  const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
-  const text = buildVendorSignupConfirmEmailBody({ fullName, confirmLink });
-  const html = buildVendorSignupConfirmEmailHtml({ fullName, confirmLink });
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [email], subject: VENDOR_SIGNUP_CONFIRM_SUBJECT, text, html }),
-    });
-    if (!res.ok) {
-      const payload = (await res.json().catch(() => ({}))) as { message?: string };
-      return emailDeliveryFailure(
-        payload.message ?? "Could not send the confirmation email. Try again or contact support.",
-        502,
-      );
-    }
-  } catch {
-    return emailDeliveryFailure("Could not send the confirmation email.", 502);
-  }
-
-  return NextResponse.json({
-    ok: true,
-    confirmed: false,
-    emailDeliveryConfigured: true,
-    unlinkedReason: provisioned.unlinkedReason,
-    unlinkedNotice: vendorUnlinkedNotice(provisioned.unlinkedReason, { confirmed: false }),
-  });
+  if (!provisioned.ok) return NextResponse.json({ error: provisioned.error }, { status: provisioned.status });
+  await applyVendorPhone(supabase, existingId, opts.phone ?? "");
+  track("vendor_account_created", existingId, { signup_method: "self_serve_existing_account" });
+  return NextResponse.json({ ok: true, confirmed: true, axisId: provisioned.axisId,
+    linkedManagerId: provisioned.linkedManagerId, unlinkedReason: provisioned.unlinkedReason,
+    unlinkedNotice: vendorUnlinkedNotice(provisioned.unlinkedReason, { confirmed: true }),
+    redirectTo: "/vendor/onboarding" });
 }
 
-/** Shared create-or-link for the invite path, where the email is server-resolved and trusted. */
 async function createOrLinkAuthUser(
   supabase: ReturnType<typeof createSupabaseServiceRoleClient>,
   opts: { email: string; password: string; fullName: string; emailConfirm: boolean },
@@ -353,15 +244,3 @@ async function createOrLinkAuthUser(
 }
 
 /** Remove an unconfirmed self-serve vendor signup when confirmation email cannot be sent. */
-async function rollbackSelfServeVendorSignup(
-  supabase: ReturnType<typeof createSupabaseServiceRoleClient>,
-  userId: string,
-): Promise<void> {
-  try {
-    await supabase.from("profile_roles").delete().eq("user_id", userId);
-    await supabase.from("profiles").delete().eq("id", userId);
-    await supabase.auth.admin.deleteUser(userId);
-  } catch {
-    /* best-effort — orphaned row is preferable to leaving a confirmable squat account */
-  }
-}
