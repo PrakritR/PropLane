@@ -86,10 +86,10 @@ async function vendorScopedWorkOrderRows(db: Db, vendorUserId: string): Promise<
     .order("updated_at", { ascending: false })
     .limit(500);
 
-  const byId = new Map<string, DemoManagerWorkOrderRow>();
+  const byId = new Map<string, { row: DemoManagerWorkOrderRow; hired: boolean }>();
   for (const record of assigned ?? []) {
     const row = record.row_data as DemoManagerWorkOrderRow | null;
-    if (row) byId.set(record.id as string, projectWorkOrderForHiredVendor(row));
+    if (row) byId.set(record.id as string, { row, hired: true });
   }
 
   // Everything above is a job this vendor HOLDS (`vendor_user_id` names them), so it is served
@@ -102,11 +102,13 @@ async function vendorScopedWorkOrderRows(db: Db, vendorUserId: string): Promise<
     const { data: offeredRows } = await db.from("portal_work_order_records").select("id, row_data").in("id", missingIds);
     for (const record of offeredRows ?? []) {
       const row = record.row_data as DemoManagerWorkOrderRow | null;
-      if (row) byId.set(record.id as string, projectWorkOrderForOfferedVendor(row));
+      if (row) byId.set(record.id as string, { row, hired: false });
     }
   }
 
-  return attachManagerNamesToWorkOrders(db, [...byId.values()]);
+  const entries = [...byId.values()];
+  const named = await attachManagerNamesToWorkOrders(db, entries.map((entry) => entry.row));
+  return named.map((row, index) => entries[index]!.hired ? projectWorkOrderForHiredVendor(row) : projectWorkOrderForOfferedVendor(row));
 }
 
 function normalizeRow(row: DemoManagerWorkOrderRow): DemoManagerWorkOrderRow {

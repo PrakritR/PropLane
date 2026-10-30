@@ -88,6 +88,16 @@ export function vendorLeadMapsQuery(row: DemoManagerWorkOrderRow): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(area)}`;
 }
 
+const VENDOR_PRIVATE_SUBJECT_KEYS = new Set(["residentUserId", "managerUserId", "vendorUserId", "resident_user_id", "manager_user_id", "vendor_user_id", "userId", "user_id", "resident_email"]);
+
+/** Strip Auth subjects from the entire stored payload while retaining opaque job/directory IDs. */
+function withoutAuthSubjects(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutAuthSubjects);
+  if (!value || typeof value !== "object") return value;
+  const row = value as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(row).filter(([key]) => !VENDOR_PRIVATE_SUBJECT_KEYS.has(key) && !(row.type === "team" && key === "id")).map(([key, child]) => [key, withoutAuthSubjects(child)]));
+}
+
 /**
  * The shape an OFFERED-but-not-hired vendor is allowed to receive, applied on the server
  * before the row ever leaves the API (`/api/portal-work-orders`). The helpers above decide
@@ -134,9 +144,8 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
   // `assignedRoomChoice` is not on the typed row but can ride a work order's payload; it names a room.
   const offered = { ...rest } as Record<string, unknown>;
   delete offered.assignedRoomChoice;
-  delete offered.residentUserId;
   return {
-    ...(offered as typeof rest),
+    ...(withoutAuthSubjects(offered) as typeof rest),
     propertyName: area,
     unit: "—",
     cost: "",
@@ -159,6 +168,5 @@ export function projectWorkOrderForHiredVendor(row: DemoManagerWorkOrderRow): De
     residentReminderSentAt: _residentReminderSentAt,
     ...rest
   } = row;
-  delete rest.residentUserId;
-  return rest as DemoManagerWorkOrderRow;
+  return withoutAuthSubjects(rest) as DemoManagerWorkOrderRow;
 }

@@ -278,6 +278,17 @@ describe("J6c: what a vendor read carries", () => {
     title: "T",
     propertyAddress: "1 Main",
     residentUserId: "resident-private-id",
+    managerUserId: "manager-private-id",
+    vendorUserId: "vendor-private-id",
+    manager_user_id: "manager-private-id",
+    vendor_user_id: "vendor-private-id",
+    resident_user_id: "resident-private-id",
+    vendorId: "directory-id",
+    residentEmail: "resident@example.test",
+    resident_email: "resident@example.test",
+    managerName: "Property Manager",
+    assignee: { type: "team", id: "manager-private-id", name: "Manager" },
+    nested: { managerUserId: "manager-private-id" },
     residentChargeCents: 9900,
     residentChargeId: "ch_1",
     expenseEntryIds: ["e1"],
@@ -287,11 +298,20 @@ describe("J6c: what a vendor read carries", () => {
   it("a hired vendor keeps the site but never the resident billing fields", () => {
     const out = projectWorkOrderForHiredVendor(row) as unknown as Rec;
     expect(out.propertyAddress).toBe("1 Main");
+    expect(out.residentEmail).toBe("resident@example.test");
+    expect(out.vendorId).toBe("directory-id");
+    expect(out.managerName).toBe("Property Manager");
+    expect(out).not.toHaveProperty("resident_email");
+    expect(JSON.stringify(out)).not.toMatch(/(?:resident|manager|vendor)-private-id/);
     for (const k of ["residentUserId", "residentChargeCents", "residentChargeId", "expenseEntryIds", "residentConfirmation"]) expect(out, k).not.toHaveProperty(k);
   });
   it("an offered vendor also loses assignedRoomChoice", () => {
     const out = projectWorkOrderForOfferedVendor(row) as unknown as Rec;
     expect(out).not.toHaveProperty("residentUserId");
+    expect(out.vendorId).toBe("directory-id");
+    expect(out.managerName).toBe("Property Manager");
+    expect(out).not.toHaveProperty("resident_email");
+    expect(JSON.stringify(out)).not.toMatch(/(?:resident|manager|vendor)-private-id/);
     expect(out).not.toHaveProperty("assignedRoomChoice");
     expect(out).not.toHaveProperty("propertyAddress");
   });
