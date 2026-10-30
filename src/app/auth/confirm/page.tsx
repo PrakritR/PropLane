@@ -50,7 +50,11 @@ function ConfirmContent() {
       const supabase = createSupabaseBrowserClient();
       const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
       if (cancelled) return;
-      if (error) {
+      if (type === "magiclink" || type === "signup") {
+        const completed = await fetch("/api/auth/email-onboarding/finish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tokenHash }) });
+        // Ordinary magic links have no onboarding claim and retain their existing destination.
+        if (!completed.ok && (error || completed.status !== 409)) { setFailedType(type); return; }
+      } else if (error) {
         setFailedType(type);
         return;
       }

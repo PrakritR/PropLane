@@ -1,0 +1,102 @@
+import { createHash, randomBytes } from "node:crypto";
+import { NextResponse } from "next/server";
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
+import { findApplicationForResidentSetup } from "@/lib/auth/resident-setup-token";
+import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
+import { memoizeEffectiveApplicationProperty } from "@/lib/rental-application/validate-application-submit.server";
+import { applicationPinForLinkedForm } from "@/lib/send-forms";
+import { loadTourInquiryById } from "@/lib/tour-resident-link.server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+export const runtime = "nodejs";
+const GENERIC = { ok: true };
+export async function POST(req: Request) {
+  if (!(await rateLimit(`email-onboarding:${clientIpFrom(req)}`, 5, 60_000)).ok) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  const body = await req.json().catch(() => ({})) as { email?: unknown; applicationId?: unknown; setupToken?: unknown; intent?: unknown; tourInquiryId?: unknown; checkoutSessionId?: unknown; propertyId?: unknown; tier?: unknown; billing?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown };
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  if (!email.includes("@") || email.length > 254) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) return NextResponse.json({ error: "Email verification is unavailable." }, { status: 503 });
+  try {
+    const db = createSupabaseServiceRoleClient();
+    const cleanup = await db.rpc("purge_expired_email_onboarding_handoffs");
+    if (cleanup.error) return NextResponse.json({ error: "Email verification is unavailable." }, { status: 503 });
+    const intent = body.intent === "resident" || body.intent === "manager" || body.intent === "vendor" || body.intent === "tour" || body.intent === "manager_paid" ? body.intent : "generic";
+    let applicationId: string | null = null;
+    let tourInquiryId: string | null = null;
+    let managerPurchaseId: string | null = null;
+    let propertyId: string | null = null;
+    let listingRoomId: string | null = null;
+    let bundleId: string | null = null;
+    let applicationFormId: string | null = null;
+    const rentalType = intent === "resident" && (body.rentalType === "standard" || body.rentalType === "short_term") ? body.rentalType : null;
+    const tier = intent === "manager" && (body.tier === "free" || body.tier === "pro" || body.tier === "business") ? body.tier : null;
+    const billing = intent === "manager" && (body.billing === "monthly" || body.billing === "annual") ? body.billing : null;
+    if (intent === "resident" && body.propertyId !== undefined) {
+      if (typeof body.propertyId !== "string" || !body.propertyId.trim() || body.propertyId.length > 200) return NextResponse.json(GENERIC);
+      const { data: property, error } = await db.from("manager_property_records").select("id").eq("id", body.propertyId.trim()).maybeSingle();
+      if (error || !property || typeof property.id !== "string") return NextResponse.json(GENERIC);
+      propertyId = property.id;
+      if (body.listingRoomId !== undefined || body.bundleId !== undefined || body.applicationFormId !== undefined) {
+        const loaded = await memoizeEffectiveApplicationProperty(db)(propertyId);
+        const sub = loaded.ok ? loaded.property?.listingSubmission : null;
+        if (!sub || sub.v !== 1) return NextResponse.json(GENERIC);
+        if (body.listingRoomId !== undefined) {
+          if (typeof body.listingRoomId !== "string" || !sub.rooms.some((room) => room.id === body.listingRoomId)) return NextResponse.json(GENERIC);
+          listingRoomId = body.listingRoomId;
+        }
+        if (body.bundleId !== undefined) {
+          if (typeof body.bundleId !== "string" || !(sub.bundles ?? []).some((bundle) => bundle.id === body.bundleId)) return NextResponse.json(GENERIC);
+          bundleId = body.bundleId;
+        }
+        if (body.applicationFormId !== undefined) {
+          if (typeof body.applicationFormId !== "string" || !applicationPinForLinkedForm(sub, body.applicationFormId)) return NextResponse.json(GENERIC);
+          applicationFormId = body.applicationFormId;
+        }
+      }
+    } else if (intent === "resident" && (body.listingRoomId !== undefined || body.bundleId !== undefined || body.applicationFormId !== undefined)) {
+      return NextResponse.json(GENERIC);
+    }
+    if (intent === "manager_paid") {
+      if (typeof body.checkoutSessionId !== "string" || !body.checkoutSessionId.trim() || body.checkoutSessionId.length > 255) return NextResponse.json(GENERIC);
+      const { data: purchase, error } = await db.from("manager_purchases").select("id, email, user_id").eq("stripe_checkout_session_id", body.checkoutSessionId.trim()).maybeSingle();
+      if (error || !purchase || typeof purchase.email !== "string" || purchase.email.trim().toLowerCase() !== email) return NextResponse.json(GENERIC);
+      managerPurchaseId = purchase.id;
+    }
+    if (intent === "tour") {
+      if (typeof body.tourInquiryId !== "string" || !body.tourInquiryId.trim()) return NextResponse.json(GENERIC);
+      const inquiry = await loadTourInquiryById(db, body.tourInquiryId.trim());
+      if (!inquiry || typeof inquiry.email !== "string" || inquiry.email.trim().toLowerCase() !== email) return NextResponse.json(GENERIC);
+      tourInquiryId = body.tourInquiryId.trim();
+    }
+    if (body.applicationId !== undefined || body.setupToken !== undefined) {
+      if ((intent !== "generic" && intent !== "resident") || typeof body.applicationId !== "string" || typeof body.setupToken !== "string") return NextResponse.json(GENERIC);
+      const lookup = await findApplicationForResidentSetup(db, { axisId: body.applicationId, token: body.setupToken });
+      if (!lookup.ok || lookup.email !== email) return NextResponse.json(GENERIC);
+      applicationId = lookup.axisId;
+    }
+    let id = await findAuthUserIdByEmail(db, email);
+    if (!id) {
+      const created = await db.auth.admin.createUser({ email, password: randomBytes(48).toString("base64url"), email_confirm: false, app_metadata: { proplane_email_onboarding: true } });
+      if (created.error || !created.data.user) return NextResponse.json(GENERIC);
+      id = created.data.user.id;
+    }
+    const found = await db.auth.admin.getUserById(id);
+    const account = found.data?.user;
+    if (found.error || !account) return NextResponse.json(GENERIC);
+    if (!account.email_confirmed_at && account.app_metadata?.proplane_email_onboarding !== true) {
+      const retired = await db.rpc("retire_unconfirmed_email_password", { p_user_id: id, p_email: email });
+      if (retired.error || retired.data !== true) return NextResponse.json(GENERIC);
+    }
+    const link = await db.auth.admin.generateLink({ type: "magiclink", email });
+    const hash = link.data?.properties?.hashed_token;
+    const verificationType = link.data?.properties?.verification_type;
+    if (link.error || !hash || link.data.user?.id !== id || (verificationType !== "magiclink" && verificationType !== "signup")) return NextResponse.json(GENERIC);
+    const { error } = await db.from("email_onboarding_handoffs").insert({ user_id: id, application_id: applicationId, tour_inquiry_id: tourInquiryId, manager_purchase_id: managerPurchaseId, property_id: propertyId, listing_room_id: listingRoomId, bundle_id: bundleId, application_form_id: applicationFormId, rental_type: rentalType, tier, billing, intent: applicationId ? "application" : intent, token_digest: createHash("sha256").update(hash).digest("hex"), expires_at: new Date(Date.now() + 3600000).toISOString() });
+    if (error) return NextResponse.json(GENERIC);
+    const href = `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/auth/confirm?token_hash=${encodeURIComponent(hash)}&type=${verificationType}`;
+    const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>", to: [email], subject: "Verify your PropLane email", text: `Use this link to verify your email and continue:\n\n${href}\n\nIf you did not request this, ignore this email.` }) });
+    if (!response.ok) console.error("Email onboarding delivery failed", response.status);
+  } catch { console.error("Email onboarding could not be started"); }
+  return NextResponse.json(GENERIC);
+}

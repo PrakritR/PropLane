@@ -1,8 +1,7 @@
+import { claimManagerPurchase } from "@/lib/auth/claim-manager-purchase.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
-import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
-import { assertPasswordMatchesExistingAuthUser } from "@/lib/auth/verify-auth-password";
 import { primaryRoleWhenAddingManager } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { recordPaidManagerCheckoutSession } from "@/lib/manager-purchase-from-session";
@@ -12,16 +11,13 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
-type Body = { sessionId: string; password: string };
+type Body = { sessionId: string };
 
 export async function POST(req: Request) {
   try {
-    const { sessionId, password } = (await req.json()) as Body;
+    const { sessionId } = (await req.json()) as Body;
     if (!sessionId || typeof sessionId !== "string") {
       return NextResponse.json({ error: "sessionId is required." }, { status: 400 });
-    }
-    if (!password || password.length < 8) {
-      return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
     }
 
     const auth = await createSupabaseServerClient();
@@ -39,7 +35,7 @@ export async function POST(req: Request) {
       if (pErr || !purchase) {
         return NextResponse.json({ error: "Could not load signup for this link." }, { status: 400 });
       }
-      if (purchase.user_id) {
+      if (purchase.user_id && purchase.user_id !== user.id) {
         return NextResponse.json({ error: "This signup link was already used." }, { status: 409 });
       }
 
@@ -47,37 +43,8 @@ export async function POST(req: Request) {
       const email = purchase.email;
       if (user.email!.trim().toLowerCase() !== email.trim().toLowerCase()) return NextResponse.json({ error: "Verify the purchase email before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
 
-      const { data: created, error: cErr } = await supabase.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: { role: "manager", manager_id: purchase.manager_id },
-      });
-
-      let userId: string;
-
-      if (cErr) {
-        const isAlreadyExists =
-          cErr.message.toLowerCase().includes("already") ||
-          cErr.message.toLowerCase().includes("registered");
-        if (!isAlreadyExists) {
-          return NextResponse.json({ error: cErr.message }, { status: 400 });
-        }
-        const existingId = await findAuthUserIdByEmail(supabase, email);
-        if (!existingId) {
-          return NextResponse.json({ error: "Could not locate existing account for this email." }, { status: 400 });
-        }
-        const pwCheck = await assertPasswordMatchesExistingAuthUser(email, password);
-        if (!pwCheck.ok) {
-          return NextResponse.json({ error: pwCheck.message }, { status: 401 });
-        }
-        userId = existingId;
-      } else {
-        if (!created.user) {
-          return NextResponse.json({ error: "Could not create user." }, { status: 400 });
-        }
-        userId = created.user.id;
-      }
+      const userId = user.id;
+      if (!(await claimManagerPurchase(supabase, purchase.id, userId))) return NextResponse.json({ error: "This purchase is already claimed." }, { status: 409 });
 
       const { data: existingProfile } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
 
@@ -99,10 +66,6 @@ export async function POST(req: Request) {
 
       await ensureProfileRoleRow(supabase, userId, "manager");
 
-      const { error: linkErr } = await supabase.from("manager_purchases").update({ user_id: userId }).eq("id", purchase.id);
-      if (linkErr) {
-        return NextResponse.json({ error: linkErr.message }, { status: 500 });
-      }
 
       track("manager_account_created", userId, { manager_id: purchase.manager_id, signup_method: "axis_intent" });
       return NextResponse.json({ ok: true, managerId: purchase.manager_id });
@@ -130,7 +93,7 @@ export async function POST(req: Request) {
     if (pErr || !purchase) {
       return NextResponse.json({ error: "Could not load purchase for this checkout session." }, { status: 400 });
     }
-    if (purchase.user_id) {
+    if (purchase.user_id && purchase.user_id !== user.id) {
       return NextResponse.json({ error: "This checkout was already used to create an account." }, { status: 409 });
     }
 
@@ -138,38 +101,8 @@ export async function POST(req: Request) {
     const email = purchase.email;
     if (user.email!.trim().toLowerCase() !== email.trim().toLowerCase()) return NextResponse.json({ error: "Verify the purchase email before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
 
-    let userId: string;
-
-    // Try creating a new auth user; if email already exists, reuse that user.
-    const { data: created, error: cErr } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { role: "manager", manager_id: purchase.manager_id },
-    });
-
-    if (cErr) {
-      const isAlreadyExists =
-        cErr.message.toLowerCase().includes("already") ||
-        cErr.message.toLowerCase().includes("registered");
-      if (!isAlreadyExists) {
-        return NextResponse.json({ error: cErr.message }, { status: 400 });
-      }
-      const existingId = await findAuthUserIdByEmail(supabase, email);
-      if (!existingId) {
-        return NextResponse.json({ error: "Could not locate existing account for this email." }, { status: 400 });
-      }
-      const pwCheck = await assertPasswordMatchesExistingAuthUser(email, password);
-      if (!pwCheck.ok) {
-        return NextResponse.json({ error: pwCheck.message }, { status: 401 });
-      }
-      userId = existingId;
-    } else {
-      if (!created.user) {
-        return NextResponse.json({ error: "Could not create user." }, { status: 400 });
-      }
-      userId = created.user.id;
-    }
+    const userId = user.id;
+      if (!(await claimManagerPurchase(supabase, purchase.id, userId))) return NextResponse.json({ error: "This purchase is already claimed." }, { status: 409 });
 
     const { data: existingProfile } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
 
@@ -191,10 +124,6 @@ export async function POST(req: Request) {
 
     await ensureProfileRoleRow(supabase, userId, "manager");
 
-    const { error: linkErr } = await supabase.from("manager_purchases").update({ user_id: userId }).eq("id", purchase.id);
-    if (linkErr) {
-      return NextResponse.json({ error: linkErr.message }, { status: 500 });
-    }
 
     track("manager_account_created", userId, { manager_id: purchase.manager_id, signup_method: "stripe" });
     return NextResponse.json({ ok: true, managerId: purchase.manager_id });

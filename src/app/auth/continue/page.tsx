@@ -48,6 +48,38 @@ function ContinueContent() {
           return;
         }
 
+        const handoff = await fetch("/api/auth/email-onboarding/continue", { method: "POST" });
+        if (handoff.ok) {
+          const body = await handoff.json().catch(() => ({})) as { role?: unknown; applicationId?: unknown; checkoutSessionId?: unknown; propertyId?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown; tier?: unknown; billing?: unknown };
+          if (body.role === "application" && typeof body.applicationId === "string" && body.applicationId.length <= 200) {
+            window.location.replace(`/resident/applications?open=${encodeURIComponent(body.applicationId)}`);
+            return;
+          }
+          if (body.role === "manager_paid" && typeof body.checkoutSessionId === "string" && body.checkoutSessionId.length <= 255) {
+            window.location.replace(`/auth/create-account?mode=create&role=manager&session_id=${encodeURIComponent(body.checkoutSessionId)}`);
+            return;
+          }
+          if (body.role === "tour") {
+            window.location.replace("/resident/tour/pending");
+            return;
+          }
+          if (body.role === "resident" || body.role === "manager" || body.role === "vendor") {
+            const params = new URLSearchParams({ mode: "create", role: body.role });
+            if (body.role === "manager" && (body.tier === "free" || body.tier === "pro" || body.tier === "business")) params.set("tier", body.tier);
+            if (body.role === "manager" && (body.billing === "monthly" || body.billing === "annual")) params.set("billing", body.billing);
+            if (body.role === "resident" && typeof body.propertyId === "string" && body.propertyId.length <= 200) {
+              const apply = new URLSearchParams({ propertyId: body.propertyId });
+              if (typeof body.listingRoomId === "string") apply.set("listingRoomId", body.listingRoomId);
+              if (typeof body.bundleId === "string") apply.set("bundle", body.bundleId);
+              if (typeof body.applicationFormId === "string") apply.set("form", body.applicationFormId);
+              if (body.rentalType === "short_term") apply.set("rentalType", body.rentalType);
+              params.set("next", `/resident/applications/apply?${apply.toString()}`);
+            }
+            window.location.replace(`/auth/create-account?${params.toString()}`);
+            return;
+          }
+        }
+
         // Ensure SSR auth cookies are flushed before the server resolver runs.
         await supabase.auth.refreshSession().catch(() => undefined);
         const {

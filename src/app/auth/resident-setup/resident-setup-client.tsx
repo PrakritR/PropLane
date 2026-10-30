@@ -1,6 +1,5 @@
 "use client";
 
-import posthog from "posthog-js";
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -10,12 +9,8 @@ import { ResidentGoogleSignUpButton } from "@/components/auth/resident-google-si
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PasswordInput } from "@/components/ui/password-input";
-import { PhoneNumberField } from "@/components/ui/phone-number-field";
-import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { residentSetupIdFromUrlParams } from "@/lib/auth/resident-setup-links";
 import { FIELD_LABEL_CLASS, READONLY_INPUT_CLASS } from "@/lib/ui-styles";
-import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 
 function ResidentSetupFallback() {
   return (
@@ -36,11 +31,8 @@ function ResidentSetupInner() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [axisId, setAxisId] = useState(axisIdFromUrl);
   const [email, setEmail] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
 
   useEffect(() => {
     if (!token || !axisIdFromUrl) {
@@ -71,8 +63,6 @@ function ResidentSetupInner() {
         }
         setAxisId(body.axisId ?? axisIdFromUrl);
         setEmail(body.email ?? "");
-        if (body.name) setFullName(body.name);
-        if (body.phone) setPhone(body.phone);
       } catch {
         if (!cancelled) {
           setInvalid(true);
@@ -88,50 +78,18 @@ function ResidentSetupInner() {
   }, [token, axisIdFromUrl]);
 
   const submit = async () => {
-    if (phone.replace(/\D/g, "").length < 10) {
-      showToast("Enter a valid phone number.");
-      return;
-    }
-    if (password.length < 8) {
-      showToast("Password must be at least 8 characters.");
-      return;
-    }
-    if (password !== confirmPassword) {
-      showToast("Passwords do not match.");
-      return;
-    }
     setBusy(true);
     try {
-      const res = await fetch("/api/auth/resident-setup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          password,
-          fullName: fullName.trim() || undefined,
-          phone: phone.trim(),
-          token,
-          axisId,
-        }),
+      const res = await fetch("/api/auth/email-onboarding/start", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, applicationId: axisId, setupToken: token }),
       });
-      const body = (await res.json()) as { error?: string; redirectTo?: string; axisId?: string };
       if (!res.ok) {
-        showToast(body.error ?? "Could not create resident account.");
+        const body = await res.json().catch(() => ({})) as { error?: string };
+        showToast(body.error ?? "Could not send the verification link.");
         return;
       }
-      const supabase = createSupabaseBrowserClient();
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: normalizeAuthEmail(email),
-        password,
-      });
-      if (signInError) {
-        showToast("Account ready. Sign in with your email.");
-        window.location.replace("/auth/sign-in?intent=resident&next=/resident/applications");
-        return;
-      }
-      if (signInData?.user) posthog.identify(signInData.user.id);
-      showToast("Resident account created.");
-      window.location.replace(body.redirectTo?.startsWith("/") ? body.redirectTo : "/resident/applications");
+      setSent(true);
     } catch {
       showToast("Network error.");
     } finally {
@@ -192,7 +150,7 @@ function ResidentSetupInner() {
         />
         <div className="my-4 flex items-center gap-3">
           <div className="h-px flex-1 bg-border" aria-hidden />
-          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">or set a password</span>
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">or use email</span>
           <div className="h-px flex-1 bg-border" aria-hidden />
         </div>
       </div>
@@ -204,71 +162,15 @@ function ResidentSetupInner() {
           </label>
           <Input id="resident-setup-email" className={`mt-1.5 ${READONLY_INPUT_CLASS}`} value={email} readOnly />
         </div>
-        <div>
-          <label className={FIELD_LABEL_CLASS} htmlFor="resident-setup-name">
-            Full name
-          </label>
-          <Input
-            id="resident-setup-name"
-            className="mt-1.5"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            disabled={busy}
-            autoComplete="name"
-          />
-        </div>
-        <div>
-          <label className={FIELD_LABEL_CLASS} htmlFor="resident-setup-phone">
-            Phone number
-          </label>
-          <PhoneNumberField
-            id="resident-setup-phone"
-            className="mt-1.5"
-            value={phone}
-            onChange={setPhone}
-            disabled={busy}
-            dataAttr="resident-setup-phone"
-          />
-          <p className="mt-1 text-xs text-muted/70">Used for account and tenancy text updates. Reply STOP anytime.</p>
-        </div>
-        <div>
-          <label className={FIELD_LABEL_CLASS} htmlFor="resident-setup-password">
-            Password
-          </label>
-          <PasswordInput
-            id="resident-setup-password"
-            className="mt-1.5"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={busy}
-            autoComplete="new-password"
-            showStrength
-          />
-        </div>
-        <div>
-          <label className={FIELD_LABEL_CLASS} htmlFor="resident-setup-confirm">
-            Confirm password
-          </label>
-          <PasswordInput
-            id="resident-setup-confirm"
-            className="mt-1.5"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            disabled={busy}
-            autoComplete="new-password"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void submit();
-            }}
-          />
-        </div>
         <Button
           type="button"
           className="btn-cobalt w-full rounded-full py-2.5 text-[15px] font-semibold"
           disabled={busy}
           onClick={() => submit()}
         >
-          {busy ? "Creating…" : "Create resident account"}
+          {busy ? "Sending…" : "Email verification link"}
         </Button>
+        {sent ? <p role="status" className="text-center text-sm text-muted">If the address can receive a link, check your email to continue.</p> : null}
         <p className="text-center text-xs text-muted">
           Already have an account?{" "}
           <Link className="font-semibold text-primary hover:underline" href="/auth/sign-in?intent=resident&next=/resident/applications">

@@ -1,10 +1,8 @@
 import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import { NextResponse } from "next/server";
 import { normalizeE164 } from "@/lib/twilio";
-import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import { provisionResidentAccountByEmail } from "@/lib/auth/provision-resident-account";
 import { scheduleResidentSetupLinkEmail } from "@/lib/auth/schedule-resident-setup-link";
-import { assertPasswordMatchesExistingAuthUser } from "@/lib/auth/verify-auth-password";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -32,7 +30,6 @@ export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Body;
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-    const password = typeof body.password === "string" ? body.password : "";
     const fullName = typeof body.fullName === "string" ? body.fullName.trim() : "";
     const phone = normalizeE164(typeof body.phone === "string" ? body.phone : "");
 
@@ -42,9 +39,6 @@ export async function POST(req: Request) {
     if (!phone) {
       return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
     }
-    if (password.length < 8) {
-      return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
-    }
 
     const auth = await createSupabaseServerClient();
     const { data: { user } } = await auth.auth.getUser();
@@ -53,39 +47,7 @@ export async function POST(req: Request) {
     }
     const supabase = createSupabaseServiceRoleClient();
 
-    const { data: created, error: createErr } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { role: "resident", full_name: fullName || undefined },
-    });
-
-    let userId: string;
-
-    if (createErr) {
-      const exists =
-        createErr.message.toLowerCase().includes("already") ||
-        createErr.message.toLowerCase().includes("registered");
-      if (!exists) {
-        return NextResponse.json({ error: createErr.message }, { status: 400 });
-      }
-      // Email already has a PropLane login — accept the same password and add
-      // resident access to that account (mirrors manager-register).
-      const existingId = await findAuthUserIdByEmail(supabase, email);
-      if (!existingId) {
-        return NextResponse.json({ error: "Could not locate existing account for this email." }, { status: 400 });
-      }
-      const pwCheck = await assertPasswordMatchesExistingAuthUser(email, password);
-      if (!pwCheck.ok) {
-        return NextResponse.json({ error: pwCheck.message }, { status: 401 });
-      }
-      userId = existingId;
-    } else {
-      if (!created?.user?.id) {
-        return NextResponse.json({ error: "Could not create account." }, { status: 500 });
-      }
-      userId = created.user.id;
-    }
+    const userId = user.id;
 
     const recovery = await recoverySetupRedirect(supabase, userId);
     if (recovery) return NextResponse.json({ ok: true, existingAccount: true, recoveryRequired: true, redirectTo: recovery });
