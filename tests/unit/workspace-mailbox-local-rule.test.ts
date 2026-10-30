@@ -131,6 +131,15 @@ describe("serviceWorkspaceMailboxLocalFor", () => {
     expect(serviceWorkspaceMailboxLocalFor(long, "Maya")).toBe(workspaceMailboxLocalFor(long, "Maya"));
     expect(serviceWorkspaceMailboxLocalFor("", "")).toBe("");
   });
+  it("strips the ordinal in linear time on a whitespace-only name", () => {
+    // A workspace name reaches this rule straight from a request body. The earlier ordinal pattern was
+    // `^\s*#?\s*\d+...`: two repetitions competing for the same whitespace, so a name of pure tabs backtracked
+    // quadratically (~0.2s at 20k tabs, ~20s at 200k). The current pattern makes `#` mandatory inside its own
+    // group, so there is only one way to consume the whitespace.
+    const started = Date.now();
+    expect(serviceWorkspaceMailboxLocalFor("\t".repeat(200_000), "Maya")).toBe("maya");
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
   it("leaves the self-serve outputs unchanged", () => {
     expect(workspaceMailboxLocalFor("SEATTLE HOMES", "Prakrit")).toBe("seattlehomes");
     expect(workspaceMailboxLocalFor("My workspace", "Prakrit")).toBe("myworkspace");

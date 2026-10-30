@@ -30,7 +30,11 @@ export function workspaceMailboxLocalFor(workspaceName, ownerFirstName) {
   return usable(combined) ? combined : "";
 }
 
-const ORDINAL_PREFIX = /^\s*#?\s*\d+\s*(?:[.)\]:]|\s[-–—])\s*/;
+// Written so no two repetitions can consume the same whitespace: `#` is mandatory inside its own group (an
+// absent `#` leaves one leading `\s*`, not two), and the dash branch owns its `\s+`. The ambiguous
+// `\s*#?\s*` this replaces matched the same names but backtracked quadratically on a name of pure
+// whitespace, which a workspace name is free to be (CodeQL js/polynomial-redos).
+const ORDINAL_PREFIX = /^\s*(?:#\s*)?\d+(?:\s*[.)\]:]|\s+[-–—])\s*/;
 
 /**
  * PropLane-managed (service) workspaces are named "1. Ambika", "2. Vinod": the work email is the client's name
