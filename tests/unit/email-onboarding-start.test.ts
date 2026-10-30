@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => ({ find: vi.fn(), create: vi.fn(), get: vi.fn(), link: vi.fn(), insert: vi.fn(), send: vi.fn(), inquiry: vi.fn(), purchase: vi.fn(), rpc: vi.fn() }));
+const m = vi.hoisted(() => ({ find: vi.fn(), create: vi.fn(), get: vi.fn(), link: vi.fn(), insert: vi.fn(), send: vi.fn(), inquiry: vi.fn(), purchase: vi.fn(), property: vi.fn(), effective: vi.fn(), pin: vi.fn(), rpc: vi.fn() }));
 vi.mock("@/lib/rate-limit", () => ({ clientIpFrom: () => "test", rateLimit: async () => ({ ok: true }) }));
 vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://example.test" }));
 vi.mock("@/lib/auth/find-auth-user-id-by-email", () => ({ findAuthUserIdByEmail: m.find }));
+vi.mock("@/lib/rental-application/validate-application-submit.server", () => ({ memoizeEffectiveApplicationProperty: () => m.effective }));
+vi.mock("@/lib/send-forms", () => ({ applicationPinForLinkedForm: m.pin }));
 vi.mock("@/lib/tour-resident-link.server", () => ({ loadTourInquiryById: m.inquiry }));
 vi.mock("@/lib/auth/resident-setup-token", () => ({ findApplicationForResidentSetup: vi.fn() }));
-vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ rpc: m.rpc, auth: { admin: { createUser: m.create, getUserById: m.get, generateLink: m.link } }, from: () => ({ insert: m.insert, select: () => ({ eq: () => ({ maybeSingle: m.purchase }) }) }) }) }));
+vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ rpc: m.rpc, auth: { admin: { createUser: m.create, getUserById: m.get, generateLink: m.link } }, from: (table: string) => ({ insert: m.insert, select: () => ({ eq: () => ({ maybeSingle: table === "manager_property_records" ? m.property : m.purchase }) }) }) }) }));
 import { POST } from "@/app/api/auth/email-onboarding/start/route";
 const request = () => new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", password: "attacker-known" }) });
 m.rpc.mockResolvedValue({ data: 0, error: null });
@@ -38,6 +40,14 @@ describe("email onboarding start", () => {
   it("refuses a paid-manager reference owned by another email", async () => {
     vi.stubEnv("RESEND_API_KEY", "test"); m.purchase.mockResolvedValue({ data: { id: "purchase", email: "victim@example.com", user_id: null }, error: null });
     const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "manager_paid", checkoutSessionId: "checkout" }) });
+    expect((await POST(req)).status).toBe(200);
+    expect(m.create).not.toHaveBeenCalled(); expect(m.link).not.toHaveBeenCalled();
+  });
+  it("rejects a room outside the selected property's stored listing", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test");
+    m.property.mockResolvedValue({ data: { id: "property" }, error: null });
+    m.effective.mockResolvedValue({ ok: true, property: { listingSubmission: { v: 1, rooms: [{ id: "room-1" }], bundles: [] } } });
+    const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "resident", propertyId: "property", listingRoomId: "other-room" }) });
     expect((await POST(req)).status).toBe(200);
     expect(m.create).not.toHaveBeenCalled(); expect(m.link).not.toHaveBeenCalled();
   });
