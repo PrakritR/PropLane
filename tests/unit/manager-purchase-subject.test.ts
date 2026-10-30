@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { findManagerPurchaseForAccount } from "@/lib/auth/manager-onboarding";
 describe("manager purchase subject", () => {
+  it("rejects an inconsistent different-owner result", async () => {
+    const query = { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(), maybeSingle: vi.fn().mockResolvedValue({ data: { user_id: "other" } }) };
+    expect(await findManagerPurchaseForAccount({ from: () => query } as never, "current-user", "same@example.com")).toBeNull();
+  });
   it("does not adopt an orphan or another user's purchase by matching email", async () => {
     const filters: Array<[string, unknown]> = [];
     const query = { select: vi.fn().mockReturnThis(), eq: vi.fn((key: string, value: unknown) => { filters.push([key, value]); return query; }), order: vi.fn().mockReturnThis(), limit: vi.fn().mockReturnThis(), maybeSingle: vi.fn().mockResolvedValue({ data: null }) };

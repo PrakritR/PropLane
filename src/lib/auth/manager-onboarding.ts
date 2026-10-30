@@ -58,7 +58,8 @@ export async function findManagerPurchaseForAccount(
     .maybeSingle();
 
   if (error) throw error;
-  return (byUser as ManagerPurchaseRow | null) ?? null;
+  const purchase = byUser as ManagerPurchaseRow | null;
+  return purchase?.user_id === userId ? purchase : null;
 }
 
 export async function managerNeedsPricingSelection(
