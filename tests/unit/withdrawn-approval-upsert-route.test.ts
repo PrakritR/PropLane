@@ -15,6 +15,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 
 const getUser = vi.fn();
 let PROFILE: { role: string; email: string } | null;
+let WITHDRAW_BEFORE_UPDATE = false;
 let STORED_ROWS: { id: string; row_data: DemoApplicantRow }[];
 let STORED_ERROR: { message: string } | null;
 let UPSERTS: { id: string; row_data: DemoApplicantRow }[];
@@ -42,7 +43,7 @@ vi.mock("@/lib/auth/co-manager-module-scope", () => ({
 vi.mock("@/lib/auth/provision-approved-resident", () => ({ provisionApprovedResidentAccount }));
 vi.mock("@/lib/manager-applications-storage", () => ({
   MANAGER_APPLICATIONS_EVENT: "axis:manager-applications",
-  isDraftApplicationRow: () => false,
+  isDraftApplicationRow: (row: { bucket?: string; stage?: string }) => row.bucket === "pending" && row.stage?.trim().toLowerCase() === "in progress",
   normalizeApplicationAxisId: (id: string) => id.trim(),
 }));
 vi.mock("@/lib/screening/order-screening", () => ({ tryAutoOrderScreening: vi.fn() }));
@@ -62,7 +63,10 @@ function makeDb() {
         select() {
           return builder;
         },
-        update(values: typeof pending) { pending = values; return builder; },
+        update(values: typeof pending) {
+          if (WITHDRAW_BEFORE_UPDATE && STORED_ROWS[0]) STORED_ROWS[0].row_data = { ...STORED_ROWS[0].row_data, withdrawnAt: "2026-07-22T00:00:00.000Z" };
+          pending = values; return builder;
+        },
         is(column: string) { filters[column] = null; return builder; },
         insert() {
           return Promise.resolve({ error: null });
@@ -97,7 +101,12 @@ function makeDb() {
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
           if (table === "manager_application_records" && pending) {
-            const match = STORED_ROWS.find((row) => row.id === filters.id && (row.row_data.residentUserId ?? null) === filters["row_data->>residentUserId"] && ((row as { updated_at?: string | null }).updated_at ?? null) === filters.updated_at);
+            const match = STORED_ROWS.find((row) => Object.entries(filters).every(([column, expected]) => {
+              const value = column.startsWith("row_data->>")
+                ? (row.row_data as unknown as Record<string, unknown>)[column.slice("row_data->>".length)]
+                : (row as unknown as Record<string, unknown>)[column];
+              return (value ?? null) === expected;
+            }));
             if (match) UPSERTS.push(pending);
             return Promise.resolve({ data: match ? [{ id: match.id }] : [], error: null }).then(resolve);
           }
@@ -138,6 +147,7 @@ function post(body: unknown) {
 
 describe("POST /api/manager-applications — withdrawnAt is server-owned on a manager write", () => {
   beforeEach(() => {
+    WITHDRAW_BEFORE_UPDATE = false;
     getUser.mockReset();
     getUser.mockResolvedValue({ data: { user: { id: "mgr-1", email: "mgr@example.com", user_metadata: {} } } });
     PROFILE = { role: "manager", email: "mgr@example.com" };
@@ -164,6 +174,16 @@ describe("POST /api/manager-applications — withdrawnAt is server-owned on a ma
     expect(res.status).toBe(200);
     expect(UPSERTS).toHaveLength(1);
     expect(UPSERTS[0].row_data.withdrawnAt).toBe("2026-07-22T00:00:00.000Z");
+  });
+
+  it("refuses a draft update when withdrawal races the conditional write", async () => {
+    const draft = appRow({ stage: "In progress" });
+    STORED_ROWS = [{ id: draft.id, row_data: draft }];
+    WITHDRAW_BEFORE_UPDATE = true;
+    const { persistNormalizedRow } = await import("@/lib/rental-application/signed-in-application-write.server");
+    await expect(persistNormalizedRow(makeDb() as never, draft.id, draft, { id: draft.id, row_data: draft }, null, null, true)).rejects.toMatchObject({ code: "40001" });
+    expect(UPSERTS).toHaveLength(0);
+    expect(STORED_ROWS[0]?.row_data.withdrawnAt).toBe("2026-07-22T00:00:00.000Z");
   });
 
   it("fails CLOSED when the stored row cannot be read", async () => {
@@ -202,6 +222,7 @@ describe("POST /api/manager-applications — withdrawnAt is server-owned on a ma
 
 describe("POST /api/manager-applications action:\"replace\" — the path the manager Approve actually takes", () => {
   beforeEach(() => {
+    WITHDRAW_BEFORE_UPDATE = false;
     getUser.mockReset();
     getUser.mockResolvedValue({ data: { user: { id: "mgr-1", email: "mgr@example.com", user_metadata: {} } } });
     PROFILE = { role: "manager", email: "mgr@example.com" };
