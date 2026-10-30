@@ -56,12 +56,12 @@ function displayWhen(receivedAt: string): string {
   return formatPacificDateTime(date);
 }
 
-/** The two thread sides one reply writes to, shared by ingest and backfill. */
+/** The token-owner thread side, shared by ingest and backfill. */
 async function replyThreadSides(
   db: SupabaseClient,
   parsed: ParsedInboundEmail,
   ownerUserId: string,
-): Promise<{ owner: PortalMessageThreadSide; replier: PortalMessageThreadSide; ownerRole: string | null } | null> {
+): Promise<{ owner: PortalMessageThreadSide; ownerRole: string | null } | null> {
   const { data: ownerProfile } = await db
     .from("profiles")
     .select("email, role")
@@ -71,11 +71,6 @@ async function replyThreadSides(
   if (!ownerEmail) return null;
 
   const from = parsed.fromEmail.trim().toLowerCase();
-  const { data: replierProfile } = await db
-    .from("profiles")
-    .select("id, role")
-    .eq("email", from)
-    .maybeSingle();
 
   return {
     ownerRole: String(ownerProfile?.role ?? "") || null,
@@ -86,18 +81,12 @@ async function replyThreadSides(
       participantEmail: ownerEmail,
       otherPartyEmail: from,
     },
-    replier: {
-      scope: scopeForRole(replierProfile ? String(replierProfile.role ?? "") || null : null),
-      folder: "inbox",
-      ownerUserId: (replierProfile?.id as string | undefined) ?? null,
-      participantEmail: from,
-      otherPartyEmail: ownerEmail,
-    },
+
   };
 }
 
 /**
- * Append an emailed reply to both sides of the portal conversation. Returns
+ * Append an emailed reply to the token owner's portal conversation. Returns
  * `handled: false` when the token owner no longer resolves to a profile — the
  * caller falls back to the admin support ingest so the mail stays visible.
  * Any database error throws so the webhook can 5xx and Resend redelivers.
@@ -133,19 +122,6 @@ export async function ingestInboundEmailReply(
     messageId,
   });
 
-  // Replier's own copy of the conversation shows the reply they emailed.
-  await deliverPortalMessageThreadSide(db, {
-    ...sides.replier,
-    fallbackId: `msg_inbox_${ts}_${rand}r`,
-    fromName,
-    subject,
-    body,
-    preview,
-    when,
-    unread: false,
-    outbound: true,
-    messageId,
-  });
   const appended = ownerResult.action !== "skipped";
 
   if (appended) {
@@ -194,7 +170,7 @@ export async function backfillInboundEmailReplyBody(
   // Cheap pre-check so an already-enriched reply (idempotent redelivery) never
   // costs a Resend round trip. The slow lookup stays OUTSIDE the fresh
   // read→write pair below, mirroring backfillInboundEmailBody.
-  const sideList = [sides.owner, sides.replier];
+  const sideList = [sides.owner];
   const precheck = await Promise.all(sideList.map((side) => findExistingPortalMessageThread(db, side)));
   if (!precheck.some((row) => row && holdsPlaceholder(row.rowData, messageId))) {
     return { updated: false };

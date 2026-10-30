@@ -127,13 +127,14 @@ describe("fileWorkflowFromInboundMessage", () => {
 describe("fileWorkflowFromInboundEmailReply", () => {
   const db = {} as never;
 
-  it("files when the replier really is this owner's resident", async () => {
+  it("does not file from an email-only historical association", async () => {
     const out = await fileWorkflowFromInboundEmailReply(db, {
       ownerUserId: "mgr-1",
       replierEmail: "res@example.com",
       text: "The heater is dead",
     });
-    expect(out).toMatchObject({ filed: "work_order" });
+    expect(out).toEqual({ filed: "none", reason: "not_a_request" });
+    expect(createWorkOrder).not.toHaveBeenCalled();
   });
 
   it("files NOTHING when the manager is the one replying", async () => {
@@ -168,7 +169,7 @@ describe("fileWorkflowFromInboundEmailReply", () => {
       replierEmail: "res@example.com",
       text: "The heater is dead",
     });
-    expect(out).toEqual({ filed: "none", reason: "create_failed" });
+    expect(out).toEqual({ filed: "none", reason: "not_a_request" });
     expect(createWorkOrder).not.toHaveBeenCalled();
   });
 });
