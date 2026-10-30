@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { E2E_ACCOUNTS } from "../fixtures";
 import { requestManagerEmailProof, finishManagerEmailProof } from "../helpers/email-onboarding-e2e";
-import { reserveSyntheticManager, identifySyntheticManager, captureSyntheticManagerChildren, cleanupSyntheticManager } from "../helpers/synthetic-manager-cleanup";
+import { reserveSyntheticManager, identifySyntheticManager } from "../helpers/synthetic-manager-cleanup";
 import { createHash } from "node:crypto";
 
 /**
@@ -90,6 +90,27 @@ async function expectManagerCreateForm(page: Page, opts: { signedIn: boolean }) 
   await expect(page.locator('input[type="password"]')).toHaveCount(0);
 }
 
+async function closeContextIfOpen(context: BrowserContext | null) {
+  if (!context) return;
+  try {
+    await context.close();
+  } catch (error) {
+    // Playwright closes fixture contexts when a test timeout fires. Do not let
+    // that teardown error replace the original timeout/assertion failure.
+    if (!/Target page, context or browser has been closed/i.test(String((error as Error).message))) {
+      throw error;
+    }
+  }
+}
+
+async function boundedDiagnostic<T>(read: Promise<T>, fallback: T, timeoutMs = 3_000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    read.catch(() => fallback),
+    new Promise<T>((resolve) => { timer = setTimeout(() => resolve(fallback), timeoutMs); }),
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
 test.describe('"Get started" while signed in', () => {
   test.skip(!hasSupabase, "Requires the dev/test Supabase project");
 
@@ -135,9 +156,20 @@ test.describe('"Get started" while signed in', () => {
   });
 
   test("signed-in manager can create a SECOND account with a different email", async ({ page }) => {
-    test.setTimeout(180_000);
+    test.skip(process.env.AUTH_PROOF_TWO_PHASE_RUNNER !== "1", "Dedicated two-phase proof required");
+    test.setTimeout(90_000);
+    let phase = "sign-in";
+    let lastHttpStatus: number | null = null;
+    let completed = false;
+    const setPhase = (next: string, httpStatus?: number) => {
+      phase = next;
+      if (httpStatus !== undefined) lastHttpStatus = httpStatus;
+      console.log(`[synthetic-manager-e2e] phase=${next} last_http_status=${lastHttpStatus ?? "not-observed"}`);
+    };
+    setPhase("sign-in");
     await signIn(page, E2E_ACCOUNTS.manager.email, E2E_ACCOUNTS.manager.password);
 
+    setPhase("inspect-current-account");
     const oldUser = await sessionUserFromCookies(page);
     expect(oldUser?.email).toBe(E2E_ACCOUNTS.manager.email);
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -155,22 +187,69 @@ test.describe('"Get started" while signed in', () => {
     let syntheticAccessToken: string | null = null;
     let secondContext: BrowserContext | null = null;
     try {
+      setPhase("open-create-account");
       await page.goto("/auth/create-account?mode=create&role=manager&tier=pro&billing=annual");
       await expectManagerCreateForm(page, { signedIn: true });
+      setPhase("sign-out-current-session");
       await page.getByRole("button", { name: "Create a different property account" }).click();
       await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
       expect(await sessionUserFromCookies(page)).toBeNull();
-      const href = await requestManagerEmailProof(page, newEmail);
+      const href = await requestManagerEmailProof(page, newEmail, setPhase);
+      setPhase("identify-pending-auth-user");
       const pendingId = await identifySyntheticManager(db, supabaseUrl, manifest, manifestFile);
+      setPhase("create-verification-context");
       secondContext = await page.context().browser()!.newContext();
+      secondContext.setDefaultTimeout(20_000);
+      secondContext.setDefaultNavigationTimeout(20_000);
       const secondPage = await secondContext.newPage();
-      await finishManagerEmailProof(secondPage, href, newEmail, "Second Account Manager", "2065550199");
+      const authResponses: Array<{ path: string; status: number }> = [];
+      secondPage.on("response", (response) => {
+        const pathname = new URL(response.url()).pathname;
+        if (["/auth/confirm", "/api/auth/email-onboarding/finish", "/api/auth/email-onboarding/continue"].includes(pathname)) {
+          authResponses.push({ path: pathname, status: response.status() });
+        }
+      });
+      try {
+        await finishManagerEmailProof(secondPage, href, newEmail, "Second Account Manager", "2065550199", setPhase);
+      } catch (error) {
+        const pathname = new URL(secondPage.url()).pathname.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, ":id");
+        console.error(`[synthetic-manager-e2e] failure_snapshot phase=${phase} pathname=${pathname} last_http_status=${lastHttpStatus ?? "not-observed"}`);
+        const knownHeadings = ["Create your property account", "Check your email", "Account ready", "Request a new verification link", "Could not complete verification", "Link invalid"];
+        const headings = (await boundedDiagnostic(secondPage.getByRole("heading").allTextContents(), []))
+          .map((value) => value.trim())
+          .filter((value) => knownHeadings.includes(value));
+        const knownAlerts = ["This link has expired", "This link is invalid", "Email verified", "Something went wrong", "Could not continue account setup. Refresh to try again."];
+        const alerts = (await boundedDiagnostic(secondPage.locator('[role="alert"]').allTextContents(), []))
+          .map((value) => value.trim())
+          .filter((value) => knownAlerts.includes(value));
+        const identity = manifest.authId ? await boundedDiagnostic(db.auth.admin.getUserById(manifest.authId), null) : null;
+        const handoffs = manifest.authId
+          ? await boundedDiagnostic(Promise.resolve(db.from("email_onboarding_handoffs").select("intent,status,expires_at").eq("user_id", manifest.authId).limit(3)), null)
+          : null;
+        const diag = {
+          pathname,
+          headings,
+          alerts,
+          authResponses,
+          authUser: identity === null ? { read: "timeout-or-error" } : identity.data.user ? {
+            exists: true,
+            emailConfirmed: Boolean(identity.data.user.email_confirmed_at),
+            lastSignInPresent: Boolean(identity.data.user.last_sign_in_at),
+          } : { exists: false, errorCode: identity?.error?.code ?? null },
+          handoffRows: handoffs === null ? { read: "timeout-or-error" } : handoffs.error
+            ? { errorCode: handoffs.error.code ?? "unknown" }
+            : (handoffs.data ?? []).map((row) => ({ intent: row.intent, status: row.status, expired: Date.parse(row.expires_at) <= Date.now() })),
+        };
+        console.error(`[synthetic-manager-e2e] callback_diagnostic=${JSON.stringify(diag)}`);
+        throw error;
+      }
+      setPhase("verify-new-session-subject");
       const newUser = await sessionUserFromCookies(secondPage);
       expect(newUser?.email).toBe(newEmail);
       syntheticAccessToken = newUser?.accessToken ?? null;
       expect(newUser?.id).toBe(pendingId);
       expect(newUser?.id).not.toBe(oldUser!.id);
-      await captureSyntheticManagerChildren(db, manifest, manifestFile);
+      setPhase("inspect-created-account");
       const newRoles = await db.from("profile_roles").select("role").eq("user_id", newUser!.id);
       const newProperties = await db.from("manager_property_records").select("id").eq("manager_user_id", newUser!.id);
       const oldRolesAfter = await db.from("profile_roles").select("role").eq("user_id", oldUser!.id);
@@ -178,29 +257,36 @@ test.describe('"Get started" while signed in', () => {
       expect(newRoles.data).toContainEqual({ role: "manager" });
       expect(newProperties.data).toEqual([]);
       expect(oldRolesAfter.data).toEqual(oldRoles.data);
+      setPhase("portal-continuation");
       await expect(secondPage.getByRole("button", { name: "Go to portal" })).toBeVisible();
       await secondPage.getByRole("button", { name: "Go to portal" }).click();
-      await secondPage.waitForURL(/\/portal/, { timeout: 60_000 });
-      await expect(secondPage.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-      await expect(secondPage.getByText("No properties yet.")).toBeVisible();
+      await secondPage.waitForURL(/\/auth\/verify-phone/, { timeout: 60_000 });
+      await expect(secondPage.getByRole("button", { name: /send.*code/i })).toBeVisible();
+      completed = true;
     } finally {
-      let revokeFailed = false;
-      if (!syntheticAccessToken && secondContext) {
-        for (const candidate of secondContext.pages()) {
-          const session = await sessionUserFromCookies(candidate);
-          if (session?.id === manifest.authId && session.email === newEmail) syntheticAccessToken = session.accessToken;
-          else if (session) revokeFailed = true;
+      if (!completed) console.error(`[synthetic-manager-e2e] failed_phase=${phase} last_http_status=${lastHttpStatus ?? "not-observed"}`);
+      setPhase("cleanup");
+      try {
+        let revokeFailed = false;
+        if (!syntheticAccessToken && secondContext) {
+          for (const candidate of secondContext.pages()) {
+            const session = await sessionUserFromCookies(candidate);
+            if (session?.id === manifest.authId && session.email === newEmail) syntheticAccessToken = session.accessToken;
+            else if (session) revokeFailed = true;
+          }
         }
+        if (syntheticAccessToken) {
+          const revoked = await db.auth.admin.signOut(syntheticAccessToken, "global");
+          revokeFailed ||= Boolean(revoked.error);
+        }
+        await closeContextIfOpen(secondContext);
+        await closeContextIfOpen(page.context());
+        if (revokeFailed) throw new Error("Synthetic session could not be revoked; cleanup was not attempted.");
+        // Dedicated runner stops its server before reviewing and cleaning this exact manifest.
+      } catch {
+        console.error("[synthetic-manager-e2e] failed_phase=cleanup");
+        throw new Error("Synthetic manager cleanup failed; inspect the private manifest before any retry.");
       }
-      if (syntheticAccessToken) {
-        const revoked = await db.auth.admin.signOut(syntheticAccessToken, "global");
-        revokeFailed ||= Boolean(revoked.error);
-      }
-      if (secondContext) await secondContext.close();
-      await page.context().close();
-      if (revokeFailed) throw new Error("Synthetic session could not be revoked; cleanup was not attempted.");
-      await cleanupSyntheticManager(db, supabaseUrl, manifest, manifestFile);
-      fs.rmSync(path.join(dir, `${createHash("sha256").update(newEmail).digest("hex")}.json`), { force: true });
     }
 
   });
