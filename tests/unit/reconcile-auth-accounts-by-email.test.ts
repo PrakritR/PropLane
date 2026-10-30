@@ -105,6 +105,14 @@ describe("reconcileAuthAccountsByEmail", () => {
     expect(db.from).not.toHaveBeenCalled();
   });
 
+  it("does not grant roles from user-editable metadata or legacy profile role", async () => {
+    const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
+    const { ensureProfileRoleRow } = await import("@/lib/auth/profile-role-row");
+    const db = mockDb({ profile: { role: "admin" } });
+    await reconcileAuthAccountsByEmail(db as never, { id: "session-user", email: "person@example.com", email_confirmed_at: "2026-01-01", user_metadata: { role: "admin" }, identities: [] } as never);
+    expect(ensureProfileRoleRow).not.toHaveBeenCalled();
+  });
+
   it("does not migrate another Auth user solely by matching email", async () => {
     const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
     const db = mockDb({

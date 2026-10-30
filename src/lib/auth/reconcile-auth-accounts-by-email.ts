@@ -45,6 +45,7 @@ async function syncProfileForUser(db: ServiceDb, user: User): Promise<void> {
     const { error } = await db.from("profiles").update(patch).eq("id", user.id);
     if (error) throw error;
     if (isPrimaryAdminEmail(email)) {
+      await ensureProfileRoleRow(db, user.id, "admin");
       await ensureProfileRoleRow(db, user.id, "manager");
     }
     return;
@@ -76,21 +77,6 @@ export async function reconcileAuthAccountsByEmail(db: ServiceDb, sessionUser: U
 
   if (await pendingAccountRecovery(db, sessionUser.id)) return;
   await syncProfileForUser(db, sessionUser);
-
-  const { data: profile } = await db.from("profiles").select("role").eq("id", sessionUser.id).maybeSingle();
-  const role = String(profile?.role ?? sessionUser.user_metadata?.role ?? "").toLowerCase();
-  if (role === "manager" || role === "pro") {
-    await ensureProfileRoleRow(db, sessionUser.id, "manager");
-  }
-  if (role === "resident") {
-    await ensureProfileRoleRow(db, sessionUser.id, "resident");
-  }
-  if (role === "admin" || isPrimaryAdminEmail(email)) {
-    await ensureProfileRoleRow(db, sessionUser.id, "admin");
-  }
-  if (isPrimaryAdminEmail(email)) {
-    await ensureProfileRoleRow(db, sessionUser.id, "manager");
-  }
 
   if (hasProvider(sessionUser, "google")) {
     await db.auth.admin.updateUserById(sessionUser.id, {
