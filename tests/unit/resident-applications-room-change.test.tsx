@@ -41,7 +41,7 @@ vi.mock("@/lib/portal-nav-client", () => ({
   usePortalNavigate: () => vi.fn(),
 }));
 vi.mock("@/hooks/use-portal-session", () => ({
-  usePortalSession: () => ({ email: "jamie.rivera@example.com", ready: true }),
+  usePortalSession: () => ({ email: "jamie.rivera@example.com", userId: "resident-test", ready: true }),
 }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useConfirm: () => (req: { description?: unknown }) =>
@@ -126,6 +126,7 @@ describe("ResidentApplicationsPanel — room change on an in-progress applicatio
         id: "PROPLANE-TESTROOM1",
         name: "Jamie Rivera",
         email: "jamie.rivera@example.com",
+        residentUserId: "resident-test",
         property: "Alder Row — 3 rooms",
         propertyId: PROPERTY_ID,
         stage: "In progress",

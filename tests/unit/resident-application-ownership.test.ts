@@ -16,8 +16,8 @@ function row(over: Partial<DemoApplicantRow> = {}): DemoApplicantRow {
 }
 
 describe("residentOwnsApplicationRow", () => {
-  it("allows rows that match email with no residentUserId", () => {
-    expect(residentOwnsApplicationRow(row(), { email: "jamie@example.com", userId: "user-1" })).toBe(true);
+  it("denies rows that match email with no residentUserId", () => {
+    expect(residentOwnsApplicationRow(row(), { email: "jamie@example.com", userId: "user-1" })).toBe(false);
   });
 
   it("allows rows linked to the same resident user id", () => {
@@ -38,13 +38,13 @@ describe("residentOwnsApplicationRow", () => {
     ).toBe(false);
   });
 
-  it("allows legacy @test.axis.local row_data when session uses @test.proplane.local", () => {
+  it("denies legacy email-only rows even when addresses normalize to the same mailbox", () => {
     expect(
       residentOwnsApplicationRow(
         row({ email: "resident@test.axis.local" }),
         { email: "resident@test.proplane.local", userId: "user-1" },
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("denies rows with a different email", () => {
