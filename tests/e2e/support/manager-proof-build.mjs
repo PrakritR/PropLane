@@ -29,11 +29,11 @@ export function validatedEnvironment(source, cwd = process.cwd()) {
     RESEND_API_KEY:'re_dummy_auth_browser_no_delivery',RESEND_FROM:'Auth Proof <proof@example.invalid>',
     PLAYWRIGHT_SKIP_WEBSERVER:'1',PLAYWRIGHT_BASE_URL:'http://localhost:3007',E2E_TESTS_ENABLED:'1',CHROME_DEVTOOLS_AXI_SESSION:'auth-proof'};
   const smsKeys = new Set(['TWILIO_ACCOUNT_SID','TWILIO_AUTH_TOKEN','TWILIO_API_KEY_SID','TWILIO_API_KEY_SECRET','TWILIO_MESSAGING_SERVICE_SID','CLAW_MESSENGER_API_KEY']);
-  for (const key of Object.keys(env)) if (/^(TWILIO_|CLAW_)/.test(key)) smsKeys.add(key);
+  for (const key of Object.keys(env)) if (/^(TWILIO_|CLAW_|STRIPE_|CHECKR_|PERSONA_|OPENAI_|ANTHROPIC_|META_)/.test(key)) smsKeys.add(key);
   for (const name of readdirSync(cwd).filter(x => /^\.env(?:\.|$)/.test(x))) {
     const file = path.join(cwd,name);
     if (!statSync(file).isFile()) continue;
-    for (const key of Object.keys(dotenv.parse(readFileSync(file)))) if (/^(TWILIO_|CLAW_)/.test(key)) smsKeys.add(key);
+    for (const key of Object.keys(dotenv.parse(readFileSync(file)))) if (/^(TWILIO_|CLAW_|STRIPE_|CHECKR_|PERSONA_|OPENAI_|ANTHROPIC_|META_)/.test(key)) smsKeys.add(key);
   }
   for (const key of smsKeys) env[key]='';
   env.CLAW_MESSENGER_HTTP_BASE='https://claw-messenger.onrender.com';

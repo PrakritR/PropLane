@@ -10,9 +10,9 @@ describe("manager proof isolation", () => {
     try {
       const write = (anon: string, service: string) => writeFileSync(path.join(dir, ".env.test"), `NEXT_PUBLIC_SUPABASE_URL=https://emstjswhotsnyksqhqyf.supabase.co\nNEXT_PUBLIC_SUPABASE_ANON_KEY=${anon}\nSUPABASE_SERVICE_ROLE_KEY=${service}\n`);
       const good = token("emstjswhotsnyksqhqyf");
-      write(good, good); writeFileSync(path.join(dir, ".env.local"), "TWILIO_LOCAL_SECRET=bad\nCLAW_LOCAL_SECRET=bad\n");
+      write(good, good); writeFileSync(path.join(dir, ".env.local"), "TWILIO_LOCAL_SECRET=bad\nCLAW_LOCAL_SECRET=bad\nSTRIPE_LOCAL_SECRET=bad\n");
       const env = validatedEnvironment({ TWILIO_INHERITED_SECRET: "bad", CLAW_INHERITED_SECRET: "bad" }, dir);
-      expect(env.TWILIO_LOCAL_SECRET).toBe(""); expect(env.CLAW_LOCAL_SECRET).toBe("");
+      expect(env.TWILIO_LOCAL_SECRET).toBe(""); expect(env.CLAW_LOCAL_SECRET).toBe(""); expect(env.STRIPE_LOCAL_SECRET).toBe("");
       expect(env.TWILIO_INHERITED_SECRET).toBe(""); expect(env.CLAW_INHERITED_SECRET).toBe("");
       expect(env.SUPABASE_URL).toBe("https://emstjswhotsnyksqhqyf.supabase.co"); expect(env.NODE_ENV).toBe("production"); expect(env.E2E_TESTS_ENABLED).toBe("1");
       write(token("wrong"), good); expect(() => validatedEnvironment({}, dir)).toThrow(/credential/i);
