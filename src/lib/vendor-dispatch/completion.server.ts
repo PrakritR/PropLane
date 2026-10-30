@@ -34,11 +34,11 @@ import { applyApprovedDispatchInvoice, setServiceVendorCost, type ApprovedInvoic
 async function readWorkOrder(db: SupabaseClient, run: DispatchRunRow) {
   const { data } = await db
     .from("portal_work_order_records")
-    .select("id, manager_user_id, vendor_user_id, row_data")
+    .select("id, manager_user_id, vendor_user_id, resident_user_id, row_data")
     .eq("id", run.source_id)
     .eq("manager_user_id", run.owner_user_id)
     .maybeSingle();
-  return (data as { id: string; manager_user_id: string; vendor_user_id: string | null; row_data: DemoManagerWorkOrderRow } | null) ?? null;
+  return (data as { id: string; manager_user_id: string; vendor_user_id: string | null; resident_user_id: string | null; row_data: DemoManagerWorkOrderRow } | null) ?? null;
 }
 
 async function ownerSender(db: SupabaseClient, ownerUserId: string) {
@@ -69,8 +69,10 @@ export async function recordVendorDone(
   }
   if (run.completion_state === "awaiting_resident" || run.completion_state === "confirmed") return "already";
 
-  const residentEmail = (run.resident_email ?? "").trim().toLowerCase();
-  const waitsForResident = Boolean(residentEmail) && run.source_type === "work_order";
+  const record = run.source_type === "work_order" ? await readWorkOrder(db, run) : null;
+  if (run.source_type === "work_order" && !record) return "not_found";
+  let residentUserId = record?.resident_user_id?.trim() || null;
+  let waitsForResident = Boolean(residentUserId);
   const { data: claimed } = await db
     .from("vendor_dispatch_runs")
     .update({
@@ -85,12 +87,25 @@ export async function recordVendorDone(
     .select("id");
   if (!claimed || (claimed as unknown[]).length === 0) return "already";
 
+  if (residentUserId) {
+    const current = await readWorkOrder(db, run);
+    const { data: subject, error: subjectError } = await db.auth.admin.getUserById(residentUserId);
+    if (subjectError) return "marked_done";
+    if (!current || current.resident_user_id !== residentUserId || !subject?.user) {
+      const { data: detached } = await db.from("vendor_dispatch_runs")
+        .update({ status: "completed", completion_state: "confirmed", completed_at: nowIso, updated_at: nowIso })
+        .eq("id", run.id).eq("status", "accepted").eq("completion_state", "awaiting_resident").select("id");
+      if (!detached?.length) return "already";
+      residentUserId = null;
+      waitsForResident = false;
+    }
+  }
+
   const contacts = await loadVendorContacts(db, run.owner_user_id, [attempt.vendor_directory_id]);
   const contact = contacts.get(attempt.vendor_directory_id);
   await recordDispatchEvent(db, { ownerUserId: run.owner_user_id, runId: run.id, handle: run.handle, event: "vendor_done", key: attempt.id, reply: input.note ?? null, now });
 
   if (run.source_type === "work_order") {
-    const record = await readWorkOrder(db, run);
     if (record) {
       const row = record.row_data;
       let next: DemoManagerWorkOrderRow = {
@@ -106,7 +121,9 @@ export async function recordVendorDone(
         .update({ row_data: stampSmsTestProvenance(next as unknown as Record<string, unknown>), updated_at: nowIso })
         .eq("id", run.source_id)
         .eq("manager_user_id", run.owner_user_id);
-      const confirmation = await requestResidentConfirmation(db, run.source_id, run.owner_user_id, next).catch(() => null);
+      const confirmation = waitsForResident
+        ? await requestResidentConfirmation(db, run.source_id, run.owner_user_id, next).catch(() => null)
+        : null;
       next = confirmation?.rowData ?? next;
       const sender = await ownerSender(db, run.owner_user_id);
       await workOrderEvent(db, {
@@ -139,11 +156,11 @@ export async function recordVendorDone(
     }
   }
 
-  if (waitsForResident) {
+  if (residentUserId) {
     await sendResidentDispatchText(db, {
       ownerUserId: run.owner_user_id,
       workspaceId: run.workspace_id,
-      residentEmail,
+      residentUserId,
       text: composeResidentFixedAsk(),
       dedupeKey: `dispatch-resident-fixed-ask-${run.id}`,
     }).catch(() => undefined);

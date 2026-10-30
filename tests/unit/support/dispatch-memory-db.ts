@@ -11,7 +11,8 @@ export function createDispatchDb(seed: Record<string, Row[]> = {}): MemoryDb {
   const counters = new Map<string, number>();
   return {
     ...base,
-    rpc: async (fn, args = {}) => {
+    auth: { admin: { getUserById: async (id: string) => ({ data: { user: { id } }, error: null }) } },
+    rpc: async (fn: string, args: Record<string, unknown> = {}) => {
       if (fn === "resolve_resident_dispatch_confirmation") {
         const run = base.__tables.vendor_dispatch_runs?.find((row) => row.id === args.p_run && row.owner_user_id === args.p_owner && row.source_type === "work_order" && row.status === "accepted" && row.completion_state === "awaiting_resident");
         const job = base.__tables.portal_work_order_records?.find((row) => row.id === run?.source_id && row.manager_user_id === args.p_owner && row.resident_user_id === args.p_resident);
@@ -29,5 +30,5 @@ export function createDispatchDb(seed: Record<string, Row[]> = {}): MemoryDb {
       }
       return base.rpc(fn, args);
     },
-  };
+  } as unknown as MemoryDb;
 }

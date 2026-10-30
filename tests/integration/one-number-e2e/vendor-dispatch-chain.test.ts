@@ -10,7 +10,7 @@ const sent = vi.hoisted(() => ({
   vendor: [] as Array<{ vendorDirectoryId: string; phone: string; text: string; ownerUserId: string }>,
   keys: new Set<string>(),
   team: [] as Array<{ memberUserId: string; text: string; ownerUserId: string }>,
-  resident: [] as Array<{ residentEmail: string; text: string }>,
+  resident: [] as Array<{ residentUserId: string; text: string }>,
   optedOut: new Set<string>(),
 }));
 
@@ -26,8 +26,8 @@ vi.mock("@/lib/vendor-dispatch/send.server", () => ({
     sent.team.push({ memberUserId: input.memberUserId, text: input.text, ownerUserId: input.ownerUserId });
     return { ok: true, outboxId: null };
   },
-  sendResidentDispatchText: async (_db: unknown, input: { residentEmail: string; text: string }) => {
-    sent.resident.push({ residentEmail: input.residentEmail, text: input.text });
+  sendResidentDispatchText: async (_db: unknown, input: { residentUserId: string; text: string }) => {
+    sent.resident.push({ residentUserId: input.residentUserId, text: input.text });
     return { ok: true, outboxId: null };
   },
 }));

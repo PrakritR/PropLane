@@ -13,7 +13,7 @@ const sent = vi.hoisted(() => ({
   vendor: [] as Array<{ vendorDirectoryId: string; phone: string; text: string; ownerUserId: string }>,
   keys: new Set<string>(),
   team: [] as Array<{ memberUserId: string; text: string; ownerUserId: string }>,
-  resident: [] as Array<{ residentEmail: string; text: string }>,
+  resident: [] as Array<{ residentUserId: string; text: string }>,
   workOrderEvents: [] as Array<{ event: string; recipients: unknown[] }>,
   unreachable: new Set<string>(),
   optedOut: new Set<string>(),
@@ -34,8 +34,8 @@ vi.mock("@/lib/vendor-dispatch/send.server", () => ({
     sent.team.push({ memberUserId: input.memberUserId, text: input.text, ownerUserId: input.ownerUserId });
     return { ok: true, outboxId: null };
   },
-  sendResidentDispatchText: async (_db: unknown, input: { residentEmail: string; text: string }) => {
-    sent.resident.push({ residentEmail: input.residentEmail, text: input.text });
+  sendResidentDispatchText: async (_db: unknown, input: { residentUserId: string; text: string }) => {
+    sent.resident.push({ residentUserId: input.residentUserId, text: input.text });
     return { ok: true, outboxId: null };
   },
 }));
@@ -457,6 +457,17 @@ describe("the vendor's answer", () => {
     expect(attemptsOf(db, run.id).find((a) => a.vendor_directory_id === "v1")!.busy_until).toBeTruthy();
   });
 
+  it("does not send acceptance to an unbound same-email replacement", async () => {
+    const db = world();
+    rows(db, "portal_work_order_records")[0]!.resident_user_id = null;
+    const run = await newRun(db);
+    await approve(db, run.id);
+    await recordVendorYes(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), timeText: "2:30pm", rawText: "YES", now: T0 });
+    expect(sent.resident).toEqual([]);
+    expect(sent.workOrderEvents.some((event) => event.event === "scheduled")).toBe(true);
+    expect(sent.workOrderEvents.flatMap((event) => event.recipients)).not.toContainEqual(expect.objectContaining({ audience: "resident" }));
+  });
+
   it("a YES with a time accepts, assigns the service as Scheduled and tells everyone", async () => {
     const db = world();
     const run = await newRun(db);
@@ -468,7 +479,7 @@ describe("the vendor's answer", () => {
     const wo = rows(db, "portal_work_order_records")[0]!;
     expect(wo.row_data).toMatchObject({ vendorId: "v1", vendorName: "Sam Locksmith", bucket: "scheduled", status: "Scheduled", scheduledAtIso: "2026-10-19T21:30:00.000Z", selfAssigned: false });
     expect(sent.team.at(-1)!.text).toBe("Sam accepted, ~2:30pm #1");
-    expect(sent.resident.at(-1)!.text).toBe("Sam (locksmith) is coming around 2:30pm.");
+    expect(sent.resident.at(-1)).toEqual({ residentUserId: "resident-1", text: "Sam (locksmith) is coming around 2:30pm." });
     const confirm = sent.vendor.at(-1)!.text;
     expect(confirm).toContain("5259 Brooklyn Ave NE");
     expect(confirm).not.toMatch(/555-0142|@/);
@@ -710,12 +721,22 @@ describe("after the accept", () => {
     return { db, run };
   }
 
+  it("completes an unbound service without prompting an email replacement", async () => {
+    const { db, run } = await accepted();
+    rows(db, "portal_work_order_records")[0]!.resident_user_id = null;
+    sent.resident.length = 0;
+    expect(await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), now: T0 })).toBe("marked_done");
+    expect(sent.resident).toEqual([]);
+    expect(runById(db, run.id)).toMatchObject({ status: "completed", completion_state: "confirmed" });
+    expect(rows(db, "portal_work_order_records")[0]!.row_data).toMatchObject({ bucket: "scheduled", status: "Scheduled", automationStatus: "vendor_marked_done" });
+  });
+
   it("DONE asks the resident; YES completes the service; the run is completed", async () => {
     const { db, run } = await accepted();
     const attempt = attemptsOf(db, run.id)[0]!;
     expect(await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attempt.id), now: T0 })).toBe("marked_done");
     expect(runById(db, run.id)).toMatchObject({ status: "accepted", completion_state: "awaiting_resident" });
-    expect(sent.resident.at(-1)!.text).toBe("Your service is done. Is it fixed? Reply YES or NO");
+    expect(sent.resident.at(-1)).toEqual({ residentUserId: "resident-1", text: "Your service is done. Is it fixed? Reply YES or NO" });
     expect(rows(db, "portal_work_order_records")[0]!.row_data).toMatchObject({ automationStatus: "vendor_marked_done" });
     expect(await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attempt.id), now: T0 })).toBe("already");
 
