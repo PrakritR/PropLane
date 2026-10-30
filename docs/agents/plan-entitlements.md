@@ -62,12 +62,25 @@ on an account with five listings and no paywall anywhere).
   apart from a genuine read failure, which still refuses. Staff end a code or one account in
   Admin > Money > Promo codes and `POST /api/admin/accounts/[id]/billing/end-promo`
   (reason required, audit row first). An account's purchase rows are only its OWN:
-  `loadAccountPurchaseRows` merges the `user_id` rows with the rows whose `email` matches
-  the account's EXACTLY (`%` / `_` escaped before the filter and the address re-compared in
-  JS), so the email half reaches an email-linked signup waiver row without ever ending or
-  reading a lookalike account's row. Coverage: `tests/unit/promo-code-expiry.test.ts`,
+  `loadAccountPurchaseRows` merges the `user_id` rows with the rows whose `email` matches the
+  account's EXACTLY and that no OTHER account has claimed (`%` / `_` escaped before the filter
+  and the address re-compared in JS), so the email half reaches an email-linked signup waiver row without ever
+  ending or reading a lookalike account's row. **That address is the CONFIRMED Auth address
+  read from Auth itself** (`auth.admin.getUserById`, `email_confirmed_at` required), never
+  `profiles.email`, which server routes write from caller-supplied values and which can drift
+  from the login: an email-matched row hands over a tier, a workspace and the manager role, so
+  an unproven or unconfirmed address reaches no row at all. An Auth user that does not exist is
+  an ANSWER (the account owns no email-linked row); only a TRANSIENT Auth failure is
+  `readFailed`. The legacy by-email lookup the sign-in path uses
+  (`findManagerPurchaseForAccount` / `managerNeedsPricingSelection`, which take
+  `{ emailVerified }` and read UNCLAIMED rows only) is gated the same way, and a failed `manager_purchases` read there
+  throws `ManagerPurchaseReadError` instead of the `null` that reads as "this account never
+  signed up" — an account that already holds the manager role keeps its normal routing rather
+  than being sent to buy the plan it owns. Coverage: `tests/unit/promo-code-expiry.test.ts`,
   `waiver-grants-pro-only.test.ts`, `admin-promo-expire.test.ts`,
-  `manager-purchase-account-rows-email-match.test.ts`.
+  `manager-purchase-account-rows-email-match.test.ts`,
+  `manager-purchase-verified-entitlement.test.ts`,
+  `manager-purchase-email-entitlement.test.ts`.
   **Promo codes are Stripe-native, and two columns must never be confused.**
   `manager_purchases.promo_code` is the payment-WAIVER column (FREE100 /
   WAIVEPROCESS1 / onboarding grants): any non-empty value is paid access with no
