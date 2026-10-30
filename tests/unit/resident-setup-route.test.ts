@@ -7,12 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * created.
  */
 
-const { findLookup, provisionMock, consumeMock, createUserMock, getUserMock } = vi.hoisted(() => ({
+const { findLookup, provisionMock, consumeMock, createUserMock, getUserMock, bindMock } = vi.hoisted(() => ({
   findLookup: vi.fn(),
   provisionMock: vi.fn(),
   consumeMock: vi.fn(),
   createUserMock: vi.fn(),
   getUserMock: vi.fn(),
+  bindMock: vi.fn(),
 }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: getUserMock } }) }));
 
@@ -36,6 +37,7 @@ vi.mock("@/lib/auth/find-auth-user-id-by-email", () => ({ findAuthUserIdByEmail:
 vi.mock("@/lib/auth/verify-auth-password", () => ({ assertPasswordMatchesExistingAuthUser: vi.fn() }));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
+    rpc: bindMock,
     auth: { admin: { createUser: createUserMock } },
     from: () => ({
       update: () => ({ eq: () => Promise.resolve({ error: null }) }),
@@ -70,6 +72,7 @@ describe("POST /api/auth/resident-setup — phone required", () => {
     findLookup.mockReset().mockResolvedValue(LOOKUP_OK);
     provisionMock.mockReset().mockResolvedValue({ ok: true, axisId: LOOKUP_OK.axisId, linkedApplication: true });
     consumeMock.mockReset().mockResolvedValue(undefined);
+    bindMock.mockReset().mockResolvedValue({ data: true, error: null });
     createUserMock.mockReset().mockResolvedValue({ data: { user: { id: "user-1" } }, error: null });
     getUserMock.mockReset().mockResolvedValue({ data: { user: { id: "user-1", email: "sam@example.com", email_confirmed_at: "2026-10-30T00:00:00Z" } } });
   });
@@ -100,6 +103,14 @@ describe("POST /api/auth/resident-setup — phone required", () => {
     );
     expect(res.status).toBe(400);
     expect(provisionMock).not.toHaveBeenCalled();
+  });
+
+  it("does not provision if the application capability is no longer claimable", async () => {
+    bindMock.mockResolvedValue({ data: false, error: null });
+    const res = await POST(post({ email: "sam@example.com", password: "hunter2hunter", phone: "2065550142", token: "tok", axisId: "PROPLANE-SETUP01" }));
+    expect(res.status).toBe(403);
+    expect(provisionMock).not.toHaveBeenCalled();
+    expect(bindMock).toHaveBeenCalledWith("bind_resident_setup_subject", expect.objectContaining({ p_application: LOOKUP_OK.axisId, p_user: "user-1" }));
   });
 
   it("provisions the already verified session with the normalized phone", async () => {

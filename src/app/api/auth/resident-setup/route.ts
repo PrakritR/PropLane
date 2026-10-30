@@ -1,6 +1,6 @@
 import { NextResponse, after } from "next/server";
 import {
-  consumeResidentSetupTokenOnApplication,
+  hashResidentSetupToken,
   findApplicationForResidentSetup,
   residentSetupIdFromUrlParams,
 } from "@/lib/auth/resident-setup-token";
@@ -83,8 +83,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
     }
 
+    const auth = await createSupabaseServerClient();
+    const { data: { user } } = await auth.auth.getUser();
+    if (!user?.email_confirmed_at || user.email?.trim().toLowerCase() !== email) {
+      return NextResponse.json({ error: "Verify your email and sign in before completing account setup.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
+    }
     const supabase = createSupabaseServiceRoleClient();
-    const lookup = await findApplicationForResidentSetup(supabase, { token, axisId });
+    const lookup = await findApplicationForResidentSetup(supabase, { token, axisId, consumedByUserId: user.id });
     if (!lookup.ok) {
       return NextResponse.json({ error: lookup.error }, { status: lookup.status });
     }
@@ -95,24 +100,17 @@ export async function POST(req: Request) {
       );
     }
 
-    // A setup token can be delivered to a guest browser during draft autosave;
-    // possession of it is not proof that the applicant owns the email address.
-    // It must never be used to create a confirmed account or inherit a record.
-    const auth = await createSupabaseServerClient();
-    const { data: { user } } = await auth.auth.getUser();
-    if (!user || user.email?.trim().toLowerCase() !== lookup.email || !user.email_confirmed_at) {
-      return NextResponse.json({ error: "Verify your email and sign in before completing account setup.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
-    }
-
     const userId = user.id;
+    const binding = await supabase.rpc("bind_resident_setup_subject", { p_application: lookup.axisId, p_user: userId, p_digest: hashResidentSetupToken(token) });
+    if (binding.error) return NextResponse.json({ error: "Could not complete account setup." }, { status: 503 });
+    if (binding.data !== true) return NextResponse.json({ error: "This setup link is invalid or has expired." }, { status: 403 });
 
     const provisioned = await provisionResidentAccountByEmail(supabase, {
       userId,
       email,
       fullName: fullName || lookup.name,
       phone,
-      // The one-time setup token proves email control — safe to inherit the
-      // matching application's identity/approval (default-deny opt-in).
+      // The verified session and exact setup capability bind this application.
       emailProven: true,
       applicationId: lookup.axisId,
       inheritFromApplication: true,
@@ -122,7 +120,6 @@ export async function POST(req: Request) {
     }
 
     await supabase.from("profiles").update({ manager_id: lookup.axisId }).eq("id", userId);
-    await consumeResidentSetupTokenOnApplication(supabase, lookup.row);
 
     // First-account PropLane messaging assistant intro (Claw/Twilio) when phone
     // is on file — deferred so a cold relay can't stall the signup response.

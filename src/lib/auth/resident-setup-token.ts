@@ -90,7 +90,7 @@ function rowFromRecord(record: { id: string; resident_email: string | null; row_
 
 export async function findApplicationForResidentSetup(
   db: SupabaseClient,
-  params: { token: string; axisId: string },
+  params: { token: string; axisId: string; consumedByUserId?: string },
 ): Promise<ResidentSetupLookup> {
   const token = params.token.trim();
   const axisId = normalizeApplicationAxisId(params.axisId);
@@ -118,7 +118,7 @@ export async function findApplicationForResidentSetup(
   let match: DemoApplicantRow | null = null;
   for (const record of (data ?? []) as RecordRow[]) {
     const row = rowFromRecord(record);
-    if (row && isResidentSetupTokenValid(row, token)) {
+    if (row && (isResidentSetupTokenValid(row, token) || (params.consumedByUserId && row.residentUserId === params.consumedByUserId && Boolean(row.setupTokenConsumedAt) && Boolean(row.setupTokenExpiresAt) && new Date(row.setupTokenExpiresAt!).getTime() > Date.now() && Boolean(row.setupTokenHash) && hashesEqual(row.setupTokenHash!, hashResidentSetupToken(token))))) {
       matchedRecord = record;
       match = row;
       break;

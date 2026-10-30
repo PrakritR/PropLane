@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
   attachResidentSetupToken,
+  findApplicationForResidentSetup,
   buildResidentSetupHref,
   residentSetupIdFromUrlParams,
   hashResidentSetupToken,
@@ -44,6 +45,16 @@ describe("resident-setup-token", () => {
     });
     expect(isResidentSetupTokenValid({ ...row, setupTokenExpiresAt: "2020-01-01T00:00:00.000Z" }, token)).toBe(false);
     expect(isResidentSetupTokenValid(markResidentSetupTokenConsumed(row), token)).toBe(false);
+  });
+
+  it("permits consumed-token retry only for the original subject and before expiry", async () => {
+    const issued = attachResidentSetupToken(baseRow(), { ttlMs: 60_000 });
+    const row = { ...markResidentSetupTokenConsumed(issued.row), residentUserId: "owner" };
+    const database = (candidate: DemoApplicantRow) => ({ from: () => ({ select: () => ({ in: () => ({ limit: async () => ({ data: [{ id: candidate.id, resident_email: candidate.email, row_data: candidate }], error: null }) }) }) }) });
+    expect((await findApplicationForResidentSetup(database(row) as never, { token: issued.token, axisId: row.id, consumedByUserId: "owner" })).ok).toBe(true);
+    expect((await findApplicationForResidentSetup(database(row) as never, { token: issued.token, axisId: row.id, consumedByUserId: "other" })).ok).toBe(false);
+    expect((await findApplicationForResidentSetup(database(row) as never, { token: "wrong", axisId: row.id, consumedByUserId: "owner" })).ok).toBe(false);
+    expect((await findApplicationForResidentSetup(database({ ...row, setupTokenExpiresAt: "2020-01-01" }) as never, { token: issued.token, axisId: row.id, consumedByUserId: "owner" })).ok).toBe(false);
   });
 
   it("builds setup href and absolute URL", () => {

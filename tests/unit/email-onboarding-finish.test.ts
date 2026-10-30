@@ -1,20 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => ({ getUser: vi.fn(), claim: vi.fn(), application: vi.fn(), purchase: vi.fn(), invite: vi.fn(), provision: vi.fn(), inquiry: vi.fn(), tour: vi.fn(), updates: [] as unknown[] }));
+const m = vi.hoisted(() => ({ getUser: vi.fn(), claim: vi.fn(), application: vi.fn(), purchase: vi.fn(), invite: vi.fn(), provision: vi.fn(), inquiry: vi.fn(), tour: vi.fn(), bind: vi.fn(), updates: [] as unknown[] }));
 vi.mock("@/lib/tour-resident-link.server", () => ({ linkTourFromCapability: m.tour }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: m.getUser } }) }));
 vi.mock("@/lib/auth/verified-resident-handoff.server", () => ({ provisionVerifiedResidentHandoff: m.provision }));
-vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: (name: string) => (name === "manager_application_records" || name === "manager_purchases" || name === "vendor_invites") ? { select: () => ({ eq: () => ({ maybeSingle: name === "manager_purchases" ? m.purchase : name === "vendor_invites" ? m.invite : m.application }) }) } : { update: (value: unknown) => { m.updates.push(value); const q = { eq: () => q, gt: () => q, select: () => q, maybeSingle: m.claim, then: (resolve: (x: unknown) => void) => resolve({ error: null }) }; return q; }, select: () => { const q = { eq: () => q, gt: () => q, maybeSingle: m.claim }; return q; } } }) }));
+vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ rpc: m.bind, from: (name: string) => (name === "manager_application_records" || name === "manager_purchases" || name === "vendor_invites") ? { select: () => ({ eq: () => ({ maybeSingle: name === "manager_purchases" ? m.purchase : name === "vendor_invites" ? m.invite : m.application }) }) } : { update: (value: unknown) => { m.updates.push(value); const q = { eq: () => q, gt: () => q, select: () => q, maybeSingle: m.claim, then: (resolve: (x: unknown) => void) => resolve({ error: null }) }; return q; }, select: () => { const q = { eq: () => q, gt: () => q, maybeSingle: m.claim }; return q; } } }) }));
 import { POST } from "@/app/api/auth/email-onboarding/finish/route";
 const request = () => new Request("http://localhost", { method: "POST", body: JSON.stringify({ tokenHash: "one-time-token" }) });
 describe("email onboarding completion", () => {
-  beforeEach(() => { vi.clearAllMocks(); m.updates.length = 0; m.getUser.mockResolvedValue({ data: { user: { id: "resident", email: "owner@example.com", email_confirmed_at: "2026-01-01" } } }); });
+  beforeEach(() => { vi.resetAllMocks(); m.bind.mockResolvedValue({ data: true, error: null }); m.updates.length = 0; m.getUser.mockResolvedValue({ data: { user: { id: "resident", email: "owner@example.com", email_confirmed_at: "2026-01-01" } } }); });
   it("rejects a replay without provisioning", async () => {
     m.claim.mockResolvedValue({ data: null, error: null });
     expect((await POST(request())).status).toBe(409);
     expect(m.provision).not.toHaveBeenCalled();
   });
+  it("does not provision when the frozen application capability is rejected", async () => {
+    m.claim.mockResolvedValue({ data: { id: "claim", application_id: "application", application_setup_token_digest: "a".repeat(64) }, error: null });
+    m.bind.mockResolvedValue({ data: false, error: null });
+    expect((await POST(request())).status).toBe(403);
+    expect(m.provision).not.toHaveBeenCalled();
+  });
+  it("requires a frozen setup capability for old handoffs", async () => {
+    m.claim.mockResolvedValue({ data: { id: "claim", application_id: "application" }, error: null });
+    expect((await POST(request())).status).toBe(403);
+    expect(m.bind).not.toHaveBeenCalled();
+  });
   it("provisions only the application bound to a verified claim", async () => {
-    m.claim.mockResolvedValueOnce({ data: { id: "claim", application_id: "application" }, error: null })
+    m.claim.mockResolvedValueOnce({ data: { id: "claim", application_id: "application", application_setup_token_digest: "a".repeat(64) }, error: null })
       .mockResolvedValueOnce({ data: { id: "claim" }, error: null });
     m.application.mockResolvedValue({ data: { resident_email: "owner@example.com" }, error: null });
     m.provision.mockResolvedValue(true);
@@ -24,7 +35,7 @@ describe("email onboarding completion", () => {
   });
   it("re-enters the same processing claim after an interrupted worker", async () => {
     m.claim.mockResolvedValueOnce({ data: null, error: null })
-      .mockResolvedValueOnce({ data: { id: "claim", application_id: "application", status: "processing" }, error: null })
+      .mockResolvedValueOnce({ data: { id: "claim", application_id: "application", application_setup_token_digest: "a".repeat(64), status: "processing" }, error: null })
       .mockResolvedValueOnce({ data: { id: "claim" }, error: null });
     m.application.mockResolvedValue({ data: { resident_email: "owner@example.com" }, error: null });
     m.provision.mockResolvedValue(true);
@@ -32,7 +43,7 @@ describe("email onboarding completion", () => {
     expect(m.provision).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ userId: "resident", applicationId: "application" }));
   });
   it("converges when two requests finish the same verified claim", async () => {
-    const claim = { id: "claim", application_id: "application", status: "processing" };
+    const claim = { id: "claim", application_id: "application", application_setup_token_digest: "a".repeat(64), status: "processing" };
     m.claim.mockResolvedValueOnce({ data: claim, error: null })
       .mockResolvedValueOnce({ data: null, error: null })
       .mockResolvedValueOnce({ data: claim, error: null })
@@ -79,7 +90,7 @@ describe("email onboarding completion", () => {
     expect(m.tour).toHaveBeenCalledWith(expect.anything(), { userId: "resident", email: "owner@example.com", inquiryId: "tour-1", capabilityId: "cap" });
   });
   it("refuses an application for a different mailbox and releases the claim", async () => {
-    m.claim.mockResolvedValue({ data: { id: "claim", application_id: "application" }, error: null });
+    m.claim.mockResolvedValue({ data: { id: "claim", application_id: "application", application_setup_token_digest: "a".repeat(64) }, error: null });
     m.application.mockResolvedValue({ data: { resident_email: "victim@example.com" }, error: null });
     expect((await POST(request())).status).toBe(403);
     expect(m.provision).not.toHaveBeenCalled();

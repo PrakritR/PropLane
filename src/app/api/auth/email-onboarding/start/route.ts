@@ -30,6 +30,7 @@ export async function POST(req: Request) {
     if (cleanup.error) return NextResponse.json({ error: "Email verification is unavailable." }, { status: 503 });
     const intent = body.intent === "resident" || body.intent === "manager" || body.intent === "vendor" || body.intent === "tour" || body.intent === "manager_paid" || body.intent === "vendor_invite" ? body.intent : "generic";
     let applicationId: string | null = null;
+    let applicationSetupDigest: string | null = null;
     let tourInquiryId: string | null = null;
     let tourTokenDigest: string | null = null;
     let tourConsumedUserId: string | null = null;
@@ -94,6 +95,7 @@ export async function POST(req: Request) {
       const lookup = await findApplicationForResidentSetup(db, { axisId: body.applicationId, token: body.setupToken });
       if (!lookup.ok || lookup.email !== email) return NextResponse.json(GENERIC);
       applicationId = lookup.axisId;
+      applicationSetupDigest = createHash("sha256").update(body.setupToken.trim()).digest("hex");
     }
     let id = await findAuthUserIdByEmail(db, email);
     if (!id) {
@@ -126,7 +128,7 @@ export async function POST(req: Request) {
       const bound = await db.rpc("bind_tour_email_handoff", { p_user: id, p_handoff: tourHandoffId, p_placeholder: tourPlaceholder, p_digest: digest });
       if (bound.error || bound.data !== true) return NextResponse.json({ error: "Tour verification is unavailable. Please try again." }, { status: 503 });
     } else {
-    const { error } = await db.from("email_onboarding_handoffs").insert({ user_id: id, application_id: applicationId, tour_inquiry_id: tourInquiryId, manager_purchase_id: managerPurchaseId, vendor_invite_id: vendorInviteId, property_id: propertyId, listing_room_id: listingRoomId, bundle_id: bundleId, application_form_id: applicationFormId, rental_type: rentalType, tier, billing, intent: applicationId ? "application" : intent, token_digest: digest, expires_at: new Date(Date.now() + 3600000).toISOString() });
+    const { error } = await db.from("email_onboarding_handoffs").insert({ user_id: id, application_id: applicationId, application_setup_token_digest: applicationSetupDigest, tour_inquiry_id: tourInquiryId, manager_purchase_id: managerPurchaseId, vendor_invite_id: vendorInviteId, property_id: propertyId, listing_room_id: listingRoomId, bundle_id: bundleId, application_form_id: applicationFormId, rental_type: rentalType, tier, billing, intent: applicationId ? "application" : intent, token_digest: digest, expires_at: new Date(Date.now() + 3600000).toISOString() });
     if (error) return NextResponse.json(GENERIC);
     }
     const href = `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/auth/confirm?token_hash=${encodeURIComponent(hash)}&type=${verificationType}`;
