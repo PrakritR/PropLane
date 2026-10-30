@@ -144,6 +144,7 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
   // `assignedRoomChoice` is not on the typed row but can ride a work order's payload; it names a room.
   const offered = { ...rest } as Record<string, unknown>;
   delete offered.assignedRoomChoice;
+  delete offered.generalArea;
   for (const key of ["propertyId", "assignedPropertyId", "workspaceId", "property_id", "assigned_property_id", "workspace_id"]) delete offered[key];
   return {
     ...(withoutAuthSubjects(offered) as typeof rest),

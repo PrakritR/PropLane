@@ -329,8 +329,11 @@ describe("J6c: what a vendor read carries", () => {
     for (const k of ["residentUserId", "residentChargeCents", "residentChargeId", "expenseEntryIds", "residentConfirmation"]) expect(out, k).not.toHaveProperty(k);
   });
   it("uses only an address city for offered area, preserving hired site details", () => {
-    const distinctive = { ...row, propertyName: "Proof House", propertyAddress: "1 Main Street" } as DemoManagerWorkOrderRow;
-    expect(projectWorkOrderForOfferedVendor(distinctive).propertyName).toBe("Nearby");
+    const distinctive = { ...row, propertyName: "Proof House", propertyAddress: "1 Main Street", generalArea: "Proof House" } as DemoManagerWorkOrderRow;
+    const nearby = projectWorkOrderForOfferedVendor(distinctive);
+    expect(nearby.propertyName).toBe("Nearby");
+    expect(nearby.offeredGeneralArea).toBe("Nearby");
+    expect(nearby).not.toHaveProperty("generalArea");
     expect(projectWorkOrderForOfferedVendor({ ...distinctive, propertyAddress: "1 Main Street, Seattle, WA" }).propertyName).toBe("Seattle");
     expect(projectWorkOrderForHiredVendor(distinctive).propertyName).toBe("Proof House");
     const offered = projectWorkOrderForOfferedVendor({ ...distinctive, propertyAddress: "1 Main Street, Seattle, WA", offeredGeneralArea: "Untrusted House" });
