@@ -115,7 +115,8 @@ export async function finishManagerEmailProof(page: Page, href: string, email: s
   onPhase?.("fill-manager-name");
   await page.getByLabel("Full name").fill(fullName);
   onPhase?.("fill-manager-phone");
-  await page.getByRole("textbox", { name: /phone/i }).fill(phone);
+  if (!/^\+1\d{10}$/.test(phone)) throw new Error("Manager signup proof requires a normalized test E.164 phone.");
+  await page.getByRole("textbox", { name: /phone/i }).fill(phone.slice(2));
   onPhase?.("finish-api");
   const finishResponse = page.waitForResponse((response) => {
     const url = new URL(response.url());
@@ -126,7 +127,7 @@ export async function finishManagerEmailProof(page: Page, href: string, email: s
   onPhase?.("finish-api-response", finishResult.status());
   if (!finishResult.ok()) throw new Error("Manager registration endpoint rejected the synthetic account.");
   const finishBody = finishResult.request().postDataJSON() as { email?: unknown; fullName?: unknown; phone?: unknown; tier?: unknown } | null;
-  if (finishBody?.email !== email || finishBody.fullName !== fullName || typeof finishBody.phone !== "string" || finishBody.phone.replace(/\D/g, "").length < 10 || (expectedTier && finishBody.tier !== expectedTier)) {
+  if (finishBody?.email !== email || finishBody.fullName !== fullName || finishBody.phone !== phone || (expectedTier && finishBody.tier !== expectedTier)) {
     throw new Error("Manager-register request did not match the exact synthetic signup payload.");
   }
   onPhase?.("await-account-ready");

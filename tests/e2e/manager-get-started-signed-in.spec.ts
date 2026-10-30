@@ -253,6 +253,8 @@ test.describe('"Get started" while signed in', () => {
       syntheticAccessToken = newUser?.accessToken ?? null;
       expect(newUser?.id).toBe(pendingId);
       expect(newUser?.id).not.toBe(oldUser!.id);
+      const storageStateFile = path.join(dir, "manager-storage-state.json");
+      fs.writeFileSync(storageStateFile, JSON.stringify(await secondContext.storageState()), { mode: 0o600, flag: "wx" });
       setPhase("inspect-created-account");
       const newRoles = await db.from("profile_roles").select("role").eq("user_id", newUser!.id);
       const newProperties = await db.from("manager_property_records").select("id").eq("manager_user_id", newUser!.id);
@@ -286,8 +288,6 @@ test.describe('"Get started" while signed in', () => {
       setPhase("phone-gate-observed");
       const proof = await verifySyntheticFreeManagerAndMarkPhone({ userId: newUser!.id, email: newEmail, phone });
       expect(proof.workspaceId).toBe(workspaces.data![0]!.id);
-      const storageStateFile = path.join(dir, "manager-storage-state.json");
-      fs.writeFileSync(storageStateFile, JSON.stringify(await secondContext.storageState()), { mode: 0o600, flag: "wx" });
       const splitBInputFile = path.join(dir, "split-b-input.json");
       fs.writeFileSync(splitBInputFile, JSON.stringify({
         version: 1,
