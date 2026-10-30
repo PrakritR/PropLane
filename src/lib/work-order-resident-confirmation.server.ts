@@ -101,7 +101,7 @@ async function findByToken(db: SupabaseClient, token: string): Promise<WorkOrder
   const tokenId = hashToken(token);
   const { data } = await db
     .from("portal_work_order_records")
-    .select("id, manager_user_id, vendor_user_id, row_data, updated_at")
+    .select("id, manager_user_id, vendor_user_id, row_data, updated_at, row_revision")
     .contains("row_data", { residentConfirmation: { tokenId } })
     .limit(1)
     .maybeSingle();
@@ -261,7 +261,7 @@ export async function rateResidentConfirmation(
   const now = input.now ?? new Date();
   const record = await findByToken(db, input.token);
   const confirmation = record?.row_data.residentConfirmation;
-  if (!record || !confirmation || isTerminalService(record.row_data)) return { ok: false, reason: "invalid" };
+  if (!record || !confirmation || record.row_revision === undefined) return { ok: false, reason: "invalid" };
   if (Date.parse(confirmation.requestedAt) + TOKEN_TTL_MS < now.getTime()) return { ok: false, reason: "expired" };
   if (confirmation.verdict !== "fixed") return { ok: false, reason: "unconfirmed" };
   if (typeof confirmation.rating === "number") return { ok: false, reason: "rated" };
@@ -271,7 +271,12 @@ export async function rateResidentConfirmation(
     ...record.row_data,
     residentConfirmation: { ...confirmation, rating, ratedAt: now.toISOString(), ...(note ? { note } : {}) },
   };
-  await db.from("portal_work_order_records").update({ row_data: next, updated_at: now.toISOString() }).eq("id", record.id);
+  const { data: updated, error } = await db.from("portal_work_order_records")
+    .update({ row_data: next, updated_at: now.toISOString() })
+    .eq("id", record.id).eq("row_revision", record.row_revision)
+    .contains("row_data", { residentConfirmation: { tokenId: confirmation.tokenId, verdict: "fixed" } })
+    .select("id").maybeSingle();
+  if (error || !updated) return { ok: false, reason: "invalid" };
 
   // A house with its own service automation settings gets them; a work order
   // with no property, or an un-customized house, falls through workspace then
