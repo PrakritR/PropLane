@@ -116,12 +116,11 @@ function normalizeRow(row: DemoManagerWorkOrderRow): DemoManagerWorkOrderRow {
   };
 }
 
-/** True when a non-resident account holds the vendor role AND the request came from the vendor portal. */
-async function isVendorPortalRequest(role: string): Promise<boolean> {
-  if (role === "resident") return false;
+/** Select the vendor view from the authenticated, stored-role portal context. */
+async function isVendorPortalRequest(userId: string): Promise<boolean> {
   try {
     const ctx = await getPortalAccessContext();
-    return ctx.effectiveRole === "vendor" && ctx.roles.includes("vendor");
+    return ctx.user?.id === userId && ctx.effectiveRole === "vendor" && ctx.roles.includes("vendor");
   } catch {
     return false;
   }
@@ -137,7 +136,8 @@ export async function GET(req: Request) {
     // role. An admin in their own manager portal reads exactly what a manager does.
     const oversight = await resolveAdminOversight(req, user.id);
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
-    const role = await resolveResidentScopedActorRole(db, {
+    const vendorPortal = await isVendorPortalRequest(user.id);
+    const role = vendorPortal ? "vendor" : await resolveResidentScopedActorRole(db, {
       userId: user.id,
       legacyRole: profile?.role,
     });
@@ -145,7 +145,7 @@ export async function GET(req: Request) {
 
     // A manager+vendor account resolves to "manager" above (profiles.role is the role it was
     // created as); the portal the request came from decides, via profile_roles + the active-portal cookie.
-    if (!oversight && (role === "vendor" || (await isVendorPortalRequest(role)))) {
+    if (!oversight && role === "vendor") {
       const rows = await vendorScopedWorkOrderRows(db, user.id);
       return NextResponse.json({ rows });
     }
@@ -431,11 +431,12 @@ export async function POST(req: Request) {
     // an admin writing from their own manager portal is the manager they are.
     const oversight = await resolveAdminOversight(req, user.id, await isAdminUser(user.id));
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
+    const vendorPortal = await isVendorPortalRequest(user.id);
     const actor: Actor = {
       userId: user.id,
       email: (profile?.email ?? user.email ?? "").trim().toLowerCase(),
       admin: oversight,
-      role: await resolveResidentScopedActorRole(db, {
+      role: vendorPortal ? "vendor" : await resolveResidentScopedActorRole(db, {
         userId: user.id,
         legacyRole: profile?.role,
       }),
@@ -445,7 +446,7 @@ export async function POST(req: Request) {
 
     // Vendors see their offered/assigned work through GET; the record itself is
     // manager-authored (assignment, scheduling, billing), so vendor writes are rejected.
-    if (!oversight && (actor.role === "vendor" || (await isVendorPortalRequest(actor.role)))) {
+    if (!oversight && actor.role === "vendor") {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
