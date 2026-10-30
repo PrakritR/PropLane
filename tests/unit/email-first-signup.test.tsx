@@ -10,6 +10,15 @@ import { EmailFirstSignup } from "@/components/auth/email-first-signup";
 beforeEach(() => { getUser.mockResolvedValue({ data: { user: null } }); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe("email-first signup", () => {
+  it.each([
+    ["generic", "Create your account"], ["resident", "Create your resident account"],
+    ["manager", "Create your property account"], ["vendor", "Create your vendor account"],
+    ["manager_paid", "Complete your property account"], ["tour", "Continue your tour request"],
+  ] as const)("labels the %s signup", async (intent, name) => {
+    render(<EmailFirstSignup intent={intent} />);
+    expect(await screen.findByRole("heading", { level: 1, name })).toBeTruthy();
+  });
+
   it("starts with email only and shows check email without collecting a password", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }); vi.stubGlobal("fetch", fetchMock);
     render(<EmailFirstSignup intent="resident" />);
@@ -23,6 +32,7 @@ describe("email-first signup", () => {
     getUser.mockResolvedValue({ data: { user: { email: "a@example.test", email_confirmed_at: "2026-01-01" } } });
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, redirectTo: "/portal" }) }); vi.stubGlobal("fetch", fetchMock);
     render(<EmailFirstSignup intent="manager" tier="pro" />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Complete your property account" })).toBeTruthy();
     fireEvent.change(await screen.findByLabelText("Full name"), { target: { value: "Alex" } });
     fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "+12065550123" } });
     fireEvent.click(screen.getByText("Complete account"));

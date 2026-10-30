@@ -14,6 +14,14 @@ type Intent = "generic" | "resident" | "manager" | "vendor" | "manager_paid" | "
 type ListingContext = { propertyId?: string; listingRoomId?: string; bundleId?: string; applicationFormId?: string; rentalType?: string };
 const endpoint: Record<Intent, string> = { generic: "/api/auth/signup", resident: "/api/auth/resident-register", manager: "/api/auth/manager-register", vendor: "/api/auth/vendor-register", manager_paid: "/api/auth/manager-signup", tour: "/api/auth/tour-resident-register" };
 const destination: Record<Intent, string> = { generic: "/auth/continue", resident: "/resident/applications", manager: "/portal", vendor: "/vendor/onboarding", manager_paid: "/portal", tour: "/resident/tour/pending" };
+const completionHeading: Record<Intent, string> = {
+  generic: "Complete your account", resident: "Complete your resident account", manager: "Complete your property account",
+  vendor: "Complete your vendor account", manager_paid: "Complete your property account", tour: "Complete your tour request",
+};
+const heading: Record<Intent, string> = {
+  generic: "Create your account", resident: "Create your resident account", manager: "Create your property account",
+  vendor: "Create your vendor account", manager_paid: "Complete your property account", tour: "Continue your tour request",
+};
 
 export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, listing, checkoutSessionId, tourInquiryId, social, disabled = false, hideLegalFooter = false }: {
   intent: Intent; initialEmail?: string; tier?: string; billing?: "monthly" | "annual"; listing?: ListingContext; checkoutSessionId?: string; tourInquiryId?: string; social?: ReactNode; disabled?: boolean; hideLegalFooter?: boolean;
@@ -69,9 +77,10 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
     finally { setBusy(false); }
   }
   if (loading) return <p role="status">Loading…</p>;
-  if (completed) return <div className="space-y-3"><p>Account ready.</p><Button type="button" onClick={() => window.location.assign(nativeAwarePath(completed))}>Go to portal</Button></div>;
-  if (sent) return <div className="space-y-3"><p role="status">Check your email for a link to continue.</p><Button type="button" variant="ghost" onClick={() => setSent(false)}>Use another email</Button></div>;
+  if (completed) return <div className="space-y-3"><h1 className="text-xl font-semibold">Account ready</h1><Button type="button" onClick={() => window.location.assign(nativeAwarePath(completed))}>Go to portal</Button></div>;
+  if (sent) return <div className="space-y-3"><h1 className="text-xl font-semibold">Check your email</h1><p role="status">Check your email for a link to continue.</p><Button type="button" variant="ghost" onClick={() => setSent(false)}>Use another email</Button></div>;
   return <div className="space-y-3">
+    <h1 className="text-xl font-semibold">{verifiedEmail ? completionHeading[intent] : heading[intent]}</h1>
     {!verifiedEmail ? <>{intent !== "manager_paid" && intent !== "tour" ? social ?? <OAuthSocialStack intent={intent === "generic" ? null : intent} disabled={busy || disabled} /> : null}<label className="block text-sm">Email<Input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy || disabled} /></label></> : <>
       <p>Verified email: {verifiedEmail}</p>
       <><label className="block text-sm">Full name<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy || disabled} /></label><label className="block text-sm">Phone<PhoneNumberField value={phone} onChange={setPhone} disabled={busy || disabled} /></label></>
