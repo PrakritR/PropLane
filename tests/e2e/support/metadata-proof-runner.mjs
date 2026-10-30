@@ -39,6 +39,7 @@ try {
   stage = "browser";
   const result = spawnSync("node_modules/.bin/playwright", ["test", "tests/e2e/metadata-mirror-proof.spec.ts", "--project=chromium", "--no-deps"], { env, encoding: "utf8", timeout: 150000 });
   browserOk = result.status === 0;
+  writeFileSync(path.join(dir, "browser.log"), `${result.stdout ?? ""}\n${result.stderr ?? ""}`, { mode: 0o600, flag: "wx" });
   const phases = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.split("\n").filter((line) => /^\[synthetic-manager-e2e\] (phase=[a-z-]+ last_http_status=(?:[0-9]+|not-observed)|failed_phase=[a-z-]+ last_http_status=(?:[0-9]+|not-observed))$/.test(line));
   writeFileSync(path.join(dir, "phases.json"), JSON.stringify(phases), { mode: 0o600 });
 } catch {

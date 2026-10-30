@@ -43,8 +43,8 @@ if (catalog.status !== 0) throw new Error("Read-only catalog preflight failed.")
 const serverCaptureDir = path.join(dir, "split-b-server-capture");
 if (existsSync(serverCaptureDir)) throw new Error("Fresh private split-B capture directory already exists.");
 mkdirSync(serverCaptureDir, { mode: 0o700 }); chmodSync(serverCaptureDir, 0o700);
-const serverLog = path.join(dir, "split-b-server.log");
-if (existsSync(serverLog) || existsSync(path.join(dir, "split-b-status.json"))) throw new Error("Fresh private split-B evidence paths required.");
+const serverLog = path.join(dir, "split-b-server.log"), browserLog = path.join(dir, "split-b-browser.log");
+if (existsSync(serverLog) || existsSync(browserLog) || existsSync(path.join(dir, "split-b-status.json"))) throw new Error("Fresh private split-B evidence paths required.");
 const env = { ...safeEnv, AUTH_PROOF_CAPTURE_DIR: serverCaptureDir, SPLIT_B_DEDICATED_RUNNER: "1", SPLIT_B_PRIVATE_DIR: dir,
   SPLIT_B_VERIFIED_PREBROWSER_RETRY: retryingKnownPrebrowserFailure ? "1" : "",
   SPLIT_B_MANAGER_ID: input.managerId, SPLIT_B_WORKSPACE_ID: input.workspaceId, SPLIT_B_EXPECTED_EMAIL: input.expectedEmail,
@@ -69,6 +69,7 @@ try {
   stage = "browser";
   const result = spawnSync("node_modules/.bin/playwright", ["test", "tests/e2e/split-b-private-draft.spec.ts", "--project=chromium", "--no-deps"], { env, encoding: "utf8", timeout: 150000 });
   browserOk = result.status === 0;
+  writeFileSync(browserLog, `${result.stdout ?? ""}\n${result.stderr ?? ""}`, { mode: 0o600, flag: "wx" });
   if (result.error) {
     errorStage = stage;
     errorClass = result.error.name === "Error" ? "Error" : "ProcessError";
