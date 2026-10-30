@@ -61,6 +61,7 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: [{ role: "manager" }], error: null }).then(resolve);
           if (table === "resident_move_in_forms") {
             return Promise.resolve(FORMS_ERROR ? { data: null, error: FORMS_ERROR } : { data: FORMS, error: null }).then(resolve);
           }
@@ -101,7 +102,7 @@ async function call(action: "upsert" | "replace", row: DemoApplicantRow) {
 beforeEach(() => {
   vi.clearAllMocks();
   PROFILE = { role: "manager", email: EMAIL };
-  getUser.mockResolvedValue({ data: { user: { id: OWNER, email: EMAIL, user_metadata: {} } }, error: null });
+  getUser.mockResolvedValue({ data: { user: { id: OWNER, email: EMAIL, email_confirmed_at: "confirmed", user_metadata: {} } }, error: null });
   STORED_ROWS = [];
   UPSERTS = [];
   FORMS = [];
