@@ -1533,6 +1533,11 @@ export function ManagerPaymentsLedgerPanel({
         body: JSON.stringify({ chargeId: row.householdChargeId, amountCents: Math.round(amount * 100), itemization }),
       });
       const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string };
+      if (res.ok && data.status === "pending") {
+        showToast("Deposit return pending.");
+        setDepositReturnRow(null);
+        return;
+      }
       if (!res.ok || data.status !== "succeeded") {
         showToast(data.error || "Deposit return requires reconciliation.");
         return;

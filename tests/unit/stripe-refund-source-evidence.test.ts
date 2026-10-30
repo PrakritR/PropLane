@@ -19,7 +19,7 @@ vi.mock("@/lib/test-workspaces/effects.server", () => ({
 import { handleStripeRefund } from "@/lib/stripe-webhook-financials";
 
 function fixture(allocation = false, mixed = false, reservationOwner = "manager",
-  tamper?: "owner" | "category" | "principal") {
+  tamper?: "owner" | "category" | "principal", centralReturn = false) {
   const rpc = vi.fn(async () => ({ data: true, error: null }));
   const from = vi.fn((table: string) => {
     let sourceId: string | null = null;
@@ -46,7 +46,7 @@ function fixture(allocation = false, mixed = false, reservationOwner = "manager"
                 { source_id: "charge-deposit", principal_cents: 20 }]
               : [{ source_id: "charge-1", principal_cents: 100 }] }
           : table === "platform_payment_holds"
-            ? { owner_user_id: reservationOwner, stripe_charge_id: "ch_exact",
+            ? { id: "hold", owner_role: centralReturn ? "manager" : undefined, owner_user_id: reservationOwner, stripe_charge_id: "ch_exact",
               source_verified_at: "2026-10-04T00:00:00Z",
               source_components: mixed
                 ? [{ source_id: "charge-1", kind: "rent", principal_cents: 80 },
@@ -69,6 +69,34 @@ describe("signed Stripe refund source evidence", () => {
     sync.mockResolvedValue("ledger-refund");
     classified.mockResolvedValue({ captured: false });
     providerRetrieve.mockImplementation(async () => fixture().refund);
+  });
+
+  it("binds a deposit attempt but does not settle while the provider is pending", async () => {
+    const f = fixture();
+    const refund = { ...f.refund, status: "pending", metadata: { ...f.refund.metadata, deposit_return_attempt: "deposit-1" } };
+    providerRetrieve.mockResolvedValueOnce(refund);
+    await handleStripeRefund(f.db as never, refund as never, "ch_exact");
+    expect(f.rpc).toHaveBeenCalledWith("bind_security_deposit_refund", expect.objectContaining({ p_attempt: "deposit-1", p_status: "pending" }));
+    expect(f.rpc).not.toHaveBeenCalledWith("settle_security_deposit_return", expect.anything());
+  });
+
+  it("settles a deposit after the canonical journal is posted", async () => {
+    const f = fixture();
+    const refund = { ...f.refund, metadata: { ...f.refund.metadata, deposit_return_attempt: "deposit-1" } };
+    providerRetrieve.mockResolvedValueOnce(refund);
+    await handleStripeRefund(f.db as never, refund as never, "ch_exact");
+    expect(f.rpc).toHaveBeenCalledWith("settle_security_deposit_return", { p_attempt: "deposit-1" });
+    expect(postGl.mock.invocationCallOrder[0]).toBeLessThan(f.rpc.mock.invocationCallOrder.at(-1)!);
+  });
+
+  it("settles a deposit after the central rail posts its canonical journal", async () => {
+    const f = fixture(true, false, "manager", undefined, true);
+    const refund = { ...f.refund, metadata: { ...f.refund.metadata, deposit_return_attempt: "deposit-1" } };
+    providerRetrieve.mockResolvedValueOnce(refund);
+    settle.mockResolvedValueOnce("succeeded");
+    await handleStripeRefund(f.db as never, refund as never, "ch_exact");
+    expect(f.rpc).toHaveBeenCalledWith("settle_security_deposit_return", { p_attempt: "deposit-1" });
+    expect(sync).not.toHaveBeenCalled();
   });
 
   it("records pending evidence but does not debit a hold or book a paid refund", async () => {

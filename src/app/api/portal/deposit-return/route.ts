@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
+import { refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
+import { getStripe } from "@/lib/stripe";
 import { resolveManagerWorkspaceRowScope, rowInWorkspaceScope } from "@/lib/auth/co-manager-module-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -56,12 +59,54 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Deposit not found." }, { status: 404 });
     }
 
-    // Provider-backed deposit returns require an atomic reservation and linked
-    // trust settlement. Until those are available, do not send money.
-    return NextResponse.json({
-      error: "Deposit returns are unavailable while accounting is being reconciled.",
-      status: "unavailable",
-    }, { status: 503 });
+    // Deployment remains opt-in until the SQL reservation and settlement have
+    // been exercised against the bounded dev/test database.
+    if (process.env.DEPOSIT_RETURN_PROVIDER_ENABLED !== "true") {
+      return NextResponse.json({ error: "Deposit returns are unavailable while accounting is being reconciled.", status: "unavailable" }, { status: 503 });
+    }
+    const charge = (row.row_data ?? {}) as Record<string, unknown>;
+    if (charge.kind !== "security_deposit" || row.status !== "paid" || ["pending", "processing"].includes(String(charge.stripePaymentStatus))) {
+      return NextResponse.json({ error: "This deposit is not eligible for return." }, { status: 422 });
+    }
+    const amount = body.amountCents;
+    const items = body.itemization;
+    if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount <= 0 || !Array.isArray(items) || items.some((item) =>
+      !item || typeof item !== "object" || typeof item.label !== "string" || !item.label.trim() ||
+      !Number.isSafeInteger(item.amountCents) || item.amountCents <= 0)) {
+      return NextResponse.json({ error: "Enter a valid return amount and itemization." }, { status: 400 });
+    }
+    const withhold = items.reduce((sum, item) => sum + item.amountCents, 0);
+    if (!Number.isSafeInteger(withhold)) return NextResponse.json({ error: "Invalid deductions." }, { status: 400 });
+    const { data: deposit, error: depositError } = await db.from("security_deposit_ledger").select("id,amount_held_cents,property_id")
+      .eq("manager_user_id", user.id).eq("source_charge_id", chargeId).maybeSingle();
+    const { data: payment, error: paymentError } = await db.from("ledger_entries").select("stripe_charge_id,amount_cents,property_id")
+      .eq("source_charge_id", chargeId).eq("entry_type", "payment").maybeSingle();
+    if (depositError || paymentError || !deposit || !payment || !payment.stripe_charge_id ||
+        deposit.property_id !== row.property_id || payment.property_id !== row.property_id) {
+      return NextResponse.json({ error: "Deposit accounting requires review." }, { status: 409 });
+    }
+    const { data: attempt, error: reserveError } = await db.rpc("reserve_security_deposit_return", {
+      p_owner: user.id, p_deposit: deposit.id, p_charge: chargeId, p_request_key: randomUUID(),
+      p_expected_held: deposit.amount_held_cents, p_refund: amount, p_withhold: withhold, p_itemization: items,
+    });
+    if (reserveError || !attempt?.id) return NextResponse.json({ error: "Deposit return requires review before retrying." }, { status: 409 });
+    try {
+      const refund = await refundPaidHouseholdCharge(getStripe(), db, {
+        chargeId, stripeChargeId: payment.stripe_charge_id, amountCents: amount,
+        idempotencyKey: `deposit-return:${attempt.id}`,
+        metadata: { proplane_charge_id: chargeId, kind: "security_deposit_return", deposit_return_attempt: attempt.id },
+      });
+      // The webhook validates provider evidence and performs terminal accounting.
+      // A lost stamp leaves the reservation active for reconciliation.
+      const { error: stampError } = await db.from("security_deposit_return_attempts")
+        .update({ provider_refund_id: refund.refundId || null, status: "unknown", updated_at: new Date().toISOString() })
+        .eq("id", attempt.id).eq("status", "reserved");
+      if (stampError) return NextResponse.json({ status: "unknown", error: "Return status requires reconciliation before retrying." }, { status: 202 });
+      return NextResponse.json({ status: refund.status === "failed" ? "unknown" : "pending", refundId: refund.refundId }, { status: 202 });
+    } catch {
+      return NextResponse.json({ status: "unknown", error: "Return status requires reconciliation before retrying." }, { status: 202 });
+    }
+
   } catch {
     return NextResponse.json({ error: "Could not return the deposit." }, { status: 500 });
   }

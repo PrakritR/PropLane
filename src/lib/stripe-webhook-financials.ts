@@ -456,6 +456,25 @@ type RefundReservationSource = {
   refund_components: Array<{ source_id: string; principal_cents: number }> | null;
 };
 
+async function reconcileDepositRefund(db: SupabaseClient, refund: Stripe.Refund, sourceChargeId: string, componentCents: number): Promise<void> {
+  const attemptId = refund.metadata?.deposit_return_attempt?.trim();
+  if (attemptId) {
+    const { error } = await db.rpc("settle_security_deposit_return", { p_attempt: attemptId });
+    if (error) throw new Error("Deposit return settlement requires reconciliation.");
+    return;
+  }
+  const { data, error } = await db.from("security_deposit_ledger").select("id").eq("source_charge_id", sourceChargeId).maybeSingle();
+  if (error) throw new Error("Could not check deposit refund source.");
+  if (!data) return;
+  const providerChargeId = typeof refund.charge === "string" ? refund.charge : refund.charge?.id;
+  if (!providerChargeId) throw new Error("Deposit refund source is unavailable.");
+  const { error: flagError } = await db.from("security_deposit_unmatched_refunds").upsert({
+    stripe_refund_id: refund.id, stripe_charge_id: providerChargeId,
+    source_charge_id: sourceChargeId, amount_cents: componentCents,
+  }, { onConflict: "stripe_refund_id", ignoreDuplicates: true });
+  if (flagError) throw new Error("Could not flag unreserved deposit refund for reconciliation.");
+}
+
 export async function handleStripeRefund(
   db: SupabaseClient,
   refund: Stripe.Refund,
@@ -488,6 +507,14 @@ export async function handleStripeRefund(
     p_amount: current.amount, p_status: current.status,
   });
   if (evidenceError) throw new Error("Could not record captured refund evidence.");
+  const depositAttemptId = current.metadata?.deposit_return_attempt?.trim();
+  if (depositAttemptId) {
+    const { error } = await db.rpc("bind_security_deposit_refund", {
+      p_attempt: depositAttemptId, p_refund: current.id, p_charge: stripeChargeId,
+      p_amount: current.amount, p_status: current.status,
+    });
+    if (error) throw new Error("Deposit refund binding requires reconciliation.");
+  }
   const reservedAttemptId = current.metadata?.platform_refund_attempt?.trim();
   let reservation: RefundReservationSource | null = null;
   if (reservedAttemptId) {
@@ -537,6 +564,9 @@ export async function handleStripeRefund(
       // The source-bound settlement already posted the canonical refund
       // ledger and journal atomically for every captured component. Running
       // the legacy full-cash poster here would erase the creditor split.
+      for (const component of reservation.refund_components ?? []) {
+        await reconcileDepositRefund(db, settledRefund, component.source_id, component.principal_cents);
+      }
       return;
     }
   }
@@ -604,6 +634,7 @@ export async function handleStripeRefund(
       description: `Refund ${refund.id}`,
       linkLedgerEntryId: ledgerId,
     });
+    await reconcileDepositRefund(db, settledRefund, payment.source_charge_id, component.principal_cents);
   }
 }
 

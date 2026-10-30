@@ -109,6 +109,13 @@ describe("refundPaidHouseholdCharge", () => {
     });
   });
 
+  it("forwards the deposit attempt identifier to the central provider rail", async () => {
+    const { stripe, db } = fixture([centralHold]);
+    runReservedPlatformMoneyRefund.mockResolvedValue({ status: "pending", refundId: "re_1" });
+    await refundPaidHouseholdCharge(stripe as never, db as never, { ...input, metadata: { deposit_return_attempt: "deposit-1" } });
+    expect(runReservedPlatformMoneyRefund).toHaveBeenCalledWith(stripe, db, expect.objectContaining({ depositReturnAttemptId: "deposit-1" }));
+  });
+
   it("reserves only the refunded charge's component out of a whole-cart capture", async () => {
     const { stripe, db } = fixture([{
       ...centralHold,

@@ -203,6 +203,7 @@ export async function refundPaidHouseholdCharge(
     principalCents: input.amountCents,
     attemptKey: input.idempotencyKey,
     components: [{ sourceId: input.chargeId, principalCents: input.amountCents }],
+    ...(input.metadata.deposit_return_attempt ? { depositReturnAttemptId: input.metadata.deposit_return_attempt } : {}),
     ...(input.reason ? { reason: input.reason } : {}),
   });
   return { refundId: result.refundId, status: result.status, rail: "central" };
