@@ -183,9 +183,10 @@ export async function cleanupSyntheticManager(db: SupabaseClient, url: string, m
 
 const SMS_NULL_FIELDS = ["phone_number", "phone_number_sid", "messaging_service_sid", "campaign_sid", "provision_request_id", "provisioned_at", "released_at", "attached_at", "registration_submitted_at", "last_provider_event_at", "provider_reconciled_at", "grace_started_at", "grace_expires_at", "quarantined_at", "quarantine_reason", "detach_confirmed_at", "deregistration_confirmed_at", "provider_release_confirmed_at"] as const;
 function validateWorkspaceRows(workspace: Row, sms: Row, userId: string) {
-  if (typeof workspace.id !== "string" || !UUID.test(workspace.id) || workspace.owner_user_id !== userId || workspace.is_default !== true || workspace.is_service !== false) throw new Error("Unexpected synthetic workspace.");
+  if (typeof workspace.id !== "string" || !UUID.test(workspace.id) || workspace.owner_user_id !== userId || workspace.is_default !== true || workspace.is_service !== false || workspace.stripe_connect_account_id !== null || workspace.stripe_connect_charges_enabled !== false || workspace.stripe_connect_payouts_enabled !== false) throw new Error("Unexpected synthetic workspace.");
   if (typeof sms.id !== "string" || !UUID.test(sms.id) || sms.manager_user_id !== userId || sms.workspace_id !== workspace.id || sms.provider !== "twilio" || sms.provision_state !== "pending_registration" || sms.registration_state !== "pending" || sms.attachment_state !== "not_attached" || sms.number_registration_state !== "not_submitted" || SMS_NULL_FIELDS.some((key) => sms[key] !== null)) throw new Error("Unexpected synthetic SMS state.");
   rejectProviderReferences(workspace);
+  rejectProviderReferences(sms);
 }
 /** Called only after the exact proof server is stopped; preflight enumerates fresh catalog references. */
 export async function captureSyntheticManagerWorkspace(db: SupabaseClient, manifest: SyntheticManagerManifest, manifestFile: string, preflight: (input: { authId: string; workspaceId: string; smsId: string; smsMissing: boolean; workspaceMissing: boolean }) => Promise<void>): Promise<void> {
@@ -211,7 +212,7 @@ export async function cleanupSyntheticManagerWorkspace(db: SupabaseClient, url: 
   const smsRows = await readRows(db, "manager_sms_numbers", "id", workspace.smsId);
   if (wsRows.length > 1 || smsRows.length > 1 || (!wsRows.length && (!workspace.workspaceDeleteStarted || smsRows.length)) || (!smsRows.length && !workspace.smsDeleteStarted)) throw new Error("Synthetic workspace state changed.");
   if (smsRows.length && wsRows.length) validateWorkspaceRows(wsRows[0]!, smsRows[0]!, userId);
-  if (wsRows.length && (wsRows[0]?.owner_user_id !== userId || wsRows[0]?.is_default !== true || wsRows[0]?.is_service !== false)) throw new Error("Synthetic workspace ownership changed.");
+  if (wsRows.length && (wsRows[0]?.owner_user_id !== userId || wsRows[0]?.is_default !== true || wsRows[0]?.is_service !== false || wsRows[0]?.stripe_connect_account_id !== null || wsRows[0]?.stripe_connect_charges_enabled !== false || wsRows[0]?.stripe_connect_payouts_enabled !== false)) throw new Error("Synthetic workspace ownership changed.");
   if (JSON.stringify(await inspect(db, manifest)) !== JSON.stringify(manifest.children)) throw new Error("Synthetic linked rows changed during cleanup.");
   await opts.preflight({ authId: userId, workspaceId: workspace.id, smsId: workspace.smsId, smsMissing: !smsRows.length, workspaceMissing: !wsRows.length });
   if (smsRows.length) {
@@ -225,7 +226,7 @@ export async function cleanupSyntheticManagerWorkspace(db: SupabaseClient, url: 
   await opts.preflight({ authId: userId, workspaceId: workspace.id, smsId: workspace.smsId, smsMissing: true, workspaceMissing: !wsRows.length });
   if (wsRows.length) {
     workspace.workspaceDeleteStarted = true; save(manifestFile, manifest);
-    const result = await db.from("portal_workspaces").delete().eq("id", workspace.id).eq("owner_user_id", userId).eq("is_default", true).eq("is_service", false).select("id");
+    const result = await db.from("portal_workspaces").delete().eq("id", workspace.id).eq("owner_user_id", userId).eq("is_default", true).eq("is_service", false).is("stripe_connect_account_id", null).eq("stripe_connect_charges_enabled", false).eq("stripe_connect_payouts_enabled", false).select("id");
     if (result.error || result.data?.length !== 1) throw new Error("Synthetic workspace deletion uncertain; retry after review.");
     if ((await readRows(db, "portal_workspaces", "id", workspace.id)).length) throw new Error("Synthetic workspace remains.");
   }

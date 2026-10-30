@@ -43,10 +43,13 @@ describe("synthetic manager cleanup preflight", () => {
   it("deletes only the captured pending SMS and workspace before Auth", async () => {
     const f = fixture();
     const ws = "22222222-2222-4222-8222-222222222222", sms = "33333333-3333-4333-8333-333333333333";
-    f.tables.portal_workspaces = [{ id: ws, owner_user_id: id, is_default: true, is_service: false }];
+    f.tables.portal_workspaces = [{ id: ws, owner_user_id: id, is_default: true, is_service: false, stripe_connect_account_id: null, stripe_connect_charges_enabled: false, stripe_connect_payouts_enabled: false }];
     const nullFields = ["phone_number", "phone_number_sid", "messaging_service_sid", "campaign_sid", "provision_request_id", "provisioned_at", "released_at", "attached_at", "registration_submitted_at", "last_provider_event_at", "provider_reconciled_at", "grace_started_at", "grace_expires_at", "quarantined_at", "quarantine_reason", "detach_confirmed_at", "deregistration_confirmed_at", "provider_release_confirmed_at"];
     f.tables.manager_sms_numbers = [{ id: sms, manager_user_id: id, workspace_id: ws, provider: "twilio", provision_state: "pending_registration", registration_state: "pending", attachment_state: "not_attached", number_registration_state: "not_submitted", ...Object.fromEntries(nullFields.map((field) => [field, null])) }];
     const preflight = vi.fn(async () => {});
+    f.tables.manager_sms_numbers[0]!.twilio_unexpected_ref = "external";
+    await expect(captureSyntheticManagerWorkspace(f.db, f.manifest, f.file, preflight)).rejects.toThrow(/provider reference/);
+    delete f.tables.manager_sms_numbers[0]!.twilio_unexpected_ref;
     await captureSyntheticManagerWorkspace(f.db, f.manifest, f.file, preflight);
     f.loseSms();
     await expect(cleanupSyntheticManagerWorkspace(f.db, "https://emstjswhotsnyksqhqyf.supabase.co", f.manifest, f.file, { serverStopped: true, preflight })).rejects.toThrow(/uncertain/);
@@ -57,9 +60,16 @@ describe("synthetic manager cleanup preflight", () => {
   });
   it("refuses a provider-backed SMS row before deletion", async () => {
     const f = fixture();
-    f.tables.portal_workspaces = [{ id: "22222222-2222-4222-8222-222222222222", owner_user_id: id, is_default: true, is_service: false }];
+    f.tables.portal_workspaces = [{ id: "22222222-2222-4222-8222-222222222222", owner_user_id: id, is_default: true, is_service: false, stripe_connect_account_id: null, stripe_connect_charges_enabled: false, stripe_connect_payouts_enabled: false }];
     f.tables.manager_sms_numbers = [{ id: "33333333-3333-4333-8333-333333333333", manager_user_id: id, workspace_id: "22222222-2222-4222-8222-222222222222", provider: "twilio", provision_state: "active", phone_number_sid: "PNexternal" }];
     await expect(captureSyntheticManagerWorkspace(f.db, f.manifest, f.file, vi.fn())).rejects.toThrow(/SMS state/);
+    expect(f.deletes).toEqual([]);
+  });
+  it("rejects enabled workspace payouts before deletion", async () => {
+    const f = fixture();
+    f.tables.portal_workspaces = [{ id: "22222222-2222-4222-8222-222222222222", owner_user_id: id, is_default: true, is_service: false, stripe_connect_account_id: null, stripe_connect_charges_enabled: false, stripe_connect_payouts_enabled: true }];
+    f.tables.manager_sms_numbers = [{ id: "33333333-3333-4333-8333-333333333333", manager_user_id: id }];
+    await expect(captureSyntheticManagerWorkspace(f.db, f.manifest, f.file, vi.fn())).rejects.toThrow(/workspace/);
     expect(f.deletes).toEqual([]);
   });
   it("rejects a workspace that is not the synthetic default before any mutation", async () => {
