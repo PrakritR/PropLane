@@ -46,7 +46,7 @@ describe("resident property location research", () => {
   it("discovers an assigned property from the real application projection and researches it", async () => {
     const { ctx } = makeResidentToolCtx({
       manager_application_records: [
-        { id: "app-own", manager_user_id: "manager-1", resident_email: "resident@example.test", property_id: "original-house", assigned_property_id: "house-1", row_data: { id: "app-own", property: "Main House", stage: "Approved", bucket: "approved", assignedPropertyId: "house-1", application: { propertyId: "sibling-house", ssn: "SECRET" } } },
+        { id: "app-own", manager_user_id: "manager-1", resident_email: "resident@example.test", property_id: "original-house", assigned_property_id: "house-1", row_data: { residentUserId: "resident-1", id: "app-own", property: "Main House", stage: "Approved", bucket: "approved", assignedPropertyId: "house-1", application: { propertyId: "sibling-house", ssn: "SECRET" } } },
         { id: "app-foreign", manager_user_id: "manager-1", resident_email: "foreign@example.test", property_id: "foreign-house", row_data: { id: "app-foreign", property: "Foreign House", bucket: "approved" } },
         { id: "app-other-manager", manager_user_id: "manager-2", resident_email: "resident@example.test", property_id: "other-house", row_data: { id: "app-other-manager", property: "Other House", bucket: "approved" } },
       ],

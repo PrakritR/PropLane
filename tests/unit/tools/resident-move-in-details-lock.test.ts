@@ -136,7 +136,7 @@ describe("moveInDetailsLockFromBlocking (what the context builders derive from t
 describe("loadMoveInDetailsLock (the SMS test harness, the one builder with no access state to read)", () => {
   it("locks on a sent default-blocking form, unlocks when it is submitted, and locks on a failed read", async () => {
     const { loadMoveInDetailsLock } = await import("@/lib/tools/resident-context");
-    const sentRows = [{ id: "F1", form_id: null, status: "sent", sent_at: "2026-06-01", resident_user_id: null, snapshot_kind: "intake", snapshot_blocks: null }];
+    const sentRows = [{ id: "F1", form_id: null, status: "sent", sent_at: "2026-06-01", resident_user_id: "u1", snapshot_kind: "intake", snapshot_blocks: null }];
     const dbWith = (result: unknown) => ({
       from: () => {
         const q: Record<string, unknown> = {};
@@ -149,9 +149,9 @@ describe("loadMoveInDetailsLock (the SMS test harness, the one builder with no a
     expect(locked).toMatchObject({ moveInDetailsLocked: true, moveInDetailsLockFormId: "F1", moveInDetailsLockReadFailed: false });
     const open = await loadMoveInDetailsLock(dbWith({ data: [{ ...sentRows[0], status: "submitted" }], error: null }) as never, { email: "a@b.test", userId: "u1" });
     expect(open.moveInDetailsLocked).toBe(false);
-    const failed = await loadMoveInDetailsLock(dbWith({ data: null, error: { code: "500", message: "boom" } }) as never, { email: "a@b.test" });
+    const failed = await loadMoveInDetailsLock(dbWith({ data: null, error: { code: "500", message: "boom" } }) as never, { email: "a@b.test", userId: "u1" });
     expect(failed).toMatchObject({ moveInDetailsLocked: true, moveInDetailsLockFormId: null, moveInDetailsLockReadFailed: true });
-    const thrown = await loadMoveInDetailsLock({ from: () => { throw new Error("x"); } } as never, { email: "a@b.test" });
+    const thrown = await loadMoveInDetailsLock({ from: () => { throw new Error("x"); } } as never, { email: "a@b.test", userId: "u1" });
     expect(thrown.moveInDetailsLocked).toBe(true);
   });
 });

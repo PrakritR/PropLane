@@ -115,6 +115,7 @@ const SLOT = {
 
 function seed(extra: Record<string, Row[]> = {}): FakeDb {
   const db = createFakeDb({
+    profile_roles: [{ user_id: OWNER, role: "resident" }],
     profiles: [{ id: OWNER, email: "Resi@Example.com", full_name: "Resi Dent", phone: OWNER_PHONE, phone_verified_at: "2026-09-01T00:00:00Z", role: "resident" }],
     vendor_work_identity_runtime: [{ singleton: true, enabled: true }],
     sms_consent: [],
