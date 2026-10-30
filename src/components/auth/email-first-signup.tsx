@@ -23,10 +23,11 @@ const heading: Record<Intent, string> = {
   vendor: "Create your vendor account", manager_paid: "Complete your property account", tour: "Continue your tour request",
 };
 
-export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, listing, checkoutSessionId, tourInquiryId, oauthNextPath, social, disabled = false, hideLegalFooter = false }: {
-  intent: Intent; initialEmail?: string; tier?: string; billing?: "monthly" | "annual"; listing?: ListingContext; checkoutSessionId?: string; tourInquiryId?: string; oauthNextPath?: string; social?: ReactNode; disabled?: boolean; hideLegalFooter?: boolean;
+export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, listing, checkoutSessionId, tourInquiryId, tourToken, oauthNextPath, social, disabled = false, hideLegalFooter = false }: {
+  intent: Intent; initialEmail?: string; tier?: string; billing?: "monthly" | "annual"; listing?: ListingContext; checkoutSessionId?: string; tourInquiryId?: string; tourToken?: string; oauthNextPath?: string; social?: ReactNode; disabled?: boolean; hideLegalFooter?: boolean;
 }) {
   const [email, setEmail] = useState(initialEmail);
+  const [tourCapability, setTourCapability] = useState(tourToken ?? "");
   const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
@@ -39,15 +40,17 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
     let alive = true;
     void createSupabaseBrowserClient().auth.getUser().then(({ data }: { data: { user: { email_confirmed_at?: string | null; email?: string | null } | null } }) => {
       if (!alive) return;
+      if (intent === "tour" && !tourToken) { try { setTourCapability(sessionStorage.getItem("proplane_tour_invite") ?? ""); } catch { /* unavailable */ } }
       if (intent !== "tour" && data.user?.email_confirmed_at && data.user.email) setVerifiedEmail(data.user.email);
     }).catch(() => undefined).finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [intent]);
+  }, [intent, tourToken]);
   async function submit() {
     if (busy || disabled) return;
     setError(null);
     const normalized = (verifiedEmail ?? email).trim().toLowerCase();
     if (!normalized.includes("@")) { setError("Enter a valid email address."); return; }
+    if (intent === "tour" && !tourCapability) { setError("This tour invitation is unavailable. Request a new tour from the listing."); return; }
     if (verifiedEmail && (!name.trim() || phone.replace(/\D/g, "").length < 10)) {
       setError("Enter your name and a valid phone number."); return;
     }
@@ -57,11 +60,11 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(verifiedEmail
           ? intent === "manager_paid" ? { sessionId: checkoutSessionId, fullName: name.trim(), phone: phone.trim() } : { email: normalized, fullName: name.trim(), phone: phone.trim(), ...(intent === "manager" ? { tier } : {}) }
-          : { email: normalized, intent, ...(intent === "manager" ? { tier, billing } : {}), ...(intent === "resident" ? listing : {}), ...(intent === "manager_paid" ? { checkoutSessionId } : {}), ...(intent === "tour" ? { tourInquiryId } : {}) }),
+          : { email: normalized, intent, ...(intent === "manager" ? { tier, billing } : {}), ...(intent === "resident" ? listing : {}), ...(intent === "manager_paid" ? { checkoutSessionId } : {}), ...(intent === "tour" ? { tourInquiryId, tourToken: tourCapability } : {}) }),
       });
       const body = await res.json().catch(() => ({})) as { error?: string; redirectTo?: string };
       if (!res.ok) { setError(body.error || "Could not continue. Please try again."); return; }
-      if (!verifiedEmail) { setSent(true); return; }
+      if (!verifiedEmail) { if (intent === "tour") { try { sessionStorage.removeItem("proplane_tour_invite"); } catch { /* unavailable */ } } setSent(true); return; }
       const applyParams = new URLSearchParams();
       if (listing?.propertyId) applyParams.set("propertyId", listing.propertyId);
       if (listing?.listingRoomId) applyParams.set("listingRoomId", listing.listingRoomId);

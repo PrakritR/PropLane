@@ -2,6 +2,7 @@
  * Server-side tour notification delivery (Resend email + Axis inbox records).
  */
 
+import { issueTourSignupCapability } from "@/lib/auth/tour-signup-capability.server";
 import { noticeChannelFor, withResidentPortalLink } from "@/lib/notice-channel";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { formatPacificDateTime } from "@/lib/pacific-time";
@@ -680,10 +681,21 @@ export async function notifyTenantTourRequestReceived(
     tourInquiryId: textField(inquiry as Record<string, unknown>, "id") || null,
   });
 
+  // This capability is mailed only to the original contact, not copied to
+  // portal inboxes, SMS history, analytics, or manager-facing notifications.
+  const capability = await issueTourSignupCapability(db, {
+    inquiryId: textField(inquiry as Record<string, unknown>, "id"), email: guestEmail,
+    managerUserId: textField(inquiry as Record<string, unknown>, "managerUserId"), propertyId,
+    tourGroupId: textField(inquiry as Record<string, unknown>, "tourGroupId"),
+  }).catch(() => null);
+  const emailCtx = capability && ctx.createAccountUrl
+    ? { ...ctx, createAccountUrl: `${ctx.createAccountUrl}#tour_token=${encodeURIComponent(capability)}` }
+    : ctx;
   const subject = TOUR_REQUEST_TENANT_SUBJECT;
   const portalChannel = noticeChannelFor(inquiry) === "portal";
   const text = portalChannel ? withResidentPortalLink(buildTourRequestTenantBody(ctx), "tour") : buildTourRequestTenantBody(ctx);
-  const email = await deliverEmail([guestEmail], subject, text, undefined, undefined, {
+  const emailText = portalChannel ? withResidentPortalLink(buildTourRequestTenantBody(emailCtx), "tour") : buildTourRequestTenantBody(emailCtx);
+  const email = await deliverEmail([guestEmail], subject, emailText, undefined, undefined, {
     db,
     managerUserId: textField(inquiry as Record<string, unknown>, "managerUserId"),
   });

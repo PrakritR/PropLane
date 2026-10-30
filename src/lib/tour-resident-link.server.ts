@@ -537,7 +537,26 @@ function viewFromPlannedEvent(event: Record<string, unknown>, link: ResidentTour
   };
 }
 
-/** Load tour views scoped to linked inquiry ids (or email-matched inquiries as fallback). */
+/** Link the exact inquiry authorized by a consumed, server-owned invitation. */
+export async function linkTourFromCapability(db: Db, input: { userId: string; email: string; inquiryId: string; capabilityId: string }): Promise<boolean> {
+  const { data: cap, error } = await db.from("tour_signup_capabilities").select("id, inquiry_id, recipient_email, manager_user_id, property_id, tour_group_id, consumed_at").eq("id", input.capabilityId).maybeSingle();
+  if (error || !cap || !cap.consumed_at || cap.inquiry_id !== input.inquiryId || cap.recipient_email !== normalizeEmail(input.email)) return false;
+  const inquiry = await loadTourInquiryById(db, input.inquiryId);
+  let source: Record<string, unknown> | undefined;
+  if (inquiry) {
+    source = inquiry;
+    if (normalizeEmail(textField(source, "email")) !== cap.recipient_email || textField(source, "propertyId") !== cap.property_id || (textField(source, "managerUserId") || textField(source, "adminUserId")) !== cap.manager_user_id || (textField(source, "tourGroupId") || null) !== cap.tour_group_id) return false;
+  } else {
+    const { data: planned, error: plannedError } = await db.from("portal_schedule_records").select("row_data").eq("id", PLANNED_RECORD_ID).maybeSingle();
+    if (plannedError) return false;
+    source = plannedEventsFromRecord(planned?.row_data).find((event) => textField(event, "kind") === "tour" && !textField(event, "canceledAt") && (textField(event, "sourceInquiryId") === cap.inquiry_id || (cap.tour_group_id && textField(event, "tourGroupId") === cap.tour_group_id)) && textField(event, "propertyId") === cap.property_id && (textField(event, "managerUserId") || textField(event, "adminUserId")) === cap.manager_user_id && normalizeEmail(textField(event, "attendeeEmail")) === cap.recipient_email);
+    if (!source) return false;
+  }
+  const linked = await db.from("resident_tour_links").upsert({ resident_user_id: input.userId, inquiry_id: cap.inquiry_id, tour_group_id: cap.tour_group_id, manager_user_id: cap.manager_user_id, property_id: cap.property_id, attendee_email: cap.recipient_email, linked_at: new Date().toISOString() }, { onConflict: "resident_user_id,inquiry_id" });
+  return !linked.error;
+}
+
+/** Load tour views scoped to linked inquiry ids. */
 export async function loadResidentTourViews(
   db: Db,
   userId: string,

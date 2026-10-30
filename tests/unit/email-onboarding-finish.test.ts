@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({ getUser: vi.fn(), claim: vi.fn(), application: vi.fn(), purchase: vi.fn(), invite: vi.fn(), provision: vi.fn(), inquiry: vi.fn(), tour: vi.fn(), updates: [] as unknown[] }));
-vi.mock("@/lib/tour-resident-link.server", () => ({ loadTourInquiryById: m.inquiry, linkTourInquiryToResident: m.tour }));
+vi.mock("@/lib/tour-resident-link.server", () => ({ linkTourFromCapability: m.tour }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: m.getUser } }) }));
 vi.mock("@/lib/auth/verified-resident-handoff.server", () => ({ provisionVerifiedResidentHandoff: m.provision }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: (name: string) => (name === "manager_application_records" || name === "manager_purchases" || name === "vendor_invites") ? { select: () => ({ eq: () => ({ maybeSingle: name === "manager_purchases" ? m.purchase : name === "vendor_invites" ? m.invite : m.application }) }) } : { update: (value: unknown) => { m.updates.push(value); const q = { eq: () => q, gt: () => q, select: () => q, maybeSingle: m.claim, then: (resolve: (x: unknown) => void) => resolve({ error: null }) }; return q; }, select: () => { const q = { eq: () => q, gt: () => q, maybeSingle: m.claim }; return q; } } }) }));
@@ -64,19 +64,19 @@ describe("email onboarding completion", () => {
     expect(m.provision).not.toHaveBeenCalled();
   });
   it("rejects a tour whose current stored email no longer matches", async () => {
-    m.claim.mockResolvedValue({ data: { id: "claim", intent: "tour", tour_inquiry_id: "tour-1" }, error: null });
-    m.inquiry.mockResolvedValue({ email: "victim@example.com" });
+    m.claim.mockResolvedValue({ data: { id: "claim", intent: "tour", tour_inquiry_id: "tour-1", tour_capability_id: "cap" }, error: null });
+    m.provision.mockResolvedValue(true); m.tour.mockResolvedValue(false);
     expect((await POST(request())).status).toBe(403);
-    expect(m.tour).not.toHaveBeenCalled();
+    expect(m.tour).toHaveBeenCalledOnce();
   });
   it("links only the inquiry bound to a verified pending handoff", async () => {
-    m.claim.mockResolvedValueOnce({ data: { id: "claim", intent: "tour", tour_inquiry_id: "tour-1" }, error: null }).mockResolvedValueOnce({ data: { id: "claim" }, error: null });
+    m.claim.mockResolvedValueOnce({ data: { id: "claim", intent: "tour", tour_inquiry_id: "tour-1", tour_capability_id: "cap" }, error: null }).mockResolvedValueOnce({ data: { id: "claim" }, error: null });
     m.inquiry.mockResolvedValue({ email: "owner@example.com" });
     m.provision.mockResolvedValue(true);
-    m.tour.mockResolvedValue({ ok: true });
+    m.tour.mockResolvedValue(true);
     expect((await POST(request())).status).toBe(200);
     expect(m.tour).toHaveBeenCalledOnce();
-    expect(m.tour).toHaveBeenCalledWith(expect.anything(), { userId: "resident", email: "owner@example.com", inquiryId: "tour-1" });
+    expect(m.tour).toHaveBeenCalledWith(expect.anything(), { userId: "resident", email: "owner@example.com", inquiryId: "tour-1", capabilityId: "cap" });
   });
   it("refuses an application for a different mailbox and releases the claim", async () => {
     m.claim.mockResolvedValue({ data: { id: "claim", application_id: "application" }, error: null });

@@ -1,3 +1,4 @@
+import { tourCapabilityDigest } from "@/lib/auth/tour-signup-capability.server";
 import { createHash, randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
@@ -7,13 +8,12 @@ import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { memoizeEffectiveApplicationProperty } from "@/lib/rental-application/validate-application-submit.server";
 import { applicationPinForLinkedForm } from "@/lib/send-forms";
 import { findPendingVendorInviteByToken } from "@/lib/auth/provision-vendor-account";
-import { loadTourInquiryById } from "@/lib/tour-resident-link.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 export const runtime = "nodejs";
 const GENERIC = { ok: true };
 export async function POST(req: Request) {
   if (!(await rateLimit(`email-onboarding:${clientIpFrom(req)}`, 5, 60_000)).ok) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
-  const body = await req.json().catch(() => ({})) as { email?: unknown; applicationId?: unknown; setupToken?: unknown; intent?: unknown; tourInquiryId?: unknown; checkoutSessionId?: unknown; vendorInviteToken?: unknown; propertyId?: unknown; tier?: unknown; billing?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown };
+  const body = await req.json().catch(() => ({})) as { email?: unknown; applicationId?: unknown; setupToken?: unknown; intent?: unknown; tourInquiryId?: unknown; tourToken?: unknown; checkoutSessionId?: unknown; vendorInviteToken?: unknown; propertyId?: unknown; tier?: unknown; billing?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown };
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   if (!email.includes("@") || email.length > 254) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
   const apiKey = process.env.RESEND_API_KEY?.trim();
@@ -25,6 +25,7 @@ export async function POST(req: Request) {
     const intent = body.intent === "resident" || body.intent === "manager" || body.intent === "vendor" || body.intent === "tour" || body.intent === "manager_paid" || body.intent === "vendor_invite" ? body.intent : "generic";
     let applicationId: string | null = null;
     let tourInquiryId: string | null = null;
+    let tourTokenDigest: string | null = null;
     let managerPurchaseId: string | null = null;
     let vendorInviteId: string | null = null;
     if (intent === "vendor_invite") {
@@ -72,9 +73,11 @@ export async function POST(req: Request) {
       managerPurchaseId = purchase.id;
     }
     if (intent === "tour") {
-      if (typeof body.tourInquiryId !== "string" || !body.tourInquiryId.trim()) return NextResponse.json(GENERIC);
-      const inquiry = await loadTourInquiryById(db, body.tourInquiryId.trim());
-      if (!inquiry || typeof inquiry.email !== "string" || inquiry.email.trim().toLowerCase() !== email) return NextResponse.json(GENERIC);
+      if (typeof body.tourInquiryId !== "string" || !body.tourInquiryId.trim() || typeof body.tourToken !== "string" || !/^[a-f0-9]{64}$/.test(body.tourToken)) return NextResponse.json({ error: "This tour invitation is unavailable. Request a new tour from the listing." }, { status: 410 });
+      tourTokenDigest = tourCapabilityDigest(body.tourToken);
+      const capability = await db.from("tour_signup_capabilities").select("id").eq("token_digest", tourTokenDigest).eq("inquiry_id", body.tourInquiryId.trim()).eq("recipient_email", email).is("consumed_at", null).gt("expires_at", new Date().toISOString()).maybeSingle();
+      if (capability.error) return NextResponse.json({ error: "Tour verification is unavailable. Please try again." }, { status: 503 });
+      if (!capability.data) return NextResponse.json({ error: "This tour invitation has expired or was used. Request a new tour from the listing." }, { status: 410 });
       tourInquiryId = body.tourInquiryId.trim();
     }
     if (body.applicationId !== undefined || body.setupToken !== undefined) {
@@ -100,8 +103,14 @@ export async function POST(req: Request) {
     const hash = link.data?.properties?.hashed_token;
     const verificationType = link.data?.properties?.verification_type;
     if (link.error || !hash || link.data.user?.id !== id || (verificationType !== "magiclink" && verificationType !== "signup")) return NextResponse.json(GENERIC);
-    const { error } = await db.from("email_onboarding_handoffs").insert({ user_id: id, application_id: applicationId, tour_inquiry_id: tourInquiryId, manager_purchase_id: managerPurchaseId, vendor_invite_id: vendorInviteId, property_id: propertyId, listing_room_id: listingRoomId, bundle_id: bundleId, application_form_id: applicationFormId, rental_type: rentalType, tier, billing, intent: applicationId ? "application" : intent, token_digest: createHash("sha256").update(hash).digest("hex"), expires_at: new Date(Date.now() + 3600000).toISOString() });
+    const digest = createHash("sha256").update(hash).digest("hex");
+    if (intent === "tour") {
+      const claimed = await db.rpc("claim_tour_signup_capability", { p_digest: tourTokenDigest, p_inquiry_id: tourInquiryId, p_email: email, p_user_id: id, p_token_digest: digest });
+      if (claimed.error || claimed.data !== true) return NextResponse.json(GENERIC);
+    } else {
+    const { error } = await db.from("email_onboarding_handoffs").insert({ user_id: id, application_id: applicationId, tour_inquiry_id: tourInquiryId, manager_purchase_id: managerPurchaseId, vendor_invite_id: vendorInviteId, property_id: propertyId, listing_room_id: listingRoomId, bundle_id: bundleId, application_form_id: applicationFormId, rental_type: rentalType, tier, billing, intent: applicationId ? "application" : intent, token_digest: digest, expires_at: new Date(Date.now() + 3600000).toISOString() });
     if (error) return NextResponse.json(GENERIC);
+    }
     const href = `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/auth/confirm?token_hash=${encodeURIComponent(hash)}&type=${verificationType}`;
     const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>", to: [email], subject: "Verify your PropLane email", text: `Use this link to verify your email and continue:\n\n${href}\n\nIf you did not request this, ignore this email.` }) });
     if (!response.ok) console.error("Email onboarding delivery failed", response.status);

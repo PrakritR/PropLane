@@ -47,6 +47,7 @@ export type PurgeTableRule = {
 };
 
 export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
+  { table: "tour_signup_capabilities", phase: 1, resident: { emails: ["recipient_email"] }, manager: { ids: ["manager_user_id"] } },
   { table: "email_onboarding_handoffs", phase: 1, resident: { ids: ["user_id"] }, manager: { ids: ["user_id"] }, vendor: { ids: ["user_id"] } },
   {
     table: "sms_projection_ambiguous_aliases",

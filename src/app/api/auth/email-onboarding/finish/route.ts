@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { provisionVerifiedResidentHandoff } from "@/lib/auth/verified-resident-handoff.server";
-import { loadTourInquiryById, linkTourInquiryToResident } from "@/lib/tour-resident-link.server";
+import { linkTourFromCapability } from "@/lib/tour-resident-link.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 export const runtime = "nodejs";
@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   if (!user?.id || !user.email_confirmed_at || !user.email) return NextResponse.json({ error: "Sign in with your verified email." }, { status: 401 });
   const db = createSupabaseServiceRoleClient();
   const digest = createHash("sha256").update(body.tokenHash).digest("hex");
-  const fields = "id, application_id, tour_inquiry_id, manager_purchase_id, vendor_invite_id, intent, status";
+  const fields = "id, application_id, tour_inquiry_id, tour_capability_id, manager_purchase_id, vendor_invite_id, intent, status";
   const claimed = await db.from("email_onboarding_handoffs").update({ status: "processing" }).eq("user_id", user.id).eq("token_digest", digest).eq("status", "pending").gt("expires_at", new Date().toISOString()).select(fields).maybeSingle();
   if (claimed.error) return NextResponse.json({ error: "Could not finish account setup." }, { status: 503 });
   let claim = claimed.data;
@@ -34,12 +34,10 @@ export async function POST(req: Request) {
       if (purchaseError || !purchase || (purchase.user_id && purchase.user_id !== user.id) || typeof purchase.email !== "string" || purchase.email.trim().toLowerCase() !== user.email.trim().toLowerCase()) return NextResponse.json({ error: "Purchase could not be verified." }, { status: 403 });
     }
     if (claim.intent === "tour") {
-      if (typeof claim.tour_inquiry_id !== "string" || !claim.tour_inquiry_id) return NextResponse.json({ error: "Tour request could not be verified." }, { status: 403 });
-      const inquiry = await loadTourInquiryById(db, claim.tour_inquiry_id);
-      if (!inquiry || typeof inquiry.email !== "string" || inquiry.email.trim().toLowerCase() !== user.email.trim().toLowerCase()) return NextResponse.json({ error: "Tour request could not be verified." }, { status: 403 });
+      if (typeof claim.tour_inquiry_id !== "string" || typeof claim.tour_capability_id !== "string") return NextResponse.json({ error: "Tour request could not be verified." }, { status: 403 });
       if (!(await provisionVerifiedResidentHandoff(db, { userId: user.id, email: user.email }))) return NextResponse.json({ error: "Could not finish account setup." }, { status: 503 });
-      const handoff = await linkTourInquiryToResident(db, { userId: user.id, email: user.email, inquiryId: claim.tour_inquiry_id });
-      if (!handoff.ok) return NextResponse.json({ error: "Tour request could not be verified." }, { status: handoff.status });
+      const linked = await linkTourFromCapability(db, { userId: user.id, email: user.email, inquiryId: claim.tour_inquiry_id, capabilityId: claim.tour_capability_id });
+      if (!linked) return NextResponse.json({ error: "Tour request could not be verified." }, { status: 403 });
     }
     if (claim.application_id) {
       const { data: app, error: appError } = await db.from("manager_application_records").select("resident_email").eq("id", claim.application_id).maybeSingle();

@@ -50,7 +50,7 @@ describe("email-first signup", () => {
   it.each([
     { intent: "manager" as const, tier: "business", billing: "annual" as const, expected: { email: "a@example.test", intent: "manager", tier: "business", billing: "annual" } },
     { intent: "resident" as const, listing: { propertyId: "home", listingRoomId: "room", bundleId: "bundle", applicationFormId: "form", rentalType: "short_term" }, expected: { email: "a@example.test", intent: "resident", propertyId: "home", listingRoomId: "room", bundleId: "bundle", applicationFormId: "form", rentalType: "short_term" } },
-    { intent: "tour" as const, tourInquiryId: "tour-1", expected: { email: "a@example.test", intent: "tour", tourInquiryId: "tour-1" } },
+    { intent: "tour" as const, tourInquiryId: "tour-1", tourToken: "a".repeat(64), expected: { email: "a@example.test", intent: "tour", tourInquiryId: "tour-1", tourToken: "a".repeat(64) } },
     { intent: "manager_paid" as const, checkoutSessionId: "cs_1", expected: { email: "a@example.test", intent: "manager_paid", checkoutSessionId: "cs_1" } },
   ])("preserves bounded $intent context in the verification request", async ({ expected, ...props }) => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }); vi.stubGlobal("fetch", fetchMock);
