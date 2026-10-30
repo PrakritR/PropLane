@@ -183,6 +183,12 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     resident: { ids: ["resident_user_id"], emails: ["resident_email"], preserveFinancial: true },
   },
   {
+    // Retain provider reconciliation evidence after the manager or deposit is removed.
+    table: "security_deposit_return_attempts",
+    phase: 1,
+    manager: { detachIds: ["manager_user_id"] },
+  },
+  {
     table: "security_deposit_ledger",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
