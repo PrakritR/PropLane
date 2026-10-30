@@ -15,8 +15,13 @@ const CLIENT2 = "aaaaaaaa-2222-4222-8222-aaaaaaaaaaaa";
 const RESIDENT = "aaaaaaaa-3333-4333-8333-aaaaaaaaaaaa";
 
 let admins = new Set<string>();
+let failStrictAdminRead = false;
 vi.mock("@/lib/auth/admin-role", () => ({
   userHoldsAdminRole: async (_db: unknown, id: string) => admins.has(id),
+  userHoldsAdminRoleStrict: async (_db: unknown, id: string) => {
+    if (failStrictAdminRead) throw new Error("role read failed");
+    return admins.has(id);
+  },
   listAdminUserIds: async () => [...admins].sort(),
 }));
 vi.mock("@/lib/manager-access-server", () => ({
@@ -78,6 +83,7 @@ function seed(extra: Record<string, Record<string, unknown>[]> = {}) {
 }
 
 beforeEach(() => {
+  failStrictAdminRead = false;
   paid.owners.clear();
   sentEmails.items.length = 0;
   seed();
@@ -500,6 +506,14 @@ describe("one workspace per owner client (per city, owner of record, invite)", (
     expect(admins.has(CLIENT)).toBe(false);
     expect(await svc.inviteServiceClient(client(), ADMIN_A, { id, email: "not-an-email" })).toMatchObject({ ok: false, status: 400 });
     expect(await svc.inviteServiceClient(client(), ADMIN_A, { id, email: "helper@example.com" })).toMatchObject({ ok: false, status: 409 });
+  });
+
+  it("fails closed if the target admin role cannot be read", async () => {
+    const id = await made();
+    failStrictAdminRead = true;
+    const before = db.tables.account_link_invites.length;
+    expect(await svc.inviteServiceClient(client(), ADMIN_A, { id, proplaneId: "AX-AAAA", ownerOfRecord: true })).toMatchObject({ ok: false, status: 503 });
+    expect(db.tables.account_link_invites).toHaveLength(before);
   });
 
   it("never makes a PropLane admin the owner of record, on invite or on flag", async () => {
