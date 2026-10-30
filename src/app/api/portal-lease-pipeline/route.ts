@@ -137,8 +137,9 @@ async function getUserContext(req: Request) {
   // The tiebreak only ever narrows to "resident", so admin keeps the admin portal.
   const scopedRole = await resolveResidentScopedActorRole(db, {
     userId: user.id,
-    legacyRole: profile?.role ?? user.user_metadata?.role,
+    legacyRole: profile?.role,
   });
+  if (scopedRole === "denied") return null;
   const oversight = scopedRole !== "resident" && (await resolveAdminOversight(req, user.id));
   // A legacy `profiles.role` of "admin" must not read as oversight on its own.
   const role = scopedRole === "resident" ? "resident" : oversight ? "admin" : scopedRole === "admin" ? "manager" : scopedRole;

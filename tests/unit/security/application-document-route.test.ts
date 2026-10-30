@@ -4,13 +4,15 @@ import { encryptApplicationDocumentUpload } from "@/lib/security/application-doc
 import { hashResidentSetupToken } from "@/lib/auth/resident-setup-token";
 
 const mocks = vi.hoisted(() => ({
-  user: { id: "mgr-a", email: "manager@example.test" } as { id: string; email: string } | null,
+  user: { id: "mgr-a", email: "manager@example.test" } as { id: string; email: string; email_confirmed_at?: string; user_metadata?: { role: string } } | null,
+  roles: ["manager"] as string[],
+  rolesError: false,
   row: {} as Record<string, unknown>,
   alias: null as null | { encrypted_path: string },
   aliasError: false,
   download: vi.fn(), sign: vi.fn(), remove: vi.fn(),
 }));
-vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
+vi.mock("@/lib/auth/admin-oversight.server", () => ({ resolveAdminOversight: async () => false }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({ linkedPropertyIdsForModule: async () => [] }));
 vi.mock("@/lib/rate-limit", () => ({ clientIpFrom: () => "test", rateLimit: async () => ({ ok: true }) }));
 vi.mock("@/lib/test-workspaces/index.server", () => ({
@@ -28,9 +30,9 @@ vi.mock("@/lib/supabase/service", () => ({
         maybeSingle: async () => table === "application_document_storage_aliases"
           ? { data: mocks.alias, error: mocks.aliasError ? { message: "unavailable" } : null }
           : { data: { role: "manager", email: mocks.user?.email }, error: null },
-        then: (resolve: (value: unknown) => void) => resolve({ data: [], error: null }),
+        then: (resolve: (value: unknown) => void) => resolve({ data: table === "profile_roles" ? mocks.roles.map(role => ({ role })) : [], error: table === "profile_roles" && mocks.rolesError ? { message: "unavailable" } : null }),
       };
-      if (!["manager_application_records", "profiles", "manager_property_records", "application_document_storage_aliases"].includes(table)) throw new Error("Unexpected table");
+      if (!["manager_application_records", "profiles", "manager_property_records", "application_document_storage_aliases", "profile_roles"].includes(table)) throw new Error("Unexpected table");
       return builder;
     },
     storage: { from: () => ({
@@ -51,6 +53,8 @@ const read = () => GET(new Request(`https://prop-lane.space/api/portal/applicati
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.roles = ["manager"];
+  mocks.rolesError = false;
   mocks.alias = null;
   mocks.aliasError = false;
   vi.stubEnv("DATA_ENCRYPTION_ACTIVE_KEY_ID", "test");
@@ -70,7 +74,7 @@ async function attachEncryptedDocument() {
   const result = await signed.json();
   const ciphertext = await encryptApplicationDocumentUpload(new Blob([new Uint8Array(raw)]), result.path, result.encryption);
   mocks.download.mockResolvedValue({ data: ciphertext, error: null });
-  mocks.row.row_data = { bucket: "pending", application: { incomeProofPhotos: [{ storagePath: result.path, fileName: "statement.pdf" }] } };
+  mocks.row.row_data = { bucket: "pending", residentUserId: "resident", application: { incomeProofPhotos: [{ storagePath: result.path, fileName: "statement.pdf" }] } };
   return result;
 }
 
@@ -96,10 +100,28 @@ describe("application document authorized upload/download", () => {
 
   it("allows the authenticated applicant and denies guest reads", async () => {
     await attachEncryptedDocument();
-    mocks.user = { id: "resident", email: "resident@example.test" };
+    mocks.user = { id: "resident", email: "resident@example.test", email_confirmed_at: "2026-01-01" };
+    mocks.roles = ["resident"];
     expect((await read()).status).toBe(200);
     mocks.user = null;
     expect((await read()).status).toBe(404);
+  });
+
+  it("requires confirmed Auth email and the exact resident subject, regardless of metadata", async () => {
+    await attachEncryptedDocument();
+    mocks.roles = ["resident"];
+    mocks.user = { id: "resident", email: "resident@example.test" };
+    expect((await read()).status).toBe(404);
+    mocks.user = { id: "different", email: "resident@example.test", email_confirmed_at: "2026-01-01" };
+    expect((await read()).status).toBe(404);
+    mocks.user = { id: "resident", email: "other@example.test", email_confirmed_at: "2026-01-01" };
+    expect((await read()).status).toBe(404);
+    mocks.roles = [];
+    mocks.user = { id: "attacker", email: "resident@example.test", email_confirmed_at: "2026-01-01", user_metadata: { role: "manager" } };
+    expect((await read()).status).toBe(404);
+    expect((await POST(request(signBody))).status).toBe(403);
+    mocks.rolesError = true;
+    expect((await POST(request(signBody))).status).toBe(403);
   });
 
   it("requires the stored guest setup token before issuing encryption material", async () => {

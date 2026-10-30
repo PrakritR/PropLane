@@ -50,7 +50,7 @@ vi.mock("@/lib/auth/portal-access", () => ({
   ACTIVE_PORTAL_COOKIE: "axis_active_portal",
   getPortalAccessContext: async () => {
     if (PORTAL_CONTEXT_THROWS) throw new Error("profile_roles read failed");
-    return { user: null, profile: null, roles: PORTAL_ROLES, effectiveRole: EFFECTIVE_ROLE };
+    return { user: { id: USER_ID }, profile: null, roles: PORTAL_ROLES, effectiveRole: EFFECTIVE_ROLE };
   },
 }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({
@@ -88,6 +88,7 @@ function makeDb() {
             filters.every(([col, val]) => (col === "resident_email" ? row.resident_email === val : true)),
           );
         }
+        if (table === "profile_roles") return PROFILE_ROLES.map(role => ({ role }));
         return [];
       };
       const builder: Record<string, unknown> = {
@@ -246,11 +247,9 @@ for (const surface of SURFACES) {
       EFFECTIVE_ROLE = null;
     });
 
-    it("stays scoped to their own rows", async () => {
+    it("denies access without a stored role", async () => {
       const res = await surface.load();
-      expect(res.status).toBe(200);
-      const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
-      expect(ids).toEqual([RESIDENT_ROW.id]);
+      expect(res.status).toBe(403);
       expect(fetchRowsForManagerWithLinked).not.toHaveBeenCalled();
     });
   });

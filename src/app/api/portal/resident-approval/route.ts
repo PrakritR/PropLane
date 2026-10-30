@@ -106,6 +106,7 @@ export async function PATCH(req: Request) {
       userId: user.id,
       legacyRole: requestor.role,
     });
+    if (actorRole === "denied") return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     const actorIsResident = actorRole === "resident";
     const actorCanManage = canManageResidentApproval(actorRole);
     const actorIsAdmin = actorRole === "admin" || (await isAdminUser(user.id));

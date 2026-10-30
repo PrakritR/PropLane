@@ -116,35 +116,19 @@ export async function resolveResidentScopedActorRole(
   db: ServiceRoleClient,
   params: { userId: string | null | undefined; legacyRole: string | null | undefined },
 ): Promise<string> {
-  const legacyRole = normalizeLegacyRole(params.legacyRole);
-  if (legacyRole === "resident") return "resident";
-  if (!(await authorizeResidentRole(db, params))) return legacyRole;
-
   const userId = typeof params.userId === "string" ? params.userId.trim() : "";
-  let roles: string[];
-  let effectiveRole: string;
+  if (!userId) return "denied";
   try {
-    const ctx = await getPortalAccessContext();
-    roles = ctx.roles.map(normalizeLegacyRole);
-    effectiveRole = normalizeLegacyRole(ctx.effectiveRole);
-  } catch (e) {
-    console.error("resolveResidentScopedActorRole portal context read threw", {
-      userId,
-      message: e instanceof Error ? e.message : String(e),
-    });
-    return "resident";
+    const { data, error } = await db.from("profile_roles").select("role").eq("user_id", userId);
+    if (error) return "denied";
+    const roles = (data ?? []).map((row) => normalizeLegacyRole(row.role)).filter((role) => ["resident", "manager", "vendor", "admin"].includes(role));
+    if (!roles.length) return "denied";
+    if (roles.length === 1) return ["resident", "manager"].includes(roles[0]!) ? roles[0]! : "denied";
+    const context = await getPortalAccessContext().catch(() => null);
+    const active = normalizeLegacyRole(context?.effectiveRole);
+    if (context?.user?.id === userId && roles.every((role) => context.roles.includes(role as never)) && roles.includes(active) && ["resident", "manager"].includes(active)) return active;
+    return roles.includes("resident") ? "resident" : "denied";
+  } catch {
+    return "denied";
   }
-
-  if (!roles.includes("resident")) {
-    console.error("resolveResidentScopedActorRole portal context is missing the resident role", {
-      userId,
-      roles,
-    });
-    return "resident";
-  }
-  if (!effectiveRole) {
-    console.error("resolveResidentScopedActorRole could not resolve the active portal", { userId, roles });
-    return "resident";
-  }
-  return effectiveRole === "resident" ? "resident" : legacyRole;
 }

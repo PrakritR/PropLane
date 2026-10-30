@@ -138,8 +138,9 @@ export async function GET(req: Request) {
     const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
     const role = await resolveResidentScopedActorRole(db, {
       userId: user.id,
-      legacyRole: profile?.role ?? user.user_metadata?.role,
+      legacyRole: profile?.role,
     });
+    if (role === "denied") return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
 
     // A manager+vendor account resolves to "manager" above (profiles.role is the role it was
@@ -435,9 +436,11 @@ export async function POST(req: Request) {
       admin: oversight,
       role: await resolveResidentScopedActorRole(db, {
         userId: user.id,
-        legacyRole: profile?.role ?? user.user_metadata?.role,
+        legacyRole: profile?.role,
       }),
     };
+
+    if (actor.role === "denied") return NextResponse.json({ error: "Forbidden." }, { status: 403 });
 
     // Vendors see their offered/assigned work through GET; the record itself is
     // manager-authored (assignment, scheduling, billing), so vendor writes are rejected.

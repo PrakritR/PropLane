@@ -25,6 +25,7 @@ export type StoredApplicationOwnership = {
   propertyId: string | null;
   assignedPropertyId: string | null;
   residentEmail: string | null;
+  residentUserId?: string | null;
 };
 
 /**
@@ -35,7 +36,7 @@ export type StoredApplicationOwnership = {
 export type ApplicationPhotoActor =
   | { kind: "admin" }
   | { kind: "manager"; userId: string; accessiblePropertyIds: ReadonlySet<string> }
-  | { kind: "resident"; email: string }
+  | { kind: "resident"; email: string; userId: string }
   | { kind: "guest"; email: string };
 
 const norm = (value: string | null | undefined): string => (value ?? "").trim().toLowerCase();
@@ -52,9 +53,10 @@ export function canActorAccessApplicationPhoto(
 ): boolean {
   if (actor.kind === "admin") return true;
 
-  if (actor.kind === "resident" || actor.kind === "guest") {
+  if (actor.kind === "guest") return false;
+  if (actor.kind === "resident") {
     const applicantEmail = norm(app.residentEmail);
-    return applicantEmail.length > 0 && applicantEmail === norm(actor.email);
+    return Boolean(actor.userId && app.residentUserId === actor.userId && applicantEmail && applicantEmail === norm(actor.email));
   }
 
   // manager / owner / pro
@@ -170,7 +172,7 @@ export function authorizeApplicationPhotoWrite(params: {
   actor: ApplicationPhotoActor;
   row: ApplicationPhotoWriteTarget | null;
   setupToken?: string | null;
-  sessionEmail?: string | null;
+  applicantActor?: Extract<ApplicationPhotoActor, { kind: "resident" }> | null;
 }): boolean {
   const { actor, row } = params;
   if (!row) return false;
@@ -183,9 +185,7 @@ export function authorizeApplicationPhotoWrite(params: {
     return isResidentSetupTokenValid(row, token);
   }
   if (canActorAccessApplicationPhoto(actor, row.ownership)) return true;
-  const email = (params.sessionEmail ?? "").trim();
-  if (!email) return false;
-  return canActorAccessApplicationPhoto({ kind: "resident", email }, row.ownership);
+  return params.applicantActor ? canActorAccessApplicationPhoto(params.applicantActor, row.ownership) : false;
 }
 
 /** Content-type for a downloaded object based on its extension. */

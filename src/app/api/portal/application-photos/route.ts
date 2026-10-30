@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { DemoApplicantRow } from "@/data/demo-portal";
-import { isAdminUser } from "@/lib/auth/admin-preview";
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { isApplicationPhotoSlot, validateApplicationPhotoUpload } from "@/lib/rental-application/application-photos";
 import { parseCustomFieldAttachment } from "@/lib/rental-application/custom-fields";
@@ -17,7 +17,6 @@ import {
   MAX_APPLICATION_PHOTO_OBJECTS,
   type ApplicationPhotoActor,
   type ApplicationPhotoWriteTarget,
-  type StoredApplicationOwnership,
 } from "@/lib/rental-application/application-photos.server";
 import type { ApplicationPhotoAttachment, ApplicationPhotoSlot } from "@/lib/rental-application/types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -87,7 +86,8 @@ async function loadApplicationRow(db: ServiceClient, applicationId: string): Pro
         managerUserId: (record.manager_user_id ?? row.managerUserId ?? null) as string | null,
         propertyId: (record.property_id ?? row.propertyId ?? null) as string | null,
         assignedPropertyId: (record.assigned_property_id ?? row.assignedPropertyId ?? null) as string | null,
-        residentEmail: (record.resident_email ?? row.email ?? null) as string | null,
+        residentEmail: (record.resident_email ?? null) as string | null,
+        residentUserId: typeof row.residentUserId === "string" ? row.residentUserId : null,
       },
     },
   };
@@ -95,45 +95,29 @@ async function loadApplicationRow(db: ServiceClient, applicationId: string): Pro
 
 type ResolvedSession =
   | { kind: "admin" }
-  | { kind: "manager"; userId: string; email: string }
-  | { kind: "resident"; email: string }
-  | { kind: "none" };
+  | { kind: "manager" | "resident"; userId: string; email: string; residentRole: boolean }
+  | { kind: "none" | "denied" };
 
-/** Resolve who is calling from the authenticated session (never from the body). */
-async function resolveSession(db: ServiceClient): Promise<ResolvedSession> {
+/** API capabilities come only from stored role rows and the verified Auth session. */
+async function resolveSession(db: ServiceClient, req: Request): Promise<ResolvedSession> {
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { kind: "none" };
-  if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return { kind: "none" };
-  if (await isAdminUser(user.id)) return { kind: "admin" };
-  const { data: profile } = await db.from("profiles").select("email, role").eq("id", user.id).maybeSingle();
-  const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
-  if (role === "manager" || role === "owner" || role === "pro") return { kind: "manager", userId: user.id, email };
-  if (role === "resident") return { kind: "resident", email };
-  // A signed-in user with some other role still owns applications by their email.
-  if (email) return { kind: "resident", email };
-  return { kind: "none" };
+  if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return { kind: "denied" };
+  const { data, error } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+  if (error) return { kind: "denied" };
+  const roles = new Set((data ?? []).map((row) => String(row.role).toLowerCase()));
+  if (roles.has("admin") && await resolveAdminOversight(req, user.id)) return { kind: "admin" };
+  const email = user.email_confirmed_at ? (user.email ?? "").trim().toLowerCase() : "";
+  const residentRole = roles.has("resident");
+  if (roles.has("manager")) return { kind: "manager", userId: user.id, email, residentRole };
+  if (residentRole) return { kind: "resident", userId: user.id, email, residentRole };
+  return { kind: "denied" };
 }
 
-/** The authenticated session's email, if any (for the applicant-by-email fallback). */
-function sessionEmail(session: ResolvedSession): string {
-  return session.kind === "manager" || session.kind === "resident" ? session.email : "";
-}
-
-/**
- * A signed-in user is the APPLICANT of this row when their authenticated email
- * matches the stored applicant email — regardless of their primary `profiles.role`.
- * This is the safe fallback for multi-role accounts (a manager-primary login
- * applying as a resident): it only ever GRANTS access to one's own application by
- * one's own authenticated email, never widening cross-tenant reach.
- */
-function isApplicantBySessionEmail(session: ResolvedSession, ownership: StoredApplicationOwnership): boolean {
-  const email = sessionEmail(session);
-  if (!email) return false;
-  return canActorAccessApplicationPhoto({ kind: "resident", email }, ownership);
+function applicantActor(session: ResolvedSession): Extract<ApplicationPhotoActor, { kind: "resident" }> | null {
+  return (session.kind === "manager" || session.kind === "resident") && session.residentRole && session.email
+    ? { kind: "resident", userId: session.userId, email: session.email } : null;
 }
 
 /**
@@ -152,8 +136,8 @@ async function buildActor(
     const accessiblePropertyIds = await accessiblePropertyIdsForManager(db, session.userId);
     return { kind: "manager", userId: session.userId, accessiblePropertyIds };
   }
-  if (session.kind === "resident") return { kind: "resident", email: session.email };
-  return allowGuest ? { kind: "guest", email: "" } : null;
+  if (session.kind === "resident") return applicantActor(session);
+  return session.kind === "none" && allowGuest ? { kind: "guest", email: "" } : null;
 }
 
 /**
@@ -220,7 +204,7 @@ export async function POST(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
-    const session = await resolveSession(db);
+    const session = await resolveSession(db, req);
     const actor = await buildActor(db, session, true);
     if (!actor) return writeDenied();
 
@@ -230,7 +214,7 @@ export async function POST(req: Request) {
         actor,
         row: row?.target ?? null,
         setupToken: body.setupToken,
-        sessionEmail: sessionEmail(session),
+        applicantActor: applicantActor(session),
       })
     ) {
       return writeDenied();
@@ -284,7 +268,7 @@ export async function GET(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
-    const session = await resolveSession(db);
+    const session = await resolveSession(db, req);
     const actor = await buildActor(db, session, false);
     if (!actor) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
@@ -294,7 +278,7 @@ export async function GET(req: Request) {
       !row.application ||
       !(
         canActorAccessApplicationPhoto(actor, row.target.ownership) ||
-        isApplicantBySessionEmail(session, row.target.ownership)
+        Boolean(applicantActor(session) && canActorAccessApplicationPhoto(applicantActor(session)!, row.target.ownership))
       )
     ) {
       return NextResponse.json({ error: "Not found." }, { status: 404 });
@@ -363,7 +347,7 @@ export async function DELETE(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
-    const session = await resolveSession(db);
+    const session = await resolveSession(db, req);
     const actor = await buildActor(db, session, true);
     if (!actor) return writeDenied();
 
@@ -373,7 +357,7 @@ export async function DELETE(req: Request) {
         actor,
         row: row?.target ?? null,
         setupToken: body.setupToken,
-        sessionEmail: sessionEmail(session),
+        applicantActor: applicantActor(session),
       })
     ) {
       return writeDenied();

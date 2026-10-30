@@ -5,30 +5,14 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
-/**
- * Whether one account is a manager: the additive `profile_roles` "manager" row, or a legacy
- * `profiles.role` / metadata role of manager/owner/pro/admin. `profile_roles` is the authority;
- * the legacy value is the role the account was CREATED as and is consulted only as a fallback.
- * A read that fails is "not a manager" (fail closed).
- */
-export async function userHoldsManagerRole(
-  db: SupabaseClient,
-  userId: string,
-  metadataRole?: unknown,
-): Promise<boolean> {
-  const [{ data: profile }, { data: roles }] = await Promise.all([
-    db.from("profiles").select("role").eq("id", userId).maybeSingle(),
-    db.from("profile_roles").select("role").eq("user_id", userId),
-  ]);
-  const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
-  const legacy = String(profile?.role ?? metadataRole ?? "").toLowerCase();
-  return (
-    roleList.includes("manager") ||
-    legacy === "manager" ||
-    legacy === "owner" ||
-    legacy === "pro" ||
-    legacy === "admin"
-  );
+/** Only a stored manager capability authorizes manager APIs. */
+export async function userHoldsManagerRole(db: SupabaseClient, userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await db.from("profile_roles").select("role").eq("user_id", userId).eq("role", "manager").maybeSingle();
+    return !error && Boolean(data);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -37,8 +21,7 @@ export async function userHoldsManagerRole(
  * gets in (the Application settings modal vs. the waiver-code routes it hosts
  * once did — one accepted legacy owner/pro managers, the other did not).
  *
- * A manager is anyone with the additive `profile_roles` "manager" row OR a
- * legacy `profiles.role` / metadata role of manager/owner/pro/admin.
+ * A manager must have the stored `profile_roles` "manager" row.
  * Residents and vendors never pass.
  *
  * `{ fast: true }` resolves the caller from the verified token claims instead
@@ -47,8 +30,7 @@ export async function userHoldsManagerRole(
  * token expires. That is acceptable for READS ONLY: pass `fast: true` only from
  * a GET/HEAD handler that has no side effects; every mutating handler keeps the
  * default `getUser()`. If the claims cannot be verified this falls back to
- * `getUser()`, never to "allowed". `user_metadata.role` keeps the same meaning
- * (a legacy fallback consulted only when `profiles.role` is empty).
+ * `getUser()`, never to "allowed". Self-writable metadata never grants this capability.
  */
 export async function requireManagerRouteUser(
   opts?: { fast?: boolean },
@@ -66,7 +48,7 @@ export async function requireManagerRouteUser(
 
   const db = createSupabaseServiceRoleClient();
   if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
-  if (!(await userHoldsManagerRole(db, user.id, user.user_metadata?.role))) return null;
+  if (!(await userHoldsManagerRole(db, user.id))) return null;
   // A Property owner carries the manager role row only to load the owner
   // shell; they are not a manager and every manager-portal API refuses them.
   if (await withholdManagerSurface(db, user.id)) return null;
