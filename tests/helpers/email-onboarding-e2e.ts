@@ -18,7 +18,7 @@ async function boundedDomBoolean(read: Promise<boolean>, timeoutMs = 3_000): Pro
 }
 
 /** Requires the dedicated no-delivery server preload; never sends real mail. */
-export async function requestManagerEmailProof(page: Page, email: string, onPhase?: OnSignupPhase): Promise<string> {
+export async function requestManagerEmailProof(page: Page, email: string, onPhase?: OnSignupPhase, expectedTier?: "free" | "pro" | "business"): Promise<string> {
   const captureDir = process.env.AUTH_PROOF_CAPTURE_DIR;
   if (!captureDir || !path.isAbsolute(captureDir)) throw new Error("Manager signup E2E requires the isolated no-delivery Resend preload and AUTH_PROOF_CAPTURE_DIR.");
   const spool = path.join(captureDir, `${createHash("sha256").update(email.toLowerCase()).digest("hex")}.json`);
@@ -30,6 +30,13 @@ export async function requestManagerEmailProof(page: Page, email: string, onPhas
   }, { timeout: 20_000 });
   await page.getByRole("button", { name: "Continue with email" }).click();
   const startResult = await startResponse;
+  if (!startResult.ok()) throw new Error("Email-onboarding start rejected the synthetic request.");
+  if (expectedTier) {
+    const body = startResult.request().postDataJSON() as { intent?: unknown; tier?: unknown; billing?: unknown } | null;
+    if (body?.intent !== "manager" || body.tier !== expectedTier || body.billing !== "monthly") {
+      throw new Error("Manager email-onboarding start did not preserve the requested test tier.");
+    }
+  }
   onPhase?.("email-onboarding-start-response", startResult.status());
   onPhase?.("await-email-capture");
   await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
@@ -42,7 +49,7 @@ export async function requestManagerEmailProof(page: Page, email: string, onPhas
   return href.toString();
 }
 
-export async function finishManagerEmailProof(page: Page, href: string, email: string, fullName: string, phone: string, onPhase?: OnSignupPhase): Promise<void> {
+export async function finishManagerEmailProof(page: Page, href: string, email: string, fullName: string, phone: string, onPhase?: OnSignupPhase, expectedTier?: "free" | "pro" | "business"): Promise<{ managerRegisterStatus: number }> {
   const navigationStarted = Date.now();
   const navigations: string[] = [];
   const captureNavigation = (frame: Frame) => {
@@ -117,10 +124,16 @@ export async function finishManagerEmailProof(page: Page, href: string, email: s
   await page.getByRole("button", { name: "Complete account" }).click();
   const finishResult = await finishResponse;
   onPhase?.("finish-api-response", finishResult.status());
+  if (!finishResult.ok()) throw new Error("Manager registration endpoint rejected the synthetic account.");
+  const finishBody = finishResult.request().postDataJSON() as { email?: unknown; fullName?: unknown; phone?: unknown; tier?: unknown } | null;
+  if (finishBody?.email !== email || finishBody.fullName !== fullName || typeof finishBody.phone !== "string" || finishBody.phone.replace(/\D/g, "").length < 10 || (expectedTier && finishBody.tier !== expectedTier)) {
+    throw new Error("Manager-register request did not match the exact synthetic signup payload.");
+  }
   onPhase?.("await-account-ready");
   await expect(page.getByRole("heading", { name: "Account ready" })).toBeVisible({ timeout: 20_000 });
   const dir = process.env.AUTH_PROOF_CAPTURE_DIR;
   if (dir && path.isAbsolute(dir)) unlinkSync(path.join(dir, `${createHash("sha256").update(email.toLowerCase()).digest("hex")}.json`));
+  return { managerRegisterStatus: finishResult.status() };
 }
 
 export async function completeManagerEmailProof(page: Page, email: string, fullName: string, phone: string): Promise<void> {

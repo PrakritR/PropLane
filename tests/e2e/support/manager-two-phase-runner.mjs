@@ -1,6 +1,6 @@
 /** Dedicated no-delivery DEV proof; never load production env files. */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, lstatSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -13,8 +13,10 @@ if (marker.fingerprint !== productFingerprint() || marker.envDigest !== envDiges
 await new Promise((resolve, reject) => { const s = createServer(); s.once("error", reject); s.listen(3007, "127.0.0.1", () => s.close(resolve)); });
 const catalog = spawnSync("node_modules/.bin/tsx", ["tests/e2e/support/manager-catalog-preflight.ts"], { env: safeEnv, stdio: "ignore", timeout: 120000 });
 if (catalog.status !== 0) throw new Error("Read-only catalog preflight failed.");
-const dir = mkdtempSync(path.join(os.tmpdir(), "proplane-auth-proof-"));
+const suppliedDir = process.env.AUTH_PROOF_CAPTURE_DIR;
+const dir = suppliedDir ? path.resolve(suppliedDir) : mkdtempSync(path.join(os.tmpdir(), "proplane-auth-proof-"));
 if ((lstatSync(dir).mode & 0o777) !== 0o700) throw new Error("Private capture directory required.");
+if (suppliedDir && readdirSync(dir).length !== 0) throw new Error("Fresh private capture directory required.");
 const env = { ...safeEnv, AUTH_PROOF_CAPTURE_DIR: dir, AUTH_PROOF_TWO_PHASE_RUNNER: "1", NEXT_PUBLIC_APP_URL: "http://localhost:3007", PLAYWRIGHT_BASE_URL: "http://localhost:3007", PLAYWRIGHT_SKIP_WEBSERVER: "1", RESEND_API_KEY: "re_dummy_auth_browser_no_delivery", RESEND_FROM: "Auth Proof <proof@example.invalid>", NODE_ENV: "production" };
 const preload = path.resolve("tests/e2e/support/no-delivery-preload.mjs");
 const server = spawn(process.execPath, ["--import", preload, "node_modules/next/dist/bin/next", "start", "-p", "3007", "-H", "127.0.0.1"], { env, stdio: "ignore" });
@@ -23,7 +25,6 @@ const serverExit = new Promise((resolve) => server.once("exit", () => { serverEx
 let browserOk = false;
 let stage = "readiness";
 let portClosed = false;
-let cleanupExit = null;
 try {
   for (let i = 0; i < 100; i++) {
     if (serverExited) throw new Error("Proof server exited before readiness.");
@@ -45,9 +46,15 @@ try {
 }
 try { await new Promise((resolve, reject) => { const s = createServer(); s.once("error", () => reject(new Error("Proof port remains occupied; fixture retained."))); s.listen(3007, "127.0.0.1", () => s.close(resolve)); }); portClosed = true; }
 catch { stage = "port_occupied"; writeFileSync(path.join(dir, "status.json"), JSON.stringify({ stage, serverExited, browserOk }), { mode: 0o600 }); throw new Error("Proof port remains occupied; fixture retained."); }
-stage = "cleanup";
-const cleanup = spawnSync("node_modules/.bin/tsx", ["tests/e2e/support/manager-two-phase-cleanup.ts"], { env: { ...env, AUTH_PROOF_SERVER_EXIT_VERIFIED: "1" }, stdio: "ignore", timeout: 120000 });
-cleanupExit = cleanup.status;
-stage = cleanupExit === 0 ? "complete" : "cleanup_failed";
-writeFileSync(path.join(dir, "status.json"), JSON.stringify({ stage, serverExited, portClosed, browserOk, cleanupExit }), { mode: 0o600 });
-if (!browserOk || cleanup.status !== 0) throw new Error("Proof or cleanup failed; inspect the private manifest.");
+if (process.env.AUTH_PROOF_RETAIN_FOR_SPLIT_B === "1") {
+  stage = browserOk && existsSync(path.join(dir, "split-b-input.json")) ? "phase_a_complete" : "phase_a_incomplete";
+  writeFileSync(path.join(dir, "status.json"), JSON.stringify({ stage, serverExited, portClosed, browserOk, captureDir: dir, splitBInputPresent: existsSync(path.join(dir, "split-b-input.json")) }), { mode: 0o600 });
+  if (!browserOk || stage !== "phase_a_complete") throw new Error("Phase A did not produce a complete private synthetic proof; retain and inspect the manifest.");
+} else {
+  stage = "cleanup";
+  const cleanup = spawnSync("node_modules/.bin/tsx", ["tests/e2e/support/manager-two-phase-cleanup.ts"], { env: { ...env, AUTH_PROOF_SERVER_EXIT_VERIFIED: "1" }, stdio: "ignore", timeout: 120000 });
+  const cleanupExit = cleanup.status;
+  stage = cleanupExit === 0 ? "complete" : "cleanup_failed";
+  writeFileSync(path.join(dir, "status.json"), JSON.stringify({ stage, serverExited, portClosed, browserOk, cleanupExit, captureDir: dir }), { mode: 0o600 });
+  if (!browserOk || cleanup.status !== 0) throw new Error("Proof or cleanup failed; inspect the private manifest.");
+}

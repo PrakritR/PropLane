@@ -5,6 +5,7 @@ import path from "node:path";
 import { E2E_ACCOUNTS } from "../fixtures";
 import { requestManagerEmailProof, finishManagerEmailProof } from "../helpers/email-onboarding-e2e";
 import { reserveSyntheticManager, identifySyntheticManager } from "../helpers/synthetic-manager-cleanup";
+import { syntheticPhoneAvailableOnDev, verifySyntheticFreeManagerAndMarkPhone } from "../helpers/synthetic-free-manager-proof";
 import { createHash } from "node:crypto";
 
 /**
@@ -180,6 +181,8 @@ test.describe('"Get started" while signed in', () => {
     const oldProperties = await db.from("manager_property_records").select("id").eq("manager_user_id", oldUser!.id);
     expect(oldRoles.error).toBeNull(); expect(oldProperties.error).toBeNull();
     const newEmail = `get-started-e2e-${Date.now()}@example.invalid`;
+    const phone = `+120655501${String(Date.now() % 100).padStart(2, "0")}`;
+    if (!(await syntheticPhoneAvailableOnDev(phone))) throw new Error("Synthetic phone candidate is already in use.");
     const dir = process.env.AUTH_PROOF_CAPTURE_DIR;
     if (!dir || !path.isAbsolute(dir)) throw new Error("Private signup proof directory is required.");
     const manifestFile = path.join(dir, `manager-${createHash("sha256").update(newEmail).digest("hex")}.manifest.json`);
@@ -188,13 +191,13 @@ test.describe('"Get started" while signed in', () => {
     let secondContext: BrowserContext | null = null;
     try {
       setPhase("open-create-account");
-      await page.goto("/auth/create-account?mode=create&role=manager&tier=pro&billing=annual");
+      await page.goto("/auth/create-account?mode=create&role=manager&tier=free&billing=monthly");
       await expectManagerCreateForm(page, { signedIn: true });
       setPhase("sign-out-current-session");
       await page.getByRole("button", { name: "Create a different property account" }).click();
       await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
       expect(await sessionUserFromCookies(page)).toBeNull();
-      const href = await requestManagerEmailProof(page, newEmail, setPhase);
+      const href = await requestManagerEmailProof(page, newEmail, setPhase, "free");
       setPhase("identify-pending-auth-user");
       const pendingId = await identifySyntheticManager(db, supabaseUrl, manifest, manifestFile);
       setPhase("create-verification-context");
@@ -210,7 +213,8 @@ test.describe('"Get started" while signed in', () => {
         }
       });
       try {
-        await finishManagerEmailProof(secondPage, href, newEmail, "Second Account Manager", "2065550199", setPhase);
+        const registerResult = await finishManagerEmailProof(secondPage, href, newEmail, "Second Account Manager", phone, setPhase, "free");
+        expect(registerResult.managerRegisterStatus).toBe(200);
       } catch (error) {
         const pathname = new URL(secondPage.url()).pathname.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, ":id");
         console.error(`[synthetic-manager-e2e] failure_snapshot phase=${phase} pathname=${pathname} last_http_status=${lastHttpStatus ?? "not-observed"}`);
@@ -257,11 +261,42 @@ test.describe('"Get started" while signed in', () => {
       expect(newRoles.data).toContainEqual({ role: "manager" });
       expect(newProperties.data).toEqual([]);
       expect(oldRolesAfter.data).toEqual(oldRoles.data);
+      setPhase("verify-free-purchase-and-workspace");
+      const purchases = await db.from("manager_purchases")
+        .select("tier,billing,promo_code,stripe_customer_id,stripe_subscription_id,stripe_checkout_session_id,apple_original_transaction_id,user_id")
+        .eq("user_id", newUser!.id);
+      expect(purchases.error).toBeNull();
+      expect(purchases.data).toHaveLength(1);
+      expect(purchases.data?.[0]).toMatchObject({ tier: "free", billing: "free", promo_code: null, user_id: newUser!.id });
+      for (const key of ["stripe_customer_id", "stripe_subscription_id", "apple_original_transaction_id"] as const) {
+        expect(purchases.data?.[0]?.[key]).toBeNull();
+      }
+      expect(purchases.data?.[0]?.stripe_checkout_session_id == null || /^axis_intent_[a-f0-9-]+$/i.test(purchases.data[0].stripe_checkout_session_id)).toBe(true);
+      const workspaces = await db.from("portal_workspaces")
+        .select("id,is_default,is_service,stripe_connect_account_id,stripe_connect_charges_enabled,stripe_connect_payouts_enabled")
+        .eq("owner_user_id", newUser!.id);
+      expect(workspaces.error).toBeNull();
+      expect(workspaces.data).toHaveLength(1);
+      expect(workspaces.data?.[0]).toMatchObject({ is_default: true, is_service: false, stripe_connect_account_id: null, stripe_connect_charges_enabled: false, stripe_connect_payouts_enabled: false });
       setPhase("portal-continuation");
       await expect(secondPage.getByRole("button", { name: "Go to portal" })).toBeVisible();
       await secondPage.getByRole("button", { name: "Go to portal" }).click();
       await secondPage.waitForURL(/\/auth\/verify-phone/, { timeout: 60_000 });
       await expect(secondPage.getByRole("button", { name: /send.*code/i })).toBeVisible();
+      setPhase("phone-gate-observed");
+      const proof = await verifySyntheticFreeManagerAndMarkPhone({ userId: newUser!.id, email: newEmail, phone });
+      expect(proof.workspaceId).toBe(workspaces.data![0]!.id);
+      const storageStateFile = path.join(dir, "manager-storage-state.json");
+      fs.writeFileSync(storageStateFile, JSON.stringify(await secondContext.storageState()), { mode: 0o600, flag: "wx" });
+      const splitBInputFile = path.join(dir, "split-b-input.json");
+      fs.writeFileSync(splitBInputFile, JSON.stringify({
+        version: 1,
+        managerId: newUser!.id,
+        expectedEmail: newEmail,
+        workspaceId: proof.workspaceId,
+        storageStateFile,
+        phoneMarker: "synthetic_test_only_no_sms",
+      }), { mode: 0o600, flag: "wx" });
       completed = true;
     } finally {
       if (!completed) console.error(`[synthetic-manager-e2e] failed_phase=${phase} last_http_status=${lastHttpStatus ?? "not-observed"}`);
@@ -275,7 +310,7 @@ test.describe('"Get started" while signed in', () => {
             else if (session) revokeFailed = true;
           }
         }
-        if (syntheticAccessToken) {
+        if (syntheticAccessToken && process.env.AUTH_PROOF_RETAIN_FOR_SPLIT_B !== "1") {
           const revoked = await db.auth.admin.signOut(syntheticAccessToken, "global");
           revokeFailed ||= Boolean(revoked.error);
         }
