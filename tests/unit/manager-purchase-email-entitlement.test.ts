@@ -261,13 +261,10 @@ describe("findManagerPurchaseForAccount", () => {
 describe("an unreadable plan never asks a manager to buy what they own", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("keeps a manager-role account on its portal destination instead of the plan chooser", async () => {
+  it("fails closed when the manager plan cannot be read", async () => {
     const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
     const { db } = failingPurchaseDb("plan read failed", { roles: [{ role: "manager" }] });
 
-    const path = await resolveOAuthPortalRedirect(db, sessionUser(true), "/auth/continue");
-
-    expect(path).toBe("/portal/dashboard");
-    expect(path).not.toBe("/auth/manager/plan");
+    await expect(resolveOAuthPortalRedirect(db, sessionUser(true), "/auth/continue")).rejects.toThrow(/manager signup/i);
   });
 });
