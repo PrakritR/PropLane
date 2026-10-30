@@ -85,10 +85,7 @@ describe("POST /api/auth/create-resident-account", () => {
     expect(data.redirectTo).toBe("/resident/applications/apply");
     // Resident role ADDED…
     expect(ensureProfileRoleRow).toHaveBeenCalledWith(service, "mgr-1", "resident");
-    expect(linkAllTourInquiriesForEmail).toHaveBeenCalledWith(service, {
-      userId: "mgr-1",
-      email: "multi@axis.test",
-    });
+    expect(linkAllTourInquiriesForEmail).not.toHaveBeenCalled();
     expect(reconcileProspectInboxThreadsForResident).toHaveBeenCalledWith(service, {
       userId: "mgr-1",
       contactEmail: "multi@axis.test",

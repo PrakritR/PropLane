@@ -64,49 +64,18 @@ export function isResidentTourLinksSchemaError(message: string): boolean {
   return /resident_tour_links|schema cache/i.test(message);
 }
 
-/** Email-scoped stand-in links when `resident_tour_links` is empty or not migrated yet. */
-export async function tourLinksFromEmailInquiries(
-  db: Db,
-  params: { userId: string; email: string },
-): Promise<ResidentTourLinkRow[]> {
-  const email = normalizeEmail(params.email);
-  if (!email.includes("@")) return [];
-
-  const { data, error } = await db
-    .from("portal_schedule_records")
-    .select("row_data")
-    .eq("id", INQUIRIES_RECORD_ID)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-
-  const now = new Date().toISOString();
-  return inquiryRowsFromRecord(data?.row_data)
-    .filter((row) => textField(row, "kind") === "tour" && normalizeEmail(textField(row, "email")) === email)
-    .map((inquiry) => {
-      const inquiryId = textField(inquiry, "id");
-      return {
-        id: `email:${inquiryId}`,
-        resident_user_id: params.userId,
-        inquiry_id: inquiryId,
-        tour_group_id: textField(inquiry, "tourGroupId") || null,
-        manager_user_id: textField(inquiry, "managerUserId") || textField(inquiry, "adminUserId") || null,
-        property_id: textField(inquiry, "propertyId") || null,
-        attendee_email: email,
-        linked_at: textField(inquiry, "createdAt") || now,
-      } satisfies ResidentTourLinkRow;
-    })
-    .filter((row) => row.inquiry_id);
-}
-
+/** Existing links are scoped to their original Auth subject. */
 export async function resolveResidentTourLinks(
   db: Db,
   params: { userId: string; email?: string | null },
 ): Promise<ResidentTourLinkRow[]> {
-  const links = await loadResidentTourLinks(db, params.userId);
-  if (links.length > 0) return links;
-  const email = normalizeEmail(params.email);
-  if (!email.includes("@")) return [];
-  return tourLinksFromEmailInquiries(db, { userId: params.userId, email });
+  return loadResidentTourLinks(db, params.userId);
+}
+
+export async function residentHasExactTourLink(db: Db, userId: string, inquiryId: string): Promise<boolean> {
+  const { data, error } = await db.from("resident_tour_links").select("inquiry_id").eq("resident_user_id", userId).eq("inquiry_id", inquiryId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return Boolean(data);
 }
 
 export async function loadResidentTourLinks(db: Db, userId: string): Promise<ResidentTourLinkRow[]> {
@@ -116,7 +85,6 @@ export async function loadResidentTourLinks(db: Db, userId: string): Promise<Res
     .eq("resident_user_id", userId)
     .order("linked_at", { ascending: false });
   if (error) {
-    if (isResidentTourLinksSchemaError(error.message)) return [];
     throw new Error(error.message);
   }
   return (data ?? []) as ResidentTourLinkRow[];
@@ -137,10 +105,8 @@ export async function residentHasTourLinks(
     return true;
   }
 
-  const normalized = normalizeEmail(email);
-  if (!normalized.includes("@")) return false;
-  const fallback = await tourLinksFromEmailInquiries(db, { userId, email: normalized });
-  return fallback.length > 0;
+  void email;
+  return false;
 }
 
 export type LinkTourInquiryResult =
@@ -192,39 +158,6 @@ export async function linkTourInquiryToResident(
 
   await attachInboxThreadsToResident(db, params.userId, email);
   return { ok: true, linked: true, inquiryId };
-}
-
-/** Link every tour inquiry whose stored email matches (e.g. after account creation). */
-export async function linkAllTourInquiriesForEmail(
-  db: Db,
-  params: { userId: string; email: string },
-): Promise<string[]> {
-  const email = normalizeEmail(params.email);
-  if (!email.includes("@")) return [];
-
-  const { data, error } = await db
-    .from("portal_schedule_records")
-    .select("row_data")
-    .eq("id", INQUIRIES_RECORD_ID)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-
-  const matching = inquiryRowsFromRecord(data?.row_data).filter(
-    (row) => textField(row, "kind") === "tour" && normalizeEmail(textField(row, "email")) === email,
-  );
-
-  const linkedIds: string[] = [];
-  for (const inquiry of matching) {
-    const inquiryId = textField(inquiry, "id");
-    if (!inquiryId) continue;
-    const result = await linkTourInquiryToResident(db, {
-      userId: params.userId,
-      inquiryId,
-      email,
-    });
-    if (result.ok) linkedIds.push(inquiryId);
-  }
-  return linkedIds;
 }
 
 /**

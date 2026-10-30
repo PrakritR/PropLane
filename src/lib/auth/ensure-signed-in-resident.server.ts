@@ -5,7 +5,6 @@ import { primaryRoleWhenAddingResident } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { normalizeE164 } from "@/lib/phone-e164";
 import {
-  linkAllTourInquiriesForEmail,
   reconcileProspectInboxThreadsForResident,
 } from "@/lib/tour-resident-link.server";
 
@@ -81,7 +80,6 @@ export async function ensureSignedInResidentAccount(
 
   const provenEmail = verifiedSessionEmail(user, existingProfile?.email);
   if (provenEmail) {
-    await linkAllTourInquiriesForEmail(service, { userId: user.id, email: provenEmail });
     await reconcileProspectInboxThreadsForResident(service, {
       userId: user.id, contactEmail: provenEmail, phone: options?.phone,
     });

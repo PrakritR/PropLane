@@ -72,7 +72,7 @@ describe("resident historical email linking", () => {
     vi.clearAllMocks();
     const { client } = db({ role: "resident", email: "W@example.com" });
     await ensureSignedInResidentAccount(client, { id: "u1", email: "w@example.com", email_confirmed_at: "confirmed" });
-    expect(linkAllTourInquiriesForEmail).toHaveBeenCalledWith(client, { userId: "u1", email: "w@example.com" });
+    expect(linkAllTourInquiriesForEmail).not.toHaveBeenCalled();
     expect(reconcileProspectInboxThreadsForResident).toHaveBeenCalledWith(client, expect.objectContaining({ contactEmail: "w@example.com" }));
   });
 });

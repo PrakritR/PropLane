@@ -3,7 +3,7 @@ import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
 import { getEffectiveSessionForPortal } from "@/lib/auth/effective-session";
 import { ensureMayAccessResidentPortal } from "@/lib/auth/ensure-resident-portal-access.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { linkTourInquiryToResident } from "@/lib/tour-resident-link.server";
+import { linkTourInquiryToResident, residentHasExactTourLink } from "@/lib/tour-resident-link.server";
 
 export const runtime = "nodejs";
 
@@ -35,6 +35,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "tourInquiryId is required." }, { status: 400 });
     }
 
+    if (!(await residentHasExactTourLink(db, user.id, tourInquiryId))) return NextResponse.json({ error: "This tour is not linked to your account." }, { status: 403 });
     const result = await linkTourInquiryToResident(db, {
       userId: user.id,
       inquiryId: tourInquiryId,

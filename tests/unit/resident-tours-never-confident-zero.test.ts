@@ -100,9 +100,6 @@ describe("GET /api/portal-resident-tours never reports a failure as zero tours",
     const body = (await res.json()) as { tours: unknown[]; degraded?: boolean };
     expect(body.tours).toEqual([]);
     expect(body.degraded).toBeUndefined();
-    expect(linkAllTourInquiriesForEmail).toHaveBeenCalledWith(expect.anything(), {
-      userId: "res-1",
-      email: "res@example.com",
-    });
+    expect(linkAllTourInquiriesForEmail).not.toHaveBeenCalled();
   });
 });

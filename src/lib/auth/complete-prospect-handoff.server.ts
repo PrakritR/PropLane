@@ -6,7 +6,7 @@ import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { provisionResidentAccountByEmail } from "@/lib/auth/provision-resident-account";
 import { normalizeTourContactPhone } from "@/lib/tour-contact-quality";
 import {
-  linkAllTourInquiriesForEmail,
+  residentHasExactTourLink,
   linkTourInquiryToResident,
   loadTourInquiryById,
   reconcileProspectInboxThreadsForResident,
@@ -118,6 +118,7 @@ export async function completeProspectHandoffForUser(
   await ensureProfileRoleRow(db, input.userId, "resident");
 
   if (tourInquiryId) {
+    if (!(await residentHasExactTourLink(db, input.userId, tourInquiryId))) return { ok: false, status: 403, error: "This tour is not linked to your account." };
     const linkResult = await linkTourInquiryToResident(db, {
       userId: input.userId,
       inquiryId: tourInquiryId,
@@ -126,7 +127,6 @@ export async function completeProspectHandoffForUser(
     if (!linkResult.ok) {
       return { ok: false, status: linkResult.status, error: linkResult.error };
     }
-    await linkAllTourInquiriesForEmail(db, { userId: input.userId, email });
     await reconcileProspectInboxThreadsForResident(db, {
       userId: input.userId,
       contactEmail: email,
