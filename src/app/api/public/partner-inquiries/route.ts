@@ -24,6 +24,8 @@ const STATUS_BY_REASON: Record<string, number> = {
   slot_unavailable: 403,
   application_required: 403,
   sign_in_required: 401,
+  identity_required: 403,
+  identity_unavailable: 503,
   conflict: 409,
   duplicate_request: 409,
   rate_limited: 429,
@@ -76,11 +78,12 @@ export async function POST(req: Request) {
     const created = await createTourInquiry(db, {
       incoming,
       verifiedApplicantEmail: linkingEmail,
+      verifiedApplicantUserId: linkingUserId,
       sourceChannel: textValue(incoming.kind) === "tour" ? await readListingSource(req) : null,
     });
     if (!created.ok) {
       return NextResponse.json(
-        { error: created.error },
+        { error: created.error, ...(created.reason === "identity_required" ? { blocked: "identity", href: "/resident/profile?tab=profile#verification" } : {}) },
         { status: STATUS_BY_REASON[created.reason] ?? 500 },
       );
     }

@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 
 type IdentityState = { status: string; manualReview: string | null; provider?: string | null; verifiedAt?: string | null };
 const labels: Record<string, string> = { loading: "Loading…", unavailable: "Unavailable", not_started: "Not started", pending: "Pending", review: "In review", approved: "Verified", declined: "Declined", expired: "Expired", reconciliation: "In review" };
 
 export function ResidentIdentitySettings() {
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get("returnTo");
   const [state, setState] = useState<IdentityState>({ status: "loading", manualReview: null });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -42,6 +45,7 @@ export function ResidentIdentitySettings() {
         </PortalSettingsRow>
         {state.status === "approved" && state.provider && <PortalSettingsRow label="Provider"><span className="text-sm">{state.provider}</span></PortalSettingsRow>}
         {state.status === "approved" && state.verifiedAt && <PortalSettingsRow label="Verified on"><time className="text-sm" dateTime={state.verifiedAt}>{new Date(state.verifiedAt).toLocaleDateString("en-US", { timeZone: "UTC", year: "numeric", month: "short", day: "numeric" })}</time></PortalSettingsRow>}
+        {state.status === "approved" && returnTo && /^\/(?:rent\/|resident\/tour(?:\/|\?|$))/.test(returnTo) && !returnTo.includes("\\") && <PortalSettingsRow label="Tour"><Link href={returnTo} className="text-sm text-primary">Return to tour</Link></PortalSettingsRow>}
         <PortalSettingsRow label="Manual review">
           {state.manualReview ? <span className="text-sm">Requested</span> : state.status === "unavailable" ? <Link className="text-sm text-primary" href="/resident/profile?tab=feedback">Contact PropLane support</Link> : <button type="button" className="text-sm text-primary" disabled={busy || state.status === "loading"} onClick={() => void action("manual-review")}>Request</button>}
         </PortalSettingsRow>

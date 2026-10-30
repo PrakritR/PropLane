@@ -289,7 +289,7 @@ export const residentRequestTourTool = defineWriteTool<
     await assertSlotStillOpen(db, input);
     // The resident assistant also runs over text and email: a request made by text is answered by text.
     const noticeChannel = (ctx as { channel?: string }).channel === "sms" ? "sms" : "portal";
-    const created = await createTourInquiry(db, { incoming: tourInquiryRowFrom(input), verifiedApplicantEmail: ctx.email, noticeChannel });
+    const created = await createTourInquiry(db, { incoming: tourInquiryRowFrom(input), verifiedApplicantEmail: ctx.email, verifiedApplicantUserId: ctx.userId, noticeChannel });
     if (!created.ok) throw new Error(created.error);
     return {
       reply: `Tour requested for ${formatTourRangeLabel(input.start, input.end)}. The manager will confirm the time.`,

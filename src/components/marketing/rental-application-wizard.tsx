@@ -582,6 +582,7 @@ function RentalApplicationWizardInner({
     linkedForms?: LinkedFormListItem[];
   } | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [identityHandoff, setIdentityHandoff] = useState<string | null>(null);
   const [availabilityChecking, setAvailabilityChecking] = useState(false);
   const availabilityCheckingRef = useRef(false);
   const [showAvailabilityWarnings, setShowAvailabilityWarnings] = useState(false);
@@ -2175,6 +2176,13 @@ function RentalApplicationWizardInner({
 
       const sync = await upsertApplicationRowToServerAwait(applicationRow);
       if (!sync.ok) {
+        if (sync.blocked === "identity" && !residentUserId && !isDemoModeActive()) {
+          const saved = await upsertApplicationRowToServerAwait({ ...applicationRow, stage: "In progress" });
+          if (saved.ok && saved.setupHref) setIdentityHandoff(saved.setupHref);
+          else showToast(saved.error ?? "Could not save your application for account setup.");
+        } else if (sync.blocked === "identity" && residentUserId) {
+          setIdentityHandoff("/resident/profile?tab=profile#verification");
+        }
         // Nothing was submitted: keep the answers on screen so the applicant can
         // retry, instead of clearing them behind an "Application submitted" panel.
         unmarkApplicationSubmitInitiated(axisId);
@@ -3056,6 +3064,8 @@ function RentalApplicationWizardInner({
                 onApplySavedAutofill={handleApplySavedAutofill}
               />
             </fieldset>
+
+            {identityHandoff && <div role="status" className="mt-4 rounded-xl border border-border p-4"><Link href={identityHandoff} className="text-sm font-semibold text-primary">{residentUserId ? "Verify your identity" : "Create your account and verify your identity"}</Link></div>}
 
             {variantRestorePending ? (
               <p role="status" className="mt-4 text-sm text-muted">

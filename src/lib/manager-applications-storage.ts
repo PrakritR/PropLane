@@ -821,6 +821,7 @@ export async function upsertApplicationRowToServerAwait(
 ): Promise<{
   ok: boolean;
   error?: string;
+  blocked?: string;
   setupHref?: string;
   setupToken?: string;
   welcomeEmailSent?: boolean;
@@ -843,11 +844,13 @@ export async function upsertApplicationRowToServerAwait(
       body: JSON.stringify({
         action: "upsert",
         row,
+        ...(getApplicationSetupToken(row.id) ? { setupToken: getApplicationSetupToken(row.id) } : {}),
         ...(opts?.existingResidentOnboarding ? { existingResidentOnboarding: opts.existingResidentOnboarding } : {}),
       }),
     });
     const body = (await res.json().catch(() => null)) as {
       error?: string;
+      blocked?: string;
       setupHref?: string;
       setupToken?: string;
       mailtoHref?: string;
@@ -866,6 +869,7 @@ export async function upsertApplicationRowToServerAwait(
       return {
         ok: false,
         error: body?.error ?? "Could not save application.",
+        blocked: body?.blocked,
         mailtoHref: errBody?.mailtoHref,
         leaseId: errBody?.leaseId,
       };
