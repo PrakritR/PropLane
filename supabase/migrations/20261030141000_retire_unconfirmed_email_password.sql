@@ -22,6 +22,8 @@ begin
      and u.email_confirmed_at is null
      and u.phone_confirmed_at is null
      and u.last_sign_in_at is null
+     and u.deleted_at is null
+     and coalesce(u.is_sso_user, false) = false
      and not exists (select 1 from auth.sessions s where s.user_id = u.id)
      and not exists (
        select 1 from public.account_recovery_requests r

@@ -9,7 +9,7 @@ describe("unconfirmed password retirement migration", () => {
     expect(sql).toMatch(/grant execute on function[\s\S]+to service_role/i);
   });
   it("only retires an unused unconfirmed single email identity", () => {
-    for (const guard of [/u\.id = p_user_id/, /u\.email_confirmed_at is null/, /u\.phone_confirmed_at is null/, /u\.last_sign_in_at is null/, /not exists \(select 1 from auth\.sessions/, /from public\.account_recovery_requests/, /count\(\*\) from auth\.identities/, /i\.provider = 'email'/, /i\.identity_data ->> 'email'/]) expect(sql).toMatch(guard);
+    for (const guard of [/u\.id = p_user_id/, /u\.email_confirmed_at is null/, /u\.phone_confirmed_at is null/, /u\.last_sign_in_at is null/, /u\.deleted_at is null/, /coalesce\(u\.is_sso_user, false\) = false/, /not exists \(select 1 from auth\.sessions/, /from public\.account_recovery_requests/, /count\(\*\) from auth\.identities/, /i\.provider = 'email'/, /i\.identity_data ->> 'email'/]) expect(sql).toMatch(guard);
     expect(sql).toMatch(/set encrypted_password = null/i);
     expect(sql).toMatch(/return changed_id is not null/i);
   });
