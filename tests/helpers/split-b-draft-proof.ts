@@ -1,10 +1,11 @@
 /** Test-only split-B proof. The canonical account and workspace are read-only. */
+import { createHash } from "node:crypto";
 import { closeSync, fsyncSync, lstatSync, openSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import catalog from "../e2e/support/draft-fk-catalog.json";
 
-type Input = { managerId: string; workspaceId: string; propertyId: string; marker: string; updatedAt?: string };
+type Input = { managerId: string; workspaceId: string; propertyId: string; marker: string; updatedAt?: string; channelSnapshot?: string };
 type Db = { query(sql: string, values?: unknown[]): Promise<{ rows: Array<Record<string, unknown>> }> };
 export type SplitBDraftManifest = Input & { state: "reserved" | "saved" | "delete_started" | "cleaned" };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -26,6 +27,13 @@ export async function preflightSplitBDraft(db: Db, input: Input, expected: "abse
   if (workspace.rows.length !== 1 || workspace.rows[0]?.owner_user_id !== input.managerId || workspace.rows[0]?.is_service !== false) throw new Error("Workspace ownership or eligibility changed.");
   const connection = await db.query("select count(*)::int count from public.listing_channel_connections where workspace_id=$1", [input.workspaceId]);
   if (connection.rows[0]?.count !== 0) throw new Error("Workspace has a listing-channel connection.");
+  const existingPosts = await db.query(`select to_jsonb(p)::text snapshot, p.property_id, p.channel, p.enabled, p.state, p.pending_action, p.external_id, p.content_hash, p.posted_at, p.next_attempt_at, p.attempts, exists(select 1 from public.manager_property_records r where r.id=p.property_id) property_exists from public.listing_channel_posts p where p.workspace_id=$1`, [input.workspaceId]);
+  if (existingPosts.rows.length > 1) throw new Error("Unexpected workspace channel posts.");
+  const existing = existingPosts.rows[0];
+  if (existing && (existing.property_id !== "demo-prop-fremont" || existing.channel !== "craigslist" || existing.enabled !== false || existing.state !== "off" || existing.pending_action !== null || existing.external_id !== null || existing.content_hash !== null || existing.posted_at !== null || existing.next_attempt_at !== null || existing.attempts !== 0 || existing.property_exists !== false || typeof existing.snapshot !== "string")) throw new Error("Unexpected workspace channel post state.");
+  const snapshot = existing ? createHash("sha256").update(String(existing.snapshot)).digest("hex") : "none";
+  if (input.channelSnapshot === undefined && expected === "absent") input.channelSnapshot = snapshot;
+  else if (input.channelSnapshot !== snapshot) throw new Error("Existing channel post changed.");
   const property = await db.query("select status,manager_user_id::text,workspace_id::text,updated_at::text,row_data,property_data from public.manager_property_records where id=$1", [input.propertyId]);
   if (expected === "absent" ? property.rows.length !== 0 : property.rows.length !== 1 || property.rows[0]?.status !== "draft" || property.rows[0]?.manager_user_id !== input.managerId || property.rows[0]?.workspace_id !== input.workspaceId || (input.updatedAt != null && Date.parse(String(property.rows[0]?.updated_at)) !== Date.parse(input.updatedAt)) || !JSON.stringify([property.rows[0]?.row_data, property.rows[0]?.property_data]).includes(input.marker)) throw new Error("Draft ownership or state changed.");
   const constraints = await db.query(`select c.conname,child.relname child_table,parent.relname parent_table,pg_get_constraintdef(c.oid) definition,c.confdeltype from pg_constraint c join pg_class child on child.oid=c.conrelid join pg_namespace ns on ns.oid=child.relnamespace join pg_class parent on parent.oid=c.confrelid join pg_namespace pn on pn.oid=parent.relnamespace where c.contype='f' and ns.nspname='public' and pn.nspname='public' and parent.relname='manager_property_records'`);
