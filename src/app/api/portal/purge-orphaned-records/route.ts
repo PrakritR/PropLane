@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { isAdminUser } from "@/lib/auth/admin-preview";
 import { purgeManagerResidentOrphans } from "@/lib/auth/purge-manager-resident-orphans";
 import { purgeOrphanedPortalRecords } from "@/lib/auth/purge-orphaned-portal-records";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -7,10 +6,6 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
-
-function canManage(role: string, isAdmin: boolean) {
-  return isAdmin || role === "manager" || role === "owner";
-}
 
 export async function POST(req: Request) {
   try {
@@ -27,14 +22,10 @@ export async function POST(req: Request) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
       return NextResponse.json({ error: "Portal access is unavailable for this account." }, { status: 403 });
     }
-    const [{ data: profile }, admin] = await Promise.all([
-      db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
-      isAdminUser(user.id),
-    ]);
-    const role = String(profile?.role ?? "").toLowerCase();
-    if (!canManage(role, admin)) {
-      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
-    }
+    const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+    if (roleError) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    const admin = (roleRows ?? []).some((row) => row.role === "admin");
+    if (!admin && !(roleRows ?? []).some((row) => row.role === "manager")) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
 
     if (mode === "admin_global") {
       if (!admin) {

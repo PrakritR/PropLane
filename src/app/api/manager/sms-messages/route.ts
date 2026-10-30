@@ -1,3 +1,4 @@
+import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
 import { NextResponse } from "next/server";
 import type { ManagerSmsMessageStorageTable } from "@/lib/manager-sms-messages";
 import { deleteManagerSmsMessage } from "@/lib/manager-sms-messages.server";
@@ -19,11 +20,7 @@ async function requireManager() {
   } = await supabase.auth.getUser();
   if (!user) return { error: NextResponse.json({ error: "Unauthorized." }, { status: 401 }) };
   const db = createSupabaseServiceRoleClient();
-  const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  const role = String(profile?.role ?? "").trim().toLowerCase();
-  if (role !== "manager" && role !== "pro" && role !== "owner") {
-    return { error: NextResponse.json({ error: "Manager access required." }, { status: 403 }) };
-  }
+  if (!(await userHoldsManagerRole(db, user.id))) return { error: NextResponse.json({ error: "Manager access required." }, { status: 403 }) };
   return { user, db };
 }
 

@@ -1,3 +1,4 @@
+import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
 import { NextResponse } from "next/server";
 import { closeRelayThread, provisionRelayThread } from "@/lib/sms-relay.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -17,12 +18,13 @@ async function requireManager(): Promise<
   if (!user) return { ok: false, response: NextResponse.json({ error: "Unauthorized." }, { status: 401 }) };
 
   const db = createSupabaseServiceRoleClient();
-  const { data: profile } = await db
+  if (!(await userHoldsManagerRole(db, user.id))) return { ok: false, response: NextResponse.json({ error: "Manager access required." }, { status: 403 }) };
+  const { data: profile, error: profileError } = await db
     .from("profiles")
-    .select("role, full_name, phone, phone_verified_at")
+    .select("full_name, phone, phone_verified_at")
     .eq("id", user.id)
     .maybeSingle();
-  if (String(profile?.role ?? "") !== "manager") {
+  if (profileError) {
     return { ok: false, response: NextResponse.json({ error: "Manager access required." }, { status: 403 }) };
   }
   return {
