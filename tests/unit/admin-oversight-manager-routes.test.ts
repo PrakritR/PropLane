@@ -164,7 +164,7 @@ function makeDb() {
           return Promise.resolve({ data: rowsFor(), error: null }).then(resolve);
         },
       };
-      const rowsFor = () => (hoisted.tables[table] ?? []).filter((row) => preds.every((pred) => pred(row)));
+      const rowsFor = () => (hoisted.tables[table] ?? []).filter((row) => (table !== "profile_roles" || hoisted.admin || row.role !== "admin") && preds.every((pred) => pred(row)));
       return builder;
     },
   };
