@@ -43,11 +43,26 @@ export function isManagerOnboardingComplete(purchase: ManagerPurchaseRow | null 
   return !isAxisIntentSessionId(purchase.stripe_checkout_session_id);
 }
 
+export type PurchaseEmailProof = { emailVerified?: boolean };
+export class ManagerPurchaseReadError extends Error {
+  readonly detail: { code?: string | null; message?: string | null } | null;
+  constructor(detail: { code?: string | null; message?: string | null } | null) {
+    super("Could not read this account's manager signup. Please try again.");
+    this.name = "ManagerPurchaseReadError";
+    this.detail = detail ?? null;
+  }
+}
+export function isManagerPurchaseReadError(error: unknown): error is ManagerPurchaseReadError {
+  return error instanceof ManagerPurchaseReadError;
+}
+
 export async function findManagerPurchaseForAccount(
   supabase: SupabaseClient,
   userId: string,
   _email: string,
+  _proof: PurchaseEmailProof = {},
 ): Promise<ManagerPurchaseRow | null> {
+  void _proof;
   void _email; // Retained for callers; email alone is not purchase ownership.
   const { data: byUser, error } = await supabase
     .from("manager_purchases")
@@ -57,7 +72,7 @@ export async function findManagerPurchaseForAccount(
     .limit(1)
     .maybeSingle();
 
-  if (error) throw error;
+  if (error) throw new ManagerPurchaseReadError(error);
   const purchase = byUser as ManagerPurchaseRow | null;
   return purchase?.user_id === userId ? purchase : null;
 }
@@ -66,8 +81,9 @@ export async function managerNeedsPricingSelection(
   supabase: SupabaseClient,
   userId: string,
   email: string,
+  proof: PurchaseEmailProof = {},
 ): Promise<boolean> {
-  const purchase = await findManagerPurchaseForAccount(supabase, userId, email);
+  const purchase = await findManagerPurchaseForAccount(supabase, userId, email, proof);
   return !isManagerOnboardingComplete(purchase);
 }
 

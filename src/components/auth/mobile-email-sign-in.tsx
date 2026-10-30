@@ -8,6 +8,7 @@ import { resolveFormCredentials } from "@/lib/auth/form-credentials";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
+import { presentSignInError } from "@/lib/auth/sign-in-error";
 
 const LOGIN_TIMEOUT_MS = 6000;
 
@@ -20,7 +21,6 @@ function continueHref(nextPath: string): string {
   if (!nextPath.startsWith("/")) return "/auth/continue";
   return `/auth/continue?next=${encodeURIComponent(nextPath)}`;
 }
-
 
 /**
  * Compact email/password sign-in. Currently unused by `/auth/sign-in` (that
@@ -78,7 +78,7 @@ export function MobileEmailSignIn({
       const { data, error } = authResult;
 
       if (error) {
-        setErrorText(error.message.toLowerCase().includes("email not confirmed") ? "Verify your email using the link sent to you, then sign in." : error.message);
+        setErrorText(presentSignInError(error.message).message);
         return;
       }
       if (!data.user) {

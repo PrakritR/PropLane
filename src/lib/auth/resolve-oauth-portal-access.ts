@@ -20,10 +20,10 @@ import {
   findManagerPurchaseForAccount,
   isManagerOnboardingComplete,
   managerNeedsPricingSelection,
+  isManagerPurchaseReadError,
 } from "@/lib/auth/manager-onboarding";
 import { primaryRoleWhenAddingManager } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
-import { managerOauthFinishPath } from "@/lib/auth/manager-oauth-finish-path";
 import { resolveManagerPortalEntryPath } from "@/lib/auth/manager-google-services-onboarding.server";
 import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
 import { pickLastPortal } from "@/lib/auth/last-portal";
@@ -169,6 +169,8 @@ export async function resolveOAuthPortalRedirect(
     return finish(MANAGER_PRICING_ENTRY_PATH);
   }
 
+  const emailVerified = Boolean(user.email_confirmed_at);
+
   const [{ data: roleRows }, { data: profile }] = await Promise.all([
     supabase.from("profile_roles").select("role").eq("user_id", user.id),
     supabase.from("profiles").select("role, manager_id, full_name, application_approved").eq("id", user.id).maybeSingle(),
@@ -221,7 +223,11 @@ export async function resolveOAuthPortalRedirect(
     if (isGenericOAuthContinuePath(safeIntended) && ownerOnly) {
       return finish("/portal/dashboard");
     }
-    if (await managerNeedsPricingSelection(supabase, user.id, email)) {
+    const needsPricing = await managerNeedsPricingSelection(supabase, user.id, email).catch((error) => {
+      if (!isManagerPurchaseReadError(error)) throw error;
+      return false;
+    });
+    if (needsPricing) {
       const storedManager = (roleRows ?? []).some((row) => String(row.role).toLowerCase() === "manager");
       if (!storedManager || !(await hasVerifiedLegacyManagerEntitlement(supabase, user))) return finish(MANAGER_PRICING_ENTRY_PATH);
     }
@@ -235,7 +241,7 @@ export async function resolveOAuthPortalRedirect(
     return finish(isGenericOAuthContinuePath(safeIntended) ? portalDashboardPath("admin") : safeIntended);
   }
 
-  const linkedPurchase = await findManagerPurchaseForAccount(supabase, user.id, email);
+  const linkedPurchase = emailVerified ? await findManagerPurchaseForAccount(supabase, user.id, email) : null;
   if (linkedPurchase && !isManagerOnboardingComplete(linkedPurchase)) {
     return finish(MANAGER_PRICING_ENTRY_PATH);
   }
@@ -257,19 +263,6 @@ export async function resolveOAuthPortalRedirect(
       return finish(await resolveManagerPortalEntryPath(supabase, user.id));
     }
     return finish(safeIntended);
-  }
-
-  const { data: pendingPurchases } = await supabase
-    .from("manager_purchases")
-    .select("stripe_checkout_session_id, user_id, paid_at")
-    .eq("email", email)
-    .is("user_id", null)
-    .order("paid_at", { ascending: false })
-    .limit(1);
-
-  const pendingPurchase = pendingPurchases?.[0];
-  if (pendingPurchase?.stripe_checkout_session_id && pendingPurchase.paid_at) {
-    return finish(managerOauthFinishPath(pendingPurchase.stripe_checkout_session_id));
   }
 
   // Link by rental application (approved OR pending). A pending applicant lands in the

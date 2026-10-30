@@ -164,8 +164,9 @@ export async function handleOAuthCallback(
           nextPath: oauthNextPath,
         });
       }
-      // Link any prior email/password account to this OAuth identity, then resolve the
-      // destination ONCE. No auto free-manager provisioning — unknown users pick a role.
+      // Refresh this account's own profile contact fields, then resolve the destination ONCE. A shared
+      // email address is never ownership of another account, so nothing is merged in from one. No auto
+      // free-manager provisioning — unknown users pick a role.
       await reconcileAuthAccountsByEmail(service, user);
       const resolvedPath = options?.resolveRedirect
         ? await options.resolveRedirect(service, user, safePath)

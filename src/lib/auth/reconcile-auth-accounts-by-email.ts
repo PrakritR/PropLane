@@ -8,20 +8,6 @@ function normalizeEmail(email: string | null | undefined): string {
   return email?.trim().toLowerCase() ?? "";
 }
 
-function hasProvider(user: User, provider: string): boolean {
-  return (user.identities ?? []).some((identity) => identity.provider === provider);
-}
-
-/** All auth users registered with this email (email + Google duplicates). */
-export async function findAuthUsersByEmail(db: ServiceDb, email: string): Promise<User[]> {
-  const normal = normalizeEmail(email);
-  if (!normal) return [];
-
-  const { data, error } = await db.auth.admin.listUsers({ perPage: 1000 });
-  if (error || !data?.users?.length) return [];
-  return data.users.filter((user) => normalizeEmail(user.email) === normal);
-}
-
 function oauthFullName(user: User): string | null {
   const meta = user.user_metadata ?? {};
   const fullName = typeof meta.full_name === "string" ? meta.full_name.trim() : "";
@@ -55,12 +41,5 @@ export async function reconcileAuthAccountsByEmail(db: ServiceDb, sessionUser: U
   if (await pendingAccountRecovery(db, sessionUser.id)) return;
   await syncProfileForUser(db, sessionUser);
 
-  if (hasProvider(sessionUser, "google")) {
-    await db.auth.admin.updateUserById(sessionUser.id, {
-      user_metadata: {
-        ...(sessionUser.user_metadata ?? {}),
-        google_linked_at: new Date().toISOString(),
-      },
-    });
-  }
+
 }

@@ -472,6 +472,7 @@ answer. Fail closed to `true`.
 | Communication credit | `docs/agents/comms-billing.md` | Reserve credit before provider/model work; a saved card never authorizes a charge |
 | Vendor dispatch agent | `docs/agents/vendor-dispatch-agent.md` | Answer-only + `escalate_to_manager`; `row_data.dispatch` is server-owned |
 | Manager account creation | `docs/agents/manager-account-creation.md` | `/auth/create-account` never auto-redirects into a portal |
+| Resident onboarding / account email proof | `docs/agents/resident-onboarding.md` | No account is created or confirmed with a known or caller-chosen password before the email is proven; an email address alone is never proof (`confirm-resident-email` refuses every request) |
 | Inbound support email | `docs/agents/inbound-email-inbox.md` | Receive-only into admin inbox; fail closed on Vercel |
 | MCP / public API | `docs/agents/mcp-api.md` | API key is a credential, not standing authorization |
 | Google integrations | `docs/agents/google-integrations.md` | Minimal scopes per product; writes go to the dedicated "PropLane" calendar, never the user's own events; a Google-side edit/delete of a PropLane event is an attention item, never a silent reschedule |

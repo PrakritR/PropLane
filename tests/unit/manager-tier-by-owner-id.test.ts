@@ -20,7 +20,16 @@ function chain() {
 }
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: () => chain(), rpc: () => Promise.resolve({ data: null, error: null }) }) }));
+// The plan read asks Auth for the account's own confirmed mailbox (the legacy by-email entitlement). This
+// double holds no Auth user, which is a conclusive "no such account" - so only the by-`user_id` half answers.
+const { authAdmin } = vi.hoisted(() => ({
+  authAdmin: {
+    admin: {
+      getUserById: async () => ({ data: { user: null }, error: { status: 404, code: "user_not_found", message: "User not found" } }),
+    },
+  },
+}));
+vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: () => chain(), rpc: () => Promise.resolve({ data: null, error: null }), auth: authAdmin }) }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/auth/view-as-guard", () => ({ isViewAsSessionOpen: () => false }));
 

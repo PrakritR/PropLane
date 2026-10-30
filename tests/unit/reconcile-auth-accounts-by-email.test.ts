@@ -55,7 +55,7 @@ function mockDb(options: {
         update: (patch: unknown) => ({
           eq: (_col: string, id: string) => {
             purchaseUpdates.push({ id, patch });
-            return { is: () => ({ error: null }) };
+            return { error: null };
           },
         }),
       };
@@ -75,34 +75,17 @@ function mockDb(options: {
   };
 }
 
-describe("findAuthUsersByEmail", () => {
-  it("returns all auth users with the same normalized email", async () => {
-    const { findAuthUsersByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
-    const db = mockDb({
-      users: [
-        { id: "a", email: "User@Test.com" },
-        { id: "b", email: "user@test.com" },
-        { id: "c", email: "other@test.com" },
-      ],
-    });
-
-    const matches = await findAuthUsersByEmail(db as never, "user@test.com");
-    expect(matches.map((u) => u.id).sort()).toEqual(["a", "b"]);
-  });
-});
-
 describe("reconcileAuthAccountsByEmail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("does not reconcile or claim purchases for an unconfirmed session", async () => {
+  it("does nothing for an unconfirmed session", async () => {
     const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
-    const db = mockDb({ users: [{ id: "other", email: "victim@test.com" }], purchases: [{ id: "purchase", user_id: null }] });
-    await reconcileAuthAccountsByEmail(db as never, { id: "attacker", email: "victim@test.com", email_confirmed_at: null } as never);
-    expect(migratePortalUserId).not.toHaveBeenCalled();
-    expect(db.purchaseUpdates).toEqual([]);
+    const db = mockDb({ profile: { role: "admin" } });
+    await reconcileAuthAccountsByEmail(db as never, { id: "session-user", email: "admin@axis.test", email_confirmed_at: null } as never);
     expect(db.from).not.toHaveBeenCalled();
+    expect(migratePortalUserId).not.toHaveBeenCalled();
   });
 
   it("does not grant roles from user-editable metadata or legacy profile role", async () => {
@@ -113,7 +96,7 @@ describe("reconcileAuthAccountsByEmail", () => {
     expect(ensureProfileRoleRow).not.toHaveBeenCalled();
   });
 
-  it("does not migrate another Auth user solely by matching email", async () => {
+  it("does not migrate another auth user based on matching email", async () => {
     const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
     const db = mockDb({
       users: [
@@ -125,8 +108,8 @@ describe("reconcileAuthAccountsByEmail", () => {
 
     await reconcileAuthAccountsByEmail(db as never, {
       id: "session-user",
-      email_confirmed_at: "2026-01-01",
       email: "mgr@test.com",
+      email_confirmed_at: "2026-01-01",
       identities: [{ provider: "google" }],
       user_metadata: {},
     } as never);
@@ -134,7 +117,7 @@ describe("reconcileAuthAccountsByEmail", () => {
     expect(migratePortalUserId).not.toHaveBeenCalled();
   });
 
-  it("does not claim orphan manager purchases solely by email", async () => {
+  it("does not claim orphan manager purchases by email", async () => {
     const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
     const db = mockDb({
       users: [{ id: "session-user", email: "mgr@test.com" }],
@@ -144,8 +127,8 @@ describe("reconcileAuthAccountsByEmail", () => {
 
     await reconcileAuthAccountsByEmail(db as never, {
       id: "session-user",
-      email_confirmed_at: "2026-01-01",
       email: "mgr@test.com",
+      email_confirmed_at: "2026-01-01",
       identities: [],
       user_metadata: {},
     } as never);
@@ -153,7 +136,27 @@ describe("reconcileAuthAccountsByEmail", () => {
     expect(db.purchaseUpdates).toEqual([]);
   });
 
-  it("does not grant roles based on a primary-admin email", async () => {
+  it("does not auto-confirm a Google session's mailbox", async () => {
+    const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
+    const db = mockDb({
+      users: [{ id: "session-user", email: "mgr@test.com", identities: [{ provider: "google" }] }],
+      profile: { role: "manager" },
+    });
+
+    await reconcileAuthAccountsByEmail(db as never, {
+      id: "session-user",
+      email: "mgr@test.com",
+      email_confirmed_at: "2026-01-01",
+      identities: [{ provider: "google" }],
+      user_metadata: {},
+    } as never);
+
+    // The old path stamped `email_confirm: true` plus `google_linked_at` for any Google identity, which
+    // is a mailbox proof written from the session itself.
+    expect(db.auth.admin.updateUserById).not.toHaveBeenCalled();
+  });
+
+  it("does not grant roles from a primary-admin email or legacy profile", async () => {
     const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
     const { ensureProfileRoleRow } = await import("@/lib/auth/profile-role-row");
     const db = mockDb({
@@ -163,8 +166,8 @@ describe("reconcileAuthAccountsByEmail", () => {
 
     await reconcileAuthAccountsByEmail(db as never, {
       id: "session-user",
-      email_confirmed_at: "2026-01-01",
       email: "admin@axis.test",
+      email_confirmed_at: "2026-01-01",
       identities: [],
       user_metadata: {},
     } as never);

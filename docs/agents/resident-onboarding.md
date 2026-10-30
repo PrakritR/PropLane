@@ -93,10 +93,19 @@ POST /api/auth/resident-setup   (password)      POST /api/auth/register-resident
 - **The finish CTA is server-authoritative and email-independent.** The token is
   minted during the application upsert and its `setupHref` returned there, so a
   failed/unconfigured email send (503) never strips "Create your resident account".
-- **OAuth relink is authorized by the setup token, not the email match.** A
-  mismatched Google email relinks the application onto the account the applicant
-  controls (`resident_email` + snapshot email rewritten) — see
-  `register-resident-oauth/route.ts`.
+- **Application handoff requires a verified matching Auth mailbox.** A setup token is a
+  resume reference and cannot prove email ownership or relink an application to a different
+  mailbox. Email onboarding binds the exact application to the verified session.
+- **Approval does not provision a login.** `provisionApprovedResidentAccount` returns
+  `invitation_required` until a verified resident handoff; it never creates or confirms an
+  account from application email alone. The setup screen offers the email verification link.
+- **An email address is not proof of ownership.**
+  `POST /api/auth/confirm-resident-email` refuses every request identically (403
+  `EMAIL_VERIFICATION_REQUIRED`) with no lookup and no mutation — typing an address
+  must never mark it confirmed. A sign-in blocked on an unconfirmed address is told
+  to use its email link through `presentSignInError`
+  (`src/lib/auth/sign-in-error.ts`, the one owner of that copy); no surface retries
+  the credential behind a client-side auto-confirm.
 
 ## Files
 
@@ -109,6 +118,7 @@ POST /api/auth/resident-setup   (password)      POST /api/auth/register-resident
 | Setup screen + password/Google | `src/app/auth/resident-setup/resident-setup-client.tsx`, `src/app/api/auth/resident-setup/route.ts` |
 | OAuth (relink) | `src/app/api/auth/register-resident-oauth/route.ts`, `src/app/auth/resident-oauth-finish/page.tsx` |
 | Provisioning | `src/lib/auth/provision-resident-account.ts` |
+| Provisioning on approval (random password, never a default) | `src/lib/auth/provision-approved-resident.ts` |
 | Resend lost link | `src/app/api/auth/resident-setup-link/route.ts`, `src/components/auth/resident-signup-blocked.tsx` |
 | Approval / welcome email | `src/lib/resident-welcome.server.ts` |
 
@@ -121,5 +131,8 @@ POST /api/auth/resident-setup   (password)      POST /api/auth/register-resident
   `provision-resident-default-deny.test.ts` (unverified signup inherits nothing),
   `public-apply-account-prompt.test.tsx` (3-action gate), plus existing
   `resident-setup-token.test.ts` / `guest-application-upsert.test.ts`.
+- Unit (security invariants above): `tests/unit/security/no-fixed-resident-password.test.ts`,
+  `confirm-resident-email-disabled.test.ts`,
+  `resident-setup-email-link-recovery.test.ts`.
 - E2E (gated `RESIDENT_SETUP_E2E_ENABLED=1`, dev/test only):
   `tests/e2e/resident-account-setup.spec.ts`.
