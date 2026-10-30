@@ -108,7 +108,9 @@ function makeDb() {
           }
           const matches = state.ids
             ? STORED_ROWS.filter((r) => state.ids?.includes(r.id))
-            : state.eq["resident_email"]
+            : state.eq["row_data->>residentUserId"]
+              ? STORED_ROWS.filter((r) => r.row_data.residentUserId === state.eq["row_data->>residentUserId"])
+              : state.eq["resident_email"]
               ? STORED_ROWS.filter((r) => (r.resident_email ?? r.row_data.email ?? "") === state.eq["resident_email"])
               : STORED_ROWS;
           if (state.op === "update") {
@@ -142,6 +144,7 @@ const LISTING = "mgr-magnolia-2b-a1b2c3";
 function inProgressRow(over: Partial<DemoApplicantRow> = {}): DemoApplicantRow {
   return {
     id: "PROPLANE-SELFAPP1",
+    residentUserId: CALLER,
     name: "Casey Manager",
     email: CALLER_EMAIL,
     property: "The Magnolia · 2B",
@@ -206,11 +209,21 @@ describe("POST /api/manager-applications — self-application by a non-resident 
     expect(UPDATES[0].manager_user_id).toBe(LISTING_OWNER);
   });
 
+  it("lets the exact subject update its draft without a confirmed mailbox", async () => {
+    PROFILE = { role: "resident", email: "phone@phone.proplane.invalid" };
+    getUser.mockResolvedValue({ data: { user: { id: CALLER, email: "phone@phone.proplane.invalid" } }, error: null });
+    STORED_ROWS = [{ id: "PROPLANE-SELFAPP1", resident_email: CALLER_EMAIL, row_data: inProgressRow({ managerUserId: LISTING_OWNER }) }];
+    const res = await upsert(inProgressRow({ email: "phone@phone.proplane.invalid", detail: "updated" }));
+    expect(res.status).toBe(200);
+    expect(UPDATES[0].row_data.residentUserId).toBe(CALLER);
+    expect(UPDATES[0].row_data.email).toBe(CALLER_EMAIL);
+  });
+
   it("still gates a DIFFERENT applicant's row exactly as before (row email ≠ session email)", async () => {
     STORED_ROWS = [
       {
         id: "PROPLANE-VICTIM01",
-        row_data: inProgressRow({ id: "PROPLANE-VICTIM01", email: OTHER_APPLICANT_EMAIL, managerUserId: LISTING_OWNER }),
+        row_data: inProgressRow({ id: "PROPLANE-VICTIM01", email: OTHER_APPLICANT_EMAIL, residentUserId: "victim", managerUserId: LISTING_OWNER }),
         manager_user_id: LISTING_OWNER,
       },
     ];
@@ -226,7 +239,7 @@ describe("POST /api/manager-applications — self-application by a non-resident 
     STORED_ROWS = [
       {
         id: "PROPLANE-VICTIM02",
-        row_data: inProgressRow({ id: "PROPLANE-VICTIM02", email: OTHER_APPLICANT_EMAIL, managerUserId: LISTING_OWNER }),
+        row_data: inProgressRow({ id: "PROPLANE-VICTIM02", email: OTHER_APPLICANT_EMAIL, residentUserId: "victim", managerUserId: LISTING_OWNER }),
         manager_user_id: LISTING_OWNER,
       },
     ];
@@ -258,14 +271,15 @@ describe("POST /api/manager-applications — self-application by a non-resident 
 
 describe("GET /api/manager-applications?scope=self", () => {
   it.each([
+    { id: CALLER, email: "phone@phone.proplane.invalid", user_metadata: {} },
     { id: CALLER, email: CALLER_EMAIL, user_metadata: {} },
     { id: CALLER, email: OTHER_APPLICANT_EMAIL, email_confirmed_at: "confirmed", user_metadata: {} },
-  ])("does not expose application history for unconfirmed or mismatched email", async (user) => {
+  ])("shows exact-owned application despite unconfirmed or changed email", async (user) => {
     getUser.mockResolvedValue({ data: { user }, error: null });
     STORED_ROWS = [{ id: "PROPLANE-SELFAPP1", row_data: inProgressRow(), resident_email: CALLER_EMAIL }];
     const { GET } = await import("@/app/api/manager-applications/route");
     const response = await GET(new Request("http://localhost/api/manager-applications?scope=self"));
-    expect((await response.json()).rows).toEqual([]);
+    expect((await response.json()).rows).toHaveLength(1);
   });
 
   it.each(["manager", "admin"])("does not grant %s reads from editable metadata", async (role) => {
@@ -280,7 +294,7 @@ describe("GET /api/manager-applications?scope=self", () => {
       { id: "PROPLANE-SELFAPP1", row_data: inProgressRow(), resident_email: CALLER_EMAIL },
       {
         id: "PROPLANE-VICTIM01",
-        row_data: inProgressRow({ id: "PROPLANE-VICTIM01", email: OTHER_APPLICANT_EMAIL }),
+        row_data: inProgressRow({ id: "PROPLANE-VICTIM01", email: OTHER_APPLICANT_EMAIL, residentUserId: "victim" }),
         resident_email: OTHER_APPLICANT_EMAIL,
       },
     ];
@@ -369,7 +383,7 @@ describe("protected applicant route boundaries", () => {
   });
   it("rejects a resident claiming another applicant's stored id before opening identity", async () => {
     PROFILE = { role: "resident", email: CALLER_EMAIL };
-    const victim = inProgressRow({ email: OTHER_APPLICANT_EMAIL, managerUserId: LISTING_OWNER });
+    const victim = inProgressRow({ email: OTHER_APPLICANT_EMAIL, residentUserId: "victim", managerUserId: LISTING_OWNER });
     victim.application = { ...victim.application, ssn: "123-45-6789" } as DemoApplicantRow["application"];
     STORED_ROWS = [{ id: victim.id, manager_user_id: LISTING_OWNER, resident_email: OTHER_APPLICANT_EMAIL, row_data: sealApplicantRow(victim, victim.id, LISTING_OWNER) }];
     vi.stubEnv("DATA_ENCRYPTION_KEYS_JSON", "");
@@ -408,7 +422,7 @@ describe("GET normalizes legacy application IDs without losing protected documen
   });
   it("keeps the exact original ID after transaction rejection instead of a dangling or foreign canonical ID", async () => {
     const record = legacyRecord();
-    STORED_ROWS = [record, { id: "PROPLANE-ABC123", manager_user_id: "foreign-manager", resident_email: OTHER_APPLICANT_EMAIL, row_data: inProgressRow({ id: "PROPLANE-ABC123", email: OTHER_APPLICANT_EMAIL }) }];
+    STORED_ROWS = [record, { id: "PROPLANE-ABC123", manager_user_id: "foreign-manager", resident_email: OTHER_APPLICANT_EMAIL, row_data: inProgressRow({ id: "PROPLANE-ABC123", email: OTHER_APPLICANT_EMAIL, residentUserId: "victim" }) }];
     normalizationRpc.mockResolvedValue({ error: { message: "occupied target" } });
     const { GET } = await import("@/app/api/manager-applications/route");
     const response = await GET(new Request("http://localhost/api/manager-applications?scope=self"));

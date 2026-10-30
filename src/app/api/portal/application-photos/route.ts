@@ -116,7 +116,7 @@ async function resolveSession(db: ServiceClient, req: Request): Promise<Resolved
 }
 
 function applicantActor(session: ResolvedSession): Extract<ApplicationPhotoActor, { kind: "resident" }> | null {
-  return (session.kind === "manager" || session.kind === "resident") && session.residentRole && session.email
+  return (session.kind === "manager" || session.kind === "resident") && session.residentRole
     ? { kind: "resident", userId: session.userId, email: session.email } : null;
 }
 

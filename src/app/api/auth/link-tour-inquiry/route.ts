@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
-import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
 import { getEffectiveSessionForPortal } from "@/lib/auth/effective-session";
 import { ensureMayAccessResidentPortal } from "@/lib/auth/ensure-resident-portal-access.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { linkTourInquiryToResident, residentHasExactTourLink } from "@/lib/tour-resident-link.server";
+import { residentHasExactTourLink } from "@/lib/tour-resident-link.server";
 
 export const runtime = "nodejs";
 
 /** Link a tour inquiry to the signed-in resident account (record + email gate). */
 export async function POST(req: Request) {
   try {
-    const { user, profile } = await getEffectiveSessionForPortal("resident");
+    const { user } = await getEffectiveSessionForPortal("resident");
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const db = createSupabaseServiceRoleClient();
@@ -19,10 +18,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
-    const email = verifiedSessionEmail(user, profile?.email);
-    if (!email.includes("@")) {
-      return NextResponse.json({ error: "Profile email required." }, { status: 400 });
-    }
 
     let body: { tourInquiryId?: unknown } = {};
     try {
@@ -36,15 +31,7 @@ export async function POST(req: Request) {
     }
 
     if (!(await residentHasExactTourLink(db, user.id, tourInquiryId))) return NextResponse.json({ error: "This tour is not linked to your account." }, { status: 403 });
-    const result = await linkTourInquiryToResident(db, {
-      userId: user.id,
-      inquiryId: tourInquiryId,
-      email,
-    });
-    if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: result.status });
-    }
-    return NextResponse.json({ ok: true, inquiryId: result.inquiryId });
+    return NextResponse.json({ ok: true, inquiryId: tourInquiryId });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to link tour.";
     return NextResponse.json({ error: message }, { status: 500 });

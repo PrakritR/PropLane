@@ -39,7 +39,6 @@ export type ApplicationPhotoActor =
   | { kind: "resident"; email: string; userId: string }
   | { kind: "guest"; email: string };
 
-const norm = (value: string | null | undefined): string => (value ?? "").trim().toLowerCase();
 
 /**
  * The single security decision: may this actor touch this application's photos?
@@ -55,8 +54,7 @@ export function canActorAccessApplicationPhoto(
 
   if (actor.kind === "guest") return false;
   if (actor.kind === "resident") {
-    const applicantEmail = norm(app.residentEmail);
-    return Boolean(actor.userId && app.residentUserId === actor.userId && applicantEmail && applicantEmail === norm(actor.email));
+    return Boolean(actor.userId && app.residentUserId === actor.userId);
   }
 
   // manager / owner / pro

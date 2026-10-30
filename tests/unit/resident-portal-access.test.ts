@@ -132,6 +132,14 @@ describe("resident portal access state", () => {
     expect(access.hasSubmittedApplication).toBe(false);
   });
 
+  it("recognizes an exact subject-bound application without a mailbox", async () => {
+    const db = makeDbMock({ applicationRows: [{ row_data: { id: "OWN", residentUserId: "phone-user", bucket: "approved", stage: "Approved" } }] });
+    db.auth.admin.getUserById.mockResolvedValueOnce({ data: { user: { email: "phone@phone.proplane.invalid", email_confirmed_at: "" } }, error: null });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    const access = await loadResidentPortalAccessState({ userId: "phone-user", role: "resident", email: "phone@phone.proplane.invalid" });
+    expect(access.applicationApproved).toBe(true);
+  });
+
   it("never derives access from a stale profile application id owned by another email", async () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(makeDbMock({ profile: { manager_id: "PROPLANE-OTHER", application_approved: false }, axisRecord: { resident_email: "victim@example.com", row_data: { id: "PROPLANE-OTHER", bucket: "approved", stage: "Approved" } } }) as never);
     const access = await loadResidentPortalAccessState({ userId: "user-1", role: "resident", email: "resident@example.com" });
@@ -139,8 +147,8 @@ describe("resident portal access state", () => {
     expect(access.applicationApproved).toBe(false);
   });
 
-  it("accepts the exact owned email on the legacy application fallback", async () => {
-    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(makeDbMock({ profile: { manager_id: "PROPLANE-OWN", application_approved: false }, axisRecord: { resident_email: " Resident@Example.com ", row_data: { id: "PROPLANE-OWN", bucket: "approved", stage: "Approved" } } }) as never);
+  it("accepts the exact owned subject on the legacy application fallback", async () => {
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(makeDbMock({ profile: { manager_id: "PROPLANE-OWN", application_approved: false }, axisRecord: { resident_email: " Resident@Example.com ", row_data: { id: "PROPLANE-OWN", residentUserId: "user-1", bucket: "approved", stage: "Approved" } } }) as never);
     const access = await loadResidentPortalAccessState({ userId: "user-1", role: "resident", email: "resident@example.com" });
     expect(access.hasSubmittedApplication).toBe(true);
     expect(access.applicationApproved).toBe(true);
@@ -193,6 +201,7 @@ describe("resident portal access state", () => {
             updated_at: "2026-01-01T00:00:00Z",
             row_data: {
               id: "AXIS-ABC123",
+              residentUserId: "user-1",
               email: "resident@example.com",
               bucket: "pending",
               stage: "Submitted",
@@ -229,6 +238,7 @@ describe("resident portal access state", () => {
             updated_at: "2026-01-01T00:00:00Z",
             row_data: {
               id: "AXIS-DRAFT1",
+              residentUserId: "user-1",
               email: "resident@example.com",
               bucket: "pending",
               stage: "In progress",
@@ -295,6 +305,7 @@ describe("resident portal access state", () => {
             resident_email: "second-apply@example.com",
             row_data: {
               id: "AXIS-NEWDRAFT",
+              residentUserId: "user-second",
               email: "second-apply@example.com",
               bucket: "pending",
               stage: "In progress",
@@ -306,6 +317,7 @@ describe("resident portal access state", () => {
             resident_email: "second-apply@example.com",
             row_data: {
               id: "AXIS-APPROVED",
+              residentUserId: "user-second",
               email: "second-apply@example.com",
               bucket: "approved",
               stage: "Approved",
@@ -370,6 +382,7 @@ describe("resident portal access state", () => {
       updated_at: "2026-01-01T00:00:00Z",
       row_data: {
         id: "PROPLANE-MULTI1",
+        residentUserId: "user-both",
         email: "both@example.com",
         bucket: "approved",
         stage: "Approved",

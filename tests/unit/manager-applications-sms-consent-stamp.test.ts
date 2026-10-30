@@ -147,6 +147,7 @@ function application(over: Partial<RentalWizardFormState> = {}): RentalWizardFor
 function residentRow(over: Partial<DemoApplicantRow> = {}): DemoApplicantRow {
   return {
     id: "AXIS-90210",
+    residentUserId: "resident-user-1",
     name: "Maya Alvarez",
     email: "maya.alvarez@example.com",
     property: "The Magnolia · 2B",

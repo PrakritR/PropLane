@@ -71,47 +71,8 @@ export async function authorizeResidentRole(
   return holdsResidentRole(db, userId);
 }
 
-/**
- * Effective role for a route that serves BOTH the manager and the resident
- * portal (`/api/portal-work-orders`, `/api/portal-service-requests`,
- * `/api/portal-lease-pipeline`), where the role picks a branch in both
- * directions: `!== "resident"` selects the manager's portfolio-wide read,
- * `=== "resident"` applies the resident scope. Both branches must read the SAME
- * value — resolving only the inequality side leaves the query unscoped and
- * returns other people's rows.
- *
- * `profiles.role` alone answers "manager" for a manager+resident in either
- * portal, which is why the resident Add-on services tab rendered the manager's
- * rows. `profile_roles` alone answers "resident" in BOTH portals, which would
- * break the same account's manager portal instead. The tiebreak is the portal
- * the request came from, which is what `getPortalAccessContext().effectiveRole`
- * already resolves: a single-role account resolves to its one role, and
- * `assertPortalLayoutRole` refuses to render any portal layout for a multi-role
- * account until `axis_active_portal` names that portal.
- *
- * That signal only ever NARROWS. Once `authorizeResidentRole` has proven the
- * account holds the resident role, an unreadable or self-contradictory portal
- * context resolves to `"resident"`, never back to the legacy value: adopting
- * the legacy `"manager"` there is exactly the broader-access, wrong-data
- * outcome this function exists to prevent. `getPortalAccessContext` degrades
- * silently — on a `profile_roles` read error it falls back to the legacy
- * `profiles.role`, yielding `effectiveRole: "manager"` with no thrown error —
- * so the mismatch between its role list and the service-role read above is the
- * signal that its answer cannot be trusted.
- *
- * ONE-DIRECTIONAL, on purpose. A legacy `"resident"` returns immediately with no
- * `profile_roles` read and no active-portal tiebreak, which keeps the hot path
- * query-free for the single-role resident. So this corrects an account CREATED
- * as a manager that also holds the resident role, but not the mirror: an account
- * created as a resident that later gains the manager role
- * (`profiles.role='resident'`, `profile_roles=['resident','manager']`) resolves
- * to `"resident"` on the dual-audience routes even while acting in the manager
- * portal — those routes return only its own resident rows, and a lease create
- * writes its own email rather than its tenant's. That is pre-existing rather
- * than introduced here, the cohort is empty in production today, and closing it
- * would add a `profile_roles` read to every single-role resident request.
- * Tracked as `axis-legacy-resident-role-mirror-cohort`.
- */
+/** Resolve dual-audience API access from stored roles. Multi-role portal context
+ * narrows that capability; an unavailable context falls back to resident scope. */
 export async function resolveResidentScopedActorRole(
   db: ServiceRoleClient,
   params: { userId: string | null | undefined; legacyRole: string | null | undefined },

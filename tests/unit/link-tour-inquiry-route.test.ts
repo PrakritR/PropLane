@@ -88,16 +88,12 @@ describe("POST /api/auth/link-tour-inquiry", () => {
     );
     expect(res.status).toBe(200);
     expect(ensureMayAccessResidentPortal).toHaveBeenCalled();
-    expect(linkTourInquiryToResident).toHaveBeenCalledWith(expect.anything(), {
-      userId: "mgr-1",
-      inquiryId: "inq-1",
-      email: "mgr@example.com",
-    });
+    expect(residentHasExactTourLink).toHaveBeenCalledWith(expect.anything(), expect.any(String), "inq-1");
   });
 
   it("links a tour for authenticated residents", async () => {
     vi.mocked(getEffectiveSessionForPortal).mockResolvedValue({
-      user: { id: "res-1", email: "res@example.com", email_confirmed_at: "confirmed" },
+      user: { id: "res-1", email: "phone@phone.proplane.invalid" },
       profile: { role: "resident", email: "res@example.com" },
     } as never);
     accessContext(["resident"]);
@@ -109,10 +105,6 @@ describe("POST /api/auth/link-tour-inquiry", () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(linkTourInquiryToResident).toHaveBeenCalledWith(expect.anything(), {
-      userId: "res-1",
-      inquiryId: "inq-1",
-      email: "res@example.com",
-    });
+    expect(residentHasExactTourLink).toHaveBeenCalledWith(expect.anything(), expect.any(String), "inq-1");
   });
 });

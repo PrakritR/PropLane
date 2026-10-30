@@ -102,7 +102,7 @@ describe("canActorAccessApplicationPhoto — applicant + admin", () => {
   });
 
   it("DENIES a resident whose email does not match the application", () => {
-    const other: ApplicationPhotoActor = { kind: "resident", userId: "resident", email: "someone-else@example.com" };
+    const other: ApplicationPhotoActor = { kind: "resident", userId: "other", email: "someone-else@example.com" };
     expect(canActorAccessApplicationPhoto(other, appForManagerA)).toBe(false);
   });
 
@@ -112,7 +112,7 @@ describe("canActorAccessApplicationPhoto — applicant + admin", () => {
   });
 
   it("never matches an application that has no applicant email", () => {
-    const resident: ApplicationPhotoActor = { kind: "resident", userId: "resident", email: "" };
+    const resident: ApplicationPhotoActor = { kind: "resident", userId: "other", email: "" };
     const noEmailApp: StoredApplicationOwnership = { ...appForManagerA, residentEmail: null };
     expect(canActorAccessApplicationPhoto(resident, noEmailApp)).toBe(false);
   });
@@ -251,7 +251,7 @@ describe("authorizeApplicationPhotoWrite", () => {
 
   it("DENIES a foreign manager and a mismatched resident even on a pending row", () => {
     expect(authorizeApplicationPhotoWrite({ actor: managerB, row: pendingRow })).toBe(false);
-    const other: ApplicationPhotoActor = { kind: "resident", userId: "resident", email: "someone-else@example.com" };
+    const other: ApplicationPhotoActor = { kind: "resident", userId: "other", email: "someone-else@example.com" };
     expect(authorizeApplicationPhotoWrite({ actor: other, row: pendingRow })).toBe(false);
   });
 });

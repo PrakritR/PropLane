@@ -904,9 +904,6 @@ export async function GET(req: Request) {
     // using their own workspace reads exactly what a manager does: their own and
     // granted houses, narrowed to the active workspace.
     const adminOversight = (await resolveAdminOversight(req, user.id, admin)) && !selfScope;
-    if (!email && (selfScope || (!admin && role === "resident"))) {
-      return NextResponse.json({ rows: [] });
-    }
 
     let data: { id: string; row_data: unknown }[] | null = null;
     let error: { message: string } | null = null;
@@ -919,7 +916,7 @@ export async function GET(req: Request) {
       const result = await db
         .from("manager_application_records")
         .select("id, row_data, occupancy_start, resident_email, manager_user_id, property_id, assigned_property_id, updated_at")
-        .eq("resident_email", email)
+        .eq("row_data->>residentUserId", user.id)
         .order("updated_at", { ascending: false })
         .limit(APPLICATIONS_READ_LIMIT);
       data = result.data;
@@ -1211,26 +1208,14 @@ export async function POST(req: Request) {
       }
 
       const admin = await isAdminUser(user.id);
-      const { email } = await resolvePortalRole(db, user);
-      // Ownership here is by EMAIL, never by active/primary portal role. A
-      // multi-role account (a manager or vendor who ALSO applied as a resident)
-      // keeps its legacy `profiles.role` = manager/owner even while acting in
-      // its resident portal, yet it still owns any application carrying its own
-      // email — and the resident applications list shows the row on exactly that
-      // email match. Gating on `role === "resident"` contradicted the list: it
-      // rejected the genuine applicant with "Only the applicant can withdraw"
-      // whenever their primary role wasn't resident (the self-contradictory
-      // "it's in my list but I can't withdraw it" bug). The authoritative gate
-      // is the per-record `rowEmail === email` check below — a manager
-      // withdrawing SOMEONE ELSE's application still fails there and uses Reject.
+      // A resident may withdraw only an application bound to this Auth subject.
 
       const withdrawnAt = new Date().toISOString();
       let withdrawn = 0;
       for (const record of records) {
         const stored = (record.row_data ?? {}) as DemoApplicantRow;
         if (!admin) {
-          const rowEmail = (stored.email ?? record.resident_email ?? "").trim().toLowerCase();
-          if (!email || rowEmail !== email) {
+          if (stored.residentUserId !== user.id) {
             return NextResponse.json({ error: "You can only withdraw your own application." }, { status: 403 });
           }
           if (stored.bucket !== "pending") {
@@ -1416,14 +1401,13 @@ export async function POST(req: Request) {
     let authorizedWriteRecord: StoredApplicationRecord | null = null;
     if (role !== "resident") {
       const rowEmail = (row.email ?? "").trim().toLowerCase();
-      if (Boolean(email) && rowEmail === email && row.bucket === "pending") {
+      if (row.bucket === "pending") {
         const selfStored = await loadStoredApplicationRecord(db, requestedRowId);
         if (selfStored.error) {
           return NextResponse.json({ error: "Could not load the existing application." }, { status: 500 });
         }
         const stored = (selfStored.record?.row_data ?? null) as DemoApplicantRow | null;
-        const storedEmail = (stored?.email ?? "").trim().toLowerCase();
-        selfApplicationWrite = !stored || (stored.bucket === "pending" && (!storedEmail || storedEmail === email));
+        selfApplicationWrite = stored ? stored.bucket === "pending" && stored.residentUserId === user.id : Boolean(email) && rowEmail === email;
       }
     }
     if (role === "resident" || selfApplicationWrite) {

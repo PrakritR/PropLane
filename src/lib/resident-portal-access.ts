@@ -158,14 +158,15 @@ function latestApplicationOf(owned: OwnedApplication[]): {
 export async function loadResidentManagerAttestedTenancy(
   email: string,
   managerUserId?: string,
+  residentUserId?: string,
 ): Promise<boolean> {
   const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail) return false;
+  if (!residentUserId && !normalizedEmail) return false;
   const db = createSupabaseServiceRoleClient();
   let query = db
     .from("portal_lease_pipeline_records")
-    .select("row_data")
-    .eq("resident_email", normalizedEmail);
+    .select("row_data");
+  query = residentUserId ? query.eq("resident_user_id", residentUserId) : query.eq("resident_email", normalizedEmail);
   if (managerUserId) query = query.eq("manager_user_id", managerUserId);
   const { data } = await query.order("updated_at", { ascending: false });
   return (data ?? []).some((record) => {
@@ -189,14 +190,12 @@ export function leaseRowIsMidRenewal(row: Record<string, unknown>): boolean {
   return Array.isArray(row.signedLeaseSnapshots) && row.signedLeaseSnapshots.length > 0;
 }
 
-export async function loadResidentLeaseSignedStatus(email: string, managerUserId?: string): Promise<boolean> {
+export async function loadResidentLeaseSignedStatus(email: string, managerUserId?: string, residentUserId?: string): Promise<boolean> {
   const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail) return false;
+  if (!residentUserId && !normalizedEmail) return false;
   const db = createSupabaseServiceRoleClient();
-  let query = db
-    .from("portal_lease_pipeline_records")
-    .select("row_data")
-    .eq("resident_email", normalizedEmail);
+  let query = db.from("portal_lease_pipeline_records").select("row_data");
+  query = residentUserId ? query.eq("resident_user_id", residentUserId) : query.eq("resident_email", normalizedEmail);
   if (managerUserId) query = query.eq("manager_user_id", managerUserId);
   const { data } = await query.order("updated_at", { ascending: false });
   if (!data?.length) return false;
@@ -259,11 +258,11 @@ const loadResidentPortalAccessStateCached = cache(
     let applicationQuery = db
       .from("manager_application_records")
       .select("row_data, updated_at, resident_email, manager_user_id")
-      .eq("resident_email", email);
+      .eq("row_data->>residentUserId", userId);
     if (managerUserId) applicationQuery = applicationQuery.eq("manager_user_id", managerUserId);
     const [applicationResult, leaseSigned, hasTourLink, hasStays] = await Promise.all([
-      email ? applicationQuery.order("updated_at", { ascending: false }) : Promise.resolve({ data: [] }),
-      email ? loadResidentLeaseSignedStatus(email, managerUserId ?? undefined) : Promise.resolve(false),
+      userId ? applicationQuery.order("updated_at", { ascending: false }) : Promise.resolve({ data: [] }),
+      userId ? loadResidentLeaseSignedStatus(email, managerUserId ?? undefined, userId) : Promise.resolve(false),
       userId ? residentHasTourLinks(db, userId, email) : Promise.resolve(false),
       userId ? residentHasStays(db, userId) : Promise.resolve(false),
     ]);
@@ -304,10 +303,9 @@ const loadResidentPortalAccessStateCached = cache(
 
         if (
           axisRecord?.row_data &&
-          typeof axisRecord.resident_email === "string" &&
-          axisRecord.resident_email.trim().toLowerCase() === email &&
           typeof axisRecord.row_data === "object" &&
           !Array.isArray(axisRecord.row_data) &&
+          (axisRecord.row_data as Record<string, unknown>).residentUserId === userId &&
           (!managerUserId || axisRecord.manager_user_id === managerUserId)
         ) {
           const axisRow = axisRecord.row_data as Record<string, unknown>;
@@ -336,7 +334,7 @@ const loadResidentPortalAccessStateCached = cache(
     // either (PRP-239).
     const attestedTenancy = leaseSigned
       ? false
-      : email ? await loadResidentManagerAttestedTenancy(email, managerUserId ?? undefined) : false;
+      : userId ? await loadResidentManagerAttestedTenancy(email, managerUserId ?? undefined, userId) : false;
     const leaseAccessUnlocked = leaseSigned || attestedTenancy;
     const isPreLeaseResident =
       roleOk &&

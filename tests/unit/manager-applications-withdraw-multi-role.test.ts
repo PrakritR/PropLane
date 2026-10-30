@@ -89,6 +89,7 @@ const APP_ID = "PROPLANE-625089C2";
 function storedRow(over: Partial<DemoApplicantRow> = {}): DemoApplicantRow {
   return {
     id: APP_ID,
+    residentUserId: "multi-role-user-1",
     name: "ambika Mago",
     email: APPLICANT_EMAIL,
     property: "4709A 8th Ave NE",

@@ -536,7 +536,7 @@ export async function findResidentPropertyManagerThreadId(
   input: { residentUserId: string; residentEmail: string; managerUserId: string; managerEmail: string; propertyId: string },
 ): Promise<string | null> {
   const residentEmail = input.residentEmail.trim().toLowerCase();
-  if (!residentEmail.includes("@") || !input.managerUserId.trim() || !input.propertyId.trim()) return null;
+  if (!input.residentUserId.trim() || !input.managerUserId.trim() || !input.propertyId.trim()) return null;
   const target = await resolvePropertyManagerThread(db, {
     side: "resident",
     residentEmail,

@@ -107,15 +107,15 @@ describe("application document authorized upload/download", () => {
     expect((await read()).status).toBe(404);
   });
 
-  it("requires confirmed Auth email and the exact resident subject, regardless of metadata", async () => {
+  it("requires the exact resident subject, regardless of email or metadata", async () => {
     await attachEncryptedDocument();
     mocks.roles = ["resident"];
-    mocks.user = { id: "resident", email: "resident@example.test" };
-    expect((await read()).status).toBe(404);
+    mocks.user = { id: "resident", email: "phone@phone.proplane.invalid" };
+    expect((await read()).status).toBe(200);
     mocks.user = { id: "different", email: "resident@example.test", email_confirmed_at: "2026-01-01" };
     expect((await read()).status).toBe(404);
     mocks.user = { id: "resident", email: "other@example.test", email_confirmed_at: "2026-01-01" };
-    expect((await read()).status).toBe(404);
+    expect((await read()).status).toBe(200);
     mocks.roles = [];
     mocks.user = { id: "attacker", email: "resident@example.test", email_confirmed_at: "2026-01-01", user_metadata: { role: "manager" } };
     expect((await read()).status).toBe(404);

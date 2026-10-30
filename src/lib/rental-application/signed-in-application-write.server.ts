@@ -345,9 +345,6 @@ export async function prepareResidentSelfWrite(
   let row = input.row;
   const refuse = (status: number, body: Record<string, unknown>): ApplicationWriteRefusal => ({ ok: false, status, body });
   const rowEmail = (row.email ?? "").trim().toLowerCase();
-  if (!email || rowEmail !== email) {
-    return refuse(403, { error: "You can only update your own application." });
-  }
   const ids = idVariants(requestedRowId);
   const { data: records, error: loadError } = await db
     .from("manager_application_records")
@@ -356,7 +353,7 @@ export async function prepareResidentSelfWrite(
     .limit(1);
   if (loadError) return refuse(500, { error: loadError.message });
   const existing = records?.[0]?.row_data as DemoApplicantRow | undefined;
-  if (existing && String(records?.[0]?.resident_email ?? existing.email ?? "").trim().toLowerCase() !== email) {
+  if (existing ? existing.residentUserId !== user.id : (!email || rowEmail !== email)) {
     return refuse(403, { error: "You can only update your own application." });
   }
   if (existing && existing.bucket !== "pending") {
@@ -371,6 +368,7 @@ export async function prepareResidentSelfWrite(
     bucket: "pending",
     // The login bound to this application is the authenticated writer's own, never a client-supplied id.
     residentUserId: existing?.residentUserId ?? user.id,
+    email: existing ? (String(records?.[0]?.resident_email ?? existing.email ?? "")) : row.email,
     withdrawnAt: existing?.withdrawnAt ?? row.withdrawnAt,
     // Manager-assigned placement: never from the applicant, only what the manager stored.
     assignedPropertyId: existing?.assignedPropertyId,

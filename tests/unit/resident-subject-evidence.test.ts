@@ -20,7 +20,7 @@ describe("resident subject evidence", () => {
     expect(await residentSubjectManagerIds(service as never, "new-user", "r@example.test")).toEqual([]);
     expect(await residentSubjectHasHouse(service as never, "new-user", "r@example.test", "manager", "home")).toBe(false);
   });
-  it.each([["other@example.test", true], ["r@example.test", false]])("requires the confirmed Auth mailbox", async (authEmail, confirmed) => {
-    expect(await residentSubjectHasHouse(db("old-user", authEmail, confirmed) as never, "old-user", "r@example.test", "manager", "home")).toBe(false);
+  it.each([["other@example.test", true], ["r@example.test", false]])("uses exact subject even without a confirmed matching mailbox", async (authEmail, confirmed) => {
+    expect(await residentSubjectHasHouse(db("old-user", authEmail, confirmed) as never, "old-user", "r@example.test", "manager", "home")).toBe(true);
   });
 });
