@@ -1,7 +1,6 @@
 import { pendingAccountRecovery } from "@/lib/auth/account-recovery.server";
 import { randomBytes } from "node:crypto";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
-import { migratePortalUserId } from "@/lib/auth/migrate-portal-user-id";
 import { primaryRoleWhenAddingVendor } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { generateAxisId } from "@/lib/manager-id";
@@ -313,7 +312,7 @@ export async function provisionVendorAccountByEmail(
 
   const existingAuthId = await findAuthUserIdByEmail(supabase, normalEmail);
   if (existingAuthId && existingAuthId !== opts.userId) {
-    await migratePortalUserId(supabase, existingAuthId, opts.userId);
+    return { ok: false, status: 403, error: "Sign in with the account that owns this email before continuing." };
   }
 
   const { data: existingAuth } = await supabase.auth.admin.getUserById(opts.userId);
@@ -321,7 +320,6 @@ export async function provisionVendorAccountByEmail(
   const axisId = metadata?.axis_id?.toString() ?? generateAxisId();
 
   await supabase.auth.admin.updateUserById(opts.userId, {
-    ...(opts.confirmEmail === false ? {} : { email_confirm: true }),
     user_metadata: {
       ...(metadata ?? {}),
       role: "vendor",
