@@ -21,6 +21,7 @@ const state = {
   upserted: [] as Row[],
   deletedIds: [] as string[],
   conflict: false,
+  readError: false,
   filters: [] as Array<[string, unknown]>,
 };
 
@@ -65,7 +66,7 @@ vi.mock("@/lib/supabase/service", () => ({
         return {
           select: () => ({
             eq: (_col: string, id: string) => ({
-              maybeSingle: async () => ({ data: state.rows.get(id) ?? null }),
+              maybeSingle: async () => ({ data: state.readError ? null : state.rows.get(id) ?? null, error: state.readError ? { message: "read failed" } : null }),
             }),
           }),
           insert: async (row: Row) => {
@@ -109,6 +110,7 @@ beforeEach(() => {
   state.upserted = [];
   state.deletedIds = [];
   state.conflict = false;
+  state.readError = false;
   state.filters = [];
   getUser.mockResolvedValue({ data: { user: { id: "mgr-1", email: "mgr@test.local" } } });
 });
@@ -169,4 +171,13 @@ it("refuses a stale manager edit after a concurrent row update", async () => {
   expect(state.filters).toContainEqual(["row_revision", 9]);
   expect(state.filters).toContainEqual(["manager_user_id", "mgr-1"]);
   expect(state.upserted).toEqual([]);
+});
+
+
+it("reports an ownership read failure instead of claiming deletion", async () => {
+  resolveManagerWorkspaceRowScope.mockResolvedValue({ propertyIds: ["prop-a"], untaggedOwnedVisible: true });
+  state.readError = true;
+  const response = await post({ action: "delete", id: "sr-1" });
+  expect(response.status).toBe(500);
+  expect(state.deletedIds).toEqual([]);
 });

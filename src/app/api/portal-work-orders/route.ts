@@ -744,11 +744,12 @@ export async function POST(req: Request) {
     if (body.action === "delete") {
       const id = body.id?.trim();
       if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-      const { data: existing } = await db
+      const { data: existing, error: readError } = await db
         .from("portal_work_order_records")
         .select("manager_user_id, resident_user_id, resident_email, row_data, row_revision")
         .eq("id", id)
         .maybeSingle();
+      if (readError) return NextResponse.json({ error: "Could not verify the request; please retry." }, { status: 500 });
       if (!existing) return NextResponse.json({ ok: true });
       if (!(await actorMayWriteRecord(existing))) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
