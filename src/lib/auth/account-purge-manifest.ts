@@ -47,6 +47,10 @@ export type PurgeTableRule = {
 };
 
 export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
+  { table: "resident_identity_webhook_events", phase: 1, resident: { ids: ["resident_user_id"] } },
+  { table: "resident_identity_manual_reviews", phase: 1, resident: { ids: ["resident_user_id"] } },
+  { table: "resident_identity_inquiries", phase: 2, resident: { ids: ["resident_user_id"] } },
+  { table: "resident_identity_subjects", phase: 3, resident: { ids: ["resident_user_id"] } },
   {
     table: "sms_projection_ambiguous_aliases",
     phase: 1,
