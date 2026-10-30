@@ -24,6 +24,11 @@ describe("verified signup continuation", () => {
     expect(await (await POST()).json()).toEqual({ role: "application", applicationId: "APP-123" });
     expect(m.filters).toContainEqual(["user_id", "resident"]);
   });
+  it("returns the exact bound tour inquiry", async () => {
+    m.user.mockResolvedValue({ data: { user: { id: "resident", email_confirmed_at: "2026-01-01" } } });
+    m.claim.mockResolvedValue({ data: { intent: "tour", tour_inquiry_id: "tour-123" }, error: null });
+    expect(await (await POST()).json()).toEqual({ role: "tour", tourInquiryId: "tour-123" });
+  });
   it("does not route on replay or a different user's claim", async () => {
     m.user.mockResolvedValue({ data: { user: { id: "other", email_confirmed_at: "2026-01-01" } } });
     m.claim.mockResolvedValue({ data: null, error: null });

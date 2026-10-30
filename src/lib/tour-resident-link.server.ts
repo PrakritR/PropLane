@@ -248,7 +248,8 @@ export async function attachInboxThreadsToResident(db: Db, userId: string, email
   await db
     .from("portal_inbox_thread_records")
     .update({ owner_user_id: userId, updated_at: new Date().toISOString() })
-    .in("id", ids);
+    .in("id", ids)
+    .is("owner_user_id", null);
 }
 
 type InboxThreadMessage = {

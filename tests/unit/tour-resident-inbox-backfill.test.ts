@@ -7,7 +7,8 @@ describe("attachInboxThreadsToResident", () => {
   });
 
   it("backfills owner_user_id on pre-account inbox threads for the email", async () => {
-    const updateIn = vi.fn().mockResolvedValue({ error: null });
+    const updateIs = vi.fn().mockResolvedValue({ error: null });
+    const updateIn = vi.fn().mockReturnValue({ is: updateIs });
     const selectChain = {
       eq: vi.fn().mockReturnThis(),
       is: vi.fn().mockReturnThis(),
@@ -30,5 +31,6 @@ describe("attachInboxThreadsToResident", () => {
 
     await attachInboxThreadsToResident(db as never, "user-abc", "guest@example.com");
     expect(updateIn).toHaveBeenCalledWith("id", ["thread-1", "thread-2"]);
+    expect(updateIs).toHaveBeenCalledWith("owner_user_id", null);
   });
 });

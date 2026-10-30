@@ -50,7 +50,7 @@ function ContinueContent() {
 
         const handoff = await fetch("/api/auth/email-onboarding/continue", { method: "POST" });
         if (handoff.ok) {
-          const body = await handoff.json().catch(() => ({})) as { role?: unknown; applicationId?: unknown; checkoutSessionId?: unknown; propertyId?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown; tier?: unknown; billing?: unknown };
+          const body = await handoff.json().catch(() => ({})) as { role?: unknown; tourInquiryId?: unknown; applicationId?: unknown; checkoutSessionId?: unknown; propertyId?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown; tier?: unknown; billing?: unknown };
           if (body.role === "application" && typeof body.applicationId === "string" && body.applicationId.length <= 200) {
             window.location.replace(`/resident/applications?open=${encodeURIComponent(body.applicationId)}`);
             return;
@@ -59,8 +59,8 @@ function ContinueContent() {
             window.location.replace(`/auth/create-account?mode=create&role=manager&session_id=${encodeURIComponent(body.checkoutSessionId)}`);
             return;
           }
-          if (body.role === "tour") {
-            window.location.replace("/resident/tour/pending");
+          if (body.role === "tour" && typeof body.tourInquiryId === "string" && body.tourInquiryId.length <= 200) {
+            window.location.replace(`/resident/tour/pending/${encodeURIComponent(body.tourInquiryId)}`);
             return;
           }
           if (body.role === "resident" || body.role === "manager" || body.role === "vendor") {

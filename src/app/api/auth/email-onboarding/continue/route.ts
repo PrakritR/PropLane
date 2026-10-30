@@ -16,7 +16,12 @@ export async function POST() {
   const db = createSupabaseServiceRoleClient();
   const { data, error } = await db.from("email_onboarding_handoffs").update({ status: "consumed" })
     .eq("id", id).eq("user_id", user.id).eq("status", "completed")
-    .gt("expires_at", new Date().toISOString()).select("intent, application_id, manager_purchase_id, property_id, listing_room_id, bundle_id, application_form_id, rental_type, tier, billing").maybeSingle();
+    .gt("expires_at", new Date().toISOString()).select("intent, application_id, tour_inquiry_id, manager_purchase_id, property_id, listing_room_id, bundle_id, application_form_id, rental_type, tier, billing").maybeSingle();
+  if (!error && data?.intent === "tour" && typeof data.tour_inquiry_id === "string") {
+    const tourResponse = NextResponse.json({ role: "tour", tourInquiryId: data.tour_inquiry_id });
+    tourResponse.cookies.delete("proplane_signup_handoff");
+    return tourResponse;
+  }
   if (!error && data?.intent === "application" && typeof data.application_id === "string") {
     const applicationResponse = NextResponse.json({ role: "application", applicationId: data.application_id });
     applicationResponse.cookies.delete("proplane_signup_handoff");
