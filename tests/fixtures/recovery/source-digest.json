@@ -1,0 +1,9 @@
+{
+  "sha256": "c5d93ae4bcd3ef5439bc107cc4e10cb8eb4bddb14a263ed69266f714eae9261f",
+  "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE; plus purge manifest and recovery policy",
+  "missing_dev_catalog": [
+    "payment_reminder_occurrences",
+    "phone_required_skips",
+    "scheduled_inbox_channel_deliveries"
+  ]
+}
