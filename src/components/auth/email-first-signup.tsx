@@ -10,12 +10,13 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { nativeAwarePath } from "@/lib/auth/native-auth-entry";
 import { isUnsafeRedirectPath } from "@/lib/auth/normalize-post-auth-path";
 
-type Intent = "generic" | "resident" | "manager" | "vendor";
-const endpoint: Record<Intent, string> = { generic: "/api/auth/signup", resident: "/api/auth/resident-register", manager: "/api/auth/manager-register", vendor: "/api/auth/vendor-register" };
-const destination: Record<Intent, string> = { generic: "/auth/continue", resident: "/resident/applications", manager: "/portal", vendor: "/vendor/onboarding" };
+type Intent = "generic" | "resident" | "manager" | "vendor" | "manager_paid" | "tour";
+type ListingContext = { propertyId?: string; listingRoomId?: string; bundleId?: string; applicationFormId?: string; rentalType?: string };
+const endpoint: Record<Intent, string> = { generic: "/api/auth/signup", resident: "/api/auth/resident-register", manager: "/api/auth/manager-register", vendor: "/api/auth/vendor-register", manager_paid: "/api/auth/manager-signup", tour: "/api/auth/tour-resident-register" };
+const destination: Record<Intent, string> = { generic: "/auth/continue", resident: "/resident/applications", manager: "/portal", vendor: "/vendor/onboarding", manager_paid: "/portal", tour: "/resident/tour/pending" };
 
-export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, propertyId, disabled = false, hideLegalFooter = false }: {
-  intent: Intent; initialEmail?: string; tier?: string; billing?: "monthly" | "annual"; propertyId?: string; disabled?: boolean; hideLegalFooter?: boolean;
+export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, listing, checkoutSessionId, tourInquiryId, disabled = false, hideLegalFooter = false }: {
+  intent: Intent; initialEmail?: string; tier?: string; billing?: "monthly" | "annual"; listing?: ListingContext; checkoutSessionId?: string; tourInquiryId?: string; disabled?: boolean; hideLegalFooter?: boolean;
 }) {
   const [email, setEmail] = useState(initialEmail);
   const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
@@ -30,16 +31,16 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, pro
     let alive = true;
     void createSupabaseBrowserClient().auth.getUser().then(({ data }) => {
       if (!alive) return;
-      if (data.user?.email_confirmed_at && data.user.email) setVerifiedEmail(data.user.email);
+      if (intent !== "tour" && data.user?.email_confirmed_at && data.user.email) setVerifiedEmail(data.user.email);
     }).catch(() => undefined).finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, []);
+  }, [intent]);
   async function submit() {
     if (busy || disabled) return;
     setError(null);
     const normalized = (verifiedEmail ?? email).trim().toLowerCase();
     if (!normalized.includes("@")) { setError("Enter a valid email address."); return; }
-    if (verifiedEmail && (!name.trim() || phone.replace(/\D/g, "").length < 10)) {
+    if (verifiedEmail && intent !== "manager_paid" && (!name.trim() || phone.replace(/\D/g, "").length < 10)) {
       setError("Enter your name and a valid phone number."); return;
     }
     setBusy(true);
@@ -47,16 +48,22 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, pro
       const res = await fetch(verifiedEmail ? endpoint[intent] : "/api/auth/email-onboarding/start", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(verifiedEmail
-          ? { email: normalized, fullName: name.trim(), phone: phone.trim(), ...(intent === "manager" ? { tier } : {}) }
-          : { email: normalized, intent, ...(intent === "manager" ? { tier, billing } : {}), ...(intent === "resident" && propertyId ? { propertyId } : {}) }),
+          ? intent === "manager_paid" ? { sessionId: checkoutSessionId } : { email: normalized, fullName: name.trim(), phone: phone.trim(), ...(intent === "manager" ? { tier } : {}) }
+          : { email: normalized, intent, ...(intent === "manager" ? { tier, billing } : {}), ...(intent === "resident" ? listing : {}), ...(intent === "manager_paid" ? { checkoutSessionId } : {}), ...(intent === "tour" ? { tourInquiryId } : {}) }),
       });
       const body = await res.json().catch(() => ({})) as { error?: string; redirectTo?: string };
       if (!res.ok) { setError(body.error || "Could not continue. Please try again."); return; }
       if (!verifiedEmail) { setSent(true); return; }
-      const path = intent === "resident" && propertyId
-        ? `/resident/applications/apply?propertyId=${encodeURIComponent(propertyId)}`
+      const applyParams = new URLSearchParams();
+      if (listing?.propertyId) applyParams.set("propertyId", listing.propertyId);
+      if (listing?.listingRoomId) applyParams.set("listingRoomId", listing.listingRoomId);
+      if (listing?.bundleId) applyParams.set("bundle", listing.bundleId);
+      if (listing?.applicationFormId) applyParams.set("form", listing.applicationFormId);
+      if (listing?.rentalType === "short_term") applyParams.set("rentalType", "short_term");
+      const path = intent === "resident" && listing?.propertyId
+        ? `/resident/applications/apply?${applyParams}`
         : body.redirectTo && !isUnsafeRedirectPath(body.redirectTo) ? body.redirectTo : destination[intent];
-      if (intent === "manager") setCompleted(path);
+      if (intent === "manager" || intent === "manager_paid") setCompleted(path);
       else window.location.assign(nativeAwarePath(path));
     } catch { setError("Could not connect. Please try again."); }
     finally { setBusy(false); }
@@ -65,9 +72,9 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, pro
   if (completed) return <div className="space-y-3"><p>Account ready.</p><Button type="button" onClick={() => window.location.assign(nativeAwarePath(completed))}>Go to portal</Button></div>;
   if (sent) return <div className="space-y-3"><p role="status">Check your email for a link to continue.</p><Button type="button" variant="ghost" onClick={() => setSent(false)}>Use another email</Button></div>;
   return <div className="space-y-3">
-    {!verifiedEmail ? <><OAuthSocialStack intent={intent === "generic" ? null : intent} disabled={busy || disabled} /><label className="block text-sm">Email<Input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy || disabled} /></label></> : <>
+    {!verifiedEmail ? <>{intent !== "manager_paid" && intent !== "tour" ? <OAuthSocialStack intent={intent === "generic" ? null : intent} disabled={busy || disabled} /> : null}<label className="block text-sm">Email<Input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy || disabled} /></label></> : <>
       <p>Verified email: {verifiedEmail}</p>
-      <><label className="block text-sm">Full name<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy || disabled} /></label><label className="block text-sm">Phone<PhoneNumberField value={phone} onChange={setPhone} disabled={busy || disabled} /></label></>
+      {intent !== "manager_paid" ? <><label className="block text-sm">Full name<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy || disabled} /></label><label className="block text-sm">Phone<PhoneNumberField value={phone} onChange={setPhone} disabled={busy || disabled} /></label></> : null}
     </>}
     <Button type="button" disabled={busy || disabled} onClick={() => void submit()}>{busy ? "Please wait…" : verifiedEmail ? "Complete account" : "Continue with email"}</Button>
     {error ? <p role="alert">{error}</p> : null}

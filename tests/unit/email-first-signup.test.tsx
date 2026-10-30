@@ -30,6 +30,20 @@ describe("email-first signup", () => {
     expect(fetchMock.mock.calls[0]![0]).toBe("/api/auth/manager-register");
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ email: "a@example.test", fullName: "Alex", phone: "+12065550123", tier: "pro" });
   });
+  it.each([
+    { intent: "manager" as const, tier: "business", billing: "annual" as const, expected: { email: "a@example.test", intent: "manager", tier: "business", billing: "annual" } },
+    { intent: "resident" as const, listing: { propertyId: "home", listingRoomId: "room", bundleId: "bundle", applicationFormId: "form", rentalType: "short_term" }, expected: { email: "a@example.test", intent: "resident", propertyId: "home", listingRoomId: "room", bundleId: "bundle", applicationFormId: "form", rentalType: "short_term" } },
+    { intent: "tour" as const, tourInquiryId: "tour-1", expected: { email: "a@example.test", intent: "tour", tourInquiryId: "tour-1" } },
+    { intent: "manager_paid" as const, checkoutSessionId: "cs_1", expected: { email: "a@example.test", intent: "manager_paid", checkoutSessionId: "cs_1" } },
+  ])("preserves bounded $intent context in the verification request", async ({ expected, ...props }) => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }); vi.stubGlobal("fetch", fetchMock);
+    render(<EmailFirstSignup {...props} />);
+    fireEvent.change(await screen.findByLabelText("Email"), { target: { value: "a@example.test" } });
+    fireEvent.click(screen.getByText("Continue with email"));
+    await screen.findByText("Check your email for a link to continue.");
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual(expected);
+  });
+
   it("shows a start error without claiming a link was sent", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: "Try again later." }) }));
     render(<EmailFirstSignup intent="vendor" />);

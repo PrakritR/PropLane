@@ -501,12 +501,17 @@ function LegacyPortalAuthForm() {
 
 export function PortalAuthForm() {
   const params = useSearchParams();
-  if (params.get("tour_inquiry") || params.get("handoff") === "message") return <p>Tour account setup is temporarily unavailable. Please try again later.</p>;
+  if (params.get("tour_inquiry")) return <AuthCard variant="blend"><EmailFirstSignup intent="tour" tourInquiryId={params.get("tour_inquiry") ?? undefined} initialEmail={params.get("email") ?? ""} /></AuthCard>;
+  if (params.get("handoff") === "message") return <p>Message account setup is temporarily unavailable. Please try again later.</p>;
   const intent = params.get("role") === "resident" ? "resident" : "generic";
-  let propertyId: string | undefined;
+  let listing: { propertyId?: string; listingRoomId?: string; bundleId?: string; applicationFormId?: string; rentalType?: string } | undefined;
   try {
     const next = new URL(params.get("next") ?? "", "https://local.invalid");
-    if (next.origin === "https://local.invalid" && next.pathname === "/resident/applications/apply") propertyId = next.searchParams.get("propertyId")?.trim() || undefined;
+    if (next.origin === "https://local.invalid" && next.pathname === "/resident/applications/apply" && next.searchParams.get("propertyId")) listing = {
+      propertyId: next.searchParams.get("propertyId") || undefined, listingRoomId: next.searchParams.get("listingRoomId") || undefined,
+      bundleId: next.searchParams.get("bundle") || undefined, applicationFormId: next.searchParams.get("form") || undefined,
+      rentalType: next.searchParams.get("rentalType") || undefined,
+    };
   } catch { /* Invalid destinations are ignored. */ }
-  return <AuthCard variant="blend"><EmailFirstSignup intent={intent} propertyId={propertyId} initialEmail={params.get("email") ?? ""} /></AuthCard>;
+  return <AuthCard variant="blend"><EmailFirstSignup intent={intent} listing={listing} initialEmail={params.get("email") ?? ""} /></AuthCard>;
 }
