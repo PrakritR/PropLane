@@ -4,7 +4,7 @@ import ts from "typescript";
 import { expect, it } from "vitest";
 
 /** Identify each call independently, including renamed and namespace imports. */
-function unsafeCalls(source: string, name = "fixture.ts"): number[] {
+function unsafeCalls(source: string, name = "fixture.ts"): Array<{ line: number; call: string }> {
   const file = ts.createSourceFile(name, source, ts.ScriptTarget.Latest, true, name.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
   const aliases = new Set<string>();
   const namespaces = new Set<string>();
@@ -18,13 +18,13 @@ function unsafeCalls(source: string, name = "fixture.ts"): number[] {
       }
     }
   }
-  const unsafe: number[] = [];
+  const unsafe: Array<{ line: number; call: string }> = [];
   function visit(node: ts.Node): void {
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const matches = (ts.isIdentifier(callee) && aliases.has(callee.text)) ||
         (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && namespaces.has(callee.expression.text) && callee.name.text === "normalizePortalRoles");
-      if (matches && node.arguments[1]?.kind !== ts.SyntaxKind.NullKeyword) unsafe.push(file.getLineAndCharacterOfPosition(node.getStart()).line + 1);
+      if (matches && node.arguments[1]?.kind !== ts.SyntaxKind.NullKeyword) unsafe.push({ line: file.getLineAndCharacterOfPosition(node.getStart()).line + 1, call: node.getText(file) });
     }
     ts.forEachChild(node, visit);
   }
@@ -37,24 +37,31 @@ it("detects aliases and mixed calls while accepting multiline null", () => {
 import * as portal from '@/lib/auth/portal-roles';
 roles(rows, null); roles(rows, profile.role);
 roles(\n rows,\n null\n); portal.normalizePortalRoles(rows, user.role);`;
-  expect(unsafeCalls(source)).toEqual([3, 7]);
-  expect(unsafeCalls("import { normalizePortalRoles as roles } from './portal-roles'; roles(rows);")).toEqual([1]);
+  expect(unsafeCalls(source).map((item) => item.line)).toEqual([3, 7]);
+  expect(unsafeCalls("import { normalizePortalRoles as roles } from './portal-roles'; roles(rows);").map((item) => item.line)).toEqual([1]);
 });
 
 it("keeps legacy role fallback confined to reviewed display and navigation", () => {
   const root = join(process.cwd(), "src");
-  const exceptions = new Set([
-    // Client contact autofill and post-auth navigation do not grant API capabilities.
-    "hooks/use-prospect-contact-autofill.ts",
-    "lib/auth/resolve-post-auth-destination.ts",
-  ]);
+  const exceptions: Record<string, string[]> = {
+    // These exact calls support contact autofill and client post-auth navigation only.
+    "hooks/use-prospect-contact-autofill.ts": [
+      "normalizePortalRoles(roleRows, profile?.role ?? user.user_metadata?.role)",
+      "normalizePortalRoles(null, meta?.role)",
+    ],
+    "lib/auth/resolve-post-auth-destination.ts": ["normalizePortalRoles(roleRows, profile?.role)"],
+  };
   function scan(dir: string): void {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) scan(path);
       else if (/\.[tj]sx?$/.test(entry.name)) {
         const name = relative(root, path);
-        if (!exceptions.has(name)) expect(unsafeCalls(readFileSync(path, "utf8"), name), name).toEqual([]);
+        const source = readFileSync(path, "utf8");
+        const expected = exceptions[name] ?? [];
+        expect(unsafeCalls(source, name).map((item) => item.call), name).toEqual(expected);
+        if (name === "hooks/use-prospect-contact-autofill.ts") expect(source).toMatch(/^"use client";/);
+        if (name === "lib/auth/resolve-post-auth-destination.ts") expect(source).toContain("resolveClientPostAuthDestination");
       }
     }
   }
