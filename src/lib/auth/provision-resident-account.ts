@@ -14,14 +14,6 @@ type ApplicationRow = {
   row_data: unknown;
 };
 
-function applicationApproved(row: ApplicationRow): boolean {
-  const rowData =
-    row.row_data && typeof row.row_data === "object" && !Array.isArray(row.row_data)
-      ? (row.row_data as Record<string, unknown>)
-      : null;
-  return String(rowData?.bucket ?? "").toLowerCase() === "approved";
-}
-
 function applicationPhone(row: ApplicationRow): string | null {
   const rowData =
     row.row_data && typeof row.row_data === "object" && !Array.isArray(row.row_data)
@@ -144,15 +136,12 @@ export async function provisionResidentAccountByEmail(
   });
 
   const { data: existingProfile, error: profileReadError } = await supabase.from("profiles").select("*").eq("id", opts.userId).maybeSingle();
-  if (shared && profileReadError) return { ok: false, status: 503, error: "Could not load your profile." };
+  if (profileReadError) return { ok: false, status: 503, error: "Could not load your profile." };
   const phoneDecision = legacyPhoneWriteDecision(existingProfile,
     explicitPhone || (existingProfile?.phone as string | null)?.trim() ||
     (matchingApplication ? normalizeE164(applicationPhone(matchingApplication) ?? "") : null) || null,
     shared);
   if (phoneDecision.blocked) return { ok: false, status: 409, error: VERIFIED_PHONE_CHANGE_MESSAGE };
-  const approved =
-    (matchingApplication ? applicationApproved(matchingApplication) : false) ||
-    Boolean(existingProfile?.application_approved);
 
   const { error: upErr } = await supabase.from("profiles").upsert(
     {
@@ -168,7 +157,8 @@ export async function provisionResidentAccountByEmail(
       // resident gave on their rental application onto the profile.
       phone: phoneDecision.phone,
       ...(phoneDecision.clearVerification ? { phone_verified_at: null } : {}),
-      application_approved: approved,
+      // Never overwrite an existing approval flag from a stale profile read.
+      ...(existingProfile ? {} : { application_approved: false }),
     },
     { onConflict: "id" },
   );

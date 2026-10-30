@@ -3,12 +3,17 @@ alter table public.email_onboarding_handoffs add column if not exists applicatio
 
 -- Bind and consume the exact application capability in one locked transaction.
 create or replace function public.bind_resident_setup_subject(p_application text, p_user uuid, p_digest text)
-returns boolean language plpgsql security definer set search_path = pg_catalog, public as $$
+returns boolean language plpgsql security definer set search_path = '' as $$
 declare a public.manager_application_records%rowtype; verified_email text; bound text;
 begin
   if p_application is null or p_user is null or p_digest is null or p_digest !~ '^[0-9a-f]{64}$' then return false; end if;
-  select lower(btrim(email)) into verified_email from auth.users where id = p_user and email_confirmed_at is not null and deleted_at is null;
+  -- Shared with account_recovery_begin's exclusive lifecycle lock.
+  if not pg_catalog.pg_try_advisory_xact_lock_shared(723081447301::bigint) then
+    raise exception 'Account lifecycle transition in progress' using errcode = '40001';
+  end if;
+  select lower(btrim(email)) into verified_email from auth.users where id = p_user and email_confirmed_at is not null and deleted_at is null for share;
   if verified_email is null or verified_email = '' then return false; end if;
+  if exists (select 1 from public.account_recovery_requests r where r.user_id = p_user and r.state in ('archiving', 'retained', 'recovering', 'purging')) then return false; end if;
   select * into a from public.manager_application_records where id = p_application for update;
   if not found or lower(btrim(a.resident_email)) is distinct from verified_email
     or a.row_data->>'setupTokenHash' is distinct from p_digest then return false; end if;

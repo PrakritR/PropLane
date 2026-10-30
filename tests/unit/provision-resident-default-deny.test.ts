@@ -133,8 +133,15 @@ describe("provisionResidentAccountByEmail default-deny", () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.linkedApplication).toBe(true);
-    expect(captured.upsert?.application_approved).toBe(true);
+    expect(captured.upsert?.application_approved).toBe(false);
     expect(captured.upsert?.full_name).toBe("Prior Guest");
+  });
+
+  it("does not overwrite an existing disabled approval from an application snapshot", async () => {
+    const { client, captured } = mockSupabase({ profile: { application_approved: false, role: "resident" } });
+    const result = await provisionResidentAccountByEmail(client as never, { userId: "user-1", email: "guest@example.com", emailProven: true, applicationId: APPROVED_APP.id, inheritFromApplication: true });
+    expect(result.ok).toBe(true);
+    expect(captured.upsert).not.toHaveProperty("application_approved");
   });
 
   it("refuses inheritance for a different application", async () => {

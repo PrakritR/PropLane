@@ -113,6 +113,13 @@ describe("POST /api/auth/resident-setup — phone required", () => {
     expect(bindMock).toHaveBeenCalledWith("bind_resident_setup_subject", expect.objectContaining({ p_application: LOOKUP_OK.axisId, p_user: "user-1" }));
   });
 
+  it("offers a retry when lifecycle locking is unavailable", async () => {
+    bindMock.mockResolvedValue({ data: null, error: { code: "40001" } });
+    const res = await POST(post({ email: "sam@example.com", password: "hunter2hunter", phone: "2065550142", token: "tok", axisId: "PROPLANE-SETUP01" }));
+    expect(res.status).toBe(503);
+    expect(provisionMock).not.toHaveBeenCalled();
+  });
+
   it("provisions the already verified session with the normalized phone", async () => {
     const res = await POST(
       post({
