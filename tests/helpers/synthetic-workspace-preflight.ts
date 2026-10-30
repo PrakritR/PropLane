@@ -51,7 +51,7 @@ export async function assertSyntheticSessionsAbsentOnDev(authId: string): Promis
   try {
     await client.query("BEGIN READ ONLY");
     await client.query("SET LOCAL ROLE postgres");
-    const result = await client.query("select (select count(*) from auth.sessions where user_id=$1::uuid)::int sessions, (select count(*) from auth.refresh_tokens where user_id::text=$1)::int refresh_tokens", [authId]);
+    const result = await client.query("select (select count(*) from auth.sessions where user_id=$1::uuid)::int sessions, (select count(*) from auth.refresh_tokens where user_id::text=$1::text)::int refresh_tokens", [authId]);
     if (result.rows[0]?.sessions !== 0 || result.rows[0]?.refresh_tokens !== 0) throw new Error("Synthetic sessions remain.");
     await client.query("ROLLBACK");
   } finally { await client.end(); }
