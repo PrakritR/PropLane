@@ -1,3 +1,4 @@
+import { normalizeE164 } from "@/lib/phone-e164";
 import { claimManagerPurchase } from "@/lib/auth/claim-manager-purchase.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
@@ -11,11 +12,11 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
-type Body = { sessionId: string };
+type Body = { sessionId: string; fullName?: string; phone?: string };
 
 export async function POST(req: Request) {
   try {
-    const { sessionId } = (await req.json()) as Body;
+    const { sessionId, fullName: rawName, phone: rawPhone } = (await req.json()) as Body;
     if (!sessionId || typeof sessionId !== "string") {
       return NextResponse.json({ error: "sessionId is required." }, { status: 400 });
     }
@@ -23,6 +24,10 @@ export async function POST(req: Request) {
     const auth = await createSupabaseServerClient();
     const { data: { user } } = await auth.auth.getUser();
     if (!user?.email_confirmed_at || !user.email) return NextResponse.json({ error: "Verify your email and sign in before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
+    const submittedName = typeof rawName === "string" ? rawName.trim() : "";
+    const submittedPhone = normalizeE164(typeof rawPhone === "string" ? rawPhone : "");
+    if (!submittedName || !submittedPhone) return NextResponse.json({ error: "Enter your full name and a valid phone number." }, { status: 400 });
+
     const supabase = createSupabaseServiceRoleClient();
 
     if (isAxisIntentSessionId(sessionId)) {
@@ -39,22 +44,23 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "This signup link was already used." }, { status: 409 });
       }
 
-      const fullName = purchase.full_name?.trim() ?? "";
       const email = purchase.email;
       if (user.email!.trim().toLowerCase() !== email.trim().toLowerCase()) return NextResponse.json({ error: "Verify the purchase email before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
 
       const userId = user.id;
       if (!(await claimManagerPurchase(supabase, purchase.id, userId))) return NextResponse.json({ error: "This purchase is already claimed." }, { status: 409 });
 
-      const { data: existingProfile } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+      const { data: existingProfile, error: profileReadError } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+      if (profileReadError) return NextResponse.json({ error: "Could not load your profile." }, { status: 503 });
 
       const { error: upErr } = await supabase.from("profiles").upsert(
         {
           id: userId,
           email,
           role: primaryRoleWhenAddingManager(existingProfile?.role as string | undefined),
-          manager_id: purchase.manager_id,
-          full_name: fullName || existingProfile?.full_name || null,
+          manager_id: existingProfile?.manager_id?.trim() || purchase.manager_id,
+          full_name: existingProfile?.full_name?.trim() || submittedName,
+          phone: existingProfile?.phone?.trim() || submittedPhone,
           application_approved: existingProfile?.application_approved ?? true,
         },
         { onConflict: "id" },
@@ -97,22 +103,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "This checkout was already used to create an account." }, { status: 409 });
     }
 
-    const fullName = session.metadata?.full_name?.trim() ?? "";
     const email = purchase.email;
     if (user.email!.trim().toLowerCase() !== email.trim().toLowerCase()) return NextResponse.json({ error: "Verify the purchase email before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
 
     const userId = user.id;
       if (!(await claimManagerPurchase(supabase, purchase.id, userId))) return NextResponse.json({ error: "This purchase is already claimed." }, { status: 409 });
 
-    const { data: existingProfile } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+    const { data: existingProfile, error: profileReadError } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+    if (profileReadError) return NextResponse.json({ error: "Could not load your profile." }, { status: 503 });
 
     const { error: upErr } = await supabase.from("profiles").upsert(
       {
         id: userId,
         email,
         role: primaryRoleWhenAddingManager(existingProfile?.role as string | undefined),
-        manager_id: purchase.manager_id,
-        full_name: fullName || existingProfile?.full_name || null,
+        manager_id: existingProfile?.manager_id?.trim() || purchase.manager_id,
+        full_name: existingProfile?.full_name?.trim() || submittedName,
+        phone: existingProfile?.phone?.trim() || submittedPhone,
         application_approved: existingProfile?.application_approved ?? true,
       },
       { onConflict: "id" },

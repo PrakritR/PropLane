@@ -44,6 +44,17 @@ describe("email-first signup", () => {
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual(expected);
   });
 
+  it("collects paid manager details only after verification", async () => {
+    getUser.mockResolvedValue({ data: { user: { email: "a@example.test", email_confirmed_at: "2026-01-01" } } });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }); vi.stubGlobal("fetch", fetchMock);
+    render(<EmailFirstSignup intent="manager_paid" checkoutSessionId="cs_1" />);
+    fireEvent.change(await screen.findByLabelText("Full name"), { target: { value: "Alex" } });
+    fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "+12065550123" } });
+    fireEvent.click(screen.getByText("Complete account"));
+    await screen.findByText("Go to portal");
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ sessionId: "cs_1", fullName: "Alex", phone: "+12065550123" });
+  });
+
   it("shows a start error without claiming a link was sent", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: "Try again later." }) }));
     render(<EmailFirstSignup intent="vendor" />);

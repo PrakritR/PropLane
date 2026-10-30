@@ -40,7 +40,7 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
     setError(null);
     const normalized = (verifiedEmail ?? email).trim().toLowerCase();
     if (!normalized.includes("@")) { setError("Enter a valid email address."); return; }
-    if (verifiedEmail && intent !== "manager_paid" && (!name.trim() || phone.replace(/\D/g, "").length < 10)) {
+    if (verifiedEmail && (!name.trim() || phone.replace(/\D/g, "").length < 10)) {
       setError("Enter your name and a valid phone number."); return;
     }
     setBusy(true);
@@ -48,7 +48,7 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
       const res = await fetch(verifiedEmail ? endpoint[intent] : "/api/auth/email-onboarding/start", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(verifiedEmail
-          ? intent === "manager_paid" ? { sessionId: checkoutSessionId } : { email: normalized, fullName: name.trim(), phone: phone.trim(), ...(intent === "manager" ? { tier } : {}) }
+          ? intent === "manager_paid" ? { sessionId: checkoutSessionId, fullName: name.trim(), phone: phone.trim() } : { email: normalized, fullName: name.trim(), phone: phone.trim(), ...(intent === "manager" ? { tier } : {}) }
           : { email: normalized, intent, ...(intent === "manager" ? { tier, billing } : {}), ...(intent === "resident" ? listing : {}), ...(intent === "manager_paid" ? { checkoutSessionId } : {}), ...(intent === "tour" ? { tourInquiryId } : {}) }),
       });
       const body = await res.json().catch(() => ({})) as { error?: string; redirectTo?: string };
@@ -74,7 +74,7 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
   return <div className="space-y-3">
     {!verifiedEmail ? <>{intent !== "manager_paid" && intent !== "tour" ? social ?? <OAuthSocialStack intent={intent === "generic" ? null : intent} disabled={busy || disabled} /> : null}<label className="block text-sm">Email<Input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy || disabled} /></label></> : <>
       <p>Verified email: {verifiedEmail}</p>
-      {intent !== "manager_paid" ? <><label className="block text-sm">Full name<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy || disabled} /></label><label className="block text-sm">Phone<PhoneNumberField value={phone} onChange={setPhone} disabled={busy || disabled} /></label></> : null}
+      <><label className="block text-sm">Full name<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy || disabled} /></label><label className="block text-sm">Phone<PhoneNumberField value={phone} onChange={setPhone} disabled={busy || disabled} /></label></>
     </>}
     <Button type="button" disabled={busy || disabled} onClick={() => void submit()}>{busy ? "Please wait…" : verifiedEmail ? "Complete account" : "Continue with email"}</Button>
     {error ? <p role="alert">{error}</p> : null}
