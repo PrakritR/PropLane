@@ -30,6 +30,7 @@ beforeAll(async () => {
     "20260907233000_account_recovery_finish_archival.sql",
   ]) await db.exec(readFileSync(`supabase/migrations/${file}`, "utf8"));
   await db.exec(readFileSync("supabase/migrations/20261030144600_resident_service_subjects.sql", "utf8"));
+  await db.exec(readFileSync("supabase/migrations/20261030145000_recovery_stored_roles_only.sql", "utf8"));
 }, 30_000);
 afterAll(async () => { await db?.close(); });
 
@@ -275,4 +276,23 @@ it("blocks late bound services during recovery and restores the exact subject", 
   await db.query("select account_recovery_restore_available($1,$2)", [request.id,claim]);
   const {rows} = await db.query<{resident_user_id:string}>("select resident_user_id from portal_work_order_records where id='service-owned'");
   expect(rows[0]?.resident_user_id).toBe(resident.id);
+});
+
+
+it.each([
+  { name: "revoked admin", legacy: "admin", roles: ["manager"], remaining: [] },
+  { name: "genuine admin", legacy: "admin", roles: ["admin", "manager"], remaining: ["admin"] },
+  { name: "last resident role", legacy: "resident", roles: ["resident"], remaining: [] },
+  { name: "legacy-only resident", legacy: "resident", roles: [], remaining: [] },
+])("retains only stored roles when finishing $name deletion", async ({ legacy, roles, remaining }) => {
+  const resident = await user(legacy);
+  for (const role of roles) await db.query("insert into profile_roles(user_id,role) values($1,$2)", [resident.id, role]);
+  const portal = roles.includes("manager") ? "manager" : "resident";
+  const plan = { rules: [], recoverableTables: [], complete: remaining.length === 0 };
+  const { rows: [request] } = await db.query<{id:string}>("select account_recovery_begin($1,$2,$3,'{}') id", [resident.id, portal, plan]);
+  await db.query("select account_recovery_finish_archival($1)", [request.id]);
+  const { rows: stored } = await db.query<{role:string}>("select role from profile_roles where user_id=$1 order by role", [resident.id]);
+  expect(stored.map((row) => row.role)).toEqual(remaining);
+  const { rows: profiles } = await db.query<{role:string}>("select role from profiles where id=$1", [resident.id]);
+  expect(profiles.map((row) => row.role)).toEqual(remaining);
 });
