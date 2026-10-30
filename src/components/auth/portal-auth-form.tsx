@@ -502,7 +502,6 @@ function LegacyPortalAuthForm() {
 export function PortalAuthForm() {
   const params = useSearchParams();
   if (params.get("tour_inquiry")) return <AuthCard variant="blend"><EmailFirstSignup intent="tour" tourInquiryId={params.get("tour_inquiry") ?? undefined} initialEmail={params.get("email") ?? ""} /></AuthCard>;
-  if (params.get("handoff") === "message") return <p>Message account setup is temporarily unavailable. Please try again later.</p>;
   const intent = params.get("role") === "resident" ? "resident" : "generic";
   let listing: { propertyId?: string; listingRoomId?: string; bundleId?: string; applicationFormId?: string; rentalType?: string } | undefined;
   try {
