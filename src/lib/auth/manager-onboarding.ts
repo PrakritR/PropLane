@@ -194,6 +194,9 @@ export async function finalizePendingManagerFreeTier(
   if (!purchase) {
     throw new Error("No manager signup found for this account.");
   }
+  if (purchase.stripe_checkout_session_id.startsWith("cs_")) {
+    throw new Error("A checkout is already in progress. Finish that checkout before choosing another plan.");
+  }
 
   const sessionId = isAxisPendingSessionId(purchase.stripe_checkout_session_id)
     ? `axis_intent_${randomUUID()}`
@@ -201,7 +204,7 @@ export async function finalizePendingManagerFreeTier(
       ? purchase.stripe_checkout_session_id
       : `axis_intent_${randomUUID()}`;
 
-  const { error } = await supabase
+  const { data: updated, error } = await supabase
     .from("manager_purchases")
     .update({
       stripe_checkout_session_id: sessionId,
@@ -212,9 +215,14 @@ export async function finalizePendingManagerFreeTier(
       user_id: opts.userId,
       full_name: opts.fullName?.trim() || purchase.full_name || null,
     })
-    .eq("id", purchase.id);
+    .eq("id", purchase.id)
+    .eq("user_id", opts.userId)
+    .eq("stripe_checkout_session_id", purchase.stripe_checkout_session_id)
+    .select("id")
+    .maybeSingle();
 
   if (error) throw error;
+  if (!updated) throw new Error("Your signup changed. Please try again.");
 
   // The one choke point every live manager signup passes through (email
   // register, Google/Apple callbacks, pricing, get-started). Fire only on the

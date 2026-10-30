@@ -36,7 +36,7 @@ function testUser(partial: Partial<User> = {}): User {
   } as User;
 }
 
-function mockSupabase() {
+function mockSupabase(unlinkedRows: Array<{ id: string; stripe_checkout_session_id: string }> = []) {
   return {
     from: (table: string) => {
       if (table === "profile_roles") {
@@ -61,10 +61,10 @@ function mockSupabase() {
       if (table === "manager_purchases") {
         return {
           select: () => ({
-            ilike: () => ({
+            eq: () => ({
               is: () => ({
                 not: () => ({
-                  limit: () => Promise.resolve({ data: [], error: null }),
+                  like: () => ({ limit: () => Promise.resolve({ data: unlinkedRows.filter((row) => row.stripe_checkout_session_id.startsWith("cs_")), error: null }) }),
                 }),
               }),
             }),
@@ -107,6 +107,22 @@ describe("ensureFreeManagerPortalAccess", () => {
     provisionPendingManagerAccount.mockResolvedValue({ managerId: "AXIS-NEW", created: true });
     finalizePendingManagerFreeTier.mockResolvedValue({ sessionId: "axis_intent_1", managerId: "AXIS-NEW" });
     ensureProfileRoleRow.mockResolvedValue(undefined);
+  });
+
+  it("does not let an unsigned same-email intent block free provisioning", async () => {
+    const { ensureFreeManagerPortalAccess } = await import("@/lib/auth/manager-portal-provision");
+    findManagerPurchaseForAccount.mockResolvedValue(null);
+    const result = await ensureFreeManagerPortalAccess(mockSupabase([{ id: "attacker", stripe_checkout_session_id: "axis_intent_unclaimed" }]) as never, testUser());
+    expect(result.status).toBe("portal_ready");
+    expect(provisionPendingManagerAccount).toHaveBeenCalled();
+  });
+
+  it("does not ignore a server-backed unclaimed paid checkout", async () => {
+    const { ensureFreeManagerPortalAccess } = await import("@/lib/auth/manager-portal-provision");
+    findManagerPurchaseForAccount.mockResolvedValue(null);
+    const result = await ensureFreeManagerPortalAccess(mockSupabase([{ id: "paid", stripe_checkout_session_id: "cs_test_paid" }]) as never, testUser());
+    expect(result).toEqual({ status: "skipped", reason: "unlinked_paid_purchase" });
+    expect(provisionPendingManagerAccount).not.toHaveBeenCalled();
   });
 
   it("provisions pending purchase into a free portal account", async () => {

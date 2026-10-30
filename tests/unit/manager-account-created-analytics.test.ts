@@ -28,10 +28,11 @@ function fakeDb(purchase: Purchase, updateError: Error | null = null) {
     limit: () => lookup,
     maybeSingle: async () => ({ data: purchase }),
   };
+  const write = { eq: () => write, select: () => write, maybeSingle: async () => ({ data: updateError ? null : { id: purchase.id }, error: updateError }) };
   return {
     from: () => ({
       select: () => lookup,
-      update: () => ({ eq: async () => ({ error: updateError }) }),
+      update: () => write,
     }),
   } as never;
 }

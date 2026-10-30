@@ -108,13 +108,14 @@ export async function ensureFreeManagerPortalAccess(
 
   const { data: unlinkedPaid, error: unlinkedPaidError } = await supabase
     .from("manager_purchases")
-    .select("id")
-    .ilike("email", email)
+    .select("id,stripe_checkout_session_id")
+    .eq("email", email)
     .is("user_id", null)
     .not("paid_at", "is", null)
+    .like("stripe_checkout_session_id", "cs\\_%")
     .limit(1);
   if (unlinkedPaidError) return { status: "skipped", reason: "purchase_unavailable" };
-  if (unlinkedPaid?.length) return { status: "skipped", reason: "unlinked_paid_purchase" };
+  if (unlinkedPaid?.some((row) => typeof row.stripe_checkout_session_id === "string" && row.stripe_checkout_session_id.startsWith("cs_"))) return { status: "skipped", reason: "unlinked_paid_purchase" };
 
   let managerId: string;
   let provisioned = false;
