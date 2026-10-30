@@ -3,10 +3,11 @@ vi.mock("server-only", () => ({}));
 const events = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock("@/lib/work-order-events.server", () => ({ workOrderEvent: events }));
 vi.mock("@/lib/co-manager-notification-recipients.server", () => ({ resolvePropertyScopedManagerRecipientIds: async () => [] }));
+import { isTerminalService } from "@/lib/vendor-dispatch/work-order-open.server";
 import { resolveResidentConfirmationBySms } from "@/lib/work-order-resident-confirmation.server";
 
-function fixture(owner: string, race = false) {
-  const row = { id: "job", manager_user_id: "manager", resident_user_id: owner, resident_email: "same@example.test", vendor_user_id: null, updated_at: "2026-01-01T00:00:00.123456+00:00", row_data: { title: "Leak", residentEmail: "same@example.test", residentConfirmation: { tokenId: "hash", requestedAt: new Date().toISOString() } } };
+function fixture(owner: string, race = false, terminal = false) {
+  const row = { id: "job", manager_user_id: "manager", resident_user_id: owner, resident_email: "same@example.test", vendor_user_id: null, updated_at: "2026-01-01T00:00:00.123456+00:00", row_data: { ...(terminal ? { bucket: "completed", status: "Completed" } : {}), title: "Leak", residentEmail: "same@example.test", residentConfirmation: { tokenId: "hash", requestedAt: new Date().toISOString() } } };
   let writes = 0;
   const db = { from(table: string) {
     const filters: Array<(r: typeof row) => boolean> = []; let patch: Record<string, unknown> | null = null;
@@ -34,4 +35,16 @@ it("rejects a concurrent changed confirmation without emitting a notice", async 
   events.mockClear(); const f = fixture("original", true);
   expect(await resolveResidentConfirmationBySms(f.db as never, { managerUserId: "manager", residentUserId: "original", verdict: "fixed" })).toBeNull();
   expect(f.writes()).toBe(0); expect(events).not.toHaveBeenCalled();
+});
+
+it("refuses a stale open confirmation for a completed job without a notice", async () => {
+  events.mockClear(); const f = fixture("original", false, true);
+  expect(await resolveResidentConfirmationBySms(f.db as never, { managerUserId: "manager", residentUserId: "original", verdict: "not_fixed" })).toBeNull();
+  expect(f.writes()).toBe(0); expect(events).not.toHaveBeenCalled();
+});
+
+it("treats malformed nonempty completion values as terminal", () => {
+  expect(isTerminalService({ completedAt: false })).toBe(true);
+  expect(isTerminalService({ completedAt: 0 })).toBe(true);
+  expect(isTerminalService({ completedAt: "" })).toBe(false);
 });

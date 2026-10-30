@@ -68,7 +68,7 @@ vi.mock("@/lib/work-order-events.server", () => ({
 vi.mock("@/lib/google-calendar/sync.server", () => ({ syncWorkOrderToGoogleCalendar: async (_db: unknown, _owner: string, row: unknown) => row }));
 vi.mock("@/lib/agent-notify.server", () => ({ notifyManagerFromAgent: async () => undefined }));
 vi.mock("@/lib/work-order-resident-confirmation.server", () => ({
-  requestResidentConfirmation: async () => null,
+  requestResidentConfirmation: async () => null, prepareResidentConfirmation: async () => null,
   resolveResidentConfirmationBySms: async () => null,
 }));
 vi.mock("@/lib/work-order-vendor-invoice.server", () => ({ ensureSubmittedVendorInvoiceForMarkedDone: async () => undefined }));
@@ -729,6 +729,35 @@ describe("after the accept", () => {
     expect(sent.resident).toEqual([]);
     expect(runById(db, run.id)).toMatchObject({ status: "completed", completion_state: "confirmed" });
     expect(rows(db, "portal_work_order_records")[0]!.row_data).toMatchObject({ bucket: "scheduled", status: "Scheduled", automationStatus: "vendor_marked_done" });
+  });
+
+  it("does not notify or claim success when the prepared service revision is stale", async () => {
+    const { db, run } = await accepted();
+    const original = db.rpc;
+    db.rpc = async (name, args) => name === "record_vendor_dispatch_done"
+      ? { data: { outcome: "stale" }, error: null }
+      : original(name, args);
+    sent.resident.length = 0;
+    sent.workOrderEvents.length = 0;
+    expect(await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), now: T0 })).toBe("retry");
+    expect(sent.resident).toEqual([]);
+    expect(sent.workOrderEvents).toEqual([]);
+  });
+
+  it("does not ask the resident when the job completes immediately after DONE", async () => {
+    const { db, run } = await accepted();
+    const original = db.rpc;
+    db.rpc = async (name, args) => {
+      const result = await original(name, args);
+      if (name === "record_vendor_dispatch_done") {
+        const job = rows(db, "portal_work_order_records")[0]!;
+        job.row_data = { ...(job.row_data as Row), bucket: "completed", status: "Completed" };
+      }
+      return result;
+    };
+    sent.resident.length = 0;
+    expect(await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), now: T0 })).toBe("marked_done");
+    expect(sent.resident).toEqual([]);
   });
 
   it("DONE asks the resident; YES completes the service; the run is completed", async () => {

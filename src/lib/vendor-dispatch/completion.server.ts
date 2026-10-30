@@ -5,10 +5,11 @@ import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { notifyVendorOfInvoiceDecision } from "@/lib/vendor-invoice-decision-notify.server";
 import { createBillFromVendorInvoice } from "@/lib/manager-bills.server";
 import { assertFinancialsTier } from "@/lib/reports/auth";
-import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { currentSmsTestProvenance, stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { readSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 import { insertVendorInvoiceRow, prepareVendorInvoiceSubmission } from "@/lib/vendor-invoice-submit.server";
 import { ensureSubmittedVendorInvoiceForMarkedDone } from "@/lib/work-order-vendor-invoice.server";
-import { emitResidentConfirmationEvent, requestResidentConfirmation } from "@/lib/work-order-resident-confirmation.server";
+import { emitResidentConfirmationEvent, prepareResidentConfirmation } from "@/lib/work-order-resident-confirmation.server";
 import { workOrderEvent } from "@/lib/work-order-events.server";
 import { recordDispatchEvent } from "@/lib/vendor-dispatch/audit.server";
 import { canActorApprove, loadAttempts, loadRun, loadVendorContacts, notifyApprovers, notifyOutcome } from "@/lib/vendor-dispatch/engine.server";
@@ -20,6 +21,7 @@ import {
   composeResidentFixedAsk,
   toGsm7,
 } from "@/lib/vendor-dispatch/text";
+import { dispatchWorkOrderIsOpen } from "@/lib/vendor-dispatch/work-order-open.server";
 import type { DispatchRunRow } from "@/lib/vendor-dispatch/types";
 import { applyApprovedDispatchInvoice, setServiceVendorCost, type ApprovedInvoiceOutcome } from "@/lib/vendor-dispatch/invoice-managed.server";
 
@@ -34,11 +36,11 @@ import { applyApprovedDispatchInvoice, setServiceVendorCost, type ApprovedInvoic
 async function readWorkOrder(db: SupabaseClient, run: DispatchRunRow) {
   const { data } = await db
     .from("portal_work_order_records")
-    .select("id, manager_user_id, vendor_user_id, resident_user_id, row_data")
+    .select("id, manager_user_id, vendor_user_id, resident_user_id, row_revision, row_data")
     .eq("id", run.source_id)
     .eq("manager_user_id", run.owner_user_id)
     .maybeSingle();
-  return (data as { id: string; manager_user_id: string; vendor_user_id: string | null; resident_user_id: string | null; row_data: DemoManagerWorkOrderRow } | null) ?? null;
+  return (data as { id: string; manager_user_id: string; vendor_user_id: string | null; resident_user_id: string | null; row_revision: number; row_data: DemoManagerWorkOrderRow } | null) ?? null;
 }
 
 async function ownerSender(db: SupabaseClient, ownerUserId: string) {
@@ -50,7 +52,7 @@ async function ownerSender(db: SupabaseClient, ownerUserId: string) {
   };
 }
 
-export type DoneOutcome = "marked_done" | "already" | "not_accepted_vendor" | "not_found";
+export type DoneOutcome = "marked_done" | "already" | "not_accepted_vendor" | "not_found" | "retry";
 
 /** The accepted vendor texted DONE. */
 export async function recordVendorDone(
@@ -72,59 +74,43 @@ export async function recordVendorDone(
   const record = run.source_type === "work_order" ? await readWorkOrder(db, run) : null;
   if (run.source_type === "work_order" && !record) return "not_found";
   let residentUserId = record?.resident_user_id?.trim() || null;
-  let waitsForResident = Boolean(residentUserId);
-  const { data: claimed } = await db
-    .from("vendor_dispatch_runs")
-    .update({
-      vendor_done_at: nowIso,
-      updated_at: nowIso,
-      ...(waitsForResident
-        ? { completion_state: "awaiting_resident" }
-        : { status: "completed", completion_state: "confirmed", completed_at: nowIso }),
-    })
-    .eq("id", run.id)
-    .eq("status", "accepted")
-    .select("id");
-  if (!claimed || (claimed as unknown[]).length === 0) return "already";
-
-  if (residentUserId) {
-    const current = await readWorkOrder(db, run);
-    const { data: subject, error: subjectError } = await db.auth.admin.getUserById(residentUserId);
-    if (subjectError) return "marked_done";
-    if (!current || current.resident_user_id !== residentUserId || !subject?.user) {
-      const { data: detached } = await db.from("vendor_dispatch_runs")
-        .update({ status: "completed", completion_state: "confirmed", completed_at: nowIso, updated_at: nowIso })
-        .eq("id", run.id).eq("status", "accepted").eq("completion_state", "awaiting_resident").select("id");
-      if (!detached?.length) return "already";
-      residentUserId = null;
-      waitsForResident = false;
-    }
+  const waitsForResident = Boolean(residentUserId);
+  let doneRow: DemoManagerWorkOrderRow | null = null;
+  let confirmUrl: string | undefined;
+  if (record) {
+    const prepared = residentUserId ? await prepareResidentConfirmation(db, run.owner_user_id, record.row_data) : null;
+    const testMarker = currentSmsTestProvenance()
+      ? readSmsTestProvenance(stampSmsTestProvenance(record.row_data as unknown as Record<string, unknown>))
+      : null;
+    const { data, error } = await db.rpc("record_vendor_dispatch_done", {
+      p_run: run.id, p_owner: run.owner_user_id, p_attempt: attempt.id,
+      p_resident: residentUserId, p_revision: record.row_revision,
+      p_note: input.note ?? null, p_token_digest: prepared?.tokenDigest ?? null,
+      p_test_actor: testMarker?.actorUserId ?? null, p_test_manager: testMarker?.managerUserId ?? null,
+      p_test_session: testMarker?.sessionId ?? null, p_test_workspace: testMarker?.workspaceId ?? null,
+    });
+    const result = data as { outcome?: string; row_data?: DemoManagerWorkOrderRow; confirmation_created?: boolean } | null;
+    if (error || result?.outcome === "stale" || result?.outcome === "invalid") return "retry";
+    if (result?.outcome === "already") return "already";
+    if (result?.outcome === "not_accepted_vendor") return "not_accepted_vendor";
+    if (result?.outcome !== "marked_done" || !result.row_data) return "not_found";
+    doneRow = result.row_data;
+    confirmUrl = result.confirmation_created ? prepared?.confirmUrl : undefined;
+  } else {
+    const { data: claimed } = await db.from("vendor_dispatch_runs")
+      .update({ vendor_done_at: nowIso, updated_at: nowIso, status: "completed", completion_state: "confirmed", completed_at: nowIso })
+      .eq("id", run.id).eq("status", "accepted").select("id");
+    if (!claimed?.length) return "already";
+    residentUserId = null;
   }
 
   const contacts = await loadVendorContacts(db, run.owner_user_id, [attempt.vendor_directory_id]);
   const contact = contacts.get(attempt.vendor_directory_id);
   await recordDispatchEvent(db, { ownerUserId: run.owner_user_id, runId: run.id, handle: run.handle, event: "vendor_done", key: attempt.id, reply: input.note ?? null, now });
 
-  if (run.source_type === "work_order") {
-    if (record) {
-      const row = record.row_data;
-      let next: DemoManagerWorkOrderRow = {
-        ...row,
-        // A vendor who says DONE was there: an Assigned service moves to Scheduled first, as the portal requires.
-        ...(row.bucket === "open" ? { bucket: "scheduled" as const, status: "Scheduled" } : {}),
-        automationStatus: "vendor_marked_done",
-        vendorMarkedDoneAt: nowIso,
-        vendorMarkedDoneNote: input.note?.trim().slice(0, 2000) || undefined,
-      };
-      await db
-        .from("portal_work_order_records")
-        .update({ row_data: stampSmsTestProvenance(next as unknown as Record<string, unknown>), updated_at: nowIso })
-        .eq("id", run.source_id)
-        .eq("manager_user_id", run.owner_user_id);
-      const confirmation = waitsForResident
-        ? await requestResidentConfirmation(db, run.source_id, run.owner_user_id, next).catch(() => null)
-        : null;
-      next = confirmation?.rowData ?? next;
+  if (record && doneRow) {
+      const row = doneRow;
+      const next = doneRow;
       const sender = await ownerSender(db, run.owner_user_id);
       await workOrderEvent(db, {
         eventId: `${run.source_id}:completed:dispatch-run:${run.id}`,
@@ -141,7 +127,7 @@ export async function recordVendorDone(
           title: row.title || "Service",
           propertyLabel: row.propertyName || undefined,
           vendorName: contact?.name || row.vendorName || undefined,
-          confirmUrl: confirmation?.confirmUrl,
+          confirmUrl,
         },
         recipients: [{ audience: "manager", userId: run.owner_user_id }],
       }).catch(() => undefined);
@@ -153,10 +139,9 @@ export async function recordVendorDone(
           row: next,
         }).catch(() => undefined);
       }
-    }
   }
 
-  if (residentUserId) {
+  if (residentUserId && await dispatchWorkOrderIsOpen(db, run, residentUserId)) {
     await sendResidentDispatchText(db, {
       ownerUserId: run.owner_user_id,
       workspaceId: run.workspace_id,

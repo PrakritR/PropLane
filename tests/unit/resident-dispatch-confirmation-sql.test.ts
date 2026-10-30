@@ -18,3 +18,11 @@ it("rejects terminal services under the row lock before either verdict writes", 
   expect(sql).toContain("in ('completed','cancelled','canceled')");
   expect(sql).toContain("nullif(w.row_data->>'completedAt','') is not null");
 });
+
+it("limits the atomic DONE transition to service role and pins the inspected job", () => {
+  expect(sql).toContain("w.resident_user_id is distinct from p_resident or w.row_revision <> p_revision");
+  expect(sql).toContain("a.vendor_directory_id is distinct from r.accepted_vendor_directory_id");
+  expect(sql).toContain("p_test_session");
+  expect(sql).toContain("revoke all on function public.record_vendor_dispatch_done(uuid,uuid,uuid,uuid,bigint,text,text,text,text,text,text) from public,anon,authenticated");
+  expect(sql).toContain("grant execute on function public.record_vendor_dispatch_done(uuid,uuid,uuid,uuid,bigint,text,text,text,text,text,text) to service_role");
+});

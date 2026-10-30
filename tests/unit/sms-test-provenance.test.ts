@@ -31,6 +31,12 @@ describe("SMS test provenance", () => {
     expect(hasSmsTestProvenance({ smsTestSessionId: "" })).toBe(false);
   });
 
+  it("stamps a new test-context row", () => {
+    expect(withSmsTestProvenance({ id: "row-1" }, provenance)).toEqual({
+      id: "row-1", smsTestSessionId: "session-1", smsTestProvenance: provenance,
+    });
+  });
+
   it("keeps an existing session immutable while filling missing identity fields", () => {
     const value = { id: "row-1", smsTestSessionId: "old-session" };
     const result = withSmsTestProvenance(value, provenance);

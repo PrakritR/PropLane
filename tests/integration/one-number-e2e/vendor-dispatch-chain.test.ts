@@ -42,7 +42,7 @@ vi.mock("@/lib/team-comms.server", () => ({
 vi.mock("@/lib/work-order-events.server", () => ({ workOrderEvent: async () => ({ eventId: "e", duplicate: false, delivered: 0, deferred: 0, failed: 0 }) }));
 vi.mock("@/lib/google-calendar/sync.server", () => ({ syncWorkOrderToGoogleCalendar: async (_db: unknown, _owner: string, row: unknown) => row }));
 vi.mock("@/lib/agent-notify.server", () => ({ notifyManagerFromAgent: async () => undefined }));
-vi.mock("@/lib/work-order-resident-confirmation.server", () => ({ requestResidentConfirmation: async () => null, resolveResidentConfirmationBySms: async () => null }));
+vi.mock("@/lib/work-order-resident-confirmation.server", () => ({ requestResidentConfirmation: async () => null, prepareResidentConfirmation: async () => null, resolveResidentConfirmationBySms: async () => null }));
 vi.mock("@/lib/work-order-vendor-invoice.server", () => ({ ensureSubmittedVendorInvoiceForMarkedDone: async () => undefined }));
 vi.mock("@/lib/vendor-invoice-submit.server", () => ({ prepareVendorInvoiceSubmission: async () => ({}), insertVendorInvoiceRow: async () => ({ data: null }) }));
 vi.mock("@/lib/manager-bills.server", () => ({ createBillFromVendorInvoice: async () => ({ id: "bill" }) }));
@@ -334,6 +334,17 @@ describe("the hour-before reminder", () => {
     await sweep(db, minutesAfter(33));
     await sweep(db, minutesAfter(45));
     expect(reminders()).toHaveLength(1);
+  });
+
+  it("does not remind a vendor when the service was independently completed", async () => {
+    const db = world();
+    await fileLockout(db);
+    await manager(db, "Y");
+    await vendorSays(db, "+12065550101", "YES 2:30pm");
+    const job = db.__tables.portal_work_order_records![0]!;
+    job.row_data = { ...(job.row_data as Record<string, unknown>), bucket: "completed", status: "Completed" };
+    expect((await sweep(db, minutesAfter(31))).jobReminders).toBe(0);
+    expect(reminders()).toHaveLength(0);
   });
 
   it("does not remind a finished job, a job already past, or a job accepted minutes ago", async () => {

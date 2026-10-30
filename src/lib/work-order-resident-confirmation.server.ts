@@ -20,6 +20,7 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { resolveServiceAutomationSettingsForRow } from "@/lib/service-automation-settings.server";
 import { createSettingsScopeCache } from "@/lib/settings/scope-resolver.server";
+import { isTerminalService } from "@/lib/vendor-dispatch/work-order-open.server";
 import { workOrderEvent, type WorkOrderEventRecipient } from "@/lib/work-order-events.server";
 
 export const RESIDENT_CONFIRMATION_PATH = "/services/confirm";
@@ -41,6 +42,8 @@ type WorkOrderRecord = {
   id: string;
   manager_user_id: string;
   vendor_user_id: string | null;
+  resident_user_id?: string | null;
+  row_revision?: number;
   updated_at: string | null;
   row_data: DemoManagerWorkOrderRow;
 };
@@ -52,6 +55,19 @@ async function managerRecipients(db: SupabaseClient, record: WorkOrderRecord): P
     channel: "services",
   });
   return ids.map((userId) => ({ audience: "manager" as const, userId }));
+}
+
+/** Prepare a confirmation without writing a potentially stale work-order snapshot. */
+export async function prepareResidentConfirmation(
+  db: SupabaseClient,
+  managerUserId: string,
+  rowData: DemoManagerWorkOrderRow,
+): Promise<{ tokenDigest: string; confirmUrl: string } | null> {
+  const propertyId = rowData.assignedPropertyId || rowData.propertyId || null;
+  const settings = await resolveServiceAutomationSettingsForRow(db, createSettingsScopeCache(), managerUserId, propertyId).catch(() => null);
+  if (!settings?.residentConfirmation || !(rowData.residentEmail ?? "").includes("@")) return null;
+  const token = randomBytes(24).toString("base64url");
+  return { tokenDigest: hashToken(token), confirmUrl: residentConfirmationUrl(token) };
 }
 
 /**
@@ -101,7 +117,7 @@ export type ConfirmationLookup =
 export async function lookupResidentConfirmation(db: SupabaseClient, token: string): Promise<ConfirmationLookup> {
   const record = await findByToken(db, token);
   const confirmation = record?.row_data.residentConfirmation;
-  if (!record || !confirmation) return { ok: false, reason: "invalid" };
+  if (!record || !confirmation || (!confirmation.respondedAt && isTerminalService(record.row_data))) return { ok: false, reason: "invalid" };
   if (Date.parse(confirmation.requestedAt) + TOKEN_TTL_MS < Date.now()) return { ok: false, reason: "expired" };
   return {
     ok: true,
@@ -172,7 +188,7 @@ async function resolveConfirmationRecord(
 ): Promise<{ ok: true; ratingUrl: string | null } | { ok: false; reason: "invalid" | "expired" | "answered" }> {
   const now = input.now ?? new Date();
   const confirmation = record?.row_data.residentConfirmation;
-  if (!record || !confirmation) return { ok: false, reason: "invalid" };
+  if (!record || !confirmation || isTerminalService(record.row_data)) return { ok: false, reason: "invalid" };
   if (Date.parse(confirmation.requestedAt) + TOKEN_TTL_MS < now.getTime()) return { ok: false, reason: "expired" };
   if (confirmation.respondedAt) return { ok: false, reason: "answered" };
 
@@ -245,7 +261,7 @@ export async function rateResidentConfirmation(
   const now = input.now ?? new Date();
   const record = await findByToken(db, input.token);
   const confirmation = record?.row_data.residentConfirmation;
-  if (!record || !confirmation) return { ok: false, reason: "invalid" };
+  if (!record || !confirmation || isTerminalService(record.row_data)) return { ok: false, reason: "invalid" };
   if (Date.parse(confirmation.requestedAt) + TOKEN_TTL_MS < now.getTime()) return { ok: false, reason: "expired" };
   if (confirmation.verdict !== "fixed") return { ok: false, reason: "unconfirmed" };
   if (typeof confirmation.rating === "number") return { ok: false, reason: "rated" };
@@ -298,12 +314,12 @@ export async function rateResidentConfirmation(
 export async function autoCloseResidentConfirmations(db: SupabaseClient, now: Date = new Date()): Promise<number> {
   const { data, error } = await db
     .from("portal_work_order_records")
-    .select("id, manager_user_id, vendor_user_id, row_data")
+    .select("id, manager_user_id, vendor_user_id, resident_user_id, row_data, updated_at, row_revision")
     .not("row_data->residentConfirmation", "is", null)
     .limit(500);
   if (error) throw error;
   const open = ((data ?? []) as unknown as WorkOrderRecord[]).filter(
-    (record) => record.row_data.residentConfirmation && !record.row_data.residentConfirmation.respondedAt,
+    (record) => record.row_data.residentConfirmation && !record.row_data.residentConfirmation.respondedAt && !isTerminalService(record.row_data),
   );
   if (open.length === 0) return 0;
   let closed = 0;
@@ -326,13 +342,14 @@ export async function autoCloseResidentConfirmations(db: SupabaseClient, now: Da
       .from("portal_work_order_records")
       .update({ row_data: next, updated_at: now.toISOString() })
       .eq("id", record.id)
+      .eq("row_revision", record.row_revision)
       .contains("row_data", { residentConfirmation: { tokenId: confirmation.tokenId } })
       .select("id")
       .maybeSingle();
     if (!updated) continue;
     closed += 1;
-    const residentEmail = (record.row_data.residentEmail ?? "").trim();
-    if (!residentEmail.includes("@")) continue;
+    const residentUserId = record.resident_user_id?.trim();
+    if (!residentUserId) continue;
     const sender = await senderFor(db, record.manager_user_id);
     await workOrderEvent(db, {
       eventId: `${record.id}:auto_closed:${confirmation.requestedAt}`,
@@ -343,7 +360,7 @@ export async function autoCloseResidentConfirmations(db: SupabaseClient, now: Da
       senderEmail: sender.email,
       senderName: sender.fullName,
       facts: { reference: record.row_data.reference || "Work order", title: record.row_data.title || "Service", propertyLabel: record.row_data.propertyName || undefined },
-      recipients: [{ audience: "resident", email: residentEmail }],
+      recipients: [{ audience: "resident", userId: residentUserId }],
       now,
     }).catch(() => undefined);
   }

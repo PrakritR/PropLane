@@ -538,6 +538,7 @@ export async function handleVendorDispatchReply(
     if ((input.mediaCount ?? 0) > 0) await attachRunMedia(db, first, input.messageSid).catch(() => 0);
     const outcome = await recordVendorDone(db, { ownerUserId, attemptId: first.attempt.id, note: parsed.note, now });
     if (outcome === "marked_done") await tell(first, `Thanks, #${first.run.handle} is marked done. Reply INVOICE $amount to bill it`, "done");
+    else if (outcome === "retry") await tell(first, `Could not finish #${first.run.handle}. Try DONE again.`, "done-retry");
   } else {
     const outcome = await recordVendorInvoice(db, { ownerUserId, attemptId: first.attempt.id, amountCents: parsed.amountCents, now });
     await tell(
