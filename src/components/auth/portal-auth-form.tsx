@@ -503,5 +503,10 @@ export function PortalAuthForm() {
   const params = useSearchParams();
   if (params.get("tour_inquiry") || params.get("handoff") === "message") return <p>Tour account setup is temporarily unavailable. Please try again later.</p>;
   const intent = params.get("role") === "resident" ? "resident" : "generic";
-  return <AuthCard variant="blend"><EmailFirstSignup intent={intent} initialEmail={params.get("email") ?? ""} /></AuthCard>;
+  let propertyId: string | undefined;
+  try {
+    const next = new URL(params.get("next") ?? "", "https://local.invalid");
+    if (next.origin === "https://local.invalid" && next.pathname === "/resident/applications/apply") propertyId = next.searchParams.get("propertyId")?.trim() || undefined;
+  } catch { /* Invalid destinations are ignored. */ }
+  return <AuthCard variant="blend"><EmailFirstSignup intent={intent} propertyId={propertyId} initialEmail={params.get("email") ?? ""} /></AuthCard>;
 }

@@ -14,8 +14,8 @@ type Intent = "generic" | "resident" | "manager" | "vendor";
 const endpoint: Record<Intent, string> = { generic: "/api/auth/signup", resident: "/api/auth/resident-register", manager: "/api/auth/manager-register", vendor: "/api/auth/vendor-register" };
 const destination: Record<Intent, string> = { generic: "/auth/continue", resident: "/resident/applications", manager: "/portal", vendor: "/vendor/onboarding" };
 
-export function EmailFirstSignup({ intent, initialEmail = "", tier, disabled = false, hideLegalFooter = false }: {
-  intent: Intent; initialEmail?: string; tier?: string; disabled?: boolean; hideLegalFooter?: boolean;
+export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, propertyId, disabled = false, hideLegalFooter = false }: {
+  intent: Intent; initialEmail?: string; tier?: string; billing?: "monthly" | "annual"; propertyId?: string; disabled?: boolean; hideLegalFooter?: boolean;
 }) {
   const [email, setEmail] = useState(initialEmail);
   const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
@@ -48,12 +48,14 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, disabled = f
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(verifiedEmail
           ? { email: normalized, fullName: name.trim(), phone: phone.trim(), ...(intent === "manager" ? { tier } : {}) }
-          : { email: normalized, intent }),
+          : { email: normalized, intent, ...(intent === "manager" ? { tier, billing } : {}), ...(intent === "resident" && propertyId ? { propertyId } : {}) }),
       });
       const body = await res.json().catch(() => ({})) as { error?: string; redirectTo?: string };
       if (!res.ok) { setError(body.error || "Could not continue. Please try again."); return; }
       if (!verifiedEmail) { setSent(true); return; }
-      const path = body.redirectTo && !isUnsafeRedirectPath(body.redirectTo) ? body.redirectTo : destination[intent];
+      const path = intent === "resident" && propertyId
+        ? `/resident/applications/apply?propertyId=${encodeURIComponent(propertyId)}`
+        : body.redirectTo && !isUnsafeRedirectPath(body.redirectTo) ? body.redirectTo : destination[intent];
       if (intent === "manager") setCompleted(path);
       else window.location.assign(nativeAwarePath(path));
     } catch { setError("Could not connect. Please try again."); }

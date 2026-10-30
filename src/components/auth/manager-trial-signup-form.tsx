@@ -368,5 +368,5 @@ function LegacyManagerTrialSignupForm({
 
 export function ManagerTrialSignupForm(props: Parameters<typeof LegacyManagerTrialSignupForm>[0]) {
   if (props.trialSignup === false) return <p>Paid account setup is temporarily unavailable. Please return to pricing later.</p>;
-  return <EmailFirstSignup intent="manager" initialEmail={props.initialEmail} tier={props.tier} disabled={props.disabled} hideLegalFooter={props.hideLegalFooter} />;
+  return <EmailFirstSignup intent="manager" initialEmail={props.initialEmail} tier={props.tier} billing={props.billing} disabled={props.disabled} hideLegalFooter={props.hideLegalFooter} />;
 }

@@ -299,5 +299,10 @@ function LegacyResidentSignupForm({
 }
 
 export function ResidentSignupForm(props: Parameters<typeof LegacyResidentSignupForm>[0]) {
-  return <EmailFirstSignup intent="resident" initialEmail={props.initialEmail} disabled={props.disabled} hideLegalFooter={props.hideLegalFooter} />;
+  let propertyId: string | undefined;
+  try {
+    const next = new URL(props.nextPath ?? "", "https://local.invalid");
+    if (next.origin === "https://local.invalid" && next.pathname === "/resident/applications/apply") propertyId = next.searchParams.get("propertyId")?.trim() || undefined;
+  } catch { /* Invalid destinations are ignored. */ }
+  return <EmailFirstSignup intent="resident" propertyId={propertyId} initialEmail={props.initialEmail} disabled={props.disabled} hideLegalFooter={props.hideLegalFooter} />;
 }
