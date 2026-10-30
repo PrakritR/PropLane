@@ -1,0 +1,902 @@
+{
+  "admin_team_grants": {
+    "reason": "admin_team_grants: Never-restore data still needs capture and deletion lifecycle review.",
+    "current_policy": "never_restore",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "agent_user_preferences": {
+    "reason": "agent_user_preferences: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "both_named_enabled"
+  },
+  "application_fee_payment_claims": {
+    "reason": "application_fee_payment_claims: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "application_form_requests": {
+    "reason": "application_form_requests: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "comms_account_pools": {
+    "reason": "comms_account_pools: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "comms_funder_workspace_spend": {
+    "reason": "comms_funder_workspace_spend: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "comms_pool_credit_adjustments": {
+    "reason": "comms_pool_credit_adjustments: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "comms_pool_credit_purchases": {
+    "reason": "comms_pool_credit_purchases: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "comms_workspace_funding": {
+    "reason": "comms_workspace_funding: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "communication_dismissed_contacts": {
+    "reason": "communication_dismissed_contacts: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "email_onboarding_handoffs": {
+    "reason": "email_onboarding_handoffs: Capability or session lifecycle and revocation need explicit recovery policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "google_calendar_pending_changes": {
+    "reason": "google_calendar_pending_changes: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "house_group_members": {
+    "reason": "house_group_members: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "listing_channel_connections": {
+    "reason": "listing_channel_connections: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "listing_channel_posts": {
+    "reason": "listing_channel_posts: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "listing_prefill_usage": {
+    "reason": "listing_prefill_usage: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "managed_rent_allocations": {
+    "reason": "managed_rent_allocations: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "managed_workspace_fee_policies": {
+    "reason": "managed_workspace_fee_policies: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "manager_assistant_email_aliases": {
+    "reason": "manager_assistant_email_aliases: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "manager_comms_credit_adjustments": {
+    "reason": "manager_comms_credit_adjustments: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "both_named_enabled"
+  },
+  "manager_comms_credit_purchases": {
+    "reason": "manager_comms_credit_purchases: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "both_named_enabled"
+  },
+  "manager_comms_workspace_wallets": {
+    "reason": "manager_comms_workspace_wallets: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "manager_door_count_snapshots": {
+    "reason": "manager_door_count_snapshots: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "manager_expense_reversals": {
+    "reason": "manager_expense_reversals: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "manager_house_public_links": {
+    "reason": "manager_house_public_links: Never-restore data still needs capture and deletion lifecycle review.",
+    "current_policy": "never_restore",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "manager_payees": {
+    "reason": "manager_payees: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "manager_plan_addons": {
+    "reason": "manager_plan_addons: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "manager_portfolio_import_records": {
+    "reason": "manager_portfolio_import_records: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "manager_portfolio_imports": {
+    "reason": "manager_portfolio_imports: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "manager_sms_conversation_houses": {
+    "reason": "manager_sms_conversation_houses: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "manager_syndication_feeds": {
+    "reason": "manager_syndication_feeds: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "manager_tour_followup_controls": {
+    "reason": "manager_tour_followup_controls: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "both_named_enabled"
+  },
+  "manager_vendor_preferences": {
+    "reason": "manager_vendor_preferences: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "meta_messenger_replies": {
+    "reason": "meta_messenger_replies: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "number_credit_accounts": {
+    "reason": "number_credit_accounts: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "number_credit_adjustments": {
+    "reason": "number_credit_adjustments: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "number_credit_purchases": {
+    "reason": "number_credit_purchases: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "number_credit_usage_events": {
+    "reason": "number_credit_usage_events: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "number_subscriptions": {
+    "reason": "number_subscriptions: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "owner_expenses": {
+    "reason": "owner_expenses: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "owner_statements": {
+    "reason": "owner_statements: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "payout_destination_cache_refreshes": {
+    "reason": "payout_destination_cache_refreshes: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "payout_destinations_cache": {
+    "reason": "payout_destinations_cache: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "payout_identity_status": {
+    "reason": "payout_identity_status: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "platform_hold_refund_attempts": {
+    "reason": "platform_hold_refund_attempts: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "platform_hold_refund_transfer_legs": {
+    "reason": "platform_hold_refund_transfer_legs: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "platform_hold_transfer_attempts": {
+    "reason": "platform_hold_transfer_attempts: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "platform_payment_holds": {
+    "reason": "platform_payment_holds: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "platform_service_settings": {
+    "reason": "platform_service_settings: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "platform_source_consumption_legs": {
+    "reason": "platform_source_consumption_legs: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "portal_workspaces": {
+    "reason": "portal_workspaces: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "proplane_balance_accounts": {
+    "reason": "proplane_balance_accounts: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "prospect_sms_bursts": {
+    "reason": "prospect_sms_bursts: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "prospect_sms_ingress": {
+    "reason": "prospect_sms_ingress: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "prospect_sms_inline_actions": {
+    "reason": "prospect_sms_inline_actions: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "prospect_sms_shadow_jobs": {
+    "reason": "prospect_sms_shadow_jobs: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "prospect_sms_tour_reminders": {
+    "reason": "prospect_sms_tour_reminders: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "prospect_tour_bookings": {
+    "reason": "prospect_tour_bookings: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "prospect_tour_google_calendar_cleanup": {
+    "reason": "prospect_tour_google_calendar_cleanup: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "prospect_tour_google_calendar_create_intents": {
+    "reason": "prospect_tour_google_calendar_create_intents: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "prospect_tour_scheduling_state": {
+    "reason": "prospect_tour_scheduling_state: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "rent_reporting_submissions": {
+    "reason": "rent_reporting_submissions: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "resident_account_links": {
+    "reason": "resident_account_links: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "resident_agent_numbers": {
+    "reason": "resident_agent_numbers: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "resident_autopay_runs": {
+    "reason": "resident_autopay_runs: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "resident_autopay_settings": {
+    "reason": "resident_autopay_settings: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "resident_checkout_attempts": {
+    "reason": "resident_checkout_attempts: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "resident_rent_reporting": {
+    "reason": "resident_rent_reporting: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "resident_workspace_bindings": {
+    "reason": "resident_workspace_bindings: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "service_share_links": {
+    "reason": "service_share_links: Never-restore data still needs capture and deletion lifecycle review.",
+    "current_policy": "never_restore",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "sms_entry_codes": {
+    "reason": "sms_entry_codes: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "sms_line_shadow_decisions": {
+    "reason": "sms_line_shadow_decisions: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "sms_phone_contacts": {
+    "reason": "sms_phone_contacts: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "sms_projection_aliases": {
+    "reason": "sms_projection_aliases: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "sms_projection_ambiguous_aliases": {
+    "reason": "sms_projection_ambiguous_aliases: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "sms_projection_conversations": {
+    "reason": "sms_projection_conversations: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "sms_projection_deleted_events": {
+    "reason": "sms_projection_deleted_events: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "sms_projection_pending": {
+    "reason": "sms_projection_pending: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "sms_projection_turns": {
+    "reason": "sms_projection_turns: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "sms_projection_view_state": {
+    "reason": "sms_projection_view_state: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "sms_setup_links": {
+    "reason": "sms_setup_links: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "sms_signup_sessions": {
+    "reason": "sms_signup_sessions: Capability or session lifecycle and revocation need explicit recovery policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "sms_stay_offers": {
+    "reason": "sms_stay_offers: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "sms_vendor_leads": {
+    "reason": "sms_vendor_leads: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "tour_signup_capabilities": {
+    "reason": "tour_signup_capabilities: Capability or session lifecycle and revocation need explicit recovery policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "tour_slot_reservations": {
+    "reason": "tour_slot_reservations: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_account_tax_profiles": {
+    "reason": "vendor_account_tax_profiles: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_banking_disputes": {
+    "reason": "vendor_banking_disputes: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_banking_ledger_entries": {
+    "reason": "vendor_banking_ledger_entries: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_banking_reconciliation": {
+    "reason": "vendor_banking_reconciliation: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_banking_shortfalls": {
+    "reason": "vendor_banking_shortfalls: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_business_profiles": {
+    "reason": "vendor_business_profiles: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_calendar_feeds": {
+    "reason": "vendor_calendar_feeds: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_dispatch_handle_counters": {
+    "reason": "vendor_dispatch_handle_counters: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_dispatch_rules": {
+    "reason": "vendor_dispatch_rules: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_dispatch_runs": {
+    "reason": "vendor_dispatch_runs: Queued or scheduled work must not replay without an explicit side-effect policy.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "resident",
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_expense_entries": {
+    "reason": "vendor_expense_entries: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_integration_access_requests": {
+    "reason": "vendor_integration_access_requests: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_marketplace_accounts": {
+    "reason": "vendor_marketplace_accounts: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_payout_refunds": {
+    "reason": "vendor_payout_refunds: Financial evidence, provider state, and refund or payout effects need source review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_reviews": {
+    "reason": "vendor_reviews: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager",
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "vendor_work_identities": {
+    "reason": "vendor_work_identities: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "vendor"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "webhook_deliveries": {
+    "reason": "webhook_deliveries: Never-restore data still needs capture and deletion lifecycle review.",
+    "current_policy": "never_restore",
+    "scope": [],
+    "prod_catalog_status": "not_in_prod_catalog"
+  },
+  "webhook_subscriptions": {
+    "reason": "webhook_subscriptions: Never-restore data still needs capture and deletion lifecycle review.",
+    "current_policy": "never_restore",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "both_named_enabled"
+  },
+  "work_order_open_listings": {
+    "reason": "work_order_open_listings: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "workspace_automation_settings": {
+    "reason": "workspace_automation_settings: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  },
+  "workspace_work_number_recipients": {
+    "reason": "workspace_work_number_recipients: Ownership and retained personal or business data need table-specific recovery review.",
+    "current_policy": "recoverable_by_default",
+    "scope": [
+      "manager"
+    ],
+    "prod_catalog_status": "missing_or_mismatch"
+  }
+}
