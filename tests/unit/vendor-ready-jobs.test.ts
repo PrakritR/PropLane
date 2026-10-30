@@ -99,9 +99,9 @@ describe("R1: multi-role vendor resolves as vendor from the portal, not profiles
     hoisted.access = { ...hoisted.access, effectiveRole: "manager" };
     expect(await resolveSessionActorRole("manager")).toBe("manager");
   });
-  it("falls back to the legacy role only when the portal names none", async () => {
+  it("does not grant a role from legacy metadata when no stored role exists", async () => {
     hoisted.access = { user: { id: "u1" }, profile: null, roles: [], effectiveRole: null };
-    expect(await resolveSessionActorRole("Vendor")).toBe("vendor");
+    expect(await resolveSessionActorRole("Vendor")).toBe("");
   });
   it("the job routes and bids library no longer read profiles.role directly", async () => {
     const fs = await import("node:fs");
@@ -277,6 +277,7 @@ describe("J6c: what a vendor read carries", () => {
     id: "wo1",
     title: "T",
     propertyAddress: "1 Main",
+    residentUserId: "resident-private-id",
     residentChargeCents: 9900,
     residentChargeId: "ch_1",
     expenseEntryIds: ["e1"],
@@ -286,10 +287,11 @@ describe("J6c: what a vendor read carries", () => {
   it("a hired vendor keeps the site but never the resident billing fields", () => {
     const out = projectWorkOrderForHiredVendor(row) as unknown as Rec;
     expect(out.propertyAddress).toBe("1 Main");
-    for (const k of ["residentChargeCents", "residentChargeId", "expenseEntryIds", "residentConfirmation"]) expect(out, k).not.toHaveProperty(k);
+    for (const k of ["residentUserId", "residentChargeCents", "residentChargeId", "expenseEntryIds", "residentConfirmation"]) expect(out, k).not.toHaveProperty(k);
   });
   it("an offered vendor also loses assignedRoomChoice", () => {
     const out = projectWorkOrderForOfferedVendor(row) as unknown as Rec;
+    expect(out).not.toHaveProperty("residentUserId");
     expect(out).not.toHaveProperty("assignedRoomChoice");
     expect(out).not.toHaveProperty("propertyAddress");
   });

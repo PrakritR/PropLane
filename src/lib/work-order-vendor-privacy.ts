@@ -134,6 +134,7 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
   // `assignedRoomChoice` is not on the typed row but can ride a work order's payload; it names a room.
   const offered = { ...rest } as Record<string, unknown>;
   delete offered.assignedRoomChoice;
+  delete offered.residentUserId;
   return {
     ...(offered as typeof rest),
     propertyName: area,
@@ -158,5 +159,6 @@ export function projectWorkOrderForHiredVendor(row: DemoManagerWorkOrderRow): De
     residentReminderSentAt: _residentReminderSentAt,
     ...rest
   } = row;
+  delete rest.residentUserId;
   return rest as DemoManagerWorkOrderRow;
 }
