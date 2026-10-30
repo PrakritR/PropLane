@@ -1,5 +1,6 @@
 "use client";
 
+import { VendorInviteEmailSignup } from "@/components/auth/vendor-invite-email-signup";
 import { EmailFirstSignup } from "@/components/auth/email-first-signup";
 
 import posthog from "posthog-js";
@@ -393,6 +394,6 @@ function LegacyVendorSignupForm({
 }
 
 export function VendorSignupForm(props: Parameters<typeof LegacyVendorSignupForm>[0]) {
-  if (props.inviteToken) return <LegacyVendorSignupForm {...props} />;
+  if (props.inviteToken) return <VendorInviteEmailSignup inviteToken={props.inviteToken} email={props.initialEmail ?? ""} initialFullName={props.initialFullName} disabled={props.disabled} />;
   return <EmailFirstSignup intent="vendor" initialEmail={props.initialEmail} disabled={props.disabled} hideLegalFooter={props.hideLegalFooter} />;
 }

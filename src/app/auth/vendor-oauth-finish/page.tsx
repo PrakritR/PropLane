@@ -1,5 +1,6 @@
 "use client";
 
+import { nativeAwarePath } from "@/lib/auth/native-auth-entry";
 import { AuthCard } from "@/components/auth/auth-card";
 import { GoogleSignedInBanner } from "@/components/auth/google-signed-in-banner";
 import {
@@ -42,6 +43,11 @@ function VendorOauthFinishContent() {
         );
 
         const storedToken = readVendorSignupInviteToken();
+        if (storedToken) {
+          clearVendorSignupInviteToken();
+          window.location.replace(nativeAwarePath(`/auth/vendor-register?token=${encodeURIComponent(storedToken)}`));
+          return;
+        }
         const res = await fetch("/api/auth/register-vendor-oauth", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
