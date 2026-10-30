@@ -9,7 +9,7 @@ const EMAIL = /^get-started-e2e-[0-9]+@example\.invalid$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Row = Record<string, unknown>;
 type Child = { table: "email_onboarding_handoffs" | "manager_automation_settings" | "manager_purchases"; key: "id" | "manager_user_id"; id: string; ownerColumn: "user_id" | "manager_user_id" };
-export type SyntheticManagerManifest = { email: string; authId: string | null; absentBeforeSignup: true; children: Child[]; beforeCounts?: Record<string, number>; afterCounts?: Record<string, number>; state: "reserved" | "identified" | "inspected" | "cleaned" };
+export type SyntheticManagerManifest = { email: string; authId: string | null; absentBeforeSignup: true; children: Child[]; workspace?: { id: string; smsId: string; smsDeleteStarted?: boolean; workspaceDeleteStarted?: boolean }; beforeCounts?: Record<string, number>; afterCounts?: Record<string, number>; state: "reserved" | "identified" | "inspected" | "cleaned" };
 
 function save(file: string, manifest: SyntheticManagerManifest) {
   if (!path.isAbsolute(file) || !lstatSync(path.dirname(file)).isDirectory() || (lstatSync(path.dirname(file)).mode & 0o777) !== 0o700) throw new Error("Synthetic manifest must have an absolute private path.");
@@ -116,6 +116,8 @@ async function inspect(db: SupabaseClient, manifest: SyntheticManagerManifest): 
       const scanKey = `${rule.table}:${column}`; if (visited.has(scanKey)) continue; visited.add(scanKey);
       const rows = await readRows(db, rule.table, column, userId);
       if (!rows.length) continue;
+      if (manifest.workspace && rule.table === "portal_workspaces" && column === "owner_user_id" && rows.length === 1 && rows[0]?.id === manifest.workspace.id) continue;
+      if (manifest.workspace && rule.table === "manager_sms_numbers" && column === "manager_user_id" && rows.length === 1 && rows[0]?.id === manifest.workspace.smsId) continue;
       const spec = supported.get(rule.table);
       if (!spec || column !== spec.owner) throw new Error(`Unexpected synthetic linked row: ${rule.table}`);
       for (const row of rows) {
@@ -141,6 +143,7 @@ export async function captureSyntheticManagerChildren(db: SupabaseClient, manife
 export async function cleanupSyntheticManager(db: SupabaseClient, url: string, manifest: SyntheticManagerManifest, manifestFile: string): Promise<void> {
   validateTarget(url, manifest.email);
   if (!manifest.absentBeforeSignup) throw new Error("Synthetic signup was not reserved.");
+  if (manifest.workspace) throw new Error("Synthetic workspace requires reviewed post-stop cleanup.");
   let userId = manifest.authId;
   if (!userId) {
     const pending = await findExactUser(db, manifest.email);
@@ -176,4 +179,57 @@ export async function cleanupSyntheticManager(db: SupabaseClient, url: string, m
   if ((await readRows(db, "profile_roles", "user_id", userId)).length || (await readRows(db, "profiles", "id", userId)).length) throw new Error("Synthetic identity rows remain.");
   manifest.afterCounts = { children: 0, roles: 0, profiles: 0, auth: 0 };
   manifest.state = "cleaned"; save(manifestFile, manifest);
+}
+
+const SMS_NULL_FIELDS = ["phone_number", "phone_number_sid", "messaging_service_sid", "campaign_sid", "provision_request_id", "provisioned_at", "released_at", "attached_at", "registration_submitted_at", "last_provider_event_at", "provider_reconciled_at", "grace_started_at", "grace_expires_at", "quarantined_at", "quarantine_reason", "detach_confirmed_at", "deregistration_confirmed_at", "provider_release_confirmed_at"] as const;
+function validateWorkspaceRows(workspace: Row, sms: Row, userId: string) {
+  if (typeof workspace.id !== "string" || !UUID.test(workspace.id) || workspace.owner_user_id !== userId || workspace.is_default !== true || workspace.is_service !== false) throw new Error("Unexpected synthetic workspace.");
+  if (typeof sms.id !== "string" || !UUID.test(sms.id) || sms.manager_user_id !== userId || sms.workspace_id !== workspace.id || sms.provider !== "twilio" || sms.provision_state !== "pending_registration" || sms.registration_state !== "pending" || sms.attachment_state !== "not_attached" || sms.number_registration_state !== "not_submitted" || SMS_NULL_FIELDS.some((key) => sms[key] !== null)) throw new Error("Unexpected synthetic SMS state.");
+  rejectProviderReferences(workspace);
+}
+/** Called only after the exact proof server is stopped; preflight enumerates fresh catalog references. */
+export async function captureSyntheticManagerWorkspace(db: SupabaseClient, manifest: SyntheticManagerManifest, manifestFile: string, preflight: (input: { authId: string; workspaceId: string; smsId: string; smsMissing: boolean; workspaceMissing: boolean }) => Promise<void>): Promise<void> {
+  const userId = manifest.authId;
+  if (!userId || !UUID.test(userId) || manifest.workspace) throw new Error("Synthetic workspace cannot be captured.");
+  const workspaces = await readRows(db, "portal_workspaces", "owner_user_id", userId);
+  const numbers = await readRows(db, "manager_sms_numbers", "manager_user_id", userId);
+  if (workspaces.length !== 1 || numbers.length !== 1) throw new Error("Unexpected synthetic workspace count.");
+  validateWorkspaceRows(workspaces[0]!, numbers[0]!, userId);
+  const workspace = { id: String(workspaces[0]!.id), smsId: String(numbers[0]!.id) };
+  await preflight({ authId: userId, workspaceId: workspace.id, smsId: workspace.smsId, smsMissing: false, workspaceMissing: false });
+  manifest.workspace = workspace;
+  try { await captureSyntheticManagerChildren(db, manifest, manifestFile); } catch (error) { delete manifest.workspace; throw error; }
+}
+/** The caller must independently verify the exact proof server exited. */
+export async function cleanupSyntheticManagerWorkspace(db: SupabaseClient, url: string, manifest: SyntheticManagerManifest, manifestFile: string, opts: { serverStopped: boolean; preflight: (input: { authId: string; workspaceId: string; smsId: string; smsMissing: boolean; workspaceMissing: boolean }) => Promise<void> }): Promise<void> {
+  validateTarget(url, manifest.email);
+  const userId = manifest.authId, workspace = manifest.workspace;
+  if (!opts.serverStopped || !manifest.absentBeforeSignup || !userId || !UUID.test(userId) || !workspace || manifest.state !== "inspected") throw new Error("Stopped server and captured synthetic workspace required.");
+  const auth = await db.auth.admin.getUserById(userId);
+  if (auth.error || auth.data.user?.id !== userId || auth.data.user.email?.trim().toLowerCase() !== manifest.email || auth.data.user.app_metadata?.proplane_email_onboarding !== true || (auth.data.user.identities ?? []).some((identity) => identity.provider !== "email")) throw new Error("Synthetic Auth ownership could not be verified.");
+  const wsRows = await readRows(db, "portal_workspaces", "id", workspace.id);
+  const smsRows = await readRows(db, "manager_sms_numbers", "id", workspace.smsId);
+  if (wsRows.length > 1 || smsRows.length > 1 || (!wsRows.length && (!workspace.workspaceDeleteStarted || smsRows.length)) || (!smsRows.length && !workspace.smsDeleteStarted)) throw new Error("Synthetic workspace state changed.");
+  if (smsRows.length && wsRows.length) validateWorkspaceRows(wsRows[0]!, smsRows[0]!, userId);
+  if (wsRows.length && (wsRows[0]?.owner_user_id !== userId || wsRows[0]?.is_default !== true || wsRows[0]?.is_service !== false)) throw new Error("Synthetic workspace ownership changed.");
+  if (JSON.stringify(await inspect(db, manifest)) !== JSON.stringify(manifest.children)) throw new Error("Synthetic linked rows changed during cleanup.");
+  await opts.preflight({ authId: userId, workspaceId: workspace.id, smsId: workspace.smsId, smsMissing: !smsRows.length, workspaceMissing: !wsRows.length });
+  if (smsRows.length) {
+    workspace.smsDeleteStarted = true; save(manifestFile, manifest);
+    let deletion = db.from("manager_sms_numbers").delete().eq("id", workspace.smsId).eq("manager_user_id", userId).eq("workspace_id", workspace.id).eq("provider", "twilio").eq("provision_state", "pending_registration").eq("registration_state", "pending").eq("attachment_state", "not_attached").eq("number_registration_state", "not_submitted");
+    for (const field of SMS_NULL_FIELDS) deletion = deletion.is(field, null);
+    const result = await deletion.select("id");
+    if (result.error || result.data?.length !== 1) throw new Error("Synthetic SMS deletion uncertain; retry after review.");
+    if ((await readRows(db, "manager_sms_numbers", "id", workspace.smsId)).length) throw new Error("Synthetic SMS row remains.");
+  }
+  await opts.preflight({ authId: userId, workspaceId: workspace.id, smsId: workspace.smsId, smsMissing: true, workspaceMissing: !wsRows.length });
+  if (wsRows.length) {
+    workspace.workspaceDeleteStarted = true; save(manifestFile, manifest);
+    const result = await db.from("portal_workspaces").delete().eq("id", workspace.id).eq("owner_user_id", userId).eq("is_default", true).eq("is_service", false).select("id");
+    if (result.error || result.data?.length !== 1) throw new Error("Synthetic workspace deletion uncertain; retry after review.");
+    if ((await readRows(db, "portal_workspaces", "id", workspace.id)).length) throw new Error("Synthetic workspace remains.");
+  }
+  await opts.preflight({ authId: userId, workspaceId: workspace.id, smsId: workspace.smsId, smsMissing: true, workspaceMissing: true });
+  delete manifest.workspace; save(manifestFile, manifest);
+  await cleanupSyntheticManager(db, url, manifest, manifestFile);
 }

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { captureSyntheticManagerChildren, cleanupSyntheticManager, type SyntheticManagerManifest } from "../helpers/synthetic-manager-cleanup";
+import { captureSyntheticManagerChildren, cleanupSyntheticManager, captureSyntheticManagerWorkspace, cleanupSyntheticManagerWorkspace, type SyntheticManagerManifest } from "../helpers/synthetic-manager-cleanup";
 
 const id = "11111111-1111-4111-8111-111111111111";
 const email = "get-started-e2e-123@example.invalid";
@@ -23,7 +23,7 @@ function fixture() {
     from(table: string) {
       const filters: Array<[string, unknown]> = []; let deleting = false;
       const query = {
-        select: () => query, eq: (key: string, value: unknown) => { filters.push([key, value]); return query; }, limit: () => query,
+        select: () => query, is: (key: string, value: unknown) => { filters.push([key, value]); return query; }, eq: (key: string, value: unknown) => { filters.push([key, value]); return query; }, limit: () => query,
         delete: () => { deleting = true; deletes.push(table); return query; },
         then: (resolve: (value: unknown) => unknown) => {
           const matching = (tables[table] ?? []).filter((row) => filters.every(([key, value]) => row[key] === value));
@@ -38,6 +38,32 @@ function fixture() {
   return { db: db as never, tables, deletes, manifest, file: path.join(dir, "manifest.json") };
 }
 describe("synthetic manager cleanup preflight", () => {
+  it("deletes only the captured pending SMS and workspace before Auth", async () => {
+    const f = fixture();
+    const ws = "22222222-2222-4222-8222-222222222222", sms = "33333333-3333-4333-8333-333333333333";
+    f.tables.portal_workspaces = [{ id: ws, owner_user_id: id, is_default: true, is_service: false }];
+    const nullFields = ["phone_number", "phone_number_sid", "messaging_service_sid", "campaign_sid", "provision_request_id", "provisioned_at", "released_at", "attached_at", "registration_submitted_at", "last_provider_event_at", "provider_reconciled_at", "grace_started_at", "grace_expires_at", "quarantined_at", "quarantine_reason", "detach_confirmed_at", "deregistration_confirmed_at", "provider_release_confirmed_at"];
+    f.tables.manager_sms_numbers = [{ id: sms, manager_user_id: id, workspace_id: ws, provider: "twilio", provision_state: "pending_registration", registration_state: "pending", attachment_state: "not_attached", number_registration_state: "not_submitted", ...Object.fromEntries(nullFields.map((field) => [field, null])) }];
+    const preflight = vi.fn(async () => {});
+    await captureSyntheticManagerWorkspace(f.db, f.manifest, f.file, preflight);
+    await cleanupSyntheticManagerWorkspace(f.db, "https://emstjswhotsnyksqhqyf.supabase.co", f.manifest, f.file, { serverStopped: true, preflight });
+    expect(f.deletes).toEqual(["manager_sms_numbers", "portal_workspaces", "manager_purchases", "profile_roles", "profiles", "auth"]);
+    expect(f.manifest.state).toBe("cleaned");
+  });
+  it("refuses a provider-backed SMS row before deletion", async () => {
+    const f = fixture();
+    f.tables.portal_workspaces = [{ id: "22222222-2222-4222-8222-222222222222", owner_user_id: id, is_default: true, is_service: false }];
+    f.tables.manager_sms_numbers = [{ id: "33333333-3333-4333-8333-333333333333", manager_user_id: id, workspace_id: "22222222-2222-4222-8222-222222222222", provider: "twilio", provision_state: "active", phone_number_sid: "PNexternal" }];
+    await expect(captureSyntheticManagerWorkspace(f.db, f.manifest, f.file, vi.fn())).rejects.toThrow(/SMS state/);
+    expect(f.deletes).toEqual([]);
+  });
+  it("rejects a workspace that is not the synthetic default before any mutation", async () => {
+    const f = fixture();
+    f.tables.portal_workspaces = [{ id: "22222222-2222-4222-8222-222222222222", owner_user_id: id, is_default: false, is_service: false }];
+    f.tables.manager_sms_numbers = [{ id: "33333333-3333-4333-8333-333333333333", manager_user_id: id }];
+    await expect(captureSyntheticManagerWorkspace(f.db, f.manifest, f.file, vi.fn())).rejects.toThrow(/workspace/);
+    expect(f.deletes).toEqual([]);
+  });
   it("deletes only captured rows and deletes Auth last after identity verification", async () => {
     const f = fixture();
     await captureSyntheticManagerChildren(f.db, f.manifest, f.file);
