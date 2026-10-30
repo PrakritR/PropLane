@@ -306,6 +306,7 @@ describe("J6c: what a vendor read carries", () => {
     resident_user_id: "resident-private-id",
     vendorId: "directory-id",
     residentEmail: "resident@example.test",
+    preferredArrival: "Private arrival instructions",
     resident_email: "resident@example.test",
     managerName: "Property Manager",
     propertyId: "public-listing-id", assignedPropertyId: "public-listing-id", workspaceId: "private-workspace-id",
@@ -326,6 +327,8 @@ describe("J6c: what a vendor read carries", () => {
     expect(JSON.stringify(projectWorkOrderForOfferedVendor(row))).not.toMatch(/Competitor Secret|Private reasoning|"dispatch"|"candidates"/);
     expect(out.propertyAddress).toBe("1 Main");
     expect(out.residentEmail).toBe("resident@example.test");
+    expect(out.preferredArrival).toBe("Private arrival instructions");
+    expect(projectWorkOrderForOfferedVendor(row)).not.toHaveProperty("preferredArrival");
     expect(out.vendorId).toBe("directory-id");
     expect(out.managerName).toBe("Property Manager");
     expect(out).not.toHaveProperty("resident_email");

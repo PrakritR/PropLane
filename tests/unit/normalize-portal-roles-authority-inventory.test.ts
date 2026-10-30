@@ -8,9 +8,6 @@ it("keeps legacy role fallback confined to the reviewed routing and display inve
     // Client contact autofill and post-auth navigation do not grant API capabilities.
     "hooks/use-prospect-contact-autofill.ts",
     "lib/auth/resolve-post-auth-destination.ts",
-    // View-as is independently under active authorization review.
-    "lib/auth/view-as-start.server.ts",
-    "lib/auth/view-as.server.ts",
   ]);
   function scan(dir: string): void {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

@@ -120,6 +120,7 @@ export function projectWorkOrderForOfferedVendor(row: DemoManagerWorkOrderRow): 
     entryNotes: _entryNotes,
     entryPermission: _entryPermission,
     residentName: _residentName,
+    preferredArrival: _preferredArrival,
     residentEmail: _residentEmail,
     residentConfirmation: _residentConfirmation,
     residentChargeCents: _residentChargeCents,
