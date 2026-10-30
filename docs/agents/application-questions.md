@@ -154,7 +154,7 @@ A linked form that is itself an application **charges its own fee to whoever
 fills it** (`src/lib/linked-form-fee.server.ts`). The amount is never read from a
 request body: it is re-resolved from the stored listing — the template's own
 `feeCentsOverride`, else the listing's application fee for the application's
-term — the same chain the applicant's own fee uses. A move-in form never
+term, else the Application system setting, else free (nothing configured = free) — the same chain the applicant's own fee uses. A move-in form never
 charges.
 
 - **`fee_cents` null on an application form means UNRESOLVED, never free.** A resolved "no fee"

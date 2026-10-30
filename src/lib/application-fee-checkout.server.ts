@@ -249,7 +249,7 @@ export async function resolveApplicationFeeProperty(
   // The fee follows the room the applicant chose and the lease type they chose
   // (captain, 2026-10-03). Chain: that room's fee for that term -> the
   // application template's own fee -> the listing-level fee -> the Application
-  // system setting -> legacy default (`effectiveApplicationFeeCents`). A typed 0
+  // system setting -> free (`effectiveApplicationFeeCents`). A typed 0
   // at any level means free. Every input is read from the stored listing; the
   // room id and term are selectors only.
   const managerSettings = await loadManagerApplicationSettings(db, ownerUserId);

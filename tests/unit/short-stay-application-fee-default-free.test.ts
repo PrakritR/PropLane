@@ -1,5 +1,5 @@
 /**
- * Short stays (Short-Term Stay, Airbnb) never fall back to the account application fee or the legacy $50:
+ * Short stays (Short-Term Stay, Airbnb) never fall back to the account application fee:
  * with nothing set in Pricing or on the form the fee is 0. Long-term is unchanged. The fee the checkout
  * charges (`resolveApplicationFeeProperty`) and the fee the Application tab shows
  * (`applicationFeeFactForTerms`) are the same number for every combination.
@@ -100,7 +100,7 @@ function expected(setup: Setup, stay: boolean): number {
   if (setup === "form") return 2500;
   if (setup === "longfee") return stay ? 0 : 4000;
   if (setup === "account") return stay ? 0 : 6000;
-  return stay ? 0 : 5000;
+  return 0; // nothing configured = free (captain, 2026-10-29)
 }
 
 describe("short stays default to no application fee; charge == display", () => {
@@ -147,10 +147,10 @@ describe("short stays default to no application fee; charge == display", () => {
     expect(res).toMatchObject({ ok: false, status: 422, code: "NO_APPLICATION_FEE" });
   });
 
-  it("the pure resolver: shortStay ignores the account default and the legacy $50", () => {
+  it("the pure resolver: shortStay ignores the account default", () => {
     expect(effectiveApplicationFeeCents({ managerFeeCents: 6000, shortStay: true })).toBe(0);
     expect(effectiveApplicationFeeCents({ managerFeeCents: null, shortStay: true })).toBe(0);
-    expect(effectiveApplicationFeeCents({ managerFeeCents: null })).toBe(5000);
+    expect(effectiveApplicationFeeCents({ managerFeeCents: null })).toBe(0);
     expect(effectiveApplicationFeeCents({ managerFeeCents: 6000, templateFeeCentsOverride: 0, shortStay: true })).toBe(0);
   });
 
@@ -185,7 +185,7 @@ describe("short stays default to no application fee; charge == display", () => {
           );
           if (!res.ok) throw new Error(res.error);
           expect(res.value.applicationFeeCents).toBe(expected(setup, false));
-          expect(res.value.applicationFeeCents).toBeGreaterThan(0);
+          if (setup !== "nothing") expect(res.value.applicationFeeCents).toBeGreaterThan(0);
         });
       }
     }

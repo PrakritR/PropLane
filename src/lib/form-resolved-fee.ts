@@ -95,7 +95,7 @@ export function resolvedFormFees(
  *
  * It runs the SAME resolver the checkout charges (`effectiveApplicationFeeCents` over the placement's own fee,
  * the template's `feeCentsOverride`, the listing fee and `accountFeeCents`, then `chargeableApplicationFeeCents`),
- * so the number shown is the number charged: a short stay never reads the account default or the legacy $50, and
+ * so the number shown is the number charged: a short stay never reads the account default, and
  * a long-term row with nothing set reads $50. `template` is the application this row is (the selector the
  * checkout also receives).
  */

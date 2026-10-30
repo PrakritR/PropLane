@@ -314,7 +314,7 @@ export function applicationRentalTypeFor(rentalType?: string | null): "standard"
  * stays never fall back to the account application fee" (`effectiveApplicationFeeCents`) -- the charge
  * path and the fee display both read it. It reads the lease term ONLY: the rental type is an applicant
  * supplied selector, and trusting it let `rentalType: "short_term"` + `leaseTerm: "Long-term"` price a
- * long-term application as a free stay. A blank or unknown term is not a stay (long-term, fee charged).
+ * long-term application as a free stay. A blank or unknown term is not a stay (long-term; the fee is whatever is configured, free when nothing is).
  */
 export function isShortStayApplication(input: { leaseTerm?: string | null }): boolean {
   const term = String(input.leaseTerm ?? "").trim();

@@ -26,7 +26,7 @@ export function applicationFeeCentsFromPropertyData(propertyData: unknown): numb
   const raw = rawApplicationFeeLabel(propertyData);
   if (!raw) {
     const listing = listingFromPropertyData(propertyData);
-    if (!listing) return 5000;
+    if (!listing) return 0;
     const amount = parseMoneyAmount(listing.applicationFee ?? "");
     return amount > 0 ? Math.round(amount * 100) : 0;
   }

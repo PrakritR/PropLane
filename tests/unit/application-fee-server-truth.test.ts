@@ -36,7 +36,6 @@ import {
   resolveApplicationFeeItemization,
   resolveApplicationFeeProperty,
 } from "@/lib/application-fee-checkout.server";
-import { LEGACY_DEFAULT_APPLICATION_FEE_CENTS } from "@/lib/manager-application-settings";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const MANAGER_ID = "mgr-fee-truth";
@@ -335,13 +334,28 @@ describe("resolveApplicationFeeProperty — listing-level fee, then the account-
     if (!res.ok) expect(res.code).toBe("NO_APPLICATION_FEE");
   });
 
-  it("falls back to the legacy default when nothing at all is set", async () => {
+  it("is free when nothing at all is set: no checkout is started", async () => {
     const res = await resolveApplicationFeeProperty(dbWith(null, ""), {
       propertyId: "p1",
       managerUserId: MANAGER_ID,
     });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("NO_APPLICATION_FEE");
+    const free = await resolveApplicationFeeProperty(dbWith(null, ""), {
+      propertyId: "p1",
+      managerUserId: MANAGER_ID,
+    }, { allowZeroFee: true });
+    expect(free.ok).toBe(true);
+    if (free.ok) expect(free.value.applicationFeeCents).toBe(0);
+  });
+
+  it("an account fee the manager saved at $50 still charges $50 when the listing sets none", async () => {
+    const res = await resolveApplicationFeeProperty(dbWith(5000, ""), {
+      propertyId: "p1",
+      managerUserId: MANAGER_ID,
+    });
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.value.applicationFeeCents).toBe(LEGACY_DEFAULT_APPLICATION_FEE_CENTS);
+    if (res.ok) expect(res.value.applicationFeeCents).toBe(5000);
   });
 
   it("a stay reads the listing-level short-term fee, not the long-term one", async () => {
