@@ -19,11 +19,13 @@ begin
     if nullif(a.row_data->>'setupTokenExpiresAt', '') is null or (a.row_data->>'setupTokenExpiresAt')::timestamptz <= now() then return false; end if;
   exception when invalid_datetime_format or datetime_field_overflow then return false; end;
   if nullif(a.row_data->>'setupTokenConsumedAt', '') is not null and bound is distinct from p_user::text then return false; end if;
-  update public.manager_application_records set row_data = jsonb_set(jsonb_set(a.row_data, '{residentUserId}', to_jsonb(p_user::text), true), '{setupTokenConsumedAt}', to_jsonb(now()), true), updated_at = now() where id = a.id;
+  if nullif(a.row_data->>'setupTokenConsumedAt', '') is null then
+    update public.manager_application_records set row_data = jsonb_set(jsonb_set(a.row_data, '{residentUserId}', to_jsonb(p_user::text), true), '{setupTokenConsumedAt}', to_jsonb(now()), true), updated_at = now() where id = a.id;
+  end if;
   update public.resident_move_in_forms f set resident_user_id = p_user, updated_at = now()
   where f.application_id = a.id and f.resident_user_id is null and f.status = 'sent'
     and f.manager_user_id = a.manager_user_id
-    and f.property_id = coalesce(nullif(a.assigned_property_id, ''), nullif(a.property_id, ''), nullif(a.row_data->>'assignedPropertyId', ''), nullif(a.row_data->>'propertyId', ''), nullif(a.row_data#>>'{application,propertyId}', ''))
+    and f.property_id = coalesce(nullif(a.assigned_property_id, ''), nullif(a.row_data->>'assignedPropertyId', ''), nullif(a.property_id, ''), nullif(a.row_data->>'propertyId', ''), nullif(a.row_data#>>'{application,propertyId}', ''))
     and lower(btrim(f.resident_email)) = verified_email
     and f.answers = '[]'::jsonb and f.signed_document_sha256 is null and f.submitted_at is null;
   return true;
@@ -42,8 +44,9 @@ begin
   candidate := pg_catalog.jsonb_populate_record(null::public.resident_move_in_forms, p_form);
   select * into a from public.manager_application_records where id = candidate.application_id for update;
   if not found then raise exception 'Form application unavailable' using errcode = '23503'; end if;
-  if candidate.manager_user_id is distinct from a.manager_user_id or candidate.property_id is distinct from
-    coalesce(nullif(a.assigned_property_id, ''), nullif(a.property_id, ''), nullif(a.row_data->>'assignedPropertyId', ''), nullif(a.row_data->>'propertyId', ''), nullif(a.row_data#>>'{application,propertyId}', ''))
+  if nullif(btrim(candidate.resident_email), '') is null or nullif(btrim(a.resident_email), '') is null
+    or candidate.manager_user_id is distinct from a.manager_user_id or candidate.property_id is distinct from
+    coalesce(nullif(a.assigned_property_id, ''), nullif(a.row_data->>'assignedPropertyId', ''), nullif(a.property_id, ''), nullif(a.row_data->>'propertyId', ''), nullif(a.row_data#>>'{application,propertyId}', ''))
     or lower(btrim(candidate.resident_email)) is distinct from lower(btrim(a.resident_email)) then
     raise exception 'Form application mismatch' using errcode = '23514';
   end if;
