@@ -12,11 +12,38 @@ import { findPendingVendorInviteByToken } from "@/lib/auth/provision-vendor-acco
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 export const runtime = "nodejs";
 const GENERIC = { ok: true };
+const MAX_BODY_BYTES = 16 * 1024;
+
+async function readBoundedBody(req: Request): Promise<string | null> {
+  if (!req.body) return null;
+  const reader = req.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let total = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return text + decoder.decode();
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        void reader.cancel().catch(() => undefined);
+        return null;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+  } catch {
+    void reader.cancel().catch(() => undefined);
+    return null;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function POST(req: Request) {
   if (!(await rateLimit(`email-onboarding:${clientIpFrom(req)}`, 5, 60_000)).ok) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
-  if (Number(req.headers.get("content-length") ?? "0") > 16384) return NextResponse.json(GENERIC);
-  const rawBody = await req.text().catch(() => "");
-  if (rawBody.length > 16384) return NextResponse.json(GENERIC);
+  if (Number(req.headers.get("content-length") ?? "0") > MAX_BODY_BYTES) return NextResponse.json(GENERIC);
+  const rawBody = await readBoundedBody(req);
+  if (rawBody === null) return NextResponse.json(GENERIC);
   const parsed = (() => { try { return JSON.parse(rawBody); } catch { return {}; } })();
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return NextResponse.json(GENERIC);
   const body = parsed as { email?: unknown; applicationId?: unknown; setupToken?: unknown; intent?: unknown; tourInquiryId?: unknown; tourToken?: unknown; checkoutSessionId?: unknown; vendorInviteToken?: unknown; propertyId?: unknown; tier?: unknown; billing?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown };

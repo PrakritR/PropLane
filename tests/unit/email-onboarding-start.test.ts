@@ -185,6 +185,29 @@ describe("email onboarding start", () => {
     expect(m.find).not.toHaveBeenCalled();
     expect(m.link).not.toHaveBeenCalled();
   });
+  it.each(["missing", "false", "multibyte", "read failure"])("rejects a %s streaming body before account or provider calls", async (scenario) => {
+    const cancel = vi.fn();
+    const body = scenario === "multibyte"
+      ? JSON.stringify({ email: "guest@example.com", extra: "é".repeat(8200) })
+      : "x".repeat(16385);
+    const bytes = new TextEncoder().encode(body);
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (scenario === "read failure") controller.error(new Error("read failed"));
+        else { controller.enqueue(bytes); controller.enqueue(new Uint8Array([1])); }
+      },
+      cancel,
+    });
+    const headers = scenario === "false" ? { "content-length": "1" } : undefined;
+    const req = new Request("http://localhost", { method: "POST", headers, body: stream, duplex: "half" } as RequestInit);
+    expect(await (await POST(req)).json()).toEqual({ ok: true });
+    expect(m.find).not.toHaveBeenCalled();
+    expect(m.create).not.toHaveBeenCalled();
+    expect(m.link).not.toHaveBeenCalled();
+    expect(m.rpc).not.toHaveBeenCalled();
+    expect(m.send).not.toHaveBeenCalled();
+    if (scenario !== "read failure") expect(cancel).toHaveBeenCalledOnce();
+  });
   it("rate limits before any account or email operation", async () => {
     m.rate.mockResolvedValueOnce({ ok: false });
     const response = await POST(request());
