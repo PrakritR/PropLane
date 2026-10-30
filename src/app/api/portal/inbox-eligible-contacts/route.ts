@@ -29,17 +29,12 @@ export async function GET(req: Request) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
       return NextResponse.json({ contacts: [] }, { status: 403 });
     }
-    const { data: profile } = await db
-      .from("profiles")
-      .select("email, role")
-      .eq("id", user.id)
-      .maybeSingle();
     const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", user.id);
     if (roleError) return NextResponse.json({ contacts: [] }, { status: 503 });
     const admin = (roleRows ?? []).some((row) => row.role === "admin");
 
     let actorId = user.id;
-    let actorEmail = (profile?.email ?? user.email ?? "").trim().toLowerCase() || null;
+    let actorEmail = user.email_confirmed_at ? (user.email ?? "").trim().toLowerCase() : "";
     let actorRole = admin ? "admin" : null;
 
     // Admin previewing a portal acts as the previewed user, so the picker shows
@@ -49,12 +44,11 @@ export async function GET(req: Request) {
       if (effectiveId && effectiveId !== user.id) {
         await assertTestWorkspacePrincipalCompatibility({ actorUserId: user.id, relatedUserIds: [effectiveId], db });
         actorId = effectiveId;
-        const { data: effectiveProfile } = await db
-          .from("profiles")
-          .select("email, role")
-          .eq("id", effectiveId)
-          .maybeSingle();
-        actorEmail = (effectiveProfile?.email ?? "").trim().toLowerCase() || null;
+        const { data: effectiveAuth, error: effectiveAuthError } = await db.auth.admin.getUserById(effectiveId);
+        if (effectiveAuthError) return NextResponse.json({ contacts: [] }, { status: 503 });
+        actorEmail = effectiveAuth.user?.email_confirmed_at
+          ? (effectiveAuth.user.email ?? "").trim().toLowerCase()
+          : "";
         const { error: effectiveRoleError } = await db.from("profile_roles").select("role").eq("user_id", effectiveId);
         if (effectiveRoleError) return NextResponse.json({ contacts: [] }, { status: 503 });
         actorRole = null;

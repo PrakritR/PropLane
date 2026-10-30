@@ -126,6 +126,13 @@ describe("POST /api/portal/data-export", () => {
     expect(track).not.toHaveBeenCalled();
   });
 
+  it("denies legacy and metadata manager claims without a stored role", async () => {
+    signIn({ roles: [] });
+    profileRow = { role: "manager", email: "forged@example.com" };
+    getUser.mockResolvedValue({ data: { user: { id: "forged", email: "forged@example.com", user_metadata: { role: "manager" } } } });
+    expect((await POST(req({ password: PASSWORD }))).status).toBe(403);
+  });
+
   it("refuses an account with no manager role", async () => {
     signIn({ roles: ["resident"] });
     const res = await POST(req({ password: PASSWORD }));
