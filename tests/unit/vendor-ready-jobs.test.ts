@@ -311,7 +311,9 @@ describe("J6c: what a vendor read carries", () => {
     propertyId: "public-listing-id", assignedPropertyId: "public-listing-id", workspaceId: "private-workspace-id",
     property_id: "public-listing-id", assigned_property_id: "public-listing-id", workspace_id: "private-workspace-id",
     assignee: { type: "team", id: "manager-private-id", name: "Manager" },
-    nested: { managerUserId: "manager-private-id" },
+    nested: { managerUserId: "manager-private-id", candidates: [{ name: "Competitor Secret" }] },
+    dispatch: { candidates: [{ name: "Competitor Secret" }], reasoning: "Private reasoning" },
+    candidates: [{ name: "Competitor Secret" }],
     residentChargeCents: 9900,
     residentChargeId: "ch_1",
     expenseEntryIds: ["e1"],
@@ -320,6 +322,8 @@ describe("J6c: what a vendor read carries", () => {
   } as unknown as DemoManagerWorkOrderRow;
   it("a hired vendor keeps the site but never the resident billing fields", () => {
     const out = projectWorkOrderForHiredVendor(row) as unknown as Rec;
+    expect(JSON.stringify(out)).not.toMatch(/Competitor Secret|Private reasoning|"dispatch"|"candidates"/);
+    expect(JSON.stringify(projectWorkOrderForOfferedVendor(row))).not.toMatch(/Competitor Secret|Private reasoning|"dispatch"|"candidates"/);
     expect(out.propertyAddress).toBe("1 Main");
     expect(out.residentEmail).toBe("resident@example.test");
     expect(out.vendorId).toBe("directory-id");

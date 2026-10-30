@@ -74,7 +74,7 @@ export function vendorLeadMapsQuery(row: DemoManagerWorkOrderRow): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(area)}`;
 }
 
-const VENDOR_PRIVATE_SUBJECT_KEYS = new Set(["residentUserId", "managerUserId", "vendorUserId", "resident_user_id", "manager_user_id", "vendor_user_id", "userId", "user_id", "resident_email"]);
+const VENDOR_PRIVATE_SUBJECT_KEYS = new Set(["residentUserId", "managerUserId", "vendorUserId", "resident_user_id", "manager_user_id", "vendor_user_id", "userId", "user_id", "resident_email", "dispatch", "candidates"]);
 
 /** A vendor-directory ID must belong to this viewer and this job's manager. */
 export function assignedVendorDirectoryId(rowId: unknown, managerId: string, viewerId: string, directory: Array<{ id: string; managerId: string }>, residentId?: string | null): string | null {

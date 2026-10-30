@@ -336,7 +336,7 @@ function seed() {
       // Assigned but bidding closed — submit_bid must refuse.
       workOrder("WO-E", VENDOR_A.id, { biddingOpen: false }),
       // Not assigned to anyone; visible to vendor A only through a sent offer.
-      workOrder("WO-F", null, { biddingOpen: true }),
+      workOrder("WO-F", null, { biddingOpen: true, propertyName: "Secret House", propertyAddress: "123 Private Street", unit: "Secret Unit", residentName: "Secret Resident", preferredArrival: "Secret Arrival" }),
     ],
     work_order_vendor_offers: [
       { id: "OFF-A", work_order_id: "WO-F", vendor_user_id: VENDOR_A.id, vendor_directory_id: "dir_a", manager_user_id: MANAGER, status: "sent", created_at: "2026-07-01T00:00:00.000Z" },
@@ -488,7 +488,9 @@ describe("vendor read tools: cross-vendor isolation", () => {
     const res = (await getJobDetailsTool.handler(ctx, { workOrderId: "WO-F" })) as {
       workOrder: { id: string; assignment: string };
     };
-    expect(res.workOrder).toMatchObject({ id: "WO-F", assignment: "offered" });
+    expect(res.workOrder).toMatchObject({ id: "WO-F", assignment: "offered", property: "Nearby", residentName: null });
+    expect(JSON.stringify(res)).not.toMatch(/Secret House|Secret Unit|Secret Resident|Secret Arrival|123 Private/);
+    expect(JSON.stringify(await listMyJobsTool.handler(ctx, {}))).not.toMatch(/Secret House|Secret Unit|Secret Resident|123 Private/);
   });
 
   it("list_my_bids returns only the vendor's own bids", async () => {
