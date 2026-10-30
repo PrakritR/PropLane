@@ -23,6 +23,19 @@ describe("email onboarding start", () => {
     expect((await POST(req)).status).toBe(410);
     expect(m.create).not.toHaveBeenCalled(); expect(m.link).not.toHaveBeenCalled();
   });
+  it("offers a safe retry when a prevalidated tour claim cannot be reused", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test"); vi.stubGlobal("fetch", m.send);
+    m.capability.mockResolvedValue({ data: { id: "cap" }, error: null });
+    m.find.mockResolvedValue(null); m.create.mockResolvedValue({ data: { user: { id: "new-user" } }, error: null });
+    m.get.mockResolvedValue({ data: { user: { id: "new-user", email_confirmed_at: null, app_metadata: { proplane_email_onboarding: true } } } });
+    m.link.mockResolvedValue({ data: { user: { id: "new-user" }, properties: { hashed_token: "synthetic", verification_type: "signup" } } });
+    m.rpc.mockResolvedValueOnce({ data: 0, error: null }).mockResolvedValueOnce({ data: false, error: null });
+    const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "tour", tourInquiryId: "tour-1", tourToken: "a".repeat(64) }) });
+    const response = await POST(req);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Check your email for an existing verification link, or try again." });
+    expect(m.send).not.toHaveBeenCalled();
+  });
   it("atomically binds an exact tour capability to the emailed proof", async () => {
     vi.stubEnv("RESEND_API_KEY", "test"); vi.stubGlobal("fetch", m.send.mockResolvedValue({ ok: true }));
     m.capability.mockResolvedValue({ data: { id: "cap" }, error: null });
