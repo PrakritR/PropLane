@@ -1,5 +1,7 @@
 "use client";
 
+import { isUnsafeRedirectPath } from "@/lib/auth/normalize-post-auth-path";
+
 import { EmailFirstSignup } from "@/components/auth/email-first-signup";
 
 import posthog from "posthog-js";
@@ -503,14 +505,19 @@ export function PortalAuthForm() {
   const params = useSearchParams();
   if (params.get("tour_inquiry")) return <AuthCard variant="blend"><EmailFirstSignup intent="tour" tourInquiryId={params.get("tour_inquiry") ?? undefined} initialEmail={params.get("email") ?? ""} /></AuthCard>;
   const intent = params.get("role") === "resident" ? "resident" : "generic";
+  let oauthNextPath: string | undefined;
   let listing: { propertyId?: string; listingRoomId?: string; bundleId?: string; applicationFormId?: string; rentalType?: string } | undefined;
   try {
-    const next = new URL(params.get("next") ?? "", "https://local.invalid");
-    if (next.origin === "https://local.invalid" && next.pathname === "/resident/applications/apply" && next.searchParams.get("propertyId")) listing = {
+    const rawNext = params.get("next") ?? "";
+    const next = new URL(rawNext, "https://local.invalid");
+    if (safeNextPath(rawNext) && !isUnsafeRedirectPath(rawNext) && next.origin === "https://local.invalid" && next.pathname === "/resident/applications/apply" && next.searchParams.get("propertyId")) {
+      oauthNextPath = rawNext;
+      listing = {
       propertyId: next.searchParams.get("propertyId") || undefined, listingRoomId: next.searchParams.get("listingRoomId") || undefined,
       bundleId: next.searchParams.get("bundle") || undefined, applicationFormId: next.searchParams.get("form") || undefined,
       rentalType: next.searchParams.get("rentalType") || undefined,
-    };
+      };
+    }
   } catch { /* Invalid destinations are ignored. */ }
-  return <AuthCard variant="blend"><EmailFirstSignup intent={intent} listing={listing} initialEmail={params.get("email") ?? ""} /></AuthCard>;
+  return <AuthCard variant="blend"><EmailFirstSignup intent={intent} listing={listing} oauthNextPath={oauthNextPath} initialEmail={params.get("email") ?? ""} /></AuthCard>;
 }

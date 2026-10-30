@@ -23,8 +23,8 @@ const heading: Record<Intent, string> = {
   vendor: "Create your vendor account", manager_paid: "Complete your property account", tour: "Continue your tour request",
 };
 
-export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, listing, checkoutSessionId, tourInquiryId, social, disabled = false, hideLegalFooter = false }: {
-  intent: Intent; initialEmail?: string; tier?: string; billing?: "monthly" | "annual"; listing?: ListingContext; checkoutSessionId?: string; tourInquiryId?: string; social?: ReactNode; disabled?: boolean; hideLegalFooter?: boolean;
+export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, listing, checkoutSessionId, tourInquiryId, oauthNextPath, social, disabled = false, hideLegalFooter = false }: {
+  intent: Intent; initialEmail?: string; tier?: string; billing?: "monthly" | "annual"; listing?: ListingContext; checkoutSessionId?: string; tourInquiryId?: string; oauthNextPath?: string; social?: ReactNode; disabled?: boolean; hideLegalFooter?: boolean;
 }) {
   const [email, setEmail] = useState(initialEmail);
   const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
@@ -81,7 +81,7 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
   if (sent) return <div className="space-y-3"><h1 className="text-xl font-semibold">Check your email</h1><p role="status">Check your email for a link to continue.</p><Button type="button" variant="ghost" onClick={() => setSent(false)}>Use another email</Button></div>;
   return <div className="space-y-3">
     <h1 className="text-xl font-semibold">{verifiedEmail ? completionHeading[intent] : heading[intent]}</h1>
-    {!verifiedEmail ? <>{intent !== "manager_paid" && intent !== "tour" ? social ?? <OAuthSocialStack intent={intent === "generic" ? null : intent} disabled={busy || disabled} /> : null}<label className="block text-sm">Email<Input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy || disabled} /></label></> : <>
+    {!verifiedEmail ? <>{intent !== "manager_paid" && intent !== "tour" ? social ?? <OAuthSocialStack nextPath={oauthNextPath} intent={intent === "generic" ? null : intent} disabled={busy || disabled} /> : null}<label className="block text-sm">Email<Input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy || disabled} /></label></> : <>
       <p>Verified email: {verifiedEmail}</p>
       <><label className="block text-sm">Full name<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy || disabled} /></label><label className="block text-sm">Phone<PhoneNumberField value={phone} onChange={setPhone} disabled={busy || disabled} /></label></>
     </>}

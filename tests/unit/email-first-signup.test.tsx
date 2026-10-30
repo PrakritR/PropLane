@@ -2,14 +2,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 const getUser = vi.hoisted(() => vi.fn());
+const social = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/supabase/browser", () => ({ createSupabaseBrowserClient: () => ({ auth: { getUser } }) }));
-vi.mock("@/components/auth/oauth-social-stack", () => ({ OAuthSocialStack: () => <div>Social sign in</div> }));
+vi.mock("@/components/auth/oauth-social-stack", () => ({ OAuthSocialStack: (props: unknown) => { social(props); return <div>Social sign in</div>; } }));
 vi.mock("@/components/auth/auth-mobile-primitives", () => ({ AuthLegalConsent: () => null }));
 vi.mock("@/components/ui/phone-number-field", () => ({ PhoneNumberField: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => <input aria-label="Phone number" value={value} onChange={(e) => onChange(e.target.value)} /> }));
 import { EmailFirstSignup } from "@/components/auth/email-first-signup";
 beforeEach(() => { getUser.mockResolvedValue({ data: { user: null } }); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe("email-first signup", () => {
+  it("passes the listing continuation to the social buttons", async () => {
+    const path = "/resident/applications/apply?propertyId=home&listingRoomId=room";
+    render(<EmailFirstSignup intent="resident" oauthNextPath={path} />);
+    await screen.findByText("Social sign in");
+    expect(social).toHaveBeenCalledWith(expect.objectContaining({ intent: "resident", nextPath: path }));
+  });
   it.each([
     ["generic", "Create your account"], ["resident", "Create your resident account"],
     ["manager", "Create your property account"], ["vendor", "Create your vendor account"],
