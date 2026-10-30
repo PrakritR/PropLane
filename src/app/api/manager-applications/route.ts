@@ -1091,7 +1091,7 @@ export async function POST(req: Request) {
         const pricingError = await shortStayApprovalBlocker(db, anchored, (stored?.row_data ?? null) as DemoApplicantRow | null);
         if (pricingError) { stayPricingError = pricingError; continue; }
         const previousRow = (stored?.row_data ?? null) as DemoApplicantRow | null;
-        await persistNormalizedRow(db, stored?.id ?? anchored.id, anchored, stored ?? null);
+        await persistNormalizedRow(db, stored?.id ?? anchored.id, anchored, stored ?? null, null, null, true);
         await revokeMaterializedApplicationConsentAfterWrite(db, stored, anchored);
         void syncApplicationLifecycleTasks(db, previousRow, anchored).catch(
           bestEffortFailed("application lifecycle task sync", { application: anchored.id }),

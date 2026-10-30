@@ -27,6 +27,9 @@ let STORED_ROWS: {
   property_id?: string | null;
   assigned_property_id?: string | null;
 }[] = [];
+let BIND_BEFORE_UPDATE = false;
+let INSERT_CONFLICT = false;
+let INSERTS: Array<{ row_data: DemoApplicantRow }> = [];
 let UPSERTS: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow }[] = [];
 
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: vi.fn(async () => IS_ADMIN) }));
@@ -50,14 +53,17 @@ function makeDb() {
         eqManagerUserId: string | null;
         eqBucket: string | null;
         selectCols: string | null;
-      } = { ids: null, eqId: null, eqManagerUserId: null, eqBucket: null, selectCols: null };
+        write: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow } | null;
+        subject: string | null | undefined;
+      } = { ids: null, eqId: null, eqManagerUserId: null, eqBucket: null, selectCols: null, write: null, subject: undefined };
       const builder: Record<string, unknown> = {
         select: (cols?: string) => {
           state.selectCols = cols ?? null;
           return builder;
         },
-        update: () => builder,
-        insert: () => Promise.resolve({ error: null }),
+        update: (values: typeof state.write) => { if (BIND_BEFORE_UPDATE && STORED_ROWS[0]) STORED_ROWS[0].row_data = { ...STORED_ROWS[0].row_data, residentUserId: "new-bound-subject" }; state.write = values; return builder; },
+        is: (column: string) => { if (column === "row_data->>residentUserId") state.subject = null; return builder; },
+        insert: (values: { row_data: DemoApplicantRow }) => { if (table === "manager_application_records") INSERTS.push(values); return Promise.resolve({ error: INSERT_CONFLICT ? { code: "23505" } : null }); },
         upsert(values: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow }) {
           if (table === "manager_application_records") UPSERTS.push(values);
           return Promise.resolve({ error: null });
@@ -65,6 +71,7 @@ function makeDb() {
         delete: () => builder,
         eq(column: string, value: string) {
           if (column === "id") state.eqId = value;
+          if (column === "row_data->>residentUserId") state.subject = value;
           if (column === "manager_user_id") state.eqManagerUserId = value;
           if (column === "row_data->>bucket") state.eqBucket = value;
           return builder;
@@ -102,6 +109,12 @@ function makeDb() {
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
           if (table === "profile_roles") return Promise.resolve({ data: [{ role: "manager" }], error: null }).then(resolve);
           if (table === "manager_application_records") {
+            if (state.write) {
+              const match = STORED_ROWS.find((row) => row.id === state.eqId && (row.row_data.residentUserId ?? null) === state.subject);
+              if (!match) return Promise.resolve({ data: [], error: null }).then(resolve);
+              UPSERTS.push(state.write);
+              return Promise.resolve({ data: [{ id: match.id }], error: null }).then(resolve);
+            }
             if (state.eqBucket && SIBLING_READ_ERROR) {
               return Promise.resolve({ data: null, error: { message: "read failed" } }).then(resolve);
             }
@@ -183,6 +196,7 @@ async function upsert(row: DemoApplicantRow) {
 }
 
 beforeEach(() => {
+  BIND_BEFORE_UPDATE = false; INSERT_CONFLICT = false; INSERTS = [];
   vi.clearAllMocks();
   PROFILE = { role: "manager", email: MANAGER_EMAIL };
   getUser.mockResolvedValue({
@@ -412,5 +426,31 @@ describe("POST /api/manager-applications — approving a per-resident room's slo
     expect(res.status).toBe(409);
     expect(res.body.blocked).toBe("capacity");
     expect(UPSERTS).toHaveLength(0);
+  });
+});
+
+describe("manager application subject fence", () => {
+  it("keeps the stored subject despite forged input", async () => {
+    const original = applicationRow("AXIS-FENCEOWNED", { residentUserId: "stored-subject" });
+    STORED_ROWS = [{ id: original.id, row_data: original, manager_user_id: OWNER }];
+    const result = await upsert({ ...original, residentUserId: "forged-subject" });
+    expect(result.status, JSON.stringify(result.body)).toBe(200);
+    expect(UPSERTS[0]?.row_data.residentUserId).toBe("stored-subject");
+  });
+  it("rejects a bind between read and write", async () => {
+    const original = applicationRow("AXIS-FENCERACE");
+    STORED_ROWS = [{ id: original.id, row_data: original, manager_user_id: OWNER }];
+    BIND_BEFORE_UPDATE = true;
+    const result = await upsert(original);
+    expect(result.status, JSON.stringify(result.body)).toBe(409);
+    expect(UPSERTS).toHaveLength(0);
+    expect(STORED_ROWS[0]?.row_data.residentUserId).toBe("new-bound-subject");
+  });
+  it("does not accept forged subject for new rows and fails on insert collision", async () => {
+    STORED_ROWS = [];
+    INSERT_CONFLICT = true;
+    const result = await upsert(applicationRow("AXIS-FENCENEW", { residentUserId: "forged-subject" }));
+    expect(result.status).toBe(409);
+    expect(INSERTS[0]?.row_data.residentUserId).toBeFalsy();
   });
 });
