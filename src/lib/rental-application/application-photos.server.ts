@@ -30,8 +30,8 @@ export type StoredApplicationOwnership = {
 
 /**
  * Who is asking. `manager` carries the exact set of property ids they may reach
- * today (own + co-manager-linked). `resident`/`guest` carry an email that must
- * match the application's stored applicant email. Reads never accept `guest`.
+ * today (own + co-manager-linked). A resident must match the stored Auth subject.
+ * Guests cannot read photos and may write only with the pending setup token.
  */
 export type ApplicationPhotoActor =
   | { kind: "admin" }
@@ -164,7 +164,7 @@ export type ApplicationPhotoWriteTarget = {
  * - A guest is authorized ONLY by the row's unguessable resident-setup token,
  *   never by a claimed email — an id + email probe must learn nothing.
  * - A signed-in actor authorizes by session: manager property access, or the
- *   authenticated email matching the stored applicant email (multi-role logins).
+ *   exact resident subject bound to the application (including multi-role logins).
  */
 export function authorizeApplicationPhotoWrite(params: {
   actor: ApplicationPhotoActor;

@@ -318,8 +318,8 @@ export type PreparedResidentSelfWrite =
 
 /**
  * A signed-in applicant writing their OWN application (a resident, or a non-resident login applying
- * somewhere they do not manage). Ownership is the authenticated email; the stored row, when there is
- * one, must be theirs and still pending.
+ * somewhere they do not manage). Existing rows must be bound to the Auth subject and pending;
+ * new rows require the verified session mailbox.
  */
 export async function prepareResidentSelfWrite(
   db: Db,

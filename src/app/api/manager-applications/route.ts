@@ -827,13 +827,12 @@ async function assertCanDeleteApplicationRecords(
   const admin = await isAdminUser(user.id);
   if (admin) return null;
 
-  const { role, email } = await resolvePortalRole(db, user);
+  const { role } = await resolvePortalRole(db, user);
 
   if (role === "resident") {
     for (const record of records) {
       const row = normalizeRow(record.row_data as DemoApplicantRow);
-      const rowEmail = (row.email ?? record.resident_email ?? "").trim().toLowerCase();
-      if (!email || rowEmail !== email) {
+      if (row.residentUserId !== user.id) {
         return "You can only withdraw your own application.";
       }
       if (row.bucket !== "pending") {
@@ -1389,14 +1388,8 @@ export async function POST(req: Request) {
         row = await fillApplicantIdentityFromAccount(db, user, row, { submitted: false });
       }
     }
-    // SELF-APPLICATION by a signed-in NON-resident (a manager/owner/pro/vendor
-    // who continued as guest on the public apply page, or a multi-role login
-    // applying somewhere they do not manage): the write is the APPLICANT's own,
-    // keyed strictly on the authenticated email matching the row's email and the
-    // application still being pending — never on manager write access. The
-    // stored row (when one exists) must itself be pending AND carry the same
-    // email, so this path can never touch a DIFFERENT applicant's row or reopen
-    // a decided one; those still require manager edit access below.
+    // An existing pending self-application must belong to this Auth subject.
+    // A new application requires the verified session mailbox.
     let selfApplicationWrite = false;
     let authorizedWriteRecord: StoredApplicationRecord | null = null;
     if (role !== "resident") {
