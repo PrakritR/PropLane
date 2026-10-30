@@ -17,4 +17,11 @@ describe("resident identity settings", () => {
     expect(await screen.findByText("Pending")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
   });
+  it("shows provider and date for an approved attestation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ status: "approved", provider: "Persona", verifiedAt: "2026-10-29T00:00:00Z", manualReview: null }) }));
+    render(<ResidentIdentitySettings />);
+    expect(await screen.findByText("Verified")).toBeTruthy();
+    expect(screen.getByText("Persona")).toBeTruthy();
+    expect(screen.getByText("Oct 29, 2026")).toBeTruthy();
+  });
 });

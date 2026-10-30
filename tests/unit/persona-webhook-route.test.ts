@@ -20,13 +20,14 @@ describe("Persona webhook", () => {
     const signature = createHmac("sha256", "secret").update(`${timestamp}.${body}`).digest("hex");
     const provider = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { id: "inq_1", attributes: { "reference-id": "12345678-1234-1234-1234-123456789012", status: "completed" } } }) });
     vi.stubGlobal("fetch", provider);
+    rpc.mockResolvedValue({ data: "ignored", error: null });
     const pending = await POST(new Request("http://localhost", { method: "POST", body, headers: { "persona-signature": `t=${timestamp},v1=${signature}` } }));
-    expect(pending.status).toBe(503);
-    expect(rpc).not.toHaveBeenCalled();
+    expect(pending.status).toBe(200);
+    expect(rpc.mock.calls[0][1].p_provider_status).toBe("completed");
     provider.mockResolvedValue({ ok: true, json: async () => ({ data: { id: "inq_1", attributes: { "reference-id": "12345678-1234-1234-1234-123456789012", status: "approved" } } }) });
     rpc.mockResolvedValue({ data: "applied", error: null });
     const response = await POST(new Request("http://localhost", { method: "POST", body, headers: { "persona-signature": `t=${timestamp},v1=${signature}` } }));
     expect(response.status).toBe(200);
-    expect(rpc).toHaveBeenCalledWith("apply_resident_identity_event", { p_event_id: "evt_1", p_inquiry_id: "inq_1", p_reference_id: "12345678-1234-1234-1234-123456789012", p_event_type: "inquiry.approved", p_created_at: "2026-10-29T00:00:00Z" });
+    expect(rpc).toHaveBeenLastCalledWith("apply_resident_identity_event", { p_event_id: "evt_1", p_inquiry_id: "inq_1", p_reference_id: "12345678-1234-1234-1234-123456789012", p_event_type: "inquiry.approved", p_created_at: "2026-10-29T00:00:00Z", p_provider_status: "approved" });
   });
 });

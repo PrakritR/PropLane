@@ -20,7 +20,7 @@ export function verifyPersonaSignature(body: string, header: string | null, secr
   });
 }
 
-type PersonaResponse = { data?: { id?: string; attributes?: { "reference-id"?: string } }; meta?: { "session-token"?: string } };
+type PersonaResponse = { data?: { id?: string; attributes?: { "reference-id"?: string; status?: string } }; meta?: { "session-token"?: string } };
 async function personaRequest(path: string, body?: object, idempotencyKey?: string, method: "GET" | "POST" = "POST"): Promise<PersonaResponse> {
   const response = await fetch(`https://api.withpersona.com/api/v1${path}`, {
     method, cache: "no-store", headers: {
@@ -33,10 +33,11 @@ async function personaRequest(path: string, body?: object, idempotencyKey?: stri
   return await response.json() as PersonaResponse;
 }
 /** Approval must agree with the current provider state and subject. */
-export async function isPersonaInquiryApproved(id: string, userId: string): Promise<boolean> {
+export async function getPersonaInquiryStatus(id: string, userId: string): Promise<string> {
   const result = await personaRequest(`/inquiries/${encodeURIComponent(id)}`, undefined, undefined, "GET");
-  return result.data?.id === id && result.data.attributes?.["reference-id"] === userId &&
-    (result.data.attributes as { status?: string }).status === "approved";
+  const status = result.data?.attributes?.status;
+  if (result.data?.id !== id || result.data.attributes?.["reference-id"] !== userId || !status) throw new Error("Persona response invalid");
+  return status;
 }
 export async function createPersonaInquiry(userId: string, claimKey: string) {
   const result = await personaRequest("/inquiries", { data: { attributes: {

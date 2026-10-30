@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isPersonaInquiryApproved, personaEnabled, verifyPersonaSignature } from "@/lib/resident-identity/persona.server";
+import { getPersonaInquiryStatus, personaEnabled, verifyPersonaSignature } from "@/lib/resident-identity/persona.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -15,15 +15,11 @@ export async function POST(req: Request) {
   const userId = inquiry?.attributes?.["reference-id"];
   const createdAt = attributes?.["created-at"];
   if (!event?.id || !attributes?.name || !createdAt || !Number.isFinite(Date.parse(createdAt)) || inquiry?.type !== "inquiry" || !inquiry.id || !userId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) return NextResponse.json({ error: "Invalid event." }, { status: 400 });
-  if (attributes.name === "inquiry.approved") {
-    try {
-      if (!(await isPersonaInquiryApproved(inquiry.id, userId))) return NextResponse.json({ error: "Approval not confirmed." }, { status: 503 });
-    } catch {
-      return NextResponse.json({ error: "Approval not confirmed." }, { status: 503 });
-    }
-  }
+  let providerStatus: string;
+  try { providerStatus = await getPersonaInquiryStatus(inquiry.id, userId); }
+  catch { return NextResponse.json({ error: "Provider status unavailable." }, { status: 503 }); }
   const { data, error } = await createSupabaseServiceRoleClient().rpc("apply_resident_identity_event", {
-    p_event_id: event.id, p_inquiry_id: inquiry.id, p_reference_id: userId, p_event_type: attributes.name, p_created_at: createdAt,
+    p_event_id: event.id, p_inquiry_id: inquiry.id, p_reference_id: userId, p_event_type: attributes.name, p_created_at: createdAt, p_provider_status: providerStatus,
   });
   if (error || data === "unknown_inquiry") return NextResponse.json({ error: "Event not yet reconciled." }, { status: 503 });
   return NextResponse.json({ ok: true });

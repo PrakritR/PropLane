@@ -1,5 +1,6 @@
 "use client";
 
+import { ResidentVerificationLink } from "@/components/portal/resident-verification-link";
 import { Button } from "@/components/ui/button";
 import { CosignerInviteCallout } from "@/components/marketing/cosigner-invite-callout";
 import { GroupShareCallout } from "@/components/marketing/rental-application-finish-panel";
@@ -96,6 +97,7 @@ export function ResidentApplicationWorkspace({
   if (showWizard) {
     return (
       <div className="mx-auto w-full max-w-5xl space-y-4">
+        <ResidentVerificationLink />
         <RentalApplicationWizard
           showToast={showToast}
           mode="portal"

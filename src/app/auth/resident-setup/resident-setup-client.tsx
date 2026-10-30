@@ -25,7 +25,7 @@ function ResidentSetupFallback() {
   );
 }
 
-function ResidentSetupInner() {
+function ResidentSetupInner({ identityEnabled }: { identityEnabled: boolean }) {
   const { showToast } = useAppUi();
   const searchParams = useSearchParams();
   const token = useMemo(() => searchParams.get("token")?.trim() ?? "", [searchParams]);
@@ -41,6 +41,7 @@ function ResidentSetupInner() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [completedDestination, setCompletedDestination] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token || !axisIdFromUrl) {
@@ -131,13 +132,19 @@ function ResidentSetupInner() {
       }
       if (signInData?.user) posthog.identify(signInData.user.id);
       showToast("Resident account created.");
-      window.location.replace(body.redirectTo?.startsWith("/") ? body.redirectTo : "/resident/applications");
+      const destination = body.redirectTo?.startsWith("/") ? body.redirectTo : "/resident/applications";
+      if (identityEnabled) setCompletedDestination(destination);
+      else window.location.replace(destination);
     } catch {
       showToast("Network error.");
     } finally {
       setBusy(false);
     }
   };
+
+  if (completedDestination) {
+    return <AuthCard variant="blend"><AuthPageHeader eyebrow="Resident portal" title="Account created" /><div className="mt-6 space-y-4"><Link href="/resident/profile?tab=profile#verification" className="btn-cobalt flex min-h-11 items-center justify-center rounded-full">Identity verification</Link><Link href={completedDestination} className="block text-center text-sm text-primary">Continue to application</Link></div></AuthCard>;
+  }
 
   if (loading) {
     return (
@@ -280,10 +287,10 @@ function ResidentSetupInner() {
   );
 }
 
-export default function ResidentSetupClient() {
+export default function ResidentSetupClient({ identityEnabled = false }: { identityEnabled?: boolean }) {
   return (
     <Suspense fallback={<ResidentSetupFallback />}>
-      <ResidentSetupInner />
+      <ResidentSetupInner identityEnabled={identityEnabled} />
     </Suspense>
   );
 }

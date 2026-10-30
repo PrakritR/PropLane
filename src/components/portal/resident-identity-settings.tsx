@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 
-type IdentityState = { status: string; manualReview: string | null };
+type IdentityState = { status: string; manualReview: string | null; provider?: string | null; verifiedAt?: string | null };
 const labels: Record<string, string> = { loading: "Loading…", unavailable: "Unavailable", not_started: "Not started", pending: "Pending", review: "In review", approved: "Verified", declined: "Declined", expired: "Expired", reconciliation: "In review" };
 
 export function ResidentIdentitySettings() {
@@ -40,6 +40,8 @@ export function ResidentIdentitySettings() {
           {["not_started", "pending"].includes(state.status) && <button type="button" className="ml-3 text-sm text-primary" disabled={busy} onClick={() => void action("start")}>{state.status === "pending" ? "Continue" : "Verify"}</button>}
           {state.status === "expired" && <button type="button" className="ml-3 text-sm text-primary" disabled={busy} onClick={() => void action("retry")}>Retry</button>}
         </PortalSettingsRow>
+        {state.status === "approved" && state.provider && <PortalSettingsRow label="Provider"><span className="text-sm">{state.provider}</span></PortalSettingsRow>}
+        {state.status === "approved" && state.verifiedAt && <PortalSettingsRow label="Verified on"><time className="text-sm" dateTime={state.verifiedAt}>{new Date(state.verifiedAt).toLocaleDateString("en-US", { timeZone: "UTC", year: "numeric", month: "short", day: "numeric" })}</time></PortalSettingsRow>}
         <PortalSettingsRow label="Manual review">
           {state.manualReview ? <span className="text-sm">Requested</span> : state.status === "unavailable" ? <Link className="text-sm text-primary" href="/resident/communication/active">Contact support</Link> : <button type="button" className="text-sm text-primary" disabled={busy || state.status === "loading"} onClick={() => void action("manual-review")}>Request</button>}
         </PortalSettingsRow>
