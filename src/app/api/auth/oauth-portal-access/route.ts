@@ -1,3 +1,4 @@
+import { isManagerPurchaseReadError } from "@/lib/auth/manager-onboarding";
 import { ManagerEntitlementUnavailable } from "@/lib/auth/legacy-manager-entitlement.server";
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestAuthUser } from "@/lib/auth/request-auth-user";
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
     applyPortalCookies(res, destination, process.env.NODE_ENV === "production");
     return res;
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: e instanceof ManagerEntitlementUnavailable ? 503 : 500 });
+    if (e instanceof ManagerEntitlementUnavailable || isManagerPurchaseReadError(e)) return NextResponse.json({ error: "Account access is temporarily unavailable. Please try again." }, { status: 503 });
+    return NextResponse.json({ error: "Could not resolve account access." }, { status: 500 });
   }
 }

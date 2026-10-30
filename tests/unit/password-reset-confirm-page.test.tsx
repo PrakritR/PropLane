@@ -96,7 +96,7 @@ describe("/auth/confirm for a recovery link", () => {
     search = `token_hash=${TOKEN}&type=signup`;
     render(<ConfirmPage />);
     expect(await screen.findByText(/return to the original application or invitation/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /return to previous page/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /open account setup/i })).toBeTruthy();
     expect(replaced).toEqual([]);
     expect(finish).toHaveBeenCalled();
   });

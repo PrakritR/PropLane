@@ -20,7 +20,6 @@ import {
   findManagerPurchaseForAccount,
   isManagerOnboardingComplete,
   managerNeedsPricingSelection,
-  isManagerPurchaseReadError,
 } from "@/lib/auth/manager-onboarding";
 import { primaryRoleWhenAddingManager } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
@@ -223,10 +222,7 @@ export async function resolveOAuthPortalRedirect(
     if (isGenericOAuthContinuePath(safeIntended) && ownerOnly) {
       return finish("/portal/dashboard");
     }
-    const needsPricing = await managerNeedsPricingSelection(supabase, user.id, email).catch((error) => {
-      if (!isManagerPurchaseReadError(error)) throw error;
-      return false;
-    });
+    const needsPricing = await managerNeedsPricingSelection(supabase, user.id, email);
     if (needsPricing) {
       const storedManager = (roleRows ?? []).some((row) => String(row.role).toLowerCase() === "manager");
       if (!storedManager || !(await hasVerifiedLegacyManagerEntitlement(supabase, user))) return finish(MANAGER_PRICING_ENTRY_PATH);

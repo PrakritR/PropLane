@@ -151,56 +151,6 @@ export async function findApplicationForResidentSetup(
   };
 }
 
-/**
- * Relink an application record to a new resident email. Used when a resident
- * completes account setup via OAuth under a different email than the one on
- * their application — the valid setup token is the authorization, so we move the
- * application onto the account they actually control instead of rejecting it.
- * Rewrites both the `resident_email` column and the snapshot's `email` so the
- * downstream email-keyed provisioning (`provisionResidentAccountByEmail`) finds it.
- */
-export async function relinkResidentSetupApplicationEmail(
-  db: SupabaseClient,
-  row: DemoApplicantRow,
-  newEmail: string,
-): Promise<DemoApplicantRow> {
-  const email = newEmail.trim().toLowerCase();
-  const relinked: DemoApplicantRow = { ...row, email };
-  await db.from("manager_application_records").upsert(
-    {
-      id: relinked.id,
-      manager_user_id: relinked.managerUserId || null,
-      resident_email: email,
-      property_id: relinked.propertyId || relinked.application?.propertyId || null,
-      assigned_property_id: relinked.assignedPropertyId || null,
-      row_data: sealApplicantRow(relinked, relinked.id, relinked.managerUserId),
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" },
-  );
-  return relinked;
-}
-
-/** Persist a consumed setup token after successful account creation. */
-export async function consumeResidentSetupTokenOnApplication(
-  db: SupabaseClient,
-  row: DemoApplicantRow,
-): Promise<void> {
-  const consumed = markResidentSetupTokenConsumed(row);
-  await db.from("manager_application_records").upsert(
-    {
-      id: consumed.id,
-      manager_user_id: consumed.managerUserId || null,
-      resident_email: consumed.email?.trim().toLowerCase() || null,
-      property_id: consumed.propertyId || consumed.application?.propertyId || null,
-      assigned_property_id: consumed.assignedPropertyId || null,
-      row_data: sealApplicantRow(consumed, consumed.id, consumed.managerUserId),
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" },
-  );
-}
-
 function idVariants(id: string): string[] {
   return proplaneIdLookupVariants(id);
 }

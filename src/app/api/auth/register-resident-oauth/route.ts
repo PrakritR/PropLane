@@ -6,7 +6,7 @@ import {
   prospectHandoffSuccessResponse,
 } from "@/lib/auth/complete-prospect-handoff.server";
 import {
-  consumeResidentSetupTokenOnApplication,
+  hashResidentSetupToken,
   findApplicationForResidentSetup,
 } from "@/lib/auth/resident-setup-token";
 import { provisionResidentAccountByEmail } from "@/lib/auth/provision-resident-account";
@@ -71,6 +71,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Sign in with Google or Apple first." }, { status: 401 });
     }
 
+    if (!user.email_confirmed_at) return NextResponse.json({ error: "Verify your email and sign in before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
     const service = createSupabaseServiceRoleClient();
     const recovery = await recoverySetupRedirect(service, user.id);
     if (recovery) return NextResponse.json({ ok: true, recoveryRequired: true, redirectTo: recovery });
@@ -136,7 +137,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const lookup = await findApplicationForResidentSetup(service, { token, axisId });
+    const lookup = await findApplicationForResidentSetup(service, { token, axisId, consumedByUserId: user.id });
     if (!lookup.ok) {
       return NextResponse.json({ error: lookup.error }, { status: lookup.status });
     }
@@ -146,7 +147,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Sign in with the verified email used on the application.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
     }
 
-    const applicationRow = lookup.row;
+    const binding = await service.rpc("bind_resident_setup_subject", { p_application: lookup.axisId, p_user: user.id, p_digest: hashResidentSetupToken(token) });
+    if (binding.error) return NextResponse.json({ error: "Could not complete account setup." }, { status: 503 });
+    if (binding.data !== true) return NextResponse.json({ error: "This setup link is invalid or has expired." }, { status: 403 });
 
     const fullName = oauthFullName(user.user_metadata) ?? lookup.name;
 
@@ -166,7 +169,6 @@ export async function POST(req: Request) {
     }
 
     await service.from("profiles").update({ manager_id: lookup.axisId }).eq("id", user.id);
-    await consumeResidentSetupTokenOnApplication(service, applicationRow);
 
     return NextResponse.json({
       ok: true,

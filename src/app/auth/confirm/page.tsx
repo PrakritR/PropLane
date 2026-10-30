@@ -87,7 +87,7 @@ function ConfirmContent() {
   }, [searchParams]);
 
   if (restartRequired) {
-    return <AuthCard><h1>Request a new verification link</h1><p>Return to the original application or invitation and request another verification email. Your saved application stays in its original context.</p><button type="button" onClick={() => window.history.back()}>Return to previous page</button></AuthCard>;
+    return <AuthCard><h1>Request a new verification link</h1><p>Return to the original application or invitation and request another verification email. Your saved application stays in its original context.</p><Link href="/auth/create-account">Open account setup</Link></AuthCard>;
   }
 
   if (completionUnavailable) {

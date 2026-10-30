@@ -93,6 +93,16 @@ describe("resolveOAuthPortalRedirect", () => {
     expect(legacyEntitlement).toHaveBeenCalledWith(supabase, user);
   });
 
+  it("does not grant manager routing when purchase status cannot be read", async () => {
+    const { managerNeedsPricingSelection } = await import("@/lib/auth/manager-onboarding");
+    vi.mocked(managerNeedsPricingSelection).mockRejectedValueOnce(new Error("purchase read unavailable"));
+    const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
+    const supabase = { from: (table: string) => table === "profile_roles"
+      ? { select: () => ({ eq: () => Promise.resolve({ data: [{ role: "manager" }], error: null }) }) }
+      : { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { role: "manager" }, error: null }) }) }) } };
+    await expect(resolveOAuthPortalRedirect(supabase as never, { id: "manager", email: "manager@example.test", email_confirmed_at: "confirmed" } as User, "/portal/dashboard")).rejects.toThrow("purchase read unavailable");
+  });
+
   it("never auto-provisions a free manager; manager intent goes to the chooser carrying its role", async () => {
     // AXI-126: they clicked "Property" at signup, so the chooser is handed the
     // role and provisions it exactly as a manual pick would — which for a manager

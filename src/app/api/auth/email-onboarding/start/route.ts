@@ -14,7 +14,13 @@ export const runtime = "nodejs";
 const GENERIC = { ok: true };
 export async function POST(req: Request) {
   if (!(await rateLimit(`email-onboarding:${clientIpFrom(req)}`, 5, 60_000)).ok) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
-  const body = await req.json().catch(() => ({})) as { email?: unknown; applicationId?: unknown; setupToken?: unknown; intent?: unknown; tourInquiryId?: unknown; tourToken?: unknown; checkoutSessionId?: unknown; vendorInviteToken?: unknown; propertyId?: unknown; tier?: unknown; billing?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown };
+  if (Number(req.headers.get("content-length") ?? "0") > 16384) return NextResponse.json(GENERIC);
+  const rawBody = await req.text().catch(() => "");
+  if (rawBody.length > 16384) return NextResponse.json(GENERIC);
+  const parsed = (() => { try { return JSON.parse(rawBody); } catch { return {}; } })();
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return NextResponse.json(GENERIC);
+  const body = parsed as { email?: unknown; applicationId?: unknown; setupToken?: unknown; intent?: unknown; tourInquiryId?: unknown; tourToken?: unknown; checkoutSessionId?: unknown; vendorInviteToken?: unknown; propertyId?: unknown; tier?: unknown; billing?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown };
+  if (Object.values(body).some((value) => typeof value === "string" && value.length > 1024)) return NextResponse.json(GENERIC);
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   if (!email.includes("@") || email.length > 254) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
   // A per-IP bucket alone does not bound delivery to one mailbox across clients.
@@ -22,7 +28,8 @@ export async function POST(req: Request) {
   const recipientLimit = await rateLimit(`email-onboarding:email:${email}`, 3, 10 * 60_000).catch(() => ({ ok: false }));
   if (!recipientLimit.ok) return NextResponse.json(GENERIC);
   const apiKey = process.env.RESEND_API_KEY?.trim();
-  if (!apiKey) return NextResponse.json({ error: "Email verification is unavailable." }, { status: 503 });
+  const from = process.env.RESEND_FROM?.trim();
+  if (!apiKey || !from) return NextResponse.json({ error: "Email verification is unavailable." }, { status: 503 });
   const tourRequest = body.intent === "tour";
   try {
     const db = createSupabaseServiceRoleClient();
@@ -111,6 +118,9 @@ export async function POST(req: Request) {
       const retired = await db.rpc("retire_unconfirmed_email_password", { p_user_id: id, p_email: email });
       if (retired.error || retired.data !== true) return NextResponse.json(GENERIC);
     }
+    const recent = await db.from("email_onboarding_handoffs").select("id").eq("user_id", id).in("status", ["pending", "processing"]).gte("created_at", new Date(Date.now() - 60_000).toISOString()).gt("expires_at", new Date().toISOString()).limit(1);
+    if (recent.error) return NextResponse.json({ error: "Email verification is unavailable." }, { status: 503 });
+    if ((recent.data ?? []).length > 0) return NextResponse.json(GENERIC);
     let tourHandoffId: string | null = null;
     let tourPlaceholder: string | null = null;
     if (intent === "tour") {
@@ -134,14 +144,13 @@ export async function POST(req: Request) {
     const href = `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/auth/confirm?token_hash=${encodeURIComponent(hash)}&type=${verificationType}`;
     let response: Response;
     try {
-      response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>", to: [email], subject: "Verify your PropLane email", text: `Use this link to verify your email and continue:\n\n${href}\n\nIf you did not request this, ignore this email.` }) });
+      response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ from, to: [email], subject: "Verify your PropLane email", text: `Use this link to verify your email and continue:\n\n${href}\n\nIf you did not request this, ignore this email.` }) });
     } catch {
-      if (intent === "tour") return NextResponse.json({ error: "Could not send the verification email. Please try again." }, { status: 503 });
-      return NextResponse.json(GENERIC);
+      return NextResponse.json({ error: "Could not send the verification email. Please try again." }, { status: 503 });
     }
     if (!response.ok) {
       console.error("Email onboarding delivery failed", response.status);
-      if (intent === "tour") return NextResponse.json({ error: "Could not send the verification email. Please try again." }, { status: 503 });
+      return NextResponse.json({ error: "Could not send the verification email. Please try again." }, { status: 503 });
     }
   } catch {
     console.error("Email onboarding could not be started");

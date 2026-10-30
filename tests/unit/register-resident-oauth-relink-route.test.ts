@@ -6,12 +6,13 @@ vi.mock("@/lib/auth/account-recovery.server", () => ({ pendingAccountRecovery: v
  * A browser-issued setup token cannot prove control of another person's email.
  */
 
-const { getUserMock, findLookup, relinkMock, provisionMock, consumeMock } = vi.hoisted(() => ({
+const { getUserMock, findLookup, relinkMock, provisionMock, consumeMock, bindMock } = vi.hoisted(() => ({
   getUserMock: vi.fn(),
   findLookup: vi.fn(),
   relinkMock: vi.fn(),
   provisionMock: vi.fn(),
   consumeMock: vi.fn(),
+  bindMock: vi.fn(),
 }));
 
 vi.mock("@/lib/auth/resident-setup-token", async (importOriginal) => {
@@ -27,6 +28,7 @@ vi.mock("@/lib/auth/provision-resident-account", () => ({ provisionResidentAccou
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: getUserMock } }) }));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
+    rpc: bindMock,
     from: () => ({ update: () => ({ eq: () => Promise.resolve({ error: null }) }) }),
   }),
 }));
@@ -57,6 +59,7 @@ function post(body: unknown) {
 
 describe("POST /api/auth/register-resident-oauth — email mismatch relink", () => {
   beforeEach(() => {
+    bindMock.mockReset().mockResolvedValue({ data: true, error: null });
     findLookup.mockReset().mockResolvedValue(lookup());
     relinkMock.mockReset().mockImplementation(async (_db: unknown, row: typeof APP_ROW, email: string) => ({ ...row, email }));
     provisionMock.mockReset().mockResolvedValue({ ok: true, axisId: APP_ROW.id, linkedApplication: true });
@@ -81,12 +84,20 @@ describe("POST /api/auth/register-resident-oauth — email mismatch relink", () 
     expect(res.status).toBe(200);
     const body = (await res.json()) as { relinkedEmail?: string };
     expect(relinkMock).not.toHaveBeenCalled();
+    expect(bindMock).toHaveBeenCalledWith("bind_resident_setup_subject", expect.objectContaining({ p_application: APP_ROW.id, p_user: "user-1" }));
     expect(body.relinkedEmail).toBeUndefined();
+  });
+
+  it("does not provision when the exact setup claim is rejected", async () => {
+    getUserMock.mockResolvedValue({ data: { user: { id: "user-1", email: "applied@example.com", email_confirmed_at: "confirmed", user_metadata: {} } } });
+    bindMock.mockResolvedValue({ data: false, error: null });
+    expect((await POST(post({ axisId: APP_ROW.id, token: "tok" }))).status).toBe(403);
+    expect(provisionMock).not.toHaveBeenCalled();
   });
 
   it("without a setup token, provisions a clean default-deny profile instead of 403ing (first-class OAuth signup)", async () => {
     getUserMock.mockResolvedValue({
-      data: { user: { id: "user-2", email: "brand.new@example.com", user_metadata: { full_name: "Brand New" } } },
+      data: { user: { id: "user-2", email: "brand.new@example.com", email_confirmed_at: "2026-01-01", user_metadata: { full_name: "Brand New" } } },
     });
     provisionMock.mockResolvedValueOnce({ ok: true, axisId: "AX-NEW", linkedApplication: false });
 
@@ -103,6 +114,13 @@ describe("POST /api/auth/register-resident-oauth — email mismatch relink", () 
       expect.anything(),
       expect.objectContaining({ email: "brand.new@example.com", inheritFromApplication: false }),
     );
+  });
+
+  it("rejects an unconfirmed OAuth mailbox before any provisioning", async () => {
+    getUserMock.mockResolvedValue({ data: { user: { id: "user-2", email: "victim@example.com", user_metadata: {} } } });
+    expect((await POST(post({}))).status).toBe(403);
+    expect(provisionMock).not.toHaveBeenCalled();
+    expect(bindMock).not.toHaveBeenCalled();
   });
 
   it("without a setup token, still requires a signed-in OAuth user", async () => {

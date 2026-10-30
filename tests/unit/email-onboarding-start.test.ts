@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => ({ find: vi.fn(), create: vi.fn(), get: vi.fn(), link: vi.fn(), insert: vi.fn(), send: vi.fn(), inquiry: vi.fn(), purchase: vi.fn(), invite: vi.fn(), property: vi.fn(), effective: vi.fn(), pin: vi.fn(), rpc: vi.fn(), rate: vi.fn(), capability: vi.fn(), eligible: vi.fn() }));
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const m = vi.hoisted(() => ({ find: vi.fn(), create: vi.fn(), get: vi.fn(), link: vi.fn(), insert: vi.fn(), send: vi.fn(), inquiry: vi.fn(), purchase: vi.fn(), invite: vi.fn(), property: vi.fn(), effective: vi.fn(), pin: vi.fn(), rpc: vi.fn(), rate: vi.fn(), capability: vi.fn(), eligible: vi.fn(), recent: vi.fn() }));
 vi.mock("@/lib/rate-limit", () => ({ clientIpFrom: (req: Request) => req.headers.get("x-test-ip") ?? "test", rateLimit: m.rate }));
 vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://example.test" }));
 vi.mock("@/lib/auth/find-auth-user-id-by-email", () => ({ findAuthUserIdByEmail: m.find }));
@@ -8,12 +8,13 @@ vi.mock("@/lib/send-forms", () => ({ applicationPinForLinkedForm: m.pin }));
 vi.mock("@/lib/auth/provision-vendor-account", () => ({ findPendingVendorInviteByToken: m.invite }));
 vi.mock("@/lib/tour-resident-link.server", () => ({ loadTourInquiryById: m.inquiry, tourCapabilityEligible: m.eligible }));
 vi.mock("@/lib/auth/resident-setup-token", () => ({ findApplicationForResidentSetup: vi.fn() }));
-vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ rpc: m.rpc, auth: { admin: { createUser: m.create, getUserById: m.get, generateLink: m.link } }, from: (table: string) => table === "tour_signup_capabilities" ? { select: () => { const q = { eq: () => q, is: () => q, gt: () => q, maybeSingle: m.capability }; return q; } } : ({ insert: m.insert, select: () => ({ eq: () => ({ maybeSingle: table === "manager_property_records" ? m.property : m.purchase }) }) }) }) }));
+vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ rpc: m.rpc, auth: { admin: { createUser: m.create, getUserById: m.get, generateLink: m.link } }, from: (table: string) => table === "email_onboarding_handoffs" ? { insert: m.insert, select: () => { const q = { eq: () => q, in: () => q, gte: () => q, gt: () => q, limit: m.recent }; return q; } } : table === "tour_signup_capabilities" ? { select: () => { const q = { eq: () => q, is: () => q, gt: () => q, maybeSingle: m.capability }; return q; } } : ({ insert: m.insert, select: () => ({ eq: () => ({ maybeSingle: table === "manager_property_records" ? m.property : m.purchase }) }) }) }) }));
 import { POST } from "@/app/api/auth/email-onboarding/start/route";
 const request = () => new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", password: "attacker-known" }) });
 m.rpc.mockResolvedValue({ data: 0, error: null });
 m.rate.mockResolvedValue({ ok: true });
 m.eligible.mockResolvedValue(true);
+beforeEach(() => { vi.stubEnv("RESEND_FROM", "PropLane <verify@example.test>"); m.recent.mockResolvedValue({ data: [], error: null }); });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.clearAllMocks(); });
 describe("email onboarding start", () => {
   it.each(["wrong", "expired", "reused"])("refuses a %s tour capability before account creation", async () => {
@@ -113,7 +114,7 @@ describe("email onboarding start", () => {
     m.insert.mockResolvedValue({ error: null });
     const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", password: "attacker-known", next: "https://attacker.invalid" }) });
     const response = await POST(req);
-    expect(response.status).toBe(200); expect(await response.json()).toEqual({ ok: true });
+    expect(response.status).toBe(200);
     expect(m.send).toHaveBeenCalledOnce();
     const payload = JSON.parse(m.send.mock.calls[0][1].body);
     expect(payload.text).toContain(`https://example.test/auth/confirm?token_hash=${encodeURIComponent(hash)}&type=${type}`);
@@ -128,7 +129,7 @@ describe("email onboarding start", () => {
     expect(response.status).toBe(200); expect(await response.json()).toEqual({ ok: true });
     expect(m.send).not.toHaveBeenCalled();
   });
-  it("returns the generic response when delivery fails", async () => {
+  it("returns retryable failure when delivery fails", async () => {
     vi.stubEnv("RESEND_API_KEY", "test"); vi.stubGlobal("fetch", m.send.mockResolvedValue({ ok: false, status: 503 }));
     vi.spyOn(console, "error").mockImplementation(() => {});
     m.find.mockResolvedValue(null); m.create.mockResolvedValue({ data: { user: { id: "new-user" } }, error: null });
@@ -136,8 +137,30 @@ describe("email onboarding start", () => {
     m.link.mockResolvedValue({ data: { user: { id: "new-user" }, properties: { hashed_token: "synthetic", verification_type: "signup" } } });
     m.insert.mockResolvedValue({ error: null });
     const response = await POST(request());
-    expect(response.status).toBe(200); expect(await response.json()).toEqual({ ok: true });
+    expect(response.status).toBe(503);
     expect(m.send).toHaveBeenCalledOnce();
+  });
+  it("does not mint a replacement for a recent pending handoff", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test");
+    m.find.mockResolvedValue("user-1");
+    m.get.mockResolvedValue({ data: { user: { id: "user-1", email_confirmed_at: "confirmed" } } });
+    m.recent.mockResolvedValue({ data: [{ id: "pending" }], error: null });
+    const response = await POST(request());
+    expect(await response.json()).toEqual({ ok: true });
+    expect(m.link).not.toHaveBeenCalled();
+    expect(m.send).not.toHaveBeenCalled();
+  });
+  it("requires a configured sender before looking up an account", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test"); vi.stubEnv("RESEND_FROM", "");
+    expect((await POST(request())).status).toBe(503);
+    expect(m.find).not.toHaveBeenCalled();
+    expect(m.link).not.toHaveBeenCalled();
+  });
+  it("rejects oversized input before provider work", async () => {
+    const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", setupToken: "x".repeat(2000) }) });
+    expect(await (await POST(req)).json()).toEqual({ ok: true });
+    expect(m.find).not.toHaveBeenCalled();
+    expect(m.link).not.toHaveBeenCalled();
   });
   it("rate limits before any account or email operation", async () => {
     m.rate.mockResolvedValueOnce({ ok: false });

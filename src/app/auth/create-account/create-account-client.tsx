@@ -18,7 +18,6 @@ import { MANAGER_PRICING_ENTRY_PATH } from "@/lib/auth/manager-pricing-entry-pat
 import { managerPortalEntryPath } from "@/lib/auth/manager-google-services-onboarding";
 import { persistProspectHandoff } from "@/lib/auth/prospect-handoff-storage";
 import {
-  BANNER_INFO_CLASS,
   BANNER_NEUTRAL_CLASS,
   BANNER_WARNING_CLASS,
   FIELD_LABEL_CLASS,
@@ -39,11 +38,6 @@ type ManagerCheckoutPreview = {
   email: string;
   fullName: string | null;
   tier: string;
-};
-
-type ExistingEmailStatus = {
-  exists: boolean;
-  roles: string[];
 };
 
 type CreateAccountRole = "resident" | "manager";
@@ -113,8 +107,6 @@ export default function CreateAccountClient() {
   const [checkoutPreview, setCheckoutPreview] = useState<ManagerCheckoutPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [emailStatus, setEmailStatus] = useState<ExistingEmailStatus | null>(null);
-  const [emailStatusLoading, setEmailStatusLoading] = useState(false);
   const [prevRoleFromUrl, setPrevRoleFromUrl] = useState(roleFromUrl);
   const [googleSessionEmail, setGoogleSessionEmail] = useState<string | null>(null);
   const [googleSessionName, setGoogleSessionName] = useState<string | null>(null);
@@ -205,10 +197,6 @@ export default function CreateAccountClient() {
     router.replace("/auth/resident-oauth-finish");
   }, [googleSessionLoading, googleSignedIn, isProspectHandoff, router]);
 
-  const normalEmail = email.trim().toLowerCase();
-  const isEmailCheckable = normalEmail.length > 0 && normalEmail.includes("@");
-  const displayedEmailStatus = isEmailCheckable ? emailStatus : null;
-  const displayedEmailStatusLoading = isEmailCheckable ? emailStatusLoading : false;
 
   const shouldLoadCheckout = role === "manager" && !!sessionIdFromUrl;
   const effectiveCheckoutPreview = shouldLoadCheckout ? checkoutPreview : null;
@@ -222,40 +210,6 @@ export default function CreateAccountClient() {
       }
     });
   }, [shouldLoadCheckout]);
-
-  useEffect(() => {
-    if (!isEmailCheckable) return;
-
-    const controller = new AbortController();
-
-    void Promise.resolve().then(() => {
-      if (controller.signal.aborted) return;
-      setEmailStatusLoading(true);
-    });
-
-    void fetch(`/api/auth/account-email-status?email=${encodeURIComponent(normalEmail)}`, {
-      signal: controller.signal,
-    })
-      .then(async (res) => {
-        const body = (await res.json()) as ExistingEmailStatus & { error?: string };
-        if (!res.ok) throw new Error(body.error ?? "Could not check email.");
-        if (!controller.signal.aborted) {
-          setEmailStatus({ exists: Boolean(body.exists), roles: Array.isArray(body.roles) ? body.roles : [] });
-        }
-      })
-      .catch((e: unknown) => {
-        if (controller.signal.aborted) return;
-        if (e instanceof DOMException && e.name === "AbortError") return;
-        setEmailStatus(null);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setEmailStatusLoading(false);
-      });
-
-    return () => {
-      controller.abort();
-    };
-  }, [isEmailCheckable, normalEmail]);
 
   useEffect(() => {
     if (!shouldLoadCheckout) return;
@@ -303,20 +257,7 @@ export default function CreateAccountClient() {
   const managerPostCheckout = role === "manager" && !!sessionIdFromUrl && !!effectiveCheckoutPreview;
   const managerNeedsPricing = role === "manager" && !sessionIdFromUrl;
   const isAxisIntentSignup = sessionIdFromUrl.startsWith("axis_intent_");
-  const existingAccountRoles = useMemo(() => {
-    if (!displayedEmailStatus?.exists) return [];
-    return displayedEmailStatus.roles.filter((r) => r !== role);
-  }, [displayedEmailStatus, role]);
-  const reusingExistingAccount = Boolean(displayedEmailStatus?.exists);
-  const passwordLabel = reusingExistingAccount ? "Password" : "Create password";
-  const existingAccountHint =
-    role === "resident" && reusingExistingAccount
-      ? "This email already has a PropLane login. Enter that account's password to add resident access."
-      : reusingExistingAccount && existingAccountRoles.length
-        ? `This email already has PropLane access for ${existingAccountRoles.map((r) => r[0]!.toUpperCase() + r.slice(1)).join(", ")}. Use the same password to add ${role} access to that login.`
-        : reusingExistingAccount
-          ? "This email already has a PropLane login. Use the same password for that account."
-          : null;
+  const passwordLabel = "Password";
 
   const submit = async () => {
     if (managerPostCheckout && effectiveCheckoutPreview) {
@@ -604,12 +545,6 @@ export default function CreateAccountClient() {
       ) : null}
 
       <div className="mt-6 space-y-4">
-        {existingAccountHint ? (
-          <div className={BANNER_INFO_CLASS}>
-            {existingAccountHint}
-          </div>
-        ) : null}
-
         {managerPostCheckout && effectiveCheckoutPreview ? (
           <>
             <div className="mb-2">
@@ -951,7 +886,6 @@ export default function CreateAccountClient() {
                 onChange={(e) => setPassword(e.target.value)}
                 showStrength
               />
-              {displayedEmailStatusLoading ? <p className="mt-1 text-xs text-muted/70">Checking for an existing PropLane login…</p> : null}
             </div>
               </>
             ) : null}
