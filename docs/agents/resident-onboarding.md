@@ -97,6 +97,23 @@ POST /api/auth/resident-setup   (password)      POST /api/auth/register-resident
   mismatched Google email relinks the application onto the account the applicant
   controls (`resident_email` + snapshot email rewritten) — see
   `register-resident-oauth/route.ts`.
+- **An account created on approval never holds a password anybody knows.**
+  Approving an application auto-provisions the auth user
+  (`provisionApprovedResidentAccount`, `auto_provisioned_resident: true`) with a
+  `randomBytes(32)` password in BOTH modes — there is no shared default, because a
+  credential written in source is a credential every reader of this public
+  repository holds. The resident therefore only ever gets in through a link sent to
+  their own inbox: when the address already has an account,
+  `POST /api/auth/resident-setup` answers 401 and the setup screen offers **Email me
+  a link** into `/auth/forgot-password?email=…` instead of asking for a password
+  nobody can supply.
+- **An email address is not proof of ownership.**
+  `POST /api/auth/confirm-resident-email` refuses every request identically (403
+  `EMAIL_VERIFICATION_REQUIRED`) with no lookup and no mutation — typing an address
+  must never mark it confirmed. A sign-in blocked on an unconfirmed address is told
+  to use its email link through `presentSignInError`
+  (`src/lib/auth/sign-in-error.ts`, the one owner of that copy); no surface retries
+  the credential behind a client-side auto-confirm.
 
 ## Files
 
@@ -109,6 +126,7 @@ POST /api/auth/resident-setup   (password)      POST /api/auth/register-resident
 | Setup screen + password/Google | `src/app/auth/resident-setup/resident-setup-client.tsx`, `src/app/api/auth/resident-setup/route.ts` |
 | OAuth (relink) | `src/app/api/auth/register-resident-oauth/route.ts`, `src/app/auth/resident-oauth-finish/page.tsx` |
 | Provisioning | `src/lib/auth/provision-resident-account.ts` |
+| Provisioning on approval (random password, never a default) | `src/lib/auth/provision-approved-resident.ts` |
 | Resend lost link | `src/app/api/auth/resident-setup-link/route.ts`, `src/components/auth/resident-signup-blocked.tsx` |
 | Approval / welcome email | `src/lib/resident-welcome.server.ts` |
 
@@ -121,5 +139,8 @@ POST /api/auth/resident-setup   (password)      POST /api/auth/register-resident
   `provision-resident-default-deny.test.ts` (unverified signup inherits nothing),
   `public-apply-account-prompt.test.tsx` (3-action gate), plus existing
   `resident-setup-token.test.ts` / `guest-application-upsert.test.ts`.
+- Unit (security invariants above): `tests/unit/security/no-fixed-resident-password.test.ts`,
+  `confirm-resident-email-disabled.test.ts`,
+  `resident-setup-email-link-recovery.test.ts`.
 - E2E (gated `RESIDENT_SETUP_E2E_ENABLED=1`, dev/test only):
   `tests/e2e/resident-account-setup.spec.ts`.

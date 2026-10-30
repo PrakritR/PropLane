@@ -8,6 +8,7 @@ import { resolveFormCredentials } from "@/lib/auth/form-credentials";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
+import { presentSignInError } from "@/lib/auth/sign-in-error";
 
 const LOGIN_TIMEOUT_MS = 6000;
 
@@ -19,19 +20,6 @@ type SignInResult = {
 function continueHref(nextPath: string): string {
   if (!nextPath.startsWith("/")) return "/auth/continue";
   return `/auth/continue?next=${encodeURIComponent(nextPath)}`;
-}
-
-async function tryResidentAutoConfirm(email: string): Promise<boolean> {
-  try {
-    const res = await fetch("/api/auth/confirm-resident-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: normalizeAuthEmail(email) }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -77,7 +65,7 @@ export function MobileEmailSignIn({
     setBusy(true);
     try {
       const supabase = createSupabaseBrowserClient();
-      let authResult = (await Promise.race([
+      const authResult = (await Promise.race([
         supabase.auth.signInWithPassword({
           email: normalizeAuthEmail(credentials.email),
           password: credentials.password,
@@ -87,20 +75,10 @@ export function MobileEmailSignIn({
         ),
       ])) as SignInResult;
 
-      let { data, error } = authResult;
-      if (error?.message.toLowerCase().includes("email not confirmed")) {
-        const repaired = await tryResidentAutoConfirm(credentials.email);
-        if (repaired) {
-          authResult = (await supabase.auth.signInWithPassword({
-            email: normalizeAuthEmail(credentials.email),
-            password: credentials.password,
-          })) as SignInResult;
-          data = authResult.data;
-          error = authResult.error;
-        }
-      }
+      const { data, error } = authResult;
+
       if (error) {
-        setErrorText(error.message);
+        setErrorText(presentSignInError(error.message).message);
         return;
       }
       if (!data.user) {
