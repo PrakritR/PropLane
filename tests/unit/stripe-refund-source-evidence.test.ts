@@ -19,7 +19,7 @@ vi.mock("@/lib/test-workspaces/effects.server", () => ({
 import { handleStripeRefund } from "@/lib/stripe-webhook-financials";
 
 function fixture(allocation = false, mixed = false, reservationOwner = "manager",
-  tamper?: "owner" | "category" | "principal", centralReturn = false) {
+  tamper?: "owner" | "category" | "principal", centralReturn = false, externalDeposit = false) {
   const rpc = vi.fn(async () => ({ data: true, error: null }));
   const from = vi.fn((table: string) => {
     let sourceId: string | null = null;
@@ -39,6 +39,7 @@ function fixture(allocation = false, mixed = false, reservationOwner = "manager"
               : sourceId === "charge-deposit" ? 20 : mixed ? 80 : 100,
             property_id: null, resident_user_id: null }
           : null
+        : table === "security_deposit_ledger" && externalDeposit ? { id: "deposit" }
         : table === "platform_hold_refund_attempts"
           ? { hold_id: "hold", owner_user_id: reservationOwner, source_charge_id: "ch_exact",
             refund_components: mixed
@@ -54,7 +55,7 @@ function fixture(allocation = false, mixed = false, reservationOwner = "manager"
                 : [{ source_id: "charge-1", kind: "rent", principal_cents: 100 }] }
             : null, error: null })),
     };
-    return { select: () => query };
+    return { select: () => query, upsert: async () => ({ error: null }) };
   });
   const refund = { id: "re_exact", charge: "ch_exact", payment_intent: "pi_exact",
     amount: 100, currency: "usd", status: "succeeded", created: 1_750_000_000,
@@ -97,6 +98,16 @@ describe("signed Stripe refund source evidence", () => {
     await handleStripeRefund(f.db as never, refund as never, "ch_exact");
     expect(f.rpc).toHaveBeenCalledWith("settle_security_deposit_return", { p_attempt: "deposit-1" });
     expect(sync).not.toHaveBeenCalled();
+  });
+
+  it("queues and retries a successful external deposit refund after its journal", async () => {
+    const f = fixture(false, false, "manager", undefined, false, true);
+    const refund = { ...f.refund, metadata: { proplane_charge_id: "charge-1" } };
+    providerRetrieve.mockResolvedValueOnce(refund);
+    await handleStripeRefund(f.db as never, refund as never, "ch_exact");
+    expect(f.from).toHaveBeenCalledWith("security_deposit_unmatched_refunds");
+    expect(f.rpc).toHaveBeenCalledWith("reconcile_external_security_deposit_refund", { p_refund: "re_exact", p_source: "charge-1" });
+    expect(postGl.mock.invocationCallOrder[0]).toBeLessThan(f.rpc.mock.invocationCallOrder.at(-1)!);
   });
 
   it("records pending evidence but does not debit a hold or book a paid refund", async () => {

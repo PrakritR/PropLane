@@ -471,8 +471,12 @@ async function reconcileDepositRefund(db: SupabaseClient, refund: Stripe.Refund,
   const { error: flagError } = await db.from("security_deposit_unmatched_refunds").upsert({
     stripe_refund_id: refund.id, stripe_charge_id: providerChargeId,
     source_charge_id: sourceChargeId, amount_cents: componentCents,
-  }, { onConflict: "stripe_refund_id", ignoreDuplicates: true });
+  }, { onConflict: "stripe_refund_id,source_charge_id", ignoreDuplicates: true });
   if (flagError) throw new Error("Could not flag unreserved deposit refund for reconciliation.");
+  const { error: reconcileError } = await db.rpc("reconcile_external_security_deposit_refund", {
+    p_refund: refund.id, p_source: sourceChargeId,
+  });
+  if (reconcileError) throw new Error("Could not reconcile unreserved deposit refund.");
 }
 
 export async function handleStripeRefund(
@@ -512,6 +516,7 @@ export async function handleStripeRefund(
     const { error } = await db.rpc("bind_security_deposit_refund", {
       p_attempt: depositAttemptId, p_refund: current.id, p_charge: stripeChargeId,
       p_amount: current.amount, p_status: current.status,
+      p_platform_attempt: current.metadata?.platform_refund_attempt?.trim() || null,
     });
     if (error) throw new Error("Deposit refund binding requires reconciliation.");
   }
@@ -545,7 +550,19 @@ export async function handleStripeRefund(
       .select("id").eq("stripe_charge_id", stripeChargeId)
       .eq("source_allocation_mode", "hold").limit(1);
     if (allocationError) throw new Error("Could not check refund recipient allocation.");
-    if (allocations?.length) throw new Error("Captured source refund needs exact allocation review.");
+    if (allocations?.length) {
+      // A dashboard refund bypasses the central reservation. Preserve an
+      // actionable review record even though canonical accounting cannot post.
+      const { data: payments, error: paymentError } = await db.from("ledger_entries")
+        .select("source_charge_id,category_code").eq("stripe_charge_id", stripeChargeId).eq("entry_type", "payment");
+      if (paymentError) throw new Error("Could not identify unreserved refund sources.");
+      for (const payment of payments ?? []) {
+        if (payment.category_code === "security_deposit_liability" && payment.source_charge_id) {
+          await reconcileDepositRefund(db, current, payment.source_charge_id, current.amount);
+        }
+      }
+      throw new Error("Captured source refund needs exact allocation review.");
+    }
   }
   if (current.status !== "succeeded" && settlement !== "succeeded") return;
   const settledRefund = current.status === "succeeded" ? current : await stripe.refunds.retrieve(current.id);
