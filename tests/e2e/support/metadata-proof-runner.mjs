@@ -1,10 +1,15 @@
 /** Dedicated no-delivery DEV proof; never load production env files. */
+import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { productFingerprint, validatedEnvironment, envDigest } from "./manager-proof-build.mjs";
+const proofFiles = ["tests/e2e/metadata-mirror-proof.spec.ts", "tests/helpers/metadata-mirror-proof.ts", "tests/e2e/support/metadata-proof-runner.mjs", "tests/e2e/support/metadata-proof-cleanup.ts"];
+const proofHash = createHash("sha256");
+for (const file of proofFiles) proofHash.update(file).update("\0").update(readFileSync(file)).update("\0");
+const helperDigest = proofHash.digest("hex");
 const safeEnv = validatedEnvironment(process.env);
 if (!safeEnv.SUPABASE_DB_SSL_CA_FILE || !path.isAbsolute(safeEnv.SUPABASE_DB_SSL_CA_FILE) || !lstatSync(safeEnv.SUPABASE_DB_SSL_CA_FILE).isFile()) throw new Error("Absolute verified CA required.");
 if (!existsSync(".next/auth-proof-build.json") || !existsSync(".next/BUILD_ID")) throw new Error("Safe proof build required.");
@@ -41,13 +46,13 @@ try {
 } finally {
   if (!serverExited) server.kill("SIGTERM");
   try { await Promise.race([serverExit, new Promise((_, reject) => setTimeout(() => reject(new Error("Proof server did not exit; fixture retained.")), 10000))]); }
-  catch { stage = "server_exit_failed"; writeFileSync(path.join(dir, "status.json"), JSON.stringify({ stage, serverExited, browserOk }), { mode: 0o600 }); throw new Error("Proof server did not exit; fixture retained."); }
+  catch { stage = "server_exit_failed"; writeFileSync(path.join(dir, "status.json"), JSON.stringify({ stage, serverExited, browserOk, helperDigest }), { mode: 0o600 }); throw new Error("Proof server did not exit; fixture retained."); }
 }
 try { await new Promise((resolve, reject) => { const s = createServer(); s.once("error", () => reject(new Error("Proof port remains occupied; fixture retained."))); s.listen(3007, "127.0.0.1", () => s.close(resolve)); }); portClosed = true; }
-catch { stage = "port_occupied"; writeFileSync(path.join(dir, "status.json"), JSON.stringify({ stage, serverExited, browserOk }), { mode: 0o600 }); throw new Error("Proof port remains occupied; fixture retained."); }
+catch { stage = "port_occupied"; writeFileSync(path.join(dir, "status.json"), JSON.stringify({ stage, serverExited, browserOk, helperDigest }), { mode: 0o600 }); throw new Error("Proof port remains occupied; fixture retained."); }
 stage = "cleanup";
 const cleanup = spawnSync("node_modules/.bin/tsx", ["tests/e2e/support/metadata-proof-cleanup.ts"], { env: { ...env, METADATA_SERVER_EXIT_VERIFIED: "1" }, stdio: "ignore", timeout: 120000 });
 cleanupExit = cleanup.status;
 stage = cleanupExit === 0 ? "complete" : "cleanup_failed";
-writeFileSync(path.join(dir, "status.json"), JSON.stringify({ stage, serverExited, portClosed, browserOk, cleanupExit }), { mode: 0o600 });
+writeFileSync(path.join(dir, "status.json"), JSON.stringify({ stage, serverExited, portClosed, browserOk, cleanupExit, helperDigest }), { mode: 0o600 });
 if (!browserOk || cleanup.status !== 0) throw new Error("Proof or cleanup failed; inspect the private manifest.");

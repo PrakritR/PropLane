@@ -44,7 +44,7 @@ describe("metadata property proof safety", () => {
       const filters: Array<[string, unknown]> = [];
       let deleting = false;
       const query = { select: () => query, eq: (key: string, value: unknown) => { filters.push([key, value]); return query; }, limit: () => query, delete: () => { deleting = true; return query; }, then: (resolve: (v: unknown) => unknown) => resolve({ data: [{ id: input.propertyId }], error: null }) };
-      const preflight = vi.fn(async (_input: unknown, _state: "absent" | "live") => {});
+      const preflight = vi.fn(async (value: unknown, state: "absent" | "live") => { void value; void state; });
       await cleanupMetadataProperty({ from: () => query } as never, manifest, path.join(dir, "manifest.json"), { serverStopped: true, preflight });
       expect(preflight.mock.calls.map((args) => args[1])).toEqual(["live", "absent"]);
       expect(deleting).toBe(true);
