@@ -52,6 +52,11 @@ describe("email onboarding completion", () => {
     expect((await POST(request())).status).toBe(403);
     expect(m.provision).not.toHaveBeenCalled();
   });
+  it("fails closed on a vendor invite with malformed expiry", async () => {
+    m.claim.mockResolvedValue({ data: { id: "claim", intent: "vendor_invite", vendor_invite_id: "invite" }, error: null });
+    m.invite.mockResolvedValue({ data: { vendor_email: "owner@example.com", status: "pending", expires_at: "invalid" }, error: null });
+    expect((await POST(request())).status).toBe(403);
+  });
   it("refuses a paid purchase whose current email differs from the session", async () => {
     m.claim.mockResolvedValue({ data: { id: "claim", intent: "manager_paid", manager_purchase_id: "purchase" }, error: null });
     m.purchase.mockResolvedValue({ data: { email: "victim@example.com", user_id: null }, error: null });
