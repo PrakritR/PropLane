@@ -1,7 +1,5 @@
 -- Add recovery wiring for a table introduced after the original trigger installer.
 -- Existing same-named triggers must already be the exact recovery triggers.
-begin;
-
 do $move_in_forms_recovery_guards$
 declare
   forms_table oid;
@@ -74,4 +72,3 @@ begin
 end
 $move_in_forms_recovery_guards$;
 
-commit;
