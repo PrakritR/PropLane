@@ -13,7 +13,7 @@ export async function POST(req: Request) {
   if (!user?.id || !user.email_confirmed_at || !user.email) return NextResponse.json({ error: "Sign in with your verified email." }, { status: 401 });
   const db = createSupabaseServiceRoleClient();
   const digest = createHash("sha256").update(body.tokenHash).digest("hex");
-  const fields = "id, application_id, tour_inquiry_id, manager_purchase_id, intent, status";
+  const fields = "id, application_id, tour_inquiry_id, manager_purchase_id, vendor_invite_id, intent, status";
   const claimed = await db.from("email_onboarding_handoffs").update({ status: "processing" }).eq("user_id", user.id).eq("token_digest", digest).eq("status", "pending").gt("expires_at", new Date().toISOString()).select(fields).maybeSingle();
   if (claimed.error) return NextResponse.json({ error: "Could not finish account setup." }, { status: 503 });
   let claim = claimed.data;
@@ -25,6 +25,10 @@ export async function POST(req: Request) {
   }
   if (claim.status !== "completed") {
   try {
+    if (claim.intent === "vendor_invite") {
+      const { data: invite, error: inviteError } = await db.from("vendor_invites").select("vendor_email, status, expires_at").eq("id", claim.vendor_invite_id).maybeSingle();
+      if (inviteError || !invite || invite.status !== "pending" || !invite.expires_at || !Number.isFinite(new Date(invite.expires_at).getTime()) || new Date(invite.expires_at).getTime() <= Date.now() || invite.vendor_email?.trim().toLowerCase() !== user.email.trim().toLowerCase()) return NextResponse.json({ error: "Vendor invite could not be verified." }, { status: 403 });
+    }
     if (claim.intent === "manager_paid") {
       const { data: purchase, error: purchaseError } = await db.from("manager_purchases").select("email, user_id").eq("id", claim.manager_purchase_id).maybeSingle();
       if (purchaseError || !purchase || (purchase.user_id && purchase.user_id !== user.id) || typeof purchase.email !== "string" || purchase.email.trim().toLowerCase() !== user.email.trim().toLowerCase()) return NextResponse.json({ error: "Purchase could not be verified." }, { status: 403 });
@@ -54,7 +58,7 @@ export async function POST(req: Request) {
   }
   }
   const response = NextResponse.json({ ok: true });
-  if (claim.intent === "generic" || claim.intent === "resident" || claim.intent === "manager" || claim.intent === "vendor" || claim.intent === "tour" || claim.intent === "manager_paid" || claim.intent === "application") {
+  if (claim.intent === "generic" || claim.intent === "resident" || claim.intent === "manager" || claim.intent === "vendor" || claim.intent === "tour" || claim.intent === "manager_paid" || claim.intent === "vendor_invite" || claim.intent === "application") {
     response.cookies.set("proplane_signup_handoff", claim.id, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 600 });
   }
   return response;

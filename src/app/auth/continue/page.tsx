@@ -56,7 +56,11 @@ function ContinueContent() {
           return;
         }
         if (handoff.ok) {
-          const body = await handoff.json().catch(() => ({})) as { role?: unknown; tourInquiryId?: unknown; applicationId?: unknown; checkoutSessionId?: unknown; propertyId?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown; tier?: unknown; billing?: unknown };
+          const body = await handoff.json().catch(() => ({})) as { role?: unknown; tourInquiryId?: unknown; inviteToken?: unknown; applicationId?: unknown; checkoutSessionId?: unknown; propertyId?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown; tier?: unknown; billing?: unknown };
+          if (body.role === "vendor_invite" && typeof body.inviteToken === "string" && body.inviteToken.length <= 512) {
+            window.location.replace(nativeAwarePath(`/auth/vendor-register?token=${encodeURIComponent(body.inviteToken)}`));
+            return;
+          }
           if (body.role === "application" && typeof body.applicationId === "string" && body.applicationId.length <= 200) {
             window.location.replace(nativeAwarePath(residentApplicationHandoffPath(body.applicationId)));
             return;

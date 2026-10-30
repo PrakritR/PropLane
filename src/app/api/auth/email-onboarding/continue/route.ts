@@ -14,7 +14,7 @@ export async function POST() {
   if (!user?.id || !user.email_confirmed_at) return empty();
   const db = createSupabaseServiceRoleClient();
   const { data, error } = await db.from("email_onboarding_handoffs")
-    .select("intent, application_id, tour_inquiry_id, manager_purchase_id, property_id, listing_room_id, bundle_id, application_form_id, rental_type, tier, billing")
+    .select("intent, application_id, tour_inquiry_id, manager_purchase_id, vendor_invite_id, property_id, listing_room_id, bundle_id, application_form_id, rental_type, tier, billing")
     .eq("id", id).eq("user_id", user.id).eq("status", "completed")
     .gt("expires_at", new Date().toISOString()).maybeSingle();
   if (error) return NextResponse.json({ error: "Could not continue account setup." }, { status: 503 });
@@ -24,6 +24,10 @@ export async function POST() {
     payload = { role: "application", applicationId: data.application_id };
   } else if (data.intent === "tour" && typeof data.tour_inquiry_id === "string") {
     payload = { role: "tour", tourInquiryId: data.tour_inquiry_id };
+  } else if (data.intent === "vendor_invite" && data.vendor_invite_id) {
+    const { data: invite, error: inviteError } = await db.from("vendor_invites").select("vendor_email, status, expires_at, invite_token").eq("id", data.vendor_invite_id).maybeSingle();
+    if (inviteError) return NextResponse.json({ error: "Could not continue account setup." }, { status: 503 });
+    if (invite && invite.status === "pending" && invite.expires_at && new Date(invite.expires_at).getTime() > Date.now() && invite.vendor_email?.trim().toLowerCase() === user.email?.trim().toLowerCase() && typeof invite.invite_token === "string") payload = { role: "vendor_invite", inviteToken: invite.invite_token };
   } else if (data.intent === "manager_paid" && data.manager_purchase_id) {
     const { data: purchase, error: purchaseError } = await db.from("manager_purchases").select("email, user_id, stripe_checkout_session_id").eq("id", data.manager_purchase_id).maybeSingle();
     if (purchaseError) return NextResponse.json({ error: "Could not continue account setup." }, { status: 503 });
@@ -39,7 +43,7 @@ export async function POST() {
     .gt("expires_at", new Date().toISOString()).select("id").maybeSingle();
   if (consumed.error) return NextResponse.json({ error: "Could not continue account setup." }, { status: 503 });
   if (!consumed.data) return empty();
-  const response = NextResponse.json(payload);
+  const response = NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
   response.cookies.delete("proplane_signup_handoff");
   return response;
 }

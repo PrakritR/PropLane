@@ -6,13 +6,14 @@ import { findApplicationForResidentSetup } from "@/lib/auth/resident-setup-token
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { memoizeEffectiveApplicationProperty } from "@/lib/rental-application/validate-application-submit.server";
 import { applicationPinForLinkedForm } from "@/lib/send-forms";
+import { findPendingVendorInviteByToken } from "@/lib/auth/provision-vendor-account";
 import { loadTourInquiryById } from "@/lib/tour-resident-link.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 export const runtime = "nodejs";
 const GENERIC = { ok: true };
 export async function POST(req: Request) {
   if (!(await rateLimit(`email-onboarding:${clientIpFrom(req)}`, 5, 60_000)).ok) return NextResponse.json({ error: "Too many requests." }, { status: 429 });
-  const body = await req.json().catch(() => ({})) as { email?: unknown; applicationId?: unknown; setupToken?: unknown; intent?: unknown; tourInquiryId?: unknown; checkoutSessionId?: unknown; propertyId?: unknown; tier?: unknown; billing?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown };
+  const body = await req.json().catch(() => ({})) as { email?: unknown; applicationId?: unknown; setupToken?: unknown; intent?: unknown; tourInquiryId?: unknown; checkoutSessionId?: unknown; vendorInviteToken?: unknown; propertyId?: unknown; tier?: unknown; billing?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown };
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   if (!email.includes("@") || email.length > 254) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
   const apiKey = process.env.RESEND_API_KEY?.trim();
@@ -21,10 +22,17 @@ export async function POST(req: Request) {
     const db = createSupabaseServiceRoleClient();
     const cleanup = await db.rpc("purge_expired_email_onboarding_handoffs");
     if (cleanup.error) return NextResponse.json({ error: "Email verification is unavailable." }, { status: 503 });
-    const intent = body.intent === "resident" || body.intent === "manager" || body.intent === "vendor" || body.intent === "tour" || body.intent === "manager_paid" ? body.intent : "generic";
+    const intent = body.intent === "resident" || body.intent === "manager" || body.intent === "vendor" || body.intent === "tour" || body.intent === "manager_paid" || body.intent === "vendor_invite" ? body.intent : "generic";
     let applicationId: string | null = null;
     let tourInquiryId: string | null = null;
     let managerPurchaseId: string | null = null;
+    let vendorInviteId: string | null = null;
+    if (intent === "vendor_invite") {
+      if (typeof body.vendorInviteToken !== "string" || !body.vendorInviteToken.trim()) return NextResponse.json(GENERIC);
+      const invite = await findPendingVendorInviteByToken(db, body.vendorInviteToken);
+      if (!invite || invite.vendor_email.trim().toLowerCase() !== email) return NextResponse.json(GENERIC);
+      vendorInviteId = invite.id;
+    }
     let propertyId: string | null = null;
     let listingRoomId: string | null = null;
     let bundleId: string | null = null;
@@ -92,7 +100,7 @@ export async function POST(req: Request) {
     const hash = link.data?.properties?.hashed_token;
     const verificationType = link.data?.properties?.verification_type;
     if (link.error || !hash || link.data.user?.id !== id || (verificationType !== "magiclink" && verificationType !== "signup")) return NextResponse.json(GENERIC);
-    const { error } = await db.from("email_onboarding_handoffs").insert({ user_id: id, application_id: applicationId, tour_inquiry_id: tourInquiryId, manager_purchase_id: managerPurchaseId, property_id: propertyId, listing_room_id: listingRoomId, bundle_id: bundleId, application_form_id: applicationFormId, rental_type: rentalType, tier, billing, intent: applicationId ? "application" : intent, token_digest: createHash("sha256").update(hash).digest("hex"), expires_at: new Date(Date.now() + 3600000).toISOString() });
+    const { error } = await db.from("email_onboarding_handoffs").insert({ user_id: id, application_id: applicationId, tour_inquiry_id: tourInquiryId, manager_purchase_id: managerPurchaseId, vendor_invite_id: vendorInviteId, property_id: propertyId, listing_room_id: listingRoomId, bundle_id: bundleId, application_form_id: applicationFormId, rental_type: rentalType, tier, billing, intent: applicationId ? "application" : intent, token_digest: createHash("sha256").update(hash).digest("hex"), expires_at: new Date(Date.now() + 3600000).toISOString() });
     if (error) return NextResponse.json(GENERIC);
     const href = `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/auth/confirm?token_hash=${encodeURIComponent(hash)}&type=${verificationType}`;
     const response = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>", to: [email], subject: "Verify your PropLane email", text: `Use this link to verify your email and continue:\n\n${href}\n\nIf you did not request this, ignore this email.` }) });

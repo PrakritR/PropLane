@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => ({ getUser: vi.fn(), claim: vi.fn(), application: vi.fn(), purchase: vi.fn(), provision: vi.fn(), inquiry: vi.fn(), tour: vi.fn(), updates: [] as unknown[] }));
+const m = vi.hoisted(() => ({ getUser: vi.fn(), claim: vi.fn(), application: vi.fn(), purchase: vi.fn(), invite: vi.fn(), provision: vi.fn(), inquiry: vi.fn(), tour: vi.fn(), updates: [] as unknown[] }));
 vi.mock("@/lib/tour-resident-link.server", () => ({ loadTourInquiryById: m.inquiry, linkTourInquiryToResident: m.tour }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: m.getUser } }) }));
 vi.mock("@/lib/auth/verified-resident-handoff.server", () => ({ provisionVerifiedResidentHandoff: m.provision }));
-vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: (name: string) => (name === "manager_application_records" || name === "manager_purchases") ? { select: () => ({ eq: () => ({ maybeSingle: name === "manager_purchases" ? m.purchase : m.application }) }) } : { update: (value: unknown) => { m.updates.push(value); const q = { eq: () => q, gt: () => q, select: () => q, maybeSingle: m.claim, then: (resolve: (x: unknown) => void) => resolve({ error: null }) }; return q; }, select: () => { const q = { eq: () => q, gt: () => q, maybeSingle: m.claim }; return q; } } }) }));
+vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: (name: string) => (name === "manager_application_records" || name === "manager_purchases" || name === "vendor_invites") ? { select: () => ({ eq: () => ({ maybeSingle: name === "manager_purchases" ? m.purchase : name === "vendor_invites" ? m.invite : m.application }) }) } : { update: (value: unknown) => { m.updates.push(value); const q = { eq: () => q, gt: () => q, select: () => q, maybeSingle: m.claim, then: (resolve: (x: unknown) => void) => resolve({ error: null }) }; return q; }, select: () => { const q = { eq: () => q, gt: () => q, maybeSingle: m.claim }; return q; } } }) }));
 import { POST } from "@/app/api/auth/email-onboarding/finish/route";
 const request = () => new Request("http://localhost", { method: "POST", body: JSON.stringify({ tokenHash: "one-time-token" }) });
 describe("email onboarding completion", () => {
@@ -45,6 +45,12 @@ describe("email onboarding completion", () => {
     expect(responses.map((response) => response.status)).toEqual([200, 200]);
     expect(m.provision).toHaveBeenCalledTimes(2);
     for (const call of m.provision.mock.calls) expect(call[1]).toMatchObject({ userId: "resident", applicationId: "application" });
+  });
+  it("refuses a vendor invite whose email changed before proof", async () => {
+    m.claim.mockResolvedValue({ data: { id: "claim", intent: "vendor_invite", vendor_invite_id: "invite" }, error: null });
+    m.invite.mockResolvedValue({ data: { vendor_email: "victim@example.com", status: "pending", expires_at: "2099-01-01" }, error: null });
+    expect((await POST(request())).status).toBe(403);
+    expect(m.provision).not.toHaveBeenCalled();
   });
   it("refuses a paid purchase whose current email differs from the session", async () => {
     m.claim.mockResolvedValue({ data: { id: "claim", intent: "manager_paid", manager_purchase_id: "purchase" }, error: null });

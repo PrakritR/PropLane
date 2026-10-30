@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => ({ find: vi.fn(), create: vi.fn(), get: vi.fn(), link: vi.fn(), insert: vi.fn(), send: vi.fn(), inquiry: vi.fn(), purchase: vi.fn(), property: vi.fn(), effective: vi.fn(), pin: vi.fn(), rpc: vi.fn() }));
+const m = vi.hoisted(() => ({ find: vi.fn(), create: vi.fn(), get: vi.fn(), link: vi.fn(), insert: vi.fn(), send: vi.fn(), inquiry: vi.fn(), purchase: vi.fn(), invite: vi.fn(), property: vi.fn(), effective: vi.fn(), pin: vi.fn(), rpc: vi.fn() }));
 vi.mock("@/lib/rate-limit", () => ({ clientIpFrom: () => "test", rateLimit: async () => ({ ok: true }) }));
 vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://example.test" }));
 vi.mock("@/lib/auth/find-auth-user-id-by-email", () => ({ findAuthUserIdByEmail: m.find }));
 vi.mock("@/lib/rental-application/validate-application-submit.server", () => ({ memoizeEffectiveApplicationProperty: () => m.effective }));
 vi.mock("@/lib/send-forms", () => ({ applicationPinForLinkedForm: m.pin }));
+vi.mock("@/lib/auth/provision-vendor-account", () => ({ findPendingVendorInviteByToken: m.invite }));
 vi.mock("@/lib/tour-resident-link.server", () => ({ loadTourInquiryById: m.inquiry }));
 vi.mock("@/lib/auth/resident-setup-token", () => ({ findApplicationForResidentSetup: vi.fn() }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ rpc: m.rpc, auth: { admin: { createUser: m.create, getUserById: m.get, generateLink: m.link } }, from: (table: string) => ({ insert: m.insert, select: () => ({ eq: () => ({ maybeSingle: table === "manager_property_records" ? m.property : m.purchase }) }) }) }) }));
@@ -36,6 +37,23 @@ describe("email onboarding start", () => {
     const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "tour", tourInquiryId: "tour-1" }) });
     expect((await POST(req)).status).toBe(200);
     expect(m.create).not.toHaveBeenCalled(); expect(m.link).not.toHaveBeenCalled();
+  });
+  it("does not email a vendor invite for a different mailbox", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test"); m.invite.mockResolvedValue({ id: "invite", vendor_email: "victim@example.com" });
+    const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "vendor_invite", vendorInviteToken: "token" }) });
+    expect((await POST(req)).status).toBe(200);
+    expect(m.link).not.toHaveBeenCalled();
+  });
+  it("stores a matching vendor invite reference without copying its token", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test"); vi.stubGlobal("fetch", m.send.mockResolvedValue({ ok: true }));
+    m.invite.mockResolvedValue({ id: "invite-id", vendor_email: "guest@example.com" });
+    m.find.mockResolvedValue(null); m.create.mockResolvedValue({ data: { user: { id: "new-user" } }, error: null });
+    m.get.mockResolvedValue({ data: { user: { id: "new-user", email_confirmed_at: null, app_metadata: { proplane_email_onboarding: true } } } });
+    m.link.mockResolvedValue({ data: { user: { id: "new-user" }, properties: { hashed_token: "test-token", verification_type: "magiclink" } } }); m.insert.mockResolvedValue({ error: null });
+    const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "vendor_invite", vendorInviteToken: "sensitive-invite" }) });
+    expect((await POST(req)).status).toBe(200);
+    expect(m.insert).toHaveBeenCalledWith(expect.objectContaining({ intent: "vendor_invite", vendor_invite_id: "invite-id" }));
+    expect(JSON.stringify(m.insert.mock.calls[0][0])).not.toContain("sensitive-invite");
   });
   it("refuses a paid-manager reference owned by another email", async () => {
     vi.stubEnv("RESEND_API_KEY", "test"); m.purchase.mockResolvedValue({ data: { id: "purchase", email: "victim@example.com", user_id: null }, error: null });
