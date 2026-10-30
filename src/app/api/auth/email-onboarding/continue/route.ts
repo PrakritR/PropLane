@@ -15,7 +15,7 @@ export async function POST() {
   const db = createSupabaseServiceRoleClient();
   const { data, error } = await db.from("email_onboarding_handoffs")
     .select("intent, application_id, tour_inquiry_id, manager_purchase_id, vendor_invite_id, property_id, listing_room_id, bundle_id, application_form_id, rental_type, tier, billing")
-    .eq("id", id).eq("user_id", user.id).eq("status", "completed")
+    .eq("id", id).eq("user_id", user.id).in("status", ["completed", "consumed"])
     .gt("expires_at", new Date().toISOString()).maybeSingle();
   if (error) return NextResponse.json({ error: "Could not continue account setup." }, { status: 503 });
   if (!data) return empty();
@@ -39,7 +39,7 @@ export async function POST() {
   }
   if (!payload) return empty();
   const consumed = await db.from("email_onboarding_handoffs").update({ status: "consumed" })
-    .eq("id", id).eq("user_id", user.id).eq("status", "completed")
+    .eq("id", id).eq("user_id", user.id).in("status", ["completed", "consumed"])
     .gt("expires_at", new Date().toISOString()).select("id").maybeSingle();
   if (consumed.error) return NextResponse.json({ error: "Could not continue account setup." }, { status: 503 });
   if (!consumed.data) return empty();

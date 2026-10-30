@@ -86,6 +86,21 @@ describe("/auth/confirm for a recovery link", () => {
     expect(replaced).toEqual([]);
   });
 
+  it("retries the same onboarding handoff after a lost finish response", async () => {
+    verifyOtp.mockResolvedValue({ error: { message: "Token already used" } }).mockResolvedValueOnce({ error: null });
+    const finish = vi.fn().mockResolvedValue({ ok: true, status: 200 }).mockRejectedValueOnce(new Error("connection lost"));
+    vi.stubGlobal("fetch", finish);
+    search = `token_hash=${TOKEN}&type=signup`;
+    const first = render(<ConfirmPage />);
+    expect(await screen.findByText(/could not complete verification/i)).toBeTruthy();
+    first.unmount();
+    render(<ConfirmPage />);
+    await waitFor(() => expect(replaced).toEqual(["/auth/continue"]));
+    expect(verifyOtp.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(finish.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(finish.mock.calls[1][1].body).toBe(finish.mock.calls[0][1].body);
+  });
+
   it("never takes its destination from a query param", async () => {
     verifyOtp.mockResolvedValue({ error: null });
     search = `token_hash=${TOKEN}&type=recovery&next=https://evil.example.com`;
