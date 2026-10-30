@@ -151,8 +151,8 @@ describe("effectiveApplicationFeeCents — template override precedence (pure re
     expect(effectiveApplicationFeeCents({ managerFeeCents: 5000, templateFeeCentsOverride: undefined })).toBe(5000);
   });
 
-  it("falls all the way back to the legacy $50 default when nothing at all is configured", () => {
-    expect(effectiveApplicationFeeCents({ managerFeeCents: null, templateFeeCentsOverride: null })).toBe(5000);
+  it("is free when nothing at all is configured", () => {
+    expect(effectiveApplicationFeeCents({ managerFeeCents: null, templateFeeCentsOverride: null })).toBe(0);
   });
 
   it("0 is a meaningful override distinct from unset — the application is free", () => {

@@ -33,7 +33,9 @@ below goes through them.
   legacy unplaced row for their default workspace rather than minting twice.
 - **Shared workspace** — the owner's address for that workspace, read-only, as
   `workspaceEmail` with `ownerName`; `canRequest` is false and `POST` is a 403
-  `workspace_not_owned` (`WorkspaceNotOwnedError` at the write too).
+  `workspace_not_owned` (`WorkspaceNotOwnedError` at the write too). The one
+  exception is a PropLane-managed workspace, whose address its staff may change
+  ([`admin-service.md`](admin-service.md) § Service mode).
 - Every manager-sent Communication email carries `From: <sender's name>
   <workspace address>` via `resolveManagerOutboundFrom`. The name is who wrote;
   the address is the active workspace's.
@@ -50,15 +52,21 @@ below goes through them.
 ### Custom work email local part
 
 The owner may rename the workspace's mailbox local part in Settings →
-Messaging → Work email (e.g. `seattlehomes@…` → `frontdesk@…`) instead of
+Messaging → Work email (e.g. `seattlehomes@…` → `frontdesk@…`), or from the
+Edit icon on the Communication **Work email** card
+(`work-email-address-dialog.tsx`), instead of
 living with the allocated one (the workspace-name rule in § The whole team hears
 the work email; only a workspace with no usable name falls back to
 `assist-<owner>`). `POST
 /api/manager/assistant-email` gained two actions:
 `check_address` (`{ action: "check_address", local }`, rate limited, returns
 `available` / `current` / `taken` / `reserved` / `invalid`) and `set_address`
-(`{ action: "set_address", local }`, owner-only, returns the refreshed
-status). Both go through `checkWorkspaceAssistantMailboxLocal` /
+(`{ action: "set_address", local }`, returns the refreshed
+status). Both answer the workspace's owner, and staff with member rights on a
+PropLane-managed workspace ([`admin-service.md`](admin-service.md) § Service
+mode); anybody else is the same 403 `workspace_not_owned`. `canEditAddress` on
+the status is that one decision, and the Edit icon shows on it alone. Both go
+through `checkWorkspaceAssistantMailboxLocal` /
 `setWorkspaceAssistantMailboxLocal`
 (`src/lib/manager-assistant-email/manager-assistant-email.server.ts`).
 
@@ -84,9 +92,15 @@ status). Both go through `checkWorkspaceAssistantMailboxLocal` /
   active row in place, because inbound resolution reads `mailbox_local` off that
   same row. The OLD local part is held for `RELEASED_MAILBOX_ALIAS_DAYS` (30) in
   `manager_assistant_email_aliases`, so mail still reaches the renamed row for a
-  month and no other workspace can take the name meanwhile; renaming back onto
-  an alias this same owner holds reclaims it outright. Nothing is forwarded
-  anywhere else.
+  month and no other workspace can take the name meanwhile — a mint skips a
+  local still inside another workspace's cooldown, and an alias read that fails
+  counts as held, never as free. An alias belongs to the **WORKSPACE** of the
+  row it routes to (`mailboxAliasClaimableBy`), never to its owner user: every
+  PropLane-created service workspace shares one owner user, so a user-keyed
+  cooldown let a sibling take another's released local. Renaming back onto an
+  alias that same workspace holds reclaims it outright; a legacy alias whose row
+  carries no workspace falls back to the owner user, and only when the claimant
+  is that owner's sole workspace. Nothing is forwarded anywhere else.
 
 ## How it works
 
@@ -282,7 +296,9 @@ The code is ready; these steps must be done in the Resend dashboard + DNS:
    dual-accepting legacy `prop-lane.space` on inbound during cutover via
    `assistantEmailAcceptedDomains()`). Each owned workspace auto-mints one
    address as `{workspace-slug}@proplane.ai` on Messaging GET and on workspace
-   create (`ensureOwnedWorkspaceAssistantEmails`); the owner may still Edit.
+   create (`ensureOwnedWorkspaceAssistantEmails`); the owner may still Edit. A PropLane-managed (service) workspace
+   mints `<name>homes@` on add instead, ungated, and staff with member rights may Edit it
+   ([`admin-service.md`](admin-service.md) § Service mode).
    Prefer a subdomain for support MX so existing root-domain MX for other mail
    is untouched; the MX in step 1 must cover the work-email domain, not only
    `support@`.
@@ -336,8 +352,11 @@ inbound email creating an admin-scope thread, and idempotent re-delivery.
 
 The work email local part is `<workspace>@<domain>`: the workspace name compacted to letters+digits
 (`workspaceMailboxLocalFor`, shared with `scripts/backfill-workspace-mailbox-locals.mjs`); a name under 3 characters or
-reserved appends the owner's first name; collisions take `-2`..`-9`. `node scripts/backfill-workspace-mailbox-locals.mjs`
-is a dry run; `--apply` renames through the Settings semantics and holds each old local as a 30-day alias.
+reserved appends the owner's first name; collisions take `-2`..`-9`. A PropLane-managed workspace is named by its own
+rule instead (`<name>homes`, [`admin-service.md`](admin-service.md) § Service mode). `node scripts/backfill-workspace-mailbox-locals.mjs`
+is a dry run; `--apply` renames through the Settings semantics and holds each old local as a 30-day alias. The script
+refuses the production project unless `--allow-production` is passed, and `--service` is the service-rule pass
+(mint-only; admin-service.md owns its flags).
 
 After the owner's inbox mirror, `processManagerAssistantInboundEmail` calls `fanOutWorkspaceNotice` for every non-owner in
 `resolveWorkspaceNoticeRecipients` (module `inbox`, no house): "Work email from <sender> · <subject> · <first 120 chars>",

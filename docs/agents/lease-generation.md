@@ -2200,6 +2200,8 @@ were intentional. A resident lease's holding-deposit disclosure comes from the
 application's scoped charge, not a property's possibly inherited fee. Property
 previews may still show an explicitly configured holding amount.
 
+Application fees follow the same rule (captain, 2026-10-29): nothing configured at any level = free. `effectiveApplicationFeeCents` has no built-in $50; a saved fee still wins (`resident-payments.md`).
+
 `LeaseBillingSnapshot` distinguishes the full contractual security deposit from
 its remaining collection. The ledger already splits a configured application
 holding charge from the security charge at approval. A $100 holding charge and

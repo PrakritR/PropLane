@@ -133,6 +133,21 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   `GET /api/workspaces/service-fee`, never sent by the client); the owner and other seats see it read-only ("PropLane 10% ·
   You 90%"). The same control stays in Service > Workspaces > ⋯ > Management fee. See
   [`owner-management.md`](owner-management.md) § Automatic management fee.
+- **Work email** (`service-work-email.server.ts`): a service workspace mints `<name>homes@` (service rule: "1. Ambika" ->
+  `ambikahomes@proplane.ai`, `serviceWorkspaceMailboxLocalFor`) when it is added or attached, not gated on the owner's plan;
+  a failed mint is a warning on create, never a failure. An attach only MINTS: a workspace that already has an address
+  keeps it, because a client's address is already on listings, in syndication posts and in the public listing payload. A
+  rename moves the address only while it still follows the SERVICE rule for the old name (`mailboxLocalIsDerivedFrom`) -
+  a customized one, and a self-serve `{workspace-slug}@` minted before the takeover, stay put; the old local is a 30-day
+  alias, held by its WORKSPACE rather than its owner user
+  ([`inbound-email-inbox.md`](inbound-email-inbox.md) § Custom work email local part); a rename that moves the address also writes the
+  `admin_service_work_email` audit row. Staff with member rights (the rename standing,
+  `authorizeServiceWorkEmailEdit`) change it from the Communication "Work email" card Edit icon; the write is audited
+  (`admin_service_work_email`) first. Existing workspaces: `scripts/backfill-workspace-mailbox-locals.mjs --service` (dry run;
+  `--apply` writes; production needs `--allow-production`) is MINT-ONLY - it fills in a workspace with no address and
+  never moves one that has one, so it cannot undo the invariant above; `--rename-workspace=<workspaceId>`
+  (or space-separated; repeatable, UUID required, exits non-zero on a bad value) is the explicit opt-in to move
+  that one workspace onto its service-rule local.
 - **Dashboard** (`/admin/dashboard`): each slow source (Stripe earnings, Subscribers, expenses, signups, feedback) has a
   9s budget (`withBudget`); a source that misses it is `null` and its card is left out, so one hung read cannot hold the
   page on Loading. The browser still gives up at 20s with a "took too long" error and Try again.

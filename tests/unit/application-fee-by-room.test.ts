@@ -38,7 +38,6 @@ import {
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
-import { LEGACY_DEFAULT_APPLICATION_FEE_CENTS } from "@/lib/manager-application-settings";
 import { createPropertyApplicationTemplate } from "@/lib/property-application-templates";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
@@ -194,10 +193,8 @@ describe("resolveApplicationFeeProperty - the fee follows the room and the lease
       applicationFeeCents: 3000,
       feeSource: "listing",
     });
-    // nothing at all configured -> the legacy default.
-    expect((await resolve(sub, { roomChoice1: choice("r3") }, null)).applicationFeeCents).toBe(
-      LEGACY_DEFAULT_APPLICATION_FEE_CENTS,
-    );
+    // nothing at all configured -> free.
+    expect((await resolve(sub, { roomChoice1: choice("r3") }, null)).applicationFeeCents).toBe(0);
   });
 
   it("a room fee of 0 means free, even when the account charges one", async () => {

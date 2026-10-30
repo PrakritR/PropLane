@@ -278,12 +278,13 @@ redemptions with a null application ID need explicit source review and are not
 automatically assigned to every new draft.
 
 **`manager_application_fee_waiver_codes` is the only authority on which code is
-live.** Three surfaces write it: Applications settings
+live.** Four surfaces write it: Applications settings
 (`PATCH /api/portal/manager-application-settings`), the listing save
-(`POST /api/property-records`, via `upsertPropertyApplicationFeeWaiverCode`) and the
-waive-on-send mint (`ensureWaiveOnSendWaiverCode`, § Application fee: waive on send, and short stays). The
-listing save writes only when the request CHANGES the submitted code against the
-persisted listing submission, or when the row is being published out of `draft`
+(`POST /api/property-records`, via `upsertPropertyApplicationFeeWaiverCode`), the
+waive-on-send mint (`ensureWaiveOnSendWaiverCode`, § Application fee: waive on send, and short stays) and the
+Waive / Promo codes routes (`/api/manager/application-fee-waivers`; who may write a code, and under whose id, is
+[`application-questions.md`](application-questions.md) § Promo and waiver codes). The listing save writes only when the
+request CHANGES the submitted code against the persisted listing submission, or when the row is being published out of `draft`
 for the first time (a draft save deliberately never writes the codes table, so
 that transition must apply the typed code). A retired code text is refused before
 any write — the unique index is `(manager_user_id, code_normalized)` and ignores
@@ -358,7 +359,7 @@ resolver: the placement's own value (a room / bundle / whole-house **override**)
 `PropertyLeaseTemplate.leaseFeeCents`, picked by `form-template-fees.ts`: the
 applicant's own `applicationTemplateId`, else the form routed to the lease type; a
 lease follows its application's mapping first) -> the older fallbacks (listing-level
-fee, account setting, legacy default). A stored template `0` is a real "free". A
+fee, account setting; nothing configured = free). A stored template `0` is a real "free". A
 stay type with no value of its own takes its template before it inherits the
 long-term row. The Pricing boxes show the template fee as the room's greyed default;
 typing is that room's override (never another room's), and Reset clears it. A bundle
@@ -373,8 +374,10 @@ booked charge, with and without an override; lease fee per lease type; bundles).
 room + lease type (the resolver) -> the application template's own fee -> the
 listing-level fee -> the Application system setting
 (`manager_automation_settings.row_data.applicationSettings`, Settings ->
-Applications -> Application system) -> legacy $50**. A typed `0` at any level is
-free. **A SHORT STAY stops two levels early** and is free when nothing priced it
+Applications -> Application system) -> free**. **Nothing configured at any level = free
+(captain, 2026-10-29): there is no built-in $50.** A manager's saved fee (including a saved
+$50) still wins; a typed `0` at any level is free. **A SHORT STAY skips the Application system setting** (the one
+level it stops short of, now that there is no legacy default below it) and is free when nothing priced it
 (§ Application fee: waive on send, and short stays). `roomChoice1` and `leaseTerm` are selectors only (an unoffered term, a stay
 on a listing that lets none, or a room the listing lacks falls back); the body
 never carries an amount. The Stripe session and the paid household charge record
@@ -943,4 +946,4 @@ A resident pays rent from a text: tap a `/l/<token>` link, a six-digit code is t
 
 - **Waive on send is single-use, house-scoped and one code per recipient:** a "Waived on send" code is minted server-side only after authorization, spends through the atomic `redeem_application_fee_waiver_code`, and the submit guard accepts only a redemption row for that application, house and email; a used code leaves the normal fee. Waiving is a money grant, not a share: only the property record's owner, or a co-manager holding `payments` or `applications` at `edit`, may ask for it (`managerHasCoManagerPermissionForProperty`) — a promotion-only co-manager, the account-link inviter fallback and a platform admin all pass `getShareablePropertyForUser` and are refused 403 `waive_fee_forbidden` before anything is minted or sent, so a fee-charging link never goes out in a waived one's place. The code is minted under the property OWNER's id (the redeem route looks it up there), and an unreadable owner fails the send rather than falling back to the sender. One waive interaction asks several times (copying the link, changing the room or form, then the send), so `ensureWaiveOnSendWaiverCode` keys on the recipient — the label is `Waived on send - <recipient>`, a copy with no recipient yet keeps the bare label — and REUSES an unspent code for that pair instead of minting beside it; the bare-label code a copy left behind is adopted and relabelled to the recipient, so one interaction never leaves two live waivers on a house while two prospects still get a code each (a shared single use would charge whichever applied second). An unreadable code list refuses rather than minting on top of a live one, and only a code THIS request created is revoked when the send fails. Coverage: `tests/unit/send-lead-invite-waive-fee.test.ts`, `waive-codes-lib.test.ts`.
 
-- **Short stays are free by default (2026-10-28).** A Short-Term Stay or Airbnb application never falls back to the account application fee or the legacy $50: house Pricing short-term fee, else the form's `feeCentsOverride`, else $0 (`effectiveApplicationFeeCents` with `shortStay`, test `isShortStayApplication`). The Application tab (`applicationFeeFactForTerms`) runs the same resolver, so shown == charged; a $0 fee creates no Stripe session. **The LEASE TERM alone decides it**, never the applicant-supplied `rentalType`: a submit carrying `rentalType: "short_term"` on a term that is not a stay is refused 400 as malformed before any fee is resolved (`authorizeApplicationFeeSubmission`), because trusting the selector priced a long-term application as a free stay. `rentalType` stands in only where no term is given (the portfolio-wide display range).
+- **Short stays are free by default (2026-10-28).** A Short-Term Stay or Airbnb application never falls back to the account application fee: house Pricing short-term fee, else the form's `feeCentsOverride`, else $0 (`effectiveApplicationFeeCents` with `shortStay`, test `isShortStayApplication`). The Application tab (`applicationFeeFactForTerms`) runs the same resolver, so shown == charged; a $0 fee creates no Stripe session. **The LEASE TERM alone decides it**, never the applicant-supplied `rentalType`: a submit carrying `rentalType: "short_term"` on a term that is not a stay is refused 400 as malformed before any fee is resolved (`authorizeApplicationFeeSubmission`), because trusting the selector priced a long-term application as a free stay. `rentalType` stands in only where no term is given (the portfolio-wide display range).

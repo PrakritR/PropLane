@@ -23,7 +23,7 @@ describe("applicationFeeCentsFromPropertyData", () => {
     ).toBe(7550);
   });
 
-  it("defaults to $50 when submission missing", () => {
-    expect(applicationFeeCentsFromPropertyData(null)).toBe(5000);
+  it("is free when submission missing", () => {
+    expect(applicationFeeCentsFromPropertyData(null)).toBe(0);
   });
 });

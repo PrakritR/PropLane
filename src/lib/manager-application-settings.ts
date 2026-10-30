@@ -8,10 +8,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * Source-of-truth model (see `docs/agents/resident-payments.md`):
  * - `applicationFeeCents` is the authoritative fee for EVERY one of the
  *   manager's listings once the manager has saved it (non-null).
- * - Until the manager saves a value it is `null`, and the fee resolver uses the
- *   legacy $50 default. Listing `applicationFee` fields are ignored.
+ * - Until the manager saves a value it is `null`: nothing is configured and the
+ *   application is FREE (captain, 2026-10-29). Listing `applicationFee` fields are ignored.
  * - `0` is a MEANINGFUL saved value ("applications are free"), distinct from
- *   `null` ("not configured — use the legacy default").
+ *   `null` ("not configured" — also free, unless a lower level sets a fee).
  *
  * Stored on `manager_automation_settings.row_data.applicationSettings` — the
  * `row_data` JSON column that table always has — so this needs NO schema
@@ -34,9 +34,6 @@ export const DEFAULT_MANAGER_APPLICATION_SETTINGS: ManagerApplicationSettings = 
   applicationFeeCents: null,
   applicationFeeChargePolicy: "first_only",
 };
-
-/** Legacy per-listing fallback used when no manager-level value and no listing value exists. */
-export const LEGACY_DEFAULT_APPLICATION_FEE_CENTS = 5000;
 
 export const MANAGER_APPLICATION_SETTINGS_EVENT = "axis:manager-application-settings";
 
@@ -122,11 +119,11 @@ export function validateManagerApplicationFeeCents(raw: unknown): ManagerApplica
  *   2. `templateFeeCentsOverride` - this application template's own fee (P003)
  *   3. `listingFeeCents`   - the listing-level Application fee (per lease type)
  *   4. `managerFeeCents`   - the Application system setting
- *   5. the legacy $50 default, only when nothing at all is configured
+ *   5. nothing configured at any level = FREE (0). Captain, 2026-10-29: applications are
+ *      free by default; there is no built-in fee. A fee exists only because a manager set it.
  *
- * A SHORT STAY (`shortStay`: Short-Term Stay / Airbnb) skips levels 4 and 5: it never
- * falls back to the account default or the legacy $50, so with nothing set above it the
- * fee is 0 (captain, 2026-10-28: short-term applications are free by default).
+ * A SHORT STAY (`shortStay`: Short-Term Stay / Airbnb) skips level 4: it never falls back
+ * to the account default, so with nothing set above it the fee is 0 (captain, 2026-10-28).
  *
  * `0` at any level means free at that level. `null`/`undefined` means "use the
  * next level down". Pure - the caller (`resolveApplicationFeeProperty`) resolves
@@ -140,7 +137,7 @@ export function effectiveApplicationFeeCents(input: {
   templateFeeCentsOverride?: number | null;
   /** The listing-level Application fee, when the room/term sets none. */
   listingFeeCents?: number | null;
-  /** A short-stay application: the account default and the legacy $50 never apply. */
+  /** A short-stay application: the account default never applies. */
   shortStay?: boolean;
 }): number {
   if (input.roomTermFeeCents !== null && input.roomTermFeeCents !== undefined) {
@@ -154,7 +151,7 @@ export function effectiveApplicationFeeCents(input: {
   }
   if (input.shortStay) return 0;
   if (input.managerFeeCents !== null) return input.managerFeeCents;
-  return LEGACY_DEFAULT_APPLICATION_FEE_CENTS;
+  return 0;
 }
 
 /**

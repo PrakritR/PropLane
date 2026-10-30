@@ -56,6 +56,21 @@ export function waiverCodeCoversProperty(
   return true;
 }
 
+/**
+ * The properties a stored code is limited to: the list, else the legacy single `propertyId`. Empty = no limit,
+ * i.e. portfolio-wide. One answer for every caller - the list route, the PATCH gate and the read-only decision
+ * each grew their own copy of this, and they must never disagree about which houses a code covers.
+ */
+export function waiverCodeLimitedPropertyIds(code: {
+  propertyId?: string | null;
+  propertyIds?: readonly string[] | null;
+}): string[] {
+  const list = (code.propertyIds ?? []).map((id) => String(id).trim()).filter(Boolean);
+  if (list.length > 0) return list;
+  const single = String(code.propertyId ?? "").trim();
+  return single ? [single] : [];
+}
+
 export type ApplicationFeeWaiverCode = {
   id: string;
   managerUserId: string;
@@ -73,6 +88,12 @@ export type ApplicationFeeWaiverCode = {
   expiresAt: string | null;
   createdAt: string;
   revokedAt: string | null;
+  /**
+   * The viewer may see this code on a property but not change it: a portfolio-wide code listed for a teammate,
+   * which `PATCH /[id]` refuses to anyone but its owner. Decided server-side by the route that listed it; a
+   * stored row never carries it.
+   */
+  readOnly?: boolean;
 };
 
 export type ApplicationFeeWaiverRedemption = {

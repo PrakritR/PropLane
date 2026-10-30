@@ -45,7 +45,7 @@ import {
   loadManagerLandlordLegalNameFromProfile,
 } from "@/lib/manager-landlord-profile";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
-import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
+import { resolveWaiverCodeScope } from "@/lib/application-fee-waiver-scope.server";
 import {
   clearPropertyOverride,
   ForeignPropertyError,
@@ -95,48 +95,6 @@ async function loadCurrentAutomation(
   return { automation: value, source };
 }
 
-
-/**
- * Whose waiver codes this request may read or write for one property.
- *
- * A waiver code belongs to the LISTING, so a co-manager assigned to it must see
- * and edit the same code the owner does — scoping to the caller gave them a
- * blank field, and any code they set was stored under their own id where
- * redemption (which looks codes up under the property's owner) could never find
- * it. An unowned or unknown property falls back to the caller, which is exactly
- * the previous behaviour and exposes nothing new.
- *
- * A co-manager holding `{}` on this property must not read or rewrite the
- * owner's waiver code, which is why `assertCoManagerModuleAccess` resolves
- * through `coManagerModuleAllowed` rather than the retired empty-means-full
- * sentinel.
- */
-async function resolveWaiverCodeScope(
-  db: SupabaseClient,
-  callerUserId: string,
-  propertyId: string,
-  level: "read" | "edit",
-): Promise<
-  | { ok: true; ownerUserId: string; callerIsOwner: boolean }
-  | { ok: false; status: number; error: string }
-> {
-  if (!propertyId) return { ok: true, ownerUserId: callerUserId, callerIsOwner: true };
-  const { data } = await db
-    .from("manager_property_records")
-    .select("manager_user_id")
-    .eq("id", propertyId)
-    .maybeSingle();
-  const ownerUserId = String((data as { manager_user_id?: string | null } | null)?.manager_user_id ?? "").trim();
-  if (!ownerUserId || ownerUserId === callerUserId) {
-    return { ok: true, ownerUserId: ownerUserId || callerUserId, callerIsOwner: true };
-  }
-  const access = await assertCoManagerModuleAccess(db as never, callerUserId, propertyId, "applications", {
-    ownerManagerUserId: ownerUserId,
-    level,
-  });
-  if (!access.ok) return { ok: false, status: access.status, error: access.error };
-  return { ok: true, ownerUserId, callerIsOwner: false };
-}
 
 export async function GET(req: Request) {
   try {

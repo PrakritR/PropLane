@@ -17,6 +17,15 @@ import { waiverCodeAppliesToFee, type ApplicationFeeWaiverCode, type WaiverCodeA
  * the ones picked (workspace-wide by default); it can carry a use cap and an expiry. Every row edits in place and
  * saves as it changes. Disabling a code is permanent (a retired code keeps its text and its use count), so it is
  * the one control that confirms. The server owns every rule (`/api/manager/application-fee-waivers`).
+ *
+ * Without `listPropertyId` the server lists the signed-in account's own codes PLUS, for a teammate, the codes of
+ * the owners who granted them Applications that cover one of the granted houses - a code a co-manager or seated
+ * PropLane staff member creates here is stored under the house owner, so it has to come back here too. When one
+ * of those owners could not be read the response says `partial`, and the section says so rather than letting the
+ * short list read as the whole one.
+ *
+ * A code the server marked `readOnly` (a portfolio-wide code of the owner's, or one covering a house the viewer
+ * holds no edit on) shows its terms with every control inert: the write would be refused, so the row never offers it.
  */
 
 const APPLIES_TO_OPTIONS: { value: WaiverCodeAppliesTo; label: string }[] = [
@@ -129,6 +138,7 @@ export function WaiveCodesSettingsSection({
   defaultAppliesTo = "application",
   defaultPropertyIds,
   show,
+  listPropertyId,
 }: {
   propertyOptions: PropertyOption[];
   /** Only list the codes that waive this fee (a form card's Promo codes dialog). Absent = every code. */
@@ -137,6 +147,8 @@ export function WaiveCodesSettingsSection({
   defaultAppliesTo?: WaiverCodeAppliesTo;
   /** Properties a new code is limited to until the manager changes it (a house's own Promo codes dialog). */
   defaultPropertyIds?: string[];
+  /** List the codes covering this property under its owner (a teammate or PropLane staff seated on the workspace), not the signed-in account's own. */
+  listPropertyId?: string;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
@@ -149,8 +161,17 @@ export function WaiveCodesSettingsSection({
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/manager/application-fee-waivers", { credentials: "include" });
-      const data = (await res.json().catch(() => ({}))) as { codes?: ApplicationFeeWaiverCode[]; error?: string };
+      const res = await fetch(
+        listPropertyId
+          ? `/api/manager/application-fee-waivers?propertyId=${encodeURIComponent(listPropertyId)}`
+          : "/api/manager/application-fee-waivers",
+        { credentials: "include" },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        codes?: ApplicationFeeWaiverCode[];
+        partial?: boolean;
+        error?: string;
+      };
       if (!res.ok) {
         showToast(data.error ?? "Could not load waive codes.");
         return;
@@ -158,12 +179,14 @@ export function WaiveCodesSettingsSection({
       const list = data.codes ?? [];
       setCodes(list);
       setDrafts(Object.fromEntries(list.map((c) => [c.id, draftOf(c)])));
+      // Some teammate's owner could not be read: say so rather than letting the short list read as the whole one.
+      if (data.partial) showToast("Some shared codes could not be loaded. Reload to try again.");
     } catch {
       showToast("Could not load waive codes.");
     } finally {
       setLoaded(true);
     }
-  }, [showToast]);
+  }, [showToast, listPropertyId]);
 
   useEffect(() => {
     // /demo never writes real rows, so it never reads them either.
@@ -259,13 +282,14 @@ export function WaiveCodesSettingsSection({
           expiresAt: endOfDayIso(draft.expires),
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as { error?: string; extended?: boolean };
       if (!res.ok) {
         showToast(data.error ?? "Could not create that code.");
         return;
       }
       setAdding(null);
-      showToast("Waive code created.");
+      // The server extends a code the owner already has rather than minting a second one: say which happened.
+      showToast(data.extended ? "Added to existing code." : "Waive code created.");
       await load();
     } catch {
       showToast("Could not create that code.");
@@ -335,14 +359,14 @@ export function WaiveCodesSettingsSection({
                 idPrefix="waive-codes-row"
                 draft={draft}
                 propertyOptions={propertyOptions}
-                disabled={busyId === code.id}
+                disabled={busyId === code.id || code.readOnly === true}
                 onChange={(patch, commit) => {
                   const next = { ...draft, ...patch };
                   setDrafts((prev) => ({ ...prev, [code.id]: next }));
                   if (commit) void save(code.id, next);
                 }}
               />
-              {confirmDisableId === code.id ? (
+              {code.readOnly ? null : confirmDisableId === code.id ? (
                 <div className="flex items-center gap-1">
                   <PortalIconAction label="Confirm disable" icon={Check} tone="danger" disabled={busyId === code.id} data-attr="waive-codes-disable-confirm" onClick={() => disable(code.id)} />
                   <PortalIconAction label="Keep code" icon={X} data-attr="waive-codes-disable-cancel" onClick={() => setConfirmDisableId(null)} />

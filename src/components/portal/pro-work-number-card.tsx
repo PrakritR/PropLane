@@ -9,7 +9,7 @@
  * the only entry to provisioning from Communication.
  */
 import { useEffect, useState } from "react";
-import { Copy, Check, Mail, Phone, RefreshCw } from "lucide-react";
+import { Copy, Check, Mail, Pencil, Phone, RefreshCw } from "lucide-react";
 import {
   PortalInboxContactCard,
   type PortalInboxContactCardAction,
@@ -31,6 +31,8 @@ import {
 import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId } from "@/lib/workspaces/selection";
 import { sharedGet } from "@/lib/shared-get-cache";
 import { assistantEmailUrl } from "@/lib/manager-assistant-email/assistant-email-url";
+import { WorkEmailAddressDialog } from "@/components/portal/work-email-address-dialog";
+import { usePortalReadOnly } from "@/components/portal/portal-read-only-context";
 
 /**
  * One plain line about whether the LINE can actually send right now, or "" when
@@ -69,9 +71,13 @@ export function workNumberReadinessCaption(args: {
   }
 }
 
-function useManagerWorkEmail(): { email: string | null; ready: boolean } {
-  const [email, setEmail] = useState<string | null>(null);
+type WorkEmailRead = { email: string | null; canEdit: boolean };
+
+function useManagerWorkEmail(): { email: string | null; canEdit: boolean; workspaceId: string | null; ready: boolean; reload: () => void } {
+  const [read, setRead] = useState<WorkEmailRead>({ email: null, canEdit: false });
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,22 +85,25 @@ function useManagerWorkEmail(): { email: string | null; ready: boolean } {
 
     const load = () => {
       const thisEpoch = ++epoch;
+      const selected = selectedWorkspaceId();
       setReady(false);
-      void sharedGet(assistantEmailUrl(selectedWorkspaceId()))
-        .then(async (res) => {
-          if (!res.ok) return null;
+      void sharedGet(assistantEmailUrl(selected))
+        .then(async (res): Promise<WorkEmailRead> => {
+          if (!res.ok) return { email: null, canEdit: false };
           const data: unknown = res.data;
-          if (!isManagerAssistantEmailStatus(data)) return null;
-          return managerWorkEmailInUse(data);
+          if (!isManagerAssistantEmailStatus(data)) return { email: null, canEdit: false };
+          const email = managerWorkEmailInUse(data);
+          return { email, canEdit: Boolean(email) && data.canEditAddress === true };
         })
         .then((next) => {
           if (cancelled || thisEpoch !== epoch) return;
-          setEmail(next);
+          setRead(next);
+          setWorkspaceId(selected);
           setReady(true);
         })
         .catch(() => {
           if (cancelled || thisEpoch !== epoch) return;
-          setEmail(null);
+          setRead({ email: null, canEdit: false });
           setReady(true);
         });
     };
@@ -105,9 +114,9 @@ function useManagerWorkEmail(): { email: string | null; ready: boolean } {
       cancelled = true;
       window.removeEventListener(WORKSPACE_SELECTION_EVENT, load);
     };
-  }, []);
+  }, [version]);
 
-  return { email, ready };
+  return { ...read, workspaceId, ready, reload: () => setVersion((v) => v + 1) };
 }
 
 function copyIdentityAction(args: {
@@ -151,7 +160,9 @@ function IdentitySkeleton({ dataAttr }: { dataAttr: string }) {
 
 export function ManagerWorkNumberCard() {
   const { ready, resolved, statusError, status, retry } = useManagerMessagingNumberStatus();
-  const { email: workEmail, ready: emailReady } = useManagerWorkEmail();
+  const { email: workEmail, canEdit: canEditEmail, workspaceId: emailWorkspaceId, ready: emailReady, reload: reloadEmail } = useManagerWorkEmail();
+  const readOnly = usePortalReadOnly();
+  const [editingEmail, setEditingEmail] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
 
@@ -302,6 +313,17 @@ export function ManagerWorkNumberCard() {
               text: workEmail,
               onCopied: () => setCopiedEmail(true),
             }),
+            ...(canEditEmail && !readOnly
+              ? [
+                  {
+                    key: "edit-email",
+                    label: "Edit",
+                    dataAttr: "manager-work-email-edit",
+                    icon: <Pencil className="h-4 w-4" strokeWidth={1.9} />,
+                    onClick: () => setEditingEmail(true),
+                  },
+                ]
+              : []),
           ]}
         />
       );
@@ -336,14 +358,25 @@ export function ManagerWorkNumberCard() {
   })();
 
   return (
-    <div
-      // On a phone the two boxes cost ~100px before the first conversation; the number and email
-      // are one tap away behind the header's Integrations icon, so they are desktop chrome.
-      className="grid min-w-0 shrink-0 grid-cols-2 gap-2 px-3.5 pb-1 pt-3 max-lg:hidden"
-      data-attr="manager-work-identity"
-    >
-      {numberBox}
-      {emailBox}
-    </div>
+    <>
+      <div
+        // On a phone the two boxes cost ~100px before the first conversation; the number and email
+        // are one tap away behind the header's Integrations icon, so they are desktop chrome.
+        className="grid min-w-0 shrink-0 grid-cols-2 gap-2 px-3.5 pb-1 pt-3 max-lg:hidden"
+        data-attr="manager-work-identity"
+      >
+        {numberBox}
+        {emailBox}
+      </div>
+      {workEmail && canEditEmail ? (
+        <WorkEmailAddressDialog
+          open={editingEmail}
+          onClose={() => setEditingEmail(false)}
+          workspaceId={emailWorkspaceId}
+          address={workEmail}
+          onSaved={reloadEmail}
+        />
+      ) : null}
+    </>
   );
 }
