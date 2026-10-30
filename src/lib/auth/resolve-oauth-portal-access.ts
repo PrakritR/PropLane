@@ -1,3 +1,4 @@
+import { hasVerifiedLegacyManagerEntitlement } from "@/lib/auth/legacy-manager-entitlement.server";
 import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import type { AuthRole } from "@/components/auth/portal-switcher";
 import { GET_STARTED_PATH } from "@/lib/auth/get-started-path";
@@ -221,7 +222,8 @@ export async function resolveOAuthPortalRedirect(
       return finish("/portal/dashboard");
     }
     if (await managerNeedsPricingSelection(supabase, user.id, email)) {
-      return finish(MANAGER_PRICING_ENTRY_PATH);
+      const storedManager = (roleRows ?? []).some((row) => String(row.role).toLowerCase() === "manager");
+      if (!storedManager || !(await hasVerifiedLegacyManagerEntitlement(supabase, user))) return finish(MANAGER_PRICING_ENTRY_PATH);
     }
     return finish(await managerPortalDestination(supabase, user.id, safeIntended));
   }

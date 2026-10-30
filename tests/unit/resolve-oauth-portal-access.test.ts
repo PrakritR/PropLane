@@ -5,6 +5,8 @@ import type { User } from "@supabase/supabase-js";
 
 const ensureFreeManagerPortalAccess = vi.fn();
 const completeResidentSignupFromOAuth = vi.fn();
+const legacyEntitlement = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/auth/legacy-manager-entitlement.server", () => ({ hasVerifiedLegacyManagerEntitlement: legacyEntitlement }));
 
 vi.mock("@/lib/auth/manager-portal-provision", () => ({
   ensureFreeManagerPortalAccess: (...args: unknown[]) => ensureFreeManagerPortalAccess(...args),
@@ -76,6 +78,19 @@ function mockSupabase(applicationRows: { id: string; resident_email: string; row
 describe("resolveOAuthPortalRedirect", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("routes an existing stored-role manager with verified legacy entitlement to their portal", async () => {
+    const { managerNeedsPricingSelection } = await import("@/lib/auth/manager-onboarding");
+    vi.mocked(managerNeedsPricingSelection).mockResolvedValueOnce(true);
+    legacyEntitlement.mockResolvedValueOnce(true);
+    const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
+    const supabase = { from: (table: string) => table === "profile_roles"
+      ? { select: () => ({ eq: () => Promise.resolve({ data: [{ role: "manager" }], error: null }) }) }
+      : { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { role: "manager" }, error: null }) }) }) } };
+    const user = { id: "manager", email: "manager@example.test", email_confirmed_at: "confirmed" } as User;
+    expect(await resolveOAuthPortalRedirect(supabase as never, user, "/portal/dashboard")).toBe("/portal/dashboard");
+    expect(legacyEntitlement).toHaveBeenCalledWith(supabase, user);
   });
 
   it("never auto-provisions a free manager; manager intent goes to the chooser carrying its role", async () => {

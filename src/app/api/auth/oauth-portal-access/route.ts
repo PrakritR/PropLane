@@ -1,3 +1,4 @@
+import { ManagerEntitlementUnavailable } from "@/lib/auth/legacy-manager-entitlement.server";
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestAuthUser } from "@/lib/auth/request-auth-user";
 import { normalizePostAuthPath } from "@/lib/auth/normalize-post-auth-path";
@@ -37,6 +38,6 @@ export async function GET(req: NextRequest) {
     return res;
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: e instanceof ManagerEntitlementUnavailable ? 503 : 500 });
   }
 }
