@@ -6,7 +6,7 @@ import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { generateAxisId } from "@/lib/manager-id";
 import { makeVendorId } from "@/lib/manager-vendors-storage";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { claimWaitingDirectoryBalances, rekeyDirectoryBalances } from "@/lib/managed-finance/directory-vendor.server";
+import { rekeyDirectoryBalances } from "@/lib/managed-finance/directory-vendor.server";
 
 /** Opaque, unguessable, single-use invite token — stored on the row, never derived from the email. */
 export function generateVendorInviteToken(): string {
@@ -259,9 +259,8 @@ export type ProvisionVendorResult =
 
 /**
  * Vendor signup — links the new vendor user to the inviting manager's vendor directory
- * row when an invite applies. Pass `invite` when it was already resolved from a signed
- * token (never re-derive it from a client-supplied email in that case); omit it to fall
- * back to an exact-match lookup by the account's own email (self-serve convenience link).
+ * row only when an explicit invite was resolved and its verified email matches.
+ * A matching email alone never authorizes a directory or balance claim.
  */
 export async function provisionVendorAccountByEmail(
   supabase: SupabaseClient,
@@ -286,21 +285,8 @@ export async function provisionVendorAccountByEmail(
   }
   const emailProven = Boolean(existingAuth.user.email_confirmed_at);
   if (opts.invite && (!emailProven || opts.invite.vendor_email.trim().toLowerCase() !== normalEmail)) return { ok: false, status: 403, error: "Verify the email on the invite before continuing." };
-  let invite: VendorInviteRow | null;
+  let invite: VendorInviteRow | null = opts.invite ?? null;
   let unlinkedReason: VendorUnlinkedReason | null = null;
-  if (opts.invite !== undefined) {
-    invite = opts.invite;
-  } else if (emailProven) {
-    const lookup = await lookupVendorInviteByEmail(supabase, normalEmail);
-    // An expired invite is never redeemed, but it must not fail the signup
-    // either: the caller has already created the auth user by this point, so
-    // refusing here deletes the account and every retry fails identically.
-    // Provision unlinked and report it, so the vendor is told why.
-    if (lookup.kind === "expired") unlinkedReason = "invite_expired";
-    invite = lookup.kind === "redeemable" ? lookup.invite : null;
-  } else {
-    invite = null;
-  }
 
   if (invite?.vendor_directory_id) {
     const ownershipOk = await directoryBelongsToManager(supabase, invite.vendor_directory_id, invite.manager_user_id);
@@ -392,10 +378,6 @@ export async function provisionVendorAccountByEmail(
       .eq("status", "accepted");
   }
 
-  // Email-based balance claims require the Auth account's confirmed matching email.
-  await claimWaitingDirectoryBalances(supabase, {
-    userId: opts.userId, email: normalEmail, emailProven,
-  }).catch((e) => console.error("[vendor signup] waiting balance claim failed", e instanceof Error ? e.message : "unknown"));
 
   return { ok: true, axisId, linkedManagerId, unlinkedReason };
 }

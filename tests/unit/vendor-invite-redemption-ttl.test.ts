@@ -266,19 +266,28 @@ describe("provisionVendorAccountByEmail — every way of finishing unlinked repo
     expect(writes).toEqual([]);
   });
 
+  it("does not attach an invite or claim balances from confirmed email alone", async () => {
+    vendorBalances.claim.mockClear();
+    const { db, writes } = provisioningDb({ anyPending: { id: "some-invite" } });
+    const result = await provisionVendorAccountByEmail(db, { userId: "user-1", email: "vendor@example.com" });
+    expect(result).toMatchObject({ ok: true, linkedManagerId: null });
+    expect(vendorBalances.claim).not.toHaveBeenCalled();
+    expect(writes.filter((w) => w.table === "vendor_invites" || w.table === "manager_vendor_records")).toEqual([]);
+  });
+
   it("does not treat a phone-proven account's unconfirmed real email as balance proof", async () => {
     vendorBalances.claim.mockClear();
     const { db } = provisioningDb();
     (db as { auth: { admin: { getUserById: ReturnType<typeof vi.fn> } } }).auth.admin.getUserById.mockResolvedValue({ data: { user: { email: "vendor@example.com", email_confirmed_at: null, user_metadata: {} } } });
     await provisionVendorAccountByEmail(db, { userId: "user-1", email: "vendor@example.com", invite: null, confirmEmail: true });
-    expect(vendorBalances.claim).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ emailProven: false }));
+    expect(vendorBalances.claim).not.toHaveBeenCalled();
   });
 
-  it("still creates the account, unlinked, when the invite has expired", async () => {
+  it("does not adopt an invite by matching email", async () => {
     const { db } = provisioningDb({ anyPending: { id: "inv-1" } });
     await expect(
       provisionVendorAccountByEmail(db, { userId: "user-1", email: "vendor@example.com" }),
-    ).resolves.toMatchObject({ ok: true, linkedManagerId: null, unlinkedReason: "invite_expired" });
+    ).resolves.toMatchObject({ ok: true, linkedManagerId: null, unlinkedReason: null });
   });
 
   it("never redeems the stale invite", async () => {
