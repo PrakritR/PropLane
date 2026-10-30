@@ -1,5 +1,7 @@
 "use client";
 
+import { residentApplicationHandoffPath } from "@/lib/auth/resident-application-handoff-path";
+
 import { AuthOAuthLoading } from "@/components/auth/auth-oauth-loading";
 import { GET_STARTED_PATH } from "@/lib/auth/get-started-path";
 import { normalizePostAuthPath } from "@/lib/auth/normalize-post-auth-path";
@@ -56,7 +58,7 @@ function ContinueContent() {
         if (handoff.ok) {
           const body = await handoff.json().catch(() => ({})) as { role?: unknown; tourInquiryId?: unknown; applicationId?: unknown; checkoutSessionId?: unknown; propertyId?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown; tier?: unknown; billing?: unknown };
           if (body.role === "application" && typeof body.applicationId === "string" && body.applicationId.length <= 200) {
-            window.location.replace(nativeAwarePath(`/resident/applications?open=${encodeURIComponent(body.applicationId)}`));
+            window.location.replace(nativeAwarePath(residentApplicationHandoffPath(body.applicationId)));
             return;
           }
           if (body.role === "manager_paid" && typeof body.checkoutSessionId === "string" && body.checkoutSessionId.length <= 255) {
