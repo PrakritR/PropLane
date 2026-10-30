@@ -355,6 +355,9 @@ export function ManagerPaymentsLedgerPanel({
   const [offlineDate, setOfflineDate] = useState(new Date().toLocaleDateString("en-CA"));
   const [offlineMethod, setOfflineMethod] = useState<"Cash" | "Check" | "Bank transfer" | "Other">("Check");
   const [offlineNote, setOfflineNote] = useState("");
+  const [depositReturnRow, setDepositReturnRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
+  const [depositReturnAmount, setDepositReturnAmount] = useState("");
+  const [depositDeductions, setDepositDeductions] = useState<Array<{ label: string; amount: string }>>([]);
   const [returningDepositId, setReturningDepositId] = useState<string | null>(null);
   const [refundingChargeId, setRefundingChargeId] = useState<string | null>(null);
   const navigate = usePortalNavigate();
@@ -1507,33 +1510,39 @@ export function ManagerPaymentsLedgerPanel({
   // C023: return a security deposit to its resident. Shared by the bulk selection bar and a
   // paid deposit's record page — one flow, two entry points. Sends real money; Stripe will not
   // un-refund it, so it always confirms first and re-reads everything server-side but the id.
-  const returnDepositForRow = async (row: DemoManagerPaymentLedgerRow) => {
-    if (
-      !(await confirm({
-        title: "Return deposit",
-        description: `Return the security deposit to ${row.residentName}?`,
-        confirmLabel: "Return deposit",
-      }))
-    ) {
+  const returnDepositForRow = (row: DemoManagerPaymentLedgerRow) => {
+    setDepositReturnAmount("");
+    setDepositDeductions([]);
+    setDepositReturnRow(row);
+  };
+
+  const submitDepositReturn = async () => {
+    const row = depositReturnRow;
+    if (!row?.householdChargeId || returningDepositId) return;
+    const amount = Number(depositReturnAmount);
+    const itemization = depositDeductions.map((line) => ({ label: line.label.trim(), amountCents: Math.round(Number(line.amount) * 100) }));
+    if (!Number.isFinite(amount) || amount <= 0 || !/^\d+(?:\.\d{1,2})?$/.test(depositReturnAmount) ||
+        itemization.some((line) => !line.label || !Number.isSafeInteger(line.amountCents) || line.amountCents <= 0)) {
+      showToast("Enter a valid return amount and deduction amounts.");
       return;
     }
-    setReturningDepositId(row.householdChargeId ?? row.id);
+    setReturningDepositId(row.householdChargeId);
     try {
       const res = await fetch("/api/portal/deposit-return", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chargeId: row.householdChargeId }),
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chargeId: row.householdChargeId, amountCents: Math.round(amount * 100), itemization }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; remainingCents?: number };
-      if (!res.ok) {
-        showToast(data.error || "Could not return the deposit.");
+      const data = (await res.json().catch(() => ({}))) as { error?: string; status?: string };
+      if (!res.ok || data.status !== "succeeded") {
+        showToast(data.error || "Deposit return requires reconciliation.");
         return;
       }
-      showToast(data.remainingCents ? "Deposit partially returned." : `Deposit returned to ${row.residentName}.`);
+      showToast(`Deposit returned to ${row.residentName}.`);
+      setDepositReturnRow(null);
       setSelectedIds(new Set());
       onRowsChanged?.();
     } catch {
-      showToast("Could not return the deposit.");
+      showToast("Deposit return status is unknown. Review before retrying.");
     } finally {
       setReturningDepositId(null);
     }
@@ -2315,6 +2324,19 @@ export function ManagerPaymentsLedgerPanel({
         onConfirm={(scope, options) => void doSendBulkReminders(scope, options)}
       />
     ) : null}
+      <PortalDialog open={Boolean(depositReturnRow)} title="Return deposit" onClose={() => setDepositReturnRow(null)} primaryAction={{ label: returningDepositId ? "Returning…" : "Return deposit", onClick: submitDepositReturn }}>
+        <div className="space-y-3">
+          <label className="block text-sm">Return amount<Input type="number" min="0.01" step="0.01" value={depositReturnAmount} onChange={(event) => setDepositReturnAmount(event.target.value)} /></label>
+          {depositDeductions.map((line, index) => (
+            <div key={index} className="flex gap-2">
+              <label className="block text-sm flex-1">Deduction<Input value={line.label} onChange={(event) => setDepositDeductions((items) => items.map((item, i) => i === index ? { ...item, label: event.target.value } : item))} /></label>
+              <label className="block text-sm">Amount<Input type="number" min="0.01" step="0.01" value={line.amount} onChange={(event) => setDepositDeductions((items) => items.map((item, i) => i === index ? { ...item, amount: event.target.value } : item))} /></label>
+              <button type="button" onClick={() => setDepositDeductions((items) => items.filter((_, i) => i !== index))}>Remove</button>
+            </div>
+          ))}
+          <button type="button" onClick={() => setDepositDeductions((items) => [...items, { label: "", amount: "" }])}>Add deduction</button>
+        </div>
+      </PortalDialog>
       <PortalDialog
         open={Boolean(waiveRow)}
         title={waiveRow?.restore ? "Restore lease fee" : "Waive lease fee"}

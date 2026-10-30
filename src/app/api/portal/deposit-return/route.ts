@@ -1,38 +1,12 @@
 import { NextResponse } from "next/server";
 import { resolveManagerWorkspaceRowScope, rowInWorkspaceScope } from "@/lib/auth/co-manager-module-scope";
-import {
-  decideDepositReturn,
-  depositReturnIdempotencyKey,
-  type DepositReturnContext,
-} from "@/lib/deposit-return";
-import { resolveChargePaidCents } from "@/lib/charge-paid-cents.server";
-import { HouseholdChargeRefundReviewError,
-  refundPaidHouseholdCharge } from "@/lib/household-charge-refund-rail.server";
-import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
-/**
- * Return a security deposit to the resident who paid it.
- *
- * The manager presses one button; money leaves their balance and goes back to the resident's
- * original payment method. Stripe will not un-refund, so the decision of whether and how much
- * lives in `deposit-return.ts` and is made before anything is called.
- *
- * Two things this route does NOT do, on purpose:
- *
- * The ledger is not written here. `charge.refunded` already reverses the deposit liability
- * through the financial webhook, and writing it here too would double-count every return — the
- * webhook fires whether the refund came from this button or from the Stripe dashboard, so it is
- * the one place that can be correct for both.
- *
- * It does not trust the client for anything but the charge id and an optional amount. Ownership,
- * the amount already returned, and the Stripe charge to refund against are all re-read server-side
- * from the record, because every one of them decides how much money moves.
- */
+/** Refuse provider returns until reservation and trust settlement are atomic. */
 export async function POST(req: Request) {
   try {
     const supabase = await createSupabaseServerClient();
@@ -82,77 +56,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Deposit not found." }, { status: 404 });
     }
 
-    const charge = (row.row_data ?? {}) as Record<string, unknown>;
-
-    // The Stripe charge the money arrived on, taken from the ledger's payment entry rather than
-    // from the record — the ledger is what the refund webhook keys on, so a refund issued against
-    // anything else could not be reconciled back.
-    const { data: payment, error: paymentError } = await db
-      .from("ledger_entries")
-      .select("stripe_charge_id, amount_cents")
-      .eq("source_charge_id", chargeId)
-      .eq("entry_type", "payment")
-      .maybeSingle();
-
-    if (paymentError) return NextResponse.json({ error: "Could not verify the payment ledger." }, { status: 500 });
-
-    const ctx: DepositReturnContext = {
-      kind: String(charge.kind ?? ""),
-      status: String(row.status ?? charge.status ?? ""),
-      paidCents: resolveChargePaidCents(payment?.amount_cents, charge),
-      alreadyReturnedCents: Number(charge.depositReturnedCents ?? 0),
-      stripeChargeId: (payment?.stripe_charge_id as string | null) ?? null,
-      // An ACH debit can bounce after it looks paid; only a settled payment may be sent back.
-      settled: charge.stripePaymentStatus !== "processing" && charge.stripePaymentStatus !== "pending",
-    };
-
-    const decision = decideDepositReturn(ctx, rawAmount as number | undefined);
-    if (!decision.ok) {
-      return NextResponse.json({ error: decision.message, reason: decision.reason }, { status: 422 });
-    }
-
-    const attempt = Number(charge.depositReturnAttempts ?? 0) + 1;
-    const stripe = getStripe();
-    // One rail decision, made by the payment: a central platform capture is
-    // refunded through its reservation, a legacy destination charge reverses
-    // its transfer. See `household-charge-refund-rail.server.ts`.
-    const refund = await refundPaidHouseholdCharge(stripe, db, {
-      chargeId,
-      stripeChargeId: decision.stripeChargeId,
-      amountCents: decision.amountCents,
-      // Two clicks, or a retry after a timeout that actually succeeded, must not send it twice.
-      idempotencyKey: depositReturnIdempotencyKey({ chargeId, amountCents: decision.amountCents, attempt }),
-      metadata: { proplane_charge_id: chargeId, kind: "security_deposit_return" },
-    });
-
-    const now = new Date().toISOString();
-    await db.from("portal_household_charge_records").upsert(
-      {
-        id: chargeId,
-        manager_user_id: row.manager_user_id,
-        resident_email: String(charge.residentEmail ?? "").trim().toLowerCase(),
-        status: row.status,
-        row_data: {
-          ...charge,
-          depositReturnedCents: ctx.alreadyReturnedCents + decision.amountCents,
-          depositReturnAttempts: attempt,
-          depositLastReturnedAt: now,
-        },
-        updated_at: now,
-      },
-      { onConflict: "id" },
-    );
-
+    // Provider-backed deposit returns require an atomic reservation and linked
+    // trust settlement. Until those are available, do not send money.
     return NextResponse.json({
-      ok: true,
-      refundId: refund.refundId,
-      amountCents: decision.amountCents,
-      remainingCents: decision.remainingAfterCents,
-    });
-  } catch (error) {
-    if (error instanceof HouseholdChargeRefundReviewError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
+      error: "Deposit returns are unavailable while accounting is being reconciled.",
+      status: "unavailable",
+    }, { status: 503 });
+  } catch {
     return NextResponse.json({ error: "Could not return the deposit." }, { status: 500 });
   }
 }

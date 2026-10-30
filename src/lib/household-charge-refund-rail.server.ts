@@ -62,8 +62,15 @@ type CapturedHold = {
 
 export type HouseholdChargeRefundResult = {
   refundId: string;
+  status: "pending" | "succeeded" | "failed" | "unknown";
   rail: "central" | "destination" | "managed";
 };
+
+function refundStatus(status: string | null): HouseholdChargeRefundResult["status"] {
+  if (status === "succeeded" || status === "pending") return status;
+  if (status === "failed" || status === "canceled") return "failed";
+  return "unknown";
+}
 
 /** Which rail this payment refunds on, and the reservation it needs if central. */
 export type HouseholdChargeRefundRail =
@@ -173,7 +180,7 @@ export async function refundPaidHouseholdCharge(
       { idempotencyKey: input.idempotencyKey },
     );
     if (refund.status === "succeeded") await applyManagedRefund(db, refund, input.stripeChargeId);
-    return { refundId: refund.id, rail: "managed" };
+    return { refundId: refund.id, status: refundStatus(refund.status), rail: "managed" };
   }
 
   if (resolved.rail === "destination") {
@@ -187,7 +194,7 @@ export async function refundPaidHouseholdCharge(
       },
       { idempotencyKey: input.idempotencyKey },
     );
-    return { refundId: refund.id, rail: "destination" };
+    return { refundId: refund.id, status: refundStatus(refund.status), rail: "destination" };
   }
 
   const result = await runReservedPlatformMoneyRefund(stripe, db, {
@@ -198,8 +205,5 @@ export async function refundPaidHouseholdCharge(
     components: [{ sourceId: input.chargeId, principalCents: input.amountCents }],
     ...(input.reason ? { reason: input.reason } : {}),
   });
-  // A failed provider refund moved no money. Throwing keeps the caller from
-  // recording `refundedCents` against a refund that never happened.
-  if (result.status === "failed") throw new Error("Stripe refused this refund; nothing was refunded.");
-  return { refundId: result.refundId, rail: "central" };
+  return { refundId: result.refundId, status: result.status, rail: "central" };
 }

@@ -86,94 +86,12 @@ describe("who may return it", () => {
   });
 });
 
-describe("how the money moves", () => {
-  it("reverses the transfer so it comes out of the MANAGER's balance", async () => {
-    // The deposit was collected as a destination charge into the manager's connected account.
-    // Without reverse_transfer the refund is paid from PropLane's platform balance and the
-    // manager silently keeps a deposit they no longer hold.
-    await post({ chargeId: "chg-1" });
-    expect(refundsCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ charge: "ch_1", amount: 75_000, reverse_transfer: true }),
-      expect.anything(),
-    );
-  });
-
-  it("sends an idempotency key so a double click cannot send it twice", async () => {
-    await post({ chargeId: "chg-1" });
-    const [, options] = refundsCreate.mock.calls[0]!;
-    expect((options as { idempotencyKey?: string }).idempotencyKey).toContain("chg-1");
-  });
-
-  it("returns only what remains after an earlier partial return", async () => {
-    rows.charge = {
-      id: "chg-1",
-      manager_user_id: "mgr-1",
-      status: "paid",
-      row_data: { kind: "security_deposit", amountLabel: "$750.00", depositReturnedCents: 50_000 },
-    };
-    await post({ chargeId: "chg-1" });
-    expect(refundsCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ amount: 25_000 }),
-      expect.anything(),
-    );
-  });
-
-  it("records the running total so the next return sees it", async () => {
-    await post({ chargeId: "chg-1" });
-    const saved = upserted[0]?.row_data as Record<string, unknown>;
-    expect(saved.depositReturnedCents).toBe(75_000);
-    expect(saved.depositReturnAttempts).toBe(1);
-  });
-
-  it("writes no ledger entry, leaving that to the refund webhook", async () => {
-    // `charge.refunded` already reverses the deposit liability, and it fires whether the refund
-    // came from this button or the Stripe dashboard. Writing here too would double-count.
-    await post({ chargeId: "chg-1" });
-    expect(upserted.every((r) => !("entry_type" in r))).toBe(true);
-  });
-});
-
-describe("what it refuses to send", () => {
-  it("refuses a charge that is not a deposit", async () => {
-    rows.charge = {
-      id: "chg-1",
-      manager_user_id: "mgr-1",
-      status: "paid",
-      row_data: { kind: "rent", amountLabel: "$750.00" },
-    };
-    expect((await post({ chargeId: "chg-1" })).status).toBe(422);
+describe("deposit return safety", () => {
+  it("blocks the provider call until accounting can reserve and settle atomically", async () => {
+    const response = await post({ chargeId: "chg-1", amountCents: 10000, itemization: [{ label: "Cleaning", amountCents: 1000 }] });
+    expect(response.status).toBe(503);
+    expect((await response.json()).status).toBe("unavailable");
     expect(refundsCreate).not.toHaveBeenCalled();
-  });
-
-  it("refuses when the payment has not cleared", async () => {
-    rows.charge = {
-      id: "chg-1",
-      manager_user_id: "mgr-1",
-      status: "paid",
-      row_data: { kind: "security_deposit", amountLabel: "$750.00", stripePaymentStatus: "processing" },
-    };
-    expect((await post({ chargeId: "chg-1" })).status).toBe(422);
-    expect(refundsCreate).not.toHaveBeenCalled();
-  });
-
-  it("refuses a deposit with no Stripe payment behind it", async () => {
-    rows.payment = null;
-    expect((await post({ chargeId: "chg-1" })).status).toBe(422);
-    expect(refundsCreate).not.toHaveBeenCalled();
-  });
-
-  it("refuses a malformed amount instead of returning everything", async () => {
-    // Falling back to the full deposit because a number failed to parse is the worst possible
-    // reading of a bad request.
-    const res = await post({ chargeId: "chg-1", amountCents: "all" });
-    expect(res.status).toBe(400);
-    expect(refundsCreate).not.toHaveBeenCalled();
-  });
-
-  it("does not leak an internal error to the client", async () => {
-    refundsCreate.mockRejectedValue(new Error("stripe: sk_live_abc123 rejected"));
-    const res = await post({ chargeId: "chg-1" });
-    expect(res.status).toBe(500);
-    expect(JSON.stringify(await res.json())).not.toContain("sk_live");
+    expect(upserted).toHaveLength(0);
   });
 });

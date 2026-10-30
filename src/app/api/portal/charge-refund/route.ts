@@ -127,6 +127,10 @@ export async function POST(req: Request) {
       metadata: { proplane_charge_id: chargeId, kind: "charge_refund" },
     });
 
+    if (refund.status !== "succeeded") {
+      return NextResponse.json({ error: "Refund requires reconciliation before retrying.", status: refund.status, refundId: refund.refundId }, { status: 409 });
+    }
+
     const now = new Date().toISOString();
     await db.from("portal_household_charge_records").upsert(
       {

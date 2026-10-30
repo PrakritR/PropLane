@@ -207,7 +207,7 @@ async function executeMoveInChargeRefund(
   // One rail decision, made by the payment: a central platform capture is refunded
   // through its reservation, a legacy destination charge reverses its transfer. See
   // `household-charge-refund-rail.server.ts`.
-  await refundPaidHouseholdCharge(stripe, db, {
+  const refund = await refundPaidHouseholdCharge(stripe, db, {
     chargeId: plan.chargeId,
     stripeChargeId: plan.stripeChargeId,
     amountCents: plan.amountCents,
@@ -216,6 +216,7 @@ async function executeMoveInChargeRefund(
     }),
     metadata: { proplane_charge_id: plan.chargeId, kind: "uncountersigned_lease_refund" },
   });
+  if (refund.status !== "succeeded") throw new Error(`Refund requires reconciliation: ${refund.status}`);
   const now = new Date().toISOString();
   await db.from("portal_household_charge_records").upsert(
     {

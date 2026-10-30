@@ -62,7 +62,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   upserted.length = 0;
   getUser.mockResolvedValue({ data: { user: { id: "mgr-1" } } });
-  refundsCreate.mockResolvedValue({ id: "re_1" });
+  refundsCreate.mockResolvedValue({ id: "re_1", status: "succeeded" });
   coManagerAccess.mockResolvedValue(false);
   rows.charge = {
     id: "chg-1",
@@ -112,6 +112,13 @@ describe("who may issue it (C100: owner or Bank & payouts)", () => {
 });
 
 describe("how the money moves", () => {
+  it.each(["pending", "failed", "canceled", null])("does not record provider status %s as refunded", async (status) => {
+    refundsCreate.mockResolvedValue({ id: "re_1", status });
+    const res = await post({ chargeId: "chg-1" });
+    expect(res.status).toBe(409);
+    expect(upserted).toHaveLength(0);
+  });
+
   it("reverses the transfer so it comes out of the manager's balance", async () => {
     await post({ chargeId: "chg-1" });
     expect(refundsCreate).toHaveBeenCalledWith(
@@ -190,7 +197,7 @@ describe("how the money moves", () => {
 
     const res = await post({ chargeId: "chg-1" });
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(409);
     expect(upserted).toHaveLength(0);
   });
 

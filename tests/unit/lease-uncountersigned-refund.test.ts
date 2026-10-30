@@ -193,7 +193,7 @@ describe("the uncountersigned-lease refund plans the whole lease first", () => {
   it("refunds the rent, voids the lease, and reports the deposit still held", async () => {
     const mod = await rail();
     const refund = vi.spyOn(mod, "refundPaidHouseholdCharge");
-    refund.mockResolvedValue({ refundId: "re_1", rail: "destination" });
+    refund.mockResolvedValue({ refundId: "re_1", status: "succeeded", rail: "destination" });
 
     const { db, voided, voidReasons, refundedIds } = harness([
       paidCharge("chg-rent", "prorated_first_month_rent"),
@@ -215,7 +215,7 @@ describe("the uncountersigned-lease refund plans the whole lease first", () => {
   it("reports no held deposit once Return deposit has settled it", async () => {
     const mod = await rail();
     const refund = vi.spyOn(mod, "refundPaidHouseholdCharge");
-    refund.mockResolvedValue({ refundId: "re_1", rail: "destination" });
+    refund.mockResolvedValue({ refundId: "re_1", status: "succeeded", rail: "destination" });
 
     const returned = paidCharge("chg-dep", "security_deposit");
     // Return deposit records its own tracker, not `refundedCents`.
@@ -251,7 +251,7 @@ describe("the uncountersigned-lease refund plans the whole lease first", () => {
   it("skips an unpaid move-in charge without blocking the void", async () => {
     const mod = await rail();
     const refund = vi.spyOn(mod, "refundPaidHouseholdCharge");
-    refund.mockResolvedValue({ refundId: "re_1", rail: "destination" });
+    refund.mockResolvedValue({ refundId: "re_1", status: "succeeded", rail: "destination" });
     const unpaid = paidCharge("chg-unpaid", "move_in_fee");
     unpaid.status = "pending";
     unpaid.row_data.status = "pending";

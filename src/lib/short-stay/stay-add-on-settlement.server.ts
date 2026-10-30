@@ -393,7 +393,7 @@ async function refundUnhonoredAddOn(
         stripe = getStripe();
       }
       try {
-        await refundPaidHouseholdCharge(stripe, db, {
+        const refund = await refundPaidHouseholdCharge(stripe, db, {
           chargeId,
           stripeChargeId: decision.stripeChargeId,
           amountCents: decision.amountCents,
@@ -401,6 +401,7 @@ async function refundUnhonoredAddOn(
           idempotencyKey: stayAddOnRefundKey(chargeId, decision.amountCents),
           metadata: { proplane_charge_id: chargeId, kind: "stay_add_on_refund", reason },
         });
+        if (refund.status !== "succeeded") throw new Error(`Refund requires reconciliation: ${refund.status}`);
         refundedAmountCents = decision.amountCents;
       } catch (error) {
         // A TERMINAL refusal (the rail says retry never helps, or Stripe rejects the request) is stamped for a
