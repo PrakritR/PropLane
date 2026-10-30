@@ -139,7 +139,8 @@ PropLane manages (`is_service`) open in **service mode** instead: the same manag
   keeps it, because a client's address is already on listings, in syndication posts and in the public listing payload. A
   rename moves the address only while it still follows the SERVICE rule for the old name (`mailboxLocalIsDerivedFrom`) -
   a customized one, and a self-serve `{workspace-slug}@` minted before the takeover, stay put; the old local is a 30-day
-  alias, held by its WORKSPACE (the workspace of the mailbox row it routes to - every service workspace shares one owner user, so a user-keyed cooldown would let a sibling claim it); a rename that moves the address also writes the
+  alias, held by its WORKSPACE rather than its owner user
+  ([`inbound-email-inbox.md`](inbound-email-inbox.md) § Custom work email local part); a rename that moves the address also writes the
   `admin_service_work_email` audit row. Staff with member rights (the rename standing,
   `authorizeServiceWorkEmailEdit`) change it from the Communication "Work email" card Edit icon; the write is audited
   (`admin_service_work_email`) first. Existing workspaces: `scripts/backfill-workspace-mailbox-locals.mjs --service` (dry run;

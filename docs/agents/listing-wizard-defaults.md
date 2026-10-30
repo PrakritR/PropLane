@@ -268,4 +268,4 @@ behaviour. Switching a listing TO Custom still does the familiar one-time
 copy (mirrors "Same as Room X"): the workspace form's fields are copied onto
 the listing once, then edited independently.
 
-- **Short stays never fall back to the account default or $50.** A short-term/Airbnb application with no Pricing short-term fee and no form fee override is free; long-term is unchanged (`tests/unit/short-stay-application-fee-default-free.test.ts`).
+- **An application is free when nothing priced it** (captain, 2026-10-29): there is no built-in fee at any level, and a short stay additionally skips the account default, so a short-term/Airbnb application with no Pricing short-term fee and no form fee override is free. The chain is [`resident-payments.md`](resident-payments.md) (`tests/unit/short-stay-application-fee-default-free.test.ts`, `tests/unit/applications-free-by-default.test.ts`).

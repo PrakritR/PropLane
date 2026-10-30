@@ -92,9 +92,15 @@ through `checkWorkspaceAssistantMailboxLocal` /
   active row in place, because inbound resolution reads `mailbox_local` off that
   same row. The OLD local part is held for `RELEASED_MAILBOX_ALIAS_DAYS` (30) in
   `manager_assistant_email_aliases`, so mail still reaches the renamed row for a
-  month and no other workspace can take the name meanwhile; renaming back onto
-  an alias this same owner holds reclaims it outright. Nothing is forwarded
-  anywhere else.
+  month and no other workspace can take the name meanwhile — a mint skips a
+  local still inside another workspace's cooldown, and an alias read that fails
+  counts as held, never as free. An alias belongs to the **WORKSPACE** of the
+  row it routes to (`mailboxAliasClaimableBy`), never to its owner user: every
+  PropLane-created service workspace shares one owner user, so a user-keyed
+  cooldown let a sibling take another's released local. Renaming back onto an
+  alias that same workspace holds reclaims it outright; a legacy alias whose row
+  carries no workspace falls back to the owner user, and only when the claimant
+  is that owner's sole workspace. Nothing is forwarded anywhere else.
 
 ## How it works
 
