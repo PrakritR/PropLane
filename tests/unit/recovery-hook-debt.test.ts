@@ -49,7 +49,7 @@ describe("recovery hook debt snapshot", () => {
     const migration = readFileSync("supabase/migrations/20261030144900_move_in_forms_recovery_guards.sql", "utf8");
     expect(migration).toContain("before insert or update or delete on public.resident_move_in_forms");
     expect(migration).toContain("after delete on public.resident_move_in_forms");
-    if (!process.env.RECOVERY_HOOK_CATALOG) expect(scopedSourceDigest()).toBe(sourceDigest.sha256);
+    expect(scopedSourceDigest()).toBe(sourceDigest.sha256);
     const observed = observedCatalog();
     const projected = process.env.RECOVERY_HOOK_CATALOG ? observed : { ...observed, resident_move_in_forms: "both_signature_checked" };
     expect(differences(projected, KNOWN_RECOVERY_HOOK_GAPS)).toEqual({ newGaps: [], fixedDebt: [], absent: process.env.RECOVERY_HOOK_CATALOG ? sourceDigest.missing_dev_catalog : [] });
