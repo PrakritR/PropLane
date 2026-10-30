@@ -35,15 +35,9 @@ async function requireManager() {
 
   const db = createSupabaseServiceRoleClient();
   if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
-  const [{ data: profile }, { data: roles }] = await Promise.all([
-    db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
-    db.from("profile_roles").select("role").eq("user_id", user.id),
-  ]);
-  const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
-  const legacy = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const isManager = roleList.includes("manager") || roleList.includes("admin") || legacy === "manager" || legacy === "admin";
-  if (!isManager) return null;
-  return { db, userId: user.id, admin: roleList.includes("admin") || legacy === "admin" };
+  const { data: roles, error } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+  if (error || !(roles ?? []).some((row) => row.role === "manager" || row.role === "admin")) return null;
+  return { db, userId: user.id, admin: (roles ?? []).some((row) => row.role === "admin") };
 }
 
 export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {

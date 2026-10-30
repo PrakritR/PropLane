@@ -26,6 +26,8 @@ const UNREADABLE: Access = {
 
 const m = vi.hoisted(() => ({
   access: { allowed: true } as Access,
+  roles: ["manager"] as string[],
+  roleError: false,
   forActive: vi.fn(),
   deliverResidentWelcome: vi.fn(),
   sendVendorInvite: vi.fn(),
@@ -41,6 +43,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 function fakeDb() {
   const resolve = (table: string, many: boolean) => {
+    if (table === "profile_roles") return { data: many ? m.roles.map((role) => ({ role })) : null, error: m.roleError ? { message: "unavailable" } : null };
     if (table === "profiles") return { data: { role: "manager", full_name: "Alex", email: "mgr@example.com" }, error: null };
     if (table === "manager_application_records") {
       const rec = { id: "APP1", row_data: { id: "APP1", manuallyAdded: true, email: "res@example.com", name: "Res" } };
@@ -54,6 +57,7 @@ function fakeDb() {
       for (const k of ["select", "eq", "in", "update", "order"]) chain[k] = () => chain;
       chain.limit = async () => resolve(table, true);
       chain.maybeSingle = async () => resolve(table, false);
+      chain.then = (fn: (value: unknown) => unknown) => Promise.resolve(resolve(table, true)).then(fn);
       return chain;
     },
   };
@@ -118,6 +122,7 @@ const post = (url: string, body: unknown) =>
 
 beforeEach(() => {
   m.access = { allowed: true };
+  m.roles = ["manager"]; m.roleError = false;
   for (const fn of Object.values(m)) if (typeof fn === "function" && "mockReset" in fn) (fn as ReturnType<typeof vi.fn>).mockReset();
   m.deliverResidentWelcome.mockResolvedValue({ ok: true, id: "e1", skipped: false });
   m.sendVendorInvite.mockResolvedValue({ ok: true, emailId: "e2", linkUrl: "https://proplane.test/i" });
@@ -257,4 +262,11 @@ describe("POST /api/portal/portfolio-import/[importId]/create - import kept, inv
     expect(await res.json()).not.toHaveProperty("communicationBlocked");
     expect(m.forActive).not.toHaveBeenCalled();
   });
+});
+
+ it("vendor invite refuses legacy-only manager role and unreadable roles", async () => {
+  const request = () => post("https://x.test/api/portal/send-vendor-invite", { vendorId: "v1", vendorEmail: "v@example.com", vendorName: "V" });
+  m.roles = []; expect((await postVendorInvite(request())).status).toBe(403);
+  m.roles = ["manager"]; m.roleError = true; expect((await postVendorInvite(request())).status).toBe(403);
+  expect(m.sendVendorInvite).not.toHaveBeenCalled();
 });

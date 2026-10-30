@@ -6,6 +6,7 @@ const scope: { activeWorkspaceId: string | null; throws: boolean } = {
   throws: false,
 };
 const created: Record<string, unknown>[] = [];
+const roleState: { roles: string[]; error: boolean } = { roles: ["manager"], error: false };
 const convos = { residents: [{ phone: "+17262483085", conversationKey: "conv-1" }] };
 vi.mock("@/lib/manager-sms-messages.server", () => ({
   fetchManagerSmsConversations: async () => convos,
@@ -53,8 +54,8 @@ vi.mock("@/lib/supabase/service", () => ({
         }),
         then: (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
           Promise.resolve({
-            data: table === "profile_roles" ? [{ role: "manager" }] : [],
-            error: null,
+            data: table === "profile_roles" ? roleState.roles.map((role) => ({ role })) : [],
+            error: roleState.error ? { message: "unavailable" } : null,
           }).then(resolve),
       };
       return q;
@@ -84,9 +85,17 @@ beforeEach(() => {
   created.length = 0;
   scope.activeWorkspaceId = "ws-a";
   scope.throws = false;
+  roleState.roles = ["manager"]; roleState.error = false;
 });
 
 describe("phone-only scheduled text", () => {
+  it("rejects legacy-only manager authority and failed role reads", async () => {
+    roleState.roles = [];
+    expect((await post({ recipientPhone: "(726) 248-3085", conversationKey: "conv-1" })).status).toBe(401);
+    roleState.roles = ["manager"]; roleState.error = true;
+    expect((await post({ recipientPhone: "(726) 248-3085", conversationKey: "conv-1" })).status).toBe(401);
+    expect(created).toHaveLength(0);
+  });
   it("accepts a number that belongs to a conversation the manager owns", async () => {
     const res = await post({ recipientPhone: "(726) 248-3085", conversationKey: "conv-1" });
     expect(res.status).toBe(200);

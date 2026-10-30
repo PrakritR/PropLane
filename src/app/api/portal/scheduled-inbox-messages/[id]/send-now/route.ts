@@ -23,14 +23,14 @@ async function requirePortalActor(preferredRole?: PortalRole) {
 
   const db = createSupabaseServiceRoleClient();
   if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
-  const [{ data: profile }, { data: roles }] = await Promise.all([
+  const [{ error: profileError }, { data: roles, error: roleError }] = await Promise.all([
     db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
     db.from("profile_roles").select("role").eq("user_id", user.id),
   ]);
+  if (profileError || roleError) return null;
   const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
-  const legacy = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const isManager = roleList.includes("manager") || legacy === "manager" || legacy === "admin";
-  const isResident = roleList.includes("resident") || legacy === "resident";
+  const isManager = roleList.includes("manager") || roleList.includes("admin");
+  const isResident = roleList.includes("resident");
   if (!isManager && !isResident) return null;
 
   let role: PortalRole;
