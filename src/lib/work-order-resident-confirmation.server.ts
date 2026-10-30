@@ -41,6 +41,7 @@ type WorkOrderRecord = {
   id: string;
   manager_user_id: string;
   vendor_user_id: string | null;
+  updated_at: string | null;
   row_data: DemoManagerWorkOrderRow;
 };
 
@@ -84,7 +85,7 @@ async function findByToken(db: SupabaseClient, token: string): Promise<WorkOrder
   const tokenId = hashToken(token);
   const { data } = await db
     .from("portal_work_order_records")
-    .select("id, manager_user_id, vendor_user_id, row_data")
+    .select("id, manager_user_id, vendor_user_id, row_data, updated_at")
     .contains("row_data", { residentConfirmation: { tokenId } })
     .limit(1)
     .maybeSingle();
@@ -185,7 +186,10 @@ async function resolveConfirmationRecord(
     // stands, so the invoice nudge and the manager's approval step both wait.
     ...(reopened ? { automationStatus: undefined, vendorMarkedDoneAt: undefined, reopenedAt: now.toISOString() } : {}),
   };
-  let update = db.from("portal_work_order_records").update({ row_data: next, updated_at: now.toISOString() }).eq("id", record.id);
+  const previousUpdateMs = Date.parse(record.updated_at ?? "");
+  if (!Number.isFinite(previousUpdateMs)) return { ok: false, reason: "invalid" };
+  const nextUpdate = new Date(Math.max(now.getTime(), previousUpdateMs + 1)).toISOString();
+  let update = db.from("portal_work_order_records").update({ row_data: next, updated_at: nextUpdate }).eq("id", record.id).eq("updated_at", record.updated_at);
   if (input.residentUserId) update = update.eq("resident_user_id", input.residentUserId);
   const { data: updated, error: updateError } = await update.select("id").maybeSingle();
   if (updateError || !updated) return { ok: false, reason: "invalid" };
