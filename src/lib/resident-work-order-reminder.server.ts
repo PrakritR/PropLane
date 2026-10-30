@@ -53,8 +53,8 @@ export async function deliverResidentWorkOrderReminder(
     .maybeSingle();
   if (!workOrder) return { ok: false, error: "Work order not found." };
 
-  const subject = workOrder.resident_user_id;
-  if (subject !== input.residentUserId) return { ok: false, error: "Forbidden." };
+  const residentSubjectId = workOrder.resident_user_id;
+  if (residentSubjectId !== input.residentUserId) return { ok: false, error: "Forbidden." };
 
   const managerUserId = String(workOrder.manager_user_id ?? "").trim();
   if (!managerUserId) return { ok: false, error: "Work order has no manager." };

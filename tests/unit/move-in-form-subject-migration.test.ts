@@ -14,3 +14,17 @@ it("serializes subject claim and inserts while restricting adoption and recovery
   expect(sql).toContain("function public.insert_bound_move_in_form(p_form jsonb)");
   expect(sql).toContain("grant execute on function public.insert_bound_move_in_form(jsonb) to service_role");
 });
+
+it("routes every move-in form creation through the locked subject RPC", async () => {
+  const { readdirSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  function files(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name);
+      return entry.isDirectory() ? files(path) : /\.[jt]sx?$/.test(entry.name) ? [path] : [];
+    });
+  }
+  const writers = files("src").filter((path) => /\.from\(\s*["'`]resident_move_in_forms["'`]\s*\)\s*\.insert\s*\(/.test(readFileSync(path, "utf8")));
+  expect(writers).toEqual([]);
+  expect(readFileSync("src/lib/move-in-forms/server.ts", "utf8")).toMatch(/\.rpc\(\s*["']insert_bound_move_in_form["']/);
+});
