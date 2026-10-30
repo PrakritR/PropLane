@@ -171,3 +171,97 @@ describe("renaming a work email holds the old local as a 30-day alias", () => {
     ).resolves.toBeNull();
   });
 });
+
+describe("an alias belongs to the workspace of the mailbox row it routes to", () => {
+  it("a workspace under the SAME owner user cannot claim it; the holding workspace can", async () => {
+    vi.stubEnv("ASSISTANT_EMAIL_DOMAIN", "prop-lane.space");
+    const db = seedDb();
+    (db.__tables.manager_assistant_emails as Array<Record<string, unknown>>).push({
+      id: "row-sibling",
+      manager_user_id: owner,
+      workspace_id: "ws-sibling",
+      inbox_token: "tok000000003",
+      mailbox_local: "siblinghomes",
+      provision_state: "active",
+    });
+    await setWorkspaceAssistantMailboxLocal(db as never, owner, OWNER_WORKSPACE, "newname");
+
+    await expect(
+      checkWorkspaceAssistantMailboxLocal(db as never, "ws-sibling", "assist-owner-name", owner),
+    ).resolves.toMatchObject({ ok: false, state: "taken" });
+    await expect(
+      checkWorkspaceAssistantMailboxLocal(db as never, "ws-owner", "assist-owner-name", owner),
+    ).resolves.toEqual({ ok: true, state: "available" });
+  });
+
+  it("a legacy alias (mailbox row has no workspace) is the owner's sole workspace's, otherwise taken", async () => {
+    const db = seedDb();
+    (db.__tables.manager_assistant_emails as Array<Record<string, unknown>>).push({
+      id: "row-legacy",
+      manager_user_id: owner,
+      workspace_id: null,
+      inbox_token: "tok000000004",
+      mailbox_local: "legacynow",
+      provision_state: "active",
+    });
+    db.__tables.manager_assistant_email_aliases = [
+      {
+        mailbox_local: "legacyold",
+        assistant_email_id: "row-legacy",
+        owner_user_id: owner,
+        released_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+      },
+    ];
+    db.__tables.portal_workspaces = [{ id: "ws-owner", owner_user_id: owner }];
+    await expect(checkWorkspaceAssistantMailboxLocal(db as never, "ws-owner", "legacyold", owner)).resolves.toEqual({
+      ok: true,
+      state: "available",
+    });
+    // Another owner never reclaims it.
+    await expect(checkWorkspaceAssistantMailboxLocal(db as never, "ws-other", "legacyold", otherOwner)).resolves.toMatchObject({
+      ok: false,
+      state: "taken",
+    });
+    // The owner now has a second workspace: the legacy alias is no longer unambiguously either one's.
+    (db.__tables.portal_workspaces as Array<Record<string, unknown>>).push({ id: "ws-second", owner_user_id: owner });
+    await expect(checkWorkspaceAssistantMailboxLocal(db as never, "ws-owner", "legacyold", owner)).resolves.toMatchObject({
+      ok: false,
+      state: "taken",
+    });
+  });
+});
+
+describe("the claim check fails closed when the alias read fails", () => {
+  function aliasReadFails(db: ReturnType<typeof seedDb>) {
+    return {
+      from(table: string) {
+        if (table !== "manager_assistant_email_aliases") return db.from(table);
+        const builder: Record<string, unknown> = {};
+        for (const m of ["select", "eq", "upsert", "delete"]) builder[m] = () => builder;
+        builder.maybeSingle = async () => ({ data: null, error: { message: "boom" } });
+        return builder;
+      },
+    };
+  }
+
+  it("findActiveMailboxLocalAlias throws instead of reporting no alias", async () => {
+    await expect(findActiveMailboxLocalAlias(aliasReadFails(seedDb()) as never, "anything")).rejects.toThrow("boom");
+  });
+
+  it("check is unavailable (throws) and set refuses; nothing is written", async () => {
+    vi.stubEnv("ASSISTANT_EMAIL_DOMAIN", "prop-lane.space");
+    const db = seedDb();
+    const failing = aliasReadFails(db);
+    await expect(checkWorkspaceAssistantMailboxLocal(failing as never, "ws-other", "somelocal", otherOwner)).rejects.toThrow();
+    await expect(setWorkspaceAssistantMailboxLocal(failing as never, otherOwner, OTHER_WORKSPACE, "somelocal")).rejects.toThrow();
+    const rows = db.__tables.manager_assistant_emails as Array<{ workspace_id: string; mailbox_local: string }>;
+    expect(rows.find((r) => r.workspace_id === "ws-other")?.mailbox_local).toBe("frontdesk");
+  });
+
+  it("inbound routing still degrades to not-found rather than throwing", async () => {
+    await expect(
+      resolveAssistantMailboxByInboundAddresses(aliasReadFails(seedDb()) as never, ["nobody@prop-lane.space"]),
+    ).resolves.toBeNull();
+  });
+});

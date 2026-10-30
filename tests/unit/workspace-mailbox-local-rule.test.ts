@@ -12,7 +12,7 @@ import {
   serviceWorkspaceMailboxLocalFor,
 } from "@/lib/manager-assistant-email/workspace-mailbox-local-rule.mjs";
 // @ts-expect-error plain-JS script, no types
-import { formatServicePlan, isProductionSupabaseUrl, parseRenameWorkspaceIds, pickLocal, planRenames, planServiceEmails } from "../../scripts/backfill-workspace-mailbox-locals.mjs";
+import { aliasHolders, formatServicePlan, isProductionSupabaseUrl, parseRenameWorkspaceIds, pickLocal, planRenames, planServiceEmails } from "../../scripts/backfill-workspace-mailbox-locals.mjs";
 
 const profile = { fullName: "Prakrit Ramachandran", email: "p@example.com" };
 
@@ -214,6 +214,21 @@ describe("backfill --service plan (dry run)", () => {
     const held = [{ workspaceId: "other:1", workspaceName: "", ownerId: "other:1", ownerFirst: "", email: { id: "x", mailboxLocal: "ambikahomes" } }];
     expect(planServiceEmails([ws({}), ...held])[0].next).toBe("ambikahomes-2");
     expect(planServiceEmails([ws({})], new Map([["ambikahomes", "someone-else"]]))[0].next).toBe("ambikahomes-2");
+  });
+  it("a live alias is held by its WORKSPACE: a sibling under the same owner user cannot take it", () => {
+    const aliases = aliasHolders(
+      [
+        { mailbox_local: "ambikahomes", assistant_email_id: "e1", expires_at: new Date(Date.now() + 1e6).toISOString() },
+        { mailbox_local: "orphan", assistant_email_id: "gone", expires_at: new Date(Date.now() + 1e6).toISOString() },
+        { mailbox_local: "stale", assistant_email_id: "e1", expires_at: new Date(Date.now() - 1e6).toISOString() },
+      ],
+      [{ id: "e1", workspace_id: "w-a" }],
+    );
+    expect([...aliases.keys()].sort()).toEqual(["ambikahomes", "orphan"]);
+    const sibling = { workspaceId: "w-b", workspaceName: "1. Ambika", ownerId: "shared-owner", ownerFirst: "", email: null };
+    expect(planServiceEmails([sibling], aliases)[0].next).toBe("ambikahomes-2");
+    const holder = { ...sibling, workspaceId: "w-a" };
+    expect(planServiceEmails([holder], aliases)[0].next).toBe("ambikahomes");
   });
   it("prints a table with the workspace id, name, current and new", () => {
     const table = formatServicePlan(planServiceEmails([ws({})]));

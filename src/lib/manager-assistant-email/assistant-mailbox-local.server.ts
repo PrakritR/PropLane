@@ -137,7 +137,15 @@ export async function allocateAssistantMailboxLocal(
       .eq("mailbox_local", candidate)
       .maybeSingle();
     if (error) continue;
-    if (!data) return candidate;
+    if (data) continue;
+    // A local still inside another workspace's released-alias cooldown is not free either: an active row outranks
+    // the alias on inbound, so minting it would take over that workspace's mail.
+    try {
+      if (await findActiveMailboxLocalAlias(db, candidate)) continue;
+    } catch {
+      continue;
+    }
+    return candidate;
   }
 
   const fallback = `${MAILBOX_LOCAL_PREFIX}${(suffix || "x").slice(0, 8)}`;
@@ -184,6 +192,7 @@ function aliasFromStored(data: Record<string, unknown> | null): MailboxLocalAlia
  * The unexpired alias holding `mailboxLocal`, or null if none exists or its
  * cooldown has already lapsed. An expired alias is never claimable-blocking
  * and never routes inbound mail — it behaves exactly as if it never existed.
+ * Throws when the read fails (callers that can degrade, like inbound routing, catch it).
  */
 export async function findActiveMailboxLocalAlias(
   db: SupabaseClient,
@@ -196,10 +205,9 @@ export async function findActiveMailboxLocalAlias(
     .select("mailbox_local, assistant_email_id, owner_user_id, released_at, expires_at")
     .eq("mailbox_local", trimmed)
     .maybeSingle();
-  if (error) {
-    console.warn("assistant-email alias lookup failed", error.message);
-    return null;
-  }
+  // Fail closed: a read that cannot tell whether an alias holds this local must not read as "no alias", or a claim
+  // check would let another workspace take a local still routed to its previous holder.
+  if (error) throw new Error(error.message);
   const alias = aliasFromStored(data);
   if (!alias) return null;
   if (new Date(alias.expiresAt).getTime() <= Date.now()) return null;
@@ -235,20 +243,67 @@ export async function releaseMailboxLocalAsAlias(
 }
 
 /**
- * Drop the alias for `mailboxLocal` when its own former owner reclaims it by
- * renaming back — a no-op if no alias exists or it belongs to someone else.
+ * Whether `alias` may be claimed by `workspaceId`. An alias belongs to the WORKSPACE of the mailbox row it routes to
+ * (`assistant_email_id` -> `workspace_id`), never to its owner user: every PropLane-created service workspace shares
+ * one owner user, so a user-keyed check would let any of them take another's released local.
+ *
+ * A legacy alias whose mailbox row carries no workspace (or no longer exists) falls back to the owner-user rule, and
+ * only when `workspaceId` is that owner's sole workspace; otherwise it is treated as taken. Throws when a read fails.
+ */
+export async function mailboxAliasClaimableBy(
+  db: SupabaseClient,
+  alias: MailboxLocalAlias,
+  workspaceId: string,
+  ownerUserId?: string,
+): Promise<boolean> {
+  const { data, error } = await db
+    .from("manager_assistant_emails")
+    .select("workspace_id")
+    .eq("id", alias.assistantEmailId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const holder = String((data as { workspace_id?: string | null } | null)?.workspace_id ?? "").trim();
+  const claimant = workspaceId.trim();
+  if (holder) return holder === claimant;
+
+  if (!ownerUserId || !alias.ownerUserId || alias.ownerUserId !== ownerUserId) return false;
+  const { data: owned, error: ownedError } = await db
+    .from("portal_workspaces")
+    .select("id")
+    .eq("owner_user_id", ownerUserId);
+  if (ownedError) throw new Error(ownedError.message);
+  return ((owned ?? []) as Array<{ id?: string }>).every((w) => String(w.id ?? "").trim() === claimant);
+}
+
+/**
+ * Drop the alias for `mailboxLocal` when its own former WORKSPACE reclaims it by
+ * renaming back — a no-op if no alias exists or it belongs to another workspace
+ * (see {@link mailboxAliasClaimableBy}).
  */
 export async function reclaimMailboxLocalAlias(
   db: SupabaseClient,
   mailboxLocal: string,
-  ownerUserId: string,
+  claimant: { workspaceId: string; ownerUserId?: string },
 ): Promise<void> {
   const trimmed = mailboxLocal.trim().toLowerCase();
-  if (!trimmed || !ownerUserId) return;
-  const { error } = await db
-    .from(ALIAS_TABLE)
-    .delete()
-    .eq("mailbox_local", trimmed)
-    .eq("owner_user_id", ownerUserId);
-  if (error) console.warn("assistant-email alias reclaim failed", error.message);
+  if (!trimmed || !claimant.workspaceId) return;
+  try {
+    const { data, error } = await db
+      .from(ALIAS_TABLE)
+      .select("mailbox_local, assistant_email_id, owner_user_id, released_at, expires_at")
+      .eq("mailbox_local", trimmed)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    const alias = aliasFromStored(data);
+    if (!alias) return;
+    if (!(await mailboxAliasClaimableBy(db, alias, claimant.workspaceId, claimant.ownerUserId))) return;
+    const { error: delError } = await db
+      .from(ALIAS_TABLE)
+      .delete()
+      .eq("mailbox_local", trimmed)
+      .eq("assistant_email_id", alias.assistantEmailId);
+    if (delError) throw new Error(delError.message);
+  } catch (cause) {
+    console.warn("assistant-email alias reclaim failed", cause instanceof Error ? cause.message : cause);
+  }
 }

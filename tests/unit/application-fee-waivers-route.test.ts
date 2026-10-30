@@ -365,7 +365,7 @@ describe("GET ?propertyId= lists the OWNER's codes that cover the property", () 
     asCaller(TEAMMATE);
     const body = (await (await get(`?propertyId=${OWNED}`)).json()) as { codes: { code: string; readOnly?: boolean }[] };
     expect(body.codes.find((c) => c.code === "BOTH-HOUSES")!.readOnly).toBe(true);
-    expect((await patch("c-BOTH-HOUSES", { action: "revoke" })).status).toBe(403);
+    expect((await patch("c-BOTH-HOUSES", { action: "revoke" })).status).toBe(404);
   });
 
   it("a house that no longer exists neither flags the row nor blocks the write", async () => {
@@ -405,10 +405,15 @@ describe("PATCH by a teammate acts on the owner's code", () => {
     expect(owned().find((r) => r.code === "TWO-HOUSE")!.status).toBe("revoked");
   });
 
-  it("refuses when any covered property is outside the grant (403), and a portfolio-wide code is not theirs (404)", async () => {
+  it("refuses when any covered property is outside the grant, and a portfolio-wide code is not theirs: the SAME 404 either way", async () => {
     asCaller(TEAMMATE);
-    expect((await patch("c-PARTLY", { action: "revoke" })).status).toBe(403);
-    expect((await patch("c-ALL-HOUSES", { action: "revoke" })).status).toBe(404);
+    const limited = await patch("c-PARTLY", { action: "revoke" });
+    const wide = await patch("c-ALL-HOUSES", { action: "revoke" });
+    expect(limited.status).toBe(404);
+    expect(wide.status).toBe(404);
+    const [a, b] = [await limited.json(), await wide.json()];
+    expect(a).toEqual({ error: "Code not found." });
+    expect(b).toEqual(a);
     expect(owned().filter((r) => r.status === "revoked")).toHaveLength(0);
   });
 

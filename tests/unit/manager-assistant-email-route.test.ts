@@ -616,6 +616,14 @@ describe("changing the address: owner, or staff on a service workspace", () => {
     expect(mocks.checkWorkspaceAssistantMailboxLocal).not.toHaveBeenCalled();
   });
 
+  it("an address check whose reads fail is 503 unavailable, never an availability answer", async () => {
+    mocks.activeWorkspace = MY_WS;
+    mocks.checkWorkspaceAssistantMailboxLocal.mockRejectedValueOnce(new Error("alias read failed"));
+    const res = await post("check_address", MY_WS.id);
+    expect(res.status).toBe(503);
+    expect(await res.json()).not.toHaveProperty("state");
+  });
+
   it("the owner is unchanged: checks and sets through the owner path, never the service one", async () => {
     mocks.activeWorkspace = MY_WS;
     expect((await post("check_address", MY_WS.id)).status).toBe(200);

@@ -273,7 +273,16 @@ export async function POST(req: Request) {
         { status: 429, headers: { "Retry-After": "60", "Cache-Control": "private, no-store" } },
       );
     }
-    const result = await checkWorkspaceAssistantMailboxLocal(actor.db, workspace.id, local, workspace.ownerUserId);
+    let result: Awaited<ReturnType<typeof checkWorkspaceAssistantMailboxLocal>>;
+    try {
+      result = await checkWorkspaceAssistantMailboxLocal(actor.db, workspace.id, local, workspace.ownerUserId);
+    } catch {
+      // A read that cannot tell whether the address is free is "unavailable", never "available".
+      return NextResponse.json(
+        { error: "Work email address checks are temporarily unavailable. Please try again shortly." },
+        { status: 503, headers: { "Retry-After": "60", "Cache-Control": "private, no-store" } },
+      );
+    }
     return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
   }
 

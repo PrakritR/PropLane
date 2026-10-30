@@ -51,6 +51,7 @@ process.env.RESEND_API_KEY = "re_test_key";
 
 const svc = await import("@/lib/service/service-workspaces.server");
 const owner = await import("@/lib/service/service-owner.server");
+const mailbox = await import("@/lib/manager-assistant-email/manager-assistant-email.server");
 
 let db: ServiceFakeDb;
 const client = () => db as never;
@@ -905,6 +906,80 @@ describe("a service workspace's work email (<name>homes@, minted on add)", () =>
       db.failInsertOn.add("audit_log");
       expect(await svc.setServiceWorkspaceWorkEmail(client(), ADMIN_A, { workspaceId: res.id, local: "ambika-front" })).toMatchObject({ ok: false, status: 503 });
       expect(emails()[0]!.mailbox_local).toBe("ambikahomes");
+    });
+
+    it("validates the local BEFORE the audit row: invalid input is a 400 with no audit row and no write", async () => {
+      const res = await made();
+      const auditBefore = db.tables.audit_log.length;
+      for (const local of ["ab", "Bad Name!", "x".repeat(33), "-leading", "", "admin"]) {
+        expect(await svc.setServiceWorkspaceWorkEmail(client(), ADMIN_A, { workspaceId: res.id, local })).toMatchObject({ ok: false, status: 400 });
+      }
+      expect(db.tables.audit_log).toHaveLength(auditBefore);
+      expect(emails()[0]!.mailbox_local).toBe("ambikahomes");
+    });
+  });
+
+  describe("a released alias belongs to its WORKSPACE, not to the owner user every service workspace shares", () => {
+    const { checkWorkspaceAssistantMailboxLocal } = mailbox;
+    async function renamedAway() {
+      const a = await made("1. Ambika");
+      const b = await made("2. Vinod");
+      // A is renamed: `ambikahomes` is now A's released alias (owner_user_id = the shared OWNER).
+      expect(await svc.renameServiceWorkspace(client(), ADMIN_A, { id: a.id, name: "1. Ambika Rao", city: "Seattle" })).toEqual({ ok: true });
+      expect(db.tables.manager_assistant_email_aliases).toMatchObject([{ mailbox_local: "ambikahomes", owner_user_id: OWNER }]);
+      return { a, b };
+    }
+
+    it("another service workspace under the same owner cannot check or set A's released local", async () => {
+      const { a, b } = await renamedAway();
+      expect(await checkWorkspaceAssistantMailboxLocal(client(), b.id, "ambikahomes", OWNER)).toMatchObject({ ok: false, state: "taken" });
+      expect(await svc.setServiceWorkspaceWorkEmail(client(), ADMIN_A, { workspaceId: b.id, local: "ambikahomes" })).toMatchObject({ ok: false, status: 409, state: "taken" });
+      expect(emails().find((e) => e.workspace_id === b.id)!.mailbox_local).toBe("vinodhomes");
+      // A's alias is untouched and still routes to A.
+      expect(db.tables.manager_assistant_email_aliases).toMatchObject([{ mailbox_local: "ambikahomes", assistant_email_id: emails().find((e) => e.workspace_id === a.id)!.id }]);
+    });
+
+    it("A itself can reclaim it, and the alias is dropped", async () => {
+      const { a } = await renamedAway();
+      expect(await checkWorkspaceAssistantMailboxLocal(client(), a.id, "ambikahomes", OWNER)).toMatchObject({ ok: true, state: "available" });
+      expect(await svc.setServiceWorkspaceWorkEmail(client(), ADMIN_A, { workspaceId: a.id, local: "ambikahomes" })).toMatchObject({ ok: true });
+      const aliases = (db.tables.manager_assistant_email_aliases ?? []) as Array<{ mailbox_local: string }>;
+      expect(aliases.find((r) => r.mailbox_local === "ambikahomes")).toBeUndefined();
+    });
+
+    it("B following a rename into A's alias base allocates a suffixed local instead of taking it", async () => {
+      const { a, b } = await renamedAway();
+      expect(await svc.renameServiceWorkspace(client(), ADMIN_A, { id: b.id, name: "1. Ambika", city: "Seattle" })).toEqual({ ok: true });
+      expect(emails().find((e) => e.workspace_id === b.id)!.mailbox_local).toBe("ambikahomes-2");
+      expect(emails().find((e) => e.workspace_id === a.id)!.mailbox_local).toBe("ambikaraohomes");
+      expect(db.tables.manager_assistant_email_aliases).toEqual(expect.arrayContaining([expect.objectContaining({ mailbox_local: "ambikahomes" })]));
+    });
+
+    it("a freshly minted workspace is not handed a local that is inside another workspace's cooldown", async () => {
+      await renamedAway();
+      const c = await made("1. Ambika");
+      expect(emails().find((e) => e.workspace_id === c.id)!.mailbox_local).not.toBe("ambikahomes");
+    });
+  });
+
+  describe("a follow-rename leaves the same audit row a staff change does", () => {
+    const workEmailAudits = () => db.tables.audit_log.filter((r) => r.action === "admin_service_work_email");
+
+    it("writes one when the address actually moves", async () => {
+      const res = await made();
+      expect(workEmailAudits()).toHaveLength(0);
+      expect(await svc.renameServiceWorkspace(client(), ADMIN_A, { id: res.id, name: "1. Ambika Rao", city: "Seattle" })).toEqual({ ok: true });
+      expect(workEmailAudits()).toHaveLength(1);
+      expect(workEmailAudits()[0]).toMatchObject({ actor_user_id: ADMIN_A, landlord_id: OWNER });
+      expect(JSON.stringify(workEmailAudits()[0])).toContain("ambikaraohomes");
+    });
+
+    it("writes none when the address is customized or the name is unchanged", async () => {
+      const res = await made();
+      emails()[0]!.mailbox_local = "frontdesk";
+      await svc.renameServiceWorkspace(client(), ADMIN_A, { id: res.id, name: "1. Ambika Rao", city: "Seattle" });
+      await svc.renameServiceWorkspace(client(), ADMIN_A, { id: res.id, name: "1. Ambika Rao", city: "Portland" });
+      expect(workEmailAudits()).toHaveLength(0);
     });
   });
 });

@@ -58,6 +58,20 @@ export function parseRenameWorkspaceIds(argv) {
   return out;
 }
 
+/**
+ * Pure: live aliases as a Map local -> HOLDING WORKSPACE id, resolved through the mailbox row each alias routes to
+ * (`emails`: [{id, workspace_id}]). An alias whose row is unknown or has no workspace maps to a holder no workspace
+ * equals, so it is taken for everyone.
+ */
+export function aliasHolders(aliases, emails, now = Date.now()) {
+  const workspaceOfEmail = new Map((emails ?? []).map((e) => [e.id, e.workspace_id || null]));
+  return new Map(
+    (aliases ?? [])
+      .filter((a) => new Date(a.expires_at).getTime() > now)
+      .map((a) => [a.mailbox_local, workspaceOfEmail.get(a.assistant_email_id) ?? `legacy:${a.assistant_email_id}`]),
+  );
+}
+
 /** Pure: pick the first free candidate (base, base-2 … base-9). `taken` is a Set of locals held by OTHER rows/owners. */
 export function pickLocal(base, taken) {
   const candidates = [base, ...Array.from({ length: 8 }, (_, i) => `${base}-${i + 2}`)];
@@ -84,14 +98,14 @@ export function planRenames(rows, aliasesByLocal = new Map()) {
     if (matches) continue;
     const taken = new Set();
     for (const [local, id] of held) if (id !== row.id) taken.add(local);
-    for (const [local, owner] of aliases) if (owner !== row.ownerId) taken.add(local);
+    for (const [local, holder] of aliases) if (holder !== row.workspaceId) taken.add(local);
     const next = pickLocal(base, taken);
     if (!next || next === row.mailboxLocal) continue;
     held.delete(row.mailboxLocal);
     held.set(next, row.id);
-    // The old local becomes this owner's alias; the new one stops being anybody's (apply deletes it).
-    aliases.set(row.mailboxLocal, row.ownerId);
-    if (aliases.get(next) === row.ownerId) aliases.delete(next);
+    // The old local becomes this workspace's alias; the new one stops being anybody's (apply deletes it).
+    aliases.set(row.mailboxLocal, row.workspaceId);
+    if (aliases.get(next) === row.workspaceId) aliases.delete(next);
     plans.push({ ...row, next });
   }
   return plans;
@@ -101,7 +115,8 @@ export function planRenames(rows, aliasesByLocal = new Map()) {
  * Pure: plan the service-workspace pass. rows: [{workspaceId, workspaceName, ownerId, ownerFirst, email}] where email is
  * null (no active address) or {id, mailboxLocal}. Returns [{kind: "mint" | "rename", workspaceId, workspaceName, ownerId,
  * emailId, mailboxLocal (current or null), next}]. A row already on the service rule's local (or its -2..-9 suffix) is
- * left alone, so a second run plans nothing. Locals held by any row, planned or existing, and another owner's live alias
+ * left alone, so a second run plans nothing. Locals held by any row, planned or existing, and another WORKSPACE's live alias (aliases are keyed by the workspace of the row they route to, never by owner user:
+ * every service workspace shares one owner)
  * are never handed out.
  *
  * A workspace that ALREADY holds an address is only planned when its id is in `renameWorkspaceIds`
@@ -123,15 +138,15 @@ export function planServiceEmails(rows, aliasesByLocal = new Map(), renameWorksp
     const holderId = row.email ? (row.email.id ?? row.workspaceId) : row.workspaceId;
     const taken = new Set();
     for (const [local, id] of held) if (id !== holderId) taken.add(local);
-    for (const [local, owner] of aliases) if (owner !== row.ownerId) taken.add(local);
+    for (const [local, holder] of aliases) if (holder !== row.workspaceId) taken.add(local);
     const next = pickLocal(base, taken);
     if (!next || next === current) continue;
     if (current) {
       held.delete(current);
-      aliases.set(current, row.ownerId);
+      aliases.set(current, row.workspaceId);
     }
     held.set(next, holderId);
-    if (aliases.get(next) === row.ownerId) aliases.delete(next);
+    if (aliases.get(next) === row.workspaceId) aliases.delete(next);
     plans.push({
       kind: current ? "rename" : "mint",
       workspaceId: row.workspaceId,
@@ -169,16 +184,14 @@ async function runService(db, apply, renameWorkspaceIds = new Set()) {
       ? db.from("manager_assistant_emails").select("id, workspace_id, mailbox_local").eq("provision_state", "active").in("workspace_id", wsIds)
       : Promise.resolve({ data: [], error: null }),
     ownerIds.length ? db.from("profiles").select("id, full_name, email").in("id", ownerIds) : Promise.resolve({ data: [] }),
-    db.from("manager_assistant_email_aliases").select("mailbox_local, owner_user_id, expires_at"),
+    db.from("manager_assistant_email_aliases").select("mailbox_local, assistant_email_id, expires_at"),
     // Every active local, so a collision with a non-service workspace is seen too.
-    db.from("manager_assistant_emails").select("id, mailbox_local").eq("provision_state", "active").not("mailbox_local", "is", null),
+    db.from("manager_assistant_emails").select("id, workspace_id, mailbox_local").eq("provision_state", "active").not("mailbox_local", "is", null),
   ]);
   if (emErr) throw emErr;
   const prof = new Map((profiles ?? []).map((p) => [p.id, p]));
   const now = Date.now();
-  const aliasesByLocal = new Map(
-    (aliases ?? []).filter((a) => new Date(a.expires_at).getTime() > now).map((a) => [a.mailbox_local, a.owner_user_id]),
-  );
+  const aliasesByLocal = aliasHolders(aliases, allActive, now);
   const byWorkspace = new Map((emails ?? []).map((e) => [e.workspace_id, e]));
   const rows = (workspaces ?? []).map((w) => {
     const p = prof.get(w.owner_user_id);
@@ -241,7 +254,7 @@ async function runService(db, apply, renameWorkspaceIds = new Set()) {
       failed += 1;
       continue;
     }
-    await db.from("manager_assistant_email_aliases").delete().eq("mailbox_local", p.next).eq("owner_user_id", p.ownerId);
+    await db.from("manager_assistant_email_aliases").delete().eq("mailbox_local", p.next).eq("assistant_email_id", p.emailId);
   }
   console.log(`${failed} failed of ${plans.length}`);
 }
@@ -271,14 +284,12 @@ async function main() {
   const [{ data: ws }, { data: profiles }, { data: aliases }] = await Promise.all([
     db.from("portal_workspaces").select("id, name").in("id", wsIds),
     db.from("profiles").select("id, full_name, email").in("id", ownerIds),
-    db.from("manager_assistant_email_aliases").select("mailbox_local, owner_user_id, expires_at"),
+    db.from("manager_assistant_email_aliases").select("mailbox_local, assistant_email_id, expires_at"),
   ]);
   const wsName = new Map((ws ?? []).map((w) => [w.id, String(w.name ?? "").trim()]));
   const prof = new Map((profiles ?? []).map((p) => [p.id, p]));
   const now = Date.now();
-  const aliasesByLocal = new Map(
-    (aliases ?? []).filter((a) => new Date(a.expires_at).getTime() > now).map((a) => [a.mailbox_local, a.owner_user_id]),
-  );
+  const aliasesByLocal = aliasHolders(aliases, emails, now);
   const rows = emails
     .filter((e) => e.workspace_id)
     .map((e) => {
@@ -321,7 +332,7 @@ async function main() {
       failed += 1;
       continue;
     }
-    const { error: delErr } = await db.from("manager_assistant_email_aliases").delete().eq("mailbox_local", p.next).eq("owner_user_id", p.ownerId);
+    const { error: delErr } = await db.from("manager_assistant_email_aliases").delete().eq("mailbox_local", p.next).eq("assistant_email_id", p.id);
     if (delErr) {
       console.log(`  failed (alias cleanup): ${delErr.message}`);
       failed += 1;

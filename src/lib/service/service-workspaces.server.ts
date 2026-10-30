@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { listAdminUserIds, userHoldsAdminRole } from "@/lib/auth/admin-role";
 import { ensureProfileProplaneId } from "@/lib/manager-access-server";
+import { isReservedMailboxLocal, isValidMailboxLocal } from "@/lib/manager-assistant-email/assistant-email-address";
 import {
   TEAM_ROLE_LABELS,
   flatTeamRoleGrant,
@@ -663,6 +664,8 @@ async function operatorStanding(db: SupabaseClient, operatorUserId: string, work
   return { ok: true as const, workspace, standing };
 }
 
+export const ADMIN_SERVICE_WORK_EMAIL_AUDIT_ACTION = "admin_service_work_email";
+
 export async function renameServiceWorkspace(
   db: SupabaseClient,
   operatorUserId: string,
@@ -690,11 +693,23 @@ export async function renameServiceWorkspace(
     .eq("is_service", true);
   if (res.error) return fail(503, "Could not rename the workspace. Please retry.");
   // The work email follows the name unless it was customized; a failure never fails the rename.
-  if (name !== who.workspace.name) await followServiceWorkspaceRename(db, who.workspace.id, who.workspace.name);
+  if (name !== who.workspace.name) {
+    const followed = await followServiceWorkspaceRename(db, who.workspace.id, who.workspace.name);
+    // The address moved without a staff hand on it, so it leaves the same audit row a staff change does (after the
+    // fact: the rename is already committed and a failed row only logs).
+    if (followed.changed && followed.address) {
+      await auditServiceChange(
+        db,
+        operatorUserId,
+        who.workspace.ownerUserId,
+        ADMIN_SERVICE_WORK_EMAIL_AUDIT_ACTION,
+        { workspaceId: who.workspace.id, local: followed.address.split("@")[0]!.toLowerCase() },
+        false,
+      );
+    }
+  }
   return { ok: true };
 }
-
-export const ADMIN_SERVICE_WORK_EMAIL_AUDIT_ACTION = "admin_service_work_email";
 
 /**
  * Whether the operator may change a PropLane-managed workspace's work email: the SAME standing a rename needs
@@ -720,12 +735,18 @@ export async function setServiceWorkspaceWorkEmail(
 ): Promise<ServiceWorkEmailSetResult> {
   const allowed = await authorizeServiceWorkEmailEdit(db, operatorUserId, input.workspaceId);
   if (!allowed.ok) return allowed;
+  // Validate before the audit row: invalid input is a 400 that leaves no trace and costs no write.
+  const local = typeof input.local === "string" ? input.local.trim().toLowerCase() : "";
+  if (local.length < 3 || !isValidMailboxLocal(local)) {
+    return { ok: false, status: 400, error: "Use 3 to 32 letters, digits, dots or hyphens.", state: "invalid" };
+  }
+  if (isReservedMailboxLocal(local)) return { ok: false, status: 400, error: "That address is reserved.", state: "reserved" };
   const audited = await auditServiceChange(
     db,
     operatorUserId,
     allowed.workspace.ownerUserId,
     ADMIN_SERVICE_WORK_EMAIL_AUDIT_ACTION,
-    { workspaceId: allowed.workspace.id, local: input.local.trim().toLowerCase() },
+    { workspaceId: allowed.workspace.id, local },
     true,
   );
   if (audited) return audited;

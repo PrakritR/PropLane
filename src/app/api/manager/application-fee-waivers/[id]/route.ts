@@ -52,7 +52,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     // `property_ids` has no foreign key, so a DELETED house leaves a stale id. It must not block a teammate from
     // turning the code off on the houses that do exist - the same rule the POST widen gate applies.
     const access = await resolveWaiverPropertiesScope(ctx.db, ctx.userId, covered, "edit", { ignoreUnknown: true, grant });
-    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    // Every non-owner denial is the SAME 404, so a code's existence and kind (portfolio-wide or limited) cannot be
+    // told apart from "no such code"; only a failed read (5xx) keeps its own status.
+    if (!access.ok) {
+      if (access.status >= 500) return NextResponse.json({ error: access.error }, { status: access.status });
+      return NextResponse.json({ error: "Code not found." }, { status: 404 });
+    }
     // Every house it covers is gone, so no grant of theirs reaches it: an absent house authorizes nothing either.
     if (access.knownPropertyIds.length === 0) return NextResponse.json({ error: "Code not found." }, { status: 404 });
     if (access.ownerUserId !== ownerUserId) return NextResponse.json({ error: "Code not found." }, { status: 404 });
