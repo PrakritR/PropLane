@@ -4,8 +4,8 @@ import { loadAccountPurchaseRows, loadPurchaseRowsByEmail } from "@/lib/manager-
 const owner = "11111111-2222-4333-8444-555555555555";
 const other = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 type Purchase = { id: string; email: string; user_id: string | null };
-function fixture(authEmail: string, confirmed: boolean, rows: Purchase[]) {
-  const userRead = vi.fn(async () => ({ data: { user: { id: owner, email: authEmail, email_confirmed_at: confirmed ? "2026-01-01" : null } }, error: null }));
+function fixture(authEmail: string, confirmed: boolean, rows: Purchase[], authFailure = false) {
+  const userRead = vi.fn(async () => authFailure ? ({ data: { user: null }, error: { message: "auth unavailable" } }) : ({ data: { user: { id: owner, email: authEmail, email_confirmed_at: confirmed ? "2026-01-01" : null } }, error: null }));
   const profile = { select: () => profile, eq: () => profile, maybeSingle: async () => ({ data: { email: "resident@example.test" }, error: null }) };
   const from = (table: string) => {
     if (table === "profiles") return profile;
@@ -31,6 +31,19 @@ describe("verified account purchase entitlement", () => {
   it("does not use a stale profile email different from the verified auth email", async () => {
     const { db } = fixture("different@example.test", true, [legacy]);
     expect((await loadAccountPurchaseRows(db, owner, "id")).rows).toEqual([]);
+  });
+  it("reports Auth lookup failure, excludes legacy email rows, and retains direct ownership", async () => {
+    const direct = { id: "direct", email: "other@example.test", user_id: owner };
+    const { db } = fixture("resident@example.test", true, [legacy, direct], true);
+    const result = await loadAccountPurchaseRows(db, owner, "id");
+    expect(result.rows).toEqual([direct]);
+    expect(result.readFailed).toBe(true);
+    expect(result.error?.message).toBe("auth unavailable");
+  });
+  it("retains direct ownership even when email is unconfirmed", async () => {
+    const direct = { id: "direct", email: "other@example.test", user_id: owner };
+    const { db } = fixture("resident@example.test", false, [legacy, direct]);
+    expect((await loadAccountPurchaseRows(db, owner, "id")).rows).toEqual([direct]);
   });
   it("excludes a matching-email purchase claimed by another user", async () => {
     const { db } = fixture("resident@example.test", true, [{ ...legacy, user_id: other }]);

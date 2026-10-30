@@ -81,12 +81,26 @@ export async function loadAccountPurchaseRows<T extends { id: string }>(
     ? await db.from("profiles").select("email").eq("id", id).maybeSingle()
     : { data: null, error: null };
   const email = String((profile as { email?: unknown } | null)?.email ?? "").trim().toLowerCase();
+  // A profile email is mutable and does not prove mailbox ownership. The
+  // legacy email lookup is available only to that exact confirmed Auth user.
+  let verifiedEmail = false;
+  let authError: { message?: string | null } | null = null;
+  if (isAuthId && email && !profileError) {
+    try {
+      const result = await db.auth.admin.getUserById(id);
+      authError = result.error;
+      verifiedEmail = !result.error && Boolean(result.data.user?.email_confirmed_at) &&
+        String(result.data.user?.email ?? "").trim().toLowerCase() === email;
+    } catch {
+      authError = { message: "Could not verify account email." };
+    }
+  }
 
   const [byUserId, byEmail] = await Promise.all([
     db.from("manager_purchases").select(select).eq("user_id", id),
     // Exact, case-insensitive match; a by-email row already claimed by a DIFFERENT account is never
     // this account's (`loadPurchaseRowsByEmail`).
-    email
+    verifiedEmail
       ? loadPurchaseRowsByEmail<T>(db, email, select, { claimedBy: id })
       : Promise.resolve({ rows: [] as T[], readFailed: false, error: null }),
   ]);
@@ -97,7 +111,7 @@ export async function loadAccountPurchaseRows<T extends { id: string }>(
   }
   return {
     rows: [...merged.values()],
-    readFailed: Boolean(profileError) || Boolean(byUserId.error) || byEmail.readFailed,
-    error: profileError ?? byUserId.error ?? byEmail.error ?? null,
+    readFailed: Boolean(profileError) || Boolean(authError) || Boolean(byUserId.error) || byEmail.readFailed,
+    error: profileError ?? authError ?? byUserId.error ?? byEmail.error ?? null,
   };
 }
