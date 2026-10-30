@@ -540,7 +540,8 @@ export async function changeAdminTeamMember(
     const expectedSeats = currentSeats.filter((seat) => actor.manageableWorkspaceIds.has(seat.workspace_id)).map((seat) => ({ id: seat.id, status: seat.status, workspaceId: seat.workspace_id, role: seat.team_role, inviterUserId: seat.inviter_user_id, houseScope: seat.house_scope, assignedPropertyIds: seat.assigned_property_ids, propertyCoManagerPermissions: seat.property_co_manager_permissions, coManagerPermissions: seat.co_manager_permissions, workspacePermissions: seat.workspace_permissions }));
     const result = await db.rpc("demote_admin_team_role", { p_actor: actorUserId, p_target: userId, p_plan: plan, p_expected_seats: expectedSeats, p_via: "change" });
     if (result.error) return fail(503, "Could not change the role. Please retry.");
-    if (result.data !== "revoked") return fail(result.data === "last_admin" ? 409 : 503, "Could not change the role. Please retry.");
+    if (result.data === "already_revoked") return { ok: true };
+    if (result.data !== "revoked") return fail(result.data === "invalid" ? 400 : result.data === "forbidden" ? 403 : result.data === "stale" || result.data === "last_admin" ? 409 : 503, "Could not change the role. Please refresh and retry.");
     await revokeGrants(db, userId, actorUserId, OVERALL_ADMIN_ROLE);
     await recordGrant(db, { userId, grantedBy: actorUserId, role: input.role, workspaceIds: input.workspaceIds });
     return { ok: true };
@@ -651,7 +652,8 @@ export async function removeAdminTeamMember(
     const expectedSeats = reachable.map((seat) => ({ id: seat.id, status: seat.status, workspaceId: seat.workspace_id, role: seat.team_role, inviterUserId: seat.inviter_user_id, houseScope: seat.house_scope, assignedPropertyIds: seat.assigned_property_ids, propertyCoManagerPermissions: seat.property_co_manager_permissions, coManagerPermissions: seat.co_manager_permissions, workspacePermissions: seat.workspace_permissions }));
     const result = await db.rpc("demote_admin_team_role", { p_actor: actorUserId, p_target: userId, p_plan: [], p_expected_seats: expectedSeats, p_via: "remove" });
     if (result.error) return fail(503, "Could not remove the admin. Please retry.");
-    if (result.data !== "revoked") return fail(result.data === "last_admin" ? 409 : 503, "Could not remove the admin. Please retry.");
+    if (result.data === "already_revoked") return { ok: true };
+    if (result.data !== "revoked") return fail(result.data === "invalid" ? 400 : result.data === "forbidden" ? 403 : result.data === "stale" || result.data === "last_admin" ? 409 : 503, "Could not remove the admin. Please refresh and retry.");
     await revokeGrants(db, userId, actorUserId, OVERALL_ADMIN_ROLE);
   }
   for (const seat of targetIsOverall ? [] : reachable) {

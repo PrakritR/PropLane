@@ -1,3 +1,4 @@
+-- The exclusive lifecycle lock serializes guarded account and membership writes.
 -- p_plan is an internal server-normalized grant, never the request body. The
 -- RPC re-derives durable ownership and rejects stale seat/property context.
 create or replace function public.demote_admin_team_role(p_actor uuid, p_target uuid, p_plan jsonb, p_expected_seats jsonb, p_via text)
