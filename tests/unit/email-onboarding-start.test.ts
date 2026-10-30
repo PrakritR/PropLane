@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({ find: vi.fn(), create: vi.fn(), get: vi.fn(), link: vi.fn(), insert: vi.fn(), send: vi.fn(), inquiry: vi.fn(), purchase: vi.fn(), invite: vi.fn(), property: vi.fn(), effective: vi.fn(), pin: vi.fn(), rpc: vi.fn(), rate: vi.fn(), capability: vi.fn(), eligible: vi.fn() }));
-vi.mock("@/lib/rate-limit", () => ({ clientIpFrom: () => "test", rateLimit: m.rate }));
+vi.mock("@/lib/rate-limit", () => ({ clientIpFrom: (req: Request) => req.headers.get("x-test-ip") ?? "test", rateLimit: m.rate }));
 vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://example.test" }));
 vi.mock("@/lib/auth/find-auth-user-id-by-email", () => ({ findAuthUserIdByEmail: m.find }));
 vi.mock("@/lib/rental-application/validate-application-submit.server", () => ({ memoizeEffectiveApplicationProperty: () => m.effective }));
@@ -144,6 +144,30 @@ describe("email onboarding start", () => {
     const response = await POST(request());
     expect(response.status).toBe(429);
     expect(m.find).not.toHaveBeenCalled(); expect(m.rpc).not.toHaveBeenCalled(); expect(m.send).not.toHaveBeenCalled();
+  });
+  it("caps the same normalized recipient across different IPs without account or provider calls", async () => {
+    m.rate.mockImplementation(async (key: string) => ({ ok: !key.startsWith("email-onboarding:email:") }));
+    try {
+      for (const ip of ["192.0.2.1", "192.0.2.2"]) {
+        const response = await POST(new Request("http://localhost", { method: "POST", headers: { "x-test-ip": ip }, body: JSON.stringify({ email: " Guest@Example.com " }) }));
+        expect(await response.json()).toEqual({ ok: true });
+      }
+      expect(m.rate).toHaveBeenCalledWith("email-onboarding:email:guest@example.com", 3, 600_000);
+      expect(m.find).not.toHaveBeenCalled();
+      expect(m.create).not.toHaveBeenCalled();
+      expect(m.link).not.toHaveBeenCalled();
+      expect(m.send).not.toHaveBeenCalled();
+    } finally {
+      m.rate.mockResolvedValue({ ok: true });
+    }
+  });
+  it("returns the generic response when recipient limiting is unavailable", async () => {
+    m.rate.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(new Error("unavailable"));
+    const response = await POST(request());
+    expect(await response.json()).toEqual({ ok: true });
+    expect(m.find).not.toHaveBeenCalled();
+    expect(m.link).not.toHaveBeenCalled();
+    expect(m.send).not.toHaveBeenCalled();
   });
   it("does not activate an old unconfirmed account with a potentially known password", async () => {
     vi.stubEnv("RESEND_API_KEY", "test"); m.find.mockResolvedValue("old-user");

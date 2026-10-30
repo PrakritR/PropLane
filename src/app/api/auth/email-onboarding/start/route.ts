@@ -17,6 +17,10 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({})) as { email?: unknown; applicationId?: unknown; setupToken?: unknown; intent?: unknown; tourInquiryId?: unknown; tourToken?: unknown; checkoutSessionId?: unknown; vendorInviteToken?: unknown; propertyId?: unknown; tier?: unknown; billing?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown };
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   if (!email.includes("@") || email.length > 254) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
+  // A per-IP bucket alone does not bound delivery to one mailbox across clients.
+  // The shared limiter hashes the key before persistence; failure also denies.
+  const recipientLimit = await rateLimit(`email-onboarding:email:${email}`, 3, 10 * 60_000).catch(() => ({ ok: false }));
+  if (!recipientLimit.ok) return NextResponse.json(GENERIC);
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return NextResponse.json({ error: "Email verification is unavailable." }, { status: 503 });
   const tourRequest = body.intent === "tour";
