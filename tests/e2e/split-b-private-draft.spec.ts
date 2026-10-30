@@ -42,6 +42,7 @@ test("verified synthetic free manager saves one private draft", async ({ browser
   const marker = `split-b-${randomUUID()}`;
   const file = path.join(dir, "split-b-manifest.json");
   let manifest: SplitBDraftManifest | null = null;
+  let proofError: unknown = null;
   let phase = "authenticate-storage-state";
   const setPhase = (next: string, status?: number) => console.log(`[split-b-e2e] phase=${next} status=${status ?? "not-observed"}`);
   setPhase(phase);
@@ -77,7 +78,11 @@ test("verified synthetic free manager saves one private draft", async ({ browser
     throw new Error("Synthetic property/channel/provider scope changed before the draft phase.");
   }
   phase = "open-properties"; setPhase(phase);
+  const planLoaded = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/manager/subscription", { timeout: 20_000 });
   await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
+  const planResponse = await planLoaded;
+  const planBody = await planResponse.json() as { effectiveTier?: unknown; planUnknown?: unknown };
+  if (!planResponse.ok() || planBody.planUnknown === true || planBody.effectiveTier !== "free") throw new Error("Synthetic free plan was not loaded before Add property.");
   const activeWorkspaceResponse = await page.request.get("/api/workspaces");
   const activeWorkspacePayload = await activeWorkspaceResponse.json() as { activeWorkspaceId?: unknown };
   if (!activeWorkspaceResponse.ok() || activeWorkspacePayload.activeWorkspaceId !== workspaceId) throw new Error("The expected synthetic workspace is not the active portal workspace.");
@@ -94,7 +99,8 @@ test("verified synthetic free manager saves one private draft", async ({ browser
   });
   phase = "open-draft-form"; setPhase(phase);
   await page.locator('[data-attr="manager-properties-add-top"]').click();
-  await page.locator('[data-attr="manager-properties-add-property"]').click();
+  // The primary Add property action opens the listing wizard directly.
+  await expect(page.getByPlaceholder("Magnolia House")).toBeVisible();
   await page.getByPlaceholder("Magnolia House").fill(marker);
   const saved = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/property-records" && response.request().postData()?.includes(marker) === true, { timeout: 20000 });
   await page.getByRole("button", { name: /^Close$/ }).click();
@@ -111,9 +117,18 @@ test("verified synthetic free manager saves one private draft", async ({ browser
   await page.goto("/portal/properties/drafts");
   await expect(page.getByText(marker).first()).toBeVisible();
   } catch (error) {
+    proofError = error;
     console.error(`[split-b-e2e] failed_phase=${phase} status=not-observed`);
     throw error;
   } finally {
-    await context.close();
+    try {
+      await context.close();
+    } catch (error) {
+      // A timed-out Playwright test may already have closed its context. Keep
+      // the original assertion or navigation error available for diagnosis.
+      if (!proofError && !/Target page, context or browser has been closed/i.test(String((error as Error).message))) {
+        throw error;
+      }
+    }
   }
 });
