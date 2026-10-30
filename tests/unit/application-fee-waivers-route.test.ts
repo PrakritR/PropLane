@@ -131,6 +131,50 @@ function asCaller(userId: string) {
   h.ctx = { db: fakeSupabaseClient(tables), userId };
 }
 
+/** Records every table the handler touches, so a test can assert a table was never read at all. */
+function tableReadSpy(rows: Record<string, Row[]>, seen: string[]) {
+  const base = fakeSupabaseClient(rows);
+  return {
+    from(table: string) {
+      seen.push(table);
+      return base.from(table);
+    },
+  };
+}
+
+/** Every `manager_application_fee_waiver_codes` read scoped to `managerUserId` fails; everything else works. */
+function codeListFailsFor(rows: Record<string, Row[]>, managerUserId: string) {
+  const base = fakeSupabaseClient(rows);
+  const boom = { data: null, error: { message: "codes read failed" } };
+  return {
+    from(table: string) {
+      const query = base.from(table) as unknown as Record<string, (...args: unknown[]) => unknown>;
+      if (table !== "manager_application_fee_waiver_codes") return query;
+      let failing = false;
+      const chain: Record<string, unknown> = {};
+      for (const method of ["select", "order", "limit", "in", "is", "not", "or", "neq", "insert", "update", "upsert", "delete"]) {
+        chain[method] = (...args: unknown[]) => {
+          query[method]!(...args);
+          return chain;
+        };
+      }
+      chain.eq = (col: string, val: unknown) => {
+        if (col === "manager_user_id" && val === managerUserId) failing = true;
+        query.eq!(col, val);
+        return chain;
+      };
+      chain.then = (onFulfilled: unknown, onRejected: unknown) =>
+        (failing ? Promise.resolve(boom) : Promise.resolve(query as unknown as PromiseLike<unknown>)).then(
+          onFulfilled as never,
+          onRejected as never,
+        );
+      chain.maybeSingle = async () => (failing ? boom : query.maybeSingle!());
+      chain.single = async () => (failing ? boom : query.single!());
+      return chain;
+    },
+  };
+}
+
 const owned = () => tables.manager_application_fee_waiver_codes!.filter((r) => r.manager_user_id === MANAGER);
 const code = (over: Row): Row => ({
   id: `c-${String(over.code)}`,
@@ -329,17 +373,23 @@ describe("GET lists the OWNER's codes that cover the houses the caller reaches",
     expect((await get(`?propertyId=${OWNED_3}`)).status).toBe(403);
   });
 
-  it("discloses NO redemption history on the property-scoped branch", async () => {
-    // Settings and the house dialog never show a use history, so the scoped branch never reads the table - an
-    // applicant's email is not something to fetch and discard. The unscoped branch still answers for own codes.
+  it("discloses NO redemption history on EITHER branch, and never reads the table", async () => {
+    // Every mounted surface renders a code's use COUNT, which the code row carries. A redemption row carries an
+    // applicant's email, so it is not fetched to be thrown away.
     tables.application_fee_waiver_redemptions = [
       { id: "r-here", code_id: "c-EVERYWHERE", manager_user_id: MANAGER, property_id: OWNED, resident_email: "here@example.com", kind: "application", redeemed_at: "2026-01-01T00:00:00.000Z" },
-      { id: "r-elsewhere", code_id: "c-EVERYWHERE", manager_user_id: MANAGER, property_id: OWNED_3, resident_email: "elsewhere@example.com", kind: "application", redeemed_at: "2026-01-02T00:00:00.000Z" },
+      { id: "r-mine", code_id: "c-ONE-HOUSE", manager_user_id: TEAMMATE, property_id: OWNED, resident_email: "mine@example.com", kind: "application", redeemed_at: "2026-01-02T00:00:00.000Z" },
     ];
-    asCaller(TEAMMATE);
-    const body = (await (await get(`?propertyId=${OWNED}`)).json()) as { redemptions?: unknown };
-    expect(body.redemptions).toBeUndefined();
-    expect(JSON.stringify(body)).not.toMatch(/here@example.com|elsewhere@example.com/);
+    const reads: string[] = [];
+    for (const caller of [TEAMMATE, MANAGER]) {
+      h.ctx = { db: tableReadSpy(tables, reads), userId: caller };
+      for (const qs of ["", `?propertyId=${OWNED}`]) {
+        const body = (await (await get(qs)).json()) as { redemptions?: unknown };
+        expect(body.redemptions).toBeUndefined();
+        expect(JSON.stringify(body)).not.toMatch(/here@example.com|mine@example.com/);
+      }
+    }
+    expect(reads).not.toContain("application_fee_waiver_redemptions");
   });
 
   it("without a property a teammate sees the OWNER's covering codes, stamped by the same write rule", async () => {
@@ -379,15 +429,42 @@ describe("GET lists the OWNER's codes that cover the houses the caller reaches",
     expect(body.codes.every((c) => c.readOnly === true)).toBe(true);
   });
 
-  it("the owner's own unscoped list is unchanged: their codes, with their use history, never stamped", async () => {
-    tables.application_fee_waiver_redemptions = [
-      { id: "r-here", code_id: "c-EVERYWHERE", manager_user_id: MANAGER, property_id: OWNED, resident_email: "here@example.com", kind: "application", redeemed_at: "2026-01-01T00:00:00.000Z" },
-    ];
+  it("the owner's own unscoped list is unchanged: every code of theirs, never stamped", async () => {
     asCaller(MANAGER);
-    const body = (await (await get()).json()) as { codes: { code: string; readOnly?: boolean }[]; redemptions: { id: string }[] };
+    const body = (await (await get()).json()) as { codes: { code: string; readOnly?: boolean }[]; partial?: boolean };
     expect(body.codes.map((c) => c.code).sort()).toEqual(["EVERYWHERE", "ONE-HOUSE", "OTHER-HOUSE"]);
     expect(body.codes.every((c) => c.readOnly === undefined)).toBe(true);
-    expect(body.redemptions.map((r) => r.id)).toEqual(["r-here"]);
+    expect(body.partial).toBeUndefined();
+  });
+
+  it("an unreadable granting owner keeps the caller's OWN codes, flagged partial", async () => {
+    // One owner's failed read used to reject the whole response, so the Settings section toasted and rendered
+    // nothing - including the rows that had read fine.
+    tables.manager_application_fee_waiver_codes!.push(code({ code: "MY-OWN", manager_user_id: TEAMMATE, property_ids: [OWNED] }));
+    h.ctx = { db: codeListFailsFor(tables, MANAGER), userId: TEAMMATE };
+    const res = await get();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { codes: { code: string }[]; partial?: boolean };
+    expect(body.codes.map((c) => c.code)).toEqual(["MY-OWN"]);
+    expect(body.partial).toBe(true);
+  });
+
+  it("one unreadable owner does not drop another owner's codes", async () => {
+    tables.manager_property_records!.push({ id: "prop-second", manager_user_id: OTHER });
+    tables.account_link_invites = [seat(TEAMMATE, [OWNED]), seat(TEAMMATE, ["prop-second"], { inviter_user_id: OTHER })];
+    tables.manager_application_fee_waiver_codes!.push(
+      code({ code: "SECOND-OWNER", manager_user_id: OTHER, property_ids: ["prop-second"] }),
+    );
+    h.ctx = { db: codeListFailsFor(tables, MANAGER), userId: TEAMMATE };
+    const body = (await (await get()).json()) as { codes: { code: string }[]; partial?: boolean };
+    expect(body.codes.map((c) => c.code)).toContain("SECOND-OWNER");
+    expect(body.codes.map((c) => c.code)).not.toContain("ONE-HOUSE");
+    expect(body.partial).toBe(true);
+  });
+
+  it("the caller's OWN unreadable codes are still a 500, never a partial answer", async () => {
+    h.ctx = { db: codeListFailsFor(tables, TEAMMATE), userId: TEAMMATE };
+    expect((await get()).status).toBe(500);
   });
 
   it("marks the owner's portfolio-wide code readOnly for a teammate, editable for the owner", async () => {

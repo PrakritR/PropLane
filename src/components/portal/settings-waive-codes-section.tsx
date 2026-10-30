@@ -20,7 +20,9 @@ import { waiverCodeAppliesToFee, type ApplicationFeeWaiverCode, type WaiverCodeA
  *
  * Without `listPropertyId` the server lists the signed-in account's own codes PLUS, for a teammate, the codes of
  * the owners who granted them Applications that cover one of the granted houses - a code a co-manager or seated
- * PropLane staff member creates here is stored under the house owner, so it has to come back here too.
+ * PropLane staff member creates here is stored under the house owner, so it has to come back here too. When one
+ * of those owners could not be read the response says `partial`, and the section says so rather than letting the
+ * short list read as the whole one.
  *
  * A code the server marked `readOnly` (a portfolio-wide code of the owner's, or one covering a house the viewer
  * holds no edit on) shows its terms with every control inert: the write would be refused, so the row never offers it.
@@ -165,7 +167,11 @@ export function WaiveCodesSettingsSection({
           : "/api/manager/application-fee-waivers",
         { credentials: "include" },
       );
-      const data = (await res.json().catch(() => ({}))) as { codes?: ApplicationFeeWaiverCode[]; error?: string };
+      const data = (await res.json().catch(() => ({}))) as {
+        codes?: ApplicationFeeWaiverCode[];
+        partial?: boolean;
+        error?: string;
+      };
       if (!res.ok) {
         showToast(data.error ?? "Could not load waive codes.");
         return;
@@ -173,6 +179,8 @@ export function WaiveCodesSettingsSection({
       const list = data.codes ?? [];
       setCodes(list);
       setDrafts(Object.fromEntries(list.map((c) => [c.id, draftOf(c)])));
+      // Some teammate's owner could not be read: say so rather than letting the short list read as the whole one.
+      if (data.partial) showToast("Some shared codes could not be loaded. Reload to try again.");
     } catch {
       showToast("Could not load waive codes.");
     } finally {

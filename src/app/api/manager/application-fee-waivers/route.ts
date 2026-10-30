@@ -4,7 +4,6 @@ import {
   createApplicationFeeWaiverCode,
   isValidWaiverCodeFormat,
   listApplicationFeeWaiverCodes,
-  listApplicationFeeWaiverRedemptions,
   normalizeWaiverAppliesTo,
   normalizeWaiverCode,
   updateApplicationFeeWaiverCode,
@@ -32,9 +31,9 @@ export const runtime = "nodejs";
  * co-manager, or PropLane staff seated on a service workspace). Never another manager's codes for a property the
  * caller has no grant on.
  *
- * Redemption history (which carries an applicant's email) is returned only on the unscoped branch, and only for
- * the caller's OWN codes - the one consumer that reads it (`ProApplicationFeeWaiverCodesModal`) asks there. The
- * property-scoped surfaces never show a use history, so they never ask the table for one.
+ * No branch returns redemption history. Every mounted surface (`WaiveCodesSettingsSection`, `FormPromoCodesRow`
+ * and the dialog around it) renders a code's terms and its use COUNT, which the code row already carries; a
+ * redemption row carries an applicant's email, so it is not fetched to be thrown away.
  *
  * A code the caller may read but not write is marked `readOnly` (`waiverCodeIsReadOnly`): a portfolio-wide code,
  * which is the owner's alone, and a multi-house code covering a house the caller holds no `applications: edit`
@@ -48,12 +47,12 @@ export async function GET(req: Request) {
     const propertyId = new URL(req.url).searchParams.get("propertyId")?.trim() ?? "";
     const grant = createWaiverGrantReader(ctx.db, ctx.userId);
     if (!propertyId) {
-      const [own, redemptions, linked] = await Promise.all([
+      const [own, linked] = await Promise.all([
         listApplicationFeeWaiverCodes(ctx.db, ctx.userId),
-        listApplicationFeeWaiverRedemptions(ctx.db, ctx.userId),
         linkedOwnersCodes(ctx, grant),
       ]);
-      return NextResponse.json({ codes: [...own, ...linked], redemptions });
+      const codes = [...own, ...linked.codes];
+      return NextResponse.json(linked.partial ? { codes, partial: true } : { codes });
     }
     const scope = await resolveWaiverCodeScope(ctx.db, ctx.userId, propertyId, "read", grant);
     if (!scope.ok) return NextResponse.json({ error: scope.error }, { status: scope.status });
@@ -80,22 +79,40 @@ export async function GET(req: Request) {
  * Every row is stamped by {@link markReadOnly}, the same rule the property-scoped branch uses, so the screen
  * offers exactly the writes `PATCH /[id]` would accept. The owner's own list is untouched: this only ever ADDS
  * another owner's rows to the caller's view, and only ones the grant already covers.
+ *
+ * The owners are read CONCURRENTLY and each one's failure is its own: a co-manager invited by several managers
+ * paid two serial round trips per owner, and one unreadable owner rejected the whole response, so the Settings
+ * section blanked - including the caller's OWN codes, which had read fine. An owner that could not be read is
+ * omitted and reported through `partial`, the same degrade-rather-than-blank direction `resolveWaiverWriteScope`
+ * takes with its `unavailable` flag. A failure reading the caller's own codes is still a 500: that list is the
+ * answer, not an addition to it.
  */
 async function linkedOwnersCodes(
   ctx: { db: Parameters<typeof resolveWaiverWriteScope>[0]; userId: string },
   grant: WaiverGrantReader,
-): Promise<ApplicationFeeWaiverCode[]> {
+): Promise<{ codes: ApplicationFeeWaiverCode[]; partial: boolean }> {
   const readable = (await grant("read")).propertyIdsByOwner;
-  const out: ApplicationFeeWaiverCode[] = [];
-  for (const [ownerUserId, granted] of readable) {
-    if (!ownerUserId || ownerUserId === ctx.userId || granted.size === 0) continue;
-    const covering = (await listApplicationFeeWaiverCodes(ctx.db, ownerUserId)).filter((c) =>
-      [...granted].some((id) => waiverCodeCoversProperty(c, id)),
-    );
-    if (covering.length === 0) continue;
-    out.push(...(await markReadOnly(ctx, ownerUserId, covering, grant)));
-  }
-  return out;
+  const owners = [...readable].filter(
+    ([ownerUserId, granted]) => Boolean(ownerUserId) && ownerUserId !== ctx.userId && granted.size > 0,
+  );
+  const perOwner = await Promise.all(
+    owners.map(async ([ownerUserId, granted]) => {
+      const houses = [...granted];
+      try {
+        const covering = (await listApplicationFeeWaiverCodes(ctx.db, ownerUserId)).filter((c) =>
+          houses.some((id) => waiverCodeCoversProperty(c, id)),
+        );
+        if (covering.length === 0) return { codes: [] as ApplicationFeeWaiverCode[], partial: false };
+        return { codes: await markReadOnly(ctx, ownerUserId, covering, grant), partial: false };
+      } catch {
+        return { codes: [] as ApplicationFeeWaiverCode[], partial: true };
+      }
+    }),
+  );
+  return {
+    codes: perOwner.flatMap((r) => r.codes),
+    partial: perOwner.some((r) => r.partial),
+  };
 }
 
 type CreateBody = {
