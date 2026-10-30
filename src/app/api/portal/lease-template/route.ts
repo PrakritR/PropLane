@@ -10,7 +10,7 @@ import {
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { rateLimit } from "@/lib/rate-limit";
 import { getReportsAuthContext } from "@/lib/reports/auth";
-import { residentHasApprovedResidency, resolveResidentFilingScope } from "@/lib/resident-manager-scope";
+import { applicationRowLinksResident, isApprovedApplicationRow } from "@/lib/resident-manager-scope";
 import { assertSettingsScopeOwned } from "@/lib/scope/settings-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -72,7 +72,6 @@ function rowsLegitimatelyReference(
 async function accessiblePropertyReferencesTemplate(
   db: ServiceClient,
   userId: string,
-  email: string,
   path: string,
 ): Promise<boolean> {
   const folderOwner = path.split("/")[0] ?? "";
@@ -92,18 +91,22 @@ async function accessiblePropertyReferencesTemplate(
     if (references(data)) return true;
   }
 
-  if (!email) return false;
-  const scope = await resolveResidentFilingScope(db, { residentEmail: email });
-  if (!scope?.propertyId) return false;
-  // A pending applicant is NOT a resident. `/api/portal/resident-property`
-  // draws the same line — it strips `listingSubmission` for an unapproved
-  // applicant so a prospect only ever sees what the public catalog shows — and
-  // the two routes must not disagree about the same trust boundary.
-  if (!(await residentHasApprovedResidency(db, { residentEmail: email, managerUserId: scope.managerUserId }))) {
-    return false;
-  }
-  const { data } = await db.from("manager_property_records").select(PROPERTY_COLUMNS).in("id", [scope.propertyId]);
-  return references(data);
+  const { data: applications, error } = await db
+    .from("manager_application_records")
+    .select("manager_user_id, property_id, assigned_property_id, row_data")
+    .eq("row_data->>residentUserId", userId);
+  if (error) return false;
+  const bindings = (applications ?? []).flatMap((row) => {
+    if (!isApprovedApplicationRow(row) || !applicationRowLinksResident(row.row_data)) return [];
+    const details = row.row_data as Record<string, unknown> | null;
+    const nested = details?.application as { propertyId?: unknown } | undefined;
+    const id = String(row.assigned_property_id || row.property_id || details?.assignedPropertyId || details?.propertyId || nested?.propertyId || "").trim();
+    const managerId = String(row.manager_user_id ?? "").trim();
+    return id && managerId ? [{ id, managerId }] : [];
+  });
+  if (!bindings.length) return false;
+  const { data, error: propertyError } = await db.from("manager_property_records").select(PROPERTY_COLUMNS).in("id", bindings.map((binding) => binding.id));
+  return !propertyError && references((data ?? []).filter((row) => bindings.some((binding) => binding.id === row.id && binding.managerId === row.manager_user_id)));
 }
 
 /**
@@ -119,7 +122,6 @@ async function accessiblePropertyReferencesTemplate(
 async function leaseDocumentEmbedsTemplate(
   db: ServiceClient,
   userId: string,
-  email: string,
   path: string,
 ): Promise<boolean> {
   const url = leaseTemplateUrlForPath(path);
@@ -147,15 +149,11 @@ async function leaseDocumentEmbedsTemplate(
     .eq("manager_user_id", userId);
   if (embedded(asManager)) return true;
 
-  if (!email) return false;
-  // `.eq` on the already-lowercased email, never `.ilike` — an address may
-  // legally contain `_`, which ilike would treat as a wildcard and widen the
-  // match to other people's leases.
-  const { data: asResident } = await db
+  const { data: asResident, error } = await db
     .from("portal_lease_pipeline_records")
     .select(columns)
-    .eq("resident_email", email);
-  return embedded(asResident);
+    .eq("resident_user_id", userId);
+  return !error && embedded(asResident);
 }
 
 /**
@@ -188,12 +186,11 @@ async function libraryReferencesTemplate(db: ServiceClient, userId: string, path
 async function canReadLeaseTemplate(
   db: ServiceClient,
   userId: string,
-  email: string,
   path: string,
 ): Promise<boolean> {
   if (path.split("/")[0] === userId) return true;
-  if (await accessiblePropertyReferencesTemplate(db, userId, email, path)) return true;
-  if (await leaseDocumentEmbedsTemplate(db, userId, email, path)) return true;
+  if (await accessiblePropertyReferencesTemplate(db, userId, path)) return true;
+  if (await leaseDocumentEmbedsTemplate(db, userId, path)) return true;
   return libraryReferencesTemplate(db, userId, path);
 }
 
@@ -219,7 +216,7 @@ export async function GET(req: Request) {
     const auth = await getReportsAuthContext();
     if (!auth) return notFound();
     const db = auth.db;
-    if (!(await canReadLeaseTemplate(db, auth.userId, auth.email, path))) return notFound();
+    if (!(await canReadLeaseTemplate(db, auth.userId, path))) return notFound();
 
     const { data, error } = await db.storage.from(LEASE_TEMPLATE_BUCKET).download(path);
     if (error || !data) return notFound();
