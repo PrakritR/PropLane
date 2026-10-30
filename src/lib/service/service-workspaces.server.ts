@@ -1726,6 +1726,21 @@ export async function seatAdminTeamMember(
   return { ok: true, linkId: added.linkId };
 }
 
+/** Prepare a seat grant without writing profiles, seats, or audit records. The
+ * atomic admin-team operation rechecks workspace and house ownership under lock. */
+export async function prepareAdminTeamSeatGrant(
+  db: SupabaseClient,
+  operatorUserId: string,
+  input: InviteAccessInput & { id: string; userId: string },
+): Promise<ServiceResult<{ ownerUserId: string; grant: ServiceSeatGrant }>> {
+  const who = await operatorStanding(db, operatorUserId, input.id, { overall: true });
+  if (!who.ok) return who;
+  if (input.userId.trim() === who.workspace.ownerUserId) return fail(409, "That account already owns this workspace.");
+  const resolved = await resolveServiceSeatGrant(db, who, operatorUserId, input);
+  if (!resolved.ok) return resolved;
+  return { ok: true, ownerUserId: who.workspace.ownerUserId, grant: resolved.grant };
+}
+
 /**
  * The same validation `seatAdminTeamMember` runs, without writing anything: may this operator hand out this role, to these
  * houses, in this workspace? The Admin team invite asks it when the invite is written, so a role above the inviter's own

@@ -193,7 +193,7 @@ workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and th
   `admin_team_seat`) is written BEFORE the role; any failure hands the spent use back. Every change writes `admin_team_*` audit rows
   first and is refused without them. `admin_team_grants` (server-only, RLS on, no client grants) is the list/trail row.
 - **Last Overall admin** cannot be removed or demoted (`lastOverallAdminVerdict`). An admin that comes from the primary-admin
-  email or legacy `profiles.role` is never removed by this pane (founders@ keeps admin, Oct 27).
+  email is never removed by this pane (founders@ keeps admin, Oct 27); legacy `profiles.role` does not grant admin.
 - **Routes** (`/api/admin/team`, `/invite`, `/change`, `/resend`, `/remove`) gate on `requireAdminTeamActor` (Overall admin or a seat
   with member rights; the verbs re-check every target). Every PropLane-wide `/api/admin/*` route keeps `requireAdminRoute()`, so a
   seat holder gets 403 there.
