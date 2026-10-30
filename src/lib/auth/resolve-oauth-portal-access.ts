@@ -18,6 +18,7 @@ import { completeResidentSignupFromOAuth } from "@/lib/auth/complete-resident-si
 import {
   findManagerPurchaseForAccount,
   isManagerOnboardingComplete,
+  isManagerPurchaseReadError,
   managerNeedsPricingSelection,
 } from "@/lib/auth/manager-onboarding";
 import { primaryRoleWhenAddingManager } from "@/lib/auth/profile-primary-role";
@@ -224,7 +225,15 @@ export async function resolveOAuthPortalRedirect(
     if (isGenericOAuthContinuePath(safeIntended) && ownerOnly) {
       return finish("/portal/dashboard");
     }
-    if (await managerNeedsPricingSelection(supabase, user.id, email, { emailVerified })) {
+    // The account already HOLDS the manager role, so the plan read decides a destination, never access.
+    // An unreadable plan is not "no plan": sending a paying manager to the chooser on a database blip
+    // asks them to buy what they already own, so an unknown answer keeps the normal manager routing.
+    const needsPricing = await managerNeedsPricingSelection(supabase, user.id, email, { emailVerified })
+      .catch((error) => {
+        if (!isManagerPurchaseReadError(error)) throw error;
+        return false;
+      });
+    if (needsPricing) {
       return finish(MANAGER_PRICING_ENTRY_PATH);
     }
     return finish(await managerPortalDestination(supabase, user.id, safeIntended));

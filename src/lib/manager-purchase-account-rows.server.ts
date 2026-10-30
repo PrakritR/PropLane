@@ -53,10 +53,15 @@ function isAuthUserNotFound(error: AuthReadError): boolean {
 /**
  * The account's own mailbox, as Auth confirmed it.
  *
- * `profiles.email` is self-writable and proves no mailbox ownership, so the legacy by-email entitlement
- * is read for the confirmed address on the Auth user itself - the one thing the account cannot edit into
- * someone else's purchase. An unconfirmed (or absent) address yields no email, which drops the by-email
- * half; only a TRANSIENT failure comes back as an error, which makes the whole read `readFailed`.
+ * `profiles.email` is written by server routes from caller-supplied values and can drift from the Auth
+ * address, so the legacy by-email entitlement is read for the confirmed address on the Auth user itself.
+ * An unconfirmed (or absent) address yields no email, which drops the by-email half; only a TRANSIENT
+ * failure comes back as an error, which makes the whole read `readFailed`.
+ *
+ * `email_confirmed_at` is only as strong as the routes that set it, and self-serve signup still creates
+ * accounts with `email_confirm: true` on a caller-supplied address. Closing those routes and replacing
+ * email adoption with a verified handoff is the broad signup/onboarding fix, deliberately out of this
+ * hotfix's scope; this gate is the floor, not the proof.
  */
 async function readConfirmedAuthEmail(
   db: SupabaseClient,

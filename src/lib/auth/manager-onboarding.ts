@@ -50,6 +50,27 @@ const PURCHASE_SELECT =
 export type PurchaseEmailProof = { emailVerified?: boolean };
 
 /**
+ * A `manager_purchases` read failed, so this account's signup is UNKNOWN.
+ *
+ * Null from {@link findManagerPurchaseForAccount} means "this account has no signup", which routes a
+ * manager to the plan chooser and answers "not found" - the opposite of what a transient failure means
+ * for a paying manager. Callers that can carry on without the answer catch this; the rest let it reach
+ * the route, which turns it into a retryable error rather than a wrong decision.
+ */
+export class ManagerPurchaseReadError extends Error {
+  readonly detail: { code?: string | null; message?: string | null } | null;
+  constructor(detail: { code?: string | null; message?: string | null } | null) {
+    super("Could not read this account's manager signup. Please try again.");
+    this.name = "ManagerPurchaseReadError";
+    this.detail = detail ?? null;
+  }
+}
+
+export function isManagerPurchaseReadError(error: unknown): error is ManagerPurchaseReadError {
+  return error instanceof ManagerPurchaseReadError;
+}
+
+/**
  * The `manager_purchases` row this account owns.
  *
  * By `user_id` first. The by-email half exists only for the pre-auth signup row (`email` / `manager_id`,
@@ -59,7 +80,8 @@ export type PurchaseEmailProof = { emailVerified?: boolean };
  * - it reads UNCLAIMED rows only, so a row another account already holds can never be adopted (the
  *   `user_id` read above already covers rows this account holds);
  * - `emailVerified: false` drops it entirely, for a session whose mailbox nothing has proven;
- * - a read error returns null, so nothing is granted from an answer we could not get.
+ * - a read error throws {@link ManagerPurchaseReadError}: nothing is granted from an answer we could not
+ *   get, and "we could not find out" never reads as "this account has no signup".
  */
 export async function findManagerPurchaseForAccount(
   supabase: SupabaseClient,
@@ -75,7 +97,7 @@ export async function findManagerPurchaseForAccount(
     .limit(1)
     .maybeSingle();
 
-  if (byUserError) return null;
+  if (byUserError) throw new ManagerPurchaseReadError(byUserError);
   if (byUser) return byUser as ManagerPurchaseRow;
 
   if (proof.emailVerified === false) return null;
@@ -91,7 +113,7 @@ export async function findManagerPurchaseForAccount(
     .limit(1)
     .maybeSingle();
 
-  if (byEmailError) return null;
+  if (byEmailError) throw new ManagerPurchaseReadError(byEmailError);
   return (byEmail as ManagerPurchaseRow | null) ?? null;
 }
 

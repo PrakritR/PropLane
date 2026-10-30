@@ -110,6 +110,50 @@ function mockDb(rows: Purchase[]) {
   return { db, upserts, purchaseFilters };
 }
 
+/** `manager_purchases` reads fail; everything else answers normally. */
+function failingPurchaseDb(
+  message: string,
+  opts: { failOn?: "user" | "email"; roles?: Array<{ role: string }> } = {},
+) {
+  const failOn = opts.failOn ?? "user";
+  const db = {
+    from: (table: string) => {
+      if (table === "profile_roles") {
+        return { select: () => ({ eq: () => Promise.resolve({ data: opts.roles ?? [], error: null }) }) };
+      }
+      if (table === "profiles") {
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+          upsert: async () => ({ error: null }),
+        };
+      }
+      if (table === "manager_purchases") {
+        const filters: string[] = [];
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          eq: (col: string) => {
+            filters.push(col);
+            return chain;
+          },
+          is: () => chain,
+          order: () => chain,
+          limit: () => chain,
+          maybeSingle: async () =>
+            filters.includes(failOn === "user" ? "user_id" : "email")
+              ? { data: null, error: { message } }
+              : { data: null, error: null },
+        };
+        return chain;
+      }
+      if (table === "manager_application_records") {
+        return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+      }
+      throw new Error(`unexpected table ${table}`);
+    },
+  } as never;
+  return { db };
+}
+
 const sessionUser = (confirmed: boolean): User =>
   ({ id: OWNER, email: EMAIL, email_confirmed_at: confirmed ? "2026-01-01T00:00:00.000Z" : null }) as User;
 
@@ -179,19 +223,48 @@ describe("findManagerPurchaseForAccount", () => {
     expect(purchase?.id).toBe("mine");
   });
 
-  it("grants nothing when the purchase read fails", async () => {
-    const { findManagerPurchaseForAccount } = await import("@/lib/auth/manager-onboarding");
-    const chain: Record<string, unknown> = {
-      select: () => chain,
-      eq: () => chain,
-      is: () => chain,
-      order: () => chain,
-      limit: () => chain,
-      maybeSingle: async () => ({ data: null, error: { message: "read failed" } }),
-    };
+  it("says UNKNOWN, not 'no signup', when the by-user_id read fails", async () => {
+    const { findManagerPurchaseForAccount, isManagerPurchaseReadError } = await import(
+      "@/lib/auth/manager-onboarding"
+    );
+    const { db } = failingPurchaseDb("by-user_id read failed");
 
-    expect(
-      await findManagerPurchaseForAccount({ from: () => chain } as never, OWNER, EMAIL, { emailVerified: true }),
-    ).toBeNull();
+    const error = await findManagerPurchaseForAccount(db, OWNER, EMAIL, { emailVerified: true }).catch((e) => e);
+    expect(isManagerPurchaseReadError(error)).toBe(true);
+    expect((error as { detail?: { message?: string } }).detail?.message).toBe("by-user_id read failed");
+  });
+
+  it("says UNKNOWN when the by-email read fails", async () => {
+    const { findManagerPurchaseForAccount, isManagerPurchaseReadError } = await import(
+      "@/lib/auth/manager-onboarding"
+    );
+    const { db } = failingPurchaseDb("by-email read failed", { failOn: "email" });
+
+    const error = await findManagerPurchaseForAccount(db, OWNER, EMAIL, { emailVerified: true }).catch((e) => e);
+    expect(isManagerPurchaseReadError(error)).toBe(true);
+  });
+
+  it("propagates the unknown answer through managerNeedsPricingSelection", async () => {
+    const { managerNeedsPricingSelection, isManagerPurchaseReadError } = await import(
+      "@/lib/auth/manager-onboarding"
+    );
+    const { db } = failingPurchaseDb("read failed");
+
+    const error = await managerNeedsPricingSelection(db, OWNER, EMAIL, { emailVerified: true }).catch((e) => e);
+    expect(isManagerPurchaseReadError(error)).toBe(true);
+  });
+});
+
+describe("an unreadable plan never asks a manager to buy what they own", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("keeps a manager-role account on its portal destination instead of the plan chooser", async () => {
+    const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
+    const { db } = failingPurchaseDb("plan read failed", { roles: [{ role: "manager" }] });
+
+    const path = await resolveOAuthPortalRedirect(db, sessionUser(true), "/auth/continue");
+
+    expect(path).toBe("/portal/dashboard");
+    expect(path).not.toBe("/auth/manager/plan");
   });
 });
