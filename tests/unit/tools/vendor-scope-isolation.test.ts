@@ -337,7 +337,7 @@ function seed() {
       // Assigned but bidding closed — submit_bid must refuse.
       workOrder("WO-E", VENDOR_A.id, { biddingOpen: false }),
       // Not assigned to anyone; visible to vendor A only through a sent offer.
-      workOrder("WO-F", null, { biddingOpen: true, propertyName: "Secret House", propertyAddress: "123 Private Street", unit: "Secret Unit", residentName: "Secret Resident", preferredArrival: "Secret Arrival" }),
+      workOrder("WO-F", null, { biddingOpen: true, propertyName: "Secret House", propertyAddress: "123 Private Street, Seattle, WA 98101", unit: "Secret Unit", residentName: "Secret Resident", preferredArrival: "Secret Arrival", residentUserId: "resident-secret-id", dispatch: { candidates: ["dispatch-secret-id"] } }),
     ],
     work_order_vendor_offers: [
       { id: "OFF-A", work_order_id: "WO-F", vendor_user_id: VENDOR_A.id, vendor_directory_id: "dir_a", manager_user_id: MANAGER, status: "sent", created_at: "2026-07-01T00:00:00.000Z" },
@@ -489,7 +489,7 @@ describe("vendor read tools: cross-vendor isolation", () => {
     const res = (await getJobDetailsTool.handler(ctx, { workOrderId: "WO-F" })) as {
       workOrder: { id: string; assignment: string };
     };
-    expect(res.workOrder).toMatchObject({ id: "WO-F", assignment: "offered", property: "Nearby", residentName: null });
+    expect(res.workOrder).toMatchObject({ id: "WO-F", assignment: "offered", property: "Seattle", residentName: null });
     expect(JSON.stringify(res)).not.toMatch(/Secret House|Secret Unit|Secret Resident|Secret Arrival|123 Private/);
     expect(JSON.stringify(await listMyJobsTool.handler(ctx, {}))).not.toMatch(/Secret House|Secret Unit|Secret Resident|123 Private/);
   });
@@ -612,6 +612,21 @@ describe("vendor write tools: previews reject foreign/invalid targets", () => {
 });
 
 describe("vendor write tools: happy paths write audited, scoped rows", () => {
+  it("projects an offered job in both bid preview and submitted reply while retaining hired labels", async () => {
+    const { ctx } = seed();
+    const input = { workOrderId: "WO-F", amountUsd: 450, proposedTimeIso: "2026-07-22T17:00:00.000Z" };
+    const preview = await previewWrite(submitBidTool, ctx, input);
+    expect(preview.ok).toBe(true);
+    const submitted = await executeWrite(submitBidTool, ctx, input);
+    expect(submitted.ok).toBe(true);
+    const rendered = JSON.stringify({ preview, submitted });
+    expect(rendered).toContain("Seattle");
+    for (const secret of ["Secret House", "Private Street", "Secret Unit", "Secret Resident", "Secret Arrival", "resident-secret-id", "dispatch-secret-id"]) expect(rendered).not.toContain(secret);
+    const assigned = await previewWrite(submitBidTool, ctx, { ...input, workOrderId: "WO-A" });
+    expect(assigned.ok).toBe(true);
+    expect(JSON.stringify(assigned)).toContain("Maple House, Unit 3");
+  });
+
   it("submit_bid upserts a bid pinned to the vendor + owning manager and audits with the amount/time hash", async () => {
     const { ctx, mutations, tables } = seed();
     const input = { workOrderId: "WO-A", amountUsd: 450, proposedTimeIso: "2026-07-22T17:00:00.000Z", note: "Can start Wednesday" };
@@ -621,6 +636,7 @@ describe("vendor write tools: happy paths write audited, scoped rows", () => {
 
     const exec = await executeWrite(submitBidTool, ctx, input);
     expect(exec.ok).toBe(true);
+    if (exec.ok) expect(exec.reply).toContain("Maple House, Unit 3");
 
     const audit = auditRows(mutations)[0];
     expect(audit?.values.dedupe_key).toBe(
