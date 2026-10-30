@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({ getUser: vi.fn(), claim: vi.fn(), application: vi.fn(), purchase: vi.fn(), provision: vi.fn(), inquiry: vi.fn(), tour: vi.fn(), updates: [] as unknown[] }));
-vi.mock("@/lib/tour-resident-link.server", () => ({ loadTourInquiryById: m.inquiry }));
-vi.mock("@/lib/auth/complete-prospect-handoff.server", () => ({ completeProspectHandoffForUser: m.tour }));
+vi.mock("@/lib/tour-resident-link.server", () => ({ loadTourInquiryById: m.inquiry, linkTourInquiryToResident: m.tour }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: m.getUser } }) }));
-vi.mock("@/lib/auth/provision-resident-account", () => ({ provisionResidentAccountByEmail: m.provision }));
-vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: (name: string) => (name === "manager_application_records" || name === "manager_purchases") ? { select: () => ({ eq: () => ({ maybeSingle: name === "manager_purchases" ? m.purchase : m.application }) }) } : { update: (value: unknown) => { m.updates.push(value); const q = { eq: () => q, gt: () => q, select: () => q, maybeSingle: m.claim, then: (resolve: (x: unknown) => void) => resolve({ error: null }) }; return q; } } }) }));
+vi.mock("@/lib/auth/verified-resident-handoff.server", () => ({ provisionVerifiedResidentHandoff: m.provision }));
+vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: (name: string) => (name === "manager_application_records" || name === "manager_purchases") ? { select: () => ({ eq: () => ({ maybeSingle: name === "manager_purchases" ? m.purchase : m.application }) }) } : { update: (value: unknown) => { m.updates.push(value); const q = { eq: () => q, gt: () => q, select: () => q, maybeSingle: m.claim, then: (resolve: (x: unknown) => void) => resolve({ error: null }) }; return q; }, select: () => { const q = { eq: () => q, gt: () => q, maybeSingle: m.claim }; return q; } } }) }));
 import { POST } from "@/app/api/auth/email-onboarding/finish/route";
 const request = () => new Request("http://localhost", { method: "POST", body: JSON.stringify({ tokenHash: "one-time-token" }) });
 describe("email onboarding completion", () => {
@@ -18,10 +17,19 @@ describe("email onboarding completion", () => {
     m.claim.mockResolvedValueOnce({ data: { id: "claim", application_id: "application" }, error: null })
       .mockResolvedValueOnce({ data: { id: "claim" }, error: null });
     m.application.mockResolvedValue({ data: { resident_email: "owner@example.com" }, error: null });
-    m.provision.mockResolvedValue({ ok: true });
+    m.provision.mockResolvedValue(true);
     expect((await POST(request())).status).toBe(200);
-    expect(m.provision).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ userId: "resident", emailProven: true, applicationId: "application", inheritFromApplication: true }));
+    expect(m.provision).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ userId: "resident", applicationId: "application" }));
     expect(m.updates).toContainEqual({ status: "completed" });
+  });
+  it("re-enters the same processing claim after an interrupted worker", async () => {
+    m.claim.mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({ data: { id: "claim", application_id: "application", status: "processing" }, error: null })
+      .mockResolvedValueOnce({ data: { id: "claim" }, error: null });
+    m.application.mockResolvedValue({ data: { resident_email: "owner@example.com" }, error: null });
+    m.provision.mockResolvedValue(true);
+    expect((await POST(request())).status).toBe(200);
+    expect(m.provision).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ userId: "resident", applicationId: "application" }));
   });
   it("refuses a paid purchase whose current email differs from the session", async () => {
     m.claim.mockResolvedValue({ data: { id: "claim", intent: "manager_paid", manager_purchase_id: "purchase" }, error: null });
@@ -40,6 +48,6 @@ describe("email onboarding completion", () => {
     m.application.mockResolvedValue({ data: { resident_email: "victim@example.com" }, error: null });
     expect((await POST(request())).status).toBe(403);
     expect(m.provision).not.toHaveBeenCalled();
-    expect(m.updates).toContainEqual({ status: "pending" });
+    expect(m.updates).not.toContainEqual({ status: "completed" });
   });
 });

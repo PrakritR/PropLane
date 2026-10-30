@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({ user: vi.fn(), claim: vi.fn(), filters: [] as unknown[] }));
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => ({ value: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }) }) }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: m.user } }) }));
-vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: () => ({ update: () => { const q = { eq: (key: string, value: unknown) => { m.filters.push([key, value]); return q; }, gt: () => q, select: () => q, maybeSingle: m.claim }; return q; } }) }) }));
+vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: () => ({ update: () => { const q = { eq: (key: string, value: unknown) => { m.filters.push([key, value]); return q; }, gt: () => q, select: () => q, maybeSingle: m.claim }; return q; }, select: () => { const q = { eq: (key: string, value: unknown) => { m.filters.push([key, value]); return q; }, gt: () => q, maybeSingle: m.claim }; return q; } }) }) }));
 import { POST } from "@/app/api/auth/email-onboarding/continue/route";
 describe("verified signup continuation", () => {
   beforeEach(() => { vi.clearAllMocks(); m.filters.length = 0; });

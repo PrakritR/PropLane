@@ -49,21 +49,25 @@ function ContinueContent() {
         }
 
         const handoff = await fetch("/api/auth/email-onboarding/continue", { method: "POST" });
+        if (!handoff.ok) {
+          if (!cancelled) setErrorText("Could not continue account setup. Refresh to try again.");
+          return;
+        }
         if (handoff.ok) {
           const body = await handoff.json().catch(() => ({})) as { role?: unknown; tourInquiryId?: unknown; applicationId?: unknown; checkoutSessionId?: unknown; propertyId?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown; tier?: unknown; billing?: unknown };
           if (body.role === "application" && typeof body.applicationId === "string" && body.applicationId.length <= 200) {
-            window.location.replace(`/resident/applications?open=${encodeURIComponent(body.applicationId)}`);
+            window.location.replace(nativeAwarePath(`/resident/applications?open=${encodeURIComponent(body.applicationId)}`));
             return;
           }
           if (body.role === "manager_paid" && typeof body.checkoutSessionId === "string" && body.checkoutSessionId.length <= 255) {
-            window.location.replace(`/auth/create-account?mode=create&role=manager&session_id=${encodeURIComponent(body.checkoutSessionId)}`);
+            window.location.replace(nativeAwarePath(`/auth/create-account?mode=create&role=manager&session_id=${encodeURIComponent(body.checkoutSessionId)}`));
             return;
           }
           if (body.role === "tour" && typeof body.tourInquiryId === "string" && body.tourInquiryId.length <= 200) {
-            window.location.replace(`/resident/tour/pending/${encodeURIComponent(body.tourInquiryId)}`);
+            window.location.replace(nativeAwarePath(`/resident/tour/pending/${encodeURIComponent(body.tourInquiryId)}`));
             return;
           }
-          if (body.role === "resident" || body.role === "manager" || body.role === "vendor") {
+          if (body.role === "generic" || body.role === "resident" || body.role === "manager" || body.role === "vendor") {
             const params = new URLSearchParams({ mode: "create", role: body.role });
             if (body.role === "manager" && (body.tier === "free" || body.tier === "pro" || body.tier === "business")) params.set("tier", body.tier);
             if (body.role === "manager" && (body.billing === "monthly" || body.billing === "annual")) params.set("billing", body.billing);
@@ -75,7 +79,7 @@ function ContinueContent() {
               if (body.rentalType === "short_term") apply.set("rentalType", body.rentalType);
               params.set("next", `/resident/applications/apply?${apply.toString()}`);
             }
-            window.location.replace(`/auth/create-account?${params.toString()}`);
+            window.location.replace(nativeAwarePath(`/auth/create-account?${params.toString()}`));
             return;
           }
         }
