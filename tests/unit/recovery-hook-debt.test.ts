@@ -10,15 +10,19 @@ import KNOWN_RECOVERY_HOOK_GAPS from "../fixtures/recovery/known-hook-gaps.json"
 function observedCatalog(): Record<string, string> {
   const path = process.env.RECOVERY_HOOK_CATALOG;
   if (!path) return catalog;
-  type Trigger = { name: string; type: number; enabled: string; function: string; function_oid: number; expected_function_oid: number; nargs: number; qualifier: string | null; constraint_oid: number; internal: boolean };
-  const raw = JSON.parse(readFileSync(path, "utf8")) as { rows: Array<{ tbl: string; triggers: Trigger[] }> };
+  type Trigger = { name: string; type: number; enabled: string; function: string; function_oid: string; nargs: number; qual: string | null; constraint_oid: string; attributes: string; internal: boolean };
+  const raw = JSON.parse(readFileSync(path, "utf8")) as { expected_functions?: Record<string, { oid: string; signature: string }>; rows: Array<{ tbl: string; relkind: string; triggers: Trigger[] }> };
   const manifest = readFileSync("src/lib/auth/account-purge-manifest.ts", "utf8");
   const tableNames = [...manifest.matchAll(/table:\s*"([a-z0-9_]+)"/g)].map((match) => match[1]);
   const snapshot: Record<string, string> = Object.fromEntries(tableNames.map((name) => [name, "absent"]));
   for (const row of raw.rows) {
     if (!(row.tbl in snapshot)) continue;
-    const matches = (name: string, type: number) => row.triggers.some((t) => t.name === name && t.type === type && t.enabled === "O" && t.function === `${name}()` && Number.isInteger(t.function_oid) && t.function_oid > 0 && t.function_oid === t.expected_function_oid && t.nargs === 0 && t.qualifier === null && t.constraint_oid === 0 && t.internal === false);
-    snapshot[row.tbl] = matches("account_recovery_write_guard", 31) && matches("account_recovery_capture_delete", 9) ? "both_signature_checked" : "missing_or_mismatch";
+    const matches = (name: string, type: number) => {
+      const expected = raw.expected_functions?.[name];
+      return !!expected && /^[1-9][0-9]*$/.test(expected.oid) && expected.signature === `${name}()` &&
+        row.triggers.some((t) => t.name === name && t.type === type && t.enabled === "O" && t.function === expected.signature && t.function_oid === expected.oid && t.nargs === 0 && t.qual === null && t.constraint_oid === "0" && t.attributes === "" && t.internal === false);
+    };
+    snapshot[row.tbl] = ["r", "p"].includes(row.relkind) && matches("account_recovery_write_guard", 31) && matches("account_recovery_capture_delete", 9) ? "both_signature_checked" : "missing_or_mismatch";
   }
   return snapshot;
 }
