@@ -1,7 +1,11 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type BrowserContext } from "@playwright/test";
+import { createClient } from "@supabase/supabase-js";
 import fs from "node:fs";
 import path from "node:path";
 import { E2E_ACCOUNTS } from "../fixtures";
+import { requestManagerEmailProof, finishManagerEmailProof } from "../helpers/email-onboarding-e2e";
+import { reserveSyntheticManager, identifySyntheticManager, captureSyntheticManagerChildren, cleanupSyntheticManager } from "../helpers/synthetic-manager-cleanup";
+import { createHash } from "node:crypto";
 
 /**
  * "Get started" must always open the manager create-account form — even when a
@@ -20,6 +24,9 @@ function shot(name: string) {
   fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
   return path.join(EVIDENCE_DIR, `${name}.png`);
 }
+
+// Verification URLs contain single-use secrets; do not retain browser traces or videos.
+test.use({ trace: "off", video: "off", screenshot: "off" });
 
 const hasSupabase = Boolean(
   process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -51,7 +58,7 @@ function redirectChain(response: Awaited<ReturnType<Page["goto"]>>, finalUrl: st
 }
 
 /** Email on the Supabase session the browser currently holds (chunked auth cookie). */
-async function sessionEmailFromCookies(page: Page): Promise<string | null> {
+async function sessionUserFromCookies(page: Page): Promise<{ id: string; email: string; accessToken: string } | null> {
   const cookies = await page.context().cookies();
   const chunks = cookies
     .filter((c) => /^sb-.+-auth-token(\.\d+)?$/.test(c.name))
@@ -63,33 +70,24 @@ async function sessionEmailFromCookies(page: Page): Promise<string | null> {
     ? Buffer.from(chunks.slice("base64-".length), "base64").toString("utf8")
     : chunks;
   try {
-    return (JSON.parse(json) as { user?: { email?: string } }).user?.email ?? null;
+    const parsed = JSON.parse(json) as { access_token?: string; user?: { id?: string; email?: string } };
+    const user = parsed.user;
+    return user?.id && user.email && parsed.access_token ? { id: user.id, email: user.email, accessToken: parsed.access_token } : null;
   } catch {
     return null;
   }
 }
 
-/**
- * The manager submit button names what the click will do, and that differs by
- * session: an anonymous visitor CREATES an account, while someone already
- * signed in is adding the property-manager role to the account they have
- * (`manager-trial-signup-form.tsx`: `signedInUser ? "Set up property manager" :
- * "Create property account"`). Asserting one label for both states is what made
- * the signed-in cases fail.
- */
-function managerSubmitButton(page: Page, signedIn: boolean) {
-  return page.getByRole("button", {
-    name: signedIn ? /set up property manager/i : /create property account/i,
-  });
-}
-
 async function expectManagerCreateForm(page: Page, opts: { signedIn: boolean }) {
-  await expect(page.getByPlaceholder("Full name")).toBeVisible();
-  await expect(page.getByPlaceholder("Email")).toBeVisible();
-  await expect(page.getByPlaceholder("Phone number")).toBeVisible();
-  await expect(page.getByPlaceholder(/Password \(8\+/)).toBeVisible();
-  await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
-  await expect(managerSubmitButton(page, opts.signedIn)).toBeVisible();
+  if (opts.signedIn) {
+    await expect(page.getByText(/Verified email:/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create a different property account" })).toBeVisible();
+  } else {
+    await expect(page.getByRole("heading", { name: "Create your property account" })).toBeVisible();
+    await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue with email" })).toBeVisible();
+  }
+  await expect(page.locator('input[type="password"]')).toHaveCount(0);
 }
 
 test.describe('"Get started" while signed in', () => {
@@ -101,10 +99,8 @@ test.describe('"Get started" while signed in', () => {
     // Enter from the marketing home page exactly like an end user would.
     await page.goto("/");
     const cta = page.getByRole("link", { name: /start free/i }).first();
-    // PRP-307: a plain "Get started" asks who you are instead of assuming a
-    // manager, so the CTA points at the bare create surface and the role is
-    // chosen on the next screen.
-    await expect(cta).toHaveAttribute("href", "/auth/create-account");
+    // This manager CTA declares the role explicitly.
+    await expect(cta).toHaveAttribute("href", "/auth/create-account?mode=create&role=manager");
     const [response] = await Promise.all([
       page.waitForNavigation({ waitUntil: "domcontentloaded" }),
       cta.click(),
@@ -115,10 +111,7 @@ test.describe('"Get started" while signed in', () => {
     expect(chain.join(" -> ")).not.toMatch(/\/portal/);
     expect(new URL(page.url()).pathname).toBe("/auth/create-account");
 
-    // The role chooser, then the manager form — signed-in users can still
-    // register a new email, and no step bounces them into a portal.
-    await expect(page.getByRole("heading", { name: /create your account/i })).toBeVisible();
-    await page.getByRole("button", { name: /^property/i }).first().click();
+    // The declared manager intent opens the current account form directly.
     await expectManagerCreateForm(page, { signedIn: true });
 
     await page.screenshot({ path: shot("signed-in-get-started"), fullPage: true });
@@ -134,36 +127,81 @@ test.describe('"Get started" while signed in', () => {
 
   test("role=resident opens generic signup then portal chooser (no setup-link block)", async ({ page }) => {
     await page.goto("/auth/create-account?mode=create&role=resident");
-    await expect(page.getByPlaceholder("Full name")).toBeVisible();
-    await expect(page.getByPlaceholder("Email")).toBeVisible();
-    await expect(page.getByRole("button", { name: /^create account$/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Create your resident account" })).toBeVisible();
+    await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue with email" })).toBeVisible();
     await expect(page.getByText(/setup link/i)).toHaveCount(0);
     await page.screenshot({ path: shot("resident-self-serve"), fullPage: true });
   });
 
   test("signed-in manager can create a SECOND account with a different email", async ({ page }) => {
+    test.setTimeout(180_000);
     await signIn(page, E2E_ACCOUNTS.manager.email, E2E_ACCOUNTS.manager.password);
 
-    const newEmail = `get-started-e2e-${Date.now()}@test.proplane.local`;
-    await page.goto("/auth/create-account?mode=create&role=manager");
-    await expectManagerCreateForm(page, { signedIn: true });
+    const oldUser = await sessionUserFromCookies(page);
+    expect(oldUser?.email).toBe(E2E_ACCOUNTS.manager.email);
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (supabaseUrl !== "https://emstjswhotsnyksqhqyf.supabase.co" || !serviceKey) throw new Error("This synthetic proof requires the DEV project and service role.");
+    const db = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+    const oldRoles = await db.from("profile_roles").select("role").eq("user_id", oldUser!.id);
+    const oldProperties = await db.from("manager_property_records").select("id").eq("manager_user_id", oldUser!.id);
+    expect(oldRoles.error).toBeNull(); expect(oldProperties.error).toBeNull();
+    const newEmail = `get-started-e2e-${Date.now()}@example.invalid`;
+    const dir = process.env.AUTH_PROOF_CAPTURE_DIR;
+    if (!dir || !path.isAbsolute(dir)) throw new Error("Private signup proof directory is required.");
+    const manifestFile = path.join(dir, `manager-${createHash("sha256").update(newEmail).digest("hex")}.manifest.json`);
+    const manifest = await reserveSyntheticManager(db, supabaseUrl, newEmail, manifestFile);
+    let syntheticAccessToken: string | null = null;
+    let secondContext: BrowserContext | null = null;
+    try {
+      await page.goto("/auth/create-account?mode=create&role=manager&tier=pro&billing=annual");
+      await expectManagerCreateForm(page, { signedIn: true });
+      await page.getByRole("button", { name: "Create a different property account" }).click();
+      await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
+      expect(await sessionUserFromCookies(page)).toBeNull();
+      const href = await requestManagerEmailProof(page, newEmail);
+      const pendingId = await identifySyntheticManager(db, supabaseUrl, manifest, manifestFile);
+      secondContext = await page.context().browser()!.newContext();
+      const secondPage = await secondContext.newPage();
+      await finishManagerEmailProof(secondPage, href, newEmail, "Second Account Manager", "2065550199");
+      const newUser = await sessionUserFromCookies(secondPage);
+      expect(newUser?.email).toBe(newEmail);
+      syntheticAccessToken = newUser?.accessToken ?? null;
+      expect(newUser?.id).toBe(pendingId);
+      expect(newUser?.id).not.toBe(oldUser!.id);
+      await captureSyntheticManagerChildren(db, manifest, manifestFile);
+      const newRoles = await db.from("profile_roles").select("role").eq("user_id", newUser!.id);
+      const newProperties = await db.from("manager_property_records").select("id").eq("manager_user_id", newUser!.id);
+      const oldRolesAfter = await db.from("profile_roles").select("role").eq("user_id", oldUser!.id);
+      expect(newRoles.error).toBeNull(); expect(newProperties.error).toBeNull(); expect(oldRolesAfter.error).toBeNull();
+      expect(newRoles.data).toContainEqual({ role: "manager" });
+      expect(newProperties.data).toEqual([]);
+      expect(oldRolesAfter.data).toEqual(oldRoles.data);
+      await expect(secondPage.getByRole("button", { name: "Go to portal" })).toBeVisible();
+      await secondPage.getByRole("button", { name: "Go to portal" }).click();
+      await secondPage.waitForURL(/\/portal/, { timeout: 60_000 });
+      await expect(secondPage.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+      await expect(secondPage.getByText("No properties yet.")).toBeVisible();
+    } finally {
+      let revokeFailed = false;
+      if (!syntheticAccessToken && secondContext) {
+        for (const candidate of secondContext.pages()) {
+          const session = await sessionUserFromCookies(candidate);
+          if (session?.id === manifest.authId && session.email === newEmail) syntheticAccessToken = session.accessToken;
+          else if (session) revokeFailed = true;
+        }
+      }
+      if (syntheticAccessToken) {
+        const revoked = await db.auth.admin.signOut(syntheticAccessToken, "global");
+        revokeFailed ||= Boolean(revoked.error);
+      }
+      if (secondContext) await secondContext.close();
+      await page.context().close();
+      if (revokeFailed) throw new Error("Synthetic session could not be revoked; cleanup was not attempted.");
+      await cleanupSyntheticManager(db, supabaseUrl, manifest, manifestFile);
+      fs.rmSync(path.join(dir, `${createHash("sha256").update(newEmail).digest("hex")}.json`), { force: true });
+    }
 
-    await page.getByPlaceholder("Full name").fill("Second Account Manager");
-    await page.getByPlaceholder("Email").fill(newEmail);
-    await page.getByPlaceholder("Phone number").fill("2065550199");
-    await page.getByPlaceholder(/Password \(8\+/).fill("SecondAcct123!");
-    await page.screenshot({ path: shot("signed-in-filled-new-account"), fullPage: true });
-
-    await managerSubmitButton(page, true).click();
-    await page.waitForURL(/\/portal/, { timeout: 60_000 });
-
-    // The browser session is now the NEW account, not the one we signed in as.
-    const sessionEmail = await sessionEmailFromCookies(page);
-    expect(sessionEmail).toBe(newEmail);
-    // ...and the portal it opened belongs to the new (empty) account.
-    await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-    await expect(page.getByText("No properties yet.")).toBeVisible();
-    console.log(`created + signed in as new account: ${sessionEmail} at ${page.url()}`);
-    await page.screenshot({ path: shot("new-account-portal"), fullPage: true });
   });
 });

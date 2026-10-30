@@ -2,13 +2,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 const getUser = vi.hoisted(() => vi.fn());
+const signOut = vi.hoisted(() => vi.fn());
+const clearCache = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/auth/clear-portal-browser-cache", () => ({ clearPortalBrowserCache: clearCache }));
 const social = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/supabase/browser", () => ({ createSupabaseBrowserClient: () => ({ auth: { getUser } }) }));
+vi.mock("@/lib/supabase/browser", () => ({ createSupabaseBrowserClient: () => ({ auth: { getUser, signOut } }) }));
 vi.mock("@/components/auth/oauth-social-stack", () => ({ OAuthSocialStack: (props: unknown) => { social(props); return <div>Social sign in</div>; } }));
 vi.mock("@/components/auth/auth-mobile-primitives", () => ({ AuthLegalConsent: () => null }));
 vi.mock("@/components/ui/phone-number-field", () => ({ PhoneNumberField: ({ value, onChange }: { value: string; onChange: (v: string) => void }) => <input aria-label="Phone number" value={value} onChange={(e) => onChange(e.target.value)} /> }));
 import { EmailFirstSignup } from "@/components/auth/email-first-signup";
-beforeEach(() => { getUser.mockResolvedValue({ data: { user: null } }); });
+beforeEach(() => { getUser.mockResolvedValue({ data: { user: null } }); signOut.mockResolvedValue({ error: null }); clearCache.mockClear(); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe("email-first signup", () => {
   it("passes the listing continuation to the social buttons", async () => {
@@ -47,6 +50,29 @@ describe("email-first signup", () => {
     expect(fetchMock.mock.calls[0]![0]).toBe("/api/auth/manager-register");
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ email: "a@example.test", fullName: "Alex", phone: "+12065550123", tier: "pro" });
   });
+  it("switches only the local session before starting a different manager email", async () => {
+    getUser.mockResolvedValue({ data: { user: { email: "old@example.test", email_confirmed_at: "2026-01-01" } } });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }); vi.stubGlobal("fetch", fetchMock);
+    render(<EmailFirstSignup intent="manager" tier="pro" billing="annual" />);
+    fireEvent.click(await screen.findByText("Create a different property account"));
+    fireEvent.change(await screen.findByLabelText("Email"), { target: { value: "new@example.test" } });
+    fireEvent.click(screen.getByText("Continue with email"));
+    await screen.findByText("Check your email for a link to continue.");
+    expect(signOut).toHaveBeenCalledWith({ scope: "local" });
+    expect(clearCache).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ email: "new@example.test", intent: "manager", tier: "pro", billing: "annual" });
+  });
+  it.each(["error", "throw"]) ("retains the original session state when local sign-out returns %s", async (mode) => {
+    getUser.mockResolvedValue({ data: { user: { email: "old@example.test", email_confirmed_at: "2026-01-01" } } });
+    if (mode === "error") signOut.mockResolvedValue({ error: new Error("failed") }); else signOut.mockRejectedValue(new Error("failed"));
+    render(<EmailFirstSignup intent="manager" />);
+    fireEvent.click(await screen.findByText("Create a different property account"));
+    expect((await screen.findByRole("alert")).textContent).toMatch(/Could not switch accounts/);
+    expect(screen.getByText("Verified email: old@example.test")).toBeTruthy();
+    expect(screen.queryByLabelText("Email")).toBeNull();
+    expect(clearCache).not.toHaveBeenCalled();
+  });
+
   it.each([
     { intent: "manager" as const, tier: "business", billing: "annual" as const, expected: { email: "a@example.test", intent: "manager", tier: "business", billing: "annual" } },
     { intent: "resident" as const, listing: { propertyId: "home", listingRoomId: "room", bundleId: "bundle", applicationFormId: "form", rentalType: "short_term" }, expected: { email: "a@example.test", intent: "resident", propertyId: "home", listingRoomId: "room", bundleId: "bundle", applicationFormId: "form", rentalType: "short_term" } },

@@ -7,6 +7,7 @@ import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { OAuthSocialStack } from "@/components/auth/oauth-social-stack";
 import { AuthLegalConsent } from "@/components/auth/auth-mobile-primitives";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { clearPortalBrowserCache } from "@/lib/auth/clear-portal-browser-cache";
 import { nativeAwarePath } from "@/lib/auth/native-auth-entry";
 import { isUnsafeRedirectPath } from "@/lib/auth/normalize-post-auth-path";
 
@@ -45,6 +46,24 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
     }).catch(() => undefined).finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [intent, tourToken]);
+  async function createDifferentAccount() {
+    if (busy || disabled) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { error: signOutError } = await createSupabaseBrowserClient().auth.signOut({ scope: "local" });
+      if (signOutError) { setError("Could not switch accounts. Please try again."); return; }
+      clearPortalBrowserCache();
+      setVerifiedEmail(null);
+      setEmail("");
+      setName("");
+      setPhone("");
+    } catch {
+      setError("Could not switch accounts. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
   async function submit() {
     if (busy || disabled) return;
     setError(null);
@@ -89,6 +108,7 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
       <><label className="block text-sm">Full name<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy || disabled} /></label><label className="block text-sm">Phone<PhoneNumberField value={phone} onChange={setPhone} disabled={busy || disabled} /></label></>
     </>}
     <Button type="button" disabled={busy || disabled} onClick={() => void submit()}>{busy ? "Please wait…" : verifiedEmail ? "Complete account" : "Continue with email"}</Button>
+    {verifiedEmail && intent === "manager" ? <Button type="button" variant="ghost" disabled={busy || disabled} onClick={() => void createDifferentAccount()}>Create a different property account</Button> : null}
     {error ? <p role="alert">{error}</p> : null}
     {!hideLegalFooter ? <AuthLegalConsent action="create" /> : null}
   </div>;
