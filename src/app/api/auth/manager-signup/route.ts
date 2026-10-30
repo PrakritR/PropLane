@@ -1,3 +1,4 @@
+import { isManagerOnboardingComplete } from "@/lib/auth/manager-onboarding";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { claimManagerPurchase } from "@/lib/auth/claim-manager-purchase.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -5,7 +6,7 @@ import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
 import { primaryRoleWhenAddingManager } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
-import { recordPaidManagerCheckoutSession } from "@/lib/manager-purchase-from-session";
+import { checkoutSessionIndicatesPaidPurchase, recordPaidManagerCheckoutSession } from "@/lib/manager-purchase-from-session";
 import { isAxisIntentSessionId } from "@/lib/manager-signup-intent";
 import { getStripe } from "@/lib/stripe/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -33,13 +34,14 @@ export async function POST(req: Request) {
     if (isAxisIntentSessionId(sessionId)) {
       const { data: purchase, error: pErr } = await supabase
         .from("manager_purchases")
-        .select("id, email, manager_id, user_id, full_name")
+        .select("id, email, manager_id, user_id, full_name, tier, billing, stripe_checkout_session_id, paid_at")
         .eq("stripe_checkout_session_id", sessionId)
         .maybeSingle();
 
       if (pErr || !purchase) {
         return NextResponse.json({ error: "Could not load signup for this link." }, { status: 400 });
       }
+      if (!isManagerOnboardingComplete(purchase)) return NextResponse.json({ error: "Signup is not complete yet." }, { status: 409 });
       if (purchase.user_id && purchase.user_id !== user.id) {
         return NextResponse.json({ error: "This signup link was already used." }, { status: 409 });
       }
@@ -48,7 +50,7 @@ export async function POST(req: Request) {
       if (user.email!.trim().toLowerCase() !== email.trim().toLowerCase()) return NextResponse.json({ error: "Verify the purchase email before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
 
       const userId = user.id;
-      if (!(await claimManagerPurchase(supabase, purchase.id, userId))) return NextResponse.json({ error: "This purchase is already claimed." }, { status: 409 });
+      if (!(await claimManagerPurchase(supabase, purchase.id, userId, { email: purchase.email, managerId: purchase.manager_id, sessionId }))) return NextResponse.json({ error: "This purchase is already claimed." }, { status: 409 });
 
       const { data: existingProfile, error: profileReadError } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
       if (profileReadError) return NextResponse.json({ error: "Could not load your profile." }, { status: 503 });
@@ -80,11 +82,7 @@ export async function POST(req: Request) {
     const stripe = getStripe();
     const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-    const paid =
-      session.payment_status === "paid" ||
-      session.payment_status === "no_payment_required" ||
-      session.status === "complete";
-    if (!paid) {
+    if (!checkoutSessionIndicatesPaidPurchase(session)) {
       return NextResponse.json({ error: "Checkout is not paid yet. Wait a moment and try again." }, { status: 400 });
     }
 
@@ -92,13 +90,14 @@ export async function POST(req: Request) {
 
     const { data: purchase, error: pErr } = await supabase
       .from("manager_purchases")
-      .select("id, email, manager_id, user_id")
+      .select("id, email, manager_id, user_id, tier, billing, stripe_checkout_session_id, paid_at")
       .eq("stripe_checkout_session_id", sessionId)
       .maybeSingle();
 
     if (pErr || !purchase) {
       return NextResponse.json({ error: "Could not load purchase for this checkout session." }, { status: 400 });
     }
+    if (!isManagerOnboardingComplete(purchase)) return NextResponse.json({ error: "Signup is not complete yet." }, { status: 409 });
     if (purchase.user_id && purchase.user_id !== user.id) {
       return NextResponse.json({ error: "This checkout was already used to create an account." }, { status: 409 });
     }
@@ -107,7 +106,7 @@ export async function POST(req: Request) {
     if (user.email!.trim().toLowerCase() !== email.trim().toLowerCase()) return NextResponse.json({ error: "Verify the purchase email before continuing.", code: "EMAIL_VERIFICATION_REQUIRED" }, { status: 403 });
 
     const userId = user.id;
-      if (!(await claimManagerPurchase(supabase, purchase.id, userId))) return NextResponse.json({ error: "This purchase is already claimed." }, { status: 409 });
+      if (!(await claimManagerPurchase(supabase, purchase.id, userId, { email: purchase.email, managerId: purchase.manager_id, sessionId }))) return NextResponse.json({ error: "This purchase is already claimed." }, { status: 409 });
 
     const { data: existingProfile, error: profileReadError } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
     if (profileReadError) return NextResponse.json({ error: "Could not load your profile." }, { status: 503 });

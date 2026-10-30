@@ -14,6 +14,7 @@ vi.mock("@/lib/stripe/server", () => ({
 
 vi.mock("@/lib/manager-purchase-from-session", () => ({
   recordPaidManagerCheckoutSession: vi.fn().mockResolvedValue(undefined),
+  checkoutSessionIndicatesPaidPurchase: (s: { status: string; payment_status: string }) => s.status === "complete" && ["paid", "no_payment_required"].includes(s.payment_status),
 }));
 
 vi.mock("@/lib/auth/find-auth-user-id-by-email", () => ({
@@ -49,7 +50,7 @@ function makeDbMock(options: {
   const { purchase = null, createUserSuccess = true } = options;
   const createdUserId = "new_user_id";
 
-  const purchaseMaybeSingle = vi.fn().mockResolvedValue({ data: purchase, error: purchase ? null : null });
+  const purchaseMaybeSingle = vi.fn().mockImplementation(async () => ({ data: purchase ? { ...purchase, tier: "pro", billing: "monthly", paid_at: "2026-01-01", stripe_checkout_session_id: purchase.id === "purchase_3" ? STRIPE_SESSION : AXIS_INTENT_SESSION } : null, error: null }));
   const profileMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
 
   const mockDb = {
@@ -205,5 +206,14 @@ describe("POST /api/auth/manager-signup", () => {
     expect(status).toBe(200);
     expect(data.ok).toBe(true);
     expect(data.managerId).toBe("MGR-STRIPE-01");
+  });
+
+  it("does not claim an asynchronously unpaid completed checkout", async () => {
+    vi.mocked(getStripe).mockReturnValue({ checkout: { sessions: { retrieve: vi.fn().mockResolvedValue({ status: "complete", payment_status: "unpaid" }) } } } as never);
+    const res = await managerSignup(jsonRequest("http://localhost/api/auth/manager-signup", {
+      method: "POST", body: { sessionId: STRIPE_SESSION, fullName: "Test Manager", phone: "+12065550123" },
+    }));
+    expect(res.status).toBe(400);
+    expect(claimManagerPurchase).not.toHaveBeenCalled();
   });
 });

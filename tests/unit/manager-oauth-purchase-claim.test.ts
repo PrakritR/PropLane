@@ -1,14 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
+const provider = vi.hoisted(() => ({ retrieve: vi.fn(), record: vi.fn() }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/stripe/server", () => ({ getStripe: () => ({ checkout: { sessions: { retrieve: provider.retrieve } } }) }));
+vi.mock("@/lib/manager-purchase-from-session", async (original) => ({ ...(await original<Record<string, unknown>>()), recordPaidManagerCheckoutSession: provider.record }));
 vi.mock("@/lib/claw-onboarding-sms.server", () => ({ maybeSendManagerPropLaneAssistantIntro: vi.fn() }));
 vi.mock("@/lib/proplane-sms-transport.server", () => ({ scheduleManagerMessagingReady: vi.fn() }));
 import { completeManagerSignupFromOAuth } from "@/lib/auth/complete-manager-signup";
+import { claimManagerPurchase } from "@/lib/auth/claim-manager-purchase.server";
 import { createMemoryDb } from "./support/memory-supabase";
 
 const EMAIL = "manager@example.test";
 function fixture(confirmed = true) {
   const db = createMemoryDb({ manager_purchases: [
-    { id: "one", email: EMAIL, manager_id: "manager", user_id: null, full_name: "Name", stripe_checkout_session_id: "axis_intent_one" },
+    { id: "one", email: EMAIL, manager_id: "manager", user_id: null, full_name: "Name", tier: "free", billing: "free", paid_at: "2026-01-01", stripe_checkout_session_id: "axis_intent_one" },
     { id: "other", email: EMAIL, manager_id: "other", user_id: null, stripe_checkout_session_id: "axis_intent_other" },
   ], profiles: [], profile_roles: [] });
   return Object.assign(db, { auth: { admin: { getUserById: vi.fn(async () => ({ data: { user: { email: EMAIL, email_confirmed_at: confirmed ? "now" : null } }, error: null })) } } });
@@ -46,6 +50,22 @@ describe("exact manager OAuth purchase claim", () => {
   it("refuses a different verified mailbox", async () => {
     const db = fixture();
     expect(await completeManagerSignupFromOAuth(db as never, "first", "other@example.test", "axis_intent_one")).toMatchObject({ ok: false, status: 403 });
+    expect(db.__tables.manager_purchases![0]!.user_id).toBeNull();
+  });
+  it("does not grant a role for an asynchronously unpaid complete checkout", async () => {
+    const db = fixture();
+    provider.retrieve.mockResolvedValue({ status: "complete", payment_status: "unpaid" });
+    expect(await completeManagerSignupFromOAuth(db as never, "first", EMAIL, "cs_test_unpaid")).toMatchObject({ ok: false, status: 400 });
+    expect(provider.record).not.toHaveBeenCalled();
+    expect(db.__tables.profile_roles).toHaveLength(0);
+  });
+  it.each([
+    { email: "wrong@example.test", managerId: "manager", sessionId: "axis_intent_one" },
+    { email: EMAIL, managerId: "other", sessionId: "axis_intent_one" },
+    { email: EMAIL, managerId: "manager", sessionId: "axis_intent_other" },
+  ])("refuses changed purchase context: %o", async (expected) => {
+    const db = fixture();
+    expect(await claimManagerPurchase(db as never, "one", "first", expected)).toBe(false);
     expect(db.__tables.manager_purchases![0]!.user_id).toBeNull();
   });
 });

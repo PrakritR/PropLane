@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const state = vi.hoisted(() => ({ user: null as null | { id: string; email: string; email_confirmed_at: string }, purchase: { id: "purchase", email: "a@example.test", manager_id: "manager", user_id: null as string | null }, profile: null as null | Record<string, string>, upsert: vi.fn(), claim: vi.fn() }));
+const state = vi.hoisted(() => ({ user: null as null | { id: string; email: string; email_confirmed_at: string }, purchase: { id: "purchase", email: "a@example.test", manager_id: "manager", tier: "free", billing: "free", paid_at: "2026-01-01", stripe_checkout_session_id: "session", user_id: null as string | null }, profile: null as null | Record<string, string>, upsert: vi.fn(), claim: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: async () => ({ data: { user: state.user } }) } }) }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({ from: (table: string) => {
   const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: table === "profiles" ? state.profile : state.purchase, error: null }), upsert: state.upsert };

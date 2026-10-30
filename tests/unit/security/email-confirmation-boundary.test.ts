@@ -17,7 +17,8 @@ describe("email ownership boundary", () => {
   it("rejects unauthenticated arbitrary email confirmation and account creation", async () => {
     mocks.create.mockClear();
     expect((await confirm()).status).toBe(403);
-    for (const [handler, body] of [[signup, person], [resident, person], [tour, { ...person, handoff: "message" }], [manager, person], [activate, { ...person, managerId: "manager" }], [paid, { sessionId: "session", password: person.password }]] as const) {
+    expect((await activate()).status).toBe(410);
+    for (const [handler, body] of [[signup, person], [resident, person], [tour, { ...person, handoff: "message" }], [manager, person], [paid, { sessionId: "session", password: person.password }]] as const) {
       expect((await handler(request(body))).status).toBe(403);
     }
     expect(mocks.create).not.toHaveBeenCalled();

@@ -176,12 +176,13 @@ function notificationResult(
   inbox: TourNotificationResult["inbox"] = { sent: false },
 ): TourNotificationResult {
   const smsMissing = sms.requested && !sms.sent && !sms.accepted;
-  const failed = Boolean(email.error || sms.error || smsMissing || inbox.error);
+  const nothingDelivered = !email.sent && !sms.sent && !sms.accepted && !inbox.sent;
+  const failed = Boolean(email.error || sms.error || smsMissing || inbox.error || nothingDelivered);
   return {
     ok: !failed,
     skipped: email.skipped && sms.skipped,
-    ...(sms.error || smsMissing || email.error || inbox.error
-      ? { error: sms.error || (smsMissing ? "SMS was not sent." : inbox.error || email.error) }
+    ...(sms.error || smsMissing || email.error || inbox.error || nothingDelivered
+      ? { error: sms.error || (smsMissing ? "SMS was not sent." : inbox.error || email.error || "No notification was delivered.") }
       : {}),
     email,
     sms,
@@ -933,10 +934,12 @@ async function notifyTenantTourChanged(
   const text = portalChannel ? withResidentPortalLink(changeText, "tour") : changeText;
 
   let inboxSent = false;
+  let inboxAttempted = false;
   const hasGuestEmail = guestEmail.includes("@");
   if (hasGuestEmail) {
     const manager = await resolveTourManagerIdentity(db, managerUserId);
     const residentUserId = await linkedTourNoticeOwner(db, textField(row, "id") || null, managerUserId, propertyId);
+    inboxAttempted = Boolean(manager && propertyId && residentUserId);
     if (manager && propertyId && residentUserId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
       participantEmail: guestEmail, residentUserId, managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
       subject, body: text, counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name,
@@ -1005,7 +1008,7 @@ async function notifyTenantTourChanged(
     sms,
     inboxSent
       ? { sent: true }
-      : hasGuestEmail
+      : inboxAttempted
         ? { sent: false, error: "PropLane inbox notification was not saved." }
         : { sent: false },
   );
@@ -1106,10 +1109,12 @@ async function deliverTenantTourConfirmed(
   const html = opts?.body?.trim() || portalChannel ? undefined : buildTourConfirmedTenantHtml(ctx);
 
   let inboxSent = false;
+  let inboxAttempted = false;
   const hasGuestEmail = guestEmail.includes("@");
   if (hasGuestEmail) {
     const manager = await resolveTourManagerIdentity(db, window.managerUserId);
     const residentUserId = await linkedTourNoticeOwner(db, textField(inquiry as Record<string, unknown>, "id") || null, window.managerUserId, propertyId);
+    inboxAttempted = Boolean(manager && propertyId && residentUserId);
     if (manager && propertyId && residentUserId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
       participantEmail: guestEmail, residentUserId, managerUserId: window.managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
       subject, body: text, counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name,
@@ -1151,7 +1156,7 @@ async function deliverTenantTourConfirmed(
     { ...sms, requested: wantsSms },
     inboxSent
       ? { sent: true }
-      : hasGuestEmail
+      : inboxAttempted
         ? { sent: false, error: "PropLane inbox notification was not saved." }
         : { sent: false },
   );
