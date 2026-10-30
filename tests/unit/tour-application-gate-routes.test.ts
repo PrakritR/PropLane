@@ -54,7 +54,7 @@ describe("POST /api/public/partner-inquiries — Application before a tour", () 
 
   it("passes the SESSION's email for a signed-in caller, not the body's", async () => {
     vi.mocked(getPortalAccessContext).mockResolvedValue({
-      user: { id: "user-1", email: "account@example.com" },
+      user: { id: "user-1", email: "account@example.com", email_confirmed_at: "confirmed" },
       profile: { email: "account@example.com" },
       roles: ["resident"],
       effectiveRole: "resident",

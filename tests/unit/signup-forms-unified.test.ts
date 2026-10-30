@@ -61,8 +61,10 @@ describe("the vendor register route accepts what its form now collects", () => {
     );
     expect(route).toContain("phone?: string;");
     expect(route).toContain("normalizeE164");
-    // Applied on ALL success paths: invite, self-serve existing, self-serve new.
-    expect(route.match(/await applyVendorPhone\(/g)?.length ?? 0).toBe(3);
+    // Applied after proof on both invite and self-serve paths.
+    expect(route.match(/await applyVendorPhone\(/g)?.length ?? 0).toBe(2);
+    expect(route).not.toContain("generateLink(");
+    expect(route).not.toContain("createUser(");
   });
 
   it("the create-account hub form is create-only — no second field copy", () => {

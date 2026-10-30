@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
 import { getEffectiveSessionForPortal } from "@/lib/auth/effective-session";
 import { ensureMayAccessResidentPortal } from "@/lib/auth/ensure-resident-portal-access.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
     const inquiryId = new URL(request.url).searchParams.get("inquiryId")?.trim() ?? "";
     if (!inquiryId) return NextResponse.json({ error: "Choose a tour." }, { status: 400 });
 
-    const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
+    const email = verifiedSessionEmail(user, profile?.email);
     const tours = await loadResidentTourViews(db, user.id, { email });
     const tour = tours.find((t) => t.inquiryId === inquiryId);
     if (!tour) return NextResponse.json({ error: "Tour not found." }, { status: 404 });

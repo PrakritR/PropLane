@@ -12,7 +12,7 @@ export type EnsureResidentPortalAccessResult =
  */
 export async function ensureMayAccessResidentPortal(
   db: SupabaseClient,
-  user: { id: string; email?: string | null },
+  user: { id: string; email?: string | null; email_confirmed_at?: string | null },
 ): Promise<EnsureResidentPortalAccessResult> {
   const ensured = await ensureSignedInResidentAccount(db, user);
   if (!ensured.ok) {

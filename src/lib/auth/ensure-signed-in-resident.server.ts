@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
 import { normalizePortalRoles } from "@/lib/auth/portal-roles";
 import { primaryRoleWhenAddingResident } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
@@ -22,7 +23,7 @@ export type EnsureSignedInResidentResult =
  */
 export async function ensureSignedInResidentAccount(
   service: SupabaseClient,
-  user: { id: string; email?: string | null; user_metadata?: Record<string, unknown> | null },
+  user: { id: string; email?: string | null; email_confirmed_at?: string | null; user_metadata?: Record<string, unknown> | null },
   options?: { contactEmail?: string | null; phone?: string | null },
 ): Promise<EnsureSignedInResidentResult> {
   const { data: existingProfile } = await service
@@ -31,7 +32,7 @@ export async function ensureSignedInResidentAccount(
     .eq("id", user.id)
     .maybeSingle();
 
-  const authEmail = normalizeEmail(existingProfile?.email ?? user.email);
+  const authEmail = normalizeEmail(user.email);
   if (!authEmail.includes("@")) {
     return { ok: false, error: "Profile email is required." };
   }
@@ -78,13 +79,13 @@ export async function ensureSignedInResidentAccount(
     await service.from("profiles").update(backfill).eq("id", user.id).is(backfill.phone ? "phone" : "full_name", null);
   }
 
-  await linkAllTourInquiriesForEmail(service, { userId: user.id, email: contactEmail });
-  await reconcileProspectInboxThreadsForResident(service, {
-    userId: user.id,
-    contactEmail,
-    authEmail: contactEmail !== authEmail ? authEmail : undefined,
-    phone: options?.phone,
-  });
+  const provenEmail = verifiedSessionEmail(user, existingProfile?.email);
+  if (provenEmail) {
+    await linkAllTourInquiriesForEmail(service, { userId: user.id, email: provenEmail });
+    await reconcileProspectInboxThreadsForResident(service, {
+      userId: user.id, contactEmail: provenEmail, phone: options?.phone,
+    });
+  }
 
   return { ok: true, createdResidentRole: !hadResidentRole, email: contactEmail };
 }

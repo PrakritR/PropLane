@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
 import { getEffectiveSessionForPortal } from "@/lib/auth/effective-session";
 import { ensureMayAccessResidentPortal } from "@/lib/auth/ensure-resident-portal-access.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -18,7 +19,7 @@ export async function GET() {
       return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
-    const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
+    const email = verifiedSessionEmail(user, profile?.email);
     if (email.includes("@")) {
       await linkAllTourInquiriesForEmail(db, { userId: user.id, email });
     }

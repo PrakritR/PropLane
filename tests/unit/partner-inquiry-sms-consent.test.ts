@@ -201,7 +201,7 @@ describe("partner-inquiries route resident tour linking", () => {
     upsertCalls.length = 0;
     linkTourInquiryToResident.mockClear();
     vi.mocked(getPortalAccessContext).mockResolvedValue({
-      user: { id: "res-1", email: "resident@example.com" },
+      user: { id: "res-1", email: "resident@example.com", email_confirmed_at: "confirmed" },
       profile: { email: "resident@example.com" },
       roles: ["resident"],
       effectiveRole: "resident",
@@ -240,7 +240,7 @@ describe("partner-inquiries route resident tour linking", () => {
 
   it("links tours for signed-in managers who book through a property link", async () => {
     vi.mocked(getPortalAccessContext).mockResolvedValue({
-      user: { id: "mgr-1", email: "mgr@example.com" },
+      user: { id: "mgr-1", email: "mgr@example.com", email_confirmed_at: "confirmed" },
       profile: { email: "mgr@example.com" },
       roles: ["manager"],
       effectiveRole: "manager",
@@ -254,6 +254,7 @@ describe("partner-inquiries route resident tour linking", () => {
     expect(ensureSignedInResidentAccount).toHaveBeenCalledWith(expect.anything(), {
       id: "mgr-1",
       email: "mgr@example.com",
+      email_confirmed_at: "confirmed",
     });
     expect(linkTourInquiryToResident).toHaveBeenCalled();
   });

@@ -10,6 +10,7 @@ vi.mock("@/lib/auth/profile-role-row", () => ({ ensureProfileRoleRow: vi.fn(asyn
 
 import { ensureSignedInResidentAccount } from "@/lib/auth/ensure-signed-in-resident.server";
 import { readPhoneIdentity } from "@/lib/auth/phone-auth.server";
+import { linkAllTourInquiriesForEmail, reconcileProspectInboxThreadsForResident } from "@/lib/tour-resident-link.server";
 
 type Call = { table: string; op: string; payload?: unknown };
 
@@ -51,6 +52,28 @@ describe("the name and number typed at signup reach the profile when the residen
     const { client, calls } = db({ role: "resident", email: "w@example.com", full_name: "Lena", phone: "+12065550143" });
     await ensureSignedInResidentAccount(client, user);
     expect(calls.filter((c) => c.op === "update")).toHaveLength(0);
+  });
+});
+
+describe("resident historical email linking", () => {
+  it.each([
+    ["unconfirmed mailbox", { id: "u1", email: "w@example.com" }, "w@example.com"],
+    ["different profile mailbox", { id: "u1", email: "w@example.com", email_confirmed_at: "confirmed" }, "other@example.com"],
+    ["phone placeholder", { id: "u1", email: "123@phone.proplane.invalid", email_confirmed_at: "confirmed" }, "123@phone.proplane.invalid"],
+  ])("does not backfill for %s", async (_label, user, email) => {
+    vi.clearAllMocks();
+    const { client } = db({ role: "resident", email });
+    expect((await ensureSignedInResidentAccount(client, user)).ok).toBe(true);
+    expect(linkAllTourInquiriesForEmail).not.toHaveBeenCalled();
+    expect(reconcileProspectInboxThreadsForResident).not.toHaveBeenCalled();
+  });
+
+  it("backfills only the matching confirmed Auth mailbox", async () => {
+    vi.clearAllMocks();
+    const { client } = db({ role: "resident", email: "W@example.com" });
+    await ensureSignedInResidentAccount(client, { id: "u1", email: "w@example.com", email_confirmed_at: "confirmed" });
+    expect(linkAllTourInquiriesForEmail).toHaveBeenCalledWith(client, { userId: "u1", email: "w@example.com" });
+    expect(reconcileProspectInboxThreadsForResident).toHaveBeenCalledWith(client, expect.objectContaining({ contactEmail: "w@example.com" }));
   });
 });
 
