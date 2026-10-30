@@ -174,7 +174,7 @@ export async function handleResidentFixedReply(
   const nowIso = now.toISOString();
   const email = input.residentEmail.trim().toLowerCase();
   if (!email) return { handled: false };
-  const { data } = await db
+  const { data, error: runsError } = await db
     .from("vendor_dispatch_runs")
     .select("*")
     .eq("owner_user_id", input.ownerUserId)
@@ -183,6 +183,7 @@ export async function handleResidentFixedReply(
     .eq("status", "accepted")
     .order("created_at", { ascending: false })
     .limit(100);
+  if (runsError) return { handled: true, reply: "Could not check your service. Please try again." };
   const runs = ((data ?? []) as DispatchRunRow[]).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   if (!input.residentUserId.trim()) return { handled: false };
   let run: DispatchRunRow | undefined;
@@ -191,49 +192,55 @@ export async function handleResidentFixedReply(
     const claimed = await db.rpc("resolve_resident_dispatch_confirmation", {
       p_run: candidate.id, p_owner: input.ownerUserId, p_resident: input.residentUserId, p_verdict: input.verdict,
     });
-    if (claimed.error) return { handled: false };
+    if (claimed.error) return { handled: true, reply: "Could not check your service. Please try again." };
     if (claimed.data?.applied === true) { run = candidate; result = claimed.data; break; }
   }
   if (!run || !result) return { handled: false };
-  const houseLabel = String(run.details.houseLabel || run.details.area || "the house");
-  const record = await readWorkOrder(db, run);
-  const confirmation = record?.row_data.residentConfirmation;
-  if (record && result.confirmation_applied === true && typeof result.confirmation_requested_at === "string" && confirmation?.requestedAt === result.confirmation_requested_at) {
-    await emitResidentConfirmationEvent(db, { ...record, updated_at: null }, input.verdict, confirmation.requestedAt, now, undefined, null, input.residentUserId).catch(() => undefined);
-  }
-
-  await recordDispatchEvent(db, {
-    ownerUserId: run.owner_user_id,
-    runId: run.id,
-    handle: run.handle,
-    event: input.verdict === "fixed" ? "resident_confirmed" : "resident_reopened",
-    channel: "sms",
-    detail: { verdict: input.verdict },
-    now,
-  });
-
-  if (input.verdict === "fixed") {
-    await notifyOutcome(db, run, toGsm7(`Resident confirmed #${run.handle} is fixed. Service completed`), "fixed");
-    return { handled: true, reply: "Thanks, glad it is fixed. Your service is closed." };
-  }
-  await notifyOutcome(db, run, composeManagerNotFixedText({ handle: run.handle, houseLabel }), "not-fixed");
-  if (run.accepted_vendor_directory_id) {
-    const contacts = await loadVendorContacts(db, run.owner_user_id, [run.accepted_vendor_directory_id]);
-    const contact = contacts.get(run.accepted_vendor_directory_id);
-    if (contact?.phone) {
-      await sendVendorDispatchText(db, {
-        ownerUserId: run.owner_user_id,
-        workspaceId: run.workspace_id,
-        approvedByUserId: run.approved_by,
-        vendorDirectoryId: contact.id,
-        phone: contact.phone,
-        vendorUserId: contact.vendorUserId,
-        text: `The resident says #${run.handle} is not fixed yet. Please follow up, then reply DONE`,
-        idempotencyKey: `dispatch-reopen-${run.id}-${nowIso.slice(0, 16).replace(/[^0-9]/g, "")}`,
-      }).catch(() => undefined);
+  try {
+    const houseLabel = String(run.details.houseLabel || run.details.area || "the house");
+    const record = await readWorkOrder(db, run);
+    const confirmation = record?.row_data.residentConfirmation;
+    if (record && result.confirmation_applied === true && typeof result.confirmation_requested_at === "string" && confirmation?.requestedAt === result.confirmation_requested_at) {
+      await emitResidentConfirmationEvent(db, { ...record, updated_at: null }, input.verdict, confirmation.requestedAt, now, undefined, null, input.residentUserId).catch(() => undefined);
     }
+  
+    await recordDispatchEvent(db, {
+      ownerUserId: run.owner_user_id,
+      runId: run.id,
+      handle: run.handle,
+      event: input.verdict === "fixed" ? "resident_confirmed" : "resident_reopened",
+      channel: "sms",
+      detail: { verdict: input.verdict },
+      now,
+    });
+  
+    if (input.verdict === "fixed") {
+      await notifyOutcome(db, run, toGsm7(`Resident confirmed #${run.handle} is fixed. Service completed`), "fixed");
+    } else {
+    await notifyOutcome(db, run, composeManagerNotFixedText({ handle: run.handle, houseLabel }), "not-fixed");
+    if (run.accepted_vendor_directory_id) {
+      const contacts = await loadVendorContacts(db, run.owner_user_id, [run.accepted_vendor_directory_id]);
+      const contact = contacts.get(run.accepted_vendor_directory_id);
+      if (contact?.phone) {
+        await sendVendorDispatchText(db, {
+          ownerUserId: run.owner_user_id,
+          workspaceId: run.workspace_id,
+          approvedByUserId: run.approved_by,
+          vendorDirectoryId: contact.id,
+          phone: contact.phone,
+          vendorUserId: contact.vendorUserId,
+          text: `The resident says #${run.handle} is not fixed yet. Please follow up, then reply DONE`,
+          idempotencyKey: `dispatch-reopen-${run.id}-${nowIso.slice(0, 16).replace(/[^0-9]/g, "")}`,
+        }).catch(() => undefined);
+      }
+    }
+    }
+  } catch (error) {
+    console.error("[vendor-dispatch] post-confirmation notice failed", error instanceof Error ? error.name : "unknown");
   }
-  return { handled: true, reply: "Sorry about that. Your property manager has been told and the service is reopened." };
+  return input.verdict === "fixed"
+    ? { handled: true, reply: "Thanks, glad it is fixed. Your service is closed." }
+    : { handled: true, reply: "Sorry about that. Your service is reopened." };
 }
 
 export type InvoiceOutcome = "asked" | "not_accepted_vendor" | "not_found" | "invalid" | "already_pending";

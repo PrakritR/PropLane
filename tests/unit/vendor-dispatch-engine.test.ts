@@ -744,6 +744,17 @@ describe("after the accept", () => {
     expect(runById(db, "foreign-run")).toMatchObject({ status: "accepted", completion_state: "awaiting_resident" });
   });
 
+  it("does not fall through after a committed reply when a notice read fails", async () => {
+    const { db, run } = await accepted();
+    await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), now: T0 });
+    const originalRpc = db.rpc.bind(db); const originalFrom = db.from.bind(db); let committed = false;
+    db.rpc = async (name, args) => { const result = await originalRpc(name, args); if (name === "resolve_resident_dispatch_confirmation" && (result.data as { applied?: boolean })?.applied) committed = true; return result; };
+    db.from = (table) => { if (committed && table === "portal_work_order_records") throw new Error("notice read unavailable"); return originalFrom(table); };
+    const answer = await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: "resident-1", residentEmail: "dana@example.com", body: "NO", now: T0 });
+    expect(answer.handled).toBe(true);
+    expect(runById(db, run.id)).toMatchObject({ completion_state: "reopened" });
+  });
+
   it("a NO reopens the service for the vendor and alerts the manager", async () => {
     const { db, run } = await accepted();
     await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), now: T0 });
