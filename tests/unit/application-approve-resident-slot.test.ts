@@ -100,6 +100,7 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: [{ role: "manager" }], error: null }).then(resolve);
           if (table === "manager_application_records") {
             if (state.eqBucket && SIBLING_READ_ERROR) {
               return Promise.resolve({ data: null, error: { message: "read failed" } }).then(resolve);
@@ -185,7 +186,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   PROFILE = { role: "manager", email: MANAGER_EMAIL };
   getUser.mockResolvedValue({
-    data: { user: { id: OWNER, email: MANAGER_EMAIL, user_metadata: {} } },
+    data: { user: { id: OWNER, email: MANAGER_EMAIL, email_confirmed_at: "confirmed", user_metadata: {} } },
     error: null,
   });
   PROPERTY_RECORDS = { [LISTING]: { row_data: { listingSubmission: sharedRoomListing() } } };

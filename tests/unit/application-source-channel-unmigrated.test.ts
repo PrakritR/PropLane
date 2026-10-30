@@ -40,7 +40,7 @@ function readColumn(row: Row, col: string): unknown {
 
 function makeFakeDb() {
   function builder(table: string) {
-    const rows = table === "profiles" ? (state.profile ? [state.profile] : []) : state.records;
+    const rows = table === "profiles" ? (state.profile ? [state.profile] : []) : table === "profile_roles" ? (state.profile && state.user ? [{ user_id: state.user.id, role: state.profile.role }] : []) : state.records;
     const filters: Array<(row: Row) => boolean> = [];
     let mode: "select" | "delete" | "update" = "select";
     let pending: Row | null = null;
@@ -186,7 +186,7 @@ describe("an un-migrated source_channel never costs the applicant their applicat
   beforeEach(() => {
     state.records = [];
     state.writes = [];
-    state.user = { id: "resident-1", email: RESIDENT_EMAIL };
+    state.user = { id: "resident-1", email: RESIDENT_EMAIL , email_confirmed_at: "confirmed"};
     state.profile = { id: "resident-1", email: RESIDENT_EMAIL, role: "resident" };
     state.rejectSourceChannel = true;
     state.missingColumn = PGRST_MISSING_COLUMN;

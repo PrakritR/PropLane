@@ -61,7 +61,7 @@ function parseOrClause(raw: string): (row: Row) => boolean {
 
 function makeFakeDb() {
   function builder(table: string) {
-    const rows = table === "profiles" ? (state.profile ? [state.profile] : []) : state.records;
+    const rows = table === "profiles" ? (state.profile ? [state.profile] : []) : table === "profile_roles" ? (state.profile && state.user ? [{ user_id: state.user.id, role: state.profile.role }] : []) : state.records;
     const filters: Array<(row: Row) => boolean> = [];
     let mode: "select" | "delete" | "update" = "select";
     let pending: Row | null = null;
@@ -232,7 +232,7 @@ function storedRow(): Row | undefined {
 describe("submitted applications survive a trailing in-progress draft write", () => {
   beforeEach(() => {
     state.records = [];
-    state.user = { id: "resident-1", email: RESIDENT_EMAIL };
+    state.user = { id: "resident-1", email: RESIDENT_EMAIL , email_confirmed_at: "confirmed"};
     state.profile = { id: "resident-1", email: RESIDENT_EMAIL, role: "resident" };
     state.holdStage = null;
     state.holdUntil = null;
@@ -313,7 +313,7 @@ describe("submitted applications survive a trailing in-progress draft write", ()
 
   it("still lets the manager move a submitted application forward", async () => {
     await postUpsert(applicationRow("Submitted"));
-    state.user = { id: "mgr-1", email: "mgr@test.com" };
+    state.user = { id: "mgr-1", email: "mgr@test.com" , email_confirmed_at: "confirmed"};
     state.profile = { id: "mgr-1", email: "mgr@test.com", role: "manager" };
 
     const approved = { ...applicationRow("Submitted"), stage: "Approved", bucket: "approved" };
