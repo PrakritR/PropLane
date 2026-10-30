@@ -278,11 +278,12 @@ redemptions with a null application ID need explicit source review and are not
 automatically assigned to every new draft.
 
 **`manager_application_fee_waiver_codes` is the only authority on which code is
-live.** Three surfaces write it: Applications settings
+live.** Four surfaces write it: Applications settings
 (`PATCH /api/portal/manager-application-settings`), the listing save
-(`POST /api/property-records`, via `upsertPropertyApplicationFeeWaiverCode`) and the
-waive-on-send mint (`ensureWaiveOnSendWaiverCode`, § Application fee: waive on send, and short stays). The
-listing save writes only when the request CHANGES the submitted code against the
+(`POST /api/property-records`, via `upsertPropertyApplicationFeeWaiverCode`), the
+waive-on-send mint (`ensureWaiveOnSendWaiverCode`, § Application fee: waive on send, and short stays) and the
+Waive / Promo codes routes (`/api/manager/application-fee-waivers`; who may write a code, and under whose id, is
+[`application-questions.md`](application-questions.md)). The listing save writes only when the request CHANGES the submitted code against the
 persisted listing submission, or when the row is being published out of `draft`
 for the first time (a draft save deliberately never writes the codes table, so
 that transition must apply the typed code). A retired code text is refused before
