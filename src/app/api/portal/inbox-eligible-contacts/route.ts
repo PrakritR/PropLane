@@ -49,9 +49,6 @@ export async function GET(req: Request) {
         actorEmail = effectiveAuth.user?.email_confirmed_at
           ? (effectiveAuth.user.email ?? "").trim().toLowerCase()
           : "";
-        const { error: effectiveRoleError } = await db.from("profile_roles").select("role").eq("user_id", effectiveId);
-        if (effectiveRoleError) return NextResponse.json({ contacts: [] }, { status: 503 });
-        actorRole = null;
       }
     }
 

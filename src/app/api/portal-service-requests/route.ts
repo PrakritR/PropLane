@@ -1,4 +1,4 @@
-import { residentSubjectHasHouse } from "@/lib/auth/resident-subject-evidence.server";
+import { boundResidentSubjectForManagerHouse, residentSubjectHasHouse } from "@/lib/auth/resident-subject-evidence.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse } from "next/server";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
@@ -170,9 +170,23 @@ function actorOwnsRecord(
  * ownership: a manager's writes are pinned to their own id; a resident's writes
  * are pinned to their own email. Manager/property for residents are server-
  * resolved from residency records, not trusted from the client alone.
+ *
+ * `storedSubject` is the subject an EXISTING row was created with (the trigger refuses any later
+ * assignment); `newRowSubject` is the one a brand-new manager-filed row may carry, re-derived from
+ * that manager's own residency records. Neither ever comes from the client.
  */
-function recordForActor(actor: Actor, role: string, row: ServiceRequest, storedSubject: string | null) {
-  row = { ...row, residentUserId: role === "resident" && !actor.admin ? actor.userId : storedSubject };
+function recordForActor(
+  actor: Actor,
+  role: string,
+  row: ServiceRequest,
+  existing: boolean,
+  storedSubject: string | null,
+  newRowSubject: string | null,
+) {
+  row = {
+    ...row,
+    residentUserId: role === "resident" && !actor.admin ? actor.userId : existing ? storedSubject : newRowSubject,
+  };
   if (actor.admin) return recordFromRow(row);
   if (role === "resident") {
     const pinned: ServiceRequest = {
@@ -254,6 +268,17 @@ export async function POST(req: Request) {
       return true;
     };
 
+    /** The resident a manager-filed NEW row is for, re-derived from that manager's own residency
+     * rows for the same house — never from the email alone, which only selects among that roster. */
+    const newRowResidentSubject = async (existing: boolean, row: ServiceRequest): Promise<string | null> => {
+      if (existing || role === "resident") return null;
+      const managerUserId = (actor.admin ? row.managerUserId?.trim() : actor.userId) || "";
+      const propertyId = row.propertyId?.trim() || "";
+      const residentEmail = row.residentEmail?.trim() || "";
+      if (!managerUserId || !propertyId || !residentEmail) return null;
+      return boundResidentSubjectForManagerHouse(db, { managerUserId, propertyId, residentEmail }).catch(() => null);
+    };
+
     /** Stamp manager + property from residency; reject if resident has no scope. */
     const stampResidentRow = async (row: ServiceRequest): Promise<ServiceRequest | null> => {
       if (actor.admin || role !== "resident") return row;
@@ -278,7 +303,14 @@ export async function POST(req: Request) {
       if (readError) return null;
       if (existing && (!actorOwnsRecord(actor, existing) || (isManagerActor && !rowInWorkspaceScope(existing.property_id ? String(existing.property_id) : null, workspaceScope)))) return null;
       if (!existing && isManagerActor && !rowInWorkspaceScope(row.propertyId?.trim() || null, workspaceScope)) return null;
-      const record = recordForActor(actor, role, row, existing?.resident_user_id ?? null);
+      const record = recordForActor(
+        actor,
+        role,
+        row,
+        Boolean(existing),
+        existing?.resident_user_id ?? null,
+        await newRowResidentSubject(Boolean(existing), row),
+      );
       if (!existing) {
         const { error } = await db.from("portal_service_request_records").insert(record);
         return error ? null : { record, existing: null };
@@ -292,13 +324,23 @@ export async function POST(req: Request) {
 
     if (body.action === "replace") {
       const rows = Array.isArray(body.rows) ? body.rows : [];
+      // This loop has no transaction, so every row is authorized and stamped BEFORE the first write:
+      // a batch refused for authorization or scope now costs no writes at all. A revision race that
+      // still lands during the write pass refuses the batch with 409, but the remaining rows are
+      // attempted rather than abandoned half-written.
+      const prepared: ServiceRequest[] = [];
       for (const row of rows) {
         if (!row?.id) continue;
         if (!(await ownsExisting(row.id, row.propertyId?.trim() || null))) continue;
         const stamped = await stampResidentRow(row);
         if (!stamped) continue;
-        if (!(await saveRow(stamped))) return NextResponse.json({ error: "The request changed; please retry." }, { status: 409 });
+        prepared.push(stamped);
       }
+      let raced = false;
+      for (const stamped of prepared) {
+        if (!(await saveRow(stamped))) raced = true;
+      }
+      if (raced) return NextResponse.json({ error: "The request changed; please retry." }, { status: 409 });
       return NextResponse.json({ ok: true });
     }
 

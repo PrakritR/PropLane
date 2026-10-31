@@ -181,7 +181,26 @@ export async function provisionPendingManagerAccount(
   return { managerId, created: true };
 }
 
-/** After Free tier (or 100% waiver) is chosen on pricing for an already-provisioned manager. */
+/** A reservation row holding a live Stripe Checkout session: that checkout owns the plan until it closes. */
+export function managerCheckoutInProgress(purchase: { stripe_checkout_session_id?: string | null } | null | undefined): boolean {
+  return String(purchase?.stripe_checkout_session_id ?? "").startsWith("cs_");
+}
+
+export const MANAGER_CHECKOUT_IN_PROGRESS_ERROR =
+  "A checkout is already in progress. Finish that checkout before choosing another plan.";
+
+export type FinalizePendingManagerFreeTierResult =
+  | { status: "finalized"; sessionId: string; managerId: string }
+  | { status: "skipped"; reason: "checkout_in_progress" };
+
+/**
+ * After Free tier (or 100% waiver) is chosen on pricing for an already-provisioned manager.
+ *
+ * An in-progress `cs_` reservation is REFUSED, not overwritten — but as a result, never a throw: a
+ * caller that has already written half a provisioning (`manager-portal-provision.ts`) owes its own
+ * caller a `skipped` answer it can report, not a 500 out of the middle of the sequence. Callers that
+ * are a person's explicit plan choice turn it back into an error themselves.
+ */
 export async function finalizePendingManagerFreeTier(
   supabase: SupabaseClient,
   opts: {
@@ -192,14 +211,14 @@ export async function finalizePendingManagerFreeTier(
     fullName?: string | null;
     promo?: string | null;
   },
-): Promise<{ sessionId: string; managerId: string }> {
+): Promise<FinalizePendingManagerFreeTierResult> {
   const purchase = await findManagerPurchaseForAccount(supabase, opts.userId, opts.email);
   if (!purchase) {
     throw new Error("No manager signup found for this account.");
   }
   if (await hasUnlinkedPaidManagerPurchase(supabase, opts.userId, opts.email)) throw new Error("A paid checkout requires verified completion.");
-  if (purchase.stripe_checkout_session_id.startsWith("cs_")) {
-    throw new Error("A checkout is already in progress. Finish that checkout before choosing another plan.");
+  if (managerCheckoutInProgress(purchase)) {
+    return { status: "skipped", reason: "checkout_in_progress" };
   }
 
   const sessionId = isAxisPendingSessionId(purchase.stripe_checkout_session_id)
@@ -240,5 +259,5 @@ export async function finalizePendingManagerFreeTier(
     });
   }
 
-  return { sessionId, managerId: purchase.manager_id };
+  return { status: "finalized", sessionId, managerId: purchase.manager_id };
 }

@@ -11,6 +11,7 @@ import {
   MANAGER_SUBSCRIPTION_TRIAL_DAYS,
 } from "@/lib/stripe/subscription-checkout-session";
 import { getStripe } from "@/lib/stripe";
+import type Stripe from "stripe";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
@@ -46,6 +47,10 @@ type PriorReservation = {
   user_id: string | null;
   email: string | null;
   stripe_checkout_session_id: string | null;
+  tier: string | null;
+  billing: string | null;
+  stripe_subscription_id: string | null;
+  apple_original_transaction_id: string | null;
 };
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -61,6 +66,41 @@ const CHECKOUT_UNCERTAIN_REFUSAL: Refusal = {
   status: 503,
   error: "Your earlier checkout could not be confirmed closed. Please try again in a moment.",
 };
+/**
+ * True only when Stripe definitively reports this id does not exist on the configured account
+ * (`resource_missing` / a 404 invalid request). A network error, a rate limit or an outage must NOT
+ * read as "already gone", or an abandoned-but-live session would be replaced with a second payable one.
+ */
+function stripeResourceMissing(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as { code?: unknown; statusCode?: unknown; type?: unknown };
+  if (e.code === "resource_missing") return true;
+  return e.type === "StripeInvalidRequestError" && e.statusCode === 404;
+}
+
+const ACTIVE_PLAN_REFUSAL: Refusal = {
+  ok: false,
+  status: 409,
+  error: "You already have an active plan. Manage it from Billing instead of starting another subscription.",
+};
+
+/**
+ * A live entitlement that no Stripe Checkout fulfils: an Apple IAP subscription, an admin grant or a
+ * 100% waiver, or any paid tier already settled against something other than a `cs_` session. Taking
+ * its reservation id would bill the account twice and leave two systems contending over one row's tier.
+ *
+ * A signup trial (`billing: "trial"` with no subscription behind it) and an `axis_intent_` free/trial
+ * row are NOT entitlements of this kind: a verified Checkout is exactly what they are waiting for.
+ */
+function holdsNonStripeEntitlement(prior: PriorReservation): boolean {
+  if (String(prior.apple_original_transaction_id ?? "").trim()) return true;
+  const sessionId = String(prior.stripe_checkout_session_id ?? "").trim();
+  if (/^(?:apple_iap_|admin_|axis_waiver_)/.test(sessionId)) return true;
+  const tier = String(prior.tier ?? "").trim().toLowerCase();
+  const signupTrial =
+    String(prior.billing ?? "").trim().toLowerCase() === "trial" && !String(prior.stripe_subscription_id ?? "").trim();
+  return Boolean(tier) && tier !== "free" && !signupTrial && !sessionId.startsWith("cs_");
+}
 
 /**
  * One reservation row per manager id holds the ONE checkout that may be paid. Replacing it is a
@@ -115,14 +155,18 @@ async function closePriorCheckoutSession(
 ): Promise<Refusal | null> {
   // Not a Stripe session (a pending placeholder): nothing payable to close.
   if (!priorSessionId.startsWith("cs_")) return null;
-  const retrieve = async () => {
+  // `gone` is Stripe answering that this id does not exist on the configured account (aged past
+  // retention, a key rotation, a database seeded from another mode): there is nothing payable left to
+  // close, so the replacement goes on. Every other error is indistinguishable from an outage and refuses.
+  const retrieve = async (): Promise<Stripe.Checkout.Session | "gone" | null> => {
     try {
       return await stripe.checkout.sessions.retrieve(priorSessionId);
-    } catch {
-      return null;
+    } catch (error) {
+      return stripeResourceMissing(error) ? "gone" : null;
     }
   };
   const prior = await retrieve();
+  if (prior === "gone") return null;
   if (!prior) return CHECKOUT_UNCERTAIN_REFUSAL;
   if (prior.metadata?.manager_id !== managerId) {
     return { ok: false, status: 409, error: "An earlier subscription checkout needs reconciliation." };
@@ -146,6 +190,7 @@ async function closePriorCheckoutSession(
     // Fall through to a confirming read: a concurrent writer may have expired it already.
   }
   const confirmed = await retrieve();
+  if (confirmed === "gone") return null;
   return confirmed?.status === "expired" ? null : CHECKOUT_UNCERTAIN_REFUSAL;
 }
 
@@ -269,7 +314,7 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
   // login is never taken by a caller without that login, and an email other than the reserved one is refused.
   const { data: priorRow, error: priorError } = await db
     .from("manager_purchases")
-    .select("id,user_id,email,stripe_checkout_session_id")
+    .select("id,user_id,email,stripe_checkout_session_id,tier,billing,stripe_subscription_id,apple_original_transaction_id")
     .eq("manager_id", managerId)
     .maybeSingle();
   if (priorError) throw new Error("Could not verify manager checkout ownership.");
@@ -280,6 +325,9 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
     if ((priorUser && priorUser !== userId) || (priorEmail && priorEmail !== normalizedEmail.toLowerCase())) {
       return { ok: false, status: 409, error: "This account's checkout needs to be reconciled before it can start again." };
     }
+    // Refuse before Stripe is asked for anything, so a live Apple/admin/waiver plan never has a
+    // payable session created against it, let alone its reservation id swapped out from under it.
+    if (holdsNonStripeEntitlement(prior)) return ACTIVE_PLAN_REFUSAL;
     const closed = await closePriorCheckoutSession(stripe, String(prior.stripe_checkout_session_id ?? "").trim(), managerId);
     if (closed) return closed;
   }

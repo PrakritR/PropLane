@@ -150,7 +150,9 @@ const KNOWN_UNCONVERTED_CREDENTIAL_SURFACES = [
   "src/components/auth/manager-trial-signup-form.tsx",
   "src/components/auth/portal-auth-form.tsx",
   "src/app/auth/resident-setup/resident-setup-client.tsx",
-  "src/app/auth/create-account/create-account-client.tsx",
+  // `create-account-client.tsx` left this list by being DELETED: the create-account router renders
+  // the email-proof signup, nothing imported that ~900-line password client, and it held the last
+  // caller of the retired password tour-register POST.
   "src/app/auth/reset-password/page.tsx",
 ];
 

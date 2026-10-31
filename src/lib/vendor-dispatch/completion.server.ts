@@ -10,6 +10,7 @@ import { readSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 import { insertVendorInvoiceRow, prepareVendorInvoiceSubmission } from "@/lib/vendor-invoice-submit.server";
 import { ensureSubmittedVendorInvoiceForMarkedDone } from "@/lib/work-order-vendor-invoice.server";
 import { emitResidentConfirmationEvent, prepareResidentConfirmation } from "@/lib/work-order-resident-confirmation.server";
+import { RESIDENT_CONFIRMATION_TTL_MS } from "@/lib/resident-confirmation-window";
 import { workOrderEvent } from "@/lib/work-order-events.server";
 import { recordDispatchEvent } from "@/lib/vendor-dispatch/audit.server";
 import { canActorApprove, loadAttempts, loadRun, loadVendorContacts, notifyApprovers, notifyOutcome } from "@/lib/vendor-dispatch/engine.server";
@@ -78,6 +79,10 @@ export async function recordVendorDone(
   let doneRow: DemoManagerWorkOrderRow | null = null;
   let confirmUrl: string | undefined;
   if (record) {
+    // `prepareResidentConfirmation` gates only the signed LINK (the manager's email-confirmation
+    // step). The run still parks on the bound subject, because the resident is asked by TEXT
+    // regardless (`composeResidentFixedAsk` below) and `resolve_resident_dispatch_confirmation`
+    // applies their YES / NO whether or not a `residentConfirmation` was ever stamped.
     const prepared = residentUserId ? await prepareResidentConfirmation(db, run.owner_user_id, record.row_data) : null;
     const testMarker = currentSmsTestProvenance()
       ? readSmsTestProvenance(stampSmsTestProvenance(record.row_data as unknown as Record<string, unknown>))
@@ -164,6 +169,17 @@ export async function recordVendorDone(
 export type ResidentFixedOutcome = { handled: false } | { handled: true; reply: string };
 
 /**
+ * How long after the DONE a resident's text may still close or reopen the job. `vendor_done_at` is
+ * the instant the confirmation was requested (`record_vendor_dispatch_done` stamps both from one
+ * `now()`), so it needs no extra read of the job row.
+ */
+function withinResidentConfirmationWindow(run: DispatchRunRow, now: Date): boolean {
+  const asked = Date.parse(String(run.vendor_done_at ?? run.updated_at ?? run.created_at ?? ""));
+  if (!Number.isFinite(asked)) return false;
+  return now.getTime() - asked <= RESIDENT_CONFIRMATION_TTL_MS;
+}
+
+/**
  * The resident's YES / NO to "Is it fixed?". YES completes the service; NO reopens it for
  * the vendor and alerts the manager. Only a resident whose email is on a run waiting for
  * that answer is claimed, so an ordinary YES still reaches the resident agent.
@@ -190,14 +206,23 @@ export async function handleResidentFixedReply(
   if (!input.residentUserId.trim()) return { handled: false };
   let run: DispatchRunRow | undefined;
   let result: { applied?: boolean; confirmation_applied?: boolean; confirmation_requested_at?: string } | undefined;
+  let expired = false;
   for (const candidate of runs) {
+    // The same seven-day window the link path enforces. The RPC only uses it to decide whether to
+    // STAMP the verdict — it applies the state change regardless — so a month-old "no" has to be
+    // refused here, before the run is reopened and the manager alerted.
+    if (!withinResidentConfirmationWindow(candidate, now)) { expired = true; continue; }
     const claimed = await db.rpc("resolve_resident_dispatch_confirmation", {
       p_run: candidate.id, p_owner: input.ownerUserId, p_resident: input.residentUserId, p_verdict: input.verdict,
     });
     if (claimed.error) return { handled: true, reply: "Could not check your service. Please try again." };
     if (claimed.data?.applied === true) { run = candidate; result = claimed.data; break; }
   }
-  if (!run || !result) return { handled: false };
+  if (!run || !result) {
+    return expired
+      ? { handled: true, reply: "That service is too old to update by text. Message your property manager and they can reopen it." }
+      : { handled: false };
+  }
   try {
     const houseLabel = String(run.details.houseLabel || run.details.area || "the house");
     const record = await readWorkOrder(db, run);

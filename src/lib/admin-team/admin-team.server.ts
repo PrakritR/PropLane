@@ -669,7 +669,13 @@ export async function removeAdminTeamMember(
 
   if (targetIsOverall) {
     if (!actor.overall) return fail(403, "Only an Overall admin can remove an Overall admin.");
-    const last = lastOverallAdminVerdict(await allOverallAdminIds(db), userId);
+    let allOverall: string[];
+    try {
+      allOverall = await allOverallAdminIds(db);
+    } catch {
+      return fail(503, "Could not read admins. Please retry.");
+    }
+    const last = lastOverallAdminVerdict(allOverall, userId);
     if (!last.ok) return last;
     if (!overallHolders.includes(userId)) {
       return fail(409, "This account is protected by the primary-admin email.");

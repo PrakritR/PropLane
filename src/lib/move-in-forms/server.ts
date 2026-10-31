@@ -470,6 +470,18 @@ async function insertRow(db: SupabaseClient, input: NewRow): Promise<{ row: Move
   } });
   // The partial unique index (one SENT copy per residency and form) makes a concurrent second send a no-op.
   if (error?.code === "23505") return { row: null, created: false };
+  // `insert_bound_move_in_form` raises 23514 when the residency it is asked to bind no longer agrees
+  // with the form: the application's stamped manager or house moved (ownership changed after the
+  // application was stamped), or its bound subject is not the one offered. That is a conflict the
+  // manager can act on, not a server fault.
+  if (error?.code === "23514") {
+    throw new MoveInFormError(
+      /subject mismatch/i.test(error.message ?? "")
+        ? "This resident's application is bound to a different account. Refresh the resident and try again."
+        : "This application no longer matches the property's current owner. Refresh the resident and try again.",
+      409,
+    );
+  }
   if (error || !data) throw new MoveInFormError("Could not send the form.", 500);
   return { row: data as unknown as MoveInFormRow, created: true };
 }

@@ -41,7 +41,7 @@ import { MAX_COMPLETION_PHOTO_BYTES, validateCompletionPhotos } from "@/lib/comp
 import { markWorkOrderDoneByVendor, scheduleAssignedVisit, bookedVisitPatch } from "@/lib/work-order-bids.server";
 import { sendWorkOrderVendorOffers } from "@/lib/work-order-offers.server";
 import { describeVendorSendOutcome } from "@/lib/work-order-vendor-offers";
-import { projectWorkOrderForHiredVendor, projectWorkOrderForOfferedVendor, assignedVendorDirectoryId, normalizeAssignedVendorAssignee, vendorVisibleGeneralArea, vendorLeadMapsQuery, vendorServiceWorkflowSteps } from "@/lib/work-order-vendor-privacy";
+import { projectWorkOrderForHiredVendor, projectWorkOrderForOfferedVendor, assignedVendorDirectoryId, normalizeAssignedVendorAssignee, vendorVisibleGeneralArea, vendorLeadMapsQuery, vendorServiceWorkflowSteps, withheldAssignedVendorIdentity } from "@/lib/work-order-vendor-privacy";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 
 type Rec = Record<string, unknown>;
@@ -290,6 +290,47 @@ describe("assigned vendor directory normalization", () => {
     expect(assignedVendorDirectoryId("vendor-auth-id", "manager-a", "vendor-auth-id", [...directory, { id: "directory-c", managerId: "manager-a" }])).toBeNull();
     expect(assignedVendorDirectoryId("manager-a", "manager-a", "vendor-auth-id", [{ id: "manager-a", managerId: "manager-a" }])).toBeNull();
     expect(assignedVendorDirectoryId("resident-id", "manager-a", "vendor-auth-id", [{ id: "resident-id", managerId: "manager-a" }], "resident-id")).toBeNull();
+  });
+  /**
+   * An unresolvable directory id used to DROP the whole record from the vendor's response, so a
+   * manager removing a vendor from their roster mid-job, or a duplicate roster row, silently emptied
+   * that vendor's own assigned AND completed jobs — including completed ones they still invoice from.
+   * The privacy rule is only that the id must not leak, not that the job must disappear.
+   */
+  it("keeps the vendor's own job when the directory id cannot be verified, withholding only the id", () => {
+    const row = {
+      id: "wo1",
+      title: "Leaking tap",
+      propertyAddress: "1 Main St, Seattle, WA",
+      vendorId: "vendor-auth-id",
+      assignee: { type: "vendor", id: "vendor-auth-id", name: "Vera Vendor" },
+    } as DemoManagerWorkOrderRow;
+
+    // Roster removal (no directory row at all) and a duplicate pair both return null.
+    expect(assignedVendorDirectoryId("vendor-auth-id", "manager-a", "vendor-auth-id", [])).toBeNull();
+    expect(assignedVendorDirectoryId("vendor-auth-id", "manager-a", "vendor-auth-id", [
+      { id: "directory-a", managerId: "manager-a" },
+      { id: "directory-dup", managerId: "manager-a" },
+    ])).toBeNull();
+
+    const kept = withheldAssignedVendorIdentity(row, "manager-a");
+    expect(kept.id).toBe("wo1");
+    expect(kept.title).toBe("Leaking tap");
+    // Hired, so the site stays; the unverified identity does not.
+    expect(kept.propertyAddress).toBe("1 Main St, Seattle, WA");
+    expect(kept).not.toHaveProperty("vendorId");
+    expect(kept.assignee).toEqual({ type: "vendor", id: "", name: "Vera Vendor" });
+    // And the hired projection still strips every Auth subject from what is left.
+    const projected = projectWorkOrderForHiredVendor(kept);
+    expect(projected).not.toHaveProperty("managerUserId");
+    expect(JSON.stringify(projected)).not.toContain("vendor-auth-id");
+  });
+  it("serves the vendor's own rows whether or not the directory id resolves", async () => {
+    const fs = await import("node:fs");
+    const route = fs.readFileSync("src/app/api/portal-work-orders/route.ts", "utf8");
+    // `if (row && managerId && vendorId)` is what dropped the row.
+    expect(route).toContain("if (row && managerId) {");
+    expect(route).toContain("withheldAssignedVendorIdentity(row, managerId)");
   });
 });
 

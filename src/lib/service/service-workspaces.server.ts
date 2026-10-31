@@ -853,7 +853,13 @@ export async function listServiceTeam(
   }[];
   const pendingLinks = await liveServiceInviteLinks(db, who.workspace);
   if (!pendingLinks.ok) return pendingLinks;
-  const adminIds = await listAdminUserIds(db);
+  // `listAdminUserIds` throws on a failed read; every neighbouring read here answers 503 instead.
+  let adminIds: string[];
+  try {
+    adminIds = await listAdminUserIds(db);
+  } catch {
+    return fail(503, "Could not load the team. Please retry.");
+  }
   const profileIds = [...new Set([...linkRows.filter((l) => l.status === "accepted").map((l) => l.invitee_user_id), ...adminIds])];
   const profiles = profileIds.length
     ? await db.from("profiles").select("id, full_name, email").in("id", profileIds)

@@ -406,6 +406,30 @@ describe("manager actions", () => {
     properties[0]!.templates = [{ ...newMoveInFormTemplate("upload"), id: "up", name: "Rules", pdf: null }];
     await expect(sendMoveInForm(manager(), { applicationId: "AXIS-A", formId: "up" })).rejects.toMatchObject({ status: 409 });
   });
+
+  /**
+   * `insert_bound_move_in_form` raises 23514 when the residency it is asked to bind no longer agrees
+   * with the form. The send deliberately passes the property's ACTUAL owner rather than the stamp on
+   * the application, so ownership moving after the application was stamped hits exactly that check —
+   * and only 23505 was special-cased, so the manager got a bare 500 and the automatic trigger path
+   * recorded `failed` with no explanation.
+   */
+  it("answers a residency/form mismatch with a 409 the manager can act on, never a 500", async () => {
+    const cases: Array<[string, RegExp]> = [
+      ["Form application mismatch", /current owner/i],
+      ["Form subject mismatch", /different account/i],
+    ];
+    for (const [message, expected] of cases) {
+      properties[0]!.templates = [{ ...newMoveInFormTemplate("built"), id: "f3", name: "Keys", trigger: "manual", questions: [q("sig", "signature", { required: true })] }];
+      forms = [];
+      const mismatching = { ...db, rpc: async () => ({ data: null, error: { code: "23514", message } }) };
+      const actor = { role: "manager", context: { userId: "owner", landlordId: "owner", db: mismatching } } as unknown as MoveInFormActor;
+      const failure = await sendMoveInForm(actor, { applicationId: "AXIS-A", formId: "f3" }).catch((e) => e);
+      expect(failure).toMatchObject({ status: 409 });
+      expect((failure as Error).message).toMatch(expected);
+      expect((failure as Error).message).not.toMatch(/Could not send the form/);
+    }
+  });
 });
 
 describe("files", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
@@ -60,12 +60,14 @@ describe("PRP-380: manager signup labels phone as required", () => {
   it("manager-register paths do not say phone is optional", () => {
     const panel = read("src/components/auth/manager-signup-panel.tsx");
     const trial = read("src/components/auth/manager-trial-signup-form.tsx");
-    const createAccount = read("src/app/auth/create-account/create-account-client.tsx");
 
     expect(panel).not.toContain("Phone (optional)");
     expect(panel).toContain('placeholder="Phone number"');
     expect(trial).toContain('phonePlaceholder="Phone number"');
-    expect(createAccount).toContain("Phone number");
-    expect(createAccount).toContain("<Req />");
+    // The third door, `create-account-client.tsx`, is gone: the create-account router renders the
+    // email-proof signup and nothing imported that password client. The shared field stack is the
+    // one place the hub's phone requirement now lives.
+    expect(existsSync(join(process.cwd(), "src/app/auth/create-account/create-account-client.tsx"))).toBe(false);
+    expect(read(STACK)).toContain("<PhoneNumberField");
   });
 });

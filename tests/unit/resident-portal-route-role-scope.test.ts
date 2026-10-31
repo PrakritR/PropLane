@@ -183,6 +183,18 @@ for (const surface of SURFACES) {
     });
   });
 
+  /**
+   * The CAPABILITY is the stored `profile_roles` row; the active portal only says which of two
+   * capabilities a request is exercising. So "not acting as the resident" — a degraded portal
+   * context, an absent `axis_active_portal` cookie, a context read that threw — reads as the manager
+   * the account stores, scoped to its own id as always.
+   *
+   * It used to fall back to the resident scope in all three, which also denied an admin+manager
+   * outright: a 403 on work orders, services and the lease pipeline outside `?oversight=admin`,
+   * against `AGENTS.md` § "Admin borrows" ("a platform admin reads and writes as the manager they
+   * are"). Acting as the resident still narrows — the group above pins that, and it is the one that
+   * matters for the Add-on services tab this file was written for.
+   */
   describe(`${surface.name} — portal context degraded to the legacy role`, () => {
     beforeEach(() => {
       // getPortalAccessContext falls back to `profiles.role` when its own
@@ -193,12 +205,12 @@ for (const surface of SURFACES) {
       EFFECTIVE_ROLE = "manager";
     });
 
-    it("fails safe to the resident scope rather than granting the manager read", async () => {
+    it("reads as the manager it stores, since it is not acting as the resident", async () => {
       const res = await surface.load();
       expect(res.status).toBe(200);
       const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
-      expect(ids).toEqual([RESIDENT_ROW.id]);
-      expect(fetchRowsForManagerWithLinked).not.toHaveBeenCalled();
+      expect(ids).toContain(MANAGER_ONLY_ROW.id);
+      expect(fetchRowsForManagerWithLinked).toHaveBeenCalled();
     });
   });
 
@@ -206,19 +218,19 @@ for (const surface of SURFACES) {
     beforeEach(() => {
       // getPortalAccessContext returns effectiveRole: null for any multi-role
       // account whenever axis_active_portal is absent or names a role they do
-      // not hold, and raises no error. This used to fall back to "manager".
+      // not hold, and raises no error.
       PROFILE = { email: RESIDENT_EMAIL, role: "manager" };
       PROFILE_ROLES = ["manager", "resident"];
       PORTAL_ROLES = ["manager", "resident"];
       EFFECTIVE_ROLE = null;
     });
 
-    it("resolves to the narrower resident scope, not the legacy manager value", async () => {
+    it("reads as the manager it stores rather than denying the route", async () => {
       const res = await surface.load();
       expect(res.status).toBe(200);
       const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
-      expect(ids).toEqual([RESIDENT_ROW.id]);
-      expect(fetchRowsForManagerWithLinked).not.toHaveBeenCalled();
+      expect(ids).toContain(MANAGER_ONLY_ROW.id);
+      expect(fetchRowsForManagerWithLinked).toHaveBeenCalled();
     });
   });
 
@@ -231,7 +243,26 @@ for (const surface of SURFACES) {
       PORTAL_CONTEXT_THROWS = true;
     });
 
-    it("resolves to the narrower resident scope rather than propagating the error", async () => {
+    it("still reads as the stored manager rather than propagating the error", async () => {
+      const res = await surface.load();
+      expect(res.status).toBe(200);
+      const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
+      expect(ids).toContain(MANAGER_ONLY_ROW.id);
+      expect(fetchRowsForManagerWithLinked).toHaveBeenCalled();
+    });
+  });
+
+  describe(`${surface.name} — a resident-only account with a stale manager cookie`, () => {
+    beforeEach(() => {
+      // The narrowing that still has to hold: the cookie cannot widen a capability the account
+      // does not store, so this stays on the resident's own rows.
+      PROFILE = { email: RESIDENT_EMAIL, role: "manager" };
+      PROFILE_ROLES = ["resident"];
+      PORTAL_ROLES = ["resident"];
+      EFFECTIVE_ROLE = "manager";
+    });
+
+    it("returns only the resident's own rows", async () => {
       const res = await surface.load();
       expect(res.status).toBe(200);
       const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);

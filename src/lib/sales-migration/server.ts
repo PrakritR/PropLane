@@ -228,8 +228,11 @@ export async function executeSalesMigration(
           if (row) assertStayMatch(row, property, stay);
           else row = applicationFor(owner, property, stay, appId);
           // Check identity eligibility before inserting a new application or linking an account.
+          // No account exists before mailbox proof: the tenancy is migrated unbound and the resident
+          // reaches it through the emailed email-proof setup. Any other refusal is a real failure.
           const provisioned = await provisionApprovedResidentAccount(db, row, { mode: "silent_migration" });
-          if (!provisioned.ok) throw new Error(provisioned.error);
+          if (!provisioned.ok && provisioned.reason !== "invitation_required") throw new Error(provisioned.error);
+          const residentUserId = provisioned.ok ? provisioned.userId : null;
           if (!existingRow) {
             const { error } = await db.from("manager_application_records").insert({ id: appId, manager_user_id: owner, resident_email: row.email, property_id: property.propertyId, assigned_property_id: property.propertyId, row_data: sealApplicantRow(row, appId, owner) });
             check(error);
@@ -237,7 +240,7 @@ export async function executeSalesMigration(
           // Read again to preserve concurrent manager edits, then use a revision predicate.
           const { data: current, error: readError } = await db.from("manager_application_records").select("row_data,updated_at").eq("id", appId).eq("manager_user_id", owner).single();
           check(readError);
-          row = { ...openApplicantRow(current!.row_data, appId, true) as DemoApplicantRow, residentUserId: provisioned.userId };
+          row = { ...openApplicantRow(current!.row_data, appId, true) as DemoApplicantRow, ...(residentUserId ? { residentUserId } : {}) };
           assertStayMatch(row, property, stay);
           const { data: linked, error: linkError } = await db.from("manager_application_records").update({ row_data: sealApplicantRow(row, appId, owner), updated_at: new Date().toISOString() }).eq("id", appId).eq("manager_user_id", owner).eq("updated_at", current!.updated_at).select("id");
           check(linkError);

@@ -197,6 +197,42 @@ describe("createPortfolioImportRecords", () => {
     expect(setImportStatus).toHaveBeenCalledWith(db, "mgr-1", "imp-1", "completed", expect.any(Object));
   });
 
+  /**
+   * `provisionApprovedResidentAccount` is invitation-only in the 2026-10-30 auth release: no account
+   * exists before the resident proves their mailbox. This path still did `if (!provision.ok) throw`,
+   * which made importing a rent roll with ANY resident on it impossible — no application row, no
+   * lease, no draft. The tenancy is created unbound and the resident reaches it through the emailed
+   * email-proof setup.
+   */
+  it("creates the tenancy with no account when provisioning answers invitation_required", async () => {
+    loadImportProposal.mockResolvedValue({ row: { status: "draft" }, proposal: proposal([property()]) });
+    provisionApprovedResidentAccount.mockResolvedValue({
+      ok: false, reason: "invitation_required",
+      error: "Resident invitation required: mailbox verification is required before access.",
+    });
+    const db = fakeDb();
+
+    const result = await createPortfolioImportRecords(db as never, ACTOR, "imp-1", REQUEST);
+
+    expect(result.failures).toEqual([]);
+    expect(result.created).toEqual({ properties: 1, rooms: 1, residents: 1, leases: 1, charges: 2, tasks: 1, invites: 0 });
+    expect(db.upserts.some((u) => u.table === "manager_application_records")).toBe(true);
+    // The charge rows carry no account, because there is none yet.
+    for (const charge of db.upserts.filter((u) => u.table === "portal_household_charge_records")) {
+      expect((charge.payload as { row_data: { residentUserId: unknown } }).row_data.residentUserId).toBeNull();
+    }
+  });
+
+  it("still fails the property on any OTHER provisioning refusal", async () => {
+    loadImportProposal.mockResolvedValue({ row: { status: "draft" }, proposal: proposal([property()]) });
+    provisionApprovedResidentAccount.mockResolvedValue({ ok: false, error: "Approved application is missing a resident email." });
+
+    const result = await createPortfolioImportRecords(fakeDb() as never, ACTOR, "imp-1", REQUEST);
+
+    expect(result.created.properties).toBe(0);
+    expect(result.failures[0]!.message).toContain("missing a resident email");
+  });
+
   it("never invites a resident unless sendInvites is explicitly true", async () => {
     loadImportProposal.mockResolvedValue({ row: { status: "draft" }, proposal: proposal([property()]) });
     runExistingResidentOnboarding.mockResolvedValue({ ok: true, leaseId: "lease_app_p1resident0", welcomeEmailSent: true, axisId: "PROPLANE-IMP1", row: {} });

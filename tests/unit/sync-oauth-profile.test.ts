@@ -50,7 +50,7 @@ describe("syncOAuthProfile", () => {
     expect(supabase.update).toHaveBeenCalled();
   });
 
-  it("does not grant admin for a primary-email OAuth user without a profile", async () => {
+  it("records a primary-email OAuth account's own profile row without granting it anything", async () => {
     const supabase = mockSupabase(null);
 
     await syncOAuthProfile(supabase as never, {
@@ -59,8 +59,20 @@ describe("syncOAuthProfile", () => {
       user_metadata: { name: "Prakrit" },
     } as never);
 
-    expect(supabase.upsert).not.toHaveBeenCalled();
+    // No role row: roles come from stored `profile_roles` alone, and nothing here writes one.
     expect(supabase.profileRolesUpsert).not.toHaveBeenCalled();
+    // But the row itself has to exist: `profiles.email` is what the primary-admin protection in
+    // `holdsAdminOutsideRoleRow` reads, and without it the account has no recorded email or name.
+    expect(supabase.upsert).toHaveBeenCalledTimes(1);
+    expect(supabase.upsert.mock.calls[0]![0]).toEqual({
+      id: "admin-1",
+      email: PRIMARY_ADMIN_EMAIL,
+      full_name: "Prakrit",
+      role: "admin",
+      manager_id: null,
+    });
+    // Never overwrites a row that already exists.
+    expect(supabase.upsert.mock.calls[0]![1]).toMatchObject({ onConflict: "id", ignoreDuplicates: true });
   });
 
   it("does not re-grant a revoked admin role on OAuth sign-in", async () => {

@@ -1,4 +1,4 @@
-import { residentSubjectHasHouse } from "@/lib/auth/resident-subject-evidence.server";
+import { boundResidentSubjectForManagerHouse, residentSubjectHasHouse } from "@/lib/auth/resident-subject-evidence.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse, after } from "next/server";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
@@ -41,7 +41,7 @@ import {
   workOrderGoogleCalendarSyncChanged,
 } from "@/lib/google-calendar/sync.server";
 import { attachManagerNamesToWorkOrders } from "@/lib/work-order-manager-names.server";
-import { projectWorkOrderForHiredVendor, projectWorkOrderForOfferedVendor, assignedVendorDirectoryId, normalizeAssignedVendorAssignee } from "@/lib/work-order-vendor-privacy";
+import { projectWorkOrderForHiredVendor, projectWorkOrderForOfferedVendor, assignedVendorDirectoryId, normalizeAssignedVendorAssignee, withheldAssignedVendorIdentity } from "@/lib/work-order-vendor-privacy";
 import { restoreServerPublishState } from "@/lib/service-publish-state";
 import { alertPhonesOf } from "@/lib/one-number/ops-alerts.server";
 
@@ -94,9 +94,17 @@ async function vendorScopedWorkOrderRows(db: Db, vendorUserId: string): Promise<
     const row = record.row_data as DemoManagerWorkOrderRow | null;
     const managerId = typeof record.manager_user_id === "string" ? record.manager_user_id : "";
     const vendorId = managerId && row ? assignedVendorDirectoryId(row.vendorId, managerId, vendorUserId, directory, row.residentUserId) : null;
-    if (row && managerId && vendorId) {
-      const assignee = normalizeAssignedVendorAssignee(row, vendorId);
-      byId.set(record.id as string, { row: { ...row, managerUserId: managerId, vendorId, assignee }, hired: true });
+    if (row && managerId) {
+      // `vendor_user_id` names this viewer, so the job is theirs and is served whole — a roster
+      // removal or a duplicate directory row must not make their own assigned and completed jobs
+      // disappear. The directory id only ENRICHES the row; unresolvable, it is withheld (together
+      // with the assignee id it would name) rather than taking the row with it.
+      byId.set(record.id as string, {
+        row: vendorId
+          ? { ...row, managerUserId: managerId, vendorId, assignee: normalizeAssignedVendorAssignee(row, vendorId) }
+          : withheldAssignedVendorIdentity(row, managerId),
+        hired: true,
+      });
     }
   }
 
@@ -332,8 +340,23 @@ async function resolveVendorOwnerManagerUserId(
 
 /** Build the persisted record, binding scope columns to the authenticated caller
  * so a client cannot spoof ownership. */
-function recordForActor(actor: Actor, row: DemoManagerWorkOrderRow, vendorUserId: string | null, previous: OwnerCols | null) {
-  const normalized = { ...normalizeRow(row), residentUserId: actor.role === "resident" && !actor.admin ? actor.userId : previous?.resident_user_id ?? null };
+function recordForActor(
+  actor: Actor,
+  row: DemoManagerWorkOrderRow,
+  vendorUserId: string | null,
+  previous: OwnerCols | null,
+  newRowResidentSubject: string | null,
+) {
+  // The subject is server-owned at every step: a resident's own row is theirs, an existing row keeps
+  // the subject it was created with (the trigger refuses any later assignment), and a brand-new
+  // manager-filed row carries only a subject re-derived from that manager's own residency records.
+  const residentSubject =
+    actor.role === "resident" && !actor.admin
+      ? actor.userId
+      : previous
+        ? previous.resident_user_id ?? null
+        : newRowResidentSubject;
+  const normalized = { ...normalizeRow(row), residentUserId: residentSubject };
   const withManager: DemoManagerWorkOrderRow =
     actor.admin || actor.role === "resident"
       ? normalized
@@ -641,6 +664,21 @@ export async function POST(req: Request) {
       }).catch((e) => console.error("emitVendorAssigned failed", next.id, e));
     };
 
+    /** The resident a manager-filed NEW row is for, re-derived from that manager's own residency
+     * rows for the same house. A resident actor's own row never needs it, an existing row cannot be
+     * rebound by any later write, and no bound residency means the row stays manager-only. */
+    const newRowResidentSubject = async (
+      existing: ExistingRecord | null,
+      row: DemoManagerWorkOrderRow,
+    ): Promise<string | null> => {
+      if (existing || actor.role === "resident") return null;
+      const managerUserId = (actor.admin ? row.managerUserId?.trim() : actor.userId) || "";
+      const propertyId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || "";
+      const residentEmail = row.residentEmail?.trim() || "";
+      if (!managerUserId || !propertyId || !residentEmail) return null;
+      return boundResidentSubjectForManagerHouse(db, { managerUserId, propertyId, residentEmail }).catch(() => null);
+    };
+
     // Stamp manager + property from residency for residents; reject if none.
     const stampResidentWorkOrder = async (
       row: DemoManagerWorkOrderRow,
@@ -727,6 +765,17 @@ export async function POST(req: Request) {
       // as a single-row insert. "Newly created" is detected per row by the
       // `findExisting` lookup below (fetched before that row's upsert), so a
       // re-synced existing row never notifies.
+      // This loop has no transaction, so every row is read, authorized and prepared BEFORE the first
+      // write — a batch refused for authorization or scope now costs no writes at all. A revision
+      // race that still lands between preparation and the write refuses the batch with 409, but the
+      // remaining rows are attempted rather than abandoned half-written.
+      type PreparedRow = {
+        existing: ExistingRecord | null;
+        row: DemoManagerWorkOrderRow;
+        persisted: ReturnType<typeof recordForActor>;
+        autoTimeOutcome: AutoTimeOutcome;
+      };
+      const prepared: PreparedRow[] = [];
       for (const row of rows) {
         if (!row?.id) continue;
         const existing = await findExisting(row.id);
@@ -742,21 +791,32 @@ export async function POST(req: Request) {
           await resolveVendorOwnerManagerUserId(db, actor, timedRow),
         );
         if (rejected) continue;
-        const persisted = recordForActor(actor, timedRow, vendorUserId, existing);
+        const persisted = recordForActor(
+          actor,
+          timedRow,
+          vendorUserId,
+          existing,
+          await newRowResidentSubject(existing, timedRow),
+        );
         preserveServerDispatch(persisted.row_data, existing);
-        const saved = await persistRecord(persisted, existing);
-        if (!saved) return NextResponse.json({ error: "The request changed; please retry." }, { status: 409 });
-        if (saved) {
-          if (!existing) {
-            await emitCreatedWorkOrder(db, actor, timedRow, persisted.manager_user_id);
-          }
-          maybePrepareDispatch(existing, timedRow.id);
-          maybeOfferToPreferredVendor(existing, persisted);
-          await maybeNotifyVendorAssigned(existing, persisted);
-          maybeNotifyAutoBookedVisit(autoTimeOutcome, persisted.manager_user_id, persisted.row_data);
-          await maybeSyncWorkOrderGoogleCalendar(existing, persisted);
-        }
+        prepared.push({ existing, row: timedRow, persisted, autoTimeOutcome });
       }
+      let raced = false;
+      for (const entry of prepared) {
+        if (!(await persistRecord(entry.persisted, entry.existing))) {
+          raced = true;
+          continue;
+        }
+        if (!entry.existing) {
+          await emitCreatedWorkOrder(db, actor, entry.row, entry.persisted.manager_user_id);
+        }
+        maybePrepareDispatch(entry.existing, entry.row.id);
+        maybeOfferToPreferredVendor(entry.existing, entry.persisted);
+        await maybeNotifyVendorAssigned(entry.existing, entry.persisted);
+        maybeNotifyAutoBookedVisit(entry.autoTimeOutcome, entry.persisted.manager_user_id, entry.persisted.row_data);
+        await maybeSyncWorkOrderGoogleCalendar(entry.existing, entry.persisted);
+      }
+      if (raced) return NextResponse.json({ error: "The request changed; please retry." }, { status: 409 });
       return NextResponse.json({ ok: true });
     }
 
@@ -809,7 +869,13 @@ export async function POST(req: Request) {
     if (rejected) return NextResponse.json({ error: "Forbidden: vendor not available to this manager." }, { status: 403 });
     // Single-row upserts also serve both create and edit; `existing` (fetched
     // above) being null means a genuinely new row → notify the resident.
-    const persisted = recordForActor(actor, timedRow, vendorUserId, existing);
+    const persisted = recordForActor(
+      actor,
+      timedRow,
+      vendorUserId,
+      existing,
+      await newRowResidentSubject(existing, timedRow),
+    );
     preserveServerDispatch(persisted.row_data, existing);
     if (!(await persistRecord(persisted, existing))) return NextResponse.json({ error: "The request changed; please retry." }, { status: 409 });
     if (!existing) {

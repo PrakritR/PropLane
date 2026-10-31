@@ -44,7 +44,19 @@ export async function syncOAuthProfile(
     return;
   }
 
-  if (isPrimaryAdmin) return;
+  if (isPrimaryAdmin) {
+    // The ops address is admin-ONLY and its roles come from stored `profile_roles` alone, so nothing
+    // is granted here. The profiles row itself still has to exist: `profiles.email` is what
+    // `holdsAdminOutsideRoleRow` reads to enforce the primary-admin protection, and without the row
+    // the account has no recorded email or name anywhere. `role` is the legacy "created as" label
+    // and carries no authority (`AGENTS.md` § `profiles.role` is legacy).
+    const { error: profileError } = await supabase.from("profiles").upsert(
+      { id: user.id, email, full_name: fullName, role: "admin", manager_id: null },
+      { onConflict: "id", ignoreDuplicates: true },
+    );
+    if (profileError) throw profileError;
+    return;
+  }
 
   if (!opts?.skipAutoProvision) {
     await provisionFreeManagerFromOAuth(supabase, user);

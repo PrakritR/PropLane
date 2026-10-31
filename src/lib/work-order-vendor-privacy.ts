@@ -104,6 +104,23 @@ export function normalizeAssignedVendorAssignee(row: DemoManagerWorkOrderRow, ve
   return row.assignee?.type === "vendor" ? { ...row.assignee, id: vendorId } : row.assignee;
 }
 
+/**
+ * A job the viewer HOLDS (`vendor_user_id` is them) whose directory id cannot be resolved under its
+ * manager — their roster row was removed while the job was in flight, or they have two of them.
+ *
+ * The job is still theirs and is still served; only the identity that could not be verified is
+ * withheld. The stored `vendorId` and the assignee id go, because an unverified value there may be
+ * an Auth subject rather than a directory record.
+ */
+export function withheldAssignedVendorIdentity(row: DemoManagerWorkOrderRow, managerId: string): DemoManagerWorkOrderRow {
+  const { vendorId: _unverified, ...rest } = row;
+  return {
+    ...rest,
+    managerUserId: managerId,
+    ...(row.assignee?.type === "vendor" ? { assignee: { type: "vendor" as const, id: "", name: row.assignee.name } } : {}),
+  };
+}
+
 /** Strip Auth subjects from the entire stored payload while retaining opaque job/directory IDs. */
 function withoutAuthSubjects(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withoutAuthSubjects);

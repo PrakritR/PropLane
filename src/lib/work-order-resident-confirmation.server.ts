@@ -17,6 +17,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { RESIDENT_CONFIRMATION_TTL_MS } from "@/lib/resident-confirmation-window";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { resolveServiceAutomationSettingsForRow } from "@/lib/service-automation-settings.server";
 import { createSettingsScopeCache } from "@/lib/settings/scope-resolver.server";
@@ -26,7 +27,7 @@ import { workOrderEvent, type WorkOrderEventRecipient } from "@/lib/work-order-e
 export const RESIDENT_CONFIRMATION_PATH = "/services/confirm";
 
 /** Seven days: a resident should not be able to reopen a job from a month-old email. */
-const TOKEN_TTL_MS = 7 * 24 * 60 * 60_000;
+const TOKEN_TTL_MS = RESIDENT_CONFIRMATION_TTL_MS;
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token.trim(), "utf8").digest("hex");

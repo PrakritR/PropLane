@@ -9,7 +9,8 @@ const opts = { userId: "user", email: "manager@example.test", tier: "free" as co
 const row = { id: "purchase", user_id: "user", email: opts.email, manager_id: "manager", tier: null, billing: null, paid_at: null, stripe_checkout_session_id: "cs_test_live_reservation" };
 it("keeps a live Stripe reservation intact for the later paid webhook", async () => {
   const db = createMemoryDb({ auth_users: [{ id: "user", email: opts.email, email_confirmed_at: "now" }], manager_purchases: [row] });
-  await expect(finalizePendingManagerFreeTier(db as never, opts)).rejects.toThrow(/checkout is already in progress/i);
+  // Refused, but as a RESULT, not a throw: the caller may already have written half a provisioning.
+  await expect(finalizePendingManagerFreeTier(db as never, opts)).resolves.toEqual({ status: "skipped", reason: "checkout_in_progress" });
   expect(db.__tables.manager_purchases![0]!.stripe_checkout_session_id).toBe("cs_test_live_reservation");
   await expect(resolveManagerCheckoutPurchase(db as never, { id: "cs_test_live_reservation", customer_email: opts.email, metadata: { userId: "user", manager_id: "manager" } } as never)).resolves.toMatchObject({ id: "purchase", userId: "user" });
 });

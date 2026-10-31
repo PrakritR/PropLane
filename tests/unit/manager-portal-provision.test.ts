@@ -14,6 +14,8 @@ vi.mock("@/lib/auth/manager-onboarding", () => ({
   isAxisPendingSessionId: (id: string) => id.startsWith("axis_pending_"),
   provisionPendingManagerAccount: (...args: unknown[]) => provisionPendingManagerAccount(...args),
   finalizePendingManagerFreeTier: (...args: unknown[]) => finalizePendingManagerFreeTier(...args),
+  managerCheckoutInProgress: (purchase: { stripe_checkout_session_id?: string | null } | null | undefined) =>
+    String(purchase?.stripe_checkout_session_id ?? "").startsWith("cs_"),
 }));
 
 vi.mock("@/lib/auth/profile-role-row", () => ({
@@ -108,7 +110,7 @@ describe("ensureFreeManagerPortalAccess", () => {
     isPrimaryAdminEmail.mockReturnValue(false);
     isManagerOnboardingComplete.mockReturnValue(false);
     provisionPendingManagerAccount.mockResolvedValue({ managerId: "AXIS-NEW", created: true });
-    finalizePendingManagerFreeTier.mockResolvedValue({ sessionId: "axis_intent_1", managerId: "AXIS-NEW" });
+    finalizePendingManagerFreeTier.mockResolvedValue({ status: "finalized", sessionId: "axis_intent_1", managerId: "AXIS-NEW" });
     ensureProfileRoleRow.mockResolvedValue(undefined);
   });
 

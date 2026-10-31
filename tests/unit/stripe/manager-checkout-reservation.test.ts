@@ -391,3 +391,126 @@ describe("a Pro signup trial's internal reservation is replaceable", () => {
     expect(stripe.client.checkout.sessions.retrieve).not.toHaveBeenCalled();
   });
 });
+
+describe("a live NON-Stripe entitlement is never replaced or reserved over", () => {
+  /**
+   * Every non-Stripe grant synthesizes its own reservation id (`apple_iap_`, `admin_portal_`,
+   * `axis_waiver_`), which `closePriorCheckoutSession` short-circuits past because there is no `cs_`
+   * session to close. Without its own guard the CAS then swapped a live Apple/admin/waiver plan's id
+   * for a fresh PAYABLE Stripe session, and on payment the same row grew a `stripe_subscription_id`
+   * beside the Apple transaction: billed twice, with two reconcilers fighting over one tier.
+   */
+  const entitled = (patch: Row): Row => ({
+    id: "purchase-entitled", user_id: USER_ID, manager_id: MANAGER_ID, email: EMAIL, full_name: null,
+    tier: "business", billing: "monthly", paid_at: "2026-09-01T00:00:00.000Z", ...patch,
+  });
+
+  const cases: Array<[string, Row]> = [
+    ["a live Apple IAP subscription", entitled({
+      stripe_checkout_session_id: "apple_iap_1000000999",
+      apple_original_transaction_id: "1000000999",
+    })],
+    ["an admin-granted plan", entitled({ stripe_checkout_session_id: `admin_portal_business_${USER_ID}` })],
+    ["a 100% waiver", entitled({ stripe_checkout_session_id: `axis_waiver_business_${USER_ID}` })],
+    ["a paid tier settled against no Stripe session at all", entitled({ stripe_checkout_session_id: "" })],
+    ["an Apple transaction on a row whose session id looks ordinary", entitled({
+      stripe_checkout_session_id: "cs_prior", apple_original_transaction_id: "1000000999",
+    })],
+  ];
+
+  for (const [label, row] of cases) {
+    it(`refuses ${label} with 409 and creates no Stripe session`, async () => {
+      const stripe = fakeStripe();
+      const db = fakeDb([row]);
+      mocks.db = db; mocks.stripe = stripe.client;
+      seedPrior(stripe);
+
+      const result = await checkout();
+
+      expect(result).toMatchObject({ ok: false, status: 409 });
+      expect((result as { error: string }).error).toMatch(/already have an active plan/i);
+      expect(stripe.client.checkout.sessions.create).not.toHaveBeenCalled();
+      expect(stripe.client.checkout.sessions.expire).not.toHaveBeenCalled();
+      // The reservation id is exactly what it was.
+      expect(db.rows[0]!.stripe_checkout_session_id).toBe(row.stripe_checkout_session_id);
+    });
+  }
+
+  it("still lets a signup trial with no subscription behind it through", async () => {
+    const stripe = fakeStripe();
+    const db = fakeDb([entitled({
+      tier: "pro", billing: "trial",
+      stripe_checkout_session_id: "axis_intent_6f1c2d3e-0000-4000-8000-000000000002",
+      stripe_subscription_id: null, apple_original_transaction_id: null,
+    })]);
+    mocks.db = db; mocks.stripe = stripe.client;
+
+    await expect(checkout()).resolves.toMatchObject({ ok: true, sessionId: "cs_new_1" });
+    expect(db.rows[0]!.stripe_checkout_session_id).toBe("cs_new_1");
+  });
+
+  it("still lets a free-tier row through", async () => {
+    const stripe = fakeStripe();
+    const db = fakeDb([entitled({ tier: "free", billing: "monthly", stripe_checkout_session_id: "axis_intent_free" })]);
+    mocks.db = db; mocks.stripe = stripe.client;
+    await expect(checkout()).resolves.toMatchObject({ ok: true, sessionId: "cs_new_1" });
+  });
+});
+
+describe("an unretrievable prior session does not wedge checkout forever", () => {
+  /** Stripe's own shape for "that id does not exist on this account". */
+  const resourceMissing = () =>
+    Object.assign(new Error("No such checkout.session: cs_prior"), {
+      code: "resource_missing", statusCode: 404, type: "StripeInvalidRequestError",
+    });
+
+  it("treats resource_missing as nothing left to close and replaces the reservation", async () => {
+    const stripe = fakeStripe();
+    const db = fakeDb([priorRow()]);
+    mocks.db = db; mocks.stripe = stripe.client;
+    // `cs_prior` is stored but no longer readable (aged out, a key rotation, another Stripe mode).
+    stripe.client.checkout.sessions.retrieve.mockRejectedValue(resourceMissing());
+
+    const result = await checkout();
+
+    expect(result).toMatchObject({ ok: true, sessionId: "cs_new_1" });
+    expect(db.rows[0]!.stripe_checkout_session_id).toBe("cs_new_1");
+    expect(stripe.client.checkout.sessions.expire).not.toHaveBeenCalled();
+  });
+
+  it("keeps refusing when the read fails for any other reason", async () => {
+    const stripe = fakeStripe();
+    const db = fakeDb([priorRow()]);
+    mocks.db = db; mocks.stripe = stripe.client;
+    stripe.client.checkout.sessions.retrieve.mockRejectedValue(
+      Object.assign(new Error("Stripe is down"), { type: "StripeAPIError", statusCode: 503 }),
+    );
+
+    const result = await checkout();
+
+    expect(result).toMatchObject({ ok: false, status: 503 });
+    expect(stripe.client.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(db.rows[0]!.stripe_checkout_session_id).toBe("cs_prior");
+  });
+
+  it("refuses when the confirming read after expire fails transiently, but not when it is gone", async () => {
+    for (const [error, expected] of [
+      [resourceMissing(), { ok: true }],
+      [Object.assign(new Error("timeout"), { type: "StripeConnectionError" }), { ok: false, status: 503 }],
+    ] as const) {
+      const stripe = fakeStripe({ failExpire: true });
+      const db = fakeDb([priorRow()]);
+      mocks.db = db; mocks.stripe = stripe.client;
+      seedPrior(stripe);
+      let reads = 0;
+      const real = stripe.client.checkout.sessions.retrieve.getMockImplementation()!;
+      stripe.client.checkout.sessions.retrieve.mockImplementation(async (id: string) => {
+        reads += 1;
+        if (reads > 1) throw error;
+        return real(id);
+      });
+
+      await expect(checkout()).resolves.toMatchObject(expected);
+    }
+  });
+});

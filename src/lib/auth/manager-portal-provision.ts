@@ -5,6 +5,7 @@ import {
   findManagerPurchaseForAccount,
   isAxisPendingSessionId,
   isManagerOnboardingComplete,
+  managerCheckoutInProgress,
   provisionPendingManagerAccount,
 } from "@/lib/auth/manager-onboarding";
 import { primaryRoleWhenAddingManager } from "@/lib/auth/profile-primary-role";
@@ -92,6 +93,11 @@ export async function ensureFreeManagerPortalAccess(
   try {
     if (await hasUnlinkedPaidManagerPurchase(supabase, user.id, email)) return { status: "skipped", reason: "unlinked_paid_purchase" };
   } catch { return { status: "skipped", reason: "purchase_unavailable" }; }
+
+  // The plan belongs to the checkout that is still open, so this sweep has nothing to finalize.
+  // Checked BEFORE the profile upsert, the role row and the purchase link, so a refusal never
+  // leaves an account holding the manager role with no tier.
+  if (managerCheckoutInProgress(purchase)) return { status: "skipped", reason: "checkout_in_progress" };
 
   let managerId: string;
   let provisioned = false;

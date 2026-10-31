@@ -40,8 +40,18 @@ export async function authorizeResidentRole(
   return holdsResidentRole(db, userId);
 }
 
-/** Resolve dual-audience API access from stored roles. Multi-role portal context
- * narrows that capability; an unavailable context falls back to resident scope. */
+/**
+ * Resolve dual-audience API access from STORED roles only. The capability is the `profile_roles` row;
+ * the active portal merely narrows which of two capabilities a request is exercising.
+ *
+ * An account acting as the resident reads as the resident. Otherwise an account that stores the
+ * manager role reads as that manager — including a multi-role account with no `axis_active_portal`
+ * cookie and a manager who is also a platform admin, who `AGENTS.md` § "Admin borrows" says
+ * "reads and writes as the manager they are" outside explicit `?oversight=admin`.
+ *
+ * An account that stores neither resident nor manager (admin-only, vendor-only) is denied: these
+ * routes have no scope to give it. An unreadable role list is denied.
+ */
 export async function resolveResidentScopedActorRole(
   db: ServiceRoleClient,
   params: { userId: string | null | undefined; legacyRole: string | null | undefined },
@@ -55,8 +65,9 @@ export async function resolveResidentScopedActorRole(
     if (!roles.length) return "denied";
     if (roles.length === 1) return ["resident", "manager"].includes(roles[0]!) ? roles[0]! : "denied";
     const context = await getPortalAccessContext().catch(() => null);
-    const active = normalizeLegacyRole(context?.effectiveRole);
-    if (context?.user?.id === userId && roles.every((role) => context.roles.includes(role as never)) && roles.includes(active) && ["resident", "manager"].includes(active)) return active;
+    const active = context?.user?.id === userId ? normalizeLegacyRole(context.effectiveRole) : "";
+    if (active === "resident" && roles.includes("resident")) return "resident";
+    if (roles.includes("manager")) return "manager";
     return roles.includes("resident") ? "resident" : "denied";
   } catch {
     return "denied";

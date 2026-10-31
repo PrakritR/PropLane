@@ -193,7 +193,7 @@ export async function persistNormalizedRow(
     } else if (managerSubjectFence) {
       if (!existing) {
         const { error } = await db.from("manager_application_records").insert(values);
-        if (error) throw Object.assign(new Error("Application changed. Refresh and retry."), { code: error.code === "23505" ? "40001" : error.code });
+        if (error) throw Object.assign(new Error("Application changed. Refresh and retry."), { code: error.code === "23505" ? "40001" : error.code, cause: error });
       } else {
         const subject = (existing.row_data as DemoApplicantRow).residentUserId ?? null;
         let query = db.from("manager_application_records").update(values).eq("id", existing.id);
@@ -201,7 +201,7 @@ export async function persistNormalizedRow(
         if (isDraftApplicationRow(incomingDraft)) query = query.eq("row_data->>bucket", "pending").is("row_data->>withdrawnAt", null);
         query = existing.updated_at == null ? query.is("updated_at", null) : query.eq("updated_at", existing.updated_at);
         const { data, error } = await query.select("id");
-        if (error) throw Object.assign(new Error("Could not save application."), { code: error.code });
+        if (error) throw Object.assign(new Error("Could not save application."), { code: error.code, cause: error });
         if (!data?.length) throw Object.assign(new Error("Application changed. Refresh and retry."), { code: "40001" });
       }
     } else if (isDraftApplicationRow(incomingDraft)) {
