@@ -160,6 +160,24 @@ async function checkoutOwner(
   return owner;
 }
 
+/** A Checkout session that is none of the named purposes is a manager plan purchase (the fall-through branch). */
+function isManagerPlanCheckout(session: Stripe.Checkout.Session): boolean {
+  const purpose = session.metadata?.purpose;
+  if (session.mode === "setup" && purpose === "manager_card_setup") return false;
+  return ![
+    COMMS_CREDIT_PURPOSE,
+    COMMS_CREDIT_POOL_PURPOSE,
+    NUMBER_SUBSCRIPTION_PURPOSE,
+    NUMBER_CREDIT_PURPOSE,
+    "rental_application_fee",
+    LINKED_FORM_FEE_PURPOSE,
+    SCREENING_CHECKOUT_PURPOSE,
+    "household_charge",
+    VENDOR_INVOICE_PAY_PURPOSE,
+    VENDOR_INVOICE_DIRECT_PAY_PURPOSE,
+  ].includes(purpose as string);
+}
+
 function logCheckoutCompleted(session: Stripe.Checkout.Session) {
   const customer = session.customer;
   const subscription = session.subscription;
@@ -329,6 +347,12 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
         session.metadata?.purpose !== NUMBER_CREDIT_PURPOSE &&
         !(session.mode === "setup" && session.metadata?.purpose === "manager_card_setup")
       ) {
+        // A manager-plan session that has not paid is acknowledged BEFORE any owner or reservation
+        // lookup: an unpaid session writes nothing and grants nothing, whatever reservation it has
+        // (or lacks). An unmatched PAID session still fails closed in `checkoutOwner` (500, no write).
+        if (isManagerPlanCheckout(session) && !checkoutSessionIndicatesPaidPurchase(session)) {
+          return NextResponse.json({ received: true }, { status: 200 });
+        }
         const owner = await checkoutOwner(db, session);
         if (owner && await refuseWebhookOwner(db, owner, "checkout_completion")) {
           return NextResponse.json({ received: true }, { status: 200 });
