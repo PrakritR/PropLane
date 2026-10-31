@@ -85,12 +85,12 @@ function mockDb(workOrder: WorkOrderRow, bid: BidRow | null, readSnapshot?: Part
   return { client, workOrderUpdates, bidUpdates };
 }
 
-function asVendor(userId = "vendor-1") {
+function asVendor(userId = "vendor-1", storedVendorRole = true) {
   vi.mocked(createSupabaseServerClient).mockResolvedValue({
     auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: userId, user_metadata: {} } } }) },
     // getPortalAccessContext reads the stored roles through the session client.
     from: (table: string) => {
-      if (table === "profile_roles") return profileRolesBuilder([{ user_id: userId, role: "vendor" }]);
+      if (table === "profile_roles") return profileRolesBuilder(storedVendorRole ? [{ user_id: userId, role: "vendor" }] : []);
       throw new Error(`unexpected session table ${table}`);
     },
   } as never);
@@ -161,6 +161,34 @@ describe("POST /api/portal/work-orders/set-vendor-price", () => {
     expect(status).toBe(200);
     expect(bidUpdates).toHaveLength(1);
     expect(bid.amount_cents).toBe(35000);
+  });
+
+  it("denies a legacy profiles.role vendor without a stored vendor role", async () => {
+    asVendor("legacy-vendor", false);
+    const workOrder: WorkOrderRow = { manager_user_id: "mgr-1", vendor_user_id: "legacy-vendor", row_data: { bucket: "scheduled" } };
+    const { client, workOrderUpdates, bidUpdates } = mockDb(workOrder, null);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
+
+    const res = await POST(jsonRequest("http://t", { method: "POST", body: { workOrderId: "WO-legacy-vendor", amountCents: 45000 } }));
+
+    expect((await parseJsonResponse(res)).status).toBe(403);
+    expect(workOrderUpdates).toHaveLength(0);
+    expect(bidUpdates).toHaveLength(0);
+  });
+
+  it("refuses a vendor price update for a work order assigned to another vendor", async () => {
+    asVendor("vendor-attacker");
+    const workOrder: WorkOrderRow = { manager_user_id: "mgr-1", vendor_user_id: "vendor-owner", row_data: { bucket: "scheduled", vendorCostCents: 30000 } };
+    const bid: BidRow = { id: "bid-foreign", status: "submitted", amount_cents: 30000, materials_cents: 0 };
+    const { client, workOrderUpdates, bidUpdates } = mockDb(workOrder, bid);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
+
+    const res = await POST(jsonRequest("http://t", { method: "POST", body: { workOrderId: "WO-owned-by-someone-else", amountCents: 50000 } }));
+
+    expect((await parseJsonResponse(res)).status).toBe(403);
+    expect(workOrderUpdates).toHaveLength(0);
+    expect(bidUpdates).toHaveLength(0);
+    expect(bid.amount_cents).toBe(30000);
   });
 
   it("does not let a stale-read request overwrite a bid the manager accepted in the race window between read and write", async () => {

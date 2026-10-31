@@ -10,7 +10,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { GET, POST } from "@/app/api/portal-work-orders/route";
 
-type Rec = { id: string; manager_user_id: string | null; resident_email: string | null; row_data: unknown; vendor_user_id?: string | null };
+type Rec = { id: string; manager_user_id: string | null; resident_email: string | null; row_data: unknown; row_revision?: number; resident_user_id?: string | null; vendor_user_id?: string | null };
 type AppRec = { id: string; manager_user_id: string; resident_email: string; resident_user_id?: string; property_id?: string };
 type VendorDirRec = { id: string; manager_user_id: string | null; vendor_user_id: string | null; row_data?: { sharedWithManagers?: boolean } };
 
@@ -26,8 +26,9 @@ function mockDb(
   profile: { email: string; role: string } | null,
   appSeed: AppRec[] = [],
   vendorDirSeed: VendorDirRec[] = [],
+  staleReadRevisionById: Record<string, number> = {},
 ) {
-  const store = new Map(seed.map((r) => [r.id, r]));
+  const store = new Map(seed.map((r) => [r.id, { row_revision: 1, ...r }]));
   const otherTableStores = new Map<string, Map<string, Rec>>();
   const vendorDirs = new Map(vendorDirSeed.map((r) => [r.id, r]));
   const upserts: Rec[] = [];
@@ -125,10 +126,13 @@ function mockDb(
           filters.push({ op: "in", col, val });
           return chain;
         },
-        maybeSingle: async () => ({ data: matches()[0] ?? null, error: null }),
+        maybeSingle: async () => {
+          const row = matches()[0];
+          return { data: row ? { ...row, row_revision: staleReadRevisionById[row.id] ?? row.row_revision ?? 1 } : null, error: null };
+        },
         then: (resolve: (v: { data: unknown[]; error: null }) => void) =>
           resolve({
-            data: matches().map((r) => ({ ...r, updated_at: "x" })),
+            data: matches().map((r) => ({ ...r, row_revision: staleReadRevisionById[r.id] ?? r.row_revision ?? 1, updated_at: "x" })),
             error: null,
           }),
         upsert: async (rec: Rec) => {
@@ -157,7 +161,7 @@ function mockDb(
             select: async () => {
               const rows = hit();
               for (const r of rows) {
-                const next = { ...r, ...rec } as Rec;
+                const next = { ...r, ...rec, row_revision: (r.row_revision ?? 1) + 1 } as Rec;
                 if (table === "portal_work_order_records") upserts.push(next);
                 rowStore.set(r.id, next);
               }
@@ -302,6 +306,41 @@ describe("/api/portal-work-orders security", () => {
     expect(status).toBe(200);
     expect(upserts[0]!.manager_user_id).toBe("mgr-b");
     expect(upserts[0]!.resident_email).toBe("res@b.com");
+  });
+
+  it("rejects same-email residency evidence bound to a different resident subject", async () => {
+    asUser("res-b", "res@b.com");
+    const { client, upserts } = mockDb([], { email: "res@b.com", role: "resident" }, [
+      { id: "APP-foreign-subject", manager_user_id: "mgr-b", resident_email: "res@b.com", resident_user_id: "different-auth-subject", property_id: "prop-b" },
+    ]);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
+
+    const res = await POST(jsonRequest("http://t", { method: "POST", body: { row: { id: "WO-foreign-subject", managerUserId: "mgr-b", residentEmail: "res@b.com" } } }));
+    expect((await parseJsonResponse(res)).status).toBe(403);
+    expect(upserts).toHaveLength(0);
+  });
+
+  it("denies a legacy profiles.role manager without a stored manager role", async () => {
+    asUser("legacy-manager", "legacy@test.com");
+    const { client, upserts } = mockDb([], { email: "legacy@test.com", role: "manager" });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
+
+    const res = await POST(jsonRequest("http://t", { method: "POST", body: { row: { id: "WO-legacy-role", managerUserId: "legacy-manager", title: "must not write" } } }));
+    expect((await parseJsonResponse(res)).status).toBe(403);
+    expect(upserts).toHaveLength(0);
+  });
+
+  it("refuses a stale work-order row_revision without changing the current row", async () => {
+    asUser("mgr-a", "a@test.com");
+    const current: Rec = { id: "WO-raced", manager_user_id: "mgr-a", resident_email: "r@test.com", row_revision: 2, row_data: { id: "WO-raced", title: "current" } };
+    const { client, upserts } = mockDb([current], { email: "a@test.com", role: "manager" }, [], [], { "WO-raced": 1 });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
+
+    const res = await POST(jsonRequest("http://t", { method: "POST", body: { row: { id: "WO-raced", title: "stale overwrite" } } }));
+    expect((await parseJsonResponse(res)).status).toBe(409);
+    expect(upserts).toHaveLength(0);
+    expect(current.row_revision).toBe(2);
+    expect(current.row_data).toEqual({ id: "WO-raced", title: "current" });
   });
 
   /**

@@ -111,6 +111,20 @@ describe("/api/portal/property-access-info", () => {
     expect(upserts).toHaveLength(0);
   });
 
+  it("denies a legacy profiles.role manager without a stored manager role", async () => {
+    mockAuth("legacy-manager");
+    const { client, upserts } = mockDb({ role: "manager" });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client);
+
+    const res = await PATCH(jsonRequest("http://t", {
+      method: "PATCH",
+      body: { propertyId: "legacy-property", accessInfo: { gateCode: "must-not-write" } },
+    }));
+
+    expect((await parseJsonResponse(res)).status).toBe(401);
+    expect(upserts).toHaveLength(0);
+  });
+
   it("round-trips access info scoped per manager", async () => {
     mockAuth("mgr-a");
     const { client, upserts } = mockDb({ propertyOwners: { "prop-a": "mgr-a" } });
