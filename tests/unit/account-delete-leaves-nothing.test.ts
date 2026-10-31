@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { heldPortalRoles } from "@/lib/auth/held-portal-roles";
 import { removePortalAccess } from "@/lib/auth/remove-portal-access";
 
 /**
@@ -10,6 +11,13 @@ import { removePortalAccess } from "@/lib/auth/remove-portal-access";
  *    user and profile stayed behind.
  *  - `deleteOwnPortalAccount` reported success whenever no roles remained, even when nothing
  *    had actually removed the login.
+ *
+ * The fix for the first was to UNION the legacy role into the stored list, which opened the
+ * opposite hole: `profiles.role` is the role the account was created as and keeps forever, so an
+ * account whose stored roles are `[admin]` and whose legacy label still reads `resident` looked
+ * like it held a resident portal. Removing its real portal then "left" that phantom behind and the
+ * login survived. The stored rows are now the whole answer, and the legacy value only SUBSTITUTES
+ * for an empty list — the pre-`profile_roles` account it was added for.
  */
 
 type Row = Record<string, unknown>;
@@ -74,14 +82,38 @@ describe("removePortalAccess", () => {
     expect(deleteUser).toHaveBeenCalledWith("legacy-manager");
   });
 
-  it("keeps the login when the legacy role is not the one being removed", async () => {
-    const { db, deleteUser, updated } = mockDb({ roleRows: [{ role: "manager" }], legacyRole: "resident" });
+  it("deletes the login when a stale legacy label is the only thing left", async () => {
+    // Stored roles are [manager]; `profiles.role` still reads "resident" from however the account
+    // was created. Removing manager leaves NO portal, so the login has to go — treating the stale
+    // label as a surviving resident portal is what kept the address un-reusable.
+    const { db, deleteUser } = mockDb({ roleRows: [{ role: "manager" }], legacyRole: "resident" });
+
+    const result = await removePortalAccess(db as never, "stale-label", "manager");
+
+    expect(result.mode).toBe("deleted_auth_user");
+    expect(deleteUser).toHaveBeenCalledWith("stale-label");
+  });
+
+  it("keeps the login when another STORED role remains", async () => {
+    const { db, deleteUser, updated } = mockDb({
+      roleRows: [{ role: "manager" }, { role: "resident" }],
+      legacyRole: "manager",
+    });
 
     const result = await removePortalAccess(db as never, "dual", "manager");
 
     expect(result.mode).toBe("revoked_role");
     expect(deleteUser).not.toHaveBeenCalled();
     expect(updated.some((entry) => entry.table === "profiles" && entry.patch.role === "resident")).toBe(true);
+  });
+
+  it("removes the admin portal of an admin-only account whose legacy label reads resident", async () => {
+    const { db, deleteUser } = mockDb({ roleRows: [{ role: "admin" }], legacyRole: "resident" });
+
+    const result = await removePortalAccess(db as never, "ops", "admin");
+
+    expect(result.mode).toBe("deleted_auth_user");
+    expect(deleteUser).toHaveBeenCalledWith("ops");
   });
 
   it("still reports no_role when the account never held that portal", async () => {
@@ -91,5 +123,34 @@ describe("removePortalAccess", () => {
 
     expect(result.mode).toBe("no_role");
     expect(deleteUser).not.toHaveBeenCalled();
+  });
+
+  it("leaves a legacy-only account's unrelated portal alone", async () => {
+    const { db, deleteUser } = mockDb({ roleRows: [], legacyRole: "resident" });
+
+    const result = await removePortalAccess(db as never, "legacy-resident", "manager");
+
+    expect(result.mode).toBe("no_role");
+    expect(deleteUser).not.toHaveBeenCalled();
+  });
+});
+
+describe("heldPortalRoles", () => {
+  it("answers with the stored rows and never adds the legacy label to them", () => {
+    expect(heldPortalRoles([{ role: "admin" }], "resident")).toEqual(["admin"]);
+    expect(heldPortalRoles([{ role: "manager" }], "resident")).toEqual(["manager"]);
+    expect(heldPortalRoles([{ role: "resident" }, { role: "manager" }], "admin")).toEqual(["resident", "manager"]);
+  });
+
+  it("substitutes the legacy label only for an account with no stored role at all", () => {
+    expect(heldPortalRoles([], "manager")).toEqual(["manager"]);
+    expect(heldPortalRoles(null, "resident")).toEqual(["resident"]);
+    expect(heldPortalRoles(undefined, null)).toEqual([]);
+    expect(heldPortalRoles([], "")).toEqual([]);
+  });
+
+  it("normalizes case and whitespace, and drops duplicates and blanks", () => {
+    expect(heldPortalRoles([{ role: " Manager " }, { role: "MANAGER" }, { role: "" }], null)).toEqual(["manager"]);
+    expect(heldPortalRoles([], "  Resident  ")).toEqual(["resident"]);
   });
 });

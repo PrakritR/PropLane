@@ -1,3 +1,4 @@
+import { applicationPropertyId } from "@/lib/application-property-id";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { pickPrimaryFilingScope } from "@/lib/resident-filing-scope";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -127,17 +128,7 @@ export async function residentHasApprovedResidency(
   return (data ?? []).some((row) => isApprovedApplicationRow(row));
 }
 
-function propertyIdFromApplication(row: ApplicationScopeRow): string {
-  const fromCols =
-    String(row.assigned_property_id ?? "").trim() || String(row.property_id ?? "").trim();
-  if (fromCols) return fromCols;
-  const rd = row.row_data ?? {};
-  return (
-    String(rd.assignedPropertyId ?? "").trim() ||
-    String(rd.propertyId ?? "").trim() ||
-    String((rd.application as { propertyId?: string } | undefined)?.propertyId ?? "").trim()
-  );
-}
+const propertyIdFromApplication = applicationPropertyId;
 
 /**
  * Prefer approved residencies over pending apps when stamping filings.

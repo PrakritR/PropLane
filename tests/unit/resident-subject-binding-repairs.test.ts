@@ -253,6 +253,69 @@ describe("boundResidentSubjectForManagerHouse", () => {
   });
 });
 
+/**
+ * The five places an application row can name a house are a PRECEDENCE, not a set of alternatives:
+ * the `assigned_property_id` column, then `property_id`, then the payload's `assignedPropertyId`,
+ * `propertyId` and nested `application.propertyId`. `resolveResidentFilingScope` has always read
+ * them that way; these two helpers unioned them, so a residency whose authoritative column says
+ * house A but whose stale intake payload still says house B admitted house B as well — widening a
+ * per-house scope check and a per-house subject binding to a property the resident is not at.
+ */
+describe("a stale lower-precedence house is not a second residency", () => {
+  const authoritativeA = {
+    id: "PROPLANE-STALE",
+    manager_user_id: MANAGER,
+    resident_email: "resident@example.test",
+    property_id: null,
+    assigned_property_id: "prop-a",
+    row_data: { residentUserId: RESIDENT, bucket: "approved", application: { propertyId: "prop-b" } },
+  };
+
+  it("residentSubjectHasHouse allows the assigned house and denies the stale nested one", async () => {
+    const db = createMemoryDb({
+      manager_application_records: [authoritativeA],
+      portal_household_charge_records: [],
+      portal_lease_pipeline_records: [],
+    });
+    await expect(residentSubjectHasHouse(db as never, RESIDENT, "resident@example.test", MANAGER, "prop-a")).resolves.toBe(true);
+    await expect(residentSubjectHasHouse(db as never, RESIDENT, "resident@example.test", MANAGER, "prop-b")).resolves.toBe(false);
+  });
+
+  it("boundResidentSubjectForManagerHouse binds the assigned house and not the stale nested one", async () => {
+    const db = createMemoryDb({ manager_application_records: [authoritativeA], portal_lease_pipeline_records: [] });
+    await expect(
+      boundResidentSubjectForManagerHouse(db as never, { managerUserId: MANAGER, propertyId: "prop-a", residentEmail: "resident@example.test" }),
+    ).resolves.toBe(RESIDENT);
+    await expect(
+      boundResidentSubjectForManagerHouse(db as never, { managerUserId: MANAGER, propertyId: "prop-b", residentEmail: "resident@example.test" }),
+    ).resolves.toBeNull();
+  });
+
+  it("falls through to the nested house when no higher-precedence location names one", async () => {
+    const nestedOnly = { ...authoritativeA, assigned_property_id: null, property_id: null };
+    const db = createMemoryDb({
+      manager_application_records: [nestedOnly],
+      portal_household_charge_records: [],
+      portal_lease_pipeline_records: [],
+    });
+    await expect(residentSubjectHasHouse(db as never, RESIDENT, "resident@example.test", MANAGER, "prop-b")).resolves.toBe(true);
+    await expect(
+      boundResidentSubjectForManagerHouse(db as never, { managerUserId: MANAGER, propertyId: "prop-b", residentEmail: "resident@example.test" }),
+    ).resolves.toBe(RESIDENT);
+  });
+
+  it("lets the property_id column outrank the payload when there is no assigned column", async () => {
+    const columnB = { ...authoritativeA, assigned_property_id: null, property_id: "prop-c" };
+    const db = createMemoryDb({
+      manager_application_records: [columnB],
+      portal_household_charge_records: [],
+      portal_lease_pipeline_records: [],
+    });
+    await expect(residentSubjectHasHouse(db as never, RESIDENT, "resident@example.test", MANAGER, "prop-c")).resolves.toBe(true);
+    await expect(residentSubjectHasHouse(db as never, RESIDENT, "resident@example.test", MANAGER, "prop-b")).resolves.toBe(false);
+  });
+});
+
 describe("residentSubjectHasHouse reads every place an application records the house", () => {
   it("accepts a residency whose house is only in the nested application payload", async () => {
     const db = createMemoryDb({

@@ -1,4 +1,5 @@
 import "server-only";
+import { applicationPropertyId } from "@/lib/application-property-id";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** Only server-stored subject ids can bind historical housing to a login. */
@@ -35,15 +36,6 @@ function sameEmail(stored: unknown, address: string): boolean {
   return typeof stored === "string" && stored.trim().toLowerCase() === address;
 }
 
-/** Every place an application row can record the house, the same set `resolveResidentFilingScope` reads. */
-function applicationPropertyIds(row: { property_id?: unknown; assigned_property_id?: unknown; row_data?: unknown }): string[] {
-  const data = (row.row_data ?? {}) as Record<string, unknown>;
-  const nested = (data.application ?? {}) as Record<string, unknown>;
-  return [row.assigned_property_id, row.property_id, data.assignedPropertyId, data.propertyId, nested.propertyId]
-    .map((value) => String(value ?? "").trim())
-    .filter(Boolean);
-}
-
 function applicationIsLive(row: { row_data?: unknown }): boolean {
   const data = (row.row_data ?? {}) as Record<string, unknown>;
   return !data.withdrawnAt && !["rejected", "withdrawn"].includes(String(data.bucket ?? "").toLowerCase());
@@ -53,7 +45,7 @@ export async function residentSubjectHasHouse(db: SupabaseClient, userId: string
   if (!userId || !ownerId || !propertyId) return false;
   const app = await db.from("manager_application_records").select("row_data, property_id, assigned_property_id").eq("manager_user_id", ownerId).eq("row_data->>residentUserId", userId);
   if (app.error) return false;
-  if ((app.data ?? []).some((row) => applicationIsLive(row) && applicationPropertyIds(row).includes(propertyId))) return true;
+  if ((app.data ?? []).some((row) => applicationIsLive(row) && applicationPropertyId(row) === propertyId)) return true;
   for (const table of ["portal_household_charge_records", "portal_lease_pipeline_records"]) {
     const result = await db.from(table).select("id").eq("manager_user_id", ownerId).eq("resident_user_id", userId).eq("property_id", propertyId).limit(1);
     if (result.error) continue;
@@ -89,7 +81,7 @@ export async function boundResidentSubjectForManagerHouse(
   if (apps.error) return null;
   for (const row of apps.data ?? []) {
     if (!sameEmail(row.resident_email, email)) continue;
-    if (!applicationIsLive(row) || !applicationPropertyIds(row).includes(propertyId)) continue;
+    if (!applicationIsLive(row) || applicationPropertyId(row) !== propertyId) continue;
     const subject = String((row.row_data as Record<string, unknown> | null)?.residentUserId ?? "").trim();
     if (subject) subjects.add(subject);
   }
