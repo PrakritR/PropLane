@@ -469,6 +469,26 @@ describe("a live NON-Stripe entitlement is never replaced or reserved over", () 
     });
   }
 
+  for (const status of ["paused", "incomplete", "weird"]) {
+    it(`refuses a stored subscription whose status is ${status} even when the prior session is gone`, async () => {
+      const stripe = fakeStripe();
+      const db = fakeDb([subscribed({ subscription_status: status })]);
+      mocks.db = db; mocks.stripe = stripe.client;
+      stripe.client.checkout.sessions.retrieve.mockRejectedValue(
+        Object.assign(new Error("No such checkout.session: cs_prior"), {
+          code: "resource_missing", statusCode: 404, type: "StripeInvalidRequestError",
+        }),
+      );
+
+      const result = await checkout();
+
+      expect(result).toMatchObject({ ok: false, status: 409 });
+      expect((result as { error: string }).error).toMatch(/already have an active plan/i);
+      expect(stripe.client.checkout.sessions.create).not.toHaveBeenCalled();
+      expect(db.rows[0]!.stripe_checkout_session_id).toBe("cs_prior");
+    });
+  }
+
   it("refuses a subscription id whose status cannot be read, since that cannot disprove a live plan", async () => {
     const stripe = fakeStripe();
     // `subscription_status` arrives in migration 20261020130000; code can reach a database without it.
@@ -482,16 +502,18 @@ describe("a live NON-Stripe entitlement is never replaced or reserved over", () 
     expect(stripe.client.checkout.sessions.create).not.toHaveBeenCalled();
   });
 
-  it("still replaces a reservation whose subscription Stripe has already cancelled", async () => {
-    const stripe = fakeStripe();
-    // Every cancellation path writes tier free and clears the id; a lingering dead id is not a plan.
-    const db = fakeDb([subscribed({ tier: "free", subscription_status: "canceled" })]);
-    mocks.db = db; mocks.stripe = stripe.client;
-    seedPrior(stripe);
+  for (const status of ["canceled", "incomplete_expired"]) {
+    it(`still replaces a reservation whose subscription is ${status}`, async () => {
+      const stripe = fakeStripe();
+      // Every cancellation path writes tier free and clears the id; a lingering dead id is not a plan.
+      const db = fakeDb([subscribed({ tier: "free", subscription_status: status })]);
+      mocks.db = db; mocks.stripe = stripe.client;
+      seedPrior(stripe);
 
-    await expect(checkout()).resolves.toMatchObject({ ok: true, sessionId: "cs_new_1" });
-    expect(db.rows[0]!.stripe_checkout_session_id).toBe("cs_new_1");
-  });
+      await expect(checkout()).resolves.toMatchObject({ ok: true, sessionId: "cs_new_1" });
+      expect(db.rows[0]!.stripe_checkout_session_id).toBe("cs_new_1");
+    });
+  }
 
   it("still lets a signup trial with no subscription behind it through", async () => {
     const stripe = fakeStripe();

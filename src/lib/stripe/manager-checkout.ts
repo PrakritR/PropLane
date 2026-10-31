@@ -90,8 +90,12 @@ const ACTIVE_PLAN_REFUSAL: Refusal = {
   error: "You already have an active plan. Manage it from Billing instead of starting another subscription.",
 };
 
-/** Subscription states Stripe is still billing or retrying. `canceled` / `incomplete_expired` are not. */
-const LIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "past_due", "unpaid"]);
+/**
+ * The only subscription states that prove a stored subscription id is dead. Everything else (paused,
+ * incomplete, unpaid, past_due, active, trialing, empty, or a value this code has never seen) still
+ * counts as a live entitlement: an allowlist of live states would let a new Stripe status through.
+ */
+const TERMINAL_STRIPE_SUBSCRIPTION_STATUSES = new Set(["canceled", "incomplete_expired"]);
 
 /**
  * A plan this account is already on, which no new Stripe Checkout may be reserved over: a live
@@ -102,8 +106,8 @@ const LIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "past_d
  * The live Stripe subscription has to be named here and not left to `closePriorCheckoutSession`: a
  * prior `cs_` id Stripe no longer knows (a key rotation, a database seeded from another mode) is
  * reported "gone" and lets the compare-and-swap proceed, which is correct for an abandoned attempt
- * and wrong for a subscription that is still charging. An UNKNOWN status (the column not there yet,
- * or never written) cannot disprove one, so a subscription id with no readable status still refuses.
+ * and wrong for a subscription that is still charging. Only an explicitly terminal status (`canceled`, `incomplete_expired`) disproves one; an UNKNOWN
+ * status (the column not there yet, never written, or a value this code does not recognise) cannot, so it still refuses.
  *
  * A signup trial (`billing: "trial"` with no subscription behind it) and an `axis_intent_` free/trial
  * row are NOT plans of this kind: a verified Checkout is exactly what they are waiting for.
@@ -115,7 +119,7 @@ function holdsLiveEntitlement(prior: PriorReservation): boolean {
   const subscriptionId = String(prior.stripe_subscription_id ?? "").trim();
   if (subscriptionId) {
     const status = String(prior.subscription_status ?? "").trim().toLowerCase();
-    if (!status || LIVE_STRIPE_SUBSCRIPTION_STATUSES.has(status)) return true;
+    if (!TERMINAL_STRIPE_SUBSCRIPTION_STATUSES.has(status)) return true;
   }
   const tier = String(prior.tier ?? "").trim().toLowerCase();
   const signupTrial = String(prior.billing ?? "").trim().toLowerCase() === "trial" && !subscriptionId;
