@@ -140,19 +140,19 @@ describe("resident route role gate — legacy resident with no profile_roles row
     PROFILE_ROLES = [];
   });
 
-  it("still allows the extend-lease route", async () => {
+  it("denies the extend-lease route", async () => {
     const res = await callExtendLease();
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(403);
   });
 
-  it("still allows the move-out availability route", async () => {
+  it("denies the move-out availability route", async () => {
     const res = await callCheckMoveOut();
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
   });
 
-  it("still allows the resident SMS route", async () => {
+  it("denies the resident SMS route", async () => {
     const res = await callSmsConversations();
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
   });
 });
 

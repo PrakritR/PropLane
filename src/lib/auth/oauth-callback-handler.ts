@@ -186,6 +186,7 @@ export async function handleOAuthCallback(
     }
   } catch (syncError) {
     console.error("OAuth profile sync failed:", syncError);
+    applyRedirect(new URL("/auth/continue", requestOrigin));
   }
 
   clearOAuthNextCookie(response);

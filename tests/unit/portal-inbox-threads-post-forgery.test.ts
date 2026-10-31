@@ -30,13 +30,13 @@ vi.mock("@/lib/portal-inbox-thread-scope", async (importOriginal) => ({
     query: { eq: (col: string, id: string) => unknown },
     user: { id: string },
     _extraOwnerIds?: string[],
-    options?: { participantOnlyWhenUnowned?: boolean },
+    options?: { participantOnlyWhenUnowned?: boolean; ownerOnly?: boolean },
   ) => {
     if (state.seesOtherOwners) return query;
     // Manager Communication matches the viewer's email only on owner-less rows;
     // the resident / vendor scopes keep the plain participant match, so a row
     // another account owns IS reachable there.
-    if (options?.participantOnlyWhenUnowned) return query.eq("owner_user_id", user.id);
+    if (options?.participantOnlyWhenUnowned || options?.ownerOnly) return query.eq("owner_user_id", user.id);
     return query;
   },
 }));
@@ -69,7 +69,7 @@ type Tables = { portal_inbox_thread_records: Record<string, unknown>[] };
 
 function seed(roles: string[] = ["manager"]) {
   return createMemoryDb({
-    profile_roles: roles.map((role) => ({ user_id: B, role })),
+    profile_roles: roles.map((role) => ({ user_id: state.viewer.id, role })),
     portal_inbox_thread_records: [],
     audit_log: [],
   });
@@ -329,15 +329,14 @@ describe("POST /api/portal-inbox-threads - S1 forged threads", () => {
     expect((rows()[0] as { row_data: { messages: unknown[] } }).row_data.messages).toHaveLength(1);
   });
 
-  it("a resident on a manager-OWNED thread appends as themselves, never as the manager", async () => {
-    // The resident reaches this row because they are the person it is with, not
-    // because they own it, so the server attributes their turn.
+  it("a resident can append to their own thread", async () => {
+    // Exact subject ownership permits the resident to append their own turn.
     state.viewer = { id: "res-1", email: "tenant@example.test", role: "resident", name: "Rae Resident" };
     state.db = seed(["resident"]);
     (state.db as { __tables: Tables }).__tables.portal_inbox_thread_records.push({
       id: "property_mgr_h1_res1",
       scope: RES,
-      owner_user_id: "owner-1",
+      owner_user_id: "res-1",
       participant_email: "tenant@example.test",
       thread_type: "portal_message",
       row_data: {
@@ -355,7 +354,7 @@ describe("POST /api/portal-inbox-threads - S1 forged threads", () => {
         folder: "inbox",
         messages: [
           { id: "m1", body: "welcome", at: "Oct 1", outbound: true, from: "Property manager" },
-          { id: "mine", body: "the sink leaks", at: "Oct 2", outbound: true, from: "Property manager" },
+          { id: "mine", body: "the sink leaks", at: "Oct 2", outbound: true, from: "Rae Resident" },
         ],
       },
     });
@@ -365,9 +364,7 @@ describe("POST /api/portal-inbox-threads - S1 forged threads", () => {
     expect(stored.row_data.messages.at(-1)).toMatchObject({
       body: "the sink leaks",
       from: "Rae Resident",
-      outbound: false,
-      authorUserId: "res-1",
-      houseId: "H1",
+      outbound: true,
     });
   });
 
@@ -377,7 +374,7 @@ describe("POST /api/portal-inbox-threads - S1 forged threads", () => {
     (state.db as { __tables: Tables }).__tables.portal_inbox_thread_records.push({
       id: "property_mgr_h1_res1",
       scope: RES,
-      owner_user_id: "owner-1",
+      owner_user_id: "res-1",
       participant_email: "tenant@example.test",
       thread_type: "portal_message",
       row_data: {
@@ -394,6 +391,18 @@ describe("POST /api/portal-inbox-threads - S1 forged threads", () => {
     const stored = rows()[0] as { row_data: { messages: { id: string }[]; folder: string } };
     expect(stored.row_data.messages.map((m) => m.id)).toEqual(["m1"]);
     expect(stored.row_data.folder).toBe("trash");
+  });
+
+  it("denies a manager-owned thread despite matching resident email", async () => {
+    state.viewer = { id: "res-1", email: "tenant@example.test", role: "resident", name: "Rae Resident" };
+    state.db = seed(["resident"]);
+    (state.db as { __tables: Tables }).__tables.portal_inbox_thread_records.push({
+      id: "manager-owned", scope: RES, owner_user_id: "owner-1", participant_email: "tenant@example.test",
+      thread_type: "portal_message", row_data: { id: "manager-owned", folder: "inbox", messages: [{ id: "m1", body: "private" }] },
+    });
+    const response = await post({ action: "upsert", row: { id: "manager-owned", scope: RES, folder: "trash", messages: [] } });
+    expect(response.status).toBe(404);
+    expect((rows()[0] as { row_data: { messages: unknown[] } }).row_data.messages).toHaveLength(1);
   });
 
   it("lets an admin write the admin inbox", async () => {

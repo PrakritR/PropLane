@@ -10,7 +10,7 @@ const sent = vi.hoisted(() => ({
   vendor: [] as Array<{ vendorDirectoryId: string; phone: string; text: string; ownerUserId: string }>,
   keys: new Set<string>(),
   team: [] as Array<{ memberUserId: string; text: string; ownerUserId: string }>,
-  resident: [] as Array<{ residentEmail: string; text: string }>,
+  resident: [] as Array<{ residentUserId: string; text: string }>,
   optedOut: new Set<string>(),
 }));
 
@@ -26,8 +26,8 @@ vi.mock("@/lib/vendor-dispatch/send.server", () => ({
     sent.team.push({ memberUserId: input.memberUserId, text: input.text, ownerUserId: input.ownerUserId });
     return { ok: true, outboxId: null };
   },
-  sendResidentDispatchText: async (_db: unknown, input: { residentEmail: string; text: string }) => {
-    sent.resident.push({ residentEmail: input.residentEmail, text: input.text });
+  sendResidentDispatchText: async (_db: unknown, input: { residentUserId: string; text: string }) => {
+    sent.resident.push({ residentUserId: input.residentUserId, text: input.text });
     return { ok: true, outboxId: null };
   },
 }));
@@ -42,7 +42,7 @@ vi.mock("@/lib/team-comms.server", () => ({
 vi.mock("@/lib/work-order-events.server", () => ({ workOrderEvent: async () => ({ eventId: "e", duplicate: false, delivered: 0, deferred: 0, failed: 0 }) }));
 vi.mock("@/lib/google-calendar/sync.server", () => ({ syncWorkOrderToGoogleCalendar: async (_db: unknown, _owner: string, row: unknown) => row }));
 vi.mock("@/lib/agent-notify.server", () => ({ notifyManagerFromAgent: async () => undefined }));
-vi.mock("@/lib/work-order-resident-confirmation.server", () => ({ requestResidentConfirmation: async () => null, resolveResidentConfirmationBySms: async () => null }));
+vi.mock("@/lib/work-order-resident-confirmation.server", () => ({ requestResidentConfirmation: async () => null, prepareResidentConfirmation: async () => null, resolveResidentConfirmationBySms: async () => null }));
 vi.mock("@/lib/work-order-vendor-invoice.server", () => ({ ensureSubmittedVendorInvoiceForMarkedDone: async () => undefined }));
 vi.mock("@/lib/vendor-invoice-submit.server", () => ({ prepareVendorInvoiceSubmission: async () => ({}), insertVendorInvoiceRow: async () => ({ data: null }) }));
 vi.mock("@/lib/manager-bills.server", () => ({ createBillFromVendorInvoice: async () => ({ id: "bill" }) }));
@@ -57,6 +57,7 @@ import { sweepVendorDispatch } from "@/lib/vendor-dispatch/sweep.server";
 import { handleManagerDispatchReply, handleResidentDispatchReply, handleVendorDispatchMedia, handleVendorDispatchReply } from "@/lib/vendor-dispatch/inbound.server";
 
 type Row = Record<string, unknown>;
+const RESIDENT = "resident-1";
 const OWNER = "owner-1";
 const OWNER2 = "owner-2";
 const WS = "ws-1";
@@ -88,7 +89,7 @@ function world() {
       { rule_id: "r2", vendor_directory_id: "w1", position: 0 },
     ],
     portal_work_order_records: [
-      { id: "wo-1", manager_user_id: OWNER, vendor_user_id: null, row_data: { id: "wo-1", reference: "WO-1", propertyName: "5259 Brooklyn", unit: "R3", title: "Locked out", priority: "Emergency", status: "Submitted", bucket: "open", description: "I am locked out, call me at (206) 555-0142 or dana@example.com", propertyAddress: "5259 Brooklyn Ave NE, Seattle, WA 98105", propertyId: PROP, managerUserId: OWNER, residentName: "Dana Lee", residentEmail: "dana@example.com", category: "access" } },
+      { id: "wo-1", manager_user_id: OWNER, resident_user_id: RESIDENT, vendor_user_id: null, row_data: { id: "wo-1", reference: "WO-1", propertyName: "5259 Brooklyn", unit: "R3", title: "Locked out", priority: "Emergency", status: "Submitted", bucket: "open", description: "I am locked out, call me at (206) 555-0142 or dana@example.com", propertyAddress: "5259 Brooklyn Ave NE, Seattle, WA 98105", propertyId: PROP, managerUserId: OWNER, residentName: "Dana Lee", residentEmail: "dana@example.com", category: "access" } },
     ],
     profiles: [{ id: OWNER, email: "owner@example.com", full_name: "Olive Owner" }],
   });
@@ -150,8 +151,12 @@ describe("a lockout, start to finish by text", () => {
     // 5. DONE: the resident is asked; a stranger's YES is ignored; the resident's YES completes it.
     expect(await vendorSays(db, "+12065550102", "DONE")).toMatchObject({ handled: true });
     expect(sent.resident.at(-1)!.text).toBe("Your service is done. Is it fixed? Reply YES or NO");
-    expect(await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentEmail: "someone@else.com", body: "YES", now: T0 })).toEqual({ handled: false });
-    expect(await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentEmail: "dana@example.com", body: "YES", now: T0 })).toMatchObject({ handled: true });
+    expect(await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: "stranger", residentEmail: "someone@else.com", body: "YES", now: T0 })).toEqual({ handled: false });
+    const before = sent.team.length;
+    expect(await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: "replacement", residentEmail: "dana@example.com", body: "YES", now: T0 })).toEqual({ handled: false });
+    expect(rows(db, "vendor_dispatch_runs")[0]).toMatchObject({ status: "accepted", completion_state: "awaiting_resident" });
+    expect(sent.team).toHaveLength(before);
+    expect(await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: RESIDENT, residentEmail: "dana@example.com", body: "YES", now: T0 })).toMatchObject({ handled: true });
     expect(rows(db, "vendor_dispatch_runs")[0]).toMatchObject({ status: "completed", completion_state: "confirmed" });
     expect(rows(db, "portal_work_order_records")[0]!.row_data).toMatchObject({ bucket: "completed", status: "Completed" });
 
@@ -171,7 +176,7 @@ describe("a lockout, start to finish by text", () => {
     await vendorSays(db, "+12065550101", "YES 2pm");
     await vendorSays(db, "+12065550101", "DONE");
     sent.team.length = 0;
-    await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentEmail: "dana@example.com", body: "no", now: T0 });
+    await handleResidentDispatchReply(db as never, { ownerUserId: OWNER, residentUserId: RESIDENT, residentEmail: "dana@example.com", body: "no", now: T0 });
     expect(rows(db, "vendor_dispatch_runs")[0]).toMatchObject({ status: "accepted", completion_state: "reopened" });
     expect(sent.team.at(-1)!.text).toMatch(/NOT fixed/);
     expect(await vendorSays(db, "+12065550101", "DONE")).toMatchObject({ handled: true });
@@ -329,6 +334,17 @@ describe("the hour-before reminder", () => {
     await sweep(db, minutesAfter(33));
     await sweep(db, minutesAfter(45));
     expect(reminders()).toHaveLength(1);
+  });
+
+  it("does not remind a vendor when the service was independently completed", async () => {
+    const db = world();
+    await fileLockout(db);
+    await manager(db, "Y");
+    await vendorSays(db, "+12065550101", "YES 2:30pm");
+    const job = db.__tables.portal_work_order_records![0]!;
+    job.row_data = { ...(job.row_data as Record<string, unknown>), bucket: "completed", status: "Completed" };
+    expect((await sweep(db, minutesAfter(31))).jobReminders).toBe(0);
+    expect(reminders()).toHaveLength(0);
   });
 
   it("does not remind a finished job, a job already past, or a job accepted minutes ago", async () => {

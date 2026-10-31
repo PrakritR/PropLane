@@ -3,7 +3,6 @@ import {
   removeResidentApplication,
 } from "@/lib/auth/remove-resident-application";
 import { NextResponse } from "next/server";
-import { isAdminUser } from "@/lib/auth/admin-preview";
 import { canHardDeleteResident, deleteResidentAccount } from "@/lib/auth/delete-portal-account";
 import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
@@ -17,8 +16,17 @@ function normalizeEmail(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
-function canManageResidentAccess(role: string | null | undefined): boolean {
-  return role === "admin" || role === "manager" || role === "owner" || role === "pro";
+/**
+ * Who may remove a resident's access, from STORED `profile_roles` rows only.
+ *
+ * It used to read the legacy singular `profiles.role`, which is the role the account was CREATED
+ * as and keeps forever. The atomic admin revoke leaves that column reading `admin` on a demoted
+ * Overall admin with no stored role left, so the legacy value granted platform-wide resident
+ * deletion to an account that holds nothing (`AGENTS.md` § "`profiles.role` is legacy and singular").
+ * The retired `owner` / `pro` labels only ever existed in that column.
+ */
+function canManageResidentAccess(storedRoles: readonly string[]): boolean {
+  return storedRoles.includes("admin") || storedRoles.includes("manager");
 }
 
 export async function POST(req: Request) {
@@ -67,12 +75,15 @@ export async function POST(req: Request) {
         .maybeSingle();
       email = normalizeEmail(appRow?.resident_email);
     }
-    const { data: requestor } = await svc.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    if (!requestor || !canManageResidentAccess(requestor.role)) {
+    const { data: roleRows, error: roleError } = await svc.from("profile_roles").select("role").eq("user_id", user.id);
+    // An unreadable role list grants nothing.
+    if (roleError) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    const storedRoles = (roleRows ?? []).map((row) => String(row.role ?? "").trim().toLowerCase());
+    if (!canManageResidentAccess(storedRoles)) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const isAdmin = String(requestor.role ?? "").toLowerCase() === "admin" || (await isAdminUser(user.id));
+    const isAdmin = storedRoles.includes("admin");
 
     if (preview) {
       if (!applicationId) {

@@ -273,6 +273,7 @@ function workOrder(
     id,
     manager_user_id: MANAGER,
     vendor_user_id: vendorUserId,
+    row_revision: 1,
     updated_at: "2026-07-01T00:00:00.000Z",
     row_data: {
       id,
@@ -336,7 +337,7 @@ function seed() {
       // Assigned but bidding closed — submit_bid must refuse.
       workOrder("WO-E", VENDOR_A.id, { biddingOpen: false }),
       // Not assigned to anyone; visible to vendor A only through a sent offer.
-      workOrder("WO-F", null, { biddingOpen: true }),
+      workOrder("WO-F", null, { biddingOpen: true, propertyName: "Secret House", propertyAddress: "123 Private Street, Seattle, WA 98101", unit: "Secret Unit", residentName: "Secret Resident", preferredArrival: "Secret Arrival", residentUserId: "resident-secret-id", dispatch: { candidates: ["dispatch-secret-id"] } }),
     ],
     work_order_vendor_offers: [
       { id: "OFF-A", work_order_id: "WO-F", vendor_user_id: VENDOR_A.id, vendor_directory_id: "dir_a", manager_user_id: MANAGER, status: "sent", created_at: "2026-07-01T00:00:00.000Z" },
@@ -488,7 +489,9 @@ describe("vendor read tools: cross-vendor isolation", () => {
     const res = (await getJobDetailsTool.handler(ctx, { workOrderId: "WO-F" })) as {
       workOrder: { id: string; assignment: string };
     };
-    expect(res.workOrder).toMatchObject({ id: "WO-F", assignment: "offered" });
+    expect(res.workOrder).toMatchObject({ id: "WO-F", assignment: "offered", property: "Seattle, WA", residentName: null });
+    expect(JSON.stringify(res)).not.toMatch(/Secret House|Secret Unit|Secret Resident|Secret Arrival|123 Private/);
+    expect(JSON.stringify(await listMyJobsTool.handler(ctx, {}))).not.toMatch(/Secret House|Secret Unit|Secret Resident|123 Private/);
   });
 
   it("list_my_bids returns only the vendor's own bids", async () => {
@@ -609,6 +612,65 @@ describe("vendor write tools: previews reject foreign/invalid targets", () => {
 });
 
 describe("vendor write tools: happy paths write audited, scoped rows", () => {
+  it("keeps nested and flat SMS test provenance out of action previews and reply results", async () => {
+    const { ctx, tables, mutations } = seed();
+    const sentinel = {
+      actorUserId: "sms-proof-actor-11111111",
+      managerUserId: "sms-proof-manager-22222222",
+      sessionId: "sms-proof-session-33333333",
+      workspaceId: "sms-proof-workspace-44444444",
+    };
+    const provenance = {
+      smsTestProvenance: sentinel,
+      smsTestSessionId: sentinel.sessionId,
+      sms_test_actor_user_id: sentinel.actorUserId,
+      sms_test_manager_user_id: sentinel.managerUserId,
+      sms_test_session_id: sentinel.sessionId,
+      sms_test_workspace_id: sentinel.workspaceId,
+      test_actor_user_id: sentinel.actorUserId,
+      test_session_id: sentinel.sessionId,
+      test_workspace_id: sentinel.workspaceId,
+    };
+    for (const id of ["WO-C", "WO-F"]) {
+      const row = tables.portal_work_order_records!.find((candidate) => candidate.id === id)!;
+      row.row_data = { ...(row.row_data as Record<string, unknown>), ...provenance };
+    }
+
+    const doneInput = { workOrderId: "WO-C", workDoneSummary: "Synthetic completed-work note" };
+    const bidInput = { workOrderId: "WO-F", amountUsd: 450, proposedTimeIso: "2026-07-22T17:00:00.000Z" };
+    const donePreview = await previewWrite(markJobDoneTool, ctx, doneInput);
+    const bidPreview = await previewWrite(submitBidTool, ctx, bidInput);
+    const doneReply = await executeWrite(markJobDoneTool, ctx, doneInput);
+    const bidReply = await executeWrite(submitBidTool, ctx, bidInput);
+    expect(donePreview.ok).toBe(true);
+    expect(bidPreview.ok).toBe(true);
+    expect(doneReply.ok).toBe(true);
+    expect(bidReply.ok).toBe(true);
+    const outputs = JSON.stringify({ donePreview, bidPreview, doneReply, bidReply });
+    const forbiddenKeys = /(?:smsTestProvenance|smsTestSessionId|sms_test_|test_actor_user_id|test_session_id|test_workspace_id|testWorkspaceId)/i;
+    for (const key of Object.keys(provenance)) expect(outputs).not.toContain(key);
+    for (const value of Object.values(sentinel)) expect(outputs).not.toContain(value);
+    expect(outputs).not.toMatch(forbiddenKeys);
+    expect(sponsoredSend).not.toHaveBeenCalled();
+    // Both writes and any manager notice stay inside the in-memory fake DB.
+    expect(mutations.some((mutation) => mutation.table === "portal_inbox_thread_records")).toBe(true);
+  });
+
+  it("projects an offered job in both bid preview and submitted reply while retaining hired labels", async () => {
+    const { ctx } = seed();
+    const input = { workOrderId: "WO-F", amountUsd: 450, proposedTimeIso: "2026-07-22T17:00:00.000Z" };
+    const preview = await previewWrite(submitBidTool, ctx, input);
+    expect(preview.ok).toBe(true);
+    const submitted = await executeWrite(submitBidTool, ctx, input);
+    expect(submitted.ok).toBe(true);
+    const rendered = JSON.stringify({ preview, submitted });
+    expect(rendered).toContain("Seattle");
+    for (const secret of ["Secret House", "Private Street", "Secret Unit", "Secret Resident", "Secret Arrival", "resident-secret-id", "dispatch-secret-id"]) expect(rendered).not.toContain(secret);
+    const assigned = await previewWrite(submitBidTool, ctx, { ...input, workOrderId: "WO-A" });
+    expect(assigned.ok).toBe(true);
+    expect(JSON.stringify(assigned)).toContain("Maple House, Unit 3");
+  });
+
   it("submit_bid upserts a bid pinned to the vendor + owning manager and audits with the amount/time hash", async () => {
     const { ctx, mutations, tables } = seed();
     const input = { workOrderId: "WO-A", amountUsd: 450, proposedTimeIso: "2026-07-22T17:00:00.000Z", note: "Can start Wednesday" };
@@ -618,6 +680,7 @@ describe("vendor write tools: happy paths write audited, scoped rows", () => {
 
     const exec = await executeWrite(submitBidTool, ctx, input);
     expect(exec.ok).toBe(true);
+    if (exec.ok) expect(exec.reply).toContain("Maple House, Unit 3");
 
     const audit = auditRows(mutations)[0];
     expect(audit?.values.dedupe_key).toBe(

@@ -41,14 +41,16 @@ export async function createServiceRequestFromResidentSms(args: {
   const db = createSupabaseServiceRoleClient();
   const title = inferOfferName(text);
   const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-  const { data: recent } = await db
+  const recentQuery = db
     .from("portal_service_request_records")
     .select("id, row_data, updated_at")
     .eq("manager_user_id", managerUserId)
     .eq("resident_email", residentEmail)
-    .gte("updated_at", cutoff)
-    .order("updated_at", { ascending: false })
-    .limit(5);
+    .gte("updated_at", cutoff);
+  const { data: recent } = args.residentUserId?.trim()
+    ? await recentQuery.eq("resident_user_id", args.residentUserId.trim())
+      .order("updated_at", { ascending: false }).limit(5)
+    : { data: [] };
 
   for (const row of recent ?? []) {
     const rd = ((row as { row_data?: ServiceRequest }).row_data ?? {}) as ServiceRequest;
@@ -97,6 +99,7 @@ export async function createServiceRequestFromResidentSms(args: {
   const id = `SR-SMS-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const row: ServiceRequest = {
     id,
+    residentUserId: args.residentUserId?.trim() || undefined,
     offerId: CUSTOM_SERVICE_REQUEST_OFFER_ID,
     offerName: title,
     offerDescription: text,
@@ -118,6 +121,7 @@ export async function createServiceRequestFromResidentSms(args: {
   const { error } = await db.from("portal_service_request_records").upsert(
     {
       id,
+      resident_user_id: args.residentUserId?.trim() || null,
       manager_user_id: managerUserId,
       resident_email: residentEmail,
       property_id: propertyId || null,

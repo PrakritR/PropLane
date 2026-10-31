@@ -51,9 +51,19 @@ import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import { resolvePropertyPayoutOwner } from "@/lib/payments/property-payout-owner.server";
 import { GET as checkPaymentReminder, POST as sendPaymentReminder } from "@/app/api/portal/send-payment-reminder/route";
 import { deliverManualPaymentReminder } from "@/lib/manual-payment-reminder-delivery.server";
+import { profileRolesBuilder } from "../../helpers/profile-roles-fake";
 
 const MANAGER_ID = "manager-1";
 const REQUEST_ID = "11111111-1111-4111-8111-111111111111";
+
+/** Answers `profile_roles` from the roles the actor really holds; every other table goes to `from`. */
+function withStoredRoles(from: (table: string) => unknown, roles: string[] = ["manager"]) {
+  return vi.fn((table: string) =>
+    table === "profile_roles"
+      ? profileRolesBuilder(roles.map((role) => ({ user_id: MANAGER_ID, role })))
+      : from(table),
+  );
+}
 
 function paidCharge() {
   return {
@@ -137,7 +147,7 @@ describe("POST /api/portal/send-payment-reminder", () => {
     });
     const select = vi.fn().mockReturnValue({ eq });
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
-      from: vi.fn().mockImplementation((table: string) => {
+      from: withStoredRoles((table: string) => {
         if (table === "portal_inbox_thread_records" || table === "portal_outbound_mail_records") {
           return { upsert };
         }
@@ -198,9 +208,9 @@ describe("POST /api/portal/send-payment-reminder", () => {
       data: { role: "manager", full_name: "Manager", email: "manager@test.com", sms_from_number: "" },
     });
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
-      from: vi.fn().mockReturnValue({
+      from: withStoredRoles(() => ({
         select: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ maybeSingle: profileMaybeSingle }) }),
-      }),
+      })),
     } as never);
 
     const req = new Request("http://localhost/api/portal/send-payment-reminder", {
@@ -217,9 +227,9 @@ describe("POST /api/portal/send-payment-reminder", () => {
       data: { role: "resident", full_name: "Resident", email: "resident@test.com", sms_from_number: "" },
     });
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
-      from: vi.fn().mockReturnValue({
+      from: withStoredRoles(() => ({
         select: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ maybeSingle: profileMaybeSingle }) }),
-      }),
+      }), ["resident"]),
     } as never);
 
     const req = new Request("http://localhost/api/portal/send-payment-reminder", {
@@ -244,7 +254,7 @@ describe("POST /api/portal/send-payment-reminder", () => {
       return { maybeSingle: profileMaybeSingle };
     });
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
-      from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq }) }),
+      from: withStoredRoles(() => ({ select: vi.fn().mockReturnValue({ eq }) })),
     } as never);
 
     const req = new Request("http://localhost/api/portal/send-payment-reminder", {
@@ -324,7 +334,7 @@ describe("POST /api/portal/send-payment-reminder", () => {
       return { maybeSingle: profileMaybeSingle };
     });
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
-      from: vi.fn().mockImplementation((table: string) => {
+      from: withStoredRoles((table: string) => {
         if (table === "portal_inbox_thread_records" || table === "portal_outbound_mail_records") {
           return { upsert };
         }

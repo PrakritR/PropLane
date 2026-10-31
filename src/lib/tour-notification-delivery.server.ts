@@ -2,6 +2,7 @@
  * Server-side tour notification delivery (Resend email + Axis inbox records).
  */
 
+import { issueTourSignupCapability } from "@/lib/auth/tour-signup-capability.server";
 import { noticeChannelFor, withResidentPortalLink } from "@/lib/notice-channel";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { formatPacificDateTime } from "@/lib/pacific-time";
@@ -42,6 +43,7 @@ import {
   buildTourRescheduledTenantBody,
   formatTourTimeRange,
   buildTourRequestTenantBody,
+  tourRequestNotificationContexts,
 } from "@/lib/tour-notifications";
 
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
@@ -57,12 +59,33 @@ function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
-async function resolveTourManagerIdentity(db: Db, managerUserId: string): Promise<{ email: string; name: string } | null> {
+type TourManagerIdentity =
+  /** The sending manager's work identity, read and valid. */
+  | { kind: "identity"; email: string; name: string }
+  /** The profile read fine and simply carries no usable address: an absence, not a failure. */
+  | { kind: "none"; reason: string }
+  /** The profile could not be read at all. */
+  | { kind: "error"; message: string };
+
+/**
+ * The sending manager's identity for the in-app copy, with a READ FAILURE kept apart from a
+ * readable profile that carries no usable address.
+ *
+ * Collapsing the two into `null` made a workspace whose owner profile has no valid email report
+ * every tour confirm, reschedule and cancel as a delivery failure, even though the guest's email
+ * and SMS both went. The absence is reported as a reason; only an unreadable profile fails the
+ * notice.
+ */
+async function resolveTourManagerIdentity(db: Db, managerUserId: string): Promise<TourManagerIdentity> {
   const id = managerUserId.trim();
-  if (!id) return null;
+  if (!id) return { kind: "none", reason: "The notice names no sending manager, so no PropLane inbox copy was saved." };
   const { data, error } = await db.from("profiles").select("id, email, full_name").eq("id", id).maybeSingle();
+  if (error) return { kind: "error", message: "The sending manager's profile could not be read for the PropLane inbox copy." };
   const email = String(data?.email ?? "").trim().toLowerCase();
-  return error || !email.includes("@") ? null : { email, name: String(data?.full_name ?? "").trim() || email };
+  if (!email.includes("@")) {
+    return { kind: "none", reason: "The sending manager has no work email on file, so no PropLane inbox copy was saved." };
+  }
+  return { kind: "identity", email, name: String(data?.full_name ?? "").trim() || email };
 }
 
 export async function resolvePropertyAddressForTour(
@@ -165,8 +188,39 @@ export type TourNotificationResult = {
     sid?: string;
     outboxStatus?: string;
   };
-  inbox: { sent: boolean; error?: string };
+  /**
+   * `error` is a FAILURE (the copy was attempted or its binding was unreadable) and makes the
+   * notice `ok: false`. `reason` is a deliberate SKIP the manager should still see — there is no
+   * link row bound to this inquiry AND its current property, so there is no subject to copy to.
+   */
+  inbox: { sent: boolean; error?: string; reason?: string };
 };
+
+const INBOX_COPY_NOT_SAVED = "PropLane inbox notification was not saved.";
+
+/**
+ * How a notice reports its in-app copy BEFORE the insert is attempted.
+ *
+ * A skip used to be indistinguishable from a success: `linkedTourNoticeOwner` answered `null` for
+ * an unreadable link row, for a link bound to a DIFFERENT property than the inquiry now sits at,
+ * and for a guest with no account alike, and the result still read `ok: true`. So moving an inquiry
+ * from P1 to P2 silently stopped every later confirm/reschedule/cancel from reaching the resident's
+ * inbox while the manager saw a clean send. Now an unreadable binding is an `error` (the notice
+ * fails) and a real absence is a `reason` the manager can read (the notice still succeeds on its
+ * other channels).
+ */
+function inboxOutcomeFor(
+  owner: TourNoticeOwner,
+  manager: TourManagerIdentity,
+  hasProperty: boolean,
+): TourNotificationResult["inbox"] {
+  if (owner.kind === "error") return { sent: false, error: owner.message };
+  if (owner.kind === "none") return { sent: false, reason: owner.reason };
+  if (manager.kind === "error") return { sent: false, error: manager.message };
+  if (manager.kind === "none") return { sent: false, reason: manager.reason };
+  if (!hasProperty) return { sent: false, reason: "The notice names no property, so no PropLane inbox copy was saved." };
+  return { sent: false, error: INBOX_COPY_NOT_SAVED };
+}
 
 function notificationResult(
   email: TourNotificationResult["email"],
@@ -174,12 +228,22 @@ function notificationResult(
   inbox: TourNotificationResult["inbox"] = { sent: false },
 ): TourNotificationResult {
   const smsMissing = sms.requested && !sms.sent && !sms.accepted;
-  const failed = Boolean(email.error || sms.error || smsMissing || inbox.error);
+  // Only a channel that was actually ATTEMPTED can fail. A notice whose every REQUESTED
+  // channel came back deliberately skipped (sandbox address, no mail provider) is `skipped`,
+  // not a failure — the same reading `tourGuestNotificationFailed` applies on the client — so
+  // a tour confirmed exactly as configured raises no delivery-failure toast.
+  //
+  // A notice asked for with NO channel at all is still a failure: the guest will never hear
+  // about the change, and nothing was skipped on their behalf to make that acceptable.
+  const nothingRequested = !email.requested && !sms.requested;
+  const attempted = (email.requested && !email.skipped) || (sms.requested && !sms.skipped);
+  const nothingDelivered = (nothingRequested || attempted) && !email.sent && !sms.sent && !sms.accepted && !inbox.sent;
+  const failed = Boolean(email.error || sms.error || smsMissing || inbox.error || nothingDelivered);
   return {
     ok: !failed,
     skipped: email.skipped && sms.skipped,
-    ...(sms.error || smsMissing || email.error || inbox.error
-      ? { error: sms.error || (smsMissing ? "SMS was not sent." : inbox.error || email.error) }
+    ...(sms.error || smsMissing || email.error || inbox.error || nothingDelivered
+      ? { error: sms.error || (smsMissing ? "SMS was not sent." : inbox.error || email.error || "No notification was delivered.") }
       : {}),
     email,
     sms,
@@ -213,6 +277,10 @@ function summarizeTourLifecycleNotification(result: TourNotificationResult): Rec
     smsSid: result.sms.sid ?? null,
     smsOutboxStatus: result.sms.outboxStatus ?? null,
     inboxSent: result.inbox.sent,
+    // A skipped in-app copy is surfaced, not swallowed: the manager otherwise reads a clean send
+    // for a notice the resident never saw in PropLane.
+    inboxSkippedReason: result.inbox.reason ?? null,
+    inboxError: result.inbox.error ?? null,
   };
 }
 
@@ -222,6 +290,7 @@ async function upsertInboxThread(
     scope: string;
     ownerUserId: string | null;
     participantEmail: string;
+    residentUserId?: string;
     folder: "inbox" | "sent";
     fromName: string;
     fromEmail: string;
@@ -275,11 +344,12 @@ async function upsertInboxThread(
   }
 }
 
-/** Prospect/resident inbox row for tour acks, lead invites, etc. — backfilled on account creation. */
+/** Resident inbox row only when the caller has established its exact subject. */
 export async function recordResidentProspectInboxMessage(
   db: Db,
   input: {
     participantEmail: string;
+    residentUserId?: string;
     subject: string;
     body: string;
     fromName?: string;
@@ -295,12 +365,15 @@ export async function recordResidentProspectInboxMessage(
     propertyTitle?: string;
   },
 ): Promise<void> {
+  const ownerUserId = input.residentUserId?.trim() ?? "";
+  if (!ownerUserId) return;
   const managerUserId = input.managerUserId?.trim() ?? "";
   const propertyId = input.propertyId?.trim() ?? "";
   const propertyTitle = input.propertyTitle?.trim() ?? "";
   if (managerUserId && propertyId) {
     await appendResidentPropertyManagerInboxMessage(db, {
       participantEmail: input.participantEmail,
+      residentUserId: ownerUserId,
       managerUserId,
       propertyId,
       propertyTitle: propertyTitle || propertyId,
@@ -316,8 +389,6 @@ export async function recordResidentProspectInboxMessage(
 
   const guestEmail = input.participantEmail.trim().toLowerCase();
   if (!guestEmail.includes("@")) return;
-  const { data: guestProfile } = await db.from("profiles").select("id").eq("email", guestEmail).maybeSingle();
-  const ownerUserId = (guestProfile?.id as string | null) ?? null;
   const residentMessage = input.residentMessage?.trim() ?? "";
   const counterpartyEmail = input.counterpartyEmail?.trim().toLowerCase() || input.fromEmail || "tours@axis.local";
 
@@ -376,14 +447,62 @@ async function recordGuestInboxCopy(
   db: Db,
   inquiryId: string | null,
   input: Parameters<typeof recordResidentProspectInboxMessage>[1],
-): Promise<{ sent: boolean; error?: string }> {
+): Promise<{ sent: boolean; error?: string; reason?: string }> {
   try {
-    await recordResidentProspectInboxMessage(db, input);
+    const owner = await linkedTourNoticeOwner(db, inquiryId, input.propertyId ?? null);
+    if (owner.kind === "error") {
+      console.warn("[tour-notification] guest inbox link unreadable", { inquiryId });
+      return { sent: false, error: owner.message };
+    }
+    if (owner.kind === "none") return { sent: false, reason: owner.reason };
+    await recordResidentProspectInboxMessage(db, { ...input, residentUserId: owner.userId });
     return { sent: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not record the guest inbox copy.";
     console.warn("[tour-notification] guest inbox copy skipped", { inquiryId, error: message });
     return { sent: false, error: message };
+  }
+}
+
+/**
+ * Exact inquiry binding, never a profile or email match, authorizes an inbox copy.
+ *
+ * The link stores the manager the inquiry was FILED under, while a notice is sent by the
+ * CURRENT host — `confirmTourInquiry` hands a tour to a peer. So the binding is the inquiry id
+ * plus the inquiry's CURRENT property (historical caller-chosen ids are not unique across
+ * properties), never the filing manager: exactly one link row may claim that pair, and its
+ * `resident_user_id` is the only subject allowed to receive the copy. No property, no copy.
+ */
+type TourNoticeOwner =
+  /** Exactly one link row claims this inquiry at its current property. */
+  | { kind: "owner"; userId: string }
+  /** The read succeeded and no single row claims the pair: nothing to copy to, nothing wrong. */
+  | { kind: "none"; reason: string }
+  /** The binding could not be read at all: a failure, not an absence. */
+  | { kind: "error"; message: string };
+
+async function linkedTourNoticeOwner(db: Db, inquiryId: string | null, propertyId: string | null): Promise<TourNoticeOwner> {
+  const property = propertyId?.trim();
+  if (!inquiryId || !property) return { kind: "none", reason: "The notice names no inquiry and property to bind an inbox copy to." };
+  try {
+    const { data, error } = await db
+      .from("resident_tour_links")
+      .select("resident_user_id")
+      .eq("inquiry_id", inquiryId)
+      .eq("property_id", property)
+      .limit(2);
+    if (error) return { kind: "error", message: "The guest's PropLane inbox link could not be read." };
+    const rows = data ?? [];
+    if (rows.length > 1) {
+      return { kind: "none", reason: "Several accounts claim this tour at this property, so no PropLane inbox copy was saved." };
+    }
+    const subject = rows.length === 1 && typeof rows[0]?.resident_user_id === "string" ? rows[0]!.resident_user_id.trim() : "";
+    if (!subject) {
+      return { kind: "none", reason: "No PropLane account is linked to this tour at this property, so no in-app copy was saved." };
+    }
+    return { kind: "owner", userId: subject };
+  } catch {
+    return { kind: "error", message: "The guest's PropLane inbox link could not be read." };
   }
 }
 
@@ -680,10 +799,19 @@ export async function notifyTenantTourRequestReceived(
     tourInquiryId: textField(inquiry as Record<string, unknown>, "id") || null,
   });
 
+  // This capability is mailed only to the original contact, not copied to
+  // portal inboxes, SMS history, analytics, or manager-facing notifications.
+  const capability = await issueTourSignupCapability(db, {
+    inquiryId: textField(inquiry as Record<string, unknown>, "id"), email: guestEmail,
+    managerUserId: textField(inquiry as Record<string, unknown>, "managerUserId"), propertyId,
+    tourGroupId: textField(inquiry as Record<string, unknown>, "tourGroupId"),
+  }).catch(() => null);
+  const { email: emailCtx, clean: cleanCtx } = tourRequestNotificationContexts(ctx, capability);
   const subject = TOUR_REQUEST_TENANT_SUBJECT;
   const portalChannel = noticeChannelFor(inquiry) === "portal";
-  const text = portalChannel ? withResidentPortalLink(buildTourRequestTenantBody(ctx), "tour") : buildTourRequestTenantBody(ctx);
-  const email = await deliverEmail([guestEmail], subject, text, undefined, undefined, {
+  const text = portalChannel ? withResidentPortalLink(buildTourRequestTenantBody(cleanCtx), "tour") : buildTourRequestTenantBody(cleanCtx);
+  const emailText = portalChannel ? withResidentPortalLink(buildTourRequestTenantBody(emailCtx), "tour") : buildTourRequestTenantBody(emailCtx);
+  const email = await deliverEmail([guestEmail], subject, emailText, undefined, undefined, {
     db,
     managerUserId: textField(inquiry as Record<string, unknown>, "managerUserId"),
   });
@@ -700,9 +828,7 @@ export async function notifyTenantTourRequestReceived(
 
   const guestPhone = textField(inquiry as Record<string, unknown>, "phone") || null;
   const listingLink = propertyId ? `${origin}/rent/listings/${propertyId}` : origin;
-  const accountPrompt = ctx.createAccountUrl?.trim()
-    ? ` Create your free account to track it: ${ctx.createAccountUrl.trim()}`
-    : "";
+  const accountPrompt = "";
   await textTourGuest({
     db,
     managerUserId: textField(inquiry as Record<string, unknown>, "managerUserId"),
@@ -730,7 +856,7 @@ export async function notifyTenantTourRequestRemoved(
   inquiry: TourInquiryPayload,
   window?: { start: string; end: string },
   opts?: { subject?: string; body?: string },
-): Promise<{ ok: boolean; skipped?: boolean; error?: string; inbox?: { sent: boolean; error?: string } }> {
+): Promise<{ ok: boolean; skipped?: boolean; error?: string; inbox?: TourNotificationResult["inbox"] }> {
   const row = inquiry as Record<string, unknown>;
   const guestEmail = textField(row, "email");
   if (!guestEmail || !guestEmail.includes("@")) {
@@ -906,15 +1032,19 @@ async function notifyTenantTourChanged(
       : suppliedBody;
   const text = portalChannel ? withResidentPortalLink(changeText, "tour") : changeText;
 
-  let inboxSent = false;
+  let inbox: TourNotificationResult["inbox"] = { sent: false };
   const hasGuestEmail = guestEmail.includes("@");
   if (hasGuestEmail) {
-    const manager = await resolveTourManagerIdentity(db, managerUserId);
-    if (manager && propertyId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
-      participantEmail: guestEmail, managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
+    const managerIdentity = await resolveTourManagerIdentity(db, managerUserId);
+    const manager = managerIdentity.kind === "identity" ? managerIdentity : null;
+    const owner = await linkedTourNoticeOwner(db, textField(row, "id") || null, propertyId || null);
+    const residentUserId = owner.kind === "owner" ? owner.userId : null;
+    inbox = inboxOutcomeFor(owner, managerIdentity, Boolean(propertyId));
+    if (manager && propertyId && residentUserId) inbox = (await appendResidentPropertyManagerInboxMessage(db, {
+      participantEmail: guestEmail, residentUserId, managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
       subject, body: text, counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name,
       messageId: `tour:${textField(row, "id") || propertyId}:${input.kind}:${input.rescheduleGeneration?.trim() || `${input.previousWindow?.start ?? ""}:${input.previousWindow?.end ?? ""}:${input.window.start}:${input.window.end}`}`,
-    }).then(() => true).catch(() => false);
+    }).then(() => ({ sent: true })).catch(() => ({ sent: false, error: INBOX_COPY_NOT_SAVED })));
   }
   const email = wantsEmail
     ? hasGuestEmail
@@ -973,15 +1103,7 @@ async function notifyTenantTourChanged(
 
   // `skipped` means "deliberately not sent" (a sandbox address, no mail
   // provider) and reads as "nothing went wrong". A failed send is not that.
-  return notificationResult(
-    { requested: wantsEmail, ...email },
-    sms,
-    inboxSent
-      ? { sent: true }
-      : hasGuestEmail
-        ? { sent: false, error: "PropLane inbox notification was not saved." }
-        : { sent: false },
-  );
+  return notificationResult({ requested: wantsEmail, ...email }, sms, inbox);
 }
 
 export async function notifyTenantTourCanceled(
@@ -1078,15 +1200,19 @@ async function deliverTenantTourConfirmed(
   // The generated HTML has no portal link, so a portal-channel mail sends the text body (which carries it).
   const html = opts?.body?.trim() || portalChannel ? undefined : buildTourConfirmedTenantHtml(ctx);
 
-  let inboxSent = false;
+  let inbox: TourNotificationResult["inbox"] = { sent: false };
   const hasGuestEmail = guestEmail.includes("@");
   if (hasGuestEmail) {
-    const manager = await resolveTourManagerIdentity(db, window.managerUserId);
-    if (manager && propertyId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
-      participantEmail: guestEmail, managerUserId: window.managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
+    const managerIdentity = await resolveTourManagerIdentity(db, window.managerUserId);
+    const manager = managerIdentity.kind === "identity" ? managerIdentity : null;
+    const owner = await linkedTourNoticeOwner(db, textField(inquiry as Record<string, unknown>, "id") || null, propertyId || null);
+    const residentUserId = owner.kind === "owner" ? owner.userId : null;
+    inbox = inboxOutcomeFor(owner, managerIdentity, Boolean(propertyId));
+    if (manager && propertyId && residentUserId) inbox = (await appendResidentPropertyManagerInboxMessage(db, {
+      participantEmail: guestEmail, residentUserId, managerUserId: window.managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
       subject, body: text, counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name,
       messageId: `tour:${textField(inquiry as Record<string, unknown>, "id") || propertyId}:confirmed:${window.start}:${window.end}`,
-    }).then(() => true).catch(() => false);
+    }).then(() => ({ sent: true })).catch(() => ({ sent: false, error: INBOX_COPY_NOT_SAVED })));
   }
   const email = wantsEmail
     ? hasGuestEmail
@@ -1118,15 +1244,7 @@ async function deliverTenantTourConfirmed(
     }.${instructions ? ` ${instructions.trim()}` : ""} Reply here with any questions. Details: ${listingLink}. Reply STOP to opt out, HELP for help.`,
   }) : { requested: false, sent: false, skipped: true };
 
-  return notificationResult(
-    { requested: wantsEmail, ...email },
-    { ...sms, requested: wantsSms },
-    inboxSent
-      ? { sent: true }
-      : hasGuestEmail
-        ? { sent: false, error: "PropLane inbox notification was not saved." }
-        : { sent: false },
-  );
+  return notificationResult({ requested: wantsEmail, ...email }, { ...sms, requested: wantsSms }, inbox);
 }
 
 export async function notifyTenantTourConfirmed(

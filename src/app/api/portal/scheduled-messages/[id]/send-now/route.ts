@@ -1,3 +1,5 @@
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
+import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
 import { NextResponse } from "next/server";
 import { assertManagerCommunicationAllowed } from "@/lib/manager-communication-access.server";
 import {
@@ -26,7 +28,13 @@ import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.
 
 export const runtime = "nodejs";
 
-async function requireManager() {
+/**
+ * The same gate as its sibling routes (`scheduled-messages/route.ts`, `[id]/route.ts`): a stored
+ * manager row. A stored `admin` row is not one, and the all-owners widening it used to grant
+ * unconditionally now needs the request to ASK for oversight (`?oversight=admin`) — otherwise a
+ * platform admin reads and writes as the manager they are (`AGENTS.md` § "Admin borrows").
+ */
+async function requireManager(req: Request) {
   const supabaseAuth = await createSupabaseServerClient();
   const {
     data: { user },
@@ -35,20 +43,13 @@ async function requireManager() {
 
   const db = createSupabaseServiceRoleClient();
   if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
-  const [{ data: profile }, { data: roles }] = await Promise.all([
-    db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
-    db.from("profile_roles").select("role").eq("user_id", user.id),
-  ]);
-  const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
-  const legacy = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const isManager = roleList.includes("manager") || roleList.includes("admin") || legacy === "manager" || legacy === "admin";
-  if (!isManager) return null;
-  return { db, userId: user.id, admin: roleList.includes("admin") || legacy === "admin" };
+  if (!(await userHoldsManagerRole(db, user.id))) return null;
+  return { db, userId: user.id, admin: await resolveAdminOversight(req, user.id) };
 }
 
-export async function POST(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const auth = await requireManager();
+    const auth = await requireManager(req);
     if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const { id: rawId } = await ctx.params;

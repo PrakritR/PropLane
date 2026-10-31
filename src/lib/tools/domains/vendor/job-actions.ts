@@ -2,7 +2,7 @@ import { z } from "zod";
 import { defineWriteTool } from "../../registry";
 import type { VendorAgentContext } from "../../vendor-context";
 import { writeAuditLog, updateAuditResult } from "../../audit";
-import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
+import { projectWorkOrderForOfferedVendor } from "@/lib/work-order-vendor-privacy";
 import {
   markWorkOrderDoneByVendor,
   setVendorPriceForWorkOrder,
@@ -18,8 +18,9 @@ import {
 } from "./load-vendor-rows";
 
 /** "Fix sink · Maple House, Unit 3" style label for previews and replies. */
-function jobLabel(row: DemoManagerWorkOrderRow): string {
-  const where = [row.propertyName, row.unit ? `Unit ${row.unit}` : ""].filter(Boolean).join(", ");
+function jobLabel(target: VendorWorkOrder): string {
+  const row = target.assignment === "offered" ? projectWorkOrderForOfferedVendor(target.row) : target.row;
+  const where = [row.propertyName, row.unit && row.unit !== "—" ? `Unit ${row.unit}` : ""].filter(Boolean).join(", ");
   return `${row.title || "Work order"}${where ? ` · ${where}` : ""}`;
 }
 
@@ -109,7 +110,7 @@ export const submitBidTool = defineWriteTool({
     if (!res.ok) throw new Error(res.error);
     const { target, amountCents, proposedIso } = res.resolved;
     const lines = [
-      { label: "Job", value: jobLabel(target.row) },
+      { label: "Job", value: jobLabel(target) },
       { label: "Bid (labor)", value: formatUsd(amountCents) },
       { label: "Proposed time", value: proposedIso },
     ];
@@ -156,7 +157,7 @@ export const submitBidTool = defineWriteTool({
     }
 
     await updateAuditResult(ctx, dedupeKey, { workOrderId: target.id, amountCents });
-    return { reply: `Submitted your ${formatUsd(amountCents)} bid on "${jobLabel(target.row)}", proposing ${proposedIso}. The manager will review it.`, resultSummary: { workOrderId: target.id, amountCents } };
+    return { reply: `Submitted your ${formatUsd(amountCents)} bid on "${jobLabel(target)}", proposing ${proposedIso}. The manager will review it.`, resultSummary: { workOrderId: target.id, amountCents } };
   },
 });
 
@@ -242,7 +243,7 @@ export const setMyPriceTool = defineWriteTool({
       title: "Set your price",
       summary: `Set your price on "${target.row.title || target.id}" to ${formatUsd(amountCents + materialsCents)} total.`,
       fields: [
-          { label: "Job", value: jobLabel(target.row) },
+          { label: "Job", value: jobLabel(target) },
           { label: "Labor", value: formatUsd(amountCents) },
           { label: "Materials", value: formatUsd(materialsCents) },
           { label: "Total", value: formatUsd(amountCents + materialsCents) },
@@ -283,7 +284,7 @@ export const setMyPriceTool = defineWriteTool({
     }
 
     await updateAuditResult(ctx, dedupeKey, { workOrderId: target.id, amountCents, materialsCents });
-    return { reply: `Set your price on "${jobLabel(target.row)}": ${formatUsd(amountCents)} labor + ${formatUsd(materialsCents)} materials (${formatUsd(amountCents + materialsCents)} total).`, resultSummary: { workOrderId: target.id, amountCents, materialsCents } };
+    return { reply: `Set your price on "${jobLabel(target)}": ${formatUsd(amountCents)} labor + ${formatUsd(materialsCents)} materials (${formatUsd(amountCents + materialsCents)} total).`, resultSummary: { workOrderId: target.id, amountCents, materialsCents } };
   },
 });
 
@@ -328,7 +329,7 @@ export const markJobDoneTool = defineWriteTool({
     const res = await resolveMarkDone(ctx, input);
     if (!res.ok) throw new Error(res.error);
     const lines = [
-      { label: "Job", value: jobLabel(res.target.row) },
+      { label: "Job", value: jobLabel(res.target) },
       { label: "Effect", value: "Notifies the manager to review and approve payment" },
     ];
     if (input.workDoneSummary?.trim()) lines.push({ label: "Summary", value: input.workDoneSummary.trim() });
@@ -369,6 +370,6 @@ export const markJobDoneTool = defineWriteTool({
     }
 
     await updateAuditResult(ctx, dedupeKey, { workOrderId: target.id });
-    return { reply: `Marked "${jobLabel(target.row)}" as done — the manager has been notified to review and approve payment.`, resultSummary: { workOrderId: target.id } };
+    return { reply: `Marked "${jobLabel(target)}" as done — the manager has been notified to review and approve payment.`, resultSummary: { workOrderId: target.id } };
   },
 });

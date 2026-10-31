@@ -1844,6 +1844,7 @@ export async function renderPortalSectionWith(
       return (
         <ResidentMoveInPanel
           residentEmail={moveInEmail}
+          residentUserId={residentCtx?.user?.id ?? null}
           basePath={def.basePath}
           tabId="inspections"
           tabs={meta.tabs}
@@ -1863,6 +1864,7 @@ export async function renderPortalSectionWith(
     return (
       <ResidentMoveInPanel
         residentEmail={moveInEmail}
+        residentUserId={residentCtx?.user?.id ?? null}
         basePath={def.basePath}
         tabId={moveInTab}
         tabs={meta.tabs}

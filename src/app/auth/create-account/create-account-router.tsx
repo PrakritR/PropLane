@@ -2,8 +2,9 @@
 
 import { ResidentSignupBlocked } from "@/components/auth/resident-signup-blocked";
 import { AuthCard } from "@/components/auth/auth-card";
+import { EmailFirstSignup } from "@/components/auth/email-first-signup";
 import { useSearchParams } from "next/navigation";
-import CreateAccountClient from "./create-account-client";
+
 import { CreateAccountRoleGateway } from "./create-account-role-gateway";
 
 /**
@@ -18,7 +19,7 @@ export default function CreateAccountRouter() {
   const axisId = searchParams.get("axis_id")?.trim() ?? "";
 
   if (sessionId) {
-    return <CreateAccountClient />;
+    return <AuthCard variant="blend"><EmailFirstSignup intent="manager_paid" checkoutSessionId={sessionId} /></AuthCard>;
   }
 
   if (axisId) {

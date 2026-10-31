@@ -194,6 +194,7 @@ export async function assertHouseThreadAccess(
   deps: {
     resolveScope?: (level: "read" | "edit") => Promise<CommunicationScope>;
     residents?: (parsed: ParsedHouseThreadId) => Promise<HouseResident[]>;
+    subjectEvidence?: (parsed: ParsedHouseThreadId) => Promise<boolean>;
     houseExists?: (parsed: ParsedHouseThreadId) => Promise<boolean>;
     resolveAlias?: (aliasId: string) => Promise<string | null>;
   } = {},
@@ -245,7 +246,12 @@ export async function assertHouseThreadAccess(
       ? await deps.residents(parsed)
       : await currentHouseResidents(db, { ownerUserId: parsed.ownerManagerUserId, propertyId: parsed.propertyId, fresh: input.level === "edit" || input.fresh });
     const me = residents.find((resident) => resident.email === email);
-    if (me) return { ok: true, kind: "resident", parsed, canPost: true, resident: me };
+    if (me) {
+      const hasSubject = deps.subjectEvidence
+        ? await deps.subjectEvidence(parsed)
+        : await (await import("@/lib/auth/resident-subject-evidence.server")).residentSubjectHasHouse(db, userId, email, parsed.ownerManagerUserId, parsed.propertyId);
+      if (hasSubject) return { ok: true, kind: "resident", parsed, canPost: true, resident: me };
+    }
   } catch {
     /* a failed occupancy read refuses: no member is guessed */
   }

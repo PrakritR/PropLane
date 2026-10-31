@@ -23,6 +23,7 @@ vi.mock("@/lib/supabase/service", () => ({
 }));
 vi.mock("@/lib/tour-resident-link.server", () => ({
   linkTourInquiryToResident: vi.fn(),
+  residentHasExactTourLink: vi.fn(async () => true),
 }));
 
 import { getAdminPreviewFromCookies } from "@/lib/auth/admin-preview";
@@ -30,7 +31,7 @@ import { ensureMayAccessResidentPortal } from "@/lib/auth/ensure-resident-portal
 import { getEffectiveSessionForPortal } from "@/lib/auth/effective-session";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { linkTourInquiryToResident } from "@/lib/tour-resident-link.server";
+import { linkTourInquiryToResident, residentHasExactTourLink } from "@/lib/tour-resident-link.server";
 import { POST as linkTourInquiry } from "@/app/api/auth/link-tour-inquiry/route";
 
 /** The role set the access layer resolves for this caller. */
@@ -64,9 +65,17 @@ describe("POST /api/auth/link-tour-inquiry", () => {
     expect(linkTourInquiryToResident).not.toHaveBeenCalled();
   });
 
+  it("does not adopt an old same-email inquiry for a different Auth subject", async () => {
+    vi.mocked(getEffectiveSessionForPortal).mockResolvedValue({ user: { id: "new-subject", email: "res@example.com", email_confirmed_at: "confirmed" }, profile: { email: "res@example.com" } } as never);
+    vi.mocked(residentHasExactTourLink).mockResolvedValueOnce(false);
+    const res = await linkTourInquiry(jsonRequest("http://localhost/api/auth/link-tour-inquiry", { method: "POST", body: { tourInquiryId: "old-inquiry" } }));
+    expect(res.status).toBe(403);
+    expect(linkTourInquiryToResident).not.toHaveBeenCalled();
+  });
+
   it("promotes managers and links the tour", async () => {
     vi.mocked(getEffectiveSessionForPortal).mockResolvedValue({
-      user: { id: "mgr-1" },
+      user: { id: "mgr-1", email: "mgr@example.com", email_confirmed_at: "confirmed" },
       profile: { role: "manager", email: "mgr@example.com" },
     } as never);
     accessContext(["manager"]);
@@ -79,16 +88,12 @@ describe("POST /api/auth/link-tour-inquiry", () => {
     );
     expect(res.status).toBe(200);
     expect(ensureMayAccessResidentPortal).toHaveBeenCalled();
-    expect(linkTourInquiryToResident).toHaveBeenCalledWith(expect.anything(), {
-      userId: "mgr-1",
-      inquiryId: "inq-1",
-      email: "mgr@example.com",
-    });
+    expect(residentHasExactTourLink).toHaveBeenCalledWith(expect.anything(), expect.any(String), "inq-1");
   });
 
   it("links a tour for authenticated residents", async () => {
     vi.mocked(getEffectiveSessionForPortal).mockResolvedValue({
-      user: { id: "res-1", email: "res@example.com" },
+      user: { id: "res-1", email: "phone@phone.proplane.invalid" },
       profile: { role: "resident", email: "res@example.com" },
     } as never);
     accessContext(["resident"]);
@@ -100,10 +105,6 @@ describe("POST /api/auth/link-tour-inquiry", () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(linkTourInquiryToResident).toHaveBeenCalledWith(expect.anything(), {
-      userId: "res-1",
-      inquiryId: "inq-1",
-      email: "res@example.com",
-    });
+    expect(residentHasExactTourLink).toHaveBeenCalledWith(expect.anything(), expect.any(String), "inq-1");
   });
 });

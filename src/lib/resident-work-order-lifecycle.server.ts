@@ -14,9 +14,7 @@ import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
  * transition `deleteWorkOrderRecord` runs), so chat and the Services panel can
  * never disagree about what a resident may change or when a request is gone.
  *
- * Every read here scopes on the `resident_email` COLUMN — the only resident
- * identity `portal_work_order_records` carries (AGENTS.md, "Resident row
- * scoping is not uniform") — never on the `row_data.residentEmail` copy.
+ * Every resident read and write uses the authenticated subject stored on the row.
  */
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -28,12 +26,14 @@ export type ResidentWorkOrderRecord = {
   property_id: string | null;
   assigned_property_id: string | null;
   row_data: DemoManagerWorkOrderRow;
+  row_revision: number;
 };
 
 export type ResidentWorkOrderScope = {
   workOrderId: string;
   /** Normalized lowercase email of the authenticated resident. */
   residentEmail: string;
+  residentUserId: string;
   /** SMS sessions pin one manager; portal sessions leave this unset. */
   activeManagerId?: string;
 };
@@ -44,14 +44,13 @@ export async function loadResidentOwnWorkOrder(
   scope: ResidentWorkOrderScope,
 ): Promise<ResidentWorkOrderRecord | null> {
   const workOrderId = scope.workOrderId.trim();
-  const residentEmail = scope.residentEmail.trim().toLowerCase();
   // An empty identity must match nothing — never an unscoped read.
-  if (!workOrderId || !residentEmail) return null;
+  if (!workOrderId || !scope.residentUserId.trim()) return null;
   let query = db
     .from("portal_work_order_records")
-    .select("id, manager_user_id, resident_email, property_id, assigned_property_id, row_data")
+    .select("id, manager_user_id, resident_email, property_id, assigned_property_id, row_data, row_revision")
     .eq("id", workOrderId)
-    .eq("resident_email", residentEmail);
+    .eq("resident_user_id", scope.residentUserId);
   if (scope.activeManagerId) query = query.eq("manager_user_id", scope.activeManagerId);
   const { data, error } = await query.maybeSingle();
   if (error) throw new Error(error.message);
@@ -63,6 +62,7 @@ export async function loadResidentOwnWorkOrder(
     property_id: (data.property_id as string | null) ?? null,
     assigned_property_id: (data.assigned_property_id as string | null) ?? null,
     row_data: data.row_data as DemoManagerWorkOrderRow,
+    row_revision: Number(data.row_revision),
   };
 }
 
@@ -169,19 +169,13 @@ export async function updateResidentWorkOrder(
     return { ok: false, error: residentWorkOrderClosedReason(record.row_data), code: "closed" };
   }
   const nextRow = applyResidentWorkOrderPatch(record.row_data, patch);
-  const { error } = await db.from("portal_work_order_records").upsert(
-    {
-      id: record.id,
-      manager_user_id: record.manager_user_id,
-      resident_email: record.resident_email,
-      property_id: record.property_id,
-      assigned_property_id: record.assigned_property_id,
-      row_data: nextRow,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" },
-  );
-  if (error) return { ok: false, error: error.message, code: "write_failed" };
+  const update = db.from("portal_work_order_records")
+    .update({ row_data: nextRow, updated_at: new Date().toISOString() })
+    .eq("id", record.id).eq("resident_user_id", scope.residentUserId)
+    .eq("row_data->>bucket", "open")
+    .eq("row_revision", record.row_revision);
+  const { data, error } = await update.select("id");
+  if (error || !data?.length) return { ok: false, error: error?.message ?? "The request changed; please retry.", code: "write_failed" };
   return { ok: true, row: nextRow };
 }
 
@@ -194,17 +188,21 @@ export async function updateResidentWorkOrder(
  */
 export async function deleteWorkOrderRecord(
   db: ServiceClient,
-  existing: { id: string; manager_user_id: string | null; row_data: DemoManagerWorkOrderRow | null },
-): Promise<{ error: string | null }> {
+  existing: { id: string; manager_user_id: string | null; row_data: DemoManagerWorkOrderRow | null; row_revision?: number },
+  residentUserId?: string,
+): Promise<{ error: string | null; conflict?: boolean }> {
   const row = existing.row_data;
   const managerUserId = existing.manager_user_id ?? row?.managerUserId ?? null;
+  let query = db.from("portal_work_order_records").delete().eq("id", existing.id);
+  if (residentUserId) query = query.eq("resident_user_id", residentUserId);
+  if (existing.row_revision !== undefined) query = query.eq("row_revision", existing.row_revision);
+  const { data, error } = await query.select("id");
+  if (error) return { error: error.message };
+  if (!data?.length) return { error: "The request changed; please retry.", conflict: true };
   if (row && managerUserId) {
-    await syncWorkOrderToGoogleCalendar(db, managerUserId, { ...row, bucket: "completed", scheduledAtIso: undefined }).catch(
-      () => undefined,
-    );
+    await syncWorkOrderToGoogleCalendar(db, managerUserId, { ...row, bucket: "completed", scheduledAtIso: undefined }).catch(() => undefined);
   }
-  const { error } = await db.from("portal_work_order_records").delete().eq("id", existing.id);
-  return { error: error ? error.message : null };
+  return { error: null };
 }
 
 /**
@@ -222,7 +220,7 @@ export async function cancelResidentWorkOrder(
   if (!residentWorkOrderIsOpen(record.row_data)) {
     return { ok: false, error: residentWorkOrderClosedReason(record.row_data), code: "closed" };
   }
-  const { error } = await deleteWorkOrderRecord(db, record);
+  const { error } = await deleteWorkOrderRecord(db, record, scope.residentUserId);
   if (error) return { ok: false, error, code: "write_failed" };
   return { ok: true, row: record.row_data };
 }

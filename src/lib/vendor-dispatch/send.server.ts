@@ -289,22 +289,22 @@ export async function sendResidentDispatchText(
   input: {
     ownerUserId: string;
     workspaceId: string | null;
-    residentEmail: string;
+    residentUserId: string;
     text: string;
     dedupeKey: string;
   },
 ): Promise<DispatchSendResult> {
   const text = toGsm7(input.text);
-  const email = input.residentEmail.trim().toLowerCase();
-  if (!text || !email.includes("@")) return { ok: false, reason: "no_resident" };
+  const residentUserId = input.residentUserId.trim();
+  if (!text || !residentUserId) return { ok: false, reason: "no_resident" };
   const { data: profile } = await db
     .from("profiles")
     .select("id, phone, phone_verified_at")
-    .eq("email", email)
+    .eq("id", residentUserId)
     .maybeSingle();
   const row = profile as { id?: string; phone?: string | null; phone_verified_at?: string | null } | null;
   const phone = normalizeE164(String(row?.phone ?? ""));
-  if (!row?.id || !phone || !row.phone_verified_at) return { ok: false, reason: "no_verified_phone" };
+  if (row?.id !== residentUserId || !phone || !row.phone_verified_at) return { ok: false, reason: "no_verified_phone" };
 
   if (input.workspaceId && (await workspaceOnSharedLine(db, input.workspaceId))) {
     const sent = await sendSharedLineMessage(db, {

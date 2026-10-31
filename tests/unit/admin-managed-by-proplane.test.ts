@@ -21,6 +21,7 @@ const WS_OTHER = "cccccccc-4444-4444-8444-cccccccccccc";
 let admins = new Set<string>();
 vi.mock("@/lib/auth/admin-role", () => ({
   userHoldsAdminRole: async (_db: unknown, id: string) => admins.has(id),
+  userHoldsAdminRoleStrict: async (_db: unknown, id: string) => admins.has(id),
   listAdminUserIds: async () => [...admins].sort(),
 }));
 vi.mock("@/lib/manager-access-server", () => ({

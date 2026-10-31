@@ -107,7 +107,8 @@ describe("co-manager PropLane ID lookup eligibility", () => {
       join(process.cwd(), "src/app/api/pro/lookup-axis-id/route.ts"),
       "utf8",
     );
-    expect(source).toContain("userIsPropertyPortalManager");
+    expect(source).toContain('from("profile_roles").select("role").eq("user_id", profile.id)');
+    expect(source).toContain("!targetError");
     expect(source).not.toMatch(/profile\.role[\s\S]{0,120}must be a property portal manager/);
   });
 

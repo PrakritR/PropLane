@@ -80,6 +80,7 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: PROFILE?.role ? [{ role: PROFILE?.role }] : [], error: null }).then(resolve);
           if (table === "manager_application_records") {
             const rows = state.ids ? STORED_ROWS.filter((r) => state.ids?.includes(r.id)) : STORED_ROWS;
             return Promise.resolve({ data: rows, error: null }).then(resolve);
@@ -140,6 +141,7 @@ function validSubmittedApplication(
 function residentRow(over: Partial<DemoApplicantRow> = {}): DemoApplicantRow {
   return {
     id: "AXIS-90210",
+    residentUserId: "resident-user-1",
     name: "Maya Alvarez",
     email: "maya.alvarez@example.com",
     property: "The Magnolia · 2B",
@@ -170,7 +172,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   PROFILE = { role: "resident", email: "maya.alvarez@example.com" };
   getUser.mockResolvedValue({
-    data: { user: { id: "resident-user-1", email: "maya.alvarez@example.com", user_metadata: {} } },
+    data: { user: { id: "resident-user-1", email: "maya.alvarez@example.com", email_confirmed_at: "confirmed", user_metadata: {} } },
     error: null,
   });
   PROPERTY_RECORDS = {

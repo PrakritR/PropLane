@@ -256,6 +256,18 @@ reopens it and alerts the manager. `INVOICE $amount` -> existing vendor-invoice 
 - Every decision writes an `action_events` row (domain `vendor_dispatch`, category `maintenance`,
   idempotent on `event_key`) with the verbatim reply. Reported, not hidden: `recordDispatchEvent`
   returns whether the row landed.
+- The resident's fixed answer is **subject-bound and one transaction**
+  (`resolve_resident_dispatch_confirmation`, migration `20261030145200`): the candidate runs come
+  from the JOB's bound subject — the work orders whose `resident_user_id` is the texting resident's
+  verified Auth subject, joined to the runs by `source_id` — never from the address snapshotted onto
+  the run, and the RPC re-checks lifecycle, subject, run and exact work order under one lock before
+  it changes either row. An unreadable runs table or a lock conflict answers "not handled" and
+  changes nothing, so the text falls through to the resident's assistant rather than being claimed
+  and refused. The seven-day confirmation window (`resident-confirmation-window.ts`, its own leaf
+  module so a suite mocking the confirmation server wholesale cannot leave the SMS path with no
+  window) is enforced BEFORE the RPC: an expired run gets a polite reply and no state change. The
+  same vendor `DONE` transaction revision-fences the run, the job and the confirmation digest, so a
+  stale SMS attempt gets a retry reply and no success notice.
 
 **Triggers.** `prepareDispatch` (both service-intake paths) tries `maybeCreateRuleRunForWorkOrder`
 first and returns when it made, found or refused a run; with no active rule the legacy proposal path

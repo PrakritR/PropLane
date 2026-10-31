@@ -5,10 +5,12 @@ import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { notifyVendorOfInvoiceDecision } from "@/lib/vendor-invoice-decision-notify.server";
 import { createBillFromVendorInvoice } from "@/lib/manager-bills.server";
 import { assertFinancialsTier } from "@/lib/reports/auth";
-import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { currentSmsTestProvenance, stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { readSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 import { insertVendorInvoiceRow, prepareVendorInvoiceSubmission } from "@/lib/vendor-invoice-submit.server";
 import { ensureSubmittedVendorInvoiceForMarkedDone } from "@/lib/work-order-vendor-invoice.server";
-import { requestResidentConfirmation, resolveResidentConfirmationBySms } from "@/lib/work-order-resident-confirmation.server";
+import { emitResidentConfirmationEvent, prepareResidentConfirmation } from "@/lib/work-order-resident-confirmation.server";
+import { RESIDENT_CONFIRMATION_TTL_MS } from "@/lib/resident-confirmation-window";
 import { workOrderEvent } from "@/lib/work-order-events.server";
 import { recordDispatchEvent } from "@/lib/vendor-dispatch/audit.server";
 import { canActorApprove, loadAttempts, loadRun, loadVendorContacts, notifyApprovers, notifyOutcome } from "@/lib/vendor-dispatch/engine.server";
@@ -20,6 +22,7 @@ import {
   composeResidentFixedAsk,
   toGsm7,
 } from "@/lib/vendor-dispatch/text";
+import { dispatchWorkOrderIsOpen } from "@/lib/vendor-dispatch/work-order-open.server";
 import type { DispatchRunRow } from "@/lib/vendor-dispatch/types";
 import { applyApprovedDispatchInvoice, setServiceVendorCost, type ApprovedInvoiceOutcome } from "@/lib/vendor-dispatch/invoice-managed.server";
 
@@ -31,14 +34,30 @@ import { applyApprovedDispatchInvoice, setServiceVendorCost, type ApprovedInvoic
  * as a submitted invoice, and approval creates the bill exactly as the portal does.
  */
 
-async function readWorkOrder(db: SupabaseClient, run: DispatchRunRow) {
-  const { data } = await db
-    .from("portal_work_order_records")
-    .select("id, manager_user_id, vendor_user_id, row_data")
-    .eq("id", run.source_id)
-    .eq("manager_user_id", run.owner_user_id)
-    .maybeSingle();
-  return (data as { id: string; manager_user_id: string; vendor_user_id: string | null; row_data: DemoManagerWorkOrderRow } | null) ?? null;
+type DispatchWorkOrder = { id: string; manager_user_id: string; vendor_user_id: string | null; resident_user_id: string | null; row_revision: number; row_data: DemoManagerWorkOrderRow };
+
+/**
+ * `unreadable` is NOT `missing`. Collapsing the two made a database hiccup during a vendor's DONE
+ * read as "no such job": nothing was written and `handleVendorDispatchReply` replies on
+ * `marked_done` and `retry` only, so the vendor got no answer at all and no signal to text again.
+ */
+async function readWorkOrder(db: SupabaseClient, run: DispatchRunRow): Promise<{ ok: true; record: DispatchWorkOrder | null } | { ok: false }> {
+  try {
+    const { data, error } = await db
+      .from("portal_work_order_records")
+      .select("id, manager_user_id, vendor_user_id, resident_user_id, row_revision, row_data")
+      .eq("id", run.source_id)
+      .eq("manager_user_id", run.owner_user_id)
+      .maybeSingle();
+    if (error) {
+      console.error("vendor dispatch service read failed", { runId: run.id, sourceId: run.source_id, message: error.message });
+      return { ok: false };
+    }
+    return { ok: true, record: (data as DispatchWorkOrder | null) ?? null };
+  } catch (e) {
+    console.error("vendor dispatch service read threw", { runId: run.id, sourceId: run.source_id, message: e instanceof Error ? e.message : String(e) });
+    return { ok: false };
+  }
 }
 
 async function ownerSender(db: SupabaseClient, ownerUserId: string) {
@@ -50,7 +69,7 @@ async function ownerSender(db: SupabaseClient, ownerUserId: string) {
   };
 }
 
-export type DoneOutcome = "marked_done" | "already" | "not_accepted_vendor" | "not_found";
+export type DoneOutcome = "marked_done" | "already" | "not_accepted_vendor" | "not_found" | "retry";
 
 /** The accepted vendor texted DONE. */
 export async function recordVendorDone(
@@ -69,45 +88,57 @@ export async function recordVendorDone(
   }
   if (run.completion_state === "awaiting_resident" || run.completion_state === "confirmed") return "already";
 
-  const residentEmail = (run.resident_email ?? "").trim().toLowerCase();
-  const waitsForResident = Boolean(residentEmail) && run.source_type === "work_order";
-  const { data: claimed } = await db
-    .from("vendor_dispatch_runs")
-    .update({
-      vendor_done_at: nowIso,
-      updated_at: nowIso,
-      ...(waitsForResident
-        ? { completion_state: "awaiting_resident" }
-        : { status: "completed", completion_state: "confirmed", completed_at: nowIso }),
-    })
-    .eq("id", run.id)
-    .eq("status", "accepted")
-    .select("id");
-  if (!claimed || (claimed as unknown[]).length === 0) return "already";
+  let record: DispatchWorkOrder | null = null;
+  if (run.source_type === "work_order") {
+    const read = await readWorkOrder(db, run);
+    // An unreadable job asks the vendor to text DONE again; only a read that SUCCEEDED and found
+    // nothing is "not_found".
+    if (!read.ok) return "retry";
+    if (!read.record) return "not_found";
+    record = read.record;
+  }
+  let residentUserId = record?.resident_user_id?.trim() || null;
+  const waitsForResident = Boolean(residentUserId);
+  let doneRow: DemoManagerWorkOrderRow | null = null;
+  let confirmUrl: string | undefined;
+  if (record) {
+    // `prepareResidentConfirmation` gates only the signed LINK (the manager's email-confirmation
+    // step). The run still parks on the bound subject, because the resident is asked by TEXT
+    // regardless (`composeResidentFixedAsk` below) and `resolve_resident_dispatch_confirmation`
+    // applies their YES / NO whether or not a `residentConfirmation` was ever stamped.
+    const prepared = residentUserId ? await prepareResidentConfirmation(db, run.owner_user_id, record.row_data) : null;
+    const testMarker = currentSmsTestProvenance()
+      ? readSmsTestProvenance(stampSmsTestProvenance(record.row_data as unknown as Record<string, unknown>))
+      : null;
+    const { data, error } = await db.rpc("record_vendor_dispatch_done", {
+      p_run: run.id, p_owner: run.owner_user_id, p_attempt: attempt.id,
+      p_resident: residentUserId, p_revision: record.row_revision,
+      p_note: input.note ?? null, p_token_digest: prepared?.tokenDigest ?? null,
+      p_test_actor: testMarker?.actorUserId ?? null, p_test_manager: testMarker?.managerUserId ?? null,
+      p_test_session: testMarker?.sessionId ?? null, p_test_workspace: testMarker?.workspaceId ?? null,
+    });
+    const result = data as { outcome?: string; row_data?: DemoManagerWorkOrderRow; confirmation_created?: boolean } | null;
+    if (error || result?.outcome === "stale" || result?.outcome === "invalid") return "retry";
+    if (result?.outcome === "already") return "already";
+    if (result?.outcome === "not_accepted_vendor") return "not_accepted_vendor";
+    if (result?.outcome !== "marked_done" || !result.row_data) return "not_found";
+    doneRow = result.row_data;
+    confirmUrl = result.confirmation_created ? prepared?.confirmUrl : undefined;
+  } else {
+    const { data: claimed } = await db.from("vendor_dispatch_runs")
+      .update({ vendor_done_at: nowIso, updated_at: nowIso, status: "completed", completion_state: "confirmed", completed_at: nowIso })
+      .eq("id", run.id).eq("status", "accepted").select("id");
+    if (!claimed?.length) return "already";
+    residentUserId = null;
+  }
 
   const contacts = await loadVendorContacts(db, run.owner_user_id, [attempt.vendor_directory_id]);
   const contact = contacts.get(attempt.vendor_directory_id);
   await recordDispatchEvent(db, { ownerUserId: run.owner_user_id, runId: run.id, handle: run.handle, event: "vendor_done", key: attempt.id, reply: input.note ?? null, now });
 
-  if (run.source_type === "work_order") {
-    const record = await readWorkOrder(db, run);
-    if (record) {
-      const row = record.row_data;
-      let next: DemoManagerWorkOrderRow = {
-        ...row,
-        // A vendor who says DONE was there: an Assigned service moves to Scheduled first, as the portal requires.
-        ...(row.bucket === "open" ? { bucket: "scheduled" as const, status: "Scheduled" } : {}),
-        automationStatus: "vendor_marked_done",
-        vendorMarkedDoneAt: nowIso,
-        vendorMarkedDoneNote: input.note?.trim().slice(0, 2000) || undefined,
-      };
-      await db
-        .from("portal_work_order_records")
-        .update({ row_data: stampSmsTestProvenance(next as unknown as Record<string, unknown>), updated_at: nowIso })
-        .eq("id", run.source_id)
-        .eq("manager_user_id", run.owner_user_id);
-      const confirmation = await requestResidentConfirmation(db, run.source_id, run.owner_user_id, next).catch(() => null);
-      next = confirmation?.rowData ?? next;
+  if (record && doneRow) {
+      const row = doneRow;
+      const next = doneRow;
       const sender = await ownerSender(db, run.owner_user_id);
       await workOrderEvent(db, {
         eventId: `${run.source_id}:completed:dispatch-run:${run.id}`,
@@ -124,7 +155,7 @@ export async function recordVendorDone(
           title: row.title || "Service",
           propertyLabel: row.propertyName || undefined,
           vendorName: contact?.name || row.vendorName || undefined,
-          confirmUrl: confirmation?.confirmUrl,
+          confirmUrl,
         },
         recipients: [{ audience: "manager", userId: run.owner_user_id }],
       }).catch(() => undefined);
@@ -136,14 +167,13 @@ export async function recordVendorDone(
           row: next,
         }).catch(() => undefined);
       }
-    }
   }
 
-  if (waitsForResident) {
+  if (residentUserId && await dispatchWorkOrderIsOpen(db, run, residentUserId)) {
     await sendResidentDispatchText(db, {
       ownerUserId: run.owner_user_id,
       workspaceId: run.workspace_id,
-      residentEmail,
+      residentUserId,
       text: composeResidentFixedAsk(),
       dedupeKey: `dispatch-resident-fixed-ask-${run.id}`,
     }).catch(() => undefined);
@@ -162,103 +192,151 @@ export async function recordVendorDone(
 export type ResidentFixedOutcome = { handled: false } | { handled: true; reply: string };
 
 /**
+ * How long after the DONE a resident's text may still close or reopen the job. `vendor_done_at` is
+ * the instant the confirmation was requested (`record_vendor_dispatch_done` stamps both from one
+ * `now()`), so it needs no extra read of the job row.
+ */
+function withinResidentConfirmationWindow(run: DispatchRunRow, now: Date): boolean {
+  const asked = Date.parse(String(run.vendor_done_at ?? run.updated_at ?? run.created_at ?? ""));
+  if (!Number.isFinite(asked)) return false;
+  return now.getTime() - asked <= RESIDENT_CONFIRMATION_TTL_MS;
+}
+
+/**
+ * The runs awaiting this resident's answer, found through the JOB's bound subject.
+ *
+ * `vendor_dispatch_runs.resident_email` is the work-order PAYLOAD's `residentEmail`, not the bound
+ * subject: a manager filing a service for a roster resident leaves it blank while the insert binds
+ * `resident_user_id`. Keying the lookup on it meant the resident was texted "Is it fixed?", replied
+ * YES, matched no run, and the run sat on `awaiting_resident` forever while the job read Completed.
+ * So the candidates come from the jobs whose `resident_user_id` IS this verified subject, under the
+ * same owner — the one fact `recordVendorDone` already used to decide to ask them.
+ */
+async function residentAwaitingRuns(
+  db: SupabaseClient,
+  ownerUserId: string,
+  residentUserId: string,
+): Promise<{ ok: true; runs: DispatchRunRow[] } | { ok: false }> {
+  const jobs = await db
+    .from("portal_work_order_records")
+    .select("id")
+    .eq("manager_user_id", ownerUserId)
+    .eq("resident_user_id", residentUserId)
+    .order("updated_at", { ascending: false })
+    .limit(100);
+  if (jobs.error) {
+    console.error("resident dispatch job scope read failed", { ownerUserId, message: jobs.error.message });
+    return { ok: false };
+  }
+  const sourceIds = (jobs.data ?? []).map((row) => String((row as { id?: unknown }).id ?? "").trim()).filter(Boolean);
+  if (!sourceIds.length) return { ok: true, runs: [] };
+  const runs = await db
+    .from("vendor_dispatch_runs")
+    .select("*")
+    .eq("owner_user_id", ownerUserId)
+    .eq("source_type", "work_order")
+    .in("source_id", sourceIds)
+    .eq("completion_state", "awaiting_resident")
+    .eq("status", "accepted")
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (runs.error) {
+    console.error("resident dispatch runs read failed", { ownerUserId, message: runs.error.message });
+    return { ok: false };
+  }
+  return { ok: true, runs: (runs.data ?? []) as DispatchRunRow[] };
+}
+
+/**
  * The resident's YES / NO to "Is it fixed?". YES completes the service; NO reopens it for
- * the vendor and alerts the manager. Only a resident whose email is on a run waiting for
- * that answer is claimed, so an ordinary YES still reaches the resident agent.
+ * the vendor and alerts the manager. Only a resident whose VERIFIED Auth subject is bound to a job
+ * on a run waiting for that answer is claimed, so an ordinary YES still reaches the resident agent.
+ *
+ * Every refusal here answers `handled: false` and changes nothing. An unreadable runs table or a
+ * `40001` on the shared advisory lock (an unrelated account-lifecycle transaction holds it) used to
+ * answer `handled: true` with "Could not check your service", which CLAIMED the resident's text
+ * away from their assistant — so a "yes" about something else was swallowed and never answered.
  */
 export async function handleResidentFixedReply(
   db: SupabaseClient,
-  input: { ownerUserId: string; residentEmail: string; verdict: "fixed" | "not_fixed"; now?: Date },
+  /** No `residentEmail`: the candidate runs come from the job's bound subject, never an address. */
+  input: { ownerUserId: string; residentUserId: string; verdict: "fixed" | "not_fixed"; now?: Date },
 ): Promise<ResidentFixedOutcome> {
   const now = input.now ?? new Date();
   const nowIso = now.toISOString();
-  const email = input.residentEmail.trim().toLowerCase();
-  if (!email) return { handled: false };
-  const { data } = await db
-    .from("vendor_dispatch_runs")
-    .select("*")
-    .eq("owner_user_id", input.ownerUserId)
-    .eq("resident_email", email)
-    .eq("completion_state", "awaiting_resident")
-    .eq("status", "accepted");
-  const runs = ((data ?? []) as DispatchRunRow[]).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-  const run = runs[0];
-  if (!run) return { handled: false };
-
-  const nextState = input.verdict === "fixed" ? "confirmed" : "reopened";
-  const { data: claimed } = await db
-    .from("vendor_dispatch_runs")
-    .update(
-      input.verdict === "fixed"
-        ? { status: "completed", completion_state: nextState, completed_at: nowIso, updated_at: nowIso }
-        : { completion_state: nextState, vendor_done_at: null, updated_at: nowIso },
-    )
-    .eq("id", run.id)
-    .eq("completion_state", "awaiting_resident")
-    .select("id");
-  if (!claimed || (claimed as unknown[]).length === 0) return { handled: false };
-
-  // The existing confirmation (when the manager has that step on) sends its own notices; run it first, then layer our fields.
-  await resolveResidentConfirmationBySms(db, {
-    managerUserId: run.owner_user_id,
-    residentEmail: email,
-    verdict: input.verdict,
-    now,
-  }).catch(() => null);
-
-  const record = await readWorkOrder(db, run);
-  const houseLabel = String(run.details.houseLabel || run.details.area || "the house");
-  if (record) {
-    const row = record.row_data;
-    const next: DemoManagerWorkOrderRow =
-      input.verdict === "fixed"
-        ? {
-            ...row,
-            bucket: "completed",
-            status: "Completed",
-            completedAt: nowIso,
-            ...(row.vendorCostCents == null && run.agreed_cents != null ? { vendorCostCents: run.agreed_cents } : {}),
-          }
-        : { ...row, automationStatus: undefined, vendorMarkedDoneAt: undefined, reopenedAt: nowIso };
-    await db
-      .from("portal_work_order_records")
-      .update({ row_data: stampSmsTestProvenance(next as unknown as Record<string, unknown>), updated_at: nowIso })
-      .eq("id", run.source_id)
-      .eq("manager_user_id", run.owner_user_id);
-  }
-
-  await recordDispatchEvent(db, {
-    ownerUserId: run.owner_user_id,
-    runId: run.id,
-    handle: run.handle,
-    event: input.verdict === "fixed" ? "resident_confirmed" : "resident_reopened",
-    channel: "sms",
-    detail: { verdict: input.verdict },
-    now,
-  });
-
-  if (input.verdict === "fixed") {
-    await notifyOutcome(db, run, toGsm7(`Resident confirmed #${run.handle} is fixed. Service completed`), "fixed");
-    return { handled: true, reply: "Thanks, glad it is fixed. Your service is closed." };
-  }
-  await notifyOutcome(db, run, composeManagerNotFixedText({ handle: run.handle, houseLabel }), "not-fixed");
-  if (run.accepted_vendor_directory_id) {
-    const contacts = await loadVendorContacts(db, run.owner_user_id, [run.accepted_vendor_directory_id]);
-    const contact = contacts.get(run.accepted_vendor_directory_id);
-    if (contact?.phone) {
-      await sendVendorDispatchText(db, {
-        ownerUserId: run.owner_user_id,
-        workspaceId: run.workspace_id,
-        approvedByUserId: run.approved_by,
-        vendorDirectoryId: contact.id,
-        phone: contact.phone,
-        vendorUserId: contact.vendorUserId,
-        text: `The resident says #${run.handle} is not fixed yet. Please follow up, then reply DONE`,
-        idempotencyKey: `dispatch-reopen-${run.id}-${nowIso.slice(0, 16).replace(/[^0-9]/g, "")}`,
-      }).catch(() => undefined);
+  const residentUserId = input.residentUserId.trim();
+  if (!residentUserId) return { handled: false };
+  const candidates = await residentAwaitingRuns(db, input.ownerUserId, residentUserId);
+  if (!candidates.ok) return { handled: false };
+  const runs = candidates.runs.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  let run: DispatchRunRow | undefined;
+  let result: { applied?: boolean; confirmation_applied?: boolean; confirmation_requested_at?: string } | undefined;
+  let expired = false;
+  for (const candidate of runs) {
+    // The same seven-day window the link path enforces. The RPC only uses it to decide whether to
+    // STAMP the verdict — it applies the state change regardless — so a month-old "no" has to be
+    // refused here, before the run is reopened and the manager alerted.
+    if (!withinResidentConfirmationWindow(candidate, now)) { expired = true; continue; }
+    const claimed = await db.rpc("resolve_resident_dispatch_confirmation", {
+      p_run: candidate.id, p_owner: input.ownerUserId, p_resident: residentUserId, p_verdict: input.verdict,
+    });
+    if (claimed.error) {
+      console.error("resolve_resident_dispatch_confirmation failed", { runId: candidate.id, message: claimed.error.message });
+      return { handled: false };
     }
+    if (claimed.data?.applied === true) { run = candidate; result = claimed.data; break; }
   }
-  return { handled: true, reply: "Sorry about that. Your property manager has been told and the service is reopened." };
+  if (!run || !result) {
+    return expired
+      ? { handled: true, reply: "That service is too old to update by text. Message your property manager and they can reopen it." }
+      : { handled: false };
+  }
+  try {
+    const houseLabel = String(run.details.houseLabel || run.details.area || "the house");
+    const read = await readWorkOrder(db, run);
+    const record = read.ok ? read.record : null;
+    const confirmation = record?.row_data.residentConfirmation;
+    if (record && result.confirmation_applied === true && typeof result.confirmation_requested_at === "string" && confirmation?.requestedAt === result.confirmation_requested_at) {
+      await emitResidentConfirmationEvent(db, { ...record, updated_at: null }, input.verdict, confirmation.requestedAt, now, undefined, null, residentUserId).catch(() => undefined);
+    }
+  
+    await recordDispatchEvent(db, {
+      ownerUserId: run.owner_user_id,
+      runId: run.id,
+      handle: run.handle,
+      event: input.verdict === "fixed" ? "resident_confirmed" : "resident_reopened",
+      channel: "sms",
+      detail: { verdict: input.verdict },
+      now,
+    });
+  
+    if (input.verdict === "fixed") {
+      await notifyOutcome(db, run, toGsm7(`Resident confirmed #${run.handle} is fixed. Service completed`), "fixed");
+    } else {
+    await notifyOutcome(db, run, composeManagerNotFixedText({ handle: run.handle, houseLabel }), "not-fixed");
+    if (run.accepted_vendor_directory_id) {
+      const contacts = await loadVendorContacts(db, run.owner_user_id, [run.accepted_vendor_directory_id]);
+      const contact = contacts.get(run.accepted_vendor_directory_id);
+      if (contact?.phone) {
+        await sendVendorDispatchText(db, {
+          ownerUserId: run.owner_user_id,
+          workspaceId: run.workspace_id,
+          approvedByUserId: run.approved_by,
+          vendorDirectoryId: contact.id,
+          phone: contact.phone,
+          vendorUserId: contact.vendorUserId,
+          text: `The resident says #${run.handle} is not fixed yet. Please follow up, then reply DONE`,
+          idempotencyKey: `dispatch-reopen-${run.id}-${nowIso.slice(0, 16).replace(/[^0-9]/g, "")}`,
+        }).catch(() => undefined);
+      }
+    }
+    }
+  } catch (error) {
+    console.error("[vendor-dispatch] post-confirmation notice failed", error instanceof Error ? error.name : "unknown");
+  }
+  return input.verdict === "fixed"
+    ? { handled: true, reply: "Thanks, glad it is fixed. Your service is closed." }
+    : { handled: true, reply: "Sorry about that. Your service is reopened." };
 }
 
 export type InvoiceOutcome = "asked" | "not_accepted_vendor" | "not_found" | "invalid" | "already_pending";

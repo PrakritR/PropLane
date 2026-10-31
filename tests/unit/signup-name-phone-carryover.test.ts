@@ -8,19 +8,22 @@ vi.mock("@/lib/tour-resident-link.server", () => ({
 }));
 vi.mock("@/lib/auth/profile-role-row", () => ({ ensureProfileRoleRow: vi.fn(async () => undefined) }));
 
+import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
+import { ensureMayAccessResidentPortal } from "@/lib/auth/ensure-resident-portal-access.server";
 import { ensureSignedInResidentAccount } from "@/lib/auth/ensure-signed-in-resident.server";
 import { readPhoneIdentity } from "@/lib/auth/phone-auth.server";
+import { linkAllTourInquiriesForEmail, reconcileProspectInboxThreadsForResident } from "@/lib/tour-resident-link.server";
 
 type Call = { table: string; op: string; payload?: unknown };
 
-function db(profile: Record<string, unknown> | null) {
+function db(profile: Record<string, unknown> | null, roleError = false, profileError = false, roles: { role: string }[] = []) {
   const calls: Call[] = [];
   const client = {
     from: (table: string) => ({
       select: () => ({
         eq: () => ({
-          maybeSingle: async () => ({ data: table === "profiles" ? profile : null, error: null }),
-          then: (resolve: (v: unknown) => void) => resolve({ data: [], error: null }),
+          maybeSingle: async () => ({ data: table === "profiles" ? profile : null, error: profileError ? { message: "failed" } : null }),
+          then: (resolve: (v: unknown) => void) => resolve({ data: roles, error: roleError ? { message: "failed" } : null }),
         }),
       }),
       insert: (payload: unknown) => { calls.push({ table, op: "insert", payload }); return Promise.resolve({ error: null }); },
@@ -54,6 +57,28 @@ describe("the name and number typed at signup reach the profile when the residen
   });
 });
 
+describe("resident historical email linking", () => {
+  it.each([
+    ["unconfirmed mailbox", { id: "u1", email: "w@example.com" }, "w@example.com"],
+    ["different profile mailbox", { id: "u1", email: "w@example.com", email_confirmed_at: "confirmed" }, "other@example.com"],
+    ["phone placeholder", { id: "u1", email: "123@phone.proplane.invalid", email_confirmed_at: "confirmed" }, "123@phone.proplane.invalid"],
+  ])("does not backfill for %s", async (_label, user, email) => {
+    vi.clearAllMocks();
+    const { client } = db({ role: "resident", email });
+    expect((await ensureSignedInResidentAccount(client, user)).ok).toBe(true);
+    expect(linkAllTourInquiriesForEmail).not.toHaveBeenCalled();
+    expect(reconcileProspectInboxThreadsForResident).not.toHaveBeenCalled();
+  });
+
+  it("backfills only the matching confirmed Auth mailbox", async () => {
+    vi.clearAllMocks();
+    const { client } = db({ role: "resident", email: "W@example.com" });
+    await ensureSignedInResidentAccount(client, { id: "u1", email: "w@example.com", email_confirmed_at: "confirmed" });
+    expect(linkAllTourInquiriesForEmail).not.toHaveBeenCalled();
+    expect(reconcileProspectInboxThreadsForResident).toHaveBeenCalledWith(client, expect.objectContaining({ contactEmail: "w@example.com" }));
+  });
+});
+
 describe("the verify screen is prefilled with the number typed at signup", () => {
   function identityDb(profile: Record<string, unknown> | null, metaPhone: string | undefined) {
     return {
@@ -74,3 +99,32 @@ describe("the verify screen is prefilled with the number typed at signup", () =>
     await expect(readPhoneIdentity(identityDb(null, undefined), "u1")).resolves.toEqual({ phone: null, verified: false });
   });
 });
+
+ describe("resident provisioning stored role boundary", () => {
+  it("never resurrects revoked legacy admin when granting resident", async () => {
+    vi.clearAllMocks();
+    const { client } = db({ role: "admin", email: "w@example.com" });
+    expect((await ensureSignedInResidentAccount(client, { id: "u1", email: "w@example.com" })).ok).toBe(true);
+    expect(ensureProfileRoleRow).toHaveBeenCalledWith(client, "u1", "resident");
+    expect(ensureProfileRoleRow).not.toHaveBeenCalledWith(client, "u1", "admin");
+  });
+  it("never replays stored nonresident roles that could be concurrently revoked", async () => {
+    vi.clearAllMocks();
+    const { client } = db({ role: "admin", email: "w@example.com" }, false, false, [{ role: "admin" }, { role: "manager" }]);
+    expect((await ensureSignedInResidentAccount(client, { id: "u1", email: "w@example.com" })).ok).toBe(true);
+    expect(vi.mocked(ensureProfileRoleRow).mock.calls.map((call) => call[2])).toEqual(["resident"]);
+  });
+  it("denies profile read errors before any profile or role write", async () => {
+    vi.clearAllMocks();
+    const { client, calls } = db(null, false, true);
+    expect((await ensureSignedInResidentAccount(client, { id: "u1", email: "w@example.com" })).ok).toBe(false);
+    expect(calls).toEqual([]);
+    expect(ensureProfileRoleRow).not.toHaveBeenCalled();
+  });
+  it("denies portal provisioning on role read failure without granting anything", async () => {
+    vi.clearAllMocks();
+    const { client } = db({ role: "admin", email: "w@example.com" }, true);
+    expect(await ensureMayAccessResidentPortal(client, { id: "u1", email: "w@example.com" })).toMatchObject({ ok: false, status: 500 });
+    expect(ensureProfileRoleRow).not.toHaveBeenCalled();
+  });
+ });

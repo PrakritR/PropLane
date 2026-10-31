@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
+import { profileRolesBuilder } from "../../helpers/profile-roles-fake";
 
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
@@ -38,10 +39,10 @@ function mockDb(opts: {
         };
       }
       if (table === "profile_roles") {
-        return {
-          select: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockResolvedValue({ data: opts.role === "manager" ? [{ role: "manager" }] : [] }),
-        };
+        return profileRolesBuilder([
+          { user_id: "mgr-a", role: "manager" },
+          { user_id: "res-1", role: "resident" },
+        ]);
       }
       if (table === "manager_property_records") {
         return {
@@ -107,6 +108,20 @@ describe("/api/portal/property-access-info", () => {
       jsonRequest("http://t", { method: "PATCH", body: { propertyId: "prop-b", accessInfo: { gateCode: "1111" } } }),
     );
     expect((await parseJsonResponse(res)).status).toBe(403);
+    expect(upserts).toHaveLength(0);
+  });
+
+  it("denies a legacy profiles.role manager without a stored manager role", async () => {
+    mockAuth("legacy-manager");
+    const { client, upserts } = mockDb({ role: "manager" });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client);
+
+    const res = await PATCH(jsonRequest("http://t", {
+      method: "PATCH",
+      body: { propertyId: "legacy-property", accessInfo: { gateCode: "must-not-write" } },
+    }));
+
+    expect((await parseJsonResponse(res)).status).toBe(401);
     expect(upserts).toHaveLength(0);
   });
 

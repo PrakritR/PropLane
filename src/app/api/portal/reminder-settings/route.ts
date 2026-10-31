@@ -1,3 +1,4 @@
+import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
 /**
  * Per-manager reminder rules for the reminder spine, with optional per-property
  * and per-workspace overrides (PLAN-0916-1040, extended by PLAN-0920-0845).
@@ -85,14 +86,7 @@ async function requireManager() {
   if (!user?.id) return null;
 
   const db = createSupabaseServiceRoleClient();
-  const [{ data: profile }, { data: roles }] = await Promise.all([
-    db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
-    db.from("profile_roles").select("role").eq("user_id", user.id),
-  ]);
-  const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
-  const legacy = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const isManager = roleList.includes("manager") || legacy === "manager" || legacy === "admin";
-  if (!isManager) return null;
+  if (!(await userHoldsManagerRole(db, user.id))) return null;
   return { db, userId: user.id };
 }
 

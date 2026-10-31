@@ -44,5 +44,7 @@ const route = createJsonRecordRoute({
     user.role === "admin" ? record : { ...record, manager_user_id: user.id },
 });
 
-export const GET = route.GET;
+export async function GET(req: Request) {
+  return route.GET(req);
+}
 export const POST = route.POST;

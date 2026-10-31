@@ -86,7 +86,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   vendorCanSeeFullWorkOrderSite,
   vendorLeadMapsQuery,
-  workOrderGeneralArea,
+  vendorVisibleGeneralArea,
 } from "@/lib/work-order-vendor-privacy";
 import { VENDOR_SERVICE_ACTION_LABEL } from "@/lib/service-lifecycle";
 import type { VendorInvoice } from "@/lib/vendor-invoices";
@@ -101,7 +101,7 @@ function propertyLabel(row: DemoManagerWorkOrderRow): string {
 
 function vendorPlaceLine(row: DemoManagerWorkOrderRow, bid?: WorkOrderBid | null): string {
   if (vendorCanSeeFullWorkOrderSite(row, bid)) return propertyLabel(row);
-  return workOrderGeneralArea(row);
+  return vendorVisibleGeneralArea(row);
 }
 
 /** The vendor's job amount: the accepted quote or recorded cost, nothing while it is only a quote. */

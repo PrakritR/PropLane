@@ -9,6 +9,7 @@ export type ApplicationRecordSnapshot = {
   resident_email?: string | null;
   property_id?: string | null;
   assigned_property_id?: string | null;
+  updated_at?: string | null;
   row_data: unknown;
 };
 

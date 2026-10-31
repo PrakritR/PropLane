@@ -26,6 +26,8 @@ const UNREADABLE: Access = {
 
 const m = vi.hoisted(() => ({
   access: { allowed: true } as Access,
+  roles: ["manager"] as string[],
+  roleError: false,
   forActive: vi.fn(),
   deliverResidentWelcome: vi.fn(),
   sendVendorInvite: vi.fn(),
@@ -40,7 +42,15 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 function fakeDb() {
-  const resolve = (table: string, many: boolean) => {
+  // `userHoldsManagerRole` asks for ONE row, filtered on `role`, so the stand-in has to honour that
+  // filter instead of answering every single-row `profile_roles` read with null.
+  const resolve = (table: string, many: boolean, filters: Array<[string, unknown]>) => {
+    if (table === "profile_roles") {
+      if (m.roleError) return { data: null, error: { message: "unavailable" } };
+      const wanted = filters.find(([column]) => column === "role")?.[1];
+      const rows = m.roles.filter((role) => wanted === undefined || role === wanted).map((role) => ({ role }));
+      return { data: many ? rows : rows[0] ?? null, error: null };
+    }
     if (table === "profiles") return { data: { role: "manager", full_name: "Alex", email: "mgr@example.com" }, error: null };
     if (table === "manager_application_records") {
       const rec = { id: "APP1", row_data: { id: "APP1", manuallyAdded: true, email: "res@example.com", name: "Res" } };
@@ -50,10 +60,16 @@ function fakeDb() {
   };
   return {
     from(table: string) {
+      const filters: Array<[string, unknown]> = [];
       const chain: Record<string, unknown> = {};
-      for (const k of ["select", "eq", "in", "update", "order"]) chain[k] = () => chain;
-      chain.limit = async () => resolve(table, true);
-      chain.maybeSingle = async () => resolve(table, false);
+      for (const k of ["select", "in", "update", "order"]) chain[k] = () => chain;
+      chain.eq = (column: string, value: unknown) => {
+        filters.push([column, value]);
+        return chain;
+      };
+      chain.limit = async () => resolve(table, true, filters);
+      chain.maybeSingle = async () => resolve(table, false, filters);
+      chain.then = (fn: (value: unknown) => unknown) => Promise.resolve(resolve(table, true, filters)).then(fn);
       return chain;
     },
   };
@@ -118,6 +134,7 @@ const post = (url: string, body: unknown) =>
 
 beforeEach(() => {
   m.access = { allowed: true };
+  m.roles = ["manager"]; m.roleError = false;
   for (const fn of Object.values(m)) if (typeof fn === "function" && "mockReset" in fn) (fn as ReturnType<typeof vi.fn>).mockReset();
   m.deliverResidentWelcome.mockResolvedValue({ ok: true, id: "e1", skipped: false });
   m.sendVendorInvite.mockResolvedValue({ ok: true, emailId: "e2", linkUrl: "https://proplane.test/i" });
@@ -257,4 +274,11 @@ describe("POST /api/portal/portfolio-import/[importId]/create - import kept, inv
     expect(await res.json()).not.toHaveProperty("communicationBlocked");
     expect(m.forActive).not.toHaveBeenCalled();
   });
+});
+
+ it("vendor invite refuses legacy-only manager role and unreadable roles", async () => {
+  const request = () => post("https://x.test/api/portal/send-vendor-invite", { vendorId: "v1", vendorEmail: "v@example.com", vendorName: "V" });
+  m.roles = []; expect((await postVendorInvite(request())).status).toBe(403);
+  m.roles = ["manager"]; m.roleError = true; expect((await postVendorInvite(request())).status).toBe(403);
+  expect(m.sendVendorInvite).not.toHaveBeenCalled();
 });

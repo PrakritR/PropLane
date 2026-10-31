@@ -6,7 +6,7 @@ import {
   resolvePropertyScopedManagerRecipientIds,
 } from "@/lib/co-manager-notification-recipients.server";
 import { notifyWorkOrderEvent } from "@/lib/work-order-notification.server";
-import { residentBelongsToManager } from "@/lib/resident-manager-scope";
+import { residentSubjectManagerIds } from "@/lib/auth/resident-subject-evidence.server";
 import { buildResidentWorkOrderReminderEmail } from "@/lib/resident-work-order-reminder-email";
 import { RESIDENT_WORK_ORDER_REMINDER_COOLDOWN_MS } from "@/lib/resident-work-order-reminder-email";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -48,21 +48,19 @@ export async function deliverResidentWorkOrderReminder(
 
   const { data: workOrder } = await db
     .from("portal_work_order_records")
-    .select("manager_user_id, resident_email, row_data")
+    .select("manager_user_id, resident_user_id, resident_email, row_data")
     .eq("id", workOrderId)
     .maybeSingle();
   if (!workOrder) return { ok: false, error: "Work order not found." };
 
-  const recordEmail = String(workOrder.resident_email ?? "").trim().toLowerCase();
-  if (recordEmail !== residentEmail) {
-    return { ok: false, error: "Forbidden." };
-  }
+  const residentSubjectId = workOrder.resident_user_id;
+  if (residentSubjectId !== input.residentUserId) return { ok: false, error: "Forbidden." };
 
   const managerUserId = String(workOrder.manager_user_id ?? "").trim();
   if (!managerUserId) return { ok: false, error: "Work order has no manager." };
 
-  const belongs = await residentBelongsToManager(db, { residentEmail, managerUserId });
-  if (!belongs) return { ok: false, error: "Forbidden." };
+  const managers = await residentSubjectManagerIds(db, input.residentUserId, residentEmail);
+  if (!managers.includes(managerUserId)) return { ok: false, error: "Forbidden." };
 
   const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
   if (!isPendingResidentWorkOrder(rowData)) {
@@ -114,6 +112,7 @@ export async function deliverResidentWorkOrderReminder(
     toUserIds: profiles.map((profile) => profile.userId),
   });
 
+  const recordEmail = (workOrder.resident_email ?? "").trim().toLowerCase() || null;
   const nextRow: DemoManagerWorkOrderRow = {
     ...rowData,
     residentReminderSentAt: new Date().toISOString(),

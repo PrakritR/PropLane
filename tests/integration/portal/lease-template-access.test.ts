@@ -7,7 +7,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({ linkedPropertyIdsForModule: vi.fn() }));
-vi.mock("@/lib/resident-manager-scope", () => ({
+vi.mock("@/lib/resident-manager-scope", async (importOriginal) => ({
+  // The route's approved-application predicates are pure; only the DB-backed lookups are stubbed.
+  ...(await importOriginal<typeof import("@/lib/resident-manager-scope")>()),
   resolveResidentFilingScope: vi.fn(),
   residentHasApprovedResidency: vi.fn(),
 }));
@@ -47,6 +49,7 @@ function mockDb({
   owned = [] as unknown[],
   byId = [PROPERTY_ROW] as unknown[],
   leases = [] as unknown[],
+  applications = [] as { manager_user_id: string; property_id: string; assigned_property_id: string | null; row_data: { residentUserId: string } & Record<string, unknown> }[],
 } = {}) {
   const removed: string[][] = [];
   const downloaded: string[] = [];
@@ -63,6 +66,15 @@ function mockDb({
     client: {
       from: (table: string) => {
         if (table === "profiles") return { select: () => ({ eq: () => result([{ email: "r@example.com" }]) }) };
+        if (table === "manager_application_records") {
+          // The resident branch reads the caller's OWN application rows by
+          // `row_data->>residentUserId`; honour that filter like PostgREST does.
+          return {
+            select: () => ({
+              eq: (_col: string, value: string) => result(applications.filter((row) => row.row_data.residentUserId === value)),
+            }),
+          };
+        }
         if (table === "portal_lease_pipeline_records") return { select: () => ({ eq: () => result(leases) }) };
         return {
           select: () => ({
@@ -132,7 +144,18 @@ describe("GET /api/portal/lease-template", () => {
   it("serves the resident whose linked property references the template", async () => {
     signedInAs(OTHER);
     vi.mocked(resolveResidentFilingScope).mockResolvedValue({ managerUserId: OWNER, propertyId: "mgr-1" });
-    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(mockDb().client as never);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
+      mockDb({
+        applications: [
+          {
+            manager_user_id: OWNER,
+            property_id: "mgr-1",
+            assigned_property_id: null,
+            row_data: { bucket: "approved", residentUserId: OTHER, propertyId: "mgr-1" },
+          },
+        ],
+      }).client as never,
+    );
 
     expect((await get(PATH)).status).toBe(200);
   });
@@ -159,7 +182,18 @@ describe("GET /api/portal/lease-template", () => {
     signedInAs(OTHER);
     vi.mocked(resolveResidentFilingScope).mockResolvedValue({ managerUserId: OWNER, propertyId: "mgr-1" });
     vi.mocked(residentHasApprovedResidency).mockResolvedValue(false);
-    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(mockDb().client as never);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
+      mockDb({
+        applications: [
+          {
+            manager_user_id: OWNER,
+            property_id: "mgr-1",
+            assigned_property_id: null,
+            row_data: { bucket: "pending", residentUserId: OTHER, propertyId: "mgr-1" },
+          },
+        ],
+      }).client as never,
+    );
 
     expect((await get(PATH)).status).toBe(404);
   });

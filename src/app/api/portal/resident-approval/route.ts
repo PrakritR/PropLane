@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { track } from "@/lib/analytics/posthog";
 import { notifyApplicantApplicationSms } from "@/lib/application-lifecycle-sms.server";
-import { isAdminUser } from "@/lib/auth/admin-preview";
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { linkedOwnerScopeForModule, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import {
   managerCanAccessApplicationRecord,
@@ -106,9 +106,10 @@ export async function PATCH(req: Request) {
       userId: user.id,
       legacyRole: requestor.role,
     });
-    const actorIsResident = actorRole === "resident";
-    const actorCanManage = canManageResidentApproval(actorRole);
-    const actorIsAdmin = actorRole === "admin" || (await isAdminUser(user.id));
+    const actorIsAdmin = await resolveAdminOversight(req, user.id);
+    if (actorRole === "denied" && !actorIsAdmin) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    const actorIsResident = !actorIsAdmin && actorRole === "resident";
+    const actorCanManage = actorIsAdmin || canManageResidentApproval(actorRole);
 
     const requestorEmail = normalizeEmail(requestor.email);
     if (actorIsResident) {

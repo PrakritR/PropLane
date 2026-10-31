@@ -40,6 +40,7 @@ import {
   reconcileManagerPurchaseWithStripe,
 } from "@/lib/manager-stripe-subscription-sync";
 import {
+  checkoutSessionIndicatesPaidPurchase,
   recordPaidManagerCheckoutSession,
   resolveManagerCheckoutPurchase,
 } from "@/lib/manager-purchase-from-session";
@@ -103,6 +104,15 @@ import {
 import { handleVendorBankingDispute } from "@/lib/vendor-banking/disputes.server";
 import { settlePhoneBoundRentLinks } from "@/lib/one-number/links.server";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import {
+  checkoutNeedsOwnerCheck,
+  HOUSEHOLD_CHARGE_PURPOSE,
+  isManagerPlanCheckout,
+  isUnhandledCheckoutPurpose,
+  MANAGER_CARD_SETUP_PURPOSE,
+  RENTAL_APPLICATION_FEE_PURPOSE,
+} from "@/lib/stripe/checkout-purpose";
+import { RESIDENT_CARD_SETUP_PURPOSE } from "@/lib/stripe/resident-card-setup-purpose";
 
 export const runtime = "nodejs";
 
@@ -126,7 +136,7 @@ async function checkoutOwner(
 ): Promise<string | null> {
   const purpose = session.metadata?.purpose;
   let owner = "";
-  if (purpose === "rental_application_fee") {
+  if (purpose === RENTAL_APPLICATION_FEE_PURPOSE) {
     const propertyId = session.metadata?.property_id?.trim() ?? "";
     const { data, error } = await db.from("manager_property_records").select("manager_user_id").eq("id", propertyId).maybeSingle();
     if (error) throw new Error("Could not resolve checkout ownership.");
@@ -137,7 +147,7 @@ async function checkoutOwner(
     const { data, error } = await db.from("application_form_requests").select("manager_user_id").eq("id", requestId).maybeSingle();
     if (error) throw new Error("Could not resolve checkout ownership.");
     owner = String(data?.manager_user_id ?? "").trim();
-  } else if (purpose === "household_charge") {
+  } else if (purpose === HOUSEHOLD_CHARGE_PURPOSE) {
     const chargeId = session.metadata?.charge_ids?.split(",")[0]?.trim() || session.metadata?.charge_id?.trim() || "";
     const { data, error } = await db.from("portal_household_charge_records").select("manager_user_id").eq("id", chargeId).maybeSingle();
     if (error) throw new Error("Could not resolve checkout ownership.");
@@ -149,10 +159,12 @@ async function checkoutOwner(
     owner = String(data?.manager_user_id ?? "").trim();
   } else if (purpose === VENDOR_INVOICE_PAY_PURPOSE || purpose === VENDOR_INVOICE_DIRECT_PAY_PURPOSE) {
     owner = session.metadata?.manager_user_id?.trim() ?? "";
-  } else {
+  } else if (isManagerPlanCheckout(session)) {
     const purchase = await resolveManagerCheckoutPurchase(db, session);
     owner = purchase.userId ?? "";
     if (!purchase.userId) return null;
+  } else {
+    throw new Error("Could not resolve checkout ownership.");
   }
   const claimed = session.metadata?.manager_user_id?.trim() || session.metadata?.userId?.trim() || "";
   if (!owner || (claimed && claimed !== owner)) throw new Error("Could not resolve checkout ownership.");
@@ -182,7 +194,7 @@ function logCheckoutCompleted(session: Stripe.Checkout.Session) {
 
 async function enrichCheckoutLedgerFees(stripe: Stripe, session: Stripe.Checkout.Session): Promise<void> {
   const purpose = session.metadata?.purpose;
-  if (purpose !== "household_charge" && purpose !== "rental_application_fee" && purpose !== LINKED_FORM_FEE_PURPOSE) return;
+  if (purpose !== HOUSEHOLD_CHARGE_PURPOSE && purpose !== RENTAL_APPLICATION_FEE_PURPOSE && purpose !== LINKED_FORM_FEE_PURPOSE) return;
   const db = createSupabaseServiceRoleClient();
   await enrichLedgerFromCheckoutSession(db, stripe, session).catch((e) => {
     console.error("[stripe webhook] ledger fee enrichment", e);
@@ -321,13 +333,22 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const session = event.data.object as Stripe.Checkout.Session;
       logCheckoutCompleted(session);
-      if (
-        session.metadata?.purpose !== COMMS_CREDIT_PURPOSE &&
-        session.metadata?.purpose !== COMMS_CREDIT_POOL_PURPOSE &&
-        session.metadata?.purpose !== NUMBER_SUBSCRIPTION_PURPOSE &&
-        session.metadata?.purpose !== NUMBER_CREDIT_PURPOSE &&
-        !(session.mode === "setup" && session.metadata?.purpose === "manager_card_setup")
-      ) {
+      // A purpose no branch below claims is acknowledged and logged, never fulfilled
+      // as a manager plan by omission from a hand-copied list.
+      if (isUnhandledCheckoutPurpose(session)) {
+        console.error("[stripe webhook] checkout session has an unhandled purpose", {
+          sessionId: session.id,
+          purpose: session.metadata?.purpose,
+        });
+        return NextResponse.json({ received: true, ignored: true }, { status: 200 });
+      }
+      if (checkoutNeedsOwnerCheck(session)) {
+        // A manager-plan session that has not paid is acknowledged BEFORE any owner or reservation
+        // lookup: an unpaid session writes nothing and grants nothing, whatever reservation it has
+        // (or lacks). An unmatched PAID session still fails closed in `checkoutOwner` (500, no write).
+        if (isManagerPlanCheckout(session) && !checkoutSessionIndicatesPaidPurchase(session)) {
+          return NextResponse.json({ received: true }, { status: 200 });
+        }
         const owner = await checkoutOwner(db, session);
         if (owner && await refuseWebhookOwner(db, owner, "checkout_completion")) {
           return NextResponse.json({ received: true }, { status: 200 });
@@ -370,7 +391,7 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
             await recordCommsCreditPaymentReview(db, session, event.id, e.message);
           }
         });
-      } else if (session.metadata?.purpose === "rental_application_fee") {
+      } else if (session.metadata?.purpose === RENTAL_APPLICATION_FEE_PURPOSE) {
         if (session.payment_status !== "paid") return NextResponse.json({ received: true }, { status: 200 });
         // A captured fee is never acknowledged until its exact persisted
         // application claim, charge, ledger and recipient hold are repaired.
@@ -395,7 +416,7 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
         // No catch: an unexpected throw returns 500 so Stripe retries; the
         // order placement is idempotent on the session id.
         await runScreeningFromStripeSession(db, session);
-      } else if (session.metadata?.purpose === "household_charge") {
+      } else if (session.metadata?.purpose === HOUSEHOLD_CHARGE_PURPOSE) {
         try {
           if (householdChargeCheckoutProcessing(session)) {
             // ACH submitted, clearing for 3–5 business days: hold the charges
@@ -469,10 +490,22 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
           console.error("[stripe webhook] vendor_invoice_direct_pay checkout", e);
           throw e;
         }
-      } else if (session.mode === "setup" && session.metadata?.purpose === "manager_card_setup") {
+      } else if (session.metadata?.purpose === MANAGER_CARD_SETUP_PURPOSE) {
         // Stripe setup attaches the card to its authenticated manager customer.
         // No plan or credit is granted, and default selection is an explicit action.
-      } else {
+        if (session.mode !== "setup") {
+          console.error("[stripe webhook] manager_card_setup session is not a setup session", { sessionId: session.id });
+        }
+      } else if (session.metadata?.purpose === RESIDENT_CARD_SETUP_PURPOSE) {
+        // Same shape on the resident side: Stripe attached the card to the resident's own customer
+        // and the saved-method list is read live from Stripe, so there is nothing to fulfil. Named
+        // here rather than left to fall off the end of the chain, so every member of
+        // `HANDLED_CHECKOUT_PURPOSES` really is handled by name.
+        if (session.mode !== "setup") {
+          console.error("[stripe webhook] resident_card_setup session is not a setup session", { sessionId: session.id });
+        }
+      } else if (isManagerPlanCheckout(session)) {
+        if (!checkoutSessionIndicatesPaidPurchase(session)) return NextResponse.json({ received: true }, { status: 200 });
         try {
           await recordPaidManagerCheckoutSession(session);
           const uid = session.metadata?.userId?.trim();
@@ -519,7 +552,7 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
       const expired = event.data.object as Stripe.Checkout.Session;
       await releaseFailedVendorInvoiceCheckout(db, expired);
       await releaseFailedVendorPayCheckout(db, expired);
-      if (expired.metadata?.purpose === "rental_application_fee" &&
+      if (expired.metadata?.purpose === RENTAL_APPLICATION_FEE_PURPOSE &&
           expired.metadata.application_id && expired.metadata.attempt_token) {
         const { error } = await db.rpc("retire_expired_application_fee_checkout", {
           p_application_id: expired.metadata.application_id,
@@ -808,7 +841,7 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
     if (event.type === "payment_intent.payment_failed") {
       const paymentIntent = event.data.object as Stripe.PaymentIntent;
       if (paymentIntent.metadata?.source_arbitration_v === "1" &&
-          paymentIntent.metadata?.purpose === "household_charge") {
+          paymentIntent.metadata?.purpose === HOUSEHOLD_CHARGE_PURPOSE) {
         if (paymentIntent.metadata.manual_ach === "1") {
           const result = await reconcileResidentManualAchPaymentIntent(db, paymentIntent);
           if (result.ok || result.paid || result.processing) {
@@ -825,7 +858,7 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
         // The claim/slot remains bound; no NSF or fresh debit is created.
       } else {
         if (paymentIntent.metadata?.source_arbitration_v &&
-            paymentIntent.metadata?.purpose === "household_charge") {
+            paymentIntent.metadata?.purpose === HOUSEHOLD_CHARGE_PURPOSE) {
           throw new Error("Unknown household source arbitration version.");
         }
         await handlePaymentIntentFailed(db, paymentIntent);
@@ -898,7 +931,7 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
           paymentIntentId: paymentIntent.id,
         });
       } else if (paymentIntent.metadata?.source_arbitration_v === "1" &&
-          paymentIntent.metadata.purpose === "household_charge") {
+          paymentIntent.metadata.purpose === HOUSEHOLD_CHARGE_PURPOSE) {
         if (paymentIntent.metadata.autopay_run_id) {
           await handleAutopayPaymentIntentSucceeded(db, paymentIntent);
         } else if (paymentIntent.metadata.resident_attempt_token) {
@@ -907,7 +940,7 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
           throw new Error("Marked household capture has no claim flow.");
         }
       } else if (paymentIntent.metadata?.source_arbitration_v &&
-          paymentIntent.metadata.purpose === "household_charge") {
+          paymentIntent.metadata.purpose === HOUSEHOLD_CHARGE_PURPOSE) {
         throw new Error("Unknown household source arbitration version.");
       } else {
         await handleAutopayPaymentIntentSucceeded(db, paymentIntent).catch((e) => {

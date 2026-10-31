@@ -41,7 +41,7 @@ import { MAX_COMPLETION_PHOTO_BYTES, validateCompletionPhotos } from "@/lib/comp
 import { markWorkOrderDoneByVendor, scheduleAssignedVisit, bookedVisitPatch } from "@/lib/work-order-bids.server";
 import { sendWorkOrderVendorOffers } from "@/lib/work-order-offers.server";
 import { describeVendorSendOutcome } from "@/lib/work-order-vendor-offers";
-import { projectWorkOrderForHiredVendor, projectWorkOrderForOfferedVendor } from "@/lib/work-order-vendor-privacy";
+import { projectWorkOrderForHiredVendor, projectWorkOrderForOfferedVendor, assignedVendorDirectoryId, normalizeAssignedVendorAssignee, vendorVisibleGeneralArea, vendorLeadMapsQuery, vendorServiceWorkflowSteps, withheldAssignedVendorIdentity } from "@/lib/work-order-vendor-privacy";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 
 type Rec = Record<string, unknown>;
@@ -99,9 +99,9 @@ describe("R1: multi-role vendor resolves as vendor from the portal, not profiles
     hoisted.access = { ...hoisted.access, effectiveRole: "manager" };
     expect(await resolveSessionActorRole("manager")).toBe("manager");
   });
-  it("falls back to the legacy role only when the portal names none", async () => {
+  it("does not grant a role from legacy metadata when no stored role exists", async () => {
     hoisted.access = { user: { id: "u1" }, profile: null, roles: [], effectiveRole: null };
-    expect(await resolveSessionActorRole("Vendor")).toBe("vendor");
+    expect(await resolveSessionActorRole("Vendor")).toBe("");
   });
   it("the job routes and bids library no longer read profiles.role directly", async () => {
     const fs = await import("node:fs");
@@ -233,14 +233,14 @@ describe("J3: completion photos", () => {
     expect(hoisted.events).toHaveLength(0);
   });
 
-  it("a double tap writes the done status once: the update re-asserts it, and a lost race fires nothing", async () => {
+  it("a double tap writes the done status once: a lost revision race returns 409 and fires nothing", async () => {
     const log: Array<{ table: string; op: string; row?: Rec }> = [];
     // The row still reads as not-done (the stale SELECT both requests made), but the conditional UPDATE matches no row
     // because the winner already stamped automationStatus.
     const base = fakeDb({ portal_work_order_records: { single: { manager_user_id: "m1", vendor_user_id: "v1", row_data: { id: "wo1", bucket: "scheduled", title: "T", reference: "R" } }, rows: [] } }, log) as unknown as Rec;
     const db = { ...base, storage: { from: () => ({ upload: async () => ({ error: null }) }) } } as never;
     hoisted.events.length = 0;
-    expect(await markWorkOrderDoneByVendor(db, actor(), { workOrderId: "wo1" })).toMatchObject({ ok: false, status: 400 });
+    expect(await markWorkOrderDoneByVendor(db, actor(), { workOrderId: "wo1" })).toMatchObject({ ok: false, status: 409 });
     expect(hoisted.events).toHaveLength(0);
   });
 });
@@ -272,11 +272,90 @@ describe("J4: Assigned -> Scheduled through the vendor's own picker", () => {
   });
 });
 
+describe("assigned vendor directory normalization", () => {
+  const directory = [{ id: "directory-a", managerId: "manager-a" }, { id: "directory-b", managerId: "manager-b" }];
+  it("replaces an Auth ID with the exact manager-scoped directory ID", () => {
+    expect(assignedVendorDirectoryId("vendor-auth-id", "manager-a", "vendor-auth-id", directory)).toBe("directory-a");
+    expect(assignedVendorDirectoryId("directory-a", "manager-a", "vendor-auth-id", directory)).toBe("directory-a");
+    expect(assignedVendorDirectoryId("directory-b", "manager-a", "vendor-auth-id", directory)).toBe("directory-a");
+  });
+  it("replaces a nested vendor Auth ID while retaining the vendor display name", () => {
+    const row = { assignee: { type: "vendor", id: "vendor-auth-id", name: "Vendor" } } as DemoManagerWorkOrderRow;
+    expect(normalizeAssignedVendorAssignee(row, "directory-a")).toEqual({ type: "vendor", id: "directory-a", name: "Vendor" });
+    expect(projectWorkOrderForOfferedVendor(row)).not.toHaveProperty("assignee");
+  });
+  it("denies missing, viewer-ID and ambiguous manager-scoped matches", () => {
+    expect(assignedVendorDirectoryId("vendor-auth-id", "missing", "vendor-auth-id", directory)).toBeNull();
+    expect(assignedVendorDirectoryId("vendor-auth-id", "manager-a", "vendor-auth-id", [{ id: "vendor-auth-id", managerId: "manager-a" }])).toBeNull();
+    expect(assignedVendorDirectoryId("vendor-auth-id", "manager-a", "vendor-auth-id", [...directory, { id: "directory-c", managerId: "manager-a" }])).toBeNull();
+    expect(assignedVendorDirectoryId("manager-a", "manager-a", "vendor-auth-id", [{ id: "manager-a", managerId: "manager-a" }])).toBeNull();
+    expect(assignedVendorDirectoryId("resident-id", "manager-a", "vendor-auth-id", [{ id: "resident-id", managerId: "manager-a" }], "resident-id")).toBeNull();
+  });
+  /**
+   * An unresolvable directory id used to DROP the whole record from the vendor's response, so a
+   * manager removing a vendor from their roster mid-job, or a duplicate roster row, silently emptied
+   * that vendor's own assigned AND completed jobs — including completed ones they still invoice from.
+   * The privacy rule is only that the id must not leak, not that the job must disappear.
+   */
+  it("keeps the vendor's own job when the directory id cannot be verified, withholding only the id", () => {
+    const row = {
+      id: "wo1",
+      title: "Leaking tap",
+      propertyAddress: "1 Main St, Seattle, WA",
+      vendorId: "vendor-auth-id",
+      assignee: { type: "vendor", id: "vendor-auth-id", name: "Vera Vendor" },
+    } as DemoManagerWorkOrderRow;
+
+    // Roster removal (no directory row at all) and a duplicate pair both return null.
+    expect(assignedVendorDirectoryId("vendor-auth-id", "manager-a", "vendor-auth-id", [])).toBeNull();
+    expect(assignedVendorDirectoryId("vendor-auth-id", "manager-a", "vendor-auth-id", [
+      { id: "directory-a", managerId: "manager-a" },
+      { id: "directory-dup", managerId: "manager-a" },
+    ])).toBeNull();
+
+    const kept = withheldAssignedVendorIdentity(row, "manager-a");
+    expect(kept.id).toBe("wo1");
+    expect(kept.title).toBe("Leaking tap");
+    // Hired, so the site stays; the unverified identity does not.
+    expect(kept.propertyAddress).toBe("1 Main St, Seattle, WA");
+    expect(kept).not.toHaveProperty("vendorId");
+    expect(kept.assignee).toEqual({ type: "vendor", id: "", name: "Vera Vendor" });
+    // And the hired projection still strips every Auth subject from what is left.
+    const projected = projectWorkOrderForHiredVendor(kept);
+    expect(projected).not.toHaveProperty("managerUserId");
+    expect(JSON.stringify(projected)).not.toContain("vendor-auth-id");
+  });
+  it("serves the vendor's own rows whether or not the directory id resolves", async () => {
+    const fs = await import("node:fs");
+    const route = fs.readFileSync("src/app/api/portal-work-orders/route.ts", "utf8");
+    // `if (row && managerId && vendorId)` is what dropped the row.
+    expect(route).toContain("if (row && managerId) {");
+    expect(route).toContain("withheldAssignedVendorIdentity(row, managerId)");
+  });
+});
+
 describe("J6c: what a vendor read carries", () => {
   const row = {
     id: "wo1",
     title: "T",
     propertyAddress: "1 Main",
+    residentUserId: "resident-private-id",
+    managerUserId: "manager-private-id",
+    vendorUserId: "vendor-private-id",
+    manager_user_id: "manager-private-id",
+    vendor_user_id: "vendor-private-id",
+    resident_user_id: "resident-private-id",
+    vendorId: "directory-id",
+    residentEmail: "resident@example.test",
+    preferredArrival: "Private arrival instructions",
+    resident_email: "resident@example.test",
+    managerName: "Property Manager",
+    propertyId: "public-listing-id", assignedPropertyId: "public-listing-id", workspaceId: "private-workspace-id",
+    property_id: "public-listing-id", assigned_property_id: "public-listing-id", workspace_id: "private-workspace-id",
+    assignee: { type: "team", id: "manager-private-id", name: "Manager" },
+    nested: { managerUserId: "manager-private-id", candidates: [{ name: "Competitor Secret" }] },
+    dispatch: { candidates: [{ name: "Competitor Secret" }], reasoning: "Private reasoning" },
+    candidates: [{ name: "Competitor Secret" }],
     residentChargeCents: 9900,
     residentChargeId: "ch_1",
     expenseEntryIds: ["e1"],
@@ -285,12 +364,43 @@ describe("J6c: what a vendor read carries", () => {
   } as unknown as DemoManagerWorkOrderRow;
   it("a hired vendor keeps the site but never the resident billing fields", () => {
     const out = projectWorkOrderForHiredVendor(row) as unknown as Rec;
+    expect(JSON.stringify(out)).not.toMatch(/Competitor Secret|Private reasoning|"dispatch"|"candidates"/);
+    expect(JSON.stringify(projectWorkOrderForOfferedVendor(row))).not.toMatch(/Competitor Secret|Private reasoning|"dispatch"|"candidates"/);
     expect(out.propertyAddress).toBe("1 Main");
-    for (const k of ["residentChargeCents", "residentChargeId", "expenseEntryIds", "residentConfirmation"]) expect(out, k).not.toHaveProperty(k);
+    expect(out.residentEmail).toBe("resident@example.test");
+    expect(out.preferredArrival).toBe("Private arrival instructions");
+    expect(projectWorkOrderForOfferedVendor(row)).not.toHaveProperty("preferredArrival");
+    expect(out.vendorId).toBe("directory-id");
+    expect(out.managerName).toBe("Property Manager");
+    expect(out).not.toHaveProperty("resident_email");
+    expect(JSON.stringify(out)).not.toMatch(/(?:resident|manager|vendor)-private-id/);
+    for (const k of ["residentUserId", "residentChargeCents", "residentChargeId", "expenseEntryIds", "residentConfirmation"]) expect(out, k).not.toHaveProperty(k);
+  });
+  it("uses only an address city for offered area, preserving hired site details", () => {
+    const distinctive = { ...row, propertyName: "Proof House", propertyAddress: "1 Main Street", generalArea: "Proof House" } as DemoManagerWorkOrderRow;
+    const nearby = projectWorkOrderForOfferedVendor(distinctive);
+    expect(nearby.propertyName).toBe("Nearby");
+    expect(nearby.offeredGeneralArea).toBe("Nearby");
+    expect(nearby).not.toHaveProperty("generalArea");
+    expect(projectWorkOrderForOfferedVendor({ ...distinctive, propertyAddress: "1 Main Street, Seattle, WA" }).propertyName).toBe("Seattle, WA");
+    expect(projectWorkOrderForHiredVendor(distinctive).propertyName).toBe("Proof House");
+    const offered = projectWorkOrderForOfferedVendor({ ...distinctive, propertyAddress: "1 Main Street, Seattle, WA", offeredGeneralArea: "Untrusted House" });
+    expect(offered.offeredGeneralArea).toBe("Seattle, WA");
+    expect(vendorVisibleGeneralArea(offered)).toBe("Seattle, WA");
+    expect(vendorLeadMapsQuery(offered)).toContain("Seattle");
+    expect(vendorServiceWorkflowSteps(offered)[0]?.detail).toBe("Seattle, WA");
+    expect(vendorVisibleGeneralArea(distinctive)).toBe("Nearby");
   });
   it("an offered vendor also loses assignedRoomChoice", () => {
     const out = projectWorkOrderForOfferedVendor(row) as unknown as Rec;
+    expect(out).not.toHaveProperty("residentUserId");
+    expect(out).not.toHaveProperty("vendorId");
+    expect(out).not.toHaveProperty("assignee");
+    expect(out.managerName).toBe("Property Manager");
+    expect(out).not.toHaveProperty("resident_email");
+    expect(JSON.stringify(out)).not.toMatch(/(?:resident|manager|vendor)-private-id/);
     expect(out).not.toHaveProperty("assignedRoomChoice");
+    for (const key of ["propertyId", "assignedPropertyId", "workspaceId", "property_id", "assigned_property_id", "workspace_id"]) expect(out).not.toHaveProperty(key);
     expect(out).not.toHaveProperty("propertyAddress");
   });
 });

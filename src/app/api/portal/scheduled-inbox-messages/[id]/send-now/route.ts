@@ -1,3 +1,4 @@
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse } from "next/server";
 import {
   loadScheduledInboxMessagesForManager,
@@ -14,7 +15,7 @@ export const runtime = "nodejs";
 
 type PortalRole = "manager" | "resident";
 
-async function requirePortalActor(preferredRole?: PortalRole) {
+async function requirePortalActor(req: Request, preferredRole?: PortalRole) {
   const supabaseAuth = await createSupabaseServerClient();
   const {
     data: { user },
@@ -23,14 +24,18 @@ async function requirePortalActor(preferredRole?: PortalRole) {
 
   const db = createSupabaseServiceRoleClient();
   if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
-  const [{ data: profile }, { data: roles }] = await Promise.all([
+  const [{ error: profileError }, { data: roles, error: roleError }] = await Promise.all([
     db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
     db.from("profile_roles").select("role").eq("user_id", user.id),
   ]);
+  if (profileError || roleError) return null;
   const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
-  const legacy = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-  const isManager = roleList.includes("manager") || legacy === "manager" || legacy === "admin";
-  const isResident = roleList.includes("resident") || legacy === "resident";
+  // A stored `admin` row is not a manager row. It widens this read only when the request asks
+  // for admin oversight (`?oversight=admin`, from `adminOversightUrl`) and the server confirms
+  // the role — the same rule every other manager route follows (`AGENTS.md` § "Admin borrows").
+  const isManager = roleList.includes("manager")
+    || (roleList.includes("admin") && await resolveAdminOversight(req, user.id, true));
+  const isResident = roleList.includes("resident");
   if (!isManager && !isResident) return null;
 
   let role: PortalRole;
@@ -66,7 +71,7 @@ async function findMessage(
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
     const preferredRole = parsePreferredRole(req);
-    const auth = await requirePortalActor(preferredRole);
+    const auth = await requirePortalActor(req, preferredRole);
     if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const { id } = await ctx.params;

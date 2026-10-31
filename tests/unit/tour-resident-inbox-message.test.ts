@@ -33,6 +33,7 @@ describe("recordResidentProspectInboxMessage", () => {
 
     await recordResidentProspectInboxMessage(db as never, {
       participantEmail: "guest@example.com",
+      residentUserId: "resident-1",
       subject: "Tour request received",
       body: "We received your tour request.",
     });
@@ -74,6 +75,7 @@ describe("recordResidentProspectInboxMessage", () => {
 
     await recordResidentProspectInboxMessage(db as never, {
       participantEmail: "guest@example.com",
+      residentUserId: "resident-1",
       subject: "We received your message — Availability",
       body: "Thanks for reaching out about Oak House.\n\nYour message was sent to the property manager.",
       residentMessage: "Is this unit still available?",

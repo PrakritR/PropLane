@@ -1,56 +1,30 @@
 import type { ResidentAgentContext } from "../../resident-context";
-import { residentManagerIds, residentScopeOrFilter } from "../../resident-context";
+import { residentManagerIds } from "../../resident-context";
 import { wrapUntrustedContent } from "../../untrusted-content";
 
 const PAGE_SIZE = 1000;
 
 /**
- * Load the complete set of the resident's records from a portal table, scoped
- * by resident identity (`resident_user_id` OR `resident_email` — the same
- * filter the resident-facing API routes use) and paginated by a stable column
- * so nothing is silently truncated.
+ * Load the complete set of the resident's records from a portal table.
+ *
+ * Every resident-owned portal table — charges, leases, service requests, work orders — scopes
+ * on `resident_user_id`, the authenticated Auth subject. There is no email-scoped variant: a
+ * reused address is not ownership. Paginated by a stable column so nothing is silently
+ * truncated.
  */
-export async function loadResidentIdentityRows<T>(
+export async function loadResidentSubjectRows<T>(
   ctx: ResidentAgentContext,
   table: string,
   map: (rowData: unknown) => T,
 ): Promise<T[]> {
   const out: T[] = [];
-  // No identity means no rows — never an unfiltered read of a shared table.
-  const scope = residentScopeOrFilter(ctx);
-  if (!scope) return out;
+  // No subject means no rows — never an unfiltered read of a shared table.
+  if (!ctx.userId) return out;
   for (let from = 0; ; from += PAGE_SIZE) {
     let query = ctx.db
       .from(table)
       .select("row_data")
-      .or(scope);
-    if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
-    const { data, error } = await query.order("id", { ascending: true }).range(from, from + PAGE_SIZE - 1);
-    if (error) throw new Error(error.message);
-    const rows = (data ?? []) as { row_data: unknown }[];
-    for (const r of rows) out.push(map(r.row_data));
-    if (rows.length < PAGE_SIZE) break;
-  }
-  return out;
-}
-
-/**
- * Loader for tables whose resident-facing routes scope by lowercased
- * `resident_email` only (service requests, work orders, applications, leases).
- */
-export async function loadResidentEmailRows<T>(
-  ctx: ResidentAgentContext,
-  table: string,
-  map: (rowData: unknown) => T,
-): Promise<T[]> {
-  const out: T[] = [];
-  // Same rule as the identity loader: an empty email must match nothing.
-  if (!ctx.email?.trim()) return out;
-  for (let from = 0; ; from += PAGE_SIZE) {
-    let query = ctx.db
-      .from(table)
-      .select("row_data")
-      .eq("resident_email", ctx.email);
+      .eq("resident_user_id", ctx.userId);
     if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
     const { data, error } = await query.order("id", { ascending: true }).range(from, from + PAGE_SIZE - 1);
     if (error) throw new Error(error.message);

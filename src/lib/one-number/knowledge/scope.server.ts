@@ -3,10 +3,9 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
-import { resolveResidentForwardHouseId } from "@/lib/sms/inbound-forward-team.server";
 import { houseInfoWithoutInternal, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
 import { listingRoomSecretValues } from "@/lib/manager-listing-submission";
-import { residentCheckInReveal } from "@/lib/check-in.server";
+import { loadTenancyCheckInContext, tenancyReveal } from "@/lib/check-in.server";
 import type { KnowledgeScopeResult } from "./types";
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -223,15 +222,13 @@ export async function resolveResidentKnowledgeScope(db: SupabaseClient, ctx: Res
   // A portal resident with several managers has no single team to read for.
   if (owners.length !== 1) return { ok: false, reason: "needs_house" };
   const ownerUserId = owners[0]!;
-  const houseId = await resolveResidentForwardHouseId(db, { ownerManagerUserId: ownerUserId, residentEmail: ctx.email });
+  const tenancy = await loadTenancyCheckInContext(db, ctx.email, { managerUserId: ownerUserId, residentUserId: ctx.userId });
+  const houseId = tenancy?.propertyId ?? null;
   const property = houseId ? await loadOwnedProperty(db, ownerUserId, houseId) : null;
   const ws = await workspaceForOwner(db, ownerUserId, property);
   if (!ws.ok) return ws;
   const approved = ctx.phase === "approved";
-  const revealed =
-    Boolean(property) && approved && ctx.moveInDetailsLocked === false
-      ? (await residentCheckInReveal(db, ctx.email, { managerUserId: ownerUserId, leaseUnlocked: true })).revealed
-      : false;
+  const revealed = Boolean(property && approved && ctx.moveInDetailsLocked === false && tenancy && tenancyReveal(tenancy, true).revealed);
   return {
     ok: true,
     scope: {

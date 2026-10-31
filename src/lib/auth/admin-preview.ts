@@ -56,9 +56,10 @@ export const getAdminPreviewFromCookies = cache(async (): Promise<AdminPreview |
 });
 
 /**
- * Data-API admin gate. Any account holding the `admin` role qualifies (same
- * rule as the /admin portal shell — see `hasAdminRole` in portal-access.ts);
- * the primary-admin email stays admin as a fallback via `userHoldsAdminRole`.
+ * Data-API admin gate. Any account holding the stored `admin` role qualifies, and nothing else
+ * does (same rule as the /admin portal shell — see `hasAdminRole` in portal-access.ts). There is
+ * no email fallback: `userHoldsAdminRole` reads `profile_roles` alone, and an unreadable list
+ * answers `false`.
  */
 export const isAdminUser = cache(async (userId: string): Promise<boolean> => {
   const supabase = await createSupabaseServerClient();

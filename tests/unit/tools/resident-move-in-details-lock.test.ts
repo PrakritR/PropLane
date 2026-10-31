@@ -18,6 +18,7 @@ function houseTables(): Record<string, FakeRow[]> {
         updated_at: "2026-06-01T00:00:00.000Z",
         row_data: {
           id: "APP-A",
+          residentUserId: RESIDENT.id,
           email: RESIDENT.email,
           bucket: "approved",
           stage: "Approved",
@@ -135,11 +136,13 @@ describe("moveInDetailsLockFromBlocking (what the context builders derive from t
 describe("loadMoveInDetailsLock (the SMS test harness, the one builder with no access state to read)", () => {
   it("locks on a sent default-blocking form, unlocks when it is submitted, and locks on a failed read", async () => {
     const { loadMoveInDetailsLock } = await import("@/lib/tools/resident-context");
-    const sentRows = [{ id: "F1", form_id: null, status: "sent", sent_at: "2026-06-01", resident_user_id: null, snapshot_kind: "intake", snapshot_blocks: null }];
+    const sentRows = [{ id: "F1", form_id: null, status: "sent", sent_at: "2026-06-01", resident_user_id: "u1", snapshot_kind: "intake", snapshot_blocks: null }];
     const dbWith = (result: unknown) => ({
       from: () => {
         const q: Record<string, unknown> = {};
-        for (const m of ["select", "eq", "neq"]) q[m] = () => q;
+        // `loadResidentFormsFacts` reads the bound-application scope first and then filters the
+        // forms with `.or(...)` whenever that scope is non-empty, so the stand-in needs it too.
+        for (const m of ["select", "eq", "neq", "or"]) q[m] = () => q;
         q.then = (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve);
         return q;
       },
@@ -148,10 +151,27 @@ describe("loadMoveInDetailsLock (the SMS test harness, the one builder with no a
     expect(locked).toMatchObject({ moveInDetailsLocked: true, moveInDetailsLockFormId: "F1", moveInDetailsLockReadFailed: false });
     const open = await loadMoveInDetailsLock(dbWith({ data: [{ ...sentRows[0], status: "submitted" }], error: null }) as never, { email: "a@b.test", userId: "u1" });
     expect(open.moveInDetailsLocked).toBe(false);
-    const failed = await loadMoveInDetailsLock(dbWith({ data: null, error: { code: "500", message: "boom" } }) as never, { email: "a@b.test" });
+    const failed = await loadMoveInDetailsLock(dbWith({ data: null, error: { code: "500", message: "boom" } }) as never, { email: "a@b.test", userId: "u1" });
     expect(failed).toMatchObject({ moveInDetailsLocked: true, moveInDetailsLockFormId: null, moveInDetailsLockReadFailed: true });
-    const thrown = await loadMoveInDetailsLock({ from: () => { throw new Error("x"); } } as never, { email: "a@b.test" });
+    const thrown = await loadMoveInDetailsLock({ from: () => { throw new Error("x"); } } as never, { email: "a@b.test", userId: "u1" });
     expect(thrown.moveInDetailsLocked).toBe(true);
+  });
+
+  /**
+   * `LeaseSubject.residentUserId` is `string | null` (`automations/moments.ts`), so the automation
+   * sweep reaches here with no subject for a manager-onboarded or imported resident — and the
+   * `move_in_3d` preset reads this answer before it puts the door code, the Wi-Fi network and
+   * password and the parking note into a text (`automations/sweep.server.ts`). With no subject
+   * there is no scope the forms table can be read in, so the answer is LOCKED: an unreadable
+   * context never widens.
+   */
+  it("locks a subject-less lease rather than reading as 'nothing blocks'", async () => {
+    const { loadMoveInDetailsLock } = await import("@/lib/tools/resident-context");
+    const exploded = { from: () => { throw new Error("must not be read without a subject"); } };
+    for (const userId of [undefined, null, ""]) {
+      expect(await loadMoveInDetailsLock(exploded as never, { email: "resident@example.test", userId }))
+        .toMatchObject({ moveInDetailsLocked: true, moveInDetailsLockFormId: null, moveInDetailsLockReadFailed: true });
+    }
   });
 });
 

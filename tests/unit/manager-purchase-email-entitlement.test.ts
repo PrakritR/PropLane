@@ -160,16 +160,18 @@ const sessionUser = (confirmed: boolean): User =>
 describe("a legacy email-matched manager purchase is an entitlement, not ownership", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("still grants the manager role and workspace to the confirmed matching mailbox", async () => {
+  it("does not grant a role or adopt an unclaimed purchase by confirmed email", async () => {
     const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
     const { ensureProfileRoleRow } = await import("@/lib/auth/profile-role-row");
-    const { db, upserts } = mockDb([completeRow()]);
+    const { db, upserts, purchaseFilters } = mockDb([completeRow()]);
 
     const path = await resolveOAuthPortalRedirect(db as never, sessionUser(true), "/auth/continue");
 
-    expect(ensureProfileRoleRow).toHaveBeenCalledWith(db, OWNER, "manager");
-    expect(upserts[0]).toMatchObject({ id: OWNER, manager_id: "AXIS-900" });
-    expect(path).toBe("/portal/dashboard");
+    expect(ensureProfileRoleRow).not.toHaveBeenCalled();
+    expect(upserts).toEqual([]);
+    expect(path).toBe("/auth/get-started");
+    expect(path).not.toContain("axis_intent_legacy");
+    expect(purchaseFilters.flat()).not.toContainEqual(["email", EMAIL]);
   });
 
   it("grants nothing when Auth has not confirmed the account's mailbox", async () => {
@@ -199,12 +201,12 @@ describe("a legacy email-matched manager purchase is an entitlement, not ownersh
 });
 
 describe("findManagerPurchaseForAccount", () => {
-  it("reads only unclaimed rows in the by-email half", async () => {
+  it("never reads a second by-email row", async () => {
     const { findManagerPurchaseForAccount } = await import("@/lib/auth/manager-onboarding");
     const { db, purchaseFilters } = mockDb([completeRow({ user_id: OTHER })]);
 
     expect(await findManagerPurchaseForAccount(db as never, OWNER, EMAIL, { emailVerified: true })).toBeNull();
-    expect(purchaseFilters[1]).toContainEqual(["user_id", null]);
+    expect(purchaseFilters).toHaveLength(1);
   });
 
   it("skips the by-email half entirely for an unproven mailbox", async () => {
@@ -234,14 +236,15 @@ describe("findManagerPurchaseForAccount", () => {
     expect((error as { detail?: { message?: string } }).detail?.message).toBe("by-user_id read failed");
   });
 
-  it("says UNKNOWN when the by-email read fails", async () => {
+  it("does not perform a by-email read", async () => {
     const { findManagerPurchaseForAccount, isManagerPurchaseReadError } = await import(
       "@/lib/auth/manager-onboarding"
     );
     const { db } = failingPurchaseDb("by-email read failed", { failOn: "email" });
 
-    const error = await findManagerPurchaseForAccount(db, OWNER, EMAIL, { emailVerified: true }).catch((e) => e);
-    expect(isManagerPurchaseReadError(error)).toBe(true);
+    const result = await findManagerPurchaseForAccount(db, OWNER, EMAIL, { emailVerified: true }).catch((e) => e);
+    expect(result).toBeNull();
+    expect(isManagerPurchaseReadError(result)).toBe(false);
   });
 
   it("propagates the unknown answer through managerNeedsPricingSelection", async () => {
@@ -258,13 +261,10 @@ describe("findManagerPurchaseForAccount", () => {
 describe("an unreadable plan never asks a manager to buy what they own", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("keeps a manager-role account on its portal destination instead of the plan chooser", async () => {
+  it("fails closed when the manager plan cannot be read", async () => {
     const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
     const { db } = failingPurchaseDb("plan read failed", { roles: [{ role: "manager" }] });
 
-    const path = await resolveOAuthPortalRedirect(db, sessionUser(true), "/auth/continue");
-
-    expect(path).toBe("/portal/dashboard");
-    expect(path).not.toBe("/auth/manager/plan");
+    await expect(resolveOAuthPortalRedirect(db, sessionUser(true), "/auth/continue")).rejects.toThrow(/manager signup/i);
   });
 });

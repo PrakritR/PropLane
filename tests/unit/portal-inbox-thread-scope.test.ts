@@ -3,6 +3,10 @@ import { portalInboxThreadScopeFilter } from "@/lib/portal-inbox-thread-scope";
 import { parseOrFilterClauses } from "@/lib/supabase/or-filter";
 
 describe("portalInboxThreadScopeFilter", () => {
+  it("limits resident and admin-preview resident scope to the exact owner", () => {
+    expect(portalInboxThreadScopeFilter({ id: "new-user", email: "reused@example.test", role: "resident" })).toBe("owner_user_id.eq.new-user");
+    expect(portalInboxThreadScopeFilter({ id: "preview-resident", email: "reused@example.test", role: "admin" }, [], { ownerOnly: true })).toBe("owner_user_id.eq.preview-resident");
+  });
   it("includes owner and participant for managers", () => {
     expect(portalInboxThreadScopeFilter({ id: "mgr-1", email: "mgr@example.com", role: "manager" })).toBe(
       'owner_user_id.eq.mgr-1,participant_email.eq."mgr@example.com"',

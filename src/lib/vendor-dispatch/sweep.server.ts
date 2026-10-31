@@ -18,6 +18,7 @@ import { composeApprovalText, composeQuoteAskText, toGsm7 } from "@/lib/vendor-d
 import { formatPacificShort } from "@/lib/vendor-dispatch/time";
 import { APPROVAL_REMINDER_MINUTES } from "@/lib/vendor-dispatch/trades";
 import { dispatchCleaningForStays, type TurnoverStay } from "@/lib/vendor-dispatch/triggers.server";
+import { dispatchWorkOrderIsOpen } from "@/lib/vendor-dispatch/work-order-open.server";
 import type { DispatchAttemptRow, DispatchRunRow } from "@/lib/vendor-dispatch/types";
 
 /**
@@ -267,6 +268,7 @@ async function sweepJobReminders(db: SupabaseClient, now: Date, errors: string[]
   let reminded = 0;
   for (const run of (data ?? []) as DispatchRunRow[]) {
     await perItem(`job_reminders:${run.id}`, errors, async () => {
+    if (!(await dispatchWorkOrderIsOpen(db, run))) return;
     const when = run.scheduled_for ? new Date(run.scheduled_for) : null;
     if (!when || !Number.isFinite(when.getTime()) || when.getTime() <= now.getTime() || !run.accepted_vendor_directory_id) return;
     // A vendor who accepted minutes ago was just given the time and place: no second text for it.

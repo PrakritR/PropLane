@@ -9,6 +9,6 @@ describe("approved-resident provisioning", () => {
   it("never creates an account with a known password", () => {
     expect(source).not.toMatch(/AUTO_RESIDENT_PASSWORD/);
     expect(source).not.toMatch(/password:\s*["'`]/);
-    expect(source).toMatch(/password:\s*randomBytes\(32\)\.toString\("base64url"\)/);
+    expect(source).not.toMatch(/\.createUser\s*\(/);
   });
 });

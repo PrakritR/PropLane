@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { verifiedSessionEmail } from "@/lib/auth/verified-session-email";
 import { getEffectiveSessionForPortal } from "@/lib/auth/effective-session";
 import { ensureMayAccessResidentPortal } from "@/lib/auth/ensure-resident-portal-access.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
     const inquiryId = typeof body.inquiryId === "string" ? body.inquiryId.trim() : "";
     if (!inquiryId) return NextResponse.json({ error: "inquiryId required" }, { status: 400 });
 
-    const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
+    const email = verifiedSessionEmail(user, profile?.email);
     const result = await cancelResidentTour(db, {
       userId: user.id,
       email: email || null,

@@ -80,6 +80,7 @@ function run(id: string, patch: Row = {}): Row {
 
 function seed(): Record<string, Row[]> {
   return {
+    profile_roles: [{ user_id: OWNER, role: "manager" }, { user_id: CO, role: "manager" }],
     profiles: [
       { id: OWNER, role: "manager", full_name: "Ora Owner" },
       { id: CO, role: "manager", full_name: "Cam Co" },

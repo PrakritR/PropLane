@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { projectWorkOrderForOfferedVendor } from "@/lib/work-order-vendor-privacy";
 import { defineTool } from "../../registry";
 import type { VendorAgentContext } from "../../vendor-context";
 import {
@@ -17,7 +18,7 @@ import {
  * only what the vendor portal's Services list shows.
  */
 function summarizeVendorJob(job: VendorWorkOrder) {
-  const w = job.row;
+  const w = job.assignment === "offered" ? projectWorkOrderForOfferedVendor(job.row) : job.row;
   return {
     id: job.id,
     reference: w.reference || null,
@@ -84,13 +85,13 @@ export const getJobDetailsTool = defineTool({
         `No work order "${input.workOrderId}" is assigned or offered to you. Use list_my_jobs for valid ids.`,
       );
     }
-    const w = job.row;
+    const w = job.assignment === "offered" ? projectWorkOrderForOfferedVendor(job.row) : job.row;
     const ownBid = await findOwnBid(ctx, job.id);
     return {
       workOrder: {
         ...summarizeVendorJob(job),
         residentName: w.residentName || null,
-        preferredArrival: untrustedText("the resident", w.preferredArrival),
+        preferredArrival: job.assignment === "assigned" ? untrustedText("the resident", w.preferredArrival) : null,
         costLabel: w.cost || null,
         vendorMarkedDoneAt: w.vendorMarkedDoneAt || null,
         // Vendor-authored on the record; wrapped anyway since a reassigned job

@@ -81,6 +81,8 @@ export const EMAIL_COLUMNS = [
  *     workspace can only go once its properties are gone
  */
 export const DELETE_ORDER = [
+  "email_onboarding_handoffs",
+  "tour_signup_capabilities",
   // 1. child rows, and the GL/vendor chains that must clear first
   "gl_journal_lines",
   "ledger_entries",

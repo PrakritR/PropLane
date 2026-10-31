@@ -59,6 +59,7 @@ const db = {
     return { data: "persisted", error: null };
   },
   from: (table: string) => {
+    if (table === "profile_roles") return { select: () => ({ eq: async () => ({ data: [{ role: "manager" }], error: null }) }) };
     if (table === "profiles") {
       return {
         select: () => ({

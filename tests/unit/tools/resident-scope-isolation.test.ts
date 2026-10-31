@@ -123,6 +123,7 @@ function seed() {
         updated_at: "2026-06-01T00:00:00.000Z",
         row_data: {
           id: "APP-A",
+          residentUserId: RES_A.id,
           name: "Res A",
           email: RES_A.email,
           bucket: "approved",
@@ -139,6 +140,7 @@ function seed() {
         updated_at: "2026-06-01T00:00:00.000Z",
         row_data: {
           id: "APP-B",
+          residentUserId: RES_B.id,
           name: "Res B",
           email: RES_B.email,
           bucket: "approved",
@@ -151,11 +153,14 @@ function seed() {
     portal_service_request_records: [
       {
         id: "SR-A",
+        row_revision: 0,
+        resident_user_id: RES_A.id,
         manager_user_id: MANAGER,
         resident_email: RES_A.email,
         status: "pending",
         row_data: {
           id: "SR-A",
+          residentUserId: RES_A.id,
           offerId: "custom",
           offerName: "Parking spot",
           residentEmail: RES_A.email,
@@ -170,19 +175,22 @@ function seed() {
       },
       {
         id: "SR-B",
+        resident_user_id: RES_B.id,
         manager_user_id: MANAGER,
         resident_email: RES_B.email,
         status: "pending",
-        row_data: { id: "SR-B", offerName: "B thing", residentEmail: RES_B.email, status: "pending", notes: "" },
+        row_data: { id: "SR-B", residentUserId: RES_B.id, offerName: "B thing", residentEmail: RES_B.email, status: "pending", notes: "" },
       },
     ],
     portal_work_order_records: [
       {
         id: "WO-A",
+        resident_user_id: RES_A.id,
         manager_user_id: MANAGER,
         resident_email: RES_A.email,
         row_data: {
           id: "WO-A",
+          residentUserId: RES_A.id,
           title: "Leaky faucet",
           status: "Open",
           bucket: "open",
@@ -195,9 +203,10 @@ function seed() {
       },
       {
         id: "WO-B",
+        resident_user_id: RES_B.id,
         manager_user_id: MANAGER,
         resident_email: RES_B.email,
-        row_data: { id: "WO-B", title: "B SECRET ORDER", status: "Open" },
+        row_data: { id: "WO-B", residentUserId: RES_B.id, title: "B SECRET ORDER", status: "Open" },
       },
     ],
     portal_inbox_thread_records: [
@@ -446,7 +455,7 @@ describe("resident write tools: happy paths write audited, scoped rows", () => {
     );
     expect(audit?.values.landlord_id).toBe(RES_A.id);
 
-    const upsert = mutations.find((m) => m.table === "portal_service_request_records" && m.kind === "upsert");
+    const upsert = mutations.find((m) => m.table === "portal_service_request_records" && m.kind === "insert");
     expect(upsert?.values.resident_email).toBe(RES_A.email);
     expect(upsert?.values.manager_user_id).toBe(MANAGER);
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { Button } from "@/components/ui/button";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import { encodeScheduledMessagePathId } from "@/lib/scheduled-message-path-id";
@@ -63,7 +64,7 @@ export function PortalInboxSelectionToolbar({
 
 export async function sendManualScheduledMessageNow(id: string, opts?: { asResident?: boolean }): Promise<void> {
   const query = opts?.asResident ? "?as=resident" : "";
-  const res = await fetch(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(id)}/send-now${query}`, {
+  const res = await fetch(adminOversightUrl(`/api/portal/scheduled-inbox-messages/${encodeURIComponent(id)}/send-now${query}`), {
     method: "POST",
     credentials: "include",
   });
@@ -74,7 +75,7 @@ export async function sendManualScheduledMessageNow(id: string, opts?: { asResid
 
 export async function sendAutomationScheduledMessageNow(id: string): Promise<void> {
   const pathId = encodeScheduledMessagePathId(id);
-  const res = await fetch(`/api/portal/scheduled-messages/${pathId}/send-now`, {
+  const res = await fetch(adminOversightUrl(`/api/portal/scheduled-messages/${pathId}/send-now`), {
     method: "POST",
     credentials: "include",
   });

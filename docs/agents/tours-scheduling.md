@@ -34,6 +34,13 @@ When a manager opts in (`proposeTourConfirmations`, default OFF, on
 to confirm it into the first matching open slot. It NEVER auto-books or emails —
 the proposal is a gated pending action the manager approves. Invariants:
 
+- **The inquiry id is server-minted, always.** `createTourInquiry` deletes any `id` in the incoming
+  payload and uses `crypto.randomUUID()`. The id is what binds a tour to its resident
+  (`resident_tour_links.inquiry_id`), and this route is public and anonymous, so honouring a
+  caller's id let anyone name an existing linked inquiry, overwrite its manager, property and time
+  in the shared payload, and receive that resident's notices for the tour they had just replaced. A
+  row already present under the fresh id is a UUID collision and refuses the write rather than
+  inheriting its link.
 - **One booking core.** `confirmTourInquiry` (`src/lib/tour-inquiry-confirm.server.ts`)
   is the single implementation behind both the manual accept route and the
   auto-tour tool — `resolveConfirmedEnd`, plannedEvent creation, competing-inquiry
@@ -446,6 +453,25 @@ host** open the resident's existing conversation through `GET /api/portal-reside
 come from the resident's own linked tour, never the request; no stored thread opens the Communication list) instead of staging a
 compose prefill. `inbox-recipient-scope.ts` `managerIdsFromResidentTours` still authorizes the resident's send. Tests:
 `tests/unit/{tour-host-team-thread,resident-tour-thread-open,portal-inbox-thread-reply}.test.ts`.
+
+**A resident inbox copy needs the exact inquiry binding, and a skip is reported.** `linkedTourNoticeOwner`
+writes the in-app copy only for a `resident_tour_links` row bound to BOTH this inquiry id AND the property
+the inquiry currently sits at — never a profile or email match. The three outcomes are now distinct: an
+unreadable binding is an **error** and fails the notice; a guest with no link, or a link bound to a
+different property, is a **reason** the manager reads while the notice still succeeds on its other
+channels. Collapsing them meant moving an inquiry from one house to another silently stopped every later
+confirm / reschedule / cancel from reaching the resident's inbox while the manager saw a clean send. A
+readable owner profile with no usable address is likewise an absence, not a failure. A notice whose every
+requested channel came back deliberately skipped is `skipped`, not a failure; a notice asked for with no
+channel at all still fails.
+
+**The tour sign-up capability rides the EMAIL only.** `tourRequestNotificationContexts` returns a clean
+context for the inbox and SMS copies and appends `#tour_token=…` to the account link for the outbound
+email alone — a persisted or manager-readable copy never carries the invitation secret. The token is a
+`tour_signup_capabilities` row (migrations `20261030144000`–`144200`) stored as its digest, bound to one
+inquiry id, recipient email, manager and property; redeeming it goes through
+`/api/auth/email-onboarding/start` with intent `tour`, which reserves the exact tour context before Auth
+can mint an OTP and retries only the same still-pending handoff.
 
 ## Tour tools, and who may do what
 

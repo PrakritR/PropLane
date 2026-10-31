@@ -213,16 +213,18 @@ export async function repairServiceRequestScopesForManager(
 
   const { data: rows, error } = await db
     .from("portal_service_request_records")
-    .select("id, manager_user_id, resident_email, property_id, status, row_data")
+    .select("id, manager_user_id, resident_user_id, resident_email, property_id, status, row_data, row_revision")
     .in("resident_email", emails)
     .limit(500);
   if (error) throw new Error(error.message);
 
   let repaired = 0;
   for (const record of rows ?? []) {
+    if (record.resident_user_id) continue;
     const email = String(record.resident_email ?? "").trim().toLowerCase();
     if (!email) continue;
     const existingManager = String(record.manager_user_id ?? "").trim();
+    if (existingManager !== mid) continue;
     const preferredProperty = residents.get(email) || "";
     const existingProperty = String(record.property_id ?? "").trim();
     const weApproved = approvedEmails.has(email);
@@ -260,7 +262,7 @@ export async function repairServiceRequestScopesForManager(
     }
 
     const nextRow = buildNextServiceRequest(record, email, mid, nextProperty);
-    const { error: upsertError } = await db.from("portal_service_request_records").upsert(
+    const { data: updatedRows, error: upsertError } = await db.from("portal_service_request_records").update(
       {
         id: nextRow.id,
         manager_user_id: mid,
@@ -270,9 +272,8 @@ export async function repairServiceRequestScopesForManager(
         row_data: nextRow,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "id" },
-    );
-    if (!upsertError) repaired += 1;
+    ).eq("id", nextRow.id).eq("manager_user_id", mid).eq("row_revision", record.row_revision).is("resident_user_id", null).select("id");
+    if (!upsertError && updatedRows?.length) repaired += 1;
   }
 
   return { repaired };
@@ -297,16 +298,18 @@ export async function repairWorkOrderScopesForManager(
 
   const { data: rows, error } = await db
     .from("portal_work_order_records")
-    .select("id, manager_user_id, resident_email, property_id, assigned_property_id, row_data")
+    .select("id, manager_user_id, resident_user_id, resident_email, property_id, assigned_property_id, row_data, row_revision")
     .in("resident_email", emails)
     .limit(500);
   if (error) throw new Error(error.message);
 
   let repaired = 0;
   for (const record of rows ?? []) {
+    if (record.resident_user_id) continue;
     const email = String(record.resident_email ?? "").trim().toLowerCase();
     if (!email) continue;
     const existingManager = String(record.manager_user_id ?? "").trim();
+    if (existingManager !== mid) continue;
     const preferredProperty = residents.get(email) || "";
     const existingProperty =
       String(record.property_id ?? "").trim() ||
@@ -351,7 +354,7 @@ export async function repairWorkOrderScopesForManager(
       assignedPropertyId: rd.assignedPropertyId || nextProperty || undefined,
     };
 
-    const { error: upsertError } = await db.from("portal_work_order_records").upsert(
+    const { data: updatedRows, error: upsertError } = await db.from("portal_work_order_records").update(
       {
         id: nextRow.id,
         manager_user_id: mid,
@@ -361,9 +364,8 @@ export async function repairWorkOrderScopesForManager(
         row_data: nextRow,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "id" },
-    );
-    if (!upsertError) repaired += 1;
+    ).eq("id", nextRow.id).eq("manager_user_id", mid).eq("row_revision", record.row_revision).is("resident_user_id", null).select("id");
+    if (!upsertError && updatedRows?.length) repaired += 1;
   }
 
   return { repaired };

@@ -69,8 +69,7 @@ export async function resolveManagerSmsAgentContext(
   // `profiles.role` is legacy and singular; `profile_roles` is the source of
   // truth for a multi-role account (a manager who also rents somewhere).
   const roleList = (roleRows ?? []).map((r) => String(r.role).toLowerCase());
-  const legacyRole = String(profile.role ?? "").toLowerCase();
-  const roles = roleList.length > 0 ? roleList : legacyRole ? [legacyRole] : [];
+  const roles = roleList;
 
   let isAdmin = false;
   try {

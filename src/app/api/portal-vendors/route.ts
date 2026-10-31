@@ -1,10 +1,8 @@
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { vendorCatalogProjection } from "@/lib/vendor-catalog-projection";
 import { NextResponse } from "next/server";
-import { resolveSessionActorRole } from "@/lib/auth/vendor-api-access";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { isVendorCategorySettingsRow, managerVendorCategorySettingsRowId } from "@/lib/manager-vendors-storage";
-import { isAdminUser } from "@/lib/auth/admin-preview";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -81,26 +79,20 @@ export async function GET(req: Request) {
     // Three independent reads (none depends on another's result) — running
     // them one at a time was a needless round trip each (part of Night QA
     // finding #3's 5-9s "Loading records…" on /portal/vendors).
-    const [access, admin, profileResult] = await Promise.all([
+    const [access, roleResult] = await Promise.all([
       resolveAuthenticatedBusinessAccess(user.id, db),
-      isAdminUser(user.id),
-      db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
+      db.from("profile_roles").select("role").eq("user_id", user.id),
     ]);
-    if (access.kind === "denied") {
+    if (access.kind === "denied" || roleResult.error) {
       return NextResponse.json({ error: "Vendor access is unavailable for this account." }, { status: 403 });
     }
-    // A multi-role account created as a vendor reads "vendor" in profiles.role forever; the portal it
-    // is acting in (profile_roles + active portal) decides, so its roster is not a 403.
-    const legacyRole = String(profileResult.data?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-    const role = legacyRole === "manager" || legacyRole === "pro" ? legacyRole : await resolveSessionActorRole(legacyRole);
-    // The all-owners read is admin oversight: asked for with `?oversight=admin` AND confirmed by the
-    // role. An admin in their own manager portal reads exactly what a manager does (own rows,
-    // granted owners' rows, shared catalog), narrowed to the active workspace.
-    const oversight = await resolveAdminOversight(req, user.id, admin);
-
-    if (!admin && role !== "manager" && role !== "pro") {
+    const roles = (roleResult.data ?? []).map((row) => String(row.role).toLowerCase());
+    const admin = roles.includes("admin");
+    if (!admin && !roles.includes("manager")) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
+    const oversight = await resolveAdminOversight(req, user.id, admin);
+
     // The owner-only refusal is a seam (always null since the owner portal was retired);
     // the workspace scope, not this call, decides what the vendor directory shows.
     const ownerRefusal = await refuseOwnerOnly(db, user.id);
@@ -249,12 +241,11 @@ export async function POST(req: Request) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
       return NextResponse.json({ error: "Vendor access is unavailable for this account." }, { status: 403 });
     }
-    const { data: profile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    const legacyRole = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();
-    const role = legacyRole === "manager" || legacyRole === "pro" ? legacyRole : await resolveSessionActorRole(legacyRole);
-    const admin = await isAdminUser(user.id);
-
-    if (!admin && role !== "manager" && role !== "pro") {
+    const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+    if (roleError) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    const roles = (roleRows ?? []).map((row) => String(row.role).toLowerCase());
+    const admin = roles.includes("admin");
+    if (!admin && !roles.includes("manager")) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
     // An admin's write from their own manager portal is a manager's write: it can never edit or

@@ -135,6 +135,15 @@ export function buildTourRequestManagerBody(ctx: TourNotificationContext): strin
   return lines.join("\n");
 }
 
+/** The invitation secret belongs only in the outbound email, never inbox or SMS copies. */
+export function tourRequestNotificationContexts(ctx: TourNotificationContext, capability: string | null) {
+  const clean = { ...ctx, createAccountUrl: undefined };
+  const email = capability && ctx.createAccountUrl
+    ? { ...ctx, createAccountUrl: `${ctx.createAccountUrl}#tour_token=${encodeURIComponent(capability)}` }
+    : clean;
+  return { clean, email };
+}
+
 export function buildTourRequestTenantBody(ctx: TourNotificationContext): string {
   const greeting = ctx.guestName.trim() ? `Hi ${ctx.guestName.trim()},` : "Hi,";
   const when = formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso);

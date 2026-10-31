@@ -5,8 +5,6 @@ vi.mock("@/lib/auth/profile-role-row", () => ({ ensureProfileRoleRow: vi.fn().mo
 
 import { provisionApprovedResidentAccount } from "@/lib/auth/provision-approved-resident";
 
-/** The password this public repository used to ship for every approved resident. */
-const PUBLISHED_PASSWORD = "123Password$";
 
 /** Minimal service-role surface: records the password each createUser call was given. */
 function fakeService(passwords: string[]) {
@@ -30,43 +28,14 @@ function fakeService(passwords: string[]) {
   } as unknown as SupabaseClient;
 }
 
-async function approve(service: SupabaseClient, email: string) {
-  return provisionApprovedResidentAccount(service, {
-    id: "PROPLANE-TEST1",
-    bucket: "approved",
-    email,
-    name: "Approved Resident",
-  } as never);
-}
-
-describe("an account created when a manager approves an application", () => {
-  it("gets a random password, never the one printed in this repository", async () => {
+describe("manager approval without mailbox proof", () => {
+  it.each([undefined, { mode: "silent_migration" } as const])("requires an invitation without creating or confirming an account", async (options) => {
     const passwords: string[] = [];
     const service = fakeService(passwords);
-
-    await approve(service, "first@test.proplane.local");
-    await approve(service, "second@test.proplane.local");
-
-    expect(passwords).toHaveLength(2);
-    for (const password of passwords) {
-      expect(password).not.toBe(PUBLISHED_PASSWORD);
-      // 32 random bytes, base64url: nothing a reader of the source can predict.
-      expect(password).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    }
-    expect(passwords[0]).not.toBe(passwords[1]);
-  });
-
-  it("gets a random password on the silent-migration path too", async () => {
-    const passwords: string[] = [];
-    const service = fakeService(passwords);
-
-    await provisionApprovedResidentAccount(
-      service,
-      { id: "PROPLANE-TEST2", bucket: "approved", email: "migrated@test.proplane.local", name: "Migrated" } as never,
-      { mode: "silent_migration" },
-    );
-
-    expect(passwords[0]).not.toBe(PUBLISHED_PASSWORD);
-    expect(passwords[0]).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const result = await provisionApprovedResidentAccount(service, { id: "PROPLANE-TEST1", bucket: "approved", email: "resident@example.test" } as never, options);
+    expect(result).toMatchObject({ ok: false, reason: "invitation_required" });
+    expect(passwords).toEqual([]);
+    expect(service.auth.admin.createUser).not.toHaveBeenCalled();
+    expect(service.auth.admin.updateUserById).not.toHaveBeenCalled();
   });
 });

@@ -21,7 +21,7 @@ that the portal could not do — the tools ARE the portal's capabilities.
 | Role | Inbound surface | Registry | How a write is confirmed |
 | --- | --- | --- | --- |
 | Manager (verified cell → own work number) | `resolveManagerSmsInboundIdentity` | `buildManagerSmsRegistry(access)` = portal catalog **minus every `destructive` tool**, minus landlord-wide tools on a delegated (co-manager) turn | Preview → reply **`YES`** (`src/lib/sms/agent-confirmation.server.ts`) |
-| Resident (texting the manager's work number) | resident SMS turn (`sms-agent-turn.server.ts`) | `residentAgentRegistry` (every row `resident_email`-scoped) | Preview → reply **`YES`**; at most ONE open proposal per resident, a new proposal supersedes the old |
+| Resident (texting the manager's work number) | resident SMS turn (`sms-agent-turn.server.ts`) | `residentAgentRegistry` (every row scoped on the bound Auth subject, `resident_user_id`) | Preview → reply **`YES`**; at most ONE open proposal per resident, a new proposal supersedes the old |
 | Vendor (verified phone with an active job) | vendor SMS turn | `vendorWorkOrderAgentRegistry` — three reads pinned to one job + `escalate_to_manager` | Answer-only. The single write is inline-allowed because it only notifies the manager |
 | Prospect (anonymous, texting a work number) | leasing SMS agent | `leasingSmsAgentRegistry` | No card is possible (no `user_id`); the two inline writes — `request_tour`, `escalate_to_manager` — file a request and change nothing the manager has not then seen |
 | Any role, portal chat | `/api/agent/{chat,resident-chat,vendor-chat}` | the same registries | Preview card → Confirm (POSTs only the action id) |

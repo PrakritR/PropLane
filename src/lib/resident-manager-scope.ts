@@ -1,3 +1,4 @@
+import { applicationPropertyId } from "@/lib/application-property-id";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { pickPrimaryFilingScope } from "@/lib/resident-filing-scope";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -127,17 +128,7 @@ export async function residentHasApprovedResidency(
   return (data ?? []).some((row) => isApprovedApplicationRow(row));
 }
 
-function propertyIdFromApplication(row: ApplicationScopeRow): string {
-  const fromCols =
-    String(row.assigned_property_id ?? "").trim() || String(row.property_id ?? "").trim();
-  if (fromCols) return fromCols;
-  const rd = row.row_data ?? {};
-  return (
-    String(rd.assignedPropertyId ?? "").trim() ||
-    String(rd.propertyId ?? "").trim() ||
-    String((rd.application as { propertyId?: string } | undefined)?.propertyId ?? "").trim()
-  );
-}
+const propertyIdFromApplication = applicationPropertyId;
 
 /**
  * Prefer approved residencies over pending apps when stamping filings.
@@ -158,18 +149,18 @@ function preferApprovedThenRecent(rows: ApplicationScopeRow[]): ApplicationScope
 export async function resolveResidentFilingScope(
   db: ServiceRoleDb,
   params: {
-    residentEmail: string;
+    residentUserId: string;
     claimedManagerUserId?: string | null;
     claimedPropertyId?: string | null;
   },
 ): Promise<{ managerUserId: string; propertyId: string } | null> {
-  const residentEmail = params.residentEmail.trim().toLowerCase();
-  if (!residentEmail) return null;
+  const residentUserId = params.residentUserId.trim();
+  if (!residentUserId) return null;
 
   const { data, error } = await db
     .from("manager_application_records")
     .select("manager_user_id, property_id, assigned_property_id, row_data, updated_at")
-    .eq("resident_email", residentEmail)
+    .eq("row_data->>residentUserId", residentUserId)
     .order("updated_at", { ascending: false })
     .limit(25);
   if (error) throw new Error(error.message);

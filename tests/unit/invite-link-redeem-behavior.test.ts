@@ -231,9 +231,9 @@ describe("redeeming a manager invite link", () => {
     expect(deletes).toContain("manager_invite_link_redemptions");
   });
 
-  it("refuses when the opener has no manager portal role", async () => {
+  it("refuses a legacy-only manager without a stored manager role", async () => {
     const db = makeDb();
-    // Force resident-only by stubbing profile_roles empty and profiles.role resident.
+    // A legacy profile cannot grant manager authority when profile_roles is empty.
     const originalFrom = db.from.bind(db);
     (db as { from: (name: string) => unknown }).from = (name: string) => {
       if (name === "profile_roles") {
@@ -252,7 +252,7 @@ describe("redeeming a manager invite link", () => {
         q.select = () => q;
         q.eq = () => q;
         q.maybeSingle = async () => ({
-          data: { id: "peer-1", email: "r@example.com", full_name: "R", role: "resident", axis_id: "AX-1" },
+          data: { id: "peer-1", email: "r@example.com", full_name: "R", role: "manager", axis_id: "AX-1" },
           error: null,
         });
         return q;

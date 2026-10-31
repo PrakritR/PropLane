@@ -73,6 +73,17 @@ describe("handleOAuthCallback", () => {
     expect(setCookie).toContain("sb-access-token=token-value");
   });
 
+  it("routes purchase-read failure to retry instead of the requested manager portal", async () => {
+    const { ManagerPurchaseReadError } = await import("@/lib/auth/manager-onboarding");
+    const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
+    vi.mocked(resolveOAuthPortalRedirect).mockRejectedValueOnce(new ManagerPurchaseReadError(new Error("unavailable")));
+    const { handleOAuthCallback } = await import("@/lib/auth/oauth-callback-handler");
+    const request = new NextRequest("https://axis.example.com/auth/callback?code=abc123");
+    const response = await handleOAuthCallback(request, "/portal/dashboard");
+    expect(response.headers.get("location")).toBe("https://axis.example.com/auth/continue");
+    expect(response.headers.get("set-cookie")).toContain("sb-access-token=token-value");
+  });
+
   it("redirects to the Host header origin, not the 0.0.0.0 bind address in request.url", async () => {
     const { handleOAuthCallback } = await import("@/lib/auth/oauth-callback-handler");
 

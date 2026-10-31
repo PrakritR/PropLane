@@ -18,7 +18,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: state.userId, user_metadata: { role: "manager" } } } }) } }),
 }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => state.db }));
-vi.mock("@/lib/manager-route-guard.server", () => ({ requireManagerRouteUser: async () => ({ db: state.db, userId: state.userId }) }));
+vi.mock("@/lib/manager-route-guard.server", async (original) => ({ ...(await original<typeof import("@/lib/manager-route-guard.server")>()), requireManagerRouteUser: async () => ({ db: state.db, userId: state.userId }) }));
 vi.mock("@/lib/channel-calendar/sync.server", () => ({
   upsertChannelCalendarConnection: async () => {
     state.upserts += 1;

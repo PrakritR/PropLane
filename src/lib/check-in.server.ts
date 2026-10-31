@@ -8,7 +8,7 @@ import "server-only";
  *   - a short-stay guest, from their confirmed stay (`stay:<blockId>`).
  *
  * Every id here is re-derived from the SESSION: the guest is the signed-in user on the stay row, the
- * resident is the email on the application row. A key in a request body is a name, never a grant.
+ * resident is the stored Auth subject on the application row. A key in a request body is a name, never a grant.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -58,11 +58,12 @@ export type TenancyCheckInContext = {
 export async function loadTenancyCheckInContext(
   db: SupabaseClient,
   email: string,
-  options: { managerUserId?: string | null } = {},
+  options: { managerUserId?: string | null; residentUserId?: string | null } = {},
 ): Promise<TenancyCheckInContext | null> {
   const normalized = email.trim().toLowerCase();
   if (!normalized) return null;
-  let query = db.from("manager_application_records").select("id, manager_user_id, resident_email, row_data, updated_at").eq("resident_email", normalized);
+  let query = db.from("manager_application_records").select("id, manager_user_id, resident_email, row_data, updated_at");
+  query = options.residentUserId ? query.eq("row_data->>residentUserId", options.residentUserId) : query.eq("resident_email", normalized);
   if (options.managerUserId) query = query.eq("manager_user_id", options.managerUserId);
   const { data } = await query.order("updated_at", { ascending: false });
   type TenancyEntry = { id: string; managerUserId: string; row: DemoApplicantRow };
@@ -74,7 +75,7 @@ export async function loadTenancyCheckInContext(
     entries.push({
       id,
       managerUserId: text(record.manager_user_id),
-      row: { ...(row as unknown as DemoApplicantRow), email: text((row as { email?: unknown }).email).toLowerCase() || normalized },
+      row: { ...(row as unknown as DemoApplicantRow), email: options.residentUserId ? normalized : text((row as { email?: unknown }).email).toLowerCase() || normalized },
     });
   }
   const current = entries.filter((entry) => isCurrentResidentApplicationRow(entry.row) && !entry.row.withdrawnAt);
@@ -116,10 +117,10 @@ export function tenancyReveal(context: TenancyCheckInContext | null, leaseUnlock
 export async function residentCheckInReveal(
   db: SupabaseClient,
   email: string,
-  options: { managerUserId?: string | null; leaseUnlocked: boolean; now?: Date },
+  options: { managerUserId?: string | null; residentUserId?: string | null; leaseUnlocked: boolean; now?: Date },
 ): Promise<CheckInReveal> {
   try {
-    const context = await loadTenancyCheckInContext(db, email, { managerUserId: options.managerUserId });
+    const context = await loadTenancyCheckInContext(db, email, { managerUserId: options.managerUserId, residentUserId: options.residentUserId });
     return tenancyReveal(context, options.leaseUnlocked, options.now);
   } catch {
     return { revealed: false, reason: "no_time", revealAtIso: null };

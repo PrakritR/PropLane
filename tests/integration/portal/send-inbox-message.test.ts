@@ -38,6 +38,7 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { profileRolesBuilder } from "../../helpers/profile-roles-fake";
 import { rateLimit } from "@/lib/rate-limit";
 import { POST as sendInboxMessage } from "@/app/api/portal/send-inbox-message/route";
 import * as inboxRecipientScope from "@/lib/inbox-recipient-scope";
@@ -172,6 +173,8 @@ describe("POST /api/portal/send-inbox-message", () => {
     });
 
     const from = vi.fn().mockImplementation((table: string) => {
+      // Sender portal role is read from the stored profile_roles table.
+      if (table === "profile_roles") return profileRolesBuilder([{ user_id: "mgr_1", role: "manager" }]);
       // The Property-owner inbox re-scope (`applyOwnerMessageInboxScope`) asks
       // this manager's owner memberships with `.in(...).eq(...).eq(...)`, but
       // the `select()` stand-in below resolves `.in()` straight to the
@@ -251,7 +254,8 @@ describe("POST /api/portal/send-inbox-message", () => {
       error: null,
     });
 
-    const from = vi.fn().mockImplementation(() => {
+    const from = vi.fn().mockImplementation((table: string) => {
+      if (table === "profile_roles") return profileRolesBuilder([{ user_id: "ven_1", role: "vendor" }]);
       const obj: Record<string, unknown> = {};
       obj.upsert = upsert;
       const threadQuery: Record<string, unknown> = {

@@ -12,7 +12,7 @@ import { createMemoryDb } from "./support/memory-supabase";
 const MGR = "mgr-1";
 const state = vi.hoisted(() => ({
   db: null as unknown,
-  signedIn: null as { id: string; email: string } | null,
+  signedIn: null as { id: string; email: string; email_confirmed_at?: string } | null,
   notify: vi.fn(async () => undefined),
   residentCopy: vi.fn(async () => undefined),
   reconcile: vi.fn(async () => undefined),
@@ -27,7 +27,7 @@ vi.mock("@/lib/tour-resident-link.server", () => ({ reconcileProspectInboxThread
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => state.db }));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: state.signedIn ? { id: state.signedIn.id, email: state.signedIn.email } : null } }) },
+    auth: { getUser: async () => ({ data: { user: state.signedIn ? state.signedIn : null } }) },
   }),
 }));
 
@@ -72,10 +72,19 @@ describe("POST /api/public/property-lead-message - S2", () => {
   });
 
   it("still records the resident's own message when they are signed in as that account", async () => {
-    state.signedIn = { id: "res-a", email: "resident-a@example.test" };
+    state.signedIn = { id: "res-a", email: "resident-a@example.test", email_confirmed_at: "confirmed" };
     await call("resident-a@example.test");
     expect(state.residentCopy).toHaveBeenCalledTimes(1);
+    expect(state.reconcile).toHaveBeenCalledOnce();
     expect(state.notify).toHaveBeenCalledWith(expect.objectContaining({ unverified: false }));
+  });
+
+  it.each([{ id: "res-a", email: "resident-a@example.test" }, { id: "res-a", email: "other@example.test", email_confirmed_at: "confirmed" }])("does not claim a profile mailbox without matching confirmation", async (user) => {
+    state.signedIn = user;
+    await call("resident-a@example.test");
+    expect(state.residentCopy).not.toHaveBeenCalled();
+    expect(state.reconcile).not.toHaveBeenCalled();
+    expect(state.notify).toHaveBeenCalledWith(expect.objectContaining({ unverified: true }));
   });
 
   it("keeps the prospect flow for an email with no account", async () => {

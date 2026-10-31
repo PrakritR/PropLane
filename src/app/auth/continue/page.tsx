@@ -1,10 +1,11 @@
 "use client";
 
+import { residentApplicationHandoffPath } from "@/lib/auth/resident-application-handoff-path";
+
 import { AuthOAuthLoading } from "@/components/auth/auth-oauth-loading";
 import { GET_STARTED_PATH } from "@/lib/auth/get-started-path";
 import { normalizePostAuthPath } from "@/lib/auth/normalize-post-auth-path";
 import {
-  resolveClientPostAuthDestination,
   resolvePostAuthDestination,
 } from "@/lib/auth/resolve-post-auth-destination";
 import { waitForOAuthUser } from "@/lib/auth/wait-for-oauth-user";
@@ -48,6 +49,46 @@ function ContinueContent() {
           return;
         }
 
+        // An onboarding handoff is a claim this sign-in MAY carry, not a precondition for routing.
+        // A non-OK answer (no claim, or a transient failure of its own read) means the claim simply
+        // did not happen: fall through to the ordinary post-auth resolver below rather than
+        // dead-ending every sign-in on one new route.
+        const handoff = await fetch("/api/auth/email-onboarding/continue", { method: "POST" }).catch(() => null);
+        if (handoff?.ok) {
+          const body = await handoff.json().catch(() => ({})) as { role?: unknown; tourInquiryId?: unknown; inviteToken?: unknown; applicationId?: unknown; checkoutSessionId?: unknown; propertyId?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown; tier?: unknown; billing?: unknown };
+          if (body.role === "vendor_invite" && typeof body.inviteToken === "string" && body.inviteToken.length <= 512) {
+            window.location.replace(nativeAwarePath(`/auth/vendor-register?token=${encodeURIComponent(body.inviteToken)}`));
+            return;
+          }
+          if (body.role === "application" && typeof body.applicationId === "string" && body.applicationId.length <= 200) {
+            window.location.replace(nativeAwarePath(residentApplicationHandoffPath(body.applicationId)));
+            return;
+          }
+          if (body.role === "manager_paid" && typeof body.checkoutSessionId === "string" && body.checkoutSessionId.length <= 255) {
+            window.location.replace(nativeAwarePath(`/auth/create-account?mode=create&role=manager&session_id=${encodeURIComponent(body.checkoutSessionId)}`));
+            return;
+          }
+          if (body.role === "tour" && typeof body.tourInquiryId === "string" && body.tourInquiryId.length <= 200) {
+            window.location.replace(nativeAwarePath(`/resident/tour/pending/${encodeURIComponent(body.tourInquiryId)}`));
+            return;
+          }
+          if (body.role === "generic" || body.role === "resident" || body.role === "manager" || body.role === "vendor") {
+            const params = new URLSearchParams({ mode: "create", role: body.role });
+            if (body.role === "manager" && (body.tier === "free" || body.tier === "pro" || body.tier === "business")) params.set("tier", body.tier);
+            if (body.role === "manager" && (body.billing === "monthly" || body.billing === "annual")) params.set("billing", body.billing);
+            if (body.role === "resident" && typeof body.propertyId === "string" && body.propertyId.length <= 200) {
+              const apply = new URLSearchParams({ propertyId: body.propertyId });
+              if (typeof body.listingRoomId === "string") apply.set("listingRoomId", body.listingRoomId);
+              if (typeof body.bundleId === "string") apply.set("bundle", body.bundleId);
+              if (typeof body.applicationFormId === "string") apply.set("form", body.applicationFormId);
+              if (body.rentalType === "short_term") apply.set("rentalType", body.rentalType);
+              params.set("next", `/resident/applications/apply?${apply.toString()}`);
+            }
+            window.location.replace(nativeAwarePath(`/auth/create-account?${params.toString()}`));
+            return;
+          }
+        }
+
         // Ensure SSR auth cookies are flushed before the server resolver runs.
         await supabase.auth.refreshSession().catch(() => undefined);
         const {
@@ -69,23 +110,7 @@ function ContinueContent() {
         }
 
         if (resolutionFailed) {
-          const clientDestination = await resolveClientPostAuthDestination(supabase, nextPath);
-          if (clientDestination) {
-            didRedirectRef.current = true;
-            window.location.replace(nativeAwarePath(clientDestination));
-            return;
-          }
-
-          const fallback =
-            nextPath.startsWith("/") && nextPath !== "/auth/continue" ? normalizePostAuthPath(nextPath) : null;
-          if (fallback && fallback !== "/auth/continue") {
-            didRedirectRef.current = true;
-            window.location.replace(nativeAwarePath(fallback));
-            return;
-          }
-
-          didRedirectRef.current = true;
-          window.location.replace(nativeAwarePath(GET_STARTED_PATH));
+          setErrorText("Account access is temporarily unavailable. Refresh to try again.");
           return;
         }
 

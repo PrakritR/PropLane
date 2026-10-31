@@ -366,6 +366,7 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     start,
     end,
     sourceInquiryId: id,
+    sourceManagerUserId: textField(row, "managerUserId") || textField(row, "adminUserId") || undefined,
     kind: "tour",
     managerUserId,
     tourGroupId: groupId || undefined,

@@ -1,3 +1,4 @@
+import { claimWaitingDirectoryBalances } from "@/lib/managed-finance/directory-vendor.server";
 import "server-only";
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -120,7 +121,7 @@ async function provisionManager(db: Db, user: User, answers: SignupAnswers): Pro
   return true;
 }
 
-async function provisionVendor(db: Db, user: User, answers: SignupAnswers, leadPhoneKey: string | undefined): Promise<boolean> {
+async function provisionVendor(db: Db, user: User, answers: SignupAnswers, leadPhoneKey: string | undefined, verifiedPhone: string): Promise<boolean> {
   // `profiles.role` is the legacy primary role: bind wrote 'resident', so the vendor role must lead before provisioning.
   await db.from("profiles").update({ role: "vendor" }).eq("id", user.id);
   const provisioned = await provisionVendorAccountByEmail(db, {
@@ -131,6 +132,7 @@ async function provisionVendor(db: Db, user: User, answers: SignupAnswers, leadP
     confirmEmail: true,
   });
   if (!provisioned.ok) return false;
+  await claimWaitingDirectoryBalances(db, { userId: user.id, phone: verifiedPhone, phoneProven: true }).catch((error) => console.error("[vendor signup] phone balance claim failed", error instanceof Error ? error.name : "unknown"));
   const label = tradeLabelFor(answers.trade ?? null);
   const trades = label && label !== "Other" && (VENDOR_TRADE_OPTIONS as readonly string[]).includes(label) ? [label] : [];
   const zips = (answers.area ?? "").match(/\b\d{5}\b/g) ?? [];
@@ -196,7 +198,7 @@ export async function provisionSmsSignupAccount(db: Db, input: SmsSignupInput): 
     const fresh = (await db.auth.admin.getUserById(created.id)).data.user ?? created;
     let ok = false;
     if (input.role === "manager") ok = await provisionManager(db, fresh, input.answers);
-    else if (input.role === "vendor") ok = await provisionVendor(db, fresh, input.answers, input.vendorLeadPhoneKey);
+    else if (input.role === "vendor") ok = await provisionVendor(db, fresh, input.answers, input.vendorLeadPhoneKey, input.phoneE164);
     else ok = await provisionResident(db, fresh, input.phoneE164, input.answers);
     if (!ok) {
       await deleteQuietly(db, created.id);

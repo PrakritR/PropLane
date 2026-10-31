@@ -260,9 +260,11 @@ or `src/lib/agent/`.
 | Vendor number AI | `buildVendorNumberAiContext` | `vendorNumberAiRegistry` | inbound webhook |
 | Vendor on the PropLane line | `buildVendorLineContext` | `vendorLineRegistry` | inbound webhook (shared line) |
 
-Resident row scoping is not uniform: charges/leases have `resident_user_id` +
-`resident_email`; work orders/service requests have email only. Use the two
-loaders in `src/lib/tools/domains/resident/load-resident-rows.ts`.
+Resident row scoping is uniform: every resident-owned portal table (charges,
+leases, service requests, work orders) scopes on `resident_user_id`, the
+authenticated Auth subject — a reused address is never ownership. Use the one
+loader `loadResidentSubjectRows` in
+`src/lib/tools/domains/resident/load-resident-rows.ts`.
 
 # Web + native (Capacitor)
 
@@ -385,8 +387,9 @@ resident section, never a My home tab). Before approval, a sent form opens by
 its OWN `/resident/forms/<id>` link only — the list stays shut and the nav row
 inert (stage `application_submitted_forms`). My home stays locked until the
 lease is signed, with the row visible. Native bottom-nav constants are
-**derived**, not copied. `applicationApproved` reads the `resident_email`
-**column**, not `row_data.email`.
+**derived**, not copied. `applicationApproved` scopes on the bound Auth subject
+(`row_data->>residentUserId`); where an address is still compared it is the
+`resident_email` **column**, never `row_data.email`.
 
 ## `profiles.role` is legacy and singular — authorize off `profile_roles`
 
@@ -429,8 +432,15 @@ Every link sent out of band — emailed, or texted (the guest short-stay sign-in
 link) — uses `verifyOtp` (`/auth/confirm?token_hash=…`): a PKCE `code` is bound to
 the browser that asked for it, and such a link is opened somewhere else. Never
 `supabase.auth.resetPasswordForEmail`. `/auth/confirm` derives destination from
-`type` alone. The reset route is not an account-existence oracle.
-`RESEND_API_KEY` is load-bearing.
+`type` alone; the one exception is the signup handoff, which the SERVER decides
+(`/api/auth/email-onboarding/finish` claims the stored handoff and sets a
+one-shot `proplane_signup_handoff` cookie that `/auth/continue` redeems) — never
+from anything in the URL. The reset route is not an account-existence oracle.
+`RESEND_API_KEY` is load-bearing. **That emailed link is also the one mailbox
+proof for signup**: no account is created, confirmed, or given a password before
+it is opened — [`resident-onboarding.md`](docs/agents/resident-onboarding.md) owns
+the flow and [`manager-account-creation.md`](docs/agents/manager-account-creation.md)
+the manager half.
 
 ## "Does this account have a password?" — `identities` is NOT the answer
 
@@ -472,7 +482,7 @@ answer. Fail closed to `true`.
 | Communication credit | `docs/agents/comms-billing.md` | Reserve credit before provider/model work; a saved card never authorizes a charge |
 | Vendor dispatch agent | `docs/agents/vendor-dispatch-agent.md` | Answer-only + `escalate_to_manager`; `row_data.dispatch` is server-owned |
 | Manager account creation | `docs/agents/manager-account-creation.md` | `/auth/create-account` never auto-redirects into a portal |
-| Resident onboarding / account email proof | `docs/agents/resident-onboarding.md` | No account is created or confirmed with a known or caller-chosen password before the email is proven; an email address alone is never proof (`confirm-resident-email` refuses every request) |
+| Resident onboarding / account email proof | `docs/agents/resident-onboarding.md` | No account is created, confirmed or given a password before the mailbox is proven by the emailed `token_hash` link; an email address alone is never proof (`confirm-resident-email` refuses every request) |
 | Inbound support email | `docs/agents/inbound-email-inbox.md` | Receive-only into admin inbox; fail closed on Vercel |
 | MCP / public API | `docs/agents/mcp-api.md` | API key is a credential, not standing authorization |
 | Google integrations | `docs/agents/google-integrations.md` | Minimal scopes per product; writes go to the dedicated "PropLane" calendar, never the user's own events; a Google-side edit/delete of a PropLane event is an attention item, never a silent reschedule |

@@ -1,3 +1,5 @@
+const session = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({ auth: { getUser: session } }) }));
 const recoveryRedirect = vi.hoisted(() => vi.fn().mockResolvedValue(null));
 vi.mock("@/lib/auth/account-recovery.server", () => ({ recoverySetupRedirect: recoveryRedirect }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -54,7 +56,15 @@ describe("POST /api/auth/manager-register", () => {
     vi.clearAllMocks();
   });
 
+  it("refuses unverified email before provisioning", async () => {
+    session.mockResolvedValue({ data: { user: { id: "user-new", email: "new@example.com" } } });
+    const response = await managerRegister(jsonRequest("http://localhost/api/auth/manager-register", { method: "POST", body: { email: "new@example.com", fullName: "New Manager", phone: "+12065550123" } }));
+    expect(response.status).toBe(403);
+    expect(provisionPendingManagerAccount).not.toHaveBeenCalled();
+  });
+
   it("returns portal redirect when email already has a complete manager account", async () => {
+    session.mockResolvedValue({ data: { user: { id: "user-existing", email: "manager@example.com", email_confirmed_at: "confirmed" } } });
     vi.mocked(resolveManagerPortalEntryPath).mockResolvedValue("/portal/dashboard");
     vi.mocked(findAuthUserIdByEmail).mockResolvedValue("user-existing");
     vi.mocked(findManagerPurchaseForAccount).mockResolvedValue({
@@ -134,6 +144,7 @@ describe("POST /api/auth/manager-register", () => {
   });
 
   it("grants a Pro trial and redirects new managers to optional Google setup", async () => {
+    session.mockResolvedValue({ data: { user: { id: "user-new", email: "trial@example.com", email_confirmed_at: "confirmed" } } });
     vi.mocked(resolveManagerPortalEntryPath).mockResolvedValue("/portal/dashboard");
     vi.mocked(findManagerPurchaseForAccount).mockResolvedValue(null);
     vi.mocked(isManagerOnboardingComplete).mockReturnValue(false);
@@ -188,6 +199,7 @@ describe("POST /api/auth/manager-register", () => {
   });
 
   it("defaults to a Pro trial when tier is omitted", async () => {
+    session.mockResolvedValue({ data: { user: { id: "user-new-2", email: "new@example.com", email_confirmed_at: "confirmed" } } });
     vi.mocked(resolveManagerPortalEntryPath).mockResolvedValue("/portal/dashboard");
     vi.mocked(findManagerPurchaseForAccount).mockResolvedValue(null);
     vi.mocked(isManagerOnboardingComplete).mockReturnValue(false);

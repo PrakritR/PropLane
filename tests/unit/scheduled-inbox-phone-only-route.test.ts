@@ -6,6 +6,9 @@ const scope: { activeWorkspaceId: string | null; throws: boolean } = {
   throws: false,
 };
 const created: Record<string, unknown>[] = [];
+const actor = { email: "mgr@x.test", email_confirmed_at: "2026-01-01", profileEmail: "mgr@x.test" };
+const scopedSenders: Record<string, unknown>[] = [];
+const roleState: { roles: string[]; error: boolean } = { roles: ["manager"], error: false };
 const convos = { residents: [{ phone: "+17262483085", conversationKey: "conv-1" }] };
 vi.mock("@/lib/manager-sms-messages.server", () => ({
   fetchManagerSmsConversations: async () => convos,
@@ -19,10 +22,10 @@ vi.mock("@/lib/communication/conversation-visibility.server", () => ({
   },
 }));
 vi.mock("@/lib/inbox-recipient-scope", () => ({
-  filterRecipientsBySenderScope: async (_db: unknown, _sender: unknown, recipients: unknown[]) => ({
-    allowed: recipients,
-    blocked: [],
-  }),
+  filterRecipientsBySenderScope: async (_db: unknown, sender: Record<string, unknown>, recipients: unknown[]) => {
+    scopedSenders.push(sender);
+    return { allowed: recipients, blocked: [] };
+  },
 }));
 vi.mock("@/lib/scheduled-inbox-messages.server", () => ({
   createScheduledInboxMessage: async (_db: unknown, input: Record<string, unknown>) => {
@@ -35,7 +38,7 @@ vi.mock("@/lib/scheduled-inbox-messages.server", () => ({
 }));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({
-    auth: { getUser: async () => ({ data: { user: { id: "mgr-1", email: "mgr@x.test" } } }) },
+    auth: { getUser: async () => ({ data: { user: { id: "mgr-1", email: actor.email, email_confirmed_at: actor.email_confirmed_at } } }) },
   }),
 }));
 vi.mock("@/lib/supabase/service", () => ({
@@ -48,13 +51,13 @@ vi.mock("@/lib/supabase/service", () => ({
         order: () => q,
         limit: () => q,
         maybeSingle: async () => ({
-          data: table === "profiles" ? { role: "manager", email: "mgr@x.test", full_name: "Mgr" } : null,
+          data: table === "profiles" ? { role: "manager", email: actor.profileEmail, full_name: "Mgr" } : null,
           error: null,
         }),
         then: (resolve: (v: { data: unknown[]; error: null }) => unknown) =>
           Promise.resolve({
-            data: table === "profile_roles" ? [{ role: "manager" }] : [],
-            error: null,
+            data: table === "profile_roles" ? roleState.roles.map((role) => ({ role })) : [],
+            error: roleState.error ? { message: "unavailable" } : null,
           }).then(resolve),
       };
       return q;
@@ -81,12 +84,31 @@ const post = (extra: Record<string, unknown>) =>
   );
 
 beforeEach(() => {
-  created.length = 0;
+  created.length = 0; scopedSenders.length = 0;
+  actor.email = "mgr@x.test"; actor.email_confirmed_at = "2026-01-01"; actor.profileEmail = "mgr@x.test";
   scope.activeWorkspaceId = "ws-a";
   scope.throws = false;
+  roleState.roles = ["manager"]; roleState.error = false;
 });
 
 describe("phone-only scheduled text", () => {
+  it("rejects legacy-only manager authority and failed role reads", async () => {
+    roleState.roles = [];
+    expect((await post({ recipientPhone: "(726) 248-3085", conversationKey: "conv-1" })).status).toBe(401);
+    roleState.roles = ["manager"]; roleState.error = true;
+    expect((await post({ recipientPhone: "(726) 248-3085", conversationKey: "conv-1" })).status).toBe(401);
+    expect(created).toHaveLength(0);
+  });
+  it("never uses an editable or unconfirmed profile email for subject scope", async () => {
+    actor.profileEmail = "other@x.test";
+    roleState.roles = ["resident"];
+    await post({ recipientEmail: "resident@x.test", deliverViaSms: false, deliverViaEmail: true });
+    expect(scopedSenders[0]).toMatchObject({ email: "mgr@x.test" });
+    scopedSenders.length = 0;
+    actor.email_confirmed_at = "";
+    await post({ recipientEmail: "resident@x.test", deliverViaSms: false, deliverViaEmail: true });
+    expect(scopedSenders[0]).toMatchObject({ email: "" });
+  });
   it("accepts a number that belongs to a conversation the manager owns", async () => {
     const res = await post({ recipientPhone: "(726) 248-3085", conversationKey: "conv-1" });
     expect(res.status).toBe(200);

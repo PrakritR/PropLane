@@ -61,6 +61,20 @@ describe("getReportsAuthContext", () => {
     });
   });
 
+  it("rejects forged metadata and legacy profile roles without a stored role", async () => {
+    getUser.mockResolvedValue({ data: { user: { id: "user-1", email: "x@example.com", user_metadata: { role: "manager" } } } });
+    profileSelect.mockResolvedValue({ data: { email: "x@example.com", role: "manager" }, error: null });
+    profileRoles.mockResolvedValue({ data: [], error: null });
+    const { getReportsAuthContext } = await import("@/lib/reports/auth");
+    expect(await getReportsAuthContext()).toBeNull();
+  });
+  it("fails closed on role lookup error and accepts a stored admin", async () => {
+    const { getReportsAuthContext } = await import("@/lib/reports/auth");
+    profileRoles.mockResolvedValue({ data: null, error: { message: "unavailable" } });
+    expect(await getReportsAuthContext()).toBeNull();
+    profileRoles.mockResolvedValue({ data: [{ role: "admin" }], error: null });
+    expect((await getReportsAuthContext())?.role).toBe("admin");
+  });
   it("prefers resident role for resident financial reports when user has both roles", async () => {
     const { getReportsAuthContext } = await import("@/lib/reports/auth");
     const ctx = await getReportsAuthContext({ preferRole: "resident" });

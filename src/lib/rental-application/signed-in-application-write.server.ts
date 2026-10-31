@@ -154,6 +154,7 @@ export async function persistNormalizedRow(
   sourceChannel: string | null = null,
   /** The channel a brand-new applicant row is made on: `portal` for an applicant's own web write, null for a manager's. */
   noticeChannel: NoticeChannel | null = null,
+  managerSubjectFence = false,
 ) {
   // Carry the exact snapshot whose actor/property/token access was checked.
   // Re-reading it here could adopt a concurrent transfer without reauthorizing.
@@ -163,6 +164,10 @@ export async function persistNormalizedRow(
   const existing = authorizedExisting ? { ...authorizedExisting, id: authorizedExisting.id as string, row_data: authorizedExisting.row_data } : null;
   if (oldId !== row.id && !existing) throw new Error("Application normalization source is unavailable.");
   // The channel is server-owned: the stored row's wins, else the writer's; a value in the body never does.
+  if (managerSubjectFence) {
+    const subject = (existing?.row_data as DemoApplicantRow | null)?.residentUserId ?? null;
+    row = { ...row, residentUserId: subject };
+  }
   row = withRecordedNoticeChannel(row, existing?.row_data, noticeChannel);
   row = prepareApplicantIdentityWrite(row, existing?.row_data, String(existing?.id ?? row.id));
   const renaming = Boolean(existing && existing.id !== row.id);
@@ -185,6 +190,20 @@ export async function persistNormalizedRow(
       // The source snapshot check is the draft downgrade guard for this atomic
       // ID transition; an intervening submit/withdrawal/transfer rejects it.
       await persistRenamedApplicationRecord(db, existing!, values);
+    } else if (managerSubjectFence) {
+      if (!existing) {
+        const { error } = await db.from("manager_application_records").insert(values);
+        if (error) throw Object.assign(new Error("Application changed. Refresh and retry."), { code: error.code === "23505" ? "40001" : error.code, cause: error });
+      } else {
+        const subject = (existing.row_data as DemoApplicantRow).residentUserId ?? null;
+        let query = db.from("manager_application_records").update(values).eq("id", existing.id);
+        query = subject ? query.eq("row_data->>residentUserId", subject) : query.is("row_data->>residentUserId", null);
+        if (isDraftApplicationRow(incomingDraft)) query = query.eq("row_data->>bucket", "pending").is("row_data->>withdrawnAt", null);
+        query = existing.updated_at == null ? query.is("updated_at", null) : query.eq("updated_at", existing.updated_at);
+        const { data, error } = await query.select("id");
+        if (error) throw Object.assign(new Error("Could not save application."), { code: error.code, cause: error });
+        if (!data?.length) throw Object.assign(new Error("Application changed. Refresh and retry."), { code: "40001" });
+      }
     } else if (isDraftApplicationRow(incomingDraft)) {
       await persistDraftRow(db, idVariants(row.id), values);
     } else {
@@ -206,7 +225,7 @@ export async function persistNormalizedRow(
   if (row.bucket === "approved") {
     try {
       const provisioned = await provisionApprovedResidentAccount(db, row);
-      if (!provisioned.ok) {
+      if (!provisioned.ok && provisioned.reason !== "invitation_required") {
         console.error("Approved application persisted but resident provisioning failed:", {
           applicationId: row.id,
           error: provisioned.error,
@@ -229,9 +248,10 @@ export type StoredApplicationRecord = {
   resident_email?: string | null;
   property_id?: string | null;
   assigned_property_id?: string | null;
+  updated_at?: string | null;
 };
 
-export const STORED_APPLICATION_SELECT = "id, row_data, manager_user_id, resident_email, property_id, assigned_property_id";
+export const STORED_APPLICATION_SELECT = "id, row_data, manager_user_id, resident_email, property_id, assigned_property_id, updated_at";
 
 export async function loadStoredApplicationRecord(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
@@ -318,8 +338,8 @@ export type PreparedResidentSelfWrite =
 
 /**
  * A signed-in applicant writing their OWN application (a resident, or a non-resident login applying
- * somewhere they do not manage). Ownership is the authenticated email; the stored row, when there is
- * one, must be theirs and still pending.
+ * somewhere they do not manage). Existing rows must be bound to the Auth subject and pending;
+ * new rows require the verified session mailbox.
  */
 export async function prepareResidentSelfWrite(
   db: Db,
@@ -345,9 +365,6 @@ export async function prepareResidentSelfWrite(
   let row = input.row;
   const refuse = (status: number, body: Record<string, unknown>): ApplicationWriteRefusal => ({ ok: false, status, body });
   const rowEmail = (row.email ?? "").trim().toLowerCase();
-  if (!email || rowEmail !== email) {
-    return refuse(403, { error: "You can only update your own application." });
-  }
   const ids = idVariants(requestedRowId);
   const { data: records, error: loadError } = await db
     .from("manager_application_records")
@@ -356,7 +373,7 @@ export async function prepareResidentSelfWrite(
     .limit(1);
   if (loadError) return refuse(500, { error: loadError.message });
   const existing = records?.[0]?.row_data as DemoApplicantRow | undefined;
-  if (existing && String(records?.[0]?.resident_email ?? existing.email ?? "").trim().toLowerCase() !== email) {
+  if (existing ? existing.residentUserId !== user.id : (!email || rowEmail !== email)) {
     return refuse(403, { error: "You can only update your own application." });
   }
   if (existing && existing.bucket !== "pending") {
@@ -371,6 +388,7 @@ export async function prepareResidentSelfWrite(
     bucket: "pending",
     // The login bound to this application is the authenticated writer's own, never a client-supplied id.
     residentUserId: existing?.residentUserId ?? user.id,
+    email: existing ? (String(records?.[0]?.resident_email ?? existing.email ?? "")) : row.email,
     withdrawnAt: existing?.withdrawnAt ?? row.withdrawnAt,
     // Manager-assigned placement: never from the applicant, only what the manager stored.
     assignedPropertyId: existing?.assignedPropertyId,
@@ -492,6 +510,7 @@ export async function persistApplicationWrite(
     input.leadSource,
     // An applicant's own write is the web channel; a manager writing a row for someone is not a request made by them.
     residentSelfWrite ? "portal" : null,
+    !residentSelfWrite,
   );
   // The one writer of the proof that lets a manager's "Delete resident" also delete this
   // login: the id is the authenticated session's (`user.id`), the manager is the listing's.

@@ -178,16 +178,18 @@ class FakeResidentQuery {
 
     if (this.pending.kind === "update") {
       const patch = this.pending.values;
-      for (const row of this.apply()) Object.assign(row, patch);
+      const changed = this.apply();
+      for (const row of changed) Object.assign(row, patch);
       this.mutations.push({ table: this.table, kind: "update", values: { ...patch } });
-      return { data: null, error: null };
+      return { data: changed, error: null };
     }
 
+    const removed = this.apply();
     const remaining = this.rows.filter((row) => !this.predicates.every((match) => match(row)));
     this.rows.length = 0;
     this.rows.push(...remaining);
     this.mutations.push({ table: this.table, kind: "delete", values: {} });
-    return { data: null, error: null };
+    return { data: removed, error: null };
   }
 
   maybeSingle() {
@@ -222,6 +224,10 @@ export function makeResidentToolCtx(
 ): FakeResidentSetup {
   const mutations: FakeMutation[] = [];
   const db = {
+    auth: { admin: { getUserById: async (id: string) => {
+      const profile = tables.profiles?.find((row) => row.id === id);
+      return { data: { user: profile ? { id, email: profile.email, email_confirmed_at: "2026-01-01" } : null }, error: null };
+    } } },
     async rpc(name: string, args: FakeRow) {
       if (name !== "commit_room_lease_extension") throw new Error(`Unexpected RPC ${name}`);
       const lease = tables.portal_lease_pipeline_records?.find(r => r.id === args.p_lease_id && r.manager_user_id === args.p_owner);

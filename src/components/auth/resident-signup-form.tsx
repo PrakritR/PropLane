@@ -1,5 +1,7 @@
 "use client";
 
+import { EmailFirstSignup } from "@/components/auth/email-first-signup";
+
 import posthog from "posthog-js";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -34,7 +36,7 @@ type RegisterResponse = {
  * application, not an empty dashboard. Shares the auth-hub compact skeleton with the
  * manager/vendor signup forms.
  */
-export function ResidentSignupForm({
+function LegacyResidentSignupForm({
   initialEmail = "",
   nextPath = "/resident/applications",
   axisId,
@@ -294,4 +296,17 @@ export function ResidentSignupForm({
       {!hideLegalFooter ? <AuthLegalConsent action="create" className="mt-2" /> : null}
     </div>
   );
+}
+
+export function ResidentSignupForm(props: Parameters<typeof LegacyResidentSignupForm>[0]) {
+  let listing: { propertyId?: string; listingRoomId?: string; bundleId?: string; applicationFormId?: string; rentalType?: string } | undefined;
+  try {
+    const next = new URL(props.nextPath ?? "", "https://local.invalid");
+    if (next.origin === "https://local.invalid" && next.pathname === "/resident/applications/apply" && next.searchParams.get("propertyId")) listing = {
+      propertyId: next.searchParams.get("propertyId") || undefined, listingRoomId: next.searchParams.get("listingRoomId") || undefined,
+      bundleId: next.searchParams.get("bundle") || undefined, applicationFormId: next.searchParams.get("form") || undefined,
+      rentalType: next.searchParams.get("rentalType") || undefined,
+    };
+  } catch { /* Invalid destinations are ignored. */ }
+  return <EmailFirstSignup intent="resident" listing={listing} initialEmail={props.initialEmail} disabled={props.disabled} hideLegalFooter={props.hideLegalFooter} />;
 }

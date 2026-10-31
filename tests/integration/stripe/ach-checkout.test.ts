@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
+import { profileRolesBuilder } from "../../helpers/profile-roles-fake";
 
 /**
  * A Supabase query mock: every builder method returns the same chain, so a
@@ -129,17 +130,17 @@ type Row = Record<string, unknown> | null;
 
 /**
  * Fake service-role client for the resident household routes. Every builder
- * method returns the same chain (the route stacks `.eq().eq()` on
- * `profile_roles` and the workspace resolver does too); `maybeSingle` resolves
+ * method returns the same chain (the workspace resolver stacks `.eq().eq()`);
+ * `profile_roles` is a filter-collecting builder seeded for the signed-in resident; `maybeSingle` resolves
  * the configured row for the table. `rpc` models the whole-cart claim:
  * `reserve_resident_checkout_attempt` freezes the request it was handed (exactly
  * what the SQL does for a fresh cart) and `bind_resident_checkout_session`
  * stamps the provider id.
  */
 function residentDb(opts: {
-  /** `profiles.role`; "resident" is accepted without a `profile_roles` read. */
+  /** `profiles.role` (legacy); authorization reads the stored `profile_roles` rows instead. */
   profileRole?: string | null;
-  /** `profile_roles` row (the multi-role source of truth), or null for none. */
+  /** `profile_roles` row (the multi-role source of truth), or null for none. Omitted: the signed-in resident holds `resident`. */
   residentRoleRow?: Row;
   charge?: Row;
   property?: Row;
@@ -153,7 +154,6 @@ function residentDb(opts: {
   const auditInsert = vi.fn().mockResolvedValue({ error: null });
   const rowFor = (table: string): Row => {
     if (table === "profiles") return { role: opts.profileRole ?? "resident" };
-    if (table === "profile_roles") return opts.residentRoleRow ?? null;
     if (table === "portal_household_charge_records") return opts.charge ?? null;
     if (table === "manager_property_records") return opts.property ?? null;
     if (table === "resident_checkout_attempts") return opts.attempt ?? null;
@@ -163,6 +163,10 @@ function residentDb(opts: {
     from: vi.fn((table: string) => {
       queried.push(table);
       if (table === "audit_log") return { insert: auditInsert };
+      if (table === "profile_roles") {
+        const stored = opts.residentRoleRow === undefined ? { role: "resident" } : opts.residentRoleRow;
+        return profileRolesBuilder(stored ? [{ user_id: "res_1", role: String(stored.role) }] : []);
+      }
       const chain: Record<string, unknown> = {};
       for (const method of ["select", "eq", "neq", "in", "is", "order", "limit"]) {
         chain[method] = vi.fn().mockReturnValue(chain);

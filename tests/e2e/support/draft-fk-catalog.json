@@ -1,0 +1,405 @@
+{
+  "target": "emstjswhotsnyksqhqyf",
+  "readOnly": true,
+  "rows": [
+    {
+      "conname": "email_onboarding_handoffs_property_id_fkey",
+      "child_table": "email_onboarding_handoffs",
+      "parent_table": "manager_property_records",
+      "definition": "FOREIGN KEY (property_id) REFERENCES manager_property_records(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "house_group_conversations_property_id_fkey",
+      "child_table": "house_group_conversations",
+      "parent_table": "manager_property_records",
+      "definition": "FOREIGN KEY (property_id) REFERENCES manager_property_records(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "property_knowledge_entries_property_id_fkey",
+      "child_table": "property_knowledge_entries",
+      "parent_table": "manager_property_records",
+      "definition": "FOREIGN KEY (property_id) REFERENCES manager_property_records(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "resident_evidence_policies_property_id_fkey",
+      "child_table": "resident_evidence_policies",
+      "parent_table": "manager_property_records",
+      "definition": "FOREIGN KEY (property_id) REFERENCES manager_property_records(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "resident_evidence_submission_snapshots_property_id_fkey",
+      "child_table": "resident_evidence_submission_snapshots",
+      "parent_table": "manager_property_records",
+      "definition": "FOREIGN KEY (property_id) REFERENCES manager_property_records(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "resident_screening_grants_property_id_fkey",
+      "child_table": "resident_screening_grants",
+      "parent_table": "manager_property_records",
+      "definition": "FOREIGN KEY (property_id) REFERENCES manager_property_records(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "resident_screening_reports_property_id_fkey",
+      "child_table": "resident_screening_reports",
+      "parent_table": "manager_property_records",
+      "definition": "FOREIGN KEY (property_id) REFERENCES manager_property_records(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "sms_entry_codes_property_id_fkey",
+      "child_table": "sms_entry_codes",
+      "parent_table": "manager_property_records",
+      "definition": "FOREIGN KEY (property_id) REFERENCES manager_property_records(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "sms_unassigned_leads_assigned_property_id_fkey",
+      "child_table": "sms_unassigned_leads",
+      "parent_table": "manager_property_records",
+      "definition": "FOREIGN KEY (assigned_property_id) REFERENCES manager_property_records(id) ON DELETE SET NULL",
+      "confdeltype": "n"
+    },
+    {
+      "conname": "vendor_dispatch_runs_property_id_fkey",
+      "child_table": "vendor_dispatch_runs",
+      "parent_table": "manager_property_records",
+      "definition": "FOREIGN KEY (property_id) REFERENCES manager_property_records(id) ON DELETE SET NULL",
+      "confdeltype": "n"
+    },
+    {
+      "conname": "account_link_invites_workspace_id_fkey",
+      "child_table": "account_link_invites",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE SET NULL",
+      "confdeltype": "n"
+    },
+    {
+      "conname": "comms_pool_credit_purchases_applies_to_workspace_id_fkey",
+      "child_table": "comms_pool_credit_purchases",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (applies_to_workspace_id) REFERENCES portal_workspaces(id) ON DELETE SET NULL",
+      "confdeltype": "n"
+    },
+    {
+      "conname": "comms_workspace_funding_workspace_id_fkey",
+      "child_table": "comms_workspace_funding",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "communication_dismissed_contacts_workspace_id_fkey",
+      "child_table": "communication_dismissed_contacts",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "house_group_conversations_workspace_id_fkey",
+      "child_table": "house_group_conversations",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "house_group_messages_workspace_id_fkey",
+      "child_table": "house_group_messages",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "house_group_preferences_workspace_id_fkey",
+      "child_table": "house_group_preferences",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "house_group_settings_workspace_id_fkey",
+      "child_table": "house_group_settings",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "lease_document_library_workspace_id_fkey",
+      "child_table": "lease_document_library",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "listing_channel_connections_workspace_id_fkey",
+      "child_table": "listing_channel_connections",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "listing_channel_posts_workspace_id_fkey",
+      "child_table": "listing_channel_posts",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "managed_rent_allocations_workspace_id_fkey",
+      "child_table": "managed_rent_allocations",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "managed_workspace_fee_policies_workspace_id_fkey",
+      "child_table": "managed_workspace_fee_policies",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "manager_api_keys_workspace_id_fkey",
+      "child_table": "manager_api_keys",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE SET NULL",
+      "confdeltype": "n"
+    },
+    {
+      "conname": "manager_assistant_emails_workspace_id_fkey",
+      "child_table": "manager_assistant_emails",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE RESTRICT",
+      "confdeltype": "r"
+    },
+    {
+      "conname": "manager_comms_workspace_wallets_workspace_id_fkey",
+      "child_table": "manager_comms_workspace_wallets",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "manager_invite_links_workspace_id_fkey",
+      "child_table": "manager_invite_links",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE SET NULL",
+      "confdeltype": "n"
+    },
+    {
+      "conname": "manager_property_records_workspace_id_fkey",
+      "child_table": "manager_property_records",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE RESTRICT",
+      "confdeltype": "r"
+    },
+    {
+      "conname": "manager_sms_numbers_workspace_id_fkey",
+      "child_table": "manager_sms_numbers",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE RESTRICT",
+      "confdeltype": "r"
+    },
+    {
+      "conname": "manager_syndication_feeds_workspace_id_fkey",
+      "child_table": "manager_syndication_feeds",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "mcp_oauth_authorization_codes_workspace_id_fkey",
+      "child_table": "mcp_oauth_authorization_codes",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE SET NULL",
+      "confdeltype": "n"
+    },
+    {
+      "conname": "mcp_oauth_tokens_workspace_id_fkey",
+      "child_table": "mcp_oauth_tokens",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE SET NULL",
+      "confdeltype": "n"
+    },
+    {
+      "conname": "meta_messenger_replies_workspace_id_fkey",
+      "child_table": "meta_messenger_replies",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "owner_expenses_workspace_id_fkey",
+      "child_table": "owner_expenses",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "owner_statements_workspace_id_fkey",
+      "child_table": "owner_statements",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "party_ledger_journals_workspace_id_fkey",
+      "child_table": "party_ledger_journals",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE SET NULL",
+      "confdeltype": "n"
+    },
+    {
+      "conname": "phone_bound_links_workspace_id_fkey",
+      "child_table": "phone_bound_links",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "property_knowledge_entries_workspace_id_fkey",
+      "child_table": "property_knowledge_entries",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "sms_ai_reply_drafts_workspace_id_fkey",
+      "child_table": "sms_ai_reply_drafts",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "sms_ai_reply_outcomes_workspace_id_fkey",
+      "child_table": "sms_ai_reply_outcomes",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "sms_entry_codes_workspace_id_fkey",
+      "child_table": "sms_entry_codes",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "sms_escalated_questions_workspace_id_fkey",
+      "child_table": "sms_escalated_questions",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "sms_knowledge_digests_workspace_id_fkey",
+      "child_table": "sms_knowledge_digests",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "sms_line_sessions_current_workspace_id_fkey",
+      "child_table": "sms_line_sessions",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (current_workspace_id) REFERENCES portal_workspaces(id) ON DELETE SET NULL",
+      "confdeltype": "n"
+    },
+    {
+      "conname": "sms_line_thread_state_workspace_id_fkey",
+      "child_table": "sms_line_thread_state",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "sms_media_files_workspace_id_fkey",
+      "child_table": "sms_media_files",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE SET NULL",
+      "confdeltype": "n"
+    },
+    {
+      "conname": "sms_moved_notices_workspace_id_fkey",
+      "child_table": "sms_moved_notices",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "sms_setup_links_invited_by_workspace_id_fkey",
+      "child_table": "sms_setup_links",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (invited_by_workspace_id) REFERENCES portal_workspaces(id) ON DELETE SET NULL",
+      "confdeltype": "n"
+    },
+    {
+      "conname": "sms_topic_reply_modes_workspace_id_fkey",
+      "child_table": "sms_topic_reply_modes",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "sms_unassigned_leads_assigned_workspace_id_fkey",
+      "child_table": "sms_unassigned_leads",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (assigned_workspace_id) REFERENCES portal_workspaces(id) ON DELETE SET NULL",
+      "confdeltype": "n"
+    },
+    {
+      "conname": "vendor_dispatch_rules_workspace_id_fkey",
+      "child_table": "vendor_dispatch_rules",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "vendor_dispatch_runs_workspace_id_fkey",
+      "child_table": "vendor_dispatch_runs",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "vendor_marketplace_accounts_workspace_id_fkey",
+      "child_table": "vendor_marketplace_accounts",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "workspace_automation_runs_workspace_id_fkey",
+      "child_table": "workspace_automation_runs",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "workspace_automation_settings_workspace_id_fkey",
+      "child_table": "workspace_automation_settings",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "workspace_debit_consents_workspace_id_fkey",
+      "child_table": "workspace_debit_consents",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    },
+    {
+      "conname": "workspace_work_numbers_workspace_id_fkey",
+      "child_table": "workspace_work_numbers",
+      "parent_table": "portal_workspaces",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES portal_workspaces(id) ON DELETE CASCADE",
+      "confdeltype": "c"
+    }
+  ]
+}

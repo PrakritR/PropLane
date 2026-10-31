@@ -19,7 +19,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServerClient: async () => ({ auth: { getUser: async () => ({ data: { user: state.user } }) } }),
+  createSupabaseServerClient: async () => ({ auth: { getUser: async () => ({ data: { user: state.user ? { ...state.user, email_confirmed_at: "2026-01-01T00:00:00Z" } : null } }) } }),
 }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => state.db }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: async () => ({ ok: true }), clientIpFrom: () => "127.0.0.1" }));
@@ -95,7 +95,7 @@ function seed(disabled: string[], optional: string[] = []): { db: LinkedFormFake
       { id: "helper-1", role: "resident", email: "mom@example.com", full_name: "Maria Lee" },
       { id: "manager-1", role: "manager", email: "m@example.com" },
     ],
-    profile_roles: [],
+    profile_roles: [{ user_id: "helper-1", role: "resident" }, { user_id: "helper-2", role: "resident" }, { user_id: "applicant-1", role: "resident" }, { user_id: "manager-1", role: "manager" }],
     cosigner_submission_records: [],
   });
   return { db, cosignerId: published.id };
@@ -170,6 +170,15 @@ describe("a co-signer template without name, email or phone questions", () => {
     const res = await submitCosigner(post(body({ formRequestId: REQUEST_ID, fullName: "Mallory Evil", email: "mallory@evil.test" })));
     expect(res.status).toBe(400);
     expect((await res.json()).error).toContain("Add your name and email to your account");
+    expect(db.tables.cosigner_submission_records).toHaveLength(0);
+  });
+
+  it("denies a helper without a stored resident role", async () => {
+    const { db } = seed(IDENTITY_KEYS);
+    db.tables.profile_roles = [];
+    state.db = db;
+    const response = await submitCosigner(post(body({ formRequestId: REQUEST_ID })));
+    expect(response.status).toBe(404);
     expect(db.tables.cosigner_submission_records).toHaveLength(0);
   });
 

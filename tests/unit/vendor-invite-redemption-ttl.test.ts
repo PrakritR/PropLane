@@ -7,6 +7,8 @@ import {
   vendorUnlinkedNotice,
 } from "@/lib/auth/provision-vendor-account";
 
+const vendorBalances = vi.hoisted(() => ({ claim: vi.fn(async () => undefined), rekey: vi.fn(async () => undefined) }));
+vi.mock("@/lib/managed-finance/directory-vendor.server", () => ({ claimWaitingDirectoryBalances: vendorBalances.claim, rekeyDirectoryBalances: vendorBalances.rekey }));
 vi.mock("@/lib/auth/account-recovery.server", () => ({ pendingAccountRecovery: vi.fn().mockResolvedValue(null) }));
 
 /**
@@ -238,7 +240,7 @@ function provisioningDb(opts: {
     from,
     auth: {
       admin: {
-        getUserById: vi.fn().mockResolvedValue({ data: { user: { user_metadata: {} } } }),
+        getUserById: vi.fn().mockResolvedValue({ data: { user: { email: "vendor@example.com", email_confirmed_at: "2026-01-01", user_metadata: {} } } }),
         updateUserById: vi.fn().mockResolvedValue({ data: null, error: null }),
         listUsers: vi.fn().mockResolvedValue({ data: { users: [] }, error: null }),
       },
@@ -257,11 +259,35 @@ const REVOKED_DIRECTORY_INVITE = {
 };
 
 describe("provisionVendorAccountByEmail — every way of finishing unlinked reports why", () => {
-  it("still creates the account, unlinked, when the invite has expired", async () => {
+  it("refuses an invite for another email even with a confirmed account", async () => {
+    const { db, writes } = provisioningDb();
+    const result = await provisionVendorAccountByEmail(db, { userId: "user-1", email: "vendor@example.com", invite: { ...REVOKED_DIRECTORY_INVITE, vendor_email: "victim@example.com" } });
+    expect(result).toMatchObject({ ok: false, status: 403 });
+    expect(writes).toEqual([]);
+  });
+
+  it("does not attach an invite or claim balances from confirmed email alone", async () => {
+    vendorBalances.claim.mockClear();
+    const { db, writes } = provisioningDb({ anyPending: { id: "some-invite" } });
+    const result = await provisionVendorAccountByEmail(db, { userId: "user-1", email: "vendor@example.com" });
+    expect(result).toMatchObject({ ok: true, linkedManagerId: null });
+    expect(vendorBalances.claim).not.toHaveBeenCalled();
+    expect(writes.filter((w) => w.table === "vendor_invites" || w.table === "manager_vendor_records")).toEqual([]);
+  });
+
+  it("does not treat a phone-proven account's unconfirmed real email as balance proof", async () => {
+    vendorBalances.claim.mockClear();
+    const { db } = provisioningDb();
+    (db as { auth: { admin: { getUserById: ReturnType<typeof vi.fn> } } }).auth.admin.getUserById.mockResolvedValue({ data: { user: { email: "vendor@example.com", email_confirmed_at: null, user_metadata: {} } } });
+    await provisionVendorAccountByEmail(db, { userId: "user-1", email: "vendor@example.com", invite: null, confirmEmail: true });
+    expect(vendorBalances.claim).not.toHaveBeenCalled();
+  });
+
+  it("does not adopt an invite by matching email", async () => {
     const { db } = provisioningDb({ anyPending: { id: "inv-1" } });
     await expect(
       provisionVendorAccountByEmail(db, { userId: "user-1", email: "vendor@example.com" }),
-    ).resolves.toMatchObject({ ok: true, linkedManagerId: null, unlinkedReason: "invite_expired" });
+    ).resolves.toMatchObject({ ok: true, linkedManagerId: null, unlinkedReason: null });
   });
 
   it("never redeems the stale invite", async () => {

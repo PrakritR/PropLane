@@ -144,14 +144,14 @@ async function getUserContext(req?: Request, explicitAdminOversight = false, res
   let role = asAdmin
     ? "admin"
     : String(
-        portalCtx.effectiveRole ?? portalCtx.roles[0] ?? portalCtx.profile?.role ?? "",
+        portalCtx.effectiveRole ?? (portalCtx.roles.length === 1 ? portalCtx.roles[0] : "") ?? "",
       ).toLowerCase();
   let roles = portalCtx.roles;
   if (explicitAdminOversight && !asAdmin) {
     // Never read as admin by accident (a legacy "admin" role value, or "admin" in the role list).
-    if (role === "admin") role = "manager";
+    if (role === "admin") role = roles.includes("manager") ? "manager" : "";
     roles = roles.filter((r) => String(r).toLowerCase() !== "admin");
-    if (role === "manager" && !roles.includes("manager")) roles = [...roles, "manager"];
+
   }
   const serviceScope =
     resolveServiceScope && !asAdmin && role === "manager" ? await loadServiceStaffScope(db, portalCtx.user.id) : null;

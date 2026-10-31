@@ -264,9 +264,12 @@ export type DemoWorkOrderCategory = "cleaning" | "plumbing" | "mold" | "electric
 
 export type DemoManagerWorkOrderRow = {
   id: string;
+  residentUserId?: string | null;
   /** Stable human handle, unique within the owning manager (for example WO-1042). */
   reference?: string;
   propertyName: string;
+  /** Area assigned by the server when projecting an offered service. */
+  offeredGeneralArea?: string;
   unit: string;
   title: string;
   priority: string;

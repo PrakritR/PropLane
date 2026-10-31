@@ -6,8 +6,8 @@
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/resident-manager-scope", () => ({
-  managerIdsOwningResident: vi.fn(),
+vi.mock("@/lib/auth/resident-subject-evidence.server", () => ({
+  residentSubjectManagerIds: vi.fn(),
 }));
 vi.mock("@/lib/resident-portal-access", () => ({
   loadResidentPortalAccessState: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock("@/lib/manager-access-server", () => ({
 
 import { resolveResidentSmsAgentContext } from "@/lib/tools/resident-sms-context";
 import { residentManagerIds, type ResidentAgentContext } from "@/lib/tools/resident-context";
-import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
+import { residentSubjectManagerIds } from "@/lib/auth/resident-subject-evidence.server";
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
 
@@ -102,7 +102,7 @@ function makeDb(opts: {
 beforeEach(() => {
   notCalls = [];
   limitCalls = [];
-  vi.mocked(managerIdsOwningResident).mockResolvedValue([OWNER_MANAGER]);
+  vi.mocked(residentSubjectManagerIds).mockResolvedValue([OWNER_MANAGER]);
   vi.mocked(loadResidentPortalAccessState).mockResolvedValue({
     leaseAccessUnlocked: true,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -112,7 +112,7 @@ beforeEach(() => {
 
 describe("resolveResidentSmsAgentContext", () => {
   it("binds a verified resident texting their own manager's work number", async () => {
-    vi.mocked(managerIdsOwningResident).mockResolvedValue([OTHER_MANAGER, OWNER_MANAGER]);
+    vi.mocked(residentSubjectManagerIds).mockResolvedValue([OTHER_MANAGER, OWNER_MANAGER]);
     vi.mocked(getManagerSubscriptionTierByManagerId).mockResolvedValue("paid");
     vi.mocked(loadResidentPortalAccessState).mockResolvedValue({
       leaseAccessUnlocked: false,
@@ -156,7 +156,7 @@ describe("resolveResidentSmsAgentContext", () => {
 
   it("refuses when the texted work number belongs to a manager this resident is not linked to", async () => {
     // The tenant binding: resident of manager A texting manager B.
-    vi.mocked(managerIdsOwningResident).mockResolvedValue([OTHER_MANAGER]);
+    vi.mocked(residentSubjectManagerIds).mockResolvedValue([OTHER_MANAGER]);
     const res = await resolveResidentSmsAgentContext(makeDb({ profiles: [verifiedProfile()] }), {
       fromPhone: PHONE,
       ownerManagerUserId: OWNER_MANAGER,

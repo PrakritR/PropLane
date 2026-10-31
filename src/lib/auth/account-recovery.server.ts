@@ -63,11 +63,13 @@ export async function schedulePortalAccountDeletion(db: SupabaseClient, userId: 
   check(identityError); check(profileError); check(roleError);
   const email = identity.user?.email?.trim().toLowerCase();
   if (!email) throw new Error("Account identity is unavailable.");
-  const roles = [...new Set([String(profile?.role ?? ""), ...(roleRows ?? []).map(row => String(row.role))].filter(Boolean))];
+  const roles = [...new Set((roleRows ?? []).map(row => String(row.role)).filter(Boolean))];
   const remaining = roles.filter(role => normalizeRecoveryPortal(role) !== scope);
   let request = await pendingAccountRecovery(db, userId, scope, { requireSchema: true });
   if (request && request.email !== email) throw new Error("Account identity changed during deletion.");
-  if (!request && !roles.some(role => normalizeRecoveryPortal(role) === scope)) throw new Error("This account does not have access to that portal.");
+  // A legacy-only profile can still delete its own data; it is never a surviving role.
+  const legacyOnlyScope = roles.length === 0 && normalizeRecoveryPortal(String(profile?.role ?? "")) === scope;
+  if (!request && !legacyOnlyScope && !roles.some(role => normalizeRecoveryPortal(role) === scope)) throw new Error("This account does not have access to that portal.");
   const complete = request?.plan.complete ?? remaining.length === 0;
   if (!request || request.state === "archiving") {
     if (scope === "manager" || complete) await cancelActiveManagerSubscription(db, userId);

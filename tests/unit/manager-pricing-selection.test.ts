@@ -82,6 +82,7 @@ describe("manager-pricing-selection", () => {
       });
     vi.mocked(provisionPendingManagerAccount).mockResolvedValue({ managerId: "AXIS-FREE", created: true });
     vi.mocked(finalizePendingManagerFreeTier).mockResolvedValue({
+      status: "finalized",
       sessionId: "axis_intent_test",
       managerId: "AXIS-FREE",
     });

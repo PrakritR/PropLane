@@ -1488,6 +1488,7 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     // asked of closes or reopens that service. Anyone else's YES / NO reaches the resident agent.
     const fixedAnswer = await handleResidentDispatchReply(db, {
       ownerUserId: managerId,
+      residentUserId: residentIdentity.ctx.userId,
       residentEmail: residentIdentity.ctx.email,
       body,
     }).catch(() => ({ handled: false as const }));

@@ -21,7 +21,6 @@ import "server-only";
 import type { AgentContext } from "@/lib/tools/context";
 import type { AgentWorkspaceScope } from "@/lib/agent/manager-workspace-scope";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { userHoldsAdminRole } from "@/lib/auth/admin-role";
 import { findLiveApiKey, touchApiKey, type ApiKeyScope } from "./api-keys.server";
 import type { ApiKeyTransport } from "./capabilities";
 import { findLiveMcpAccessToken, touchMcpAccessToken } from "./oauth.server";
@@ -112,19 +111,15 @@ export async function resolveApiKeyContext(
   }
 
   // Same role predicate as resolveAgentContext (src/lib/tools/context.ts).
-  const [{ data: profile }, { data: roleRows }] = await Promise.all([
-    db.from("profiles").select("email, role").eq("id", key?.userId ?? oauthToken!.userId).maybeSingle(),
+  const [{ data: profile, error: profileError }, { data: roleRows, error: roleError }] = await Promise.all([
+    db.from("profiles").select("email").eq("id", key?.userId ?? oauthToken!.userId).maybeSingle(),
     db.from("profile_roles").select("role").eq("user_id", key?.userId ?? oauthToken!.userId),
   ]);
-  // Do NOT call `isAdminUser` here: it resolves a cookie-backed Supabase
-  // client for portal-preview behavior. This endpoint deliberately ignores
-  // ambient cookies so its bearer-only wildcard CORS policy stays CSRF-safe.
   const userId = key?.userId ?? oauthToken!.userId;
-  const isAdmin = await userHoldsAdminRole(db, userId);
-  const roleList = (roleRows ?? []).map((r) => String(r.role).toLowerCase());
-  const legacyRole = String(profile?.role ?? "").toLowerCase();
-  const roles = roleList.length > 0 ? roleList : legacyRole ? [legacyRole] : [];
-  const isManagerOrOwner = roles.some((r) => r === "manager" || r === "owner");
+  if (profileError || roleError) return { ok: false, status: 403, error: "This account no longer has manager access." };
+  const roles = (roleRows ?? []).map((r) => String(r.role).toLowerCase());
+  const isAdmin = roles.includes("admin");
+  const isManagerOrOwner = roles.includes("manager");
   if (!isAdmin && !isManagerOrOwner) {
     return { ok: false, status: 403, error: "This account no longer has manager access." };
   }

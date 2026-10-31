@@ -43,6 +43,7 @@ import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 import { PHONE_AUTH_COPY } from "@/lib/auth/phone-auth-errors";
 import { readLastLoginMethod, readRememberedLoginEmail, rememberLoginMethod, REMEMBERED_LOGIN_EMAIL_KEY } from "@/lib/auth/remembered-login";
 
+
 /** Role-agnostic create-account URL — portal type is chosen on /auth/get-started after signup. */
 function buildCreateAccountHref(searchParams: URLSearchParams): string {
   const params = new URLSearchParams();

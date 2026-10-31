@@ -148,9 +148,13 @@ const KNOWN_UNCONVERTED_CREDENTIAL_SURFACES = [
   "src/components/auth/resident-signup-form.tsx",
   "src/components/auth/manager-signup-panel.tsx",
   "src/components/auth/manager-trial-signup-form.tsx",
-  "src/components/auth/portal-auth-form.tsx",
   "src/app/auth/resident-setup/resident-setup-client.tsx",
-  "src/app/auth/create-account/create-account-client.tsx",
+  // `portal-auth-form.tsx` left this list the same way `create-account-client.tsx` did: its
+  // password form (`LegacyPortalAuthForm`) was deleted. The hub renders the email-first signup,
+  // which collects no password, so there is no credential surface left to convert.
+  // `create-account-client.tsx` left this list by being DELETED: the create-account router renders
+  // the email-proof signup, nothing imported that ~900-line password client, and it held the last
+  // caller of the retired password tour-register POST.
   "src/app/auth/reset-password/page.tsx",
 ];
 

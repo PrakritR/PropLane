@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   loadResidentPortalAccessState,
   residentPortalHomePath,
+  verifiedTourFallbackEmail,
 } from "@/lib/resident-portal-access";
 import {
   isResidentPathAllowedForAccess,
@@ -18,13 +19,16 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 function makeDbMock(options: {
   applicationRows?: Array<{ row_data: unknown; updated_at?: string; resident_email?: string }>;
   profile?: { application_approved?: boolean; manager_id?: string | null } | null;
-  axisRecord?: { row_data: unknown } | null;
+  axisRecord?: { row_data: unknown; resident_email?: string | null } | null;
   /** Roles held in `profile_roles` — the multi-role source of truth. */
   profileRoles?: string[];
+  leaseOwner?: string;
+  tourOwner?: string;
 }) {
-  const { applicationRows = [], profile = null, axisRecord = null, profileRoles = [] } = options;
+  const { applicationRows = [], profile = null, axisRecord = null, profileRoles = ["resident"], leaseOwner, tourOwner } = options;
 
   return {
+    auth: { admin: { getUserById: vi.fn(async (id: string) => ({ data: { user: { email: ({ "user-drift": "drifted@example.com", "user-second": "second-apply@example.com", "user-both": "both@example.com" } as Record<string, string>)[id] ?? "resident@example.com", email_confirmed_at: "confirmed" } }, error: null })) } },
     from: vi.fn().mockImplementation((table: string) => {
       if (table === "manager_application_records") {
         return {
@@ -83,16 +87,16 @@ function makeDbMock(options: {
       if (table === "resident_tour_links") {
         return {
           select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockResolvedValue({ count: 0, error: null }),
+            eq: vi.fn().mockImplementation((_column: string, id: string) => Promise.resolve({ count: id === tourOwner ? 1 : 0, error: null })),
           }),
         };
       }
       if (table === "portal_lease_pipeline_records") {
         return {
           select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              order: vi.fn().mockResolvedValue({ data: [], error: null }),
-            }),
+            eq: vi.fn().mockImplementation((_column: string, id: string) => ({
+              order: vi.fn().mockResolvedValue({ data: id === leaseOwner ? [{ row_data: { managerSignature: { name: "M", signedAtIso: "now" }, residentSignature: { name: "R", signedAtIso: "now" } } }] : [], error: null }),
+            })),
           }),
         };
       }
@@ -105,9 +109,64 @@ function makeDbMock(options: {
   };
 }
 
+describe("resident history mailbox proof", () => {
+  it.each([
+    [{ email: "resident@example.com" }, ""],
+    [{ email: "other@example.com", email_confirmed_at: "confirmed" }, ""],
+    [{ email: "Resident@Example.com", email_confirmed_at: "confirmed" }, "resident@example.com"],
+  ])("uses only a confirmed matching Auth mailbox", async (user, expected) => {
+    const db = { auth: { admin: { getUserById: vi.fn().mockResolvedValue({ data: { user }, error: null }) } } };
+    expect(await verifiedTourFallbackEmail(db as never, "u1", "resident@example.com")).toBe(expected);
+  });
+});
+
 describe("resident portal access state", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("does not load email history when Auth mailbox is unconfirmed", async () => {
+    const db = makeDbMock({ applicationRows: [{ resident_email: "resident@example.com", row_data: { id: "A", bucket: "approved", stage: "Approved" } }] });
+    db.auth.admin.getUserById.mockResolvedValueOnce({ data: { user: { email: "resident@example.com", email_confirmed_at: "" } }, error: null });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    const access = await loadResidentPortalAccessState({ userId: "unconfirmed", role: "resident", email: "resident@example.com" });
+    expect(access.applicationApproved).toBe(false);
+    expect(access.hasSubmittedApplication).toBe(false);
+  });
+
+  it("loads phone-only exact-subject applications, leases and tours without crossing subjects", async () => {
+    const db = makeDbMock({ applicationRows: [{ row_data: { id: "OWN", residentUserId: "phone-owner", bucket: "approved", stage: "Approved" } }], leaseOwner: "phone-owner", tourOwner: "phone-owner" });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    const owned = await loadResidentPortalAccessState({ userId: "phone-owner", role: "resident", email: "" });
+    expect(owned.applicationApproved).toBe(true);
+    expect(owned.leaseSigned).toBe(true);
+    expect(owned.hasTourLink).toBe(true);
+    const other = await loadResidentPortalAccessState({ userId: "phone-other", role: "resident", email: "" });
+    expect(other.applicationApproved).toBe(false);
+    expect(other.leaseSigned).toBe(false);
+    expect(other.hasTourLink).toBe(false);
+  });
+
+  it("recognizes an exact subject-bound application without a mailbox", async () => {
+    const db = makeDbMock({ applicationRows: [{ row_data: { id: "OWN", residentUserId: "phone-user", bucket: "approved", stage: "Approved" } }] });
+    db.auth.admin.getUserById.mockResolvedValueOnce({ data: { user: { email: "phone@phone.proplane.invalid", email_confirmed_at: "" } }, error: null });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    const access = await loadResidentPortalAccessState({ userId: "phone-user", role: "resident", email: "phone@phone.proplane.invalid" });
+    expect(access.applicationApproved).toBe(true);
+  });
+
+  it("never derives access from a stale profile application id owned by another email", async () => {
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(makeDbMock({ profile: { manager_id: "PROPLANE-OTHER", application_approved: false }, axisRecord: { resident_email: "victim@example.com", row_data: { id: "PROPLANE-OTHER", bucket: "approved", stage: "Approved" } } }) as never);
+    const access = await loadResidentPortalAccessState({ userId: "user-1", role: "resident", email: "resident@example.com" });
+    expect(access.hasSubmittedApplication).toBe(false);
+    expect(access.applicationApproved).toBe(false);
+  });
+
+  it("accepts the exact owned subject on the legacy application fallback", async () => {
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(makeDbMock({ profile: { manager_id: "PROPLANE-OWN", application_approved: false }, axisRecord: { resident_email: " Resident@Example.com ", row_data: { id: "PROPLANE-OWN", residentUserId: "user-1", bucket: "approved", stage: "Approved" } } }) as never);
+    const access = await loadResidentPortalAccessState({ userId: "user-1", role: "resident", email: "resident@example.com" });
+    expect(access.hasSubmittedApplication).toBe(true);
+    expect(access.applicationApproved).toBe(true);
   });
 
   it("marks pre-application residents before any submission", async () => {
@@ -149,6 +208,45 @@ describe("resident portal access state", () => {
     expect(residentPortalHomePath(access)).toBe("/resident/tour");
   });
 
+  /**
+   * `residentHasTourLinks` throws on every `resident_tour_links` read failure except a genuinely
+   * absent table — the one error rule that table needs, and `GET /api/portal-resident-tours` still
+   * answers 500 on it. But this access state is awaited by `app/resident/layout.tsx`,
+   * `app/resident/page.tsx` and `renderPortalSection`, none of which has an error boundary, so
+   * letting the throw escape turned a transient permission or timeout error on one table into an
+   * outage of EVERY resident page.
+   *
+   * It is absorbed into the one field it answers. `false` is the NARROWER state (no pre-lease tour
+   * nav), so this cannot widen access.
+   */
+  it("survives an unreadable resident_tour_links by hiding the tour nav, not by failing the portal", async () => {
+    for (const error of [
+      { code: "42501", message: "permission denied for table resident_tour_links" },
+      { code: "57014", message: "canceling statement due to statement timeout" },
+      { message: "connection reset" },
+    ]) {
+      const db = makeDbMock({ applicationRows: [] });
+      vi.mocked(db.from).mockImplementation((table: string) => {
+        if (table === "resident_tour_links") {
+          return {
+            select: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ count: null, error }) }),
+          } as never;
+        }
+        return makeDbMock({ applicationRows: [] }).from(table);
+      });
+      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+
+      const access = await loadResidentPortalAccessState({
+        userId: "user-1",
+        role: "resident",
+        email: "resident@example.com",
+      });
+
+      expect(access.hasTourLink).toBe(false);
+      expect(access.roleOk).toBe(true);
+    }
+  });
+
   it("keeps application-phase home while application is pending approval", async () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
       makeDbMock({
@@ -157,6 +255,7 @@ describe("resident portal access state", () => {
             updated_at: "2026-01-01T00:00:00Z",
             row_data: {
               id: "AXIS-ABC123",
+              residentUserId: "user-1",
               email: "resident@example.com",
               bucket: "pending",
               stage: "Submitted",
@@ -193,6 +292,7 @@ describe("resident portal access state", () => {
             updated_at: "2026-01-01T00:00:00Z",
             row_data: {
               id: "AXIS-DRAFT1",
+              residentUserId: "user-1",
               email: "resident@example.com",
               bucket: "pending",
               stage: "In progress",
@@ -259,6 +359,7 @@ describe("resident portal access state", () => {
             resident_email: "second-apply@example.com",
             row_data: {
               id: "AXIS-NEWDRAFT",
+              residentUserId: "user-second",
               email: "second-apply@example.com",
               bucket: "pending",
               stage: "In progress",
@@ -270,6 +371,7 @@ describe("resident portal access state", () => {
             resident_email: "second-apply@example.com",
             row_data: {
               id: "AXIS-APPROVED",
+              residentUserId: "user-second",
               email: "second-apply@example.com",
               bucket: "approved",
               stage: "Approved",
@@ -334,6 +436,7 @@ describe("resident portal access state", () => {
       updated_at: "2026-01-01T00:00:00Z",
       row_data: {
         id: "PROPLANE-MULTI1",
+        residentUserId: "user-both",
         email: "both@example.com",
         bucket: "approved",
         stage: "Approved",
@@ -438,6 +541,7 @@ describe("resident portal access state — blockingFormsPending", () => {
       query.select = () => query;
       query.eq = () => query;
       query.neq = () => query;
+      query.or = () => query;
       query.limit = () => query;
       query.then = (resolve: (value: unknown) => unknown) =>
         Promise.resolve(forms === "error" ? { data: null, error: { code: "500", message: "boom" } } : { data: forms, error: null }).then(resolve);
@@ -478,5 +582,52 @@ describe("resident portal access state — blockingFormsPending", () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
     await load();
     expect(db.from.mock.calls.filter(([table]) => table === "resident_move_in_forms")).toHaveLength(1);
+  });
+
+  // The application scope an unbound form is weighed against is the one this load already read, not
+  // a second unindexed `row_data->>residentUserId` scan on every resident page.
+  it("hands the forms read the application scope it already loaded, and reads the lease rows once", async () => {
+    const db = dbWithForms([sent("a", "move_in_details")]);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    await load();
+    expect(db.from.mock.calls.filter(([table]) => table === "manager_application_records")).toHaveLength(1);
+    expect(db.from.mock.calls.filter(([table]) => table === "portal_lease_pipeline_records")).toHaveLength(1);
+  });
+
+  // A joint lease names the co-applicant's application too. Only this resident's OWN primary
+  // application may scope an unbound form; a co-applicant's unbound form never locks this resident.
+  describe("joint lease: unbound forms scope to this resident's own application only", () => {
+    function dbWithJointLease(forms: Array<Record<string, unknown>>) {
+      const base = dbWithForms(forms);
+      const original = base.from.getMockImplementation()!;
+      base.from.mockImplementation((table: string) => {
+        if (table !== "portal_lease_pipeline_records") return original(table);
+        return {
+          select: () => ({
+            eq: (_column: string, id: string) => ({
+              order: () => Promise.resolve({
+                data: id === "user-1"
+                  ? [{ row_data: { axisId: "AXIS-OWN", jointLeaseMembers: [{ applicationId: "AXIS-COAPP", email: "coapp@example.com" }] } }]
+                  : [],
+                error: null,
+              }),
+            }),
+          }),
+        };
+      });
+      return base;
+    }
+    const unbound = (id: string, applicationId: string) =>
+      sent(id, "move_in_details", { resident_user_id: null, application_id: applicationId });
+
+    it("a co-applicant's unbound blocking form does not lock this resident", async () => {
+      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(dbWithJointLease([unbound("x", "AXIS-COAPP")]) as never);
+      expect((await load()).blockingFormsPending).toMatchObject({ moveInDetails: false });
+    });
+
+    it("an unbound blocking form on this resident's own lease application locks move-in details", async () => {
+      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(dbWithJointLease([unbound("y", "AXIS-OWN")]) as never);
+      expect((await load()).blockingFormsPending).toMatchObject({ moveInDetails: true });
+    });
   });
 });

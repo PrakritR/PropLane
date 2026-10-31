@@ -5,6 +5,8 @@ import type { User } from "@supabase/supabase-js";
 
 const ensureFreeManagerPortalAccess = vi.fn();
 const completeResidentSignupFromOAuth = vi.fn();
+const legacyEntitlement = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/auth/legacy-manager-entitlement.server", () => ({ hasVerifiedLegacyManagerEntitlement: legacyEntitlement }));
 
 vi.mock("@/lib/auth/manager-portal-provision", () => ({
   ensureFreeManagerPortalAccess: (...args: unknown[]) => ensureFreeManagerPortalAccess(...args),
@@ -78,6 +80,29 @@ describe("resolveOAuthPortalRedirect", () => {
     vi.clearAllMocks();
   });
 
+  it("routes an existing stored-role manager with verified legacy entitlement to their portal", async () => {
+    const { managerNeedsPricingSelection } = await import("@/lib/auth/manager-onboarding");
+    vi.mocked(managerNeedsPricingSelection).mockResolvedValueOnce(true);
+    legacyEntitlement.mockResolvedValueOnce(true);
+    const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
+    const supabase = { from: (table: string) => table === "profile_roles"
+      ? { select: () => ({ eq: () => Promise.resolve({ data: [{ role: "manager" }], error: null }) }) }
+      : { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { role: "manager" }, error: null }) }) }) } };
+    const user = { id: "manager", email: "manager@example.test", email_confirmed_at: "confirmed" } as User;
+    expect(await resolveOAuthPortalRedirect(supabase as never, user, "/portal/dashboard")).toBe("/portal/dashboard");
+    expect(legacyEntitlement).toHaveBeenCalledWith(supabase, user);
+  });
+
+  it("does not grant manager routing when purchase status cannot be read", async () => {
+    const { managerNeedsPricingSelection } = await import("@/lib/auth/manager-onboarding");
+    vi.mocked(managerNeedsPricingSelection).mockRejectedValueOnce(new Error("purchase read unavailable"));
+    const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
+    const supabase = { from: (table: string) => table === "profile_roles"
+      ? { select: () => ({ eq: () => Promise.resolve({ data: [{ role: "manager" }], error: null }) }) }
+      : { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { role: "manager" }, error: null }) }) }) } };
+    await expect(resolveOAuthPortalRedirect(supabase as never, { id: "manager", email: "manager@example.test", email_confirmed_at: "confirmed" } as User, "/portal/dashboard")).rejects.toThrow("purchase read unavailable");
+  });
+
   it("never auto-provisions a free manager; manager intent goes to the chooser carrying its role", async () => {
     // AXI-126: they clicked "Property" at signup, so the chooser is handed the
     // role and provisions it exactly as a manual pick would — which for a manager
@@ -111,7 +136,7 @@ describe("resolveOAuthPortalRedirect", () => {
     const supabase = {
       from: (table: string) => {
         if (table === "profile_roles") {
-          return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+          return { select: () => ({ eq: () => Promise.resolve({ data: [{ role: "manager" }], error: null }) }) };
         }
         if (table === "profiles") {
           return {
@@ -129,7 +154,7 @@ describe("resolveOAuthPortalRedirect", () => {
                 maybeSingle: () => Promise.resolve({ data: null, error: null }),
                 is: () => ({
                   order: () => ({
-                    limit: () => Promise.resolve({ data: [], error: null }),
+                    limit: () => Promise.resolve({ data: [{ role: "manager" }], error: null }),
                   }),
                 }),
               }),
@@ -139,7 +164,7 @@ describe("resolveOAuthPortalRedirect", () => {
         if (table === "manager_application_records") {
           return {
             select: () => ({
-              eq: () => Promise.resolve({ data: [], error: null }),
+              eq: () => Promise.resolve({ data: [{ role: "manager" }], error: null }),
             }),
           };
         }
@@ -173,7 +198,7 @@ describe("resolveOAuthPortalRedirect", () => {
     const supabase = {
       from: (table: string) => {
         if (table === "profile_roles") {
-          return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+          return { select: () => ({ eq: () => Promise.resolve({ data: [{ role: "manager" }], error: null }) }) };
         }
         if (table === "profiles") {
           return {
@@ -191,7 +216,7 @@ describe("resolveOAuthPortalRedirect", () => {
                 maybeSingle: () => Promise.resolve({ data: null, error: null }),
                 is: () => ({
                   order: () => ({
-                    limit: () => Promise.resolve({ data: [], error: null }),
+                    limit: () => Promise.resolve({ data: [{ role: "manager" }], error: null }),
                   }),
                 }),
               }),
@@ -201,7 +226,7 @@ describe("resolveOAuthPortalRedirect", () => {
         if (table === "manager_application_records") {
           return {
             select: () => ({
-              eq: () => Promise.resolve({ data: [], error: null }),
+              eq: () => Promise.resolve({ data: [{ role: "manager" }], error: null }),
             }),
           };
         }
@@ -271,28 +296,12 @@ describe("resolveOAuthPortalRedirect", () => {
     );
   });
 
-  it("routes failed approved resident signup to create-account with error", async () => {
+  it("never claims a prior application solely from a reused email", async () => {
     const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
-    completeResidentSignupFromOAuth.mockResolvedValue({
-      ok: false,
-      status: 409,
-      error: "This email already has a different login.",
-    });
-
-    const user = { id: "user-1", email: "resident@example.com" } as User;
-    const supabase = mockSupabase([
-      {
-        id: "APP-1",
-        resident_email: "resident@example.com",
-        row_data: { bucket: "approved" },
-      },
-    ]);
-
-    const path = await resolveOAuthPortalRedirect(supabase as never, user, "/portal/dashboard");
-
-    expect(path).toContain("/auth/create-account");
-    expect(path).toContain("message=resident_signup_failed");
-    expect(path).toContain("error=This+email+already+has+a+different+login.");
+    const supabase = mockSupabase([{ id: "APP-1", resident_email: "resident@example.com", row_data: { bucket: "approved", residentUserId: "prior-subject" } }]);
+    const user = { id: "new-subject", email: "resident@example.com", email_confirmed_at: "confirmed" } as User;
+    expect(await resolveOAuthPortalRedirect(supabase as never, user, "/auth/continue", { intent: "resident" })).toBe("/auth/get-started?role=resident");
+    expect(completeResidentSignupFromOAuth).not.toHaveBeenCalled();
   });
 
   it("routes primary admin with manager intent to the manager portal (not admin)", async () => {

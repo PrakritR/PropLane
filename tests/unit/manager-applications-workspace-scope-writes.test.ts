@@ -78,10 +78,20 @@ function makeDb() {
         }
         return [];
       };
+      let pending: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow } | null = null;
+      const filters: Record<string, string | null> = {};
       const builder: Record<string, unknown> = {
         select: (cols?: string) => {
           state.selectCols = cols ?? null;
           return builder;
+        },
+        update(values: typeof pending) { pending = values; return builder; },
+        insert(values: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow }) {
+          if (table === "manager_application_records") {
+            if (APP_ROWS.some((row) => row.id === values.id)) return Promise.resolve({ error: { code: "23505" } });
+            UPSERTS.push(values);
+          }
+          return Promise.resolve({ error: null });
         },
         upsert(values: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow }) {
           if (table === "manager_application_records") {
@@ -101,6 +111,7 @@ function makeDb() {
           return Promise.resolve({ error: null });
         },
         eq(column: string, value: string) {
+          filters[column] = value;
           state.eqCol = column;
           state.eqVal = value;
           return builder;
@@ -109,7 +120,7 @@ function makeDb() {
           if (column === "id") state.ids = values;
           return builder;
         },
-        is: () => builder,
+        is: (column: string) => { filters[column] = null; return builder; },
         // The resident quota on create/approve excludes the row being written.
         neq: () => builder,
         ilike: () => builder,
@@ -140,6 +151,17 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "manager_application_records" && pending) {
+            const match = APP_ROWS.find((row) => Object.entries(filters).every(([column, expected]) => {
+              const value = column.startsWith("row_data->>")
+                ? (row.row_data as unknown as Record<string, unknown>)[column.slice("row_data->>".length)]
+                : (row as unknown as Record<string, unknown>)[column];
+              return (value ?? null) === expected;
+            }));
+            if (match) UPSERTS.push(pending);
+            return Promise.resolve({ data: match ? [{ id: match.id }] : [], error: null }).then(resolve);
+          }
+          if (table === "profile_roles") return Promise.resolve({ data: PROFILE?.role ? [{ role: PROFILE?.role }] : [], error: null }).then(resolve);
           return Promise.resolve({ data: rowsFor(), error: null }).then(resolve);
         },
       };
@@ -202,7 +224,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   PROFILE = { role: "manager", email: MANAGER_EMAIL };
   getUser.mockResolvedValue({
-    data: { user: { id: MANAGER, email: MANAGER_EMAIL, user_metadata: {} } },
+    data: { user: { id: MANAGER, email: MANAGER_EMAIL, email_confirmed_at: "confirmed", user_metadata: {} } },
     error: null,
   });
   PROPERTIES = [

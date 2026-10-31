@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/tools/domains/work-orders", () => ({ loadManagerWorkOrders: mocks.managerRows }));
-vi.mock("@/lib/tools/domains/resident/load-resident-rows", () => ({ loadResidentEmailRows: mocks.residentRows }));
+vi.mock("@/lib/tools/domains/resident/load-resident-rows", () => ({ loadResidentSubjectRows: mocks.residentRows }));
 vi.mock("@/lib/tools/domains/vendor/load-vendor-rows", () => ({ loadVendorWorkOrders: mocks.vendorRows }));
 
 import {

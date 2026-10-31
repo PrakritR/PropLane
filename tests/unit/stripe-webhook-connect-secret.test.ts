@@ -5,7 +5,7 @@
 import Stripe from "stripe";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const spies = vi.hoisted(() => ({ accountUpdated: vi.fn(async () => undefined), payout: vi.fn(async () => undefined) }));
+const spies = vi.hoisted(() => ({ accountUpdated: vi.fn(async () => undefined), payout: vi.fn(async () => undefined), paidRecord: vi.fn(async () => undefined), track: vi.fn(), expense: vi.fn() }));
 const real = new Stripe("sk_test_unit", { apiVersion: "2025-01-27.acacia" as never });
 
 vi.mock("next/headers", () => ({
@@ -14,6 +14,9 @@ vi.mock("next/headers", () => ({
 const sigHolder = vi.hoisted(() => ({ value: "" }));
 vi.mock("@/lib/stripe", () => ({ getStripe: () => real }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => ({}) }));
+vi.mock("@/lib/analytics/posthog", () => ({ track: spies.track }));
+vi.mock("@/lib/reports/auto-expense", () => ({ recordAutoExpense: spies.expense }));
+vi.mock("@/lib/manager-purchase-from-session", async (orig) => ({ ...(await orig<typeof import("@/lib/manager-purchase-from-session")>()), resolveManagerCheckoutPurchase: async () => ({ userId: null }), recordPaidManagerCheckoutSession: spies.paidRecord }));
 vi.mock("@/lib/stripe-webhook-financials", async (orig) => ({
   ...(await orig<typeof import("@/lib/stripe-webhook-financials")>()),
   handleStripeAccountUpdated: spies.accountUpdated,
@@ -47,6 +50,7 @@ beforeEach(() => {
   vi.stubEnv("STRIPE_CONNECT_WEBHOOK_SECRET", CONNECT);
   spies.accountUpdated.mockClear();
   spies.payout.mockClear();
+  spies.paidRecord.mockClear(); spies.track.mockClear(); spies.expense.mockClear();
 });
 
 describe("webhook secrets", () => {
@@ -110,6 +114,16 @@ describe("the webhook route with two endpoints", () => {
     expect(spies.accountUpdated).not.toHaveBeenCalled();
   });
 
+  it("does not book an unpaid completed manager checkout", async () => {
+    const res = await webhook(signed({ id: "evt_unpaid", object: "event", type: "checkout.session.completed", data: { object: { id: "cs_unpaid", object: "checkout.session", status: "complete", payment_status: "unpaid", mode: "subscription", amount_total: 4900, metadata: { userId: "manager", manager_id: "manager", tier: "pro" } } } }, PLATFORM));
+    expect(res.status).toBe(200);
+    expect(spies.paidRecord).not.toHaveBeenCalled(); expect(spies.track).not.toHaveBeenCalled(); expect(spies.expense).not.toHaveBeenCalled();
+  });
+  it("processes a later asynchronous paid checkout", async () => {
+    const res = await webhook(signed({ id: "evt_paid", object: "event", type: "checkout.session.async_payment_succeeded", data: { object: { id: "cs_unpaid", object: "checkout.session", status: "complete", payment_status: "paid", mode: "subscription", amount_total: 4900, metadata: { manager_id: "manager", tier: "pro" } } } }, PLATFORM));
+    expect(res.status).toBe(200);
+    expect(spies.paidRecord).toHaveBeenCalledWith(expect.objectContaining({ id: "cs_unpaid", payment_status: "paid" }));
+  });
   it("answers 500 when no secret is configured at all", async () => {
     vi.stubEnv("STRIPE_WEBHOOK_SECRET", "");
     vi.stubEnv("STRIPE_CONNECT_WEBHOOK_SECRET", "");

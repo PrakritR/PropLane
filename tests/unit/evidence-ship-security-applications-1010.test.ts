@@ -57,6 +57,13 @@ function makeDb() {
       const f: { eqCol: string | null; eqVal: string | null } = { eqCol: null, eqVal: null };
       const builder: Record<string, unknown> = {
         select: () => builder,
+        insert(values: { id: string; manager_user_id: string | null }) {
+          if (table === "manager_application_records") {
+            if (STORED.some((row) => row.id === values.id)) return Promise.resolve({ error: { code: "23505" } });
+            UPSERTS.push(values);
+          }
+          return Promise.resolve({ error: null });
+        },
         upsert(values: { id: string; manager_user_id: string | null }) {
           if (table === "manager_application_records") UPSERTS.push(values);
           return Promise.resolve({ error: null });
@@ -76,6 +83,7 @@ function makeDb() {
         maybeSingle: () =>
           Promise.resolve({ data: table === "profiles" ? { role: ROLE, email: "mgr@test.local" } : null, error: null }),
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: [{ role: ROLE }], error: null }).then(resolve);
           const data =
             table === "manager_property_records"
               ? f.eqCol === "manager_user_id"
@@ -150,7 +158,7 @@ beforeEach(() => {
     { id: OWN_HOUSE, manager_user_id: ATTACKER },
     { id: VICTIM_HOUSE, manager_user_id: "mgr-victim" },
   ];
-  getUser.mockResolvedValue({ data: { user: { id: ATTACKER, email: "mgr@test.local", user_metadata: { role: "manager" } } }, error: null });
+  getUser.mockResolvedValue({ data: { user: { id: ATTACKER, email: "mgr@test.local", email_confirmed_at: "confirmed", user_metadata: { role: "manager" } } }, error: null });
 });
 
 describe("evidence · a manager write may only name houses the writer runs", () => {
@@ -277,7 +285,7 @@ describe("evidence · the manager list drops a slot a stranger filed", () => {
       updated_at: "2026-07-01T00:00:00.000Z",
     });
     STORED = [slot("AXIS-PLANT", "mgr-stranger"), slot("AXIS-OWNER", OWNER), slot("AXIS-TEAM", TEAMMATE), slot("AXIS-LEGACY", null)];
-    getUser.mockResolvedValue({ data: { user: { id: OWNER, email: "o@test.local", user_metadata: {} } }, error: null });
+    getUser.mockResolvedValue({ data: { user: { id: OWNER, email: "o@test.local", email_confirmed_at: "confirmed", user_metadata: {} } }, error: null });
 
     const { GET } = await import("@/app/api/manager-applications/route");
     const res = await GET(new Request("https://example.test/api/manager-applications"));

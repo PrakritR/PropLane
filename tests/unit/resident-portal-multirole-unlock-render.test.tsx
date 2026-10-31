@@ -105,6 +105,7 @@ const SIGNED_LEASE_ROW = {
 function makeMultiRoleDb() {
   const profileRoles = ["manager", "resident"];
   return {
+    auth: { admin: { getUserById: vi.fn().mockResolvedValue({ data: { user: { email: RESIDENT_EMAIL, email_confirmed_at: "confirmed" } }, error: null }) } },
     from: vi.fn().mockImplementation((table: string) => {
       if (table === "manager_application_records") {
         return {

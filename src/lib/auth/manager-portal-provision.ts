@@ -1,9 +1,11 @@
+import { hasUnlinkedPaidManagerPurchase } from "@/lib/auth/unlinked-manager-paid-purchase";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import {
   finalizePendingManagerFreeTier,
   findManagerPurchaseForAccount,
   isAxisPendingSessionId,
   isManagerOnboardingComplete,
+  managerCheckoutInProgress,
   provisionPendingManagerAccount,
 } from "@/lib/auth/manager-onboarding";
 import { primaryRoleWhenAddingManager } from "@/lib/auth/profile-primary-role";
@@ -22,36 +24,18 @@ function oauthFullName(user: User): string | null {
 }
 
 async function hasManagerPortalAccess(supabase: SupabaseClient, userId: string): Promise<boolean> {
-  const { data: managerRow } = await supabase
-    .from("profile_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("role", "manager")
-    .maybeSingle();
-  if (managerRow) return true;
-  // An admin `profile_roles` row also counts: an admin who has explicitly added
-  // the property portal (or the primary admin, who always holds both) already
-  // has manager-portal access and must never be treated as resident-only.
-  const { data: adminRow } = await supabase
-    .from("profile_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("role", "admin")
-    .maybeSingle();
-  if (adminRow) return true;
-  const { data: profile } = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
-  return profile?.role === "manager" || profile?.role === "admin";
+  try {
+    const { data, error } = await supabase.from("profile_roles").select("role").eq("user_id", userId).in("role", ["manager", "admin"]);
+    return !error && (data ?? []).some((row) => row.role === "manager" || row.role === "admin");
+  } catch { return false; }
 }
 
 async function isResidentOnlyAccount(supabase: SupabaseClient, userId: string): Promise<boolean> {
-  const { data: residentRole } = await supabase
-    .from("profile_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("role", "resident")
-    .maybeSingle();
-  if (!residentRole) return false;
-  return !(await hasManagerPortalAccess(supabase, userId));
+  try {
+    const { data, error } = await supabase.from("profile_roles").select("role").eq("user_id", userId).eq("role", "resident").maybeSingle();
+    if (error) return true;
+    return Boolean(data) && !(await hasManagerPortalAccess(supabase, userId));
+  } catch { return true; }
 }
 
 /**
@@ -106,14 +90,14 @@ export async function ensureFreeManagerPortalAccess(
     return { status: "portal_ready", managerId: purchase.manager_id, provisioned: false };
   }
 
-  const { data: unlinkedPaid } = await supabase
-    .from("manager_purchases")
-    .select("id")
-    .ilike("email", email)
-    .is("user_id", null)
-    .not("paid_at", "is", null)
-    .limit(1);
-  if (unlinkedPaid?.length) return { status: "skipped", reason: "unlinked_paid_purchase" };
+  try {
+    if (await hasUnlinkedPaidManagerPurchase(supabase, user.id, email)) return { status: "skipped", reason: "unlinked_paid_purchase" };
+  } catch { return { status: "skipped", reason: "purchase_unavailable" }; }
+
+  // The plan belongs to the checkout that is still open, so this sweep has nothing to finalize.
+  // Checked BEFORE the profile upsert, the role row and the purchase link, so a refusal never
+  // leaves an account holding the manager role with no tier.
+  if (managerCheckoutInProgress(purchase)) return { status: "skipped", reason: "checkout_in_progress" };
 
   let managerId: string;
   let provisioned = false;

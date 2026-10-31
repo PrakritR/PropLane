@@ -3,7 +3,7 @@
  * A teammate below Calendar `edit` is not offered Unblock, Delete or Remove from PropLane, on the
  * calendar-bar popover or the booking record's header. The owner always is. docs/agents/bookings.md § Blocks.
  */
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { bookingEntryKey } from "@/lib/channel-calendar/bookings-ui";
@@ -41,11 +41,16 @@ import { BookingsRecordPage } from "@/components/portal/bookings-record-page";
 import { canRemoveBookingEntry } from "@/lib/manager-portfolio-access";
 
 beforeAll(() => {
+  // The clock is PINNED to the same mid-month day the fixtures are built from. The timeline draws the
+  // month `today` falls in, while the record page reads the real date, so a real-clock "today" near a
+  // month boundary either pushed the +1/+3 day stay out of the drawn month or made it already past.
+  vi.setSystemTime(NOW);
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("pointer: fine"), media: query, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => true }));
 });
+afterAll(() => { vi.useRealTimers(); });
 afterEach(() => { cleanup(); navigate.mockClear(); localStorage.clear(); invites.list = []; });
 
-const NOW = new Date();
+const NOW = new Date(2026, 5, 10, 12, 0, 0);
 const TODAY_KEY = dateKey(NOW);
 const live: PropertyBookingEntry = { source: "block", propertyId: "prop-a", propertyLabel: "Prop A House", roomId: "room-1", roomLabel: "Room 1", summary: "Closed", start: dateKey(addDays(NOW, 1)), end: dateKey(addDays(NOW, 3)), blockId: "block-1", reason: "Closed", bookingStatus: "hold" };
 const channel: PropertyBookingEntry = { ...live, source: "airbnb", blockId: undefined, bookingStatus: undefined, connectionId: "c1", sourceUid: "u1", summary: "Airbnb guest" };

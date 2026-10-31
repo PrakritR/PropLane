@@ -22,6 +22,7 @@ import {
   InboxComposer,
   InboxThreadView,
 } from "@/components/portal/portal-inbox-ui";
+import { adminOversightUrl } from "@/lib/auth/admin-oversight.client";
 import { InboxComposerScheduleMenu } from "@/components/portal/inbox-composer-tools";
 import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
 import { AdminLeadThread, AdminWorkspaceBar } from "@/components/portal/admin-workspace-thread-bar";
@@ -120,7 +121,7 @@ function AdminEmailThread(ctx: InboxThreadPaneContext) {
       return false;
     }
     try {
-      const res = await fetch("/api/portal/scheduled-inbox-messages", {
+      const res = await fetch(adminOversightUrl("/api/portal/scheduled-inbox-messages"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

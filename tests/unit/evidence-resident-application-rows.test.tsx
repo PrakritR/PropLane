@@ -22,7 +22,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock("@/hooks/use-portal-session", () => ({
-  usePortalSession: () => ({ email: "jamie.rivera@example.com", ready: true }),
+  usePortalSession: () => ({ email: "jamie.rivera@example.com", userId: "resident-test", ready: true }),
 }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useConfirm: () => (req: { description?: unknown }) =>
@@ -63,6 +63,7 @@ function rows(): DemoApplicantRow[] {
   const base = {
     name: "Jamie Rivera",
     email: "jamie.rivera@example.com",
+    residentUserId: "resident-test",
     property: "Magnolia House",
     propertyId: "mgr-test-magnolia",
     application: { propertyId: "mgr-test-magnolia", email: "jamie.rivera@example.com", roomLabel: "Room 2" },

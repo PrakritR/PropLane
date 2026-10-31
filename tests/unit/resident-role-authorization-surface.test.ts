@@ -32,10 +32,8 @@ const DEFERRED_ROUTES: Record<string, string> = {
   // axis-dual-portal-role-resolution: also changes MANAGER behavior (the
   // manager applications list self-scopes off the same read), so it needs
   // manager-side verification before it moves onto the shared predicate.
-  "manager-applications/route.ts": "axis-dual-portal-role-resolution",
   // axis-dual-portal-role-resolution: resolves an applicant-vs-manager session
   // kind for photo ownership; the manager branch wins for a multi-role account.
-  "portal/application-photos/route.ts": "axis-dual-portal-role-resolution",
   // Not a caller-authorization read: this classifies RECIPIENT profiles to pick
   // an inbox scope. It is listed so the detector stays strict rather than being
   // loosened to let recipient classification through everywhere.

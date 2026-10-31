@@ -15,6 +15,53 @@ describe("C11: one compose, counted tabs", () => {
     expect(admin).toContain('title={initialSchedule ? "Schedule message" : "New message"}');
   });
 
+  /**
+   * Admin Communication sends through the admin SURFACE, which means asking for it. A seated
+   * Overall admin holds the stored `admin` row and no manager row, so a plain POST to
+   * `/api/portal/send-inbox-message` with `senderPortal: "manager"` is refused — while
+   * `inbox-eligible-contacts` still fills the recipient picker, so the compose would be invited and
+   * then 403. `adminOversightUrl` appends `?oversight=admin` from an `/admin` page and nothing
+   * elsewhere, and the server still confirms the role (`resolveAdminOversight`): the parameter is a
+   * request for the surface, never the authorization.
+   */
+  it("admin sends ask for the admin surface, so a seated admin is not refused its own compose", () => {
+    const admin = read("src/components/portal/admin-compose-modal.tsx");
+    expect(admin).toContain('from "@/lib/auth/admin-oversight.client"');
+    expect(admin).toContain('fetch(adminOversightUrl("/api/portal/send-inbox-message")');
+    expect(admin).toContain('fetch(adminOversightUrl("/api/portal/scheduled-inbox-messages")');
+    // Never a bare POST to either, which would 403 for an admin-only account.
+    expect(admin).not.toContain('fetch("/api/portal/send-inbox-message"');
+    expect(admin).not.toContain('fetch("/api/portal/scheduled-inbox-messages"');
+  });
+
+  /**
+   * Compose is not the only admin-surface writer to those tightened routes. The thread pane's
+   * Schedule send, the admin inbox's Scheduled read, the scheduled-card hook the pane mounts and
+   * the one shared send-now pair all reach them too, and every one of them 401s for a seated
+   * Overall admin (stored `admin` row, no manager row) without the oversight ask.
+   *
+   * `adminOversightUrl` appends nothing off an `/admin` path, so wrapping these shared call sites
+   * leaves the manager and resident portals byte-identical.
+   */
+  for (const [file, label] of [
+    ["src/components/portal/admin-thread-pane.tsx", "the admin thread pane's Schedule send"],
+    ["src/lib/admin-inbox-source.ts", "the admin inbox's Scheduled read"],
+    ["src/components/portal/use-thread-scheduled-cards.tsx", "the scheduled-card hook the admin pane mounts"],
+    ["src/components/portal/portal-inbox-selection.tsx", "the one shared send-now pair"],
+  ] as const) {
+    it(`${label} asks for the admin surface`, () => {
+      const src = read(file);
+      expect(src).toContain('from "@/lib/auth/admin-oversight.client"');
+      // Every scheduled-message call goes through the wrapper, and none of them stays bare —
+      // whichever quote the call site spells its URL with.
+      expect(src).toContain("fetch(adminOversightUrl(");
+      for (const quote of ['"', "'", String.fromCharCode(96)]) {
+        expect(src, `a bare ${quote}-quoted scheduled-message call would 401 for a seated admin`)
+          .not.toContain(`fetch(${quote}/api/portal/scheduled`);
+      }
+    });
+  }
+
   it("vendor Active / Archived tabs carry counts like the manager and resident ones", () => {
     const vendor = read("src/components/portal/vendor-communication.tsx");
     expect(vendor).toMatch(/<InboxListSegmentTabs[\s\S]*?counts=\{listSynced \? tabCounts : undefined\}/);

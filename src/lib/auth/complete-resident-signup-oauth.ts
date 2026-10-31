@@ -1,5 +1,3 @@
-import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
-import { migratePortalUserId } from "@/lib/auth/migrate-portal-user-id";
 import { primaryRoleWhenAddingResident } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { generateAxisId } from "@/lib/manager-id";
@@ -30,6 +28,11 @@ export async function completeResidentSignupFromOAuth(
     return { ok: false, status: 400, error: "Email and application ID are required." };
   }
 
+  const { data: verifiedAuth, error: verifiedError } = await supabase.auth.admin.getUserById(userId);
+  if (verifiedError || !verifiedAuth.user?.email_confirmed_at || verifiedAuth.user.email?.trim().toLowerCase() !== normalEmail) {
+    return { ok: false, status: 403, error: "Sign in with your verified email before continuing." };
+  }
+
   const { data: applicationRows, error: applicationError } = await supabase
     .from("manager_application_records")
     .select("id, resident_email, row_data")
@@ -41,14 +44,14 @@ export async function completeResidentSignupFromOAuth(
 
   const matchingApplication = (applicationRows ?? []).find((row) => {
     const rowEmail = row.resident_email?.trim().toLowerCase() ?? "";
-    return rowEmail === normalEmail;
+    const data = row.row_data && typeof row.row_data === "object" && !Array.isArray(row.row_data) ? row.row_data as Record<string, unknown> : null;
+    return rowEmail === normalEmail && data?.residentUserId === userId;
   });
 
   const matchingRowData =
     matchingApplication?.row_data && typeof matchingApplication.row_data === "object" && !Array.isArray(matchingApplication.row_data)
       ? (matchingApplication.row_data as Record<string, unknown>)
       : null;
-  const applicationApproved = String(matchingRowData?.bucket ?? "").toLowerCase() === "approved";
 
   if (!matchingApplication) {
     const hasDifferentEmailMatch = (applicationRows ?? []).length > 0;
@@ -61,15 +64,9 @@ export async function completeResidentSignupFromOAuth(
     };
   }
 
-  const existingAuthId = await findAuthUserIdByEmail(supabase, normalEmail);
-  if (existingAuthId && existingAuthId !== userId) {
-    await migratePortalUserId(supabase, existingAuthId, userId);
-  }
-
   const { data: existingAuth } = await supabase.auth.admin.getUserById(userId);
   const metadata = existingAuth.user?.user_metadata as Record<string, unknown> | undefined;
   await supabase.auth.admin.updateUserById(userId, {
-    email_confirm: true,
     user_metadata: {
       ...(metadata ?? {}),
       role: "resident",
@@ -89,7 +86,7 @@ export async function completeResidentSignupFromOAuth(
       role: primaryRoleWhenAddingResident(existingProfile?.role as string | undefined),
       full_name: existingProfile?.full_name ?? (typeof matchingRowData?.name === "string" ? matchingRowData.name : null),
       manager_id: profileAxisId,
-      application_approved: applicationApproved || existingProfile?.application_approved || false,
+      ...(existingProfile ? {} : { application_approved: false }),
     },
     { onConflict: "id" },
   );

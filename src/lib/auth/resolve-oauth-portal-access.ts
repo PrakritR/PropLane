@@ -1,3 +1,4 @@
+import { hasVerifiedLegacyManagerEntitlement } from "@/lib/auth/legacy-manager-entitlement.server";
 import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import type { AuthRole } from "@/components/auth/portal-switcher";
 import { GET_STARTED_PATH } from "@/lib/auth/get-started-path";
@@ -14,16 +15,13 @@ import {
   type OAuthSignInIntent,
   type OAuthSurface,
 } from "@/lib/auth/post-oauth-routing";
-import { completeResidentSignupFromOAuth } from "@/lib/auth/complete-resident-signup-oauth";
 import {
   findManagerPurchaseForAccount,
   isManagerOnboardingComplete,
-  isManagerPurchaseReadError,
   managerNeedsPricingSelection,
 } from "@/lib/auth/manager-onboarding";
 import { primaryRoleWhenAddingManager } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
-import { managerOauthFinishPath } from "@/lib/auth/manager-oauth-finish-path";
 import { resolveManagerPortalEntryPath } from "@/lib/auth/manager-google-services-onboarding.server";
 import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
 import { pickLastPortal } from "@/lib/auth/last-portal";
@@ -70,11 +68,6 @@ async function managerPortalDestination(
     return resolveManagerPortalEntryPath(supabase, userId);
   }
   return safeIntended;
-}
-
-function applicationBucket(rowData: unknown): string {
-  if (!rowData || typeof rowData !== "object" || Array.isArray(rowData)) return "";
-  return String((rowData as Record<string, unknown>).bucket ?? "").toLowerCase();
 }
 
 /** Primary admin signing up or continuing as a property manager — not ops admin. */
@@ -168,16 +161,12 @@ export async function resolveOAuthPortalRedirect(
   if (!email) {
     return finish(MANAGER_PRICING_ENTRY_PATH);
   }
-  // A legacy `manager_purchases` row matched by ADDRESS is an entitlement, not proof of ownership: the
-  // branches below hand it the manager role and adopt its workspace, so it counts only once Auth has
-  // confirmed this exact mailbox for this account. Same-email duplicate logins are separate accounts.
+
   const emailVerified = Boolean(user.email_confirmed_at);
 
-  const [{ data: roleRows }, { data: profile }] = await Promise.all([
-    supabase.from("profile_roles").select("role").eq("user_id", user.id),
-    supabase.from("profiles").select("role, manager_id, full_name, application_approved").eq("id", user.id).maybeSingle(),
-  ]);
-  const roles = normalizePortalRoles(roleRows, profile?.role);
+  const { data: roleRows, error: roleError } = await supabase.from("profile_roles").select("role").eq("user_id", user.id);
+  if (roleError) throw new Error("Could not verify account roles.");
+  const roles = normalizePortalRoles(roleRows, null);
   if (options?.trace) options.trace.roles = roles;
 
   // Multi-role users (e.g. admin+manager) always pick their portal explicitly — the chooser
@@ -225,28 +214,20 @@ export async function resolveOAuthPortalRedirect(
     if (isGenericOAuthContinuePath(safeIntended) && ownerOnly) {
       return finish("/portal/dashboard");
     }
-    // The account already HOLDS the manager role, so the plan read decides a destination, never access.
-    // An unreadable plan is not "no plan": sending a paying manager to the chooser on a database blip
-    // asks them to buy what they already own, so an unknown answer keeps the normal manager routing.
-    const needsPricing = await managerNeedsPricingSelection(supabase, user.id, email, { emailVerified })
-      .catch((error) => {
-        if (!isManagerPurchaseReadError(error)) throw error;
-        return false;
-      });
+    const needsPricing = await managerNeedsPricingSelection(supabase, user.id, email);
     if (needsPricing) {
-      return finish(MANAGER_PRICING_ENTRY_PATH);
+      const storedManager = (roleRows ?? []).some((row) => String(row.role).toLowerCase() === "manager");
+      if (!storedManager || !(await hasVerifiedLegacyManagerEntitlement(supabase, user))) return finish(MANAGER_PRICING_ENTRY_PATH);
     }
     return finish(await managerPortalDestination(supabase, user.id, safeIntended));
   }
 
-  if (isPrimaryAdminEmail(email)) {
-    if (primaryAdminWantsManagerPortal(intent, safeIntended)) {
-      return await finishPrimaryAdminManagerPortal(supabase, user.id, safeIntended, finish);
-    }
-    return finish(isGenericOAuthContinuePath(safeIntended) ? portalDashboardPath("admin") : safeIntended);
-  }
+  // An account holding NO stored role is routed by its roles, never by its address: the
+  // primary-admin email is not an admin grant, and sending it to the admin portal only lands
+  // it on a screen that refuses it. It falls through to the purchase/application reads and
+  // then the chooser, exactly like any other unknown account.
 
-  const linkedPurchase = await findManagerPurchaseForAccount(supabase, user.id, email, { emailVerified });
+  const linkedPurchase = emailVerified ? await findManagerPurchaseForAccount(supabase, user.id, email) : null;
   if (linkedPurchase && !isManagerOnboardingComplete(linkedPurchase)) {
     return finish(MANAGER_PRICING_ENTRY_PATH);
   }
@@ -270,46 +251,8 @@ export async function resolveOAuthPortalRedirect(
     return finish(safeIntended);
   }
 
-  // `/auth/manager-oauth-finish` LINKS this purchase to the signed-in account, so the same confirmed
-  // mailbox is the price of admission here as above.
-  const { data: pendingPurchases } = emailVerified
-    ? await supabase
-        .from("manager_purchases")
-        .select("stripe_checkout_session_id, user_id, paid_at")
-        .eq("email", email)
-        .is("user_id", null)
-        .order("paid_at", { ascending: false })
-        .limit(1)
-    : { data: null };
-
-  const pendingPurchase = pendingPurchases?.[0];
-  if (pendingPurchase?.stripe_checkout_session_id && pendingPurchase.paid_at) {
-    return finish(managerOauthFinishPath(pendingPurchase.stripe_checkout_session_id));
-  }
-
-  // Link by rental application (approved OR pending). A pending applicant lands in the
-  // resident portal in a limited state — never bounced back to create-account.
-  const { data: applicationRows } = await supabase
-    .from("manager_application_records")
-    .select("id, resident_email, row_data")
-    .eq("resident_email", email);
-
-  const approvedApplication = (applicationRows ?? []).find((row) => applicationBucket(row.row_data) === "approved");
-  const linkableApplication = approvedApplication ?? (applicationRows ?? [])[0];
-  if (linkableApplication) {
-    const linked = await completeResidentSignupFromOAuth(supabase, user.id, email, linkableApplication.id);
-    if (linked.ok) {
-      const access = await loadResidentPortalAccessState({
-        userId: user.id,
-        role: "resident",
-        email,
-      });
-      return finish(residentPortalHomePath(access));
-    }
-    const params = new URLSearchParams({ role: "resident", message: "resident_signup_failed" });
-    if (linked.error) params.set("error", linked.error);
-    return finish(`/auth/create-account?${params.toString()}`);
-  }
+  // An email match is not an application claim. Only an exact setup-capability
+  // handoff can bind an application to this subject.
 
   // Unknown account: no role, no purchase, no application.
   //
@@ -345,27 +288,21 @@ export async function finalizeOAuthPortalRedirect(
   if (resolved !== "/auth/continue") return resolved;
 
   const email = user.email?.trim().toLowerCase() ?? "";
-  const [{ data: roleRows }, { data: profile }] = await Promise.all([
-    supabase.from("profile_roles").select("role").eq("user_id", user.id),
-    supabase.from("profiles").select("role").eq("id", user.id).maybeSingle(),
-  ]);
-  const roles = normalizePortalRoles(roleRows, profile?.role);
+  const { data: roleRows, error: roleError } = await supabase.from("profile_roles").select("role").eq("user_id", user.id);
+  if (roleError) throw new Error("Could not verify account roles.");
+  const roles = normalizePortalRoles(roleRows, null);
   if (roles.length === 1) {
     if (roles[0] === "resident") {
       const access = await loadResidentPortalAccessState({
         userId: user.id,
         role: "resident",
-        email: user.email?.trim().toLowerCase() ?? "",
+        email,
       });
       return residentPortalHomePath(access);
     }
     return portalDashboardPath(roles[0]!);
   }
   if (roles.length > 1) return "/auth/choose-portal";
-  if (isPrimaryAdminEmail(email)) {
-    return primaryAdminWantsManagerPortal(options?.intent, intendedPath)
-      ? await resolveManagerPortalEntryPath(supabase, user.id)
-      : portalDashboardPath("admin");
-  }
+  // No stored role means no portal, whatever the address is.
   return GET_STARTED_PATH;
 }

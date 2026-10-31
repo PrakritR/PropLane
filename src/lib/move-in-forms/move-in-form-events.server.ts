@@ -3,6 +3,12 @@ import "server-only";
 /**
  * Move-in form moments on the action-event bus (docs/agents/automated-communication.md).
  *
+ * Nothing here mints, rotates or re-arms a resident setup token, and no capability URL ever enters
+ * an action event: these copies are persisted in `action_event_deliveries`, appended to the portal
+ * inbox thread and, under `partyFacing: "draft"`, queued for a manager to read and edit. A form
+ * sent on an application with no bound subject is therefore still unreachable until the resident
+ * walks the existing emailed setup invitation; this notice does not re-send one.
+ *
  *  - `sent`      resident hears a form is waiting (as the manager).
  *  - `reminder`  resident is nudged by the manager (as the manager, so it lands from the
  *                work inbox the way every cross-party copy does).
@@ -70,6 +76,12 @@ export async function emitMoveInFormEvent(
   input: {
     row: EventRow;
     event: MoveInFormEvent;
+    /**
+     * Deliver the resident's copy to this confirmed login instead of the row's own subject (the
+     * intake form sent on a guest submission). It addresses the message; it never decides the link,
+     * which follows the row's own binding.
+     */
+    noticeAccount?: { id: string | null; email: string };
     /** Distinguishes repeated reminders; ignored for the one-shot events. */
     nonce?: string;
   },
@@ -87,13 +99,17 @@ export async function emitMoveInFormEvent(
   const sender = await managerSender(db, row.manager_user_id);
   if (!sender?.email) return;
   const base = resolveEmailLinkBaseUrl().replace(/\/$/, "");
+  const notice = input.noticeAccount ?? { id: row.resident_user_id, email: row.resident_email };
   const recipient = event === "submitted"
     ? { audience: "manager" as const, userId: row.manager_user_id }
-    : { audience: "resident" as const, userId: row.resident_user_id ?? undefined, email: row.resident_email || undefined };
+    : { audience: "resident" as const, userId: notice.id ?? undefined, email: notice.email || undefined };
   const rendered = renderMoveInFormEvent(event, recipient.audience, facts);
   if (!rendered) return;
   // The resident lands on the form itself (Forms › that form): the direct link works before approval,
   // when a form that blocks approval is sent while the Forms section is still locked in the nav.
+  // This bus copy is persisted and reaches manager-facing surfaces, so it never carries a
+  // capability: the account-binding setup token leaves only through the resident setup invitation's
+  // own direct email, never from here.
   const link = `${base}/${recipient.audience === "manager" ? "portal/forms/completed" : `resident/forms/${row.id}`}`;
   await emitActionEvent(db, {
     eventId: `${row.id}:${event}${event === "reminder" ? `:${input.nonce ?? Date.now()}` : ""}`,

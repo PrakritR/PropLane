@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
-  authUser: { id: "admin-actor", email: "admin@example.com", user_metadata: {} as Record<string, unknown> },
+  authUser: { id: "admin-actor", email: "admin@example.com", email_confirmed_at: "confirmed", user_metadata: {} as Record<string, unknown> },
   admin: true,
   effectiveId: "manager-target",
   profiles: {
@@ -28,7 +28,9 @@ vi.mock("@/lib/test-workspaces/index.server", () => ({
 }));
 
 const db = {
+  auth: { admin: { getUserById: vi.fn(async () => ({ data: { user: { email: "manager@example.com", email_confirmed_at: "confirmed" } }, error: null })) } },
   from: vi.fn((table: string) => {
+    if (table === "profile_roles") return { select: () => ({ eq: async () => ({ data: state.admin ? [{ role: "admin" }] : [{ role: "resident" }], error: null }) }) };
     let ids: string[] | null = null;
     const chain = {
       select: () => chain,
@@ -62,6 +64,14 @@ beforeEach(() => {
 });
 
 describe("portal inbox effective viewer composition", () => {
+  it("does not use editable metadata to claim admin or a mismatched profile email", async () => {
+    state.admin = false;
+    state.authUser = { id: "admin-actor", email: "attacker@example.com", email_confirmed_at: "confirmed", user_metadata: { role: "admin" } };
+    const resolved = await resolveInboxScopeUser("axis_portal_inbox_resident_v1");
+    expect(resolved?.user.role).not.toBe("admin");
+    expect(resolved?.user.email).toBeNull();
+    state.authUser = { id: "admin-actor", email: "admin@example.com", email_confirmed_at: "confirmed", user_metadata: {} };
+  });
   it("resolves an authenticated admin's manager scope to the effective manager identity", async () => {
     const resolved = await resolveInboxScopeUser("axis_portal_inbox_manager_v1");
 

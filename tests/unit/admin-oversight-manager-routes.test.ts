@@ -164,7 +164,7 @@ function makeDb() {
           return Promise.resolve({ data: rowsFor(), error: null }).then(resolve);
         },
       };
-      const rowsFor = () => (hoisted.tables[table] ?? []).filter((row) => preds.every((pred) => pred(row)));
+      const rowsFor = () => (hoisted.tables[table] ?? []).filter((row) => (table !== "profile_roles" || hoisted.admin || row.role !== "admin") && preds.every((pred) => pred(row)));
       return builder;
     },
   };
@@ -201,7 +201,7 @@ beforeEach(() => {
       { id: "ch-other", manager_user_id: OTHER, row_data: { id: "ch-other" }, updated_at: "2026-01-01" },
     ],
     portal_recurring_rent_profile_records: [],
-    profile_roles: [],
+    profile_roles: [{ user_id: ME, role: "manager" }, ...(hoisted.admin ? [{ user_id: ME, role: "admin" }] : [])],
     work_order_vendor_offers: [
       { id: "of-mine", work_order_id: "wo-mine", manager_user_id: ME, vendor_directory_id: "vd", status: "sent", created_at: "2026-01-01" },
       { id: "of-other", work_order_id: "wo-other", manager_user_id: OTHER, vendor_directory_id: "vd", status: "sent", created_at: "2026-01-01" },
@@ -279,6 +279,7 @@ describe.each(CASES)("GET $name — admin oversight is explicit", (c) => {
 
   it("a non-admin sending the oversight parameter is still scoped", async () => {
     hoisted.admin = false;
+    hoisted.tables.profile_roles = [{ user_id: ME, role: "manager" }];
     expect(await read(c, "?oversight=admin")).toEqual(c.mine);
   });
 

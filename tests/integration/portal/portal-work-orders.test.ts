@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
+import { profileRolesTable } from "../../helpers/profile-roles-fake";
 
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
@@ -9,17 +10,25 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { GET, POST } from "@/app/api/portal-work-orders/route";
 
-type Rec = { id: string; manager_user_id: string | null; resident_email: string | null; row_data: unknown; vendor_user_id?: string | null };
-type AppRec = { id: string; manager_user_id: string; resident_email: string };
+type Rec = { id: string; manager_user_id: string | null; resident_email: string | null; row_data: unknown; row_revision?: number; resident_user_id?: string | null; vendor_user_id?: string | null };
+type AppRec = { id: string; manager_user_id: string; resident_email: string; resident_user_id?: string; property_id?: string };
 type VendorDirRec = { id: string; manager_user_id: string | null; vendor_user_id: string | null; row_data?: { sharedWithManagers?: boolean } };
+
+// Roles each actor genuinely holds in the stored `profile_roles` table.
+const STORED_ROLES: Record<string, string[]> = {
+  "mgr-a": ["manager"],
+  "mgr-b": ["manager"],
+  "res-b": ["resident"],
+};
 
 function mockDb(
   seed: Rec[],
   profile: { email: string; role: string } | null,
   appSeed: AppRec[] = [],
   vendorDirSeed: VendorDirRec[] = [],
+  staleReadRevisionById: Record<string, number> = {},
 ) {
-  const store = new Map(seed.map((r) => [r.id, r]));
+  const store = new Map(seed.map((r) => [r.id, { row_revision: 1, ...r }]));
   const otherTableStores = new Map<string, Map<string, Rec>>();
   const vendorDirs = new Map(vendorDirSeed.map((r) => [r.id, r]));
   const upserts: Rec[] = [];
@@ -27,6 +36,7 @@ function mockDb(
 
   const client = {
     from(table: string) {
+      if (table === "profile_roles") return profileRolesTable(STORED_ROLES);
       if (table === "profiles") {
         return {
           select: vi.fn().mockReturnThis(),
@@ -43,15 +53,25 @@ function mockDb(
             filters[col] = val;
             return builder;
           },
-          limit: async () => {
+          // Awaited directly (no .limit) by the residency check, so the builder is also thenable.
+          then: (resolve: (v: unknown) => unknown) => resolve(result()),
+          limit: async () => result(),
+        };
+        function result() {
+          {
             const rows = appSeed.filter((a) =>
               Object.entries(filters).every(
-                ([col, val]) => (a as unknown as Record<string, unknown>)[col] === val,
+                // The residency is bound to the login by `row_data.residentUserId`, a JSON-path filter.
+                ([col, val]) =>
+                  (col === "row_data->>residentUserId" ? a.resident_user_id : (a as unknown as Record<string, unknown>)[col]) === val,
               ),
             );
-            return { data: rows.map((a) => ({ ...a, updated_at: "x" })), error: null };
-          },
-        };
+            return {
+              data: rows.map((a) => ({ ...a, row_data: { residentUserId: a.resident_user_id }, updated_at: "x" })),
+              error: null,
+            };
+          }
+        }
         return builder;
       }
       if (table === "manager_vendor_records") {
@@ -106,16 +126,50 @@ function mockDb(
           filters.push({ op: "in", col, val });
           return chain;
         },
-        maybeSingle: async () => ({ data: matches()[0] ?? null, error: null }),
+        maybeSingle: async () => {
+          const row = matches()[0];
+          return { data: row ? { ...row, row_revision: staleReadRevisionById[row.id] ?? row.row_revision ?? 1 } : null, error: null };
+        },
         then: (resolve: (v: { data: unknown[]; error: null }) => void) =>
           resolve({
-            data: matches().map((r) => ({ ...r, updated_at: "x" })),
+            data: matches().map((r) => ({ ...r, row_revision: staleReadRevisionById[r.id] ?? r.row_revision ?? 1, updated_at: "x" })),
             error: null,
           }),
         upsert: async (rec: Rec) => {
           if (table === "portal_work_order_records") upserts.push(rec);
           rowStore.set(rec.id, rec);
           return { error: null };
+        },
+        // New rows are INSERTed; an existing row is UPDATEd under a row_revision compare-and-swap
+        // (`.eq(id).eq(row_revision)...select("id")`), which only matches a stored row.
+        insert: async (rec: Rec) => {
+          if (table === "portal_work_order_records") upserts.push(rec);
+          rowStore.set(rec.id, rec);
+          return { error: null };
+        },
+        update: (rec: Partial<Rec>) => {
+          const uf: [string, unknown][] = [];
+          const hit = () =>
+            [...rowStore.values()].filter((r) =>
+              uf.every(([c, v]) => (r as unknown as Record<string, unknown>)[c] === v),
+            );
+          const u: Record<string, unknown> = {
+            eq: (c: string, v: unknown) => {
+              uf.push([c, v]);
+              return u;
+            },
+            select: async () => {
+              const rows = hit();
+              for (const r of rows) {
+                const next = { ...r, ...rec, row_revision: (r.row_revision ?? 1) + 1 } as Rec;
+                if (table === "portal_work_order_records") upserts.push(next);
+                rowStore.set(r.id, next);
+              }
+              return { data: rows.map((r) => ({ id: r.id })), error: null };
+            },
+            then: (resolve: (v: { error: null }) => void) => resolve({ error: null }),
+          };
+          return u;
         },
         delete: () => ({
           eq: async (_col: string, id: string) => {
@@ -215,7 +269,7 @@ describe("/api/portal-work-orders security", () => {
     asUser("res-b", "res@b.com");
     // res@b.com belongs to mgr-b; they try to inject into mgr-a's queue.
     const { client, upserts } = mockDb([], { email: "res@b.com", role: "resident" }, [
-      { id: "APP-1", manager_user_id: "mgr-b", resident_email: "res@b.com" },
+      { id: "APP-1", manager_user_id: "mgr-b", resident_email: "res@b.com", resident_user_id: "res-b", property_id: "prop-b" },
     ]);
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
 
@@ -238,7 +292,7 @@ describe("/api/portal-work-orders security", () => {
   it("lets a resident file a work order with their real manager", async () => {
     asUser("res-b", "res@b.com");
     const { client, upserts } = mockDb([], { email: "res@b.com", role: "resident" }, [
-      { id: "APP-1", manager_user_id: "mgr-b", resident_email: "res@b.com" },
+      { id: "APP-1", manager_user_id: "mgr-b", resident_email: "res@b.com", resident_user_id: "res-b", property_id: "prop-b" },
     ]);
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
 
@@ -252,6 +306,41 @@ describe("/api/portal-work-orders security", () => {
     expect(status).toBe(200);
     expect(upserts[0]!.manager_user_id).toBe("mgr-b");
     expect(upserts[0]!.resident_email).toBe("res@b.com");
+  });
+
+  it("rejects same-email residency evidence bound to a different resident subject", async () => {
+    asUser("res-b", "res@b.com");
+    const { client, upserts } = mockDb([], { email: "res@b.com", role: "resident" }, [
+      { id: "APP-foreign-subject", manager_user_id: "mgr-b", resident_email: "res@b.com", resident_user_id: "different-auth-subject", property_id: "prop-b" },
+    ]);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
+
+    const res = await POST(jsonRequest("http://t", { method: "POST", body: { row: { id: "WO-foreign-subject", managerUserId: "mgr-b", residentEmail: "res@b.com" } } }));
+    expect((await parseJsonResponse(res)).status).toBe(403);
+    expect(upserts).toHaveLength(0);
+  });
+
+  it("denies a legacy profiles.role manager without a stored manager role", async () => {
+    asUser("legacy-manager", "legacy@test.com");
+    const { client, upserts } = mockDb([], { email: "legacy@test.com", role: "manager" });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
+
+    const res = await POST(jsonRequest("http://t", { method: "POST", body: { row: { id: "WO-legacy-role", managerUserId: "legacy-manager", title: "must not write" } } }));
+    expect((await parseJsonResponse(res)).status).toBe(403);
+    expect(upserts).toHaveLength(0);
+  });
+
+  it("refuses a stale work-order row_revision without changing the current row", async () => {
+    asUser("mgr-a", "a@test.com");
+    const current: Rec = { id: "WO-raced", manager_user_id: "mgr-a", resident_email: "r@test.com", row_revision: 2, row_data: { id: "WO-raced", title: "current" } };
+    const { client, upserts } = mockDb([current], { email: "a@test.com", role: "manager" }, [], [], { "WO-raced": 1 });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
+
+    const res = await POST(jsonRequest("http://t", { method: "POST", body: { row: { id: "WO-raced", title: "stale overwrite" } } }));
+    expect((await parseJsonResponse(res)).status).toBe(409);
+    expect(upserts).toHaveLength(0);
+    expect(current.row_revision).toBe(2);
+    expect(current.row_data).toEqual({ id: "WO-raced", title: "current" });
   });
 
   /**

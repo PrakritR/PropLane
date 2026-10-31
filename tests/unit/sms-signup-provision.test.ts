@@ -3,9 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const m = vi.hoisted(() => ({
-  ensureManager: vi.fn(), vendor: vi.fn(), resident: vi.fn(), owners: vi.fn(), track: vi.fn(),
+  ensureManager: vi.fn(), vendor: vi.fn(), resident: vi.fn(), owners: vi.fn(), track: vi.fn(), balance: vi.fn(async () => []),
 }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/managed-finance/directory-vendor.server", () => ({ claimWaitingDirectoryBalances: m.balance }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: m.track }));
 vi.mock("@/lib/auth/manager-portal-provision", () => ({ ensureFreeManagerPortalAccess: m.ensureManager }));
 vi.mock("@/lib/auth/provision-vendor-account", () => ({ provisionVendorAccountByEmail: m.vendor }));
@@ -111,6 +112,7 @@ describe("vendor and resident", () => {
     });
     expect(result.ok).toBe(true);
     expect(m.vendor).toHaveBeenCalledTimes(1);
+    expect(m.balance).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ userId: "new-user", phone: PHONE, phoneProven: true }));
     expect(m.vendor.mock.calls[0]![1]).toMatchObject({ userId: "new-user", email: NEW_USER.email, invite: null, confirmEmail: true });
     expect(calls.from).toContainEqual({ table: "profiles", op: "update", value: { role: "vendor" } });
     const business = calls.from.find((c) => c.table === "vendor_business_profiles");

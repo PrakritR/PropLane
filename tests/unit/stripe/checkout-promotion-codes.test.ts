@@ -35,7 +35,8 @@ function checkoutDb() {
     not: vi.fn(() => query),
     limit: vi.fn(() => query),
     maybeSingle: vi.fn(async () => ({ data: null, error: null })),
-    upsert: vi.fn(async () => ({ error: null })),
+    // Insert-if-absent reservation: `.upsert(row, { ignoreDuplicates: true }).select("id")` returns the inserted row.
+    upsert: vi.fn(() => ({ select: vi.fn(async () => ({ data: [{ id: "purchase-new" }], error: null })) })),
     in: vi.fn(async () => ({ data: [], error: null })),
   };
   return { from: vi.fn(() => query), query };

@@ -71,6 +71,7 @@ function makeDb() {
         limit: () => builder,
         maybeSingle: () => Promise.resolve({ data: table === "profiles" ? { role: "manager", email: "viewer@test.local" } : null, error: null }),
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
+          if (table === "profile_roles") return Promise.resolve({ data: [{ role: "manager" }], error: null }).then(resolve);
           return Promise.resolve({ data: rowsFor(), error: null }).then(resolve);
         },
       };
@@ -124,7 +125,7 @@ beforeEach(() => {
   vi.resetModules();
   VIEWER_IS_ADMIN = true;
   APP_ROWS = [resident("AXIS-MINE", ADMIN, ADMIN_HOUSE), resident("AXIS-KHUE", AMBIKA, SEATTLE_HOUSE)];
-  getUser.mockResolvedValue({ data: { user: { id: ADMIN, email: "viewer@test.local", user_metadata: {} } }, error: null });
+  getUser.mockResolvedValue({ data: { user: { id: ADMIN, email: "viewer@test.local", email_confirmed_at: "confirmed", user_metadata: {} } }, error: null });
 });
 
 describe("GET /api/manager-applications — admin oversight is explicit", () => {

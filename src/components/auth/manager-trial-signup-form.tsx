@@ -1,5 +1,7 @@
 "use client";
 
+import { EmailFirstSignup } from "@/components/auth/email-first-signup";
+
 import posthog from "posthog-js";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -45,7 +47,7 @@ function dropOAuthReturnParams(tier: PlanTierId, billing: "monthly" | "annual"):
 type SignedInUser = { id: string; email: string | null };
 
 /** Manager account creation — OAuth or email, no inline plan UI. */
-export function ManagerTrialSignupForm({
+function LegacyManagerTrialSignupForm({
   tier,
   billing,
   initialEmail = "",
@@ -362,4 +364,9 @@ export function ManagerTrialSignupForm({
       {!hideLegalFooter ? <AuthLegalConsent action="create" className="mt-2" /> : null}
     </div>
   );
+}
+
+export function ManagerTrialSignupForm(props: Parameters<typeof LegacyManagerTrialSignupForm>[0]) {
+  if (props.trialSignup === false) return <p>Paid account setup is temporarily unavailable. Please return to pricing later.</p>;
+  return <EmailFirstSignup intent="manager" initialEmail={props.initialEmail} tier={props.tier} billing={props.billing} disabled={props.disabled} hideLegalFooter={props.hideLegalFooter} social={<div className="space-y-3"><PricingAppleContinueButton tier={props.tier} billing={props.billing} returnSurface="mobile-plan" trialSignup disabled={props.disabled} /><PricingGoogleContinueButton tier={props.tier} billing={props.billing} returnSurface="mobile-plan" trialSignup disabled={props.disabled} /></div>} />;
 }

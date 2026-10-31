@@ -32,6 +32,7 @@ const appForManagerA: StoredApplicationOwnership = {
   propertyId: "propA",
   assignedPropertyId: null,
   residentEmail: "applicant@example.com",
+  residentUserId: "resident",
 };
 
 const managerA: ApplicationPhotoActor = {
@@ -96,12 +97,12 @@ describe("canActorAccessApplicationPhoto — cross-manager isolation", () => {
 
 describe("canActorAccessApplicationPhoto — applicant + admin", () => {
   it("lets the applicant view their own photo (email matches, case-insensitive)", () => {
-    const resident: ApplicationPhotoActor = { kind: "resident", email: "Applicant@Example.com" };
+    const resident: ApplicationPhotoActor = { kind: "resident", userId: "resident", email: "Applicant@Example.com" };
     expect(canActorAccessApplicationPhoto(resident, appForManagerA)).toBe(true);
   });
 
   it("DENIES a resident whose email does not match the application", () => {
-    const other: ApplicationPhotoActor = { kind: "resident", email: "someone-else@example.com" };
+    const other: ApplicationPhotoActor = { kind: "resident", userId: "other", email: "someone-else@example.com" };
     expect(canActorAccessApplicationPhoto(other, appForManagerA)).toBe(false);
   });
 
@@ -111,7 +112,7 @@ describe("canActorAccessApplicationPhoto — applicant + admin", () => {
   });
 
   it("never matches an application that has no applicant email", () => {
-    const resident: ApplicationPhotoActor = { kind: "resident", email: "" };
+    const resident: ApplicationPhotoActor = { kind: "resident", userId: "other", email: "" };
     const noEmailApp: StoredApplicationOwnership = { ...appForManagerA, residentEmail: null };
     expect(canActorAccessApplicationPhoto(resident, noEmailApp)).toBe(false);
   });
@@ -183,7 +184,7 @@ describe("authorizeApplicationPhotoWrite", () => {
     setupTokenConsumedAt: null,
   };
   const guest: ApplicationPhotoActor = { kind: "guest", email: "" };
-  const applicant: ApplicationPhotoActor = { kind: "resident", email: "applicant@example.com" };
+  const applicant: ApplicationPhotoActor = { kind: "resident", userId: "resident", email: "applicant@example.com" };
 
   it("allows a guest holding the row's valid setup token", () => {
     expect(authorizeApplicationPhotoWrite({ actor: guest, row: pendingRow, setupToken: validToken })).toBe(true);
@@ -223,7 +224,7 @@ describe("authorizeApplicationPhotoWrite", () => {
       authorizeApplicationPhotoWrite({
         actor: otherRoleManager,
         row: pendingRow,
-        sessionEmail: "applicant@example.com",
+        applicantActor: applicant,
       }),
     ).toBe(true);
   });
@@ -250,7 +251,7 @@ describe("authorizeApplicationPhotoWrite", () => {
 
   it("DENIES a foreign manager and a mismatched resident even on a pending row", () => {
     expect(authorizeApplicationPhotoWrite({ actor: managerB, row: pendingRow })).toBe(false);
-    const other: ApplicationPhotoActor = { kind: "resident", email: "someone-else@example.com" };
+    const other: ApplicationPhotoActor = { kind: "resident", userId: "other", email: "someone-else@example.com" };
     expect(authorizeApplicationPhotoWrite({ actor: other, row: pendingRow })).toBe(false);
   });
 });
