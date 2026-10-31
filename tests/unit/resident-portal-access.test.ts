@@ -502,6 +502,7 @@ describe("resident portal access state — blockingFormsPending", () => {
       query.select = () => query;
       query.eq = () => query;
       query.neq = () => query;
+      query.or = () => query;
       query.limit = () => query;
       query.then = (resolve: (value: unknown) => unknown) =>
         Promise.resolve(forms === "error" ? { data: null, error: { code: "500", message: "boom" } } : { data: forms, error: null }).then(resolve);
@@ -542,5 +543,15 @@ describe("resident portal access state — blockingFormsPending", () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
     await load();
     expect(db.from.mock.calls.filter(([table]) => table === "resident_move_in_forms")).toHaveLength(1);
+  });
+
+  // The application scope an unbound form is weighed against is the one this load already read, not
+  // a second unindexed `row_data->>residentUserId` scan on every resident page.
+  it("hands the forms read the application scope it already loaded, and reads the lease rows once", async () => {
+    const db = dbWithForms([sent("a", "move_in_details")]);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+    await load();
+    expect(db.from.mock.calls.filter(([table]) => table === "manager_application_records")).toHaveLength(1);
+    expect(db.from.mock.calls.filter(([table]) => table === "portal_lease_pipeline_records")).toHaveLength(1);
   });
 });

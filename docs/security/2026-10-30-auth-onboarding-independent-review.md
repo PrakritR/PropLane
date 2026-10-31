@@ -327,28 +327,54 @@ Three further rounds answered the independent review of this candidate. **No mig
   filter and the in-memory test are derived from that one scope, so they describe the same set by
   construction.
 
-  **`loadResidentFormsFacts` counts unbound rows too.** That read is the sole source of
-  `blockingFormsPending` for the resident's access state, and `moveInDetailsLockFromBlocking` opens
-  the move-in-details redaction across the portal, the resident agent, the SMS and inbox contexts
-  and `house-groups/ra.server.ts` the moment `moveInDetails` is false — so leaving it subject-only
-  disclosed exactly what a pre-release `Blocks: move-in details` form was sent to gate. It now also
-  counts a `sent` row with no subject when that row sits on an application whose STORED
-  `row_data.residentUserId` is this login (`subjectBoundApplicationIds`, the same normalized id
-  scope), never on an address. An unbound row never sets `hasForms` and is never named, so it
-  restricts without unlocking a Forms section it still cannot open; a failing subject-scope read is
-  a refusal (locked), not an empty scope.
+  **`loadResidentFormsFacts` counts unbound rows too, scoped through the lease as well as the
+  application.** That read is the sole source of `blockingFormsPending` for the resident's access
+  state, and `moveInDetailsLockFromBlocking` opens the move-in-details redaction across the portal,
+  the resident agent, the SMS and inbox contexts and `house-groups/ra.server.ts` the moment
+  `moveInDetails` is false — so leaving it subject-only disclosed exactly what a pre-release
+  `Blocks: move-in details` form was sent to gate. An eighth round found the first attempt could not
+  reach that cohort: it scoped unbound forms to applications whose own `row_data.residentUserId` is
+  the login, but a form is unbound *only* because its application was unbound when it was sent
+  (`insert_bound_move_in_form` takes the subject from the application), so that scope excluded the
+  cohort by construction and caught only the residue where an application gained its subject after
+  the send. `residentBoundApplicationIds` now takes the union of two stored-subject arms — the
+  application rows bound to this login, AND the applications named by a `portal_lease_pipeline_records`
+  row whose `resident_user_id` is this login (`axisId` plus every joint member's `applicationId`,
+  through the same normalized id scope). The second arm is the one that reaches the real cohort: the
+  application never got a subject, but the lease the same resident signed names it. Neither arm reads
+  an address. An unbound row never sets `hasForms` and is never named, so it restricts without
+  unlocking a Forms section it still cannot open.
+
+  **One read path, and every read behind it fails closed.** That scope used to be a second
+  `row_data->>residentUserId` scan of `manager_application_records` — an unindexed JSONB expression —
+  on a path that runs on every resident page render and every resident agent, SMS and inbox turn,
+  duplicating the query `loadResidentPortalAccessState` had already run. The access state now reads
+  its lease rows ONCE (deriving `leaseSigned`, the attested-tenancy answer and the lease-named
+  application ids from the same rows, replacing two separate boolean reads) and hands
+  `loadResidentFormsFacts` the scope it already has; the self-reading path remains only for the one
+  caller that has nothing loaded (`loadMoveInDetailsLock`, the SMS harness). Every read behind the
+  answer fails CLOSED: an application- or lease-read error is passed as `null`, which locks rather
+  than reading as "bound to nothing", and the forms read no longer goes through `tableMissing` —
+  unlike the manager-facing readers, a missing or schema-cache-stale forms table locks this gate,
+  because an unreadable gate is a locked gate.
 
   **Accepted limitation:** a lease row that names no application at all (no `axisId`, no joint
-  members) has no unbound-form scope, so only subject-bound forms block its signing. Narrowing by
-  the lease's property instead would gate on a value the lease row can carry stale, and matching by
-  address is what this release removes. The manager keeps full visibility of the form either way.
+  members) has no unbound-form scope, so only subject-bound forms block its signing — and the same
+  resident has no lease-side arm for the move-in-details lock either, so an unbound form reached by
+  neither a bound application nor an application-naming lease stays manager-only, as
+  "pre-release unbound rows stay manager-only by design" allows. Narrowing by the lease's property
+  instead would gate on a value the lease row can carry stale, and matching by address is what this
+  release removes. The manager keeps full visibility of the form either way.
 
   `move-in-forms-blocking.test.ts` pins: unbound-for-this-application blocks, unbound-for-another
   does not, own-subject blocks and is named, other-subject does not, no application scope does not,
-  a `Blocks: nothing` form does not, every `AXIS-`/`PROPLANE-`/lowercase spelling pairing matches and
-  the filter never uses an exact `in`, the facts read locks move-in details for an unbound row on the
-  subject's own bound application and not on anyone else's, a failed subject-scope read locks, and
-  every outcome is identical whatever address the caller carries.
+  a `Blocks: nothing` form does not, every `AXIS-`/`PROPLANE-`/lowercase spelling pairing matches
+  with exactly one `ilike` term per normalized id and the filter never uses an exact `in`, the facts
+  read locks move-in details for an unbound row reached through a bound application, through a
+  lease's `axisId` and through a joint member's `applicationId` but not through anyone else's, a
+  handed-in scope costs no extra read while a handed-in `null` locks, every read behind the answer
+  (application, lease, forms — including a 42P01 or PGRST205 forms table) locks, and every outcome
+  is identical whatever address the caller carries.
 - **The manager-plan checkout branch is classified positively.** `isManagerPlanCheckout` re-derived the
   webhook's `else` fall-through by subtracting a hand-copied list of the ten named purposes, so a new
   `purpose` branch added without touching that list became a manager plan purchase. One shared module

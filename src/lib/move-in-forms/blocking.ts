@@ -104,14 +104,16 @@ function applicationIdKey(value: unknown): string {
  * `proplaneIdLookupVariants` and matched case-insensitively with `ilike` rather than exact `in`.
  */
 function applicationIdScope(ids: readonly string[] | undefined): { patterns: string[]; keys: Set<string> } {
-  const expanded = new Set<string>();
+  // Keyed on the normalized form the `ilike` itself matches on, so two spellings of one id do not
+  // become two identical (non-indexable) terms in the filter.
+  const byKey = new Map<string, string>();
   for (const id of ids ?? []) {
     for (const variant of proplaneIdLookupVariants(typeof id === "string" ? id : "")) {
-      if (variant.trim()) expanded.add(variant.trim());
+      const trimmed = variant.trim();
+      if (trimmed && !byKey.has(applicationIdKey(trimmed))) byKey.set(applicationIdKey(trimmed), trimmed);
     }
   }
-  const patterns = [...expanded];
-  return { patterns, keys: new Set(patterns.map(applicationIdKey)) };
+  return { patterns: [...byKey.values()], keys: new Set(byKey.keys()) };
 }
 
 /** A case-insensitive match on any id in the scope, as one PostgREST logical term. */
@@ -245,22 +247,34 @@ function factsRowAsBlockingRow(row: FormsFactsRow, nameable = true): BlockingRow
 }
 
 /**
- * The applications whose stored subject IS this login, which is the only scope that can claim an
- * unbound form for a resident without reading an address. `null` means the read failed, which every
- * caller turns into a refusal rather than an empty scope.
+ * Every application this login is bound to by a STORED subject, and nothing else: the application
+ * rows whose own `row_data.residentUserId` is this login, plus the applications named by a lease
+ * row whose `resident_user_id` is this login. The second arm is what reaches the real cohort — a
+ * form is unbound only because its application was unbound when it was sent, so an
+ * application-subject-only scope excludes that cohort by construction, while the signed lease the
+ * same resident holds still names it. No address is read on either arm.
+ *
+ * `null` means a read failed; every caller turns that into a refusal, never an empty scope.
  */
-async function subjectBoundApplicationIds(db: SupabaseClient, userId: string): Promise<string[] | null> {
-  const { data, error } = await db
-    .from("manager_application_records")
-    .select("id, row_id:row_data->>id")
-    .eq("row_data->>residentUserId", userId);
-  if (error) return null;
+export async function residentBoundApplicationIds(db: SupabaseClient, userId: string): Promise<string[] | null> {
+  const uid = userId.trim();
+  if (!uid) return [];
+  const [applications, leases] = await Promise.all([
+    db.from("manager_application_records").select("id, row_id:row_data->>id").eq("row_data->>residentUserId", uid),
+    db.from("portal_lease_pipeline_records").select("row_data").eq("resident_user_id", uid),
+  ]);
+  if (applications.error || leases.error) return null;
   const ids = new Set<string>();
-  for (const row of (data ?? []) as { id?: unknown; row_id?: unknown }[]) {
-    for (const value of [row.id, row.row_id]) {
-      const id = String(value ?? "").trim();
-      if (id) ids.add(id);
-    }
+  const add = (value: unknown) => {
+    const id = String(value ?? "").trim();
+    if (id) ids.add(id);
+  };
+  for (const row of (applications.data ?? []) as { id?: unknown; row_id?: unknown }[]) {
+    add(row.id);
+    add(row.row_id);
+  }
+  for (const row of (leases.data ?? []) as { row_data?: unknown }[]) {
+    for (const id of leaseApplicationIds(row.row_data as Parameters<typeof leaseApplicationIds>[0])) add(id);
   }
   return [...ids];
 }
@@ -269,23 +283,29 @@ async function subjectBoundApplicationIds(db: SupabaseClient, userId: string): P
  * Both forms facts the resident portal's access state needs, from ONE read of the resident's
  * non-cancelled copies: whether a form has ever been sent to them at all, and what their unsubmitted
  * ones block. `blockingFormsFromRows` counts only the `sent` rows, so one select answers both and the
- * resident hot path never queries this table twice. A failed read blocks (fail closed) and reports
- * `hasForms: false` — a form nobody can read must not also unlock a nav row.
+ * resident hot path never queries this table twice.
  *
  * `blocking.moveInDetails` is what every move-in-details redaction keys on, so the unbound rows
  * count here too — within an exact scope, never by address: a `sent` form with no subject yet blocks
- * when it sits on an application whose STORED subject is this login. An unbound row never sets
- * `hasForms` and is never named: the resident still cannot open it until the setup invitation binds
- * it, so it restricts without unlocking a nav row or pointing at a dead end. The subject-scope read
- * failing is a refusal, not an empty scope.
+ * when it sits on an application this login is bound to (`residentBoundApplicationIds`). An unbound
+ * row never sets `hasForms` and is never named: the resident still cannot open it until the setup
+ * invitation binds it, so it restricts without unlocking a nav row or pointing at a dead end.
+ *
+ * `boundApplicationIds` lets a caller that has already read that scope hand it over rather than pay
+ * for the unindexed `row_data->>residentUserId` scan twice in one request; `null` says that caller's
+ * own read failed. EVERY read behind this answer fails CLOSED — including a missing or
+ * schema-cache-stale forms table, which `loadResidentBlockingForms` may treat as "no forms here" but
+ * this redaction decision must not: an unreadable gate is a locked gate.
  */
 export async function loadResidentFormsFacts(
   db: SupabaseClient,
-  who: { email: string; userId?: string | null },
+  who: { email: string; userId?: string | null; boundApplicationIds?: readonly string[] | null },
 ): Promise<{ hasForms: boolean; blocking: BlockingFormsPending }> {
   if (!who.userId) return { hasForms: false, blocking: NO_BLOCKING_FORMS };
   try {
-    const boundApplicationIds = await subjectBoundApplicationIds(db, who.userId);
+    const boundApplicationIds = who.boundApplicationIds === undefined
+      ? await residentBoundApplicationIds(db, who.userId)
+      : who.boundApplicationIds;
     if (boundApplicationIds === null) return { hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED };
     const scope = applicationIdScope(boundApplicationIds);
     let query = db.from("resident_move_in_forms").select(FACTS_SELECT).neq("status", "cancelled");
@@ -293,9 +313,7 @@ export async function loadResidentFormsFacts(
       ? query.or(`resident_user_id.eq.${who.userId},and(resident_user_id.is.null,${applicationIdMatchTerm(scope.patterns)})`)
       : query.eq("resident_user_id", who.userId);
     const { data, error } = await query;
-    if (error) {
-      return { hasForms: false, blocking: tableMissing(error) ? NO_BLOCKING_FORMS : BLOCKING_FORMS_FAIL_CLOSED };
-    }
+    if (error) return { hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED };
     const all = (data ?? []) as FormsFactsRow[];
     const bound = all.filter((row) => row.resident_user_id === who.userId);
     const unbound = all.filter((row) => !row.resident_user_id && scope.keys.has(applicationIdKey(row.application_id)));

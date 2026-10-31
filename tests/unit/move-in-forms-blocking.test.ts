@@ -77,14 +77,15 @@ describe("blockingFormsPending derivation", () => {
 type FakeAnswer = { data?: unknown[]; error?: { code?: string; message?: string } | null } | "throw";
 
 /**
- * A two-table fake: `result` answers `resident_move_in_forms` and `applications` answers
- * `manager_application_records` (the subject-scope read). `calls` / `selects` record the forms read
- * only, so the single-forms-read guarantee stays assertable; `appCalls` records the other one.
+ * A three-table fake: `result` answers `resident_move_in_forms`, `applications` answers
+ * `manager_application_records` and `leases` answers `portal_lease_pipeline_records` (the two arms
+ * of the bound-application scope). `calls` / `selects` record the forms read only, so the
+ * single-forms-read guarantee stays assertable; `scopeCalls` records the other two.
  */
-function fakeDb(result: FakeAnswer, applications: FakeAnswer = { data: [] }) {
+function fakeDb(result: FakeAnswer, applications: FakeAnswer = { data: [] }, leases: FakeAnswer = { data: [] }) {
   const calls: Array<[string, string, unknown]> = [];
   const selects: string[] = [];
-  const appCalls: Array<[string, string, unknown]> = [];
+  const scopeCalls: Array<[string, string, unknown]> = [];
   const build = (answer: FakeAnswer, log: Array<[string, string, unknown]>, selectLog: string[] | null) => {
     const query: Record<string, unknown> = {};
     const chain = (name: string) => (column: string, value: unknown) => { log.push([name, column, value]); return query; };
@@ -98,8 +99,13 @@ function fakeDb(result: FakeAnswer, applications: FakeAnswer = { data: [] }) {
     return query;
   };
   const forms = build(result, calls, selects);
-  const apps = build(applications, appCalls, null);
-  return { db: { from: (table: string) => (table === "manager_application_records" ? apps : forms) } as never, calls, selects, appCalls };
+  const apps = build(applications, scopeCalls, null);
+  const leaseRows = build(leases, scopeCalls, null);
+  const byTable: Record<string, unknown> = {
+    manager_application_records: apps,
+    portal_lease_pipeline_records: leaseRows,
+  };
+  return { db: { from: (table: string) => byTable[table] ?? forms } as never, calls, selects, scopeCalls };
 }
 
 describe("loading what a resident or an application is blocked on", () => {
@@ -161,10 +167,15 @@ describe("loading what a resident or an application is blocked on", () => {
   ])("matches %s", async (_label, storedId, leaseId = storedId) => {
     const { db, calls } = fakeDb({ data: [row({ id: "pending", resident_user_id: null, application_id: storedId, snapshot: { blocks: "lease_signing" } })] });
     expect((await loadResidentBlockingForms(db, { email: "a@example.test", userId: "u1", applicationIds: [leaseId] })).leaseSigning).toBe(true);
-    // Every id the in-memory test would keep is also in the filter, never an exact `in`.
+    // Every id the in-memory test would keep is also in the filter, never an exact `in`. The filter
+    // matches case-insensitively, so it is compared the same way.
     const expression = String(calls.find(([name]) => name === "or")?.[2] ?? "");
-    expect(expression).toContain(`application_id.ilike."${storedId.toUpperCase().startsWith("AXIS-") ? "AXIS-" : "PROPLANE-"}1"`);
+    expect(expression.toUpperCase()).toContain(`APPLICATION_ID.ILIKE."${storedId.toUpperCase()}"`);
     expect(expression).not.toContain("application_id.in.");
+    // One term per normalized id: `ilike` already ignores case, so a second spelling of the same id
+    // would only add an identical non-indexable term.
+    const terms = expression.match(/application_id\.ilike\./g) ?? [];
+    expect(terms).toHaveLength(2);
   });
 
   it("a profile address that drifted from the Auth one cannot change what blocks", async () => {
@@ -254,36 +265,76 @@ describe("one read answers both resident forms facts", () => {
 
   /**
    * `blocking.moveInDetails` is what every move-in-details redaction keys on, so an unbound row has
-   * to count here too — scoped to an application whose STORED subject is this login, never to an
-   * address, and without unlocking the Forms section it still cannot open.
+   * to count here too — scoped to an application this login is bound to, never to an address, and
+   * without unlocking the Forms section it still cannot open.
    */
-  it("counts an unbound copy on the subject's own bound application, and nothing else", async () => {
+  it("counts an unbound copy on an application this login is bound to, and nothing else", async () => {
     const pending = [factsRow({ id: "pending", resident_user_id: null, application_id: "axis-1", snapshot_kind: "intake", snapshot_blocks: "move_in_details" })];
-    const mine = fakeDb({ data: pending }, { data: [{ id: "AXIS-1", row_id: "AXIS-1" }] });
-    const locked = await loadResidentFormsFacts(mine.db, { email: "a@example.test", userId: "u1" });
+    const SCOPED_OR = 'resident_user_id.eq.u1,and(resident_user_id.is.null,or(application_id.ilike."AXIS-1",application_id.ilike."PROPLANE-1"))';
+
+    const byApplication = fakeDb({ data: pending }, { data: [{ id: "AXIS-1", row_id: "AXIS-1" }] });
+    const locked = await loadResidentFormsFacts(byApplication.db, { email: "a@example.test", userId: "u1" });
     expect(locked.blocking.moveInDetails).toBe(true);
     expect(locked.blocking.formIds?.moveInDetails).toBeUndefined();
     expect(locked.hasForms).toBe(false);
-    expect(mine.appCalls).toContainEqual(["eq", "row_data->>residentUserId", "u1"]);
-    expect(mine.calls).toContainEqual(["or", "or", 'resident_user_id.eq.u1,and(resident_user_id.is.null,or(application_id.ilike."AXIS-1",application_id.ilike."PROPLANE-1"))']);
+    expect(byApplication.scopeCalls).toContainEqual(["eq", "row_data->>residentUserId", "u1"]);
+    expect(byApplication.calls).toContainEqual(["or", "or", SCOPED_OR]);
 
-    const someoneElses = fakeDb({ data: pending }, { data: [{ id: "AXIS-9", row_id: "AXIS-9" }] });
+    // The cohort that actually exists: the application never got a subject, but this login's own
+    // signed lease names it. Without the lease arm this scope would be empty by construction.
+    const byLease = fakeDb({ data: pending }, { data: [] }, { data: [{ row_data: { axisId: "AXIS-1" } }] });
+    expect((await loadResidentFormsFacts(byLease.db, { email: "a@example.test", userId: "u1" })).blocking.moveInDetails).toBe(true);
+    expect(byLease.scopeCalls).toContainEqual(["eq", "resident_user_id", "u1"]);
+    expect(byLease.calls).toContainEqual(["or", "or", SCOPED_OR]);
+
+    const byJointMember = fakeDb({ data: pending }, { data: [] }, { data: [{ row_data: { axisId: "AXIS-7", jointLeaseMembers: [{ applicationId: "proplane-1" }] } }] });
+    expect((await loadResidentFormsFacts(byJointMember.db, { email: "a@example.test", userId: "u1" })).blocking.moveInDetails).toBe(true);
+
+    const someoneElses = fakeDb({ data: pending }, { data: [{ id: "AXIS-9", row_id: "AXIS-9" }] }, { data: [{ row_data: { axisId: "AXIS-8" } }] });
     expect((await loadResidentFormsFacts(someoneElses.db, { email: "a@example.test", userId: "u1" })).blocking.moveInDetails).toBe(false);
 
-    const unscoped = fakeDb({ data: pending }, { data: [] });
+    const unscoped = fakeDb({ data: pending }, { data: [] }, { data: [] });
     const open = await loadResidentFormsFacts(unscoped.db, { email: "a@example.test", userId: "u1" });
     expect(open.blocking.moveInDetails).toBe(false);
     expect(unscoped.calls).toContainEqual(["eq", "resident_user_id", "u1"]);
 
-    // Never by address, at either read.
-    for (const probe of [mine, someoneElses, unscoped]) {
-      expect(JSON.stringify([...probe.calls, ...probe.appCalls])).not.toContain("resident_email");
+    // Never by address, at any of the three reads.
+    for (const probe of [byApplication, byLease, byJointMember, someoneElses, unscoped]) {
+      expect(JSON.stringify([...probe.calls, ...probe.scopeCalls])).not.toContain("resident_email");
     }
   });
 
-  it("fails closed when the subject-scope read fails, so a lock never opens on an error", async () => {
-    for (const applications of [{ error: { code: "500", message: "boom" } }, "throw" as const]) {
-      const { db } = fakeDb({ data: [] }, applications);
+  it("takes a scope its caller already read instead of scanning for it again", async () => {
+    const pending = [factsRow({ id: "pending", resident_user_id: null, application_id: "axis-1", snapshot_kind: "intake", snapshot_blocks: "move_in_details" })];
+    const handed = fakeDb({ data: pending }, "throw", "throw");
+    expect((await loadResidentFormsFacts(handed.db, { email: "a@example.test", userId: "u1", boundApplicationIds: ["AXIS-1"] })).blocking.moveInDetails).toBe(true);
+    expect(handed.scopeCalls).toEqual([]);
+
+    // The caller saying "my own scope read failed" locks, it never reads as an empty scope.
+    const failed = fakeDb({ data: pending });
+    expect(await loadResidentFormsFacts(failed.db, { email: "a@example.test", userId: "u1", boundApplicationIds: null }))
+      .toEqual({ hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED });
+  });
+
+  it("fails closed on ANY read behind the answer, including a forms table that is not set up", async () => {
+    const scopeFailures: FakeAnswer[] = [{ error: { code: "500", message: "boom" } }, "throw"];
+    for (const failure of scopeFailures) {
+      const pairs: Array<[FakeAnswer, FakeAnswer]> = [[failure, { data: [] }], [{ data: [] }, failure]];
+      for (const [applications, leases] of pairs) {
+        const { db } = fakeDb({ data: [] }, applications, leases);
+        expect(await loadResidentFormsFacts(db, { email: "a@example.test", userId: "u1" }))
+          .toEqual({ hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED });
+      }
+    }
+    // Unlike the manager-facing readers, an unreadable or missing forms table is a LOCKED gate here:
+    // this answer drives the move-in-details redaction, so it must never open on an error.
+    for (const forms of [
+      { error: { code: "500", message: "boom" } },
+      { error: { code: "42P01", message: 'relation "x" does not exist' } },
+      { error: { code: "PGRST205", message: "Could not find the table in the schema cache" } },
+      "throw" as const,
+    ]) {
+      const { db } = fakeDb(forms);
       expect(await loadResidentFormsFacts(db, { email: "a@example.test", userId: "u1" }))
         .toEqual({ hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED });
     }
@@ -329,13 +380,8 @@ describe("one read answers both resident forms facts", () => {
     expect((await loadResidentFormsFacts(explicitNothing.db, { email: "a@example.test", userId: "u1" })).blocking.moveInDetails).toBe(false);
   });
 
-  it("fails closed on a read error without claiming a form exists; a missing table blocks nothing", async () => {
-    expect(await loadResidentFormsFacts(fakeDb({ error: { code: "500", message: "boom" } }).db, { email: "a@example.test", userId: "u1" }))
-      .toEqual({ hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED });
-    expect(await loadResidentFormsFacts(fakeDb("throw").db, { email: "a@example.test", userId: "u1" }))
-      .toEqual({ hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED });
-    expect(await loadResidentFormsFacts(fakeDb({ error: { code: "42P01", message: 'relation "x" does not exist' } }).db, { email: "a@example.test", userId: "u1" }))
-      .toEqual({ hasForms: false, blocking: NO_BLOCKING_FORMS });
+  it("has nothing to answer without a login, and never claims a form exists on an error", async () => {
     expect(await loadResidentFormsFacts(fakeDb({ data: [] }).db, { email: " " })).toEqual({ hasForms: false, blocking: NO_BLOCKING_FORMS });
+    expect((await loadResidentFormsFacts(fakeDb("throw").db, { email: "a@example.test", userId: "u1" })).hasForms).toBe(false);
   });
 });
