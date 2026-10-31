@@ -342,3 +342,52 @@ describe("two concurrent checkouts for the same manager", () => {
     await expect(webhookResolution(db, stripe, "cs_prior")).resolves.toMatchObject({ sourceSessionId: "cs_prior" });
   });
 });
+
+describe("a Pro signup trial's internal reservation is replaceable", () => {
+  // finalizePendingManagerFreeTier stores billing=trial with an internal `axis_intent_<uuid>` id, may carry
+  // paid_at, and has no Stripe session behind it. It is not a paid Stripe session: Stripe is never asked about
+  // it, and a new checkout replaces it under the exact compare-and-swap on that stored id.
+  const trialRow = (): Row => ({
+    id: "purchase-trial", user_id: USER_ID, manager_id: MANAGER_ID, email: EMAIL, full_name: null,
+    tier: "pro", billing: "trial", paid_at: "2026-10-01T00:00:00.000Z",
+    stripe_checkout_session_id: "axis_intent_6f1c2d3e-0000-4000-8000-000000000001",
+  });
+
+  it("replaces it under CAS and returns the checkout URL, never calling Stripe about the internal id", async () => {
+    const stripe = fakeStripe();
+    const db = fakeDb([trialRow()]);
+    mocks.db = db; mocks.stripe = stripe.client;
+
+    const result = await checkout();
+
+    expect(result).toMatchObject({ ok: true, embedded: false, sessionId: "cs_new_1", url: "https://checkout.test/cs_new_1" });
+    expect(stripe.client.checkout.sessions.retrieve).not.toHaveBeenCalled();
+    expect(stripe.client.checkout.sessions.expire).not.toHaveBeenCalled();
+    expect(db.rows).toHaveLength(1);
+    expect(db.rows[0]!.stripe_checkout_session_id).toBe("cs_new_1");
+    expect(live(stripe)).toEqual(["cs_new_1"]);
+    await expect(webhookResolution(db, stripe, "cs_new_1")).resolves.toMatchObject({ sourceSessionId: "cs_new_1" });
+  });
+
+  it("with a concurrent second create, exactly one wins and the loser's session is expired", async () => {
+    const gate = barrier(2);
+    const stripe = fakeStripe({ beforeCreateReturns: gate });
+    const db = fakeDb([trialRow()]);
+    mocks.db = db; mocks.stripe = stripe.client;
+
+    const results = await Promise.all([checkout(), checkout()]);
+
+    const winners = results.filter((r) => r.ok);
+    const losers = results.filter((r) => !r.ok);
+    expect(winners).toHaveLength(1);
+    expect(losers).toEqual([expect.objectContaining({ ok: false, status: 409 })]);
+    const winnerId = (winners[0] as { sessionId: string }).sessionId;
+    const loserId = ["cs_new_1", "cs_new_2"].find((id) => id !== winnerId)!;
+    expect(stripe.sessions.get(loserId)!.status).toBe("expired");
+    expect(live(stripe)).toEqual([winnerId]);
+    expect(db.rows[0]!.stripe_checkout_session_id).toBe(winnerId);
+    // Stripe was only ever asked to expire the loser's own new session.
+    expect(stripe.client.checkout.sessions.expire.mock.calls.map((c) => c[0])).toEqual([loserId]);
+    expect(stripe.client.checkout.sessions.retrieve).not.toHaveBeenCalled();
+  });
+});
