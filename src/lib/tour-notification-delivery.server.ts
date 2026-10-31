@@ -393,7 +393,7 @@ async function recordGuestInboxCopy(
   input: Parameters<typeof recordResidentProspectInboxMessage>[1],
 ): Promise<{ sent: boolean; error?: string }> {
   try {
-    const owner = await linkedTourNoticeOwner(db, inquiryId);
+    const owner = await linkedTourNoticeOwner(db, inquiryId, input.propertyId ?? null);
     if (!owner) return { sent: false };
     await recordResidentProspectInboxMessage(db, { ...input, residentUserId: owner });
     return { sent: true };
@@ -408,14 +408,21 @@ async function recordGuestInboxCopy(
  * Exact inquiry binding, never a profile or email match, authorizes an inbox copy.
  *
  * The link stores the manager the inquiry was FILED under, while a notice is sent by the
- * CURRENT host — `confirmTourInquiry` hands a tour to a peer. So the inquiry id alone is the
- * binding: it is unique to one tour, exactly one link row may claim it, and that row's
- * `resident_user_id` is the only subject allowed to receive the copy.
+ * CURRENT host — `confirmTourInquiry` hands a tour to a peer. So the binding is the inquiry id
+ * plus the inquiry's CURRENT property (historical caller-chosen ids are not unique across
+ * properties), never the filing manager: exactly one link row may claim that pair, and its
+ * `resident_user_id` is the only subject allowed to receive the copy. No property, no copy.
  */
-async function linkedTourNoticeOwner(db: Db, inquiryId: string | null): Promise<string | null> {
-  if (!inquiryId) return null;
+async function linkedTourNoticeOwner(db: Db, inquiryId: string | null, propertyId: string | null): Promise<string | null> {
+  const property = propertyId?.trim();
+  if (!inquiryId || !property) return null;
   try {
-    const { data, error } = await db.from("resident_tour_links").select("resident_user_id").eq("inquiry_id", inquiryId).limit(2);
+    const { data, error } = await db
+      .from("resident_tour_links")
+      .select("resident_user_id")
+      .eq("inquiry_id", inquiryId)
+      .eq("property_id", property)
+      .limit(2);
     if (error || !data || data.length !== 1) return null;
     const subject = typeof data[0]?.resident_user_id === "string" ? data[0].resident_user_id.trim() : "";
     return subject || null;
@@ -955,7 +962,7 @@ async function notifyTenantTourChanged(
   const hasGuestEmail = guestEmail.includes("@");
   if (hasGuestEmail) {
     const manager = await resolveTourManagerIdentity(db, managerUserId);
-    const residentUserId = await linkedTourNoticeOwner(db, textField(row, "id") || null);
+    const residentUserId = await linkedTourNoticeOwner(db, textField(row, "id") || null, propertyId || null);
     inboxAttempted = Boolean(manager && propertyId && residentUserId);
     if (manager && propertyId && residentUserId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
       participantEmail: guestEmail, residentUserId, managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
@@ -1130,7 +1137,7 @@ async function deliverTenantTourConfirmed(
   const hasGuestEmail = guestEmail.includes("@");
   if (hasGuestEmail) {
     const manager = await resolveTourManagerIdentity(db, window.managerUserId);
-    const residentUserId = await linkedTourNoticeOwner(db, textField(inquiry as Record<string, unknown>, "id") || null);
+    const residentUserId = await linkedTourNoticeOwner(db, textField(inquiry as Record<string, unknown>, "id") || null, propertyId || null);
     inboxAttempted = Boolean(manager && propertyId && residentUserId);
     if (manager && propertyId && residentUserId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
       participantEmail: guestEmail, residentUserId, managerUserId: window.managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,

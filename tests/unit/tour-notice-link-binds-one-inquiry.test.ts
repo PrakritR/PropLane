@@ -1,6 +1,6 @@
 /**
- * A tour notice's in-portal copy is authorized by the inquiry id alone, so that lookup must
- * match ONE inquiry and never a neighbour's.
+ * A tour notice's in-portal copy is authorized by the inquiry id plus its current property, so that
+ * lookup must match ONE inquiry and never a neighbour's.
  *
  * The id is server-minted (`createTourInquiry`), which is what makes this safe: an anonymous
  * caller cannot file a tour under an id that already carries somebody's `resident_tour_links`
@@ -40,9 +40,9 @@ import { notifyTenantTourConfirmed } from "@/lib/tour-notification-delivery.serv
 const LINKED_INQUIRY = "inquiry-with-a-linked-resident";
 const LINKED_RESIDENT = "linked-resident-user";
 
-type LinkRow = { inquiry_id: string; resident_user_id: string; manager_user_id?: string };
+type LinkRow = { inquiry_id: string; resident_user_id: string; manager_user_id?: string; property_id?: string | null };
 
-function makeDb(links: LinkRow[] = [{ inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT }]) {
+function makeDb(links: LinkRow[] = [{ inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT, property_id: "property-x" }]) {
   return {
     from: vi.fn((table: string) => {
       const filters: Record<string, unknown> = {};
@@ -121,7 +121,9 @@ describe("a tour notice's inbox copy is bound to its own inquiry", () => {
   it("still delivers the copy after the tour is handed to a peer host", async () => {
     // The link was stored under the host the inquiry was FILED under; the tour was then handed to a
     // peer, so the notice's inquiry and window name a different manager than the link row does.
-    const db = makeDb([{ inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT, manager_user_id: "original-host" }]);
+    const db = makeDb([
+      { inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT, manager_user_id: "original-host", property_id: "property-x" },
+    ]);
     const handedOff = { ...inquiry(LINKED_INQUIRY), managerUserId: "peer-host" };
 
     const result = await notifyTenantTourConfirmed(db as never, null, handedOff, { ...window, managerUserId: "peer-host" });
@@ -133,8 +135,8 @@ describe("a tour notice's inbox copy is bound to its own inquiry", () => {
 
   it("delivers nothing when two link rows claim the same inquiry", async () => {
     const db = makeDb([
-      { inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT },
-      { inquiry_id: LINKED_INQUIRY, resident_user_id: "second-claimant" },
+      { inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT, property_id: "property-x" },
+      { inquiry_id: LINKED_INQUIRY, resident_user_id: "second-claimant", property_id: "property-x" },
     ]);
 
     const result = await notifyTenantTourConfirmed(db as never, null, inquiry(LINKED_INQUIRY), window);
@@ -144,5 +146,26 @@ describe("a tour notice's inbox copy is bound to its own inquiry", () => {
     expect(result.inbox.error).toBeUndefined();
     // Neither claimant is told; the guest's own email still goes out.
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not deliver to a resident whose link names the same inquiry id at a different property", async () => {
+    // Historical caller-chosen ids are not unique across properties: the link must match the
+    // inquiry's CURRENT property, not the id alone.
+    const db = makeDb([{ inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT, property_id: "property-y" }]);
+
+    const result = await notifyTenantTourConfirmed(db as never, null, inquiry(LINKED_INQUIRY), window);
+
+    expect(appendResidentPropertyManagerInboxMessage).not.toHaveBeenCalled();
+    expect(result.inbox.sent).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not deliver to a legacy link that records no property", async () => {
+    const db = makeDb([{ inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT, property_id: null }]);
+
+    const result = await notifyTenantTourConfirmed(db as never, null, inquiry(LINKED_INQUIRY), window);
+
+    expect(appendResidentPropertyManagerInboxMessage).not.toHaveBeenCalled();
+    expect(result.inbox.sent).toBe(false);
   });
 });
