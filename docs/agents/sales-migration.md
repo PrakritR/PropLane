@@ -54,9 +54,12 @@ are checked against ownership, identity, room and start date. There is no
 cross-system transaction spanning Auth and Postgres: partial failures remain
 prepared and must be reconciled/retried, not treated as completed.
 
-Account provisioning is silent: random credentials, no invitation, no password
-reset and no email verification claim. Existing identities and roles are
-preserved. Existing leases are not overwritten, and importing an attested
+No account is provisioned: `provisionApprovedResidentAccount` answers
+`invitation_required`, which the migration accepts as the expected result. The tenancy,
+application and lease rows are created UNBOUND, and the resident reaches them through the
+existing emailed email-proof setup — see
+[`resident-onboarding.md`](resident-onboarding.md). Any other refusal is still a real
+failure. Existing identities and roles are preserved. Existing leases are not overwritten, and importing an attested
 existing tenancy does not fabricate execution signatures. New imported
 applications retain `migrationBillingHold`; normal upfront and recurring billing
 must stay off until tenant/property reconciliation is complete. Removing this

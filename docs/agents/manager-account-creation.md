@@ -14,8 +14,9 @@ else.
 | Piece | File |
 | --- | --- |
 | Create-account shell (`skipSessionRedirect = isCreate`) | `src/components/auth/native-auth-hub.tsx` |
-| The form itself | `src/components/auth/manager-trial-signup-form.tsx` |
-| Email/password registration API | `src/app/api/auth/manager-register/route.ts` |
+| The form itself | `src/components/auth/email-first-signup.tsx` (`ManagerTrialSignupForm` is a thin wrapper that passes `intent="manager"`) |
+| Registration API (requires a confirmed session, no credential) | `src/app/api/auth/manager-register/route.ts` |
+| Paid-checkout completion | `src/app/api/auth/manager-signup/route.ts` |
 | Partner-pricing OAuth callback | `src/app/auth/callback/partner-pricing/route.ts` |
 | Regression coverage | `tests/e2e/manager-get-started-signed-in.spec.ts` |
 
@@ -70,12 +71,20 @@ Entering a portal from here is always an **explicit user click**, on every path:
 Do not reintroduce a server-resolved portal path or a "continue" screen on this
 route — the requirement is product-level, not incidental.
 
-## The email/password form requires full name and phone
+## Email first, then full name and phone
 
-`/api/auth/manager-register` rejects a missing `fullName` or an unparseable
-`phone` with a 400, so the form collects both and validates them client-side
-before posting (`normalizeE164` for the phone). Omitting either field is not a
-cosmetic gap — it 400s every email/password signup.
+There is no password on this surface. `EmailFirstSignup` has two steps: with no
+confirmed session it collects the email alone and posts
+`/api/auth/email-onboarding/start`, which emails a `token_hash` link; the account
+is created, confirmed and routed back only once that link is opened. The returning
+confirmed session then sees its verified email read-only plus **Full name** and
+**Phone**, and that is the only request `/api/auth/manager-register` accepts — it
+answers 403 `EMAIL_VERIFICATION_REQUIRED` without a confirmed session for the same
+address, and 400 on a missing `fullName` or unparseable `phone` (`normalizeE164`).
+`/api/auth/manager-signup` (the paid-checkout completion) applies the same two gates
+and additionally requires the confirmed address to equal the purchase's. The emailed
+handoff is owned by [`resident-onboarding.md`](resident-onboarding.md); only the
+manager specifics live here.
 
 `normalizeE164` lives in **`src/lib/phone-e164.ts`**, which is client-safe.
 `src/lib/twilio.ts` re-exports it for the server callers that already import it

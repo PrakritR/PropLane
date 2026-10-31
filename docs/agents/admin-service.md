@@ -170,7 +170,9 @@ workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and th
   account" (name, mobile with the usual text code, Google or a password) or, signed in, Accept. The kind is never accepted from a
   request body (`normalizeInviteLinkKind` still falls back to `manager`), admin links are excluded from every share-link list,
   rotate, reveal and revoke, and an admin link with no bound email redeems as nothing.
-- **A new account proves the inbox.** The generic sign-up confirms an address with no inbox round-trip, so for admin invites the
+- **A new account proves the inbox.** This pane owns its own mailbox proof — a 6-digit code, not the
+  emailed link the generic sign-up now uses — because the redeem is bound to the address on the link and must
+  prove THAT inbox inside this flow rather than wherever a verification link was opened. The
   invite page mails a 6-digit code to the address stored on the link (`/api/pro/invite-links/admin-account`, stateless HMAC
   challenge) and the server creates the confirmed account only when it verifies, stamping
   `app_metadata.admin_invite_proof = <link id>`. Five code attempts per link, across every challenge (a fresh code buys no
@@ -183,9 +185,14 @@ workspaces, no PropLane logo, no `+`); `/admin` pages redirect them there and th
 - **Invites are rate limited and cleaned.** 20 invites + resends per hour per inviter (`admin-team-invite:<user>`); the inviter's
   profile name in the email loses URLs and angle brackets and is cut to 60 characters (`sanitizeInviterName`).
 - **Change never seats a stranger.** `changeAdminTeamMember` works only on someone who already holds an Overall role or a
-  PropLane-issued seat inside the actor's reach (otherwise 404, "Invite them instead"); every target seat is validated
-  (`checkAdminTeamSeatGrant`) BEFORE a demotion deletes the Overall role, so a refusal changes nothing; a seat the workspace's own
-  owner issued (not `is_service_seat`) is refused, never converted.
+  PropLane-issued seat inside the actor's reach (otherwise 404, "Invite them instead"); a seat the workspace's own owner issued
+  (not `is_service_seat`) is refused, never converted.
+- **A demotion or removal is ONE transaction** (`demote_admin_team_role`, migration `20261030145100`). Under the exclusive
+  account-lifecycle advisory lock it re-checks the actor, re-derives durable ownership of every named workspace and property
+  from the database, and compares the caller's seat set against what is actually stored: stale seat or property context answers
+  `stale` and nothing moves, so the Overall role is never deleted against a plan that has since drifted. Do not reintroduce a
+  validate-then-delete sequence in application code. The `p_plan` it takes is the server's own normalized grant, never a request
+  body. A `p_check_only` retry succeeds only if the requested final state already exists, and writes no audit row.
 - **The audit row says what happened.** Written `applied: false` before the change, stamped `applied: true` after it took
   effect and `applied: false` (+ `error`) on every refused or handed-back path, the redeem undo included.
 - **Redeem** (`applyAdminInviteGrant`): the session's confirmed email must equal the bound one; the inviter is re-derived at that

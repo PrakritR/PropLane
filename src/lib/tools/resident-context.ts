@@ -77,8 +77,9 @@ export type ResidentAgentContext = {
   chatPhotos?: ResidentChatPhotoRef[];
   /**
    * Service-role client. It bypasses RLS, so every query built from it MUST
-   * scope by resident identity: `.or("resident_user_id.eq.<uid>,resident_email.eq.<email>")`
-   * or `.eq("resident_email", email)` — matching the corresponding API routes.
+   * scope by the resident's Auth subject: `.eq("resident_user_id", ctx.userId)`,
+   * which is what the one loader `loadResidentSubjectRows` does. An email address
+   * is not ownership, so it is never a scope column here.
    */
   db: ReturnType<typeof createSupabaseServiceRoleClient>;
 };

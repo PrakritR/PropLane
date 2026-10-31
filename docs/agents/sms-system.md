@@ -44,7 +44,7 @@ loaders used by each portal and agent registry:
 | Sender | Rows eligible for resolution | Allowed action path |
 | --- | --- | --- |
 | Manager | Owned work orders plus only co-managed properties available through the current manager-SMS access grant | Manager tool catalog; writes retain the SMS `YES` confirmation gate and destructive tools remain portal-only |
-| Resident | `resident_email` match, additionally pinned to the owner of the work number texted | Resident tools; writes retain the SMS `YES` confirmation gate |
+| Resident | Rows bound to the verified sender's Auth subject (`resident_user_id`), additionally pinned to the owner of the work number texted | Resident tools; writes retain the SMS `YES` confirmation gate |
 | Vendor | Work orders represented by that verified phone's active job sessions (assigned/live-offered jobs only) | Job-bound read tools; only `escalate_to_manager` remains inline-allowed |
 
 Verified resident SMS can read the texted manager's live public listings with
@@ -470,9 +470,9 @@ agent line. A small trial cohort (`clawMappedManagerEmails()`, env
 `CLAW_MESSENGER_MANAGER_EMAILS`) shares that line; forwarding targets for
 their threads are the env `CLAW_MESSENGER_MANAGER_FORWARD_PHONES` list plus
 `resolveAdminForwardPhone()` — the Axis admin account's own `profiles.phone`
-(any account holding the admin role per `src/lib/auth/admin-role.ts`:
-`profile_roles`, legacy `profiles.role`, or the primary-admin email), NOT a
-hardcoded constant. Set the admin's phone from admin Settings
+(any account holding the admin role per `src/lib/auth/admin-role.ts`, which is
+the stored `profile_roles` grant and nothing else — not the legacy
+`profiles.role`, not an email), NOT a hardcoded constant. Set the admin's phone from admin Settings
 (`/admin/profile`) to change where these forwards land; when no admin
 profile has a phone on file it falls back to the first env forward phone,
 then the hardcoded `+15103098345` trial default. Admin views

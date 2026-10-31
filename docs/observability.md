@@ -108,10 +108,12 @@ Two measurement decisions baked into those tiles — keep them if you edit:
 ### Known gap: `$identify` almost never fires
 
 269 people sent pageviews in 30 days; `$identify` fired **once**.
-`posthog.identify(user.id)` is called at every sign-in site
-(`portal-auth-form.tsx`, `create-account-client.tsx`, the resident/vendor signup
-forms), so the calls exist — but anonymous pre-auth activity is not being
-stitched to the account that results.
+`posthog.identify(user.id)` is called once a portal session exists
+(`src/hooks/use-portal-session.ts`), so the calls exist — but anonymous pre-auth
+activity is not being stitched to the account that results. Email-first signup
+makes the gap wider, not smaller: the person leaves for their inbox and comes
+back through the verification link, so the pre-auth and post-auth sessions are
+two different anonymous ids.
 
 The practical cost: no funnel can cross the sign-up boundary. That is exactly why
 the prospect funnel above stops at "Submitted an application" instead of ending at
