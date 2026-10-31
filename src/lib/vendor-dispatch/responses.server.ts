@@ -204,11 +204,11 @@ async function announceAcceptance(
     .maybeSingle();
   let read = await readJob().catch((e: unknown) => ({ data: null, error: { message: e instanceof Error ? e.message : String(e) } }));
   if (read.error) {
-    console.error("vendor accept work order read failed, retrying", { runId: run.id, sourceId: run.source_id, message: read.error.message });
+    console.error("vendor accept service read failed, retrying", { runId: run.id, sourceId: run.source_id, message: read.error.message });
     read = await readJob().catch((e: unknown) => ({ data: null, error: { message: e instanceof Error ? e.message : String(e) } }));
   }
   if (read.error) {
-    console.error("vendor accept work order unreadable; resident notice skipped", { runId: run.id, sourceId: run.source_id, message: read.error.message });
+    console.error("vendor accept service unreadable; resident notice skipped", { runId: run.id, sourceId: run.source_id, message: read.error.message });
     return;
   }
   const workOrder = read.data as { resident_user_id?: string | null; row_data?: DemoManagerWorkOrderRow } | null;

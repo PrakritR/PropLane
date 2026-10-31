@@ -50,12 +50,12 @@ async function readWorkOrder(db: SupabaseClient, run: DispatchRunRow): Promise<{
       .eq("manager_user_id", run.owner_user_id)
       .maybeSingle();
     if (error) {
-      console.error("vendor dispatch work order read failed", { runId: run.id, sourceId: run.source_id, message: error.message });
+      console.error("vendor dispatch service read failed", { runId: run.id, sourceId: run.source_id, message: error.message });
       return { ok: false };
     }
     return { ok: true, record: (data as DispatchWorkOrder | null) ?? null };
   } catch (e) {
-    console.error("vendor dispatch work order read threw", { runId: run.id, sourceId: run.source_id, message: e instanceof Error ? e.message : String(e) });
+    console.error("vendor dispatch service read threw", { runId: run.id, sourceId: run.source_id, message: e instanceof Error ? e.message : String(e) });
     return { ok: false };
   }
 }

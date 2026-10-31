@@ -439,8 +439,10 @@ describe("one read answers both resident forms facts", () => {
     expect((await loadResidentFormsFacts(explicitNothing.db, { email: "a@example.test", userId: "u1" })).blocking.moveInDetails).toBe(false);
   });
 
-  it("has nothing to answer without a login, and never claims a form exists on an error", async () => {
-    expect(await loadResidentFormsFacts(fakeDb({ data: [] }).db, { email: " " })).toEqual({ hasForms: false, blocking: NO_BLOCKING_FORMS });
+  it("holds no form of its own without a login, and never claims a form exists on an error", async () => {
+    // Without a subject the answer is "unknown", not "nothing blocks" (the fail-closed case above):
+    // no form is theirs, and every block stays closed.
+    expect(await loadResidentFormsFacts(fakeDb({ data: [] }).db, { email: " " })).toEqual({ hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED });
     expect((await loadResidentFormsFacts(fakeDb("throw").db, { email: "a@example.test", userId: "u1" })).hasForms).toBe(false);
   });
 });

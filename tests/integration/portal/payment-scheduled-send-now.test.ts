@@ -49,7 +49,15 @@ describe("payment scheduled Send now workspace authorization", () => {
     } as never);
     const db = {
       from: vi.fn((table: string) => {
-        if (table === "profile_roles") return { select: () => ({ eq: () => Promise.resolve({ data: [{ role: "manager" }] }) }) };
+        // `userHoldsManagerRole` filters on `user_id` AND `role`, then asks for one row.
+        if (table === "profile_roles") {
+          const q: Record<string, unknown> = {
+            eq: () => q,
+            maybeSingle: () => Promise.resolve({ data: { role: "manager" }, error: null }),
+            then: (fn: (value: unknown) => unknown) => Promise.resolve({ data: [{ role: "manager" }], error: null }).then(fn),
+          };
+          return { select: () => q };
+        }
         if (table === "profiles") return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { full_name: "Owner", email: "owner@example.com" } }) }) }) };
         if (table === "test_workspace_members") return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }) };
         throw new Error(`Unexpected table ${table}`);

@@ -47,6 +47,7 @@ vi.mock("@/lib/stripe-application-fee", () => ({
 
 vi.mock("@/lib/stripe-household-charge", () => ({
   markHouseholdChargePaidFromStripeSession: vi.fn().mockResolvedValue({ ok: true }),
+  HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE: "household_charge",
 }));
 
 vi.mock("@/lib/supabase/service", () => ({

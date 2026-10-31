@@ -42,8 +42,15 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 function fakeDb() {
-  const resolve = (table: string, many: boolean) => {
-    if (table === "profile_roles") return { data: many ? m.roles.map((role) => ({ role })) : null, error: m.roleError ? { message: "unavailable" } : null };
+  // `userHoldsManagerRole` asks for ONE row, filtered on `role`, so the stand-in has to honour that
+  // filter instead of answering every single-row `profile_roles` read with null.
+  const resolve = (table: string, many: boolean, filters: Array<[string, unknown]>) => {
+    if (table === "profile_roles") {
+      if (m.roleError) return { data: null, error: { message: "unavailable" } };
+      const wanted = filters.find(([column]) => column === "role")?.[1];
+      const rows = m.roles.filter((role) => wanted === undefined || role === wanted).map((role) => ({ role }));
+      return { data: many ? rows : rows[0] ?? null, error: null };
+    }
     if (table === "profiles") return { data: { role: "manager", full_name: "Alex", email: "mgr@example.com" }, error: null };
     if (table === "manager_application_records") {
       const rec = { id: "APP1", row_data: { id: "APP1", manuallyAdded: true, email: "res@example.com", name: "Res" } };
@@ -53,11 +60,16 @@ function fakeDb() {
   };
   return {
     from(table: string) {
+      const filters: Array<[string, unknown]> = [];
       const chain: Record<string, unknown> = {};
-      for (const k of ["select", "eq", "in", "update", "order"]) chain[k] = () => chain;
-      chain.limit = async () => resolve(table, true);
-      chain.maybeSingle = async () => resolve(table, false);
-      chain.then = (fn: (value: unknown) => unknown) => Promise.resolve(resolve(table, true)).then(fn);
+      for (const k of ["select", "in", "update", "order"]) chain[k] = () => chain;
+      chain.eq = (column: string, value: unknown) => {
+        filters.push([column, value]);
+        return chain;
+      };
+      chain.limit = async () => resolve(table, true, filters);
+      chain.maybeSingle = async () => resolve(table, false, filters);
+      chain.then = (fn: (value: unknown) => unknown) => Promise.resolve(resolve(table, true, filters)).then(fn);
       return chain;
     },
   };

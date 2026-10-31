@@ -140,7 +140,9 @@ describe("loadMoveInDetailsLock (the SMS test harness, the one builder with no a
     const dbWith = (result: unknown) => ({
       from: () => {
         const q: Record<string, unknown> = {};
-        for (const m of ["select", "eq", "neq"]) q[m] = () => q;
+        // `loadResidentFormsFacts` reads the bound-application scope first and then filters the
+        // forms with `.or(...)` whenever that scope is non-empty, so the stand-in needs it too.
+        for (const m of ["select", "eq", "neq", "or"]) q[m] = () => q;
         q.then = (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve);
         return q;
       },

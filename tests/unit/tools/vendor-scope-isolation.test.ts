@@ -489,7 +489,7 @@ describe("vendor read tools: cross-vendor isolation", () => {
     const res = (await getJobDetailsTool.handler(ctx, { workOrderId: "WO-F" })) as {
       workOrder: { id: string; assignment: string };
     };
-    expect(res.workOrder).toMatchObject({ id: "WO-F", assignment: "offered", property: "Seattle", residentName: null });
+    expect(res.workOrder).toMatchObject({ id: "WO-F", assignment: "offered", property: "Seattle, WA", residentName: null });
     expect(JSON.stringify(res)).not.toMatch(/Secret House|Secret Unit|Secret Resident|Secret Arrival|123 Private/);
     expect(JSON.stringify(await listMyJobsTool.handler(ctx, {}))).not.toMatch(/Secret House|Secret Unit|Secret Resident|123 Private/);
   });

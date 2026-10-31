@@ -382,13 +382,13 @@ describe("J6c: what a vendor read carries", () => {
     expect(nearby.propertyName).toBe("Nearby");
     expect(nearby.offeredGeneralArea).toBe("Nearby");
     expect(nearby).not.toHaveProperty("generalArea");
-    expect(projectWorkOrderForOfferedVendor({ ...distinctive, propertyAddress: "1 Main Street, Seattle, WA" }).propertyName).toBe("Seattle");
+    expect(projectWorkOrderForOfferedVendor({ ...distinctive, propertyAddress: "1 Main Street, Seattle, WA" }).propertyName).toBe("Seattle, WA");
     expect(projectWorkOrderForHiredVendor(distinctive).propertyName).toBe("Proof House");
     const offered = projectWorkOrderForOfferedVendor({ ...distinctive, propertyAddress: "1 Main Street, Seattle, WA", offeredGeneralArea: "Untrusted House" });
-    expect(offered.offeredGeneralArea).toBe("Seattle");
-    expect(vendorVisibleGeneralArea(offered)).toBe("Seattle");
+    expect(offered.offeredGeneralArea).toBe("Seattle, WA");
+    expect(vendorVisibleGeneralArea(offered)).toBe("Seattle, WA");
     expect(vendorLeadMapsQuery(offered)).toContain("Seattle");
-    expect(vendorServiceWorkflowSteps(offered)[0]?.detail).toBe("Seattle");
+    expect(vendorServiceWorkflowSteps(offered)[0]?.detail).toBe("Seattle, WA");
     expect(vendorVisibleGeneralArea(distinctive)).toBe("Nearby");
   });
   it("an offered vendor also loses assignedRoomChoice", () => {

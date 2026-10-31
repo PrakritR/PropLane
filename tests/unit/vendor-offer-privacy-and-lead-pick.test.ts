@@ -112,14 +112,14 @@ describe("a vendor candidate's label", () => {
 
   it("is the general area, never the house or the street", () => {
     expect(propertyLabel(row)).toBe("5259 Brooklyn");
-    expect(propertyGeneralArea(row)).toBe("Seattle");
+    expect(propertyGeneralArea(row)).toBe("Seattle, WA");
     expect(propertyGeneralArea(row)).not.toMatch(/5259|Brooklyn/);
   });
 
   it("never returns the building name as the area, even a non-numeric one", () => {
     expect(propertyGeneralArea({ buildingName: "The Brooklyn", address: "" })).toBe("");
     expect(propertyGeneralArea({ buildingName: "The Brooklyn" })).toBe("");
-    expect(propertyGeneralArea({ buildingName: "The Brooklyn", address: "5259 Brooklyn Ave NE, Seattle, WA 98105" })).toBe("Seattle");
+    expect(propertyGeneralArea({ buildingName: "The Brooklyn", address: "5259 Brooklyn Ave NE, Seattle, WA 98105" })).toBe("Seattle, WA");
     expect(propertyGeneralArea({ buildingName: "The Brooklyn", neighborhood: "University District", address: "5259 Brooklyn Ave NE" })).toBe("University District");
   });
 

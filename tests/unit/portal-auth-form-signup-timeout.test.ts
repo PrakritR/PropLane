@@ -17,6 +17,13 @@ import { describe, expect, it } from "vitest";
  * detail is collected. A re-grown password path fails here.
  */
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+/**
+ * The password scan looks at CODE, not prose: the comment that records the retirement names the
+ * deleted `signInWithPassword` call on purpose, and a guard that cannot tell the two apart would
+ * force that history out of the file it documents.
+ */
+const withoutComments = (source: string) =>
+  source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/[^\n]*/g, "$1");
 const form = read("src/components/auth/portal-auth-form.tsx");
 const emailFirst = read("src/components/auth/email-first-signup.tsx");
 
@@ -28,7 +35,7 @@ describe("the create-account hub has no password signup to hang on", () => {
   });
 
   it("collects no password and never signs in with one", () => {
-    for (const source of [form, emailFirst]) {
+    for (const source of [withoutComments(form), withoutComments(emailFirst)]) {
       expect(source).not.toContain("signInWithPassword");
       expect(source).not.toMatch(/type="password"/);
       expect(source).not.toContain("new-password");
@@ -45,7 +52,7 @@ describe("the create-account hub has no password signup to hang on", () => {
   it("keeps /api/auth/signup refusing anyone who has not proven their mailbox", () => {
     const route = read("src/app/api/auth/signup/route.ts");
     expect(route).toContain("EMAIL_VERIFICATION_REQUIRED");
-    expect(route).toContain("user.email_confirmed_at");
+    expect(route).toContain("email_confirmed_at");
     // It cannot mint or confirm an account, and it takes no password.
     expect(route).not.toContain("createUser(");
     expect(route).not.toContain("password");

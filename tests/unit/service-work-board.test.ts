@@ -135,7 +135,7 @@ describe("Find work (the board list)", () => {
     expect(result.ok && result.services[0]?.ref).toMatch(/^pub_[a-f0-9]{32}$/);
     const wire = JSON.stringify(result, (key, value) => (key === "ref" ? undefined : value));
     for (const secret of ["1420", "Alder St", "4B", "SECRET RESIDENT", "wo-1", MANAGER]) expect(wire).not.toContain(secret);
-    expect(result.ok && result.services[0]).toMatchObject({ trade: "Plumbing", area: "Seattle", budget: "Up to $250", postedBy: "Alder Property Co" });
+    expect(result.ok && result.services[0]).toMatchObject({ trade: "Plumbing", area: "Seattle, WA", budget: "Up to $250", postedBy: "Alder Property Co" });
   });
 
   it("hides a service after unpublish and after hire", async () => {

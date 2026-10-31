@@ -185,15 +185,17 @@ for (const surface of SURFACES) {
 
   /**
    * The CAPABILITY is the stored `profile_roles` row; the active portal only says which of two
-   * capabilities a request is exercising. So an account that is simply NOT ACTING AS THE RESIDENT —
-   * no `axis_active_portal` cookie, or an admin+manager in the admin portal — reads as the manager
-   * it stores, scoped to its own id as always. That case used to be denied outright: a 403 on work
+   * capabilities a request is exercising. An admin+manager in the admin portal reads as the manager
+   * it stores, scoped to its own id as always — that case used to be denied outright: a 403 on work
    * orders, services and the lease pipeline outside `?oversight=admin`, against `AGENTS.md`
    * § "Admin borrows" ("a platform admin reads and writes as the manager they are").
    *
-   * Widening is still a decision that needs evidence, though. A context that CANNOT BE TRUSTED — the
-   * read threw, or its own role list disagrees with the stored roles — narrows to resident instead:
-   * absence of evidence must never buy the broader scope. The two groups below pin both halves.
+   * Widening is a decision that needs evidence, though, and the ACTIVE PORTAL has to supply it. A
+   * context that cannot be trusted — the read threw, or its own role list disagrees with the stored
+   * roles — and one that names no portal at all (`getPortalAccessContext` reports a null
+   * `effectiveRole` for every multi-role account with no valid `axis_active_portal` cookie) both
+   * narrow to resident: absence of an answer must never buy the broader scope. The groups below pin
+   * each half.
    */
   describe(`${surface.name} — portal context degraded to the legacy role`, () => {
     beforeEach(() => {
@@ -226,12 +228,12 @@ for (const surface of SURFACES) {
       EFFECTIVE_ROLE = null;
     });
 
-    it("reads as the manager it stores rather than denying the route", async () => {
+    it("narrows to the resident scope rather than widening on a missing answer", async () => {
       const res = await surface.load();
       expect(res.status).toBe(200);
       const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
-      expect(ids).toContain(MANAGER_ONLY_ROW.id);
-      expect(fetchRowsForManagerWithLinked).toHaveBeenCalled();
+      expect(ids).toEqual([RESIDENT_ROW.id]);
+      expect(fetchRowsForManagerWithLinked).not.toHaveBeenCalled();
     });
   });
 

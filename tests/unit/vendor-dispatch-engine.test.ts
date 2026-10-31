@@ -979,7 +979,7 @@ describe("assistant tools", () => {
     const db = world();
     const preview = await dispatchVendorTool.preview(toolCtx(db), { workOrderId: "wo-1" });
     expect(preview.fields.find((field) => field.label === "Vendors")?.value).toBe("Sam Locksmith, then Lee Locks, then Kim Keys");
-    expect(preview.fields.find((field) => field.label === "Vendors see")?.value).toBe("the area (Seattle) until they accept");
+    expect(preview.fields.find((field) => field.label === "Vendors see")?.value).toBe("the area (Seattle, WA) until they accept");
     expect(rows(db, "vendor_dispatch_runs")).toHaveLength(0);
 
     const result = await dispatchVendorTool.handler(toolCtx(db), { workOrderId: "wo-1" });

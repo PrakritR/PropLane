@@ -20,22 +20,27 @@ const resolvePaymentReminderCapability = vi.fn();
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser: () => getUser() } }),
 }));
+// `userHoldsManagerRole` filters on BOTH `user_id` and `role` before
+// `maybeSingle()`, so the stand-in has to stay chainable across any number of
+// `.eq()` calls rather than answering after exactly one.
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
-    from: (table: string) => ({
-      select: () => ({
-        eq: () => ({
-          maybeSingle: async () => ({
-            data:
-              table === "profiles"
-                ? { role: "manager", full_name: "Dana Doe", email: "dana@example.com", sms_from_number: "+15550100" }
-                : null,
-          }),
-          then: (resolve: (v: unknown) => unknown) =>
-            Promise.resolve({ data: table === "profile_roles" ? [{ role: "manager" }] : [] }).then(resolve),
-        }),
-      }),
-    }),
+    from: (table: string) => {
+      const row =
+        table === "profiles"
+          ? { role: "manager", full_name: "Dana Doe", email: "dana@example.com", sms_from_number: "+15550100" }
+          : table === "profile_roles"
+            ? { role: "manager" }
+            : null;
+      const query: Record<string, unknown> = {
+        select: () => query,
+        eq: () => query,
+        maybeSingle: async () => ({ data: row, error: null }),
+        then: (resolve: (v: unknown) => unknown) =>
+          Promise.resolve({ data: table === "profile_roles" ? [{ role: "manager" }] : [], error: null }).then(resolve),
+      };
+      return query;
+    },
   }),
 }));
 vi.mock("@/lib/payment-automation-server", () => ({

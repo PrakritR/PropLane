@@ -49,7 +49,9 @@ describe("manager partner-pricing create-account routing", () => {
 });
 
 describe("signup sign-in retry", () => {
-  const form = readFileSync(path.join(process.cwd(), "src/components/auth/portal-auth-form.tsx"), "utf8");
+  const raw = readFileSync(path.join(process.cwd(), "src/components/auth/portal-auth-form.tsx"), "utf8");
+  // The scan is on CODE: the file's own comment names the deleted call to record that it is gone.
+  const form = raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/[^\n]*/g, "$1");
 
   it("has no password sign-in to retry — the hub signs in by emailed link", () => {
     // `signInAfterSignup` existed because the hub created an account and then had to race GoTrue

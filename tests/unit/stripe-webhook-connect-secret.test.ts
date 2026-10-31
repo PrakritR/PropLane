@@ -115,12 +115,12 @@ describe("the webhook route with two endpoints", () => {
   });
 
   it("does not book an unpaid completed manager checkout", async () => {
-    const res = await webhook(signed({ id: "evt_unpaid", object: "event", type: "checkout.session.completed", data: { object: { id: "cs_unpaid", object: "checkout.session", status: "complete", payment_status: "unpaid", mode: "subscription", amount_total: 4900, metadata: { userId: "manager", tier: "pro" } } } }, PLATFORM));
+    const res = await webhook(signed({ id: "evt_unpaid", object: "event", type: "checkout.session.completed", data: { object: { id: "cs_unpaid", object: "checkout.session", status: "complete", payment_status: "unpaid", mode: "subscription", amount_total: 4900, metadata: { userId: "manager", manager_id: "manager", tier: "pro" } } } }, PLATFORM));
     expect(res.status).toBe(200);
     expect(spies.paidRecord).not.toHaveBeenCalled(); expect(spies.track).not.toHaveBeenCalled(); expect(spies.expense).not.toHaveBeenCalled();
   });
   it("processes a later asynchronous paid checkout", async () => {
-    const res = await webhook(signed({ id: "evt_paid", object: "event", type: "checkout.session.async_payment_succeeded", data: { object: { id: "cs_unpaid", object: "checkout.session", status: "complete", payment_status: "paid", mode: "subscription", amount_total: 4900, metadata: { tier: "pro" } } } }, PLATFORM));
+    const res = await webhook(signed({ id: "evt_paid", object: "event", type: "checkout.session.async_payment_succeeded", data: { object: { id: "cs_unpaid", object: "checkout.session", status: "complete", payment_status: "paid", mode: "subscription", amount_total: 4900, metadata: { manager_id: "manager", tier: "pro" } } } }, PLATFORM));
     expect(res.status).toBe(200);
     expect(spies.paidRecord).toHaveBeenCalledWith(expect.objectContaining({ id: "cs_unpaid", payment_status: "paid" }));
   });
