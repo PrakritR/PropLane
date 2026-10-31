@@ -51,11 +51,10 @@ export async function resolveClientPostAuthDestination(
   if (safeNext && isValidPostAuthDestination(safeNext)) return safeNext;
 
   const email = user.email?.trim().toLowerCase() ?? "";
-  const [{ data: roleRows }, { data: profile }] = await Promise.all([
-    supabase.from("profile_roles").select("role").eq("user_id", user.id),
-    supabase.from("profiles").select("role").eq("id", user.id).maybeSingle(),
-  ]);
-  const roles = normalizePortalRoles(roleRows, profile?.role);
+  // Roles come only from stored profile_roles rows: the legacy singular profiles.role is the role the
+  // account was created as, never a grant.
+  const { data: roleRows } = await supabase.from("profile_roles").select("role").eq("user_id", user.id);
+  const roles = normalizePortalRoles(roleRows, null);
   if (roles.length === 1) return portalDashboardPath(roles[0]!);
   if (roles.length > 1) {
     if (isPrimaryAdminEmail(email) && roles.includes("manager")) {
@@ -64,7 +63,7 @@ export async function resolveClientPostAuthDestination(
     }
     return "/auth/choose-portal";
   }
-  if (isPrimaryAdminEmail(email)) return portalDashboardPath("admin");
+  // A zero-role account lands on get-started whoever it is: the primary admin address is not a role grant.
   return GET_STARTED_PATH;
 }
 

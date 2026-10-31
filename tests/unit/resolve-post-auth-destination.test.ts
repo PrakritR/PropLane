@@ -55,3 +55,43 @@ describe("resolvePostAuthDestination allowlist", () => {
     },
   );
 });
+
+describe("resolveClientPostAuthDestination roles come only from profile_roles", () => {
+  function fakeSupabase(email: string, roleRows: { role: string }[], profileRole: string | null) {
+    return {
+      auth: { getUser: async () => ({ data: { user: { id: "user-1", email } } }) },
+      from: (table: string) => {
+        const result =
+          table === "profile_roles"
+            ? { data: roleRows, error: null }
+            : { data: profileRole ? { role: profileRole } : null, error: null };
+        const chain: Record<string, unknown> = {};
+        chain.select = () => chain;
+        chain.eq = () => (table === "profile_roles" ? Promise.resolve(result) : chain);
+        chain.maybeSingle = async () => result;
+        return chain;
+      },
+    } as never;
+  }
+
+  it("ignores the legacy profiles.role when profile_roles is empty", async () => {
+    const mod = await import("@/lib/auth/resolve-post-auth-destination");
+    const dest = await mod.resolveClientPostAuthDestination(fakeSupabase("someone@example.com", [], "manager"), "");
+    expect(dest).toBe("/auth/get-started");
+    expect(dest).not.toBe("/portal/dashboard");
+  });
+
+  it("routes a zero-role primary-admin email to get-started, never the admin portal", async () => {
+    const mod = await import("@/lib/auth/resolve-post-auth-destination");
+    const { PRIMARY_ADMIN_EMAIL } = await import("@/lib/auth/primary-admin");
+    const dest = await mod.resolveClientPostAuthDestination(fakeSupabase(PRIMARY_ADMIN_EMAIL, [], null), "");
+    expect(dest).toBe("/auth/get-started");
+    expect(dest).not.toBe("/admin/dashboard");
+  });
+
+  it("still routes a stored manager role to the manager portal", async () => {
+    const mod = await import("@/lib/auth/resolve-post-auth-destination");
+    const dest = await mod.resolveClientPostAuthDestination(fakeSupabase("m@example.com", [{ role: "manager" }], null), "");
+    expect(dest).toBe("/portal/dashboard");
+  });
+});

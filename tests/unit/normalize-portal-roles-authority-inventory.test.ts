@@ -52,13 +52,10 @@ roles(\n rows,\n null\n); portal.normalizePortalRoles(rows, user.role);`;
 it("keeps legacy role fallback confined to reviewed display and navigation", () => {
   const root = join(process.cwd(), "src");
   const exceptions: Record<string, Array<{ owner: string; call: string }>> = {
-    // These exact calls support contact autofill and client post-auth navigation only.
+    // These exact calls support contact autofill only; client post-auth navigation reads stored profile_roles alone.
     "hooks/use-prospect-contact-autofill.ts": [
       { owner: "sync", call: "normalizePortalRoles(roleRows, profile?.role ?? user.user_metadata?.role)" },
       { owner: "sync", call: "normalizePortalRoles(null, meta?.role)" },
-    ],
-    "lib/auth/resolve-post-auth-destination.ts": [
-      { owner: "resolveClientPostAuthDestination", call: "normalizePortalRoles(roleRows, profile?.role)" },
     ],
   };
   function scan(dir: string): void {
