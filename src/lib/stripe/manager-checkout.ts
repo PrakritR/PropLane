@@ -41,14 +41,112 @@ type ReservedManagerPurchase = {
   user_id?: string;
 };
 
+type PriorReservation = {
+  id: string;
+  user_id: string | null;
+  email: string | null;
+  stripe_checkout_session_id: string | null;
+};
+
+type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
+type Refusal = { ok: false; status: number; error: string };
+
+const CHECKOUT_RACE_REFUSAL: Refusal = {
+  ok: false,
+  status: 409,
+  error: "Another checkout already started for this account. Refresh and try again.",
+};
+const CHECKOUT_UNCERTAIN_REFUSAL: Refusal = {
+  ok: false,
+  status: 503,
+  error: "Your earlier checkout could not be confirmed closed. Please try again in a moment.",
+};
+
+/**
+ * One reservation row per manager id holds the ONE checkout that may be paid. Replacing it is a
+ * compare-and-swap on the session id this caller read, never an unconditional overwrite: a second
+ * writer that read the same row loses and its session is expired before it is ever returned.
+ *
+ * Returns "reserved" or "lost"; a database error throws.
+ */
 async function reserveManagerCheckoutSession(
-  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  db: Db,
   reservation: ReservedManagerPurchase,
-): Promise<void> {
-  const { error } = await db.from("manager_purchases").upsert(reservation, {
-    onConflict: "manager_id",
-  });
+  prior: PriorReservation | null,
+): Promise<"reserved" | "lost"> {
+  if (prior) {
+    let query = db
+      .from("manager_purchases")
+      .update({
+        stripe_checkout_session_id: reservation.stripe_checkout_session_id,
+        email: reservation.email,
+        full_name: reservation.full_name,
+        ...(reservation.user_id ? { user_id: reservation.user_id } : {}),
+      })
+      .eq("id", prior.id)
+      .eq("manager_id", reservation.manager_id);
+    query = prior.stripe_checkout_session_id
+      ? query.eq("stripe_checkout_session_id", prior.stripe_checkout_session_id)
+      : query.is("stripe_checkout_session_id", null);
+    const { data, error } = await query.select("id").maybeSingle();
+    if (error) throw new Error("Could not reserve manager checkout ownership.");
+    return data?.id ? "reserved" : "lost";
+  }
+  // No row yet: insert-if-absent. A concurrent first-time creator that got there first wins and
+  // this insert is ignored (zero rows back).
+  const { data, error } = await db
+    .from("manager_purchases")
+    .upsert(reservation, { onConflict: "manager_id", ignoreDuplicates: true })
+    .select("id");
   if (error) throw new Error("Could not reserve manager checkout ownership.");
+  return Array.isArray(data) && data.length > 0 ? "reserved" : "lost";
+}
+
+/**
+ * Close the previously reserved session before it is replaced. The old URL/secret was handed out, so
+ * it stays payable until Stripe says otherwise: only a confirmed `expired` lets the replacement go on.
+ * A complete session (paid, or complete but still settling) is never overwritten, and any error or
+ * unexpected state refuses the new checkout rather than assuming the old one is closed.
+ */
+async function closePriorCheckoutSession(
+  stripe: ReturnType<typeof getStripe>,
+  priorSessionId: string,
+  managerId: string,
+): Promise<Refusal | null> {
+  // Not a Stripe session (a pending placeholder): nothing payable to close.
+  if (!priorSessionId.startsWith("cs_")) return null;
+  const retrieve = async () => {
+    try {
+      return await stripe.checkout.sessions.retrieve(priorSessionId);
+    } catch {
+      return null;
+    }
+  };
+  const prior = await retrieve();
+  if (!prior) return CHECKOUT_UNCERTAIN_REFUSAL;
+  if (prior.metadata?.manager_id !== managerId) {
+    return { ok: false, status: 409, error: "An earlier subscription checkout needs reconciliation." };
+  }
+  if (prior.status === "expired") return null;
+  if (prior.status === "complete") {
+    return {
+      ok: false,
+      status: 409,
+      error:
+        prior.payment_status === "paid" || prior.payment_status === "no_payment_required"
+          ? "Your previous subscription payment completed. Refresh to see your plan."
+          : "Your previous subscription payment is still processing.",
+    };
+  }
+  if (prior.status !== "open") return CHECKOUT_UNCERTAIN_REFUSAL;
+  try {
+    const expired = await stripe.checkout.sessions.expire(priorSessionId);
+    if (expired?.status === "expired") return null;
+  } catch {
+    // Fall through to a confirming read: a concurrent writer may have expired it already.
+  }
+  const confirmed = await retrieve();
+  return confirmed?.status === "expired" ? null : CHECKOUT_UNCERTAIN_REFUSAL;
 }
 
 export async function createManagerCheckoutSession(input: ManagerCheckoutInput): Promise<ManagerCheckoutResult> {
@@ -167,6 +265,25 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
   // Stripe refuses a session that has both, so that one link skips the field.
   const allowPromotionCodes = !autoFirstMonthFree;
 
+  // The reservation row this checkout will replace. It must belong to the same account: a row bound to a
+  // login is never taken by a caller without that login, and an email other than the reserved one is refused.
+  const { data: priorRow, error: priorError } = await db
+    .from("manager_purchases")
+    .select("id,user_id,email,stripe_checkout_session_id")
+    .eq("manager_id", managerId)
+    .maybeSingle();
+  if (priorError) throw new Error("Could not verify manager checkout ownership.");
+  const prior = (priorRow as PriorReservation | null) ?? null;
+  if (prior) {
+    const priorUser = String(prior.user_id ?? "").trim();
+    const priorEmail = String(prior.email ?? "").trim().toLowerCase();
+    if ((priorUser && priorUser !== userId) || (priorEmail && priorEmail !== normalizedEmail.toLowerCase())) {
+      return { ok: false, status: 409, error: "This account's checkout needs to be reconciled before it can start again." };
+    }
+    const closed = await closePriorCheckoutSession(stripe, String(prior.stripe_checkout_session_id ?? "").trim(), managerId);
+    if (closed) return closed;
+  }
+
   const sessionBase = buildManagerSubscriptionCheckoutBase({
     priceId: price,
     metadata,
@@ -179,14 +296,32 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
 
   const returnTarget = userId ? "manager-oauth-finish" : "manager-id";
   const finishPath = `/auth/${returnTarget}?session_id={CHECKOUT_SESSION_ID}`;
-  const reserve = (sessionId: string) =>
-    reserveManagerCheckoutSession(db, {
-      stripe_checkout_session_id: sessionId,
-      email: normalizedEmail,
-      manager_id: managerId,
-      full_name: fullName || null,
-      ...(userId ? { user_id: userId } : {}),
-    });
+  // Reserve before exposing anything. On a database error or a lost race the new session is expired and
+  // an error returned, so no open session is ever left that the caller was not given.
+  const reserve = async (sessionId: string): Promise<Refusal | null> => {
+    let outcome: "reserved" | "lost";
+    try {
+      outcome = await reserveManagerCheckoutSession(
+        db,
+        {
+          stripe_checkout_session_id: sessionId,
+          email: normalizedEmail,
+          manager_id: managerId,
+          full_name: fullName || null,
+          ...(userId ? { user_id: userId } : {}),
+        },
+        prior,
+      );
+    } catch {
+      await stripe.checkout.sessions.expire(sessionId).catch(() => undefined);
+      return { ok: false, status: 500, error: "Could not reserve manager checkout ownership." };
+    }
+    if (outcome === "lost") {
+      await stripe.checkout.sessions.expire(sessionId).catch(() => undefined);
+      return CHECKOUT_RACE_REFUSAL;
+    }
+    return null;
+  };
 
   if (useEmbedded) {
     const session = await stripe.checkout.sessions.create({
@@ -197,12 +332,14 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
 
     const clientSecret = session.client_secret;
     if (!clientSecret) {
+      await stripe.checkout.sessions.expire(session.id).catch(() => undefined);
       return { ok: false, status: 500, error: "Stripe did not return a client secret for embedded checkout." };
     }
 
     // Persist the durable session-to-owner mapping before exposing the client
     // secret. Tier and billing remain absent until the signed completion event.
-    await reserve(session.id);
+    const refused = await reserve(session.id);
+    if (refused) return refused;
 
     return { ok: true, embedded: true, clientSecret, sessionId: session.id };
   }
@@ -215,13 +352,15 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
   } as Parameters<typeof stripe.checkout.sessions.create>[0]);
 
   if (!session.url) {
+    await stripe.checkout.sessions.expire(session.id).catch(() => undefined);
     return { ok: false, status: 500, error: "Stripe did not return a checkout URL." };
   }
 
   // Hosted Checkout reaches the same completion webhook as embedded Checkout.
   // It must therefore reserve the exact same durable owner mapping before the
   // browser receives a URL that can collect payment.
-  await reserve(session.id);
+  const refused = await reserve(session.id);
+  if (refused) return refused;
 
   return { ok: true, embedded: false, url: session.url, sessionId: session.id };
 }
