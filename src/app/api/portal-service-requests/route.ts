@@ -11,6 +11,7 @@ import {
 } from "@/lib/auth/co-manager-module-scope";
 import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
@@ -84,6 +85,9 @@ export async function GET(req: Request) {
     // or share via co-manager services access — catches mis-stamped manager_user_id
     // as long as property_id is correct.
     if (!oversight && role !== "resident") {
+      // A manager surface: the shared owner-only seam is asked before any manager read or write.
+      const ownerRefusal = await refuseOwnerOnly(db, user.id);
+      if (ownerRefusal) return ownerRefusal;
       // Heal orphans for this manager's residents before listing (wrong/empty
       // manager_user_id on older client-mirrored rows). TTL-gated so nav-count
       // polls and repeat page loads don't re-run the per-resident sweep.
@@ -213,6 +217,10 @@ export async function POST(req: Request) {
       role,
     };
     const isManagerActor = !oversight && role !== "resident";
+    if (isManagerActor) {
+      const ownerRefusal = await refuseOwnerOnly(db, user.id);
+      if (ownerRefusal) return ownerRefusal;
+    }
     // The active workspace refuses a write outside it: a create must land in
     // it, an update/delete must refuse a row outside it. Residents and admins
     // are never narrowed by a manager's workspace.

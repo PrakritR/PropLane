@@ -104,6 +104,10 @@ describe("direct shared-sender (RESEND_FROM) references are classified", () => {
     "src/app/api/auth/password-reset/route.ts",
     "src/app/api/auth/resident-setup-link/route.ts",
     "src/app/api/auth/vendor-register/route.ts",
+    // Email-first onboarding link: platform auth mail to an address that has no workspace yet.
+    "src/app/api/auth/email-onboarding/start/route.ts",
+    // Reads the platform auth sender only to check its domain at the provider; sends nothing.
+    "src/app/api/internal/auth-email-sender-health/route.ts",
     "src/lib/auth/account-recovery.server.ts",
     "src/lib/test-workspaces/deliver-auth-invite.server.ts",
     // Alerts and receipts TO the manager / the user themself.

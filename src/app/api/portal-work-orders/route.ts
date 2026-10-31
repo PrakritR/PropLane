@@ -14,6 +14,7 @@ import { managerScopedPropertyIds } from "@/lib/work-order-record-access.server"
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveResidentFilingScope } from "@/lib/resident-manager-scope";
@@ -161,6 +162,9 @@ export async function GET(req: Request) {
     }
 
     if (!oversight && role !== "resident") {
+      // A manager surface: the shared owner-only seam is asked before any manager read or write.
+      const ownerRefusal = await refuseOwnerOnly(db, user.id);
+      if (ownerRefusal) return ownerRefusal;
       // Heal orphans for this manager's residents before listing. TTL-gated so
       // nav-count polls and repeat page loads don't re-run the sweep.
       // (Skipped while an operator is viewing as this account: a read-only session writes nothing.)
@@ -461,6 +465,10 @@ export async function POST(req: Request) {
     }
 
     const isManagerActor = !oversight && actor.role !== "resident";
+    if (isManagerActor) {
+      const ownerRefusal = await refuseOwnerOnly(db, user.id);
+      if (ownerRefusal) return ownerRefusal;
+    }
     // The active workspace refuses a write outside it: a create must land in
     // it, an update/delete of an OWNED row must refuse a row outside it. The
     // legacy "claimable, unassigned" bucket in `actorMayWriteRecord` below is

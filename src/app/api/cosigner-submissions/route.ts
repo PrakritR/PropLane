@@ -7,6 +7,7 @@ import { managerCanAccessApplicationRecord } from "@/lib/auth/manager-applicatio
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 
 export const runtime = "nodejs";
 
@@ -40,7 +41,13 @@ export async function GET(req: Request) {
       const rowData = appRow.row_data && typeof appRow.row_data === "object" && !Array.isArray(appRow.row_data)
         ? appRow.row_data as Record<string, unknown> : {};
       const residentOwns = roles.includes("resident") && rowData.residentUserId === user.id;
-      const managerOwns = roles.includes("manager") && await managerCanAccessApplicationRecord(db, user.id, appRow);
+      const managerRole = roles.includes("manager");
+      // The manager branch asks the shared owner-only seam before it reads anything for a manager.
+      if (managerRole) {
+        const ownerRefusal = await refuseOwnerOnly(db, user.id);
+        if (ownerRefusal) return ownerRefusal;
+      }
+      const managerOwns = managerRole && await managerCanAccessApplicationRecord(db, user.id, appRow);
       const allowed = residentOwns || managerOwns;
       fullAccess = managerOwns;
       if (!allowed) return NextResponse.json({ error: "Forbidden." }, { status: 403 });

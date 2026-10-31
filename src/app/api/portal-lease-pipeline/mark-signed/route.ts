@@ -11,6 +11,7 @@ import { queueHouseChatSyncForProperty } from "@/lib/house-chat/sync.server";
 import { leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
 import { normalizeLeasePipelineRow, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { syncLeaseLifecycleTasks } from "@/lib/manager-default-tasks.server";
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -82,6 +83,10 @@ export async function POST(req: Request) {
     if (role !== "manager" && role !== "admin") {
       return NextResponse.json({ error: "Only a manager can mark a lease as signed." }, { status: 403 });
     }
+
+    // A manager-only write: the shared owner-only seam is asked after the role gate.
+    const ownerRefusal = await refuseOwnerOnly(db, user.id);
+    if (ownerRefusal) return ownerRefusal;
 
     const body = (await req.json().catch(() => ({}))) as MarkSignedBody;
     const leaseId = typeof body.leaseId === "string" ? body.leaseId.trim() : "";

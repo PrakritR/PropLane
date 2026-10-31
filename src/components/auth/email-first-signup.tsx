@@ -104,7 +104,7 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
   if (sent) return <div className="space-y-3"><h1 className="text-xl font-semibold">Check your email</h1><p role="status">Check your email for a link to continue.</p><Button type="button" variant="ghost" onClick={() => setSent(false)}>Use another email</Button></div>;
   return <div className="space-y-3">
     <h1 className="text-xl font-semibold">{verifiedEmail ? completionHeading[intent] : heading[intent]}</h1>
-    {!verifiedEmail ? <>{intent !== "manager_paid" && intent !== "tour" ? social ?? <OAuthSocialStack nextPath={oauthNextPath} intent={intent === "generic" ? null : intent} disabled={busy || disabled} /> : null}<label className="block text-sm">Email<Input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy || disabled} /></label></> : <>
+    {!verifiedEmail ? <>{intent !== "manager_paid" && intent !== "tour" ? social ?? <OAuthSocialStack nextPath={oauthNextPath} intent={intent === "generic" ? null : intent} disabled={busy || disabled} /> : null}<label className="block text-sm">Email<Input type="email" autoComplete="email" autoCapitalize="none" inputMode="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy || disabled} /></label></> : <>
       <p>Verified email: {verifiedEmail}</p>
       <><label className="block text-sm">Full name<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy || disabled} /></label><label className="block text-sm" htmlFor={phoneId}>Phone</label><PhoneNumberField id={phoneId} value={phone} onChange={setPhone} disabled={busy || disabled} /></>
     </>}
