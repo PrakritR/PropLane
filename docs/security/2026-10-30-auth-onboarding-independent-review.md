@@ -311,9 +311,9 @@ Three further rounds answered the independent review of this candidate. **No mig
   `resident_email` against `ctx.user.email`, which resolves to the `profiles.email` column, not the
   verified Auth address this release introduced `verifiedSessionEmail()` for; profile drift would
   have failed that gate OPEN. The fallback is now scoped by identity, not by address: an unbound
-  `sent` row blocks when its `application_id` is one of the `applicationIds` the request is already
-  about (the lease being signed plus its joint members), and no address is read at all. Such a row is
-  never named in `formIds`, so it restricts without disclosing itself.
+  `sent` row blocks when its `application_id` is one of the `ownApplicationIds` the request is
+  already about — the applications THIS login is itself tied to — and no address is read at all.
+  Such a row is never named in `formIds`, so it restricts without disclosing itself.
 
   **One notion of application-id equality, for both halves of the read.** A seventh round closed the
   last hole in that scope: the filter sent the lease's ids into `application_id.in.(…)`, an exact
@@ -339,11 +339,25 @@ Three further rounds answered the independent review of this candidate. **No mig
   cohort by construction and caught only the residue where an application gained its subject after
   the send. `residentBoundApplicationIds` now takes the union of two stored-subject arms — the
   application rows bound to this login, AND the applications named by a `portal_lease_pipeline_records`
-  row whose `resident_user_id` is this login (`axisId` plus every joint member's `applicationId`,
-  through the same normalized id scope). The second arm is the one that reaches the real cohort: the
-  application never got a subject, but the lease the same resident signed names it. Neither arm reads
-  an address. An unbound row never sets `hasForms` and is never named, so it restricts without
-  unlocking a Forms section it still cannot open.
+  row whose `resident_user_id` is this login (its primary `axisId`, through the same normalized id
+  scope). The second arm is the one that reaches the real cohort: the application never got a
+  subject, but the lease the same resident signed names it. Neither arm reads an address. An unbound
+  row never sets `hasForms` and is never named, so it restricts without unlocking a Forms section it
+  still cannot open.
+
+  **A joint member's application is never part of the unbound scope.** A ninth round found the lease
+  arm had folded in `jointLeaseMembers[].applicationId`. For a BOUND row that is harmless — the read
+  is still pinned to `resident_user_id = who.userId`, so another member's id can only ever match
+  this resident's own copies, which is the invariant `leaseApplicationIds` documents. An UNBOUND row
+  has no subject to pin, so the same list let co-applicant B's unanswered `Blocks: lease signing`
+  form refuse resident A's signature with `formId: null` (an unbound row is never `nameable`): A saw
+  "Finish your forms first" with no form to open and no action that could clear it, and A's
+  move-in-details lock closed on B's form. The two scopes are now separate inputs.
+  `leaseOwnApplicationIds` returns the lease row's primary `axisId` and only when the row's own
+  stored subject IS this login; `loadResidentBlockingForms` takes it as `ownApplicationIds` and it is
+  the ONLY scope that admits an unbound row, while `applicationIds` keeps the full list for the
+  property-OR narrowing of bound rows. `residentBoundApplicationIds` contributes the same single
+  primary id per lease row. A resident is never gated by a form only their co-applicant can submit.
 
   **One read path, and every read behind it fails closed.** That scope used to be a second
   `row_data->>residentUserId` scan of `manager_application_records` — an unindexed JSONB expression —
@@ -354,12 +368,18 @@ Three further rounds answered the independent review of this candidate. **No mig
   `loadResidentFormsFacts` the scope it already has; the self-reading path remains only for the one
   caller that has nothing loaded (`loadMoveInDetailsLock`, the SMS harness). Every read behind the
   answer fails CLOSED: an application- or lease-read error is passed as `null`, which locks rather
-  than reading as "bound to nothing", and the forms read no longer goes through `tableMissing` —
-  unlike the manager-facing readers, a missing or schema-cache-stale forms table locks this gate,
-  because an unreadable gate is a locked gate.
+  than reading as "bound to nothing".
+
+  **One error rule for the whole module.** `tableMissing` is gone: `loadResidentBlockingForms` and
+  `loadApplicationBlockingForms` treated a 42P01 or PGRST205 as "the feature is not set up here,
+  so nothing blocks", which is a fail-OPEN on a transient schema-cache error against a table that
+  ships with the move-in form migrations and exists in every environment. Every reader here now
+  blocks on any read error, and the module header states that one rule instead of the split it
+  used to promise.
 
   **Accepted limitation:** a lease row that names no application at all (no `axisId`, no joint
-  members) has no unbound-form scope, so only subject-bound forms block its signing — and the same
+  members, or one whose stored subject is a co-applicant rather than the signer) has no
+  unbound-form scope, so only subject-bound forms block its signing — and the same
   resident has no lease-side arm for the move-in-details lock either, so an unbound form reached by
   neither a bound application nor an application-naming lease stays manager-only, as
   "pre-release unbound rows stay manager-only by design" allows. Narrowing by the lease's property
@@ -369,12 +389,13 @@ Three further rounds answered the independent review of this candidate. **No mig
   `move-in-forms-blocking.test.ts` pins: unbound-for-this-application blocks, unbound-for-another
   does not, own-subject blocks and is named, other-subject does not, no application scope does not,
   a `Blocks: nothing` form does not, every `AXIS-`/`PROPLANE-`/lowercase spelling pairing matches
-  with exactly one `ilike` term per normalized id and the filter never uses an exact `in`, the facts
-  read locks move-in details for an unbound row reached through a bound application, through a
-  lease's `axisId` and through a joint member's `applicationId` but not through anyone else's, a
-  handed-in scope costs no extra read while a handed-in `null` locks, every read behind the answer
-  (application, lease, forms — including a 42P01 or PGRST205 forms table) locks, and every outcome
-  is identical whatever address the caller carries.
+  with exactly one `ilike` term per normalized id and the filter never uses an exact `in`, a
+  co-applicant's unbound form neither blocks nor locks the other resident while the signer's own
+  does (and the co-applicant's id never even reaches the filter), the facts read locks move-in
+  details for an unbound row reached through a bound application and through a lease's own `axisId`
+  but not through anyone else's, a handed-in scope costs no extra read while a handed-in `null`
+  locks, every read behind every reader (application, lease, forms — a 42P01 or PGRST205 included)
+  locks, and every outcome is identical whatever address the caller carries.
 - **The manager-plan checkout branch is classified positively.** `isManagerPlanCheckout` re-derived the
   webhook's `else` fall-through by subtracting a hand-copied list of the ten named purposes, so a new
   `purpose` branch added without touching that list became a manager plan purchase. One shared module

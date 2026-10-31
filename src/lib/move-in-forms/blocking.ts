@@ -9,8 +9,12 @@
  *
  * Only a `sent` copy blocks: a submitted or cancelled one never does. The readers below are the one
  * place that rule lives, so the resident access state, the lease route and the approve route can
- * never disagree. A read that fails is treated as blocking (fail closed) wherever a decision rides
- * on it; a missing table means the feature is not set up in this environment, which blocks nothing.
+ * never disagree.
+ *
+ * ONE error rule, for every reader here: a read that does not come back blocks. That includes a
+ * missing or schema-cache-stale table — this table ships with the move-in form migrations, so an
+ * unreadable one is an outage, not an environment without the feature, and an unreadable gate is a
+ * locked gate.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { proplaneIdLookupVariants } from "@/lib/manager-id";
@@ -122,11 +126,6 @@ function applicationIdMatchTerm(patterns: readonly string[]): string {
   return terms.length === 1 ? terms[0]! : `or(${terms.join(",")})`;
 }
 
-function tableMissing(error: { code?: string; message?: string }): boolean {
-  const message = (error.message ?? "").toLowerCase();
-  return error.code === "PGRST205" || error.code === "42P01" || message.includes("schema cache") || (message.includes("relation") && message.includes("does not exist"));
-}
-
 const SELECT = "id, form_id, status, sent_at, snapshot, resident_user_id, application_id";
 /** The same read plus the two columns a caller-scope test needs. */
 const SCOPED_SELECT = `${SELECT}, manager_user_id, property_id`;
@@ -136,8 +135,10 @@ export type BlockingFormOwnership = { manager_user_id: string | null; property_i
 
 /**
  * The application ids a lease row belongs to (its primary application and every joint member's), for
- * `loadResidentBlockingForms({ applicationIds })`. The forms read is already pinned to the signing
- * resident's own user id, so another member's id can only ever match that resident's own copies.
+ * `loadResidentBlockingForms({ applicationIds })`. Every row this admits is still pinned to the
+ * signing resident's own user id, so another member's id can only ever match that resident's own
+ * copies. An UNBOUND row carries no subject to pin, so it is scoped by `leaseOwnApplicationIds`
+ * instead — never by this list.
  */
 export function leaseApplicationIds(row: {
   axisId?: string | null;
@@ -149,16 +150,35 @@ export function leaseApplicationIds(row: {
 }
 
 /**
+ * The ONE application a lease row names for this login: its primary `axisId`, and only when the
+ * row's own stored subject IS that login. This is the only lease-side id an unbound form may be
+ * scoped by. A joint member's application never qualifies: an unbound form on it is a form only the
+ * co-applicant can submit and that nobody can even name back (an unbound row is never `nameable`),
+ * so gating this resident on it would be a refusal they have no way to clear.
+ */
+export function leaseOwnApplicationIds(
+  lease: { residentUserId?: string | null; axisId?: string | null } | null | undefined,
+  viewerUserId: string | null | undefined,
+): string[] {
+  const viewer = (viewerUserId ?? "").trim();
+  const owner = (lease?.residentUserId ?? "").trim();
+  if (!viewer || owner !== viewer) return [];
+  const id = typeof lease?.axisId === "string" ? lease.axisId.trim() : "";
+  return id ? [id] : [];
+}
+
+/**
  * A resident's blocking forms use their authenticated user id. Manager approval callers without a
  * user id retain the historical email lookup. `propertyId` narrows to one house; omitted = every house.
  *
  * A block is a RESTRICTION, so the subject test fails closed — but only within an exact scope the
  * caller already authorized. A `sent` form still waiting for its application's subject to be proven
- * (`resident_user_id` null) blocks when it belongs to one of the `applicationIds` this request is
- * about (the lease being signed and its joint members), never because an address matches: an
- * address is not proof of control, and `profiles.email` is not even mailbox proof. Without
- * `applicationIds` no unbound row is considered at all. Such a row is never named in `formIds`: the
- * resident cannot open it until the setup invitation binds it, so pointing at it would be a dead end.
+ * (`resident_user_id` null) blocks when it belongs to one of the `ownApplicationIds` — the
+ * applications THIS login is itself tied to — never because an address matches (an address is not
+ * proof of control, and `profiles.email` is not even mailbox proof) and never because a co-applicant
+ * on the same lease is tied to it. Without `ownApplicationIds` no unbound row is considered at all.
+ * Such a row is never named in `formIds`: the resident cannot open it until the setup invitation
+ * binds it, so pointing at it would be a dead end.
  *
  * `callerHolds` is for a MANAGER asking about someone else's resident: only forms the caller may judge
  * by count, so another landlord's form neither blocks this manager nor reveals itself. A predicate
@@ -171,12 +191,18 @@ export async function loadResidentBlockingForms(
     userId?: string | null;
     propertyId?: string | null;
     /**
-     * Every spelling of the application ids the lease in question belongs to. With `propertyId`, a form
-     * counts when it is for that property OR is tied to one of these applications, so a lease row whose
-     * stored property id is stale or mismatched can never open the gate for a form that is plainly
-     * this resident's for this lease.
+     * Every application the lease in question belongs to, its joint members included. With
+     * `propertyId`, a form counts when it is for that property OR is tied to one of these
+     * applications, so a lease row whose stored property id is stale or mismatched can never open
+     * the gate for a form that is plainly this resident's for this lease. Every row this admits is
+     * still pinned to `userId`.
      */
     applicationIds?: readonly string[];
+    /**
+     * The applications this login is itself tied to (`leaseOwnApplicationIds`). An UNBOUND row has
+     * no subject to pin, so this — never `applicationIds` — is the only scope that admits one.
+     */
+    ownApplicationIds?: readonly string[];
     callerHolds?: (form: BlockingFormOwnership) => Promise<boolean>;
   },
 ): Promise<BlockingFormsPending> {
@@ -184,21 +210,22 @@ export async function loadResidentBlockingForms(
   if (!who.userId && !email) return NO_BLOCKING_FORMS;
   try {
     const scope = applicationIdScope(who.applicationIds);
+    const ownScope = applicationIdScope(who.ownApplicationIds);
     // With application ids the property narrowing moves in memory: it is an OR with the application match.
     const orScope = Boolean(who.propertyId) && scope.patterns.length > 0;
     let query = db.from("resident_move_in_forms").select(who.callerHolds || orScope ? SCOPED_SELECT : SELECT).eq("status", "sent");
     query = who.userId
-      ? scope.patterns.length
-        ? query.or(`resident_user_id.eq.${who.userId},and(resident_user_id.is.null,${applicationIdMatchTerm(scope.patterns)})`)
+      ? ownScope.patterns.length
+        ? query.or(`resident_user_id.eq.${who.userId},and(resident_user_id.is.null,${applicationIdMatchTerm(ownScope.patterns)})`)
         : query.eq("resident_user_id", who.userId)
       : query.eq("resident_email", email);
     if (who.propertyId && !orScope) query = query.eq("property_id", who.propertyId);
     const { data, error } = await query;
-    if (error) return tableMissing(error) ? NO_BLOCKING_FORMS : BLOCKING_FORMS_FAIL_CLOSED;
+    if (error) return BLOCKING_FORMS_FAIL_CLOSED;
     let rows = ((data ?? []) as unknown as Array<BlockingRow & { resident_user_id?: string | null; manager_user_id?: string | null; property_id?: string | null; application_id?: string | null }>)
       .filter((row) => !who.userId
         || row.resident_user_id === who.userId
-        || (!row.resident_user_id && scope.keys.has(applicationIdKey(row.application_id))))
+        || (!row.resident_user_id && ownScope.keys.has(applicationIdKey(row.application_id))))
       .map((row) => (who.userId && !row.resident_user_id ? { ...row, nameable: false } : row));
     if (orScope) {
       rows = rows.filter((row) => row.property_id === who.propertyId || scope.keys.has(applicationIdKey(row.application_id)));
@@ -248,11 +275,12 @@ function factsRowAsBlockingRow(row: FormsFactsRow, nameable = true): BlockingRow
 
 /**
  * Every application this login is bound to by a STORED subject, and nothing else: the application
- * rows whose own `row_data.residentUserId` is this login, plus the applications named by a lease
+ * rows whose own `row_data.residentUserId` is this login, plus the primary application of a lease
  * row whose `resident_user_id` is this login. The second arm is what reaches the real cohort — a
  * form is unbound only because its application was unbound when it was sent, so an
  * application-subject-only scope excludes that cohort by construction, while the signed lease the
- * same resident holds still names it. No address is read on either arm.
+ * same resident holds still names it. No address is read on either arm, and no joint member's
+ * application is: an unbound form on a co-applicant's application is one only they can submit.
  *
  * `null` means a read failed; every caller turns that into a refusal, never an empty scope.
  */
@@ -273,8 +301,10 @@ export async function residentBoundApplicationIds(db: SupabaseClient, userId: st
     add(row.id);
     add(row.row_id);
   }
-  for (const row of (leases.data ?? []) as { row_data?: unknown }[]) {
-    for (const id of leaseApplicationIds(row.row_data as Parameters<typeof leaseApplicationIds>[0])) add(id);
+  // Already pinned to this login by the query, so the row's own primary application is this
+  // resident's. A joint member's is deliberately left out: see `leaseOwnApplicationIds`.
+  for (const row of (leases.data ?? []) as { row_data?: { axisId?: unknown } | null }[]) {
+    add(row.row_data?.axisId);
   }
   return [...ids];
 }
@@ -293,9 +323,7 @@ export async function residentBoundApplicationIds(db: SupabaseClient, userId: st
  *
  * `boundApplicationIds` lets a caller that has already read that scope hand it over rather than pay
  * for the unindexed `row_data->>residentUserId` scan twice in one request; `null` says that caller's
- * own read failed. EVERY read behind this answer fails CLOSED — including a missing or
- * schema-cache-stale forms table, which `loadResidentBlockingForms` may treat as "no forms here" but
- * this redaction decision must not: an unreadable gate is a locked gate.
+ * own read failed. EVERY read behind this answer fails CLOSED, the module's one error rule.
  */
 export async function loadResidentFormsFacts(
   db: SupabaseClient,
@@ -333,7 +361,7 @@ export async function loadApplicationBlockingForms(db: SupabaseClient, applicati
   if (ids.length === 0) return NO_BLOCKING_FORMS;
   try {
     const { data, error } = await db.from("resident_move_in_forms").select(SELECT).in("application_id", ids).eq("status", "sent");
-    if (error) return tableMissing(error) ? NO_BLOCKING_FORMS : BLOCKING_FORMS_FAIL_CLOSED;
+    if (error) return BLOCKING_FORMS_FAIL_CLOSED;
     return blockingFormsFromRows((data ?? []) as BlockingRow[]);
   } catch {
     return BLOCKING_FORMS_FAIL_CLOSED;

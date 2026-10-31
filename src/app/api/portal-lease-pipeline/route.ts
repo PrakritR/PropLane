@@ -3,7 +3,7 @@ import { loadShortStayPricingSubmission } from "@/lib/short-stay-pricing-gate.se
 import { residentNoticeChannel } from "@/lib/resident-notice-channel.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { createHash } from "node:crypto";
-import { FINISH_FORMS_FIRST_MESSAGE, RESIDENT_FORMS_CHECK_FAILED_MESSAGE, leaseApplicationIds, loadResidentBlockingForms } from "@/lib/move-in-forms/blocking";
+import { FINISH_FORMS_FIRST_MESSAGE, RESIDENT_FORMS_CHECK_FAILED_MESSAGE, leaseApplicationIds, leaseOwnApplicationIds, loadResidentBlockingForms } from "@/lib/move-in-forms/blocking";
 import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { NextResponse } from "next/server";
 import { queueHouseChatSyncForProperty } from "@/lib/house-chat/sync.server";
@@ -1183,13 +1183,18 @@ export async function POST(req: Request) {
           // the page shows as "Finish your forms first". The lease's stored property id alone never decides
           // which forms count: a form tied to this lease's application blocks it whatever property id either
           // row carries, and a lease that names no application at all is not narrowed by property (every
-          // sent form of this resident blocks).
+          // sent form of this resident blocks). A form with no bound subject is weighed against this
+          // signer's OWN application only, never a joint member's — that one only they can submit.
           const leaseApplicationIdList = leaseApplicationIds(storedRow);
           const formsBlocking = await loadResidentBlockingForms(ctx.db, {
             email: ctx.user.email ?? "",
             userId: ctx.user.id,
             propertyId: leaseApplicationIdList.length > 0 ? (existingRecord?.property_id ?? null) : null,
             applicationIds: leaseApplicationIdList,
+            ownApplicationIds: leaseOwnApplicationIds(
+              { residentUserId: existingRecord?.resident_user_id ?? null, axisId: storedRow?.axisId ?? null },
+              ctx.user.id,
+            ),
           });
           // A read that failed refuses too, but as a retryable 503: there is no form to point them at.
           if (formsBlocking.readFailed) {
