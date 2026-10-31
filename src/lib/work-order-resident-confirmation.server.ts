@@ -226,10 +226,9 @@ export async function emitResidentConfirmationEvent(
 ): Promise<void> {
   const reopened = verdict === "not_fixed";
   const sender = await senderFor(db, record.manager_user_id);
-  // The row's bound Auth subject, not a payload email, names the resident. The email is only
-  // for a legacy row that was filed before subjects were stamped and has none.
+  // The row's bound Auth subject, never a payload email, names the resident. A legacy row with
+  // no stored subject keeps its manager event and state but notifies no resident.
   const residentSubject = (residentUserId ?? record.resident_user_id ?? "").trim();
-  const residentEmail = (record.row_data.residentEmail ?? "").trim();
   const facts = {
     reference: record.row_data.reference || "Work order",
     title: record.row_data.title || "Service",
@@ -251,7 +250,7 @@ export async function emitResidentConfirmationEvent(
     senderName: sender.fullName,
     facts,
     recipients: [
-      ...(residentSubject ? [{ audience: "resident" as const, userId: residentSubject }] : residentEmail.includes("@") ? [{ audience: "resident" as const, email: residentEmail }] : []),
+      ...(residentSubject ? [{ audience: "resident" as const, userId: residentSubject }] : []),
       ...managers,
       ...(reopened && record.vendor_user_id ? [{ audience: "vendor" as const, userId: record.vendor_user_id }] : []),
     ],
