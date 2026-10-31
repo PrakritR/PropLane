@@ -74,20 +74,32 @@ describe("blockingFormsPending derivation", () => {
   });
 });
 
-/** A one-table fake: records the filters it was asked for and answers with `result`. */
-function fakeDb(result: { data?: unknown[]; error?: { code?: string; message?: string } | null } | "throw") {
+type FakeAnswer = { data?: unknown[]; error?: { code?: string; message?: string } | null } | "throw";
+
+/**
+ * A two-table fake: `result` answers `resident_move_in_forms` and `applications` answers
+ * `manager_application_records` (the subject-scope read). `calls` / `selects` record the forms read
+ * only, so the single-forms-read guarantee stays assertable; `appCalls` records the other one.
+ */
+function fakeDb(result: FakeAnswer, applications: FakeAnswer = { data: [] }) {
   const calls: Array<[string, string, unknown]> = [];
   const selects: string[] = [];
-  const query: Record<string, unknown> = {};
-  const chain = (name: string) => (column: string, value: unknown) => { calls.push([name, column, value]); return query; };
-  query.select = (columns: string) => { selects.push(columns); return query; };
-  query.eq = chain("eq");
-  query.neq = chain("neq");
-  query.in = chain("in");
-  query.or = (expression: string) => { calls.push(["or", "or", expression]); return query; };
-  query.then = (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
-    (result === "throw" ? Promise.reject(new Error("down")) : Promise.resolve({ data: result.data ?? null, error: result.error ?? null })).then(resolve, reject);
-  return { db: { from: () => query } as never, calls, selects };
+  const appCalls: Array<[string, string, unknown]> = [];
+  const build = (answer: FakeAnswer, log: Array<[string, string, unknown]>, selectLog: string[] | null) => {
+    const query: Record<string, unknown> = {};
+    const chain = (name: string) => (column: string, value: unknown) => { log.push([name, column, value]); return query; };
+    query.select = (columns: string) => { selectLog?.push(columns); return query; };
+    query.eq = chain("eq");
+    query.neq = chain("neq");
+    query.in = chain("in");
+    query.or = (expression: string) => { log.push(["or", "or", expression]); return query; };
+    query.then = (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
+      (answer === "throw" ? Promise.reject(new Error("down")) : Promise.resolve({ data: answer.data ?? null, error: answer.error ?? null })).then(resolve, reject);
+    return query;
+  };
+  const forms = build(result, calls, selects);
+  const apps = build(applications, appCalls, null);
+  return { db: { from: (table: string) => (table === "manager_application_records" ? apps : forms) } as never, calls, selects, appCalls };
 }
 
 describe("loading what a resident or an application is blocked on", () => {
@@ -113,7 +125,7 @@ describe("loading what a resident or an application is blocked on", () => {
     const pending = await loadResidentBlockingForms(unbound.db, { email: "a@example.test", userId: "u1", applicationIds: ["AXIS-1"] });
     expect(pending.leaseSigning).toBe(true);
     expect(pending.formIds?.leaseSigning).toBeUndefined();
-    expect(unbound.calls).toContainEqual(["or", "or", 'resident_user_id.eq.u1,and(resident_user_id.is.null,application_id.in.("AXIS-1"))']);
+    expect(unbound.calls).toContainEqual(["or", "or", 'resident_user_id.eq.u1,and(resident_user_id.is.null,or(application_id.ilike."AXIS-1",application_id.ilike."PROPLANE-1"))']);
 
     const own = fakeDb({ data: [row({ id: "mine", resident_user_id: "u1", application_id: "AXIS-1", snapshot: { blocks: "lease_signing" } })] });
     const mine = await loadResidentBlockingForms(own.db, { email: "a@example.test", userId: "u1", applicationIds: ["AXIS-1"] });
@@ -133,6 +145,26 @@ describe("loading what a resident or an application is blocked on", () => {
     const harmless = fakeDb({ data: [row({ id: "pending", resident_user_id: null, application_id: "AXIS-1", snapshot: { kind: "other", blocks: "nothing" } })] });
     expect(await loadResidentBlockingForms(harmless.db, { email: "a@example.test", userId: "u1", applicationIds: ["AXIS-1"] }))
       .toMatchObject({ leaseSigning: false, approval: false, moveInDetails: false });
+  });
+
+  /**
+   * `application_id` holds whatever spelling its row carried, and the DB filter is what actually
+   * fetches an unbound row — so an exact `in` would be narrower than the in-memory test and the
+   * restored gate would fail open again on a pre-rebrand id or a different case.
+   */
+  it.each([
+    ["the lease's own spelling", "AXIS-1"],
+    ["a pre-rebrand id against a rebranded lease", "AXIS-1", "PROPLANE-1"],
+    ["a rebranded id against a pre-rebrand lease", "PROPLANE-1", "AXIS-1"],
+    ["a lowercase stored id", "axis-1"],
+    ["a lowercase lease id", "AXIS-1", "axis-1"],
+  ])("matches %s", async (_label, storedId, leaseId = storedId) => {
+    const { db, calls } = fakeDb({ data: [row({ id: "pending", resident_user_id: null, application_id: storedId, snapshot: { blocks: "lease_signing" } })] });
+    expect((await loadResidentBlockingForms(db, { email: "a@example.test", userId: "u1", applicationIds: [leaseId] })).leaseSigning).toBe(true);
+    // Every id the in-memory test would keep is also in the filter, never an exact `in`.
+    const expression = String(calls.find(([name]) => name === "or")?.[2] ?? "");
+    expect(expression).toContain(`application_id.ilike."${storedId.toUpperCase().startsWith("AXIS-") ? "AXIS-" : "PROPLANE-"}1"`);
+    expect(expression).not.toContain("application_id.in.");
   });
 
   it("a profile address that drifted from the Auth one cannot change what blocks", async () => {
@@ -200,7 +232,8 @@ describe("loading what a resident or an application is blocked on", () => {
 
 /**
  * The resident portal's access state reads this table on EVERY page, so both facts it needs come from one
- * select of the non-cancelled copies (AGENTS.md § Performance & egress).
+ * select of the non-cancelled copies (AGENTS.md § Performance & egress). The subject's bound
+ * application ids come from one further read, which the forms select is then scoped by.
  */
 describe("one read answers both resident forms facts", () => {
   /** The row shape the facts select actually returns: the two snapshot keys, projected out of the jsonb. */
@@ -216,17 +249,44 @@ describe("one read answers both resident forms facts", () => {
     const facts = await loadResidentFormsFacts(db, { email: " A@Example.TEST ", userId: "u1" });
     expect(facts.hasForms).toBe(true);
     expect(facts.blocking).toMatchObject({ approval: true, leaseSigning: false, moveInDetails: false });
-    expect(calls).toEqual([["eq", "resident_user_id", "u1"], ["neq", "status", "cancelled"]]);
+    expect(calls).toEqual([["neq", "status", "cancelled"], ["eq", "resident_user_id", "u1"]]);
   });
 
-  // This read carries no application scope, so an unbound row is weighed only where one exists
-  // (`loadResidentBlockingForms({ applicationIds })`); matching here would have to key on an address.
-  it("never matches an unbound copy, whatever address the caller carries", async () => {
-    const { db, calls } = fakeDb({ data: [factsRow({ id: "pending", resident_user_id: null, snapshot_blocks: "lease_signing" })] });
-    const facts = await loadResidentFormsFacts(db, { email: "a@example.test", userId: "u1" });
-    expect(facts.hasForms).toBe(false);
-    expect(facts.blocking).toMatchObject({ leaseSigning: false });
-    expect(JSON.stringify(calls)).not.toContain("resident_email");
+  /**
+   * `blocking.moveInDetails` is what every move-in-details redaction keys on, so an unbound row has
+   * to count here too — scoped to an application whose STORED subject is this login, never to an
+   * address, and without unlocking the Forms section it still cannot open.
+   */
+  it("counts an unbound copy on the subject's own bound application, and nothing else", async () => {
+    const pending = [factsRow({ id: "pending", resident_user_id: null, application_id: "axis-1", snapshot_kind: "intake", snapshot_blocks: "move_in_details" })];
+    const mine = fakeDb({ data: pending }, { data: [{ id: "AXIS-1", row_id: "AXIS-1" }] });
+    const locked = await loadResidentFormsFacts(mine.db, { email: "a@example.test", userId: "u1" });
+    expect(locked.blocking.moveInDetails).toBe(true);
+    expect(locked.blocking.formIds?.moveInDetails).toBeUndefined();
+    expect(locked.hasForms).toBe(false);
+    expect(mine.appCalls).toContainEqual(["eq", "row_data->>residentUserId", "u1"]);
+    expect(mine.calls).toContainEqual(["or", "or", 'resident_user_id.eq.u1,and(resident_user_id.is.null,or(application_id.ilike."AXIS-1",application_id.ilike."PROPLANE-1"))']);
+
+    const someoneElses = fakeDb({ data: pending }, { data: [{ id: "AXIS-9", row_id: "AXIS-9" }] });
+    expect((await loadResidentFormsFacts(someoneElses.db, { email: "a@example.test", userId: "u1" })).blocking.moveInDetails).toBe(false);
+
+    const unscoped = fakeDb({ data: pending }, { data: [] });
+    const open = await loadResidentFormsFacts(unscoped.db, { email: "a@example.test", userId: "u1" });
+    expect(open.blocking.moveInDetails).toBe(false);
+    expect(unscoped.calls).toContainEqual(["eq", "resident_user_id", "u1"]);
+
+    // Never by address, at either read.
+    for (const probe of [mine, someoneElses, unscoped]) {
+      expect(JSON.stringify([...probe.calls, ...probe.appCalls])).not.toContain("resident_email");
+    }
+  });
+
+  it("fails closed when the subject-scope read fails, so a lock never opens on an error", async () => {
+    for (const applications of [{ error: { code: "500", message: "boom" } }, "throw" as const]) {
+      const { db } = fakeDb({ data: [] }, applications);
+      expect(await loadResidentFormsFacts(db, { email: "a@example.test", userId: "u1" }))
+        .toEqual({ hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED });
+    }
   });
 
   // Every resident page runs this read, so it must never drag the whole snapshot (questions + PDF
@@ -235,7 +295,7 @@ describe("one read answers both resident forms facts", () => {
     const { db, selects } = fakeDb({ data: [] });
     await loadResidentFormsFacts(db, { email: "a@example.test", userId: "u1" });
     expect(selects).toHaveLength(1);
-    expect(selects[0]).toBe("id, form_id, status, sent_at, resident_user_id, snapshot_kind:snapshot->>kind, snapshot_blocks:snapshot->>blocks");
+    expect(selects[0]).toBe("id, form_id, status, sent_at, resident_user_id, application_id, snapshot_kind:snapshot->>kind, snapshot_blocks:snapshot->>blocks");
     expect(selects[0]).not.toMatch(/(^|[ ,])snapshot([ ,]|$)/);
   });
 

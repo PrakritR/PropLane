@@ -272,9 +272,9 @@ A third round closed two residual items found reviewing the second. **The public
 
 One reported finding was **not** applied: `vendor-context.ts` was said to compute `email` as dead work. It is load-bearing — `ctx.email` scopes the vendor inbox read, names the vendor on outbound messages and fills their profile email — and the session user carries no `email_confirmed_at`, so the Auth read is what makes mailbox proof possible. Only the placeholder `email: ""` argument was removed, by making `managerIdsOwningVendor`'s `email` optional; subject-only directory scope for the agent surface is unchanged and now explicit.
 
-### Fifth and sixth review rounds
+### Fifth, sixth and seventh review rounds
 
-Two further rounds answered the independent review of this candidate. **No migration was touched.**
+Three further rounds answered the independent review of this candidate. **No migration was touched.**
 
 - **A move-in form notice never carries an account-binding capability, and never mints one.** A
   sixth round replaced the fifth round's setup-link idea outright. That version called
@@ -312,14 +312,43 @@ Two further rounds answered the independent review of this candidate. **No migra
   verified Auth address this release introduced `verifiedSessionEmail()` for; profile drift would
   have failed that gate OPEN. The fallback is now scoped by identity, not by address: an unbound
   `sent` row blocks when its `application_id` is one of the `applicationIds` the request is already
-  about (the lease being signed plus its joint members), and no address is read at all. Without
-  application ids no unbound row is considered. Such a row is never named in `formIds`, so it
-  restricts without disclosing itself. `loadResidentFormsFacts` — the resident's own access state,
-  which carries no application scope — stays subject-only for the same reason.
+  about (the lease being signed plus its joint members), and no address is read at all. Such a row is
+  never named in `formIds`, so it restricts without disclosing itself.
+
+  **One notion of application-id equality, for both halves of the read.** A seventh round closed the
+  last hole in that scope: the filter sent the lease's ids into `application_id.in.(…)`, an exact
+  string match, while the in-memory test that followed compared uppercased. The filter is what
+  actually fetches an unbound row, so it was the binding one and it was strictly narrower — and
+  `application_id` holds whatever spelling its row carried, because `normalizeApplicationAxisId`
+  preserves a pre-rebrand `AXIS-` prefix and its case. A form on `AXIS-ABC` under a lease carrying
+  `PROPLANE-ABC` (or `axis-abc`) therefore matched nothing and the restored gate failed open again.
+  `applicationIdScope` now expands every id through `proplaneIdLookupVariants` and matches
+  case-insensitively with `ilike` (with `%`, `_` and the escape character escaped), and both the
+  filter and the in-memory test are derived from that one scope, so they describe the same set by
+  construction.
+
+  **`loadResidentFormsFacts` counts unbound rows too.** That read is the sole source of
+  `blockingFormsPending` for the resident's access state, and `moveInDetailsLockFromBlocking` opens
+  the move-in-details redaction across the portal, the resident agent, the SMS and inbox contexts
+  and `house-groups/ra.server.ts` the moment `moveInDetails` is false — so leaving it subject-only
+  disclosed exactly what a pre-release `Blocks: move-in details` form was sent to gate. It now also
+  counts a `sent` row with no subject when that row sits on an application whose STORED
+  `row_data.residentUserId` is this login (`subjectBoundApplicationIds`, the same normalized id
+  scope), never on an address. An unbound row never sets `hasForms` and is never named, so it
+  restricts without unlocking a Forms section it still cannot open; a failing subject-scope read is
+  a refusal (locked), not an empty scope.
+
+  **Accepted limitation:** a lease row that names no application at all (no `axisId`, no joint
+  members) has no unbound-form scope, so only subject-bound forms block its signing. Narrowing by
+  the lease's property instead would gate on a value the lease row can carry stale, and matching by
+  address is what this release removes. The manager keeps full visibility of the form either way.
+
   `move-in-forms-blocking.test.ts` pins: unbound-for-this-application blocks, unbound-for-another
   does not, own-subject blocks and is named, other-subject does not, no application scope does not,
-  a `Blocks: nothing` form does not, and the outcome is identical whatever address the caller
-  carries.
+  a `Blocks: nothing` form does not, every `AXIS-`/`PROPLANE-`/lowercase spelling pairing matches and
+  the filter never uses an exact `in`, the facts read locks move-in details for an unbound row on the
+  subject's own bound application and not on anyone else's, a failed subject-scope read locks, and
+  every outcome is identical whatever address the caller carries.
 - **The manager-plan checkout branch is classified positively.** `isManagerPlanCheckout` re-derived the
   webhook's `else` fall-through by subtracting a hand-copied list of the ten named purposes, so a new
   `purpose` branch added without touching that list became a manager plan purchase. One shared module
