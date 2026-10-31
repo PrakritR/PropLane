@@ -272,35 +272,54 @@ A third round closed two residual items found reviewing the second. **The public
 
 One reported finding was **not** applied: `vendor-context.ts` was said to compute `email` as dead work. It is load-bearing — `ctx.email` scopes the vendor inbox read, names the vendor on outbound messages and fills their profile email — and the session user carries no `email_confirmed_at`, so the Auth read is what makes mailbox proof possible. Only the placeholder `email: ""` argument was removed, by making `managerIdsOwningVendor`'s `email` optional; subject-only directory scope for the agent surface is unchanged and now explicit.
 
-### Fifth review round
+### Fifth and sixth review rounds
 
-A fifth round answered the independent review of this candidate. **No migration was touched.**
+Two further rounds answered the independent review of this candidate. **No migration was touched.**
 
-- **A move-in form sent on an application with no bound subject now ships the resident a mailbox-proof
-  path instead of a dead link.** `insert_bound_move_in_form` keeps the DB rule — a form's resident
-  subject is the application's bound subject, null until the resident proves their mailbox — and
-  nothing binds from the caller or from an email. What was missing was the way out: the `sent` and
-  `reminder` notices always linked `/resident/forms/<id>`, which no account can open while the row is
-  unbound. An unbound row's notice now links the application's own emailed setup link
-  (`ensureResidentSetupTokenForApplication` → `/auth/resident-setup?token=…`), whose completion
-  proves the mailbox and runs `bind_resident_setup_subject` — which attaches exactly these pending
-  `sent` forms to the proven subject. The link is only substituted when the setup capability's own
-  address is the address on the form; otherwise the direct link stands. Addressing and linking are now
-  separate: the guest-intake notice still goes to the confirmed login that holds the address
-  (`noticeAccount`), which never decides the link. Coverage:
-  `move-in-forms-events.test.ts` (unbound → setup link, address mismatch → direct link, confirmed
-  login addressed without moving the link) and `move-in-forms-server.test.ts` (an unbound row is 404
-  for its own resident, visible once bound, and never visible to another account reusing the address).
-- **A blocking form with no bound subject blocks again.** Keying the resident's blocking read on
-  `resident_user_id` alone turned every pre-release `Blocks: Lease signing` form into a non-enforcing
-  row: `loadResidentBlockingForms` returned `leaseSigning: false` and the lease executed with the
-  gating form unanswered. A block is a RESTRICTION, so the subject test fails closed — a `sent` form
-  whose `resident_user_id` is NULL blocks the resident carrying that address, exactly as it did before
-  the column existed, and only a form bound to a DIFFERENT subject is excluded. Such a row is never
-  named in `formIds` and never counts toward `hasForms`, so it restricts without disclosing itself or
-  unlocking a nav row the resident cannot use. `move-in-forms-blocking.test.ts` pins null-subject
-  blocks, own-subject blocks, other-subject does not, a different address does not, and a
-  `Blocks: nothing` form does not.
+- **A move-in form notice never carries an account-binding capability, and never mints one.** A
+  sixth round replaced the fifth round's setup-link idea outright. That version called
+  `ensureResidentSetupTokenForApplication` from `residentFormLink`, which has no way to reuse a
+  stored token (only its SHA-256 is kept), so every notice minted a fresh token, a fresh expiry and
+  a full unconditional upsert of the application's sealed `row_data` — from a background reminder
+  cron. The reminder swept yesterday's emailed link dead, two forms dispatched together raced each
+  other's rotation, it rotated the token behind the welcome and booking-invite links for the same
+  application, and `attachResidentSetupToken` clears `setupTokenConsumedAt`, so an application that
+  was already bound had a spent single-use capability silently re-armed. Worse, the URL went onto
+  the action-event bus: with no `channel: "portal"` it is persisted in `action_event_deliveries`,
+  appended to the manager↔resident inbox thread, and under `partyFacing: "draft"` queued into the
+  manager's draft-approval UI to read and edit — exactly where this release keeps the comparable
+  tour capability out of. `emitMoveInFormEvent` now links only `/resident/forms/<id>` for every
+  event, bound or not, and the module imports nothing from `resident-setup-token`. Addressing and
+  linking stay separate: the guest-intake notice still goes to the confirmed login that holds the
+  address (`noticeAccount`), which never decides the link. `move-in-forms-events.test.ts` asserts
+  that no `sent` or `reminder` event, rendered text or `templateContext` contains a token or a
+  setup URL, bound or unbound, and that the token module is never called.
+  **Documented limitation:** a form sent on an application with no bound subject is still
+  unreachable until the resident walks the *existing* emailed setup invitation
+  (`/api/auth/resident-setup-link`, `resident-welcome.server.ts`, the application-started and
+  fee-verify sends), whose completion runs `bind_resident_setup_subject` and attaches exactly these
+  pending `sent` forms. The form notice deliberately does not re-send that invitation: doing it
+  safely needs token reuse the storage model cannot offer, and a reminder sweep must never
+  invalidate a link the resident is still holding. `move-in-forms-server.test.ts` pins the end
+  state — an unbound row is 404 for its own resident, visible once bound, and never visible to
+  another account reusing the address.
+- **A blocking form with no bound subject blocks again — inside an exact scope, never by address.**
+  Keying the resident's blocking read on `resident_user_id` alone turned every pre-release
+  `Blocks: Lease signing` form into a non-enforcing row: `loadResidentBlockingForms` returned
+  `leaseSigning: false` and the lease executed with the gating form unanswered. A block is a
+  RESTRICTION, so the subject test fails closed — but the fifth round's fallback matched the row's
+  `resident_email` against `ctx.user.email`, which resolves to the `profiles.email` column, not the
+  verified Auth address this release introduced `verifiedSessionEmail()` for; profile drift would
+  have failed that gate OPEN. The fallback is now scoped by identity, not by address: an unbound
+  `sent` row blocks when its `application_id` is one of the `applicationIds` the request is already
+  about (the lease being signed plus its joint members), and no address is read at all. Without
+  application ids no unbound row is considered. Such a row is never named in `formIds`, so it
+  restricts without disclosing itself. `loadResidentFormsFacts` — the resident's own access state,
+  which carries no application scope — stays subject-only for the same reason.
+  `move-in-forms-blocking.test.ts` pins: unbound-for-this-application blocks, unbound-for-another
+  does not, own-subject blocks and is named, other-subject does not, no application scope does not,
+  a `Blocks: nothing` form does not, and the outcome is identical whatever address the caller
+  carries.
 - **The manager-plan checkout branch is classified positively.** `isManagerPlanCheckout` re-derived the
   webhook's `else` fall-through by subtracting a hand-copied list of the ten named purposes, so a new
   `purpose` branch added without touching that list became a manager plan purchase. One shared module

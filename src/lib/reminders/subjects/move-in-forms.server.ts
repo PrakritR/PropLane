@@ -27,7 +27,6 @@ export type MoveInFormReminderKind = "before" | "due";
 
 type SweepRow = {
   id: string;
-  application_id: string;
   manager_user_id: string;
   property_id: string;
   property_label: string;
@@ -78,7 +77,7 @@ export async function sweepMoveInFormReminders(db: SupabaseClient, now: Date = n
   const rows: SweepRow[] = [];
   for (let offset = 0; ; offset += 500) {
     const { data, error } = await db.from("resident_move_in_forms")
-      .select("id,application_id,manager_user_id,property_id,property_label,room_label,resident_name,resident_email,resident_user_id,form_name,due_at,sent_at,reminders_sent")
+      .select("id,manager_user_id,property_id,property_label,room_label,resident_name,resident_email,resident_user_id,form_name,due_at,sent_at,reminders_sent")
       .eq("status", "sent")
       .gte("due_at", from)
       .lte("due_at", until)

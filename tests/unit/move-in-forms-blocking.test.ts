@@ -98,29 +98,49 @@ describe("loading what a resident or an application is blocked on", () => {
     ] });
     const result = await loadResidentBlockingForms(db, { email: " A@Example.TEST ", userId: "u1", propertyId: "p1" });
     expect(result).toMatchObject({ leaseSigning: true, approval: false });
-    expect(calls).toEqual(expect.arrayContaining([["eq", "status", "sent"], ["eq", "property_id", "p1"]]));
-    expect(calls).toContainEqual(["or", "or", 'resident_user_id.eq.u1,and(resident_user_id.is.null,resident_email.eq."a@example.test")']);
+    expect(calls).toEqual(expect.arrayContaining([["eq", "status", "sent"], ["eq", "property_id", "p1"], ["eq", "resident_user_id", "u1"]]));
+    // No address is ever part of the subject test: `profiles.email` is not mailbox proof.
+    expect(JSON.stringify(calls)).not.toContain("resident_email");
   });
 
-  it("a blocking form with no bound subject yet still blocks, and is never named back", async () => {
-    const unbound = fakeDb({ data: [row({ id: "pending", resident_user_id: null, resident_email: "A@Example.TEST", snapshot: { blocks: "lease_signing" } })] });
-    const pending = await loadResidentBlockingForms(unbound.db, { email: "a@example.test", userId: "u1" });
+  /**
+   * A block is a restriction, so an unbound row still blocks — but only inside the exact scope the
+   * caller already authorized (the lease's own applications), never because an address matches.
+   */
+  it("an unbound blocking form blocks only for the applications this request is about, and is never named back", async () => {
+    const pendingRow = row({ id: "pending", resident_user_id: null, application_id: "axis-1", snapshot: { blocks: "lease_signing" } });
+    const unbound = fakeDb({ data: [pendingRow] });
+    const pending = await loadResidentBlockingForms(unbound.db, { email: "a@example.test", userId: "u1", applicationIds: ["AXIS-1"] });
     expect(pending.leaseSigning).toBe(true);
     expect(pending.formIds?.leaseSigning).toBeUndefined();
+    expect(unbound.calls).toContainEqual(["or", "or", 'resident_user_id.eq.u1,and(resident_user_id.is.null,application_id.in.("AXIS-1"))']);
 
-    const own = fakeDb({ data: [row({ id: "mine", resident_user_id: "u1", resident_email: "a@example.test", snapshot: { blocks: "lease_signing" } })] });
-    const mine = await loadResidentBlockingForms(own.db, { email: "a@example.test", userId: "u1" });
+    const own = fakeDb({ data: [row({ id: "mine", resident_user_id: "u1", application_id: "AXIS-1", snapshot: { blocks: "lease_signing" } })] });
+    const mine = await loadResidentBlockingForms(own.db, { email: "a@example.test", userId: "u1", applicationIds: ["AXIS-1"] });
     expect(mine.leaseSigning).toBe(true);
     expect(mine.formIds?.leaseSigning).toBe("mine");
 
-    const other = fakeDb({ data: [row({ id: "theirs", resident_user_id: "u2", resident_email: "a@example.test", snapshot: { blocks: "lease_signing" } })] });
-    expect((await loadResidentBlockingForms(other.db, { email: "a@example.test", userId: "u1" })).leaseSigning).toBe(false);
+    const other = fakeDb({ data: [row({ id: "theirs", resident_user_id: "u2", application_id: "AXIS-1", snapshot: { blocks: "lease_signing" } })] });
+    expect((await loadResidentBlockingForms(other.db, { email: "a@example.test", userId: "u1", applicationIds: ["AXIS-1"] })).leaseSigning).toBe(false);
 
-    const sameAddressOtherSubject = fakeDb({ data: [row({ id: "pending", resident_user_id: null, resident_email: "someone-else@example.test", snapshot: { blocks: "lease_signing" } })] });
-    expect((await loadResidentBlockingForms(sameAddressOtherSubject.db, { email: "a@example.test", userId: "u1" })).leaseSigning).toBe(false);
+    const otherApplication = fakeDb({ data: [row({ id: "pending", resident_user_id: null, application_id: "AXIS-9", snapshot: { blocks: "lease_signing" } })] });
+    expect((await loadResidentBlockingForms(otherApplication.db, { email: "a@example.test", userId: "u1", applicationIds: ["AXIS-1"] })).leaseSigning).toBe(false);
 
-    const harmless = fakeDb({ data: [row({ id: "pending", resident_user_id: null, resident_email: "a@example.test", snapshot: { kind: "other", blocks: "nothing" } })] });
-    expect(await loadResidentBlockingForms(harmless.db, { email: "a@example.test", userId: "u1" })).toMatchObject({ leaseSigning: false, approval: false, moveInDetails: false });
+    const noScope = fakeDb({ data: [pendingRow] });
+    expect((await loadResidentBlockingForms(noScope.db, { email: "a@example.test", userId: "u1" })).leaseSigning).toBe(false);
+    expect(noScope.calls).toContainEqual(["eq", "resident_user_id", "u1"]);
+
+    const harmless = fakeDb({ data: [row({ id: "pending", resident_user_id: null, application_id: "AXIS-1", snapshot: { kind: "other", blocks: "nothing" } })] });
+    expect(await loadResidentBlockingForms(harmless.db, { email: "a@example.test", userId: "u1", applicationIds: ["AXIS-1"] }))
+      .toMatchObject({ leaseSigning: false, approval: false, moveInDetails: false });
+  });
+
+  it("a profile address that drifted from the Auth one cannot change what blocks", async () => {
+    const rows = [row({ id: "pending", resident_user_id: null, application_id: "AXIS-1", snapshot: { blocks: "lease_signing" } })];
+    for (const email of ["a@example.test", "drifted@example.test", ""]) {
+      const { db } = fakeDb({ data: rows });
+      expect((await loadResidentBlockingForms(db, { email, userId: "u1", applicationIds: ["AXIS-1"] })).leaseSigning).toBe(true);
+    }
   });
 
   it("a manager's read only counts forms the caller holds, and a scope check that throws fails closed", async () => {
@@ -196,18 +216,17 @@ describe("one read answers both resident forms facts", () => {
     const facts = await loadResidentFormsFacts(db, { email: " A@Example.TEST ", userId: "u1" });
     expect(facts.hasForms).toBe(true);
     expect(facts.blocking).toMatchObject({ approval: true, leaseSigning: false, moveInDetails: false });
-    expect(calls).toEqual([
-      ["neq", "status", "cancelled"],
-      ["or", "or", 'resident_user_id.eq.u1,and(resident_user_id.is.null,resident_email.eq."a@example.test")'],
-    ]);
+    expect(calls).toEqual([["eq", "resident_user_id", "u1"], ["neq", "status", "cancelled"]]);
   });
 
-  it("an unsubmitted copy with no bound subject blocks without unlocking the resident's Forms section", async () => {
-    const { db } = fakeDb({ data: [factsRow({ id: "pending", resident_user_id: null, resident_email: "A@Example.TEST", snapshot_blocks: "lease_signing" })] });
+  // This read carries no application scope, so an unbound row is weighed only where one exists
+  // (`loadResidentBlockingForms({ applicationIds })`); matching here would have to key on an address.
+  it("never matches an unbound copy, whatever address the caller carries", async () => {
+    const { db, calls } = fakeDb({ data: [factsRow({ id: "pending", resident_user_id: null, snapshot_blocks: "lease_signing" })] });
     const facts = await loadResidentFormsFacts(db, { email: "a@example.test", userId: "u1" });
     expect(facts.hasForms).toBe(false);
-    expect(facts.blocking).toMatchObject({ leaseSigning: true });
-    expect(facts.blocking.formIds?.leaseSigning).toBeUndefined();
+    expect(facts.blocking).toMatchObject({ leaseSigning: false });
+    expect(JSON.stringify(calls)).not.toContain("resident_email");
   });
 
   // Every resident page runs this read, so it must never drag the whole snapshot (questions + PDF
@@ -216,7 +235,7 @@ describe("one read answers both resident forms facts", () => {
     const { db, selects } = fakeDb({ data: [] });
     await loadResidentFormsFacts(db, { email: "a@example.test", userId: "u1" });
     expect(selects).toHaveLength(1);
-    expect(selects[0]).toBe("id, form_id, status, sent_at, resident_user_id, resident_email, snapshot_kind:snapshot->>kind, snapshot_blocks:snapshot->>blocks");
+    expect(selects[0]).toBe("id, form_id, status, sent_at, resident_user_id, snapshot_kind:snapshot->>kind, snapshot_blocks:snapshot->>blocks");
     expect(selects[0]).not.toMatch(/(^|[ ,])snapshot([ ,]|$)/);
   });
 
