@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
+import { profileRolesBuilder } from "../../helpers/profile-roles-fake";
 
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
@@ -38,10 +39,10 @@ function mockDb(opts: {
         };
       }
       if (table === "profile_roles") {
-        return {
-          select: vi.fn().mockReturnThis(),
-          eq: vi.fn().mockResolvedValue({ data: opts.role === "manager" ? [{ role: "manager" }] : [] }),
-        };
+        return profileRolesBuilder([
+          { user_id: "mgr-a", role: "manager" },
+          { user_id: "res-1", role: "resident" },
+        ]);
       }
       if (table === "manager_property_records") {
         return {

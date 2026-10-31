@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
+import { profileRolesTable } from "../../helpers/profile-roles-fake";
 
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
@@ -10,8 +11,15 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { GET, POST } from "@/app/api/portal-work-orders/route";
 
 type Rec = { id: string; manager_user_id: string | null; resident_email: string | null; row_data: unknown; vendor_user_id?: string | null };
-type AppRec = { id: string; manager_user_id: string; resident_email: string };
+type AppRec = { id: string; manager_user_id: string; resident_email: string; resident_user_id?: string; property_id?: string };
 type VendorDirRec = { id: string; manager_user_id: string | null; vendor_user_id: string | null; row_data?: { sharedWithManagers?: boolean } };
+
+// Roles each actor genuinely holds in the stored `profile_roles` table.
+const STORED_ROLES: Record<string, string[]> = {
+  "mgr-a": ["manager"],
+  "mgr-b": ["manager"],
+  "res-b": ["resident"],
+};
 
 function mockDb(
   seed: Rec[],
@@ -27,6 +35,7 @@ function mockDb(
 
   const client = {
     from(table: string) {
+      if (table === "profile_roles") return profileRolesTable(STORED_ROLES);
       if (table === "profiles") {
         return {
           select: vi.fn().mockReturnThis(),
@@ -43,15 +52,25 @@ function mockDb(
             filters[col] = val;
             return builder;
           },
-          limit: async () => {
+          // Awaited directly (no .limit) by the residency check, so the builder is also thenable.
+          then: (resolve: (v: unknown) => unknown) => resolve(result()),
+          limit: async () => result(),
+        };
+        function result() {
+          {
             const rows = appSeed.filter((a) =>
               Object.entries(filters).every(
-                ([col, val]) => (a as unknown as Record<string, unknown>)[col] === val,
+                // The residency is bound to the login by `row_data.residentUserId`, a JSON-path filter.
+                ([col, val]) =>
+                  (col === "row_data->>residentUserId" ? a.resident_user_id : (a as unknown as Record<string, unknown>)[col]) === val,
               ),
             );
-            return { data: rows.map((a) => ({ ...a, updated_at: "x" })), error: null };
-          },
-        };
+            return {
+              data: rows.map((a) => ({ ...a, row_data: { residentUserId: a.resident_user_id }, updated_at: "x" })),
+              error: null,
+            };
+          }
+        }
         return builder;
       }
       if (table === "manager_vendor_records") {
@@ -116,6 +135,37 @@ function mockDb(
           if (table === "portal_work_order_records") upserts.push(rec);
           rowStore.set(rec.id, rec);
           return { error: null };
+        },
+        // New rows are INSERTed; an existing row is UPDATEd under a row_revision compare-and-swap
+        // (`.eq(id).eq(row_revision)...select("id")`), which only matches a stored row.
+        insert: async (rec: Rec) => {
+          if (table === "portal_work_order_records") upserts.push(rec);
+          rowStore.set(rec.id, rec);
+          return { error: null };
+        },
+        update: (rec: Partial<Rec>) => {
+          const uf: [string, unknown][] = [];
+          const hit = () =>
+            [...rowStore.values()].filter((r) =>
+              uf.every(([c, v]) => (r as unknown as Record<string, unknown>)[c] === v),
+            );
+          const u: Record<string, unknown> = {
+            eq: (c: string, v: unknown) => {
+              uf.push([c, v]);
+              return u;
+            },
+            select: async () => {
+              const rows = hit();
+              for (const r of rows) {
+                const next = { ...r, ...rec } as Rec;
+                if (table === "portal_work_order_records") upserts.push(next);
+                rowStore.set(r.id, next);
+              }
+              return { data: rows.map((r) => ({ id: r.id })), error: null };
+            },
+            then: (resolve: (v: { error: null }) => void) => resolve({ error: null }),
+          };
+          return u;
         },
         delete: () => ({
           eq: async (_col: string, id: string) => {
@@ -215,7 +265,7 @@ describe("/api/portal-work-orders security", () => {
     asUser("res-b", "res@b.com");
     // res@b.com belongs to mgr-b; they try to inject into mgr-a's queue.
     const { client, upserts } = mockDb([], { email: "res@b.com", role: "resident" }, [
-      { id: "APP-1", manager_user_id: "mgr-b", resident_email: "res@b.com" },
+      { id: "APP-1", manager_user_id: "mgr-b", resident_email: "res@b.com", resident_user_id: "res-b", property_id: "prop-b" },
     ]);
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
 
@@ -238,7 +288,7 @@ describe("/api/portal-work-orders security", () => {
   it("lets a resident file a work order with their real manager", async () => {
     asUser("res-b", "res@b.com");
     const { client, upserts } = mockDb([], { email: "res@b.com", role: "resident" }, [
-      { id: "APP-1", manager_user_id: "mgr-b", resident_email: "res@b.com" },
+      { id: "APP-1", manager_user_id: "mgr-b", resident_email: "res@b.com", resident_user_id: "res-b", property_id: "prop-b" },
     ]);
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
 

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
+import { profileRolesBuilder } from "../../helpers/profile-roles-fake";
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -57,10 +58,7 @@ function mockManagerAuth(userId = "mgr-a") {
     eq: vi.fn().mockReturnThis(),
     maybeSingle: vi.fn().mockResolvedValue({ data: { role: "manager" } }),
   };
-  const rolesChain = {
-    select: vi.fn().mockReturnThis(),
-    eq: vi.fn().mockResolvedValue({ data: [{ role: "manager" }] }),
-  };
+  const rolesChain = profileRolesBuilder([{ user_id: userId, role: "manager" }]);
 
   vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
     from: vi.fn((table: string) => {

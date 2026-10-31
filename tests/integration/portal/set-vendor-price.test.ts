@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
+import { profileRolesBuilder } from "../../helpers/profile-roles-fake";
 
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
@@ -87,6 +88,11 @@ function mockDb(workOrder: WorkOrderRow, bid: BidRow | null, readSnapshot?: Part
 function asVendor(userId = "vendor-1") {
   vi.mocked(createSupabaseServerClient).mockResolvedValue({
     auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: userId, user_metadata: {} } } }) },
+    // getPortalAccessContext reads the stored roles through the session client.
+    from: (table: string) => {
+      if (table === "profile_roles") return profileRolesBuilder([{ user_id: userId, role: "vendor" }]);
+      throw new Error(`unexpected session table ${table}`);
+    },
   } as never);
 }
 
