@@ -42,9 +42,13 @@ export async function resolveVendorAgentContext(): Promise<VendorAgentContext | 
   const roles = roleList;
   if (!roles.includes("vendor")) return null;
 
+  // The session user carries no `email_confirmed_at`, so mailbox proof is read from Auth
+  // itself; an unreadable Auth record degrades to no verified email, never to a trusted one.
   const { data: authData, error: authError } = await db.auth.admin.getUserById(user.id);
   const email = authError || !authData.user ? "" : verifiedSessionEmail(authData.user, profile?.email);
-  const managerIds = await managerIdsOwningVendor(db, { userId: user.id, email: "" });
+  // Subject only: a vendor's directory scope is their Auth id, never an email match on a
+  // directory row somebody else typed.
+  const managerIds = await managerIdsOwningVendor(db, { userId: user.id });
 
   return {
     kind: "vendor",

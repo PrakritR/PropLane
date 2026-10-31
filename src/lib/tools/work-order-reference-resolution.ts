@@ -4,7 +4,7 @@ import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import type { VendorAgentContext } from "@/lib/tools/vendor-context";
 import { loadManagerWorkOrders } from "@/lib/tools/domains/work-orders";
-import { loadResidentEmailRows } from "@/lib/tools/domains/resident/load-resident-rows";
+import { loadResidentSubjectRows } from "@/lib/tools/domains/resident/load-resident-rows";
 import { loadVendorWorkOrders } from "@/lib/tools/domains/vendor/load-vendor-rows";
 
 export type WorkOrderReferenceCandidate = {
@@ -87,7 +87,7 @@ export async function resolveResidentWorkOrderReference(
   ctx: ResidentAgentContext,
   text: string,
 ): Promise<WorkOrderReferenceResolution> {
-  const rows = await loadResidentEmailRows(
+  const rows = await loadResidentSubjectRows(
     ctx,
     "portal_work_order_records",
     (rowData) => rowData as DemoManagerWorkOrderRow,

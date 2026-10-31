@@ -176,7 +176,16 @@ function notificationResult(
   inbox: TourNotificationResult["inbox"] = { sent: false },
 ): TourNotificationResult {
   const smsMissing = sms.requested && !sms.sent && !sms.accepted;
-  const nothingDelivered = !email.sent && !sms.sent && !sms.accepted && !inbox.sent;
+  // Only a channel that was actually ATTEMPTED can fail. A notice whose every REQUESTED
+  // channel came back deliberately skipped (sandbox address, no mail provider) is `skipped`,
+  // not a failure — the same reading `tourGuestNotificationFailed` applies on the client — so
+  // a tour confirmed exactly as configured raises no delivery-failure toast.
+  //
+  // A notice asked for with NO channel at all is still a failure: the guest will never hear
+  // about the change, and nothing was skipped on their behalf to make that acceptable.
+  const nothingRequested = !email.requested && !sms.requested;
+  const attempted = (email.requested && !email.skipped) || (sms.requested && !sms.skipped);
+  const nothingDelivered = (nothingRequested || attempted) && !email.sent && !sms.sent && !sms.accepted && !inbox.sent;
   const failed = Boolean(email.error || sms.error || smsMissing || inbox.error || nothingDelivered);
   return {
     ok: !failed,
@@ -384,7 +393,7 @@ async function recordGuestInboxCopy(
   input: Parameters<typeof recordResidentProspectInboxMessage>[1],
 ): Promise<{ sent: boolean; error?: string }> {
   try {
-    const owner = await linkedTourNoticeOwner(db, inquiryId, input.managerUserId, input.propertyId);
+    const owner = await linkedTourNoticeOwner(db, inquiryId);
     if (!owner) return { sent: false };
     await recordResidentProspectInboxMessage(db, { ...input, residentUserId: owner });
     return { sent: true };
@@ -395,13 +404,21 @@ async function recordGuestInboxCopy(
   }
 }
 
-/** Exact inquiry binding, never a profile or email match, authorizes an inbox copy. */
-async function linkedTourNoticeOwner(db: Db, inquiryId: string | null, managerId?: string | null, propertyId?: string | null): Promise<string | null> {
-  if (!inquiryId || !managerId || !propertyId) return null;
+/**
+ * Exact inquiry binding, never a profile or email match, authorizes an inbox copy.
+ *
+ * The link stores the manager the inquiry was FILED under, while a notice is sent by the
+ * CURRENT host — `confirmTourInquiry` hands a tour to a peer. So the inquiry id alone is the
+ * binding: it is unique to one tour, exactly one link row may claim it, and that row's
+ * `resident_user_id` is the only subject allowed to receive the copy.
+ */
+async function linkedTourNoticeOwner(db: Db, inquiryId: string | null): Promise<string | null> {
+  if (!inquiryId) return null;
   try {
-    const { data, error } = await db.from("resident_tour_links").select("resident_user_id").eq("inquiry_id", inquiryId).eq("manager_user_id", managerId).eq("property_id", propertyId).limit(2);
+    const { data, error } = await db.from("resident_tour_links").select("resident_user_id").eq("inquiry_id", inquiryId).limit(2);
     if (error || !data || data.length !== 1) return null;
-    return typeof data[0]?.resident_user_id === "string" ? data[0].resident_user_id : null;
+    const subject = typeof data[0]?.resident_user_id === "string" ? data[0].resident_user_id.trim() : "";
+    return subject || null;
   } catch {
     return null;
   }
@@ -938,7 +955,7 @@ async function notifyTenantTourChanged(
   const hasGuestEmail = guestEmail.includes("@");
   if (hasGuestEmail) {
     const manager = await resolveTourManagerIdentity(db, managerUserId);
-    const residentUserId = await linkedTourNoticeOwner(db, textField(row, "id") || null, managerUserId, propertyId);
+    const residentUserId = await linkedTourNoticeOwner(db, textField(row, "id") || null);
     inboxAttempted = Boolean(manager && propertyId && residentUserId);
     if (manager && propertyId && residentUserId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
       participantEmail: guestEmail, residentUserId, managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
@@ -1113,7 +1130,7 @@ async function deliverTenantTourConfirmed(
   const hasGuestEmail = guestEmail.includes("@");
   if (hasGuestEmail) {
     const manager = await resolveTourManagerIdentity(db, window.managerUserId);
-    const residentUserId = await linkedTourNoticeOwner(db, textField(inquiry as Record<string, unknown>, "id") || null, window.managerUserId, propertyId);
+    const residentUserId = await linkedTourNoticeOwner(db, textField(inquiry as Record<string, unknown>, "id") || null);
     inboxAttempted = Boolean(manager && propertyId && residentUserId);
     if (manager && propertyId && residentUserId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
       participantEmail: guestEmail, residentUserId, managerUserId: window.managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,

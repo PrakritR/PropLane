@@ -20,7 +20,7 @@ import {
   redactMoveInDetails,
   maskUnrevealedCheckIn,
 } from "@/lib/resident-move-in-resolve";
-import { loadResidentEmailRows, untrustedText } from "./load-resident-rows";
+import { loadResidentSubjectRows, untrustedText } from "./load-resident-rows";
 import { applicationPropertyId } from "./property-research-application";
 
 /**
@@ -54,7 +54,7 @@ export const getMyLeaseTool = defineTool({
   kind: "read",
   inputSchema: z.object({}).strict(),
   handler: async (ctx: ResidentAgentContext) => {
-    const rows = (await loadResidentEmailRows(ctx, "portal_lease_pipeline_records", (rd) => rd as LeasePipelineRow))
+    const rows = (await loadResidentSubjectRows(ctx, "portal_lease_pipeline_records", (rd) => rd as LeasePipelineRow))
       .filter((row) => row && row.status !== "Voided")
       .sort((a, b) => String(b.updatedAtIso ?? "").localeCompare(String(a.updatedAtIso ?? "")));
     // Prefer the active (fully signed) lease; otherwise the most recent draft.

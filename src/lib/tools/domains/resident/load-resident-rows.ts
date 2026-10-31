@@ -5,43 +5,20 @@ import { wrapUntrustedContent } from "../../untrusted-content";
 const PAGE_SIZE = 1000;
 
 /**
- * Load the complete set of the resident's records from a portal table, scoped
- * by the authenticated `resident_user_id` and paginated by a stable column
- * so nothing is silently truncated.
+ * Load the complete set of the resident's records from a portal table.
+ *
+ * Every resident-owned portal table — charges, leases, service requests, work orders — scopes
+ * on `resident_user_id`, the authenticated Auth subject. There is no email-scoped variant: a
+ * reused address is not ownership. Paginated by a stable column so nothing is silently
+ * truncated.
  */
-export async function loadResidentIdentityRows<T>(
+export async function loadResidentSubjectRows<T>(
   ctx: ResidentAgentContext,
   table: string,
   map: (rowData: unknown) => T,
 ): Promise<T[]> {
   const out: T[] = [];
-  // No identity means no rows — never an unfiltered read of a shared table.
-  if (!ctx.userId) return out;
-  for (let from = 0; ; from += PAGE_SIZE) {
-    let query = ctx.db
-      .from(table)
-      .select("row_data")
-      .eq("resident_user_id", ctx.userId);
-    if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
-    const { data, error } = await query.order("id", { ascending: true }).range(from, from + PAGE_SIZE - 1);
-    if (error) throw new Error(error.message);
-    const rows = (data ?? []) as { row_data: unknown }[];
-    for (const r of rows) out.push(map(r.row_data));
-    if (rows.length < PAGE_SIZE) break;
-  }
-  return out;
-}
-
-/**
- * Load service and lease records scoped by the authenticated resident subject.
- */
-export async function loadResidentEmailRows<T>(
-  ctx: ResidentAgentContext,
-  table: string,
-  map: (rowData: unknown) => T,
-): Promise<T[]> {
-  const out: T[] = [];
-  // An absent subject must never trigger an unscoped read.
+  // No subject means no rows — never an unfiltered read of a shared table.
   if (!ctx.userId) return out;
   for (let from = 0; ; from += PAGE_SIZE) {
     let query = ctx.db

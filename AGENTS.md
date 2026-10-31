@@ -260,9 +260,11 @@ or `src/lib/agent/`.
 | Vendor number AI | `buildVendorNumberAiContext` | `vendorNumberAiRegistry` | inbound webhook |
 | Vendor on the PropLane line | `buildVendorLineContext` | `vendorLineRegistry` | inbound webhook (shared line) |
 
-Resident row scoping is not uniform: charges/leases have `resident_user_id` +
-`resident_email`; work orders/service requests have email only. Use the two
-loaders in `src/lib/tools/domains/resident/load-resident-rows.ts`.
+Resident row scoping is uniform: every resident-owned portal table (charges,
+leases, service requests, work orders) scopes on `resident_user_id`, the
+authenticated Auth subject — a reused address is never ownership. Use the one
+loader `loadResidentSubjectRows` in
+`src/lib/tools/domains/resident/load-resident-rows.ts`.
 
 # Web + native (Capacitor)
 

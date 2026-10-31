@@ -74,7 +74,23 @@ export function vendorLeadMapsQuery(row: DemoManagerWorkOrderRow): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(area)}`;
 }
 
-const VENDOR_PRIVATE_SUBJECT_KEYS = new Set(["residentUserId", "managerUserId", "vendorUserId", "resident_user_id", "manager_user_id", "vendor_user_id", "userId", "user_id", "resident_email", "dispatch", "candidates"]);
+/**
+ * Keys a vendor read must never carry, stripped at every depth of the stored payload.
+ *
+ * Besides the row's own subjects, an SMS-test session stamps `smsTestProvenance`
+ * (`{actorUserId, managerUserId, sessionId, workspaceId}`) and the flat `sms_test_*` columns
+ * onto the payload. Those are operator provenance: the actor's Auth id, their session and the
+ * test workspace — none of it a vendor's business, and all of it an Auth subject.
+ */
+const VENDOR_PRIVATE_SUBJECT_KEYS = new Set([
+  "residentUserId", "managerUserId", "vendorUserId",
+  "resident_user_id", "manager_user_id", "vendor_user_id",
+  "userId", "user_id", "actorUserId", "actor_user_id",
+  "sessionId", "session_id", "workspaceId", "workspace_id", "testWorkspaceId", "test_workspace_id",
+  "resident_email", "dispatch", "candidates",
+  "smsTestProvenance", "sms_test_provenance",
+  "sms_test_actor_user_id", "sms_test_manager_user_id", "sms_test_session_id", "sms_test_workspace_id",
+]);
 
 /** A vendor-directory ID must belong to this viewer and this job's manager. */
 export function assignedVendorDirectoryId(rowId: unknown, managerId: string, viewerId: string, directory: Array<{ id: string; managerId: string }>, residentId?: string | null): string | null {

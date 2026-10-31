@@ -105,7 +105,7 @@ async function findByToken(db: SupabaseClient, token: string): Promise<WorkOrder
   const tokenId = hashToken(token);
   const { data } = await db
     .from("portal_work_order_records")
-    .select("id, manager_user_id, vendor_user_id, row_data, updated_at, row_revision")
+    .select("id, manager_user_id, vendor_user_id, resident_user_id, row_data, updated_at, row_revision")
     .contains("row_data", { residentConfirmation: { tokenId } })
     .limit(1)
     .maybeSingle();
@@ -214,7 +214,7 @@ async function resolveConfirmationRecord(
   const { data: updated, error: updateError } = await update.select("id").maybeSingle();
   if (updateError || !updated) return { ok: false, reason: "invalid" };
 
-  await emitResidentConfirmationEvent(db, record, input.verdict, confirmation.requestedAt, now, note, input.ratingUrl);
+  await emitResidentConfirmationEvent(db, record, input.verdict, confirmation.requestedAt, now, note, input.ratingUrl, input.residentUserId);
 
   return { ok: true, ratingUrl: reopened ? null : input.ratingUrl ?? null };
 }
@@ -226,6 +226,9 @@ export async function emitResidentConfirmationEvent(
 ): Promise<void> {
   const reopened = verdict === "not_fixed";
   const sender = await senderFor(db, record.manager_user_id);
+  // The row's bound Auth subject, not a payload email, names the resident. The email is only
+  // for a legacy row that was filed before subjects were stamped and has none.
+  const residentSubject = (residentUserId ?? record.resident_user_id ?? "").trim();
   const residentEmail = (record.row_data.residentEmail ?? "").trim();
   const facts = {
     reference: record.row_data.reference || "Work order",
@@ -248,7 +251,7 @@ export async function emitResidentConfirmationEvent(
     senderName: sender.fullName,
     facts,
     recipients: [
-      ...(residentUserId ? [{ audience: "resident" as const, userId: residentUserId }] : residentEmail.includes("@") ? [{ audience: "resident" as const, email: residentEmail }] : []),
+      ...(residentSubject ? [{ audience: "resident" as const, userId: residentSubject }] : residentEmail.includes("@") ? [{ audience: "resident" as const, email: residentEmail }] : []),
       ...managers,
       ...(reopened && record.vendor_user_id ? [{ audience: "vendor" as const, userId: record.vendor_user_id }] : []),
     ],

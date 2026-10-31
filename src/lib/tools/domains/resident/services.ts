@@ -10,7 +10,7 @@ import type { ServiceRequest } from "@/lib/service-requests-storage";
 import {
   contentHash,
   linkedManagerContacts,
-  loadResidentEmailRows,
+  loadResidentSubjectRows,
   untrustedText,
 } from "./load-resident-rows";
 import { managerLabelForPreview } from "@/lib/tools/manager-label";
@@ -57,7 +57,7 @@ export const listMyServiceRequestsTool = defineTool({
 });
 
 async function loadOwnServiceRequests(ctx: ResidentAgentContext): Promise<ServiceRequest[]> {
-  return loadResidentEmailRows(ctx, "portal_service_request_records", (rowData) => rowData as ServiceRequest);
+  return loadResidentSubjectRows(ctx, "portal_service_request_records", (rowData) => rowData as ServiceRequest);
 }
 
 /** Safe projection of the resident's own work order (no photo blobs or vendor costs). */
@@ -97,7 +97,7 @@ export const listMyWorkOrdersTool = defineTool({
   handler: async (ctx: ResidentAgentContext, input) => {
     const want = input.status?.trim().toLowerCase();
     const workOrders = (
-      await loadResidentEmailRows(ctx, "portal_work_order_records", (rowData) => rowData as DemoManagerWorkOrderRow)
+      await loadResidentSubjectRows(ctx, "portal_work_order_records", (rowData) => rowData as DemoManagerWorkOrderRow)
     )
       .filter((w) => !want || String(w.status ?? "").toLowerCase() === want)
       .map(summarizeOwnWorkOrder);

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const createWorkOrder = vi.fn();
@@ -15,10 +17,7 @@ vi.mock("@/lib/resident-manager-scope", () => ({
   managerIdsOwningResident: (...args: unknown[]) => managerIdsOwningResident(...args),
 }));
 
-import {
-  fileWorkflowFromInboundEmailReply,
-  fileWorkflowFromInboundMessage,
-} from "@/lib/inbox/inbound-message-workflows.server";
+import { fileWorkflowFromInboundMessage } from "@/lib/inbox/inbound-message-workflows.server";
 
 const base = {
   managerUserId: "mgr-1",
@@ -119,57 +118,19 @@ describe("fileWorkflowFromInboundMessage", () => {
 });
 
 /**
- * Inbound email cannot tell which way the message is travelling on its own. A
- * portal reply token names whoever sent the ORIGINAL mail — sometimes the
- * manager, sometimes the resident — so the direction is verified rather than
- * assumed.
+ * Inbound email files nothing at all. A reply token names whoever sent the ORIGINAL mail, and
+ * an email address proves neither the current Auth subject nor a subject-bound residency, so
+ * the webhook delivers the message and stops there.
  */
-describe("fileWorkflowFromInboundEmailReply", () => {
-  const db = {} as never;
-
-  it("does not file from an email-only historical association", async () => {
-    const out = await fileWorkflowFromInboundEmailReply(db, {
-      ownerUserId: "mgr-1",
-      replierEmail: "res@example.com",
-      text: "The heater is dead",
-    });
-    expect(out).toEqual({ filed: "none", reason: "not_a_request" });
-    expect(createWorkOrder).not.toHaveBeenCalled();
+describe("inbound email does not file a request", () => {
+  it("exports no email-reply filing seam", async () => {
+    const mod = await import("@/lib/inbox/inbound-message-workflows.server");
+    expect("fileWorkflowFromInboundEmailReply" in mod).toBe(false);
   });
 
-  it("files NOTHING when the manager is the one replying", async () => {
-    // Owner is the resident here, so the replier is the manager. Filing would
-    // open a work order against the manager's own words, as if they were a
-    // tenant reporting a fault in their own building.
-    managerIdsOwningResident.mockResolvedValue(["some-other-manager"]);
-    const out = await fileWorkflowFromInboundEmailReply(db, {
-      ownerUserId: "resident-user",
-      replierEmail: "manager@example.com",
-      text: "The heater is dead, I'll send someone",
-    });
-    expect(out).toEqual({ filed: "none", reason: "not_a_request" });
-    expect(createWorkOrder).not.toHaveBeenCalled();
-  });
-
-  it("checks the cheap classifier before paying for the ownership read", async () => {
-    await fileWorkflowFromInboundEmailReply(db, {
-      ownerUserId: "mgr-1",
-      replierEmail: "res@example.com",
-      text: "Sounds good, thanks!",
-    });
-    expect(managerIdsOwningResident).not.toHaveBeenCalled();
-  });
-
-  it("files nothing when ownership cannot be established", async () => {
-    // Fail closed: a missed work order is a message a human still reads, a
-    // wrong one dispatches a job at somebody's cost.
-    managerIdsOwningResident.mockRejectedValue(new Error("db down"));
-    const out = await fileWorkflowFromInboundEmailReply(db, {
-      ownerUserId: "mgr-1",
-      replierEmail: "res@example.com",
-      text: "The heater is dead",
-    });
-    expect(out).toEqual({ filed: "none", reason: "not_a_request" });
-    expect(createWorkOrder).not.toHaveBeenCalled();
+  it("is not scheduled by the inbound email webhook", () => {
+    const src = readFileSync(join(process.cwd(), "src/app/api/webhooks/email/inbound/route.ts"), "utf8");
+    expect(src).not.toContain("fileWorkflowFromInbound");
+    expect(src).not.toContain("inbound-message-workflows");
   });
 });

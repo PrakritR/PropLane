@@ -7,7 +7,8 @@
  * was missing is that the SAME sentence typed into the portal inbox did
  * nothing, so which channel a resident happened to use decided whether their
  * manager got a work order. This module is the shared seam that closes that
- * gap, and the place any further channel (inbound email) plugs into.
+ * gap. Inbound EMAIL does not plug into it: an email reply address proves neither the current
+ * Auth subject nor a subject-bound residency, so nothing is filed from a mailbox.
  *
  * Design constraints, all inherited rather than invented:
  *
@@ -26,7 +27,6 @@
  *   swallowed and reported in the result, so a caller in `after()` cannot turn
  *   a classifier bug into a failed reply or a webhook retry.
  */
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { classifyInboundMessage } from "@/lib/inbox/inbound-message-intent";
 import { createWorkOrderFromResidentSms } from "@/lib/claw-maintenance-work-order.server";
 import { createServiceRequestFromResidentSms } from "@/lib/claw-service-request-sms.server";
@@ -113,36 +113,4 @@ export async function fileWorkflowFromInboundMessage(
     // classifier or storage failure may fail the send or retry a webhook.
     return { filed: "none", reason: "create_failed" };
   }
-}
-
-/** Email-only reply context cannot establish the current resident subject.
- * Keep the message delivered and leave filing to an authenticated path. */
-export async function fileWorkflowFromInboundEmailReply(
-  db: SupabaseClient,
-  input: {
-    /** Portal reply-token owner: only sometimes the manager. */
-    ownerUserId: string;
-    /** Whoever sent the email that just arrived. */
-    replierEmail: string;
-    replierName?: string | null;
-    text: string;
-  },
-): Promise<InboundWorkflowOutcome> {
-  const ownerUserId = String(input.ownerUserId ?? "").trim();
-  const replierEmail = String(input.replierEmail ?? "").trim().toLowerCase();
-  const text = String(input.text ?? "").trim();
-  if (!ownerUserId || !replierEmail || !text) {
-    return { filed: "none", reason: "missing_context" };
-  }
-
-  // Cheap check first: most email replies are not requests at all, and this
-  // saves the ownership read on every one of them.
-  if (classifyInboundMessage(text).intent === "none") {
-    return { filed: "none", reason: "not_a_request" };
-  }
-
-  // An email reply address proves neither the current Auth subject nor a
-  // subject-bound residency. Keep delivery, but never file on email alone.
-  void db;
-  return { filed: "none", reason: "not_a_request" };
 }

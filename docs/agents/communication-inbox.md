@@ -1180,15 +1180,13 @@ window is a no-op) and the manager notification. Rules for adding a channel:
 - **Identity comes from the authorized caller, never the body.** `managerUserId`
   and `residentEmail` come from the session and the thread the route already
   authorized. Nothing reads an id or address out of the message text.
-- **Inbound email verifies the DIRECTION** (`fileWorkflowFromInboundEmailReply`).
-  A portal reply token names whoever sent the ORIGINAL mail, which is sometimes
-  the manager and sometimes the resident, so filing on the token alone would
-  open a work order against a manager's own reply as if they were a tenant.
-  `managerIdsOwningResident` must confirm the replier is that owner's resident;
-  anything else, a failed read included, files nothing. It also runs the cheap
-  classifier BEFORE that read, so an ordinary "sounds good, thanks" costs no
-  query. Only a genuine first append files — a Resend redelivery must not open
-  a second work order.
+- **Inbound email files NOTHING.** A portal reply token names whoever sent the
+  ORIGINAL mail — sometimes the manager, sometimes the resident — and an email
+  address proves neither the current Auth subject nor a subject-bound residency.
+  The webhook appends the reply to its thread and stops; filing stays on the
+  authenticated portal seam and verified-SMS seam, which both carry a subject.
+  Do not add an email filing path back without mailbox-to-subject proof
+  (`tests/unit/inbound-message-workflows.test.ts` guards the webhook).
 
 Coverage: `tests/unit/inbound-message-intent.test.ts` (the classification table
 is the spec), `tests/unit/inbound-message-workflows.test.ts`.

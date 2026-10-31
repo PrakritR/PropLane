@@ -222,12 +222,10 @@ export async function resolveOAuthPortalRedirect(
     return finish(await managerPortalDestination(supabase, user.id, safeIntended));
   }
 
-  if (isPrimaryAdminEmail(email)) {
-    if (primaryAdminWantsManagerPortal(intent, safeIntended)) {
-      return await finishPrimaryAdminManagerPortal(supabase, user.id, safeIntended, finish);
-    }
-    return finish(isGenericOAuthContinuePath(safeIntended) ? portalDashboardPath("admin") : safeIntended);
-  }
+  // An account holding NO stored role is routed by its roles, never by its address: the
+  // primary-admin email is not an admin grant, and sending it to the admin portal only lands
+  // it on a screen that refuses it. It falls through to the purchase/application reads and
+  // then the chooser, exactly like any other unknown account.
 
   const linkedPurchase = emailVerified ? await findManagerPurchaseForAccount(supabase, user.id, email) : null;
   if (linkedPurchase && !isManagerOnboardingComplete(linkedPurchase)) {
@@ -298,17 +296,13 @@ export async function finalizeOAuthPortalRedirect(
       const access = await loadResidentPortalAccessState({
         userId: user.id,
         role: "resident",
-        email: user.email?.trim().toLowerCase() ?? "",
+        email,
       });
       return residentPortalHomePath(access);
     }
     return portalDashboardPath(roles[0]!);
   }
   if (roles.length > 1) return "/auth/choose-portal";
-  if (isPrimaryAdminEmail(email)) {
-    return primaryAdminWantsManagerPortal(options?.intent, intendedPath)
-      ? await resolveManagerPortalEntryPath(supabase, user.id)
-      : portalDashboardPath("admin");
-  }
+  // No stored role means no portal, whatever the address is.
   return GET_STARTED_PATH;
 }

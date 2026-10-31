@@ -244,9 +244,10 @@ async function linkedVendorsForManagers(
 /** Manager user ids that invited/own the given vendor (by linked auth user or directory email). */
 export async function managerIdsOwningVendor(
   db: SupabaseClient,
-  vendor: { userId: string; email: string },
+  /** Omit `email` to match on the Auth subject alone (no pre-link directory match). */
+  vendor: { userId: string; email?: string },
 ): Promise<string[]> {
-  const email = vendor.email.trim().toLowerCase();
+  const email = (vendor.email ?? "").trim().toLowerCase();
   const ids = new Set<string>();
   const filter = email
     ? `vendor_user_id.eq.${postgrestFilterValue(vendor.userId)},row_data->>email.eq.${postgrestFilterValue(email)}`

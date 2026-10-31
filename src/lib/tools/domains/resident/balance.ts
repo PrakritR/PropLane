@@ -7,11 +7,11 @@ import { queryResidentBalance } from "@/lib/resident-balance-summary.server";
 import { queryResidentLedger } from "@/lib/reports/queries";
 import { listResidentSavedPaymentMethods } from "@/lib/stripe-resident-customer";
 import { getStripe } from "@/lib/stripe";
-import { loadResidentIdentityRows } from "./load-resident-rows";
+import { loadResidentSubjectRows } from "./load-resident-rows";
 
 /** Server-side read of the resident's own charges (resident_user_id OR resident_email). */
 export async function loadOwnCharges(ctx: ResidentAgentContext): Promise<HouseholdCharge[]> {
-  return loadResidentIdentityRows(ctx, "portal_household_charge_records", (rowData) => rowData as HouseholdCharge);
+  return loadResidentSubjectRows(ctx, "portal_household_charge_records", (rowData) => rowData as HouseholdCharge);
 }
 
 export const getMyBalanceTool = defineTool({
