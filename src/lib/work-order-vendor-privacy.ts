@@ -4,17 +4,55 @@ import { formatServiceVisitLabel } from "@/lib/schedule-service-visit";
 import type { ServiceWorkflowStep } from "@/lib/manager-service-workflow";
 import { SMS_TEST_PROVENANCE_ROW_KEYS } from "@/lib/sms/sms-test-provenance";
 
-/** Vendors see a general area before hire — never the street address or entry notes. */
+/** A bare two-letter state, optionally with its ZIP: "WA", "WA 98101", "WA 98101-1234". */
+const STATE_PART = /^[A-Za-z]{2}(?:\s+\d{5}(?:-\d{4})?)?$/;
+/** A country tail an address may end with; dropped before the city is read. */
+const COUNTRY_PART = /^(?:USA|U\.S\.A\.?|US|U\.S\.?|United States(?: of America)?|CA|CAN|Canada)$/i;
+/**
+ * A city name: letters, spaces and the punctuation real names carry ("St. Louis", "Coeur d'Alene",
+ * "Winston-Salem"). A street line is rejected by its leading house number and by its thoroughfare
+ * word, tested on whole words so "St. Louis" and "St. Paul" survive while "Main St" does not.
+ */
+const CITY_SHAPE = /^[A-Za-z][A-Za-z .'-]*$/;
+const STREET_WORD = /(?:^|\s)(?:unit|suite|apt|apartment|floor|fl|rm|room|street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln|court|ct|place|pl|terrace|ter|way|hwy|highway|pkwy|parkway|circle|cir)\.?(?:\s|$)/i;
+
+function cityLikePart(value: string | undefined): string {
+  const part = value?.trim() ?? "";
+  if (!part || !CITY_SHAPE.test(part)) return "";
+  // "St. Louis" is a city; "Main St" is a street. Only a trailing thoroughfare word disqualifies.
+  if (STREET_WORD.test(` ${part.replace(/^St\.?\s+/i, "")} `)) return "";
+  return part;
+}
+
+/**
+ * Vendors see a general area before hire — never the street address or entry notes.
+ *
+ * The city (with its state when the address carries one) is the useful, non-identifying answer: a
+ * vendor browsing leads has to know which city a job is in to bid at all. Requiring three comma
+ * parts whose last one was a bare state collapsed "123 Main St, Seattle" and
+ * "123 Main St, Seattle, WA 98101, USA" alike to "Nearby". So a trailing country is dropped first,
+ * a trailing state is kept beside the city, and two parts are enough.
+ *
+ * `propertyName` is never a fallback: a distinctive house name identifies the property as surely as
+ * its street. No derivable city means "Nearby".
+ */
 export function workOrderGeneralArea(row: Pick<DemoManagerWorkOrderRow, "propertyAddress" | "propertyName">): string {
   const addr = row.propertyAddress?.trim();
-  if (addr) {
-    const parts = addr.split(",").map((p) => p.trim()).filter(Boolean);
-    if (parts.length >= 3 && /^[A-Za-z]{2}(?:\s+\d{5}(?:-\d{4})?)?$/.test(parts.at(-1) ?? "")) {
-      const city = parts[parts.length - 2];
-      if (city && /^[A-Za-z][A-Za-z .'-]*$/.test(city) && !/\b(?:unit|suite|apt|apartment|floor|street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln)\b/i.test(city)) return city;
-    }
+  if (!addr) return "Nearby";
+  const parts = addr.split(",").map((p) => p.trim()).filter(Boolean);
+  while (parts.length > 2 && COUNTRY_PART.test(parts.at(-1) ?? "")) parts.pop();
+  if (parts.length < 2) return "Nearby";
+  const last = parts.at(-1) ?? "";
+  if (STATE_PART.test(last)) {
+    // The part before the state is the city — unless it is the street line itself ("123 Main St,
+    // WA"), which `cityLikePart` rejects on its house number and thoroughfare word. The ZIP is
+    // dropped: a ZIP narrows the area to a few blocks.
+    const city = cityLikePart(parts[parts.length - 2]);
+    return city ? `${city}, ${last.replace(/\s+\d{5}(?:-\d{4})?$/, "")}` : "Nearby";
   }
-  return "Nearby";
+  // No state part: the last component is the city ("123 Main St, Seattle").
+  const city = cityLikePart(last);
+  return city || "Nearby";
 }
 
 /** Offered rows carry the area computed by the server projection. */

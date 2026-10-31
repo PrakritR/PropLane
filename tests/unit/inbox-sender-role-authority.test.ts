@@ -9,4 +9,18 @@ describe("inbox sender authority", () => {
     expect(await resolveInboxSenderRoleForPortal(db(["manager", "resident"]) as never, { userId: "user", legacyRole: "manager", portal: "resident", isAdmin: false })).toBe("resident");
     expect(await resolveInboxSenderRoleForPortal(db(["manager"], { message: "unavailable" }) as never, { userId: "user", legacyRole: "manager", portal: "manager", isAdmin: false })).toBeNull();
   });
+
+  /**
+   * A PropLane Overall admin seated through `redeemAdminTeamInvite` holds the stored `admin` row and
+   * NO manager row, so a plain manager-portal send is refused — correct, and
+   * `AGENTS.md` § "Admin borrows" is why. Admin Communication therefore ASKS for the admin surface:
+   * its compose posts through `adminOversightUrl` (`?oversight=admin`) and `resolveAdminOversight`
+   * confirms the stored role, which arrives here as `isAdmin`. Without that ask the same account
+   * stays refused, so the authority is the oversight request plus the role, never the role alone.
+   */
+  it("an admin-only account sends only when the request asked for oversight", async () => {
+    const adminOnly = db(["admin"]) as never;
+    expect(await resolveInboxSenderRoleForPortal(adminOnly, { userId: "user", legacyRole: null, portal: "manager", isAdmin: false })).toBeNull();
+    expect(await resolveInboxSenderRoleForPortal(adminOnly, { userId: "user", legacyRole: null, portal: "manager", isAdmin: true })).toBe("admin");
+  });
 });

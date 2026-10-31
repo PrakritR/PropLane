@@ -7,6 +7,12 @@
  * ACTIVE PORTAL as well had turned the absence of an `axis_active_portal` cookie into a denial for a
  * multi-role account, and denied an admin+manager outright — against `AGENTS.md` § "Admin borrows":
  * outside explicit `?oversight=admin` "a platform admin reads and writes as the manager they are."
+ *
+ * The repair for that over-narrowing then over-corrected: a missing cookie read as MANAGER. Widening
+ * now needs the active portal to name manager or admin explicitly. An account holding no resident
+ * role has no narrower scope to fall back to, so there the stored manager capability still answers —
+ * that is what keeps admin+manager working — but an account that holds BOTH reads as the resident
+ * until its session says otherwise.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -76,9 +82,24 @@ describe("a multi-role account", () => {
     await expect(resolve(["manager", "resident"])).resolves.toBe("manager");
   });
 
-  it("with NO active-portal cookie reads as the manager it stores, not denied", async () => {
+  it("with NO active-portal cookie reads as the RESIDENT, the narrower of the two", async () => {
+    // `getPortalAccessContext` reports a null `effectiveRole` for any multi-role account without a
+    // valid `axis_active_portal` cookie, so "no cookie" is a MISSING answer, not a manager one.
+    // Reading it as manager returned the portfolio-wide list into the resident Add-on services tab
+    // whenever the cookie was absent or expired. An unreadable context never widens.
     acting(null, ["manager", "resident"]);
-    await expect(resolve(["manager", "resident"])).resolves.toBe("manager");
+    await expect(resolve(["manager", "resident"])).resolves.toBe("resident");
+  });
+
+  it("widens to manager only when the active portal explicitly says so", async () => {
+    for (const active of ["manager", "admin"] as const) {
+      acting(active, ["manager", "resident"]);
+      await expect(resolve(["manager", "resident"])).resolves.toBe("manager");
+    }
+    for (const active of [null, "", "resident", "vendor"] as const) {
+      acting(active, ["manager", "resident"]);
+      await expect(resolve(["manager", "resident"])).resolves.toBe("resident");
+    }
   });
 
   it("an admin+manager reads as the manager they are, in either portal", async () => {

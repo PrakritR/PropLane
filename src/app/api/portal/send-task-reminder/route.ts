@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { isAdminUser } from "@/lib/auth/admin-preview";
 import { sendTaskAssigneeEmail } from "@/lib/manager-default-tasks.server";
 import { buildManagerTaskReminderPreview } from "@/lib/manager-task-reminder";
 import { loadManagerTasks, patchManagerTaskRow } from "@/lib/manager-tasks.server";
@@ -9,8 +8,14 @@ import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.
 
 export const runtime = "nodejs";
 
-function canSendTaskReminder(role: string | null | undefined): boolean {
-  return role === "admin" || role === "manager" || role === "owner" || role === "pro";
+/**
+ * Who may send a task reminder, from STORED `profile_roles` rows only — never the legacy singular
+ * `profiles.role`, which is the role the account was CREATED as and keeps forever (`AGENTS.md`
+ * § "`profiles.role` is legacy and singular"). The retired `owner` / `pro` labels only ever
+ * existed in that column.
+ */
+function canSendTaskReminder(storedRoles: readonly string[]): boolean {
+  return storedRoles.includes("admin") || storedRoles.includes("manager");
 }
 
 export async function POST(req: Request) {
@@ -35,11 +40,10 @@ export async function POST(req: Request) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
       return NextResponse.json({ ok: false, error: "Task access is unavailable for this account." }, { status: 403 });
     }
-    const [{ data: requestor }, admin] = await Promise.all([
-      db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
-      isAdminUser(user.id),
-    ]);
-    if (!admin && !canSendTaskReminder(requestor?.role)) {
+    const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", user.id);
+    // An unreadable role list grants nothing.
+    if (roleError) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 403 });
+    if (!canSendTaskReminder((roleRows ?? []).map((row) => String(row.role ?? "").trim().toLowerCase()))) {
       return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 403 });
     }
 

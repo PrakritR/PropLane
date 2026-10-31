@@ -63,18 +63,30 @@ function ConfirmContent() {
         return;
       }
       if (type === "magiclink" || type === "signup") {
+        const finish = () => fetch("/api/auth/email-onboarding/finish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tokenHash }) });
         let completed: Response;
         try {
-          completed = await fetch("/api/auth/email-onboarding/finish", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tokenHash }) });
+          completed = await finish();
+          // `finish` reads the session server-side, so a 401 means the browser client's cookie
+          // write had not propagated to this fetch yet — not that the link failed. Flush and ask
+          // once more before deciding there was no onboarding claim.
+          if (completed.status === 401) {
+            await supabase.auth.refreshSession().catch(() => undefined);
+            completed = await finish();
+          }
         } catch {
           if (!cancelled) setCompletionUnavailable(true);
           return;
         }
+        if (cancelled) return;
         if (completed.ok) { try { sessionStorage.removeItem("proplane_tour_invite"); } catch { /* unavailable */ } }
         if (!completed.ok && completed.status === 403 && !error) { setRestartRequired(true); return; }
         if (!completed.ok && completed.status >= 500) { setCompletionUnavailable(true); return; }
         // Ordinary magic links have no onboarding claim and retain their existing destination.
-        if (!completed.ok && (error || completed.status !== 409)) { setFailedType(type); return; }
+        // 409 (claim already spent) and a persistent 401 (no server-visible session to claim with)
+        // both mean "nothing to claim": `verifyOtp` SUCCEEDED, so the user is signed in and must
+        // never be shown "link failed" and told to request another one.
+        if (!completed.ok && (error || (completed.status !== 409 && completed.status !== 401))) { setFailedType(type); return; }
       } else if (error) {
         setFailedType(type);
         return;

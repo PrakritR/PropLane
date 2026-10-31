@@ -1,40 +1,57 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Night flow: /auth/create-account?mode=create&role=resident hung on
- * "Creating…" forever, with no error and no way forward, when the email
- * already had an account with a DIFFERENT password than the one just typed.
+ * This file used to pin a bounded `/api/auth/signup` POST and the existing-account copy INSIDE
+ * `LegacyPortalAuthForm` — the hub's password create-account form.
  *
- * Root cause: the create-account submit in portal-auth-form.tsx already
- * wraps the POST-CREATE sign-in retry in this file's own withTimeout (see
- * SIGNUP_SIGNIN_TIMEOUT_MS), but the FIRST call — POST /api/auth/signup,
- * which for an existing email routes through a live Supabase password check
- * (assertPasswordMatchesExistingAuthUser) — had no ceiling at all. If that
- * check ever stalled, `busy` stayed true forever: the `finally` that clears
- * it only runs once the awaited promise settles.
+ * That flow is retired. `/api/auth/signup` no longer creates anything: it refuses every caller
+ * that is not already a verified, signed-in mailbox owner, so there is no live password check for a
+ * timeout to bound and no "that email already has an account with a different password" branch to
+ * route out of. `LegacyPortalAuthForm` had been unreachable since `PortalAuthForm` stopped
+ * branching, and it is now deleted.
  *
- * Same convention as signup-sign-in-timeout.test.ts, which guards the
- * sibling *-signup-form.tsx/*-signup-panel.tsx files the same way — this
- * file predates and does not match that glob, so it needed its own check.
+ * So the guarantee this file keeps is the RETIREMENT, which is the stronger one: the hub has no
+ * password at all, and the mailbox is proven by an emailed `token_hash` link before any account
+ * detail is collected. A re-grown password path fails here.
  */
-const source = readFileSync(
-  join(process.cwd(), "src/components/auth/portal-auth-form.tsx"),
-  "utf8",
-);
+const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+const form = read("src/components/auth/portal-auth-form.tsx");
+const emailFirst = read("src/components/auth/email-first-signup.tsx");
 
-describe("portal-auth-form.tsx create-account signup call is bounded", () => {
-  it("wraps the /api/auth/signup fetch in withTimeout, not a bare await", () => {
-    expect(source).toContain("SIGNUP_CREATE_TIMEOUT_MS");
-    expect(source).toMatch(/withTimeout\(\s*fetch\("\/api\/auth\/signup"/);
-    // Not a bare, unbounded await of that fetch.
-    expect(source).not.toMatch(/const res = await fetch\("\/api\/auth\/signup"/);
+describe("the create-account hub has no password signup to hang on", () => {
+  it("renders the email-first signup and nothing else", () => {
+    expect(form).toContain("<EmailFirstSignup");
+    // The function itself is gone. (Its name survives in the comment that records the deletion.)
+    expect(form).not.toMatch(/function LegacyPortalAuthForm/);
   });
 
-  it("shows the honest existing-account message with a real Sign in link, not a dead end", () => {
-    expect(source).toContain("EXISTING_ACCOUNT_PASSWORD_MISMATCH");
-    expect(source).toMatch(/errorText === EXISTING_ACCOUNT_PASSWORD_MISMATCH/);
-    expect(source).toContain("portal-auth-existing-account-sign-in");
+  it("collects no password and never signs in with one", () => {
+    for (const source of [form, emailFirst]) {
+      expect(source).not.toContain("signInWithPassword");
+      expect(source).not.toMatch(/type="password"/);
+      expect(source).not.toContain("new-password");
+    }
+  });
+
+  it("proves the mailbox with an emailed link before any account detail", () => {
+    // The unverified branch starts the emailed-link handoff; only a verified session reaches the
+    // completion endpoints that write anything.
+    expect(emailFirst).toContain('"/api/auth/email-onboarding/start"');
+    expect(emailFirst).toContain("verifiedEmail ? endpoint[intent] : \"/api/auth/email-onboarding/start\"");
+  });
+
+  it("keeps /api/auth/signup refusing anyone who has not proven their mailbox", () => {
+    const route = read("src/app/api/auth/signup/route.ts");
+    expect(route).toContain("EMAIL_VERIFICATION_REQUIRED");
+    expect(route).toContain("user.email_confirmed_at");
+    // It cannot mint or confirm an account, and it takes no password.
+    expect(route).not.toContain("createUser(");
+    expect(route).not.toContain("password");
+  });
+
+  it("the deleted password client stays deleted", () => {
+    expect(existsSync(join(process.cwd(), "src/app/auth/create-account/create-account-client.tsx"))).toBe(false);
   });
 });

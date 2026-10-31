@@ -193,13 +193,25 @@ async function announceAcceptance(
   );
 
   if (run.source_type !== "work_order") return;
-  const { data: record } = await db
+  // Both the resident's "your vendor accepted" text and the accepted/scheduled notice hang off this
+  // read. Swallowing its error silently dropped both with nothing in the logs, so a failure is
+  // logged and retried once before the notices are given up on.
+  const readJob = async () => db
     .from("portal_work_order_records")
     .select("resident_user_id, row_data")
     .eq("id", run.source_id)
     .eq("manager_user_id", run.owner_user_id)
     .maybeSingle();
-  const workOrder = record as { resident_user_id?: string | null; row_data?: DemoManagerWorkOrderRow } | null;
+  let read = await readJob().catch((e: unknown) => ({ data: null, error: { message: e instanceof Error ? e.message : String(e) } }));
+  if (read.error) {
+    console.error("vendor accept work order read failed, retrying", { runId: run.id, sourceId: run.source_id, message: read.error.message });
+    read = await readJob().catch((e: unknown) => ({ data: null, error: { message: e instanceof Error ? e.message : String(e) } }));
+  }
+  if (read.error) {
+    console.error("vendor accept work order unreadable; resident notice skipped", { runId: run.id, sourceId: run.source_id, message: read.error.message });
+    return;
+  }
+  const workOrder = read.data as { resident_user_id?: string | null; row_data?: DemoManagerWorkOrderRow } | null;
   const residentUserId = workOrder?.resident_user_id?.trim();
   const residentText = composeResidentAcceptedText({
     vendorName: contact.name,

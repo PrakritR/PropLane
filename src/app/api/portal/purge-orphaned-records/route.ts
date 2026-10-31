@@ -25,8 +25,10 @@ export async function POST(req: Request) {
     const { data: roleRows, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", user.id);
     if (roleError) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     const admin = (roleRows ?? []).some((row) => row.role === "admin");
-    if (!admin && !(roleRows ?? []).some((row) => row.role === "manager")) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
 
+    // The platform-wide purge is the admin capability; the per-manager purge is the manager one. A
+    // stored `admin` row is NOT read as a manager row (`AGENTS.md` § "Admin borrows"), so an
+    // admin-only account can no longer run the manager branch against its own empty portfolio.
     if (mode === "admin_global") {
       if (!admin) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
@@ -34,6 +36,8 @@ export async function POST(req: Request) {
       const result = await purgeOrphanedPortalRecords(db);
       return NextResponse.json({ ok: true, ...result });
     }
+
+    if (!(roleRows ?? []).some((row) => row.role === "manager")) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
 
     const result = await purgeManagerResidentOrphans(db, user.id, {
       currentOnly: mode === "current_only",

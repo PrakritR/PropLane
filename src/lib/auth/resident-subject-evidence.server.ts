@@ -2,12 +2,27 @@ import "server-only";
 import { applicationPropertyId } from "@/lib/application-property-id";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+/**
+ * How many of a login's newest residency rows one of these subject scopes reads.
+ *
+ * `row_data->>'residentUserId'` carries no index yet (the expression index is a follow-up
+ * migration; this release's 16 are approved as applied), and these reads sit on the resident inbox
+ * load, every resident agent/SMS turn and both resident reminder sweeps. No resident holds anywhere
+ * near this many applications, so the cap changes no answer — it stops one request streaming a
+ * whole table (AGENTS.md § Performance & egress).
+ */
+const SUBJECT_SCOPE_ROW_LIMIT = 200;
+
 /** Only server-stored subject ids can bind historical housing to a login. */
 export async function residentSubjectManagerIds(db: SupabaseClient, userId: string, email: string): Promise<string[]> {
   void email;
   if (!userId) return [];
   const ids = new Set<string>();
-  const apps = await db.from("manager_application_records").select("manager_user_id, row_data").eq("row_data->>residentUserId", userId);
+  // `row_data->>residentUserId` carries no index yet (follow-up migration), and this read sits on
+  // every resident inbox load and agent turn: take the newest page, never the whole table
+  // (AGENTS.md § Performance & egress).
+  const apps = await db.from("manager_application_records").select("manager_user_id, row_data").eq("row_data->>residentUserId", userId)
+    .order("updated_at", { ascending: false }).limit(SUBJECT_SCOPE_ROW_LIMIT);
   if (apps.error) return [];
   for (const row of apps.data ?? []) {
     const data = row.row_data as Record<string, unknown> | null;
@@ -15,7 +30,8 @@ export async function residentSubjectManagerIds(db: SupabaseClient, userId: stri
     if (row.manager_user_id) ids.add(String(row.manager_user_id));
   }
   for (const table of ["portal_household_charge_records", "portal_lease_pipeline_records"]) {
-    const result = await db.from(table).select("manager_user_id").eq("resident_user_id", userId);
+    const result = await db.from(table).select("manager_user_id").eq("resident_user_id", userId)
+      .order("updated_at", { ascending: false }).limit(SUBJECT_SCOPE_ROW_LIMIT);
     if (result.error) return [];
     for (const row of result.data ?? []) if (row.manager_user_id) ids.add(String(row.manager_user_id));
   }
@@ -43,7 +59,8 @@ function applicationIsLive(row: { row_data?: unknown }): boolean {
 
 export async function residentSubjectHasHouse(db: SupabaseClient, userId: string, email: string, ownerId: string, propertyId: string): Promise<boolean> {
   if (!userId || !ownerId || !propertyId) return false;
-  const app = await db.from("manager_application_records").select("row_data, property_id, assigned_property_id").eq("manager_user_id", ownerId).eq("row_data->>residentUserId", userId);
+  const app = await db.from("manager_application_records").select("row_data, property_id, assigned_property_id").eq("manager_user_id", ownerId).eq("row_data->>residentUserId", userId)
+    .order("updated_at", { ascending: false }).limit(SUBJECT_SCOPE_ROW_LIMIT);
   if (app.error) return false;
   if ((app.data ?? []).some((row) => applicationIsLive(row) && applicationPropertyId(row) === propertyId)) return true;
   for (const table of ["portal_household_charge_records", "portal_lease_pipeline_records"]) {

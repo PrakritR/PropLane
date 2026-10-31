@@ -51,8 +51,13 @@ describe("manager partner-pricing create-account routing", () => {
 describe("signup sign-in retry", () => {
   const form = readFileSync(path.join(process.cwd(), "src/components/auth/portal-auth-form.tsx"), "utf8");
 
-  it("retries password sign-in after hub signup", () => {
-    expect(form).toMatch(/signInAfterSignup/);
-    expect(form).toMatch(/for \(let attempt = 0; attempt < 4; attempt\+\+\)/);
+  it("has no password sign-in to retry — the hub signs in by emailed link", () => {
+    // `signInAfterSignup` existed because the hub created an account and then had to race GoTrue
+    // to sign in with the password it had just set. Nothing sets a password before the mailbox is
+    // proven any more: the emailed `token_hash` link IS the sign-in, so the retry loop and the
+    // password form it served are gone.
+    expect(form).not.toMatch(/signInAfterSignup/);
+    expect(form).not.toMatch(/signInWithPassword/);
+    expect(form).toContain("<EmailFirstSignup");
   });
 });

@@ -42,7 +42,11 @@ const LINKED_RESIDENT = "linked-resident-user";
 
 type LinkRow = { inquiry_id: string; resident_user_id: string; manager_user_id?: string; property_id?: string | null };
 
-function makeDb(links: LinkRow[] = [{ inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT, property_id: "property-x" }]) {
+function makeDb(
+  links: LinkRow[] = [{ inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT, property_id: "property-x" }],
+  /** Injected failure of the links read: a failure, never an absence. */
+  linksError: { code?: string; message: string } | null = null,
+) {
   return {
     from: vi.fn((table: string) => {
       const filters: Record<string, unknown> = {};
@@ -55,6 +59,7 @@ function makeDb(links: LinkRow[] = [{ inquiry_id: LINKED_INQUIRY, resident_user_
         }),
         limit: vi.fn(async () => {
           if (table !== "resident_tour_links") return { data: [], error: null };
+          if (linksError) return { data: null, error: linksError };
           const matched = links.filter((row) =>
             Object.entries(filters).every(([column, value]) => (row as Record<string, unknown>)[column] === value),
           );
@@ -167,5 +172,41 @@ describe("a tour notice's inbox copy is bound to its own inquiry", () => {
 
     expect(appendResidentPropertyManagerInboxMessage).not.toHaveBeenCalled();
     expect(result.inbox.sent).toBe(false);
+  });
+
+  /**
+   * A skip is REPORTED. It used to be indistinguishable from a success: every "no single link row
+   * claims this inquiry at this property" answer — including the one an inquiry MOVED from P1 to P2
+   * produces — came back as a bare `{ sent: false }` and the notice still read `ok: true`, so the
+   * manager saw a clean send for every later confirm / reschedule / cancel the resident never got
+   * in PropLane. A `reason` says so without failing the notice; only an unreadable binding is an
+   * `error`, which does fail it.
+   */
+  it("names the reason a skipped in-app copy was not delivered", async () => {
+    const moved = makeDb([{ inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT, property_id: "property-y" }]);
+    const result = await notifyTenantTourConfirmed(moved as never, null, inquiry(LINKED_INQUIRY), window);
+    expect(result.inbox.sent).toBe(false);
+    expect(result.inbox.reason).toMatch(/no proplane account is linked to this tour at this property/i);
+    // A skip is not a delivery FAILURE, so it never carries an error.
+    expect(result.inbox.error).toBeUndefined();
+
+    const contested = makeDb([
+      { inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT, property_id: "property-x" },
+      { inquiry_id: LINKED_INQUIRY, resident_user_id: "second-claimant", property_id: "property-x" },
+    ]);
+    const twoClaims = await notifyTenantTourConfirmed(contested as never, null, inquiry(LINKED_INQUIRY), window);
+    expect(twoClaims.inbox.reason).toMatch(/several accounts claim this tour/i);
+    expect(twoClaims.inbox.error).toBeUndefined();
+  });
+
+  it("reports an unreadable link as an ERROR, not as an absence", async () => {
+    const db = makeDb([], { code: "57014", message: "canceling statement due to statement timeout" });
+
+    const result = await notifyTenantTourConfirmed(db as never, null, inquiry(LINKED_INQUIRY), window);
+
+    expect(appendResidentPropertyManagerInboxMessage).not.toHaveBeenCalled();
+    expect(result.inbox.sent).toBe(false);
+    expect(result.inbox.error).toMatch(/could not be read/i);
+    expect(result.inbox.reason).toBeUndefined();
   });
 });

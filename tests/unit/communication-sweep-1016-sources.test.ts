@@ -15,6 +15,25 @@ describe("C11: one compose, counted tabs", () => {
     expect(admin).toContain('title={initialSchedule ? "Schedule message" : "New message"}');
   });
 
+  /**
+   * Admin Communication sends through the admin SURFACE, which means asking for it. A seated
+   * Overall admin holds the stored `admin` row and no manager row, so a plain POST to
+   * `/api/portal/send-inbox-message` with `senderPortal: "manager"` is refused — while
+   * `inbox-eligible-contacts` still fills the recipient picker, so the compose would be invited and
+   * then 403. `adminOversightUrl` appends `?oversight=admin` from an `/admin` page and nothing
+   * elsewhere, and the server still confirms the role (`resolveAdminOversight`): the parameter is a
+   * request for the surface, never the authorization.
+   */
+  it("admin sends ask for the admin surface, so a seated admin is not refused its own compose", () => {
+    const admin = read("src/components/portal/admin-compose-modal.tsx");
+    expect(admin).toContain('from "@/lib/auth/admin-oversight.client"');
+    expect(admin).toContain('fetch(adminOversightUrl("/api/portal/send-inbox-message")');
+    expect(admin).toContain('fetch(adminOversightUrl("/api/portal/scheduled-inbox-messages")');
+    // Never a bare POST to either, which would 403 for an admin-only account.
+    expect(admin).not.toContain('fetch("/api/portal/send-inbox-message"');
+    expect(admin).not.toContain('fetch("/api/portal/scheduled-inbox-messages"');
+  });
+
   it("vendor Active / Archived tabs carry counts like the manager and resident ones", () => {
     const vendor = read("src/components/portal/vendor-communication.tsx");
     expect(vendor).toMatch(/<InboxListSegmentTabs[\s\S]*?counts=\{listSynced \? tabCounts : undefined\}/);

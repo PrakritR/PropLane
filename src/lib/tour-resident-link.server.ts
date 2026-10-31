@@ -56,8 +56,16 @@ export type ResidentTourLinkRow = {
   linked_at: string;
 };
 
-export function isResidentTourLinksSchemaError(message: string): boolean {
-  return /resident_tour_links|schema cache/i.test(message);
+/**
+ * The table is genuinely ABSENT (a database that has not run the links migration) — the one
+ * `resident_tour_links` condition that is not a read failure. Decided on the error CODE alone:
+ * `42P01` is Postgres `undefined_table` and `PGRST205` is PostgREST's "table not found in the
+ * schema cache". A message test would also swallow `permission denied`, a constraint and a
+ * statement timeout on this table, which are failures and must be reported as such.
+ */
+export function isResidentTourLinksSchemaError(error: { code?: unknown; message?: unknown } | null | undefined): boolean {
+  const code = String(error?.code ?? "").trim().toUpperCase();
+  return code === "42P01" || code === "PGRST205";
 }
 
 /** Existing links are scoped to their original Auth subject. */
@@ -86,6 +94,13 @@ export async function loadResidentTourLinks(db: Db, userId: string): Promise<Res
   return (data ?? []) as ResidentTourLinkRow[];
 }
 
+/**
+ * ONE error rule for this table, shared with `loadResidentTourLinks`: any read failure throws.
+ * This used to swallow the failure and answer `false`, so a PostgREST blip dropped a prospect's
+ * pre-lease nav while `GET /api/portal-resident-tours` 500d on the same request — two different
+ * answers to one unreadable table. An absent table (`isResidentTourLinksSchemaError`) is the only
+ * non-failure, and it answers `false` because there are no links to hold.
+ */
 export async function residentHasTourLinks(
   db: Db,
   userId: string,
@@ -96,13 +111,12 @@ export async function residentHasTourLinks(
     .select("id", { count: "exact", head: true })
     .eq("resident_user_id", userId);
   if (error) {
-    if (!isResidentTourLinksSchemaError(error.message)) throw new Error(error.message);
-  } else if ((count ?? 0) > 0) {
-    return true;
+    if (isResidentTourLinksSchemaError(error)) return false;
+    throw new Error(error.message);
   }
 
   void email;
-  return false;
+  return (count ?? 0) > 0;
 }
 
 export type LinkTourInquiryResult =

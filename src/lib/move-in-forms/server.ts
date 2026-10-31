@@ -256,6 +256,7 @@ const residencyColumns = "id,manager_user_id,property_id,assigned_property_id,re
   + "app_bucket:row_data->>bucket,app_withdrawn_at:row_data->>withdrawnAt,"
   + "app_name:row_data->>name,app_property:row_data->>property,"
   + "app_property_id:row_data->>propertyId,app_assigned_property_id:row_data->>assignedPropertyId,"
+  + "app_nested_property_id:row_data->application->>propertyId,"
   + "app_resident_user_id:row_data->>residentUserId,app_room_choice:row_data->>assignedRoomChoice,"
   + "app_manual_room:row_data->manualResidentDetails->>roomNumber,"
   + "app_manual_move_in:row_data->manualResidentDetails->>moveInDate,"
@@ -306,7 +307,7 @@ function residencyFromRecord(record: Record<string, unknown>): Residency {
     moveInDate: isoDate(text("app_manual_move_in")) || isoDate(text("app_lease_start")),
     identity: {
       manager_user_id: text("manager_user_id"),
-      property_id: text("assigned_property_id") || text("app_assigned_property_id") || text("property_id") || text("app_property_id"),
+      property_id: text("assigned_property_id") || text("app_assigned_property_id") || text("property_id") || text("app_property_id") || text("app_nested_property_id"),
       resident_email: text("resident_email").trim().toLowerCase(),
       resident_user_id: text("app_resident_user_id") || null,
     },

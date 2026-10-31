@@ -399,6 +399,23 @@ describe("one read answers both resident forms facts", () => {
     expect(calls).toContainEqual(["eq", "resident_user_id", "u1"]);
   });
 
+  /**
+   * No Auth subject is "unknown", never "nothing blocks". `LeaseSubject.residentUserId` is nullable
+   * (`automations/moments.ts`), so a manager-onboarded or imported resident reaches
+   * `loadMoveInDetailsLock` with none — and the `move_in_3d` automation reads
+   * `moveInDetailsLocked` before it puts the door code, the Wi-Fi password and parking in a text
+   * (`automations/sweep.server.ts`). Answering "not blocked" without reading the table at all
+   * disclosed all four to someone who still owed an unsubmitted move-in form.
+   */
+  it("fails CLOSED with no subject, without reading the table at all", async () => {
+    for (const userId of [undefined, null, ""]) {
+      const { db, calls } = fakeDb({ data: [factsRow({ snapshot_blocks: "move_in_details" })] });
+      expect(await loadResidentFormsFacts(db, { email: "a@example.test", userId }))
+        .toEqual({ hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED });
+      expect(calls).toEqual([]);
+    }
+  });
+
   it("a copy tied to another login is neither a form of theirs nor a block", async () => {
     const { db } = fakeDb({ data: [factsRow({ id: "theirs", resident_user_id: "u2", snapshot_blocks: "approval" })] });
     const facts = await loadResidentFormsFacts(db, { email: "a@example.test", userId: "u1" });

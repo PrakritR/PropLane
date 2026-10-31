@@ -304,7 +304,7 @@ describe("a stale lower-precedence house is not a second residency", () => {
     ).resolves.toBe(RESIDENT);
   });
 
-  it("lets the property_id column outrank the payload when there is no assigned column", async () => {
+  it("lets the property_id column outrank the nested payload when there is no assigned column", async () => {
     const columnB = { ...authoritativeA, assigned_property_id: null, property_id: "prop-c" };
     const db = createMemoryDb({
       manager_application_records: [columnB],
@@ -313,6 +313,58 @@ describe("a stale lower-precedence house is not a second residency", () => {
     });
     await expect(residentSubjectHasHouse(db as never, RESIDENT, "resident@example.test", MANAGER, "prop-c")).resolves.toBe(true);
     await expect(residentSubjectHasHouse(db as never, RESIDENT, "resident@example.test", MANAGER, "prop-b")).resolves.toBe(false);
+  });
+
+  /**
+   * The precedence has to be the DATABASE's, exactly. `insert_bound_move_in_form` and
+   * `bind_resident_setup_subject` coalesce `assigned_property_id, row_data->>'assignedPropertyId',
+   * property_id, row_data->>'propertyId', row_data#>>'{application,propertyId}'`, and
+   * `residencyFromRecord` reads the same five in the same sequence.
+   *
+   * Ranking the `property_id` COLUMN above `row_data.assignedPropertyId` — as `applicationPropertyId`
+   * briefly did — answers house A for a legacy row the database binds to house B: the resident is
+   * denied at B where they are placed and admitted at A where they are not, while
+   * `insert_bound_move_in_form` computes B and raises 23514 on a legitimate send.
+   */
+  it("ranks row_data.assignedPropertyId above the property_id column, exactly as the SQL does", async () => {
+    const legacy = {
+      ...authoritativeA,
+      assigned_property_id: null,
+      property_id: "house-a",
+      row_data: { residentUserId: RESIDENT, bucket: "approved", assignedPropertyId: "house-b", application: { propertyId: "house-c" } },
+    };
+    const db = createMemoryDb({
+      manager_application_records: [legacy],
+      portal_household_charge_records: [],
+      portal_lease_pipeline_records: [],
+    });
+    await expect(residentSubjectHasHouse(db as never, RESIDENT, "resident@example.test", MANAGER, "house-b")).resolves.toBe(true);
+    await expect(residentSubjectHasHouse(db as never, RESIDENT, "resident@example.test", MANAGER, "house-a")).resolves.toBe(false);
+    await expect(residentSubjectHasHouse(db as never, RESIDENT, "resident@example.test", MANAGER, "house-c")).resolves.toBe(false);
+    await expect(
+      boundResidentSubjectForManagerHouse(db as never, { managerUserId: MANAGER, propertyId: "house-b", residentEmail: "resident@example.test" }),
+    ).resolves.toBe(RESIDENT);
+    await expect(
+      boundResidentSubjectForManagerHouse(db as never, { managerUserId: MANAGER, propertyId: "house-a", residentEmail: "resident@example.test" }),
+    ).resolves.toBeNull();
+  });
+
+  it("keeps the assigned COLUMN above everything, including row_data.assignedPropertyId", async () => {
+    const bothAssigned = {
+      ...authoritativeA,
+      assigned_property_id: "house-col",
+      property_id: "house-a",
+      row_data: { residentUserId: RESIDENT, bucket: "approved", assignedPropertyId: "house-b" },
+    };
+    const db = createMemoryDb({
+      manager_application_records: [bothAssigned],
+      portal_household_charge_records: [],
+      portal_lease_pipeline_records: [],
+    });
+    await expect(residentSubjectHasHouse(db as never, RESIDENT, "resident@example.test", MANAGER, "house-col")).resolves.toBe(true);
+    for (const other of ["house-a", "house-b"]) {
+      await expect(residentSubjectHasHouse(db as never, RESIDENT, "resident@example.test", MANAGER, other)).resolves.toBe(false);
+    }
   });
 });
 

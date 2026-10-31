@@ -49,12 +49,12 @@ function ContinueContent() {
           return;
         }
 
-        const handoff = await fetch("/api/auth/email-onboarding/continue", { method: "POST" });
-        if (!handoff.ok) {
-          if (!cancelled) setErrorText("Could not continue account setup. Refresh to try again.");
-          return;
-        }
-        if (handoff.ok) {
+        // An onboarding handoff is a claim this sign-in MAY carry, not a precondition for routing.
+        // A non-OK answer (no claim, or a transient failure of its own read) means the claim simply
+        // did not happen: fall through to the ordinary post-auth resolver below rather than
+        // dead-ending every sign-in on one new route.
+        const handoff = await fetch("/api/auth/email-onboarding/continue", { method: "POST" }).catch(() => null);
+        if (handoff?.ok) {
           const body = await handoff.json().catch(() => ({})) as { role?: unknown; tourInquiryId?: unknown; inviteToken?: unknown; applicationId?: unknown; checkoutSessionId?: unknown; propertyId?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown; tier?: unknown; billing?: unknown };
           if (body.role === "vendor_invite" && typeof body.inviteToken === "string" && body.inviteToken.length <= 512) {
             window.location.replace(nativeAwarePath(`/auth/vendor-register?token=${encodeURIComponent(body.inviteToken)}`));

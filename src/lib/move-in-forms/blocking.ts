@@ -324,12 +324,18 @@ export async function residentBoundApplicationIds(db: SupabaseClient, userId: st
  * `boundApplicationIds` lets a caller that has already read that scope hand it over rather than pay
  * for the unindexed `row_data->>residentUserId` scan twice in one request; `null` says that caller's
  * own read failed. EVERY read behind this answer fails CLOSED, the module's one error rule.
+ *
+ * NO SUBJECT fails closed too, for the same reason: without an Auth subject there is no scope this
+ * table can be read in, so the answer is "unknown", never "nothing blocks". A manager-onboarded or
+ * imported resident whose lease carries no `residentUserId` still holds unsubmitted forms, and the
+ * `move_in_3d` automation reads `moveInDetailsLocked` before it puts a door code, a Wi-Fi password
+ * and parking in a text (`automations/sweep.server.ts`). An unreadable context never widens.
  */
 export async function loadResidentFormsFacts(
   db: SupabaseClient,
   who: { email: string; userId?: string | null; boundApplicationIds?: readonly string[] | null },
 ): Promise<{ hasForms: boolean; blocking: BlockingFormsPending }> {
-  if (!who.userId) return { hasForms: false, blocking: NO_BLOCKING_FORMS };
+  if (!who.userId) return { hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED };
   try {
     const boundApplicationIds = who.boundApplicationIds === undefined
       ? await residentBoundApplicationIds(db, who.userId)

@@ -73,7 +73,14 @@ describe("the vendor register route accepts what its form now collects", () => {
     // carried a whole second set of inputs for the unreachable layout. That
     // copy had already drifted (it never grew the phone field), which is the
     // failure mode this whole unification exists to prevent.
-    expect(form).toContain("<SignupFieldStack");
+    //
+    // There is now exactly ONE set of fields, in `EmailFirstSignup`: the hub renders it and owns
+    // no inputs of its own, so there is nothing left for a second copy to drift from. The retired
+    // password form that held the old stack is deleted
+    // (`tests/unit/portal-auth-form-signup-timeout.test.ts` pins that).
+    expect(form).toContain("<EmailFirstSignup");
+    expect(form).not.toContain("<SignupFieldStack");
+    expect(form).not.toContain("<Input");
     expect(form).not.toContain("labeledFields");
     expect(form).not.toContain("isCreate");
     expect(form).not.toContain("handleSignIn");

@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 const FORM = "src/components/auth/portal-auth-form.tsx";
+/** The hub's own fields now live here: one surface, email proof first, then name and phone. */
+const HUB = "src/components/auth/email-first-signup.tsx";
 const STACK = "src/components/auth/signup-field-stack.tsx";
 const ROUTE = "src/app/api/auth/signup/route.ts";
 
@@ -21,17 +23,22 @@ const ROUTE = "src/app/api/auth/signup/route.ts";
  */
 describe("PRP-186: the hub signup form collects a phone", () => {
   it("renders the input for any create, not just a prospect handoff", () => {
-    // The fields moved into the one shared stack, so the guarantee is now that
-    // the hub form renders that stack and the stack renders phone
-    // UNCONDITIONALLY — there is no longer any condition it could regrow.
+    // The hub form owns no inputs: it renders `EmailFirstSignup`, whose completion step collects
+    // the phone for EVERY intent — there is no longer any condition it could regrow.
     const form = read(FORM);
-    expect(form).toContain("<SignupFieldStack");
+    expect(form).toContain("<EmailFirstSignup");
     expect(form).not.toContain('type="tel"');
 
+    const hub = read(HUB);
+    expect(hub).toContain("<PhoneNumberField");
+    // The field sits in the verified-email branch, not behind any per-intent condition.
+    const completion = hub.slice(hub.indexOf("Verified email"));
+    expect(completion).toContain("<PhoneNumberField");
+
+    // The shared stack still renders phone unconditionally for the forms that use it.
     const stack = read(STACK);
     const phoneIdx = stack.indexOf("<PhoneNumberField");
     expect(phoneIdx).toBeGreaterThan(-1);
-    // Nothing between the fragment open and the phone input may branch on it.
     const before = stack.slice(stack.indexOf("return (\n    <>"), phoneIdx);
     expect(before).not.toContain("?");
   });
@@ -39,9 +46,9 @@ describe("PRP-186: the hub signup form collects a phone", () => {
   it("sends the phone it collected", () => {
     // The state and input existed before; only the payload was missing, which
     // is why the field silently did nothing even when it was shown.
-    const form = read(FORM);
-    const signupCall = form.slice(form.indexOf('"/api/auth/signup"'));
-    expect(signupCall.slice(0, 500)).toContain("phone:");
+    const hub = read(HUB);
+    expect(hub).toContain('endpoint: Record<Intent, string> = { generic: "/api/auth/signup"');
+    expect(hub).toContain("phone: phone.trim()");
   });
 
   it("accepts and normalizes the phone server-side without requiring one", () => {

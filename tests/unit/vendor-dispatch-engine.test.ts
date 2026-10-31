@@ -782,7 +782,7 @@ describe("after the accept", () => {
     expect(rows(db, "portal_work_order_records")[0]!.row_data).toMatchObject({ bucket: "completed", status: "Completed" });
   });
 
-  it("skips a newer same-email run belonging to another resident", async () => {
+  it("skips a newer run whose job is bound to another resident", async () => {
     const { db, run } = await accepted();
     await recordVendorDone(db as never, { ownerUserId: OWNER, attemptId: String(attemptsOf(db, run.id)[0]!.id), now: T0 });
     const existing = runById(db, run.id)!;

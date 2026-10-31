@@ -1,3 +1,4 @@
+import { userHoldsManagerRole } from "@/lib/manager-route-guard.server";
 import { NextResponse } from "next/server";
 import { resolveAppOrigin } from "@/lib/app-url";
 import {
@@ -43,8 +44,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Vendor access is unavailable for this account." }, { status: 403 });
     }
     const { data: profile } = await db.from("profiles").select("full_name, email").eq("id", user.id).maybeSingle();
-    const { data: roles, error: roleError } = await db.from("profile_roles").select("role").eq("user_id", user.id);
-    if (roleError || !(roles ?? []).some((row) => row.role === "manager" || row.role === "admin")) {
+    // A stored manager row, the same gate every other manager route uses. A stored `admin` row is
+    // not one: an Overall admin operating a service workspace reaches the manager APIs through
+    // admin oversight, never by being read as a manager here.
+    if (!(await userHoldsManagerRole(db, user.id))) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 

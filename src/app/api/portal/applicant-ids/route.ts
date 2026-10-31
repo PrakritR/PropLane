@@ -5,8 +5,16 @@ import { assertTestWorkspacePrincipalCompatibility, resolveAuthenticatedBusiness
 
 export const runtime = "nodejs";
 
-function canLookUpApplicants(role: string | null | undefined): boolean {
-  return role === "admin" || role === "manager" || role === "owner" || role === "pro";
+/**
+ * Who may look an applicant up, from STORED `profile_roles` rows only.
+ *
+ * It used to read the legacy singular `profiles.role`, which refused a manager who holds the
+ * stored row but was created as a resident (how the team dogfoods) and admitted a legacy-only
+ * `manager` with no stored row that every converted route already locks out. The retired `owner` /
+ * `pro` labels only ever existed in that column.
+ */
+function canLookUpApplicants(storedRoles: readonly string[]): boolean {
+  return storedRoles.includes("admin") || storedRoles.includes("manager");
 }
 
 export async function GET(req: Request) {
@@ -29,8 +37,10 @@ export async function GET(req: Request) {
     if ((await resolveAuthenticatedBusinessAccess(user.id, svc)).kind === "denied") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    const { data: requestor } = await svc.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    if (!canLookUpApplicants(requestor?.role)) {
+    const { data: roleRows, error: roleError } = await svc.from("profile_roles").select("role").eq("user_id", user.id);
+    // An unreadable role list grants nothing.
+    if (roleError) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!canLookUpApplicants((roleRows ?? []).map((row) => String(row.role ?? "").trim().toLowerCase()))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

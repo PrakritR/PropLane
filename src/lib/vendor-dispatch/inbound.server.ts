@@ -550,14 +550,20 @@ export async function handleVendorDispatchReply(
   return { handled: true, vendorUserId: first.contact.vendorUserId };
 }
 
-/** A resident's bare YES / NO while a finished job waits on "Is it fixed?". */
+/**
+ * A resident's bare YES / NO while a finished job waits on "Is it fixed?".
+ *
+ * `residentEmail` is the inbound pipeline's own identification of the sender and is NOT a lookup
+ * key here: the candidate runs are found through the job's bound `resident_user_id`
+ * (`handleResidentFixedReply`), never through the address snapshotted onto the run.
+ */
 export async function handleResidentDispatchReply(
   db: SupabaseClient,
   input: { ownerUserId: string; residentUserId: string; residentEmail: string; body: string; now?: Date },
 ): Promise<InboundHandled> {
   const verdict = parseResidentFixedReply(input.body);
   if (!verdict) return { handled: false };
-  const result = await handleResidentFixedReply(db, { ownerUserId: input.ownerUserId, residentUserId: input.residentUserId, residentEmail: input.residentEmail, verdict, now: input.now }).catch(
+  const result = await handleResidentFixedReply(db, { ownerUserId: input.ownerUserId, residentUserId: input.residentUserId, verdict, now: input.now }).catch(
     () => ({ handled: false as const }),
   );
   return result.handled ? { handled: true, reply: result.reply } : { handled: false };

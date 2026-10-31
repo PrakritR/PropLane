@@ -73,6 +73,10 @@ function fakeDb(opts: {
   workOrder?: Row | null;
   attempt?: Row | null;
   rpc?: (fn: string, args: Row) => unknown;
+  /** Injected read / RPC failures: none of them may claim the resident's message. */
+  runsReadError?: { code?: string; message: string };
+  workOrderReadError?: { code?: string; message: string };
+  rpcError?: { code?: string; message: string };
   onRunUpdate?: (patch: Row, filters: Row) => void;
 }) {
   const runs = (opts.runs ?? []).map((r) => ({ ...r }));
@@ -84,13 +88,22 @@ function fakeDb(opts: {
       select: () => q,
       update: (value: Row) => ((patch = value), q),
       eq: (column: string, value: unknown) => ((filters[column] = value), q),
+      // The candidate runs are found through the JOB's bound subject, so the runs read is an
+      // `in (source_id)` over the work orders that name this resident.
+      in: (column: string, values: unknown[]) => ((filters[column] = { in: values }), q),
       order: () => q,
-      limit: async () => ({ data: rowsFor(name), error: null }),
-      maybeSingle: async () => ({ data: (rowsFor(name)[0] as Row | undefined) ?? null, error: null }),
+      limit: async () => ({ data: rowsFor(name), error: errorFor(name) }),
+      maybeSingle: async () => ({ data: (rowsFor(name)[0] as Row | undefined) ?? null, error: errorFor(name) }),
     };
+    const errorFor = (t: string) =>
+      (t === "vendor_dispatch_runs" ? opts.runsReadError : t === "portal_work_order_records" ? opts.workOrderReadError : null) ?? null;
     const rowsFor = (t: string): Row[] => {
       if (t === "vendor_dispatch_runs") {
-        const hit = runs.filter((r) => Object.entries(filters).every(([k, v]) => r[k] === v));
+        const matches = (row: Row, column: string, want: unknown) =>
+          want && typeof want === "object" && Array.isArray((want as { in?: unknown[] }).in)
+            ? (want as { in: unknown[] }).in.includes(row[column])
+            : row[column] === want;
+        const hit = runs.filter((r) => Object.entries(filters).every(([k, v]) => matches(r, k, v)));
         if (patch) {
           opts.onRunUpdate?.(patch, filters);
           for (const r of hit) Object.assign(r, patch);
@@ -116,6 +129,7 @@ function fakeDb(opts: {
     from: (name: string) => table(name),
     rpc: async (fn: string, args: Row) => {
       rpcCalls.push({ fn, args });
+      if (opts.rpcError) return { data: null, error: opts.rpcError };
       return { data: opts.rpc?.(fn, args) ?? null, error: null };
     },
   };
@@ -156,7 +170,7 @@ describe("handleResidentFixedReply enforces the seven-day window before the RPC"
     });
 
     const outcome = await handleResidentFixedReply(db as never, {
-      ownerUserId: OWNER, residentUserId: RESIDENT, residentEmail: "resident@example.test",
+      ownerUserId: OWNER, residentUserId: RESIDENT,
       verdict: "not_fixed", now: NOW,
     });
 
@@ -167,11 +181,12 @@ describe("handleResidentFixedReply enforces the seven-day window before the RPC"
   it("refuses a month-old reply without calling the RPC at all", async () => {
     const db = fakeDb({
       runs: [parkedRun({ vendor_done_at: "2026-09-15T00:00:00.000Z" })],
+      workOrder: { id: "wo-1", manager_user_id: OWNER, resident_user_id: RESIDENT, row_revision: 3, row_data: { id: "wo-1" } },
       rpc: () => ({ applied: true }),
     });
 
     const outcome = await handleResidentFixedReply(db as never, {
-      ownerUserId: OWNER, residentUserId: RESIDENT, residentEmail: "resident@example.test",
+      ownerUserId: OWNER, residentUserId: RESIDENT,
       verdict: "not_fixed", now: NOW,
     });
 
@@ -187,11 +202,12 @@ describe("handleResidentFixedReply enforces the seven-day window before the RPC"
   it("refuses a run whose asked-at timestamp cannot be read", async () => {
     const db = fakeDb({
       runs: [parkedRun({ vendor_done_at: null, updated_at: "not a date", created_at: "also not a date" })],
+      workOrder: { id: "wo-1", manager_user_id: OWNER, resident_user_id: RESIDENT, row_revision: 3, row_data: { id: "wo-1" } },
       rpc: () => ({ applied: true }),
     });
 
     const outcome = await handleResidentFixedReply(db as never, {
-      ownerUserId: OWNER, residentUserId: RESIDENT, residentEmail: "resident@example.test",
+      ownerUserId: OWNER, residentUserId: RESIDENT,
       verdict: "fixed", now: NOW,
     });
 
@@ -203,10 +219,102 @@ describe("handleResidentFixedReply enforces the seven-day window before the RPC"
     const db = fakeDb({ runs: [] });
     await expect(
       handleResidentFixedReply(db as never, {
-        ownerUserId: OWNER, residentUserId: RESIDENT, residentEmail: "resident@example.test",
+        ownerUserId: OWNER, residentUserId: RESIDENT,
         verdict: "fixed", now: NOW,
       }),
     ).resolves.toEqual({ handled: false });
+  });
+});
+
+/**
+ * The candidate runs come from the JOB's bound subject, never from the address snapshotted onto the
+ * run. `vendor_dispatch_runs.resident_email` is the work-order PAYLOAD's `residentEmail`: a manager
+ * filing a service for a roster resident leaves it blank while the insert binds `resident_user_id`,
+ * so keying the lookup on it meant the resident was texted "Is it fixed?", replied YES, matched no
+ * run, and the run sat on `awaiting_resident` forever while the job read Completed.
+ */
+describe("the resident's reply is matched by their bound subject, not the payload email", () => {
+  it("applies a verdict to a run whose stored payload email is blank or someone else's", async () => {
+    for (const residentEmail of [null, "", "stale-payload@example.test"]) {
+      const db = fakeDb({
+        runs: [parkedRun({ resident_email: residentEmail, vendor_done_at: "2026-10-29T00:00:00.000Z" })],
+        workOrder: { id: "wo-1", manager_user_id: OWNER, resident_user_id: RESIDENT, row_revision: 3, row_data: { id: "wo-1" } },
+        rpc: () => ({ applied: true, confirmation_applied: false }),
+      });
+
+      const outcome = await handleResidentFixedReply(db as never, {
+        ownerUserId: OWNER, residentUserId: RESIDENT, verdict: "fixed", now: NOW,
+      });
+
+      expect(outcome).toMatchObject({ handled: true });
+      expect(db.rpcCalls[0]!.args.p_resident).toBe(RESIDENT);
+    }
+  });
+
+  it("claims nothing for a resident no job on this owner binds", async () => {
+    const db = fakeDb({
+      runs: [parkedRun({ vendor_done_at: "2026-10-29T00:00:00.000Z" })],
+      // No work order names this subject, so there is no run to claim.
+      workOrder: null,
+      rpc: () => ({ applied: true }),
+    });
+
+    await expect(
+      handleResidentFixedReply(db as never, { ownerUserId: OWNER, residentUserId: RESIDENT, verdict: "fixed", now: NOW }),
+    ).resolves.toEqual({ handled: false });
+    expect(db.rpcCalls).toEqual([]);
+  });
+
+  it("refuses without a verified subject rather than falling back to an address", async () => {
+    const db = fakeDb({ runs: [parkedRun()], rpc: () => ({ applied: true }) });
+    await expect(
+      handleResidentFixedReply(db as never, { ownerUserId: OWNER, residentUserId: "  ", verdict: "fixed", now: NOW }),
+    ).resolves.toEqual({ handled: false });
+    expect(db.rpcCalls).toEqual([]);
+  });
+});
+
+/**
+ * An error never CLAIMS the resident's message. Both the runs read and
+ * `resolve_resident_dispatch_confirmation` used to answer `handled: true` with "Could not check
+ * your service" — and the RPC raises `40001` on contention for the shared account-lifecycle
+ * advisory lock, which has nothing to do with dispatch. So a resident texting "yes" to their
+ * assistant about something else got that refusal and their actual message was never processed.
+ */
+describe("an unreadable dispatch state leaves the text to the resident agent", () => {
+  it("does not claim the message when the runs read fails", async () => {
+    const db = fakeDb({
+      runs: [parkedRun({ vendor_done_at: "2026-10-29T00:00:00.000Z" })],
+      workOrder: { id: "wo-1", manager_user_id: OWNER, resident_user_id: RESIDENT, row_revision: 3, row_data: { id: "wo-1" } },
+      runsReadError: { message: "could not connect" },
+    });
+
+    await expect(
+      handleResidentFixedReply(db as never, { ownerUserId: OWNER, residentUserId: RESIDENT, verdict: "fixed", now: NOW }),
+    ).resolves.toEqual({ handled: false });
+    expect(db.rpcCalls).toEqual([]);
+  });
+
+  it("does not claim the message when the job scope read fails", async () => {
+    const db = fakeDb({ runs: [parkedRun()], workOrderReadError: { message: "could not connect" } });
+    await expect(
+      handleResidentFixedReply(db as never, { ownerUserId: OWNER, residentUserId: RESIDENT, verdict: "fixed", now: NOW }),
+    ).resolves.toEqual({ handled: false });
+  });
+
+  it("does not claim the message when the confirmation RPC hits the lifecycle lock", async () => {
+    const db = fakeDb({
+      runs: [parkedRun({ vendor_done_at: "2026-10-29T00:00:00.000Z" })],
+      workOrder: { id: "wo-1", manager_user_id: OWNER, resident_user_id: RESIDENT, row_revision: 3, row_data: { id: "wo-1" } },
+      rpcError: { code: "40001", message: "Account lifecycle transition in progress" },
+    });
+
+    await expect(
+      handleResidentFixedReply(db as never, { ownerUserId: OWNER, residentUserId: RESIDENT, verdict: "fixed", now: NOW }),
+    ).resolves.toEqual({ handled: false });
+    // Nothing moved and nobody was told.
+    expect(db.runs[0]!.completion_state).toBe("awaiting_resident");
+    expect(mocks.notifyOutcome).not.toHaveBeenCalled();
   });
 });
 
@@ -231,7 +339,7 @@ describe("a parked run with no prepared link is still releasable by the resident
     });
 
     const outcome = await handleResidentFixedReply(db as never, {
-      ownerUserId: OWNER, residentUserId: RESIDENT, residentEmail: "resident@example.test",
+      ownerUserId: OWNER, residentUserId: RESIDENT,
       verdict: "fixed", now: NOW,
     });
 

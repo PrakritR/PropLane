@@ -11,6 +11,7 @@ const INQUIRIES_RECORD_ID = "axis_admin_partner_inquiries_v1";
 
 function dbWithSchemaGap(inquiries: Record<string, unknown>[]) {
   const linksSchemaError = {
+    code: "PGRST205",
     message: "Could not find the table 'public.resident_tour_links' in the schema cache",
   };
   return {
@@ -55,11 +56,28 @@ describe("resident tour email fallback", () => {
     expect(await resolveResidentTourLinks(db as never, { userId: "old-subject", email: "resident@test.proplane.local" })).toHaveLength(1);
     expect(await resolveResidentTourLinks(db as never, { userId: "new-subject", email: "resident@test.proplane.local" })).toEqual([]);
   });
-  it("detects missing resident_tour_links schema errors", () => {
+  it("treats only a genuinely absent table as a schema gap, by code", () => {
     expect(
-      isResidentTourLinksSchemaError("Could not find the table 'public.resident_tour_links' in the schema cache"),
+      isResidentTourLinksSchemaError({ code: "PGRST205", message: "Could not find the table 'public.resident_tour_links' in the schema cache" }),
     ).toBe(true);
-    expect(isResidentTourLinksSchemaError("connection reset")).toBe(false);
+    expect(isResidentTourLinksSchemaError({ code: "42P01", message: 'relation "resident_tour_links" does not exist' })).toBe(true);
+    // A read FAILURE that merely names the table is not a schema gap: permission, constraint and
+    // timeout errors are reported, never swallowed into "this login holds no tour link".
+    expect(isResidentTourLinksSchemaError({ code: "42501", message: "permission denied for table resident_tour_links" })).toBe(false);
+    expect(isResidentTourLinksSchemaError({ code: "57014", message: "canceling statement due to statement timeout" })).toBe(false);
+    expect(isResidentTourLinksSchemaError({ message: "connection reset" })).toBe(false);
+  });
+
+  it("throws rather than answering false when the links read fails", async () => {
+    const failing = {
+      from: () => ({
+        select: (_cols?: string, opts?: { count?: string; head?: boolean }) =>
+          opts?.head
+            ? { eq: async () => ({ count: null, error: { code: "42501", message: "permission denied for table resident_tour_links" } }) }
+            : { eq: () => ({ order: async () => ({ data: null, error: { code: "42501", message: "permission denied for table resident_tour_links" } }) }) },
+      }),
+    };
+    await expect(residentHasTourLinks(failing as never, "res-1")).rejects.toThrow(/permission denied/);
   });
 
   it("does not expose email-matched tours when the links table is absent", async () => {

@@ -28,10 +28,12 @@ export async function POST(req: Request) {
     if (roleError) return NextResponse.json({ ok: false, error: "Forbidden." }, { status: 403 });
     const roleNames = (roles ?? []).map((row) => String(row.role).toLowerCase());
     const admin = roleNames.includes("admin");
-    if (!admin && !roleNames.includes("manager")) {
+    const oversight = await resolveAdminOversight(req, user.id, admin);
+    // A stored manager row, or an admin whose request ASKED for oversight. A stored `admin` row on
+    // its own is not a manager capability (`AGENTS.md` § "Admin borrows").
+    if (!oversight && !roleNames.includes("manager")) {
       return NextResponse.json({ ok: false, error: "Forbidden." }, { status: 403 });
     }
-    const oversight = await resolveAdminOversight(req, user.id, admin);
 
     const body = (await req.json().catch(() => ({}))) as {
       kind?: "visit" | "bid_offer";

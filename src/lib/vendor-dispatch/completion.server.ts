@@ -34,14 +34,30 @@ import { applyApprovedDispatchInvoice, setServiceVendorCost, type ApprovedInvoic
  * as a submitted invoice, and approval creates the bill exactly as the portal does.
  */
 
-async function readWorkOrder(db: SupabaseClient, run: DispatchRunRow) {
-  const { data } = await db
-    .from("portal_work_order_records")
-    .select("id, manager_user_id, vendor_user_id, resident_user_id, row_revision, row_data")
-    .eq("id", run.source_id)
-    .eq("manager_user_id", run.owner_user_id)
-    .maybeSingle();
-  return (data as { id: string; manager_user_id: string; vendor_user_id: string | null; resident_user_id: string | null; row_revision: number; row_data: DemoManagerWorkOrderRow } | null) ?? null;
+type DispatchWorkOrder = { id: string; manager_user_id: string; vendor_user_id: string | null; resident_user_id: string | null; row_revision: number; row_data: DemoManagerWorkOrderRow };
+
+/**
+ * `unreadable` is NOT `missing`. Collapsing the two made a database hiccup during a vendor's DONE
+ * read as "no such job": nothing was written and `handleVendorDispatchReply` replies on
+ * `marked_done` and `retry` only, so the vendor got no answer at all and no signal to text again.
+ */
+async function readWorkOrder(db: SupabaseClient, run: DispatchRunRow): Promise<{ ok: true; record: DispatchWorkOrder | null } | { ok: false }> {
+  try {
+    const { data, error } = await db
+      .from("portal_work_order_records")
+      .select("id, manager_user_id, vendor_user_id, resident_user_id, row_revision, row_data")
+      .eq("id", run.source_id)
+      .eq("manager_user_id", run.owner_user_id)
+      .maybeSingle();
+    if (error) {
+      console.error("vendor dispatch work order read failed", { runId: run.id, sourceId: run.source_id, message: error.message });
+      return { ok: false };
+    }
+    return { ok: true, record: (data as DispatchWorkOrder | null) ?? null };
+  } catch (e) {
+    console.error("vendor dispatch work order read threw", { runId: run.id, sourceId: run.source_id, message: e instanceof Error ? e.message : String(e) });
+    return { ok: false };
+  }
 }
 
 async function ownerSender(db: SupabaseClient, ownerUserId: string) {
@@ -72,8 +88,15 @@ export async function recordVendorDone(
   }
   if (run.completion_state === "awaiting_resident" || run.completion_state === "confirmed") return "already";
 
-  const record = run.source_type === "work_order" ? await readWorkOrder(db, run) : null;
-  if (run.source_type === "work_order" && !record) return "not_found";
+  let record: DispatchWorkOrder | null = null;
+  if (run.source_type === "work_order") {
+    const read = await readWorkOrder(db, run);
+    // An unreadable job asks the vendor to text DONE again; only a read that SUCCEEDED and found
+    // nothing is "not_found".
+    if (!read.ok) return "retry";
+    if (!read.record) return "not_found";
+    record = read.record;
+  }
   let residentUserId = record?.resident_user_id?.trim() || null;
   const waitsForResident = Boolean(residentUserId);
   let doneRow: DemoManagerWorkOrderRow | null = null;
@@ -180,30 +203,72 @@ function withinResidentConfirmationWindow(run: DispatchRunRow, now: Date): boole
 }
 
 /**
- * The resident's YES / NO to "Is it fixed?". YES completes the service; NO reopens it for
- * the vendor and alerts the manager. Only a resident whose email is on a run waiting for
- * that answer is claimed, so an ordinary YES still reaches the resident agent.
+ * The runs awaiting this resident's answer, found through the JOB's bound subject.
+ *
+ * `vendor_dispatch_runs.resident_email` is the work-order PAYLOAD's `residentEmail`, not the bound
+ * subject: a manager filing a service for a roster resident leaves it blank while the insert binds
+ * `resident_user_id`. Keying the lookup on it meant the resident was texted "Is it fixed?", replied
+ * YES, matched no run, and the run sat on `awaiting_resident` forever while the job read Completed.
+ * So the candidates come from the jobs whose `resident_user_id` IS this verified subject, under the
+ * same owner — the one fact `recordVendorDone` already used to decide to ask them.
  */
-export async function handleResidentFixedReply(
+async function residentAwaitingRuns(
   db: SupabaseClient,
-  input: { ownerUserId: string; residentUserId: string; residentEmail: string; verdict: "fixed" | "not_fixed"; now?: Date },
-): Promise<ResidentFixedOutcome> {
-  const now = input.now ?? new Date();
-  const nowIso = now.toISOString();
-  const email = input.residentEmail.trim().toLowerCase();
-  if (!email) return { handled: false };
-  const { data, error: runsError } = await db
+  ownerUserId: string,
+  residentUserId: string,
+): Promise<{ ok: true; runs: DispatchRunRow[] } | { ok: false }> {
+  const jobs = await db
+    .from("portal_work_order_records")
+    .select("id")
+    .eq("manager_user_id", ownerUserId)
+    .eq("resident_user_id", residentUserId)
+    .order("updated_at", { ascending: false })
+    .limit(100);
+  if (jobs.error) {
+    console.error("resident dispatch job scope read failed", { ownerUserId, message: jobs.error.message });
+    return { ok: false };
+  }
+  const sourceIds = (jobs.data ?? []).map((row) => String((row as { id?: unknown }).id ?? "").trim()).filter(Boolean);
+  if (!sourceIds.length) return { ok: true, runs: [] };
+  const runs = await db
     .from("vendor_dispatch_runs")
     .select("*")
-    .eq("owner_user_id", input.ownerUserId)
-    .eq("resident_email", email)
+    .eq("owner_user_id", ownerUserId)
+    .eq("source_type", "work_order")
+    .in("source_id", sourceIds)
     .eq("completion_state", "awaiting_resident")
     .eq("status", "accepted")
     .order("created_at", { ascending: false })
     .limit(100);
-  if (runsError) return { handled: true, reply: "Could not check your service. Please try again." };
-  const runs = ((data ?? []) as DispatchRunRow[]).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
-  if (!input.residentUserId.trim()) return { handled: false };
+  if (runs.error) {
+    console.error("resident dispatch runs read failed", { ownerUserId, message: runs.error.message });
+    return { ok: false };
+  }
+  return { ok: true, runs: (runs.data ?? []) as DispatchRunRow[] };
+}
+
+/**
+ * The resident's YES / NO to "Is it fixed?". YES completes the service; NO reopens it for
+ * the vendor and alerts the manager. Only a resident whose VERIFIED Auth subject is bound to a job
+ * on a run waiting for that answer is claimed, so an ordinary YES still reaches the resident agent.
+ *
+ * Every refusal here answers `handled: false` and changes nothing. An unreadable runs table or a
+ * `40001` on the shared advisory lock (an unrelated account-lifecycle transaction holds it) used to
+ * answer `handled: true` with "Could not check your service", which CLAIMED the resident's text
+ * away from their assistant — so a "yes" about something else was swallowed and never answered.
+ */
+export async function handleResidentFixedReply(
+  db: SupabaseClient,
+  /** No `residentEmail`: the candidate runs come from the job's bound subject, never an address. */
+  input: { ownerUserId: string; residentUserId: string; verdict: "fixed" | "not_fixed"; now?: Date },
+): Promise<ResidentFixedOutcome> {
+  const now = input.now ?? new Date();
+  const nowIso = now.toISOString();
+  const residentUserId = input.residentUserId.trim();
+  if (!residentUserId) return { handled: false };
+  const candidates = await residentAwaitingRuns(db, input.ownerUserId, residentUserId);
+  if (!candidates.ok) return { handled: false };
+  const runs = candidates.runs.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   let run: DispatchRunRow | undefined;
   let result: { applied?: boolean; confirmation_applied?: boolean; confirmation_requested_at?: string } | undefined;
   let expired = false;
@@ -213,9 +278,12 @@ export async function handleResidentFixedReply(
     // refused here, before the run is reopened and the manager alerted.
     if (!withinResidentConfirmationWindow(candidate, now)) { expired = true; continue; }
     const claimed = await db.rpc("resolve_resident_dispatch_confirmation", {
-      p_run: candidate.id, p_owner: input.ownerUserId, p_resident: input.residentUserId, p_verdict: input.verdict,
+      p_run: candidate.id, p_owner: input.ownerUserId, p_resident: residentUserId, p_verdict: input.verdict,
     });
-    if (claimed.error) return { handled: true, reply: "Could not check your service. Please try again." };
+    if (claimed.error) {
+      console.error("resolve_resident_dispatch_confirmation failed", { runId: candidate.id, message: claimed.error.message });
+      return { handled: false };
+    }
     if (claimed.data?.applied === true) { run = candidate; result = claimed.data; break; }
   }
   if (!run || !result) {
@@ -225,10 +293,11 @@ export async function handleResidentFixedReply(
   }
   try {
     const houseLabel = String(run.details.houseLabel || run.details.area || "the house");
-    const record = await readWorkOrder(db, run);
+    const read = await readWorkOrder(db, run);
+    const record = read.ok ? read.record : null;
     const confirmation = record?.row_data.residentConfirmation;
     if (record && result.confirmation_applied === true && typeof result.confirmation_requested_at === "string" && confirmation?.requestedAt === result.confirmation_requested_at) {
-      await emitResidentConfirmationEvent(db, { ...record, updated_at: null }, input.verdict, confirmation.requestedAt, now, undefined, null, input.residentUserId).catch(() => undefined);
+      await emitResidentConfirmationEvent(db, { ...record, updated_at: null }, input.verdict, confirmation.requestedAt, now, undefined, null, residentUserId).catch(() => undefined);
     }
   
     await recordDispatchEvent(db, {

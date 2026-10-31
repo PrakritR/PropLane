@@ -154,6 +154,23 @@ describe("loadMoveInDetailsLock (the SMS test harness, the one builder with no a
     const thrown = await loadMoveInDetailsLock({ from: () => { throw new Error("x"); } } as never, { email: "a@b.test", userId: "u1" });
     expect(thrown.moveInDetailsLocked).toBe(true);
   });
+
+  /**
+   * `LeaseSubject.residentUserId` is `string | null` (`automations/moments.ts`), so the automation
+   * sweep reaches here with no subject for a manager-onboarded or imported resident — and the
+   * `move_in_3d` preset reads this answer before it puts the door code, the Wi-Fi network and
+   * password and the parking note into a text (`automations/sweep.server.ts`). With no subject
+   * there is no scope the forms table can be read in, so the answer is LOCKED: an unreadable
+   * context never widens.
+   */
+  it("locks a subject-less lease rather than reading as 'nothing blocks'", async () => {
+    const { loadMoveInDetailsLock } = await import("@/lib/tools/resident-context");
+    const exploded = { from: () => { throw new Error("must not be read without a subject"); } };
+    for (const userId of [undefined, null, ""]) {
+      expect(await loadMoveInDetailsLock(exploded as never, { email: "resident@example.test", userId }))
+        .toMatchObject({ moveInDetailsLocked: true, moveInDetailsLockFormId: null, moveInDetailsLockReadFailed: true });
+    }
+  });
 });
 
 

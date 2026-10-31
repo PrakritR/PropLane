@@ -1112,9 +1112,11 @@ async function readBoundInviteeEmail(
  * A bound (service) invite is redeemable only by the account whose CONFIRMED sign-in email is the one it was sent to.
  * Refused before a use is spent, so the right person can still accept. The email comes from the auth user, never
  * the request. What this buys: nobody accepts the seat into an account of their own, and an existing account on the
- * invited address still needs its password. What it does NOT buy: the invite page's sign-up confirms the address it
- * is given without an inbox round-trip, so a holder of the link can still create an account on the invited address.
- * Treat the link itself as the secret.
+ * invited address still needs its own sign-in.
+ *
+ * The invite page's own sign-up no longer confirms the address it is given: it mails a `token_hash` link and the
+ * account is created and confirmed only by opening it, so a holder of the link can no longer open an account on the
+ * invited address without reaching that inbox. Treat the link itself as the secret all the same.
  */
 async function checkBoundInviteeEmail(
   db: SupabaseClient,

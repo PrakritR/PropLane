@@ -44,15 +44,19 @@ export async function authorizeResidentRole(
  * Resolve dual-audience API access from STORED roles only. The capability is the `profile_roles` row;
  * the active portal merely narrows which of two capabilities a request is exercising.
  *
- * An account acting as the resident reads as the resident. Otherwise an account that stores the
- * manager role reads as that manager — including a multi-role account with no `axis_active_portal`
- * cookie and a manager who is also a platform admin, who `AGENTS.md` § "Admin borrows" says
- * "reads and writes as the manager they are" outside explicit `?oversight=admin`.
+ * An account acting as the resident reads as the resident. An account that stores the manager role
+ * reads as that manager when the request says so — including a manager who is also a platform
+ * admin, who `AGENTS.md` § "Admin borrows" says "reads and writes as the manager they are" outside
+ * explicit `?oversight=admin`.
  *
- * Widening to manager needs a portal context this request can actually trust. A context that cannot
- * be read (the read failed, or `getPortalAccessContext` threw its phone-gate `redirect()`), one that
- * belongs to another session, or one whose own role list disagrees with the stored roles narrows to
- * resident instead — the broader scope is never granted on the strength of a failure.
+ * Widening to manager needs a portal context this request can actually trust AND an active portal
+ * that EXPLICITLY names it. A context that cannot be read (the read failed, or
+ * `getPortalAccessContext` threw its phone-gate `redirect()`), one that belongs to another session,
+ * one whose own role list disagrees with the stored roles, and one with no valid
+ * `axis_active_portal` cookie at all (`getPortalAccessContext` returns a null `effectiveRole` for
+ * every multi-role account without one) all narrow to resident instead — the broader scope is never
+ * granted on the strength of a failure or a missing answer. An account that holds no resident role
+ * has no narrower scope to fall back to, so there the stored manager capability still answers.
  *
  * An account that stores neither resident nor manager (admin-only, vendor-only) is denied: these
  * routes have no scope to give it. An unreadable role list is denied.
@@ -78,7 +82,8 @@ export async function resolveResidentScopedActorRole(
     if (!trusted) return narrowest;
     const active = normalizeLegacyRole(context!.effectiveRole);
     if (active === "resident" && roles.includes("resident")) return "resident";
-    if (roles.includes("manager")) return "manager";
+    if ((active === "manager" || active === "admin") && roles.includes("manager")) return "manager";
+    if (!roles.includes("resident") && roles.includes("manager")) return "manager";
     return narrowest;
   } catch {
     return "denied";

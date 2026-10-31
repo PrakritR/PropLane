@@ -1,3 +1,4 @@
+import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
 import { NextResponse } from "next/server";
 import { filterRecipientsBySenderScope } from "@/lib/inbox-recipient-scope";
 import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
@@ -74,7 +75,7 @@ type PortalActor = {
   isResident: boolean;
 };
 
-async function requirePortalActor(preferredRole?: PortalRole): Promise<PortalActor | null> {
+async function requirePortalActor(req: Request, preferredRole?: PortalRole): Promise<PortalActor | null> {
   const supabaseAuth = await createSupabaseServerClient();
   const {
     data: { user },
@@ -88,7 +89,11 @@ async function requirePortalActor(preferredRole?: PortalRole): Promise<PortalAct
   ]);
   if (profileError || roleError) return null;
   const roleList = (roles ?? []).map((r) => String(r.role).toLowerCase());
-  const isManager = roleList.includes("manager") || roleList.includes("admin");
+  // A stored `admin` row is not a manager row. It widens this read only when the request asks
+  // for admin oversight (`?oversight=admin`, from `adminOversightUrl`) and the server confirms
+  // the role — the same rule every other manager route follows (`AGENTS.md` § "Admin borrows").
+  const isManager = roleList.includes("manager")
+    || (roleList.includes("admin") && await resolveAdminOversight(req, user.id, true));
   const isResident = roleList.includes("resident");
   if (!isManager && !isResident) return null;
 
@@ -135,7 +140,7 @@ async function resolveManagerUserIdForEmail(
 export async function GET(req: Request) {
   try {
     const preferredRole = parsePreferredRole(req);
-    const ctx = await requirePortalActor(preferredRole);
+    const ctx = await requirePortalActor(req, preferredRole);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     if (ctx.role === "resident") {
@@ -170,7 +175,7 @@ export async function POST(req: Request) {
     };
 
     const preferredRole = parsePreferredRole(req, body);
-    const ctx = await requirePortalActor(preferredRole);
+    const ctx = await requirePortalActor(req, preferredRole);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     const subject = String(body.subject ?? "").trim();
