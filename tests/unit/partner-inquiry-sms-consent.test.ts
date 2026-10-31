@@ -217,11 +217,13 @@ describe("partner-inquiries route resident tour linking", () => {
     expect(persisted.email).toBe("resident@example.com");
 
     expect(ensureSignedInResidentAccount).toHaveBeenCalled();
+    // The link binds the id the SERVER minted, never the one the body named.
     expect(linkTourInquiryToResident).toHaveBeenCalledWith(expect.anything(), {
       userId: "res-1",
-      inquiryId: "inq-1",
+      inquiryId: persisted.id,
       email: "resident@example.com",
     });
+    expect(persisted.id).not.toBe("inq-1");
   });
 
   it("preserves both existing owner inquiries when a signed-in resident books publicly", async () => {
@@ -235,7 +237,44 @@ describe("partner-inquiries route resident tour linking", () => {
     const records = upsertCalls.at(-1) as Record<string, unknown>[];
     const singleton = records.find((record) => record.record_type === "axis_admin_partner_inquiries_v1");
     const payload = (singleton?.row_data as { payload?: Record<string, unknown>[] } | undefined)?.payload ?? [];
-    expect(payload.map((row) => row.id)).toEqual(["inq-1", "owner-a-inquiry", "owner-b-inquiry"]);
+    expect(payload.map((row) => row.id).slice(1)).toEqual(["owner-a-inquiry", "owner-b-inquiry"]);
+    expect(payload[0]!.id).not.toBe("inq-1");
+  });
+
+  /**
+   * The id is what binds a tour to its resident (`resident_tour_links.inquiry_id`), and this
+   * route is public and anonymous. Honouring a caller's id let anyone name an existing linked
+   * inquiry, replace its manager, property and time, and have that resident receive the
+   * notices for the tour they just overwrote.
+   */
+  it("mints a new id instead of replacing the inquiry an anonymous caller names", async () => {
+    vi.mocked(getPortalAccessContext).mockResolvedValue({ user: null, profile: null, roles: [], effectiveRole: null } as never);
+    const victim = {
+      id: "victim-inquiry",
+      kind: "tour",
+      email: "linked-resident@example.com",
+      managerUserId: "owner-a",
+      propertyId: "property-a",
+      proposedStart: "2026-07-01T18:00:00.000Z",
+      proposedEnd: "2026-07-01T18:30:00.000Z",
+    };
+    existingInquiryPayload = [victim];
+
+    const res = await postWith(makeRow({ id: "victim-inquiry", managerUserId: "attacker-host", propertyId: "attacker-property" }));
+    expect(res.status).toBe(200);
+
+    const records = upsertCalls.at(-1) as Record<string, unknown>[];
+    const singleton = records.find((record) => record.record_type === "axis_admin_partner_inquiries_v1");
+    const payload = (singleton?.row_data as { payload?: Record<string, unknown>[] } | undefined)?.payload ?? [];
+
+    // The named row survives byte-for-byte: nothing about it was replaced.
+    expect(payload.find((row) => row.id === "victim-inquiry")).toEqual(victim);
+    // And the attacker's tour is a NEW row under an id it did not choose.
+    const created = payload.find((row) => row.id !== "victim-inquiry")!;
+    expect(payload).toHaveLength(2);
+    expect(created.id).toEqual(expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/));
+    expect(created.managerUserId).toBe("attacker-host");
+    expect(linkTourInquiryToResident).not.toHaveBeenCalled();
   });
 
   it("links tours for signed-in managers who book through a property link", async () => {

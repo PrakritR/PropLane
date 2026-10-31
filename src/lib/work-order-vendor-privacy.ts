@@ -2,6 +2,7 @@ import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderBid } from "@/lib/work-order-bids";
 import { formatServiceVisitLabel } from "@/lib/schedule-service-visit";
 import type { ServiceWorkflowStep } from "@/lib/manager-service-workflow";
+import { SMS_TEST_PROVENANCE_ROW_KEYS } from "@/lib/sms/sms-test-provenance";
 
 /** Vendors see a general area before hire — never the street address or entry notes. */
 export function workOrderGeneralArea(row: Pick<DemoManagerWorkOrderRow, "propertyAddress" | "propertyName">): string {
@@ -77,19 +78,19 @@ export function vendorLeadMapsQuery(row: DemoManagerWorkOrderRow): string {
 /**
  * Keys a vendor read must never carry, stripped at every depth of the stored payload.
  *
- * Besides the row's own subjects, an SMS-test session stamps `smsTestProvenance`
- * (`{actorUserId, managerUserId, sessionId, workspaceId}`) and the flat `sms_test_*` columns
- * onto the payload. Those are operator provenance: the actor's Auth id, their session and the
- * test workspace — none of it a vendor's business, and all of it an Auth subject.
+ * The row's own subjects, plus the whole SMS-test provenance family — taken from
+ * `SMS_TEST_PROVENANCE_ROW_KEYS` rather than re-typed here, so a new spelling accepted by
+ * `readSmsTestProvenance` cannot be stripped by the writer and still reach a vendor. That
+ * stamp is operator provenance: the actor's Auth id, their session and the test workspace.
  */
-const VENDOR_PRIVATE_SUBJECT_KEYS = new Set([
+const VENDOR_PRIVATE_SUBJECT_KEYS = new Set<string>([
   "residentUserId", "managerUserId", "vendorUserId",
   "resident_user_id", "manager_user_id", "vendor_user_id",
   "userId", "user_id", "actorUserId", "actor_user_id",
-  "sessionId", "session_id", "workspaceId", "workspace_id", "testWorkspaceId", "test_workspace_id",
+  "sessionId", "session_id", "workspaceId", "workspace_id",
   "resident_email", "dispatch", "candidates",
-  "smsTestProvenance", "sms_test_provenance",
-  "sms_test_actor_user_id", "sms_test_manager_user_id", "sms_test_session_id", "sms_test_workspace_id",
+  "sms_test_provenance",
+  ...SMS_TEST_PROVENANCE_ROW_KEYS,
 ]);
 
 /** A vendor-directory ID must belong to this viewer and this job's manager. */

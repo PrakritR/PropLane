@@ -1,5 +1,25 @@
 export const SMS_TEST_PROVENANCE_KEY = "smsTestProvenance" as const;
 
+/**
+ * Every key an SMS-test stamp can occupy on a stored row, in all spellings
+ * `readSmsTestProvenance` accepts. One list: the writer strips exactly these before
+ * re-stamping, and a vendor projection strips exactly these before the row leaves the
+ * server. Adding a spelling to the reader means adding it here, or the two drift and a
+ * test session id reaches somebody it should not.
+ */
+export const SMS_TEST_PROVENANCE_ROW_KEYS = [
+  SMS_TEST_PROVENANCE_KEY,
+  "smsTestSessionId",
+  "sms_test_actor_user_id",
+  "sms_test_manager_user_id",
+  "sms_test_session_id",
+  "sms_test_workspace_id",
+  "test_actor_user_id",
+  "test_session_id",
+  "testWorkspaceId",
+  "test_workspace_id",
+] as const;
+
 export type SmsTestProvenance = {
   actorUserId: string;
   managerUserId: string;
@@ -80,15 +100,6 @@ export function preserveStoredSmsTestProvenance<T extends Record<string, unknown
   stored: unknown,
 ): T {
   const clean = { ...value };
-  delete clean.smsTestSessionId;
-  delete clean[SMS_TEST_PROVENANCE_KEY];
-  delete clean.sms_test_actor_user_id;
-  delete clean.sms_test_manager_user_id;
-  delete clean.sms_test_session_id;
-  delete clean.test_actor_user_id;
-  delete clean.test_session_id;
-  delete clean.testWorkspaceId;
-  delete clean.test_workspace_id;
-  delete clean.sms_test_workspace_id;
+  for (const key of SMS_TEST_PROVENANCE_ROW_KEYS) delete clean[key];
   return withSmsTestProvenance(clean, readSmsTestProvenance(stored));
 }

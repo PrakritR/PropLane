@@ -49,6 +49,9 @@ export async function POST(req: Request) {
     }
 
     const incoming = { ...(body.row as Record<string, unknown>) };
+    // Anonymous input never names the row it writes. `createTourInquiry` mints the id too;
+    // dropping it here keeps the public boundary readable about what is server-owned.
+    delete incoming.id;
 
     let linkingUser: { id: string; email?: string | null; email_confirmed_at?: string | null } | null = null;
     let linkingEmail: string | null = null;
