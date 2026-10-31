@@ -612,6 +612,50 @@ describe("vendor write tools: previews reject foreign/invalid targets", () => {
 });
 
 describe("vendor write tools: happy paths write audited, scoped rows", () => {
+  it("keeps nested and flat SMS test provenance out of action previews and reply results", async () => {
+    const { ctx, tables, mutations } = seed();
+    const sentinel = {
+      actorUserId: "sms-proof-actor-11111111",
+      managerUserId: "sms-proof-manager-22222222",
+      sessionId: "sms-proof-session-33333333",
+      workspaceId: "sms-proof-workspace-44444444",
+    };
+    const provenance = {
+      smsTestProvenance: sentinel,
+      smsTestSessionId: sentinel.sessionId,
+      sms_test_actor_user_id: sentinel.actorUserId,
+      sms_test_manager_user_id: sentinel.managerUserId,
+      sms_test_session_id: sentinel.sessionId,
+      sms_test_workspace_id: sentinel.workspaceId,
+      test_actor_user_id: sentinel.actorUserId,
+      test_session_id: sentinel.sessionId,
+      test_workspace_id: sentinel.workspaceId,
+    };
+    for (const id of ["WO-C", "WO-F"]) {
+      const row = tables.portal_work_order_records!.find((candidate) => candidate.id === id)!;
+      row.row_data = { ...(row.row_data as Record<string, unknown>), ...provenance };
+    }
+
+    const doneInput = { workOrderId: "WO-C", workDoneSummary: "Synthetic completed-work note" };
+    const bidInput = { workOrderId: "WO-F", amountUsd: 450, proposedTimeIso: "2026-07-22T17:00:00.000Z" };
+    const donePreview = await previewWrite(markJobDoneTool, ctx, doneInput);
+    const bidPreview = await previewWrite(submitBidTool, ctx, bidInput);
+    const doneReply = await executeWrite(markJobDoneTool, ctx, doneInput);
+    const bidReply = await executeWrite(submitBidTool, ctx, bidInput);
+    expect(donePreview.ok).toBe(true);
+    expect(bidPreview.ok).toBe(true);
+    expect(doneReply.ok).toBe(true);
+    expect(bidReply.ok).toBe(true);
+    const outputs = JSON.stringify({ donePreview, bidPreview, doneReply, bidReply });
+    const forbiddenKeys = /(?:smsTestProvenance|smsTestSessionId|sms_test_|test_actor_user_id|test_session_id|test_workspace_id|testWorkspaceId)/i;
+    for (const key of Object.keys(provenance)) expect(outputs).not.toContain(key);
+    for (const value of Object.values(sentinel)) expect(outputs).not.toContain(value);
+    expect(outputs).not.toMatch(forbiddenKeys);
+    expect(sponsoredSend).not.toHaveBeenCalled();
+    // Both writes and any manager notice stay inside the in-memory fake DB.
+    expect(mutations.some((mutation) => mutation.table === "portal_inbox_thread_records")).toBe(true);
+  });
+
   it("projects an offered job in both bid preview and submitted reply while retaining hired labels", async () => {
     const { ctx } = seed();
     const input = { workOrderId: "WO-F", amountUsd: 450, proposedTimeIso: "2026-07-22T17:00:00.000Z" };

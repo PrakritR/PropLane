@@ -9,7 +9,7 @@ import { listResidentSavedPaymentMethods } from "@/lib/stripe-resident-customer"
 import { getStripe } from "@/lib/stripe";
 import { loadResidentSubjectRows } from "./load-resident-rows";
 
-/** Server-side read of the resident's own charges (resident_user_id OR resident_email). */
+/** Server-side read of the resident's own charges, scoped on `resident_user_id` only. */
 export async function loadOwnCharges(ctx: ResidentAgentContext): Promise<HouseholdCharge[]> {
   return loadResidentSubjectRows(ctx, "portal_household_charge_records", (rowData) => rowData as HouseholdCharge);
 }
