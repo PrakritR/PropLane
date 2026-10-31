@@ -178,11 +178,68 @@ describe("boundResidentSubjectForManagerHouse", () => {
     ).resolves.toBe(RESIDENT);
   });
 
+  /**
+   * `resident_email` is stored as the writer received it — `manager_application_records` carries a
+   * plain index on the raw column and `portal_lease_pipeline_records` carries a `lower(...)` one
+   * precisely because mixed case exists. An equality match on a lowercased needle therefore found
+   * nothing for those residents, and the row was persisted unbound and unbindable forever.
+   */
+  it("matches a stored address whatever its case, on the application", async () => {
+    const db = createMemoryDb({
+      manager_application_records: [application({ resident_email: "John@Example.TEST" })],
+      portal_lease_pipeline_records: [],
+    });
+    for (const typed of ["john@example.test", "John@Example.TEST", "  JOHN@EXAMPLE.test  "]) {
+      await expect(
+        boundResidentSubjectForManagerHouse(db as never, { managerUserId: MANAGER, propertyId: "prop-1", residentEmail: typed }),
+      ).resolves.toBe(RESIDENT);
+    }
+  });
+
+  it("matches a stored address whatever its case, on the lease", async () => {
+    const db = createMemoryDb({
+      manager_application_records: [],
+      portal_lease_pipeline_records: [
+        {
+          id: "lease-1",
+          manager_user_id: MANAGER,
+          property_id: "prop-1",
+          resident_email: "John@Example.TEST",
+          resident_user_id: RESIDENT,
+        },
+      ],
+    });
+    await expect(
+      boundResidentSubjectForManagerHouse(db as never, { managerUserId: MANAGER, propertyId: "prop-1", residentEmail: "john@example.test" }),
+    ).resolves.toBe(RESIDENT);
+  });
+
+  it("does not let a wildcard in the typed address match another resident", async () => {
+    // ONE other residency, so an unescaped `_` / `%` would match it alone and bind OTHER — the
+    // ambiguity guard would not save us. Escaped, the pattern is a literal address that matches
+    // nothing, and the row stays manager-only.
+    const db = createMemoryDb({
+      manager_application_records: [
+        application({ id: "PROPLANE-B", resident_email: "b@example.test", row_data: { residentUserId: OTHER, bucket: "approved" } }),
+      ],
+      portal_lease_pipeline_records: [],
+    });
+    for (const typed of ["_@example.test", "%@example.test"]) {
+      await expect(
+        boundResidentSubjectForManagerHouse(db as never, { managerUserId: MANAGER, propertyId: "prop-1", residentEmail: typed }),
+      ).resolves.toBeNull();
+    }
+    // The same store still binds the exact address, so the refusal above is the escape, not the fixture.
+    await expect(
+      boundResidentSubjectForManagerHouse(db as never, { managerUserId: MANAGER, propertyId: "prop-1", residentEmail: "B@Example.test" }),
+    ).resolves.toBe(OTHER);
+  });
+
   it("refuses to pick when two subjects answer to the same address", async () => {
     const db = createMemoryDb({
       manager_application_records: [
         application({}),
-        application({ id: "PROPLANE-B", row_data: { residentUserId: OTHER, bucket: "approved" } }),
+        application({ id: "PROPLANE-B", resident_email: "RESIDENT@example.test", row_data: { residentUserId: OTHER, bucket: "approved" } }),
       ],
       portal_lease_pipeline_records: [],
     });

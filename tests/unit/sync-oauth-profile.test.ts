@@ -64,11 +64,14 @@ describe("syncOAuthProfile", () => {
     // But the row itself has to exist: `profiles.email` is what the primary-admin protection in
     // `holdsAdminOutsideRoleRow` reads, and without it the account has no recorded email or name.
     expect(supabase.upsert).toHaveBeenCalledTimes(1);
+    // The NOT NULL legacy column gets the default a brand-new profile with no portal chosen gets.
+    // Never a fresh `admin` label: no reader authorizes from `profiles.role`, and the release's own
+    // follow-up on stale legacy admin markers exists to stop this path minting one.
     expect(supabase.upsert.mock.calls[0]![0]).toEqual({
       id: "admin-1",
       email: PRIMARY_ADMIN_EMAIL,
       full_name: "Prakrit",
-      role: "admin",
+      role: "resident",
       manager_id: null,
     });
     // Never overwrites a row that already exists.

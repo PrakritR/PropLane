@@ -1,4 +1,5 @@
 import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
+import { primaryRoleWhenAddingResident } from "@/lib/auth/profile-primary-role";
 import { provisionFreeManagerFromOAuth } from "@/lib/auth/provision-free-manager-oauth";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
@@ -48,10 +49,12 @@ export async function syncOAuthProfile(
     // The ops address is admin-ONLY and its roles come from stored `profile_roles` alone, so nothing
     // is granted here. The profiles row itself still has to exist: `profiles.email` is what
     // `holdsAdminOutsideRoleRow` reads to enforce the primary-admin protection, and without the row
-    // the account has no recorded email or name anywhere. `role` is the legacy "created as" label
-    // and carries no authority (`AGENTS.md` § `profiles.role` is legacy).
+    // the account has no recorded email or name anywhere. The legacy `role` column is NOT NULL and
+    // carries no authority (`AGENTS.md` § `profiles.role` is legacy), so it gets the same default a
+    // brand-new profile with no portal chosen yet gets — never a fresh `admin` label, which the
+    // release's own follow-up on stale legacy admin markers exists to stop spreading.
     const { error: profileError } = await supabase.from("profiles").upsert(
-      { id: user.id, email, full_name: fullName, role: "admin", manager_id: null },
+      { id: user.id, email, full_name: fullName, role: primaryRoleWhenAddingResident(null), manager_id: null },
       { onConflict: "id", ignoreDuplicates: true },
     );
     if (profileError) throw profileError;

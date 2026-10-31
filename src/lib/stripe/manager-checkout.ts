@@ -12,6 +12,7 @@ import {
 } from "@/lib/stripe/subscription-checkout-session";
 import { getStripe } from "@/lib/stripe";
 import type Stripe from "stripe";
+import { isMissingSubscriptionStatusColumn } from "@/lib/manager-purchase-subscription-status";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
@@ -51,10 +52,15 @@ type PriorReservation = {
   billing: string | null;
   stripe_subscription_id: string | null;
   apple_original_transaction_id: string | null;
+  /** Absent on a database still ahead of 20261020130000; an unknown status cannot disprove a live plan. */
+  subscription_status?: string | null;
 };
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 type Refusal = { ok: false; status: number; error: string };
+
+const PRIOR_RESERVATION_COLUMNS =
+  "id,user_id,email,stripe_checkout_session_id,tier,billing,stripe_subscription_id,apple_original_transaction_id";
 
 const CHECKOUT_RACE_REFUSAL: Refusal = {
   ok: false,
@@ -84,21 +90,35 @@ const ACTIVE_PLAN_REFUSAL: Refusal = {
   error: "You already have an active plan. Manage it from Billing instead of starting another subscription.",
 };
 
+/** Subscription states Stripe is still billing or retrying. `canceled` / `incomplete_expired` are not. */
+const LIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing", "past_due", "unpaid"]);
+
 /**
- * A live entitlement that no Stripe Checkout fulfils: an Apple IAP subscription, an admin grant or a
- * 100% waiver, or any paid tier already settled against something other than a `cs_` session. Taking
- * its reservation id would bill the account twice and leave two systems contending over one row's tier.
+ * A plan this account is already on, which no new Stripe Checkout may be reserved over: a live
+ * Stripe subscription, an Apple IAP subscription, an admin grant or a 100% waiver, or any paid tier
+ * already settled against something other than a `cs_` session. Taking the reservation id would bill
+ * the account twice and leave two systems contending over one row's tier.
+ *
+ * The live Stripe subscription has to be named here and not left to `closePriorCheckoutSession`: a
+ * prior `cs_` id Stripe no longer knows (a key rotation, a database seeded from another mode) is
+ * reported "gone" and lets the compare-and-swap proceed, which is correct for an abandoned attempt
+ * and wrong for a subscription that is still charging. An UNKNOWN status (the column not there yet,
+ * or never written) cannot disprove one, so a subscription id with no readable status still refuses.
  *
  * A signup trial (`billing: "trial"` with no subscription behind it) and an `axis_intent_` free/trial
- * row are NOT entitlements of this kind: a verified Checkout is exactly what they are waiting for.
+ * row are NOT plans of this kind: a verified Checkout is exactly what they are waiting for.
  */
-function holdsNonStripeEntitlement(prior: PriorReservation): boolean {
+function holdsLiveEntitlement(prior: PriorReservation): boolean {
   if (String(prior.apple_original_transaction_id ?? "").trim()) return true;
   const sessionId = String(prior.stripe_checkout_session_id ?? "").trim();
   if (/^(?:apple_iap_|admin_|axis_waiver_)/.test(sessionId)) return true;
+  const subscriptionId = String(prior.stripe_subscription_id ?? "").trim();
+  if (subscriptionId) {
+    const status = String(prior.subscription_status ?? "").trim().toLowerCase();
+    if (!status || LIVE_STRIPE_SUBSCRIPTION_STATUSES.has(status)) return true;
+  }
   const tier = String(prior.tier ?? "").trim().toLowerCase();
-  const signupTrial =
-    String(prior.billing ?? "").trim().toLowerCase() === "trial" && !String(prior.stripe_subscription_id ?? "").trim();
+  const signupTrial = String(prior.billing ?? "").trim().toLowerCase() === "trial" && !subscriptionId;
   return Boolean(tier) && tier !== "free" && !signupTrial && !sessionId.startsWith("cs_");
 }
 
@@ -312,11 +332,12 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
 
   // The reservation row this checkout will replace. It must belong to the same account: a row bound to a
   // login is never taken by a caller without that login, and an email other than the reserved one is refused.
-  const { data: priorRow, error: priorError } = await db
-    .from("manager_purchases")
-    .select("id,user_id,email,stripe_checkout_session_id,tier,billing,stripe_subscription_id,apple_original_transaction_id")
-    .eq("manager_id", managerId)
-    .maybeSingle();
+  const readPrior = (columns: string) =>
+    db.from("manager_purchases").select(columns).eq("manager_id", managerId).maybeSingle();
+  let { data: priorRow, error: priorError } = await readPrior(`${PRIOR_RESERVATION_COLUMNS},subscription_status`);
+  if (priorError && isMissingSubscriptionStatusColumn(priorError)) {
+    ({ data: priorRow, error: priorError } = await readPrior(PRIOR_RESERVATION_COLUMNS));
+  }
   if (priorError) throw new Error("Could not verify manager checkout ownership.");
   const prior = (priorRow as PriorReservation | null) ?? null;
   if (prior) {
@@ -327,7 +348,7 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
     }
     // Refuse before Stripe is asked for anything, so a live Apple/admin/waiver plan never has a
     // payable session created against it, let alone its reservation id swapped out from under it.
-    if (holdsNonStripeEntitlement(prior)) return ACTIVE_PLAN_REFUSAL;
+    if (holdsLiveEntitlement(prior)) return ACTIVE_PLAN_REFUSAL;
     const closed = await closePriorCheckoutSession(stripe, String(prior.stripe_checkout_session_id ?? "").trim(), managerId);
     if (closed) return closed;
   }

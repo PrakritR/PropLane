@@ -98,18 +98,48 @@ describe("a multi-role account", () => {
     await expect(resolve(["admin", "vendor"])).resolves.toBe("denied");
   });
 
-  it("ignores a portal context belonging to a different session", async () => {
-    acting("resident", ["manager", "resident"], "someone-else");
-    await expect(resolve(["manager", "resident"])).resolves.toBe("manager");
-  });
-
-  it("falls back to the stored manager role when the portal context cannot be read", async () => {
-    mocks.portalContext.mockRejectedValue(new Error("no request scope"));
-    await expect(resolve(["manager", "resident"])).resolves.toBe("manager");
-  });
-
   it("never invents a role the account does not store", async () => {
     acting("manager", ["manager"]);
     await expect(resolve(["resident", "vendor"])).resolves.toBe("resident");
+  });
+});
+
+/**
+ * Widening to the manager scope is a decision, and a decision needs a context this request can
+ * trust. A read that failed, a phone-gate `redirect()` thrown out of `getPortalAccessContext` and
+ * swallowed by the same catch, a context for someone else's session, or a context whose own role
+ * list disagrees with the stored roles are all absence of evidence — they must narrow, never widen.
+ */
+describe("an untrustworthy portal context fails closed", () => {
+  it("narrows to resident when the context read throws", async () => {
+    mocks.portalContext.mockRejectedValue(new Error("no request scope"));
+    await expect(resolve(["manager", "resident"])).resolves.toBe("resident");
+  });
+
+  it("narrows to resident when the context is the phone-gate redirect", async () => {
+    // `redirect()` throws NEXT_REDIRECT; this call site cannot act on it, only decline to widen.
+    mocks.portalContext.mockRejectedValue(Object.assign(new Error("NEXT_REDIRECT"), { digest: "NEXT_REDIRECT;replace;/auth/verify-phone;307;" }));
+    await expect(resolve(["manager", "resident"])).resolves.toBe("resident");
+  });
+
+  it("narrows to resident when the context belongs to another session", async () => {
+    acting("manager", ["manager", "resident"], "someone-else");
+    await expect(resolve(["manager", "resident"])).resolves.toBe("resident");
+  });
+
+  it("narrows to resident when the context's own roles disagree with the stored roles", async () => {
+    acting("manager", ["manager"]);
+    await expect(resolve(["manager", "resident"])).resolves.toBe("resident");
+  });
+
+  it("denies a manager-only account rather than widening on an unreadable context", async () => {
+    mocks.portalContext.mockRejectedValue(new Error("no request scope"));
+    // Two stored roles, neither of them resident: there is no narrower scope to fall back to.
+    await expect(resolve(["manager", "admin"])).resolves.toBe("denied");
+  });
+
+  it("still denies an account that stores neither resident nor manager", async () => {
+    mocks.portalContext.mockRejectedValue(new Error("no request scope"));
+    await expect(resolve(["admin", "vendor"])).resolves.toBe("denied");
   });
 });

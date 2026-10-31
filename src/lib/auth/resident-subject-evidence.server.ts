@@ -21,6 +21,20 @@ export async function residentSubjectManagerIds(db: SupabaseClient, userId: stri
   return [...ids];
 }
 
+/**
+ * `resident_email` is stored as the writer received it on both `manager_application_records` and
+ * `portal_lease_pipeline_records` (hence the `lower(resident_email)` index on the latter), so a
+ * residency is matched case-insensitively and then re-checked here on the exact address. `%`, `_`
+ * and the escape character itself are escaped so a local part carrying one cannot widen the pattern.
+ */
+function literalEmail(email: string): string {
+  return email.replace(/[\\%_]/g, "\\$&");
+}
+
+function sameEmail(stored: unknown, address: string): boolean {
+  return typeof stored === "string" && stored.trim().toLowerCase() === address;
+}
+
 /** Every place an application row can record the house, the same set `resolveResidentFilingScope` reads. */
 function applicationPropertyIds(row: { property_id?: unknown; assigned_property_id?: unknown; row_data?: unknown }): string[] {
   const data = (row.row_data ?? {}) as Record<string, unknown>;
@@ -69,11 +83,12 @@ export async function boundResidentSubjectForManagerHouse(
   const subjects = new Set<string>();
   const apps = await db
     .from("manager_application_records")
-    .select("row_data, property_id, assigned_property_id")
+    .select("row_data, property_id, assigned_property_id, resident_email")
     .eq("manager_user_id", ownerId)
-    .eq("resident_email", email);
+    .ilike("resident_email", literalEmail(email));
   if (apps.error) return null;
   for (const row of apps.data ?? []) {
+    if (!sameEmail(row.resident_email, email)) continue;
     if (!applicationIsLive(row) || !applicationPropertyIds(row).includes(propertyId)) continue;
     const subject = String((row.row_data as Record<string, unknown> | null)?.residentUserId ?? "").trim();
     if (subject) subjects.add(subject);
@@ -81,13 +96,14 @@ export async function boundResidentSubjectForManagerHouse(
 
   const leases = await db
     .from("portal_lease_pipeline_records")
-    .select("resident_user_id")
+    .select("resident_user_id, resident_email")
     .eq("manager_user_id", ownerId)
     .eq("property_id", propertyId)
-    .eq("resident_email", email)
+    .ilike("resident_email", literalEmail(email))
     .not("resident_user_id", "is", null);
   if (leases.error) return null;
   for (const row of leases.data ?? []) {
+    if (!sameEmail(row.resident_email, email)) continue;
     const subject = String(row.resident_user_id ?? "").trim();
     if (subject) subjects.add(subject);
   }

@@ -185,32 +185,33 @@ for (const surface of SURFACES) {
 
   /**
    * The CAPABILITY is the stored `profile_roles` row; the active portal only says which of two
-   * capabilities a request is exercising. So "not acting as the resident" — a degraded portal
-   * context, an absent `axis_active_portal` cookie, a context read that threw — reads as the manager
-   * the account stores, scoped to its own id as always.
+   * capabilities a request is exercising. So an account that is simply NOT ACTING AS THE RESIDENT —
+   * no `axis_active_portal` cookie, or an admin+manager in the admin portal — reads as the manager
+   * it stores, scoped to its own id as always. That case used to be denied outright: a 403 on work
+   * orders, services and the lease pipeline outside `?oversight=admin`, against `AGENTS.md`
+   * § "Admin borrows" ("a platform admin reads and writes as the manager they are").
    *
-   * It used to fall back to the resident scope in all three, which also denied an admin+manager
-   * outright: a 403 on work orders, services and the lease pipeline outside `?oversight=admin`,
-   * against `AGENTS.md` § "Admin borrows" ("a platform admin reads and writes as the manager they
-   * are"). Acting as the resident still narrows — the group above pins that, and it is the one that
-   * matters for the Add-on services tab this file was written for.
+   * Widening is still a decision that needs evidence, though. A context that CANNOT BE TRUSTED — the
+   * read threw, or its own role list disagrees with the stored roles — narrows to resident instead:
+   * absence of evidence must never buy the broader scope. The two groups below pin both halves.
    */
   describe(`${surface.name} — portal context degraded to the legacy role`, () => {
     beforeEach(() => {
       // getPortalAccessContext falls back to `profiles.role` when its own
-      // profile_roles read errors, so it reports manager-only with no throw.
+      // profile_roles read errors, so it reports manager-only with no throw —
+      // a context that contradicts the stored roles rather than confirming them.
       PROFILE = { email: RESIDENT_EMAIL, role: "manager" };
       PROFILE_ROLES = ["manager", "resident"];
       PORTAL_ROLES = ["manager"];
       EFFECTIVE_ROLE = "manager";
     });
 
-    it("reads as the manager it stores, since it is not acting as the resident", async () => {
+    it("narrows to the resident scope rather than widening on a contradictory context", async () => {
       const res = await surface.load();
       expect(res.status).toBe(200);
       const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
-      expect(ids).toContain(MANAGER_ONLY_ROW.id);
-      expect(fetchRowsForManagerWithLinked).toHaveBeenCalled();
+      expect(ids).toEqual([RESIDENT_ROW.id]);
+      expect(fetchRowsForManagerWithLinked).not.toHaveBeenCalled();
     });
   });
 
@@ -243,12 +244,14 @@ for (const surface of SURFACES) {
       PORTAL_CONTEXT_THROWS = true;
     });
 
-    it("still reads as the stored manager rather than propagating the error", async () => {
+    it("narrows to the resident scope rather than propagating the error or widening", async () => {
+      // The same catch also swallows the phone-gate `redirect()` getPortalAccessContext throws, so
+      // widening here would hand a phone-gated account the whole portfolio.
       const res = await surface.load();
       expect(res.status).toBe(200);
       const ids = ((await res.json()).rows as Array<{ id: string }>).map((row) => row.id);
-      expect(ids).toContain(MANAGER_ONLY_ROW.id);
-      expect(fetchRowsForManagerWithLinked).toHaveBeenCalled();
+      expect(ids).toEqual([RESIDENT_ROW.id]);
+      expect(fetchRowsForManagerWithLinked).not.toHaveBeenCalled();
     });
   });
 
