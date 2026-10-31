@@ -6,7 +6,6 @@ import {
 } from "@/lib/auth/manager-pricing-selection";
 import { completeManagerSignupTrial, isManagerSignupTrialTier } from "@/lib/auth/manager-signup-trial";
 import { createManagerCheckoutSession } from "@/lib/stripe/manager-checkout";
-import { getStripe } from "@/lib/stripe";
 import { normalizePaymentWaiverCode, paymentWaiverCodeMatches } from "@/lib/server-env";
 import { waiverRedeemedMessage, waiverTierForRequest } from "@/lib/payment-waiver-grant";
 import { accountPromoEnded, checkPromoCodeRedeemable, promoRedeemRefusal } from "@/lib/promo-code-policy.server";
@@ -187,30 +186,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: checkout.error, code: checkout.code }, { status: checkout.status });
     }
 
-    try {
-      const stripe = getStripe();
-      const session = await stripe.checkout.sessions.retrieve(checkout.sessionId);
-      const reservedManagerId = session.metadata?.manager_id?.trim() ?? managerId;
-      if (reservedManagerId) {
-        const { error: reserveErr } = await supabase.from("manager_purchases").upsert(
-          {
-            stripe_checkout_session_id: checkout.sessionId,
-            email,
-            manager_id: reservedManagerId,
-            full_name: fullName || null,
-            user_id: user.id,
-          },
-          { onConflict: "manager_id" },
-        );
-        if (reserveErr) {
-          return NextResponse.json({ error: reserveErr.message }, { status: 500 });
-        }
-      }
-    } catch (reserveError) {
-      const message = reserveError instanceof Error ? reserveError.message : "Could not reserve signup.";
-      return NextResponse.json({ error: message }, { status: 500 });
-    }
-
+    // `createManagerCheckoutSession` already reserved this exact session for this manager (compare-and-swap
+    // against the previous reservation) before returning it. Writing the reservation again here would let a
+    // slower request overwrite a newer winner's session, so nothing is written after the helper returns.
     if (checkout.embedded) {
       return NextResponse.json({
         action: "checkout",
