@@ -59,12 +59,33 @@ function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
-async function resolveTourManagerIdentity(db: Db, managerUserId: string): Promise<{ email: string; name: string } | null> {
+type TourManagerIdentity =
+  /** The sending manager's work identity, read and valid. */
+  | { kind: "identity"; email: string; name: string }
+  /** The profile read fine and simply carries no usable address: an absence, not a failure. */
+  | { kind: "none"; reason: string }
+  /** The profile could not be read at all. */
+  | { kind: "error"; message: string };
+
+/**
+ * The sending manager's identity for the in-app copy, with a READ FAILURE kept apart from a
+ * readable profile that carries no usable address.
+ *
+ * Collapsing the two into `null` made a workspace whose owner profile has no valid email report
+ * every tour confirm, reschedule and cancel as a delivery failure, even though the guest's email
+ * and SMS both went. The absence is reported as a reason; only an unreadable profile fails the
+ * notice.
+ */
+async function resolveTourManagerIdentity(db: Db, managerUserId: string): Promise<TourManagerIdentity> {
   const id = managerUserId.trim();
-  if (!id) return null;
+  if (!id) return { kind: "none", reason: "The notice names no sending manager, so no PropLane inbox copy was saved." };
   const { data, error } = await db.from("profiles").select("id, email, full_name").eq("id", id).maybeSingle();
+  if (error) return { kind: "error", message: "The sending manager's profile could not be read for the PropLane inbox copy." };
   const email = String(data?.email ?? "").trim().toLowerCase();
-  return error || !email.includes("@") ? null : { email, name: String(data?.full_name ?? "").trim() || email };
+  if (!email.includes("@")) {
+    return { kind: "none", reason: "The sending manager has no work email on file, so no PropLane inbox copy was saved." };
+  }
+  return { kind: "identity", email, name: String(data?.full_name ?? "").trim() || email };
 }
 
 export async function resolvePropertyAddressForTour(
@@ -190,12 +211,13 @@ const INBOX_COPY_NOT_SAVED = "PropLane inbox notification was not saved.";
  */
 function inboxOutcomeFor(
   owner: TourNoticeOwner,
-  hasManager: boolean,
+  manager: TourManagerIdentity,
   hasProperty: boolean,
 ): TourNotificationResult["inbox"] {
   if (owner.kind === "error") return { sent: false, error: owner.message };
   if (owner.kind === "none") return { sent: false, reason: owner.reason };
-  if (!hasManager) return { sent: false, error: "The sending manager could not be identified for the PropLane inbox copy." };
+  if (manager.kind === "error") return { sent: false, error: manager.message };
+  if (manager.kind === "none") return { sent: false, reason: manager.reason };
   if (!hasProperty) return { sent: false, reason: "The notice names no property, so no PropLane inbox copy was saved." };
   return { sent: false, error: INBOX_COPY_NOT_SAVED };
 }
@@ -1013,10 +1035,11 @@ async function notifyTenantTourChanged(
   let inbox: TourNotificationResult["inbox"] = { sent: false };
   const hasGuestEmail = guestEmail.includes("@");
   if (hasGuestEmail) {
-    const manager = await resolveTourManagerIdentity(db, managerUserId);
+    const managerIdentity = await resolveTourManagerIdentity(db, managerUserId);
+    const manager = managerIdentity.kind === "identity" ? managerIdentity : null;
     const owner = await linkedTourNoticeOwner(db, textField(row, "id") || null, propertyId || null);
     const residentUserId = owner.kind === "owner" ? owner.userId : null;
-    inbox = inboxOutcomeFor(owner, Boolean(manager), Boolean(propertyId));
+    inbox = inboxOutcomeFor(owner, managerIdentity, Boolean(propertyId));
     if (manager && propertyId && residentUserId) inbox = (await appendResidentPropertyManagerInboxMessage(db, {
       participantEmail: guestEmail, residentUserId, managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
       subject, body: text, counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name,
@@ -1180,10 +1203,11 @@ async function deliverTenantTourConfirmed(
   let inbox: TourNotificationResult["inbox"] = { sent: false };
   const hasGuestEmail = guestEmail.includes("@");
   if (hasGuestEmail) {
-    const manager = await resolveTourManagerIdentity(db, window.managerUserId);
+    const managerIdentity = await resolveTourManagerIdentity(db, window.managerUserId);
+    const manager = managerIdentity.kind === "identity" ? managerIdentity : null;
     const owner = await linkedTourNoticeOwner(db, textField(inquiry as Record<string, unknown>, "id") || null, propertyId || null);
     const residentUserId = owner.kind === "owner" ? owner.userId : null;
-    inbox = inboxOutcomeFor(owner, Boolean(manager), Boolean(propertyId));
+    inbox = inboxOutcomeFor(owner, managerIdentity, Boolean(propertyId));
     if (manager && propertyId && residentUserId) inbox = (await appendResidentPropertyManagerInboxMessage(db, {
       participantEmail: guestEmail, residentUserId, managerUserId: window.managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
       subject, body: text, counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name,

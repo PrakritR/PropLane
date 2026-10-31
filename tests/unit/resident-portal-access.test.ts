@@ -208,6 +208,45 @@ describe("resident portal access state", () => {
     expect(residentPortalHomePath(access)).toBe("/resident/tour");
   });
 
+  /**
+   * `residentHasTourLinks` throws on every `resident_tour_links` read failure except a genuinely
+   * absent table — the one error rule that table needs, and `GET /api/portal-resident-tours` still
+   * answers 500 on it. But this access state is awaited by `app/resident/layout.tsx`,
+   * `app/resident/page.tsx` and `renderPortalSection`, none of which has an error boundary, so
+   * letting the throw escape turned a transient permission or timeout error on one table into an
+   * outage of EVERY resident page.
+   *
+   * It is absorbed into the one field it answers. `false` is the NARROWER state (no pre-lease tour
+   * nav), so this cannot widen access.
+   */
+  it("survives an unreadable resident_tour_links by hiding the tour nav, not by failing the portal", async () => {
+    for (const error of [
+      { code: "42501", message: "permission denied for table resident_tour_links" },
+      { code: "57014", message: "canceling statement due to statement timeout" },
+      { message: "connection reset" },
+    ]) {
+      const db = makeDbMock({ applicationRows: [] });
+      vi.mocked(db.from).mockImplementation((table: string) => {
+        if (table === "resident_tour_links") {
+          return {
+            select: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ count: null, error }) }),
+          } as never;
+        }
+        return makeDbMock({ applicationRows: [] }).from(table);
+      });
+      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(db as never);
+
+      const access = await loadResidentPortalAccessState({
+        userId: "user-1",
+        role: "resident",
+        email: "resident@example.com",
+      });
+
+      expect(access.hasTourLink).toBe(false);
+      expect(access.roleOk).toBe(true);
+    }
+  });
+
   it("keeps application-phase home while application is pending approval", async () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
       makeDbMock({

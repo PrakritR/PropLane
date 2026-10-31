@@ -238,6 +238,32 @@ async function residentHasStays(db: ReturnType<typeof createSupabaseServiceRoleC
   }
 }
 
+/**
+ * The pre-lease tour-nav flag, and nothing else, absorbs an unreadable `resident_tour_links`.
+ *
+ * `residentHasTourLinks` throws on every read failure except a genuinely absent table — the one
+ * error rule that table needs, and `GET /api/portal-resident-tours` still answers 500 on it. But
+ * this access state is awaited by `app/resident/layout.tsx`, `app/resident/page.tsx` and
+ * `renderPortalSection`, none of which has an error boundary, so letting the throw escape turned a
+ * transient permission, timeout or connection error on one table into an outage of EVERY resident
+ * page. `false` is the narrower answer (no pre-lease tour nav), so absorbing it here cannot widen
+ * access. Logged without the address or the subject.
+ */
+async function residentHasTourLinkForNav(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  userId: string,
+  email: string,
+): Promise<boolean> {
+  try {
+    return await residentHasTourLinks(db, userId, email);
+  } catch (e) {
+    console.error("resident tour links read failed; pre-lease tour nav hidden", {
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return false;
+  }
+}
+
 const loadResidentPortalAccessStateCached = cache(
   async (
     userId: string | null,
@@ -269,7 +295,7 @@ const loadResidentPortalAccessStateCached = cache(
     const [applicationResult, leaseResult, hasTourLink, hasStays] = await Promise.all([
       applicationQuery.order("updated_at", { ascending: false }),
       leaseQuery.order("updated_at", { ascending: false }),
-      residentHasTourLinks(db, userId, email),
+      residentHasTourLinkForNav(db, userId, email),
       residentHasStays(db, userId),
     ]);
     const applicationRows = applicationResult.data;

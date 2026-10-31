@@ -1,5 +1,15 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type Stripe from "stripe";
+
+import { COMMS_CREDIT_PURPOSE } from "@/lib/comms-billing/credit-packs";
+import { COMMS_CREDIT_POOL_PURPOSE } from "@/lib/comms-billing/pool.server";
+import { NUMBER_CREDIT_PURPOSE, NUMBER_SUBSCRIPTION_PURPOSE } from "@/lib/number-subscription/constants";
+import { LINKED_FORM_FEE_PURPOSE } from "@/lib/linked-form-fee.server";
+import { SCREENING_CHECKOUT_PURPOSE } from "@/lib/stripe-screening";
+import { VENDOR_INVOICE_PAY_PURPOSE } from "@/lib/stripe-axis-ach-checkout";
+import { VENDOR_INVOICE_DIRECT_PAY_PURPOSE } from "@/lib/vendor-invoice-pay.server";
 
 import {
   checkoutNeedsOwnerCheck,
@@ -86,6 +96,39 @@ describe("checkout purpose classification", () => {
     expect(checkoutNeedsOwnerCheck(session(RENTAL_APPLICATION_FEE_PURPOSE))).toBe(true);
     expect(checkoutNeedsOwnerCheck(session(MANAGER_CARD_SETUP_PURPOSE, "setup"))).toBe(false);
     expect(checkoutNeedsOwnerCheck(session("deposit_hold"))).toBe(false);
+  });
+
+  /**
+   * The set's doc says every member is handled by name. It has to stay TRUE: a purpose inside the
+   * set is kept out of the unhandled-purpose error log, so a member with no branch would be
+   * acknowledged 200 and silently do nothing — the same drift this module exists to prevent.
+   */
+  it("every handled purpose really is named in the webhook dispatch chain", () => {
+    const webhook = readFileSync(join(process.cwd(), "src/app/api/stripe/webhook/route.ts"), "utf8");
+    const named: Record<string, string> = {
+      [RENTAL_APPLICATION_FEE_PURPOSE]: "RENTAL_APPLICATION_FEE_PURPOSE",
+      [HOUSEHOLD_CHARGE_PURPOSE]: "HOUSEHOLD_CHARGE_PURPOSE",
+      [MANAGER_CARD_SETUP_PURPOSE]: "MANAGER_CARD_SETUP_PURPOSE",
+      [RESIDENT_CARD_SETUP_PURPOSE]: "RESIDENT_CARD_SETUP_PURPOSE",
+      [LINKED_FORM_FEE_PURPOSE]: "LINKED_FORM_FEE_PURPOSE",
+      [SCREENING_CHECKOUT_PURPOSE]: "SCREENING_CHECKOUT_PURPOSE",
+      [VENDOR_INVOICE_PAY_PURPOSE]: "VENDOR_INVOICE_PAY_PURPOSE",
+      [VENDOR_INVOICE_DIRECT_PAY_PURPOSE]: "VENDOR_INVOICE_DIRECT_PAY_PURPOSE",
+      [COMMS_CREDIT_PURPOSE]: "COMMS_CREDIT_PURPOSE",
+      [COMMS_CREDIT_POOL_PURPOSE]: "COMMS_CREDIT_POOL_PURPOSE",
+      [NUMBER_SUBSCRIPTION_PURPOSE]: "NUMBER_SUBSCRIPTION_PURPOSE",
+      [NUMBER_CREDIT_PURPOSE]: "NUMBER_CREDIT_PURPOSE",
+    };
+    for (const purpose of HANDLED_CHECKOUT_PURPOSES) {
+      // The manager plan is matched through its classifier rather than a bare comparison.
+      if (purpose === MANAGER_PLAN_CHECKOUT_PURPOSE) {
+        expect(webhook).toContain("isManagerPlanCheckout(session)");
+        continue;
+      }
+      const constant = named[purpose];
+      expect(constant, `${purpose} is in HANDLED_CHECKOUT_PURPOSES but this guard does not know its constant`).toBeTruthy();
+      expect(webhook, `${purpose} is handled by no branch of the dispatch chain`).toContain(`purpose === ${constant}`);
+    }
   });
 
   it("re-exports the two fee purposes from the modules that own them", () => {

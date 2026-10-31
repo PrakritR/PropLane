@@ -14,7 +14,16 @@ const COUNTRY_PART = /^(?:USA|U\.S\.A\.?|US|U\.S\.?|United States(?: of America)
  * word, tested on whole words so "St. Louis" and "St. Paul" survive while "Main St" does not.
  */
 const CITY_SHAPE = /^[A-Za-z][A-Za-z .'-]*$/;
-const STREET_WORD = /(?:^|\s)(?:unit|suite|apt|apartment|floor|fl|rm|room|street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln|court|ct|place|pl|terrace|ter|way|hwy|highway|pkwy|parkway|circle|cir)\.?(?:\s|$)/i;
+/**
+ * A secondary-unit designator or a thoroughfare word. A part carrying either is an address LINE,
+ * never a city, so it can never become the general area.
+ *
+ * Only designators that cannot also be a city-name word are listed. `ste`, `upper`, `lower`, `rear`,
+ * `front`, `block` and `key` are deliberately absent: Ste. Genevieve, Upper Darby, Lower Burrell,
+ * Rear, Front Royal, Block Island and Key West are real places, and rejecting them would collapse a
+ * legitimate city to "Nearby".
+ */
+const STREET_WORD = /(?:^|\s)(?:unit|suite|apt|apartment|floor|fl|rm|room|bldg|building|penthouse|lot|space|spc|trailer|slip|hangar|pier|basement|bsmt|dept|department|street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|lane|ln|court|ct|place|pl|terrace|ter|way|hwy|highway|pkwy|parkway|circle|cir)\.?(?:\s|$)/i;
 
 function cityLikePart(value: string | undefined): string {
   const part = value?.trim() ?? "";

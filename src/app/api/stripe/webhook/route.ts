@@ -112,6 +112,7 @@ import {
   MANAGER_CARD_SETUP_PURPOSE,
   RENTAL_APPLICATION_FEE_PURPOSE,
 } from "@/lib/stripe/checkout-purpose";
+import { RESIDENT_CARD_SETUP_PURPOSE } from "@/lib/stripe/resident-card-setup-purpose";
 
 export const runtime = "nodejs";
 
@@ -494,6 +495,14 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
         // No plan or credit is granted, and default selection is an explicit action.
         if (session.mode !== "setup") {
           console.error("[stripe webhook] manager_card_setup session is not a setup session", { sessionId: session.id });
+        }
+      } else if (session.metadata?.purpose === RESIDENT_CARD_SETUP_PURPOSE) {
+        // Same shape on the resident side: Stripe attached the card to the resident's own customer
+        // and the saved-method list is read live from Stripe, so there is nothing to fulfil. Named
+        // here rather than left to fall off the end of the chain, so every member of
+        // `HANDLED_CHECKOUT_PURPOSES` really is handled by name.
+        if (session.mode !== "setup") {
+          console.error("[stripe webhook] resident_card_setup session is not a setup session", { sessionId: session.id });
         }
       } else if (isManagerPlanCheckout(session)) {
         if (!checkoutSessionIndicatesPaidPurchase(session)) return NextResponse.json({ received: true }, { status: 200 });

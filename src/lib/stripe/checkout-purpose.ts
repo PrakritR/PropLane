@@ -41,7 +41,13 @@ export const OWNER_RESOLVABLE_CHECKOUT_PURPOSES: ReadonlySet<string> = new Set([
   VENDOR_INVOICE_DIRECT_PAY_PURPOSE,
 ]);
 
-/** Every purpose the webhook's checkout dispatch chain handles by name. */
+/**
+ * Every purpose the webhook's checkout dispatch chain handles by name — including the two card
+ * setups, which have their own explicit no-op branches because Stripe already attached the card and
+ * the saved-method lists are read live, and `MANAGER_PLAN_CHECKOUT_PURPOSE`, which the chain matches
+ * through `isManagerPlanCheckout`. A purpose outside this set is logged as unhandled and never
+ * fulfilled, so membership and a real branch have to stay in step.
+ */
 export const HANDLED_CHECKOUT_PURPOSES: ReadonlySet<string> = new Set([
   ...OWNER_RESOLVABLE_CHECKOUT_PURPOSES,
   COMMS_CREDIT_PURPOSE,

@@ -34,6 +34,34 @@ describe("C11: one compose, counted tabs", () => {
     expect(admin).not.toContain('fetch("/api/portal/scheduled-inbox-messages"');
   });
 
+  /**
+   * Compose is not the only admin-surface writer to those tightened routes. The thread pane's
+   * Schedule send, the admin inbox's Scheduled read, the scheduled-card hook the pane mounts and
+   * the one shared send-now pair all reach them too, and every one of them 401s for a seated
+   * Overall admin (stored `admin` row, no manager row) without the oversight ask.
+   *
+   * `adminOversightUrl` appends nothing off an `/admin` path, so wrapping these shared call sites
+   * leaves the manager and resident portals byte-identical.
+   */
+  for (const [file, label] of [
+    ["src/components/portal/admin-thread-pane.tsx", "the admin thread pane's Schedule send"],
+    ["src/lib/admin-inbox-source.ts", "the admin inbox's Scheduled read"],
+    ["src/components/portal/use-thread-scheduled-cards.tsx", "the scheduled-card hook the admin pane mounts"],
+    ["src/components/portal/portal-inbox-selection.tsx", "the one shared send-now pair"],
+  ] as const) {
+    it(`${label} asks for the admin surface`, () => {
+      const src = read(file);
+      expect(src).toContain('from "@/lib/auth/admin-oversight.client"');
+      // Every scheduled-message call goes through the wrapper, and none of them stays bare —
+      // whichever quote the call site spells its URL with.
+      expect(src).toContain("fetch(adminOversightUrl(");
+      for (const quote of ['"', "'", String.fromCharCode(96)]) {
+        expect(src, `a bare ${quote}-quoted scheduled-message call would 401 for a seated admin`)
+          .not.toContain(`fetch(${quote}/api/portal/scheduled`);
+      }
+    });
+  }
+
   it("vendor Active / Archived tabs carry counts like the manager and resident ones", () => {
     const vendor = read("src/components/portal/vendor-communication.tsx");
     expect(vendor).toMatch(/<InboxListSegmentTabs[\s\S]*?counts=\{listSynced \? tabCounts : undefined\}/);

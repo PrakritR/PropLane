@@ -138,6 +138,20 @@ describe("managerServiceWorkflow", () => {
     expect(workOrderGeneralArea(forgedHint)).toBe("Nearby");
     // A house name sitting where the street belongs leaks nothing: only the city travels.
     expect(workOrderGeneralArea({ propertyAddress: "Proof House, Seattle", propertyName: "Proof House" })).toBe("Seattle");
+    // A SECONDARY address line is an address line, never a city: on a two-part address the last
+    // part would otherwise be read as the city and shipped as the area.
+    for (const secondary of ["Building C", "Bldg C", "Penthouse", "Lot A", "Space B", "Trailer C", "Basement", "Dept B"]) {
+      expect(workOrderGeneralArea({ propertyAddress: `123 Main St, ${secondary}`, propertyName: "Proof House" })).toBe("Nearby");
+    }
+    // Real cities whose names carry one of those words stay cities.
+    for (const [address, area] of [
+      ["123 Main St, Ste. Genevieve, MO", "Ste. Genevieve, MO"],
+      ["123 Main St, Upper Darby, PA", "Upper Darby, PA"],
+      ["123 Main St, Front Royal, VA", "Front Royal, VA"],
+      ["123 Main St, Key West, FL", "Key West, FL"],
+    ] as const) {
+      expect(workOrderGeneralArea({ propertyAddress: address, propertyName: "Proof House" })).toBe(area);
+    }
     expect(vendorCanSeeFullWorkOrderSite(row, null)).toBe(false);
     expect(
       vendorCanSeeFullWorkOrderSite(row, {

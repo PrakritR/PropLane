@@ -46,6 +46,8 @@ function makeDb(
   links: LinkRow[] = [{ inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT, property_id: "property-x" }],
   /** Injected failure of the links read: a failure, never an absence. */
   linksError: { code?: string; message: string } | null = null,
+  /** The sending manager's profile: a row, a row with no usable address, or an unreadable table. */
+  managerProfile: { row?: Record<string, unknown> | null; error?: { message: string } } = {},
 ) {
   return {
     from: vi.fn((table: string) => {
@@ -65,10 +67,16 @@ function makeDb(
           );
           return { data: matched.map((row) => ({ resident_user_id: row.resident_user_id })), error: null };
         }),
-        maybeSingle: vi.fn(async () => ({
-          data: table === "profiles" ? { id: "host", email: "host@example.com", full_name: "Host" } : null,
-          error: null,
-        })),
+        maybeSingle: vi.fn(async () => {
+          if (table !== "profiles") return { data: null, error: null };
+          if (managerProfile.error) return { data: null, error: managerProfile.error };
+          return {
+            data: managerProfile.row === undefined
+              ? { id: "host", email: "host@example.com", full_name: "Host" }
+              : managerProfile.row,
+            error: null,
+          };
+        }),
       };
       return chain;
     }),
@@ -197,6 +205,45 @@ describe("a tour notice's inbox copy is bound to its own inquiry", () => {
     const twoClaims = await notifyTenantTourConfirmed(contested as never, null, inquiry(LINKED_INQUIRY), window);
     expect(twoClaims.inbox.reason).toMatch(/several accounts claim this tour/i);
     expect(twoClaims.inbox.error).toBeUndefined();
+  });
+
+  /**
+   * The same absence-vs-failure split on the SENDING side. `resolveTourManagerIdentity` answered
+   * `null` for a read error and for a readable profile with no usable address alike, and the
+   * manager arm of `inboxOutcomeFor` called that an error — so a workspace whose owner profile
+   * carries no email reported every confirm, reschedule and cancel as a delivery failure, with the
+   * guest's email and SMS both already sent.
+   */
+  it("treats a manager profile with no usable email as a skip, not a failure", async () => {
+    for (const row of [
+      { id: "host", email: null, full_name: "Host" },
+      { id: "host", email: "   ", full_name: "Host" },
+      { id: "host", email: "not-an-address", full_name: "Host" },
+      null,
+    ]) {
+      const db = makeDb(undefined, null, { row });
+      const result = await notifyTenantTourConfirmed(db as never, null, inquiry(LINKED_INQUIRY), window);
+
+      expect(appendResidentPropertyManagerInboxMessage).not.toHaveBeenCalled();
+      expect(result.inbox.sent).toBe(false);
+      expect(result.inbox.reason).toMatch(/no work email on file/i);
+      expect(result.inbox.error).toBeUndefined();
+      // The guest still heard about their own tour, so the notice did not fail.
+      expect(fetchMock).toHaveBeenCalled();
+      vi.clearAllMocks();
+      fetchMock.mockResolvedValue({ ok: true, json: async () => ({ id: "email_1" }) });
+    }
+  });
+
+  it("reports an unreadable manager profile as an ERROR", async () => {
+    const db = makeDb(undefined, null, { error: { message: "canceling statement due to statement timeout" } });
+
+    const result = await notifyTenantTourConfirmed(db as never, null, inquiry(LINKED_INQUIRY), window);
+
+    expect(appendResidentPropertyManagerInboxMessage).not.toHaveBeenCalled();
+    expect(result.inbox.sent).toBe(false);
+    expect(result.inbox.error).toMatch(/could not be read/i);
+    expect(result.inbox.reason).toBeUndefined();
   });
 
   it("reports an unreadable link as an ERROR, not as an absence", async () => {
