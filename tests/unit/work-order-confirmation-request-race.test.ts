@@ -17,16 +17,16 @@ function fixture(terminal: boolean, race: boolean) {
 }
 it("does not issue a confirmation for an independently completed job", async () => {
   const f = fixture(true, false);
-  expect(await requestResidentConfirmation(f.db as never, "job", "manager", {} as never)).toBeNull();
+  expect(await requestResidentConfirmation(f.db as never, "job", "manager")).toBeNull();
   expect(f.writes()).toBe(0);
 });
 it("refuses the confirmation stamp when the job changed after its read", async () => {
   const f = fixture(false, true);
-  expect(await requestResidentConfirmation(f.db as never, "job", "manager", {} as never)).toBeNull();
+  expect(await requestResidentConfirmation(f.db as never, "job", "manager")).toBeNull();
   expect(f.writes()).toBe(0);
 });
 it("issues a confirmation for an unchanged bound service", async () => {
   const f = fixture(false, false);
-  expect(await requestResidentConfirmation(f.db as never, "job", "manager", {} as never)).toMatchObject({ confirmUrl: expect.any(String) });
+  expect(await requestResidentConfirmation(f.db as never, "job", "manager")).toMatchObject({ confirmUrl: expect.any(String) });
   expect(f.writes()).toBe(1);
 });

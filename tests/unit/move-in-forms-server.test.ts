@@ -697,13 +697,17 @@ describe("dispatch: intake, links and move-out", () => {
       expect(emitted.calls).toEqual([]);
     });
 
-    it("addresses the notice to the confirmed login, not to the typed row", async () => {
+    it("addresses the notice to the confirmed login while the link still follows the row's own binding", async () => {
       applications[0]!.app_bucket = "pending";
       applications[0]!.app_resident_user_id = "someone-else";
       await send("application-submitted");
       const { emitMoveInFormEvent } = await import("@/lib/move-in-forms/move-in-form-events.server");
-      const input = vi.mocked(emitMoveInFormEvent).mock.calls[0]![1] as unknown as { row: { resident_user_id: string; resident_email: string } };
-      expect(input.row).toMatchObject({ resident_user_id: "res-a", resident_email: "a@example.test" });
+      const input = vi.mocked(emitMoveInFormEvent).mock.calls[0]![1] as unknown as {
+        row: { resident_user_id: string | null; resident_email: string };
+        noticeAccount?: { id: string | null; email: string };
+      };
+      expect(input.noticeAccount).toEqual({ id: "res-a", email: "a@example.test" });
+      expect(input.row.resident_user_id).not.toBe("res-a");
     });
 
     it("also sends it to an application that is already approved", async () => {

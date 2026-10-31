@@ -104,6 +104,12 @@ import {
 import { handleVendorBankingDispute } from "@/lib/vendor-banking/disputes.server";
 import { settlePhoneBoundRentLinks } from "@/lib/one-number/links.server";
 import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+import {
+  checkoutNeedsOwnerCheck,
+  isManagerPlanCheckout,
+  isUnhandledCheckoutPurpose,
+  MANAGER_CARD_SETUP_PURPOSE,
+} from "@/lib/stripe/checkout-purpose";
 
 export const runtime = "nodejs";
 
@@ -150,32 +156,16 @@ async function checkoutOwner(
     owner = String(data?.manager_user_id ?? "").trim();
   } else if (purpose === VENDOR_INVOICE_PAY_PURPOSE || purpose === VENDOR_INVOICE_DIRECT_PAY_PURPOSE) {
     owner = session.metadata?.manager_user_id?.trim() ?? "";
-  } else {
+  } else if (isManagerPlanCheckout(session)) {
     const purchase = await resolveManagerCheckoutPurchase(db, session);
     owner = purchase.userId ?? "";
     if (!purchase.userId) return null;
+  } else {
+    throw new Error("Could not resolve checkout ownership.");
   }
   const claimed = session.metadata?.manager_user_id?.trim() || session.metadata?.userId?.trim() || "";
   if (!owner || (claimed && claimed !== owner)) throw new Error("Could not resolve checkout ownership.");
   return owner;
-}
-
-/** A Checkout session that is none of the named purposes is a manager plan purchase (the fall-through branch). */
-function isManagerPlanCheckout(session: Stripe.Checkout.Session): boolean {
-  const purpose = session.metadata?.purpose;
-  if (session.mode === "setup" && purpose === "manager_card_setup") return false;
-  return ![
-    COMMS_CREDIT_PURPOSE,
-    COMMS_CREDIT_POOL_PURPOSE,
-    NUMBER_SUBSCRIPTION_PURPOSE,
-    NUMBER_CREDIT_PURPOSE,
-    "rental_application_fee",
-    LINKED_FORM_FEE_PURPOSE,
-    SCREENING_CHECKOUT_PURPOSE,
-    "household_charge",
-    VENDOR_INVOICE_PAY_PURPOSE,
-    VENDOR_INVOICE_DIRECT_PAY_PURPOSE,
-  ].includes(purpose as string);
 }
 
 function logCheckoutCompleted(session: Stripe.Checkout.Session) {
@@ -340,13 +330,16 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const session = event.data.object as Stripe.Checkout.Session;
       logCheckoutCompleted(session);
-      if (
-        session.metadata?.purpose !== COMMS_CREDIT_PURPOSE &&
-        session.metadata?.purpose !== COMMS_CREDIT_POOL_PURPOSE &&
-        session.metadata?.purpose !== NUMBER_SUBSCRIPTION_PURPOSE &&
-        session.metadata?.purpose !== NUMBER_CREDIT_PURPOSE &&
-        !(session.mode === "setup" && session.metadata?.purpose === "manager_card_setup")
-      ) {
+      // A purpose no branch below claims is acknowledged and logged, never fulfilled
+      // as a manager plan by omission from a hand-copied list.
+      if (isUnhandledCheckoutPurpose(session)) {
+        console.error("[stripe webhook] checkout session has an unhandled purpose", {
+          sessionId: session.id,
+          purpose: session.metadata?.purpose,
+        });
+        return NextResponse.json({ received: true, ignored: true }, { status: 200 });
+      }
+      if (checkoutNeedsOwnerCheck(session)) {
         // A manager-plan session that has not paid is acknowledged BEFORE any owner or reservation
         // lookup: an unpaid session writes nothing and grants nothing, whatever reservation it has
         // (or lacks). An unmatched PAID session still fails closed in `checkoutOwner` (500, no write).
@@ -494,10 +487,13 @@ async function handleStripeWebhook(req: Request, ctx: { verified: boolean }) {
           console.error("[stripe webhook] vendor_invoice_direct_pay checkout", e);
           throw e;
         }
-      } else if (session.mode === "setup" && session.metadata?.purpose === "manager_card_setup") {
+      } else if (session.metadata?.purpose === MANAGER_CARD_SETUP_PURPOSE) {
         // Stripe setup attaches the card to its authenticated manager customer.
         // No plan or credit is granted, and default selection is an explicit action.
-      } else {
+        if (session.mode !== "setup") {
+          console.error("[stripe webhook] manager_card_setup session is not a setup session", { sessionId: session.id });
+        }
+      } else if (isManagerPlanCheckout(session)) {
         if (!checkoutSessionIndicatesPaidPurchase(session)) return NextResponse.json({ received: true }, { status: 200 });
         try {
           await recordPaidManagerCheckoutSession(session);

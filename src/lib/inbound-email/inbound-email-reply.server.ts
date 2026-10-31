@@ -3,11 +3,14 @@
  *
  * When an inbound email's To carries a verified reply token
  * (reply-address.server.ts), the reply belongs to a portal conversation, not
- * the admin support inbox. This module appends it to BOTH sides of the
- * person-thread — the token owner's inbox copy (unread, inbound) and the
- * replier's own inbox copy (outbound, so their portal thread shows what they
- * sent by email) — via the same `deliverPortalMessageThreadSide` primitive the
- * portal send paths use.
+ * the admin support inbox. This module appends it to the TOKEN OWNER's side of
+ * the person-thread (unread, inbound) via the same
+ * `deliverPortalMessageThreadSide` primitive the portal send paths use.
+ *
+ * The replier's own outbound copy is deliberately NOT written: the only thing
+ * that located that side was a `profiles`-by-email lookup, and an address is
+ * not proof of control over the account holding it. Re-binding the replier's
+ * copy to the thread's stored participant subject is a tracked follow-up.
  *
  * Durability posture mirrors the support-inbox ingest
  * (inbound-email.server.ts): the append runs INLINE from webhook metadata with
@@ -15,8 +18,7 @@
  * the route so Resend redelivers), and the body is filled in by a best-effort
  * after() pass. Idempotency is the deterministic message id
  * `email_<resend-email-id>` — `deliverPortalMessageThreadSide` skips an append
- * whose id already landed, which also makes a redelivery after a partial
- * (one-of-two-rows) append safe.
+ * whose id already landed, so a redelivery never duplicates the row.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatPacificDateTime } from "@/lib/pacific-time";

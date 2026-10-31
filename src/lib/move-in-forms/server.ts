@@ -649,7 +649,7 @@ export async function dispatchMoveInFormsForResidency(
           ? await confirmedAccountFor(db, result.row.resident_email)
           : { id: result.row.resident_user_id, email: result.row.resident_email };
         if (notice) {
-          void emitMoveInFormEvent(db, { row: { ...result.row, resident_user_id: notice.id, resident_email: notice.email }, event: "sent" }).catch(() => undefined);
+          void emitMoveInFormEvent(db, { row: result.row, event: "sent", noticeAccount: { id: notice.id, email: notice.email } }).catch(() => undefined);
         }
       } catch (error) {
         failed++;

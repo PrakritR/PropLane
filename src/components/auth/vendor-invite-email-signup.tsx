@@ -1,18 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import { AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
+import { AuthOAuthLoading } from "@/components/auth/auth-oauth-loading";
 import { VendorGoogleSignUpButton } from "@/components/auth/vendor-google-sign-up-button";
 import { VendorAppleSignUpButton } from "@/components/auth/vendor-apple-sign-up-button";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { nativeAwarePath } from "@/lib/auth/native-auth-entry";
 import { isUnsafeRedirectPath } from "@/lib/auth/normalize-post-auth-path";
+import { FIELD_LABEL_CLASS, READONLY_INPUT_CLASS } from "@/lib/ui-styles";
+
+const PRIMARY_BUTTON_CLASS = "btn-cobalt w-full rounded-full py-2.5 text-[15px] font-semibold";
 
 export function VendorInviteEmailSignup({ inviteToken, email, initialFullName = "", disabled = false }: {
   inviteToken: string; email: string; initialFullName?: string; disabled?: boolean;
 }) {
+  const fieldId = useId();
+  const inviteEmailId = `${fieldId}-invite-email`;
+  const verifiedEmailId = `${fieldId}-verified-email`;
+  const nameId = `${fieldId}-name`;
+  const phoneId = `${fieldId}-phone`;
   const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState(initialFullName);
@@ -56,17 +66,58 @@ export function VendorInviteEmailSignup({ inviteToken, email, initialFullName = 
     } catch { setError("Could not connect. Please try again."); }
     finally { setBusy(false); }
   }
-  if (loading) return <p role="status">Loading…</p>;
-  if (success) return <div className="space-y-3"><h1 className="text-xl font-semibold">{recovery ? "Account recovery required" : "Vendor account ready"}</h1><Button type="button" onClick={() => window.location.assign(nativeAwarePath(success))}>{recovery ? "Continue recovery" : "Go to portal"}</Button></div>;
-  if (sent) return <div className="space-y-3"><h1 className="text-xl font-semibold">Check your email</h1><p role="status">Check your email for a link to continue.</p></div>;
-  return <div className="space-y-3">
-    <h1 className="text-xl font-semibold">{matches ? "Complete your vendor account" : "Accept your vendor invite"}</h1>
-    {!matches ? <><VendorAppleSignUpButton inviteToken={inviteToken} disabled={busy || disabled} /><VendorGoogleSignUpButton inviteToken={inviteToken} disabled={busy || disabled} /><p>Invite email: {email}</p>{verifiedEmail ? <p>Sign in with the email on this invite to continue.</p> : null}</> : <>
-      <p>Verified email: {verifiedEmail}</p>
-      <label className="block text-sm">Full name<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy || disabled} /></label>
-      <label className="block text-sm">Phone<PhoneNumberField value={phone} onChange={setPhone} disabled={busy || disabled} /></label>
-    </>}
-    <Button type="button" disabled={busy || disabled} onClick={() => void submit()}>{busy ? "Please wait…" : matches ? "Accept invite" : "Continue with email"}</Button>
-    {error ? <p role="alert">{error}</p> : null}
-  </div>;
+  if (loading) return <AuthOAuthLoading caption="Loading…" />;
+  if (success) {
+    return (
+      <div className="space-y-4">
+        <AuthPageHeader eyebrow="Vendor portal" title={recovery ? "Account recovery required" : "Vendor account ready"} />
+        <Button type="button" className={PRIMARY_BUTTON_CLASS} onClick={() => window.location.assign(nativeAwarePath(success))}>
+          {recovery ? "Continue recovery" : "Go to portal"}
+        </Button>
+      </div>
+    );
+  }
+  if (sent) {
+    return (
+      <div className="space-y-4">
+        <AuthPageHeader eyebrow="Vendor portal" title="Check your email" />
+        <p role="status" className="text-center text-sm text-muted">Check your email for a link to continue.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      <AuthPageHeader eyebrow="Vendor portal" title={matches ? "Complete your vendor account" : "Accept your vendor invite"} />
+      {!matches ? (
+        <div className="space-y-3">
+          <VendorAppleSignUpButton inviteToken={inviteToken} disabled={busy || disabled} />
+          <VendorGoogleSignUpButton inviteToken={inviteToken} disabled={busy || disabled} />
+          <div>
+            <label className={FIELD_LABEL_CLASS} htmlFor={inviteEmailId}>Invite email</label>
+            <Input id={inviteEmailId} className={READONLY_INPUT_CLASS} value={email} readOnly />
+          </div>
+          {verifiedEmail ? <p role="status" className="text-center text-sm text-muted">Sign in with the email on this invite to continue.</p> : null}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <label className={FIELD_LABEL_CLASS} htmlFor={verifiedEmailId}>Verified email</label>
+            <Input id={verifiedEmailId} className={READONLY_INPUT_CLASS} value={verifiedEmail ?? ""} readOnly />
+          </div>
+          <div>
+            <label className={FIELD_LABEL_CLASS} htmlFor={nameId}>Full name</label>
+            <Input id={nameId} className="mt-1.5" autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy || disabled} />
+          </div>
+          <div>
+            <label className={FIELD_LABEL_CLASS} htmlFor={phoneId}>Phone</label>
+            <PhoneNumberField id={phoneId} className="mt-1.5" value={phone} onChange={setPhone} disabled={busy || disabled} />
+          </div>
+        </div>
+      )}
+      <Button type="button" className={PRIMARY_BUTTON_CLASS} disabled={busy || disabled} onClick={() => void submit()}>
+        {busy ? "Please wait…" : matches ? "Accept invite" : "Continue with email"}
+      </Button>
+      {error ? <p role="alert" className="text-center text-sm text-rose-600">{error}</p> : null}
+    </div>
+  );
 }

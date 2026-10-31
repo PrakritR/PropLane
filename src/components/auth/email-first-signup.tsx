@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { OAuthSocialStack } from "@/components/auth/oauth-social-stack";
-import { AuthLegalConsent } from "@/components/auth/auth-mobile-primitives";
+import { AuthLegalConsent, AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
+import { AuthOAuthLoading } from "@/components/auth/auth-oauth-loading";
+import { FIELD_LABEL_CLASS, READONLY_INPUT_CLASS } from "@/lib/ui-styles";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { clearPortalBrowserCache } from "@/lib/auth/clear-portal-browser-cache";
 import { nativeAwarePath } from "@/lib/auth/native-auth-entry";
@@ -23,11 +25,21 @@ const heading: Record<Intent, string> = {
   generic: "Create your account", resident: "Create your resident account", manager: "Create your property account",
   vendor: "Create your vendor account", manager_paid: "Complete your property account", tour: "Continue your tour request",
 };
+const eyebrow: Record<Intent, string> = {
+  generic: "PropLane", resident: "Resident portal", manager: "Property portal",
+  vendor: "Vendor portal", manager_paid: "Property portal", tour: "Tour request",
+};
+const PRIMARY_BUTTON_CLASS = "btn-cobalt w-full rounded-full py-2.5 text-[15px] font-semibold";
+const SECONDARY_BUTTON_CLASS = "w-full rounded-full py-2.5 text-[15px] font-semibold";
 
 export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, listing, checkoutSessionId, tourInquiryId, tourToken, oauthNextPath, social, disabled = false, hideLegalFooter = false }: {
   intent: Intent; initialEmail?: string; tier?: string; billing?: "monthly" | "annual"; listing?: ListingContext; checkoutSessionId?: string; tourInquiryId?: string; tourToken?: string; oauthNextPath?: string; social?: ReactNode; disabled?: boolean; hideLegalFooter?: boolean;
 }) {
-  const phoneId = useId();
+  const fieldId = useId();
+  const phoneId = `${fieldId}-phone`;
+  const emailId = `${fieldId}-email`;
+  const verifiedEmailId = `${fieldId}-verified-email`;
+  const nameId = `${fieldId}-name`;
   const [email, setEmail] = useState(initialEmail);
   const [tourCapability, setTourCapability] = useState(tourToken ?? "");
   const [verifiedEmail, setVerifiedEmail] = useState<string | null>(null);
@@ -99,18 +111,73 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
     } catch { setError("Could not connect. Please try again."); }
     finally { setBusy(false); }
   }
-  if (loading) return <p role="status">Loading…</p>;
-  if (completed) return <div className="space-y-3"><h1 className="text-xl font-semibold">Account ready</h1><Button type="button" onClick={() => window.location.assign(nativeAwarePath(completed))}>Go to portal</Button></div>;
-  if (sent) return <div className="space-y-3"><h1 className="text-xl font-semibold">Check your email</h1><p role="status">Check your email for a link to continue.</p><Button type="button" variant="ghost" onClick={() => setSent(false)}>Use another email</Button></div>;
-  return <div className="space-y-3">
-    <h1 className="text-xl font-semibold">{verifiedEmail ? completionHeading[intent] : heading[intent]}</h1>
-    {!verifiedEmail ? <>{intent !== "manager_paid" && intent !== "tour" ? social ?? <OAuthSocialStack nextPath={oauthNextPath} intent={intent === "generic" ? null : intent} disabled={busy || disabled} /> : null}<label className="block text-sm">Email<Input type="email" autoComplete="email" autoCapitalize="none" inputMode="email" value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy || disabled} /></label></> : <>
-      <p>Verified email: {verifiedEmail}</p>
-      <><label className="block text-sm">Full name<Input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy || disabled} /></label><label className="block text-sm" htmlFor={phoneId}>Phone</label><PhoneNumberField id={phoneId} value={phone} onChange={setPhone} disabled={busy || disabled} /></>
-    </>}
-    <Button type="button" disabled={busy || disabled} onClick={() => void submit()}>{busy ? "Please wait…" : verifiedEmail ? "Complete account" : "Continue with email"}</Button>
-    {verifiedEmail && intent === "manager" ? <Button type="button" variant="ghost" disabled={busy || disabled} onClick={() => void createDifferentAccount()}>Create a different property account</Button> : null}
-    {error ? <p role="alert">{error}</p> : null}
-    {!hideLegalFooter ? <AuthLegalConsent action="create" /> : null}
-  </div>;
+  if (loading) return <AuthOAuthLoading caption="Loading…" />;
+  if (completed) {
+    return (
+      <div className="space-y-4">
+        <AuthPageHeader eyebrow={eyebrow[intent]} title="Account ready" />
+        <Button type="button" className={PRIMARY_BUTTON_CLASS} onClick={() => window.location.assign(nativeAwarePath(completed))}>Go to portal</Button>
+      </div>
+    );
+  }
+  if (sent) {
+    return (
+      <div className="space-y-4">
+        <AuthPageHeader eyebrow={eyebrow[intent]} title="Check your email" />
+        <p role="status" className="text-center text-sm text-muted">Check your email for a link to continue.</p>
+        <Button type="button" variant="ghost" className={SECONDARY_BUTTON_CLASS} onClick={() => setSent(false)}>Use another email</Button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-4">
+      <AuthPageHeader eyebrow={eyebrow[intent]} title={verifiedEmail ? completionHeading[intent] : heading[intent]} />
+      {!verifiedEmail ? (
+        <div className="space-y-3">
+          {intent !== "manager_paid" && intent !== "tour"
+            ? social ?? <OAuthSocialStack nextPath={oauthNextPath} intent={intent === "generic" ? null : intent} disabled={busy || disabled} />
+            : null}
+          <div>
+            <label className={FIELD_LABEL_CLASS} htmlFor={emailId}>Email</label>
+            <Input
+              id={emailId}
+              className="mt-1.5"
+              type="email"
+              autoComplete="email"
+              autoCapitalize="none"
+              inputMode="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              disabled={busy || disabled}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <label className={FIELD_LABEL_CLASS} htmlFor={verifiedEmailId}>Verified email</label>
+            <Input id={verifiedEmailId} className={READONLY_INPUT_CLASS} value={verifiedEmail} readOnly />
+          </div>
+          <div>
+            <label className={FIELD_LABEL_CLASS} htmlFor={nameId}>Full name</label>
+            <Input id={nameId} className="mt-1.5" autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} disabled={busy || disabled} />
+          </div>
+          <div>
+            <label className={FIELD_LABEL_CLASS} htmlFor={phoneId}>Phone</label>
+            <PhoneNumberField id={phoneId} className="mt-1.5" value={phone} onChange={setPhone} disabled={busy || disabled} />
+          </div>
+        </div>
+      )}
+      <Button type="button" className={PRIMARY_BUTTON_CLASS} disabled={busy || disabled} onClick={() => void submit()}>
+        {busy ? "Please wait…" : verifiedEmail ? "Complete account" : "Continue with email"}
+      </Button>
+      {verifiedEmail && intent === "manager" ? (
+        <Button type="button" variant="ghost" className={SECONDARY_BUTTON_CLASS} disabled={busy || disabled} onClick={() => void createDifferentAccount()}>
+          Create a different property account
+        </Button>
+      ) : null}
+      {error ? <p role="alert" className="text-center text-sm text-rose-600">{error}</p> : null}
+      {!hideLegalFooter ? <AuthLegalConsent action="create" className="mt-2" /> : null}
+    </div>
+  );
 }

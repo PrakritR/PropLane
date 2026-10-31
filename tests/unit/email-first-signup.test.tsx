@@ -8,7 +8,10 @@ vi.mock("@/lib/auth/clear-portal-browser-cache", () => ({ clearPortalBrowserCach
 const social = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/supabase/browser", () => ({ createSupabaseBrowserClient: () => ({ auth: { getUser, signOut } }) }));
 vi.mock("@/components/auth/oauth-social-stack", () => ({ OAuthSocialStack: (props: unknown) => { social(props); return <div>Social sign in</div>; } }));
-vi.mock("@/components/auth/auth-mobile-primitives", () => ({ AuthLegalConsent: () => null }));
+vi.mock("@/components/auth/auth-mobile-primitives", () => ({
+  AuthLegalConsent: () => null,
+  AuthPageHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
+}));
 vi.mock("@/components/ui/phone-number-field", () => ({ PhoneNumberField: ({ id, value, onChange }: { id?: string; value: string; onChange: (v: string) => void }) => <div><button type="button" aria-label="Country code">+1</button><input id={id} type="tel" value={value} onChange={(e) => onChange(e.target.value)} /></div> }));
 import { EmailFirstSignup } from "@/components/auth/email-first-signup";
 beforeEach(() => { getUser.mockResolvedValue({ data: { user: null } }); signOut.mockResolvedValue({ error: null }); clearCache.mockClear(); });
@@ -68,7 +71,7 @@ describe("email-first signup", () => {
     render(<EmailFirstSignup intent="manager" />);
     fireEvent.click(await screen.findByText("Create a different property account"));
     expect((await screen.findByRole("alert")).textContent).toMatch(/Could not switch accounts/);
-    expect(screen.getByText("Verified email: old@example.test")).toBeTruthy();
+    expect((screen.getByLabelText("Verified email") as HTMLInputElement).value).toBe("old@example.test");
     expect(screen.queryByLabelText("Email")).toBeNull();
     expect(clearCache).not.toHaveBeenCalled();
   });

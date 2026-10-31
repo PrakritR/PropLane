@@ -835,13 +835,13 @@ export async function POST(req: Request) {
       }
       // The same calendar-release + delete the resident assistant's
       // cancel_work_order runs, so the two paths cannot drift.
-      const { error } = await deleteWorkOrderRecord(db, {
+      const { error, conflict } = await deleteWorkOrderRecord(db, {
         id,
         manager_user_id: (existing.manager_user_id as string | null) ?? null,
         row_data: existing.row_data as DemoManagerWorkOrderRow | null,
         row_revision: Number(existing.row_revision),
       }, actor.role === "resident" && !actor.admin ? actor.userId : undefined);
-      if (error) return NextResponse.json({ error }, { status: 500 });
+      if (error) return NextResponse.json({ error }, { status: conflict ? 409 : 500 });
       return NextResponse.json({ ok: true });
     }
 

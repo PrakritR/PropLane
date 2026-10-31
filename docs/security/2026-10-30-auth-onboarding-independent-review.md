@@ -272,6 +272,64 @@ A third round closed two residual items found reviewing the second. **The public
 
 One reported finding was **not** applied: `vendor-context.ts` was said to compute `email` as dead work. It is load-bearing — `ctx.email` scopes the vendor inbox read, names the vendor on outbound messages and fills their profile email — and the session user carries no `email_confirmed_at`, so the Auth read is what makes mailbox proof possible. Only the placeholder `email: ""` argument was removed, by making `managerIdsOwningVendor`'s `email` optional; subject-only directory scope for the agent surface is unchanged and now explicit.
 
+### Fifth review round
+
+A fifth round answered the independent review of this candidate. **No migration was touched.**
+
+- **A move-in form sent on an application with no bound subject now ships the resident a mailbox-proof
+  path instead of a dead link.** `insert_bound_move_in_form` keeps the DB rule — a form's resident
+  subject is the application's bound subject, null until the resident proves their mailbox — and
+  nothing binds from the caller or from an email. What was missing was the way out: the `sent` and
+  `reminder` notices always linked `/resident/forms/<id>`, which no account can open while the row is
+  unbound. An unbound row's notice now links the application's own emailed setup link
+  (`ensureResidentSetupTokenForApplication` → `/auth/resident-setup?token=…`), whose completion
+  proves the mailbox and runs `bind_resident_setup_subject` — which attaches exactly these pending
+  `sent` forms to the proven subject. The link is only substituted when the setup capability's own
+  address is the address on the form; otherwise the direct link stands. Addressing and linking are now
+  separate: the guest-intake notice still goes to the confirmed login that holds the address
+  (`noticeAccount`), which never decides the link. Coverage:
+  `move-in-forms-events.test.ts` (unbound → setup link, address mismatch → direct link, confirmed
+  login addressed without moving the link) and `move-in-forms-server.test.ts` (an unbound row is 404
+  for its own resident, visible once bound, and never visible to another account reusing the address).
+- **A blocking form with no bound subject blocks again.** Keying the resident's blocking read on
+  `resident_user_id` alone turned every pre-release `Blocks: Lease signing` form into a non-enforcing
+  row: `loadResidentBlockingForms` returned `leaseSigning: false` and the lease executed with the
+  gating form unanswered. A block is a RESTRICTION, so the subject test fails closed — a `sent` form
+  whose `resident_user_id` is NULL blocks the resident carrying that address, exactly as it did before
+  the column existed, and only a form bound to a DIFFERENT subject is excluded. Such a row is never
+  named in `formIds` and never counts toward `hasForms`, so it restricts without disclosing itself or
+  unlocking a nav row the resident cannot use. `move-in-forms-blocking.test.ts` pins null-subject
+  blocks, own-subject blocks, other-subject does not, a different address does not, and a
+  `Blocks: nothing` form does not.
+- **The manager-plan checkout branch is classified positively.** `isManagerPlanCheckout` re-derived the
+  webhook's `else` fall-through by subtracting a hand-copied list of the ten named purposes, so a new
+  `purpose` branch added without touching that list became a manager plan purchase. One shared module
+  (`src/lib/stripe/checkout-purpose.ts`) now owns the classification: a manager plan is the session
+  with NO `purpose` (the only kind our routes create that way), the ownership guard asks only for the
+  purposes `checkoutOwner` can resolve, and a purpose no branch claims is logged and acknowledged
+  rather than falling into any handler. `stripe-checkout-purpose.test.ts` asserts an unknown purpose
+  is neither a manager plan nor owner-resolvable.
+- **Every signup entry point wears the product's auth chrome.** `EmailFirstSignup` and
+  `VendorInviteEmailSignup` kept the email-first token_hash flow but emitted bare primitives. Both now
+  render through `AuthPageHeader`, the shared `AuthOAuthLoading` interstitial, and labelled fields in
+  `FIELD_LABEL_CLASS` / `READONLY_INPUT_CLASS` inside the `AuthCard` their callers already provide.
+  The `Verified email: x` and `Invite email: x` sentences are gone: both are read-only labelled
+  fields now, per `AGENTS.md` § Portal UI system (never a muted sentence explaining a field).
+- **`filterAdminUserIds` logs its read failure** (ids counted, no addresses) and still fails closed to
+  an empty set, so a transient `profile_roles` error is no longer indistinguishable from "nobody is an
+  admin" with nothing in the logs.
+- **A lost delete race answers 409, not 500.** `deleteWorkOrderRecord` now reports a zero-row revision
+  predicate as `conflict`, and `POST /api/portal-work-orders` `action: "delete"` maps it to 409 like
+  the sibling upsert path, so the client treats the retryable conflict as one instead of an outage.
+- **`requestResidentConfirmation` dropped its ignored row-snapshot parameter.** It re-reads the stored
+  row itself; the signature no longer advertises an input that cannot affect the result.
+
+Not fixed, carried as a follow-up: **the replier's own portal copy of an emailed reply is no longer
+written.** `replyThreadSides` used a `profiles`-by-email lookup to find the replier, which is exactly
+the kind of email-as-identity read this release retires, so the side was removed rather than
+re-bound. The reply still reaches the thread owner's inbox and the record is not lost; the follow-up
+re-binds the replier's own copy to the thread's stored participant subject.
+
 ## Vendor response finding and correction
 
 Luna’s authenticated, nonempty assigned/offered DEV response before `65c5884a0` contained manager Auth IDs in both responses and the assigned vendor Auth ID in the assigned response. The earlier empty-response vendor check did not demonstrate nonempty privacy. Commit `65c5884a0` resolves manager names before projection and removes Auth subject keys and snake-case resident email recursively. A subsequent retained-fixture response still carried the viewer Auth ID in `vendorId`: `3d0cfcfb9` binds assigned IDs and vendor assignees to the viewer’s manager-scoped directory record and removes assignment identity from offered rows. The offered area also exposed a distinctive house name when its address lacked a city; `55bc3c401` derives a conservative address city, removes property/workspace pointers and carries a server-projected area for vendor display. `525dd6d2c` removes an untrusted stored `generalArea` field. Hired contact and site data remain available; ambiguous or missing directory matches fail closed and omit the hired row. Peer PROD read-only inventory as of 2026-10-30 found 12 work orders, none with an assigned `vendor_user_id`, so this is a future functional limit with no currently assigned PROD jobs affected. Focused suites passed after each change (latest area follow-up: 111 tests); the attested `525dd` nonempty runtime recheck passed with HTTP 200 and two rows (one assigned, one offered). Fixture Auth IDs and raw aliases were absent; the assigned directory ID, contact, site, and manager were preserved; the offered area was `Nearby`, with raw `generalArea` and site/workspace pointers absent. Evidence: `/tmp/luna-vendor-populated-get-525dd-canonical-20261030.json`. An initial `about:blank` harness failure is separate from that passing run. The exact retained-fixture cleanup committed at 20:46:29 UTC; the first attempt failed with 55000 and fully rolled back. The inspection view is non-updatable and derived solely from the exact property. The revised one-run status is `/tmp/luna-vendor-exact-cleanup-status-20261030-r4-live.json` (SHA-256 prefix `58d12c1c`); independent verified-TLS postcheck `/tmp/luna-vendor-postcommit-verify-r2-20261030.json` (SHA-256 prefix `521e5389`) passed: Auth users, identities, sessions and refresh tokens all zero; all 15 exact public groups including the derived view zero; 537 reference columns zero; and seven provider/delivery tables zero. Final exact-tip prompt gate and current-tip peer Bugbot/security review remain pending. The prior failed artifacts remain historical evidence and no release-ready verdict is implied.

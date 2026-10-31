@@ -190,14 +190,15 @@ export async function deleteWorkOrderRecord(
   db: ServiceClient,
   existing: { id: string; manager_user_id: string | null; row_data: DemoManagerWorkOrderRow | null; row_revision?: number },
   residentUserId?: string,
-): Promise<{ error: string | null }> {
+): Promise<{ error: string | null; conflict?: boolean }> {
   const row = existing.row_data;
   const managerUserId = existing.manager_user_id ?? row?.managerUserId ?? null;
   let query = db.from("portal_work_order_records").delete().eq("id", existing.id);
   if (residentUserId) query = query.eq("resident_user_id", residentUserId);
   if (existing.row_revision !== undefined) query = query.eq("row_revision", existing.row_revision);
   const { data, error } = await query.select("id");
-  if (error || !data?.length) return { error: error?.message ?? "The request changed; please retry." };
+  if (error) return { error: error.message };
+  if (!data?.length) return { error: "The request changed; please retry.", conflict: true };
   if (row && managerUserId) {
     await syncWorkOrderToGoogleCalendar(db, managerUserId, { ...row, bucket: "completed", scheduledAtIso: undefined }).catch(() => undefined);
   }

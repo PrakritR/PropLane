@@ -1242,7 +1242,7 @@ export async function markWorkOrderDoneByVendor(
 
   // "Was this fixed?" — a signed link for the resident when the manager has the
   // step on. The stamp lives on the row so the answer can be matched back.
-  const confirmation = await requestResidentConfirmation(db, workOrderId, String(workOrder.manager_user_id), nextRowData).catch(() => null);
+  const confirmation = await requestResidentConfirmation(db, workOrderId, String(workOrder.manager_user_id)).catch(() => null);
   const finalRowData = confirmation?.rowData ?? nextRowData;
   const { data: latest } = await db.from("portal_work_order_records")
     .select("resident_user_id, row_data").eq("id", workOrderId)

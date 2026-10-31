@@ -46,6 +46,11 @@ type BlockingRow = {
   status: string;
   sent_at?: string | null;
   snapshot?: { kind?: MoveInFormKind; blocks?: unknown } | null;
+  /**
+   * False for a row counted only because it has no bound Auth subject yet. It still blocks — a
+   * restriction never fails open — but it is never named back to the viewer, who cannot open it.
+   */
+  nameable?: boolean;
 };
 
 const KEY_OF: Record<Exclude<MoveInFormBlocks, "nothing">, "moveInDetails" | "leaseSigning" | "approval"> = {
@@ -69,9 +74,14 @@ export function blockingFormsFromRows(rows: readonly BlockingRow[]): BlockingFor
     if (blocks === "nothing") continue;
     const key = KEY_OF[blocks];
     out[key] = true;
-    if (!out.formIds![key]) out.formIds![key] = row.id;
+    if (row.nameable !== false && !out.formIds![key]) out.formIds![key] = row.id;
   }
   return out;
+}
+
+/** PostgREST `or=` values are comma- and paren-delimited; a quoted value keeps an address literal. */
+function quoteFilterValue(value: string): string {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 function tableMissing(error: { code?: string; message?: string }): boolean {
@@ -79,7 +89,7 @@ function tableMissing(error: { code?: string; message?: string }): boolean {
   return error.code === "PGRST205" || error.code === "42P01" || message.includes("schema cache") || (message.includes("relation") && message.includes("does not exist"));
 }
 
-const SELECT = "id, form_id, status, sent_at, snapshot, resident_user_id";
+const SELECT = "id, form_id, status, sent_at, snapshot, resident_user_id, resident_email";
 /** The same read plus the two columns a caller-scope test needs. */
 const SCOPED_SELECT = `${SELECT}, manager_user_id, property_id, application_id`;
 
@@ -103,6 +113,12 @@ export function leaseApplicationIds(row: {
 /**
  * A resident's blocking forms use their authenticated user id. Manager approval callers without a
  * user id retain the historical email lookup. `propertyId` narrows to one house; omitted = every house.
+ *
+ * A block is a RESTRICTION, so the subject test fails closed: a `sent` form still waiting for its
+ * application's subject to be proven (`resident_user_id` null) blocks this resident when it carries
+ * their address, exactly as it did before the column existed. Only a form bound to a DIFFERENT
+ * subject is dropped. Such a row is never named in `formIds`: the resident cannot open it until the
+ * emailed setup link binds it, so pointing at it would only be a dead end.
  *
  * `callerHolds` is for a MANAGER asking about someone else's resident: only forms the caller may judge
  * by count, so another landlord's form neither blocks this manager nor reveals itself. A predicate
@@ -130,14 +146,18 @@ export async function loadResidentBlockingForms(
     const appIds = new Set((who.applicationIds ?? []).map((id) => id.trim().toUpperCase()).filter(Boolean));
     // With application ids the property narrowing moves in memory: it is an OR with the application match.
     const orScope = Boolean(who.propertyId) && appIds.size > 0;
-    let query = db.from("resident_move_in_forms").select(who.callerHolds || orScope ? SCOPED_SELECT : SELECT)
-      .eq(who.userId ? "resident_user_id" : "resident_email", who.userId || email).eq("status", "sent");
+    let query = db.from("resident_move_in_forms").select(who.callerHolds || orScope ? SCOPED_SELECT : SELECT).eq("status", "sent");
+    query = who.userId
+      ? email
+        ? query.or(`resident_user_id.eq.${who.userId},and(resident_user_id.is.null,resident_email.eq.${quoteFilterValue(email)})`)
+        : query.eq("resident_user_id", who.userId)
+      : query.eq("resident_email", email);
     if (who.propertyId && !orScope) query = query.eq("property_id", who.propertyId);
     const { data, error } = await query;
     if (error) return tableMissing(error) ? NO_BLOCKING_FORMS : BLOCKING_FORMS_FAIL_CLOSED;
-    let rows = ((data ?? []) as unknown as Array<BlockingRow & { resident_user_id?: string | null; manager_user_id?: string | null; property_id?: string | null; application_id?: string | null }>).filter(
-      (row) => !who.userId || row.resident_user_id === who.userId,
-    );
+    let rows = ((data ?? []) as unknown as Array<BlockingRow & { resident_user_id?: string | null; resident_email?: string | null; manager_user_id?: string | null; property_id?: string | null; application_id?: string | null }>)
+      .filter((row) => !who.userId || row.resident_user_id === who.userId || (!row.resident_user_id && !!email && String(row.resident_email ?? "").trim().toLowerCase() === email))
+      .map((row) => (who.userId && !row.resident_user_id ? { ...row, nameable: false } : row));
     if (orScope) {
       rows = rows.filter((row) => row.property_id === who.propertyId || appIds.has(String(row.application_id ?? "").trim().toUpperCase()));
     }
@@ -160,7 +180,7 @@ export async function loadResidentBlockingForms(
  * projected out of the jsonb rather than dragging every form's questions and PDF metadata onto the
  * resident's hot path (AGENTS.md § Performance & egress).
  */
-const FACTS_SELECT = "id, form_id, status, sent_at, resident_user_id, snapshot_kind:snapshot->>kind, snapshot_blocks:snapshot->>blocks";
+const FACTS_SELECT = "id, form_id, status, sent_at, resident_user_id, resident_email, snapshot_kind:snapshot->>kind, snapshot_blocks:snapshot->>blocks";
 
 type FormsFactsRow = {
   id: string;
@@ -168,17 +188,19 @@ type FormsFactsRow = {
   status: string;
   sent_at?: string | null;
   resident_user_id?: string | null;
+  resident_email?: string | null;
   snapshot_kind?: string | null;
   snapshot_blocks?: string | null;
 };
 
-function factsRowAsBlockingRow(row: FormsFactsRow): BlockingRow {
+function factsRowAsBlockingRow(row: FormsFactsRow, nameable = true): BlockingRow {
   return {
     id: row.id,
     form_id: row.form_id,
     status: row.status,
     sent_at: row.sent_at,
     snapshot: { kind: (row.snapshot_kind ?? undefined) as MoveInFormKind | undefined, blocks: row.snapshot_blocks ?? undefined },
+    nameable,
   };
 }
 
@@ -194,19 +216,26 @@ export async function loadResidentFormsFacts(
   who: { email: string; userId?: string | null },
 ): Promise<{ hasForms: boolean; blocking: BlockingFormsPending }> {
   if (!who.userId) return { hasForms: false, blocking: NO_BLOCKING_FORMS };
+  const email = who.email.trim().toLowerCase();
   try {
-    const { data, error } = await db
-      .from("resident_move_in_forms")
-      .select(FACTS_SELECT)
-      .eq("resident_user_id", who.userId)
-      .neq("status", "cancelled");
+    let query = db.from("resident_move_in_forms").select(FACTS_SELECT).neq("status", "cancelled");
+    query = email
+      ? query.or(`resident_user_id.eq.${who.userId},and(resident_user_id.is.null,resident_email.eq.${quoteFilterValue(email)})`)
+      : query.eq("resident_user_id", who.userId);
+    const { data, error } = await query;
     if (error) {
       return { hasForms: false, blocking: tableMissing(error) ? NO_BLOCKING_FORMS : BLOCKING_FORMS_FAIL_CLOSED };
     }
-    const rows = ((data ?? []) as FormsFactsRow[]).filter(
-      (row) => row.resident_user_id === who.userId,
-    );
-    return { hasForms: rows.length > 0, blocking: blockingFormsFromRows(rows.map(factsRowAsBlockingRow)) };
+    const all = (data ?? []) as FormsFactsRow[];
+    const bound = all.filter((row) => row.resident_user_id === who.userId);
+    // A form whose application has no proven subject yet still BLOCKS (a restriction never fails
+    // open), but it is not one of this resident's forms: it neither unlocks the Forms section nor
+    // gets named, until the emailed setup link binds it.
+    const unbound = email
+      ? all.filter((row) => !row.resident_user_id && String(row.resident_email ?? "").trim().toLowerCase() === email)
+      : [];
+    const rows = [...bound.map((row) => factsRowAsBlockingRow(row)), ...unbound.map((row) => factsRowAsBlockingRow(row, false))];
+    return { hasForms: bound.length > 0, blocking: blockingFormsFromRows(rows) };
   } catch {
     return { hasForms: false, blocking: BLOCKING_FORMS_FAIL_CLOSED };
   }

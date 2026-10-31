@@ -79,7 +79,6 @@ export async function requestResidentConfirmation(
   db: SupabaseClient,
   workOrderId: string,
   managerUserId: string,
-  _rowData: DemoManagerWorkOrderRow,
   now: Date = new Date(),
 ): Promise<{ rowData: DemoManagerWorkOrderRow; confirmUrl: string } | null> {
   const { data, error } = await db.from("portal_work_order_records")

@@ -18,10 +18,12 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { sharedPortalFromAddress } from "@/lib/manager-outbound-identity.server";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { postResendEmail } from "@/lib/resend-delivery.server";
+import { ensureResidentSetupTokenForApplication, residentSetupAccountUrl } from "@/lib/auth/resident-setup-token";
 
 export type MoveInFormEvent = "sent" | "reminder" | "submitted";
 type EventRow = {
   id: string;
+  application_id: string;
   manager_user_id: string;
   property_id: string;
   property_label: string;
@@ -65,11 +67,39 @@ async function managerSender(db: SupabaseClient, managerUserId: string) {
   };
 }
 
+/**
+ * Where the resident's message points.
+ *
+ * A form is readable only by the Auth subject bound to its application, so a form sent while that
+ * application has no proven subject yet is invisible to every account — linking it straight to
+ * `/resident/forms/<id>` would be a dead end. That form links to the resident's own emailed setup
+ * link instead: completing it proves the mailbox and runs `bind_resident_setup_subject`, which
+ * attaches exactly these pending forms to the proven subject. Only then does the form link direct.
+ */
+async function residentFormLink(db: SupabaseClient, row: EventRow, base: string): Promise<string> {
+  const direct = `${base}/resident/forms/${row.id}`;
+  if (row.resident_user_id) return direct;
+  const wanted = row.resident_email.trim().toLowerCase();
+  if (!wanted.includes("@") || !row.application_id) return direct;
+  const ensured = await ensureResidentSetupTokenForApplication(db, row.application_id, { managerUserId: row.manager_user_id })
+    .catch(() => null);
+  // The token belongs to the application, so it is only ever emailed to the address that application
+  // carries: a mismatch means this form is not the one that link would prove.
+  if (!ensured?.ok || ensured.email !== wanted) return direct;
+  return residentSetupAccountUrl(base, ensured.token, ensured.axisId);
+}
+
 export async function emitMoveInFormEvent(
   db: SupabaseClient,
   input: {
     row: EventRow;
     event: MoveInFormEvent;
+    /**
+     * Deliver the resident's copy to this confirmed login instead of the row's own subject (the
+     * intake form sent on a guest submission). It addresses the message; it never decides the link,
+     * which follows the row's own binding.
+     */
+    noticeAccount?: { id: string | null; email: string };
     /** Distinguishes repeated reminders; ignored for the one-shot events. */
     nonce?: string;
   },
@@ -87,14 +117,18 @@ export async function emitMoveInFormEvent(
   const sender = await managerSender(db, row.manager_user_id);
   if (!sender?.email) return;
   const base = resolveEmailLinkBaseUrl().replace(/\/$/, "");
+  const notice = input.noticeAccount ?? { id: row.resident_user_id, email: row.resident_email };
   const recipient = event === "submitted"
     ? { audience: "manager" as const, userId: row.manager_user_id }
-    : { audience: "resident" as const, userId: row.resident_user_id ?? undefined, email: row.resident_email || undefined };
+    : { audience: "resident" as const, userId: notice.id ?? undefined, email: notice.email || undefined };
   const rendered = renderMoveInFormEvent(event, recipient.audience, facts);
   if (!rendered) return;
   // The resident lands on the form itself (Forms › that form): the direct link works before approval,
-  // when a form that blocks approval is sent while the Forms section is still locked in the nav.
-  const link = `${base}/${recipient.audience === "manager" ? "portal/forms/completed" : `resident/forms/${row.id}`}`;
+  // when a form that blocks approval is sent while the Forms section is still locked in the nav. A
+  // form with no bound subject yet lands on the setup link that binds it first.
+  const link = recipient.audience === "manager"
+    ? `${base}/portal/forms/completed`
+    : await residentFormLink(db, row, base);
   await emitActionEvent(db, {
     eventId: `${row.id}:${event}${event === "reminder" ? `:${input.nonce ?? Date.now()}` : ""}`,
     domain: "move_in_form",

@@ -5,7 +5,10 @@ export async function filterAdminUserIds(db: SupabaseClient, userIds: string[]):
   const ids = [...new Set(userIds.map((id) => id.trim()).filter(Boolean))];
   if (!ids.length) return new Set();
   const { data, error } = await db.from("profile_roles").select("user_id").eq("role", "admin").in("user_id", ids);
-  if (error) return new Set();
+  if (error) {
+    console.error("filterAdminUserIds profile_roles read failed", { count: ids.length, message: error.message });
+    return new Set();
+  }
   return new Set((data ?? []).map((row) => String(row.user_id ?? "").trim()).filter(Boolean));
 }
 

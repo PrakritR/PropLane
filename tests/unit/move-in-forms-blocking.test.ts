@@ -84,6 +84,7 @@ function fakeDb(result: { data?: unknown[]; error?: { code?: string; message?: s
   query.eq = chain("eq");
   query.neq = chain("neq");
   query.in = chain("in");
+  query.or = (expression: string) => { calls.push(["or", "or", expression]); return query; };
   query.then = (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
     (result === "throw" ? Promise.reject(new Error("down")) : Promise.resolve({ data: result.data ?? null, error: result.error ?? null })).then(resolve, reject);
   return { db: { from: () => query } as never, calls, selects };
@@ -97,7 +98,29 @@ describe("loading what a resident or an application is blocked on", () => {
     ] });
     const result = await loadResidentBlockingForms(db, { email: " A@Example.TEST ", userId: "u1", propertyId: "p1" });
     expect(result).toMatchObject({ leaseSigning: true, approval: false });
-    expect(calls).toEqual(expect.arrayContaining([["eq", "resident_user_id", "u1"], ["eq", "status", "sent"], ["eq", "property_id", "p1"]]));
+    expect(calls).toEqual(expect.arrayContaining([["eq", "status", "sent"], ["eq", "property_id", "p1"]]));
+    expect(calls).toContainEqual(["or", "or", 'resident_user_id.eq.u1,and(resident_user_id.is.null,resident_email.eq."a@example.test")']);
+  });
+
+  it("a blocking form with no bound subject yet still blocks, and is never named back", async () => {
+    const unbound = fakeDb({ data: [row({ id: "pending", resident_user_id: null, resident_email: "A@Example.TEST", snapshot: { blocks: "lease_signing" } })] });
+    const pending = await loadResidentBlockingForms(unbound.db, { email: "a@example.test", userId: "u1" });
+    expect(pending.leaseSigning).toBe(true);
+    expect(pending.formIds?.leaseSigning).toBeUndefined();
+
+    const own = fakeDb({ data: [row({ id: "mine", resident_user_id: "u1", resident_email: "a@example.test", snapshot: { blocks: "lease_signing" } })] });
+    const mine = await loadResidentBlockingForms(own.db, { email: "a@example.test", userId: "u1" });
+    expect(mine.leaseSigning).toBe(true);
+    expect(mine.formIds?.leaseSigning).toBe("mine");
+
+    const other = fakeDb({ data: [row({ id: "theirs", resident_user_id: "u2", resident_email: "a@example.test", snapshot: { blocks: "lease_signing" } })] });
+    expect((await loadResidentBlockingForms(other.db, { email: "a@example.test", userId: "u1" })).leaseSigning).toBe(false);
+
+    const sameAddressOtherSubject = fakeDb({ data: [row({ id: "pending", resident_user_id: null, resident_email: "someone-else@example.test", snapshot: { blocks: "lease_signing" } })] });
+    expect((await loadResidentBlockingForms(sameAddressOtherSubject.db, { email: "a@example.test", userId: "u1" })).leaseSigning).toBe(false);
+
+    const harmless = fakeDb({ data: [row({ id: "pending", resident_user_id: null, resident_email: "a@example.test", snapshot: { kind: "other", blocks: "nothing" } })] });
+    expect(await loadResidentBlockingForms(harmless.db, { email: "a@example.test", userId: "u1" })).toMatchObject({ leaseSigning: false, approval: false, moveInDetails: false });
   });
 
   it("a manager's read only counts forms the caller holds, and a scope check that throws fails closed", async () => {
@@ -173,7 +196,18 @@ describe("one read answers both resident forms facts", () => {
     const facts = await loadResidentFormsFacts(db, { email: " A@Example.TEST ", userId: "u1" });
     expect(facts.hasForms).toBe(true);
     expect(facts.blocking).toMatchObject({ approval: true, leaseSigning: false, moveInDetails: false });
-    expect(calls).toEqual([["eq", "resident_user_id", "u1"], ["neq", "status", "cancelled"]]);
+    expect(calls).toEqual([
+      ["neq", "status", "cancelled"],
+      ["or", "or", 'resident_user_id.eq.u1,and(resident_user_id.is.null,resident_email.eq."a@example.test")'],
+    ]);
+  });
+
+  it("an unsubmitted copy with no bound subject blocks without unlocking the resident's Forms section", async () => {
+    const { db } = fakeDb({ data: [factsRow({ id: "pending", resident_user_id: null, resident_email: "A@Example.TEST", snapshot_blocks: "lease_signing" })] });
+    const facts = await loadResidentFormsFacts(db, { email: "a@example.test", userId: "u1" });
+    expect(facts.hasForms).toBe(false);
+    expect(facts.blocking).toMatchObject({ leaseSigning: true });
+    expect(facts.blocking.formIds?.leaseSigning).toBeUndefined();
   });
 
   // Every resident page runs this read, so it must never drag the whole snapshot (questions + PDF
@@ -182,7 +216,7 @@ describe("one read answers both resident forms facts", () => {
     const { db, selects } = fakeDb({ data: [] });
     await loadResidentFormsFacts(db, { email: "a@example.test", userId: "u1" });
     expect(selects).toHaveLength(1);
-    expect(selects[0]).toBe("id, form_id, status, sent_at, resident_user_id, snapshot_kind:snapshot->>kind, snapshot_blocks:snapshot->>blocks");
+    expect(selects[0]).toBe("id, form_id, status, sent_at, resident_user_id, resident_email, snapshot_kind:snapshot->>kind, snapshot_blocks:snapshot->>blocks");
     expect(selects[0]).not.toMatch(/(^|[ ,])snapshot([ ,]|$)/);
   });
 
