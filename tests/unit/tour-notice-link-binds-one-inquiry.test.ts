@@ -40,8 +40,9 @@ import { notifyTenantTourConfirmed } from "@/lib/tour-notification-delivery.serv
 const LINKED_INQUIRY = "inquiry-with-a-linked-resident";
 const LINKED_RESIDENT = "linked-resident-user";
 
-function makeDb() {
-  const links = [{ inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT }];
+type LinkRow = { inquiry_id: string; resident_user_id: string; manager_user_id?: string };
+
+function makeDb(links: LinkRow[] = [{ inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT }]) {
   return {
     from: vi.fn((table: string) => {
       const filters: Record<string, unknown> = {};
@@ -114,6 +115,34 @@ describe("a tour notice's inbox copy is bound to its own inquiry", () => {
     // Not a delivery failure either: the guest is simply not a linked resident.
     expect(result.inbox.error).toBeUndefined();
     // The email still goes out, so the guest hears about their own tour.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still delivers the copy after the tour is handed to a peer host", async () => {
+    // The link was stored under the host the inquiry was FILED under; the tour was then handed to a
+    // peer, so the notice's inquiry and window name a different manager than the link row does.
+    const db = makeDb([{ inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT, manager_user_id: "original-host" }]);
+    const handedOff = { ...inquiry(LINKED_INQUIRY), managerUserId: "peer-host" };
+
+    const result = await notifyTenantTourConfirmed(db as never, null, handedOff, { ...window, managerUserId: "peer-host" });
+
+    expect(appendResidentPropertyManagerInboxMessage).toHaveBeenCalledTimes(1);
+    expect(appendResidentPropertyManagerInboxMessage.mock.calls[0]?.[1]).toMatchObject({ residentUserId: LINKED_RESIDENT });
+    expect(result.inbox.sent).toBe(true);
+  });
+
+  it("delivers nothing when two link rows claim the same inquiry", async () => {
+    const db = makeDb([
+      { inquiry_id: LINKED_INQUIRY, resident_user_id: LINKED_RESIDENT },
+      { inquiry_id: LINKED_INQUIRY, resident_user_id: "second-claimant" },
+    ]);
+
+    const result = await notifyTenantTourConfirmed(db as never, null, inquiry(LINKED_INQUIRY), window);
+
+    expect(appendResidentPropertyManagerInboxMessage).not.toHaveBeenCalled();
+    expect(result.inbox.sent).toBe(false);
+    expect(result.inbox.error).toBeUndefined();
+    // Neither claimant is told; the guest's own email still goes out.
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
