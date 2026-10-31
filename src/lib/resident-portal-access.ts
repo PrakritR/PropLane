@@ -6,7 +6,7 @@ import {
 } from "@/lib/portal-schedule-record-scope";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { residentHasTourLinks } from "@/lib/tour-resident-link.server";
-import { leaseApplicationIds, loadResidentFormsFacts } from "@/lib/move-in-forms/blocking";
+import { leaseOwnApplicationIds, loadResidentFormsFacts } from "@/lib/move-in-forms/blocking";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { residentOwnsApplicationRow } from "@/lib/rental-application/resident-application-ownership";
 import type {
@@ -286,7 +286,11 @@ const loadResidentPortalAccessStateCached = cache(
           String(record.id ?? "").trim(),
           String((record.row_data as { id?: unknown } | null)?.id ?? "").trim(),
         ]),
-        ...leaseRows.flatMap((row) => leaseApplicationIds(row as Parameters<typeof leaseApplicationIds>[0])),
+        // The lease query is pinned to `resident_user_id = userId`, so each row's primary application is
+        // this resident's own. A joint member's application never enters the unbound-form scope.
+        ...leaseRows.flatMap((row) =>
+          leaseOwnApplicationIds({ residentUserId: userId, axisId: typeof row?.axisId === "string" ? row.axisId : null }, userId),
+        ),
       ].filter(Boolean))];
 
     const allRows = applicationRows ?? [];

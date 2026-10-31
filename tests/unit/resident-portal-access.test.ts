@@ -554,4 +554,41 @@ describe("resident portal access state — blockingFormsPending", () => {
     expect(db.from.mock.calls.filter(([table]) => table === "manager_application_records")).toHaveLength(1);
     expect(db.from.mock.calls.filter(([table]) => table === "portal_lease_pipeline_records")).toHaveLength(1);
   });
+
+  // A joint lease names the co-applicant's application too. Only this resident's OWN primary
+  // application may scope an unbound form; a co-applicant's unbound form never locks this resident.
+  describe("joint lease: unbound forms scope to this resident's own application only", () => {
+    function dbWithJointLease(forms: Array<Record<string, unknown>>) {
+      const base = dbWithForms(forms);
+      const original = base.from.getMockImplementation()!;
+      base.from.mockImplementation((table: string) => {
+        if (table !== "portal_lease_pipeline_records") return original(table);
+        return {
+          select: () => ({
+            eq: (_column: string, id: string) => ({
+              order: () => Promise.resolve({
+                data: id === "user-1"
+                  ? [{ row_data: { axisId: "AXIS-OWN", jointLeaseMembers: [{ applicationId: "AXIS-COAPP", email: "coapp@example.com" }] } }]
+                  : [],
+                error: null,
+              }),
+            }),
+          }),
+        };
+      });
+      return base;
+    }
+    const unbound = (id: string, applicationId: string) =>
+      sent(id, "move_in_details", { resident_user_id: null, application_id: applicationId });
+
+    it("a co-applicant's unbound blocking form does not lock this resident", async () => {
+      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(dbWithJointLease([unbound("x", "AXIS-COAPP")]) as never);
+      expect((await load()).blockingFormsPending).toMatchObject({ moveInDetails: false });
+    });
+
+    it("an unbound blocking form on this resident's own lease application locks move-in details", async () => {
+      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(dbWithJointLease([unbound("y", "AXIS-OWN")]) as never);
+      expect((await load()).blockingFormsPending).toMatchObject({ moveInDetails: true });
+    });
+  });
 });
