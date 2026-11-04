@@ -1,4 +1,5 @@
 "use client";
+import { DEFAULT_VENDOR_DISPATCH_SETTINGS, normalizeVendorDispatchSettings } from "@/lib/vendor-dispatch-settings";
 import { sharedGet } from "@/lib/shared-get-cache";
 import { ManagerPaymentSourceSetting } from "@/components/portal/manager-payment-source-setting";
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
@@ -862,6 +863,9 @@ export function ServicesSettingsPanel({
       <PortalSettingsSection title="Service types" action={<SettingsGroupSourceTag namespace="service-automation-settings" />}>
         <ServiceCategoriesAutomationRow />
       </PortalSettingsSection>
+      <PortalSettingsSection title="Vendors">
+        <VendorQuoteSourcingSettingRow />
+      </PortalSettingsSection>
       <PortalSettingsSection title="Reminders and messages">
         <PortalSettingsGroup>
           <PortalSettingsLinkRow
@@ -872,6 +876,68 @@ export function ServicesSettingsPanel({
         </PortalSettingsGroup>
       </PortalSettingsSection>
     </PortalSettingsSections>
+  );
+}
+
+function VendorQuoteSourcingSettingRow() {
+  const { showToast } = useAppUi();
+  const demo = isDemoModeActive();
+  const [value, setValue] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (demo) {
+        if (!cancelled) setValue(DEFAULT_VENDOR_DISPATCH_SETTINGS.quoteSourcingEnabled);
+        return;
+      }
+      try {
+        const response = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
+        const body = (await response.json().catch(() => ({}))) as { vendorDispatch?: unknown; error?: string };
+        if (!response.ok) throw new Error(body.error ?? "Could not load vendor settings.");
+        if (!cancelled) setValue(normalizeVendorDispatchSettings(body.vendorDispatch).quoteSourcingEnabled);
+      } catch (cause) {
+        showToast(cause instanceof Error ? cause.message : "Could not load vendor settings.");
+        if (!cancelled) setValue(DEFAULT_VENDOR_DISPATCH_SETTINGS.quoteSourcingEnabled);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [demo, showToast]);
+
+  const flip = async (next: boolean) => {
+    const previous = value;
+    setValue(next);
+    if (demo) return;
+    try {
+      const response = await fetch("/api/portal/automation-settings", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vendorDispatch: { quoteSourcingEnabled: next } }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { vendorDispatch?: unknown; error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not save vendor settings.");
+      setValue(normalizeVendorDispatchSettings(body.vendorDispatch).quoteSourcingEnabled);
+    } catch (cause) {
+      setValue(previous);
+      showToast(cause instanceof Error ? cause.message : "Could not save vendor settings.");
+    }
+  };
+
+  return (
+    <PortalSettingsGroup>
+      <PortalSettingsRow label="Find vendors and collect quotes">
+        <PortalSettingsToggle
+          checked={value === true}
+          onChange={(next) => void flip(next)}
+          label="Find vendors and collect quotes"
+          disabled={value === null}
+          dataAttr="vendor-quote-sourcing-enabled"
+        />
+      </PortalSettingsRow>
+    </PortalSettingsGroup>
   );
 }
 

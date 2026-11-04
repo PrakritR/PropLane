@@ -34,6 +34,12 @@ import {
 const PROTECTED_PREFIXES = ["/portal", "/pro", "/manager", "/owner", "/resident", "/admin", "/vendor"];
 
 function stampCrawlPolicy(request: NextRequest, response: NextResponse): NextResponse {
+  if (request.nextUrl.pathname === "/vendor-quote") {
+    response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+    response.headers.set("Referrer-Policy", "no-referrer");
+    response.headers.set("Cache-Control", "no-store");
+    response.headers.set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'");
+  }
   const host = requestHostFromHeaders(request.headers);
   if (!isCanonicalPublicCrawlHost(host)) {
     response.headers.set("X-Robots-Tag", NOINDEX_ROBOTS_TAG);

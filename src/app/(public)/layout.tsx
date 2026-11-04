@@ -1,3 +1,4 @@
+import { QuotePageBoundary } from "@/components/providers/quote-page-boundary";
 import { PublicShell } from "@/components/layout/public-shell";
 import "@/components/public-site/public-site.css";
 import type { Metadata } from "next";
@@ -34,5 +35,9 @@ export default async function PublicLayout({
   children: React.ReactNode;
 }) {
   const texting = await getPublicTextingConfig();
-  return <PublicShell texting={texting}>{children}</PublicShell>;
+  return (
+    <QuotePageBoundary quoteChildren={<main className="min-h-screen">{children}</main>}>
+      <PublicShell texting={texting}>{children}</PublicShell>
+    </QuotePageBoundary>
+  );
 }

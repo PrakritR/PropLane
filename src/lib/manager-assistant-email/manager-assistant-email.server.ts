@@ -1,3 +1,4 @@
+import type { SenderPolicyReadContext } from "@/lib/one-number/sender-policy-read.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ASSISTANT_EMAIL_TOKEN_PATTERN,
@@ -274,12 +275,15 @@ export async function loadManagerAssistantEmail(
   db: SupabaseClient,
   managerUserId: string,
   workspaceId?: string | null,
+  context?: SenderPolicyReadContext,
 ): Promise<ManagerAssistantEmailRow | null> {
   const { data, error } = await activeRowQuery(db, managerUserId, workspaceId);
+  if (error && context) throw new Error("Sender email authority unreadable.");
+  if (context && data && data.manager_user_id !== managerUserId) throw new Error("Sender email owner mismatch.");
   if (error || !data || data.provision_state !== "active") return null;
   const row = rowFromStored(managerUserId, data);
   if (!row) return null;
-  if (!row.mailboxLocal) {
+  if (!row.mailboxLocal && !context) {
     return (await upgradeManagerAssistantMailboxLocal(db, managerUserId, workspaceId)) ?? row;
   }
   return row;
@@ -289,11 +293,12 @@ export async function loadManagerAssistantEmail(
 export async function loadWorkspaceAssistantEmail(
   db: SupabaseClient,
   workspace: Pick<ActiveWorkspace, "id" | "ownerUserId" | "isDefault">,
+  context?: SenderPolicyReadContext,
 ): Promise<ManagerAssistantEmailRow | null> {
-  const placed = await loadManagerAssistantEmail(db, workspace.ownerUserId, workspace.id);
+  const placed = await loadManagerAssistantEmail(db, workspace.ownerUserId, workspace.id, context);
   if (placed) return placed;
   if (!workspace.isDefault) return null;
-  return loadManagerAssistantEmail(db, workspace.ownerUserId, null);
+  return loadManagerAssistantEmail(db, workspace.ownerUserId, null, context);
 }
 
 /** Whether THIS DEPLOYMENT can send mail at all, independent of any manager. */
@@ -382,7 +387,17 @@ export async function resolveWorkspaceWorkEmail(
   db: SupabaseClient,
   userId: string,
   selectedWorkspaceId?: string | null,
+  context?: SenderPolicyReadContext,
 ): Promise<WorkspaceWorkEmail | null> {
+  if (context) {
+    const { data: workspace, error } = await db.from("portal_workspaces").select("id,name,owner_user_id,is_default")
+      .eq("id", context.workspaceId).eq("owner_user_id", userId).maybeSingle();
+    if (error || !workspace) throw new Error("Sender workspace authority unreadable.");
+    const row = await loadWorkspaceAssistantEmail(db, { id: String(workspace.id), ownerUserId: userId, isDefault: workspace.is_default === true }, context);
+    if (row && row.managerUserId !== userId) throw new Error("Sender email owner mismatch.");
+    return { workspaceId: String(workspace.id), workspaceName: String(workspace.name ?? ""), owned: true,
+      isDefault: workspace.is_default === true, ownerUserId: userId, ownerName: null, address: row?.address ?? null };
+  }
   const selected = selectedWorkspaceId === undefined ? await readSelectedWorkspaceIdSafely() : selectedWorkspaceId;
   const workspace = await resolveActiveWorkspace(db, userId, selected);
   const [entry] = await emailsForWorkspaces(db, [workspace]);

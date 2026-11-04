@@ -204,6 +204,7 @@ function threadBubbles(
       ...(message.houseLabel ? { houseLabel: message.houseLabel } : {}),
       ...(fields.subject ? { subject: fields.subject } : {}),
       attachments: message.attachments,
+      delivery: message.delivery,
     });
   }
   return bubbles;
@@ -660,6 +661,7 @@ export function RecordCommunicationSection({
           fromName: senderIdentity?.name ?? "",
           fromEmail: senderIdentity?.email ?? "",
           toEmails: [to],
+          ...(primaryThread ? { threadId: primaryThread.id } : {}),
           subject,
           text,
           deliverToPortalInbox: true,
@@ -672,9 +674,21 @@ export function RecordCommunicationSection({
           ...(attachmentUrls.length ? { attachmentUrls } : {}),
         }),
       });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; emailSent?: boolean; deliveryState?: string };
       if (!res.ok || data.ok === false) {
         setSendError(data.error || "Could not send message.");
+        return;
+      }
+      if (data.deliveryState === "unsent" || (viaEmail && data.emailSent === false)) {
+        setSendError(data.error || "Message saved, but email was not sent.");
+        // Keep the draft and the server's saved failure. Never replace it with
+        // an optimistic success or automatically retry the retained message.
+        try {
+          const rows = await syncPersistedInboxFromServer(scope, { force: true });
+          setThreads(rows);
+        } catch {
+          // A refresh failure must not hide the send refusal.
+        }
         return;
       }
       for (const att of attachments) revokeInboxAttachmentPreview(att);
@@ -849,7 +863,7 @@ export function RecordCommunicationSection({
       }}
       maxAttachments={INBOX_MAX_ATTACHMENTS}
       focusSignal={focusSignal}
-      hint={sendError ? <span className="text-rose-600">{sendError}</span> : undefined}
+      hint={sendError ? <span role="alert" className="text-rose-600">{sendError}</span> : undefined}
     />
   );
 

@@ -25,7 +25,7 @@ const NATIVE_APP_ALLOWED_PREFIXES = [
  * one: the page is gone and the route redirects to a home-page anchor the native shell does not serve, so a
  * native open goes to the in-app home through `redirectNativeFromMarketing` instead.
  */
-const NATIVE_APP_ALLOWED_EXACT = ["/tos", "/privacy", "/app"] as const;
+const NATIVE_APP_ALLOWED_EXACT = ["/tos", "/privacy", "/app", "/vendor-quote"] as const;
 
 export function isNativeAppAllowedPath(pathname: string): boolean {
   if (!pathname.startsWith("/")) return false;
@@ -47,3 +47,5 @@ export function isNativeDeepLinkPath(pathname: string): boolean {
 
 /** Whether a path should load inside the Capacitor WebView (not the system browser). */
 export { isInAppPath };
+
+export { nativeDeepLinkTarget } from "@/lib/platform/parity";

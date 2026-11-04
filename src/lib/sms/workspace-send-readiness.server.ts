@@ -1,18 +1,22 @@
+import type { SenderPolicyReadContext } from "@/lib/one-number/sender-policy-read.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ManagerMessagingLineBlock } from "@/lib/sms/manager-messaging-number";
 import { resolveOwnerSendNumberRow } from "@/lib/sms/manager-workspace-role.server";
 import { WORKSPACE_NO_WORK_NUMBER_CODE } from "@/lib/sms/workspace-no-work-number";
 import {
   evaluateManagerSmsNumberSendability,
+  managerCanSendFromOwnNumber, normalizeProvisionState, normalizeRegistrationState,
   normalizeSmsRuntimeMode,
   smsRuntimeAllowsManager,
 } from "@/lib/sms/number-registration-policy";
 import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
-import { loadSharedLineConfig, workspaceHasDedicatedNumber, workspaceOnSharedLine } from "@/lib/one-number/config.server";
+import { loadSharedLineConfigStrict, loadSharedLineConfig, workspaceHasDedicatedNumber, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { resolveSendWorkspaceId } from "@/lib/one-number/shared-line-number.server";
 import { resolveManagedSendTarget, resolveServiceLine } from "@/lib/one-number/service-line.server";
 
 export type SendNumberRow = {
+  id?: string;
+  released_at?: string | null;
   manager_user_id: string;
   workspace_id?: string | null;
   phone_number: string | null;
@@ -73,7 +77,7 @@ export type WorkspaceSendReadiness =
  * boundary; the messaging-number status route calls it so a teammate's
  * "can send" is exactly what a real send would decide.
  */
-export async function evaluateWorkspaceSendReadiness(input: {
+export type WorkspaceSendReadinessInput = {
   db: SupabaseClient;
   ownerUserId: string;
   /** Target the workspace's own line (status checks). Wins over a house. */
@@ -90,7 +94,20 @@ export async function evaluateWorkspaceSendReadiness(input: {
    */
   sharedLineWorkspaceId?: string | null;
   now?: Date;
-}): Promise<WorkspaceSendReadiness> {
+  /** Fresh quote proof readers share strict policy/time state through every canonical branch. */
+  policyRead?: SenderPolicyReadContext;
+};
+
+export async function evaluateWorkspaceSendReadiness(input: WorkspaceSendReadinessInput): Promise<WorkspaceSendReadiness> {
+  return resolveWorkspaceSendContext(input);
+}
+
+/** Resolve the legal transport independently of wallet and temporary delivery pauses. */
+export async function resolveWorkspaceSenderTransport(input: WorkspaceSendReadinessInput): Promise<WorkspaceSendReadiness> {
+  return resolveWorkspaceSendContext(input, true);
+}
+
+async function resolveWorkspaceSendContext(input: WorkspaceSendReadinessInput, identityOnly = false): Promise<WorkspaceSendReadiness> {
   const { db, requiredCents } = input;
   const ownerId = input.ownerUserId.trim();
   const now = input.now ?? new Date();
@@ -103,6 +120,7 @@ export async function evaluateWorkspaceSendReadiness(input: {
     workspaceIds: [input.workspaceId, input.sharedLineWorkspaceId],
     propertyId: input.propertyId ?? null,
     workLineId: input.workLineId ?? null,
+    policyRead: input.policyRead,
   });
   if (managedTarget.managed === null) return { canSend: false, reason: "control_plane_unreadable" };
   if (managedTarget.managed && managedTarget.workspaceId) {
@@ -113,6 +131,8 @@ export async function evaluateWorkspaceSendReadiness(input: {
       requiredCents,
       runtime: input.runtime ?? null,
       now,
+      policyRead: input.policyRead,
+      identityOnly,
     });
   }
 
@@ -120,7 +140,9 @@ export async function evaluateWorkspaceSendReadiness(input: {
   // the pilot, the text leaves from the shared number instead of a work number.
   // Any trouble reading the line config reads as `per_workspace`, so this block
   // is inert until the rollout switch is deliberately flipped.
-  const sharedConfig = await loadSharedLineConfig(db);
+  const strictConfig = input.policyRead ? await loadSharedLineConfigStrict(db, input.policyRead) : null;
+  if (strictConfig && !strictConfig.ok) return { canSend: false, reason: "control_plane_unreadable" };
+  const sharedConfig = strictConfig?.ok ? strictConfig.config : await loadSharedLineConfig(db);
   // A workspace with a number of its own (a paying Pro / Business workspace) sends from
   // THAT number, even when it is not the owner's default workspace. Only ever set while the line is
   // shared, so per_workspace resolves the line exactly as before.
@@ -139,6 +161,7 @@ export async function evaluateWorkspaceSendReadiness(input: {
         providerServiceSid: sharedConfig.messagingServiceSid,
         requiredCents,
         runtime: input.runtime ?? null,
+        identityOnly,
       });
     }
     if (workspaceHasDedicatedNumber(sharedConfig, sharedWorkspaceId)) dedicatedWorkspaceId = sharedWorkspaceId;
@@ -161,6 +184,7 @@ export async function evaluateWorkspaceSendReadiness(input: {
       propertyId: input.propertyId ?? null,
       workLineId: input.workLineId ?? null,
       workspaceId: input.workspaceId ?? dedicatedWorkspaceId,
+      policyRead: input.policyRead,
     }),
   ]);
   // A workspace with no work number of its own is a plain refusal ("This
@@ -180,6 +204,7 @@ export async function evaluateWorkspaceSendReadiness(input: {
     numberRow: number as SendNumberRow,
     requiredCents,
     now,
+    identityOnly,
   });
 }
 
@@ -198,8 +223,13 @@ async function evaluateNumberRowReadiness(input: {
   now: Date;
   billingWorkspaceId?: string | null;
   allowlistUserId?: string | null;
+  identityOnly?: boolean;
 }): Promise<WorkspaceSendReadiness> {
   const { db, ownerId, runtime: runtimeRow, numberRow, requiredCents, now } = input;
+  if (input.identityOnly) {
+    if (numberRow.released_at || !numberRow.messaging_service_sid || !managerCanSendFromOwnNumber({ provisionState: normalizeProvisionState(numberRow.provision_state), phoneNumber: numberRow.phone_number, registrationState: normalizeRegistrationState(numberRow.registration_state), registrationRef: numberRow.registration_ref })) return { canSend: false, reason: "number_not_sendable" };
+    return { canSend: true, numberRow, workspaceId: input.billingWorkspaceId ?? numberRow.workspace_id ?? null, messagingServiceSid: numberRow.messaging_service_sid };
+  }
   const allowlistUserId = input.allowlistUserId?.trim() || ownerId;
   const allowlisted = (runtimeRow.pilot_manager_user_ids ?? []).includes(allowlistUserId);
   const decision = evaluateManagerSmsNumberSendability(
@@ -253,9 +283,11 @@ async function evaluateServiceLineReadiness(input: {
   requiredCents: number;
   runtime: RuntimeConfigResult | null;
   now: Date;
+  policyRead?: SenderPolicyReadContext;
+  identityOnly?: boolean;
 }): Promise<WorkspaceSendReadiness> {
   const { db, ownerId, workspaceId, requiredCents } = input;
-  const line = await resolveServiceLine<SendNumberRow>(db, SEND_NUMBER_COLUMNS);
+  const line = await resolveServiceLine<SendNumberRow>(db, SEND_NUMBER_COLUMNS, input.policyRead);
   if (!line.ok) return { canSend: false, reason: line.reason === "unreadable" ? "control_plane_unreadable" : WORKSPACE_NO_WORK_NUMBER_CODE };
   if (line.kind === "shared") {
     return evaluateSharedLineReadiness({
@@ -266,6 +298,7 @@ async function evaluateServiceLineReadiness(input: {
       providerServiceSid: line.messagingServiceSid,
       requiredCents,
       runtime: input.runtime,
+      identityOnly: input.identityOnly,
     });
   }
   const { data: runtime, error: runtimeError } = input.runtime
@@ -287,6 +320,7 @@ async function evaluateServiceLineReadiness(input: {
     // The line belongs to the PropLane service owner, not to this workspace's owner (attach never moves
     // `owner_user_id`), so the pilot allowlist is read against the holder of the number being left on.
     allowlistUserId: line.serviceOwnerUserId,
+    identityOnly: input.identityOnly,
   });
 }
 
@@ -305,28 +339,28 @@ async function evaluateSharedLineReadiness(input: {
   providerServiceSid: string | null;
   requiredCents: number;
   runtime: RuntimeConfigResult | null;
+  identityOnly?: boolean;
 }): Promise<WorkspaceSendReadiness> {
   const { db, ownerId, workspaceId, sharedNumber } = input;
-  const { data: runtime, error: runtimeError } = input.runtime
-    ? input.runtime
-    : ((await db
-        .from("sms_runtime_config")
-        .select("mode, pilot_manager_user_ids")
-        .eq("singleton", true)
-        .maybeSingle()) as unknown as RuntimeConfigResult);
-  if (runtimeError || !runtime) return { canSend: false, reason: "control_plane_unreadable" };
-  const mode = normalizeSmsRuntimeMode(String((runtime as RuntimeRow).mode ?? ""));
-  if (mode === "paused") return { canSend: false, reason: "runtime_paused" };
-  const allowlisted = ((runtime as RuntimeRow).pilot_manager_user_ids ?? []).includes(ownerId);
-  if (!smsRuntimeAllowsManager(mode, allowlisted)) return { canSend: false, reason: "manager_not_allowlisted" };
-
+  if (!input.identityOnly) {
+    const { data: runtime, error: runtimeError } = input.runtime
+      ? input.runtime
+      : ((await db.from("sms_runtime_config").select("mode, pilot_manager_user_ids")
+          .eq("singleton", true).maybeSingle()) as unknown as RuntimeConfigResult);
+    if (runtimeError || !runtime) return { canSend: false, reason: "control_plane_unreadable" };
+    const mode = normalizeSmsRuntimeMode(String((runtime as RuntimeRow).mode ?? ""));
+    if (mode === "paused") return { canSend: false, reason: "runtime_paused" };
+    const allowlisted = ((runtime as RuntimeRow).pilot_manager_user_ids ?? []).includes(ownerId);
+    if (!smsRuntimeAllowsManager(mode, allowlisted)) return { canSend: false, reason: "manager_not_allowlisted" };
+  }
   const consentServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
   const providerServiceSid = input.providerServiceSid || consentServiceSid;
   if (!consentServiceSid || !providerServiceSid) return { canSend: false, reason: "provider_identity_mismatch" };
-
-  const billing = await evaluateManagerCommsBillingGate(db, ownerId, input.requiredCents, workspaceId);
-  if (!billing.allowed) return { canSend: false, reason: `comms_billing_${billing.reason}` };
-
+  if (!input.identityOnly) {
+    const billing = await evaluateManagerCommsBillingGate(db, ownerId, input.requiredCents, workspaceId);
+    if (!billing.allowed) return { canSend: false, reason: `comms_billing_${billing.reason}` };
+  }
+  // A shared transport has no manager_sms_numbers row or selected line id.
   const numberRow: SendNumberRow = {
     manager_user_id: ownerId,
     workspace_id: workspaceId,
@@ -344,14 +378,8 @@ async function evaluateSharedLineReadiness(input: {
     quarantined_at: null,
     quarantine_reason: null,
   };
-  return {
-    canSend: true,
-    numberRow,
-    workspaceId,
-    messagingServiceSid: consentServiceSid,
-    viaSharedLine: true,
-    providerMessagingServiceSid: providerServiceSid,
-  };
+  return { canSend: true, numberRow, workspaceId, messagingServiceSid: consentServiceSid,
+    viaSharedLine: true, providerMessagingServiceSid: providerServiceSid };
 }
 
 /**

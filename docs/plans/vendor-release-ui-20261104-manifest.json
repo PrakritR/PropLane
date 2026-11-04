@@ -1,0 +1,152 @@
+[
+  {
+    "path": "src/components/portal/service-coordination-card.tsx",
+    "beforeSha256": null,
+    "afterSha256": "237432764393d1f19b64e311fd24d93802f2ff764dd81c1a25b189444788cab3",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/components/portal/service-sourcing-card.tsx",
+    "beforeSha256": null,
+    "afterSha256": "1e6da4a0874fe4c60febab4d84d5d643db7893615827d9e2eb7a9037e4728456",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/components/portal/vendor-quote-permission.tsx",
+    "beforeSha256": null,
+    "afterSha256": "ddcd7a9b0f7546ed7d8a098286965e40713a7eab63b728a603a780a7f740f0c5",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/components/portal/pro-inbox.tsx",
+    "beforeSha256": "8f8f8fa2125d271404e02635e2fa583fd6a9a455039ea6d0e29e059bb1fff9c5",
+    "afterSha256": "5cc521a444dbe77f345227accaf52bd228146630f6848b024eaeb7b17e761586",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/components/portal/pro-portal-settings-panels.tsx",
+    "beforeSha256": "93faf15ea36140a4fbc709b68223308930f544a9ba816aa1c88db7c85bc83511",
+    "afterSha256": "43b8f97b3aa36032922c0cb51a251d9a3ebbd0e59f52c2a71cd1874222c398d5",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/components/portal/pro-vendor-form-modal.tsx",
+    "beforeSha256": "0f6ae3ca98036ea0cddedd77caabc43b1121a710086e5debbcdd9cb52995407d",
+    "afterSha256": "9dc7dfc7bc3dc2d5a7c306d787d39012c12e5a55f2f34ad2f9ae57012dee9f59",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/components/portal/pro-work-orders-panel.tsx",
+    "beforeSha256": "1081c720521a4ba7b52350d58e512e702b6b5855d155a9c5138da00ccbfe7707",
+    "afterSha256": "844cc871954ed57a4b8f95913ad389a982149693ca64b4cff3c0d018a74eaa83",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/components/portal/record-communication-section.tsx",
+    "beforeSha256": "8752b66f400d5b21a4c0346e2849ed19e9b349339cde71384487dda5072aaca3",
+    "afterSha256": "2c6d80c3f0ae7066685d20ff5f17d9898562f75eba0267bd800582e9ac99e6c9",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/components/portal/vendor-work-orders-panel.tsx",
+    "beforeSha256": "8838ad27e1a619beadaac89cf38123ccb57e975a08378d83aa393c2f01d86aed",
+    "afterSha256": "3350f053d327c7299b1e01cda6ee3920b9c6124e36e474a8847acb584a9bbc87",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/components/portal/resident-services-panel.tsx",
+    "beforeSha256": "a0de3c5cbbcbe0467e5dbf99d47c35acf3a5f5159469a9e666e10c8e154bd929",
+    "afterSha256": "3427592aadce202f8a51c060cfc6572b10719ccdbb736783a486b0745318c94b",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/components/providers/quote-page-boundary.tsx",
+    "beforeSha256": null,
+    "afterSha256": "ba47dc1833da1e1a67ba00c9f47a32dd3f406ea28f686fdd97e4daad0c91a554",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/app/layout.tsx",
+    "beforeSha256": "4a9f9b1f01543d1b31aa5bfb9836fb63ae7a184b7d0af7cbd9ef405e2c842298",
+    "afterSha256": "274d6816773936ff5f177be69f651433a437b5712c3fa01ba7186a77acdeab1a",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/app/(public)/layout.tsx",
+    "beforeSha256": "9790ffb8d1ebf0bd1dd87e555285f0b009fd31cb626ad72a0a6053665f1b7f2a",
+    "afterSha256": "739993ea0abe62bf8088e8e9d490461bab67795d8f270e953e2187b77b4bd4c6",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/app/(public)/vendor-quote/page.tsx",
+    "beforeSha256": null,
+    "afterSha256": "e26650c457dcc277fc13209cb2d15afdddbf475e5de69274714eca15f70afecb",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/app/(public)/vendor-quote/vendor-quote-public-page.tsx",
+    "beforeSha256": null,
+    "afterSha256": "bf62037d3c1d3b1424066489164633a3bcb25493969dc9c7e9a4b6bdc8f1c3c2",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/lib/portal-inbox-storage.ts",
+    "beforeSha256": "a56424d1512dee9bd469bbce7096a45b70e9a436b5e52c62c5321cdf292f8e8f",
+    "afterSha256": "ca506019a99bf07e8eccdf9aff4bf4dd706b4fdbd9ba20e24b1a8ba304d39d06",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/lib/portal-inbox-delivery.ts",
+    "beforeSha256": "4014a6cacb11c8a6c3078acbee8f46ad7c42a1ffde1e2119fc91b7534e52f02c",
+    "afterSha256": "eeba20f757d1e54e830eb390ae0a6a7fdd876ca3c7921465191a56922465e0c0",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "tests/unit/manager-inbox-quote-delivery.test.tsx",
+    "beforeSha256": null,
+    "afterSha256": "1826fe07b5167356e36547e673f3ebb96dc62cdcd0f6954ea2c495a39e72413c",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "tests/unit/record-communication-section.test.tsx",
+    "beforeSha256": "c7152077876e0d9f0b780bfdab8733d5f9dc31286349eac580bd8705d27afc7f",
+    "afterSha256": "3956ba70756be4453cb2b62923d22f8898e24ee20d844c9d64a7174c63ef0a08",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "tests/unit/collapse-person-inbox-threads.test.ts",
+    "beforeSha256": "688ed1f507132bf3dd610aeeaf71f0f9ed96efb3363e860514af6d5e31e4a361",
+    "afterSha256": "63befac0c908ae02296f536b1d1338a68b84f3014ebf4e5fbda8f745cf60445b",
+    "reason": "Reviewed vendor feature port with current-main UI, scoped recipient, native and inbox alias architecture retained"
+  },
+  {
+    "path": "src/app/api/portal/send-inbox-message/route.ts",
+    "beforeSha256": "9ac2cebbef229dbceab52ccb44272331f31805e5e294342fb918b415c904f471",
+    "afterSha256": "0e7fc07092705c1276742f77d1e72b2fd638ff60b8101a9d68710c7896effda1",
+    "reason": "Reviewed vendor UI feature port and bounded current-main alias/quote authorization reconciliation"
+  },
+  {
+    "path": "tests/unit/vendor-quote-manager-reply.test.ts",
+    "beforeSha256": null,
+    "afterSha256": "b64f4e515629bcbe4a1b6a03abeab196f3b4a6430815fea9c2b53ca13f6da120",
+    "reason": "Reviewed vendor UI feature port and bounded current-main alias/quote authorization reconciliation"
+  },
+  {
+    "path": "tests/unit/vendor-quote-manager-reply-composed.test.ts",
+    "beforeSha256": null,
+    "afterSha256": "e9a90a9ad239e6318823366ed189141853aa8cc7693721e3dbb2aaff8f9e96bc",
+    "reason": "Reviewed vendor UI feature port and bounded current-main alias/quote authorization reconciliation"
+  },
+  {
+    "path": "supabase/migrations/20261104121000_vendor_quote_inbox_current_main_compat.sql",
+    "beforeSha256": null,
+    "afterSha256": "73b4e8a8c5d958da57f9686a625f854ff756cd485e73352b7f6ce8b7d545ec52",
+    "reason": "Reviewed vendor UI feature port and bounded current-main alias/quote authorization reconciliation"
+  },
+  {
+    "path": "scripts/testing/vendor-quote-local-postgres.mjs",
+    "beforeSha256": null,
+    "afterSha256": "edf4fe55b096cbe2bfd7f9cf062ce366f85a19018eb9c44639232de1493846ff",
+    "reason": "Reviewed vendor UI feature port and bounded current-main alias/quote authorization reconciliation"
+  }
+]

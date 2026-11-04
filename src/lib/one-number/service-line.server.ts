@@ -1,4 +1,5 @@
 import "server-only";
+import type { SenderPolicyReadContext } from "@/lib/one-number/sender-policy-read.server";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingSchemaError, loadSharedLineConfigStrict } from "@/lib/one-number/config.server";
@@ -36,12 +37,12 @@ function withLineColumns(columns: string): string {
  * Is this workspace PropLane-managed? Null when that cannot be read (callers refuse: they cannot prove the workspace is NOT
  * managed). A database that predates the column reads as "not managed".
  */
-export async function isServiceWorkspace(db: SupabaseClient, workspaceId: string | null | undefined): Promise<boolean | null> {
+export async function isServiceWorkspace(db: SupabaseClient, workspaceId: string | null | undefined, context?: SenderPolicyReadContext): Promise<boolean | null> {
   const id = String(workspaceId ?? "").trim();
   if (!id) return false;
   try {
     const { data, error } = await db.from("portal_workspaces").select("is_service").eq("id", id).maybeSingle();
-    if (error) return isMissingSchemaError(error) ? false : null;
+    if (error) return !context && isMissingSchemaError(error) ? false : null;
     return (data as { is_service?: unknown } | null)?.is_service === true;
   } catch {
     return null;
@@ -77,8 +78,8 @@ export async function readServiceOwnerOrThrow(db: SupabaseClient): Promise<strin
  * The PropLane line a managed workspace sends on. `columns` is what the caller wants of the service owner's number row
  * (`kind: "owner_number"` only; the registration and provider checks stay with the caller).
  */
-export async function resolveServiceLine<T = Record<string, unknown>>(db: SupabaseClient, columns = "phone_number"): Promise<ServiceLine<T>> {
-  const config = await loadSharedLineConfigStrict(db);
+export async function resolveServiceLine<T = Record<string, unknown>>(db: SupabaseClient, columns = "phone_number", context?: SenderPolicyReadContext): Promise<ServiceLine<T>> {
+  const config = await loadSharedLineConfigStrict(db, context);
   if (!config.ok) return { ok: false, reason: "unreadable" };
   if (config.config.mode === "shared" && config.config.sharedNumber) {
     return { ok: true, kind: "shared", phoneNumber: config.config.sharedNumber, messagingServiceSid: config.config.messagingServiceSid };
@@ -101,7 +102,9 @@ export async function resolveServiceLine<T = Record<string, unknown>>(db: Supaba
   if (defError) return { ok: false, reason: "unreadable" };
   const defaultWorkspaceId = String((def as { id?: unknown } | null)?.id ?? "").trim();
 
-  const { data, error } = await db.from("manager_sms_numbers").select(withLineColumns(columns)).eq("manager_user_id", serviceOwner);
+  const query = db.from("manager_sms_numbers").select(withLineColumns(columns)).eq("manager_user_id", serviceOwner);
+  const { data, error } = await (context ? query.limit(201) : query);
+  if (context && (data?.length ?? 0) > 200) return { ok: false, reason: "unreadable" };
   if (error) return { ok: false, reason: "unreadable" };
   const rows = ((Array.isArray(data) ? data : data ? [data] : []) as unknown as Array<Record<string, unknown>>).filter(Boolean);
   const live = (list: Array<Record<string, unknown>>) => list.find((r) => !r.released_at && normalizeE164(String(r.phone_number ?? "")));
@@ -127,6 +130,7 @@ export async function resolveManagedSendTarget(
     workspaceIds?: ReadonlyArray<string | null | undefined>;
     propertyId?: string | null;
     workLineId?: string | null;
+    policyRead?: SenderPolicyReadContext;
   },
 ): Promise<{ managed: boolean | null; workspaceId: string | null }> {
   const candidates: string[] = [];
@@ -160,7 +164,7 @@ export async function resolveManagedSendTarget(
   }
   let unreadable = false;
   for (const id of candidates) {
-    const managed = await isServiceWorkspace(db, id);
+    const managed = await isServiceWorkspace(db, id, input.policyRead);
     if (managed === true) return { managed: true, workspaceId: id };
     if (managed === null) unreadable = true;
   }

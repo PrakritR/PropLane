@@ -1,4 +1,5 @@
 import "server-only";
+import type { SenderPolicyReadContext } from "@/lib/one-number/sender-policy-read.server";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isGrandfatheredNumberRow, planMayHavePersonalNumber, type GrandfatherNumberRow } from "@/lib/one-number/personal-number";
@@ -26,28 +27,30 @@ export type PersonalNumberEntitlement =
  * True when the owner holds a live, pre-cutoff number. A failed read throws, so the caller answers `ok: false`
  * (never "not entitled" off a database blip, and never "entitled" off one either).
  */
-async function holdsGrandfatheredNumber(db: SupabaseClient, managerUserId: string): Promise<boolean> {
-  const { data, error } = await db
+async function holdsGrandfatheredNumber(db: SupabaseClient, managerUserId: string, context?: SenderPolicyReadContext): Promise<boolean> {
+  const query = db
     .from("manager_sms_numbers")
     .select("phone_number, provision_state, released_at, provisioned_at, requested_at")
     .eq("manager_user_id", managerUserId)
     .is("released_at", null);
+  const { data, error } = await (context ? query.limit(201) : query);
+  if (context && (data?.length ?? 0) > 200) throw new Error("grandfather read overflow");
   if (error) throw new Error(`grandfather read failed: ${error.message}`);
   return ((data ?? []) as GrandfatherNumberRow[]).some((row) => isGrandfatheredNumberRow(row));
 }
 
-export async function managerPersonalNumberEntitlement(db: SupabaseClient, managerUserId: string): Promise<PersonalNumberEntitlement> {
+export async function managerPersonalNumberEntitlement(db: SupabaseClient, managerUserId: string, context?: SenderPolicyReadContext): Promise<PersonalNumberEntitlement> {
   const id = managerUserId.trim();
   if (!id) return { ok: true, entitled: false, tier: null };
   try {
     const { getEffectiveManagerSkuTier } = await import("@/lib/manager-access-server");
-    const plan = await getEffectiveManagerSkuTier(id);
+    const plan = await getEffectiveManagerSkuTier(id, context);
     if (!plan.ok) return { ok: false };
     const tier = plan.tier ?? null;
     const planIncludesNumber = planMayHavePersonalNumber(tier) && !plan.liveSignupTrial;
     if (planIncludesNumber && plan.billablePlan === true) return { ok: true, entitled: true, via: "plan", tier };
     // A paid-tier plan that nothing bills (waiver / comp): only a number that already exists is kept.
-    if (planIncludesNumber && (await holdsGrandfatheredNumber(db, id))) {
+    if (planIncludesNumber && (await holdsGrandfatheredNumber(db, id, context))) {
       return { ok: true, entitled: true, via: "grandfathered", tier };
     }
     const { numberServiceEntitled } = await import("@/lib/number-subscription/subscription.server");

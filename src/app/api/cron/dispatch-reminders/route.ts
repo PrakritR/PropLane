@@ -1,3 +1,4 @@
+import { sweepVendorSourcing } from "@/lib/vendor-sourcing.server";
 /**
  * Drain the reminder queue.
  *
@@ -137,6 +138,7 @@ export async function GET(req: Request) {
     // isolation as the sweeps — a failure is reported, never fatal.
     const actions: Record<string, unknown> = {};
     for (const [name, action] of [
+      ["vendor_sourcing", sweepVendorSourcing],
       ["expire_offers", expireVendorOffers],
       ["auto_close_confirmations", autoCloseResidentConfirmations],
     ] as const) {

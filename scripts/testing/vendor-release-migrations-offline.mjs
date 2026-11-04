@@ -1,0 +1,23 @@
+/** Offline safety checks. Imports never connect or retrieve credentials. */
+import assert from 'node:assert/strict';
+import { parseOptions, reviewedVendorMigrations, assertVendorLedger } from '../vendor-release-migrations.mjs';
+let assertions=0;
+const refuses=(args)=>{assert.throws(()=>parseOptions(args));assertions++;};
+for(const target of ['production','staging','qahnczmilgptcedaqype','']) refuses(['--target',target]);
+refuses(['--target','dev','--phase','unknown']);
+refuses(['--target','dev','--phase','preflight','--phase','apply']);
+refuses(['--target','dev','--target','dev']);
+refuses(['--target','dev','--phase','apply']);
+refuses(['--target','dev','--phase','apply','--expected-state','a'.repeat(64),'--backup-file','/tmp/unsafe-backup']);
+refuses(['--target','dev','--backup-file','/private/tmp/not-applying']);
+refuses(['--target','dev','--unknown','value']);
+assert.equal(parseOptions(['--target','dev']).phase,'preflight');assertions++;
+const migrations=reviewedVendorMigrations();
+assert.equal(migrations.length,13);assertions++;
+assert.equal(new Set(migrations.map(m=>m.version)).size,migrations.length);assertions++;
+assert.equal(assertVendorLedger([],migrations).length,migrations.length);assertions++;
+const first=migrations[0];assert.equal(assertVendorLedger([{version:first.version,name:first.name}],migrations).length,migrations.length-1);assertions++;
+assert.throws(()=>assertVendorLedger([{version:first.version,name:'unreviewed'}],migrations));assertions++;
+assert.throws(()=>assertVendorLedger([{version:first.version,name:first.name},{version:first.version,name:first.name}],migrations));assertions++;
+assert.throws(()=>assertVendorLedger([],migrations,true));assertions++;
+console.log(JSON.stringify({result:'passed',assertions,reviewedMigrations:migrations.length,databaseConnections:0,credentialReads:0}));

@@ -914,6 +914,7 @@ describe("managed Twilio inbound retry", () => {
     expect((await POST(inboundRequest())).status).toBe(200);
     expect(mocks.rpc).toHaveBeenCalledWith("claim_sms_inbound", expect.objectContaining({
       p_inbound_payload: {
+        signedTwilio: true,
         fromPhone: "+12065552222",
         toPhone: "+12065559999",
         body: "Is the apartment available?",

@@ -8,6 +8,8 @@ export type VendorDispatchSettings = {
   mode: VendorDispatchMode;
   /** Gates the vendor-messaging agent (SMS + inbox) on dispatched work orders. */
   agentMessagingEnabled: boolean;
+  /** Allows managers to find vendors and collect quotes for a service. */
+  quoteSourcingEnabled: boolean;
   /**
    * Downgrades auto-dispatch to a proposal when a cost estimate exists and
    * exceeds this. Dispatch itself commits no money, so this is advisory until
@@ -25,6 +27,7 @@ export type VendorDispatchSettings = {
 export const DEFAULT_VENDOR_DISPATCH_SETTINGS: VendorDispatchSettings = {
   mode: "off",
   agentMessagingEnabled: false,
+  quoteSourcingEnabled: false,
   spendCapCents: null,
   approvedVendorIds: null,
   categories: null,
@@ -40,6 +43,7 @@ export function normalizeVendorDispatchSettings(raw: unknown): VendorDispatchSet
   return {
     mode: r.mode === "approve" || r.mode === "auto" ? r.mode : "off",
     agentMessagingEnabled: r.agentMessagingEnabled === true,
+    quoteSourcingEnabled: r.quoteSourcingEnabled === true,
     spendCapCents: Number.isFinite(spendCap) && spendCap > 0 ? spendCap : null,
     approvedVendorIds: stringList(r.approvedVendorIds),
     categories: stringList(r.categories) as WorkOrderCategory[] | null,

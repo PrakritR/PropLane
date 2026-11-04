@@ -1,4 +1,5 @@
 "use client";
+import { ServiceCoordinationCard } from "@/components/portal/service-coordination-card";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
@@ -1335,6 +1336,7 @@ export function ResidentServicesPanel({
           ) : row ? (
             <>
               <ResidentServiceTracker row={row} />
+              <ServiceCoordinationCard workOrderId={row.id} role="resident" />
               <WorkOrderDetail
                 row={row}
                 onEdit={() => openWorkOrderEdit(row)}

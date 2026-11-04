@@ -42,14 +42,12 @@ export async function expireVendorOffers(db: SupabaseClient, now: Date = new Dat
   // Claim by flipping status; only rows we actually flipped are notified.
   const claimed: OfferRow[] = [];
   for (const offer of due) {
-    const { data: flipped } = await db
-      .from("work_order_vendor_offers")
-      .update({ status: "expired", updated_at: now.toISOString() })
-      .eq("id", offer.id)
-      .eq("status", "sent")
-      .select("id")
-      .maybeSingle();
-    if (flipped) claimed.push(offer);
+    const { data: flipped, error: flipError } = await db.rpc("invalidate_vendor_service_offers", {
+      p_work_order_id: offer.work_order_id, p_manager_user_id: offer.manager_user_id,
+      p_status: "expired", p_offer_id: offer.id, p_now: now.toISOString(),
+    });
+    if (flipError) throw flipError;
+    if (flipped?.length) claimed.push(offer);
   }
   if (claimed.length === 0) return { expired: 0, managersTold: 0 };
 

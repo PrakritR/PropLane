@@ -295,6 +295,8 @@ export async function commitInboxThreadReply(
     channel?: InboxThreadMessageChannel;
     /** Durable external-delivery state; never infer Sent before the provider records it. */
     delivery?: "sending" | "sent" | "failed";
+    /** Final result for this exact message, allowing pending to fail; sent remains terminal. */
+    finalDelivery?: boolean;
     /** Email subject the turn left with, for the bubble's subject line. */
     subject?: string;
     /**
@@ -334,7 +336,9 @@ export async function commitInboxThreadReply(
   if (existingIndex >= 0) {
     const existing = messages[existingIndex] as Record<string, unknown>;
     const prior = typeof existing.delivery === "string" ? existing.delivery : undefined;
-    const delivery = opts.delivery
+    const delivery = opts.finalDelivery && opts.delivery && prior !== "sent"
+      ? opts.delivery
+      : opts.delivery
       ? aggregateVendorSponsoredDelivery([opts.delivery], prior as "sending" | "sent" | "failed" | undefined)
       : prior as "sending" | "sent" | "failed" | undefined;
     if (!opts.delivery || prior === delivery) return delivery;

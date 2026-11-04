@@ -1,0 +1,29 @@
+{
+  "head": "bb27e0c4f27f5c0c3b85a37e4d95d159aabb5a44",
+  "files": {
+    "src/lib/one-number/sender-policy-read.server.ts": "821533e56f664ca029a01b254e920bdec98ad5cda8577c6e1fc522b53f0400c4",
+    "src/lib/vendor-quote-sender-proof.server.ts": "1f8c5083b8ba802a3f0b487141770d53ea8f0ea8501ad87bbe619de015724dca",
+    "src/lib/manager-access-server.ts": "6045f326181003221f670e83c6bca494f0d54130e75e451d2738a612e21d0229",
+    "src/lib/manager-purchase-account-rows.server.ts": "7e1e018b9118bd94ce21b0e29092ed998185aa3ca0e5037ebe2bc42af9c0947e",
+    "src/lib/promo-code-policy.server.ts": "fa449aec74fec357d30cfa20e1dcdc6032f0c8292eded2cbd44ffa9e3be5f5d1",
+    "src/lib/one-number/personal-number-entitlement.server.ts": "f22137d98c53cf2f85849e00ae59b679557943058b212af4de94d67e2ac84fc1",
+    "src/lib/one-number/config.server.ts": "66583fd2a2b70d97ccf341caae66da46be0a35b4accadfae16f87a52b2345d40",
+    "src/lib/one-number/service-line.server.ts": "214bf93711179f0262bfd27cf148be209ff7cf1a05550df467b272d4f156de6f",
+    "src/lib/manager-assistant-email/manager-assistant-email.server.ts": "0cad2695dc06c4d46e9bfacb036cbb56fcdacffeb6db5b23a756fbe65eed8fbb",
+    "src/lib/sms/manager-workspace-role.server.ts": "a8624622239dc1b7ee67eb5d508b6ea5080b51c9feb0e8ec4d01df09eea086da",
+    "src/lib/sms/workspace-send-readiness.server.ts": "17cb3b12ba3e1225c48a742a4dea685bb08e418f284a230d07892b4db353f9f0",
+    "src/lib/vendor-outreach-identity.server.ts": "253939b73b8244425c951ecb06e0b099379e4defb9b53550e7d96836dd264835",
+    "src/lib/vendor-quote-contract.ts": "6bcba6066b7678a4e12bc31ecd5668a7bef900405e76a3e9fb7b45fd23eddc3d",
+    "src/lib/vendor-quote-contact.server.ts": "df63cc1073a3f8b0df469b5008ee938df732a9f76f928f6843515cab66858064",
+    "src/app/api/twilio/inbound/route.ts": "f1b5ae0f5641f1fc3bbc84dc373c11919ea6e8910bbdea8f35d87bb6782b5525",
+    "src/app/api/webhooks/twilio/sms/route.ts": "122bd09fa2e64910a1944e4ba0aeca6e0214f929b2d7c21bd4ed8384ff4acfa1",
+    "src/lib/sms/inbound-pipeline.server.ts": "72b0769d92e09b0f88f1918d834cca6f54c0beedad65456a391921a5b848985f",
+    "src/lib/auth/account-purge-manifest.ts": "da39604048d411a485c418462af49b586c60de7a6690c053e1b0281399485ff8",
+    "supabase/migrations/20261104130000_vendor_quote_sender_authority.sql": "cd91dfcd65f98dd2ba38dc02215f11c90bd57bfcfc39e91076677d9e675caa75",
+    "scripts/testing/vendor-shared-line-local-postgres.mjs": "29d27ed7192fef31b63fb574dcfcffaab48dafcc0b90f587d0b999505f52f003",
+    "tests/unit/vendor-shared-line-authority.test.ts": "1ee9d07dede0fd31608774a334ee8c9cfd4e0010f512fc31aa9ac796ebc52345",
+    "tests/unit/vendor-shared-line-inbound-route.test.ts": "96cb87d477d9a6bd04171640d87abbfc63474ce92f389b143c1099ce841cb2e1",
+    "tests/unit/vendor-quote-contact-composed.test.ts": "ed75fd7e4e85b31f1b93122cd13120101e39a88976080eecf431697e63c759b5",
+    "tests/unit/twilio-inbound-retry.test.ts": "33be0a256f9ca2cdbd77578245e97c56f2694b0ed7d2425af30b5eca03cacbae"
+  }
+}

@@ -23,6 +23,8 @@ type ResendDeliveryArgs = {
   effectSummary: string;
   metadata?: Record<string, string | number | boolean | null>;
   signal?: AbortSignal;
+  /** Stable for the exact payload, provider retention is 24 hours. */
+  idempotencyKey?: string;
 } & (
   | {
       /** Trusted actor/owner identity for ordinary portal and delayed-worker calls. */
@@ -64,7 +66,7 @@ export async function postResendEmail(args: ResendDeliveryArgs): Promise<Respons
   }
   return fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: { Authorization: `Bearer ${args.apiKey}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${args.apiKey}`, "Content-Type": "application/json", ...(args.idempotencyKey ? { "Idempotency-Key": args.idempotencyKey } : {}) },
     body: JSON.stringify(args.payload),
     signal: args.signal,
   });

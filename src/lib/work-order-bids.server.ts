@@ -1,3 +1,4 @@
+import { workOrderCoordinationEnrolled } from "@/lib/vendor-coordination.server";
 /**
  * Shared work-order bid logic (estimate / estimate visit / bid / approve /
  * set price / mark done), extracted from the API routes so the agent tool layer
@@ -280,6 +281,7 @@ export async function submitWorkOrderBid(
 
   const access = await resolveVendorWorkOrderAccess(db, actor, workOrderId);
   if (!access.ok) return access;
+  if (await workOrderCoordinationEnrolled(db, workOrderId)) return { ok: false, status: 409, error: "Use the current visit proposal for quote and scheduling changes." };
 
   const { data: existing } = await db
     .from("work_order_bids")
@@ -415,6 +417,7 @@ export async function scheduleWorkOrderConsultation(
 
   const access = await resolveVendorWorkOrderAccess(db, actor, workOrderId);
   if (!access.ok) return access;
+  if (await workOrderCoordinationEnrolled(db, workOrderId)) return { ok: false, status: 409, error: "Use the current visit proposal for quote and scheduling changes." };
 
   const { data: existing } = await db
     .from("work_order_bids")
@@ -819,6 +822,7 @@ export async function acceptWorkOrderBid(
   if (!actor.admin && (ownerRow.manager_user_id !== actor.userId || record.manager_user_id !== actor.userId)) {
     return { ok: false, status: 403, error: "Forbidden." };
   }
+  if (await workOrderCoordinationEnrolled(db, record.work_order_id)) return { ok: false, status: 409, error: "Approve the exact current visit proposal before booking." };
   // Approving THIS bid again is a retry, not a second approval: the hire below is the
   // authoritative state and the decline / withdraw steps after it can fail transiently, with no
   // other way back in. Re-entering re-runs that cleanup, which is idempotent, and answers ok.
@@ -878,7 +882,7 @@ export async function acceptWorkOrderBid(
       .eq("id", bidId)
       .eq("status", "submitted")
       .select("id");
-    if (acceptError) return { ok: false, status: 500, error: acceptError.message };
+    if (acceptError) return { ok: false, status: acceptError.code === "40001" ? 409 : 500, error: acceptError.code === "40001" ? "This service changed. Refresh and review the current proposal before approving." : acceptError.message };
     if (!acceptedRows || acceptedRows.length === 0) {
       return { ok: false, status: 400, error: "This bid has already been resolved." };
     }
@@ -1022,11 +1026,10 @@ export async function acceptWorkOrderBid(
       sender: { userId: actor.userId, email: actor.email, name: actor.fullName },
     }).catch(() => undefined);
   }
-  const { error: withdrawError } = await db
-    .from("work_order_vendor_offers")
-    .update({ status: "withdrawn", updated_at: now })
-    .eq("work_order_id", record.work_order_id)
-    .eq("status", "sent");
+  const { error: withdrawError } = await db.rpc("invalidate_vendor_service_offers", {
+    p_work_order_id: record.work_order_id, p_manager_user_id: record.manager_user_id,
+    p_status: "withdrawn", p_now: now,
+  });
   if (withdrawError) return { ok: false, status: 500, error: withdrawError.message };
 
   if (workOrder) {
@@ -1109,6 +1112,7 @@ export async function setVendorPriceForWorkOrder(
     return { ok: false, status: 403, error: "Forbidden." };
   }
 
+  if (await workOrderCoordinationEnrolled(db, workOrderId)) return { ok: false, status: 409, error: "Use the current visit proposal for quote and scheduling changes." };
   const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
   if (rowData.bucket !== "scheduled") {
     return { ok: false, status: 400, error: "Price can only be set on scheduled services." };
@@ -1314,6 +1318,7 @@ export async function scheduleAssignedVisit(
     .maybeSingle();
   if (!workOrder || workOrder.vendor_user_id !== actor.userId) return { ok: false, status: 403, error: "Forbidden." };
 
+  if (await workOrderCoordinationEnrolled(db, workOrderId)) return { ok: false, status: 409, error: "Use the current visit proposal for quote and scheduling changes." };
   const rowData = (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow;
   if (rowData.bucket === "completed" || rowData.bucket === "scheduled" || rowData.scheduledAtIso || rowData.automationStatus) {
     return { ok: false, status: 409, error: "This service is already scheduled or finished." };

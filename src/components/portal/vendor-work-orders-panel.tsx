@@ -1,4 +1,6 @@
 "use client";
+import { ServiceCoordinationCard } from "@/components/portal/service-coordination-card";
+import { VendorQuotePermission } from "@/components/portal/vendor-quote-permission";
 
 import { VENDOR_COMPOSE_HREF, stageVendorComposePrefill } from "@/lib/vendor-compose-prefill";
 import { vendorEntryPermissionLabel } from "@/lib/work-order-entry";
@@ -924,6 +926,8 @@ export function VendorWorkOrdersPanel({
         />
       ) : activeTab === "schedule" ? (
         <div className="space-y-3 px-3 pb-4 sm:px-4" data-attr="vendor-job-schedule">
+          <ServiceCoordinationCard workOrderId={row.id} role="vendor" />
+          <VendorQuotePermission workOrderId={row.id} />
           {renderSectionHeader(
             "visit",
             "Visit",

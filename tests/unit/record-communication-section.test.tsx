@@ -5,7 +5,7 @@
 // identity cards, conversation list) — see the design contract in
 // `docs/agents/communication-inbox.md` § recordRef and the PR description.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 type FixtureThread = Record<string, unknown>;
 
@@ -36,6 +36,31 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => {
 import { RecordCommunicationSection } from "@/components/portal/record-communication-section";
 
 const LEASE_REF = { kind: "lease" as const, id: "lease-1", label: "Lease #100" };
+const SERVICE_REF = { kind: "service" as const, id: "service-1", label: "Kitchen leak" };
+const QUOTE_THREAD: FixtureThread = {
+  id: "vendor_quote_service-1_directory-1",
+  folder: "inbox",
+  from: "Northwest Plumbing",
+  email: "jobs@nwplumbing.example",
+  subject: "Kitchen leak quote",
+  body: "Can you confirm access to the kitchen?",
+  time: "Nov 3, 9:00 AM",
+  unread: false,
+  rootChannel: "email",
+  recordRef: SERVICE_REF,
+  messages: [],
+};
+
+function renderServiceReply() {
+  return render(<RecordCommunicationSection role="manager" recordRef={SERVICE_REF} propertyId="prop-1" />);
+}
+
+async function sendServiceReply() {
+  await screen.findByText(String(QUOTE_THREAD.body));
+  expect(screen.getByRole("button", { name: /Send via: Email/i })).toBeInTheDocument();
+  fireEvent.change(screen.getByPlaceholderText("Write a reply…"), { target: { value: "The kitchen will be open at noon." } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+}
 
 const LEASE_THREAD: FixtureThread = {
   id: "thr-lease-1",
@@ -83,6 +108,70 @@ afterEach(() => {
 });
 
 describe("RecordCommunicationSection", () => {
+  it("replies to the displayed service quote using its persisted thread id", async () => {
+    // Service records may have no primary contact. The displayed vendor quote
+    // is selected by recordRef, and its identity must follow the reply.
+    threadRows = [QUOTE_THREAD];
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, emailSent: true }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderServiceReply();
+    await sendServiceReply();
+    await waitFor(() => expect(screen.getByPlaceholderText("Write a reply…")).toHaveValue(""));
+    const sendCall = fetchMock.mock.calls.find((call: unknown[]) => call[0] === "/api/portal/send-inbox-message") as unknown as [string, RequestInit];
+    expect(JSON.parse(String(sendCall[1].body))).toMatchObject({
+      threadId: QUOTE_THREAD.id,
+      recordRef: SERVICE_REF,
+      toEmails: [QUOTE_THREAD.email],
+      deliverViaEmail: true,
+      text: "The kitchen will be open at noon.",
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it.each([
+    { ok: true, emailSent: false, deliveryState: "unsent", error: "Vendor withdrew email permission." },
+    { ok: true, emailSent: false },
+  ])("keeps the draft and displays email refusal for %j", async (outcome) => {
+    threadRows = [QUOTE_THREAD];
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "/api/portal/send-inbox-message") {
+        threadRows = [{ ...QUOTE_THREAD, messages: [{ id: "saved-reply-1", from: "You", body: "The kitchen will be open at noon.", at: "Nov 3, 9:05 AM", outbound: true, channel: "email", delivery: "failed" }] }];
+        return { ok: true, json: async () => outcome };
+      }
+      return { ok: true, json: async () => ({ fullName: "Manager", email: "manager@example.com" }) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const view = renderServiceReply();
+    await sendServiceReply();
+    expect(await screen.findByRole("alert")).toHaveTextContent(outcome.error ?? "Message saved, but email was not sent.");
+    expect(screen.getByPlaceholderText("Write a reply…")).toHaveValue("The kitchen will be open at noon.");
+    expect(await screen.findByText("Couldn't send")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/portal/send-inbox-message")).toHaveLength(1);
+
+    // Re-mount from the authoritative inbox rows. The retained server turn,
+    // rather than an ephemeral error toast, carries failure across reload.
+    view.unmount();
+    renderServiceReply();
+    expect(await screen.findByText("Couldn't send")).toBeInTheDocument();
+    expect(screen.getByText("The kitchen will be open at noon.")).toBeInTheDocument();
+  });
+
+  it("clears the draft and displays the server's successful service reply", async () => {
+    threadRows = [QUOTE_THREAD];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url === "/api/portal/send-inbox-message") {
+        threadRows = [{ ...QUOTE_THREAD, messages: [{ id: "saved-reply-1", from: "You", body: "The kitchen will be open at noon.", at: "Nov 3, 9:05 AM", outbound: true, channel: "email", delivery: "sent" }] }];
+      }
+      return { ok: true, json: async () => ({ ok: true, emailSent: true }) };
+    }));
+    renderServiceReply();
+    await sendServiceReply();
+    await waitFor(() => expect(screen.getByPlaceholderText("Write a reply…")).toHaveValue(""));
+    expect(await screen.findByText("The kitchen will be open at noon.")).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't send")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("renders the record's messages and none of the inbox chrome", async () => {
     threadRows = [LEASE_THREAD];
     render(

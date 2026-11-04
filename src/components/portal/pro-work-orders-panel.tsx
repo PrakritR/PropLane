@@ -1,4 +1,6 @@
 "use client";
+import { ServiceCoordinationCard } from "@/components/portal/service-coordination-card";
+import { ServiceSourcingCard } from "@/components/portal/service-sourcing-card";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRequestGuard } from "@/lib/use-request-guard";
@@ -1726,7 +1728,11 @@ export function ManagerWorkOrdersPanel({
     }
     const ownContent =
       activeTab === "vendors" ? (
-        renderVendorBidsBody(routeWorkOrder)
+        <>
+          <ServiceCoordinationCard workOrderId={routeWorkOrder.id} role="manager" vendorDirectoryId={routeWorkOrder.vendorId} />
+          <ServiceSourcingCard workOrderId={routeWorkOrder.id} />
+          {renderVendorBidsBody(routeWorkOrder)}
+        </>
       ) : activeTab === "incoming-payments" ? (
         renderInvoiceBody(routeWorkOrder)
       ) : activeTab === "outgoing-payments" ? (

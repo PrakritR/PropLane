@@ -60,10 +60,22 @@ export async function sendPortalConversationEmails(opts: {
    * From address (the workspace work email) instead of a thread reply route.
    */
   omitReplyTo?: boolean;
+  /** Server-authorized service reply address for a single quote recipient. */
+  replyToAddress?: string;
+  /** Distinguishes concurrent service conversations with the same person. */
+  threadingKey?: string;
+  /** Server-only final gate. Checked directly before capture/provider handoff. */
+  authorizeDelivery?: (recipientEmail: string) => Promise<boolean>;
 }): Promise<Map<string, ConversationEmailResult>> {
   const results = new Map<string, ConversationEmailResult>(
     opts.toEmails.map((email) => [email, { sent: false, resendId: null }]),
   );
+  // Quote authorization is deliberately per recipient. Generic broadcast behavior stays unchanged.
+  if (opts.authorizeDelivery && opts.toEmails.length !== 1) return results;
+  const allowed = async (email: string) => {
+    try { return !opts.authorizeDelivery || await opts.authorizeDelivery(email); } catch { return false; }
+  };
+  if (opts.toEmails.length > 0 && !(await allowed(opts.toEmails[0]!))) return results;
   if (opts.toEmails.length > 0 && captureSmsTestDelivery({
     kind: "email",
     summary: opts.subject.trim() || "Email delivery captured in the test conversation.",
@@ -80,8 +92,9 @@ export async function sendPortalConversationEmails(opts: {
   const domain = fromDomain(from);
 
   const payloads = opts.toEmails.map((email) => {
-    const anchor = conversationAnchorMessageId(opts.senderUserId, email, domain);
-    const replyTo = opts.omitReplyTo ? null : buildReplyAddress(opts.senderUserId, email);
+    const anchor = conversationAnchorMessageId(opts.threadingKey ?? opts.senderUserId, email, domain);
+    const replyTo = opts.omitReplyTo ? null : opts.toEmails.length === 1 && opts.replyToAddress
+      ? opts.replyToAddress : buildReplyAddress(opts.senderUserId, email);
     return {
       email,
       body: {
@@ -98,6 +111,7 @@ export async function sendPortalConversationEmails(opts: {
 
   async function send(url: string, body: unknown): Promise<unknown | null> {
     try {
+      if (opts.authorizeDelivery && !(await allowed(opts.toEmails[0]!))) return null;
       const res = await fetch(url, {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },

@@ -1,0 +1,7 @@
+{
+  "scope": "readiness correction only; source readers and contact routes unchanged",
+  "files": {
+    "supabase/migrations/20261104130000_vendor_quote_sender_authority.sql": "7d610035939ad210f9c4509767e15f6248ba64419035e2f6f21e0a4c75586531",
+    "scripts/testing/vendor-shared-line-local-postgres.mjs": "7cdf91d74b5cb0f5cb7b8a3548de61205e2072dec823afdc77833210dce72ec6"
+  }
+}

@@ -1,4 +1,5 @@
 import "server-only";
+import { recordSenderPolicyTransition, type SenderPolicyReadContext } from "@/lib/one-number/sender-policy-read.server";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingColumnError } from "@/lib/db-missing-column";
@@ -42,12 +43,14 @@ function isMissingSchema(error: { code?: string | null } | null | undefined): bo
   return code === "42P01" || code === "42703" || code === "PGRST205" || code === "PGRST204";
 }
 
-async function loadPolicies(db: SupabaseClient): Promise<ReadonlyMap<string, string | null>> {
-  const { data, error } = await db.from(POLICY_TABLE).select("code, expires_at");
+async function loadPolicies(db: SupabaseClient, strict = false): Promise<ReadonlyMap<string, string | null>> {
+  const query = db.from(POLICY_TABLE).select("code, expires_at");
+  const { data, error } = await (strict ? query.limit(201) : query);
+  if (strict && (data?.length ?? 0) > 200) throw new Error("Promo policy overflow.");
   if (error) {
     // The table is created by the migration that ships with this code. Before it lands, there is no
     // policy to enforce; any other failure is a genuine read failure.
-    if (isMissingSchema(error)) return new Map();
+    if (!strict && isMissingSchema(error)) return new Map();
     throw new Error(`promo policy read failed: ${error.message}`);
   }
   const out = new Map<string, string | null>();
@@ -59,12 +62,12 @@ async function loadPolicies(db: SupabaseClient): Promise<ReadonlyMap<string, str
 }
 
 /** Every code policy, keyed by normalized code. `ok: false` when the table cannot be read. */
-export async function readPromoCodePolicies(db?: SupabaseClient): Promise<PromoPolicyRead> {
+export async function readPromoCodePolicies(db?: SupabaseClient, context?: SenderPolicyReadContext): Promise<PromoPolicyRead> {
   try {
     const client = db ?? createSupabaseServiceRoleClient();
-    const expiresAtByCode = serverSnapshotCacheEnabled()
+    const expiresAtByCode = !context && serverSnapshotCacheEnabled()
       ? await policyCache.get("all", () => loadPolicies(client))
-      : await loadPolicies(client);
+      : await loadPolicies(client, Boolean(context));
     return { ok: true, expiresAtByCode };
   } catch (error) {
     console.error("promo code policy read failed", error);
@@ -121,6 +124,7 @@ export async function waiverGrantEndedFor(input: {
   promoEndsAt?: string | null;
   db?: SupabaseClient;
   nowMs?: number;
+  context?: SenderPolicyReadContext;
 }): Promise<boolean> {
   const key = promoPolicyKey(input.promoCode);
   if (!key) return false;
@@ -136,8 +140,11 @@ export async function waiverGrantEndedFor(input: {
     }
   }
 
-  const policies = await readPromoCodePolicies(db);
+  const policies = await readPromoCodePolicies(db, input.context);
+  if (input.context && !policies.ok) throw new Error("Sender promo policy is unreadable.");
   const policyExpiresAt = policies.ok ? policies.expiresAtByCode.get(key) ?? null : null;
+  recordSenderPolicyTransition(input.context, policyExpiresAt);
+  recordSenderPolicyTransition(input.context, promoEndsAt);
   return isWaiverGrantEnded({ policyExpiresAt, promoEndsAt, nowMs: input.nowMs });
 }
 

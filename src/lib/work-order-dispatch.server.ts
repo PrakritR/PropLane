@@ -1,3 +1,5 @@
+import { sweepVendorSourcing } from "@/lib/vendor-sourcing.server";
+import { workOrderCoordinationEnrolled } from "@/lib/vendor-coordination.server";
 /**
  * Server-side vendor-dispatch pipeline. `prepareDispatch` runs after a resident
  * files a work order (deterministic vendor ranking — no LLM); `executeDispatch`
@@ -87,6 +89,14 @@ export async function prepareDispatch(db: Db, workOrderId: string): Promise<void
   if (row.vendorId || row.selfAssigned) return;
   if (!row.category) return;
   if (row.dispatch) return;
+
+  // Quote collection precedes every dispatch route, including rule-based runs.
+  const sourcingSettings = await loadVendorDispatchSettings(db, managerUserId);
+  if (sourcingSettings.quoteSourcingEnabled) { await sweepVendorSourcing(db, workOrderId); return; }
+  const { data: sourcing, error: sourcingError } = await db.from("vendor_sourcing_jobs").select("state").eq("work_order_id", workOrderId).maybeSingle();
+  if (sourcingError) throw new Error("Sourcing state unavailable.");
+  if (sourcing && sourcing.state !== "dormant") return;
+  if (await workOrderCoordinationEnrolled(db, workOrderId)) return;
 
   // Rule-based dispatch (vendor-dispatch-1018): a workspace with an active rule for this trade
   // and issue gets a run awaiting the manager's text approval INSTEAD of the legacy proposal.
@@ -253,6 +263,9 @@ export async function executeDispatch(
   if ((record.manager_user_id as string | null) !== args.landlordId) {
     return { ok: false, error: "Forbidden.", status: 403 };
   }
+  const { data: sourcing, error: sourcingError } = await db.from("vendor_sourcing_jobs").select("state").eq("work_order_id", args.workOrderId).maybeSingle();
+  if (sourcingError || (sourcing && sourcing.state !== "dormant") || (await loadVendorDispatchSettings(db, args.landlordId)).quoteSourcingEnabled) return { ok: false, status: 409, error: "Vendor sourcing collects quotes only. Review and approve an exact proposal before booking." };
+  if (await workOrderCoordinationEnrolled(db, args.workOrderId)) return { ok: false, status: 409, error: "Approve the participant-agreed coordination proposal before booking." };
   const dispatch = row.dispatch;
   if (!dispatch || dispatch.status !== "proposed") {
     return { ok: false, error: "No pending dispatch proposal for this work order.", status: 409 };

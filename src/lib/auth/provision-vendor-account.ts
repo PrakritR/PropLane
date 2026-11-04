@@ -217,16 +217,12 @@ export async function linkDirectoryRowToVendor(
   opts: { directoryId: string; managerUserId: string; vendorUserId: string },
 ): Promise<void> {
   const nowIso = new Date().toISOString();
-  await supabase
-    .from("manager_vendor_records")
-    .update({ vendor_user_id: opts.vendorUserId, updated_at: nowIso })
-    .eq("id", opts.directoryId)
-    .eq("manager_user_id", opts.managerUserId);
-  await supabase
-    .from("work_order_vendor_offers")
-    .update({ vendor_user_id: opts.vendorUserId, updated_at: nowIso })
-    .eq("vendor_directory_id", opts.directoryId)
-    .is("vendor_user_id", null);
+  const { error: linkError } = await supabase.rpc("link_vendor_directory_account", {
+    p_directory_id: opts.directoryId,
+    p_manager_user_id: opts.managerUserId,
+    p_vendor_user_id: opts.vendorUserId,
+  });
+  if (linkError) throw new Error(linkError.message);
   // A service assigned to this directory row before the vendor had a login: give the
   // inviting manager's records the account, so it shows up in the vendor's portal.
   // Scoped to this manager and to rows still unowned; a self-assigned row stays unowned.
@@ -337,17 +333,19 @@ export async function provisionVendorAccountByEmail(
   let linkedManagerId: string | null = null;
 
   if (invite) {
-    linkedManagerId = invite.manager_user_id;
-
     if (invite.vendor_directory_id) {
-      await linkDirectoryRowToVendor(supabase, {
-        directoryId: invite.vendor_directory_id,
-        managerUserId: invite.manager_user_id,
-        vendorUserId: opts.userId,
-      });
+      try {
+        await linkDirectoryRowToVendor(supabase, {
+          directoryId: invite.vendor_directory_id,
+          managerUserId: invite.manager_user_id,
+          vendorUserId: opts.userId,
+        });
+      } catch (error) {
+        return { ok: false, status: 500, error: error instanceof Error ? error.message : "Vendor linking failed." };
+      }
     } else {
       const directoryId = makeVendorId();
-      await supabase.from("manager_vendor_records").upsert(
+      const { error: directoryError } = await supabase.from("manager_vendor_records").insert(
         {
           id: directoryId,
           manager_user_id: invite.manager_user_id,
@@ -364,9 +362,10 @@ export async function provisionVendorAccountByEmail(
           },
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "id" },
       );
+      if (directoryError) return { ok: false, status: 500, error: directoryError.message };
     }
+    linkedManagerId = invite.manager_user_id;
 
     // Idempotent: the caller claims the invite up front (claimVendorInvite), so
     // this only fills in the accepted user for paths that did not know it yet.

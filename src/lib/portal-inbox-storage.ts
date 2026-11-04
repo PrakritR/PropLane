@@ -193,6 +193,8 @@ export type PersistedInboxThread = {
   ownerUserId?: string;
   smsNoticePhone?: string;
   sourceThreadIds?: string[];
+  /** Display-only quote source hints. The send route reauthorizes every selected ID. */
+  quoteReplySources?: { threadId: string; recordRef?: RecordRef; subject?: string }[];
   /** Response-only server observations for metadata-only viewed acknowledgements. */
   readSources?: {
     id: string;
@@ -468,6 +470,12 @@ export function normalizePersistedInboxThread(thread: PersistedInboxThread): Per
     // Malformed `recordRef` (bad kind, empty id/label) never renders a chip or
     // participates in filtering rather than crashing the list on a bad row.
     recordRef: normalizeRecordRef(thread.recordRef) ?? undefined,
+    quoteReplySources: Array.isArray(thread.quoteReplySources)
+      ? thread.quoteReplySources.flatMap((source) => {
+          if (!source || typeof source.threadId !== "string" || !source.threadId.startsWith("vendor_quote_")) return [];
+          return [{ threadId: source.threadId, recordRef: normalizeRecordRef(source.recordRef) ?? undefined,
+            subject: typeof source.subject === "string" ? source.subject : undefined }];
+        }) : undefined,
   };
 }
 
@@ -1426,7 +1434,12 @@ export function collapsePersonInboxThreads(
     const seen = keyedGroupByEmail.get(email);
     keyedGroupByEmail.set(email, seen === undefined || seen === ck ? ck : null);
   }
-  for (const thread of threads) {
+  for (const original of threads) {
+    const quoteReplySources = [...(original.quoteReplySources ?? [])];
+    if (original.id.startsWith("vendor_quote_") && !quoteReplySources.some((source) => source.threadId === original.id)) {
+      quoteReplySources.push({ threadId: original.id, recordRef: original.recordRef, subject: original.subject });
+    }
+    const thread = quoteReplySources.length ? { ...original, quoteReplySources } : original;
     const keyed = personConversationGroupKey(thread);
     if (keyedOnly && !keyed) {
       solo.push(thread);
@@ -1464,8 +1477,11 @@ export function collapsePersonInboxThreads(
   const merged: PersistedInboxThread[] = [...solo];
   for (const rawGroup of groups.values()) {
     const group = dropSubsumedMembers(rawGroup);
+    // Keep display hints from subsumed server aliases too. These never authorize a reply.
+    const quoteReplySources = [...new Map(rawGroup.flatMap((thread) => thread.quoteReplySources ?? [])
+      .map((source) => [source.threadId, source])).values()];
     if (group.length <= 1) {
-      merged.push(group[0]!);
+      merged.push(quoteReplySources.length ? { ...group[0]!, quoteReplySources } : group[0]!);
       continue;
     }
     const sorted = [...group].sort(
@@ -1500,6 +1516,7 @@ export function collapsePersonInboxThreads(
     merged.push({
       ...canonical,
       sourceThreadIds: [...new Set(group.flatMap((t) => t.sourceThreadIds ?? [t.id]))],
+      quoteReplySources,
       // Every house any member is about: one conversation spans houses.
       ...(group.some((t) => t.houses?.length)
         ? {

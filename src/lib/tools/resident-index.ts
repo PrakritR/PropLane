@@ -1,3 +1,4 @@
+import { residentCoordinationTools } from "./domains/vendor-coordination";
 /**
  * The resident portal's tool registry. Tools bind to ResidentAgentContext and
  * scope every query by the resident's own identity. The registry is filtered
@@ -50,6 +51,7 @@ import { lookupPropertyKnowledgeResidentTool } from "./domains/knowledge";
 type ResidentTool = ToolDefinition<any, any, ResidentAgentContext>;
 
 const ALL_RESIDENT_TOOLS: ResidentTool[] = [
+  ...residentCoordinationTools,
   // One-number knowledge: only what the team approved for residents (and house details once unlocked).
   lookupPropertyKnowledgeResidentTool,
   // Link-first: the portal page for whatever the resident wants to do. Pure

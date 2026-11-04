@@ -85,6 +85,13 @@ import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 import { withoutOwnerLinks } from "@/lib/co-manager-team-roles";
 import { isHouseThreadId } from "@/lib/house-thread-id";
 import { handleHouseChatPost, houseReplyMessageId } from "@/lib/house-chat/post.server";
+import { inboxThreadCounterpartyEmail } from "@/lib/portal-inbox-storage";
+import { buildVendorQuoteInboundReplyAddress, isVendorQuoteOutboundReplyAuthorized } from "@/lib/vendor-quote-contact.server";
+import { canSendVendorQuoteEmail } from "@/lib/vendor-quote-email-policy.server";
+import { resolveVendorOutreachIdentity, vendorQuoteSenderMatches } from "@/lib/vendor-outreach-identity.server";
+import type { InboxThreadReplyTarget } from "@/lib/portal-inbox-delivery";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { VendorQuoteSenderIdentity } from "@/lib/vendor-quote-contract";
 
 export const runtime = "nodejs";
 
@@ -92,6 +99,55 @@ const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
 
 const VENDOR_INBOX_SCOPE = "axis_portal_inbox_vendor_v1";
+
+async function resolveVendorQuoteManagerEmail(
+  db: SupabaseClient,
+  target: InboxThreadReplyTarget,
+  recipientEmail: string,
+): Promise<{ fromAddress: string; replyToAddress: string; threadingKey: string; workOrderId: string; capabilityId: string; sender: VendorQuoteSenderIdentity; issueReply: () => Promise<{ replyToAddress: string; capabilityId: string } | null> } | null> {
+  const managerUserId = target.ownerUserId;
+  const capabilityId = target.rowData.quoteCapabilityId;
+  const normalizedRecipient = recipientEmail.trim().toLowerCase();
+  if (target.scope !== MANAGER_INBOX_SCOPE || !managerUserId || typeof capabilityId !== "string" ||
+      String(target.rowData.email ?? "").trim().toLowerCase() !== normalizedRecipient) return null;
+  const { data: cap, error } = await db.from("vendor_quote_contact_capabilities")
+    .select("id,manager_user_id,work_order_id,candidate_id,vendor_directory_id,proposal_id,recipient_email,revoked_at,consumed_at,expires_at")
+    .eq("id", capabilityId).maybeSingle();
+  if (error || !cap || cap.revoked_at || cap.consumed_at || !(Date.parse(String(cap.expires_at)) > Date.now()) || cap.manager_user_id !== managerUserId ||
+      String(cap.recipient_email).toLowerCase() !== normalizedRecipient ||
+      target.threadId !== `vendor_quote_${cap.work_order_id}_${cap.vendor_directory_id}` ||
+      normalizeRecordRef(target.rowData.recordRef)?.kind !== "service" ||
+      normalizeRecordRef(target.rowData.recordRef)?.id !== String(cap.work_order_id)) return null;
+  if (!(await canSendVendorQuoteEmail(db, normalizedRecipient))) return null;
+  const sender = await resolveVendorOutreachIdentity(db, managerUserId, String(cap.work_order_id));
+  if (!sender || !sender.email) return null;
+  const [{ data: candidate }, { data: offer }] = await Promise.all([
+    db.from("vendor_sourcing_candidates").select("expires_at").eq("id", cap.candidate_id).eq("manager_user_id", managerUserId).maybeSingle(),
+    db.from("work_order_vendor_offers").select("expires_at").eq("work_order_id", cap.work_order_id)
+      .eq("manager_user_id", managerUserId).eq("vendor_directory_id", cap.vendor_directory_id).maybeSingle(),
+  ]);
+  const expiresAt = Math.min(Date.parse(String(candidate?.expires_at ?? "")), Date.parse(String(offer?.expires_at ?? "")));
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return null;
+  const issueReply = async () => {
+    const reply = await buildVendorQuoteInboundReplyAddress(db, {
+      managerUserId, workOrderId: String(cap.work_order_id), candidateId: String(cap.candidate_id),
+      directoryId: String(cap.vendor_directory_id), proposalId: String(cap.proposal_id),
+      recipientEmail: normalizedRecipient, senderIdentity: sender, expiresAt: new Date(expiresAt).toISOString(),
+    }).catch(() => null);
+    if (!reply || !vendorQuoteSenderMatches(await resolveVendorOutreachIdentity(db, managerUserId, String(cap.work_order_id)), sender)) return null;
+    return { replyToAddress: reply.address, capabilityId: reply.capabilityId };
+  };
+  const displayName = sender.displayName.replace(/[\r\n<>]/g, "").trim().slice(0, 80);
+  return {
+    fromAddress: displayName ? `${displayName} <${sender.email}>` : sender.email,
+    replyToAddress: "",
+    capabilityId: "",
+    issueReply,
+    threadingKey: target.threadId,
+    workOrderId: String(cap.work_order_id),
+    sender,
+  };
+}
 
 function normalizeEmails(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter(Boolean);
@@ -226,6 +282,8 @@ export async function POST(req: Request) {
       subject?: string;
       text?: string;
       threadId?: string;
+      /** Explicit service source selected in a collapsed person conversation. Never authority. */
+      quoteContextThreadId?: unknown;
       deliverToPortalInbox?: boolean;
       deliverViaEmail?: boolean;
       deliverViaSms?: boolean;
@@ -250,6 +308,10 @@ export async function POST(req: Request) {
     };
 
     const threadId = String(body.threadId ?? "").trim();
+    const quoteContextThreadId = typeof body.quoteContextThreadId === "string" ? body.quoteContextThreadId.trim() : "";
+    if (body.quoteContextThreadId !== undefined && (!quoteContextThreadId || !quoteContextThreadId.startsWith("vendor_quote_"))) {
+      return NextResponse.json({ ok: false, error: "Invalid service conversation selection." }, { status: 400 });
+    }
     // The sender address is the authenticated account's, never the request body's
     // (`body.fromEmail` is accepted for old clients but no longer read): sender identity,
     // like the From header and the SMS line, is derived server-side.
@@ -345,9 +407,12 @@ export async function POST(req: Request) {
     // yet: the recipient-scope gate below can still refuse this send with a 403,
     // and a refused message must never appear in the thread store. The commit is
     // deferred until that gate passes. See `resolveInboxThreadReplyTarget`.
-    const replyTarget = threadId
+    let replyTarget = threadId
       ? await resolveInboxThreadReplyTarget(db, { threadId, senderUserId: user.id, senderEmail })
       : null;
+    if (threadId.startsWith("vendor_quote_") && !replyTarget) {
+      return NextResponse.json({ ok: false, error: "This service conversation is unavailable." }, { status: 403 });
+    }
     // Stamp the sender's own copy with the channel this send is leaving on, so
     // a reload shows the same tag the optimistic bubble did — and an in-app-only
     // send never reads as EMAIL. Email turns also keep their subject.
@@ -593,6 +658,7 @@ export async function POST(req: Request) {
     let recipients = [...recipientsByEmail.values()];
     // The workspace a manager send leaves from; also names whose plan the send is held to.
     let managerSendScope: Awaited<ReturnType<typeof resolveCommunicationScope>> | null = null;
+    let requiresQuoteRecipientAuthorization = false;
     if (!senderActsAsAdmin) {
       // A manager send is checked against the active workspace and the houses
       // they are granted - "All residents" in workspace A reaches only A.
@@ -606,12 +672,127 @@ export async function POST(req: Request) {
         recipients,
       );
       if (allowed.length === 0) {
-        return NextResponse.json(
+        // A directory-only vendor has no accepted portal relationship. Only a
+        // scoped quote capability may authorize that one recipient below.
+        requiresQuoteRecipientAuthorization = deliverViaEmail && senderRole === "manager" && recipients.length === 1 &&
+          (replyTarget?.scope === MANAGER_INBOX_SCOPE || recordRef?.kind === "service");
+        if (!requiresQuoteRecipientAuthorization) return NextResponse.json(
           { ok: false, error: "You can only message people connected to your account." },
           { status: 403 },
         );
+      } else recipients = allowed;
+    }
+
+    // Logical quote identity survives physical person-thread folding. Projection
+    // hints never authorize it: enumerate persisted source rows and scoped
+    // capabilities whose aliases name an existing conversation with this person.
+    let logicalQuoteTarget: InboxThreadReplyTarget | null = null;
+    let quotePropertyId: string | null = null;
+    if (quoteContextThreadId && (!deliverViaEmail || senderRole !== "manager" || !threadId)) {
+      return NextResponse.json({ ok: false, error: "This service conversation is unavailable." }, { status: 409 });
+    }
+    if (deliverViaEmail && senderRole === "manager" &&
+        (replyTarget?.scope === MANAGER_INBOX_SCOPE || recordRef?.kind === "service")) {
+      const ownerId = replyTarget?.ownerUserId ?? user.id;
+      const personEmail = replyTarget ? inboxThreadCounterpartyEmail({
+        email: String(replyTarget.rowData.email ?? ""), from: String(replyTarget.rowData.from ?? ""), body: String(replyTarget.rowData.body ?? ""),
+      }) : recipients.length === 1 ? recipients[0]!.email : "";
+      const { data: personRows, error: personError } = await db.from("portal_inbox_thread_records")
+        .select("id,row_data").eq("owner_user_id", ownerId).eq("scope", MANAGER_INBOX_SCOPE)
+        .ilike("row_data->>email", personEmail);
+      if (personError || !personRows || !ownerId) {
+        return NextResponse.json({ ok: false, error: "This service conversation is unavailable." }, { status: 409 });
       }
-      recipients = allowed;
+      const liveRows = personRows.filter((row) => {
+        const data = (row.row_data ?? {}) as Record<string, unknown>;
+        return data.folder !== "trash" && personEmail.includes("@") &&
+          inboxThreadCounterpartyEmail({ email: String(data.email ?? ""), from: String(data.from ?? ""), body: String(data.body ?? "") }) === personEmail;
+      });
+      const sources = new Map<string, { storageId: string; capabilityId: unknown; workOrderId: string; recordRef: RecordRef | null }>();
+      for (const row of liveRows) {
+        if (!String(row.id).startsWith("vendor_quote_")) continue;
+        const data = (row.row_data ?? {}) as Record<string, unknown>;
+        const ref = normalizeRecordRef(data.recordRef);
+        sources.set(String(row.id), { storageId: String(row.id), capabilityId: data.quoteCapabilityId,
+          workOrderId: ref?.kind === "service" ? ref.id : "", recordRef: ref ?? null });
+      }
+      if (liveRows.length) {
+        const { data: aliases, error: aliasError } = await db.from("portal_inbox_thread_aliases")
+          .select("alias_id,thread_id").in("thread_id", liveRows.map((row) => String(row.id)));
+        if (aliasError) return NextResponse.json({ ok: false, error: "This service conversation is unavailable." }, { status: 409 });
+        const quoteAliases = (aliases ?? []).filter((alias) => String(alias.alias_id).startsWith("vendor_quote_") &&
+          liveRows.some((row) => row.id === alias.thread_id));
+        if (quoteAliases.length) {
+          const { data: capabilities, error: capabilityError } = await db.from("vendor_quote_contact_capabilities")
+            .select("id,manager_user_id,work_order_id,vendor_directory_id,recipient_email,created_at")
+            .eq("manager_user_id", ownerId).eq("recipient_email", personEmail).order("created_at", { ascending: false });
+          if (capabilityError) return NextResponse.json({ ok: false, error: "This service conversation is unavailable." }, { status: 409 });
+          for (const cap of capabilities ?? []) {
+            if (cap.manager_user_id !== ownerId || String(cap.recipient_email).trim().toLowerCase() !== personEmail) continue;
+            const logicalId = `vendor_quote_${cap.work_order_id}_${cap.vendor_directory_id}`;
+            const alias = quoteAliases.find((row) => row.alias_id === logicalId);
+            if (!alias || sources.has(logicalId)) continue;
+            sources.set(logicalId, { storageId: String(alias.thread_id), capabilityId: cap.id,
+              workOrderId: String(cap.work_order_id), recordRef: { kind: "service", id: String(cap.work_order_id), label: recordRef?.id === cap.work_order_id ? recordRef.label : String(cap.work_order_id) } });
+          }
+          // A quote alias without its capability must never silently become ordinary mail.
+          if (quoteAliases.some((alias) => !sources.has(String(alias.alias_id)))) {
+            return NextResponse.json({ ok: false, error: "This service conversation is unavailable." }, { status: 409 });
+          }
+        }
+      }
+      let selectedId = quoteContextThreadId || (threadId.startsWith("vendor_quote_") ? threadId : "");
+      if (!selectedId && recordRef?.kind === "service") {
+        const matching = [...sources].filter(([, source]) => source.workOrderId === recordRef.id);
+        if (matching.length === 1) selectedId = matching[0]![0];
+      }
+      if (sources.size || quoteContextThreadId || threadId.startsWith("vendor_quote_")) {
+        const source = sources.get(selectedId);
+        if (!source || (!quoteContextThreadId && threadId && !threadId.startsWith("vendor_quote_") && source.storageId !== replyTarget?.threadId) ||
+            recipients.length !== 1 || recipients[0]!.email !== personEmail ||
+            replyTarget?.rowData.folder === "trash" || (recordRef && (recordRef.kind !== "service" || recordRef.id !== source.workOrderId))) {
+          return NextResponse.json({ ok: false, error: "Choose the service quote conversation before replying." }, { status: 409 });
+        }
+        const selected = await resolveInboxThreadReplyTarget(db, { threadId: source.storageId, senderUserId: user.id, senderEmail });
+        if (!selected || selected.scope !== MANAGER_INBOX_SCOPE || selected.ownerUserId !== ownerId ||
+            selected.rowData.folder === "trash" || String(selected.rowData.email ?? "").trim().toLowerCase() !== personEmail) {
+          return NextResponse.json({ ok: false, error: "This service conversation is unavailable." }, { status: 409 });
+        }
+        const { data: service, error: serviceError } = await db.from("portal_work_order_records")
+          .select("id,assigned_property_id,property_id,row_data").eq("id", source.workOrderId).eq("manager_user_id", ownerId).maybeSingle();
+        if (serviceError || !service || deliverViaSms) return NextResponse.json({ ok: false, error: "This service conversation is unavailable." }, { status: 403 });
+        const serviceData = (service.row_data ?? {}) as Record<string, unknown>;
+        quotePropertyId = [service.assigned_property_id, service.property_id, serviceData.propertyId]
+          .find((id): id is string => typeof id === "string" && Boolean(id.trim()))?.trim() ?? null;
+        if (!senderActsAsAdmin && managerSendScope && (
+          (managerSendScope.workspaceHouseIds && (!quotePropertyId || !managerSendScope.workspaceHouseIds.has(quotePropertyId))) ||
+          (ownerId !== user.id && (!quotePropertyId || !managerSendScope.grantedHousesByOwner.get(ownerId)?.has(quotePropertyId)))
+        )) return NextResponse.json({ ok: false, error: "This service conversation is unavailable." }, { status: 403 });
+        // Keep physical storage authority unchanged. Only the signed email binding
+        // and per-turn record label use the logical service identity.
+        replyTarget = selected;
+        logicalQuoteTarget = { ...selected, threadId: selectedId, rowData: { ...selected.rowData,
+          quoteCapabilityId: source.capabilityId, recordRef: source.recordRef } };
+        replyBody.recordRef = source.recordRef ?? undefined;
+      }
+      if (recordRef?.kind === "service" && !logicalQuoteTarget) {
+        const { data: service, error: serviceError } = await db.from("portal_work_order_records")
+          .select("id").eq("id", recordRef.id).eq("manager_user_id", ownerId).maybeSingle();
+        if (serviceError || !service) return NextResponse.json({ ok: false, error: "This service conversation is unavailable." }, { status: 403 });
+      }
+    } else if (quoteContextThreadId) {
+      return NextResponse.json({ ok: false, error: "This service conversation is unavailable." }, { status: 409 });
+    }
+    const quoteReply = logicalQuoteTarget && deliverViaEmail
+      ? recipients.length === 1 && senderRole === "manager"
+        ? await resolveVendorQuoteManagerEmail(db, logicalQuoteTarget, recipients[0]!.email)
+        : null
+      : undefined;
+    if (requiresQuoteRecipientAuthorization && !quoteReply) {
+      return NextResponse.json({ ok: false, error: "You can only message people connected to your account." }, { status: 403 });
+    }
+    if (logicalQuoteTarget && !quoteReply) {
+      return NextResponse.json({ ok: false, error: "This service email conversation is unavailable." }, { status: 409 });
     }
 
     // A Property owner's copy belongs in the scope their Messages page reads,
@@ -648,6 +829,9 @@ export async function POST(req: Request) {
     if (replyTarget) {
       const stored = await loadThreadConversation(db, replyTarget.threadId);
       replyThreadWorkspaceId = stored.workspaceId;
+      if (quoteReply && stored.workspaceId && quoteReply.sender.workspaceId !== stored.workspaceId) {
+        return NextResponse.json({ ok: false, error: "This service conversation is unavailable." }, { status: 409 });
+      }
       const match = await replyRecipientsMatchThread(db, {
         thread: {
           id: replyTarget.threadId,
@@ -683,16 +867,26 @@ export async function POST(req: Request) {
       }
     }
 
+    if (quoteReply) {
+      // Creating a reply capability is also a write. Defer it until the active
+      // workspace, recipient and owner-plan gates above have all succeeded.
+      const issued = await quoteReply.issueReply();
+      if (!issued) return NextResponse.json({ ok: false, error: "This service email conversation is unavailable." }, { status: 409 });
+      quoteReply.replyToAddress = issued.replyToAddress;
+      quoteReply.capabilityId = issued.capabilityId;
+    }
+
     // Every gate is now clear, so the reply may finally land in its thread. A
     // send refused above returns before this line and writes nothing.
-    if (replyTarget) {
-      await commitInboxThreadReply(db, replyTarget, {
-        ...replyBody,
-        senderUserId: user.id,
-        houseId: propertyId || undefined,
-        houseLabel: propertyId ? await propertyLabelFor(db, propertyId) : undefined,
+    const quoteMessageId = quoteReply ? `quote-reply:${sendId || crypto.randomUUID()}` : undefined;
+    if (replyTarget) await commitInboxThreadReply(db, replyTarget, {
+      ...replyBody, senderUserId: user.id, houseId: quotePropertyId || propertyId || undefined, houseLabel: (quotePropertyId || propertyId) ? await propertyLabelFor(db, quotePropertyId || propertyId) : undefined, ...(quoteMessageId ? { messageId: quoteMessageId, delivery: "sending" as const } : {}),
+    });
+    const finalizeQuoteReply = async (sent: boolean) => {
+      if (quoteReply && replyTarget && quoteMessageId) await commitInboxThreadReply(db, replyTarget, {
+        ...replyBody, messageId: quoteMessageId, delivery: sent ? "sent" : "failed", finalDelivery: true,
       });
-    }
+    };
 
     // PRP-109: a resident who TEXTS "the sink is leaking" has had a work order
     // opened for them since the Claw work; the same sentence typed here did
@@ -903,7 +1097,9 @@ export async function POST(req: Request) {
       );
     }
 
-    if (deliverToPortalInbox && recipients.length > 0 && !residentPropertyChat) {
+    // The quote thread already owns this exact saved turn and its delivery result.
+    // Do not create a second generic Sent projection that loses that result.
+    if (deliverToPortalInbox && recipients.length > 0 && !residentPropertyChat && !quoteReply) {
       const senderScope = scopeForRole(senderRole);
 
       const when = formatPacificDateTime(new Date());
@@ -1083,8 +1279,10 @@ export async function POST(req: Request) {
           { onConflict: "id" },
         );
       }
+      await finalizeQuoteReply(false);
       return NextResponse.json({
         ok: true,
+        ...(quoteReply ? { emailSent: false, deliveryState: "unsent", messageId: quoteMessageId, error: "Reply saved, but email was not sent." } : {}),
         skipped: true,
         reason: "No eligible real recipients — portal inbox updated.",
         ...(propertyThreadId ? { propertyThreadId } : {}),
@@ -1095,8 +1293,19 @@ export async function POST(req: Request) {
     let emailSent = false;
     let emailResults = new Map<string, { sent: boolean; resendId: string | null }>();
 
+    // This callback runs inside the sender, after its awaits and immediately
+    // before either capture or provider handoff. Inbound-read authority is separate.
+    const authorizeQuoteDelivery = quoteReply ? async (email: string) => {
+      if (!(await isVendorQuoteOutboundReplyAuthorized(db, {
+        capabilityId: quoteReply.capabilityId, recipientEmail: email,
+      }))) return false;
+      if (!vendorQuoteSenderMatches(await resolveVendorOutreachIdentity(db,
+        quoteReply.sender.managerUserId, quoteReply.workOrderId), quoteReply.sender)) return false;
+      return canSendVendorQuoteEmail(db, email);
+    } : undefined;
     if (emailToSend.length > 0) {
-      const html = `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p><hr style="margin:24px 0;border:none;border-top:1px solid #e2e8f0"><p style="font-family:sans-serif;font-size:12px;color:#94a3b8">Sent via PropLane portal by ${String(fromName).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")}</p>`; // the sender name is display text from the request — never HTML
+      const emailDisplayName = quoteReply?.sender.displayName ?? fromName;
+      const html = `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p><hr style="margin:24px 0;border:none;border-top:1px solid #e2e8f0"><p style="font-family:sans-serif;font-size:12px;color:#94a3b8">Sent via PropLane portal by ${String(emailDisplayName).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")}</p>`;
       // Per-recipient sends carrying the signed Reply-To + threading anchor.
       // Inbox already written — email stays best-effort, soft-failing per recipient.
       emailResults = await sendPortalConversationEmails({
@@ -1105,14 +1314,16 @@ export async function POST(req: Request) {
         subject,
         text,
         html,
+        authorizeDelivery: authorizeQuoteDelivery,
+        ...(quoteReply ? { replyToAddress: quoteReply.replyToAddress, threadingKey: quoteReply.threadingKey } : {}),
         // A manager's mail carries the WORKSPACE work email with their own name on it —
         // this is the route every Communication compose screen posts to, and it was the
         // one send path still leaving as the shared "PropLane" sender. Resolved per send,
         // never cached, so a work email set up a minute ago rides on the next message.
         // Residents, vendors and admins keep the shared sender: the address is a
         // manager identity, not a portal one.
-        fromAddress:
-          senderRole === "manager" ? await resolveManagerOutboundFrom(db, user.id) : null,
+        fromAddress: quoteReply?.fromAddress ??
+          (senderRole === "manager" ? await resolveManagerOutboundFrom(db, user.id) : null),
       });
       for (const email of emailToSend) {
         const result = emailResults.get(email);
@@ -1122,6 +1333,8 @@ export async function POST(req: Request) {
         }
       }
     }
+
+    await finalizeQuoteReply(emailSent);
 
     const sentAt = new Date().toISOString();
 
@@ -1325,6 +1538,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       id: emailResendId,
+      ...(quoteReply ? { emailSent, messageId: quoteMessageId, deliveryState: emailSent ? "sent" : "unsent",
+        ...(!emailSent ? { error: "Reply saved, but email was not sent. Check the service conversation before retrying." } : {}) } : {}),
       ...(propertyThreadId ? { propertyThreadId } : {}),
     });
   } catch (err) {

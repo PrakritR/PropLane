@@ -20,6 +20,7 @@ import {
   formatScheduledLabel,
 } from "@/components/portal/inbox-composer-tools";
 import { Button } from "@/components/ui/button";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import {
   PortalContactDetailsModal,
@@ -478,6 +479,7 @@ export const ManagerInbox = forwardRef<
   const [pendingSendingThreadIds, setPendingSendingThreadIds] = useState<Set<string>>(() => new Set());
   const [inboxSynced, setInboxSynced] = useState(false);
   const persistInboxRef = useRef(true);
+  const serverReplyProjectionRef = useRef(false);
   const [internalExpandedId, setInternalExpandedId] = useState<string | null>(null);
   const expandedId = controlledExpandedId !== undefined ? controlledExpandedId : internalExpandedId;
   const setExpandedId = useCallback(
@@ -546,6 +548,10 @@ export const ManagerInbox = forwardRef<
   }, []);
 
   useEffect(() => {
+    if (serverReplyProjectionRef.current) {
+      serverReplyProjectionRef.current = false;
+      return;
+    }
     if (!inboxSynced || !persistInboxRef.current) return;
     persistInbox(MANAGER_INBOX_STORAGE_KEY, local);
   }, [local, inboxSynced]);
@@ -922,9 +928,24 @@ export const ManagerInbox = forwardRef<
       text: string,
       channels: { email: boolean; sms: boolean; proplane?: boolean },
       attachmentUrls: string[] = [],
+      quoteContextThreadId?: string,
     ) => {
       const thread = localRef.current.find((t) => t.id === rowId);
       if (!thread) return;
+      const collapsed = collapsePersonInboxThreads(localRef.current, { mergeFolders: embeddedInCommunication })
+        .find((row) => row.id === rowId);
+      const sourceIds = new Set(collapsed?.sourceThreadIds ?? [rowId]);
+      const quoteSources = [
+        ...(collapsed?.quoteReplySources ?? []),
+        ...localRef.current.filter((row) => sourceIds.has(row.id) && row.id.startsWith("vendor_quote_"))
+          .map((row) => ({ threadId: row.id })),
+      ];
+      if (quoteSources.length && !quoteSources.some((row) => row.threadId === quoteContextThreadId)) {
+        throw new InboxSendRefusal("Select a service before sending.");
+      }
+      if (quoteSources.length && (!channels.email || channels.sms || channels.proplane)) {
+        throw new InboxSendRefusal("Send service quote replies by email.");
+      }
       // A Team thread replies the way an assistant thread does: in-app only,
       // no person counterparty — the send route posts it to the team.
       const assistantThread = isPropLaneAssistantInboxThread(thread) || isTeamInboxThread(thread);
@@ -948,7 +969,8 @@ export const ManagerInbox = forwardRef<
         );
       }
 
-      const replyId = `reply-${Date.now().toString(36)}`;
+      const sendId = crypto.randomUUID();
+      const replyId = `reply-${sendId}`;
       const replyHouseId = replyHouseIdFor(thread);
       const attachmentMeta = attachmentMetaFromUrls(attachmentUrls);
       const subject = emailReplySubjectFor(thread.subject);
@@ -1019,6 +1041,8 @@ export const ManagerInbox = forwardRef<
       let proplaneOk = false;
       let smsUnknown = false;
       let failureMessage = "";
+      let savedEmailReply = false;
+      let emailUnsent = false;
       try {
         if (proplaneAllowed) {
           try {
@@ -1048,6 +1072,8 @@ export const ManagerInbox = forwardRef<
               credentials: "include",
               body: JSON.stringify({
                 threadId: thread.id,
+                quoteContextThreadId,
+                sendId,
                 fromName: "Property manager",
                 subject,
                 text,
@@ -1063,8 +1089,34 @@ export const ManagerInbox = forwardRef<
             const data = (await res.json().catch(() => ({}))) as {
               ok?: boolean;
               error?: string;
+              emailSent?: boolean;
+              deliveryState?: string;
+              messageId?: string;
             };
-            emailOk = res.ok && data.ok === true;
+            emailUnsent = data.emailSent === false || data.deliveryState === "unsent";
+            emailOk = res.ok && data.ok === true && !emailUnsent;
+            savedEmailReply = data.ok === true && Boolean(data.messageId);
+            if (savedEmailReply) {
+              // The server owns this saved turn and its durable delivery state.
+              // Reconcile the optimistic identity without writing a stale thread
+              // snapshot back over a late suppression or concurrent delivery.
+              serverReplyProjectionRef.current = true;
+              setLocal((current) => current.map((row) => {
+                const targetId = quoteContextThreadId && current.some((item) => item.id === quoteContextThreadId)
+                  ? quoteContextThreadId : thread.id;
+                if (row.id !== thread.id && row.id !== targetId) return row;
+                const messages = (row.messages ?? []).filter((message) =>
+                  message.id !== replyId && message.id !== data.messageId,
+                );
+                if (row.id !== targetId) return { ...row, messages };
+                const reconciled = appendReplyToInboxThread({ ...row, messages }, {
+                  ...reply,
+                  id: data.messageId!,
+                  delivery: emailUnsent ? "failed" : emailOk ? "sent" : "sending",
+                });
+                return emailOk ? advanceInboxAiDraft(reconciled) : { ...reconciled, aiDraft: row.aiDraft };
+              }));
+            }
             if (!emailOk) failureMessage = data.error?.trim() ?? "";
           } catch {
             failureMessage = "";
@@ -1132,14 +1184,20 @@ export const ManagerInbox = forwardRef<
           }
         }
 
+        if (savedEmailReply && emailUnsent) {
+          await syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, {
+            force: true,
+          }).catch(() => {});
+          throw new InboxSendRefusal(failureMessage || "Reply saved, but the email could not be sent.");
+        }
         if (!emailOk && !smsOk && !proplaneOk) {
-          rollbackReply();
+          if (!savedEmailReply) rollbackReply();
           throw new InboxSendRefusal(failureMessage || null);
         }
 
         const currentRows = localRef.current;
         const currentThread = currentRows.find((row) => row.id === thread.id);
-        if (currentThread) {
+        if (currentThread && !savedEmailReply) {
           const withReply = (currentThread.messages ?? []).some(
             (message) => message.id === replyId,
           )
@@ -1172,7 +1230,7 @@ export const ManagerInbox = forwardRef<
         smsUnknown,
       };
     },
-    [smsRecipients, smsOutboundEnabled],
+    [embeddedInCommunication, smsRecipients, smsOutboundEnabled],
   );
 
   // New message is the shared composer (it sends and schedules itself); this
@@ -1237,6 +1295,18 @@ export const ManagerInbox = forwardRef<
       ),
     [expandedId, emailThreads, local, userId],
   );
+  const quoteSources = useMemo(() => {
+    if (!activeThread) return [];
+    const ids = new Set(activeThread.sourceThreadIds ?? [activeThread.id]);
+    const rawSources = local.filter((row) => ids.has(row.id) && row.id.startsWith("vendor_quote_"))
+      .map((row) => ({ threadId: row.id, recordRef: row.recordRef, subject: row.subject }));
+    return [...new Map([...rawSources, ...(activeThread.quoteReplySources ?? [])]
+      .map((source) => [source.threadId, source])).values()];
+  }, [activeThread, local]);
+  const [quoteSelection, setQuoteSelection] = useState<{ threadId: string; sourceId: string } | null>(null);
+  const selectedQuoteSourceId = quoteSelection?.threadId === activeThread?.id
+    && quoteSources.some((row) => row.threadId === quoteSelection.sourceId)
+    ? quoteSelection.sourceId : undefined;
   const activeAiDraftAdopted = Boolean(
     activeThread?.aiDraft?.status === "pending_approval"
       && activeThread.aiDraft.text.trim()
@@ -1779,6 +1849,15 @@ export const ManagerInbox = forwardRef<
       return;
     }
 
+    if (quoteSources.length && !selectedQuoteSourceId) {
+      showToast("Select a service before sending.");
+      return;
+    }
+    if (quoteSources.length && scheduleLater) {
+      showToast("Service quote replies cannot be scheduled.");
+      return;
+    }
+
     // Ticked "Schedule for later" — the same press SCHEDULES rather than sends,
     // so there is one send button and no second way to fire the message.
     if (scheduleLater) {
@@ -1848,6 +1927,7 @@ export const ManagerInbox = forwardRef<
           proplane: replyViaProplane,
         },
         attachmentUrls,
+        selectedQuoteSourceId,
       );
       if (!outcome) return;
       setReplyDraft("");
@@ -1870,6 +1950,8 @@ export const ManagerInbox = forwardRef<
     }
   }, [
     activeThread,
+    quoteSources,
+    selectedQuoteSourceId,
     replyDraft,
     replyAttachments,
     replyViaEmail,
@@ -2079,7 +2161,7 @@ export const ManagerInbox = forwardRef<
         email: channels.viaEmail,
         sms: channels.viaSms,
         proplane: channels.viaProplane,
-      });
+      }, [], selectedQuoteSourceId);
       if (outcome) {
         adoptedAiDraftByThreadRef.current.delete(activeThread.id);
         setAdoptedAiDraftThreadId(null);
@@ -2110,6 +2192,7 @@ export const ManagerInbox = forwardRef<
     activeSmsAvailable,
     activeThread,
     handleReply,
+    selectedQuoteSourceId,
     replyDraft,
     replyViaEmail,
     replyViaProplane,
@@ -2767,6 +2850,24 @@ export const ManagerInbox = forwardRef<
               hideTrigger
               openSignal={askAssistantSignal}
             />
+            {quoteSources.length > 0 ? (
+              <FieldSingleSelect
+                label="Service"
+                dataAttr="inbox-quote-service-selection"
+                placeholder="Select a service"
+                value={selectedQuoteSourceId ?? ""}
+                onChange={(sourceId) => {
+                  setQuoteSelection({ threadId: activeThread.id, sourceId });
+                  setReplyViaEmail(true);
+                  setReplyViaSms(false);
+                  setReplyViaProplane(false);
+                }}
+                options={quoteSources.map((row) => ({
+                  value: row.threadId,
+                  label: row.recordRef?.label || row.subject || row.threadId,
+                }))}
+              />
+            ) : null}
             <InboxComposer
               value={replyDraft}
               onChange={(next) => {

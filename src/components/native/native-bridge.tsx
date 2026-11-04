@@ -1,6 +1,7 @@
 "use client";
 
-import { isNativeDeepLinkPath } from "@/lib/auth/native-entry-paths";
+import { claimNativeLaunchUrl } from "@/lib/native/launch-link-dedupe";
+import { nativeDeepLinkTarget } from "@/lib/auth/native-entry-paths";
 import { redirectNativeFromMarketing } from "@/lib/auth/native-welcome-redirect";
 import { detectNativePlatformSync, tagHtmlNativePlatform } from "@/lib/native/detect-native";
 import { installNativeZoomLock } from "@/lib/native/disable-native-zoom";
@@ -100,6 +101,12 @@ export function NativeBridge() {
           if (launch?.url) {
             const handled = await handleNativeOAuthReturnUrl(launch.url);
             if (handled) return;
+            const target = nativeDeepLinkTarget(launch.url);
+            const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+            if (target && await claimNativeLaunchUrl(launch.url) && target !== current) {
+              window.location.assign(target);
+              return;
+            }
           }
 
           const resume = await App.addListener("resume", () => {
@@ -115,18 +122,15 @@ export function NativeBridge() {
 
           const urlOpen = await App.addListener("appUrlOpen", (event) => {
             if (!event.url) return;
-            void (async () => {
+            return (async () => {
               const handled = await handleNativeOAuthReturnUrl(event.url);
               if (handled) return;
 
-              try {
-                const opened = new URL(event.url);
-                if (!isNativeDeepLinkPath(opened.pathname)) return;
-                const target = `${opened.pathname}${opened.search}${opened.hash}`;
-                window.location.assign(target);
-              } catch {
-                /* ignore malformed deep links */
-              }
+              const target = nativeDeepLinkTarget(event.url);
+              if (!target) return;
+              await claimNativeLaunchUrl(event.url);
+              const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+              if (target !== current) window.location.assign(target);
             })();
           });
           cleanups.push(() => void urlOpen.remove());

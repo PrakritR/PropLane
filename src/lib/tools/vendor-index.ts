@@ -1,3 +1,4 @@
+import { vendorCoordinationTools, vendorQuoteCoordinationTool } from "./domains/vendor-coordination";
 /**
  * The vendor portal's tool registry. Tools bind to VendorAgentContext and
  * scope every query by `vendor_user_id = ctx.userId` (or the owning-manager
@@ -22,6 +23,7 @@ import {
 type VendorTool = ToolDefinition<any, any, VendorAgentContext>;
 
 const ALL_VENDOR_TOOLS: VendorTool[] = [
+  ...vendorCoordinationTools, vendorQuoteCoordinationTool,
   // Link-first: the portal page for whatever the vendor wants to do.
   getVendorLinksTool,
   // Jobs / bids / offers

@@ -90,7 +90,7 @@ export async function loadPurchaseRowsByEmail<T extends { id: string }>(
   email: string,
   /** PostgREST select list; `email` is added when absent. */
   select: string,
-  opts: { claimedBy?: string | null } = {},
+  opts: { claimedBy?: string | null; strict?: boolean } = {},
 ): Promise<PurchaseRowsRead<T>> {
   const address = email.trim().toLowerCase();
   if (!address) return { rows: [], readFailed: false, error: null };
@@ -99,7 +99,9 @@ export async function loadPurchaseRowsByEmail<T extends { id: string }>(
   if (claimedBy && !UUID_PATTERN.test(claimedBy)) return { rows: [], readFailed: true, error: null };
 
   const base = db.from("manager_purchases").select(withEmailColumn(select)).ilike("email", escapeLikePattern(address));
-  const { data, error } = await (claimedBy ? base.or(`user_id.is.null,user_id.eq.${claimedBy}`) : base);
+  const query = claimedBy ? base.or(`user_id.is.null,user_id.eq.${claimedBy}`) : base;
+  const { data, error } = await (opts.strict ? query.limit(201) : query);
+  if (opts.strict && (data?.length ?? 0) > 200) return { rows: [], readFailed: true, error: { message: "Purchase row overflow." } };
   const rows = ((data ?? []) as unknown as Array<T & { email?: unknown }>).filter((row) => sameEmail(row.email, address));
   return { rows, readFailed: Boolean(error), error: error ?? null };
 }
@@ -109,6 +111,7 @@ export async function loadAccountPurchaseRows<T extends { id: string }>(
   userId: string,
   /** PostgREST select list; it MUST include `id`, which is how the two halves are merged. */
   select: string,
+  opts: { strict?: boolean } = {},
 ): Promise<PurchaseRowsRead<T>> {
   const id = userId.trim();
   if (!id) return { rows: [], readFailed: false, error: null };
@@ -120,14 +123,14 @@ export async function loadAccountPurchaseRows<T extends { id: string }>(
   // Both reads depend only on `id`, so neither waits on the other: this backs every portal page's plan
   // resolution, and a serialized Auth round trip would be paid on each one.
   const [byUserId, account] = await Promise.all([
-    db.from("manager_purchases").select(select).eq("user_id", id),
+    opts.strict ? db.from("manager_purchases").select(select).eq("user_id", id).limit(201) : db.from("manager_purchases").select(select).eq("user_id", id),
     isAuthId ? readConfirmedAuthEmail(db, id) : Promise.resolve({ email: "", error: null }),
   ]);
 
   // Exact, case-insensitive match on the CONFIRMED address; a by-email row already claimed by a
   // DIFFERENT account is never this account's (`loadPurchaseRowsByEmail`).
   const byEmail = account.email
-    ? await loadPurchaseRowsByEmail<T>(db, account.email, select, { claimedBy: id })
+    ? await loadPurchaseRowsByEmail<T>(db, account.email, select, { claimedBy: id, strict: opts.strict })
     : { rows: [] as T[], readFailed: false, error: null };
 
   const merged = new Map<string, T>();
@@ -136,7 +139,7 @@ export async function loadAccountPurchaseRows<T extends { id: string }>(
   }
   return {
     rows: [...merged.values()],
-    readFailed: Boolean(account.error) || Boolean(byUserId.error) || byEmail.readFailed,
+    readFailed: Boolean(account.error) || Boolean(byUserId.error) || byEmail.readFailed || Boolean(opts.strict && (byUserId.data?.length ?? 0) > 200),
     error: account.error ?? byUserId.error ?? byEmail.error ?? null,
   };
 }

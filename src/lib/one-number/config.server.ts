@@ -1,4 +1,5 @@
 import "server-only";
+import type { SenderPolicyReadContext } from "@/lib/one-number/sender-policy-read.server";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SharedLineConfig, SharedLineMode } from "@/lib/one-number/contracts";
@@ -38,12 +39,13 @@ export async function loadSharedLineConfig(db: SupabaseClient): Promise<SharedLi
  */
 export async function loadSharedLineConfigStrict(
   db: SupabaseClient,
+  context?: SenderPolicyReadContext,
 ): Promise<{ ok: true; config: SharedLineConfig } | { ok: false }> {
-  const read = await readSharedLineConfig(db);
+  const read = await readSharedLineConfig(db, context);
   return read.readFailed ? { ok: false } : { ok: true, config: read.config };
 }
 
-async function readSharedLineConfig(db: SupabaseClient): Promise<{ config: SharedLineConfig; readFailed: boolean }> {
+async function readSharedLineConfig(db: SupabaseClient, context?: SenderPolicyReadContext): Promise<{ config: SharedLineConfig; readFailed: boolean }> {
   const off = (readFailed: boolean) => ({ config: PER_WORKSPACE_CONFIG, readFailed });
   try {
     const { data, error } = await db
@@ -51,20 +53,22 @@ async function readSharedLineConfig(db: SupabaseClient): Promise<{ config: Share
       .select("line_mode, shared_number_e164, shared_messaging_service_sid, shared_pilot_workspace_ids")
       .eq("singleton", true)
       .maybeSingle();
-    if (error) return off(!isMissingSchemaError(error));
-    if (!data) return off(false);
+    if (error) return off(Boolean(context) || !isMissingSchemaError(error));
+    if (!data) return off(Boolean(context));
     const row = data as Record<string, unknown>;
-    const mode = MODES.find((m) => m === row.line_mode) ?? "per_workspace";
+    const knownMode = MODES.find((m) => m === row.line_mode);
+    if (context && !knownMode) return off(true);
+    const mode = knownMode ?? "per_workspace";
     const sharedNumber = normalizeE164(row.shared_number_e164);
     // Shadow only compares decisions and needs no number; a live shared line cannot exist without one.
-    if (mode === "shared" && !sharedNumber) return off(false);
+    if (mode === "shared" && !sharedNumber) return off(Boolean(context));
     const sid = typeof row.shared_messaging_service_sid === "string" ? row.shared_messaging_service_sid.trim() : "";
     const pilot = Array.isArray(row.shared_pilot_workspace_ids)
       ? row.shared_pilot_workspace_ids.map((id) => String(id ?? "").trim()).filter(Boolean)
       : [];
     // Which workspaces hold their own number only matters while the shared line is live.
     if (mode !== "shared") return { config: { mode, sharedNumber, messagingServiceSid: sid || null, pilotWorkspaceIds: pilot }, readFailed: false };
-    const dedicated = await loadDedicatedWorkspaceIds(db);
+    const dedicated = await loadDedicatedWorkspaceIds(db, context);
     // Unknown which workspaces hold their own number: stay on today's per-workspace lines.
     if (dedicated === null) return off(true);
     return {
@@ -97,8 +101,16 @@ function usableNumber(row: Record<string, unknown>): boolean {
  * workspace, plus any workspace linked to it through `workspace_work_numbers`. Null when it (or an
  * owner's entitlement) cannot be read.
  */
-async function loadDedicatedWorkspaceIds(db: SupabaseClient): Promise<string[] | null> {
-  const numbers = await db
+async function loadDedicatedWorkspaceIds(db: SupabaseClient, context?: SenderPolicyReadContext): Promise<string[] | null> {
+  const columns = "id, manager_user_id, workspace_id, phone_number, provision_state, registration_state, registration_ref, released_at";
+  // Quote proofs need this workspace only. Reuse the same entitlement policy without a platform-wide Auth fan-out.
+  const targetHolds = context ? await db.from("workspace_work_numbers").select("number_id").eq("workspace_id", context.workspaceId).limit(201) : null;
+  if (targetHolds && (targetHolds.error || (targetHolds.data?.length ?? 0) > 200)) return null;
+  const heldIds = (targetHolds?.data ?? []).map((row) => String(row.number_id));
+  const home = context ? await db.from("manager_sms_numbers").select(columns).eq("workspace_id", context.workspaceId).limit(201) : null;
+  const held = context && heldIds.length ? await db.from("manager_sms_numbers").select(columns).in("id", heldIds).limit(201) : null;
+  if (home?.error || held?.error || (home?.data?.length ?? 0) > 200 || (held?.data?.length ?? 0) > 200) return null;
+  const numbers = context ? { data: [...(home?.data ?? []), ...(held?.data ?? [])], error: null } : await db
     .from("manager_sms_numbers")
     .select("id, manager_user_id, workspace_id, phone_number, provision_state, registration_state, registration_ref, released_at")
     .not("workspace_id", "is", null);
@@ -112,7 +124,7 @@ async function loadDedicatedWorkspaceIds(db: SupabaseClient): Promise<string[] |
   if (owners.length > 0) {
     const { managerPersonalNumberEntitlement } = await import("@/lib/one-number/personal-number-entitlement.server");
     for (const owner of owners) {
-      const entitlement = await managerPersonalNumberEntitlement(db, owner);
+      const entitlement = await managerPersonalNumberEntitlement(db, owner, context);
       if (!entitlement.ok) return null;
       if (entitlement.entitled) paid.add(owner);
     }
@@ -121,7 +133,9 @@ async function loadDedicatedWorkspaceIds(db: SupabaseClient): Promise<string[] |
   const ids = new Set(usable.map((row) => String((row as { workspace_id?: unknown }).workspace_id ?? "").trim()).filter(Boolean));
   const usableNumberIds = usable.map((row) => String((row as { id?: unknown }).id ?? "")).filter(Boolean);
   if (usableNumberIds.length > 0) {
-    const links = await db.from("workspace_work_numbers").select("workspace_id").in("number_id", usableNumberIds);
+    const links = context
+      ? { data: usableNumberIds.some((id) => heldIds.includes(id)) ? [{ workspace_id: context.workspaceId }] : [], error: null }
+      : await db.from("workspace_work_numbers").select("workspace_id").in("number_id", usableNumberIds);
     if (links.error && !isMissingSchemaError(links.error)) return null;
     for (const link of links.data ?? []) {
       const id = String((link as { workspace_id?: unknown }).workspace_id ?? "").trim();
@@ -135,7 +149,7 @@ async function loadDedicatedWorkspaceIds(db: SupabaseClient): Promise<string[] |
     // Asked about THESE workspaces only, so the answer can never be partial: a page limit over every service
     // workspace silently left the ones it did not reach counted as dedicated, which is the bug this removes.
     const service = await db.from("portal_workspaces").select("id").eq("is_service", true).in("id", [...ids]);
-    if (service.error) return isMissingSchemaError(service.error) ? [...ids] : null;
+    if (service.error) return !context && isMissingSchemaError(service.error) ? [...ids] : null;
     for (const row of service.data ?? []) ids.delete(String((row as { id?: unknown }).id ?? "").trim());
   }
   return [...ids];

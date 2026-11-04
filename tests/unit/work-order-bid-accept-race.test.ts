@@ -8,7 +8,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { track } = vi.hoisted(() => ({ track: vi.fn() }));
+const { track, enrolled } = vi.hoisted(() => ({ track: vi.fn(), enrolled: vi.fn(async () => false) }));
+vi.mock("@/lib/vendor-coordination.server", () => ({ workOrderCoordinationEnrolled: enrolled }));
 
 vi.mock("@/lib/analytics/posthog", () => ({ track }));
 
@@ -92,10 +93,19 @@ const ACTOR = { userId: "vendor-1", email: "vendor@test.proplane.local", role: "
 describe("submitWorkOrderBid — accept-between-read-and-write", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    enrolled.mockReset().mockResolvedValue(false);
     UPDATES = [];
     INSERTS = [];
     STORED_BID = { id: "bid-1", status: "submitted", quote_mode: "upfront", consultation_visit_at: null };
     STATUS_AT_WRITE = "submitted";
+  });
+
+  it("refuses legacy bid writes once a current visit proposal owns the terms", async () => {
+    enrolled.mockResolvedValue(true);
+    const result = await submitWorkOrderBid(makeBidDb() as never, ACTOR as never, BODY);
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(UPDATES).toEqual([]);
+    expect(INSERTS).toEqual([]);
   });
 
   it("re-prices a bid that is still submitted at write time", async () => {

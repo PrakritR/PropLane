@@ -7,9 +7,7 @@
 import { track } from "@/lib/analytics/posthog";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { stampSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
-import { sendVendorNotification } from "@/lib/vendor-notification-delivery";
 import { notifyWorkOrderEvent } from "@/lib/work-order-notification.server";
-import { buildVendorBidOfferEmail } from "@/lib/vendor-visit-email";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderActionFailure, WorkOrderActor } from "@/lib/work-order-bids.server";
 import { workOrderEvent, type WorkOrderEventInput } from "@/lib/work-order-events.server";
@@ -559,18 +557,17 @@ export async function declineWorkOrderVendorOffer(
   }
 
   const reason = body.reason?.trim().slice(0, 500) || null;
-  const now = new Date().toISOString();
-  const { data: updated, error: updateError } = await db
-    .from("work_order_vendor_offers")
-    .update({ status: "declined", declined_reason: reason, declined_at: now, updated_at: now })
-    .eq("id", offerId)
-    // Re-asserted in the write: a manager withdrawing the offer between the read and here
-    // makes this a no-op rather than reviving it as declined.
-    .eq("status", "sent")
-    .select("id")
-    .maybeSingle();
+  const { data: updated, error: updateError } = await db.rpc("decline_vendor_service_quote", {
+    p_work_order_id: String(offer.work_order_id),
+    p_manager_user_id: String(offer.manager_user_id),
+    p_vendor_directory_id: String(offer.vendor_directory_id),
+    p_actor_user_id: actor.admin ? String(offer.manager_user_id) : actor.userId,
+    p_verified_phone_e164: null,
+    p_reason: reason,
+    p_source_message_id: `portal-offer-decline:${offerId}`,
+  });
   if (updateError) return { ok: false, status: 500, error: updateError.message };
-  if (!updated) return { ok: false, status: 409, error: "This offer changed before your reply saved." };
+  if (updated !== true) return { ok: false, status: 409, error: "This offer changed before your reply saved." };
 
   await notifyManagerOfDeclinedOffer(db, actor, {
     workOrderId: String(offer.work_order_id),

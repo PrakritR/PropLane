@@ -183,8 +183,10 @@ function provisioningDb(opts: {
   anyPending?: Record<string, unknown> | null;
   /** Owner of the invite's `vendor_directory_id` row, when one is named. */
   directoryOwner?: string | null;
+  linkError?: string;
+  insertError?: string;
 } = {}) {
-  const writes: { table: string; op: "upsert" | "update" }[] = [];
+  const writes: { table: string; op: "upsert" | "update" | "insert" }[] = [];
 
   const vendorInviteSelect = (columns: string) => {
     const maybeSingle = vi.fn().mockResolvedValue({
@@ -215,6 +217,10 @@ function provisioningDb(opts: {
     select: vi.fn((columns = "*") =>
       table === "vendor_invites" ? vendorInviteSelect(columns) : plainSelect(table),
     ),
+    insert: vi.fn(async () => {
+      writes.push({ table, op: "insert" });
+      return { error: opts.insertError ? { message: opts.insertError } : null };
+    }),
     upsert: vi.fn(async () => {
       writes.push({ table, op: "upsert" });
       return { error: null };
@@ -236,8 +242,10 @@ function provisioningDb(opts: {
     }),
   }));
 
+  const rpc = vi.fn().mockResolvedValue({ data: true, error: opts.linkError ? { message: opts.linkError } : null });
   const client = {
     from,
+    rpc,
     auth: {
       admin: {
         getUserById: vi.fn().mockResolvedValue({ data: { user: { email: "vendor@example.com", email_confirmed_at: "2026-01-01", user_metadata: {} } } }),
@@ -246,7 +254,7 @@ function provisioningDb(opts: {
       },
     },
   };
-  return { db: client as never, writes };
+  return { db: client as never, writes, rpc };
 }
 
 const REVOKED_DIRECTORY_INVITE = {
@@ -325,6 +333,45 @@ describe("provisionVendorAccountByEmail — every way of finishing unlinked repo
         invite: REVOKED_DIRECTORY_INVITE,
       }),
     ).resolves.toMatchObject({ ok: true, linkedManagerId: "mgr-1", unlinkedReason: null });
+  });
+
+  it("attaches existing directories atomically through the owner-scoped RPC", async () => {
+    const { db, writes, rpc } = provisioningDb({ directoryOwner: "mgr-1" });
+    await provisionVendorAccountByEmail(db, {
+      userId: "user-1", email: "vendor@example.com", invite: REVOKED_DIRECTORY_INVITE,
+    });
+    expect(rpc).toHaveBeenCalledWith("link_vendor_directory_account", {
+      p_directory_id: "dir-1", p_manager_user_id: "mgr-1", p_vendor_user_id: "user-1",
+    });
+    expect(writes.filter((w) => ["manager_vendor_records", "work_order_vendor_offers"].includes(w.table))).toEqual([]);
+  });
+
+  it("reports attachment failure without marking the invite accepted or reporting linkage", async () => {
+    const { db, writes } = provisioningDb({ directoryOwner: "mgr-1", linkError: "Retry account attachment" });
+    const result = await provisionVendorAccountByEmail(db, {
+      userId: "user-1", email: "vendor@example.com", invite: REVOKED_DIRECTORY_INVITE,
+    });
+    expect(result).toEqual({ ok: false, status: 500, error: "Retry account attachment" });
+    expect(writes.filter((w) => w.table === "vendor_invites")).toEqual([]);
+  });
+
+  it("creates an empty prelinked directory without an existing-row attachment", async () => {
+    const { db, writes, rpc } = provisioningDb();
+    await expect(provisionVendorAccountByEmail(db, {
+      userId: "user-1", email: "vendor@example.com", invite: { ...REVOKED_DIRECTORY_INVITE, vendor_directory_id: null },
+    })).resolves.toMatchObject({ ok: true, linkedManagerId: "mgr-1" });
+    expect(rpc).not.toHaveBeenCalled();
+    expect(writes.filter((w) => w.table === "manager_vendor_records")).toEqual([{ table: "manager_vendor_records", op: "insert" }]);
+  });
+
+  it("creates a fresh prelinked directory with INSERT and reports insert failure", async () => {
+    const { db, writes, rpc } = provisioningDb({ insertError: "Directory unavailable" });
+    await expect(provisionVendorAccountByEmail(db, {
+      userId: "user-1", email: "vendor@example.com", invite: { ...REVOKED_DIRECTORY_INVITE, vendor_directory_id: null },
+    })).resolves.toEqual({ ok: false, status: 500, error: "Directory unavailable" });
+    expect(rpc).not.toHaveBeenCalled();
+    expect(writes.filter((w) => w.table === "manager_vendor_records")).toEqual([{ table: "manager_vendor_records", op: "insert" }]);
+    expect(writes.filter((w) => w.table === "vendor_invites")).toEqual([]);
   });
 
   it("leaves the explicit-invite paths (token / OAuth) untouched", async () => {

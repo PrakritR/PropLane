@@ -231,3 +231,26 @@ export const escalateToManagerTool = defineWriteTool({
     return { ok: true, message: "The manager has been notified and will follow up." };
   },
 });
+
+
+/** A vendor decline only closes its own quote offer. It never assigns or pays. */
+export const declineServiceQuoteTool = defineWriteTool({
+  name: "decline_service_quote",
+  description: "Record the vendor's explicit decline or inability to serve THIS offered service. Never infer a decline from silence.",
+  inputSchema: z.object({ reason: z.string().min(1).max(500) }).strict(),
+  preview: async (ctx, input) => { if (!await loadScopedWorkOrder(ctx)) throw new Error("Service unavailable."); return { kind: "decline_service_quote", title: "Decline service quote", fields: [{ label: "Reason", value: input.reason }], confirmLabel: "Decline quote" }; },
+  handler: async (ctx, input) => {
+    if (!ctx.vendorScope || !await loadScopedWorkOrder(ctx)) throw new Error("Service unavailable.");
+    const { data, error } = await ctx.db.rpc("decline_vendor_service_quote", {
+      p_work_order_id: ctx.vendorScope.workOrderId,
+      p_manager_user_id: ctx.landlordId,
+      p_vendor_directory_id: ctx.vendorScope.vendorDirectoryId,
+      p_actor_user_id: ctx.vendorScope.vendorUserId,
+      p_verified_phone_e164: ctx.vendorScope.verifiedPhone ?? null,
+      p_reason: input.reason,
+      p_source_message_id: ctx.vendorScope.sourceMessageId ?? null,
+    });
+    if (error || data !== true) throw new Error("Unable to record decline.");
+    return { ok: true, message: "Decline recorded. No work was assigned and no money committed." };
+  },
+});

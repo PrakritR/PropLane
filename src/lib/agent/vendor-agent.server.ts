@@ -1,3 +1,4 @@
+import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { smsTaskModel } from "@/lib/agent/runtime-model";
 import { ensureVendorConversationConsent } from "@/lib/sms/vendor-conversation-consent.server";
 import { readCommsTurnResult, completeCommsTurn, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
@@ -26,7 +27,8 @@ import { buildVendorAgentContext } from "@/lib/tools/context";
 import { vendorWorkOrderAgentRegistry } from "@/lib/tools";
 import { vendorSendMyLinkTool, withSharedLineTools } from "@/lib/tools/domains/one-number-links";
 import { vendorSetUpPayoutsTool } from "@/lib/tools/domains/manager-ops";
-import { ESCALATE_TOOL_NAME } from "@/lib/tools/domains/vendor-work-order";
+import { smsCoordinationRecordTool } from "@/lib/tools/domains/vendor-coordination";
+import { ESCALATE_TOOL_NAME, declineServiceQuoteTool } from "@/lib/tools/domains/vendor-work-order";
 import { isPhoneOptedOut, optedOutFromTimestamps } from "@/lib/sms-consent";
 import { normalizeE164 } from "@/lib/twilio";
 import { resolveWorkOrderReference } from "@/lib/work-order-reference";
@@ -170,6 +172,7 @@ export async function findVendorAgentSessionByPhone(
 }
 
 export type VendorInboundSessionResolution =
+  | { kind: "blocked"; reply: string; vendorUserId: string | null }
   | { kind: "unknown_phone" }
   | { kind: "session"; session: VendorAgentSessionRow; reference: WorkOrderReferenceCandidate | null }
   | { kind: "reply"; session: VendorAgentSessionRow; reply: string };
@@ -188,9 +191,14 @@ export async function resolveVendorAgentSessionForInbound(
   managerUserId?: string,
   workspaceId?: string | null,
 ): Promise<VendorInboundSessionResolution> {
+  const directoryFallback = async (): Promise<VendorInboundSessionResolution> => {
+    if (!managerUserId) return { kind: "unknown_phone" };
+    const { resolveDirectoryVendorInbound } = await import("@/lib/vendor-coordination-identity.server");
+    return resolveDirectoryVendorInbound(db, managerUserId, phoneE164, inboundText, workspaceId);
+  };
   if (resolveWorkOrderReference(inboundText).length === 0) {
     const session = await findVendorAgentSessionByPhone(db, phoneE164, managerUserId, workspaceId);
-    return session ? { kind: "session", session, reference: null } : { kind: "unknown_phone" };
+    return session ? { kind: "session", session, reference: null } : directoryFallback();
   }
 
   let query = db
@@ -205,7 +213,7 @@ export async function resolveVendorAgentSessionForInbound(
     .limit(100);
   if (error) throw new Error("Vendor session lookup unavailable.");
   const sessions = await sessionsInWorkspace(db, (data ?? []) as VendorAgentSessionRow[], workspaceId);
-  if (sessions.length === 0) return { kind: "unknown_phone" };
+  if (sessions.length === 0) return directoryFallback();
 
   const workOrderIds = [...new Set(sessions.map((session) => session.work_order_id).filter(Boolean))] as string[];
   const { data: workOrders } = workOrderIds.length
@@ -310,6 +318,8 @@ export async function deliverVendorAgentReply(
   /** Delivery feel (shared line): split the SMS leg into bubbles when the workspace opted in. */
   feel?: { workspaceId?: string | null; bubbles?: boolean; inboundText?: string | null },
 ): Promise<void> {
+  const { sourcingConversationCanReply } = await import("@/lib/vendor-sourcing.server");
+  if (session.work_order_id && !await sourcingConversationCanReply(db, session.landlord_id, session.work_order_id)) return;
   if (session.inbox_thread_id) {
     await appendToInboxThread(db, session.inbox_thread_id, { from: "PropLane Assistant", body: text }, { unread: true });
   }
@@ -378,6 +388,10 @@ export async function runVendorAgentSessionTurn(
   if (!text) return null;
   if (session.status === "closed") return null;
   if (!session.work_order_id || !session.vendor_directory_id) return null;
+  const { sourcingConversationCanReply } = await import("@/lib/vendor-sourcing.server");
+  if (!await sourcingConversationCanReply(db, session.landlord_id, session.work_order_id, { phone: session.vendor_phone_e164 ?? "", directoryId: session.vendor_directory_id, conversationKey: buildConversationKey({ ownerManagerUserId: session.landlord_id, role: "vendor", counterpartyUserId: session.vendor_user_id, counterpartyPhone: session.vendor_phone_e164 }) })) return null;
+  const precomputedReply = options?.precomputedReply?.trim();
+
 
   // Per-session hourly cap bounds cost from SMS floods and injection loops.
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -431,7 +445,6 @@ export async function runVendorAgentSessionTurn(
     await appendToInboxThread(db, session.inbox_thread_id, { from: "Vendor (text message)", body: text }, { unread: false });
   }
 
-  const precomputedReply = options?.precomputedReply?.trim();
   if (precomputedReply) {
     await db.from("agent_messages").insert({
       session_id: session.id,
@@ -471,6 +484,8 @@ export async function runVendorAgentSessionTurn(
       vendorDirectoryId: session.vendor_directory_id,
       vendorUserId: session.vendor_user_id,
       workOrderId: session.work_order_id,
+      verifiedPhone: channel === "sms" ? session.vendor_phone_e164 ?? undefined : undefined,
+      sourceMessageId: channel === "sms" ? options?.inboundMessageSid : undefined,
     },
   });
 
@@ -478,7 +493,7 @@ export async function runVendorAgentSessionTurn(
   const referenceContext = options?.reference
     ? workOrderReferencePromptContext({ kind: "resolved", candidates: [options.reference], message: null })
     : null;
-  const system = [VENDOR_WORK_ORDER_SMS_SYSTEM_PROMPT, referenceContext].filter(Boolean).join("\n\n");
+  const system = [VENDOR_WORK_ORDER_SMS_SYSTEM_PROMPT, "For enrolled services use get_visit_proposals and record_visit_proposal to collect explicit itemized quotes, windows, duration and current-term agreement. Ask for missing labor, materials, fees, scope, exclusions and availability; missing amounts are unknown. Never negotiate or promise booking. Use decline_service_quote when the vendor declines. Both participants must agree and the manager must approve exact current terms before booking.", referenceContext].filter(Boolean).join("\n\n");
   // "job link" and "set up payouts" exist only while the line is shared (one-number build).
   const turnRegistry = channel === "sms"
     ? await withSharedLineTools(db, vendorWorkOrderAgentRegistry, [vendorSendMyLinkTool, vendorSetUpPayoutsTool])
@@ -495,7 +510,7 @@ export async function runVendorAgentSessionTurn(
         system,
         model: smsTaskModel(session.landlord_id, channel),
         readOnly: true,
-        allowWriteTools: [ESCALATE_TOOL_NAME],
+        allowWriteTools: [ESCALATE_TOOL_NAME, smsCoordinationRecordTool.name, declineServiceQuoteTool.name],
       }),
     {
       name: "vendor-agent-turn",

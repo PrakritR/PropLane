@@ -66,6 +66,8 @@ export type AgentContext = {
 
 /** The single work-order conversation a vendor-agent turn is allowed to see. */
 export type VendorAgentScope = {
+  verifiedPhone?: string;
+  sourceMessageId?: string;
   sessionId: string;
   vendorDirectoryId: string;
   vendorUserId: string | null;

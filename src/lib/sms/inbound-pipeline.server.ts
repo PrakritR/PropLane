@@ -134,6 +134,8 @@ export function twimlOk(reply?: string | TwimlBubble[], mediaUrl?: string | null
 /** Everything the post-claim pipeline needs, and exactly what a receipt
  * stores in `inbound_payload` so the recovery sweeper can rerun it. */
 export type InboundPayload = {
+  /** Persisted only by the verified webhook boundary; required for phone proof. */
+  signedTwilio?: boolean;
   fromPhone: string;
   toPhone: string;
   body: string;
@@ -710,6 +712,13 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
     await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
     return NextResponse.json({ error: "Incoming message could not be saved." }, { status: 503 });
   }
+  // Legacy retained receipts cannot replay proof material through rewritten phone identities.
+  // New signed proofs are consumed before shared routing and persisted as a redacted receipt atomically.
+  if (/^QUOTE(?:\s|$)/i.test(body.trim())) {
+    if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) throw new Error("Quote consent completion unavailable.");
+    return NextResponse.json({ ok: true });
+  }
+
   {
     const inboundSegments = estimateSmsSegments(body).segmentCount;
     await recordManagerCommsUsage(db, {
@@ -1388,6 +1397,17 @@ async function processClaimedInbound(db: SupabaseClient, input: ClaimedInbound):
   const { resolveVendorAgentSessionForInbound, runVendorAgentSessionTurn } = await import("@/lib/agent/vendor-agent.server");
   const vendor = await resolveVendorAgentSessionForInbound(db, normalizeE164(fromPhone) ?? fromPhone, body, managerId, workspaceId);
   mark(`vendor:${vendor.kind}`);
+  if (vendor.kind === "blocked") {
+    const { ensureVendorConversationConsent } = await import("@/lib/sms/vendor-conversation-consent.server");
+    const consent = await ensureVendorConversationConsent(db, { managerUserId: managerId, vendorUserId: vendor.vendorUserId, phone: fromPhone, sessionId: `verify:${messageSid}`, evidence: { inboundMessageSid: messageSid } });
+    if (consent.allowed) {
+      const { enqueueOwnerSms } = await import("@/lib/sms/owner-sms-dispatcher.server");
+      const queued = await enqueueOwnerSms({ managerUserId: managerId, workspaceId, actorUserId: managerId, recipientPhone: fromPhone, recipientUserId: vendor.vendorUserId, counterpartyRole: "vendor", body: vendor.reply, sendClass: "transactional", purpose: "vendor_conversation", conversationKey: consent.conversationKey, dedupeKey: `vendor_verify:${messageSid}` }, db);
+      if (!queued.ok) throw new Error("Vendor identity reply unavailable.");
+    }
+    if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) throw new Error("Vendor verification completion unavailable.");
+    return twimlOk();
+  }
   if (vendor.kind !== "unknown_phone") {
     await projectClassifiedInbound(db, {
       managerUserId: managerId,

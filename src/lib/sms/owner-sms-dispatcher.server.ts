@@ -17,7 +17,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { durableProspectSmsEnabled } from "@/lib/sms/prospect-sms-burst.server";
 import { sendSms } from "@/lib/twilio";
 import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
-import { conversationPhoneRef, isSmsCounterpartyRole, type SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
+import { buildConversationKey, conversationPhoneRef, isSmsCounterpartyRole, type SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 import { unitPriceCentsForMeter } from "@/lib/comms-billing/rates";
 import { commsPlanBudget, reserveCommsCredit, finishCommsCredit } from "@/lib/comms-billing/wallet.server";
 import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
@@ -122,6 +122,32 @@ async function loadSendPolicy(
   now = new Date(),
   creditAlreadyReserved = false,
 ): Promise<SendPolicy> {
+  if (input.purpose === "vendor_conversation" && input.dedupeKey?.startsWith("vendor_ai:")) {
+    const sessionId = input.dedupeKey.split(":")[1];
+    try {
+      const { data: session, error } = await db.from("agent_sessions").select("work_order_id,vendor_directory_id,vendor_phone_e164,user_id,vendor_user_id").eq("id", sessionId).eq("landlord_id", input.managerUserId).maybeSingle();
+      const { sourcingConversationCanReply } = await import("@/lib/vendor-sourcing.server");
+      const sessionUserId = session?.vendor_user_id ?? session?.user_id ?? null;
+      const expectedConversationKey = buildConversationKey({
+        ownerManagerUserId: input.managerUserId,
+        role: "vendor",
+        counterpartyUserId: input.recipientUserId,
+        counterpartyPhone: input.recipientPhone,
+      });
+      if (error || !session || input.counterpartyRole !== "vendor" ||
+        (input.recipientUserId ?? null) !== sessionUserId || input.conversationKey !== expectedConversationKey ||
+        normalizeE164(session.vendor_phone_e164) !== normalizeE164(input.recipientPhone) ||
+        !await sourcingConversationCanReply(db, input.managerUserId, session.work_order_id, { phone: input.recipientPhone, conversationKey: input.conversationKey || "", directoryId: session.vendor_directory_id || "" })) {
+        return { allowed: false, reason: "vendor_sourcing_conversation_stopped" };
+      }
+    } catch { return { allowed: false, reason: "vendor_sourcing_state_unavailable", deferUntil: new Date(now.getTime() + 300000).toISOString() }; }
+  }
+  if (input.purpose === "vendor_quote_request") {
+    try {
+      const { vendorQuoteSmsIsCurrent } = await import("@/lib/vendor-sourcing.server");
+      if (!await vendorQuoteSmsIsCurrent(db, input)) return { allowed: false, reason: "vendor_sourcing_stopped" };
+    } catch { return { allowed: false, reason: "vendor_sourcing_state_unavailable", deferUntil: new Date(now.getTime() + 300000).toISOString() }; }
+  }
   if (input.purpose === "tour_interest_followup") {
     const id = input.dedupeKey?.startsWith("tour-interest:") ? input.dedupeKey.slice("tour-interest:".length) : "";
     if (!id) return { allowed: false, reason: "invalid_followup_identity" };
@@ -451,6 +477,7 @@ export async function enqueueOwnerSms(
 
 type ClaimedOutboxRow = {
   id: string;
+  sourcing_retry_generation?: number;
   manager_user_id: string;
   selected_work_line_id?: string | null;
   /** Workspace stamped at enqueue; absent on rows written before the column existed. */
@@ -1082,7 +1109,9 @@ export async function dispatchOwnerSmsOutbox(
       continue;
     }
 
-    const creditKey = `sms_outbound:${row.id}`;
+    const creditKey = row.purpose === "vendor_quote_request" && (row.sourcing_retry_generation ?? 0) > 0
+      ? `sms_outbound:${row.id}:sourcing-retry:${row.sourcing_retry_generation}`
+      : `sms_outbound:${row.id}`;
     const credit = submissionCostsReserved
       ? { allowed: true as const, duplicate: false, state: "reserved" as const }
       : await reserveCommsCredit(db, {
@@ -1123,12 +1152,13 @@ export async function dispatchOwnerSmsOutbox(
     // Recheck after budget/credit awaits, at the last boundary before external
     // submission. Cancellation already fences the earlier state transition;
     // this also catches a new inbound, opt-out, booking or revoked grant.
-    if (row.selected_work_line_id || row.purpose === "tour_interest_followup" || row.purpose === PROSPECT_TOUR_REMINDER_PURPOSE || policy.viaSharedLine) {
+    if (row.selected_work_line_id || row.purpose === "tour_interest_followup" || row.purpose === PROSPECT_TOUR_REMINDER_PURPOSE || policy.viaSharedLine || row.purpose === "vendor_quote_request" || (row.purpose === "vendor_conversation" && row.dedupe_key?.startsWith("vendor_ai:"))) {
       const finalPolicy = await loadSendPolicy(db, {
         managerUserId: row.manager_user_id, actorUserId: row.actor_user_id ?? row.manager_user_id,
         workspaceId: row.workspace_id ?? null,
         selectedWorkLineId: row.selected_work_line_id,
         recipientUserId: row.recipient_user_id,
+        counterpartyRole: row.counterparty_role ?? undefined,
         recipientPhone: row.recipient_phone, recipientEmail: row.recipient_email, body: row.body,
         sendClass: row.send_class, purpose: row.purpose, conversationKey: row.conversation_key,
         propertyId: row.property_id, dedupeKey: row.dedupe_key, recipientTimezone: row.recipient_timezone,

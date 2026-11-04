@@ -19,6 +19,17 @@ function thread(partial: Partial<PersistedInboxThread> & Pick<PersistedInboxThre
 }
 
 describe("collapsePersonInboxThreads", () => {
+  it("retains quote reply choices through a server-folded alias and repeated collapse", () => {
+    const quoteId = "vendor_quote_service_directory";
+    const rows = collapsePersonInboxThreads([
+      thread({ id: "canonical", email: "vendor@example.com", sourceThreadIds: ["canonical", quoteId], body: "Server timeline", time: "Jan 2, 10:00 AM" }),
+      thread({ id: quoteId, email: "vendor@example.com", recordRef: { kind: "service", id: "service", label: "Sink repair" } }),
+    ], { mergeFolders: true });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.quoteReplySources).toEqual([{ threadId: quoteId, recordRef: { kind: "service", id: "service", label: "Sink repair" }, subject: "Hello" }]);
+    expect(collapsePersonInboxThreads(rows, { mergeFolders: true })[0]!.quoteReplySources).toEqual(rows[0]!.quoteReplySources);
+  });
+
   it("merges historical notices for one owner's normalized phone and preserves every turn", () => {
     const rows = collapsePersonInboxThreads([
       thread({ id: "claw_lease_1000_a", email: "", ownerUserId: "manager-a", from: "(206) 555-0100", body: "First", folder: "inbox" }),

@@ -1,3 +1,5 @@
+import { ingestVendorQuoteInboundEmail } from "@/lib/vendor-quote-inbound-email.server";
+import { processVendorQuoteEmailDeliveryEvent } from "@/lib/vendor-quote-contact.server";
 /**
  * Inbound support-email webhook — the public support address's front door.
  *
@@ -45,6 +47,7 @@ function ok(extra?: Record<string, unknown>): Response {
 
 export async function POST(req: Request) {
   const raw = await req.text();
+  let verifiedProvider = false;
   const secret = process.env.RESEND_INBOUND_WEBHOOK_SECRET?.trim();
   const svixId = req.headers.get("svix-id");
   const svixTimestamp = req.headers.get("svix-timestamp");
@@ -63,6 +66,7 @@ export async function POST(req: Request) {
       secret,
     });
     if (!verified) return new Response("Forbidden", { status: 403 });
+    verifiedProvider = true;
   }
 
   let payload: unknown;
@@ -72,6 +76,15 @@ export async function POST(req: Request) {
     return ok({ ignored: "unparseable" });
   }
 
+  const event = payload && typeof payload === "object" ? payload as { type?: string; created_at?: string; data?: { email_id?: string; id?: string } } : null;
+  const deliveryKind = event?.type === "email.delivered" ? "delivered" : event?.type === "email.bounced" ? "bounced" : event?.type === "email.complained" ? "complained" : null;
+  if (deliveryKind) {
+    if (!verifiedProvider) return new Response("Forbidden", { status: 403 });
+    try {
+      const handled = await processVendorQuoteEmailDeliveryEvent(createSupabaseServiceRoleClient(), { eventId: svixId || "", providerMessageId: event?.data?.email_id || event?.data?.id || "", kind: deliveryKind, occurredAt: event?.created_at || "" });
+      return ok({ delivery: handled.handled });
+    } catch { return new Response("Email delivery state unavailable", { status: 503 }); }
+  }
   const parsed = parseInboundEmailWebhook(payload);
   // Non-inbound events (deliveries, bounces, connectivity probes) ack quietly.
   if (!parsed) return ok({ ignored: "not-received" });
@@ -105,6 +118,14 @@ export async function POST(req: Request) {
   if (!senderLimit.ok) {
     console.warn("inbound-email rate-limited", parsed.fromEmail, parsed.emailId);
     return ok({ rateLimited: true });
+  }
+
+  if (parsed.toEmails.some((email) => /^vq\+/i.test(email))) {
+    if (!verifiedProvider) return new Response("Forbidden", { status: 403 });
+    try {
+      const quoteReply = await ingestVendorQuoteInboundEmail(createSupabaseServiceRoleClient(), parsed, payload);
+      if (quoteReply.handled) return ok({ quoteReply: true });
+    } catch { return new Response("Quote email reply unavailable", { status: 503 }); }
   }
 
   // A verified reply token routes the mail into its portal conversation

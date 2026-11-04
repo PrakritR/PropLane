@@ -199,6 +199,15 @@ beforeAll(async () => {
 
 function makeCtx(tables: Record<string, Row[]>): AgentContext {
   const db = {
+    async rpc(name: string, args: Record<string, unknown>) {
+      if (name !== "invalidate_vendor_service_offers") throw new Error(`Unexpected RPC: ${name}`);
+      for (const offer of tables.work_order_vendor_offers ?? []) {
+        if (offer.work_order_id === args.p_work_order_id && offer.manager_user_id === args.p_manager_user_id && offer.status === "sent") {
+          offer.status = args.p_status;
+        }
+      }
+      return { data: true, error: null };
+    },
     from(table: string) {
       if (!tables[table]) tables[table] = [];
       return new FakeTableQuery(tables[table]!, table);

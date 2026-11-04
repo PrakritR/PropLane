@@ -29,7 +29,7 @@ export const IN_APP_PATH_PREFIXES = [
  * the shadowed marketing pages: the home page owns that content and those routes only redirect to its anchors,
  * so the native shell sends them to the in-app home rather than loading a page that bounces.
  */
-export const IN_APP_PATH_EXACT = ["/", "/partner", "/tos", "/privacy", "/app"] as const;
+export const IN_APP_PATH_EXACT = ["/", "/partner", "/tos", "/privacy", "/app", "/vendor-quote"] as const;
 
 /**
  * Push notification tap targets used in server code — keep in sync when adding
@@ -81,6 +81,14 @@ export function isInAppPath(pathname: string): boolean {
 /** Universal links / custom URL schemes — must stay inside the WebView. */
 export function isNativeDeepLinkPath(pathname: string): boolean {
   return isInAppPath(pathname);
+}
+
+/** Preserve public capability fragments through both warm and cold native entry. */
+export function nativeDeepLinkTarget(url: string): string | null {
+  try {
+    const opened = new URL(url);
+    return isNativeDeepLinkPath(opened.pathname) ? `${opened.pathname}${opened.search}${opened.hash}` : null;
+  } catch { return null; }
 }
 
 /**

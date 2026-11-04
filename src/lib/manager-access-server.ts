@@ -1,5 +1,7 @@
 import "server-only";
 import { cache } from "react";
+import { recordSenderPolicyTransition, type SenderPolicyReadContext } from "@/lib/one-number/sender-policy-read.server";
+import { managerPurchasePeriodEndMs, isSignupTrialManagerPurchase } from "@/lib/manager-tier-expiry";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadAccountPurchaseRows } from "@/lib/manager-purchase-account-rows.server";
@@ -50,10 +52,11 @@ const MANAGER_PURCHASE_ACCESS_SELECT = `${MANAGER_PURCHASE_BASE_SELECT}, promo_e
 async function loadManagerPurchaseRowsResult(
   userId: string,
   db?: SupabaseClient,
+  strict = false,
 ): Promise<{ rows: ManagerPurchaseRowRecord[]; readFailed: boolean }> {
   const client = db ?? createSupabaseServiceRoleClient();
-  const read = await loadAccountPurchaseRows<ManagerPurchaseRowRecord>(client, userId, MANAGER_PURCHASE_ACCESS_SELECT);
-  if (!read.readFailed) return read;
+  const read = await loadAccountPurchaseRows<ManagerPurchaseRowRecord>(client, userId, MANAGER_PURCHASE_ACCESS_SELECT, { strict });
+  if (!read.readFailed || strict) return read;
   // This code can run before the `promo_ends_at` migration lands. An absent column must not blank the
   // plan on every portal read; it simply means no account's promo has been ended yet.
   return loadAccountPurchaseRows<ManagerPurchaseRowRecord>(client, userId, MANAGER_PURCHASE_BASE_SELECT);
@@ -63,7 +66,7 @@ async function loadManagerPurchaseRowsForUser(userId: string): Promise<ManagerPu
   return (await loadManagerPurchaseRowsResult(userId)).rows;
 }
 
-const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
+async function loadManagerPurchaseRowByUserId(userId: string, context?: SenderPolicyReadContext): Promise<{
   hasPurchaseRow: boolean;
   tier: string | null;
   billing: string | null;
@@ -78,9 +81,9 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
   waiverEndedCode: string | null;
   /** A Stripe subscription or an Apple grant backs the stored plan: the only BILLABLE sources. */
   billableSource: boolean;
-}> => {
-  const db = createSupabaseServiceRoleClient();
-  const { rows, readFailed } = await loadManagerPurchaseRowsResult(userId, db);
+}> {
+  const db = context?.db ?? createSupabaseServiceRoleClient();
+  const { rows, readFailed } = await loadManagerPurchaseRowsResult(userId, db, Boolean(context));
   const best = pickBestManagerPurchaseRow(rows, userId);
   if (!best) {
     return {
@@ -97,6 +100,13 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
       waiverEndedCode: null,
       billableSource: false,
     };
+  }
+  const bestTier = normalizeManagerSkuTier(best.tier);
+  if (context && (bestTier === "pro" || bestTier === "business") && isSignupTrialManagerPurchase(best.billing) &&
+      !String(best.stripe_subscription_id ?? "").trim() && !isAppleBilledManagerPurchase(best.billing, best.apple_original_transaction_id)) {
+    const end = managerPurchasePeriodEndMs({ tier: best.tier, billing: best.billing, paid_at: best.paid_at, stripe_subscription_id: best.stripe_subscription_id }, context.nowMs);
+    if (end === null && normalizeManagerSkuTier(best.tier) !== "free") throw new Error("Trial validity is unreadable.");
+    recordSenderPolicyTransition(context, end);
   }
   const view = {
     hasPurchaseRow: true,
@@ -145,7 +155,7 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
       stripeCheckoutSessionId: view.stripeCheckoutSessionId,
       appleOriginalTransactionId: view.appleOriginalTransactionId,
     }) &&
-    (await waiverGrantEndedFor({ promoCode: view.promoCode, promoEndsAt: best.promo_ends_at ?? null, db }))
+    (await waiverGrantEndedFor({ promoCode: view.promoCode, promoEndsAt: best.promo_ends_at ?? null, db, context, nowMs: context?.nowMs }))
   ) {
     const endedCode = view.promoCode;
     return {
@@ -158,7 +168,8 @@ const getManagerPurchaseRowByUserId = cache(async (userId: string): Promise<{
     };
   }
   return view;
-});
+}
+const getManagerPurchaseRowByUserId = cache((userId: string) => loadManagerPurchaseRowByUserId(userId));
 
 /**
  * Reconciliation is authoritative, but several plan views can resolve during one
@@ -481,8 +492,8 @@ export type ManagerEffectiveSkuTierResult =
     }
   | { ok: false; error: string };
 
-export async function getEffectiveManagerSkuTier(userId: string): Promise<ManagerEffectiveSkuTierResult> {
-  const row = await getManagerPurchaseRowByUserId(userId);
+export async function getEffectiveManagerSkuTier(userId: string, context?: SenderPolicyReadContext): Promise<ManagerEffectiveSkuTierResult> {
+  const row = context ? await loadManagerPurchaseRowByUserId(userId, context) : await getManagerPurchaseRowByUserId(userId);
   if (row.readFailed) return { ok: false, error: "Could not read this account's plan." };
   const appleManaged = isAppleBilledManagerPurchase(row.billing, row.appleOriginalTransactionId);
   return {
@@ -495,6 +506,7 @@ export async function getEffectiveManagerSkuTier(userId: string): Promise<Manage
       appleManaged,
       promoCode: row.promoCode,
       paidAt: row.paidAt,
+      nowMs: context?.nowMs,
     }),
     tier: resolveEffectiveManagerSkuTier({
       tier: row.tier,
@@ -505,6 +517,7 @@ export async function getEffectiveManagerSkuTier(userId: string): Promise<Manage
       // property cap and the Pro communication allowance forever.
       billing: row.billing,
       paidAt: row.paidAt,
+      nowMs: context?.nowMs,
     }),
   };
 }

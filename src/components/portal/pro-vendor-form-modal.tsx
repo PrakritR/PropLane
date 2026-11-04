@@ -96,6 +96,8 @@ export type ManagerVendorFormDraft = {
   dispatchAvailable: boolean;
 };
 
+type OnlineVendorSearchStatus = "idle" | "waiting" | "searching" | "empty" | "unavailable" | "error";
+
 export const EMPTY_MANAGER_VENDOR_FORM_DRAFT: ManagerVendorFormDraft = {
   name: "",
   trade: VENDOR_TRADE_OPTIONS[0]!,
@@ -524,6 +526,7 @@ export function ManagerVendorFormModal({
   const [stepIdx, setStepIdx] = useState(0);
   const [issueQuery, setIssueQuery] = useState("");
   const [onlineHits, setOnlineHits] = useState<VendorIssueSearchHit[]>([]);
+  const [onlineSearchStatus, setOnlineSearchStatus] = useState<OnlineVendorSearchStatus>("idle");
   const [checkedCatalogIds, setCheckedCatalogIds] = useState<string[]>([]);
 
   const propertyOptions = useMemo(
@@ -874,17 +877,45 @@ export function ManagerVendorFormModal({
 
   useEffect(() => {
     if (!open || !issueQuery.trim()) {
-      setOnlineHits([]);
-      return;
+      const resetTimer = window.setTimeout(() => {
+        setOnlineHits([]);
+        setOnlineSearchStatus("idle");
+      }, 0);
+      return () => window.clearTimeout(resetTimer);
     }
     const controller = new AbortController();
-    const params = new URLSearchParams({ q: issueQuery.trim() });
-    for (const zip of propertyZips) params.append("zip", zip);
-    void fetch(`/api/portal-vendors/online-search?${params}`, { credentials: "include", signal: controller.signal })
-      .then((res) => (res.ok ? res.json() : { rows: [] }))
-      .then((body: { rows?: Array<{ id: string; name: string; trade: string; phone: string; city: string }> }) => {
-        setOnlineHits(
-          (body.rows ?? []).map((row) => ({
+    if (propertyZips.length === 0) {
+      const unavailableTimer = window.setTimeout(() => {
+        setOnlineHits([]);
+        setOnlineSearchStatus("unavailable");
+      }, 0);
+      return () => {
+        window.clearTimeout(unavailableTimer);
+        controller.abort();
+      };
+    }
+
+    const waitingTimer = window.setTimeout(() => setOnlineSearchStatus("waiting"), 0);
+    const debounceTimer = window.setTimeout(() => {
+      const params = new URLSearchParams({ q: issueQuery.trim() });
+      for (const zip of propertyZips) params.append("zip", zip);
+      setOnlineSearchStatus("searching");
+      void fetch(`/api/portal-vendors/online-search?${params}`, { credentials: "include", signal: controller.signal })
+        .then(async (res) => {
+          if (!res.ok) {
+            setOnlineSearchStatus("error");
+            return;
+          }
+          const body = await res.json() as {
+            status?: "available" | "unavailable";
+            rows?: Array<{ id: string; name: string; trade: string; phone: string; city: string }>;
+          };
+          if (body.status !== "available") {
+            setOnlineSearchStatus("unavailable");
+            return;
+          }
+          const rows = body.rows ?? [];
+          setOnlineHits(rows.map((row) => ({
             source: "online" as const,
             id: row.id,
             name: row.name,
@@ -893,11 +924,19 @@ export function ManagerVendorFormModal({
             city: row.city,
             zip: "",
             alreadyOwned: false,
-          })),
-        );
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
+          })));
+          setOnlineSearchStatus(rows.length > 0 ? "idle" : "empty");
+        })
+        .catch((cause: unknown) => {
+          if (cause instanceof Error && cause.name === "AbortError") return;
+          setOnlineSearchStatus("error");
+        });
+    }, 600);
+    return () => {
+      window.clearTimeout(waitingTimer);
+      window.clearTimeout(debounceTimer);
+      controller.abort();
+    };
   }, [issueQuery, open, propertyZips]);
 
   const applyDirectoryHit = (hit: VendorIssueSearchHit) => {
@@ -1140,8 +1179,27 @@ export function ManagerVendorFormModal({
               {mode === "edit" ? (
                 <>
               <label className="block space-y-1">
-                <span className="text-sm font-semibold">Look up nearby</span>
-                <Input value={issueQuery} onChange={(e) => setIssueQuery(e.target.value)} placeholder="Trade, name, or city" data-attr="vendor-online-search" />
+                <span className="flex items-center justify-between gap-3 text-sm font-semibold">
+                  <span>Look up nearby</span>
+                  <span role="status" aria-live="polite" className="text-xs font-normal text-muted-foreground">
+                    {onlineSearchStatus === "waiting" ? "Waiting…" : null}
+                    {onlineSearchStatus === "searching" ? "Searching…" : null}
+                    {onlineSearchStatus === "empty" ? "No results" : null}
+                    {onlineSearchStatus === "unavailable" ? "Unavailable" : null}
+                    {onlineSearchStatus === "error" ? "Search failed" : null}
+                  </span>
+                </span>
+                <Input
+                  value={issueQuery}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setIssueQuery(value);
+                    setOnlineHits([]);
+                    setOnlineSearchStatus(value.trim() && open ? "waiting" : "idle");
+                  }}
+                  placeholder="Trade, name, or city"
+                  data-attr="vendor-online-search"
+                />
               </label>
               {inPropLaneHits.length ? (
                 <fieldset className="space-y-2" data-attr="vendor-in-proplane-hits">

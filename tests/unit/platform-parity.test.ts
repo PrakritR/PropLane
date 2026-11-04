@@ -6,6 +6,7 @@ import {
   IN_APP_PATH_PREFIXES,
   isInAppPath,
   isNativeDeepLinkPath,
+  nativeDeepLinkTarget,
   REGISTERED_PUSH_DEEP_LINKS,
 } from "@/lib/platform/parity";
 import { isNativeAppAllowedPath, shouldNativeRedirectToWelcome } from "@/lib/auth/native-entry-paths";
@@ -68,6 +69,15 @@ describe("platform parity (web + native WebView)", () => {
     expect(isInAppPath("/app")).toBe(true);
     expect(isNativeDeepLinkPath("/app")).toBe(true);
     expect(isNativeAppAllowedPath("/app")).toBe(true);
+  });
+
+  it("opens the public vendor quote in the native shell with its capability fragment intact", () => {
+    expect(isNativeAppAllowedPath("/vendor-quote")).toBe(true);
+    expect(shouldNativeRedirectToWelcome("/vendor-quote")).toBe(false);
+    expect(nativeDeepLinkTarget("https://proplane.ai/vendor-quote?source=email#response=opaque-token"))
+      .toBe("/vendor-quote?source=email#response=opaque-token");
+    expect(nativeDeepLinkTarget("https://proplane.ai/vendor-quote/unregistered#secret")).toBeNull();
+    expect(nativeDeepLinkTarget("invalid")).toBeNull();
   });
 
   it("auth legal pages are in-app routes reachable from auth footers on native", () => {

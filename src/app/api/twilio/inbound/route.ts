@@ -1,3 +1,5 @@
+import { processVendorQuoteSmsChallenge } from "@/lib/vendor-quote-contact.server";
+import { normalizeE164 } from "@/lib/phone-e164";
 import { NextResponse, after } from "next/server";
 import { randomUUID } from "node:crypto";
 import twilio from "twilio";
@@ -87,13 +89,16 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
   }
 
   const fromPhone = String(params.From ?? "").trim();
+  const signedFrom = normalizeE164(fromPhone);
+  const rawTo = normalizeE164(String(params.To ?? "").trim());
+  const rawBody = String(params.Body ?? "").trim();
   // `let`: a text to an old work number that has moved to the shared line continues as a shared-line text.
   let toPhone = String(params.To ?? "").trim();
   // A texted card or bank number is replaced with [redacted] before anything
   // stores or reads the body: the receipt, the projection, the inbound log and
   // the agent all see the redacted text.
   const redaction = redactSensitiveNumbers(String(params.Body ?? "").trim());
-  const body = redaction.text;
+  const body = /^QUOTE(?:\s|$)/i.test(rawBody) ? redaction.text.replace(/\d{12}/g, "[redacted]") : redaction.text;
   const messageSid = String(params.MessageSid ?? "").trim() || null;
   if (!fromPhone || !toPhone) return twimlOk();
   mark("signed");
@@ -170,6 +175,21 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
     // STOP ends a sandbox demo on this phone (best effort; the opt-out above is the record).
     if (controlKeyword === "STOP") await endDemoForPhone(db, phoneKey);
     return twimlOk();
+  }
+
+  // QUOTE codes are proofs, never prospect/agent conversation. Preserve signed wire addresses.
+  if (/^QUOTE \d{12}$/i.test(rawBody)) {
+    if (!signature || !messageSid || !signedFrom || !rawTo) return twimlOk();
+    const limit = await rateLimit(`twilio-quote-proof:${signedFrom}`, 20, 60_000);
+    if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
+    if (!limit.ok) return twimlOk();
+    try {
+      await processVendorQuoteSmsChallenge(db, { fromPhone: signedFrom, toPhone: rawTo, body: rawBody, messageSid,
+        providerMessagingServiceSid: String(params.MessagingServiceSid ?? "").trim() || null });
+      return twimlOk();
+    } catch {
+      return NextResponse.json({ error: "Quote consent unavailable." }, { status: 503 });
+    }
   }
 
   // One-number shared line (docs/agents/one-number.md): a text to the shared number is stamped with a
@@ -341,6 +361,7 @@ async function handleInbound(req: Request, mark: (step: string) => void): Promis
   const inboundWorkerId = `inbound-${randomUUID()}`;
   // Stored atomically with the claim so the recovery sweeper can always rerun it.
   const payload: InboundPayload = {
+    signedTwilio: Boolean(signature),
     fromPhone: senderPhone, toPhone, body,
     ...(redaction.redacted ? { redacted: true } : {}),
     workspaceId: ownedNumber?.workspaceId ?? null,

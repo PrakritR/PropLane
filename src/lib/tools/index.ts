@@ -1,3 +1,4 @@
+import { managerCoordinationReadTool, enrollCoordinatedVisitTool, approveCoordinatedVisitTool, smsCoordinationReadTool, smsCoordinationRecordTool } from "./domains/vendor-coordination";
 /**
  * The agent's tool registries: the single contract every agent loop calls
  * through. Add new site capabilities here as typed, permission-scoped
@@ -145,6 +146,7 @@ import {
   rescheduleTourTool,
 } from "./domains/tours";
 import {
+  declineServiceQuoteTool,
   escalateToManagerTool,
   getJobAccessInfoTool,
   getJobDetailsTool as getSmsJobDetailsTool,
@@ -166,6 +168,7 @@ import {
 } from "./domains/leasing-sms";
 
 export const agentRegistry = buildRegistry([
+  managerCoordinationReadTool, enrollCoordinatedVisitTool, approveCoordinatedVisitTool,
   // One-number knowledge: read what the team approved, and save a suggested answer (YES-gated).
   lookupPropertyKnowledgeTool, saveKnowledgeAnswerTool,
   suggestStatementMatchesTool,
@@ -400,10 +403,12 @@ export function buildManagerSmsRegistry(
  * manager tool.
  */
 export const vendorWorkOrderAgentRegistry = buildRegistry([
+  smsCoordinationReadTool, smsCoordinationRecordTool,
   lookupPropertyKnowledgeTool,
   getSmsJobDetailsTool,
   getJobAccessInfoTool,
   listMyJobsWithThisManagerTool,
+  declineServiceQuoteTool,
   escalateToManagerTool,
   // Pure vendor-portal URLs (invoices, payouts, documents, profile), so a
   // texting vendor is sent to the page instead of walked through it. No data.

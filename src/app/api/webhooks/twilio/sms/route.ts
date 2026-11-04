@@ -1,3 +1,4 @@
+import { processVendorQuoteSmsChallenge } from "@/lib/vendor-quote-contact.server";
 /**
  * Twilio inbound SMS webhook — the vendor agent's after-hours front door.
  * Returns empty TwiML immediately and runs the agent turn via after(), so
@@ -95,7 +96,8 @@ export async function POST(req: Request) {
 
   const from = normalizeE164(String(params.From ?? "")) ?? "";
   const to = String(params.To ?? "").trim();
-  const body = String(params.Body ?? "").trim();
+  const rawBody = String(params.Body ?? "").trim();
+  const body = /^QUOTE(?:\s|$)/i.test(rawBody) ? rawBody.replace(/\d{12}/g, "[redacted]") : rawBody;
   if (!from || !body) return twiml();
 
   const db = createSupabaseServiceRoleClient();
@@ -104,7 +106,7 @@ export async function POST(req: Request) {
   // Carrier controls must be durably ordered before ordinary traffic shedding.
   // MessageSid provides replay identity; Twilio's immutable dateCreated provides
   // event order when webhook deliveries and retries arrive out of order.
-  const controlKeyword = STOP_WORDS.has(keyword) ? "STOP" : START_WORDS.has(keyword) ? "START" : null;
+  const controlKeyword = STOP_WORDS.has(keyword) ? "STOP" : START_WORDS.has(keyword) ? "START" : ["HELP", "INFO"].includes(keyword) ? "HELP" : null;
   if (controlKeyword) {
     const messageSid = String(params.MessageSid ?? "").trim();
     const phoneKey = normalizeConsentPhone(from);
@@ -120,6 +122,8 @@ export async function POST(req: Request) {
       p_messaging_service_sid: null,
     });
     if (controlError) return new Response("Control receipt unavailable", { status: 503 });
+
+    if (controlKeyword === "HELP") return twiml();
 
     // The RPC can return false for a replay or an event made stale by a newer
     // control. Read the canonical ledger so a retry can finish auxiliary vendor
@@ -193,6 +197,23 @@ export async function POST(req: Request) {
     return twiml();
   }
 
+  // Proofs bind the signed wire pair and are classified before any work-number or agent lookup.
+  if (/^QUOTE \d{12}$/i.test(rawBody)) {
+    if (!signature || !authToken) return new Response("Forbidden", { status: 403 });
+    const rawTo = normalizeE164(to);
+    const messageSid = String(params.MessageSid ?? "").trim();
+    if (!rawTo || !messageSid) return twiml();
+    const { isShieldedRecipient } = await import("@/lib/protected-accounts.server");
+    if (await isShieldedRecipient({ phone: from }) || await isShieldedRecipient({ phone: rawTo })) return twiml();
+    try {
+      await processVendorQuoteSmsChallenge(db, { fromPhone: from, toPhone: rawTo, body: rawBody, messageSid,
+        providerMessagingServiceSid: String(params.MessagingServiceSid ?? "").trim() || null });
+      return twiml();
+    } catch {
+      return new Response("Quote consent unavailable", { status: 503 });
+    }
+  }
+
   const ownedNumber = to ? await resolveOwnedWorkNumber(db, to) : null;
   if (!ownedNumber) {
     console.warn("twilio sms to an unmanaged destination, dropped", maskedPhone(from));
@@ -218,6 +239,16 @@ export async function POST(req: Request) {
     return twiml();
   }
 
+  if (sessionResolution.kind === "blocked") {
+    const { ensureVendorConversationConsent } = await import("@/lib/sms/vendor-conversation-consent.server");
+    const consent = await ensureVendorConversationConsent(db, { managerUserId: managerId, vendorUserId: sessionResolution.vendorUserId, phone: from, sessionId: `verify:${inboundMessageSid}`, evidence: { inboundMessageSid } });
+    if (consent.allowed) {
+      const { enqueueOwnerSms } = await import("@/lib/sms/owner-sms-dispatcher.server");
+      const queued = await enqueueOwnerSms({ managerUserId: managerId, workspaceId: ownedNumber.workspaceId, actorUserId: managerId, recipientPhone: from, recipientUserId: sessionResolution.vendorUserId, counterpartyRole: "vendor", body: sessionResolution.reply, sendClass: "transactional", purpose: "vendor_conversation", conversationKey: consent.conversationKey, dedupeKey: `vendor_verify:${inboundMessageSid}` }, db);
+      if (!queued.ok) return new Response("Vendor identity reply unavailable", { status: 503 });
+    }
+    return twiml();
+  }
   const session = sessionResolution.session;
 
   const task = () =>

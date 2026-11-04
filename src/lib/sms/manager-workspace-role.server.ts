@@ -1,3 +1,4 @@
+import type { SenderPolicyReadContext } from "@/lib/one-number/sender-policy-read.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { WORKSPACE_NO_WORK_NUMBER_CODE, WORKSPACE_NO_WORK_NUMBER_MESSAGE } from "@/lib/sms/workspace-no-work-number";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -272,14 +273,17 @@ async function resolveHeldNumberRow<T>(
   db: SupabaseClient,
   columns: string,
   workspaceId: string,
+  context?: SenderPolicyReadContext,
 ): Promise<T | null> {
   const id = workspaceId.trim();
   if (!id) return null;
-  const { data: holds } = await db
+  const query = db
     .from("workspace_work_numbers")
     .select("number_id, is_primary")
     .eq("workspace_id", id)
     .order("is_primary", { ascending: false });
+  const { data: holds, error: holdsError } = await (context ? query.limit(201) : query);
+  if (context && (holdsError || (holds?.length ?? 0) > 200)) throw new Error("Sender work-line links unreadable.");
   const numberIds = [...new Set((holds ?? []).map((h) => String(h.number_id ?? "").trim()).filter(Boolean))];
   let fallback: T | null = null;
   for (const numberId of numberIds) {
@@ -288,6 +292,7 @@ async function resolveHeldNumberRow<T>(
       .select(withResolutionColumns(columns))
       .eq("id", numberId)
       .maybeSingle();
+    if (error && context) throw new Error("Sender held work line unreadable.");
     if (error || !row) continue;
     // A released hold stays behind for history; the live line wins.
     if (!(row as { released_at?: string | null }).released_at) return row as T;
@@ -340,7 +345,7 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   db: SupabaseClient,
   ownerUserId: string,
   columns: string,
-  opts: { propertyId?: string | null; workLineId?: string | null; workspaceId?: string | null } = {},
+  opts: { propertyId?: string | null; workLineId?: string | null; workspaceId?: string | null; policyRead?: SenderPolicyReadContext } = {},
 ): Promise<{ data: T | null; error: { message: string; code?: string } | null }> {
   const exactLine = opts.workLineId?.trim();
   if (exactLine) {
@@ -366,7 +371,7 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
     }
     if (!entitled) return { data: null, error: null };
     // A line the owner IS entitled to that belongs to a PropLane-managed workspace is the PropLane line, whatever id was pinned.
-    const pinnedManaged = await isServiceWorkspace(db, String(row.workspace_id ?? ""));
+    const pinnedManaged = await isServiceWorkspace(db, String(row.workspace_id ?? ""), opts.policyRead);
     if (pinnedManaged === null) return { data: null, error: { message: "Service workspace unreadable." } };
     if (pinnedManaged) return resolveManagedLineRow<T>(db, columns);
     return { data: row, error: null };
@@ -385,12 +390,13 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   let defaultWorkspaceId = "";
   const loadDefaultWorkspaceId = async () => {
     if (defaultWorkspaceId) return defaultWorkspaceId;
-    const { data: def } = await db
+    const { data: def, error: defaultError } = await db
       .from("portal_workspaces")
       .select("id")
       .eq("owner_user_id", ownerUserId)
       .eq("is_default", true)
       .maybeSingle();
+    if (defaultError && opts.policyRead) throw new Error("Default sender workspace unreadable.");
     defaultWorkspaceId = String(def?.id ?? "").trim();
     return defaultWorkspaceId;
   };
@@ -399,17 +405,18 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
   // PropLane's own managed service (`is_service`) has no line per workspace: it texts on the PropLane line, in both line
   // modes, even when the workspace still holds a number of its own (captain, Oct 25).
   if (targetWorkspaceId) {
-    const managed = await isServiceWorkspace(db, targetWorkspaceId);
+    const managed = await isServiceWorkspace(db, targetWorkspaceId, opts.policyRead);
     if (managed === null) return { data: null, error: { message: "Service workspace unreadable." } };
     if (managed) return resolveManagedLineRow<T>(db, columns);
   }
 
-  const query = db.from("manager_sms_numbers").select(withResolutionColumns(columns)).eq("manager_user_id", ownerUserId);
+  const base = db.from("manager_sms_numbers").select(withResolutionColumns(columns)).eq("manager_user_id", ownerUserId);
+  const query = opts.policyRead ? base.limit(201) : base;
   // A real builder is thenable and yields every row; a single-row double
   // only answers `maybeSingle`, and its one row is the one candidate.
   const { data, error } =
     typeof (query as { then?: unknown }).then === "function" ? await query : await query.maybeSingle();
-  if (error) return { data: null, error };
+  if (error || (opts.policyRead && Array.isArray(data) && data.length > 200)) return { data: null, error: error ?? { message: "Sender work line overflow." } };
   const list = Array.isArray(data) ? data : data ? [data] : [];
   const rows = (list as unknown as Array<T & { released_at?: string | null }>).filter(Boolean);
 
@@ -420,7 +427,7 @@ export async function resolveOwnerSendNumberRow<T extends { workspace_id?: strin
     if (match) return { data: match, error: null };
     // The workspace has no home number of its own - a number it holds via
     // sharing is still ITS line; nothing else is.
-    const held = await resolveHeldNumberRow<T>(db, columns, targetWorkspaceId);
+    const held = await resolveHeldNumberRow<T>(db, columns, targetWorkspaceId, opts.policyRead);
     if (held) return { data: held, error: null };
   }
 
