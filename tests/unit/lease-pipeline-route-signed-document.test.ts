@@ -949,6 +949,49 @@ describe("POST /api/portal-lease-pipeline: signed documents are immutable server
     expect(state.leases).toHaveLength(0);
   });
 
+  it("refuses an unlinked create-and-send that omits documentMode and carries no PDF", async () => {
+    state.leases = [];
+    const send = await post({
+      action: "upsert",
+      row: {
+        id: "lease_unlinked_2",
+        residentName: "Jordan Lee",
+        residentEmail: "jordan.lee@example.com",
+        managerUserId: state.user!.id,
+        bucket: "resident",
+        status: "Resident Signature Pending",
+        generatedHtml: "<html><body>Hand-written lease body</body></html>",
+        application: { leaseStart: "2026-12-01", managerRentOverride: "1", managerSecurityDepositOverride: "0" },
+        sentToResidentAt: "2026-09-24T01:00:00.000Z",
+      },
+    });
+    expect(send.status).toBe(409);
+    expect(((await send.json()) as Row).blocked).toBe("terms-unlinked");
+    expect(state.leases).toHaveLength(0);
+  });
+
+  it("does not call an unlinked uploaded-PDF send terms-unlinked (its own review gate owns it)", async () => {
+    state.leases = [];
+    const dataUrl = `data:application/pdf;base64,${Buffer.from(state.sourceBytes).toString("base64")}`;
+    const send = await post({
+      action: "upsert",
+      row: {
+        id: "lease_unlinked_3",
+        residentName: "Jordan Lee",
+        residentEmail: "jordan.lee@example.com",
+        managerUserId: state.user!.id,
+        bucket: "resident",
+        status: "Resident Signature Pending",
+        documentMode: "original-pdf",
+        generatedHtml: null,
+        managerUploadedPdf: { dataUrl, originalDataUrl: dataUrl, fileName: "lease.pdf", uploadedAt: "2026-09-24T00:00:00.000Z" },
+        sentToResidentAt: "2026-09-24T01:00:00.000Z",
+      },
+    });
+    const body = send.status === 200 ? {} : ((await send.json()) as Row);
+    expect(body.blocked).not.toBe("terms-unlinked");
+  });
+
   it("rejects a reusable-template send after its private source changes after confirmation", async () => {
     seedExecuted(importedTemplateRow());
     state.leases[0]!.status = "manager_review";

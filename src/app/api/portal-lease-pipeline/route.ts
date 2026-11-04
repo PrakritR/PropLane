@@ -1373,15 +1373,21 @@ export async function POST(req: Request) {
       // carry arbitrary rent, deposit and dates past this gate. An imported document (an uploaded PDF,
       // or a reusable converted template placed by hand) stands on its own review receipt instead.
       //
-      // Read off the mode the GENERATOR persisted, never `effectiveLeaseDocumentMode`: that resolves
-      // ANY row with no stored mode and no PDF as generated, so a lease filed before the mode was
-      // stored would be refused over a link it never carried. `isUploadedLease` is the same signal the
-      // drift gate below reads, so the two can never disagree about what counts as imported.
-      const isProplaneGeneratedLease = nextRow.documentMode === "proplane-generated" && !isUploadedLease;
+      // Which kind it is comes off the STORED row, like the link above: a lease the server already
+      // holds is not re-labelled by its sender, and one filed before the mode was persisted carries no
+      // mode and keeps the behaviour it always had. Only a row the server has never held is labelled
+      // by its own body, and there nothing but real uploaded PDF bytes excuses a missing link — the
+      // resolved `effectiveLeaseDocumentMode` is no help, since it reads any body with no mode and no
+      // PDF as generated. This is a consistency guard for the lease's own manager, not an
+      // authorization boundary: the route has already authorized this caller for this lease.
+      const sentPdfPath = Boolean(nextRow.managerUploadedPdf?.dataUrl || nextRow.managerUploadedPdf?.originalDataUrl);
+      const needsApplicationLink = storedRow
+        ? storedRow.documentMode === "proplane-generated" && !storedRow.uploadedLeaseParse && !storedRow.managerUploadedPdf?.dataUrl
+        : nextRow.documentMode === "proplane-generated" || !sentPdfPath;
       if (
         isNewSend &&
         !termsAxisId &&
-        isProplaneGeneratedLease &&
+        needsApplicationLink &&
         !(storedRow && rowHasAnySignature(storedRow))
       ) {
         return NextResponse.json(

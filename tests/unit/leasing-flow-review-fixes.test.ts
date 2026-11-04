@@ -151,7 +151,8 @@ describe("lease terms drift is keyed on the stored application link", () => {
 
   it("refuses a PropLane-generated send that is linked to no application at all", () => {
     expect(route).toContain('blocked: "terms-unlinked"');
-    expect(route).toContain('const isProplaneGeneratedLease = nextRow.documentMode === "proplane-generated" && !isUploadedLease;');
+    expect(route).toContain('? storedRow.documentMode === "proplane-generated" && !storedRow.uploadedLeaseParse && !storedRow.managerUploadedPdf?.dataUrl');
+    expect(route).toContain(': nextRow.documentMode === "proplane-generated" || !sentPdfPath;');
     expect(route).not.toContain('effectiveLeaseDocumentMode(nextRow) === "proplane-generated"');
   });
 });
