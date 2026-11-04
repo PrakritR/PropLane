@@ -159,18 +159,22 @@ describe("lease terms drift is keyed on the stored application link", () => {
     expect(route).toContain("nextRow = { ...nextRow, axisId: storedRow!.axisId };");
   });
 
-  it("decides uploaded-vs-generated off the STORED row, so a planted uploadedLeaseParse cannot skip the drift check", () => {
-    expect(route).toMatch(
-      /const isUploadedLease = storedRow\s*\?\s*effectiveLeaseDocumentMode\(storedRow\) !== "proplane-generated" \|\| Boolean\(storedRow\.uploadedLeaseParse\)/,
+  it("reads the document kind ONCE, off the stored row, and only believes a mode with imported provenance", () => {
+    expect(route).toContain(
+      "? Boolean(storedRow.uploadedLeaseParse || storedRow.managerUploadedPdf?.dataUrl || storedRow.templateImportReview)",
     );
-    expect(route).toContain(": Boolean(nextRow.uploadedLeaseParse) || (Boolean(nextRow.managerUploadedPdf?.dataUrl) && !nextRow.generatedHtml);");
+    expect(route).toContain('storedRow && !storedRow.documentMode && !importedProvenance\n          ? "legacy-unlabelled"');
+    expect(route).toContain(': effectiveLeaseDocumentMode(storedRow ?? nextRow) !== "proplane-generated" && importedProvenance');
+    expect(route).toContain('const isUploadedLease = leaseDocumentKind === "imported";');
     expect(route).not.toContain("const isUploadedLease = Boolean(nextRow.uploadedLeaseParse) ||");
   });
 
-  it("refuses a PropLane-generated send that is linked to no application at all", () => {
+  it("refuses a PropLane-generated send that is linked to no application at all, on that same one reading", () => {
     expect(route).toContain('blocked: "terms-unlinked"');
-    expect(route).toContain('? storedRow.documentMode === "proplane-generated" && !storedRow.uploadedLeaseParse && !storedRow.managerUploadedPdf?.dataUrl');
-    expect(route).toContain(': nextRow.documentMode === "proplane-generated" || !sentPdfPath;');
+    // Both gates read one value, so neither can call a lease imported while the other calls it generated.
+    expect(route).toContain('const needsApplicationLink = leaseDocumentKind === "generated";');
+    expect(route).not.toContain('storedRow.documentMode === "proplane-generated" && !storedRow.uploadedLeaseParse');
+    expect(route).not.toContain('nextRow.documentMode === "proplane-generated" || !sentPdfPath');
     expect(route).not.toContain('effectiveLeaseDocumentMode(nextRow) === "proplane-generated"');
   });
 });

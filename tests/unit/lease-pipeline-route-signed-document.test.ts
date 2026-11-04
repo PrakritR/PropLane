@@ -72,6 +72,10 @@ function makeQuery(table: string) {
       filters.push((r) => r[col] === val);
       return q;
     },
+    in: (col: string, vals: unknown[]) => {
+      filters.push((r) => vals.includes(r[col]));
+      return q;
+    },
     limit: () => Promise.resolve({ data: matches(), error: null }),
     maybeSingle: () => Promise.resolve({ data: matches()[0] ?? null, error: null }),
     upsert: (payload: Row) => {
@@ -925,6 +929,45 @@ describe("POST /api/portal-lease-pipeline: signed documents are immutable server
     });
     expect(send.status, await send.clone().text()).toBe(200);
     expect(storedRowData().status).toBe("Resident Signature Pending");
+  });
+
+  // Sendable with no application named, but it is not an imported document either: a link it DOES name is
+  // still measured, so the two gates read the same one classification of the stored row.
+  it("measures the terms of a legacy lease that names an application", async () => {
+    const applicationId = "application_legacy_1";
+    state.applications = [{
+      id: applicationId,
+      manager_user_id: state.user!.id,
+      resident_email: "jordan.lee@example.com",
+      property_id: "property_legacy_1",
+      row_data: { application: { leaseStart: "2026-12-01", leaseEnd: "2027-11-30", managerRentOverride: "1800", managerSecurityDepositOverride: "0" } },
+    }];
+    const legacy = executedRow({
+      bucket: "manager",
+      status: "Manager Review",
+      residentSignature: null,
+      managerSignature: null,
+      fullySignedAt: null,
+      axisId: applicationId,
+      generatedHtml: "<html><body>Legacy lease body</body></html>",
+      application: { leaseStart: "2026-12-01", leaseEnd: "2027-11-30", managerRentOverride: "1800", managerSecurityDepositOverride: "0" },
+    });
+    expect(legacy.documentMode).toBeUndefined();
+    seedExecuted(legacy);
+    state.leases[0]!.status = "manager_review";
+
+    const tampered = await post({
+      action: "upsert",
+      row: {
+        ...legacy,
+        status: "Resident Signature Pending",
+        bucket: "resident",
+        sentToResidentAt: "2026-09-24T01:00:00.000Z",
+        application: { ...legacy.application as Row, managerRentOverride: "1" },
+      },
+    });
+    expect(tampered.status).toBe(409);
+    expect(((await tampered.json()) as Row).blocked).toBe("terms-differ");
   });
 
   it("refuses a PropLane-generated send that is linked to no application (terms-unlinked)", async () => {

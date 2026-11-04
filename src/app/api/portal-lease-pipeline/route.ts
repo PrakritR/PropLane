@@ -1366,26 +1366,37 @@ export async function POST(req: Request) {
         normalized = nextRow as unknown as Record<string, unknown>;
       }
       const isNewSend = sendingToResident && storedRow?.status !== "Resident Signature Pending";
-      const isUploadedLease = storedRow
-        ? effectiveLeaseDocumentMode(storedRow) !== "proplane-generated" || Boolean(storedRow.uploadedLeaseParse)
-        : Boolean(nextRow.uploadedLeaseParse) || (Boolean(nextRow.managerUploadedPdf?.dataUrl) && !nextRow.generatedHtml);
+      const sentPdfPath = Boolean(nextRow.managerUploadedPdf?.dataUrl || nextRow.managerUploadedPdf?.originalDataUrl);
+      const importedProvenance = storedRow
+        ? Boolean(storedRow.uploadedLeaseParse || storedRow.managerUploadedPdf?.dataUrl || storedRow.templateImportReview)
+        : sentPdfPath;
+      const leaseDocumentKind: "generated" | "imported" | "legacy-unlabelled" =
+        storedRow && !storedRow.documentMode && !importedProvenance
+          ? "legacy-unlabelled"
+          : effectiveLeaseDocumentMode(storedRow ?? nextRow) !== "proplane-generated" && importedProvenance
+            ? "imported"
+            : "generated";
+      const isUploadedLease = leaseDocumentKind === "imported";
       const termsAxisId = storedAxisId || (typeof nextRow.axisId === "string" ? nextRow.axisId.trim() : "");
       // A PropLane lease is GENERATED from the resident record, so one going out with no link to any
       // application can be measured against nothing: a single create-and-send POST would otherwise
       // carry arbitrary rent, deposit and dates past this gate. An imported document (an uploaded PDF,
       // or a reusable converted template placed by hand) stands on its own review receipt instead.
       //
-      // Which kind it is comes off the STORED row, like the link above: a lease the server already
-      // holds is not re-labelled by its sender, and one filed before the mode was persisted carries no
-      // mode and keeps the behaviour it always had. Only a row the server has never held is labelled
-      // by its own body, and there nothing but real uploaded PDF bytes excuses a missing link — the
-      // resolved `effectiveLeaseDocumentMode` is no help, since it reads any body with no mode and no
-      // PDF as generated. This is a consistency guard for the lease's own manager, not an
-      // authorization boundary: the route has already authorized this caller for this lease.
-      const sentPdfPath = Boolean(nextRow.managerUploadedPdf?.dataUrl || nextRow.managerUploadedPdf?.originalDataUrl);
-      const needsApplicationLink = storedRow
-        ? storedRow.documentMode === "proplane-generated" && !storedRow.uploadedLeaseParse && !storedRow.managerUploadedPdf?.dataUrl
-        : nextRow.documentMode === "proplane-generated" || !sentPdfPath;
+      // Which kind it is comes off the STORED row, like the link above: a lease the server already holds is
+      // not re-labelled by its sender, and only a row the server has never held is labelled by its own body.
+      // BOTH gates read the one `leaseDocumentKind` above, so neither can call a lease imported while the
+      // other calls it generated — two separate readings disagreed on exactly the rows that carry no mode.
+      // A claimed mode is believed only with real imported provenance behind it (a parsed source, uploaded
+      // bytes, or a template import review), so a bare `documentMode` in `row_data` excuses nothing.
+      //
+      // `legacy-unlabelled` is the third state those two booleans could not express: a row filed before the
+      // mode was persisted, with no imported document either. It is sent as it always was — never refused
+      // for naming no application — but it is NOT imported, so a link it does name is still measured.
+      //
+      // This is a consistency guard for the lease's own manager, not an authorization boundary: the route
+      // has already authorized this caller for this lease.
+      const needsApplicationLink = leaseDocumentKind === "generated";
       if (
         isNewSend &&
         !termsAxisId &&

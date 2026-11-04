@@ -12,8 +12,10 @@
  *   - The applicant is the row's `residentUserId` when it carries one, else its email (guest rows only):
  *     a guest row is never grouped with an account's, and two accounts sharing an email are two people.
  *   - A SUBMITTED application is never archived (two sent applications for two rooms are legitimate; the
- *     same room twice is refused by the server). It is the row a draft folds into. A legacy row carrying
- *     no stage at all is not provably unsent, so it counts as sent here and is never withdrawn.
+ *     same room twice is refused by the server). It is the row a draft folds into.
+ *   - A legacy row carrying no stage at all is neither provably sent nor provably a draft, so the WHOLE
+ *     applicant + house group it sits in is skipped: nothing archived, nothing kept over it, and the group
+ *     is listed in the report for a human to read. It can neither be withdrawn nor retire a live draft.
  *   - Among drafts the kept one is: most wizard steps/answers, then newest.
  *   - An archived draft keeps its row and gets `withdrawnAt` (so it leaves every list), `mergedInto` (the
  *     kept row's id) and `mergedAt`. Nothing else in the row changes.
@@ -73,6 +75,17 @@ export function isDraftRow(row) {
   if (!row || row.bucket !== "pending" || row.manuallyAdded === true) return false;
   return DRAFT_STAGES.has(clean(row.stage).toLowerCase());
 }
+
+/**
+ * A legacy row carrying no stage at all: neither provably sent nor provably a draft. It must not be
+ * withdrawn, and it must not retire a draft someone may still be filling either, so a whole group
+ * holding one is left for a human to read.
+ */
+export function isLegacyStagelessRow(row) {
+  return Boolean(row) && row.bucket === "pending" && !clean(row.stage);
+}
+
+export const LEGACY_GROUP_SKIP_REASON = "skipped: legacy row, review by hand";
 
 /** Pending, not withdrawn, not already merged away, not a row a manager typed in. */
 export function isOpenRow(row) {
@@ -151,10 +164,24 @@ export function planMerges(records) {
   const plans = [];
   for (const [key, members] of groups) {
     if (members.length < 2) continue;
+    const siblingsOf = (k) => (decided.get(k) ?? []).map((m) => ({ id: m.id, bucket: m.row_data?.bucket }));
+    if (members.some((m) => isLegacyStagelessRow(m.row_data))) {
+      plans.push({
+        key,
+        skipped: true,
+        kept: null,
+        keptIsSubmitted: false,
+        archive: [],
+        members,
+        siblings: siblingsOf(key),
+        reason: LEGACY_GROUP_SKIP_REASON,
+      });
+      continue;
+    }
     const submitted = members.filter((m) => !isDraftRow(m.row_data)).sort((a, b) => updatedMs(a) - updatedMs(b));
     const drafts = members.filter((m) => isDraftRow(m.row_data)).sort(compareDrafts);
     if (drafts.length === 0) continue;
-    const siblings = (decided.get(key) ?? []).map((m) => ({ id: m.id, bucket: m.row_data?.bucket }));
+    const siblings = siblingsOf(key);
 
     // A sent application for the same house (and the same room, or no room named) already covers the drafts.
     const coveringFor = (draft) =>
@@ -176,6 +203,8 @@ export function planMerges(records) {
     if (toArchive.length === 0) continue;
     plans.push({
       key,
+      skipped: false,
+      members,
       kept: submitted[0] ?? keptDraft,
       keptIsSubmitted: submitted.length > 0,
       archive: toArchive,
@@ -247,12 +276,22 @@ async function main() {
   const plans = planMerges(records);
 
   const extras = plans.reduce((n, plan) => n + plan.archive.length, 0);
-  console.log(`${records.length} applications read. ${plans.length} applicant+house groups with duplicate drafts, ${extras} extra drafts.`);
+  const skippedGroups = plans.filter((plan) => plan.skipped);
+  console.log(
+    `${records.length} applications read. ${plans.length - skippedGroups.length} applicant+house groups with duplicate drafts, ` +
+      `${extras} extra drafts, ${skippedGroups.length} groups left for a human.`,
+  );
   for (const plan of plans) {
     console.log(`\n${plan.key}  (${plan.reason})`);
-    console.log(`  keep     ${plan.kept.id}  ${plan.keptIsSubmitted ? "submitted" : "draft"}  ${JSON.stringify(completeness(plan.kept))}`);
-    for (const item of plan.archive) {
-      console.log(`  archive  ${item.record.id}  -> ${item.mergedInto}  ${JSON.stringify(completeness(item.record))}`);
+    if (plan.skipped) {
+      for (const member of plan.members) {
+        console.log(`  review   ${member.id}  stage ${JSON.stringify(member.row_data?.stage ?? null)}  ${JSON.stringify(completeness(member))}`);
+      }
+    } else {
+      console.log(`  keep     ${plan.kept.id}  ${plan.keptIsSubmitted ? "submitted" : "draft"}  ${JSON.stringify(completeness(plan.kept))}`);
+      for (const item of plan.archive) {
+        console.log(`  archive  ${item.record.id}  -> ${item.mergedInto}  ${JSON.stringify(completeness(item.record))}`);
+      }
     }
     for (const sibling of plan.siblings) console.log(`  note     ${sibling.id} is ${sibling.bucket} (not touched)`);
   }
@@ -267,6 +306,7 @@ async function main() {
 
   const touched = new Map();
   for (const plan of plans) {
+    if (plan.skipped) continue;
     touched.set(plan.kept.id, plan.kept);
     for (const item of plan.archive) touched.set(item.record.id, item.record);
   }

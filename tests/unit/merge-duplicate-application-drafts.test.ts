@@ -5,6 +5,7 @@ import {
   checkTarget,
   compareDrafts,
   DEV_PROJECT_REF,
+  LEGACY_GROUP_SKIP_REASON,
   planMerges,
   PRODUCTION_PROJECT_REF,
   projectRefFromUrl,
@@ -69,22 +70,24 @@ describe("merge-duplicate-application-drafts: planMerges", () => {
     expect(plans[0]!.archive.every((a: { mergedInto: string }) => a.mergedInto === "S")).toBe(true);
   });
 
-  it("never archives a legacy stage-less row: it is not provably unsent", () => {
-    // Two genuinely submitted rows that predate the `stage` field. Neither may be withdrawn.
-    expect(
-      planMerges([
-        record("L1", { row: { stage: "" }, app: { fullLegalName: "K", wizardMaxStepReached: 7 } }),
-        record("L2", { row: { stage: "" }, app: { fullLegalName: "K", wizardMaxStepReached: 6 } }),
-      ]),
-    ).toHaveLength(0);
-    // A real draft beside one still folds into it, and the legacy row is what is kept.
-    const plans = planMerges([
-      record("L1", { row: { stage: "" }, app: { fullLegalName: "K", wizardMaxStepReached: 7 } }),
-      record("D1", { app: { wizardMaxStepReached: 2 } }),
-    ]);
-    expect(plans).toHaveLength(1);
-    expect(plans[0]!.kept.id).toBe("L1");
-    expect(plans[0]!.archive.map((a: { record: Rec }) => a.record.id)).toEqual(["D1"]);
+  it("skips the whole group when a legacy stage-less row sits in it: review by hand, nothing written", () => {
+    const legacy = (id: string, step: number) =>
+      record(id, { row: { stage: "" }, app: { fullLegalName: "K", wizardMaxStepReached: step } });
+    expect(LEGACY_GROUP_SKIP_REASON).toBe("skipped: legacy row, review by hand");
+    // Two rows that predate the `stage` field: neither provably sent nor provably a draft.
+    // A live draft beside one: the unverifiable row must not retire it either.
+    for (const [members, ids] of [
+      [[legacy("L1", 7), legacy("L2", 6)], ["L1", "L2"]],
+      [[legacy("L1", 7), record("D1", { app: { wizardMaxStepReached: 2 } })], ["D1", "L1"]],
+    ] as Array<[Rec[], string[]]>) {
+      const plans = planMerges(members);
+      expect(plans).toHaveLength(1);
+      expect(plans[0]!.skipped).toBe(true);
+      expect(plans[0]!.reason).toBe(LEGACY_GROUP_SKIP_REASON);
+      expect(plans[0]!.archive).toEqual([]);
+      expect(plans[0]!.kept).toBeNull();
+      expect(plans[0]!.members.map((m: Rec) => m.id).sort()).toEqual(ids);
+    }
   });
 
   it("keeps a draft for a different room than the sent application", () => {
