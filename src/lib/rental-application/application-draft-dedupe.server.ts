@@ -39,7 +39,9 @@ export async function findOpenApplicationForApplicant(
   if (!propertyId || (!input.subject && !email)) return { ok: true, match: null };
   let query = db.from("manager_application_records").select(STORED_APPLICATION_SELECT).eq("property_id", propertyId);
   query = input.subject ? query.eq("row_data->>residentUserId", input.subject) : query.eq("resident_email", email);
-  const { data, error } = await query.limit(50);
+  // Newest first: an applicant+house with more than a page of history (approved, declined, withdrawn,
+  // already merged) would otherwise push the one OPEN row off the page and write a duplicate.
+  const { data, error } = await query.order("updated_at", { ascending: false, nullsFirst: false }).limit(50);
   if (error) return { ok: false };
   const records = (data ?? []) as StoredApplicationRecord[];
   const candidates: OpenApplicationCandidate[] = records

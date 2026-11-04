@@ -5,8 +5,10 @@ import type { AgentContext } from "../context";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { managerOwnsResident } from "@/lib/auth/resident-relationship";
 import { APPROVAL_BLOCKED_BY_FORM_MESSAGE, APPROVAL_FORMS_CHECK_FAILED_MESSAGE } from "@/lib/move-in-forms/blocking";
+import { UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE } from "@/lib/rental-application/draft-shape";
 import {
   loadResidentApprovalBlocking,
+  loadResidentApprovalDraftBlock,
   revokeResidentAccessForManager,
   setResidentApprovalForManager,
 } from "@/lib/resident-approval.server";
@@ -134,6 +136,10 @@ async function assertNoApprovalBlockingForms(ctx: AgentContext, email: string): 
   const blocking = await loadResidentApprovalBlocking(ctx.db, { userId: ctx.landlordId, isAdmin: ctx.isAdmin }, email);
   if (blocking.readFailed) throw new Error(APPROVAL_FORMS_CHECK_FAILED_MESSAGE);
   if (blocking.approval) throw new Error(APPROVAL_BLOCKED_BY_FORM_MESSAGE);
+  // An applicant whose only application is an unsent draft is not approvable either (the routes refuse it).
+  const draft = await loadResidentApprovalDraftBlock(ctx.db, { userId: ctx.landlordId, isAdmin: ctx.isAdmin }, email);
+  if (draft.readFailed) throw new Error("Could not verify the application status. Try again.");
+  if (draft.blocked) throw new Error(UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE);
 }
 
 /** Non-admin managers may only act on residents tied to their own portfolio. */

@@ -314,7 +314,11 @@ export function TourScheduleFlow({
     inquiryId: string;
   } | null>(null);
   const contactAutofill = useProspectContactAutofill();
-  const signedInUserId = contactAutofill.userId;
+  // The server refused the request because the session is gone (401 `sign_in_required`): the client's
+  // own "signed in" is stale, so Your details goes back to the account step — where there is something
+  // to press — instead of showing "Sign in to request a tour." with no way to sign in.
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const signedInUserId = sessionExpired ? "" : contactAutofill.userId;
   const applicationGate = useTourApplicationGate(property, { signedIn: Boolean(signedInUserId) });
   const hasResidentRole = contactAutofill.hasResidentRole;
   const [tick, setTick] = useState(0);
@@ -482,7 +486,7 @@ export function TourScheduleFlow({
     if (Object.keys(errs).length > 0) {
       setFieldErrors(errs);
       showToast("Please fix the highlighted fields before continuing.");
-      queueMicrotask(() => scrollToFirstWizardFieldError(TOUR_STEP_FIELD_ORDER[2] ?? [], errs));
+      queueMicrotask(() => scrollToFirstWizardFieldError(TOUR_STEP_FIELD_ORDER[1] ?? [], errs));
       return;
     }
     setFieldErrors({});
@@ -929,7 +933,7 @@ export function TourScheduleFlow({
               if (Object.keys(errs).length > 0) {
                 setFieldErrors(errs);
                 showToast("Please fix the highlighted fields before continuing.");
-                queueMicrotask(() => scrollToFirstWizardFieldError(TOUR_STEP_FIELD_ORDER[3] ?? [], errs));
+                queueMicrotask(() => scrollToFirstWizardFieldError(TOUR_STEP_FIELD_ORDER[2] ?? [], errs));
                 return;
               }
               const normalizedPhone = normalizeTourContactPhone(phone);
@@ -937,7 +941,7 @@ export function TourScheduleFlow({
                 const phoneErr = { phone: "Phone number must be 10 digits." };
                 setFieldErrors(phoneErr);
                 showToast("Please fix the highlighted fields before continuing.");
-                queueMicrotask(() => scrollToFirstWizardFieldError(TOUR_STEP_FIELD_ORDER[3] ?? [], phoneErr));
+                queueMicrotask(() => scrollToFirstWizardFieldError(TOUR_STEP_FIELD_ORDER[2] ?? [], phoneErr));
                 return;
               }
               if (selectedDay == null || selectedSlotIndex == null) return;
@@ -1004,6 +1008,7 @@ export function TourScheduleFlow({
                   // Inline, on the step that asked, with the time still picked: a toast vanishes and a wiped
                   // pick sends a prospect back to square one over a refusal that may only need another try.
                   setSubmitError(result.error ?? "That tour time is no longer available.");
+                  if (result.status === 401) setSessionExpired(true);
                   void loadAvailability();
                   return;
                 }
@@ -1063,6 +1068,7 @@ export function TourScheduleFlow({
               const failedResult = results.find((item) => !item.ok);
               if (failedResult) {
                 setSubmitError(failedResult.error ?? "That tour time is no longer available.");
+                if (failedResult.status === 401) setSessionExpired(true);
                 void loadAvailability();
                 return;
               }

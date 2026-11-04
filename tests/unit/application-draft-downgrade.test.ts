@@ -116,6 +116,9 @@ function makeFakeDb() {
         filters.push((row) => clauses.some((fn) => fn(row)));
         return api;
       },
+      order() {
+        return api;
+      },
       limit() {
         return Promise.resolve({ data: matched().slice(0, 1), error: null });
       },

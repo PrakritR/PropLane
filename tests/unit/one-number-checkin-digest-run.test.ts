@@ -4,8 +4,9 @@ const mocks = vi.hoisted(() => ({ alert: vi.fn(), entries: vi.fn(), service: vi.
 vi.mock("@/lib/one-number/ops-alerts.server", () => ({ alertPhonesOf: mocks.alert }));
 vi.mock("@/lib/occupancy/snapshot.server", () => ({ occupancyEntriesForManager: mocks.entries }));
 vi.mock("@/lib/service/service-manager.server", () => ({ readServiceManagerSettings: mocks.service }));
+// The digest reads each house's clock out of the SAME property row it already loaded, never per house.
 vi.mock("@/lib/bookings/property-stay-times.server", () => ({
-  loadPropertyStayClock: async () => ({ times: { checkInTime: "15:00", checkOutTime: "11:00" }, timeZone: "America/Los_Angeles" }),
+  propertyStayClockFromRecord: () => ({ times: { checkInTime: "15:00", checkOutTime: "11:00" }, timeZone: "America/Los_Angeles" }),
 }));
 
 import { runCheckinCheckoutDigest } from "@/lib/one-number/checkin-digest.server";

@@ -9,6 +9,8 @@
  *
  *   - Only OPEN rows are considered (pending, not withdrawn, not already merged, not hand-added).
  *     Approved and declined rows are never touched.
+ *   - The applicant is the row's `residentUserId` when it carries one, else its email (guest rows only):
+ *     a guest row is never grouped with an account's, and two accounts sharing an email are two people.
  *   - A SUBMITTED application is never archived (two sent applications for two rooms are legitimate; the
  *     same room twice is refused by the server). It is the row a draft folds into.
  *   - Among drafts the kept one is: most wizard steps/answers, then newest.
@@ -84,12 +86,18 @@ export function houseKey(record) {
   return clean(record.property_id) || clean(row.propertyId) || clean(row.assignedPropertyId) || clean(row.application?.propertyId);
 }
 
+/**
+ * Who the row belongs to. The Auth SUBJECT wins whenever the row carries one, exactly as the write
+ * path's dedupe decides it (`selectOpenApplicationMatch`: "an email is never enough"): two accounts
+ * that share an email are two people, and an account row is never the same applicant as a guest row
+ * whose email was only typed. An email keys guest rows alone.
+ */
 export function applicantKey(record) {
   const row = record.row_data ?? {};
-  const email = clean(row.email || record.resident_email).toLowerCase();
-  if (email) return `email:${email}`;
   const user = clean(row.residentUserId);
-  return user ? `user:${user}` : "";
+  if (user) return `user:${user}`;
+  const email = clean(row.email || record.resident_email).toLowerCase();
+  return email ? `guest:${email}` : "";
 }
 
 /** Answers filled in, and the furthest wizard step: how complete a draft is. */
@@ -263,7 +271,10 @@ async function main() {
   const snapshotPath =
     args.snapshot || path.join(os.tmpdir(), `application-draft-merge-${ref}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
   fs.mkdirSync(path.dirname(path.resolve(snapshotPath)), { recursive: true });
-  fs.writeFileSync(snapshotPath, JSON.stringify({ ref, takenAt: new Date().toISOString(), records: [...touched.values()] }, null, 2));
+  // Whole application rows: names, emails, phones, income. Owner-only, and chmod as well as `mode`
+  // because `mode` is ignored when the file already exists.
+  fs.writeFileSync(snapshotPath, JSON.stringify({ ref, takenAt: new Date().toISOString(), records: [...touched.values()] }, null, 2), { mode: 0o600 });
+  fs.chmodSync(snapshotPath, 0o600);
   console.log(`\nSnapshot of ${touched.size} rows written to ${snapshotPath}`);
 
   const nowIso = new Date().toISOString();

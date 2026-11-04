@@ -45,7 +45,7 @@ vi.mock("@/lib/supabase/service", () => ({
 import { sendSms } from "@/lib/twilio";
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
-const send = () => sendSms("+12065550142", "hi", "+12065550100", { creditReservationKey: "sms_outbound:abc" });
+const send = () => sendSms("+12065550142", "hi", "+12065550100", { creditReservationKey: "sms_outbound:abc", expectedPayerUserId: OWNER });
 
 describe("sendSms verifies the hold on whichever ledger reserved it", () => {
   beforeEach(() => {

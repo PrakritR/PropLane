@@ -65,6 +65,13 @@ export async function sendSms(
     mediaUrls?: string[];
     creditReservationKey?: string;
     /**
+     * The workspace the dispatcher is sending FOR (the outbox row's `manager_user_id`). From the configured
+     * shared number the reserved hold alone proves whose wallet pays, so it must belong to THIS workspace:
+     * a reservation key is not a bearer token for another workspace's credit. Required on the shared number;
+     * absent = refused.
+     */
+    expectedPayerUserId?: string;
+    /**
      * `phone_verification`: the authenticated OTP route. `platform_lead`: a text from PropLane
      * itself on the shared number to a lead that has no workspace yet (no wallet to hold credit
      * from); it is valid ONLY from the configured shared number and keeps the shield, the
@@ -153,6 +160,11 @@ export async function sendSms(
     // numbers row. An unreadable shared config reads as "not the shared number" (fail closed).
     const sharedFrom = await isConfiguredSharedNumber(db, fromNorm).catch(() => false);
     const holdOwner = sharedFrom ? hold?.manager_user_id : number?.manager_user_id;
+    const expectedPayer = String(opts.expectedPayerUserId ?? "").trim();
+    // On the shared number the hold's owner must be the workspace being sent for; no stated payer fails closed.
+    if (sharedFrom && (!expectedPayer || (hold && hold.manager_user_id !== expectedPayer))) {
+      return { sent: false, providerAttempted: false, error: "Communication credit could not be verified." };
+    }
     if ((!sharedFrom && numberError) || creditError || (!number && !sharedFrom) || !hold || !holdOwner || hold.manager_user_id !== holdOwner || hold.meter !== "sms_outbound_segment"
       || hold.credit_state !== "reserved" || Number(hold.quantity) !== estimateSmsSegments(body).segmentCount) {
       return { sent: false, providerAttempted: false, error: "Communication credit could not be verified." };

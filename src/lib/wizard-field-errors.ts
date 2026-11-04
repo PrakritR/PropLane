@@ -108,10 +108,10 @@ export const COSIGNER_STEP_FIELD_ORDER: Record<number, string[]> = {
   5: ["signature", "dateSigned"],
 };
 
+/** Two steps, numbered as the flow numbers them: 1 = Date & time (with the room), 2 = Your details. */
 export const TOUR_STEP_FIELD_ORDER: Record<number, string[]> = {
-  1: ["property", "room"],
-  2: ["tourSlot"],
-  3: ["name", "email", "phone"],
+  1: ["property", "room", "tourSlot"],
+  2: ["name", "email", "phone"],
 };
 
 export const PARTNER_MEETING_STEP_FIELD_ORDER: Record<number, string[]> = {

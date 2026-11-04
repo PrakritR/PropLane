@@ -1,13 +1,13 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { loadPropertyStayClock } from "@/lib/bookings/property-stay-times.server";
+import { propertyStayClockFromRecord } from "@/lib/bookings/property-stay-times.server";
 import { withResolvedStayTimes } from "@/lib/channel-calendar/property-bookings";
 import { digestLinesByHouse } from "@/lib/one-number/checkin-digest";
 import { checkinDigestEntityId } from "@/lib/one-number/ops-alert-lines";
 import { alertPhonesOf } from "@/lib/one-number/ops-alerts.server";
 import { occupancyEntriesForManager } from "@/lib/occupancy/snapshot.server";
-import { pacificCalendarDateYmd } from "@/lib/pacific-time";
+import { pacificCalendarDateYmd, pacificHourOfDay } from "@/lib/pacific-time";
 import { readServiceManagerSettings } from "@/lib/service/service-manager.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
@@ -19,10 +19,8 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
  */
 export const CHECKIN_DIGEST_HOUR_PACIFIC = 7;
 
-function pacificHourOf(now: Date): number {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "2-digit", hourCycle: "h23" }).formatToParts(now);
-  return Number(parts.find((p) => p.type === "hour")?.value ?? "-1");
-}
+/** Owners handled at once. One cron invocation has 120s for all of them, so they do not go one by one. */
+export const CHECKIN_DIGEST_OWNER_CONCURRENCY = 4;
 
 export type CheckinDigestSummary = {
   owners: number;
@@ -62,40 +60,65 @@ export async function runCheckinCheckoutDigest(
 ): Promise<CheckinDigestSummary> {
   const now = (deps.now ?? (() => new Date()))();
   const summary: CheckinDigestSummary = { owners: 0, houses: 0, sent: 0, failed: 0 };
-  if (!deps.force && pacificHourOf(now) !== CHECKIN_DIGEST_HOUR_PACIFIC) return { ...summary, skippedReason: "not_7am" };
+  if (!deps.force && pacificHourOfDay(now) !== CHECKIN_DIGEST_HOUR_PACIFIC) return { ...summary, skippedReason: "not_7am" };
   const owners = await ownersToTell(db);
   if (!owners) return { ...summary, skippedReason: "unreadable" };
   const dayKey = pacificCalendarDateYmd(now);
   const url = `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/portal/bookings/upcoming`;
 
-  for (const ownerUserId of owners) {
-    try {
-      const { data: properties, error } = await db.from("manager_property_records").select("id").eq("manager_user_id", ownerUserId).limit(500);
-      if (error) throw new Error(error.message);
-      const propertyIds = ((properties ?? []) as Array<{ id?: unknown }>).map((row) => String(row.id ?? "").trim()).filter(Boolean);
-      if (propertyIds.length === 0) continue;
-      summary.owners += 1;
-      const { entries } = await occupancyEntriesForManager(db, ownerUserId, { propertyIds });
-      const clocks = new Map<string, Awaited<ReturnType<typeof loadPropertyStayClock>>["times"]>();
-      for (const id of propertyIds) clocks.set(id, (await loadPropertyStayClock(db, id)).times);
-      const timed = withResolvedStayTimes(entries, (propertyId) => clocks.get(propertyId) as never);
-      for (const line of digestLinesByHouse(timed, dayKey)) {
-        summary.houses += 1;
-        const out = await alertPhonesOf(db, {
-          ownerUserId,
-          kind: "checkin_checkout_today",
-          entityId: checkinDigestEntityId(line.propertyId, dayKey),
-          propertyId: line.propertyId,
-          text: line.text,
-          url,
-        });
-        if (out.texted + out.emailed > 0) summary.sent += 1;
-      }
-    } catch {
-      // One owner's unreadable house never stops the next owner's text. Nothing identifying is logged.
-      summary.failed += 1;
-      console.error("check-in digest failed for one owner");
+  const digestForOwner = async (ownerUserId: string): Promise<void> => {
+    // The houses and the clock each house keeps come from ONE read. Loading the clock per property was
+    // a round trip per house (500 of them, for every owner, inside a single 120s invocation), which ran
+    // the cron out of time and left the later owners with no 7 AM text at all.
+    const { data: properties, error } = await db
+      .from("manager_property_records")
+      .select("id, row_data, property_data")
+      .eq("manager_user_id", ownerUserId)
+      .limit(500);
+    if (error) throw new Error(error.message);
+    const rows = (properties ?? []) as Array<{ id?: unknown; row_data?: unknown; property_data?: unknown }>;
+    const clocks = new Map<string, ReturnType<typeof propertyStayClockFromRecord>["times"]>();
+    const propertyIds: string[] = [];
+    for (const row of rows) {
+      const id = String(row.id ?? "").trim();
+      if (!id) continue;
+      propertyIds.push(id);
+      clocks.set(id, propertyStayClockFromRecord(row).times);
     }
-  }
+    if (propertyIds.length === 0) return;
+    summary.owners += 1;
+    const { entries } = await occupancyEntriesForManager(db, ownerUserId, { propertyIds });
+    const timed = withResolvedStayTimes(entries, (propertyId) => clocks.get(propertyId) as never);
+    for (const line of digestLinesByHouse(timed, dayKey)) {
+      summary.houses += 1;
+      const out = await alertPhonesOf(db, {
+        ownerUserId,
+        kind: "checkin_checkout_today",
+        entityId: checkinDigestEntityId(line.propertyId, dayKey),
+        propertyId: line.propertyId,
+        text: line.text,
+        url,
+      });
+      if (out.texted + out.emailed > 0) summary.sent += 1;
+    }
+  };
+
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const ownerUserId = owners[next++];
+      if (!ownerUserId) return;
+      try {
+        await digestForOwner(ownerUserId);
+      } catch {
+        // One owner's unreadable house never stops the next owner's text. Nothing identifying is logged.
+        summary.failed += 1;
+        console.error("check-in digest failed for one owner");
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.max(1, Math.min(CHECKIN_DIGEST_OWNER_CONCURRENCY, owners.length || 1)) }, worker),
+  );
   return summary;
 }

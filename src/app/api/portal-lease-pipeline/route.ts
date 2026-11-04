@@ -53,6 +53,7 @@ import {
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
 import { stripIdentityFromLeaseRow } from "@/lib/lease-application-identity";
+import { idVariants } from "@/lib/rental-application/signed-in-application-write.server";
 import { loadLeasingPipeline } from "@/lib/leasing-pipeline-preferences";
 import {
   projectLeasePipelineListRow,
@@ -370,6 +371,39 @@ function rowFromLeaseRecord(record: LeaseScopeRecord): Record<string, unknown> {
     unknown
   >;
   return { ...row, reviewRevision: (record as LeaseScopeRecord & { updated_at?: string | null }).updated_at ?? null };
+}
+
+/**
+ * Whose filed application the lease's terms are measured against: the manager the lease BELONGS to.
+ *
+ * A stored row names its owner. A lease being created names a property instead, and a co-manager
+ * filing it under the owner's house acts FOR that owner — the application lives in the owner's
+ * queue, not the sender's, so reading it under `ctx.user.id` found nothing and the drift check
+ * quietly did not run. The co-manager's grant is re-checked here (the same `leases` edit grant the
+ * write itself requires), so naming someone else's property cannot turn this into a way to probe
+ * their application; an unreadable property answers `null`, and the caller refuses.
+ */
+async function resolveLeaseTermsOwner(
+  ctx: { db: ReturnType<typeof createSupabaseServiceRoleClient>; user: RecordUser },
+  storedOwner: string | null | undefined,
+  namedPropertyId: string | null,
+): Promise<string | null> {
+  const stored = String(storedOwner ?? "").trim();
+  if (stored) return stored;
+  const propertyId = String(namedPropertyId ?? "").trim();
+  if (!propertyId) return ctx.user.id;
+  const { data, error } = await ctx.db
+    .from("manager_property_records")
+    .select("manager_user_id")
+    .eq("id", propertyId)
+    .maybeSingle();
+  if (error) return null;
+  const owner = String((data as { manager_user_id?: string | null } | null)?.manager_user_id ?? "").trim();
+  if (!owner || owner === ctx.user.id) return ctx.user.id;
+  if (ctx.user.role === "admin") return owner;
+  const access = await managerMayFileLeaseUnderProperty(ctx.db, ctx.user.id, propertyId);
+  if (!access.ok) return null;
+  return access.allowed ? owner : ctx.user.id;
 }
 
 async function viewerMayReadLeaseRecord(
@@ -1313,30 +1347,42 @@ export async function POST(req: Request) {
       }
       // The terms on a lease going out are the record's: rent, deposit, start and end are re-read from
       // the filed application and a body that differs is refused. Only the transition is checked (not
-      // every later write), an uploaded PDF keeps its own reading/review path, and a lease with no
-      // application behind it has nothing to compare.
+      // every later write), and an uploaded PDF keeps its own reading/review path.
+      //
+      // The application is read under the lease's WORKSPACE OWNER, not under whoever pressed Send: a
+      // co-manager (or an admin in oversight) sending the owner's lease matched no row under their own
+      // id, so the check silently did not run for exactly the actor it most needs to bind. A record the
+      // send names but that cannot be read under that owner REFUSES — skipping it is how tampered rent
+      // went out unmeasured.
       const isNewSend = sendingToResident && storedRow?.status !== "Resident Signature Pending";
       const isUploadedLease = Boolean(nextRow.uploadedLeaseParse) || (Boolean(nextRow.managerUploadedPdf?.dataUrl) && !nextRow.generatedHtml);
       const termsAxisId = typeof nextRow.axisId === "string" ? nextRow.axisId.trim() : "";
       if (isNewSend && !isUploadedLease && termsAxisId && !(storedRow && rowHasAnySignature(storedRow))) {
-        const { data: appRecord, error: appError } = await ctx.db
+        const termsUnreadable = NextResponse.json(
+          { error: "The resident record could not be read to confirm the lease terms. Try again.", blocked: "terms-unreadable" },
+          { status: 409 },
+        );
+        const termsOwner = await resolveLeaseTermsOwner(
+          ctx,
+          existingRecord?.manager_user_id,
+          clientNamedScopeParts(normalized).property_id ?? existingRecord?.property_id ?? null,
+        );
+        if (!termsOwner) return termsUnreadable;
+        const { data: appRecords, error: appError } = await ctx.db
           .from("manager_application_records")
           .select("row_data")
-          .eq("id", termsAxisId)
-          .eq("manager_user_id", existingRecord?.manager_user_id ?? ctx.user.id)
-          .maybeSingle();
-        if (appError) {
-          return NextResponse.json({ error: "The resident record could not be read to confirm the lease terms. Try again.", blocked: "terms-unreadable" }, { status: 409 });
-        }
-        const appRow = (appRecord?.row_data ?? null) as { application?: Record<string, string | undefined> } | null;
-        if (appRow) {
-          const drift = leaseTermsDriftFromApplication(nextRow.application, appRow.application);
-          if (drift.length > 0) {
-            return NextResponse.json(
-              { error: `The lease terms (${drift.join(", ")}) differ from the resident record. Edit the resident, then send the regenerated lease.`, blocked: "terms-differ", terms: drift },
-              { status: 409 },
-            );
-          }
+          .in("id", idVariants(termsAxisId))
+          .eq("manager_user_id", termsOwner)
+          .limit(1);
+        if (appError) return termsUnreadable;
+        const appRow = ((appRecords ?? [])[0]?.row_data ?? null) as { application?: Record<string, string | undefined> } | null;
+        if (!appRow) return termsUnreadable;
+        const drift = leaseTermsDriftFromApplication(nextRow.application, appRow.application);
+        if (drift.length > 0) {
+          return NextResponse.json(
+            { error: `The lease terms (${drift.join(", ")}) differ from the resident record. Edit the resident, then send the regenerated lease.`, blocked: "terms-differ", terms: drift },
+            { status: 409 },
+          );
         }
       }
       const hasUploadedSource = Boolean(nextRow.managerUploadedPdf?.dataUrl);

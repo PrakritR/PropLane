@@ -1179,6 +1179,7 @@ export async function dispatchOwnerSmsOutbox(
     const sent = await sendSms(await providerDestinationFor(db, row), row.body, policy.fromNumber, {
       skipOptOutCheck: true,
       creditReservationKey: creditKey,
+      expectedPayerUserId: row.manager_user_id,
       ...(policy.viaSharedLine && policy.providerMessagingServiceSid
         ? { messagingServiceSid: policy.providerMessagingServiceSid }
         : {}),

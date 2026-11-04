@@ -103,7 +103,25 @@ describe("merge-duplicate-application-drafts: planMerges", () => {
     expect(plans[0]!.siblings.map((s: { id: string }) => s.id).sort()).toEqual(["NO", "OK"]);
   });
 
-  it("matches the applicant by email case-insensitively", () => {
+  it("keys on the Auth subject when the row has one: a guest row is never merged into an account's", () => {
+    // Same email, three different people: one guest row and two signed-in accounts.
+    expect(
+      planMerges([
+        record("G1"),
+        record("A1", { row: { residentUserId: "subject-a" } }),
+        record("B1", { row: { residentUserId: "subject-b" }, app: { a: "1" } }),
+      ]),
+    ).toHaveLength(0);
+    // Two drafts of the SAME account still merge, even though one carries a different typed email.
+    const plans = planMerges([
+      record("A1", { row: { residentUserId: "subject-a" } }),
+      record("A2", { resident_email: "typo@example.com", row: { residentUserId: "subject-a" }, app: { a: "1" } }),
+    ]);
+    expect(plans).toHaveLength(1);
+    expect(plans[0]!.kept.id).toBe("A2");
+  });
+
+  it("matches a guest applicant by email case-insensitively", () => {
     const plans = planMerges([
       record("A", { resident_email: "Kumar@Example.com" }),
       record("B", { resident_email: "kumar@example.com", app: { a: "1" } }),

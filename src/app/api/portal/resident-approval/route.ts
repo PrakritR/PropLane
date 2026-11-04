@@ -292,11 +292,18 @@ export async function PATCH(req: Request) {
           { status: 409 },
         );
       }
-      // An application the person never sent cannot be approved. Only an id match proves THIS row is
-      // that draft; the email fallback may land on a different, newer draft by the same applicant.
-      if (lookup.matchedBy === "id" && isUnsubmittedDraftApplicationRow(lookup.stored)) {
+      // An application the person never sent cannot be approved — on EITHER match, like the withdrawn
+      // guard above: the email fallback is what the caller is approving when the body names no id, so
+      // exempting it is the same production defect. The refusal names the row it matched and how, so a
+      // client can only treat the stamp as THIS application's when the id lookup is what matched.
+      if (isUnsubmittedDraftApplicationRow(lookup.stored)) {
         return NextResponse.json(
-          { error: UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE, blocked: "draft", blockedApplicationId: lookup.storedId || null },
+          {
+            error: UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE,
+            blocked: "draft",
+            blockedApplicationId: lookup.storedId || null,
+            matchedBy: lookup.matchedBy,
+          },
           { status: 409 },
         );
       }

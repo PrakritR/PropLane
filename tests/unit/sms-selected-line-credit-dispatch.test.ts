@@ -177,7 +177,7 @@ describe("selected-line SMS credit at the final dispatch boundary", () => {
     expect(mocks.sendSms).toHaveBeenCalledOnce();
     expect(mocks.sendSms).toHaveBeenCalledWith(
       "+12065550142", "A one segment message", "+12065550999",
-      { skipOptOutCheck: true, creditReservationKey: "sms_outbound:outbox-1" },
+      { skipOptOutCheck: true, creditReservationKey: "sms_outbound:outbox-1", expectedPayerUserId: "owner-1" },
     );
     expect(mocks.finish).toHaveBeenCalledOnce();
     expect(mocks.finish).toHaveBeenCalledWith(fixture.db, "owner-1", "sms_outbound:outbox-1");

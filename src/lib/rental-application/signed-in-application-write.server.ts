@@ -225,7 +225,10 @@ export async function persistNormalizedRow(
   // The first insert of an APPLICANT's own draft: the owner's listed alert phones hear that someone started
   // (a manager-filed row, a rename and every later autosave are not "started"). Best-effort, once per application.
   if (!existing && noticeChannel === "portal" && isDraftShapedApplicationRow(row) && row.managerUserId?.trim()) {
-    void (async () => {
+    // Awaited, not detached: a promise started during a request and never awaited is not guaranteed to
+    // run once the response is sent, so the alert the captain asked for could vanish with no trace.
+    // `alertPhonesOf` never throws, and the catch keeps a failed import off the applicant's write.
+    try {
       const { alertPhonesOf } = await import("@/lib/one-number/ops-alerts.server");
       const { applicationStartedLine } = await import("@/lib/one-number/ops-alert-lines");
       await alertPhonesOf(db, {
@@ -235,7 +238,9 @@ export async function persistNormalizedRow(
         propertyId: row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || null,
         text: applicationStartedLine({ applicant: row.name?.trim() || row.application?.fullLegalName?.trim() || "", house: row.property }),
       });
-    })().catch(() => undefined);
+    } catch {
+      console.error("application_started ops alert failed");
+    }
   }
   if (row.bucket === "approved") {
     try {
