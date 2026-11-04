@@ -1,3 +1,4 @@
+import { resolveRequestOrigin } from "@/lib/app-url";
 import { createHash } from "node:crypto";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 
@@ -52,7 +53,7 @@ export function hasSameOriginJson(request: Request): boolean {
   const origin = request.headers.get("origin");
   if (!origin || request.headers.get("sec-fetch-site") === "cross-site") return false;
   try {
-    return new URL(origin).origin === new URL(request.url).origin &&
+    return new URL(origin).origin === new URL(resolveRequestOrigin(request)).origin &&
       request.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() === "application/json";
   } catch {
     return false;

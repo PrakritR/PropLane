@@ -1,9 +1,16 @@
 {
-  "sha256": "ceb4f7d539c749aa8a06988f9d64aa42399b3969d4e58d5415be201d70bde636",
+  "sha256": "8bd6bcbc0e19c61bfe264e37b5d1afa2506ba908c958a0668c7b75317b08cf31",
   "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE and admin_team_atomic_revoke; plus purge manifest and recovery policy",
   "missing_dev_catalog": [
     "payment_reminder_occurrences",
     "phone_required_skips",
     "scheduled_inbox_channel_deliveries"
-  ]
+  ],
+  "reviewed_change": {
+    "date": "2026-11-04",
+    "reason": "Vendor operational authority and four cascade children are explicitly never-restored; exact16hooks, fresh dormant sourcing, private canonical appointment evidence and exact archived accepted-bid replay preserve canonical business history. Existing known gaps and missing_dev_catalog remain unchanged; fresh DEV catalog is required after reviewed apply.",
+    "migration_sha256": "17cbd84a6b59787611346f0329efb9da45132903c53b8b7cb56afb1eecd45cba",
+    "selected_source_paths": 337,
+    "baseline_reproduced_sha256": "98fd92effc510107eca5e729bae475e8887804d114e72c50e6d3ca87919b5650"
+  }
 }

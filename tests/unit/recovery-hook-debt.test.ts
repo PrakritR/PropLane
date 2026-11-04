@@ -5,16 +5,19 @@ import catalog from "../fixtures/recovery/dev-hook-catalog-20261030.json";
 import sourceDigest from "../fixtures/recovery/source-digest.json";
 import KNOWN_RECOVERY_HOOK_GAPS from "../fixtures/recovery/known-hook-gaps.json";
 
-/** The checked-in catalog is a point-in-time baseline. Set RECOVERY_HOOK_CATALOG to a
- * freshly captured catalog JSON to check a current database; the default is not a live probe. */
-function observedCatalog(): Record<string, string> {
-  const path = process.env.RECOVERY_HOOK_CATALOG;
-  if (!path) return catalog;
-  type Trigger = { name: string; type: number; enabled: string; function: string; function_oid: string; nargs: number; qual: string | null; constraint_oid: string; attributes: string; internal: boolean };
-  const raw = JSON.parse(readFileSync(path, "utf8")) as { expected_functions?: Array<{ oid: string; name: string; signature: string; returns_trigger: boolean }>; rows: Array<{ tbl: string; relkind: string; triggers: Trigger[] }> };
-  const manifest = readFileSync("src/lib/auth/account-purge-manifest.ts", "utf8");
-  const tableNames = [...manifest.matchAll(/table:\s*"([a-z0-9_]+)"/g)].map((match) => match[1]);
-  const snapshot: Record<string, string> = Object.fromEntries(tableNames.map((name) => [name, "absent"]));
+type Trigger = { name: string; type: number; enabled: string; function: string; function_oid: string; nargs: number; qual: string | null; constraint_oid: string; attributes: string; internal: boolean };
+type HookCatalog = { migration_sha256?: string; expected_functions?: Array<{ oid: string; name: string; signature: string; returns_trigger: boolean }>; rows: Array<{ tbl: string; relkind: string; triggers: Trigger[] }> };
+const VENDOR_CHILDREN = ["vendor_quote_contact_sessions", "vendor_quote_email_delivery_events", "vendor_quote_responses", "vendor_coordination_operations"];
+const vendorCatalogPath = "tests/fixtures/recovery/vendor-hook-catalog-20261104.json";
+const vendorMigrationPath = "supabase/migrations/20261104160000_vendor_recovery_boundaries.sql";
+const manifest = readFileSync("src/lib/auth/account-purge-manifest.ts", "utf8");
+const currentTables = [...new Set([...manifest.matchAll(/table:\s*"([a-z0-9_]+)"/g)].map((match) => match[1]).concat(VENDOR_CHILDREN))];
+
+/** Start from CURRENT ownership entries, not just keys present in an old fixture.
+ * The historical baseline plus exact vendor migration catalog are offline evidence;
+ * RECOVERY_HOOK_CATALOG checks one fresh full catalog without applying projections. */
+function projectCatalog(tableNames: string[], raw: HookCatalog, base: Record<string, string> = {}): Record<string, string> {
+  const snapshot: Record<string, string> = Object.fromEntries(tableNames.map(name => [name, base[name] ?? "absent"]));
   for (const row of raw.rows) {
     if (!(row.tbl in snapshot)) continue;
     const matches = (name: string, type: number) => {
@@ -26,6 +29,13 @@ function observedCatalog(): Record<string, string> {
     snapshot[row.tbl] = ["r", "p"].includes(row.relkind) && matches("account_recovery_write_guard", 31) && matches("account_recovery_capture_delete", 9) ? "both_signature_checked" : "missing_or_mismatch";
   }
   return snapshot;
+}
+function observedCatalog(): Record<string, string> {
+  const path = process.env.RECOVERY_HOOK_CATALOG;
+  if (path) return projectCatalog(currentTables, JSON.parse(readFileSync(path, "utf8")) as HookCatalog);
+  const vendor = JSON.parse(readFileSync(vendorCatalogPath, "utf8")) as HookCatalog;
+  expect(vendor.migration_sha256).toBe(createHash("sha256").update(readFileSync(vendorMigrationPath)).digest("hex"));
+  return projectCatalog(currentTables, vendor, catalog);
 }
 
 function scopedSourceDigest(): string {
@@ -52,8 +62,15 @@ describe("recovery hook debt snapshot", () => {
     expect(scopedSourceDigest()).toBe(sourceDigest.sha256);
     const observed = observedCatalog();
     const projected = process.env.RECOVERY_HOOK_CATALOG ? observed : { ...observed, resident_move_in_forms: "both_signature_checked" };
-    expect(differences(projected, KNOWN_RECOVERY_HOOK_GAPS)).toEqual({ newGaps: [], fixedDebt: [], absent: process.env.RECOVERY_HOOK_CATALOG ? sourceDigest.missing_dev_catalog : [] });
+    expect(differences(projected, KNOWN_RECOVERY_HOOK_GAPS)).toEqual({ newGaps: [], fixedDebt: [], absent: sourceDigest.missing_dev_catalog });
     for (const entry of Object.values(KNOWN_RECOVERY_HOOK_GAPS)) expect(entry.reason.trim().length).toBeGreaterThan(20);
+  });
+  it("cannot hide a newly introduced manifest table behind the dated fixture", () => {
+    expect(projectCatalog(["new_manifest_table"], { rows: [] }, catalog)).toEqual({ new_manifest_table: "absent" });
+  });
+  it("checks all four cascade-only vendor children with the exact trigger functions", () => {
+    const observed = observedCatalog();
+    for (const table of VENDOR_CHILDREN) expect(observed[table], table).toBe("both_signature_checked");
   });
   it("detects a newly missing hook and requires fixed debt to be removed", () => {
     expect(differences({ unexpected: "missing_or_mismatch", fixed: "both_signature_checked" }, { fixed: { reason: "review" } }))

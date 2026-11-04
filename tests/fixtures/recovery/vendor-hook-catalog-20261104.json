@@ -1,0 +1,502 @@
+{
+  "provenance": "Fresh DEV read-only catalog after reviewed vendor recovery migration",
+  "project": "emstjswhotsnyksqhqyf",
+  "captured_at": "2026-11-04T20:20:37.336Z",
+  "migration_sha256": "17cbd84a6b59787611346f0329efb9da45132903c53b8b7cb56afb1eecd45cba",
+  "expected_functions": [
+    {
+      "oid": "243452",
+      "name": "account_recovery_capture_delete",
+      "signature": "account_recovery_capture_delete()",
+      "returns_trigger": true
+    },
+    {
+      "oid": "243453",
+      "name": "account_recovery_write_guard",
+      "signature": "account_recovery_write_guard()",
+      "returns_trigger": true
+    }
+  ],
+  "rows": [
+    {
+      "tbl": "vendor_coordination_operations",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_coordination_phone_bindings",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_coordination_phone_challenges",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_coordination_proposals",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_coordination_reservations",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_outreach_workspace_profiles",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_quote_contact_capabilities",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_quote_contact_sessions",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_quote_email_delivery_events",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_quote_email_outbox",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_quote_email_permissions",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_quote_responses",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_quote_sms_consent_challenges",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_quote_sms_consent_events",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_sourcing_candidates",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    },
+    {
+      "tbl": "vendor_sourcing_jobs",
+      "relkind": "r",
+      "triggers": [
+        {
+          "name": "account_recovery_capture_delete",
+          "qual": null,
+          "type": 9,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_capture_delete()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243452",
+          "constraint_oid": "0"
+        },
+        {
+          "name": "account_recovery_write_guard",
+          "qual": null,
+          "type": 31,
+          "nargs": 0,
+          "enabled": "O",
+          "function": "account_recovery_write_guard()",
+          "internal": false,
+          "attributes": "",
+          "function_oid": "243453",
+          "constraint_oid": "0"
+        }
+      ]
+    }
+  ]
+}

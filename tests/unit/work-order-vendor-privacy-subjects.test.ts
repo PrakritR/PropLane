@@ -99,3 +99,11 @@ describe("SMS test provenance never reaches a vendor", () => {
     });
   }
 });
+
+it("withholds consultation participant and private appointment evidence from either vendor surface", () => {
+  const row = { ...stamped(), consultationVendorDirectoryId: "other-consultation-vendor", vendorCoordinationAppointmentEvidence: { private: { phoneE164: "+13175550999" } } };
+  for (const project of [projectWorkOrderForHiredVendor, projectWorkOrderForOfferedVendor]) {
+    expect(project(row)).not.toHaveProperty("consultationVendorDirectoryId");
+    expect(project(row)).not.toHaveProperty("vendorCoordinationAppointmentEvidence");
+  }
+});

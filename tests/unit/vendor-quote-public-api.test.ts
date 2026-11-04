@@ -230,3 +230,29 @@ describe("public vendor quote capability routes", () => {
     expect(mocks.sms).not.toHaveBeenCalled();
   });
 });
+
+
+describe("quote same-origin protection behind the canonical request host", () => {
+  it("accepts a real localhost browser when Next binds 0.0.0.0", async () => {
+    const response = await exchange(new Request("http://0.0.0.0:3013/api/public/vendor-quote/exchange", {
+      method: "POST", headers: { Host: "localhost:3013", Origin: "http://localhost:3013", "Content-Type": "application/json", "Sec-Fetch-Site": "same-origin" },
+      body: JSON.stringify({ token: "A".repeat(43), purpose: "response" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(mocks.exchange).toHaveBeenCalledOnce();
+  });
+  it.each([
+    { origin: "http://attacker.test", site: "same-origin", type: "application/json" },
+    { origin: "http://localhost:3013", site: "cross-site", type: "application/json" },
+    { origin: "http://localhost:3013", site: "same-origin", type: "text/plain" },
+    { origin: "", site: "same-origin", type: "application/json" },
+    { origin: "https://localhost:3013", site: "same-origin", type: "application/json" },
+  ])("refuses mismatched browser proof %#", async ({ origin, site, type }) => {
+    const response = await exchange(new Request("http://0.0.0.0:3013/api/public/vendor-quote/exchange", {
+      method: "POST", headers: { Host: "localhost:3013", Origin: origin, "Sec-Fetch-Site": site, "Content-Type": type },
+      body: JSON.stringify({ token: "A".repeat(43), purpose: "response" }),
+    }));
+    expect(response.status).toBe(403);
+    expect(mocks.exchange).not.toHaveBeenCalled();
+  });
+});

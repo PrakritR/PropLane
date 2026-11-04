@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { formatVendorQuoteSmsChallengeMessage, type VendorQuotePublicProjection, type VendorQuoteResponseInput, type VendorQuoteWindow } from "@/lib/vendor-quote-contract";
 
@@ -103,6 +103,7 @@ function storeSessionBinding(binding: string | undefined): boolean {
 }
 
 export function VendorQuotePublicPage() {
+  const initialExchange = useRef<{ purpose: Purpose; result: Promise<ExchangeBody> } | null>(null);
   const [projection, setProjection] = useState<VendorQuotePublicProjection | null>(null);
   const [purpose, setPurpose] = useState<Purpose>("response");
   const [screen, setScreen] = useState<"loading" | "ready" | "unavailable" | "declined" | "stopped">("loading");
@@ -145,24 +146,30 @@ export function VendorQuotePublicPage() {
     let cancelled = false;
     const rawHash = window.location.hash;
     const fragment = getFragment();
-    if (rawHash && !fragment) {
+    if (!initialExchange.current && rawHash && !fragment) {
       window.history.replaceState(null, "", window.location.pathname);
       queueMicrotask(() => { if (!cancelled) setScreen("unavailable"); });
       return () => { cancelled = true; };
     }
-    if (fragment) {
+    if (!initialExchange.current && fragment) {
       window.history.replaceState(null, "", window.location.pathname);
-      void (async () => {
+      // Keep one mount-scoped exchange while StrictMode restarts effects. A second
+      // cookie read must not race the still pending Set-Cookie response.
+      initialExchange.current = { purpose: fragment.purpose, result: (async () => {
         const response = await fetch("/api/public/vendor-quote/exchange", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          cache: "no-store",
-          body: JSON.stringify(fragment),
+          method: "POST", headers: { "Content-Type": "application/json" },
+          credentials: "same-origin", cache: "no-store", body: JSON.stringify(fragment),
         });
         const body = await readApiResult(response) as ExchangeBody;
+        return response.ok ? body : { ok: false };
+      })() };
+    }
+    const exchange = initialExchange.current;
+    if (exchange) {
+      void (async () => {
+        const body = await exchange.result;
         if (cancelled) return;
-        if (!response.ok || !body.ok || !body.projection) {
+        if (!body.ok || !body.projection) {
           setScreen("unavailable");
           return;
         }
@@ -170,7 +177,7 @@ export function VendorQuotePublicPage() {
           setScreen("unavailable");
           return;
         }
-        setPurpose(fragment.purpose);
+        setPurpose(exchange.purpose);
         setProjection(body.projection);
         setDraft(initialDraft(body.projection));
         setFollowUpReply(body.projection.followUpReply ?? null);

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { VendorQuotePublicPage } from "@/app/(public)/vendor-quote/vendor-quote-public-page";
@@ -187,4 +188,19 @@ describe("public vendor quote response page", () => {
     expect(screen.getByRole("button", { name: "Create SMS challenge" })).toBeTruthy();
     expect(JSON.parse(String(fetchMock.mock.calls[3][1]?.body)).expectedVersion).toBe(5);
   });
+});
+
+
+it("shares an in-flight fragment exchange across StrictMode effect restart", async () => {
+  window.history.replaceState(null, "", "/vendor-quote#strict-capability");
+  window.sessionStorage.clear();
+  let complete!: (value: Response) => void;
+  const pending = new Promise<Response>((resolve) => { complete = resolve; });
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation((path) => path === "/api/public/vendor-quote/exchange" ? pending : Promise.resolve({ ok: false, json: async () => ({ ok: false }) } as Response));
+  render(<StrictMode><VendorQuotePublicPage /></StrictMode>);
+  await waitFor(() => expect(window.location.hash).toBe(""));
+  complete({ ok: true, json: async () => ({ ok: true, projection: publicProjection }) } as Response);
+  await screen.findByRole("heading", { name: "Respond to a service request" });
+  expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(["/api/public/vendor-quote/exchange"]);
+  expect(window.sessionStorage.getItem("proplane:vendor-quote-session-binding")).toBe("session-a");
 });

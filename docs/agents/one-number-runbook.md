@@ -159,6 +159,16 @@ branch, and `db:push` applies it only once merged):
 | 20261030145000 | `recovery_stored_roles_only` | `account_recovery_finish_archival` decides from stored roles only |
 | 20261030145100 | `admin_team_atomic_revoke` | `demote_admin_team_role`: one RPC re-derives durable ownership under the exclusive lifecycle lock and rejects stale seat or property context on an Admin team demotion or removal |
 | 20261030145200 | `resident_dispatch_confirmation` | `resolve_resident_dispatch_confirmation`: a resident SMS completion is one subject-bound, service-only transaction |
+| 20261104110000 | `vendor_directory_link_serialization` | Account attachment and enrollment share a directory fence before any service |
+| 20261104111000 | `vendor_quote_contact` | Private identity, bearer capabilities, quote email delivery, and scoped SMS consent. |
+| 20261104112000 | `vendor_quote_inbox` | The private quote conversation is shared by response-page and native email ingress. |
+| 20261104115000 | `vendor_coordination_current_main_compat` | Preserve the installed coordination version and its directory/service lock order. |
+| 20261104120000 | `sms_durable_ingress` | owner-neutral durable SMS envelopes and prepared platform replies; service-only claim, checkpoint, reconciliation, callback and bounded retention |
+| 20261104121000 | `vendor_quote_inbox_current_main_compat` | Keep service quote identity independent from the physical person conversation. |
+| 20261104130000 | `vendor_quote_sender_authority` | Canonical TypeScript sender authority, fenced against database policy changes and time transitions. |
+| 20261104140000 | `vendor_legacy_approval_coordination_fence` | Legacy approval and new coordination ownership share the existing service boundary. |
+| 20261104150000 | `vendor_quote_durable_ingress` | Quote proof is sealed transport metadata, never provider params or consent authority. |
+| 20261104160000 | `vendor_recovery_boundaries` | Operational quote authority is never replayed; exact recovery hooks preserve canonical business records and private appointment collision evidence. |
 
 Check after the push (SQL editor, read-only):
 

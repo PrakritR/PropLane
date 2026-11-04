@@ -1,19 +1,29 @@
 #!/usr/bin/env node
-/** Bounded dev-only release fixture. Default is read-only inspection. No wipe or provider calls. */
+/** Bounded dev/staging release fixture. Explicit target, read-only by default; no wipe or provider calls. */
 import { createHash } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
-import { TEST_SUPABASE_PROJECT_REF, DOGFOOD_ACCOUNT_PASSWORD } from '../../tests/helpers/canonical-test-accounts.mjs';
+import { DOGFOOD_ACCOUNT_PASSWORD } from '../../tests/helpers/canonical-test-accounts.mjs';
 
-const prefix = 'vendor-release-20261104';
+const targets = Object.freeze({ dev: 'emstjswhotsnyksqhqyf', staging: 'xwszcafaontidfgznlxd' });
 const args = process.argv.slice(2);
-if (args.some((arg) => !['--inspect', '--apply', '--schema-confirmed'].includes(arg)) ||
-    (args.includes('--apply') && !args.includes('--schema-confirmed'))) {
-  throw new Error('Use --inspect, or --apply --schema-confirmed only after manager confirms reviewed dev schema apply.');
+let target;
+let targetSeen = false;
+const flags = new Set();
+for (let index = 0; index < args.length; index++) {
+  const arg = args[index];
+  if (arg === '--target' && !targetSeen) { targetSeen = true; target = args[++index]; }
+  else if (['--inspect', '--apply', '--schema-confirmed'].includes(arg) && !flags.has(arg)) flags.add(arg);
+  else throw new Error('Unknown or duplicate fixture option.');
 }
-const apply = args.includes('--apply');
+if (!Object.hasOwn(targets, target ?? '') || flags.has('--apply') && (!flags.has('--schema-confirmed') || flags.has('--inspect')) || flags.has('--schema-confirmed') && !flags.has('--apply')) {
+  throw new Error('Explicit --target dev|staging required; use --inspect, or --apply --schema-confirmed after reviewed target schema postflight.');
+}
+const projectRef = targets[target];
+const prefix = target === 'dev' ? 'vendor-release-20261104' : 'vendor-release-20261104-staging';
+const apply = flags.has('--apply');
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-if (url !== `https://${TEST_SUPABASE_PROJECT_REF}.supabase.co`) throw new Error('Exact dev/test HTTPS target required.');
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY) throw new Error('Dev service-role credential required.');
+if (url !== `https://${projectRef}.supabase.co`) throw new Error('Exact explicitly selected nonproduction HTTPS target required.');
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) throw new Error('Selected nonproduction service-role credential required.');
 const db = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
 const uuid = (label) => {
   const hex = createHash('sha256').update(`${prefix}:${label}`).digest('hex');
@@ -41,7 +51,10 @@ const users = await authDirectory();
 // Refuse taking over an email that is not explicitly ours. Never reset existing passwords or roles.
 for (const spec of specs) {
   const existing = users.find((user) => user.email?.toLowerCase() === spec.email);
-  if (existing && (existing.user_metadata?.vendorReleaseFixture !== prefix || existing.user_metadata?.role !== spec.role)) {
+  if (existing && (existing.user_metadata?.vendorReleaseFixture !== prefix || existing.user_metadata?.role !== spec.role ||
+      (existing.user_metadata?.vendorReleaseFixtureProject !== undefined && existing.user_metadata.vendorReleaseFixtureProject !== projectRef) ||
+      (existing.user_metadata?.vendorReleaseFixtureTarget !== undefined && existing.user_metadata.vendorReleaseFixtureTarget !== target) ||
+      target === 'staging' && (existing.user_metadata?.vendorReleaseFixtureProject !== projectRef || existing.user_metadata?.vendorReleaseFixtureTarget !== target))) {
     throw new Error(`Fixture account ownership mismatch: ${spec.role}.`);
   }
 }
@@ -55,7 +68,7 @@ const schema = [
 ];
 for (const [table, columns] of schema) await must(db.from(table).select(columns).limit(0), `Read ${table} schema`);
 if (!apply) {
-  console.log(JSON.stringify({ mode: 'read-only', target: TEST_SUPABASE_PROJECT_REF,
+  console.log(JSON.stringify({ mode: 'read-only', target, project: projectRef,
     fixtureAccountsPresent: specs.map((s) => ({ role: s.role, present: users.some((u) => u.email?.toLowerCase() === s.email) })),
     schemaShapeReadable: true, note: 'Column probes do not verify migration hashes, grants or functions. Manager migration postflight remains required.' }, null, 2));
   process.exit(0);
@@ -75,7 +88,7 @@ for (const spec of specs) {
   let user = users.find((candidate) => candidate.email?.toLowerCase() === spec.email);
   if (!user) {
     user = (await must(db.auth.admin.createUser({ email: spec.email, password: DOGFOOD_ACCOUNT_PASSWORD,
-      email_confirm: true, user_metadata: { role: spec.role, full_name: spec.name, vendorReleaseFixture: prefix } }), 'Create fixture auth user')).user;
+      email_confirm: true, user_metadata: { role: spec.role, full_name: spec.name, vendorReleaseFixture: prefix, vendorReleaseFixtureTarget: target, vendorReleaseFixtureProject: projectRef } }), 'Create fixture auth user')).user;
   }
   accounts[spec.role] = { ...spec, id: user.id };
 }
@@ -154,6 +167,6 @@ for (const [index, kind] of ['signed', 'directory'].entries()) {
     (r) => r.manager_user_id === manager.id && r.job_id === job.id && r.local_directory_id === directoryId);
   manifest.push({ kind, workOrderId, directoryId, candidateId, jobId: job.id });
 }
-console.log(JSON.stringify({ target: TEST_SUPABASE_PROJECT_REF, prefix, testWorkspaceId, workspaceId, propertyId,
+console.log(JSON.stringify({ target, project: projectRef, prefix, testWorkspaceId, workspaceId, propertyId,
   accounts: Object.values(accounts).map(({ role, email, id }) => ({ role, email, id })), services: manifest,
   next: 'No enrollment, capability, sender provisioning, delivery, consent, approval or payment performed. See HTML fixture handoff.' }, null, 2));

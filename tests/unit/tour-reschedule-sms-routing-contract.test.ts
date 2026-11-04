@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 
 describe("tour reschedule SMS inbound routing", () => {
   it("keeps carrier control handling before the leasing route", () => {
-    // Route runs first; everything after the receipt claim lives in the pipeline.
+    // The route durably accepts first; the accepted processor routes before the receipt pipeline.
     const source = readFileSync("src/app/api/twilio/inbound/route.ts", "utf8")
+      + readFileSync("src/lib/sms/process-accepted-inbound.server.ts", "utf8")
       + readFileSync("src/lib/sms/inbound-pipeline.server.ts", "utf8");
     expect(source).toContain('const SMS_START_KEYWORDS = new Set(["START", "YES", "UNSTOP"])');
     expect(source).toContain('if (suppression.ok && !suppression.optedOut) controlKeyword = null');

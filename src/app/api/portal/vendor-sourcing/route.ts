@@ -1,3 +1,4 @@
+import { resolveRequestOrigin } from "@/lib/app-url";
 import { NextResponse, after } from "next/server";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -34,7 +35,7 @@ export async function POST(req: Request) {
     if (!id || !["start", "pause", "resume", "response_link"].includes(body.action)) throw new Error("Choose a service and sourcing action.");
     const { db, work, userId } = await authorized(id);
     if (body.action === "response_link") {
-      if (req.headers.get("origin") !== new URL(req.url).origin) throw new Error("Forbidden.");
+      if (req.headers.get("sec-fetch-site") === "cross-site" || req.headers.get("origin") !== resolveRequestOrigin(req)) throw new Error("Forbidden.");
       if (typeof body.candidateId !== "string") throw new Error("Choose a vendor.");
       return NextResponse.json(await createVendorQuoteResponseLink(db, { managerUserId: userId, workOrderId: id, candidateId: body.candidateId }), { headers: { "Cache-Control": "no-store" } });
     }

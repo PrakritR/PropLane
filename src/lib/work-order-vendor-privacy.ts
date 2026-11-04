@@ -136,6 +136,7 @@ const VENDOR_PRIVATE_SUBJECT_KEYS = new Set<string>([
   "userId", "user_id", "actorUserId", "actor_user_id",
   "sessionId", "session_id", "workspaceId", "workspace_id",
   "resident_email", "dispatch", "candidates",
+  "consultationVendorDirectoryId", "vendorCoordinationAppointmentEvidence",
   "sms_test_provenance",
   ...SMS_TEST_PROVENANCE_ROW_KEYS,
 ]);

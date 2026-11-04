@@ -1,0 +1,53 @@
+{
+  "sqlSha256": "17cbd84a6b59787611346f0329efb9da45132903c53b8b7cb56afb1eecd45cba",
+  "files": [
+    {
+      "path": "src/lib/auth/account-recovery-policy.ts",
+      "sha256": "ff7482e5bc9d6f23e39c638014fae98b224ceac704ddeb24293b8f43a6487a46"
+    },
+    {
+      "path": "src/lib/vendor-own-record.ts",
+      "sha256": "a59f6490e5e3bcfbf204b1406e72b104fb191ba4ad3416fbfccf294c81232718"
+    },
+    {
+      "path": "src/lib/work-order-vendor-privacy.ts",
+      "sha256": "8d051712dce3cb2ca555fa0dc9769ff4ea2d2cd51ba7d205d644976d3154db52"
+    },
+    {
+      "path": "supabase/migrations/20261104160000_vendor_recovery_boundaries.sql",
+      "sha256": "17cbd84a6b59787611346f0329efb9da45132903c53b8b7cb56afb1eecd45cba"
+    },
+    {
+      "path": "scripts/testing/vendor-recovery-local-postgres.mjs",
+      "sha256": "c3054593188eb103cd3453eb64e62be31482b4c1e52afc0c5c8b6d2f081a96fc"
+    },
+    {
+      "path": "tests/unit/vendor-recovery-policy.test.ts",
+      "sha256": "4b30b9c619841ce474abc2873d0d2bfe99dab50d52db8551fe32b27f72ff964d"
+    },
+    {
+      "path": "tests/unit/vendor-recovery-migration.test.ts",
+      "sha256": "a910ee058f9b5759e3ca6027c0a599684e4ac0e5327324f7d024a208268c5494"
+    },
+    {
+      "path": "tests/unit/work-order-vendor-privacy-subjects.test.ts",
+      "sha256": "787d99d92b973c539084640e62f1f8c69a1047bc88d559e3ba42cbdc8a63321d"
+    },
+    {
+      "path": "tests/unit/recovery-hook-debt.test.ts",
+      "sha256": "9a41e7e51afc81271721e20592c0e3a1e4f58760e950a1427bdddeef01af046d"
+    },
+    {
+      "path": "tests/fixtures/recovery/vendor-hook-catalog-20261104.json",
+      "sha256": "777420444c42ba3d5603d18074c8ab02b533050607c0383faf3fe6f62e84e84c"
+    },
+    {
+      "path": "tests/fixtures/recovery/source-digest.json",
+      "sha256": "886a460bc3714f1bff95f2e390f2b731c4ac12292dd07c91ea977cfb8f6568b5"
+    },
+    {
+      "path": "docs/plans/vendor-recovery-handoff-20261104.html",
+      "sha256": "c0eac5984ee908922e3c368a79a06cbbf949e24c7886f4cb244e318856a68737"
+    }
+  ]
+}

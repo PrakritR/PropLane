@@ -11,6 +11,17 @@ export const RESIDENT_FINANCIAL_HISTORY_TABLES = new Set([
 
 /** Never replay credentials, money-moving configuration or previously queued actions. */
 export const ACCOUNT_RECOVERY_NEVER_RESTORE = new Set([
+  // Vendor sender/proof authority and in-flight delivery/coordination reset after recovery.
+  // Approved terms and history remain in canonical services, bids, contacts and inbox rows.
+  "vendor_outreach_workspace_profiles", "vendor_quote_contact_capabilities",
+  "vendor_quote_email_outbox", "vendor_quote_email_permissions",
+  "vendor_quote_sms_consent_events", "vendor_quote_sms_consent_challenges",
+  "vendor_sourcing_candidates", "vendor_sourcing_jobs",
+  "vendor_coordination_phone_challenges", "vendor_coordination_phone_bindings",
+  "vendor_coordination_reservations", "vendor_coordination_proposals",
+  // Explicit even though cascade-only children are not current purge roots.
+  "vendor_quote_contact_sessions", "vendor_quote_email_delivery_events",
+  "vendor_quote_responses", "vendor_coordination_operations",
   "webhook_subscriptions", "webhook_deliveries",
   "manager_api_keys", "mcp_oauth_authorization_codes", "mcp_oauth_tokens",
   "phone_verifications", "device_push_tokens", "sms_consent", "sms_consent_events",

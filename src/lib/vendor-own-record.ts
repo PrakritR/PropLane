@@ -1,6 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 
+/** Internal calendar evidence is not part of a linked vendor's profile. */
+export function vendorOwnRecordProjection(row: ManagerVendorRow): ManagerVendorRow {
+  const profile = { ...row } as ManagerVendorRow & { vendorCoordinationAppointmentEvidence?: unknown };
+  delete profile.vendorCoordinationAppointmentEvidence;
+  return profile;
+}
+
 export type OwnVendorRecord = { id: string; managerUserId: string; row: ManagerVendorRow };
 
 export async function resolveOwnVendorRecords(db: SupabaseClient, userId: string): Promise<OwnVendorRecord[]> {
@@ -14,7 +21,7 @@ export async function resolveOwnVendorRecords(db: SupabaseClient, userId: string
   return (data ?? []).map((row) => ({
     id: row.id as string,
     managerUserId: row.manager_user_id as string,
-    row: row.row_data as ManagerVendorRow,
+    row: vendorOwnRecordProjection(row.row_data as ManagerVendorRow),
   }));
 }
 

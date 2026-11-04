@@ -13,7 +13,7 @@ refuses(['--target','dev','--backup-file','/private/tmp/not-applying']);
 refuses(['--target','dev','--unknown','value']);
 assert.equal(parseOptions(['--target','dev']).phase,'preflight');assertions++;
 const migrations=reviewedVendorMigrations();
-assert.equal(migrations.length,14);assertions++;
+assert.equal(migrations.length,15);assertions++;
 assert.equal(migrations.some(m=>m.version === "20261104120000"),false);assertions++;
 assert.deepEqual(migrations.map(m=>m.version),migrations.map(m=>m.version).toSorted());assertions++;
 assert.equal(new Set(migrations.map(m=>m.version)).size,migrations.length);assertions++;
