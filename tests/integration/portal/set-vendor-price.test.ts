@@ -28,12 +28,15 @@ type BidRow = { id: string; status: string; amount_cents: number; materials_cent
  * concurrent manager accept) is what the UPDATE's WHERE-clause filters are checked
  * against below — matching how a real Postgres compare-and-swap UPDATE behaves.
  */
-function mockDb(workOrder: WorkOrderRow, bid: BidRow | null, readSnapshot?: Partial<BidRow>) {
+function mockDb(workOrder: WorkOrderRow, bid: BidRow | null, readSnapshot?: Partial<BidRow>, coordinationEnrolled = false) {
   const workOrderUpdates: Record<string, unknown>[] = [];
   const bidUpdates: Record<string, unknown>[] = [];
 
   const client = {
     from(table: string) {
+      if (table === "vendor_coordination_proposals") {
+        return { select: () => ({ eq: () => ({ in: () => ({ limit: async () => ({ data: coordinationEnrolled ? [{ id: "active-proposal" }] : [], error: null }) }) }) }) };
+      }
       if (table === "profiles") {
         return {
           select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { email: "v@test.com", role: "vendor" } }) }) }),
@@ -213,4 +216,16 @@ describe("POST /api/portal/work-orders/set-vendor-price", () => {
     expect(bidUpdates).toHaveLength(0);
     expect(bid.amount_cents).toBe(40000);
   });
+});
+
+
+it("refuses manual vendor pricing when an active coordination proposal owns the quote", async () => {
+  asVendor("vendor-1");
+  const bid: BidRow = { id: "bid-coordinated", status: "submitted", amount_cents: 30000, materials_cents: 0 };
+  const { client, workOrderUpdates, bidUpdates } = mockDb({ manager_user_id: "mgr-1", vendor_user_id: "vendor-1", row_data: { bucket: "scheduled" } }, bid, undefined, true);
+  vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client as never);
+  const response = await POST(jsonRequest("http://t", { method: "POST", body: { workOrderId: "WO-coordinated", amountCents: 49900 } }));
+  expect((await parseJsonResponse(response)).status).toBe(409);
+  expect(workOrderUpdates).toEqual([]); expect(bidUpdates).toEqual([]);
+  expect(bid.amount_cents).toBe(30000);
 });

@@ -1,0 +1,25 @@
+{
+  "keeperBase": "293b08e3",
+  "ciRun": "41906433717",
+  "scope": "Six UI/route semantic type diagnostics; no authorization expansion",
+  "files": [
+    {
+      "path": "src/app/api/portal/send-inbox-message/route.ts",
+      "beforeSha256": "0e7fc07092705c1276742f77d1e72b2fd638ff60b8101a9d68710c7896effda1",
+      "afterSha256": "75291b2a4c481cb292dc831963f44bae937cff18111a86432815c61a47e2a147",
+      "reason": "Snapshot the already-authorized reply target for deferred resident/manager assistant callbacks; explicitly narrow optional recordRef before reading its label."
+    },
+    {
+      "path": "src/components/portal/pro-inbox.tsx",
+      "beforeSha256": "5cc521a444dbe77f345227accaf52bd228146630f6848b024eaeb7b17e761586",
+      "afterSha256": "d92899bb639f111106bf8f0e02d46231f3b7f28cb578ef6c5b2e696734ada8f5",
+      "reason": "Model optional recordRef using PersistedInboxThread contract; explicitly require a quoteSelection before reading it in source matching."
+    },
+    {
+      "path": "tests/unit/vendor-quote-manager-reply.test.ts",
+      "beforeSha256": "b64f4e515629bcbe4a1b6a03abeab196f3b4a6430815fea9c2b53ca13f6da120",
+      "afterSha256": "d5cf035f6596260969c85253d7ecdf5e4da5ec021e23d49df4b8b7000054e2f6",
+      "reason": "Replace obsolete send-number mock with current workspace sender transport readiness fixture; assert the current optional sender-read-context argument."
+    }
+  ]
+}

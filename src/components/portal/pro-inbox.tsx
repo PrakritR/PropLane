@@ -192,6 +192,7 @@ type InboxThread = {
   time: string;
   unread: boolean;
   messages?: InboxThreadMessage[];
+  recordRef?: PersistedInboxThread["recordRef"];
   aiDraft?: InboxAiDraft;
   aiDraftQueue?: InboxAiDraft[];
   resolvedAiDraftIds?: string[];
@@ -1304,7 +1305,7 @@ export const ManagerInbox = forwardRef<
       .map((source) => [source.threadId, source])).values()];
   }, [activeThread, local]);
   const [quoteSelection, setQuoteSelection] = useState<{ threadId: string; sourceId: string } | null>(null);
-  const selectedQuoteSourceId = quoteSelection?.threadId === activeThread?.id
+  const selectedQuoteSourceId = quoteSelection && quoteSelection.threadId === activeThread?.id
     && quoteSources.some((row) => row.threadId === quoteSelection.sourceId)
     ? quoteSelection.sourceId : undefined;
   const activeAiDraftAdopted = Boolean(

@@ -428,6 +428,7 @@ export async function POST(req: Request) {
     };
 
     if (replyTarget) {
+      const assistantReplyTarget = replyTarget;
       // A vendor replying in their agent thread talks to the agent, not to a
       // human recipient — run the turn after the response and skip the normal
       // fan-out. Only the thread OWNER (the vendor) triggers it. There is no
@@ -456,7 +457,7 @@ export async function POST(req: Request) {
       if (replyTarget.threadType === RESIDENT_AGENT_THREAD_TYPE && replyTarget.ownerUserId === user.id) {
         await commitInboxThreadReply(db, replyTarget, { ...replyBody, outbound: true });
         const turnTask = () =>
-          runResidentInboxAgentTurn(db, replyTarget, user.id, senderEmail, storedText)
+          runResidentInboxAgentTurn(db, assistantReplyTarget, user.id, senderEmail, storedText)
             .then((outcome) => {
               // A turn that declines to reply is the interesting case and is
               // otherwise invisible: no throw, no message, nothing in the log.
@@ -538,7 +539,7 @@ export async function POST(req: Request) {
       if (replyTarget.threadType === "agent_notice" && replyTarget.ownerUserId === user.id) {
         await commitInboxThreadReply(db, replyTarget, { ...replyBody, outbound: true });
         const turnTask = () =>
-          runManagerInboxAgentTurn(db, replyTarget, user.id, storedText)
+          runManagerInboxAgentTurn(db, assistantReplyTarget, user.id, storedText)
             .then((outcome) => {
               if (!outcome.replied) {
                 console.error("manager-agent inbox turn did not reply", outcome.reason);
@@ -733,7 +734,7 @@ export async function POST(req: Request) {
             const alias = quoteAliases.find((row) => row.alias_id === logicalId);
             if (!alias || sources.has(logicalId)) continue;
             sources.set(logicalId, { storageId: String(alias.thread_id), capabilityId: cap.id,
-              workOrderId: String(cap.work_order_id), recordRef: { kind: "service", id: String(cap.work_order_id), label: recordRef?.id === cap.work_order_id ? recordRef.label : String(cap.work_order_id) } });
+              workOrderId: String(cap.work_order_id), recordRef: { kind: "service", id: String(cap.work_order_id), label: recordRef && recordRef.id === cap.work_order_id ? recordRef.label : String(cap.work_order_id) } });
           }
           // A quote alias without its capability must never silently become ordinary mail.
           if (quoteAliases.some((alias) => !sources.has(String(alias.alias_id)))) {

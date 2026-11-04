@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const boundary = vi.hoisted(() => ({
-  planReadable: true, auth: vi.fn(), service: vi.fn(), issueReply: vi.fn(), workEmail: vi.fn(), sendNumber: vi.fn(),
+  planReadable: true, auth: vi.fn(), service: vi.fn(), issueReply: vi.fn(), workEmail: vi.fn(), sendTransport: vi.fn(),
   vendorSession: vi.fn(), vendorTurn: vi.fn(), notify: vi.fn(), loadReply: vi.fn(), outboundReply: vi.fn(),
 }));
 vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Headers()), cookies: vi.fn(async () => new Map([["selected_workspace_id", { value: "workspace-two" }]])) }));
@@ -20,7 +20,7 @@ vi.mock("@/lib/vendor-quote-contact.server", () => ({
   isVendorQuoteOutboundReplyAuthorized: boundary.outboundReply,
 }));
 vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({ resolveWorkspaceWorkEmail: boundary.workEmail }));
-vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({ resolveActiveManagerSendNumber: boundary.sendNumber }));
+vi.mock("@/lib/sms/workspace-send-readiness.server", () => ({ resolveWorkspaceSenderTransport: boundary.sendTransport }));
 vi.mock("@/lib/vendor-quote-notification.server", () => ({ notifyVendorQuoteResponse: boundary.notify }));
 vi.mock("@/lib/sms/sms-test-transport.server", () => ({ captureSmsTestDelivery: vi.fn(() => false) }));
 vi.mock("@/lib/agent/vendor-agent.server", () => ({ findVendorAgentSessionByThread: boundary.vendorSession, runVendorAgentSessionTurn: boundary.vendorTurn }));
@@ -137,7 +137,11 @@ describe("manager quote email roundtrip", () => {
       const service = services.find((item) => item.workspaceId === (workspaceId ?? "workspace-two"));
       return service ? { address: service.email, workspaceId: service.workspaceId } : null;
     });
-    boundary.sendNumber.mockResolvedValue("+15550000001");
+    boundary.sendTransport.mockImplementation(async ({ ownerUserId, workspaceId }) => ({
+      canSend: true, viaSharedLine: false, messagingServiceSid: "MGmanaged", providerMessagingServiceSid: "MGmanaged",
+      numberRow: { id: `line-${workspaceId}`, manager_user_id: ownerUserId, workspace_id: workspaceId,
+        phone_number: "+15550000001", messaging_service_sid: "MGmanaged", provision_state: "active", released_at: null },
+    }));
     boundary.issueReply.mockImplementation(async (_db, input) => {
       const service = services.find((item) => item.workOrderId === input.workOrderId);
       return { address: `vq+${tokenFor(service!)}@reply.example.test`, capabilityId: `reply-${input.workOrderId}` };
@@ -192,8 +196,8 @@ describe("manager quote email roundtrip", () => {
     expect(String(payloads[1]!.html)).toContain("Sent via PropLane portal by Managed Desk");
     expect((payloads[0]!.headers as Record<string, string>).References).not.toBe((payloads[1]!.headers as Record<string, string>).References);
     expect(boundary.issueReply).toHaveBeenCalledWith(db, expect.objectContaining({ workOrderId: services[1].workOrderId, directoryId: services[1].directoryId }));
-    expect(boundary.workEmail).toHaveBeenCalledWith(db, MANAGER, "workspace-one");
-    expect(boundary.workEmail).toHaveBeenCalledWith(db, MANAGER, "workspace-two");
+    expect(boundary.workEmail).toHaveBeenCalledWith(db, MANAGER, "workspace-one", undefined);
+    expect(boundary.workEmail).toHaveBeenCalledWith(db, MANAGER, "workspace-two", undefined);
     expect(writes.filter(({ table }) => table === "portal_inbox_thread_records")).toHaveLength(4);
     for (const [index, service] of services.entries()) {
       const result = await ingestVendorQuoteInboundEmail(db as never, {

@@ -318,3 +318,53 @@ describe("action-event idempotent consumer", () => {
     expect(row).toMatchObject({ status: "submitted", delivered_at: null });
   });
 });
+
+
+const scopedOwner = "11111111-1111-4111-a111-111111111111";
+const foreignOwner = "22222222-2222-4222-a222-222222222222";
+const scopedId = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
+const foreignId = "bbbbbbbb-bbbb-4bbb-abbb-bbbbbbbbbbbb";
+async function scopedRetryFixture() {
+  const fixture = fakeDb();
+  await emitActionEvent(fixture.db, { ...input, eventId: "own-scoped-event", managerUserId: scopedOwner, senderUserId: scopedOwner });
+  await emitActionEvent(fixture.db, { ...input, eventId: "foreign-scoped-event", managerUserId: foreignOwner, senderUserId: foreignOwner });
+  fixture.tables.action_events.forEach((event, index) => {
+    const oldId = event.id; event.id = [scopedId, foreignId][index]!;
+    for (const row of fixture.tables.action_event_deliveries.filter((row) => row.event_id === oldId)) {
+      Object.assign(row, { event_id: event.id, status: "failed", next_attempt_at: "2026-09-04T18:59:00.000Z" });
+    }
+  });
+  deliver.mockClear();
+  return fixture;
+}
+it("retries only exact authorized events and leaves other manager deliveries untouched", async () => {
+  const { db, tables } = await scopedRetryFixture();
+  const foreign = tables.action_event_deliveries.find((row) => row.event_id === foreignId)!;
+  const before = { ...foreign };
+  await expect(retryDueActionEventDeliveries(db, { now: input.now, managerUserId: scopedOwner, eventIds: [scopedId, scopedId] }))
+    .resolves.toEqual({ attempted: 1, delivered: 1, submitted: 0, failed: 0 });
+  expect(deliver).toHaveBeenCalledTimes(1); expect(foreign).toEqual(before);
+});
+it("refuses another manager's event before claims or provider processing", async () => {
+  const { db, tables } = await scopedRetryFixture();
+  const before = structuredClone(tables.action_event_deliveries);
+  await expect(retryDueActionEventDeliveries(db, { now: input.now, managerUserId: scopedOwner, eventIds: [foreignId] }))
+    .rejects.toThrow(/Scoped action-event retry unavailable/);
+  expect(tables.action_event_deliveries).toEqual(before); expect(deliver).not.toHaveBeenCalled();
+});
+it("makes an explicit empty scope a no-op without reading global due events", async () => {
+  const from = vi.fn(() => { throw new Error("No database work allowed"); });
+  await expect(retryDueActionEventDeliveries({ from } as unknown as SupabaseClient, { managerUserId: scopedOwner, eventIds: [] }))
+    .resolves.toEqual({ attempted: 0, delivered: 0, submitted: 0, failed: 0 });
+  expect(from).not.toHaveBeenCalled();
+});
+it.each([
+  { managerUserId: scopedOwner, eventIds: ["not-a-uuid"] },
+  { managerUserId: "invalid", eventIds: [scopedId] },
+  { managerUserId: scopedOwner, eventIds: Array.from({ length: 101 }, () => scopedId) },
+  { managerUserId: scopedOwner },
+])("refuses an invalid finite scope before database or provider work %#", async (scope) => {
+  const from = vi.fn(() => { throw new Error("No database work allowed"); });
+  await expect(retryDueActionEventDeliveries({ from } as unknown as SupabaseClient, scope)).rejects.toThrow(/Invalid scoped/);
+  expect(from).not.toHaveBeenCalled();
+});

@@ -827,15 +827,35 @@ export async function emitActionEvent(
  * appends safe even when a previous attempt succeeded before its status write. */
 export async function retryDueActionEventDeliveries(
   db: SupabaseClient,
-  opts: { now?: Date; limit?: number } = {},
+  opts: { now?: Date; limit?: number; eventIds?: readonly string[]; managerUserId?: string } = {},
 ): Promise<{ attempted: number; delivered: number; submitted: number; failed: number }> {
+  let scopedEventIds: string[] | undefined;
+  let scopedManagerId: string | undefined;
+  if (opts.eventIds !== undefined || opts.managerUserId !== undefined) {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!Array.isArray(opts.eventIds) || opts.eventIds.length > 100 ||
+        opts.eventIds.some((id) => typeof id !== "string" || !uuid.test(id)) ||
+        typeof opts.managerUserId !== "string" || !uuid.test(opts.managerUserId)) {
+      throw new Error("Invalid scoped action-event retry.");
+    }
+    if (!opts.eventIds.length) return { attempted: 0, delivered: 0, submitted: 0, failed: 0 };
+    scopedEventIds = [...new Set(opts.eventIds.map((id) => id.toLowerCase()))];
+    scopedManagerId = opts.managerUserId.toLowerCase();
+    const { data: events, error: scopeError } = await db.from("action_events")
+      .select("id,manager_user_id").eq("manager_user_id", scopedManagerId).in("id", scopedEventIds);
+    const authorized = new Set((events ?? []).filter((event) => event.manager_user_id === scopedManagerId).map((event) => String(event.id)));
+    if (scopeError || authorized.size !== scopedEventIds.length || scopedEventIds.some((id) => !authorized.has(id))) {
+      throw new Error("Scoped action-event retry unavailable.");
+    }
+  }
   const now = opts.now ?? new Date();
-  const { data, error } = await db.from("action_event_deliveries")
+  let due = db.from("action_event_deliveries")
     .select("id,event_id,audience,recipient_user_id,recipient_email,status,attempts,next_attempt_at,sms_deferred_until,rendered,draft_for_review")
     .in("status", ["pending", "failed", "email_failed", "sms_failed", "channels_failed", "deferred"])
     .lte("next_attempt_at", now.toISOString())
-    .order("next_attempt_at", { ascending: true })
-    .limit(Math.min(Math.max(opts.limit ?? 100, 1), 500));
+    .order("next_attempt_at", { ascending: true });
+  if (scopedEventIds) due = due.in("event_id", scopedEventIds);
+  const { data, error } = await due.limit(Math.min(Math.max(opts.limit ?? 100, 1), 500));
   if (error) throw new Error(`Could not load due action-event deliveries: ${error.message}`);
   let delivered = 0;
   let submitted = 0;
@@ -843,6 +863,7 @@ export async function retryDueActionEventDeliveries(
   let attempted = 0;
   const sendModeByEvent = new Map<string, Awaited<ReturnType<typeof resolveAutomationSendModeForEvent>>>();
   for (const row of data ?? []) {
+    if (scopedEventIds && !scopedEventIds.includes(String(row.event_id))) throw new Error("Scoped action-event delivery mismatch.");
     const priorNextAttemptAt = String(row.next_attempt_at ?? "");
     if (!priorNextAttemptAt) continue;
     // Start the lease when this row is actually processed. Earlier external
@@ -866,6 +887,7 @@ export async function retryDueActionEventDeliveries(
     if (eventError || !event?.sender_user_id || !event.sender_email) {
       throw new Error(`Could not resolve action event: ${eventError?.message ?? "missing sender"}`);
     }
+    if (scopedManagerId && event.manager_user_id !== scopedManagerId) throw new Error("Scoped action-event owner changed.");
     const retainedSmsDue = row.sms_deferred_until ? String(row.sms_deferred_until) : null;
     const retryingQuietEmail = Boolean(retainedSmsDue && Date.parse(retainedSmsDue!) > claimTime.getTime());
     const propertyId = payloadPropertyId(event.payload);

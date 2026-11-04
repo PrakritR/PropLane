@@ -93,7 +93,7 @@ export async function coordinationPreview(db: SupabaseClient, actor: Coordinatio
 export async function flushCoordinationEvents(db: SupabaseClient, managerUserId: string) {
   const { data, error } = await db.from("action_events").select("id").eq("manager_user_id", managerUserId).like("event_key", "vendor_coordination:%").order("created_at", { ascending: false }).limit(100);
   if (error) throw new Error(error.message);
-  return retryDueActionEventDeliveries(db, { limit: 30, eventIds: (data ?? []).map((e) => String(e.id)) });
+  return retryDueActionEventDeliveries(db, { limit: 30, managerUserId, eventIds: (data ?? []).map((e) => String(e.id)) });
 }
 
 export async function coordinationVendorChoices(db: SupabaseClient, actor: CoordinationActor, workOrderId: string) {

@@ -25,6 +25,8 @@ function mockDb(opts: {
   workOrders: WoRec[];
   vendors?: VendorRec[];
   vendorDispatchSettings?: Record<string, unknown> | null;
+  sourcingState?: string | null;
+  coordinationEnrolled?: boolean;
 }) {
   const workOrders = new Map(opts.workOrders.map((r) => [r.id, r]));
   const vendors = new Map((opts.vendors ?? []).map((r) => [r.id, r]));
@@ -33,6 +35,12 @@ function mockDb(opts: {
 
   const db = {
     from(table: string) {
+      if (table === "vendor_sourcing_jobs") {
+        return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: opts.sourcingState ? { state: opts.sourcingState } : null, error: null }) }) }) };
+      }
+      if (table === "vendor_coordination_proposals") {
+        return { select: () => ({ eq: () => ({ in: () => ({ limit: async () => ({ data: opts.coordinationEnrolled ? [{ id: "active-proposal" }] : [], error: null }) }) }) }) };
+      }
       if (table === "portal_work_order_records") {
         return {
           select: () => ({
@@ -433,4 +441,24 @@ describe("declineDispatch", () => {
     const again = await declineDispatch(db, { workOrderId: "REQ-1", landlordId: "mgr-a", actorUserId: "mgr-a" });
     expect(again.ok).toBe(false);
   });
+});
+
+
+it.each([
+  { sourcingState: "waiting", coordinationEnrolled: false },
+  { sourcingState: null, coordinationEnrolled: true },
+])("keeps legacy prepare and execute behind quote ownership %#", async (guard) => {
+  vi.clearAllMocks();
+  const { db, workOrders, auditRows } = mockDb({ ...guard,
+    workOrders: [{ id: "REQ-1", manager_user_id: "mgr-a", row_data: openResidentRow() }],
+    vendors: [plumberVendor()], vendorDispatchSettings: { mode: "auto" },
+  });
+  await prepareDispatch(db, "REQ-1");
+  expect(workOrders.get("REQ-1")!.row_data.dispatch).toBeUndefined();
+  expect(auditRows).toEqual([]);
+  const result = await executeDispatch(db, { workOrderId: "REQ-1", landlordId: "mgr-a", actor: ACTOR, decidedBy: "manager" });
+  expect(result).toMatchObject({ ok: false, status: 409 });
+  expect(workOrders.get("REQ-1")!.row_data.vendorId).toBeUndefined();
+  expect(workOrderEvent).not.toHaveBeenCalled();
+  expect(sendPushToUser).not.toHaveBeenCalled();
 });
