@@ -213,9 +213,10 @@ describe("encrypted local QA build transport", () => {
   it("uploads only after successful manual keeper builds without changing required checks", async () => {
     const workflow = parse(await readFile(".github/workflows/test.yml", "utf8"));
     const steps = workflow.jobs.build.steps;
-    const buildIndex = steps.findIndex((step: { run?: string }) => step.run === "npm run build");
+    const buildIndex = steps.findIndex((step: { run?: string }) => step.run === "bash scripts/ci-observe-build.sh");
     const packageIndex = steps.findIndex((step: { run?: string }) => step.run === "node scripts/package-local-qa-build.mjs");
     const upload = steps[packageIndex + 1];
+    expect(buildIndex).toBeGreaterThanOrEqual(0);
     expect(packageIndex).toBeGreaterThan(buildIndex);
     const gate = "success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'";
     expect(steps[packageIndex].if).toBe(gate);

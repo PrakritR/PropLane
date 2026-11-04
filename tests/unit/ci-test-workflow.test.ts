@@ -80,7 +80,7 @@ function assertBrowserBuildGate(document: WorkflowDocument): void {
   expect(build["continue-on-error"], "build failures must not be ignored").toBeUndefined();
 
   const typecheckIndex = build.steps.findIndex((step) => step.name === "Type-check (the gate the build below no longer repeats)");
-  const buildIndex = build.steps.findIndex((step) => step.run === "npm run build");
+  const buildIndex = build.steps.findIndex((step) => step.run === "bash scripts/ci-observe-build.sh");
   expect(typecheckIndex, "build must keep the separate typecheck step").toBeGreaterThanOrEqual(0);
   expect(buildIndex, "build command must remain present").toBeGreaterThan(typecheckIndex);
   const typecheck = build.steps[typecheckIndex];
@@ -95,7 +95,7 @@ function assertBrowserBuildGate(document: WorkflowDocument): void {
   // named browser invocations. Job/global configuration would silently widen it.
   expect(document.env ?? {}).not.toHaveProperty("PROPLANE_TYPECHECK_SEPARATELY");
   const allowed = new Set([
-    "build:npm run build",
+    "build:bash scripts/ci-observe-build.sh",
     "e2e:npm run test:e2e:smoke",
     "e2e-full:npm run test:e2e",
     "e2e-full:npx playwright test tests/e2e/property-metadata-omission-preservation.spec.ts",
@@ -171,11 +171,19 @@ describe("Test workflow resource budget", () => {
     const reorderedTypecheck = structuredClone(workflowDocument);
     const steps = reorderedTypecheck.jobs.build.steps;
     const typecheckIndex = steps.findIndex((step) => step.name === "Type-check (the gate the build below no longer repeats)");
-    const buildIndex = steps.findIndex((step) => step.run === "npm run build");
+    const buildIndex = steps.findIndex((step) => step.run === "bash scripts/ci-observe-build.sh");
     if (typecheckIndex >= 0 && buildIndex >= 0) {
       [steps[typecheckIndex], steps[buildIndex]] = [steps[buildIndex], steps[typecheckIndex]];
     }
     expect(() => assertBrowserBuildGate(reorderedTypecheck)).toThrow();
+  });
+
+  it("uses only the reviewed observer command and bounded static-generation opt-in", () => {
+    expect(workflowDocument.env).toEqual({ PROPLANE_CI_SERIAL_STATIC_GENERATION: "1" });
+    const observer = fs.readFileSync(path.join(ROOT, "scripts/ci-observe-build.sh"), "utf8");
+    expect(observer.trim().endsWith("npm run build")).toBe(true);
+    expect(observer).not.toContain("continue-on-error");
+    expect(observer).not.toMatch(/(?:printenv|set -x|ps .*args|ps .*command)/);
   });
 
   it("keeps the main E2E gate a bounded smoke", () => {

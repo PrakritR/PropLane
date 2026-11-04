@@ -25,6 +25,11 @@ on:
   schedule:
     - cron: "0 6 * * *"
 
+# Same validation and heap limits; only static export concurrency is bounded.
+# Next config ignores this opt-in outside GitHub Actions, including Vercel.
+env:
+  PROPLANE_CI_SERIAL_STATIC_GENERATION: "1"
+
 jobs:
   unit:
     runs-on: ubuntu-24.04
@@ -282,7 +287,8 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
-      - run: npm run build
+      - name: Build with resource evidence
+        run: bash scripts/ci-observe-build.sh
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}

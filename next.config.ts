@@ -86,6 +86,13 @@ const nextConfig: NextConfig = {
       webpackMemoryOptimizations: true,
       webpackBuildWorker: true,
     } : {}),
+    // CI mitigation for repeated hosted-runner shutdowns during static export.
+    // Cause remains unproven; cap process/page concurrency without changing gates.
+    // Explicit GitHub-only opt-in leaves Vercel and ordinary local builds unchanged.
+    ...(process.env.GITHUB_ACTIONS === "true" && process.env.PROPLANE_CI_SERIAL_STATIC_GENERATION === "1" ? {
+      cpus: 1,
+      staticGenerationMaxConcurrency: 1,
+    } : {}),
     // Persist Turbopack compiler output between dev restarts — faster cold starts.
     turbopackFileSystemCacheForDev: true,
     optimizePackageImports: ["lucide-react", "@radix-ui/react-icons"],
