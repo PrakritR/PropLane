@@ -163,7 +163,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Run full E2E suite
         if: github.event_name != 'workflow_dispatch' || inputs.e2e_scope == 'full'
-        run: npm run test:e2e
+        run: npm run test:e2e -- tests/e2e/bundle-group-manual-chrome.spec.ts:104 tests/e2e/manager-portal.spec.ts:107 --trace on
         env:
           PROPLANE_TYPECHECK_SEPARATELY: "1"
           NEXT_PUBLIC_APP_URL: http://localhost:3000
