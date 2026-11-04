@@ -1,0 +1,866 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Seattle SMS bounded parity exception</title><style>body{max-width:1000px;margin:36px auto;padding:0 22px;font:16px/1.55 system-ui;color:#202833}aside{padding:18px;background:#fff0cc}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eee;padding:16px}</style><h1>Seattle SMS one-release historical parity exception</h1><p>November 4, 2026. Akhil explicitly answered Yes to the narrowly documented historical migration-history exception described in the Seattle SMS release-readiness report. The release manager received that explicit answer from the root orchestrator. This document records the approved scope; it grants no broader standing exception.</p><aside><strong>Only the exact historical differences below are excepted for this one SMS release.</strong> New SMS migration installation, independent review, all other validation gates, actual staging deployment and QA, fresh backups, exact target verification, fast-forward branch ladder, production signoff and deployment/native verification remain mandatory. Staging cannot be skipped. Voice remains disabled. No historical schema or ledger repair is authorized.</aside><p>The baseline sets below exclude <code>sms_durable_ingress</code> deliberately: that new migration is never waived. Before installation it must be absent exactly as the reviewed operation expects; afterwards its exact reviewed SQL, ledger record, tables/functions, RLS and ACLs must verify. Reviewed SQL SHA256: <code>37ee641a1886840e79b615879686d8205e4714e72c37f50913e5dc342e18d113</code>.</p><p>Baseline missing-name sets contain 86 repository names for each target. Staging has 11 extra names and no identity diagnostics. Production has 20 extra names and two diagnostics for the historical reminder duplicate and failed existing attestation. Extra-name sets are not asserted equivalent. These are migration-history findings; this exception does not claim the corresponding schema is present or absent, does not prove an E2E pass, and does not excuse a missing dependency required by the SMS feature.</p><p>Source parity report SHA256: <code>66c89b8ac459228865de1ea0d81969d67b79c52ff1d0f0c8a1ecb808d861905f</code>. Canonical exact baseline object SHA256 (JSON sorted keys, compact separators): <code>4d1ebdf014c4605362444d22c1fe8c8dba5ec1aaf5eee9565abedcf950fb36b0</code>. Ledger digests are the observed read-only snapshots before production ingress apply and after staging ingress apply. The only allowed later ledger difference is the single reviewed new ingress migration row; any unrelated drift requires new review and authority.</p><p>This exception is consumed by completion of this release and does not authorize later releases. If target identity, baseline lists/digests, new SQL bytes, service ownership or shared configuration changes unexpectedly, stop. Do not infer authority to repair, delete, rename or backfill historical migration rows. Do not send customer messages, replay old inbound requests, alter locked live listings, or activate voice.</p><h2>Exact authorized baseline</h2><pre>{
+  &quot;staging&quot;: {
+    &quot;ref&quot;: &quot;xwszcafaontidfgznlxd&quot;,
+    &quot;ledgerSha256&quot;: &quot;d12c42ad78169e52b04bf5dc7a1cbce5e1a89f0cdb6e1f82622ea38a89e60487&quot;,
+    &quot;missing&quot;: [
+      {
+        &quot;version&quot;: &quot;20261002103000&quot;,
+        &quot;name&quot;: &quot;comms_credit_remaining_alert&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261002183000&quot;,
+        &quot;name&quot;: &quot;property_finance_worksheet&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003010000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_payment_lifecycle&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003011000&quot;,
+        &quot;name&quot;: &quot;manual_payout_policy&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003011500&quot;,
+        &quot;name&quot;: &quot;distinct_ledger_refunds&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003120000&quot;,
+        &quot;name&quot;: &quot;resident_move_in_forms&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003121000&quot;,
+        &quot;name&quot;: &quot;purge_manager_resident_rows_v2&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003150000&quot;,
+        &quot;name&quot;: &quot;purge_manager_resident_rows_v2_erase_deposits&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003153000&quot;,
+        &quot;name&quot;: &quot;short_stay_room_date_block_capacity&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003180000&quot;,
+        &quot;name&quot;: &quot;one_conversation_per_person&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003190000&quot;,
+        &quot;name&quot;: &quot;move_in_forms_resend&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003200000&quot;,
+        &quot;name&quot;: &quot;channel_calendar_vrbo&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003210000&quot;,
+        &quot;name&quot;: &quot;waive_codes_applies_to_and_property_limits&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003220000&quot;,
+        &quot;name&quot;: &quot;purge_v2_move_in_forms&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003230000&quot;,
+        &quot;name&quot;: &quot;calendar_export_approved_row_indexes&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003231000&quot;,
+        &quot;name&quot;: &quot;work_order_bid_estimates&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004010000&quot;,
+        &quot;name&quot;: &quot;manager_payees&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004020000&quot;,
+        &quot;name&quot;: &quot;expense_payee_same_owner_and_one_accepted_bid&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004130000&quot;,
+        &quot;name&quot;: &quot;linked_form_requests&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004140000&quot;,
+        &quot;name&quot;: &quot;vendor_payout_work_order_invoice_unique&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004150000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_estimate_visit_marker&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004160000&quot;,
+        &quot;name&quot;: &quot;vendor_payout_cross_rail_guard&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004210000&quot;,
+        &quot;name&quot;: &quot;payout_destination_cache_refresh&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004220000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_stripe_checkout_claim&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004221000&quot;,
+        &quot;name&quot;: &quot;platform_hold_source_arbitration&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004224000&quot;,
+        &quot;name&quot;: &quot;application_fee_payment_claims&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004230000&quot;,
+        &quot;name&quot;: &quot;resident_checkout_attempt_claims&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004231000&quot;,
+        &quot;name&quot;: &quot;classified_balance_withdrawal&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004232000&quot;,
+        &quot;name&quot;: &quot;application_fee_claim_retention&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261005120000&quot;,
+        &quot;name&quot;: &quot;reconcile_vendor_payment_claims&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261005130000&quot;,
+        &quot;name&quot;: &quot;resident_attempt_net_principal_bound&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006120000&quot;,
+        &quot;name&quot;: &quot;listing_channel_posts&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006180000&quot;,
+        &quot;name&quot;: &quot;service_share_links&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006200000&quot;,
+        &quot;name&quot;: &quot;vendor_work_number&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006210000&quot;,
+        &quot;name&quot;: &quot;vendor_integrations&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006220000&quot;,
+        &quot;name&quot;: &quot;platform_revenue_vendor_service_fee&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007010000&quot;,
+        &quot;name&quot;: &quot;vendor_tax_profiles&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007020000&quot;,
+        &quot;name&quot;: &quot;vendor_refunds_disputes&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007030000&quot;,
+        &quot;name&quot;: &quot;vendor_work_number_pacific_cap_month&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007100000&quot;,
+        &quot;name&quot;: &quot;property_owner_role&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007120000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_last_reminder&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007120100&quot;,
+        &quot;name&quot;: &quot;vendor_expense_entries&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008060000&quot;,
+        &quot;name&quot;: &quot;growth_engine&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008100000&quot;,
+        &quot;name&quot;: &quot;vendor_ai_info&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008110000&quot;,
+        &quot;name&quot;: &quot;vendor_ai_turn_meter&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008180000&quot;,
+        &quot;name&quot;: &quot;listing_lead_source&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008200000&quot;,
+        &quot;name&quot;: &quot;number_subscriptions&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008210000&quot;,
+        &quot;name&quot;: &quot;resident_agent_numbers&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008220000&quot;,
+        &quot;name&quot;: &quot;resident_workspace_bindings&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009090000&quot;,
+        &quot;name&quot;: &quot;growth_engage&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009170000&quot;,
+        &quot;name&quot;: &quot;vendor_marketplace_accounts&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009180000&quot;,
+        &quot;name&quot;: &quot;external_calendar_export_last_fetched&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009190000&quot;,
+        &quot;name&quot;: &quot;channel_stay_details&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261012120000&quot;,
+        &quot;name&quot;: &quot;communication_dismissed_contacts&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261012121000&quot;,
+        &quot;name&quot;: &quot;workspace_transfer_moves_work_identity&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013000000&quot;,
+        &quot;name&quot;: &quot;action_event_domains_channel_booking&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013010000&quot;,
+        &quot;name&quot;: &quot;workspace_work_number_recipients&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013020000&quot;,
+        &quot;name&quot;: &quot;channel_stay_details_money&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013030000&quot;,
+        &quot;name&quot;: &quot;manager_invite_link_code&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013040000&quot;,
+        &quot;name&quot;: &quot;meta_messenger_replies&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013050000&quot;,
+        &quot;name&quot;: &quot;meta_messenger_reply_claim&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013060000&quot;,
+        &quot;name&quot;: &quot;action_event_categories_match_code&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261025100000&quot;,
+        &quot;name&quot;: &quot;manager_invite_link_invitee_email&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261025110000&quot;,
+        &quot;name&quot;: &quot;sms_onboarding_asked_line&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261025120000&quot;,
+        &quot;name&quot;: &quot;manager_invite_link_vendor_directory&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261026120000&quot;,
+        &quot;name&quot;: &quot;sms_line_session_home_lock&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261027010000&quot;,
+        &quot;name&quot;: &quot;profiles_phone_text&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261027030000&quot;,
+        &quot;name&quot;: &quot;portal_workspaces_archived_combine&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261027120000&quot;,
+        &quot;name&quot;: &quot;admin_team&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261029010000&quot;,
+        &quot;name&quot;: &quot;promo_code_expiry&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030141000&quot;,
+        &quot;name&quot;: &quot;retire_unconfirmed_email_password&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030142000&quot;,
+        &quot;name&quot;: &quot;email_onboarding_handoffs&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030143000&quot;,
+        &quot;name&quot;: &quot;email_onboarding_vendor_invites&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144000&quot;,
+        &quot;name&quot;: &quot;tour_signup_capabilities&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144100&quot;,
+        &quot;name&quot;: &quot;tour_capability_claim_retry&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144200&quot;,
+        &quot;name&quot;: &quot;preclaim_tour_email_handoff&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144300&quot;,
+        &quot;name&quot;: &quot;retire_password_at_first_email_confirmation&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144400&quot;,
+        &quot;name&quot;: &quot;bind_resident_setup_subject&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144500&quot;,
+        &quot;name&quot;: &quot;managed_read_only_stored_admin&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144600&quot;,
+        &quot;name&quot;: &quot;resident_service_subjects&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144700&quot;,
+        &quot;name&quot;: &quot;vendor_service_subject_privacy&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144800&quot;,
+        &quot;name&quot;: &quot;bind_move_in_form_subject&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144900&quot;,
+        &quot;name&quot;: &quot;move_in_forms_recovery_guards&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030145000&quot;,
+        &quot;name&quot;: &quot;recovery_stored_roles_only&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030145100&quot;,
+        &quot;name&quot;: &quot;admin_team_atomic_revoke&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030145200&quot;,
+        &quot;name&quot;: &quot;resident_dispatch_confirmation&quot;
+      }
+    ],
+    &quot;extra&quot;: [
+      {
+        &quot;version&quot;: &quot;20260907073044&quot;,
+        &quot;name&quot;: &quot;resident_invite_links_legacy_20260907073044&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20260911161000&quot;,
+        &quot;name&quot;: &quot;comms_billing_rollout&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20260919161700&quot;,
+        &quot;name&quot;: &quot;mark_portal_inbox_source_read_resident_scope&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013065805&quot;,
+        &quot;name&quot;: &quot;20261013000000_action_event_domains_channel_booking&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013065806&quot;,
+        &quot;name&quot;: &quot;20261013010000_workspace_work_number_recipients&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013065809&quot;,
+        &quot;name&quot;: &quot;20261013020000_channel_stay_details_money&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013065811&quot;,
+        &quot;name&quot;: &quot;20261013030000_manager_invite_link_code&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013065815&quot;,
+        &quot;name&quot;: &quot;20261013040000_meta_messenger_replies&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013065838&quot;,
+        &quot;name&quot;: &quot;20261013050000_meta_messenger_reply_claim&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013090242&quot;,
+        &quot;name&quot;: &quot;20261013060000_action_event_categories_match_code&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261027034747&quot;,
+        &quot;name&quot;: &quot;20261027010000_profiles_phone_text&quot;
+      }
+    ],
+    &quot;problems&quot;: []
+  },
+  &quot;production&quot;: {
+    &quot;ref&quot;: &quot;qahnczmilgptcedaqype&quot;,
+    &quot;ledgerSha256&quot;: &quot;c8c38523aac762eb09391cf97e757ee1f5fdb66122516da2947cedad0443c710&quot;,
+    &quot;missing&quot;: [
+      {
+        &quot;version&quot;: &quot;20261002103000&quot;,
+        &quot;name&quot;: &quot;comms_credit_remaining_alert&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261002183000&quot;,
+        &quot;name&quot;: &quot;property_finance_worksheet&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003010000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_payment_lifecycle&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003011000&quot;,
+        &quot;name&quot;: &quot;manual_payout_policy&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003011500&quot;,
+        &quot;name&quot;: &quot;distinct_ledger_refunds&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003120000&quot;,
+        &quot;name&quot;: &quot;resident_move_in_forms&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003121000&quot;,
+        &quot;name&quot;: &quot;purge_manager_resident_rows_v2&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003150000&quot;,
+        &quot;name&quot;: &quot;purge_manager_resident_rows_v2_erase_deposits&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003153000&quot;,
+        &quot;name&quot;: &quot;short_stay_room_date_block_capacity&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003180000&quot;,
+        &quot;name&quot;: &quot;one_conversation_per_person&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003190000&quot;,
+        &quot;name&quot;: &quot;move_in_forms_resend&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003200000&quot;,
+        &quot;name&quot;: &quot;channel_calendar_vrbo&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003210000&quot;,
+        &quot;name&quot;: &quot;waive_codes_applies_to_and_property_limits&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003220000&quot;,
+        &quot;name&quot;: &quot;purge_v2_move_in_forms&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003230000&quot;,
+        &quot;name&quot;: &quot;calendar_export_approved_row_indexes&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003231000&quot;,
+        &quot;name&quot;: &quot;work_order_bid_estimates&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004010000&quot;,
+        &quot;name&quot;: &quot;manager_payees&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004020000&quot;,
+        &quot;name&quot;: &quot;expense_payee_same_owner_and_one_accepted_bid&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004130000&quot;,
+        &quot;name&quot;: &quot;linked_form_requests&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004140000&quot;,
+        &quot;name&quot;: &quot;vendor_payout_work_order_invoice_unique&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004150000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_estimate_visit_marker&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004160000&quot;,
+        &quot;name&quot;: &quot;vendor_payout_cross_rail_guard&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004210000&quot;,
+        &quot;name&quot;: &quot;payout_destination_cache_refresh&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004220000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_stripe_checkout_claim&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004221000&quot;,
+        &quot;name&quot;: &quot;platform_hold_source_arbitration&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004224000&quot;,
+        &quot;name&quot;: &quot;application_fee_payment_claims&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004230000&quot;,
+        &quot;name&quot;: &quot;resident_checkout_attempt_claims&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004231000&quot;,
+        &quot;name&quot;: &quot;classified_balance_withdrawal&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004232000&quot;,
+        &quot;name&quot;: &quot;application_fee_claim_retention&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261005120000&quot;,
+        &quot;name&quot;: &quot;reconcile_vendor_payment_claims&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261005130000&quot;,
+        &quot;name&quot;: &quot;resident_attempt_net_principal_bound&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006120000&quot;,
+        &quot;name&quot;: &quot;listing_channel_posts&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006180000&quot;,
+        &quot;name&quot;: &quot;service_share_links&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006200000&quot;,
+        &quot;name&quot;: &quot;vendor_work_number&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006210000&quot;,
+        &quot;name&quot;: &quot;vendor_integrations&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006220000&quot;,
+        &quot;name&quot;: &quot;platform_revenue_vendor_service_fee&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007010000&quot;,
+        &quot;name&quot;: &quot;vendor_tax_profiles&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007020000&quot;,
+        &quot;name&quot;: &quot;vendor_refunds_disputes&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007030000&quot;,
+        &quot;name&quot;: &quot;vendor_work_number_pacific_cap_month&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007100000&quot;,
+        &quot;name&quot;: &quot;property_owner_role&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007120000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_last_reminder&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007120100&quot;,
+        &quot;name&quot;: &quot;vendor_expense_entries&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008060000&quot;,
+        &quot;name&quot;: &quot;growth_engine&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008100000&quot;,
+        &quot;name&quot;: &quot;vendor_ai_info&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008110000&quot;,
+        &quot;name&quot;: &quot;vendor_ai_turn_meter&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008180000&quot;,
+        &quot;name&quot;: &quot;listing_lead_source&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008200000&quot;,
+        &quot;name&quot;: &quot;number_subscriptions&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008210000&quot;,
+        &quot;name&quot;: &quot;resident_agent_numbers&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008220000&quot;,
+        &quot;name&quot;: &quot;resident_workspace_bindings&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009090000&quot;,
+        &quot;name&quot;: &quot;growth_engage&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009170000&quot;,
+        &quot;name&quot;: &quot;vendor_marketplace_accounts&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009180000&quot;,
+        &quot;name&quot;: &quot;external_calendar_export_last_fetched&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009190000&quot;,
+        &quot;name&quot;: &quot;channel_stay_details&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261012120000&quot;,
+        &quot;name&quot;: &quot;communication_dismissed_contacts&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261012121000&quot;,
+        &quot;name&quot;: &quot;workspace_transfer_moves_work_identity&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013000000&quot;,
+        &quot;name&quot;: &quot;action_event_domains_channel_booking&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013010000&quot;,
+        &quot;name&quot;: &quot;workspace_work_number_recipients&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013020000&quot;,
+        &quot;name&quot;: &quot;channel_stay_details_money&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013030000&quot;,
+        &quot;name&quot;: &quot;manager_invite_link_code&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013040000&quot;,
+        &quot;name&quot;: &quot;meta_messenger_replies&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013050000&quot;,
+        &quot;name&quot;: &quot;meta_messenger_reply_claim&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013060000&quot;,
+        &quot;name&quot;: &quot;action_event_categories_match_code&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261025100000&quot;,
+        &quot;name&quot;: &quot;manager_invite_link_invitee_email&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261025110000&quot;,
+        &quot;name&quot;: &quot;sms_onboarding_asked_line&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261025120000&quot;,
+        &quot;name&quot;: &quot;manager_invite_link_vendor_directory&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261026120000&quot;,
+        &quot;name&quot;: &quot;sms_line_session_home_lock&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261027010000&quot;,
+        &quot;name&quot;: &quot;profiles_phone_text&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261027030000&quot;,
+        &quot;name&quot;: &quot;portal_workspaces_archived_combine&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261027120000&quot;,
+        &quot;name&quot;: &quot;admin_team&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261029010000&quot;,
+        &quot;name&quot;: &quot;promo_code_expiry&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030141000&quot;,
+        &quot;name&quot;: &quot;retire_unconfirmed_email_password&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030142000&quot;,
+        &quot;name&quot;: &quot;email_onboarding_handoffs&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030143000&quot;,
+        &quot;name&quot;: &quot;email_onboarding_vendor_invites&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144000&quot;,
+        &quot;name&quot;: &quot;tour_signup_capabilities&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144100&quot;,
+        &quot;name&quot;: &quot;tour_capability_claim_retry&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144200&quot;,
+        &quot;name&quot;: &quot;preclaim_tour_email_handoff&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144300&quot;,
+        &quot;name&quot;: &quot;retire_password_at_first_email_confirmation&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144400&quot;,
+        &quot;name&quot;: &quot;bind_resident_setup_subject&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144500&quot;,
+        &quot;name&quot;: &quot;managed_read_only_stored_admin&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144600&quot;,
+        &quot;name&quot;: &quot;resident_service_subjects&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144700&quot;,
+        &quot;name&quot;: &quot;vendor_service_subject_privacy&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144800&quot;,
+        &quot;name&quot;: &quot;bind_move_in_form_subject&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144900&quot;,
+        &quot;name&quot;: &quot;move_in_forms_recovery_guards&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030145000&quot;,
+        &quot;name&quot;: &quot;recovery_stored_roles_only&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030145100&quot;,
+        &quot;name&quot;: &quot;admin_team_atomic_revoke&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030145200&quot;,
+        &quot;name&quot;: &quot;resident_dispatch_confirmation&quot;
+      }
+    ],
+    &quot;extra&quot;: [
+      {
+        &quot;version&quot;: &quot;20260906214158&quot;,
+        &quot;name&quot;: &quot;sms_contact_email_and_manager_sms_sessions_and_work_order_events&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260906214225&quot;,
+        &quot;name&quot;: &quot;action_event_bus_and_co_manager_explicit_grant_and_invite_expiry&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260906214241&quot;,
+        &quot;name&quot;: &quot;reminder_kinds_and_comms_billing_and_voice_sessions&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260906214259&quot;,
+        &quot;name&quot;: &quot;comms_invoicing_action_event_domains_and_open_invite_token&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260906214429&quot;,
+        &quot;name&quot;: &quot;shared_room_capacity_helpers&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260906214510&quot;,
+        &quot;name&quot;: &quot;shared_room_capacity_triggers&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260906214533&quot;,
+        &quot;name&quot;: &quot;sales_provenance_utility_allocations_statement_match&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260906214710&quot;,
+        &quot;name&quot;: &quot;inspection_reminder_kinds_final&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260907013446&quot;,
+        &quot;name&quot;: &quot;outbound_mail_channel_column_repair&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260907013451&quot;,
+        &quot;name&quot;: &quot;portal_inbox_attachments_bucket_repair&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260911010000&quot;,
+        &quot;name&quot;: &quot;production_recovery_schema&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260911161000&quot;,
+        &quot;name&quot;: &quot;comms_billing_rollout&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261013065818&quot;,
+        &quot;name&quot;: &quot;20261013000000_action_event_domains_channel_booking&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261013065820&quot;,
+        &quot;name&quot;: &quot;20261013010000_workspace_work_number_recipients&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261013065823&quot;,
+        &quot;name&quot;: &quot;20261013020000_channel_stay_details_money&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261013065825&quot;,
+        &quot;name&quot;: &quot;20261013030000_manager_invite_link_code&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261013065830&quot;,
+        &quot;name&quot;: &quot;20261013040000_meta_messenger_replies&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261013065842&quot;,
+        &quot;name&quot;: &quot;20261013050000_meta_messenger_reply_claim&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261013090244&quot;,
+        &quot;name&quot;: &quot;20261013060000_action_event_categories_match_code&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261027034737&quot;,
+        &quot;name&quot;: &quot;20261027010000_profiles_phone_text&quot;,
+        &quot;statementsSha256&quot;: null
+      }
+    ],
+    &quot;problems&quot;: [
+      {
+        &quot;source&quot;: &quot;database&quot;,
+        &quot;kind&quot;: &quot;duplicate-name&quot;,
+        &quot;index&quot;: 236,
+        &quot;version&quot;: &quot;20260916063005&quot;,
+        &quot;name&quot;: &quot;automated_communication_reminder_kinds&quot;
+      },
+      {
+        &quot;source&quot;: &quot;database&quot;,
+        &quot;kind&quot;: &quot;historical-attestation-failed&quot;,
+        &quot;name&quot;: &quot;automated_communication_reminder_kinds&quot;,
+        &quot;version&quot;: &quot;20260915120000&quot;
+      }
+    ]
+  }
+}</pre><h2>Operational boundary</h2><p>Continue only the existing keeper to main to staging to production ladder using ordinary fast-forward operations. The standing direct-production skip is not used. The reviewed script remains fail closed on the one additive migration and requires a fresh mode-0600 backup for production. Root live-apply signoff is required after staging evidence is reviewed. The general production SMS repair authorization is already present; no generic production reconfirmation is needed.</p></html>
