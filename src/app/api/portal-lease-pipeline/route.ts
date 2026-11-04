@@ -1359,8 +1359,7 @@ export async function POST(req: Request) {
       // lease was made from is not the sender's to drop or swap on the way out, and an empty one skipped
       // this gate entirely. The stored link is restored onto the row first, so dropping it from `row_data`
       // can neither detach the record nor silence the check on any later write. Only a row the server has
-      // never held has no stored link, and there the body names it; a lease genuinely made without an
-      // application (a reusable template placed by hand) has nothing to measure against and is unchanged.
+      // never held has no stored link, and there the body names it.
       const storedAxisId = typeof storedRow?.axisId === "string" ? storedRow.axisId.trim() : "";
       if (storedAxisId && !(typeof nextRow.axisId === "string" && nextRow.axisId.trim())) {
         nextRow = { ...nextRow, axisId: storedRow!.axisId };
@@ -1369,6 +1368,24 @@ export async function POST(req: Request) {
       const isNewSend = sendingToResident && storedRow?.status !== "Resident Signature Pending";
       const isUploadedLease = Boolean(nextRow.uploadedLeaseParse) || (Boolean(nextRow.managerUploadedPdf?.dataUrl) && !nextRow.generatedHtml);
       const termsAxisId = storedAxisId || (typeof nextRow.axisId === "string" ? nextRow.axisId.trim() : "");
+      // A PropLane lease is GENERATED from the resident record, so one going out with no link to any
+      // application can be measured against nothing: a single create-and-send POST would otherwise
+      // carry arbitrary rent, deposit and dates past this gate. An imported document (an uploaded PDF,
+      // or a reusable converted template placed by hand) stands on its own review receipt instead.
+      if (
+        isNewSend &&
+        !termsAxisId &&
+        effectiveLeaseDocumentMode(nextRow) === "proplane-generated" &&
+        !(storedRow && rowHasAnySignature(storedRow))
+      ) {
+        return NextResponse.json(
+          {
+            error: "This lease is not linked to a resident record, so its terms cannot be confirmed. Open the resident, then send the regenerated lease.",
+            blocked: "terms-unlinked",
+          },
+          { status: 409 },
+        );
+      }
       if (isNewSend && !isUploadedLease && termsAxisId && !(storedRow && rowHasAnySignature(storedRow))) {
         const termsUnreadable = NextResponse.json(
           { error: "The resident record could not be read to confirm the lease terms. Try again.", blocked: "terms-unreadable" },

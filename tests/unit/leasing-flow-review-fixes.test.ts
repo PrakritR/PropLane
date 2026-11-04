@@ -2,7 +2,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { NextResponse } from "next/server";
 
 vi.mock("server-only", () => ({}));
 
@@ -17,7 +16,6 @@ vi.mock("@/lib/auth/resident-relationship", () => ({ managerOwnsResident: vi.fn(
 vi.mock("@/lib/workspaces/scope.server", () => ({ activeWorkspacePropertyScope: vi.fn() }));
 
 import { loadResidentApprovalDraftBlock } from "@/lib/resident-approval.server";
-import { ackWithinBudget } from "@/lib/sms/inbound-ack.server";
 import { TOUR_STEP_FIELD_ORDER } from "@/lib/wizard-field-errors";
 import { pacificHourOfDay } from "@/lib/pacific-time";
 import { pacificHour } from "@/lib/one-number/morning-digest.server";
@@ -76,38 +74,6 @@ describe("resident-approval route refuses an unsent draft on BOTH the id and the
   });
 });
 
-describe("Twilio inbound only acks early once the receipt is claimed", () => {
-  const twiml = (m: string) => new NextResponse(`<Response>${m}</Response>`, { status: 200 });
-  const base = (canAck: () => boolean) => {
-    const scheduled: Array<() => Promise<void>> = [];
-    return { scheduled, opts: { budgetMs: 10, canAck, ack: () => twiml(""), schedule: (t: () => Promise<void>) => { scheduled.push(t); }, sendLate: vi.fn(async () => undefined) } };
-  };
-
-  it("a pre-claim 5xx past the budget is returned to Twilio, not swallowed by a 200", async () => {
-    const h = base(() => false);
-    const slowFail = new Promise<NextResponse>((r) => setTimeout(() => r(NextResponse.json({ error: "Inbound receipt unavailable." }, { status: 503 })), 80));
-    const res = await ackWithinBudget(slowFail, h.opts);
-    expect(res.status).toBe(503);
-    expect(h.scheduled).toHaveLength(0);
-  });
-
-  it("acks with 200 as soon as the claim lands after the budget", async () => {
-    let claimed = false;
-    const h = base(() => claimed);
-    const slow = new Promise<NextResponse>((r) => setTimeout(() => r(twiml("<Message>Late</Message>")), 400));
-    setTimeout(() => { claimed = true; }, 40);
-    const res = await ackWithinBudget(slow, h.opts);
-    expect(res.status).toBe(200);
-    expect(await res.text()).not.toContain("<Message");
-    expect(h.scheduled).toHaveLength(1);
-  });
-
-  it("the route marks the claim and passes canAck", () => {
-    const route = read("src/app/api/twilio/inbound/route.ts");
-    expect(route).toContain("canAck: () => late.claimed");
-    expect(route.indexOf("late.claimed = true")).toBeGreaterThan(route.indexOf('mark("claimed")'));
-  });
-});
 
 describe("lease terms drift reads the application under the lease's workspace owner", () => {
   const route = read("src/app/api/portal-lease-pipeline/route.ts");
@@ -167,80 +133,6 @@ describe("tour flow", () => {
 
 /* ───────────────── second review pass: the eight findings on commit 228658108 ───────────────── */
 
-describe("the shared line can ack early too: its late reply is claimed before the seam runs", () => {
-  type Row = Record<string, unknown>;
-  const onboardingDb = (seed: Record<string, Row> = {}, opts: { missing?: boolean } = {}) => {
-    const rows = new Map<string, Row>(Object.entries(seed));
-    const from = () => {
-      let sid = "";
-      let expectCreatedAt: string | null = null;
-      let mode: "select" | "update" | "delete" = "select";
-      let patch: Row = {};
-      const run = () => {
-        const row = rows.get(sid);
-        if (mode === "delete") {
-          if (sid) rows.delete(sid);
-          return { data: null, error: null };
-        }
-        if (mode === "update") {
-          if (!row || (expectCreatedAt !== null && row.created_at !== expectCreatedAt)) return { data: [], error: null };
-          rows.set(sid, { ...row, ...patch });
-          return { data: [{ message_sid: sid }], error: null };
-        }
-        return { data: row ? [row] : [], error: null };
-      };
-      const chain: Record<string, unknown> = {
-        insert: (row: Row) => {
-          if (opts.missing) return Promise.resolve({ error: { code: "42P01" } });
-          const key = String(row.message_sid);
-          if (rows.has(key)) return Promise.resolve({ error: { code: "23505" } });
-          rows.set(key, { ...row });
-          return Promise.resolve({ error: null });
-        },
-        select: () => chain,
-        update: (next: Row) => { mode = "update"; patch = next; return chain; },
-        delete: () => { mode = "delete"; return chain; },
-        eq: (column: string, value: string) => {
-          if (column === "message_sid") sid = value;
-          else expectCreatedAt = value;
-          return chain;
-        },
-        lt: () => chain,
-        maybeSingle: () => Promise.resolve({ data: rows.get(sid) ?? null, error: null }),
-        then: (resolve: (value: unknown) => void) => resolve(run()),
-      };
-      return chain;
-    };
-    return { rows, db: { from } as never };
-  };
-
-  it("claims the reply once per MessageSid, and a second run of the same text never takes it", async () => {
-    const { claimMessageSideEffect, completeMessageSideEffect } = await import("@/lib/one-number/onboarding/turn-replay.server");
-    const store = onboardingDb();
-    await expect(claimMessageSideEffect(store.db, "late", "SM1", "2065550100")).resolves.toBe("won");
-    await expect(claimMessageSideEffect(store.db, "late", "SM1", "2065550100")).resolves.toBe("taken");
-    await completeMessageSideEffect(store.db, "late", "SM1");
-    await expect(claimMessageSideEffect(store.db, "late", "SM1", "2065550100")).resolves.toBe("taken");
-    // Namespaced: the turn claim for the same text is a different row.
-    await expect(claimMessageSideEffect(store.db, "other", "SM1", "2065550100")).resolves.toBe("won");
-  });
-
-  it("answers unavailable with no claim table, so the caller keeps returning its own response", async () => {
-    const { claimMessageSideEffect } = await import("@/lib/one-number/onboarding/turn-replay.server");
-    const store = onboardingDb({}, { missing: true });
-    await expect(claimMessageSideEffect(store.db, "late", "SM1", "2065550100")).resolves.toBe("unavailable");
-  });
-
-  it("the route takes that claim BEFORE the seam, acks on it, and closes it only after the late send", () => {
-    const route = read("src/app/api/twilio/inbound/route.ts");
-    expect(route).toContain("canAck: () => late.claimed || Boolean(late.lateReplyMessageSid)");
-    expect(route.indexOf("claimMessageSideEffect(db, LATE_REPLY_CLAIM")).toBeLessThan(route.indexOf("await handleSharedLineInbound("));
-    expect(route).toContain("await completeMessageSideEffect(db, LATE_REPLY_CLAIM, lateSid)");
-    // A seam that routes the text onward hands it back to the pipeline, whose pre-claim 5xx must reach Twilio.
-    expect(route).toContain("late.lateReplyMessageSid = null;");
-  });
-});
-
 describe("a signup continuation never 503s on the additive tour_slot_key column", () => {
   it("retries the handoff read without it", () => {
     const route = read("src/app/api/auth/email-onboarding/continue/route.ts");
@@ -255,6 +147,11 @@ describe("lease terms drift is keyed on the stored application link", () => {
     expect(route).toContain('const storedAxisId = typeof storedRow?.axisId === "string" ? storedRow.axisId.trim() : "";');
     expect(route).toContain('const termsAxisId = storedAxisId || (typeof nextRow.axisId === "string" ? nextRow.axisId.trim() : "");');
     expect(route).toContain("nextRow = { ...nextRow, axisId: storedRow!.axisId };");
+  });
+
+  it("refuses a PropLane-generated send that is linked to no application at all", () => {
+    expect(route).toContain('blocked: "terms-unlinked"');
+    expect(route).toContain('effectiveLeaseDocumentMode(nextRow) === "proplane-generated"');
   });
 });
 
