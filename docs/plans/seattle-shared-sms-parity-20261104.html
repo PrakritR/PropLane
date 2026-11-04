@@ -1,0 +1,874 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>SMS release migration parity evidence</title><style>body{max-width:1000px;margin:36px auto;padding:0 20px;font:16px/1.5 system-ui}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eee;padding:16px}</style><h1>SMS release migration parity evidence</h1><p>Read-only November 4, 2026 checks. Verified exact project, TLS and postgres-role identity. Repository checker exported snapshot/diff/attestation functions used unchanged. CLI login metadata visibility makes the ordinary URL-based CLI report NOT CHECKED; explicitly assuming its existing postgres membership resolves visibility without mutation. No historical migration or ledger mutation was performed.</p><p>Baseline missing-name sets equal after excluding the new uninstalled production SMS ingress migration: true. New ingress is installed only on staging. This is evidence of baseline drift, not a waiver. Production release remains blocked until the required parity gate is resolved or an explicit narrow reviewed exception is authorized. Do not apply historical migrations blindly.</p><p>Reviewed additive ingress migration SHA256: 37ee641a1886840e79b615879686d8205e4714e72c37f50913e5dc342e18d113. Staging exact apply preserved configuration and ownership, installed ledger and verified ACLs. Production ingress remains absent.</p><h2>Full parity evidence</h2><pre>{
+  "staging": {
+    "ref": "xwszcafaontidfgznlxd",
+    "ledgerSha256": "d12c42ad78169e52b04bf5dc7a1cbce5e1a89f0cdb6e1f82622ea38a89e60487",
+    "missing": [
+      {
+        "version": "20261002103000",
+        "name": "comms_credit_remaining_alert"
+      },
+      {
+        "version": "20261002183000",
+        "name": "property_finance_worksheet"
+      },
+      {
+        "version": "20261003010000",
+        "name": "vendor_invoice_payment_lifecycle"
+      },
+      {
+        "version": "20261003011000",
+        "name": "manual_payout_policy"
+      },
+      {
+        "version": "20261003011500",
+        "name": "distinct_ledger_refunds"
+      },
+      {
+        "version": "20261003120000",
+        "name": "resident_move_in_forms"
+      },
+      {
+        "version": "20261003121000",
+        "name": "purge_manager_resident_rows_v2"
+      },
+      {
+        "version": "20261003150000",
+        "name": "purge_manager_resident_rows_v2_erase_deposits"
+      },
+      {
+        "version": "20261003153000",
+        "name": "short_stay_room_date_block_capacity"
+      },
+      {
+        "version": "20261003180000",
+        "name": "one_conversation_per_person"
+      },
+      {
+        "version": "20261003190000",
+        "name": "move_in_forms_resend"
+      },
+      {
+        "version": "20261003200000",
+        "name": "channel_calendar_vrbo"
+      },
+      {
+        "version": "20261003210000",
+        "name": "waive_codes_applies_to_and_property_limits"
+      },
+      {
+        "version": "20261003220000",
+        "name": "purge_v2_move_in_forms"
+      },
+      {
+        "version": "20261003230000",
+        "name": "calendar_export_approved_row_indexes"
+      },
+      {
+        "version": "20261003231000",
+        "name": "work_order_bid_estimates"
+      },
+      {
+        "version": "20261004010000",
+        "name": "manager_payees"
+      },
+      {
+        "version": "20261004020000",
+        "name": "expense_payee_same_owner_and_one_accepted_bid"
+      },
+      {
+        "version": "20261004130000",
+        "name": "linked_form_requests"
+      },
+      {
+        "version": "20261004140000",
+        "name": "vendor_payout_work_order_invoice_unique"
+      },
+      {
+        "version": "20261004150000",
+        "name": "vendor_invoice_estimate_visit_marker"
+      },
+      {
+        "version": "20261004160000",
+        "name": "vendor_payout_cross_rail_guard"
+      },
+      {
+        "version": "20261004210000",
+        "name": "payout_destination_cache_refresh"
+      },
+      {
+        "version": "20261004220000",
+        "name": "vendor_invoice_stripe_checkout_claim"
+      },
+      {
+        "version": "20261004221000",
+        "name": "platform_hold_source_arbitration"
+      },
+      {
+        "version": "20261004224000",
+        "name": "application_fee_payment_claims"
+      },
+      {
+        "version": "20261004230000",
+        "name": "resident_checkout_attempt_claims"
+      },
+      {
+        "version": "20261004231000",
+        "name": "classified_balance_withdrawal"
+      },
+      {
+        "version": "20261004232000",
+        "name": "application_fee_claim_retention"
+      },
+      {
+        "version": "20261005120000",
+        "name": "reconcile_vendor_payment_claims"
+      },
+      {
+        "version": "20261005130000",
+        "name": "resident_attempt_net_principal_bound"
+      },
+      {
+        "version": "20261006120000",
+        "name": "listing_channel_posts"
+      },
+      {
+        "version": "20261006180000",
+        "name": "service_share_links"
+      },
+      {
+        "version": "20261006200000",
+        "name": "vendor_work_number"
+      },
+      {
+        "version": "20261006210000",
+        "name": "vendor_integrations"
+      },
+      {
+        "version": "20261006220000",
+        "name": "platform_revenue_vendor_service_fee"
+      },
+      {
+        "version": "20261007010000",
+        "name": "vendor_tax_profiles"
+      },
+      {
+        "version": "20261007020000",
+        "name": "vendor_refunds_disputes"
+      },
+      {
+        "version": "20261007030000",
+        "name": "vendor_work_number_pacific_cap_month"
+      },
+      {
+        "version": "20261007100000",
+        "name": "property_owner_role"
+      },
+      {
+        "version": "20261007120000",
+        "name": "vendor_invoice_last_reminder"
+      },
+      {
+        "version": "20261007120100",
+        "name": "vendor_expense_entries"
+      },
+      {
+        "version": "20261008060000",
+        "name": "growth_engine"
+      },
+      {
+        "version": "20261008100000",
+        "name": "vendor_ai_info"
+      },
+      {
+        "version": "20261008110000",
+        "name": "vendor_ai_turn_meter"
+      },
+      {
+        "version": "20261008180000",
+        "name": "listing_lead_source"
+      },
+      {
+        "version": "20261008200000",
+        "name": "number_subscriptions"
+      },
+      {
+        "version": "20261008210000",
+        "name": "resident_agent_numbers"
+      },
+      {
+        "version": "20261008220000",
+        "name": "resident_workspace_bindings"
+      },
+      {
+        "version": "20261009090000",
+        "name": "growth_engage"
+      },
+      {
+        "version": "20261009170000",
+        "name": "vendor_marketplace_accounts"
+      },
+      {
+        "version": "20261009180000",
+        "name": "external_calendar_export_last_fetched"
+      },
+      {
+        "version": "20261009190000",
+        "name": "channel_stay_details"
+      },
+      {
+        "version": "20261012120000",
+        "name": "communication_dismissed_contacts"
+      },
+      {
+        "version": "20261012121000",
+        "name": "workspace_transfer_moves_work_identity"
+      },
+      {
+        "version": "20261013000000",
+        "name": "action_event_domains_channel_booking"
+      },
+      {
+        "version": "20261013010000",
+        "name": "workspace_work_number_recipients"
+      },
+      {
+        "version": "20261013020000",
+        "name": "channel_stay_details_money"
+      },
+      {
+        "version": "20261013030000",
+        "name": "manager_invite_link_code"
+      },
+      {
+        "version": "20261013040000",
+        "name": "meta_messenger_replies"
+      },
+      {
+        "version": "20261013050000",
+        "name": "meta_messenger_reply_claim"
+      },
+      {
+        "version": "20261013060000",
+        "name": "action_event_categories_match_code"
+      },
+      {
+        "version": "20261025100000",
+        "name": "manager_invite_link_invitee_email"
+      },
+      {
+        "version": "20261025110000",
+        "name": "sms_onboarding_asked_line"
+      },
+      {
+        "version": "20261025120000",
+        "name": "manager_invite_link_vendor_directory"
+      },
+      {
+        "version": "20261026120000",
+        "name": "sms_line_session_home_lock"
+      },
+      {
+        "version": "20261027010000",
+        "name": "profiles_phone_text"
+      },
+      {
+        "version": "20261027030000",
+        "name": "portal_workspaces_archived_combine"
+      },
+      {
+        "version": "20261027120000",
+        "name": "admin_team"
+      },
+      {
+        "version": "20261029010000",
+        "name": "promo_code_expiry"
+      },
+      {
+        "version": "20261030141000",
+        "name": "retire_unconfirmed_email_password"
+      },
+      {
+        "version": "20261030142000",
+        "name": "email_onboarding_handoffs"
+      },
+      {
+        "version": "20261030143000",
+        "name": "email_onboarding_vendor_invites"
+      },
+      {
+        "version": "20261030144000",
+        "name": "tour_signup_capabilities"
+      },
+      {
+        "version": "20261030144100",
+        "name": "tour_capability_claim_retry"
+      },
+      {
+        "version": "20261030144200",
+        "name": "preclaim_tour_email_handoff"
+      },
+      {
+        "version": "20261030144300",
+        "name": "retire_password_at_first_email_confirmation"
+      },
+      {
+        "version": "20261030144400",
+        "name": "bind_resident_setup_subject"
+      },
+      {
+        "version": "20261030144500",
+        "name": "managed_read_only_stored_admin"
+      },
+      {
+        "version": "20261030144600",
+        "name": "resident_service_subjects"
+      },
+      {
+        "version": "20261030144700",
+        "name": "vendor_service_subject_privacy"
+      },
+      {
+        "version": "20261030144800",
+        "name": "bind_move_in_form_subject"
+      },
+      {
+        "version": "20261030144900",
+        "name": "move_in_forms_recovery_guards"
+      },
+      {
+        "version": "20261030145000",
+        "name": "recovery_stored_roles_only"
+      },
+      {
+        "version": "20261030145100",
+        "name": "admin_team_atomic_revoke"
+      },
+      {
+        "version": "20261030145200",
+        "name": "resident_dispatch_confirmation"
+      }
+    ],
+    "extra": [
+      {
+        "version": "20260907073044",
+        "name": "resident_invite_links_legacy_20260907073044"
+      },
+      {
+        "version": "20260911161000",
+        "name": "comms_billing_rollout"
+      },
+      {
+        "version": "20260919161700",
+        "name": "mark_portal_inbox_source_read_resident_scope"
+      },
+      {
+        "version": "20261013065805",
+        "name": "20261013000000_action_event_domains_channel_booking"
+      },
+      {
+        "version": "20261013065806",
+        "name": "20261013010000_workspace_work_number_recipients"
+      },
+      {
+        "version": "20261013065809",
+        "name": "20261013020000_channel_stay_details_money"
+      },
+      {
+        "version": "20261013065811",
+        "name": "20261013030000_manager_invite_link_code"
+      },
+      {
+        "version": "20261013065815",
+        "name": "20261013040000_meta_messenger_replies"
+      },
+      {
+        "version": "20261013065838",
+        "name": "20261013050000_meta_messenger_reply_claim"
+      },
+      {
+        "version": "20261013090242",
+        "name": "20261013060000_action_event_categories_match_code"
+      },
+      {
+        "version": "20261027034747",
+        "name": "20261027010000_profiles_phone_text"
+      }
+    ],
+    "problems": [],
+    "attestations": [],
+    "fatal": true
+  },
+  "production": {
+    "ref": "qahnczmilgptcedaqype",
+    "ledgerSha256": "c8c38523aac762eb09391cf97e757ee1f5fdb66122516da2947cedad0443c710",
+    "missing": [
+      {
+        "version": "20261002103000",
+        "name": "comms_credit_remaining_alert"
+      },
+      {
+        "version": "20261002183000",
+        "name": "property_finance_worksheet"
+      },
+      {
+        "version": "20261003010000",
+        "name": "vendor_invoice_payment_lifecycle"
+      },
+      {
+        "version": "20261003011000",
+        "name": "manual_payout_policy"
+      },
+      {
+        "version": "20261003011500",
+        "name": "distinct_ledger_refunds"
+      },
+      {
+        "version": "20261003120000",
+        "name": "resident_move_in_forms"
+      },
+      {
+        "version": "20261003121000",
+        "name": "purge_manager_resident_rows_v2"
+      },
+      {
+        "version": "20261003150000",
+        "name": "purge_manager_resident_rows_v2_erase_deposits"
+      },
+      {
+        "version": "20261003153000",
+        "name": "short_stay_room_date_block_capacity"
+      },
+      {
+        "version": "20261003180000",
+        "name": "one_conversation_per_person"
+      },
+      {
+        "version": "20261003190000",
+        "name": "move_in_forms_resend"
+      },
+      {
+        "version": "20261003200000",
+        "name": "channel_calendar_vrbo"
+      },
+      {
+        "version": "20261003210000",
+        "name": "waive_codes_applies_to_and_property_limits"
+      },
+      {
+        "version": "20261003220000",
+        "name": "purge_v2_move_in_forms"
+      },
+      {
+        "version": "20261003230000",
+        "name": "calendar_export_approved_row_indexes"
+      },
+      {
+        "version": "20261003231000",
+        "name": "work_order_bid_estimates"
+      },
+      {
+        "version": "20261004010000",
+        "name": "manager_payees"
+      },
+      {
+        "version": "20261004020000",
+        "name": "expense_payee_same_owner_and_one_accepted_bid"
+      },
+      {
+        "version": "20261004130000",
+        "name": "linked_form_requests"
+      },
+      {
+        "version": "20261004140000",
+        "name": "vendor_payout_work_order_invoice_unique"
+      },
+      {
+        "version": "20261004150000",
+        "name": "vendor_invoice_estimate_visit_marker"
+      },
+      {
+        "version": "20261004160000",
+        "name": "vendor_payout_cross_rail_guard"
+      },
+      {
+        "version": "20261004210000",
+        "name": "payout_destination_cache_refresh"
+      },
+      {
+        "version": "20261004220000",
+        "name": "vendor_invoice_stripe_checkout_claim"
+      },
+      {
+        "version": "20261004221000",
+        "name": "platform_hold_source_arbitration"
+      },
+      {
+        "version": "20261004224000",
+        "name": "application_fee_payment_claims"
+      },
+      {
+        "version": "20261004230000",
+        "name": "resident_checkout_attempt_claims"
+      },
+      {
+        "version": "20261004231000",
+        "name": "classified_balance_withdrawal"
+      },
+      {
+        "version": "20261004232000",
+        "name": "application_fee_claim_retention"
+      },
+      {
+        "version": "20261005120000",
+        "name": "reconcile_vendor_payment_claims"
+      },
+      {
+        "version": "20261005130000",
+        "name": "resident_attempt_net_principal_bound"
+      },
+      {
+        "version": "20261006120000",
+        "name": "listing_channel_posts"
+      },
+      {
+        "version": "20261006180000",
+        "name": "service_share_links"
+      },
+      {
+        "version": "20261006200000",
+        "name": "vendor_work_number"
+      },
+      {
+        "version": "20261006210000",
+        "name": "vendor_integrations"
+      },
+      {
+        "version": "20261006220000",
+        "name": "platform_revenue_vendor_service_fee"
+      },
+      {
+        "version": "20261007010000",
+        "name": "vendor_tax_profiles"
+      },
+      {
+        "version": "20261007020000",
+        "name": "vendor_refunds_disputes"
+      },
+      {
+        "version": "20261007030000",
+        "name": "vendor_work_number_pacific_cap_month"
+      },
+      {
+        "version": "20261007100000",
+        "name": "property_owner_role"
+      },
+      {
+        "version": "20261007120000",
+        "name": "vendor_invoice_last_reminder"
+      },
+      {
+        "version": "20261007120100",
+        "name": "vendor_expense_entries"
+      },
+      {
+        "version": "20261008060000",
+        "name": "growth_engine"
+      },
+      {
+        "version": "20261008100000",
+        "name": "vendor_ai_info"
+      },
+      {
+        "version": "20261008110000",
+        "name": "vendor_ai_turn_meter"
+      },
+      {
+        "version": "20261008180000",
+        "name": "listing_lead_source"
+      },
+      {
+        "version": "20261008200000",
+        "name": "number_subscriptions"
+      },
+      {
+        "version": "20261008210000",
+        "name": "resident_agent_numbers"
+      },
+      {
+        "version": "20261008220000",
+        "name": "resident_workspace_bindings"
+      },
+      {
+        "version": "20261009090000",
+        "name": "growth_engage"
+      },
+      {
+        "version": "20261009170000",
+        "name": "vendor_marketplace_accounts"
+      },
+      {
+        "version": "20261009180000",
+        "name": "external_calendar_export_last_fetched"
+      },
+      {
+        "version": "20261009190000",
+        "name": "channel_stay_details"
+      },
+      {
+        "version": "20261012120000",
+        "name": "communication_dismissed_contacts"
+      },
+      {
+        "version": "20261012121000",
+        "name": "workspace_transfer_moves_work_identity"
+      },
+      {
+        "version": "20261013000000",
+        "name": "action_event_domains_channel_booking"
+      },
+      {
+        "version": "20261013010000",
+        "name": "workspace_work_number_recipients"
+      },
+      {
+        "version": "20261013020000",
+        "name": "channel_stay_details_money"
+      },
+      {
+        "version": "20261013030000",
+        "name": "manager_invite_link_code"
+      },
+      {
+        "version": "20261013040000",
+        "name": "meta_messenger_replies"
+      },
+      {
+        "version": "20261013050000",
+        "name": "meta_messenger_reply_claim"
+      },
+      {
+        "version": "20261013060000",
+        "name": "action_event_categories_match_code"
+      },
+      {
+        "version": "20261025100000",
+        "name": "manager_invite_link_invitee_email"
+      },
+      {
+        "version": "20261025110000",
+        "name": "sms_onboarding_asked_line"
+      },
+      {
+        "version": "20261025120000",
+        "name": "manager_invite_link_vendor_directory"
+      },
+      {
+        "version": "20261026120000",
+        "name": "sms_line_session_home_lock"
+      },
+      {
+        "version": "20261027010000",
+        "name": "profiles_phone_text"
+      },
+      {
+        "version": "20261027030000",
+        "name": "portal_workspaces_archived_combine"
+      },
+      {
+        "version": "20261027120000",
+        "name": "admin_team"
+      },
+      {
+        "version": "20261029010000",
+        "name": "promo_code_expiry"
+      },
+      {
+        "version": "20261030141000",
+        "name": "retire_unconfirmed_email_password"
+      },
+      {
+        "version": "20261030142000",
+        "name": "email_onboarding_handoffs"
+      },
+      {
+        "version": "20261030143000",
+        "name": "email_onboarding_vendor_invites"
+      },
+      {
+        "version": "20261030144000",
+        "name": "tour_signup_capabilities"
+      },
+      {
+        "version": "20261030144100",
+        "name": "tour_capability_claim_retry"
+      },
+      {
+        "version": "20261030144200",
+        "name": "preclaim_tour_email_handoff"
+      },
+      {
+        "version": "20261030144300",
+        "name": "retire_password_at_first_email_confirmation"
+      },
+      {
+        "version": "20261030144400",
+        "name": "bind_resident_setup_subject"
+      },
+      {
+        "version": "20261030144500",
+        "name": "managed_read_only_stored_admin"
+      },
+      {
+        "version": "20261030144600",
+        "name": "resident_service_subjects"
+      },
+      {
+        "version": "20261030144700",
+        "name": "vendor_service_subject_privacy"
+      },
+      {
+        "version": "20261030144800",
+        "name": "bind_move_in_form_subject"
+      },
+      {
+        "version": "20261030144900",
+        "name": "move_in_forms_recovery_guards"
+      },
+      {
+        "version": "20261030145000",
+        "name": "recovery_stored_roles_only"
+      },
+      {
+        "version": "20261030145100",
+        "name": "admin_team_atomic_revoke"
+      },
+      {
+        "version": "20261030145200",
+        "name": "resident_dispatch_confirmation"
+      },
+      {
+        "version": "20261104120000",
+        "name": "sms_durable_ingress"
+      }
+    ],
+    "extra": [
+      {
+        "version": "20260906214158",
+        "name": "sms_contact_email_and_manager_sms_sessions_and_work_order_events",
+        "statementsSha256": null
+      },
+      {
+        "version": "20260906214225",
+        "name": "action_event_bus_and_co_manager_explicit_grant_and_invite_expiry",
+        "statementsSha256": null
+      },
+      {
+        "version": "20260906214241",
+        "name": "reminder_kinds_and_comms_billing_and_voice_sessions",
+        "statementsSha256": null
+      },
+      {
+        "version": "20260906214259",
+        "name": "comms_invoicing_action_event_domains_and_open_invite_token",
+        "statementsSha256": null
+      },
+      {
+        "version": "20260906214429",
+        "name": "shared_room_capacity_helpers",
+        "statementsSha256": null
+      },
+      {
+        "version": "20260906214510",
+        "name": "shared_room_capacity_triggers",
+        "statementsSha256": null
+      },
+      {
+        "version": "20260906214533",
+        "name": "sales_provenance_utility_allocations_statement_match",
+        "statementsSha256": null
+      },
+      {
+        "version": "20260906214710",
+        "name": "inspection_reminder_kinds_final",
+        "statementsSha256": null
+      },
+      {
+        "version": "20260907013446",
+        "name": "outbound_mail_channel_column_repair",
+        "statementsSha256": null
+      },
+      {
+        "version": "20260907013451",
+        "name": "portal_inbox_attachments_bucket_repair",
+        "statementsSha256": null
+      },
+      {
+        "version": "20260911010000",
+        "name": "production_recovery_schema",
+        "statementsSha256": null
+      },
+      {
+        "version": "20260911161000",
+        "name": "comms_billing_rollout",
+        "statementsSha256": null
+      },
+      {
+        "version": "20261013065818",
+        "name": "20261013000000_action_event_domains_channel_booking",
+        "statementsSha256": null
+      },
+      {
+        "version": "20261013065820",
+        "name": "20261013010000_workspace_work_number_recipients",
+        "statementsSha256": null
+      },
+      {
+        "version": "20261013065823",
+        "name": "20261013020000_channel_stay_details_money",
+        "statementsSha256": null
+      },
+      {
+        "version": "20261013065825",
+        "name": "20261013030000_manager_invite_link_code",
+        "statementsSha256": null
+      },
+      {
+        "version": "20261013065830",
+        "name": "20261013040000_meta_messenger_replies",
+        "statementsSha256": null
+      },
+      {
+        "version": "20261013065842",
+        "name": "20261013050000_meta_messenger_reply_claim",
+        "statementsSha256": null
+      },
+      {
+        "version": "20261013090244",
+        "name": "20261013060000_action_event_categories_match_code",
+        "statementsSha256": null
+      },
+      {
+        "version": "20261027034737",
+        "name": "20261027010000_profiles_phone_text",
+        "statementsSha256": null
+      }
+    ],
+    "problems": [
+      {
+        "source": "database",
+        "kind": "duplicate-name",
+        "index": 236,
+        "version": "20260916063005",
+        "name": "automated_communication_reminder_kinds"
+      },
+      {
+        "source": "database",
+        "kind": "historical-attestation-failed",
+        "name": "automated_communication_reminder_kinds",
+        "version": "20260915120000"
+      }
+    ],
+    "attestations": [],
+    "fatal": true
+  }
+}</pre><h2>Reviewable next step</h2><p>Compare these names with actual deployed schema and the previous parity exception scope. If these are confirmed preexisting ledger-history differences, retain the exact lists and digests and consider a one-release exception limited to baseline differences, with exact new SMS schema/ledger/hash/ACL checks mandatory. Such an exception requires explicit authority; this report grants none. Any new or SMS-related mismatch remains a hard block. No unrelated data, schema or environment changes are justified by the SMS repair.</p><h2>Gate authority</h2><p>docs/ship-gate.md: “migration parity checked against staging + production by default; production only under Akhil’s standing exception” (ship-preflight output checklist). scripts/check-migration-parity.mjs exits 1 for missing or unresolved history; scripts/ship-preflight.sh treats a demonstrated behind-target result as FAIL. Supplied user instructions require staging and do not waive parity. Exact missing sets equal excluding only sms_durable_ingress: true. Stage has 86 missing / 11 extra / 0 unresolved identity issues; production has 87 missing including ingress / 20 extra / 2 unresolved issues after the existing narrowly pinned historical attestation. Extra-name sets differ, so they are not asserted equivalent.</p></html>

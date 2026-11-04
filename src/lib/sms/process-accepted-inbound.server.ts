@@ -177,7 +177,7 @@ export async function processInboundParams(params: Record<string, string>, prepa
           phoneKey: sharedKey,
         });
         if (seam.kind === "handled") {
-          const bubbles = seam.bubbles ?? (seam.messages?.map((body) => ({ body })) ?? (seam.twiml ? [{ body: seam.twiml, mediaUrl: seam.mediaUrl }] : []));
+          const bubbles: Array<{ body: string; mediaUrl?: string }> = seam.bubbles ?? (seam.messages?.map((body) => ({ body })) ?? (seam.twiml ? [{ body: seam.twiml, mediaUrl: seam.mediaUrl }] : []));
           state.sender = lineConfig.sharedNumber ?? undefined;
           prepared.push(...bubbles.map((bubble) => ({ body: bubble.body, ...(bubble.mediaUrl ? { mediaUrls: [bubble.mediaUrl] } : {}) })));
           return twimlOk();

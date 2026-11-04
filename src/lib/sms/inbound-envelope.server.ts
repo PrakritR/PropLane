@@ -10,15 +10,15 @@ export type PreparedBubble = { body: string; mediaUrls?: string[] };
 export type EnvelopeProcessor = (params: Record<string, string>) => Promise<{ bubbles: PreparedBubble[]; sender?: string }>;
 
 /** Only call after signature verification and redaction. The digest covers the original wire bytes. */
-export async function acceptInboundEnvelope(db: SupabaseClient, input: EnvelopeInput): Promise<{ kind: "accepted" | "duplicate"; id: string } | { kind: "conflict" | "unavailable" }> {
+export async function acceptInboundEnvelope(db: SupabaseClient, input: EnvelopeInput): Promise<{ kind: "accepted"; id: string } | { kind: "duplicate"; id: string } | { kind: "conflict" } | { kind: "unavailable" }> {
  const account = process.env.TWILIO_ACCOUNT_SID?.trim();
  if (!account || !input.sid || !input.wireFrom || !input.wireTo || !/^[a-f0-9]{64}$/.test(input.payloadDigest) || input.runtime !== smsEnvelopeRuntime()) return { kind: "unavailable" };
  try {
   const signal = AbortSignal.timeout(4000);
-  const { data, error } = await db.from("sms_ingress_envelopes").insert({ message_sid: input.sid, wire_from: input.wireFrom, wire_to: input.wireTo, params: input.params, payload_digest: input.payloadDigest, runtime: input.runtime, account_sid: account }).select("id").single().abortSignal(signal);
+  const { data, error } = await db.from("sms_ingress_envelopes").insert({ message_sid: input.sid, wire_from: input.wireFrom, wire_to: input.wireTo, params: input.params, payload_digest: input.payloadDigest, runtime: input.runtime, account_sid: account }).select("id").abortSignal(signal).single();
   if (!error && data) return { kind: "accepted", id: data.id };
   if (error?.code !== "23505") return { kind: "unavailable" };
-  const existing = await db.from("sms_ingress_envelopes").select("id,wire_from,wire_to,payload_digest,runtime,account_sid").eq("message_sid", input.sid).maybeSingle().abortSignal(signal);
+  const existing = await db.from("sms_ingress_envelopes").select("id,wire_from,wire_to,payload_digest,runtime,account_sid").eq("message_sid", input.sid).abortSignal(signal).maybeSingle();
   if (existing.error || !existing.data) return { kind: "unavailable" };
   const e = existing.data;
   return e.wire_from === input.wireFrom && e.wire_to === input.wireTo && e.payload_digest === input.payloadDigest && e.runtime === input.runtime && e.account_sid === account ? { kind: "duplicate", id: e.id } : { kind: "conflict" };
