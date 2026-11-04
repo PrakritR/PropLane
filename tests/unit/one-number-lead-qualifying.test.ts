@@ -3,11 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   applyAnswer,
   extractBathroom,
+  budgetIsOpenEnded,
   extractBudget,
   extractFurnished,
   extractHousehold,
   extractLeaseMonths,
   extractMoveIn,
+  isInfoRequest,
   isQualified,
   mergeModelFields,
   missingSteps,
@@ -244,5 +246,61 @@ describe("text hygiene", () => {
     expect(toGsm7("You're set, José.")).toBe("You're set, José.");
     expect(toGsm7("Zoë")).toBe("Zoe");
     expect(toGsm7("Björk")).toBe("Björk");
+  });
+});
+
+describe("budgets people actually type (prod: \"900$\" got \"Sorry, I did not get that.\")", () => {
+  it("reads a trailing dollar sign, a unit word, a k and a bare number when a budget was asked", () => {
+    expect(extractBudget("900$", { bare: true })).toBe(900);
+    expect(extractBudget("900 $")).toBe(900);
+    expect(extractBudget("900 dollars")).toBe(900);
+    expect(extractBudget("Below 1k")).toBe(1000);
+    expect(extractBudget("$1,000")).toBe(1000);
+    expect(extractBudget("1200 usd")).toBe(1200);
+  });
+
+  it("a floor ('$1,000+') is not a ceiling: no budget cap, and the budget step is answered", () => {
+    expect(extractBudget("$1,000+")).toBeUndefined();
+    expect(budgetIsOpenEnded("$1,000+")).toBe(true);
+    expect(budgetIsOpenEnded("1k+")).toBe(true);
+    expect(budgetIsOpenEnded("2+ bedrooms")).toBe(false);
+    const result = applyAnswer({ stage: "qualifying", asked: "budget" }, "$1,000+", NOW);
+    expect(result.profile.budgetMax).toBeUndefined();
+    expect(result.profile.skipped).toContain("budget");
+    expect(missingSteps(result.profile)).not.toContain("budget");
+  });
+
+  it("applyAnswer takes '900$' as the budget when we asked for one", () => {
+    const result = applyAnswer({ stage: "qualifying", asked: "budget" }, "900$", NOW);
+    expect(result.profile.budgetMax).toBe(900);
+  });
+});
+
+describe("a question about what is open (isInfoRequest)", () => {
+  it.each([
+    "Is there availability",
+    "Do you have openings early next year",
+    "please share more details of accommodation along with photos",
+    "Any rooms available?",
+    "how much is a room",
+  ])("%s", (text) => {
+    expect(isInfoRequest(text)).toBe(true);
+  });
+
+  it.each([
+    "hi",
+    "$1000",
+    "Nov 1 for 6 months",
+    "University District",
+    "private bath, furnished",
+    "Looking for a room under $1100 near UW, move in Nov 1 for 6 months",
+    "do you allow kids? is there availability",
+  ])("%s is not", (text) => {
+    expect(isInfoRequest(text)).toBe(false);
+  });
+
+  it("'early next year' is January 1 of next year", () => {
+    expect(extractMoveIn("Do you have openings early next year", NOW).date).toBe("2027-01-01");
+    expect(extractMoveIn("late next year", NOW).date).toBe("2027-10-01");
   });
 });

@@ -15,6 +15,38 @@ import { captureE2eSms } from "@/lib/sms/e2e-transport.server";
  */
 export { normalizeE164 };
 
+type CreditHold = { manager_user_id: string; meter: string; quantity: number | string; credit_state: string };
+
+/**
+ * The reserved hold behind a send, from whichever ledger took the reservation: the workspace wallet / messaging-credit
+ * pool (`manager_comms_usage_events`) or, for a Free manager on the PropLane Number add-on, the subscription's own
+ * ledger (`number_credit_usage_events`, owner column `owner_user_id`). `reserveCommsCredit` (wallet.server.ts:264, called by the
+ * dispatcher at owner-sms-dispatcher.server.ts:1088) decides the ledger, so
+ * verification must look in both or every add-on send is refused as "could not be verified". A failed read is retried
+ * once (a blip must not drop a transactional notice) and then reported as an error, never as "no hold".
+ */
+async function readCreditHold(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  key: string,
+): Promise<{ hold: CreditHold | null; error: boolean }> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const wallet = await db.from("manager_comms_usage_events")
+      .select("manager_user_id,meter,quantity,credit_state").eq("idempotency_key", key).maybeSingle();
+    if (wallet.error) continue;
+    if (wallet.data) return { hold: wallet.data as CreditHold, error: false };
+    const number = await db.from("number_credit_usage_events")
+      .select("owner_user_id,meter,quantity,credit_state").eq("idempotency_key", key).maybeSingle();
+    if (number.error) {
+      // A database that predates the number ledger has no such table: "no hold there", not a read failure.
+      if (number.error.code === "42P01" || number.error.code === "PGRST205") return { hold: null, error: false };
+      continue;
+    }
+    const row = number.data as { owner_user_id: string; meter: string; quantity: number | string; credit_state: string } | null;
+    return { hold: row ? { manager_user_id: row.owner_user_id, meter: row.meter, quantity: row.quantity, credit_state: row.credit_state } : null, error: false };
+  }
+  return { hold: null, error: true };
+}
+
 /**
  * Send an SMS via Twilio. Silently skips if env vars aren't configured
  * or if either phone number can't be normalized to E.164.
@@ -111,14 +143,17 @@ export async function sendSms(
     const db = createSupabaseServiceRoleClient();
     const { data: number, error: numberError } = await db.from("manager_sms_numbers").select("manager_user_id")
       .eq("phone_number", fromNorm).neq("provision_state", "released").maybeSingle();
-    const { data: hold, error: creditError } = await db.from("manager_comms_usage_events")
-      .select("manager_user_id,meter,quantity,credit_state").eq("idempotency_key", opts.creditReservationKey).maybeSingle();
-    // The one shared PropLane number is configured on the platform, not owned by
-    // a manager row: it is a valid `from` only when it IS the configured shared
-    // number, and then the reserved hold alone proves whose wallet pays.
-    const sharedFrom = !number && !numberError && await isConfiguredSharedNumber(db, fromNorm);
+    const holdRead = await readCreditHold(db, opts.creditReservationKey);
+    const hold = holdRead.hold;
+    const creditError = holdRead.error;
+    // The configured shared PropLane number is a valid `from` for any workspace on the line, and then the reserved hold
+    // alone proves whose wallet pays. It is decided FIRST and regardless of any `manager_sms_numbers` row: the platform
+    // owner also holds that number as a manager row, and comparing the hold to THAT owner refused every notice of a
+    // PropLane-managed workspace owned by anyone else (prod, Oct 26 - Nov 3). Only a non-shared number is owned by its
+    // numbers row. An unreadable shared config reads as "not the shared number" (fail closed).
+    const sharedFrom = await isConfiguredSharedNumber(db, fromNorm).catch(() => false);
     const holdOwner = sharedFrom ? hold?.manager_user_id : number?.manager_user_id;
-    if (numberError || creditError || (!number && !sharedFrom) || !hold || !holdOwner || hold.manager_user_id !== holdOwner || hold.meter !== "sms_outbound_segment"
+    if ((!sharedFrom && numberError) || creditError || (!number && !sharedFrom) || !hold || !holdOwner || hold.manager_user_id !== holdOwner || hold.meter !== "sms_outbound_segment"
       || hold.credit_state !== "reserved" || Number(hold.quantity) !== estimateSmsSegments(body).segmentCount) {
       return { sent: false, providerAttempted: false, error: "Communication credit could not be verified." };
     }

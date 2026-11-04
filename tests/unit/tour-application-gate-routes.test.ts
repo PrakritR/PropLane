@@ -44,12 +44,11 @@ beforeEach(() => {
 });
 
 describe("POST /api/public/partner-inquiries — Application before a tour", () => {
-  it("passes no verified email for an anonymous caller, whatever email the body carries", async () => {
-    createTourInquiry.mockResolvedValue({ ok: false, reason: "application_required", error: "Apply first." });
+  it("refuses an anonymous caller with 401 sign_in_required before creating anything, whatever email the body carries", async () => {
     const res = await post({ kind: "tour", propertyId: "prop-1", email: "claimed@example.com" });
-    expect(createTourInquiry.mock.calls[0]![1].verifiedApplicantEmail).toBeNull();
-    expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "Apply first." });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ reason: "sign_in_required" });
+    expect(createTourInquiry).not.toHaveBeenCalled();
   });
 
   it("passes the SESSION's email for a signed-in caller, not the body's", async () => {

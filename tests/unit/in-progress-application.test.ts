@@ -216,8 +216,8 @@ describe("in-progress-application", () => {
       { ...base, id: "R1", bucket: "rejected" as const, stage: "Declined" },
     ];
     const counts = countApplicationsByTab(rows);
-    expect(counts).toEqual({ pending: 5, approved: 1, rejected: 1 });
-    for (const tab of ["pending", "approved", "rejected"] as const) {
+    expect(counts).toEqual({ incomplete: 2, pending: 3, approved: 1, rejected: 1 });
+    for (const tab of ["incomplete", "pending", "approved", "rejected"] as const) {
       expect(counts[tab]).toBe(rows.filter((row) => applicationListTabForRow(row) === tab).length);
     }
     // The sidebar badge answers a different question and still excludes drafts / withdrawn rows.

@@ -36,7 +36,7 @@ the proposal is a gated pending action the manager approves. Invariants:
 
 - **The inquiry id is server-minted, always.** `createTourInquiry` deletes any `id` in the incoming
   payload and uses `crypto.randomUUID()`. The id is what binds a tour to its resident
-  (`resident_tour_links.inquiry_id`), and this route is public and anonymous, so honouring a
+  (`resident_tour_links.inquiry_id`), and this route is public (a tour needs a session; see "Enforced server-side" below), so honouring a
   caller's id let anyone name an existing linked inquiry, overwrite its manager, property and time
   in the shared payload, and receive that resident's notices for the tour they had just replaced. A
   row already present under the fresh id is a UUID collision and refuses the write rather than
@@ -138,6 +138,24 @@ the web channel, see [`public-journey.md`](public-journey.md)) only when no publ
 later — `tourAvailabilityHasUpcoming` — because a grid whose every slot has passed looks
 identical to an empty one. A FAILED availability read is still never rendered as either
 (see the doc comment in `tour-schedule-flow.tsx`).
+
+## Times first, account at "Your details" (Nov 3)
+
+`/rent/tours-contact` shows a signed-out prospect the room dropdown (default "not sure yet"), days and times at once; there is no up-front
+`ProspectGuestAccountGate` on the Tour tab (Message keeps it). The flow is two steps, Date & time then Your details
+(`TourScheduleFlow`). Your details for a signed-out visitor is `TourAccountStep` (Apple / Google / email / sign in), carrying
+`next=/resident/tour/schedule?propertyId=&slot=<slotKey>&room=<roomId|any>` (`tourSchedulePath`, `src/lib/tour-schedule-link.ts`).
+**Nothing is written before sign-in**: no hold, no inquiry. `/resident/tour/schedule` reads `slot` + `room` as a PREFILL
+(`initialSlotKey` / `initialRoom`), opens on Your details with the account's name/email/phone filled, one "Request tour". The server
+re-checks everything; a slot or room in a URL is never trusted. A refusal (duplicate, rate limit, slot taken) renders inline on the step
+(`TourRefusal`) with the pick kept; a taken slot lists the next four open times. The email path preserves the pick on the server-decided
+signup handoff: `email_onboarding_handoffs.tour_slot_key` (+ `property_id`, `listing_room_id`) -> `/api/auth/email-onboarding/continue`
+-> `/auth/continue` rebuilds the fixed `/resident/tour/schedule` path.
+**Enforced server-side (captain, Nov 3: no anonymous booking).** `POST /api/public/partner-inquiries` refuses ANY `kind: "tour"` row
+(slot-mode and requested-time) without a signed-in session: 401 `sign_in_required`, before anything is read or written, failing closed when
+the session cannot be read; the body's `email` is never an identity. The only anonymous use left is `kind: "partner"` (the partner-meeting
+scheduler, no tour). Server callers do not use this route: the assistant's tour tools and the leasing SMS agent call `createTourInquiry`
+directly. Guards: `tests/unit/partner-inquiry-sms-consent.test.ts`, `tests/unit/tour-application-gate-routes.test.ts`.
 
 ## Requested time: a house with no open slot (`requestKind: "requested_time"`)
 

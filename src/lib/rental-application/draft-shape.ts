@@ -63,3 +63,28 @@ export function isDraftShapedApplicationRow(row: DraftShapedRowFields): boolean 
   }
   return false;
 }
+
+/** Shown (as a 409) when anything tries to approve an application the person never sent. */
+export const UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE =
+  "This application has not been sent yet. Ask the applicant to finish and submit it before approving.";
+
+/**
+ * A STORED wizard draft the applicant never sent: pending, an explicit unsent stage, not a row a manager
+ * added by hand. The server's approval paths refuse these - the UI already hides Approve, but a UI check is
+ * not a gate (a draft was approved on production without ever being submitted).
+ *
+ * Deliberately narrower than {@link isDraftShapedApplicationRow}: a legacy stage-less row carrying wizard
+ * data is not provably unsent, so it is not refused here.
+ */
+export function isUnsubmittedDraftApplicationRow(
+  row: Pick<DemoApplicantRow, "bucket" | "stage" | "manuallyAdded"> | null | undefined,
+): boolean {
+  if (!row || row.bucket !== "pending" || row.manuallyAdded === true) return false;
+  const stage = row.stage?.trim().toLowerCase() ?? "";
+  return (
+    stage === IN_PROGRESS_APPLICATION_STAGE.toLowerCase() ||
+    stage === INCOMPLETE_APPLICATION_LABEL.toLowerCase() ||
+    stage === "draft" ||
+    stage === "started"
+  );
+}

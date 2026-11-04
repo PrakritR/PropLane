@@ -698,6 +698,33 @@ function retryableDispatchPolicy(
     : policy;
 }
 
+/** A teammate line or Assistant notice older than this is no longer news; it is expired, never sent late. */
+export const STALE_MANAGER_NOTICE_TTL_MS = 6 * 60 * 60_000;
+export const STALE_MANAGER_NOTICE_REASON = "expired_stale";
+
+/**
+ * Expire manager-facing relays and notices (`team_chat_relay`, `team_inbound_forward`, `team_notice`,
+ * `manager_agent_notification_*`) that are still `queued` / `deferred` after {@link STALE_MANAGER_NOTICE_TTL_MS}:
+ * `blocked` with `expired_stale`. A backlog left by an outage must never blast hours-old chat lines at a phone when
+ * the dispatcher recovers. Rows already claimed or submitted are untouched. Returns how many were expired.
+ */
+export async function expireStaleManagerNotices(db: SupabaseClient, now = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - STALE_MANAGER_NOTICE_TTL_MS).toISOString();
+  try {
+    const { data, error } = await db
+      .from("sms_outbox")
+      .update({ status: "blocked", blocked_reason: STALE_MANAGER_NOTICE_REASON, lease_owner: null, lease_expires_at: null, updated_at: now.toISOString() })
+      .in("status", ["queued", "deferred"])
+      .is("dispatch_started_at", null)
+      .lt("created_at", cutoff)
+      .or("purpose.in.(team_chat_relay,team_inbound_forward,team_notice),purpose.like.manager_agent_notification_*")
+      .select("id");
+    return error ? 0 : (data ?? []).length;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Claim and dispatch a bounded batch. Once provider submission starts, an
  * ambiguous error becomes `unknown` and is never automatically retried.
@@ -750,6 +777,7 @@ export async function dispatchOwnerSmsOutbox(
       infrastructureErrors: ["stale_submission_reconciliation_unavailable"],
     };
   }
+  if (!options.outboxId) await expireStaleManagerNotices(db);
   const { data, error } = await db.rpc("claim_sms_outbox", {
     p_worker_id: workerId,
     p_limit: options.outboxId ? 1 : Math.max(1, Math.min(options.limit ?? 5, 5)),

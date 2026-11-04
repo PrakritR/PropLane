@@ -173,6 +173,7 @@ import {
   leaseDetailHref,
   type ApplicationDetailTabId,
   type ApplicationListTabId,
+  residentEditHref,
 } from "@/lib/portal-detail-routes";
 import {
   appendPortalPropertyFilterQuery,
@@ -199,23 +200,23 @@ function applicationRowsForPropertyFilters(rows: DemoApplicantRow[], propertyFil
   return rows.filter((r) => propertyFilters.includes(applicationRowPropertyId(r)));
 }
 
-/** Tab COUNTS follow the same buckets as the list: Pending · Approved · Declined. */
+/** Tab COUNTS follow the same tabs as the list: Incomplete · Pending · Approved · Declined. */
 function countByBucket(rows: DemoApplicantRow[]) {
   return countApplicationsByTab(rows);
 }
 
 /**
- * The list tab id. The stored data model only ever has three buckets
- * (`ManagerApplicationBucket`); Incomplete (a draft still in progress) and
- * Withdrawn are plain facts on a Pending row, never tabs.
+ * The list tab id. The stored data model only has three buckets
+ * (`ManagerApplicationBucket`); Incomplete (a draft never sent) is a list tab of its own,
+ * routed by `applicationListTabForRow`. Withdrawn is a plain fact on a Pending row.
  */
 type ManagerApplicationTabId = ApplicationListTabId;
 
 /**
  * Which tab a row belongs to — its stored bucket. A resident-withdrawn row keeps
  * `bucket: "pending"` and reads in Pending with a "Withdrawn" fact on it:
- * Approve is simply not offered on it (`isApprovableApplicationRow`), and an
- * Incomplete draft is the same, with a Remind icon instead.
+ * Approve is simply not offered on it (`isApprovableApplicationRow`). An
+ * Incomplete draft lives in its own tab with Send reminder and Delete.
  *
  * Shared with `countApplicationsByTab` so the tab number is the row count.
  */
@@ -833,6 +834,7 @@ export function ManagerApplications({
     return rows.filter(
       (r) =>
         !isBookingResidencyRow(r) &&
+        !r.mergedInto &&
         applicationVisibleToPortalUser(r, scopeUserId, "applications") &&
         workspaceContainsProperty(r.assignedPropertyId || r.propertyId || r.application?.propertyId),
     );
@@ -854,6 +856,7 @@ export function ManagerApplications({
   const tabs = useMemo(
     () =>
       [
+        { id: "incomplete" as const, label: "Incomplete", count: counts.incomplete },
         { id: "pending" as const, label: "Pending", count: counts.pending },
         { id: "approved" as const, label: "Approved", count: counts.approved },
         { id: "rejected" as const, label: "Declined", count: counts.rejected },
@@ -927,7 +930,7 @@ export function ManagerApplications({
     [selectedListRows],
   );
   const selectedRejectableRows = useMemo(
-    () => selectedListRows.filter((row) => row.bucket === "pending" || row.bucket === "approved"),
+    () => selectedListRows.filter((row) => (row.bucket === "pending" && !isInProgressApplicationRow(row)) || row.bucket === "approved"),
     [selectedListRows],
   );
   const canBulkApprove = selectedApprovableRows.length === 1;
@@ -1423,6 +1426,16 @@ export function ManagerApplications({
     // Approve · Remind · Download · Decline are the record's four; Move to pending and Delete
     // follow in the overflow, the red ones last.
     const actions = [];
+    // An unfinished application is never approvable and has nothing to download or decline: the
+    // applicant has not sent it. A reminder and Delete are all it offers (Incomplete tab).
+    if (isInProgressApplicationRow(row)) {
+      if (showCompletionReminder) actions.push(portalIconActionSpec({ id: "reminder", label: reminderPreviewBusyId === row.id ? "Loading…" : "Send reminder", icon: Bell,
+        dataAttr: "application-send-reminder", disabled: reminderPreviewBusyId !== null || reminderBusyId !== null, onClick: () => openReminderPreview(row) }));
+      actions.push(portalIconActionSpec({ id: "delete", label: "Delete", icon: Trash2, tone: "danger", dataAttr: "application-delete", onClick: () => deleteApplication(row.id) }));
+      return <div className="flex min-w-0 flex-1" data-attr="application-header-icons" onClick={(event) => event.stopPropagation()}>
+        <PortalAdaptiveActionRow actions={actions} align="end" gapPx={6} />
+      </div>;
+    }
     if (isApprovableApplicationRow(row)) actions.push(portalIconActionSpec({ id: "approve", label: "Approve", icon: Check, tone: "primary", dataAttr: "application-approve", onClick: () => beginApprovalPreview(row) }));
     // An approved application in an application-first workspace goes on to the lease: the one Send lease screen
     // (a workspace with applications turned off never gates a lease on approval, so it has no use for this).
@@ -1643,6 +1656,10 @@ export function ManagerApplications({
         applicationId={generateLeaseApplicationId}
         managerUserId={userId ?? null}
         onClose={() => setGenerateLeaseApplicationId(null)}
+        onEditResident={(applicationId) => {
+          setGenerateLeaseApplicationId(null);
+          navigate(residentEditHref(basePath, applicationId));
+        }}
         onSent={(leaseId) => {
           void syncManagerApplicationsFromServer({ force: true, managerUserId: userId });
           navigate(leaseDetailHref(basePath, "resident", leaseId));
@@ -1790,7 +1807,7 @@ export function ManagerApplications({
     // (docs/agents/record-page.md § Known gap).
     const headerActions = sections.headerActions.filter((action) => {
       if (action.id === "approve") return isApprovableApplicationRow(detailRow);
-      if (action.id === "decline") return detailRow.bucket !== "rejected";
+      if (action.id === "decline") return detailRow.bucket !== "rejected" && !isInProgressApplicationRow(detailRow);
       return false;
     });
     const onHeaderAction = (actionId: string) => {

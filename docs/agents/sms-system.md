@@ -924,9 +924,9 @@ not remove-then-add.
    marks that exact number registered.
 6. Configure a five-minute authenticated scheduler for `/api/cron/sms-outbox`
    (Vercel Pro Cron, Supabase Cron/pg_net, or another monitored scheduler), then
-   set `SMS_OUTBOX_SCHEDULER_READY=1`. The checked-in Vercel job remains a daily
-   safety net because the connected Vercel project is Hobby and rejects
-   sub-daily cron expressions. The monitor must alert on a non-2xx response and
+   set `SMS_OUTBOX_SCHEDULER_READY=1`. The checked-in Vercel job runs every five
+   minutes (`*/5 * * * *`, as `prospect-sms-bursts` already does; it was a daily
+   safety net while a backlog of 75 team relays sat queued for two days). The monitor must alert on a non-2xx response and
    inspect `unknownInventory`, `unknown`, `blocked`, and provisioning review
    counts in the JSON response; a successful HTTP request alone is not health.
 7. Enable runtime for the canary and verify: inbound storage, portal reply,
@@ -1777,6 +1777,8 @@ email from the work email, never an Assistant thread (`notifyWorkNumberRecipient
 owner (a teammate with Team at edit may read the list, only the owner changes it) (`/api/pro/work-number-recipients`). An addressed co-manager invite also
 texts a verified invitee from the inviter's work number (`notifyCoManagerInviteSent`).
 
+The same list is the **alert phones** `alertPhonesOf` texts for the ops alerts (new application, tour requested / booked / cancelled, new booking, application started, emergency service, payment problems, unanswered question) and the 7 AM check-in / check-out line per house: [`one-number.md`](one-number.md) § W30 alerts. Add a number in Settings > Communication > Also notify (the round +).
+
 ## Inbound texts reach the whole team by role (Oct 13)
 
 A prospect or resident text is forwarded to the owner's cell as before, and ALSO reaches every teammate the role matrix
@@ -1804,3 +1806,11 @@ profile phone every time; intent is decided per text (`src/lib/one-number/line-i
 - `vendor_notice`: purpose `vendor_conversation` under the vendor's conversation key. "Payouts ready" follows a payouts link the vendor asked for BY TEXT, and that request is their opt-in to that one reply (`ensureVendorLinkRequestConsent`, source `recipient_initiated_link_request`; never overwrites a STOP or revoke).
 - `resident_notice`: a resident's rent text (`payment_reminder`, `weekly_rent_reminder`, `rent_due_link`); consent stays their rental application's, materialized per purpose by the dispatcher.
 - Shared line: `SharedLineSend.delivery` carries the same class / purpose / key / recipient into `sendSharedLineMessage`.
+
+
+## Nov 3 2026: the PropLane line's send path (hold ledgers, relay dispatch, stale notices, fast ack)
+
+- **The configured shared number is decided first in `sendSms`.** When `from` IS the configured shared number (`isConfiguredSharedNumber`), the reserved hold alone proves whose wallet pays, whatever `manager_sms_numbers` says: the platform owner also holds that number as a manager row, and comparing the hold to that owner blocked every notice and relay of a PropLane-managed workspace owned by anyone else (`Communication credit could not be verified.`, 153 rows, Oct 26 - Nov 3). A non-shared number is still owned by its numbers row; an unreadable shared config reads as "not shared" (fail closed). The hold is also looked up on `number_credit_usage_events` when the wallet ledger has no row (`reserveCommsCredit` reserves there for a Free manager on the PropLane Number add-on, wallet.server.ts:264), and a failed read is retried once, then refused. Tests: `tests/unit/sendsms-credit-ledger.test.ts`.
+- **A relay is dispatched when it is enqueued.** `relayTeamChatMessageToSms` calls `dispatchOwnerSmsOutbox({ outboxId })` for each new row (best effort; a deduplicated replay is not re-dispatched). The `sms-outbox` cron is the safety net only.
+- **Stale manager-facing texts expire, they are never sent late.** `expireStaleManagerNotices` (run at the start of every cron dispatch) sets `team_chat_relay`, `team_inbound_forward`, `team_notice` and `manager_agent_notification_*` rows still `queued` / `deferred` and never started after 6 hours to `blocked` with `blocked_reason = 'expired_stale'`. Tests: `tests/unit/sms-outbox-stale-notices-and-relay-dispatch.test.ts`.
+- **The inbound webhook acks inside 9 s.** `ackWithinBudget` (`src/lib/sms/inbound-ack.server.ts`): over the budget Twilio gets an empty 200 and the work finishes in `after()`; a shared-line reply that would have ridden the TwiML is sent through `sendPlatformLeadText` (`inboundReply`) instead. A claimed receipt that does not complete is still recovered by `/api/cron/sms-inbound-recovery` (every minute). Test: `tests/unit/twilio-inbound-ack.test.ts`.

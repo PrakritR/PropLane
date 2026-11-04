@@ -1,5 +1,6 @@
 "use client";
 
+import { tourSchedulePath } from "@/lib/tour-schedule-link";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,7 +15,7 @@ import { nativeAwarePath } from "@/lib/auth/native-auth-entry";
 import { isUnsafeRedirectPath } from "@/lib/auth/normalize-post-auth-path";
 
 type Intent = "generic" | "resident" | "manager" | "vendor" | "manager_paid" | "tour";
-type ListingContext = { propertyId?: string; listingRoomId?: string; bundleId?: string; applicationFormId?: string; rentalType?: string };
+type ListingContext = { propertyId?: string; listingRoomId?: string; bundleId?: string; applicationFormId?: string; rentalType?: string; tourSlotKey?: string };
 const endpoint: Record<Intent, string> = { generic: "/api/auth/signup", resident: "/api/auth/resident-register", manager: "/api/auth/manager-register", vendor: "/api/auth/vendor-register", manager_paid: "/api/auth/manager-signup", tour: "/api/auth/tour-resident-register" };
 const destination: Record<Intent, string> = { generic: "/auth/continue", resident: "/resident/applications", manager: "/portal", vendor: "/vendor/onboarding", manager_paid: "/portal", tour: "/resident/tour/pending" };
 const completionHeading: Record<Intent, string> = {
@@ -103,7 +104,9 @@ export function EmailFirstSignup({ intent, initialEmail = "", tier, billing, lis
       if (listing?.bundleId) applyParams.set("bundle", listing.bundleId);
       if (listing?.applicationFormId) applyParams.set("form", listing.applicationFormId);
       if (listing?.rentalType === "short_term") applyParams.set("rentalType", "short_term");
-      const path = intent === "resident" && listing?.propertyId
+      const path = intent === "resident" && listing?.propertyId && listing.tourSlotKey
+        ? tourSchedulePath({ propertyId: listing.propertyId, slotKey: listing.tourSlotKey, roomParam: listing.listingRoomId })
+        : intent === "resident" && listing?.propertyId
         ? `/resident/applications/apply?${applyParams}`
         : body.redirectTo && !isUnsafeRedirectPath(body.redirectTo) ? body.redirectTo : destination[intent];
       if (intent === "manager" || intent === "manager_paid") setCompleted(path);

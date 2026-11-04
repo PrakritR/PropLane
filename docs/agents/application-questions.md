@@ -33,6 +33,25 @@ share Where you live, consent and review share the last step. A step the templat
 - A draft saved by an older wizard carries `wizardStepSchema`; `normalizePersistedWizardStep` maps its step onto
   the current one (`wizard-step-schema.ts`).
 
+## One application per person per house
+
+- A draft write for an applicant (the Auth subject when signed in, else a guest's lowercased email) and a house that
+  already has an OPEN application (a draft, or a submission still pending) folds into that row: the server keeps the
+  existing id, merges the incoming answers (blank ones never erase), never walks a sent application back to a draft,
+  and answers `{ id }`; the client adopts it (`APPLICATION_ID_ADOPTED_EVENT`). Signed-in matches only on
+  `residentUserId`; a guest matches only a guest row (no `residentUserId`) AND must hold that row's own setup token
+  (a typed email is not proof). A sent application does not take a draft for a different, named room.
+  Switching stay type on the same house keeps the id (`application-draft-dedupe.ts`, route `POST /api/manager-applications`).
+- Manager tabs: Incomplete (drafts) | Pending (sent only) | Approved | Declined (`applicationListTabForRow`). A draft's
+  row offers Send reminder and Delete only. Approving an unsent draft is refused with a 409 on every server path
+  (`isUnsubmittedDraftApplicationRow`: `/api/manager-applications`, `/api/portal/resident-approval`, the agent tool).
+- The resident list shows one row per house; an unsent draft reads "Not sent yet · n of N steps" with Continue.
+- A refused submit lists every reason above Submit with a Fix link to the step (`submit-blockers.ts`), never only a toast.
+- Duplicates written before this: `scripts/merge-duplicate-application-drafts.mjs` (dry run by default, snapshot first,
+  archives extras with `withdrawnAt` + `mergedInto`, never deletes, never touches sent/approved/declined rows).
+- Auto-approve and auto-send lease still run in the manager's browser (charges and lease generation are browser-only), on
+  the Applications list load; they are not server-side at submit.
+
 ## Everything is editable
 
 The question editor is shared by the application and the move-in form

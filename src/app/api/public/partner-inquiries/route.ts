@@ -71,6 +71,15 @@ export async function POST(req: Request) {
       /* optional session — public route still accepts anonymous tour requests */
     }
 
+    // A tour needs a signed-in account, slot-mode and requested-time alike (captain, Nov 3: no anonymous
+    // booking). Checked HERE, before anything is read or written, and it fails closed: an unreadable
+    // session is an anonymous one. A body's `email` proves nothing. The assistant's tour tools and the
+    // leasing SMS agent call `createTourInquiry` directly, never this route, so they are unaffected. The
+    // one anonymous use left is `kind: "partner"` (the partner-meeting scheduler), which books no tour.
+    if (textValue(incoming.kind) === "tour" && !linkingUser) {
+      return NextResponse.json({ error: "Sign in to request a tour.", reason: "sign_in_required" }, { status: 401 });
+    }
+
     const db = createSupabaseServiceRoleClient();
     // Only the session's own email counts toward "Application before a tour"; the body's does not.
     const created = await createTourInquiry(db, {

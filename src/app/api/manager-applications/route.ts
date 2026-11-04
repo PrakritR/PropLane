@@ -38,7 +38,11 @@ import { purgeOrphanHousingRecordsForManager } from "@/lib/auth/clear-property-h
 import { purgeApplicationPortalData } from "@/lib/auth/purge-portal-account-data";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { residentOwnsApplicationRow } from "@/lib/rental-application/resident-application-ownership";
-import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
+import {
+  isDraftShapedApplicationRow,
+  isUnsubmittedDraftApplicationRow,
+  UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE,
+} from "@/lib/rental-application/draft-shape";
 import {
   skippedApplicationTargetFromRecord,
   type SkippedApplicationTarget,
@@ -49,6 +53,12 @@ import { validateResidentApplicationRowForPersistence } from "@/lib/rental-appli
 import { fillApplicantIdentityFromAccount } from "@/lib/rental-application/applicant-identity.server";
 import { realApplicantName } from "@/lib/rental-application/applicant-name";
 import { isApplicantWizardRow } from "@/lib/rental-application/applicant-identity";
+import { isResidentSetupTokenValid } from "@/lib/auth/resident-setup-token";
+import {
+  mergeDraftIntoExisting,
+  openApplicationPropertyKey,
+} from "@/lib/rental-application/application-draft-dedupe";
+import { findOpenApplicationForApplicant } from "@/lib/rental-application/application-draft-dedupe.server";
 import { authorizeApplicationFeeSubmission } from "@/lib/rental-application/application-fee-submit-guard.server";
 import { isViewAsSessionOpen } from "@/lib/auth/view-as.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -1025,6 +1035,8 @@ export async function POST(req: Request) {
       row?: DemoApplicantRow;
       rows?: DemoApplicantRow[];
       setupToken?: string;
+      /** Guest drafts: every setup token this browser holds, as proof it already owns the row a draft folds into. */
+      knownSetupTokens?: unknown;
       existingResidentOnboarding?: { sendWelcomeEmail?: boolean };
     };
     const db = createSupabaseServiceRoleClient();
@@ -1046,6 +1058,7 @@ export async function POST(req: Request) {
       let blockedWithdrawnApprovals = 0;
       let blockedResidentSlots = 0;
       let blockedFormApprovals = 0;
+      let blockedDraftApprovals = 0;
       let uncheckedFormApprovals = 0;
       let stayPricingError: string | null = null;
       for (const row of rows) {
@@ -1060,6 +1073,11 @@ export async function POST(req: Request) {
         const guarded = anchorServerOwnedWithdrawal(row, stored);
         if (guarded.blockedApproval) {
           blockedWithdrawnApprovals += 1;
+          continue;
+        }
+        // An application the person never sent is not approvable, whatever the client claims.
+        if (guarded.row.bucket === "approved" && isUnsubmittedDraftApplicationRow(stored?.row_data)) {
+          blockedDraftApprovals += 1;
           continue;
         }
         const formGate = await approvalBlockedByForm(db, guarded.row, stored ?? null);
@@ -1110,6 +1128,12 @@ export async function POST(req: Request) {
             error: "This application was withdrawn by the applicant and can no longer be approved.",
             blockedWithdrawnApprovals,
           },
+          { status: 409 },
+        );
+      }
+      if (blockedDraftApprovals > 0) {
+        return NextResponse.json(
+          { ok: false, error: UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE, blocked: "draft", blockedDraftApprovals },
           { status: 409 },
         );
       }
@@ -1239,12 +1263,48 @@ export async function POST(req: Request) {
     }
 
     if (!body.row?.id) return NextResponse.json({ error: "row required" }, { status: 400 });
-    const requestedRowId = String(body.row.id);
+    let requestedRowId = String(body.row.id);
     let row = normalizeRow(body.row);
     const workspaceGate = await applicationWorkspaceGate(db, user, row);
     if (workspaceGate) return workspaceGate;
     let residentSelfWrite = false;
     if (!user) {
+      // One application per person per house: a draft for a house the guest already has an open
+      // application for folds into it. A typed email is not proof, so the kept row must also be
+      // proven by its own setup token (this browser already holds it); otherwise the draft is
+      // written as before and the merge script is the cleanup.
+      let guestResumeToken: string | null = null;
+      const guestEmail = (row.email ?? "").trim().toLowerCase();
+      const guestPropertyId = openApplicationPropertyKey(row);
+      if (guestEmail && guestPropertyId && isApplicantWizardRow(row) && isDraftShapedApplicationRow(row)) {
+        const guestTokens = [
+          ...(typeof body.setupToken === "string" ? [body.setupToken] : []),
+          ...(Array.isArray(body.knownSetupTokens)
+            ? body.knownSetupTokens.filter((t): t is string => typeof t === "string" && t.length <= 200).slice(0, 20)
+            : []),
+        ].filter((token) => token.trim());
+        const own = await loadStoredApplicationRecord(db, requestedRowId);
+        if (!own.error && !own.record && guestTokens.length > 0) {
+          const lookup = await findOpenApplicationForApplicant(db, {
+            subject: null,
+            email: guestEmail,
+            propertyId: guestPropertyId,
+            excludeId: requestedRowId,
+            incomingRoom: row.application?.roomChoice1,
+            guestTokens,
+          });
+          if (lookup.ok && lookup.match) {
+            const keptId = String(lookup.match.record.id);
+            guestResumeToken = guestTokens.find((token) => isResidentSetupTokenValid(lookup.match!.row, token)) ?? null;
+            if (!isDraftShapedApplicationRow(lookup.match.row)) {
+              // Already sent: never walk it back to a draft. The browser adopts the id and stops drafting.
+              return NextResponse.json({ ok: true, id: keptId, axisId: keptId, merged: "submitted" });
+            }
+            row = { ...mergeDraftIntoExisting(lookup.match.row, row), id: keptId };
+            requestedRowId = keptId;
+          }
+        }
+      }
       const ids = idVariants(requestedRowId);
       const { data: records, error: loadError } = await db
         .from("manager_application_records")
@@ -1257,7 +1317,7 @@ export async function POST(req: Request) {
       const guest = await prepareGuestApplicationUpsert(db, {
         row,
         existing: existing ?? null,
-        clientSetupToken: typeof body.setupToken === "string" ? body.setupToken : null,
+        clientSetupToken: guestResumeToken ?? (typeof body.setupToken === "string" ? body.setupToken : null),
       });
       if (!guest.ok) {
         // `existingApplicationId` rides along on a duplicate so the client can
@@ -1365,6 +1425,9 @@ export async function POST(req: Request) {
         setupToken: guest.setupToken,
         setupHref: buildResidentSetupHref(guest.setupToken, row.id),
         axisId: row.id,
+        // The id the row was kept under: a draft that folded into an existing application answers with
+        // THAT id, and the browser adopts it.
+        id: row.id,
         ...(guestLinkedForms.length > 0 ? { linkedForms: guestLinkedForms } : {}),
       });
     }
@@ -1388,6 +1451,42 @@ export async function POST(req: Request) {
           (storedIdentityRow.residentUserId === user.id || storedIdentityEmail === email));
       if (accountOwnsStored) {
         row = await fillApplicantIdentityFromAccount(db, user, row, { submitted: false });
+      }
+    }
+    // One application per person per house: a self-written draft for a house this subject already has an
+    // open application for folds into it (id kept, fields merged, a sent application never walked back to
+    // a draft) and the answer carries the kept id. Only a row bound to the same Auth subject qualifies.
+    if (
+      email &&
+      isApplicantWizardRow(row) &&
+      isDraftShapedApplicationRow(row) &&
+      (row.email ?? "").trim().toLowerCase() === email
+    ) {
+      const own = await loadStoredApplicationRecord(db, requestedRowId);
+      if (own.error) {
+        return NextResponse.json({ error: "Could not load the existing application." }, { status: 500 });
+      }
+      if (!own.record) {
+        const lookup = await findOpenApplicationForApplicant(db, {
+          subject: user.id,
+          email,
+          propertyId: openApplicationPropertyKey(row),
+          excludeId: requestedRowId,
+          incomingRoom: row.application?.roomChoice1,
+        });
+        if (lookup.ok && lookup.match) {
+          const keptId = String(lookup.match.record.id);
+          if (!isDraftShapedApplicationRow(lookup.match.row)) {
+            return NextResponse.json({
+              ok: true,
+              id: keptId,
+              merged: "submitted",
+              row: prepareApplicantIdentityWrite(lookup.match.row, null, keptId),
+            });
+          }
+          row = { ...mergeDraftIntoExisting(lookup.match.row, row), id: keptId };
+          requestedRowId = keptId;
+        }
       }
     }
     // An existing pending self-application must belong to this Auth subject.
@@ -1444,6 +1543,9 @@ export async function POST(req: Request) {
           },
           { status: 409 },
         );
+      }
+      if (guarded.row.bucket === "approved" && isUnsubmittedDraftApplicationRow(storedLoad.record?.row_data)) {
+        return NextResponse.json({ error: UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE, blocked: "draft" }, { status: 409 });
       }
       const formGate = await approvalBlockedByForm(db, guarded.row, storedLoad.record ?? null);
       if (formGate === "unchecked") {
@@ -1532,11 +1634,12 @@ export async function POST(req: Request) {
       residentSelfWrite
         ? {
             ok: true,
+            id: row.id,
             ...(row.bucket === "approved" ? { residentAccess: "invitation_required" } : {}),
             row: prepareApplicantIdentityWrite(row, null, row.id),
             ...(linkedForms.length > 0 ? { linkedForms } : {}),
           }
-        : { ok: true, ...(row.bucket === "approved" ? { residentAccess: "invitation_required" } : {}) },
+        : { ok: true, id: row.id, ...(row.bucket === "approved" ? { residentAccess: "invitation_required" } : {}) },
     );
   } catch (e) {
     const mapped = applicationWriteErrorResponse(e, "Failed to save application.");

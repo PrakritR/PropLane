@@ -38,21 +38,35 @@ export type LeaseSendTerms = {
 type TermsApplicant = Pick<
   DemoApplicantRow,
   "application" | "assignedPropertyId" | "assignedRoomChoice" | "propertyId" | "property" | "signedMonthlyRent"
->;
+> &
+  Partial<Pick<DemoApplicantRow, "id" | "email" | "manualResidentDetails">>;
 
 function plainMoney(amount: number): string {
   if (!Number.isFinite(amount) || amount <= 0) return "";
   return Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
 }
 
-/** The terms the application currently carries, exactly as the ledger would bill them. */
-export function leaseSendTermsFor(applicant: TermsApplicant): LeaseSendTerms {
+/**
+ * The terms the application currently carries, exactly as the ledger would bill them. Start, End and
+ * Rent are the placement resolver's; the Deposit is the billing snapshot's - the figure the Payments
+ * schedule beside it shows - because a manually added resident's deposit lives in
+ * `manualResidentDetails` and a short stay's in the stay pricing, neither of which the placement sees.
+ */
+export function leaseSendTermsFor(applicant: TermsApplicant, managerUserId?: string | null): LeaseSendTerms {
   const placement = resolvePlacementValuesForRow(applicant);
+  let deposit = placement.securityDeposit;
+  if (managerUserId !== undefined) {
+    try {
+      deposit = buildLeaseBillingSnapshot(applicant as Parameters<typeof buildLeaseBillingSnapshot>[0], managerUserId).securityDeposit;
+    } catch {
+      deposit = placement.securityDeposit;
+    }
+  }
   return {
     start: placement.leaseStart,
     end: placement.leaseEnd,
     rent: plainMoney(placement.signedMonthlyRent),
-    deposit: placement.securityDeposit > 0 ? plainMoney(placement.securityDeposit) : "0",
+    deposit: deposit > 0 ? plainMoney(deposit) : "0",
   };
 }
 

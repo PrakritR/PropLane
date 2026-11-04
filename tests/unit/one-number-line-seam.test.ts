@@ -88,10 +88,17 @@ describe("shared line: the owner of record of a PropLane Service workspace", () 
     });
 
   it("gets read-only status instead of being treated as a stranger", async () => {
-    const result = await run(client(), "how are my houses doing");
-    expect(result).toMatchObject({ kind: "handled" });
-    expect(result.kind === "handled" && result.twiml).toContain("Ambika Homes, October: 1 house, 1 of 2 rooms occupied.");
-    expect(unassigned).not.toHaveBeenCalled();
+    // The status line names the current month; pin the clock so the expectation does not rot.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-15T19:00:00.000Z"));
+    try {
+      const result = await run(client(), "how are my houses doing");
+      expect(result).toMatchObject({ kind: "handled" });
+      expect(result.kind === "handled" && result.twiml).toContain("Ambika Homes, October: 1 house, 1 of 2 rooms occupied.");
+      expect(unassigned).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("is declined, view only, when asking to change something", async () => {

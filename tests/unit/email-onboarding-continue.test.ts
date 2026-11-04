@@ -56,4 +56,9 @@ describe("verified signup continuation", () => {
     m.claim.mockResolvedValue({ data: null, error: null });
     expect(await (await POST()).json()).toEqual({ role: null });
   });
+  it("returns the tour pick that rode the handoff with the resident claim", async () => {
+    m.user.mockResolvedValue({ data: { user: { id: "resident", email_confirmed_at: "2026-01-01" } } });
+    m.claim.mockResolvedValue({ data: { intent: "resident", property_id: "property", listing_room_id: "room-1", tour_slot_key: "2026-11-04:20" }, error: null });
+    expect(await (await POST()).json()).toMatchObject({ role: "resident", propertyId: "property", listingRoomId: "room-1", tourSlotKey: "2026-11-04:20" });
+  });
 });

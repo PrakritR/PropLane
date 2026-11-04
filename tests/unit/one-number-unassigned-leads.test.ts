@@ -225,6 +225,89 @@ describe("fair housing", () => {
   });
 });
 
+describe("a question about what is open is answered with the open homes first", () => {
+  const texts = (turn: { bubbles?: Array<{ body: string }>; reply: string | null }) => (turn.bubbles ?? []).map((b) => b.body);
+
+  it.each(["Is there availability", "please share more details of accommodation along with photos", "Do you have openings early next year"])(
+    "%s -> homes with price from, listing page, tour page and how to apply, not the budget questionnaire",
+    async (text) => {
+      const fake = seed();
+      const turn = await say(fake, text);
+      const bodies = texts(turn);
+      expect(bodies.length).toBeGreaterThanOrEqual(3);
+      expect(bodies[0]!.startsWith(WELCOME)).toBe(true);
+      const all = bodies.join("\n");
+      expect(all).toContain("from $900/mo");
+      expect(all).toContain("https://proplane.ai/rent/listings/prop-uw-a");
+      expect(all).toContain("https://proplane.ai/rent/tours-contact?propertyId=prop-uw-a");
+      expect(all).toMatch(/tap Apply/);
+      expect(turn.reply).not.toBe(`${WELCOME} What is your monthly budget for rent?`);
+      expect(profile(fake)).toMatchObject({ stage: "offered", asked: "pick", overviewSent: true });
+      // STOP text exactly once, one question at most.
+      expect(all.match(/Reply STOP/g)).toHaveLength(1);
+      expect((all.match(/\?/g) ?? []).filter(() => true).length).toBeLessThanOrEqual(1 + (all.match(/propertyId=/g) ?? []).length);
+      expect(bodies[bodies.length - 1]!.match(/[^.?!]*\?/g)?.length ?? 0).toBeLessThanOrEqual(1);
+    },
+  );
+
+  it("never invents: only open, priced rooms of managed homes, and nothing private", async () => {
+    const fake = seed();
+    const turn = await say(fake, "Is there availability");
+    const all = texts(turn).join("\n");
+    for (const secret of [OWNER_A, OWNER_B, "mail.proplane.app", "+12065550100", "Lockbox", "001000", "welcome-home", "secret-invite"]) {
+      expect(all).not.toContain(secret);
+    }
+    // At most four homes, cheapest first; prices come from the catalog rows.
+    const offers = profile(fake).offers as Array<{ rent: number; propertyId: string }>;
+    expect(offers.length).toBeLessThanOrEqual(4);
+    expect(offers.map((o) => o.rent)).toEqual([...offers.map((o) => o.rent)].sort((a, b) => a - b));
+  });
+
+  it("only PropLane-managed homes are listed in the overview", async () => {
+    const fake = seed();
+    const tagged = LISTINGS.map((l) => ({ ...l, lineTier: l.id === "prop-ballard" ? ("free" as const) : ("managed" as const) }));
+    const turn = await say(fake, "Is there availability", { listings: async () => tagged });
+    expect(texts(turn).join("\n")).not.toContain("prop-ballard");
+  });
+
+  it("the budget typed next ('900$') narrows the list instead of 'Sorry, I did not get that.'", async () => {
+    const fake = seed();
+    await say(fake, "Is there availability");
+    const turn = await say(fake, "900$");
+    expect(profile(fake)).toMatchObject({ budgetMax: 900 });
+    expect(turn.reply).not.toContain("Sorry, I did not get that");
+    // Every offered room is at or under the typed budget; nothing over it is shown.
+    const offered = profile(fake).offers as Array<{ rent: number }>;
+    expect(offered.length).toBeGreaterThan(0);
+    expect(offered.every((o) => o.rent <= 900)).toBe(true);
+    expect(turn.reply).not.toContain("prop-uw-d");
+    expect(turn.reply).not.toContain("prop-uw-over");
+  });
+
+  it("answers once: a second question does not repeat the overview", async () => {
+    const fake = seed();
+    await say(fake, "Is there availability");
+    const second = await say(fake, "Is there availability");
+    expect(profile(fake).overviewSent).toBe(true);
+    expect(texts(second).filter((t) => t.includes("Photos and details")).length).toBe(0);
+  });
+
+  it("with nothing open it says so and promises one text, no made-up room", async () => {
+    const fake = seed();
+    const turn = await say(fake, "Is there availability", { listings: async () => [] });
+    expect(turn.reply).toContain("I do not see an open room listed right now.");
+    expect(turn.reply!.startsWith(WELCOME)).toBe(true);
+    expect(profile(fake)).toMatchObject({ stage: "no_match" });
+  });
+
+  it("a fair-housing question is not answered as an availability ask", async () => {
+    const fake = seed();
+    const turn = await say(fake, "do you allow kids? is there availability");
+    expect(turn.reply).toContain(NEUTRAL_REPLY);
+    expect(profile(fake).overviewSent).toBeUndefined();
+  });
+});
+
 describe("matching public rooms", () => {
   it("offers rooms across every workspace that fit, with price, availability and a public link", async () => {
     const fake = seed();

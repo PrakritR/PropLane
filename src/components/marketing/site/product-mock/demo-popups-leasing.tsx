@@ -26,10 +26,12 @@ import {
   CalendarClock,
   CalendarDays,
   Check,
+  CircleAlert,
   Clock,
   Copy,
   Download,
   FileSignature,
+  FileText,
   FolderOpen,
   Home,
   MessageSquare,
@@ -54,7 +56,7 @@ import { PortalRowFact } from "@/components/portal/portal-record-row";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { PortalMessageSendViaDropdown, portalMessageChannelsFromSelection } from "@/components/portal/portal-message-compose-fields";
 import { ShareLeadLinkPreviewPanel } from "@/components/portal/share-lead-link-preview-panel";
-import { StepColumn, SegmentedControl } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { StepColumn } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import {
   ReviewCard,
   WizardField,
@@ -1138,16 +1140,6 @@ function LeasePaper({ resident, place, rent, deposit, start, end, className }: {
   );
 }
 
-function MoneyField({ value, label, suffix, onChange }: { value: string; label: string; suffix?: string; onChange: (next: string) => void }) {
-  return (
-    <span className="flex items-center gap-1.5 font-bold text-muted">
-      <span>$</span>
-      <Input aria-label={label} inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value.replace(/[^0-9.]/g, ""))} />
-      {suffix ? <span className="shrink-0 text-[13px] font-semibold">{suffix}</span> : null}
-    </span>
-  );
-}
-
 /** A labelled group of rows, the way the Send lease pop-up prints "Payments schedule" and "Roommates on this lease". */
 function SendLeaseList({ title, dataAttr, children }: { title: string; dataAttr: string; children: ReactNode }) {
   return (
@@ -1159,22 +1151,20 @@ function SendLeaseList({ title, dataAttr, children }: { title: string; dataAttr:
 }
 
 /**
- * "Send lease": `LeaseSendSheet pickResident`, one dialog with no step rail. The Start from a file card, the
- * Resident select, PropLane lease | Upload PDF, the terms, the document, the confirmation box, the schedule,
- * the fee waiver, the ready rows and the message line, and one primary: Send for signature.
+ * "Send lease": `LeaseSendSheet pickResident`, one dialog with no step rail. The Resident select, the read-only
+ * terms (✎ Edit resident), the document, the schedule, the fee waiver, the message line and the rows that block
+ * sending, and one primary: Send for signature. "Upload a PDF instead" is one header icon.
  */
 export function DemoSendLeasePopup({ onClose, onSent, candidates = DEMO_LEASE_CANDIDATES }: { onClose: () => void; onSent: (candidate: DemoLeaseCandidate) => void; candidates?: DemoLeaseCandidate[] }) {
   const [candidateId, setCandidateId] = useState(candidates[0]!.id);
   const candidate = candidates.find((c) => c.id === candidateId) ?? candidates[0]!;
   const [source, setSource] = useState<"lease" | "pdf">("lease");
   const [form, setForm] = useState(DEMO_LEASE_FORMS[0]!.value);
-  const [start, setStart] = useState("2025-10-01");
-  const [end, setEnd] = useState("2026-09-30");
-  const [rent, setRent] = useState(String(candidate.rent));
-  const [deposit, setDeposit] = useState(String(candidate.rent));
-  const [confirmed, setConfirmed] = useState(true);
+  const start = "2025-10-01";
+  const end = "2026-09-30";
+  const rent = String(candidate.rent);
+  const deposit = String(candidate.rent);
   const [waived, setWaived] = useState(false);
-  const [invited, setInvited] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const unit = candidate.place;
   const [message, setMessage] = useState("");
@@ -1185,14 +1175,7 @@ export function DemoSendLeasePopup({ onClose, onSent, candidates = DEMO_LEASE_CA
   const messageText = message || `Hi ${firstName(candidate.name)}, your lease for ${unit} is ready to review and sign.`;
 
   const pick = (id: string) => {
-    const next = candidates.find((c) => c.id === id);
     setCandidateId(id);
-    if (next) {
-      setRent(String(next.rent));
-      setDeposit(String(next.rent));
-    }
-    setInvited(false);
-    setConfirmed(true);
   };
 
   return (
@@ -1203,10 +1186,16 @@ export function DemoSendLeasePopup({ onClose, onSent, candidates = DEMO_LEASE_CA
       footer={{ kind: "done", label: "Send for signature", onDone: () => onSent(candidate), left: <CancelButton onClose={onClose} /> }}
       onClose={onClose}
       dataAttr="lease-send-sheet"
+      headerActions={
+        source === "lease" ? (
+          <PortalIconAction icon={Upload} label="Upload a PDF instead" data-attr="lease-send-header-upload" onClick={() => setSource("pdf")} />
+        ) : (
+          <PortalIconAction icon={FileText} label="Use the PropLane lease instead" data-attr="lease-send-use-proplane-header" onClick={() => setSource("lease")} />
+        )
+      }
     >
       {() => (
         <div className="mx-auto max-w-[640px] space-y-5" data-attr="lease-send-body">
-          <WorkspaceFileCard accept="application/pdf,.pdf" dataAttr="lease-send-header-upload" onPick={() => setSource("pdf")} />
           <FieldSingleSelect
             label="Resident"
             value={candidateId}
@@ -1214,16 +1203,6 @@ export function DemoSendLeasePopup({ onClose, onSent, candidates = DEMO_LEASE_CA
             placeholder="Choose a resident"
             options={candidates.map((c) => ({ value: c.id, label: `${c.name} · ${c.place}` }))}
             dataAttr="lease-send-resident"
-          />
-          <SegmentedControl<"lease" | "pdf">
-            value={source}
-            onChange={setSource}
-            ariaLabel="Lease source"
-            dataAttrPrefix="lease-send-source"
-            options={[
-              { value: "lease", label: "PropLane lease" },
-              { value: "pdf", label: "Upload PDF" },
-            ]}
           />
           <div className="min-w-0 space-y-4">
             {source === "lease" ? (
@@ -1234,40 +1213,28 @@ export function DemoSendLeasePopup({ onClose, onSent, candidates = DEMO_LEASE_CA
                 <PortalIconAction icon={Upload} label="Replace PDF" data-attr="lease-send-replace-pdf" />
               </div>
             )}
-            <div className="space-y-2" data-attr="lease-send-terms">
-              <div className="grid grid-cols-2 gap-x-3.5 gap-y-3 max-sm:grid-cols-1">
-                <div className="min-w-0 space-y-1.5">
-                  <p className="text-xs font-bold text-muted">Start</p>
-                  <DateField value={start} onChange={setStart} aria-label="Lease start" />
-                </div>
-                <div className="min-w-0 space-y-1.5">
-                  <p className="text-xs font-bold text-muted">End</p>
-                  <DateField value={end} onChange={setEnd} aria-label="Lease end" />
-                </div>
-                <div className="min-w-0 space-y-1.5">
-                  <p className="text-xs font-bold text-muted">Rent</p>
-                  <MoneyField value={rent} label="Monthly rent" suffix="/ month" onChange={setRent} />
-                </div>
-                <div className="min-w-0 space-y-1.5">
-                  <p className="text-xs font-bold text-muted">Deposit</p>
-                  <MoneyField value={deposit} label="Security deposit" onChange={setDeposit} />
-                </div>
+            <div data-attr="lease-send-terms">
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <p className="text-[13px] font-bold text-foreground">Lease terms</p>
+                <PortalIconAction icon={Pencil} label="Edit resident" data-attr="lease-send-edit-resident" />
+              </div>
+              <div className="divide-y divide-border/60 rounded-xl border border-border px-4">
+                {[
+                  ["Room", unit],
+                  ["Form", DEMO_LEASE_FORMS.find((f) => f.value === form)?.label ?? ""],
+                  ["Start", pretty(start)],
+                  ["End", pretty(end)],
+                  ["Rent", `${money(rentNumber)} / month`],
+                  ["Deposit", money(depositNumber)],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex min-h-11 items-center justify-between gap-3 py-2 text-sm">
+                    <span className="text-muted">{label}</span>
+                    <span className="min-w-0 truncate text-right font-bold text-foreground">{value}</span>
+                  </div>
+                ))}
               </div>
             </div>
             <LeasePaper className="h-72 overflow-y-auto" resident={candidate.name} place={unit} rent={rentNumber} deposit={depositNumber} start={pretty(start)} end={pretty(end)} />
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={confirmed}
-              onClick={() => setConfirmed((v) => !v)}
-              data-attr="lease-send-confirm-box"
-              className={cn("flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm font-bold", confirmed ? "border-primary bg-primary/5" : "border-border")}
-            >
-              <span className={cn("flex size-5 shrink-0 items-center justify-center rounded-md border", confirmed ? "border-primary bg-primary text-white" : "border-border")} aria-hidden>
-                {confirmed ? "✓" : null}
-              </span>
-              This is the lease I&apos;m sending
-            </button>
             <SendLeaseList title="Payments schedule" dataAttr="lease-send-schedule">
               {schedule.map((row) => (
                 <div key={row.key} className="flex min-h-11 items-center justify-between gap-3 py-2.5 text-sm">
@@ -1293,17 +1260,12 @@ export function DemoSendLeasePopup({ onClose, onSent, candidates = DEMO_LEASE_CA
               </SendLeaseList>
             ) : null}
             <div data-attr="lease-send-ready">
-              <p className="mb-1 text-[13px] font-bold text-foreground">Ready to send</p>
               <div className="divide-y divide-border/60 rounded-xl border border-border px-4">
                 <div className="flex min-h-11 items-center justify-between gap-3 py-2 text-sm" data-attr="lease-send-ready-invite">
-                  <span className="min-w-0 text-foreground">
-                    {invited ? `Invite sent · waiting for ${firstName(candidate.name)} to create an account` : `${firstName(candidate.name)} has no PropLane account yet`}
+                  <span className="flex min-w-0 items-center gap-2 text-foreground">
+                    <CircleAlert className="size-4 shrink-0 text-amber-600" aria-hidden />
+                    {firstName(candidate.name)} has no PropLane account yet — we&apos;ll email an invite with the lease
                   </span>
-                  {invited ? null : (
-                    <Button type="button" variant="outline" className="shrink-0 rounded-full" onClick={() => setInvited(true)}>
-                      Send invite
-                    </Button>
-                  )}
                 </div>
               </div>
             </div>

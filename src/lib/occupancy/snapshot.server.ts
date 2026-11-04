@@ -530,23 +530,17 @@ async function residentFinancialPropertyIds(db: SupabaseClient, userId: string, 
   return allowed;
 }
 
-export async function occupancySnapshotForManager(
+/**
+ * The merged Bookings entries of these houses (channel imports, leases, holds, typed and imported room
+ * blocks) in the one `PropertyBookingEntry` shape: the source `occupancySnapshotForManager` draws its days
+ * and stays from, and what a server reader such as the daily check-in digest reads.
+ */
+export async function occupancyEntriesForManager(
   db: SupabaseClient,
   userId: string,
   input: {
     propertyIds: string[];
-    from: string;
-    to: string;
-    /** Only these days, instead of every day in [from, to] — a caller that draws a handful of
-     * figures should not pay for a cell per house per day it never reads. */
-    days?: readonly string[];
     browserOrigin?: string;
-    /**
-     * Lease rows to build the long-term stays from, instead of this manager's own lease scope. The house
-     * chat passes the HOUSES' leases (a lease a teammate filed is stamped to that teammate, so an
-     * owner-scoped read misses the resident it placed). Only ever rows the caller already placed inside
-     * `propertyIds`.
-     */
     leaseRecords?: readonly LeaseScopeRecord[];
   },
 ) {
@@ -578,6 +572,30 @@ export async function occupancySnapshotForManager(
     blockEntries.typed,
     meta.listingBlockEntries ?? [],
   ).map((entry) => (financialHouses.has(entry.propertyId) ? entry : withoutResidentFinancials(entry)));
+  return { propertyIds, entries, capacities, meta, financialHouses };
+}
+
+export async function occupancySnapshotForManager(
+  db: SupabaseClient,
+  userId: string,
+  input: {
+    propertyIds: string[];
+    from: string;
+    to: string;
+    /** Only these days, instead of every day in [from, to] — a caller that draws a handful of
+     * figures should not pay for a cell per house per day it never reads. */
+    days?: readonly string[];
+    browserOrigin?: string;
+    /**
+     * Lease rows to build the long-term stays from, instead of this manager's own lease scope. The house
+     * chat passes the HOUSES' leases (a lease a teammate filed is stamped to that teammate, so an
+     * owner-scoped read misses the resident it placed). Only ever rows the caller already placed inside
+     * `propertyIds`.
+     */
+    leaseRecords?: readonly LeaseScopeRecord[];
+  },
+) {
+  const { propertyIds, entries, capacities, meta, financialHouses } = await occupancyEntriesForManager(db, userId, input);
   const dayKeys = input.days?.length ? [...input.days] : eachDayKey(input.from, input.to);
   const days: OccupancySnapshotDay[] = dayKeys.map((dayKey) => ({
     dayKey,

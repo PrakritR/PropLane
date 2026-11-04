@@ -3,14 +3,13 @@
 /**
  * Send lease — ONE screen.
  *
- *   Send lease · <resident>
- *   [ PropLane lease | Upload PDF ]
- *   Terms (Start · End · Rent · Deposit, prefilled)      — the PDF sits beside them for an upload
- *   the lease itself, and ☐ This is the lease I'm sending
- *   Payments schedule (read only; recomputes as the terms change)
- *   Ready to send — a row only for what is missing: Approve · Send invite · …
+ *   Send lease · <resident>                                   [Upload a PDF instead]
+ *   Lease terms (read only, from the resident record)          ✎ Edit resident
+ *   the lease itself (the PropLane lease is always the default)
+ *   Payments schedule (read only)
  *   Email · Your lease is ready to sign   ✎
- *   [ Send for signature ]
+ *   Everything that blocks sending, as plain rows: Approve · Send invite · …
+ *   [ Send for signature ]      (pressing it is the confirmation)
  *
  * It replaces the Add lease wizard, the AI-draft checkbox, the compare popup and the full
  * email compose. Nothing here computes money: the terms are the application's own, the
@@ -22,8 +21,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileUp, Pencil } from "lucide-react";
-import { WorkspaceFileCard } from "@/components/portal/add-workspace/upload-action";
+import { CircleAlert, FileText, FileUp, Pencil } from "lucide-react";
 import { ApproveApplicationDialog } from "@/components/portal/approve-application-dialog";
 import { ImportedLeasePlacementReviewModal } from "@/components/portal/imported-lease-placement-review-modal";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
@@ -31,9 +29,7 @@ import { PortalDialog } from "@/components/portal/portal-dialog";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { DateField } from "@/components/ui/date-field";
-import { Input, Textarea } from "@/components/ui/input";
-import { SegmentedTwo } from "@/components/ui/segmented-control";
+import { Textarea } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -74,6 +70,7 @@ import {
   approvedResidentOptionLabel,
 } from "@/lib/lease-send-terms";
 import { roomForApplicationRow } from "@/lib/application-approval-slots";
+import { implausibleRentReason, leaseTermsDriftFromApplication, medianOf } from "@/lib/lease-terms-drift";
 import {
   confirmTemplatePlacementReviewForRow,
   leaseNeedsTemplatePlacementReview,
@@ -91,7 +88,7 @@ import { jointRoommateApplications, linkJointRoomLeases } from "@/lib/lease-join
 import { leaseFeeForSend, leaseFormChoicesForApplication } from "@/lib/send-forms";
 import { reinstateLeaseFeeForLease, waiveLeaseFeeForLease } from "@/lib/lease-fee-waiver.client";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
-import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { isEntireHomeListing, normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { sharedRoomCardFor } from "@/lib/shared-room-card";
 import { stripeSetupStateFromStatus } from "@/lib/stripe-setup-state";
@@ -136,6 +133,8 @@ export type LeaseSendSheetProps = {
   managerUserId: string | null;
   onClose: () => void;
   onSent?: (leaseId: string) => void;
+  /** Opens Edit resident for the application id. The terms are read-only here; the ✎ is drawn only when this is given. The parent closes the sheet. */
+  onEditResident?: (applicationId: string) => void;
 };
 
 export function LeaseSendSheet(props: LeaseSendSheetProps) {
@@ -152,6 +151,7 @@ function LeaseSendSheetBody({
   managerUserId,
   onClose,
   onSent,
+  onEditResident,
 }: LeaseSendSheetProps) {
   const { showToast } = useAppUi();
   const navigate = usePortalNavigate();
@@ -164,10 +164,6 @@ function LeaseSendSheetBody({
   const [leaseId, setLeaseId] = useState<string | null>(leaseIdProp ?? null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [source, setSource] = useState<Source>(initialSource ?? "lease");
-  const [terms, setTerms] = useState<LeaseSendTerms | null>(null);
-  const [savedTerms, setSavedTerms] = useState<LeaseSendTerms | null>(null);
-  const [termsError, setTermsError] = useState<string | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
   const [picks, setPicks] = useState<Partial<Record<PdfTermKey, PdfTermPick>>>({});
   const [noteOpen, setNoteOpen] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -255,20 +251,19 @@ function LeaseSendSheetBody({
   }, [lease, app, tick]);
   const selectedChoiceId = leaseChoices.find((c) => c.id === lease?.leaseGenerationTemplateId)?.id ?? leaseChoices[0]?.id ?? "";
 
-  /* The four terms, seeded from the application once. */
-  useEffect(() => {
-    if (terms || !app) return;
-    const next = leaseSendTermsFor(app);
-    setTerms(next);
-    setSavedTerms(next);
-  }, [app, terms]);
+  /* The four terms, read from the resident record every time (the ledger's own resolver). Read-only here. */
+  const terms = useMemo<LeaseSendTerms | null>(() => {
+    void tick;
+    if (!app) return null;
+    return leaseSendTermsFor(readManagerApplicationRows().find((r) => r.id === app.id) ?? app, managerUserId);
+  }, [app, tick, managerUserId]);
 
   // The uploaded side opens by default when the lease already IS an uploaded PDF.
   const leaseHasPdf = Boolean(lease?.managerUploadedPdf);
   useEffect(() => {
     if (initialSource || !lease) return;
     if (leaseHasPdf && !lease.generatedHtml) setSource("pdf");
-    // Only decides the first view; the segmented control owns it afterwards.
+    // Only decides the first view; the header icon owns it afterwards.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lease?.id]);
 
@@ -362,7 +357,6 @@ function LeaseSendSheetBody({
         const row = readLeasePipeline(managerUserId).find((r) => r.id === lease.id);
         const saved = row ? await persistLeaseRowToServerAwait(row) : ({ ok: false, error: "Lease not found." } as const);
         if (!saved.ok) setError(saved.error);
-        setConfirmed(false);
         bump();
       } finally {
         setWorking(null);
@@ -378,17 +372,40 @@ function LeaseSendSheetBody({
     void generateDocument(lease.id);
   }, [lease, source, hasDocument, generateDocument]);
 
-  /* ───────────── terms: saved on the application (and the draft lease) when the field is left ───────────── */
-  const commitTerms = useCallback(
-    async (next: LeaseSendTerms, opts: { regenerate: boolean }): Promise<boolean> => {
-      if (!app || !lease) return false;
+  /* ───────────── terms: read from the resident record; this screen never rewrites them ───────────── */
+  /** The lease made from an older reading of the record catches up to it (record → lease, never the other way). */
+  const syncLeaseTermsFromRecord = useCallback(async (): Promise<boolean> => {
+    if (!app || !lease) return false;
+    const current = readManagerApplicationRows().find((r) => r.id === app.id) ?? app;
+    const a = current.application;
+    const patch = {
+      leaseStart: a?.leaseStart ?? "",
+      leaseEnd: a?.leaseEnd ?? "",
+      managerRentOverride: a?.managerRentOverride ?? "",
+      managerSecurityDepositOverride: a?.managerSecurityDepositOverride ?? "",
+    };
+    if (leaseTermsDriftFromApplication(lease.application, patch).length === 0) return true;
+    regenerateEditableLeasesForResident(lease.residentEmail, managerUserId, patch);
+    const row = readLeasePipeline(managerUserId).find((r) => r.id === lease.id);
+    const persisted = row ? await persistLeaseRowToServerAwait(row) : ({ ok: true } as const);
+    if (!persisted.ok) {
+      setError(persisted.error);
+      return false;
+    }
+    bump();
+    return true;
+  }, [app, lease, managerUserId, bump]);
+
+  /** PDF path only: a term the manager tapped "In the PDF" for moves the record to the PDF's value. */
+  const savePdfPickedTerms = useCallback(
+    async (next: LeaseSendTerms): Promise<boolean> => {
+      if (!app || !lease || !terms) return false;
       const check = validateLeaseSendTerms(next);
       if (!check.ok) {
-        setTermsError(check.message);
+        setError(check.message);
         return false;
       }
-      setTermsError(null);
-      if (savedTerms && leaseSendTermsEqual(next, savedTerms)) return true;
+      if (leaseSendTermsEqual(next, terms)) return true;
       setWorking("Updating the terms…");
       try {
         const patch = leaseSendTermsPatch(next);
@@ -400,36 +417,30 @@ function LeaseSendSheetBody({
         );
         const saved = await upsertApplicationRowToServerAwait(updatedApp);
         if (!saved.ok && saved.error) {
-          setTermsError(saved.error);
+          setError(saved.error);
           return false;
         }
-        if (opts.regenerate) {
-          regenerateEditableLeasesForResident(lease.residentEmail, managerUserId, patch);
-        } else {
-          updateLeasePipelineRow(
-            lease.id,
-            {
-              application: { ...(lease.application ?? {}), ...patch },
-              signedRentLabel: `${formatRoomPriceAmount(parseMoneyAmount(next.rent))} / month`,
-            },
-            managerUserId,
-          );
-        }
+        updateLeasePipelineRow(
+          lease.id,
+          {
+            application: { ...(lease.application ?? {}), ...patch },
+            signedRentLabel: `${formatRoomPriceAmount(parseMoneyAmount(next.rent))} / month`,
+          },
+          managerUserId,
+        );
         const row = readLeasePipeline(managerUserId).find((r) => r.id === lease.id);
         const persisted = row ? await persistLeaseRowToServerAwait(row) : ({ ok: true } as const);
         if (!persisted.ok) {
-          setTermsError(persisted.error);
+          setError(persisted.error);
           return false;
         }
-        setSavedTerms(next);
-        setConfirmed(false);
         bump();
         return true;
       } finally {
         setWorking(null);
       }
     },
-    [app, lease, managerUserId, savedTerms, bump],
+    [app, lease, terms, managerUserId, bump],
   );
 
   const schedule = useMemo(() => {
@@ -441,7 +452,7 @@ function LeaseSendSheetBody({
     } catch {
       return [];
     }
-  }, [app, managerUserId, tick, savedTerms]);
+  }, [app, managerUserId, tick]);
 
   /* The lease fee and the one-resident waiver (the existing per-lease waiver route does the audited work). */
   const feeInfo = useMemo(() => {
@@ -453,7 +464,7 @@ function LeaseSendSheetBody({
     } catch {
       return { fee: 0, waived: false };
     }
-  }, [app, managerUserId, tick, savedTerms]);
+  }, [app, managerUserId, tick]);
   const [waiveBusy, setWaiveBusy] = useState(false);
   const toggleLeaseFeeWaiver = async (next: boolean) => {
     if (!lease || waiveBusy) return;
@@ -477,7 +488,6 @@ function LeaseSendSheetBody({
       await syncLeasePipelineFromServer(managerUserId, { force: true }).catch(() => undefined);
       // The document and the schedule read the waiver: rebuild the PropLane lease so neither shows the fee.
       if (source === "lease" && !docIsPdf) await generateDocument(lease.id);
-      setConfirmed(false);
       bump();
     } finally {
       setWaiveBusy(false);
@@ -494,6 +504,7 @@ function LeaseSendSheetBody({
   const onPickPdf = async (file: File | null | undefined) => {
     if (!file || !lease) return;
     setError(null);
+    setSource("pdf");
     setWorking("Reading the PDF…");
     try {
       const res = await uploadAndParseLeasePdf(lease.id, file, managerUserId);
@@ -503,7 +514,6 @@ function LeaseSendSheetBody({
       }
       if (res.saveError) setError(`PDF saved, but its reading was not stored: ${res.saveError}`);
       setPicks({});
-      setConfirmed(false);
       generatedForRef.current = lease.id;
       await syncLeasePipelineFromServer(managerUserId, { force: true }).catch(() => undefined);
       bump();
@@ -529,12 +539,26 @@ function LeaseSendSheetBody({
   const documentReady = source === "lease" ? hasDocument && !docIsPdf : Boolean(lease?.managerUploadedPdf);
   const blockedBy: string[] = [];
   if (needsApproval) blockedBy.push("approve");
-  if (residentEmail && !hasAccount) blockedBy.push("invite");
   if (needsPlacementReview) blockedBy.push("review");
   if (otherGate) blockedBy.push("gate");
   if (unresolvedPdfTerms.length > 0) blockedBy.push("terms");
+  /* A rent that is almost certainly a typo is a blocker: fix it on the resident record (✎). */
+  const houseMedianRent = useMemo(() => {
+    void tick;
+    const property = lease?.propertyId ? getPropertyById(lease.propertyId) : undefined;
+    if (!property?.listingSubmission || property.listingSubmission.v !== 1) return null;
+    try {
+      const sub = normalizeManagerListingSubmissionV1(property.listingSubmission);
+      if (isEntireHomeListing(sub) || sub.rooms.length < 2) return null;
+      return medianOf(sub.rooms.map((r) => r.monthlyRent));
+    } catch {
+      return null;
+    }
+  }, [lease?.propertyId, tick]);
+  const rentReason = terms ? implausibleRentReason(parseMoneyAmount(terms.rent), houseMedianRent) : null;
+  if (rentReason) blockedBy.push("rent");
   const canSend = Boolean(
-    lease && terms && !termsBlocked && documentReady && confirmed && blockedBy.length === 0 && !busy && !working,
+    lease && terms && !termsBlocked && documentReady && blockedBy.length === 0 && !busy && !working,
   );
 
   /* ───────────── the message ───────────── */
@@ -566,12 +590,14 @@ function LeaseSendSheetBody({
           return;
         }
       }
-      const committed = await commitTerms(nextTerms, { regenerate: source === "lease" });
-      if (!committed) return;
-      setTerms(nextTerms);
+      if (source === "pdf") {
+        if (!(await savePdfPickedTerms(nextTerms))) return;
+      } else if (!(await syncLeaseTermsFromRecord())) {
+        return;
+      }
 
       if (source === "lease") {
-        // Terms may have moved the schedule or the document; the document is rebuilt from the saved terms above.
+        // The lease is made from the record's terms (caught up above if it was made from an older reading).
         const row = readLeasePipeline(managerUserId).find((r) => r.id === lease.id);
         if (!row || !leasePipelineRowHasDocument(row)) {
           if (!(await generateDocument(lease.id))) return;
@@ -649,6 +675,16 @@ function LeaseSendSheetBody({
           return;
         }
       }
+      // No account yet: the invite goes out with the lease, in this one press. Its failure stops the send.
+      if (residentEmail && !hasAccount && !invited && !isDemoModeActive()) {
+        setWorking("Sending the invite…");
+        const invite = await requestResidentWelcomeEmail(app);
+        if (invite.status !== "sent") {
+          setError(invite.error ?? `Could not email ${firstName} an invite, so the lease was not sent.`);
+          return;
+        }
+        setInvited(true);
+      }
       setWorking("Sending…");
       let toastMessage = targets.length > 1 ? `Joint lease sent · ${targets.length} roommates` : `Lease sent · ${residentName}`;
       for (const target of targets) {
@@ -712,22 +748,34 @@ function LeaseSendSheetBody({
 
   return (
     <>
-      <PortalDialog open title={title} onClose={() => !busy && onClose()} dismissBlocked={busy} size="wizard" dataAttr="lease-send-sheet" primaryAction={primary} className="lease-send-sheet">
+      <PortalDialog
+        open
+        headerAction={
+          lease && app && terms ? (
+            source === "lease" ? (
+              <PortalIconAction
+                icon={FileUp}
+                label="Upload a PDF instead"
+                data-attr="lease-send-header-upload"
+                disabled={busy || Boolean(working)}
+                onClick={() => uploadRef.current?.click()}
+              />
+            ) : (
+              <PortalIconAction
+                icon={FileText}
+                label="Use the PropLane lease instead"
+                data-attr="lease-send-use-proplane-header"
+                disabled={busy || Boolean(working)}
+                onClick={() => {
+                  setSource("lease");
+                  setError(null);
+                }}
+              />
+            )
+          ) : null
+        }
+        title={title} onClose={() => !busy && onClose()} dismissBlocked={busy} size="wizard" dataAttr="lease-send-sheet" primaryAction={primary} className="lease-send-sheet">
         <div className="space-y-5" data-attr="lease-send-body">
-          {/* The pop-up's one upload entry: the Start from a file card (the Leases list has no Upload of its own). Reads the lease PDF you pick in place of the PropLane lease. */}
-          {!lease?.managerUploadedPdf ? (
-            <WorkspaceFileCard
-              accept="application/pdf,.pdf"
-              dataAttr="lease-send-header-upload"
-              disabled={busy || !(lease && app && terms)}
-              onPick={(file) => {
-                setSource("pdf");
-                setConfirmed(false);
-                setError(null);
-                void onPickPdf(file);
-              }}
-            />
-          ) : null}
           {showPicker ? (
             <FieldSingleSelect
               label="Resident"
@@ -735,9 +783,6 @@ function LeaseSendSheetBody({
               onChange={(next) => {
                 setPickedApplicationId(next);
                 setLeaseId(null);
-                setTerms(null);
-                setSavedTerms(null);
-                setConfirmed(false);
                 setPicks({});
               }}
               placeholder="Choose a resident"
@@ -750,17 +795,6 @@ function LeaseSendSheetBody({
 
           {lease && app && terms ? (
             <>
-              <SegmentedTwo<Source>
-                value={source}
-                onChange={(next) => {
-                  setSource(next);
-                  setConfirmed(false);
-                  setError(null);
-                }}
-                left={{ id: "lease", label: "PropLane lease" }}
-                right={{ id: "pdf", label: "Upload PDF" }}
-              />
-
               <div className={cn("grid gap-5", source === "pdf" && lease.managerUploadedPdf ? "lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]" : "")}>
                 {source === "pdf" && lease.managerUploadedPdf ? (
                   <div className="min-w-0 space-y-2" data-attr="lease-send-pdf">
@@ -785,21 +819,23 @@ function LeaseSendSheetBody({
                       dataAttr="lease-send-lease-type"
                     />
                   ) : null}
+                  {source === "pdf" && !lease.managerUploadedPdf ? (
+                    <div className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-border px-4 py-1.5 text-sm" data-attr="lease-send-pdf-empty">
+                      <span className="min-w-0 font-semibold text-foreground">No PDF yet</span>
+                      <Button type="button" variant="outline" className="shrink-0 rounded-full" data-attr="lease-send-choose-pdf" disabled={busy || Boolean(working)} onClick={() => uploadRef.current?.click()}>
+                        Choose a PDF
+                      </Button>
+                    </div>
+                  ) : null}
                   <TermsCard
                     terms={terms}
-                    disabled={busy}
-                    error={termsError}
+                    room={lease.unit?.trim() || roomForApplicationRow(app)?.name || app.property || ""}
+                    formLabel={leaseChoices.length === 1 ? leaseChoices[0]!.label : ""}
                     rows={pdfRows}
                     picks={picks}
-                    onPick={(key, pick) => {
-                      setPicks((p) => ({ ...p, [key]: pick }));
-                      setConfirmed(false);
-                    }}
-                    onChange={(next) => {
-                      setTerms(next);
-                      setConfirmed(false);
-                    }}
-                    onCommit={(next) => void commitTerms(next, { regenerate: source === "lease" })}
+                    onPick={(key, pick) => setPicks((p) => ({ ...p, [key]: pick }))}
+                    onEditResident={onEditResident ? () => onEditResident(app.id) : undefined}
+                    busy={busy}
                   />
 
                   {source === "lease" && docIsPdf ? (
@@ -827,30 +863,6 @@ function LeaseSendSheetBody({
                       )}
                     </div>
                   ) : null}
-
-                  <button
-                    type="button"
-                    role="checkbox"
-                    aria-checked={confirmed}
-                    disabled={!documentReady}
-                    onClick={() => setConfirmed((v) => !v)}
-                    data-attr="lease-send-confirm-box"
-                    className={cn(
-                      "flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm font-bold disabled:opacity-50",
-                      confirmed ? "border-primary bg-primary/5" : "border-border",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "flex size-5 shrink-0 items-center justify-center rounded-md border",
-                        confirmed ? "border-primary bg-primary text-white" : "border-border",
-                      )}
-                      aria-hidden
-                    >
-                      {confirmed ? "✓" : null}
-                    </span>
-                    This is the lease I&apos;m sending
-                  </button>
 
                   {schedule.length > 0 ? (
                     <div data-attr="lease-send-schedule">
@@ -900,32 +912,6 @@ function LeaseSendSheetBody({
                     </div>
                   ) : null}
 
-                  <ReadyRows
-                    show={{
-                      approve: needsApproval,
-                      invite: Boolean(residentEmail) && !hasAccount,
-                      review: needsPlacementReview,
-                      gate: otherGate,
-                      payouts: payoutsMissing,
-                      landlord: landlordWarning,
-                    }}
-                    firstName={firstName}
-                    invited={invited}
-                    onApprove={() => app && setApproveRow(app)}
-                    onInvite={async () => {
-                      const res = await requestResidentWelcomeEmail(app);
-                      if (res.status === "sent" || isDemoModeActive()) {
-                        setInvited(true);
-                        showToast(`Invite sent · ${residentName}`);
-                      } else {
-                        showToast(res.error ?? "Could not send the invite.");
-                      }
-                    }}
-                    onReview={() => lease && setPlacementReviewRow(lease)}
-                    onPayouts={() => navigate("/portal/profile?tab=payments")}
-                    onLandlord={() => navigate("/portal/profile?tab=profile")}
-                  />
-
                   {sendsMessage ? (
                     <div>
                       <div className="flex min-h-11 items-center justify-between gap-3 border-t border-border/60 py-2.5">
@@ -954,17 +940,35 @@ function LeaseSendSheetBody({
                   ) : null}
 
                   {working ? <p className="text-sm text-muted" role="status">{working}</p> : null}
-                  {error ? <p className="text-sm text-danger" role="alert" data-attr="lease-send-error">{error}</p> : null}
+                  <ReadyRows
+                    show={{
+                      approve: needsApproval,
+                      invite: Boolean(residentEmail) && !hasAccount,
+                      review: needsPlacementReview,
+                      gate: otherGate,
+                      payouts: payoutsMissing,
+                      landlord: landlordWarning,
+                      terms: unresolvedPdfTerms.length > 0 ? `${unresolvedPdfTerms.length === 1 ? "A term" : `${unresolvedPdfTerms.length} terms`} the PDF and the record disagree on still need a pick` : null,
+                      rent: rentReason && terms ? `Rent ${money(parseMoneyAmount(terms.rent))} / month looks wrong — ${rentReason}` : null,
+                      error,
+                    }}
+                    firstName={firstName}
+                    invited={invited}
+                    onApprove={() => app && setApproveRow(app)}
+                    onReview={() => lease && setPlacementReviewRow(lease)}
+                    onPayouts={() => navigate("/portal/profile?tab=payments")}
+                    onLandlord={() => navigate("/portal/profile?tab=profile")}
+                  />
+
                 </div>
               </div>
             </>
           ) : needsApproval && app ? (
             <ReadyRows
-              show={{ approve: true, invite: false, review: false, gate: null, payouts: false, landlord: null }}
+              show={{ approve: true, invite: false, review: false, gate: null, payouts: false, landlord: null, terms: null, rent: null, error: null }}
               firstName={firstName}
               invited={false}
               onApprove={() => setApproveRow(app)}
-              onInvite={() => undefined}
               onReview={() => undefined}
               onPayouts={() => undefined}
               onLandlord={() => undefined}
@@ -1015,33 +1019,40 @@ function LeaseSendSheetBody({
 
 /* ───────────────────────────────── pieces ───────────────────────────────── */
 
+function dayLabel(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+}
+
+/** The terms as the resident record carries them: read only. ✎ opens Edit resident; saving there regenerates the lease. */
 function TermsCard({
   terms,
+  room,
+  formLabel,
   rows,
   picks,
-  disabled,
-  error,
-  onChange,
-  onCommit,
+  busy,
   onPick,
+  onEditResident,
 }: {
   terms: LeaseSendTerms;
+  room: string;
+  formLabel: string;
   rows: ReturnType<typeof pdfTermRows>;
   picks: Partial<Record<PdfTermKey, PdfTermPick>>;
-  disabled: boolean;
-  error: string | null;
-  onChange: (next: LeaseSendTerms) => void;
-  onCommit: (next: LeaseSendTerms) => void;
+  busy: boolean;
   onPick: (key: PdfTermKey, pick: PdfTermPick) => void;
+  onEditResident?: () => void;
 }) {
   const conflictFor = (key: PdfTermKey) => rows.find((r) => r.key === key && r.differs);
-  const field = (label: string, key: PdfTermKey, control: React.ReactNode) => {
-    const conflict = conflictFor(key);
+  const row = (label: string, key: PdfTermKey | null, value: string) => {
+    const conflict = key ? conflictFor(key) : undefined;
     return (
-      <div className="min-w-0 space-y-1.5" data-attr={`lease-send-term-${key}`}>
-        <p className="text-xs font-bold text-muted">{label}</p>
-        {conflict ? (
-          <div className="flex gap-2" data-attr={`lease-send-conflict-${key}`}>
+      <div key={label} className="flex min-h-11 items-center justify-between gap-3 py-2 text-sm" data-attr={key ? `lease-send-term-${key}` : `lease-send-term-${label.toLowerCase()}`}>
+        <span className="shrink-0 text-muted">{label}</span>
+        {conflict && key ? (
+          <div className="flex min-w-0 gap-2" data-attr={`lease-send-conflict-${key}`}>
             <PickChip
               active={picks[key] === "pdf"}
               caption="In the PDF"
@@ -1056,36 +1067,27 @@ function TermsCard({
             />
           </div>
         ) : (
-          control
+          <span className="min-w-0 truncate text-right font-bold text-foreground">{value}</span>
         )}
       </div>
     );
   };
   return (
-    <div className="space-y-2" data-attr="lease-send-terms">
-      <div className="grid grid-cols-2 gap-x-3.5 gap-y-3 max-sm:grid-cols-1">
-        {field(
-          "Start",
-          "leaseStart",
-          <DateField value={terms.start} disabled={disabled} onChange={(v) => { const next = { ...terms, start: v }; onChange(next); onCommit(next); }} aria-label="Lease start" />,
-        )}
-        {field(
-          "End",
-          "leaseEnd",
-          <DateField value={terms.end} disabled={disabled} onChange={(v) => { const next = { ...terms, end: v }; onChange(next); onCommit(next); }} aria-label="Lease end" />,
-        )}
-        {field(
-          "Rent",
-          "monthlyRent",
-          <MoneyInput value={terms.rent} disabled={disabled} label="Monthly rent" suffix="/ month" onChange={(v) => onChange({ ...terms, rent: v })} onCommit={(v) => onCommit({ ...terms, rent: v })} />,
-        )}
-        {field(
-          "Deposit",
-          "securityDeposit",
-          <MoneyInput value={terms.deposit} disabled={disabled} label="Security deposit" onChange={(v) => onChange({ ...terms, deposit: v })} onCommit={(v) => onCommit({ ...terms, deposit: v })} />,
-        )}
+    <div data-attr="lease-send-terms">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <p className="text-[13px] font-bold text-foreground">Lease terms</p>
+        {onEditResident ? (
+          <PortalIconAction icon={Pencil} label="Edit resident" data-attr="lease-send-edit-resident" disabled={busy} onClick={onEditResident} />
+        ) : null}
       </div>
-      {error ? <p className="text-sm text-danger" role="alert">{error}</p> : null}
+      <div className="divide-y divide-border/60 rounded-xl border border-border px-4">
+        {room ? row("Room", null, room) : null}
+        {formLabel ? row("Form", null, formLabel) : null}
+        {row("Start", "leaseStart", terms.start ? dayLabel(terms.start) : "")}
+        {row("End", "leaseEnd", terms.end ? dayLabel(terms.end) : "Month to month")}
+        {row("Rent", "monthlyRent", terms.rent ? `${money(parseMoneyAmount(terms.rent))} / month` : "")}
+        {row("Deposit", "securityDeposit", money(parseMoneyAmount(terms.deposit || "0")))}
+      </div>
     </div>
   );
 }
@@ -1107,55 +1109,19 @@ function PickChip({ active, caption, value, onClick }: { active: boolean; captio
   );
 }
 
-function MoneyInput({
-  value,
-  label,
-  suffix,
-  disabled,
-  onChange,
-  onCommit,
-}: {
-  value: string;
-  label: string;
-  suffix?: string;
-  disabled?: boolean;
-  onChange: (v: string) => void;
-  onCommit: (v: string) => void;
-}) {
-  return (
-    <span className="flex items-center gap-1.5 font-bold text-muted">
-      <span>$</span>
-      <Input
-        aria-label={label}
-        inputMode="decimal"
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value.replace(/[^0-9.]/g, ""))}
-        onBlur={(e) => onCommit(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") onCommit((e.target as HTMLInputElement).value);
-        }}
-      />
-      {suffix ? <span className="shrink-0 text-[13px] font-semibold">{suffix}</span> : null}
-    </span>
-  );
-}
-
 function ReadyRows({
   show,
   firstName,
   invited,
   onApprove,
-  onInvite,
   onReview,
   onPayouts,
   onLandlord,
 }: {
-  show: { approve: boolean; invite: boolean; review: boolean; gate: string | null; payouts: boolean; landlord: string | null };
+  show: { approve: boolean; invite: boolean; review: boolean; gate: string | null; payouts: boolean; landlord: string | null; terms: string | null; rent: string | null; error: string | null };
   firstName: string;
   invited: boolean;
   onApprove: () => void;
-  onInvite: () => void | Promise<void>;
   onReview: () => void;
   onPayouts: () => void;
   onLandlord: () => void;
@@ -1165,22 +1131,26 @@ function ReadyRows({
   if (show.invite) {
     rows.push({
       id: "invite",
-      label: invited ? `Invite sent · waiting for ${firstName} to create an account` : `${firstName} has no PropLane account yet`,
-      action: invited ? undefined : { label: "Send invite", onClick: onInvite },
+      label: invited ? `Invite sent · ${firstName} can sign once they create an account` : `${firstName} has no PropLane account yet — we'll email an invite with the lease`,
     });
   }
   if (show.review) rows.push({ id: "review", label: "Compare the lease with the original", action: { label: "Review", onClick: onReview } });
   if (show.gate) rows.push({ id: "gate", label: show.gate });
   if (show.payouts) rows.push({ id: "payouts", label: "Payouts are not set up", action: { label: "Set up payouts", onClick: onPayouts } });
   if (show.landlord) rows.push({ id: "landlord", label: "Your name is missing from the lease", action: { label: "Add name", onClick: onLandlord } });
+  if (show.terms) rows.push({ id: "terms", label: show.terms });
+  if (show.rent) rows.push({ id: "rent", label: show.rent });
+  if (show.error) rows.push({ id: "error", label: show.error });
   if (rows.length === 0) return null;
   return (
     <div data-attr="lease-send-ready">
-      <p className="mb-1 text-[13px] font-bold text-foreground">Ready to send</p>
       <div className="divide-y divide-border/60 rounded-xl border border-border px-4">
         {rows.map((row) => (
-          <div key={row.id} className="flex min-h-11 items-center justify-between gap-3 py-2 text-sm" data-attr={`lease-send-ready-${row.id}`}>
-            <span className="min-w-0 text-foreground">{row.label}</span>
+          <div key={row.id} className="flex min-h-11 items-center justify-between gap-3 py-2 text-sm" data-attr={`lease-send-ready-${row.id}`} role={row.id === "error" ? "alert" : undefined}>
+            <span className="flex min-w-0 items-center gap-2 text-foreground">
+              <CircleAlert className="size-4 shrink-0 text-amber-600" aria-hidden />
+              <span className="min-w-0">{row.label}</span>
+            </span>
             {row.action ? (
               <Button type="button" variant="outline" className="shrink-0 rounded-full" disabled={row.action.disabled} onClick={() => void row.action!.onClick()}>
                 {row.action.label}

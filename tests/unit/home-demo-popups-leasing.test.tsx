@@ -270,11 +270,15 @@ describe("demo Leases tab matches the real Leases page", () => {
     const dialog = await dialogNamed(/^Send lease/);
     expect(within(dialog).queryByRole("button", { name: /^Next/ })).toBeNull();
     expect(dialog.querySelector("[data-attr='demo-popup-finish']")).toBeNull();
-    for (const text of ["Start from a file", "Resident", "PropLane lease", "Upload PDF", "Lease form", "This is the lease I'm sending", "Payments schedule"]) {
+    for (const text of ["Resident", "Lease terms", "Room", "Form", "Start", "End", "Rent", "Deposit", "Payments schedule"]) {
       expect(within(dialog).getAllByText(text).length).toBeGreaterThan(0);
     }
+    // No source toggle, no file card, no confirm box: one header icon uploads a PDF, and the terms are read only.
+    for (const gone of ["Start from a file", "PropLane lease", "Upload PDF", "This is the lease I'm sending"]) expect(within(dialog).queryByText(gone)).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "Upload a PDF instead" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Edit resident" })).toBeInTheDocument();
+    for (const label of ["Lease start", "Lease end", "Monthly rent", "Security deposit"]) expect(within(dialog).queryByLabelText(label)).toBeNull();
     expect(within(dialog).getAllByText(/^Waive the lease fee/).length).toBeGreaterThan(0);
-    for (const label of ["Lease start", "Lease end", "Monthly rent", "Security deposit"]) expect(within(dialog).getByLabelText(label)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Send for signature" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("status").textContent).toMatch(/\(sample\)/);

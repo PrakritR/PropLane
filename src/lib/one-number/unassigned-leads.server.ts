@@ -9,6 +9,10 @@ import { extractLeadFieldsWithModel } from "@/lib/one-number/lead-extract.server
 import {
   buildOfferBubbles,
   buildOfferText,
+  buildOverviewBubbles,
+  matchOverviewHomes,
+  OVERVIEW_NONE_TEXT,
+  OVERVIEW_UNFILTERED_LEAD,
   countFittingRooms,
   MAX_STRANGER_OFFERS,
   type OfferBubble,
@@ -19,11 +23,13 @@ import {
 } from "@/lib/one-number/lead-match";
 import {
   applyAnswer,
+  isInfoRequest,
   mergeModelFields,
   missingSteps,
   NEUTRAL_REPLY,
   nextQuestion,
   pacificToday,
+  questionFor,
   toGsm7,
   touchesProtectedTopic,
   WELCOME,
@@ -226,6 +232,43 @@ async function matchAndOffer(profile: LeadProfile, deps: Required<Pick<LeadDeps,
   };
 }
 
+/**
+ * "Is there availability", "do you have openings early next year", "please share more details of accommodation along with
+ * photos": answered FIRST with the PropLane-managed homes that have an open room (price from, listing page, tour page, how to
+ * apply), not with a questionnaire. At most one short question rides the end, and the STOP notice only on a first reply.
+ * Null when the catalog cannot be read: the ordinary qualifier then answers.
+ */
+async function overviewTurn(
+  profile: LeadProfile,
+  first: boolean,
+  deps: Required<Pick<LeadDeps, "now" | "listings" | "origin">>,
+): Promise<FlowResult | null> {
+  let listings: LineListing[];
+  try {
+    listings = await deps.listings();
+  } catch {
+    return null;
+  }
+  const { picks, narrowed, filtered } = matchOverviewHomes(listings, profile, pacificToday(deps.now()));
+  const lead = (text: string) => toGsm7(first ? `${WELCOME} ${text}` : text);
+  if (picks.length === 0) {
+    return { profile: { ...profile, stage: "no_match", asked: null, offers: [], overviewSent: true }, reply: lead(OVERVIEW_NONE_TEXT), mediaUrls: [] };
+  }
+  const rows = picks.map((p) => p.row);
+  const offers = picks.map((p, i) => offerFromRow(p.row, i + 1, p.tier));
+  // One short question at most, and only one that narrows the list: the budget, then the move-in date.
+  const question = missingSteps(profile).find((step) => step === "budget" || step === "move_in");
+  const bubbles = buildOverviewBubbles(offers, rows, deps.origin(), { question: question ? questionFor(question, profile) : null });
+  if (narrowed && !filtered) bubbles.unshift({ body: toGsm7(OVERVIEW_UNFILTERED_LEAD) });
+  if (first && bubbles[0]) bubbles[0] = { ...bubbles[0], body: toGsm7(`${WELCOME} ${bubbles[0].body}`) };
+  return {
+    profile: { ...profile, stage: "offered", asked: "pick", offers, overviewSent: true },
+    reply: bubbles.map((b) => b.body).join("\n"),
+    mediaUrls: bubbles.flatMap((b) => (b.mediaUrl ? [b.mediaUrl] : [])),
+    bubbles,
+  };
+}
+
 async function readAnswer(
   profile: LeadProfile,
   text: string,
@@ -291,6 +334,11 @@ async function runFlow(
   // Qualifying (including a first text).
   const read = await readAnswer(profile, text, deps);
   const next: LeadProfile = { ...read.profile, stage: "qualifying" };
+  // A question about what is open, what it costs or what it looks like is answered with the open homes before any question.
+  if (!read.neutral && !profile.overviewSent && isInfoRequest(text)) {
+    const overview = await overviewTurn(next, first, deps);
+    if (overview) return overview;
+  }
   let question = nextQuestion(next);
   // Keep asking while more than 4 rooms fit. Everything that can narrow the search is asked (budget, move-in, area, room
   // type); the headcount never filters, so once those are in and 4 or fewer rooms fit, the offers go out without it.

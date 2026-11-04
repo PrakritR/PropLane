@@ -4,6 +4,7 @@ import { EmailFirstSignup } from "@/components/auth/email-first-signup";
 import { AuthCard } from "@/components/auth/auth-card";
 import { isUnsafeRedirectPath } from "@/lib/auth/normalize-post-auth-path";
 import { safeNextPath } from "@/lib/auth/safe-next-path";
+import { parseTourSlotKey } from "@/lib/tour-schedule-link";
 import { useSearchParams } from "next/navigation";
 
 /**
@@ -24,7 +25,7 @@ export function PortalAuthForm() {
   if (params.get("tour_inquiry")) return <AuthCard variant="blend"><EmailFirstSignup intent="tour" tourInquiryId={params.get("tour_inquiry") ?? undefined} initialEmail={params.get("email") ?? ""} /></AuthCard>;
   const intent = params.get("role") === "resident" ? "resident" : "generic";
   let oauthNextPath: string | undefined;
-  let listing: { propertyId?: string; listingRoomId?: string; bundleId?: string; applicationFormId?: string; rentalType?: string } | undefined;
+  let listing: { propertyId?: string; listingRoomId?: string; bundleId?: string; applicationFormId?: string; rentalType?: string; tourSlotKey?: string } | undefined;
   try {
     const rawNext = params.get("next") ?? "";
     const next = new URL(rawNext, "https://local.invalid");
@@ -34,6 +35,17 @@ export function PortalAuthForm() {
       propertyId: next.searchParams.get("propertyId") || undefined, listingRoomId: next.searchParams.get("listingRoomId") || undefined,
       bundleId: next.searchParams.get("bundle") || undefined, applicationFormId: next.searchParams.get("form") || undefined,
       rentalType: next.searchParams.get("rentalType") || undefined,
+      };
+    }
+    // A tour time picked on the public tour page before the account existed: the pick (room, day, time) is
+    // carried to /resident/tour/schedule, which preselects it. Same-origin, fixed path only.
+    if (!listing && safeNextPath(rawNext) && !isUnsafeRedirectPath(rawNext) && next.origin === "https://local.invalid" && next.pathname === "/resident/tour/schedule" && next.searchParams.get("propertyId") && parseTourSlotKey(next.searchParams.get("slot"))) {
+      const room = next.searchParams.get("room");
+      oauthNextPath = rawNext;
+      listing = {
+        propertyId: next.searchParams.get("propertyId") || undefined,
+        listingRoomId: room && room !== "any" ? room : undefined,
+        tourSlotKey: parseTourSlotKey(next.searchParams.get("slot"))?.slotKey,
       };
     }
   } catch { /* Invalid destinations are ignored. */ }

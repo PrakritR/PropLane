@@ -222,6 +222,21 @@ export async function persistNormalizedRow(
     if (tagged === core || !isMissingColumnError(cause, "source_channel")) throw cause;
     await writeValues(core);
   }
+  // The first insert of an APPLICANT's own draft: the owner's listed alert phones hear that someone started
+  // (a manager-filed row, a rename and every later autosave are not "started"). Best-effort, once per application.
+  if (!existing && noticeChannel === "portal" && isDraftShapedApplicationRow(row) && row.managerUserId?.trim()) {
+    void (async () => {
+      const { alertPhonesOf } = await import("@/lib/one-number/ops-alerts.server");
+      const { applicationStartedLine } = await import("@/lib/one-number/ops-alert-lines");
+      await alertPhonesOf(db, {
+        ownerUserId: row.managerUserId!.trim(),
+        kind: "application_started",
+        entityId: row.id,
+        propertyId: row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || null,
+        text: applicationStartedLine({ applicant: row.name?.trim() || row.application?.fullLegalName?.trim() || "", house: row.property }),
+      });
+    })().catch(() => undefined);
+  }
   if (row.bucket === "approved") {
     try {
       const provisioned = await provisionApprovedResidentAccount(db, row);

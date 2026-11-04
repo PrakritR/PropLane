@@ -30,6 +30,8 @@ import type { ChannelCalendarImportedRange, ChannelCalendarProvider } from "@/li
 import { resolveManagerAssistantWorkspace } from "@/lib/communication/manager-assistant-workspace.server";
 import { sendManagerNoticeEmail } from "@/lib/manager-notice-email.server";
 import { bookingRecordHref } from "@/lib/portal-detail-routes";
+import { bookingCreatedLine, nextDayKey } from "@/lib/one-number/ops-alert-lines";
+import { alertPhonesOf } from "@/lib/one-number/ops-alerts.server";
 
 export type ChannelBookingEvent = "channel_booking_created" | "channel_booking_cancelled";
 /** Two things hold one room on the same nights (found after a sync). */
@@ -211,6 +213,25 @@ export async function emitChannelBookingEvent(
     ...email,
     bookingKey: channelStayBookingKey({ provider: input.provider, propertyId: input.propertyId, roomId: input.roomId, ...input.range }),
   });
+  // The owner's listed alert phones hear a NEW booking too (any channel). Only a diff-detected new reservation
+  // reaches here (the first sync of a channel is a silent baseline), and the key is the connection + the stay.
+  if (input.event === "channel_booking_created") {
+    await alertPhonesOf(db, {
+      ownerUserId: input.managerUserId,
+      kind: "booking_created",
+      entityId: eventId,
+      idempotencyKey: `action-event:${eventId}:manager`,
+      propertyId: input.propertyId,
+      text: bookingCreatedLine({
+        house: input.propertyLabel ?? "",
+        room: input.roomLabel,
+        checkIn: input.range.start,
+        checkOutExclusive: nextDayKey(input.range.end || input.range.start),
+        source: channelCalendarProviderLabel(input.provider, input.channelLabel),
+      }),
+      url,
+    });
+  }
   if (busError) throw busError;
   track("channel_booking_alert", input.managerUserId, {
     provider: input.provider,
@@ -366,6 +387,24 @@ export async function emitNativeBookingEvent(
     sourceLabel: "PropLane",
   });
   await sendOwnerBookingEmail(db, { ownerUserId: input.managerUserId, propertyId: input.propertyId, eventId, ...email, bookingKey });
+  if (input.event === "booking_created") {
+    // Same key as the bus notice above: the alert phones get this booking once, whichever leg delivers first.
+    await alertPhonesOf(db, {
+      ownerUserId: input.managerUserId,
+      kind: "booking_created",
+      entityId: input.blockId,
+      idempotencyKey: `action-event:${eventId}:manager`,
+      propertyId: input.propertyId,
+      text: bookingCreatedLine({
+        house: labels.propertyLabel,
+        room: labels.roomLabel,
+        checkIn: input.checkIn,
+        checkOutExclusive: input.openEnded ? "" : input.checkOut,
+        source: "PropLane",
+      }),
+      url,
+    });
+  }
   if (busError) throw busError;
   track("channel_booking_alert", input.managerUserId, { provider: "proplane", kind: input.event === "booking_created" ? "created" : "cancelled" });
 }

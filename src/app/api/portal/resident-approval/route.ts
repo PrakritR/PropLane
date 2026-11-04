@@ -1,3 +1,7 @@
+import {
+  isUnsubmittedDraftApplicationRow,
+  UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE,
+} from "@/lib/rental-application/draft-shape";
 import { NextResponse } from "next/server";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { track } from "@/lib/analytics/posthog";
@@ -285,6 +289,14 @@ export async function PATCH(req: Request) {
             blockedApplicationId: lookup.storedId || null,
             matchedBy: lookup.matchedBy,
           },
+          { status: 409 },
+        );
+      }
+      // An application the person never sent cannot be approved. Only an id match proves THIS row is
+      // that draft; the email fallback may land on a different, newer draft by the same applicant.
+      if (lookup.matchedBy === "id" && isUnsubmittedDraftApplicationRow(lookup.stored)) {
+        return NextResponse.json(
+          { error: UNSUBMITTED_APPROVAL_BLOCKED_MESSAGE, blocked: "draft", blockedApplicationId: lookup.storedId || null },
           { status: 409 },
         );
       }

@@ -28,6 +28,8 @@ import {
 import { loadPropertyStayClock } from "@/lib/bookings/property-stay-times.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitActionEvent } from "@/lib/action-events.server";
+import { bookingCreatedLine } from "@/lib/one-number/ops-alert-lines";
+import { alertPhonesOf } from "@/lib/one-number/ops-alerts.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { ROOM_DATE_BLOCK_RECORD_TYPE, roomDateBlockRecordId } from "@/lib/portal-schedule-record-scope";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -331,4 +333,14 @@ export async function emitShortStayRequestedEvent(
     templateContext: { propertyTitle: input.propertyLabel, roomLabel: input.roomLabel, stayLabel, url },
     recipients: [{ audience: "manager", userId: input.ownerId, rendered: { subject: headline, text: `${text}\n\n${url}`, smsText: `${text}\n${url}` } }],
   }).catch(() => undefined);
+  // The owner's listed alert phones hear the request as a new booking (same key as the bus notice above, so one text).
+  await alertPhonesOf(db, {
+    ownerUserId: input.ownerId,
+    kind: "booking_created",
+    entityId: input.blockId,
+    idempotencyKey: `action-event:short_stay_requested:${input.blockId}:manager`,
+    propertyId: input.propertyId,
+    text: bookingCreatedLine({ house: input.propertyLabel, room: input.roomLabel, checkIn: input.checkIn, checkOutExclusive: input.checkOut, source: "PropLane", lead: "New stay request" }),
+    url,
+  });
 }

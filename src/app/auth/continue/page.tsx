@@ -9,6 +9,7 @@ import {
   resolvePostAuthDestination,
 } from "@/lib/auth/resolve-post-auth-destination";
 import { waitForOAuthUser } from "@/lib/auth/wait-for-oauth-user";
+import { parseTourSlotKey, tourSchedulePath } from "@/lib/tour-schedule-link";
 import { nativeAwarePath } from "@/lib/auth/native-auth-entry";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import Link from "next/link";
@@ -55,7 +56,7 @@ function ContinueContent() {
         // dead-ending every sign-in on one new route.
         const handoff = await fetch("/api/auth/email-onboarding/continue", { method: "POST" }).catch(() => null);
         if (handoff?.ok) {
-          const body = await handoff.json().catch(() => ({})) as { role?: unknown; tourInquiryId?: unknown; inviteToken?: unknown; applicationId?: unknown; checkoutSessionId?: unknown; propertyId?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown; tier?: unknown; billing?: unknown };
+          const body = await handoff.json().catch(() => ({})) as { role?: unknown; tourInquiryId?: unknown; inviteToken?: unknown; applicationId?: unknown; checkoutSessionId?: unknown; propertyId?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown; tourSlotKey?: unknown; tier?: unknown; billing?: unknown };
           if (body.role === "vendor_invite" && typeof body.inviteToken === "string" && body.inviteToken.length <= 512) {
             window.location.replace(nativeAwarePath(`/auth/vendor-register?token=${encodeURIComponent(body.inviteToken)}`));
             return;
@@ -77,6 +78,18 @@ function ContinueContent() {
             if (body.role === "manager" && (body.tier === "free" || body.tier === "pro" || body.tier === "business")) params.set("tier", body.tier);
             if (body.role === "manager" && (body.billing === "monthly" || body.billing === "annual")) params.set("billing", body.billing);
             if (body.role === "resident" && typeof body.propertyId === "string" && body.propertyId.length <= 200) {
+              // A tour time picked before the account existed: the server-decided handoff carries it, and the
+              // destination is always this fixed path - the slot and room are only prefill values.
+              const tourSlot = typeof body.tourSlotKey === "string" ? parseTourSlotKey(body.tourSlotKey) : null;
+              if (tourSlot) {
+                params.set("next", tourSchedulePath({
+                  propertyId: body.propertyId,
+                  slotKey: tourSlot.slotKey,
+                  roomParam: typeof body.listingRoomId === "string" ? body.listingRoomId : null,
+                }));
+                window.location.replace(nativeAwarePath(`/auth/create-account?${params.toString()}`));
+                return;
+              }
               const apply = new URLSearchParams({ propertyId: body.propertyId });
               if (typeof body.listingRoomId === "string") apply.set("listingRoomId", body.listingRoomId);
               if (typeof body.bundleId === "string") apply.set("bundle", body.bundleId);

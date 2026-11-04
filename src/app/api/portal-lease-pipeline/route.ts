@@ -1,4 +1,5 @@
 import { shortStayPricingBlocker } from "@/lib/short-stay-pricing-gate";
+import { leaseTermsDriftFromApplication } from "@/lib/lease-terms-drift";
 import { loadShortStayPricingSubmission } from "@/lib/short-stay-pricing-gate.server";
 import { residentNoticeChannel } from "@/lib/resident-notice-channel.server";
 import { resolveAdminOversight } from "@/lib/auth/admin-oversight.server";
@@ -1309,6 +1310,34 @@ export async function POST(req: Request) {
       if (sendingToResident && !(storedRow && rowHasAnySignature(storedRow))) {
         const pricing = shortStayPricingBlocker(nextRow, await loadShortStayPricingSubmission(ctx.db, nextRow, existingRecord?.manager_user_id ?? ctx.user.id));
         if (pricing) return NextResponse.json({ error: pricing, blocked: "stay-pricing" }, { status: 409 });
+      }
+      // The terms on a lease going out are the record's: rent, deposit, start and end are re-read from
+      // the filed application and a body that differs is refused. Only the transition is checked (not
+      // every later write), an uploaded PDF keeps its own reading/review path, and a lease with no
+      // application behind it has nothing to compare.
+      const isNewSend = sendingToResident && storedRow?.status !== "Resident Signature Pending";
+      const isUploadedLease = Boolean(nextRow.uploadedLeaseParse) || (Boolean(nextRow.managerUploadedPdf?.dataUrl) && !nextRow.generatedHtml);
+      const termsAxisId = typeof nextRow.axisId === "string" ? nextRow.axisId.trim() : "";
+      if (isNewSend && !isUploadedLease && termsAxisId && !(storedRow && rowHasAnySignature(storedRow))) {
+        const { data: appRecord, error: appError } = await ctx.db
+          .from("manager_application_records")
+          .select("row_data")
+          .eq("id", termsAxisId)
+          .eq("manager_user_id", existingRecord?.manager_user_id ?? ctx.user.id)
+          .maybeSingle();
+        if (appError) {
+          return NextResponse.json({ error: "The resident record could not be read to confirm the lease terms. Try again.", blocked: "terms-unreadable" }, { status: 409 });
+        }
+        const appRow = (appRecord?.row_data ?? null) as { application?: Record<string, string | undefined> } | null;
+        if (appRow) {
+          const drift = leaseTermsDriftFromApplication(nextRow.application, appRow.application);
+          if (drift.length > 0) {
+            return NextResponse.json(
+              { error: `The lease terms (${drift.join(", ")}) differ from the resident record. Edit the resident, then send the regenerated lease.`, blocked: "terms-differ", terms: drift },
+              { status: 409 },
+            );
+          }
+        }
       }
       const hasUploadedSource = Boolean(nextRow.managerUploadedPdf?.dataUrl);
       // Both uploaded lease PDFs and converted reusable templates use the
