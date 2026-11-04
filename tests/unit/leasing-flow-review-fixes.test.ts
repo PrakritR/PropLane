@@ -105,7 +105,11 @@ describe("application_started alert is awaited, not detached", () => {
   it("has no fire-and-forget promise around the ops alert", () => {
     const src = read("src/lib/rental-application/signed-in-application-write.server.ts");
     expect(src).not.toContain("void (async () => {");
-    expect(src).toMatch(/try \{\s*const \{ alertPhonesOf \}[\s\S]*await alertPhonesOf/);
+    expect(src).toMatch(/try \{[\s\S]*?const \{ alertPhonesOf \}[\s\S]*await alertPhonesOf/);
+  });
+  it("caps the alert per owner before any text goes out", () => {
+    const src = read("src/lib/rental-application/signed-in-application-write.server.ts");
+    expect(src).toMatch(/rateLimit\(`ops-alert:application_started:\$\{row\.managerUserId!\.trim\(\)\}`, 10, 60 \* 60 \* 1000\)[\s\S]*if \(!cap\.ok\) throw[\s\S]*await alertPhonesOf/);
   });
 });
 

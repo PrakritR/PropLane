@@ -228,7 +228,12 @@ export async function persistNormalizedRow(
     // Awaited, not detached: a promise started during a request and never awaited is not guaranteed to
     // run once the response is sent, so the alert the captain asked for could vanish with no trace.
     // `alertPhonesOf` never throws, and the catch keeps a failed import off the applicant's write.
+    // A guest draft needs no session and picks its own id, so the alert is capped per owner: a scripted
+    // stream of drafts must not become an unbounded run of texts billed to the owner's credit.
     try {
+      const { rateLimit } = await import("@/lib/rate-limit");
+      const cap = await rateLimit(`ops-alert:application_started:${row.managerUserId!.trim()}`, 10, 60 * 60 * 1000);
+      if (!cap.ok) throw new Error("application_started alert capped");
       const { alertPhonesOf } = await import("@/lib/one-number/ops-alerts.server");
       const { applicationStartedLine } = await import("@/lib/one-number/ops-alert-lines");
       await alertPhonesOf(db, {
