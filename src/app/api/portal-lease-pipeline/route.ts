@@ -1372,10 +1372,16 @@ export async function POST(req: Request) {
       // application can be measured against nothing: a single create-and-send POST would otherwise
       // carry arbitrary rent, deposit and dates past this gate. An imported document (an uploaded PDF,
       // or a reusable converted template placed by hand) stands on its own review receipt instead.
+      //
+      // Read off the mode the GENERATOR persisted, never `effectiveLeaseDocumentMode`: that resolves
+      // ANY row with no stored mode and no PDF as generated, so a lease filed before the mode was
+      // stored would be refused over a link it never carried. `isUploadedLease` is the same signal the
+      // drift gate below reads, so the two can never disagree about what counts as imported.
+      const isProplaneGeneratedLease = nextRow.documentMode === "proplane-generated" && !isUploadedLease;
       if (
         isNewSend &&
         !termsAxisId &&
-        effectiveLeaseDocumentMode(nextRow) === "proplane-generated" &&
+        isProplaneGeneratedLease &&
         !(storedRow && rowHasAnySignature(storedRow))
       ) {
         return NextResponse.json(
