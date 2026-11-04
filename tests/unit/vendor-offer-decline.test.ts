@@ -20,6 +20,8 @@ const state = vi.hoisted(() => ({
   workOrders: [] as Row[],
   recipients: ["mgr-1"] as string[],
   notifications: [] as Row[],
+  rpcResult: true as boolean,
+  rpcError: null as string | null,
 }));
 
 function table(rows: Row[], onUpdate?: (row: Row, patch: Row) => void) {
@@ -52,6 +54,18 @@ function table(rows: Row[], onUpdate?: (row: Row, patch: Row) => void) {
 }
 
 const db = {
+  rpc: vi.fn(async (name: string, args: Row) => {
+    if (name !== "decline_vendor_service_quote") throw new Error(`Unexpected RPC: ${name}`);
+    if (state.rpcError) return { data: null, error: { message: state.rpcError } };
+    if (!state.rpcResult) return { data: false, error: null };
+    const directory = state.directory.find((d) => d.id === args.p_vendor_directory_id && d.manager_user_id === args.p_manager_user_id);
+    const work = state.workOrders.find((w) => w.id === args.p_work_order_id && w.manager_user_id === args.p_manager_user_id);
+    if (!work || !directory || (args.p_actor_user_id !== args.p_manager_user_id && args.p_actor_user_id !== directory.vendor_user_id)) return { data: null, error: { message: "vendor identity unverified" } };
+    const offer = state.offers.find((o) => o.work_order_id === args.p_work_order_id && o.manager_user_id === args.p_manager_user_id && o.vendor_directory_id === args.p_vendor_directory_id);
+    if (!offer || offer.status !== "sent") return { data: false, error: null };
+    Object.assign(offer, { status: "declined", declined_reason: args.p_reason, declined_at: new Date().toISOString(), declined_source_message_id: args.p_source_message_id });
+    return { data: true, error: null };
+  }),
   from: (name: string) => {
     if (name === "work_order_vendor_offers") return table(state.offers);
     if (name === "manager_vendor_records") return table(state.directory);
@@ -86,12 +100,14 @@ async function decline(body: Row, actorOver: Row = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.rpcResult = true;
+  state.rpcError = null;
   state.role = "vendor";
   state.admin = false;
   state.recipients = ["mgr-1"];
   state.notifications = [];
-  state.directory = [{ id: "dir-1", vendor_user_id: VENDOR }];
-  state.workOrders = [{ id: "wo-1", row_data: { title: "Leaking tap", propertyLabel: "12 Elm" } }];
+  state.directory = [{ id: "dir-1", manager_user_id: "mgr-1", vendor_user_id: VENDOR }];
+  state.workOrders = [{ id: "wo-1", manager_user_id: "mgr-1", row_data: { title: "Leaking tap", propertyLabel: "12 Elm" } }];
   state.offers = [
     {
       id: "offer-1",
@@ -114,6 +130,23 @@ describe("vendor declines a work-order offer", () => {
     expect(state.offers[0]?.status).toBe("declined");
     expect(state.offers[0]?.declined_reason).toBe("Booked until March");
     expect(state.offers[0]?.declined_at).toBeTruthy();
+    expect(db.rpc).toHaveBeenCalledWith("decline_vendor_service_quote", {
+      p_work_order_id: "wo-1", p_manager_user_id: "mgr-1", p_vendor_directory_id: "dir-1",
+      p_actor_user_id: VENDOR, p_verified_phone_e164: null, p_reason: "Booked until March",
+      p_source_message_id: "portal-offer-decline:offer-1",
+    });
+  });
+
+  it("returns a conflict without notifying when the atomic RPC reports a changed offer", async () => {
+    state.rpcResult = false;
+    expect(await decline({ offerId: "offer-1" })).toMatchObject({ ok: false, status: 409 });
+    expect(state.offers[0]?.status).toBe("sent"); expect(state.notifications).toEqual([]);
+  });
+
+  it("keeps state and notifications unchanged when the RPC refuses identity or commitment", async () => {
+    state.rpcError = "approved commitment requires manager cancellation";
+    expect(await decline({ offerId: "offer-1" })).toMatchObject({ ok: false, status: 500, error: state.rpcError });
+    expect(state.offers[0]?.status).toBe("sent"); expect(state.notifications).toEqual([]);
   });
 
   it("tells the manager, so they can send the job elsewhere", async () => {

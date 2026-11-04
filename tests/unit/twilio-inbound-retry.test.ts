@@ -908,13 +908,12 @@ describe("managed Twilio inbound retry", () => {
     warn.mockRestore();
   });
 
-  it("claims the receipt together with a replayable payload", async () => {
+  it("claims the processor receipt with replayable payload without minting quote signature authority", async () => {
     mocks.handleInbound.mockResolvedValue({ ok: true, intent: "unknown", replied: false, durablyAccepted: true });
 
     expect((await POST(inboundRequest())).status).toBe(200);
     expect(mocks.rpc).toHaveBeenCalledWith("claim_sms_inbound", expect.objectContaining({
       p_inbound_payload: {
-        signedTwilio: true,
         fromPhone: "+12065552222",
         toPhone: "+12065559999",
         body: "Is the apartment available?",
@@ -923,6 +922,10 @@ describe("managed Twilio inbound retry", () => {
         runtime: "development",
       },
     }));
+    // Signature verification belongs to durable transport acceptance; only the atomic quote
+    // transaction stamps signedTwilio on its original receipt. This helper exercises processing.
+    const claim = mocks.rpc.mock.calls.find(([name]) => name === "claim_sms_inbound");
+    expect(claim?.[1].p_inbound_payload).not.toHaveProperty("signedTwilio");
   });
 
   it("projects the classified prospect's original inbound SID, body, and receipt time", async () => {

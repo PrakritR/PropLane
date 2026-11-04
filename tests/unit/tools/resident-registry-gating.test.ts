@@ -17,6 +17,7 @@ function gatingCtx(phase: "application" | "approved", managerTier: ManagerSubscr
 }
 
 const SERVICES_TOOLS = [
+  "list_visit_proposals", "submit_visit_windows", "confirm_visit_proposal",
   "list_my_service_requests",
   "list_my_work_orders",
   "create_service_request",

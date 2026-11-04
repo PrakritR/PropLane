@@ -104,6 +104,21 @@ describe("delete order", () => {
     }
   });
 
+  it("clears vendor authority before its automation, directory and service parents", () => {
+    for (const table of ["vendor_quote_sms_consent_events", "vendor_quote_sms_consent_challenges", "vendor_quote_email_outbox"]) {
+      expect(before(table, "vendor_quote_contact_capabilities")).toBe(true);
+    }
+    expect(before("vendor_quote_contact_capabilities", "vendor_sourcing_candidates")).toBe(true);
+    expect(before("vendor_sourcing_candidates", "vendor_sourcing_jobs")).toBe(true);
+    for (const table of ["vendor_coordination_phone_challenges", "vendor_coordination_phone_bindings", "vendor_coordination_reservations"]) {
+      expect(before(table, "vendor_coordination_proposals")).toBe(true);
+    }
+    for (const table of ["vendor_sourcing_jobs", "vendor_coordination_proposals", "vendor_quote_email_permissions"]) {
+      expect(before(table, "manager_vendor_records")).toBe(true);
+      expect(before(table, "portal_work_order_records")).toBe(true);
+    }
+  });
+
   it("deletes source arbitration children before their payout and held-charge parents", () => {
     expect(before("platform_hold_refund_transfer_legs", "platform_hold_refund_attempts")).toBe(true);
     expect(before("platform_hold_refund_transfer_legs", "platform_hold_transfer_attempts")).toBe(true);

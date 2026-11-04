@@ -89,6 +89,10 @@ export const API_KEY_PRODUCT_AREAS: readonly ApiKeyProductArea[] = [
 // vendors on the manager's own reply: both stay on the in-product assistants and SMS, never API keys.
 // (Listed in registry order; `mcp-tool-scope.test.ts` compares the two.)
 export const EXTERNAL_EXCLUDED_TOOL_NAMES = new Set([
+  // Visit coordination remains in-product; external credentials gain no new authority.
+  "list_visit_proposals",
+  "coordinate_service_visit",
+  "approve_coordinated_visit",
   "lookup_property_knowledge",
   "save_knowledge_answer",
   "get_property_location_research",

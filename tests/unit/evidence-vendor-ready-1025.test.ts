@@ -85,6 +85,17 @@ function makeDb(tables: Record<string, Row[]>) {
   };
   return {
     tables,
+    rpc: vi.fn(async (name: string, args: Row) => {
+      if (name !== "link_vendor_directory_account") throw new Error(`Unexpected RPC: ${name}`);
+      const directory = (tables.manager_vendor_records ?? []).find((r) => r.id === args.p_directory_id);
+      if (!directory || directory.manager_user_id !== args.p_manager_user_id) return { data: null, error: { message: "vendor directory owner mismatch" } };
+      if (directory.vendor_user_id != null && directory.vendor_user_id !== args.p_vendor_user_id) return { data: null, error: { message: "vendor directory already linked to another account" } };
+      directory.vendor_user_id = args.p_vendor_user_id;
+      for (const offer of tables.work_order_vendor_offers ?? []) {
+        if (offer.vendor_directory_id === args.p_directory_id && offer.manager_user_id === args.p_manager_user_id && offer.vendor_user_id == null) offer.vendor_user_id = args.p_vendor_user_id;
+      }
+      return { data: true, error: null };
+    }),
     auth: { admin: {} },
     from(name: string) {
       const rows = (tables[name] ??= []);
@@ -132,6 +143,7 @@ function makeDb(tables: Record<string, Row[]>) {
         lt: (c: string, v: string) => (preds.push((r) => String(pick(r, c)) < v), b),
         not: () => b,
         order: () => b,
+        range: () => b,
         limit: (n: number) => ((lim = n), b),
         maybeSingle: async () => ({ data: run()[0] ?? null, error: null }),
         then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data: run(), error: null }).then(resolve),
@@ -207,6 +219,7 @@ describe("onboarding: a job assigned before signup follows the vendor into their
     say();
 
     expect(result).toMatchObject({ ok: true, kind: "vendor", vendorDirectoryId: "vrec-harbor" });
+    expect(db.rpc).toHaveBeenCalledWith("link_vendor_directory_account", { p_directory_id: "vrec-harbor", p_manager_user_id: "mgr-taylor", p_vendor_user_id: "usr-harbor" });
     // One row for this manager, still named the way the manager typed it.
     const taylorRows = db.tables.manager_vendor_records!.filter((r) => r.manager_user_id === "mgr-taylor");
     expect(taylorRows).toHaveLength(1);

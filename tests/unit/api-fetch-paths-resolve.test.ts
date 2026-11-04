@@ -93,6 +93,10 @@ describe("client API paths resolve to real routes", () => {
     expect(missing).toEqual([]);
   });
 
+  it("resolves each finite public quote action endpoint", () => {
+    for (const action of ["response", "withdrawal", "sms-challenge"]) expect(routeExists(`/api/public/vendor-quote/${action}`)).toBe(true);
+  });
+
   it("recognizes a path that does not exist (negative control)", () => {
     expect(routeExists("/api/portal/purge-orphaned-co-manager-links")).toBe(false);
     expect(routeExists("/api/pro/purge-orphaned-co-manager-links")).toBe(true);

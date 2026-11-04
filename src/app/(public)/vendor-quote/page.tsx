@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export const metadata: Metadata = {
-  title: "Service quote",
+  title: "Service bid",
   robots: { index: false, follow: false, noarchive: true, nosnippet: true },
   referrer: "no-referrer",
 };

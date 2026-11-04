@@ -22,6 +22,14 @@ describe("MCP tool scope", () => {
       .toEqual({ ok: false, error: "This API key is not permitted to use that tool." });
   });
 
+  it("keeps coordination excluded even for explicit or legacy broad bearer credentials", async () => {
+    for (const name of ["list_visit_proposals", "coordinate_service_visit", "approve_coordinated_visit"]) {
+      expect(listTools([name], ["read", "write"]).some((tool) => tool.name === name)).toBe(false);
+      expect(await callTool(makeManagerRowsCtx({}), [name], ["read", "write"], name, {}, "rest", "explicit"))
+        .toEqual({ ok: false, error: "This API key is not permitted to use that tool." });
+    }
+  });
+
   it("hides writes from a read key and never publishes a bearer-confirm tool", () => {
     const readAllowed = API_KEY_PRODUCT_AREAS.flatMap((area) => area.readTools);
     const readTools = listTools(readAllowed);

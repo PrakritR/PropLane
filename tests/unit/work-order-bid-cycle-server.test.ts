@@ -32,10 +32,21 @@ type Store = {
   acceptedBidIds: string[];
 };
 let STORE: Store;
+let RPCS: Array<{ name: string; args: Record<string, unknown> }>;
+let RPC_ERROR: string | null;
 let WRITES: Array<{ table: string; op: string; values?: Record<string, unknown>; filters: Array<[string, unknown]> }>;
 
 function makeDb() {
   return {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name !== "invalidate_vendor_service_offers") throw new Error(`Unexpected RPC: ${name}`);
+      RPCS.push({ name, args });
+      if (RPC_ERROR) return { data: null, error: { message: RPC_ERROR } };
+      if (args.p_manager_user_id !== STORE.workOrder?.manager_user_id || args.p_work_order_id !== STORE.bid?.work_order_id || args.p_status !== "withdrawn") return { data: null, error: { message: "service unavailable" } };
+      // The RPC replaces sent-offer withdrawal and sourcing lifecycle updates in one transaction.
+      if (STORE.offer?.status === "sent" && STORE.offer.work_order_id === args.p_work_order_id && STORE.offer.manager_user_id === args.p_manager_user_id) STORE.offer.status = "withdrawn";
+      return { data: [], error: null };
+    },
     from(table: string) {
       const filters: Array<[string, unknown]> = [];
       let pending: { op: string; values?: Record<string, unknown> } | null = null;
@@ -114,10 +125,12 @@ const bidRow = (over: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   WRITES = [];
+  RPCS = [];
+  RPC_ERROR = null;
   STORE = {
     bid: bidRow(),
     workOrder: { manager_user_id: "mgr-1", vendor_user_id: null, row_data: { id: "wo-1", title: "Leaky faucet", biddingOpen: true } },
-    offer: { id: "offer-1" },
+    offer: { id: "offer-1", work_order_id: "wo-1", manager_user_id: "mgr-1", status: "sent" },
     acceptedBidIds: [],
   };
 });
@@ -171,6 +184,7 @@ describe("approving a bid", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.amountCents).toBe(20_000);
+    expect(RPCS).toEqual([{ name: "invalidate_vendor_service_offers", args: { p_work_order_id: "wo-1", p_manager_user_id: "mgr-1", p_status: "withdrawn", p_now: expect.any(String) } }]);
     const accepted = WRITES.find((w) => w.table === "work_order_bids" && w.values?.status === "accepted");
     expect(accepted).toBeTruthy();
     expect(accepted!.values).not.toHaveProperty("amount_cents");
@@ -214,8 +228,9 @@ describe("re-approving an already-accepted bid", () => {
     expect(result.ok).toBe(true);
     expect(WRITES.find((w) => w.table === "portal_work_order_records" && w.op === "update")).toBeUndefined();
     expect(WRITES.find((w) => w.table === "work_order_bids" && w.values?.status === "accepted")).toBeUndefined();
-    const withdraw = WRITES.find((w) => w.table === "work_order_vendor_offers" && w.values?.status === "withdrawn");
-    expect(withdraw).toBeTruthy();
+    expect(RPCS).toEqual([{ name: "invalidate_vendor_service_offers", args: { p_work_order_id: "wo-1", p_manager_user_id: "mgr-1", p_status: "withdrawn", p_now: expect.any(String) } }]);
+    expect(STORE.offer?.status).toBe("withdrawn");
+    expect(WRITES.find((w) => w.table === "work_order_vendor_offers" && w.values?.status === "withdrawn")).toBeUndefined();
   });
 
   it("applies the hire when the accept landed but the assign write did not", async () => {
@@ -233,6 +248,18 @@ describe("re-approving an already-accepted bid", () => {
     expect(woPatch!.values!.row_data).toMatchObject({ vendorCostCents: 20_000, bucket: "scheduled" });
     // The bid is already accepted, so the status write is not repeated.
     expect(WRITES.find((w) => w.table === "work_order_bids" && w.values?.status === "accepted")).toBeUndefined();
+  });
+
+  it("surfaces atomic offer cleanup failure and allows the accepted bid to finish on retry", async () => {
+    STORE.bid = acceptedBid();
+    STORE.workOrder = { manager_user_id: "mgr-1", vendor_user_id: "vendor-1", row_data: { vendorId: "dir-1", vendorAssignedAt: "2026-10-03T00:00:00.000Z" } };
+    RPC_ERROR = "service lock unavailable";
+    expect(await acceptWorkOrderBid(makeDb() as never, MANAGER as never, { bidId: "bid-1", workOrderId: "wo-1" })).toMatchObject({ ok: false, status: 500, error: RPC_ERROR });
+    expect(STORE.offer?.status).toBe("sent");
+    expect(WRITES).toEqual([]);
+    RPC_ERROR = null;
+    expect((await acceptWorkOrderBid(makeDb() as never, MANAGER as never, { bidId: "bid-1", workOrderId: "wo-1" })).ok).toBe(true);
+    expect(STORE.offer?.status).toBe("withdrawn"); expect(STORE.bid?.status).toBe("accepted");
   });
 
   it("still refuses a DIFFERENT bid once one is accepted", async () => {

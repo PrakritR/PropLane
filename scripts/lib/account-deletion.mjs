@@ -81,6 +81,19 @@ export const EMAIL_COLUMNS = [
  *     workspace can only go once its properties are gone
  */
 export const DELETE_ORDER = [
+  // Vendor automation children before their directory, service and workspace parents.
+  "vendor_quote_sms_consent_events",
+  "vendor_quote_sms_consent_challenges",
+  "vendor_quote_email_outbox",
+  "vendor_quote_contact_capabilities",
+  "vendor_quote_email_permissions",
+  "vendor_sourcing_candidates",
+  "vendor_sourcing_jobs",
+  "vendor_coordination_phone_challenges",
+  "vendor_coordination_phone_bindings",
+  "vendor_coordination_reservations",
+  "vendor_coordination_proposals",
+  "vendor_outreach_workspace_profiles",
   "email_onboarding_handoffs",
   "tour_signup_capabilities",
   // 1. child rows, and the GL/vendor chains that must clear first

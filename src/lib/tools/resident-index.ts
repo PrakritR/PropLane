@@ -107,6 +107,7 @@ const ALL_RESIDENT_TOOLS: ResidentTool[] = [
  * Tools without an entry are available on every tier.
  */
 const TOOL_SECTION: Record<string, string> = {
+  ...Object.fromEntries(residentCoordinationTools.map((tool) => [tool.name, "services"])),
   [listMyServiceRequestsTool.name]: "services",
   [listMyWorkOrdersTool.name]: "services",
   [createServiceRequestTool.name]: "services",

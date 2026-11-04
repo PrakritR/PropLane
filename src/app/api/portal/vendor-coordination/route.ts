@@ -1,3 +1,4 @@
+import { refuseOwnerOnly } from "@/lib/property-owner/route-auth.server";
 import { NextResponse } from "next/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
@@ -14,6 +15,7 @@ async function actor() {
   const db = createSupabaseServiceRoleClient();
   if ((await resolveAuthenticatedBusinessAccess(access.user.id, db)).kind === "denied") throw new Error("Forbidden.");
   const role = access.effectiveRole;
+  if (role === "manager" && await refuseOwnerOnly(db, access.user.id)) throw new Error("Forbidden.");
   if (role !== "manager" && role !== "vendor" && role !== "resident") throw new Error("Forbidden.");
   if (role === "resident" && !await authorizeResidentRole(db, { userId: access.user.id, legacyRole: access.profile?.role })) throw new Error("Forbidden.");
   return { db, actor: { role, userId: access.user.id, email: String(access.profile?.email ?? access.user.email ?? "").toLowerCase() } as CoordinationActor };

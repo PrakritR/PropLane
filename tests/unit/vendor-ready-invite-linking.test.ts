@@ -15,6 +15,17 @@ function makeDb(tables: Record<string, Row[]>) {
   };
   return {
     tables,
+    rpc: vi.fn(async (name: string, args: Row) => {
+      if (name !== "link_vendor_directory_account") throw new Error(`Unexpected RPC: ${name}`);
+      const directory = (tables.manager_vendor_records ?? []).find((r) => r.id === args.p_directory_id);
+      if (!directory || directory.manager_user_id !== args.p_manager_user_id) return { data: null, error: { message: "vendor directory owner mismatch" } };
+      if (directory.vendor_user_id != null && directory.vendor_user_id !== args.p_vendor_user_id) return { data: null, error: { message: "vendor directory already linked to another account" } };
+      directory.vendor_user_id = args.p_vendor_user_id;
+      for (const offer of tables.work_order_vendor_offers ?? []) {
+        if (offer.vendor_directory_id === args.p_directory_id && offer.manager_user_id === args.p_manager_user_id && offer.vendor_user_id == null) offer.vendor_user_id = args.p_vendor_user_id;
+      }
+      return { data: true, error: null };
+    }),
     auth: { admin: {} },
     from(name: string) {
       const rows = (tables[name] ??= []);
@@ -60,6 +71,7 @@ function makeDb(tables: Record<string, Row[]>) {
         },
         gt: (c: string, v: string) => (preds.push((r) => String(pick(r, c)) > v), b),
         order: () => b,
+        range: () => b,
         limit: (n: number) => ((lim = n), b),
         maybeSingle: async () => ({ data: run()[0] ?? null, error: null }),
         then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data: run(), error: null }).then(resolve),
@@ -110,6 +122,23 @@ describe("J2 linking back-fills only the inviting manager's records", () => {
     const byId = Object.fromEntries(db.tables.portal_work_order_records!.map((r) => [r.id as string, r.vendor_user_id]));
     expect(byId).toEqual({ "wo-a": "vend", "wo-self": null, "wo-b": null, "wo-other": null });
     expect(db.tables.manager_vendor_records![0]!.vendor_user_id).toBe("vend");
+    expect(db.rpc).toHaveBeenCalledWith("link_vendor_directory_account", { p_directory_id: "v1", p_manager_user_id: "mgrA", p_vendor_user_id: "vend" });
+  });
+});
+
+describe("atomic directory linking refusals", () => {
+  it("propagates an owner mismatch before backfilling any job", async () => {
+    const { linkDirectoryRowToVendor } = await import("@/lib/auth/provision-vendor-account");
+    const db = makeDb({ manager_vendor_records: [{ id: "v1", manager_user_id: "mgrB", vendor_user_id: null }], portal_work_order_records: [{ id: "job", manager_user_id: "mgrA", vendor_user_id: null, row_data: { vendorId: "v1" } }] });
+    await expect(linkDirectoryRowToVendor(db as never, { directoryId: "v1", managerUserId: "mgrA", vendorUserId: "vend" })).rejects.toThrow("owner mismatch");
+    expect(db.tables.manager_vendor_records![0]!.vendor_user_id).toBeNull();
+    expect(db.tables.portal_work_order_records![0]!.vendor_user_id).toBeNull();
+  });
+  it("does not replace a vendor account already attached to a directory", async () => {
+    const { linkDirectoryRowToVendor } = await import("@/lib/auth/provision-vendor-account");
+    const db = makeDb({ manager_vendor_records: [{ id: "v1", manager_user_id: "mgrA", vendor_user_id: "original" }], portal_work_order_records: [] });
+    await expect(linkDirectoryRowToVendor(db as never, { directoryId: "v1", managerUserId: "mgrA", vendorUserId: "replacement" })).rejects.toThrow("already linked");
+    expect(db.tables.manager_vendor_records![0]!.vendor_user_id).toBe("original");
   });
 });
 

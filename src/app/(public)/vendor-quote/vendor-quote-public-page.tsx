@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { reloadVendorQuoteDocument } from "@/lib/vendor-quote-document-navigation";
 import { Button } from "@/components/ui/button";
 import { formatVendorQuoteSmsChallengeMessage, type VendorQuotePublicProjection, type VendorQuoteResponseInput, type VendorQuoteWindow } from "@/lib/vendor-quote-contract";
 
@@ -103,6 +104,7 @@ function storeSessionBinding(binding: string | undefined): boolean {
 }
 
 export function VendorQuotePublicPage() {
+  const fragmentNavigation = useRef(false);
   const initialExchange = useRef<{ purpose: Purpose; result: Promise<ExchangeBody> } | null>(null);
   const [projection, setProjection] = useState<VendorQuotePublicProjection | null>(null);
   const [purpose, setPurpose] = useState<Purpose>("response");
@@ -124,6 +126,7 @@ export function VendorQuotePublicPage() {
   const loadFromCookie = useCallback(async () => {
     const response = await fetch("/api/public/vendor-quote/session", { cache: "no-store", credentials: "same-origin" });
     const body = await readApiResult(response);
+    if (fragmentNavigation.current) return;
     if (!response.ok || !body.ok || !body.projection) {
       setScreen("unavailable");
       return;
@@ -148,7 +151,7 @@ export function VendorQuotePublicPage() {
     const fragment = getFragment();
     if (!initialExchange.current && rawHash && !fragment) {
       window.history.replaceState(null, "", window.location.pathname);
-      queueMicrotask(() => { if (!cancelled) setScreen("unavailable"); });
+      queueMicrotask(() => { if (!cancelled && !fragmentNavigation.current) setScreen("unavailable"); });
       return () => { cancelled = true; };
     }
     if (!initialExchange.current && fragment) {
@@ -168,7 +171,7 @@ export function VendorQuotePublicPage() {
     if (exchange) {
       void (async () => {
         const body = await exchange.result;
-        if (cancelled) return;
+        if (cancelled || fragmentNavigation.current) return;
         if (!body.ok || !body.projection) {
           setScreen("unavailable");
           return;
@@ -182,20 +185,40 @@ export function VendorQuotePublicPage() {
         setDraft(initialDraft(body.projection));
         setFollowUpReply(body.projection.followUpReply ?? null);
         setScreen("ready");
-      })().catch(() => { if (!cancelled) setScreen("unavailable"); });
+      })().catch(() => { if (!cancelled && !fragmentNavigation.current) setScreen("unavailable"); });
     } else {
       queueMicrotask(() => {
-        if (!cancelled) void loadFromCookie().catch(() => { if (!cancelled) setScreen("unavailable"); });
+        if (!cancelled) void loadFromCookie().catch(() => { if (!cancelled && !fragmentNavigation.current) setScreen("unavailable"); });
       });
     }
     return () => { cancelled = true; };
   }, [loadFromCookie]);
 
-  const post = useCallback(async (path: string, body: Record<string, unknown>) => {
+  useEffect(() => {
+    const onHashChange = () => {
+      if (!window.location.hash || fragmentNavigation.current) return;
+      fragmentNavigation.current = true;
+      initialExchange.current = null;
+      setProjection(null);
+      setDraft(initialDraft(null));
+      setQuestion("");
+      setChallenge(null);
+      setSmsConsent(false);
+      setPhone("");
+      setBusy(true);
+      setScreen("loading");
+      reloadVendorQuoteDocument();
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  const post = useCallback(async (path: "response" | "withdrawal" | "sms-challenge", body: Record<string, unknown>) => {
+    if (fragmentNavigation.current) return null;
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`/api/public/vendor-quote/${path}`, {
+      const response = await fetch({ response: "/api/public/vendor-quote/response", withdrawal: "/api/public/vendor-quote/withdrawal", "sms-challenge": "/api/public/vendor-quote/sms-challenge" }[path], {
         method: "POST",
         headers: {
           ...csrfHeaders,
@@ -206,6 +229,7 @@ export function VendorQuotePublicPage() {
         body: JSON.stringify(body),
       });
       const result = await readApiResult(response);
+      if (fragmentNavigation.current) return null;
       if (!response.ok || !result.ok) {
         setError(response.status === 409 && typeof result.error === "string" ? result.error : "This link is no longer available. Reopen the latest quote email or contact the sender.");
         return null;
@@ -213,10 +237,10 @@ export function VendorQuotePublicPage() {
       if (result.projection) setProjection(result.projection);
       return result;
     } catch {
-      setError("Your response could not be saved. Check your connection and try again.");
+      if (!fragmentNavigation.current) setError("Your response could not be saved. Check your connection and try again.");
       return null;
     } finally {
-      setBusy(false);
+      if (!fragmentNavigation.current) setBusy(false);
     }
   }, [csrfHeaders, projection]);
 

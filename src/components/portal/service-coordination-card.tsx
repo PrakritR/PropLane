@@ -2,6 +2,7 @@
 import { coordinationQuote } from "@/lib/vendor-coordination-view";
 import { useCallback, useEffect, useState } from "react";
 import { CountStepper } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Button } from "@/components/ui/button";
 import { PortalSettingsSection, PortalSettingsGroup, PortalSettingsRow } from "@/components/portal/portal-settings-ui";
 import { formatPacificDateTime } from "@/lib/pacific-time";
@@ -29,7 +30,7 @@ export function ServiceCoordinationCard({ workOrderId, role, vendorDirectoryId }
   return <div className="px-3 py-4 sm:px-4" data-attr="service-coordination"><PortalSettingsSection title="Visit coordination">
     {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
     {role === "manager" && (vendorId || vendors.length > 0) && <div className="flex flex-wrap gap-2">
-      <label className="w-full">Vendor<select className={field} value={vendorId} onChange={(e) => setVendorId(e.target.value)}><option value="">Choose vendor</option>{vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
+      <FieldSingleSelect label="Vendor" value={vendorId} onChange={setVendorId} options={vendors.map((vendor) => ({ value: vendor.id, label: vendor.name }))} placeholder="Choose vendor" dataAttr="service-coordination-vendor" />
       {(["consultation", "repair"] as const).map((visit) => <Button key={visit} variant="outline" disabled={!vendorId} onClick={() => save({ kind: "enroll", work_order_id: workOrderId, vendor_directory_id: vendorId, visit_type: visit, manager_user_id: "", actor_user_id: "" })}>Coordinate {visit}</Button>)}
     </div>}
     {proposals.map((p) => { const base = { proposal_id: p.id, expected_version: p.version }; const terminal = ["approved", "cancelled", "declined"].includes(p.status); return <PortalSettingsGroup key={p.id}>

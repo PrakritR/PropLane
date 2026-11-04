@@ -2,6 +2,9 @@
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+const navigation = vi.hoisted(() => ({ reload: vi.fn() }));
+vi.mock("@/lib/vendor-quote-document-navigation", () => ({ reloadVendorQuoteDocument: navigation.reload }));
+beforeEach(() => navigation.reload.mockReset());
 import { VendorQuotePublicPage } from "@/app/(public)/vendor-quote/vendor-quote-public-page";
 
 const publicProjection = {
@@ -202,5 +205,49 @@ it("shares an in-flight fragment exchange across StrictMode effect restart", asy
   complete({ ok: true, json: async () => ({ ok: true, projection: publicProjection }) } as Response);
   await screen.findByRole("heading", { name: "Respond to a service request" });
   expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(["/api/public/vendor-quote/exchange"]);
+  expect(window.sessionStorage.getItem("proplane:vendor-quote-session-binding")).toBe("session-a");
+});
+
+
+it("reinitializes quote B after an actual hashchange on mounted quote A", async () => {
+  window.history.replaceState(null, "", "/vendor-quote#quote-A"); window.sessionStorage.clear();
+  const fetchMock=vi.spyOn(globalThis,"fetch").mockImplementation(async (_path, options) => {
+    const body=JSON.parse(String(options?.body ?? "{}"));
+    return {ok:true,json:async()=>({ok:true,projection:{...publicProjection,reference:body.token==="quote-B"?"SR-B":"SR-A",sessionBinding:body.token==="quote-B"?"binding-b":"binding-a"}})} as Response;
+  });
+  render(<VendorQuotePublicPage />);
+  await screen.findByText("SR-A");
+  fireEvent.change(screen.getByLabelText(/labor amount/i),{target:{value:"999"}});
+  window.history.replaceState(null,"","/vendor-quote#quote-B");fireEvent(window,new HashChangeEvent("hashchange"));
+  expect(navigation.reload).toHaveBeenCalledOnce();
+  expect(screen.queryByText("SR-A")).toBeNull();expect(screen.queryByRole("button",{name:"Send response"})).toBeNull();
+  cleanup();render(<VendorQuotePublicPage />); // The browser's full document reload.
+  await screen.findByText("SR-B");
+  expect((screen.getByLabelText(/labor amount/i) as HTMLInputElement).value).toBe("");
+  expect(window.location.hash).toBe("");expect(window.sessionStorage.getItem("proplane:vendor-quote-session-binding")).toBe("binding-b");
+  expect(fetchMock.mock.calls.map(([,opts])=>JSON.parse(String(opts?.body)).token)).toEqual(["quote-A","quote-B"]);
+  expect(window.sessionStorage.length).toBe(1);
+});
+it("keeps one StrictMode hash listener and removes it on cleanup without scrub loops", async () => {
+  window.history.replaceState(null,"","/vendor-quote#quote-A");window.sessionStorage.clear();
+  vi.spyOn(globalThis,"fetch").mockResolvedValue({ok:true,json:async()=>({ok:true,projection:publicProjection})} as Response);
+  const add=vi.spyOn(window,"addEventListener"),remove=vi.spyOn(window,"removeEventListener");
+  const view=render(<StrictMode><VendorQuotePublicPage /></StrictMode>);await screen.findByText("SR-2048");
+  fireEvent(window,new HashChangeEvent("hashchange"));expect(navigation.reload).not.toHaveBeenCalled();
+  window.history.replaceState(null,"","/vendor-quote#quote-B");fireEvent(window,new HashChangeEvent("hashchange"));
+  expect(navigation.reload).toHaveBeenCalledOnce();view.unmount();
+  const added=add.mock.calls.filter(([name])=>name==="hashchange").map(([,listener])=>listener);
+  const removed=remove.mock.calls.filter(([name])=>name==="hashchange").map(([,listener])=>listener);
+  expect(added).toHaveLength(2);expect(removed).toEqual(added);
+});
+it("clears an invalid warm fragment and grants no authority to the previous quote", async () => {
+  window.history.replaceState(null,"","/vendor-quote#quote-A");window.sessionStorage.clear();
+  const fetchMock=vi.spyOn(globalThis,"fetch").mockResolvedValue({ok:true,json:async()=>({ok:true,projection:publicProjection})} as Response);
+  render(<VendorQuotePublicPage />);await screen.findByText("SR-2048");
+  window.history.replaceState(null,"","/vendor-quote#%");fireEvent(window,new HashChangeEvent("hashchange"));
+  expect(navigation.reload).toHaveBeenCalledOnce();expect(screen.queryByRole("button",{name:"Send response"})).toBeNull();
+  cleanup();render(<VendorQuotePublicPage />);
+  await screen.findByRole("heading",{name:"This quote link is no longer available."});
+  expect(window.location.hash).toBe("");expect(fetchMock).toHaveBeenCalledOnce();
   expect(window.sessionStorage.getItem("proplane:vendor-quote-session-binding")).toBe("session-a");
 });

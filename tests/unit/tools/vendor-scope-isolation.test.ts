@@ -455,11 +455,17 @@ beforeEach(() => {
 });
 
 describe("vendor registry acceptance", () => {
-  it("registers all 18 tools without a banned identity input field", () => {
+  it("registers all 22 tools without a banned identity input field", () => {
     // vendor-index.ts calls buildRegistry at module load, which throws if any
     // write tool declares landlordId/vendorUserId/managerId/etc — importing it
     // is itself the assertion; verify the expected surface is present.
-    expect(vendorAgentRegistry.size).toBe(18);
+    expect(vendorAgentRegistry.size).toBe(22);
+    for (const name of ["submit_visit_windows", "confirm_visit_proposal", "record_visit_quote"]) {
+      const tool = vendorAgentRegistry.get(name);
+      expect(tool?.kind).toBe("write");
+      if (!tool || tool.kind !== "write") throw new Error("Coordination write missing.");
+      expect(typeof tool.preview).toBe("function");
+    }
     expect(vendorAgentRegistry.get("submit_bid")?.kind).toBe("write");
     expect(vendorAgentRegistry.get("list_my_jobs")?.kind).toBe("read");
   });

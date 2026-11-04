@@ -338,10 +338,10 @@ describe("inbound support email → admin portal inbox (route level)", () => {
     record("wrong-secret-rejected", { status: res.status, threadCount: store.size });
   });
 
-  it("acks and ignores a non-received event without creating a thread", async () => {
+  it("acks an unmatched delivery event without creating a support thread", async () => {
     const res = await inboundWebhookPost(signedRequest({ type: "email.delivered", data: { email_id: EMAIL_ID } }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, ignored: "not-received" });
+    expect(await res.json()).toEqual({ ok: true, delivery: false });
     expect(store.size).toBe(0);
   });
 

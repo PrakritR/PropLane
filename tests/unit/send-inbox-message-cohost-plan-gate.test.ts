@@ -28,6 +28,7 @@ vi.mock("@/lib/supabase/service", () => ({
       let isIn = false;
       const chain: Record<string, unknown> = {};
       const rows = () => {
+        if (table === "portal_inbox_thread_records") return []; // Successful empty person-source discovery is not a failed read.
         if (table === "profiles") return isIn ? h.recipients : { role: "manager", full_name: "Mate", email: "mate@example.com" };
         return isIn ? [] : null;
       };

@@ -73,6 +73,7 @@ describe("vendor-financials tool map safety", () => {
     const vendorNames = new Set([...vendorAgentRegistry.values()].map((t) => t.name));
     expect(vendorNames).toEqual(
       new Set([
+        "list_visit_proposals", "submit_visit_windows", "confirm_visit_proposal", "record_visit_quote",
         "get_vendor_links",
         "list_my_jobs",
         "get_job_details",
@@ -95,7 +96,13 @@ describe("vendor-financials tool map safety", () => {
     );
     // The manager map must not inherit the vendor-scoped tools.
     const managerNames = new Set([...agentRegistry.values()].map((t) => t.name));
-    for (const n of vendorNames) expect(managerNames.has(n)).toBe(false);
+    for (const n of vendorNames) {
+      if (n === "list_visit_proposals") {
+        // Same read name, distinct role-bound handlers; never borrow the manager tool.
+        expect(vendorAgentRegistry.get(n)).not.toBe(agentRegistry.get(n));
+        expect(vendorAgentRegistry.get(n)?.kind).toBe("read");
+      } else expect(managerNames.has(n)).toBe(false);
+    }
   });
 
   it("submit_vendor_invoice is a gated write; the reads are read tools", () => {

@@ -167,7 +167,11 @@ describe("role registries never cross", () => {
       expect(manager.has(name), `${name} is a manager tool`).toBe(false);
       expect(resident.has(name), `${name} is a resident tool`).toBe(false);
     }
-    expect(vendorWorkOrderAgentRegistry.size).toBeLessThanOrEqual(6);
+    expect([...vendorWorkOrderAgentRegistry.keys()].sort()).toEqual([
+      "get_visit_proposals", "record_visit_proposal", "lookup_property_knowledge",
+      "get_job_details", "get_job_access_info", "list_my_jobs_with_this_manager",
+      "decline_service_quote", "escalate_to_manager", "get_vendor_links",
+    ].sort());
     // Twelve intentional capabilities: listing/link reads, nearby transit,
     // public property research, tour availability, redundant-reply suppression,
     // manager escalation, tour requests, dates-only room availability, and

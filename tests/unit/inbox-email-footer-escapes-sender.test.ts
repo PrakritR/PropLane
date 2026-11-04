@@ -7,7 +7,7 @@ describe("inbox email footer escapes the sender name", () => {
     it(file, () => {
       const src = readFileSync(file, "utf8");
       expect(src).not.toContain("Sent via PropLane portal by ${fromName}</p>");
-      expect(src).toMatch(/Sent via PropLane portal by \$\{String\(fromName\)\.replace\(\/&\/g/);
+      expect(src).toMatch(/Sent via PropLane portal by \$\{String\((?:fromName|emailDisplayName)\)\.replace\(\/&\/g/);
     });
   }
 });

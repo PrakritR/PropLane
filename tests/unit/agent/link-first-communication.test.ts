@@ -123,7 +123,11 @@ describe("get_vendor_links", () => {
   it("is registered on the vendor portal and the vendor SMS registries, both read-only", () => {
     expect(vendorAgentRegistry.get("get_vendor_links")?.kind).toBe("read");
     expect(vendorWorkOrderAgentRegistry.get("get_vendor_links")?.kind).toBe("read");
-    expect(vendorWorkOrderAgentRegistry.size).toBeLessThanOrEqual(6);
+    expect([...vendorWorkOrderAgentRegistry.keys()].sort()).toEqual([
+      "get_visit_proposals", "record_visit_proposal", "lookup_property_knowledge",
+      "get_job_details", "get_job_access_info", "list_my_jobs_with_this_manager",
+      "decline_service_quote", "escalate_to_manager", "get_vendor_links",
+    ].sort());
   });
 });
 
