@@ -214,6 +214,8 @@ async function main() {
     console.log(JSON.stringify({ target: DEV_PROJECT, phase: "apply", outcome: "committed_and_verified", backupFile: options.backupFile, stateDigest: verified.digest }));
   } finally { await client.end().catch(() => undefined); }
 }
+export { snapshot as snapshotVendorRelease, postflight as postflightVendorRelease, readOnly as readOnlyVendorRelease };
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   main().catch((error) => { console.error(`Vendor migration operation failed: ${error instanceof Error ? error.message : "unknown"}`); process.exitCode = 1; });
 }
