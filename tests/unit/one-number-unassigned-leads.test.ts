@@ -21,7 +21,7 @@ vi.mock("@/lib/one-number/team-alerts.server", () => ({ alertWorkspaceTeam: (...
 
 import { publicListingProjection } from "@/lib/public-listings.server";
 import { NEUTRAL_REPLY, WELCOME } from "@/lib/one-number/lead-qualifying";
-import { NO_MATCH_TEXT } from "@/lib/one-number/lead-match";
+import { NO_MATCH_TEXT, OFFER_DETAILS_HEADER } from "@/lib/one-number/lead-match";
 import {
   assignLeadToHouse,
   closeLead,
@@ -305,6 +305,40 @@ describe("a question about what is open is answered with the open homes first", 
     const turn = await say(fake, "do you allow kids? is there availability");
     expect(turn.reply).toContain(NEUTRAL_REPLY);
     expect(profile(fake).overviewSent).toBeUndefined();
+  });
+});
+
+describe("a follow-up question after the overview", () => {
+  // The overview leaves the lead at stage "offered" on its very first text, where a non-pick answer is read with
+  // `asked: "refine"`. A question is not a place: it must never become an area filter that empties the open homes.
+  it.each(["do you have anything cheaper?", "can I see photos?", "is parking included?"])(
+    "%s -> the standing rooms and their listing pages, never 'nothing fits'",
+    async (text) => {
+      const fake = seed();
+      await say(fake, "Is there availability");
+      const offersBefore = JSON.stringify(profile(fake).offers);
+      const turn = await say(fake, text);
+      expect(turn.reply).not.toContain(NO_MATCH_TEXT);
+      expect(turn.reply).toContain(OFFER_DETAILS_HEADER);
+      expect(turn.reply).toContain("$800/mo");
+      expect(turn.reply).toContain("https://proplane.ai/rent/listings/prop-ballard");
+      expect(turn.reply).toMatch(/to pick one, or TOUR to see it\.$/);
+      // The sentence is not stored as an area, and the homes already offered still stand.
+      expect(profile(fake)).toMatchObject({ stage: "offered", asked: "pick" });
+      expect(profile(fake).area).toBeUndefined();
+      expect(JSON.stringify(profile(fake).offers)).toBe(offersBefore);
+      expect(lead(fake).status).toBe("open");
+    },
+  );
+
+  it("a real neighborhood still narrows the list", async () => {
+    const fake = seed();
+    await say(fake, "Is there availability");
+    const turn = await say(fake, "do you have anything in Ballard?");
+    expect(profile(fake).area).toContain("Ballard");
+    expect(turn.reply).toContain("https://proplane.ai/rent/listings/prop-ballard");
+    expect(turn.reply).not.toContain("prop-uw-a");
+    expect(profile(fake)).toMatchObject({ stage: "offered", asked: "pick" });
   });
 });
 

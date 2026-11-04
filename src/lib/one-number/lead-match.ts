@@ -67,6 +67,22 @@ export function listingsInArea(listings: readonly MockProperty[], area: string |
   });
 }
 
+/**
+ * The words actually name somewhere: a place the Seattle resolver knows ("near UW", "Capitol Hill", a zip) or a word
+ * out of one of these listings' own public location. A sentence is not a place — "do you have anything cheaper?" names
+ * nowhere — so a free-text follow-up never becomes an area filter that empties the list.
+ */
+export function areaNamesKnownPlace(listings: readonly MockProperty[], area: string | undefined): boolean {
+  if (!area?.trim()) return false;
+  if (resolveSeattlePlace(area)) return true;
+  const tokens = areaTokens(area);
+  if (tokens.length === 0) return false;
+  return listings.some((p) => {
+    const words = locationWords(p);
+    return tokens.some((t) => namesPlace(words, t));
+  });
+}
+
 function addMonths(isoDate: string, months: number): string {
   const [y, m, d] = isoDate.split("-").map(Number) as [number, number, number];
   const out = new Date(Date.UTC(y, m - 1 + months, d));
@@ -236,15 +252,22 @@ const shortAvailability = (label: string) => {
   return t.length > 24 ? t.slice(0, 24).trim() : t;
 };
 
+/**
+ * A follow-up about the rooms already offered ("anything cheaper?", "can I see photos?", "is parking included?") is
+ * answered with those same rooms, cheapest first, and their listing pages — which is where every such detail actually
+ * lives. Nothing is written by a model, so nothing is invented about a house.
+ */
+export const OFFER_DETAILS_HEADER = "Photos, pricing and what is included are on each listing page:";
+
 /** "1) 5259 Brooklyn Ave, $850/mo, available now: https://..." for each, then how to reply. */
-export function buildOfferText(offers: readonly LeadOffer[], origin: string): string {
+export function buildOfferText(offers: readonly LeadOffer[], origin: string, header?: string): string {
   const base = origin.replace(/\/$/, "");
   const lines = offers.map((o) => {
     const price = o.rent !== null ? `$${o.rent}/mo` : "price on listing";
     return `${o.n}) ${o.label}, ${price}, ${shortAvailability(o.availability)}: ${base}/rent/listings/${encodeURIComponent(o.propertyId)}`;
   });
   const reply = offers.length === 1 ? "Reply 1 to pick it, or TOUR to see it." : `Reply ${offers.map((o) => o.n).join(", ").replace(/, (\d)$/, " or $1")} to pick one, or TOUR to see it.`;
-  return toGsm7([offers.length === 1 ? "This room fits:" : "These rooms fit:", ...lines, reply].join("\n"));
+  return toGsm7([header ?? (offers.length === 1 ? "This room fits:" : "These rooms fit:"), ...lines, reply].join("\n"));
 }
 
 export type OfferBubble = { body: string; mediaUrl?: string };

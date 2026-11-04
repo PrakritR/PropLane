@@ -7,6 +7,7 @@ import { isMissingSchemaError, loadSharedLineConfig, workspaceOnSharedLine } fro
 import type { SharedLineConfig, SharedLineInbound } from "@/lib/one-number/contracts";
 import { extractLeadFieldsWithModel } from "@/lib/one-number/lead-extract.server";
 import {
+  areaNamesKnownPlace,
   buildOfferBubbles,
   buildOfferText,
   buildOverviewBubbles,
@@ -18,6 +19,7 @@ import {
   type OfferBubble,
   matchOffers,
   NO_MATCH_TEXT,
+  OFFER_DETAILS_HEADER,
   offerFromRow,
   parseOfferPick,
 } from "@/lib/one-number/lead-match";
@@ -269,21 +271,49 @@ async function overviewTurn(
   };
 }
 
+/**
+ * The prospect's words name a real place this line's catalog can search on. A catalog that cannot be read is not
+ * grounds to filter on a sentence, so it answers no.
+ */
+async function areaIsReal(area: string, deps: Required<Pick<LeadDeps, "listings">>): Promise<boolean> {
+  const listings = await deps.listings().catch(() => null);
+  return listings !== null && areaNamesKnownPlace(listings, area);
+}
+
+/** A follow-up that asks about the offered rooms rather than picking one, narrowing the search or saying no. */
+function asksAboutTheOffers(text: string): boolean {
+  return text.includes("?") || isInfoRequest(text);
+}
+
 async function readAnswer(
   profile: LeadProfile,
   text: string,
   deps: Required<Pick<LeadDeps, "now" | "extract">>,
+  /** Rejects an area the words do not actually name (`asked: "refine"` otherwise takes the whole sentence). */
+  allowArea?: (area: string) => Promise<boolean>,
 ): Promise<{ profile: LeadProfile; neutral: boolean; changed: boolean }> {
   const result = applyAnswer(profile, text, deps.now());
-  let next = result.profile;
-  let changed = result.changed.length > 0;
+  const keepArea = (read: LeadProfile): LeadProfile => {
+    const reverted = { ...read, area: profile.area };
+    if (profile.area === undefined) delete reverted.area;
+    return reverted;
+  };
+  let base = result.profile;
+  let touched = result.changed;
+  if (allowArea && touched.includes("area") && base.area !== undefined && !(await allowArea(base.area))) {
+    base = keepArea(base);
+    touched = touched.filter((field) => field !== "area");
+  }
+  let next = base;
+  let changed = touched.length > 0;
   if (!changed) {
     const safe = redactLeadBody(result.neutral ? withoutProtectedClauses(text) : text);
     if (safe.trim().length >= 2) {
       const fields = await deps.extract({ text: safe, today: pacificToday(deps.now()) }).catch(() => null);
       if (fields && Object.keys(fields).length > 0) {
         next = mergeModelFields(next, fields, profile.asked);
-        changed = JSON.stringify(next) !== JSON.stringify(result.profile);
+        if (allowArea && next.area !== undefined && next.area !== base.area && !(await allowArea(next.area))) next = keepArea(next);
+        changed = JSON.stringify(next) !== JSON.stringify(base);
       }
     }
   }
@@ -316,9 +346,15 @@ async function runFlow(
         mediaUrls: [],
       };
     }
-    const read = await readAnswer({ ...profile, asked: "refine" }, text, deps);
+    const read = await readAnswer({ ...profile, asked: "refine" }, text, deps, (area) => areaIsReal(area, deps));
     if (read.changed) return matchAndOffer({ ...read.profile, offers: [] }, deps);
-    return { profile, reply: `${read.neutral || touchesProtectedTopic(text) ? `${NEUTRAL_REPLY} ` : ""}${PICK_PROMPT(offers.length)}`, mediaUrls: [] };
+    const neutral = read.neutral || touchesProtectedTopic(text);
+    // A question about the rooms standing ("anything cheaper?", "can I see photos?", "is parking included?") is answered
+    // with those rooms and their listing pages, never with "nothing fits" while they are open.
+    if (!neutral && offers.length > 0 && asksAboutTheOffers(text)) {
+      return { profile, reply: buildOfferText(offers, deps.origin(), OFFER_DETAILS_HEADER), mediaUrls: [] };
+    }
+    return { profile, reply: `${neutral ? `${NEUTRAL_REPLY} ` : ""}${PICK_PROMPT(offers.length)}`, mediaUrls: [] };
   }
 
   if (stage === "no_match") {
