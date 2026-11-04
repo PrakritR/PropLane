@@ -3,12 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   config: { mode: "shared", sharedNumber: "+12065550100", messagingServiceSid: "MGSHARED", pilotWorkspaceIds: [] } as Record<string, unknown>,
+  configReadable: true,
   sendSms: vi.fn(),
+  suppression: vi.fn(),
   create: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/one-number/config.server", () => ({ loadSharedLineConfig: async () => mocks.config }));
+vi.mock("@/lib/one-number/config.server", () => ({
+  loadSharedLineConfig: async () => mocks.config,
+  loadSharedLineConfigStrict: async () => mocks.configReadable ? { ok: true, config: mocks.config } : { ok: false },
+}));
+vi.mock("@/lib/sms-consent", () => ({ readSmsSuppressionState: mocks.suppression }));
 vi.mock("@/lib/twilio", () => ({ sendSms: mocks.sendSms }));
 vi.mock("@/lib/twilio-client.server", () => ({ createTwilioRestClient: () => ({ messages: { create: mocks.create } }) }));
 
@@ -22,8 +28,11 @@ const db = {} as never;
 describe("sendPlatformLeadText", () => {
   beforeEach(() => {
     mocks.config = { mode: "shared", sharedNumber: "+12065550100", messagingServiceSid: "MGSHARED", pilotWorkspaceIds: [] };
+    mocks.configReadable = true;
+    mocks.suppression.mockReset();
     mocks.sendSms.mockReset().mockResolvedValue({ sent: true, sid: "SM1", providerAttempted: true });
     mocks.create.mockReset();
+    mocks.suppression.mockResolvedValue({ ok: true, optedOut: false });
   });
 
   it("sends through sendSms from the shared number on the shared Messaging Service, never a direct provider call", async () => {
@@ -60,7 +69,7 @@ describe("sendPlatformLeadText", () => {
     mocks.sendSms.mockResolvedValueOnce({ sent: false, error: "boom" });
     expect(await sendPlatformLeadText(db, { to: "+12065550142", body: "Hi", now: DAY })).toEqual({ ok: false, reason: "provider_error" });
     mocks.sendSms.mockRejectedValueOnce(new Error("down"));
-    expect(await sendPlatformLeadText(db, { to: "+12065550142", body: "Hi", now: DAY })).toEqual({ ok: false, reason: "provider_error" });
+    expect(await sendPlatformLeadText(db, { to: "+12065550142", body: "Hi", now: DAY })).toEqual({ ok: false, reason: "delivery_unknown" });
   });
 
   it("preserves requested transactional delivery through the consolidated transport at night", async () => {
@@ -87,6 +96,41 @@ describe("sendPlatformLeadText", () => {
     expect(await sendPlatformLeadText(db, { to: "+12065550142", body: "Nudge", now: NIGHT }))
       .toEqual({ ok: false, reason: "quiet_hours" });
     expect(mocks.sendSms).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed on unreadable suppression and honors STOP after preparation", async () => {
+    const input = { to: "+12065550142", body: "Prepared", now: DAY, inboundReply: true, expectedFrom: "+12065550100" };
+    mocks.suppression.mockResolvedValueOnce({ ok: false });
+    expect(await sendPlatformLeadText(db, input)).toEqual({ ok: false, reason: "provider_error" });
+    mocks.suppression.mockResolvedValueOnce({ ok: true, optedOut: true });
+    expect(await sendPlatformLeadText(db, input)).toEqual({ ok: false, reason: "opted_out" });
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+  });
+  it("retries an unreadable pinned configuration with the original prepared bytes", async () => {
+    const input = { to: "+12065550142", body: "Prepared\nexactly", mediaUrls: ["https://a/1.jpg"], now: DAY, inboundReply: true, expectedFrom: "+12065550100" };
+    mocks.configReadable = false;
+    expect(await sendPlatformLeadText(db, input)).toEqual({ ok: false, reason: "config_unavailable" });
+    expect(mocks.suppression).not.toHaveBeenCalled();
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+    mocks.configReadable = true;
+    expect(await sendPlatformLeadText(db, input)).toEqual({ ok: true, sid: "SM1" });
+    expect(mocks.sendSms).toHaveBeenCalledOnce();
+    expect(mocks.sendSms).toHaveBeenCalledWith("+12065550142", "Prepared\nexactly", "+12065550100", {
+      purpose: "platform_lead", messagingServiceSid: "MGSHARED", mediaUrls: ["https://a/1.jpg"],
+    });
+  });
+
+  it("refuses a proven changed mode for a pinned reply", async () => {
+    mocks.config = { ...mocks.config, mode: "per_workspace" };
+    expect(await sendPlatformLeadText(db, { to: "+12065550142", body: "Prepared", now: DAY, expectedFrom: "+12065550100" }))
+      .toEqual({ ok: false, reason: "not_shared_mode" });
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+  });
+
+  it("refuses a changed prepared sender before provider submission", async () => {
+    expect(await sendPlatformLeadText(db, { to: "+12065550142", body: "Prepared", now: DAY, expectedFrom: "+12065550199" }))
+      .toEqual({ ok: false, reason: "no_shared_number" });
+    expect(mocks.sendSms).not.toHaveBeenCalled();
   });
 
 });

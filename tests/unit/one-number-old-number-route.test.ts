@@ -41,7 +41,7 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({ rpc: mocks.claim, from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { status: "completed" } }) }) }) }) }),
 }));
 
-import { POST } from "@/app/api/twilio/inbound/route";
+import { processInboundRequest as POST } from "../helpers/twilio-inbound-processor";
 
 const base: SharedLineConfig = { mode: "shared", sharedNumber: SHARED, messagingServiceSid: "MGs", pilotWorkspaceIds: [], dedicatedWorkspaceIds: [] };
 

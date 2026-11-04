@@ -1396,6 +1396,8 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  sms_ingress_envelopes: "Owner-neutral provider receipts have no Auth owner. Runtime-fenced transport audit expires after 24h and is purged after 30 days by purge_sms_ingress_retention; never used as an account identity grant.",
+  sms_platform_replies: "Owner-neutral reply evidence cascades with its ingress receipt after at most 30 days; no client account owner or wallet is fabricated.",
   tour_subject_bindings: "Retained inquiry/group keys and hashed resident subject prevent historical tour reassignment after resident or manager deletion; no raw Auth IDs are stored.",
   manager_promo_code_policies: "Global promo-code expiry decisions (a code and when it stops working); not per-user and holds no account data. updated_by only names the staff member who set it and is nulled if that login is deleted.",
   channel_stay_details: "Child of external_calendar_connections: the guest name and note a manager typed for an imported channel stay. The connection is purged by manager_user_id and this row is deleted by cascade with it; updated_by only records which teammate typed it.",

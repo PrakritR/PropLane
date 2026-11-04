@@ -60,11 +60,16 @@ export async function claimTurn<T>(db: SupabaseClient, messageSid: string, phone
 }
 
 /** Store the finished turn under the claim, and prune what has outlived replay. */
-export async function completeTurn(db: SupabaseClient, messageSid: string, turn: unknown, now: Date = new Date()): Promise<void> {
+export async function completeTurn(db: SupabaseClient, messageSid: string, turn: unknown, now: Date = new Date(), options: { strict?: boolean } = {}): Promise<void> {
   try {
-    await db.from("sms_onboarding_replies").update({ turn }).eq("message_sid", messageSid);
+    const update = db.from("sms_onboarding_replies").update({ turn }).eq("message_sid", messageSid);
+    if (options.strict) {
+      const saved = await update.select("message_sid");
+      if (saved.error || saved.data?.length !== 1) throw new Error("Durable onboarding replay persistence unavailable");
+    } else await update;
     await db.from("sms_onboarding_replies").delete().lt("created_at", new Date(now.getTime() - TURN_REPLAY_TTL_MS).toISOString());
-  } catch {
+  } catch (error) {
+    if (options.strict) throw error;
     // A failed record only loses the replay; the turn itself already happened.
   }
 }

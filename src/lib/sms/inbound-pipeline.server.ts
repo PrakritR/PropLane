@@ -73,6 +73,7 @@ import { resolveInboundOriginal } from "@/lib/sms/resolve-inbound-original.serve
 import { samePostgresInstant } from "@/lib/sms/postgres-instant.mjs";
 import { isTwilioMessageSid } from "@/lib/sms/message-sid";
 import { loadThreadPause } from "@/lib/one-number/session.server";
+import { loadSharedLineConfigStrict, workspaceOnSharedLine } from "@/lib/one-number/config.server";
 import { answerPropLaneLineText } from "@/lib/one-number/line-inbound.server";
 import { isHousingSearchText } from "@/lib/one-number/line-intent";
 import { isPropLaneServiceLine } from "@/lib/service/service-catalog.server";
@@ -192,6 +193,37 @@ const LEASE_GRACE_MS = 60_000;
 export type InboundRecoveryResult = { scanned: number; recovered: number; failed: number; dropped: number };
 
 export type SmsProjectionRecoveryResult = { scanned: number; projected: number; failed: number };
+
+/** Revalidate the original routed workspace without resolving the shared phone's physical owner. */
+export async function authorizeSharedInboundRecovery(
+  db: SupabaseClient,
+  payload: InboundPayload,
+  ownerId: string,
+): Promise<"authorized" | "revoked" | "unreadable"> {
+  try {
+    const config = await loadSharedLineConfigStrict(db);
+    if (!config.ok) return "unreadable";
+    const workspaceId = String(payload.workspaceId ?? "").trim();
+    if (!workspaceId || config.config.mode !== "shared" ||
+      normalizeE164(payload.toPhone) !== config.config.sharedNumber) return "revoked";
+    const { data, error } = await db.from("portal_workspaces")
+      .select("owner_user_id, archived_at").eq("id", workspaceId).maybeSingle();
+    if (error) return "unreadable";
+    if (!data || data.archived_at != null || data.owner_user_id !== ownerId) return "revoked";
+    // The original seam allows a verified admin to continue on the service
+    // owner's default workspace even outside the pilot or on a dedicated line.
+    if (!workspaceOnSharedLine(config.config, workspaceId)) {
+      const { adminAssistantContinuation } = await import("@/lib/one-number/inbound-seam.server");
+      const continuation = await adminAssistantContinuation(db, { config: config.config, fromPhone: payload.fromPhone });
+      if (continuation?.owned.managerId === ownerId && continuation.owned.workspaceId === workspaceId) return "authorized";
+      // The seam deliberately folds unreadable identity into null, so retry.
+      return "unreadable";
+    }
+    return "authorized";
+  } catch {
+    return "unreadable";
+  }
+}
 
 function isSourceIntent(event: SmsProjectionEventInput | SmsProjectionSourceIntent): event is SmsProjectionSourceIntent {
   return (event.sourceRef?.table === "sms_inbound_receipts" || event.sourceRef?.table === "manager_sms_messages") && !("sourceEventId" in event);
@@ -647,7 +679,10 @@ export async function recoverInboundReceipts(
     // The work number may have been released or moved since the text arrived.
     // Answering from a line this workspace no longer owns is worse than silence.
     let ownerNow: string | null = null;
-    try {
+    let sharedAuthorization: "authorized" | "revoked" | "unreadable" | null = null;
+    if (payload.sharedLine) {
+      sharedAuthorization = await authorizeSharedInboundRecovery(db, payload, row.manager_user_id);
+    } else try {
       const owned = await resolveOwnedWorkNumber(db, payload.toPhone);
       ownerNow = owned
         ? (await resolveWorkspaceOwnerForWorkNumber(db, owned.managerId, {
@@ -660,12 +695,12 @@ export async function recoverInboundReceipts(
     }
     // `resolveOwnedWorkNumber` also returns null on a read error, so an
     // unresolved line is retried (bounded by the attempt cap), never dropped.
-    if (ownerNow === null) {
+    if (sharedAuthorization === "unreadable" || (sharedAuthorization === null && ownerNow === null)) {
       await finishInboundClaim(db, row.message_sid, inboundWorkerId, "retryable").catch(() => false);
       result.failed += 1;
       continue;
     }
-    if (ownerNow !== row.manager_user_id || normalizeConsentPhone(payload.fromPhone) === null) {
+    if (sharedAuthorization === "revoked" || (sharedAuthorization === null && ownerNow !== row.manager_user_id) || normalizeConsentPhone(payload.fromPhone) === null) {
       await finishInboundClaim(db, row.message_sid, inboundWorkerId, "completed").catch(() => false);
       result.dropped += 1;
       continue;

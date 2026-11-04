@@ -36,7 +36,7 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({ from: (t: string) => mocks.db.from(t), rpc: mocks.rpc }),
 }));
 
-import { POST } from "@/app/api/twilio/inbound/route";
+import { processInboundRequest as POST } from "../helpers/twilio-inbound-processor";
 
 const VENDOR_NUMBER = "+14255550177";
 const VENDOR_PHONE = "+12065550142";
