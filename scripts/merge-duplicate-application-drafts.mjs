@@ -12,7 +12,8 @@
  *   - The applicant is the row's `residentUserId` when it carries one, else its email (guest rows only):
  *     a guest row is never grouped with an account's, and two accounts sharing an email are two people.
  *   - A SUBMITTED application is never archived (two sent applications for two rooms are legitimate; the
- *     same room twice is refused by the server). It is the row a draft folds into.
+ *     same room twice is refused by the server). It is the row a draft folds into. A legacy row carrying
+ *     no stage at all is not provably unsent, so it counts as sent here and is never withdrawn.
  *   - Among drafts the kept one is: most wizard steps/answers, then newest.
  *   - An archived draft keeps its row and gets `withdrawnAt` (so it leaves every list), `mergedInto` (the
  *     kept row's id) and `mergedAt`. Nothing else in the row changes.
@@ -62,14 +63,15 @@ export function checkTarget(ref, { confirmProduction = false } = {}) {
 
 const clean = (value) => (typeof value === "string" ? value.trim() : "");
 
-/** A draft: pending with an explicit unsent stage (or no stage but wizard data), not a submitted row. */
+/**
+ * A PROVABLY UNSENT draft: pending with an explicit unsent stage. This is what gets archived, so it mirrors
+ * the server's `isUnsubmittedDraftApplicationRow`, not the wider `isDraftShapedApplicationRow`: a legacy
+ * stage-less row carrying wizard data is not provably unsent, so it is never withdrawn — it is treated as a
+ * sent application the drafts fold into instead.
+ */
 export function isDraftRow(row) {
-  if (!row || row.bucket !== "pending") return false;
-  const stage = clean(row.stage).toLowerCase();
-  if (stage === "submitted") return false;
-  if (DRAFT_STAGES.has(stage)) return true;
-  if (stage) return false;
-  return Boolean(row.application && typeof row.application === "object");
+  if (!row || row.bucket !== "pending" || row.manuallyAdded === true) return false;
+  return DRAFT_STAGES.has(clean(row.stage).toLowerCase());
 }
 
 /** Pending, not withdrawn, not already merged away, not a row a manager typed in. */

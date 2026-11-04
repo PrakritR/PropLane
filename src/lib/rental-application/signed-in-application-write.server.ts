@@ -45,6 +45,7 @@ import {
   type PriorApplicationFeeAuthorization,
 } from "@/lib/rental-application/application-fee-submit-guard.server";
 import { assertManagerResidentQuota, MANAGER_RESIDENT_LIMIT_ERROR_CODE } from "@/lib/manager-resident-quota.server";
+import { afterResponse } from "@/lib/after-response.server";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -222,30 +223,44 @@ export async function persistNormalizedRow(
     if (tagged === core || !isMissingColumnError(cause, "source_channel")) throw cause;
     await writeValues(core);
   }
-  // The first insert of an APPLICANT's own draft: the owner's listed alert phones hear that someone started
-  // (a manager-filed row, a rename and every later autosave are not "started"). Best-effort, once per application.
-  if (!existing && noticeChannel === "portal" && isDraftShapedApplicationRow(row) && row.managerUserId?.trim()) {
-    // Awaited, not detached: a promise started during a request and never awaited is not guaranteed to
-    // run once the response is sent, so the alert the captain asked for could vanish with no trace.
-    // `alertPhonesOf` never throws, and the catch keeps a failed import off the applicant's write.
-    // A guest draft needs no session and picks its own id, so the alert is capped per owner: a scripted
-    // stream of drafts must not become an unbounded run of texts billed to the owner's credit.
-    try {
-      const { rateLimit } = await import("@/lib/rate-limit");
-      const cap = await rateLimit(`ops-alert:application_started:${row.managerUserId!.trim()}`, 10, 60 * 60 * 1000);
-      if (!cap.ok) throw new Error("application_started alert capped");
-      const { alertPhonesOf } = await import("@/lib/one-number/ops-alerts.server");
-      const { applicationStartedLine } = await import("@/lib/one-number/ops-alert-lines");
-      await alertPhonesOf(db, {
-        ownerUserId: row.managerUserId!.trim(),
-        kind: "application_started",
-        entityId: row.id,
-        propertyId: row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || null,
-        text: applicationStartedLine({ applicant: row.name?.trim() || row.application?.fullLegalName?.trim() || "", house: row.property }),
-      });
-    } catch {
-      console.error("application_started ops alert failed");
-    }
+  // The first write of an APPLICANT's own draft that carries a NAME: the owner's listed alert phones hear
+  // that someone started (a manager-filed row and every later autosave are not "started", and a nameless
+  // step-1 draft is "Someone" — a text with nothing in it to act on, so it waits for the name).
+  //
+  // Best-effort and once per application: `alertPhonesOf` keys on the application id, so the write that
+  // first names the applicant is the only one that texts even if several race.
+  //
+  // It runs AFTER the response, never on the applicant's autosave: the fan-out is a limiter RPC, a
+  // workspace/line resolve and then a Twilio send plus an email per listed phone, and a slow provider
+  // would otherwise surface to the applicant as a failed autosave. The cap stays inside, so a scripted
+  // stream of drafts still cannot become an unbounded run of texts billed to the owner's credit, and the
+  // catch keeps a failed import or send off the write that already succeeded.
+  const alertOwnerUserId = row.managerUserId?.trim() ?? "";
+  const startedApplicant = row.name?.trim() || row.application?.fullLegalName?.trim() || "";
+  const priorRow = existing?.row_data as DemoApplicantRow | null | undefined;
+  const priorApplicant = priorRow ? priorRow.name?.trim() || priorRow.application?.fullLegalName?.trim() || "" : "";
+  if (noticeChannel === "portal" && alertOwnerUserId && startedApplicant && !priorApplicant && isDraftShapedApplicationRow(row)) {
+    const applicationId = row.id;
+    const house = row.property;
+    const propertyId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || null;
+    afterResponse(async () => {
+      try {
+        const { rateLimit } = await import("@/lib/rate-limit");
+        const cap = await rateLimit(`ops-alert:application_started:${alertOwnerUserId}`, 10, 60 * 60 * 1000);
+        if (!cap.ok) throw new Error("application_started alert capped");
+        const { alertPhonesOf } = await import("@/lib/one-number/ops-alerts.server");
+        const { applicationStartedLine } = await import("@/lib/one-number/ops-alert-lines");
+        await alertPhonesOf(db, {
+          ownerUserId: alertOwnerUserId,
+          kind: "application_started",
+          entityId: applicationId,
+          propertyId,
+          text: applicationStartedLine({ applicant: startedApplicant, house }),
+        });
+      } catch {
+        console.error("application_started ops alert failed");
+      }
+    }, "application_started");
   }
   if (row.bucket === "approved") {
     try {

@@ -69,6 +69,24 @@ describe("merge-duplicate-application-drafts: planMerges", () => {
     expect(plans[0]!.archive.every((a: { mergedInto: string }) => a.mergedInto === "S")).toBe(true);
   });
 
+  it("never archives a legacy stage-less row: it is not provably unsent", () => {
+    // Two genuinely submitted rows that predate the `stage` field. Neither may be withdrawn.
+    expect(
+      planMerges([
+        record("L1", { row: { stage: "" }, app: { fullLegalName: "K", wizardMaxStepReached: 7 } }),
+        record("L2", { row: { stage: "" }, app: { fullLegalName: "K", wizardMaxStepReached: 6 } }),
+      ]),
+    ).toHaveLength(0);
+    // A real draft beside one still folds into it, and the legacy row is what is kept.
+    const plans = planMerges([
+      record("L1", { row: { stage: "" }, app: { fullLegalName: "K", wizardMaxStepReached: 7 } }),
+      record("D1", { app: { wizardMaxStepReached: 2 } }),
+    ]);
+    expect(plans).toHaveLength(1);
+    expect(plans[0]!.kept.id).toBe("L1");
+    expect(plans[0]!.archive.map((a: { record: Rec }) => a.record.id)).toEqual(["D1"]);
+  });
+
   it("keeps a draft for a different room than the sent application", () => {
     const plans = planMerges([
       record("S", { row: { stage: "Submitted" }, app: { roomChoice1: "prop::room-1" } }),

@@ -101,15 +101,21 @@ describe("check-in digest", () => {
   });
 });
 
-describe("application_started alert is awaited, not detached", () => {
-  it("has no fire-and-forget promise around the ops alert", () => {
-    const src = read("src/lib/rental-application/signed-in-application-write.server.ts");
+describe("application_started alert runs after the response, and only once the draft has a name", () => {
+  const src = read("src/lib/rental-application/signed-in-application-write.server.ts");
+  it("is handed to afterResponse (Next's after()), never awaited on the applicant's autosave", () => {
     expect(src).not.toContain("void (async () => {");
-    expect(src).toMatch(/try \{[\s\S]*?const \{ alertPhonesOf \}[\s\S]*await alertPhonesOf/);
+    expect(src).toMatch(/afterResponse\(async \(\) => \{[\s\S]*?const \{ alertPhonesOf \}[\s\S]*?await alertPhonesOf[\s\S]*?\} catch \{[\s\S]*?\}, "application_started"\);/);
+    expect(read("src/lib/after-response.server.ts")).toContain('import { after } from "next/server"');
   });
-  it("caps the alert per owner before any text goes out", () => {
-    const src = read("src/lib/rental-application/signed-in-application-write.server.ts");
-    expect(src).toMatch(/rateLimit\(`ops-alert:application_started:\$\{row\.managerUserId!\.trim\(\)\}`, 10, 60 \* 60 \* 1000\)[\s\S]*if \(!cap\.ok\) throw[\s\S]*await alertPhonesOf/);
+  it("fires on the first write that carries a name, not on a nameless first insert", () => {
+    expect(src).toContain('const startedApplicant = row.name?.trim() || row.application?.fullLegalName?.trim() || "";');
+    expect(src).toMatch(/const priorApplicant = priorRow \? priorRow\.name\?\.trim\(\) \|\| priorRow\.application\?\.fullLegalName\?\.trim\(\) \|\| "" : "";/);
+    expect(src).toContain('if (noticeChannel === "portal" && alertOwnerUserId && startedApplicant && !priorApplicant && isDraftShapedApplicationRow(row)) {');
+  });
+  it("caps the alert per owner before any text goes out, and keys idempotency on the application", () => {
+    expect(src).toMatch(/rateLimit\(`ops-alert:application_started:\$\{alertOwnerUserId\}`, 10, 60 \* 60 \* 1000\)[\s\S]*if \(!cap\.ok\) throw[\s\S]*await alertPhonesOf/);
+    expect(src).toContain("entityId: applicationId,");
   });
 });
 
@@ -151,6 +157,14 @@ describe("lease terms drift is keyed on the stored application link", () => {
     expect(route).toContain('const storedAxisId = typeof storedRow?.axisId === "string" ? storedRow.axisId.trim() : "";');
     expect(route).toContain('const termsAxisId = storedAxisId || (typeof nextRow.axisId === "string" ? nextRow.axisId.trim() : "");');
     expect(route).toContain("nextRow = { ...nextRow, axisId: storedRow!.axisId };");
+  });
+
+  it("decides uploaded-vs-generated off the STORED row, so a planted uploadedLeaseParse cannot skip the drift check", () => {
+    expect(route).toMatch(
+      /const isUploadedLease = storedRow\s*\?\s*effectiveLeaseDocumentMode\(storedRow\) !== "proplane-generated" \|\| Boolean\(storedRow\.uploadedLeaseParse\)/,
+    );
+    expect(route).toContain(": Boolean(nextRow.uploadedLeaseParse) || (Boolean(nextRow.managerUploadedPdf?.dataUrl) && !nextRow.generatedHtml);");
+    expect(route).not.toContain("const isUploadedLease = Boolean(nextRow.uploadedLeaseParse) ||");
   });
 
   it("refuses a PropLane-generated send that is linked to no application at all", () => {

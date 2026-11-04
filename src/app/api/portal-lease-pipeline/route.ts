@@ -1366,7 +1366,9 @@ export async function POST(req: Request) {
         normalized = nextRow as unknown as Record<string, unknown>;
       }
       const isNewSend = sendingToResident && storedRow?.status !== "Resident Signature Pending";
-      const isUploadedLease = Boolean(nextRow.uploadedLeaseParse) || (Boolean(nextRow.managerUploadedPdf?.dataUrl) && !nextRow.generatedHtml);
+      const isUploadedLease = storedRow
+        ? effectiveLeaseDocumentMode(storedRow) !== "proplane-generated" || Boolean(storedRow.uploadedLeaseParse)
+        : Boolean(nextRow.uploadedLeaseParse) || (Boolean(nextRow.managerUploadedPdf?.dataUrl) && !nextRow.generatedHtml);
       const termsAxisId = storedAxisId || (typeof nextRow.axisId === "string" ? nextRow.axisId.trim() : "");
       // A PropLane lease is GENERATED from the resident record, so one going out with no link to any
       // application can be measured against nothing: a single create-and-send POST would otherwise

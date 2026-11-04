@@ -92,6 +92,8 @@ describe("expireStaleManagerNotices", () => {
     expect(named.in).toEqual(["status", ["queued", "deferred"]]);
     expect(named.is).toEqual(["dispatch_started_at", null]);
     expect(named.lt).toEqual(["created_at", new Date(now.getTime() - STALE_MANAGER_NOTICE_TTL_MS).toISOString()]);
+    // A notice still waiting on its own window (budget-deferred to the next UTC day) is held, not expired.
+    expect(named.lte).toEqual(["available_at", now.toISOString()]);
     expect(STALE_MANAGER_NOTICE_TTL_MS).toBe(6 * 60 * 60_000);
     expect(String(named.or![0])).toContain("team_chat_relay");
     expect(String(named.or![0])).toContain("manager_agent_notification_");
