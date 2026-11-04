@@ -9,11 +9,14 @@ import type { NextResponse } from "next/server";
  * work finishes after the response. A reply the work would have put in the TwiML is then sent through the Messaging API
  * (`sendLate`) instead, so a slow turn is a late answer, never a dropped one.
  *
- * The early 200 is only ever sent once the work says it is SAFE to send one (`canAck`), and the route only says so after
- * `claim_sms_inbound` succeeded: from that point a turn that does not finish is replayed by
- * `/api/cron/sms-inbound-recovery` (every minute). Before the claim there is no receipt to replay, so the real response —
- * including every retryable 5xx ("Workspace unavailable.", "Inbound receipt unavailable.", …) — has to reach Twilio or the
- * inbound text is lost. Past the budget with no claim yet, this keeps waiting and polls `canAck` until the work settles.
+ * The early 200 is only ever sent once the work says it is SAFE to send one (`canAck`), which the route says in exactly
+ * two states. After `claim_sms_inbound` succeeded: from that point a turn that does not finish is replayed by
+ * `/api/cron/sms-inbound-recovery` (every minute). And, on the shared line, once this text's LATE REPLY is claimed under
+ * its MessageSid before the seam runs — that turn answers in the TwiML itself, so what has to be durable there is not a
+ * replayable receipt but the guarantee that `sendLate` goes out exactly once per text. Before either, there is nothing to
+ * pick the turn up from, so the real response — including every retryable 5xx ("Workspace unavailable.", "Inbound receipt
+ * unavailable.", …) — has to reach Twilio or the inbound text is lost. Past the budget with nothing claimed, this keeps
+ * waiting and polls `canAck` until the work settles.
  */
 export const INBOUND_ACK_BUDGET_MS = 9_000;
 

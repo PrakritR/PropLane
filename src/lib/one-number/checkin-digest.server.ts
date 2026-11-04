@@ -103,10 +103,17 @@ export async function runCheckinCheckoutDigest(
     }
   };
 
+  // Rotated by the day, from a stable order: a run that outlives its 120s budget cuts off whoever is last,
+  // and an unrotated list cuts off the SAME owners every morning — they would never get their 7 AM text.
+  const ordered = [...owners].sort();
+  const dayIndex = Math.floor(Date.parse(`${dayKey}T00:00:00Z`) / 86_400_000);
+  const start = ordered.length > 0 && Number.isFinite(dayIndex) ? ((dayIndex % ordered.length) + ordered.length) % ordered.length : 0;
+  const rotated = [...ordered.slice(start), ...ordered.slice(0, start)];
+
   let next = 0;
   const worker = async (): Promise<void> => {
     for (;;) {
-      const ownerUserId = owners[next++];
+      const ownerUserId = rotated[next++];
       if (!ownerUserId) return;
       try {
         await digestForOwner(ownerUserId);

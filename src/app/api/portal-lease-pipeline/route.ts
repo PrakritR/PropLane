@@ -1354,9 +1354,21 @@ export async function POST(req: Request) {
       // id, so the check silently did not run for exactly the actor it most needs to bind. A record the
       // send names but that cannot be read under that owner REFUSES — skipping it is how tampered rent
       // went out unmeasured.
+      //
+      // Which application, like the untrusted-document rule above, is keyed on the STORED row: the link a
+      // lease was made from is not the sender's to drop or swap on the way out, and an empty one skipped
+      // this gate entirely. The stored link is restored onto the row first, so dropping it from `row_data`
+      // can neither detach the record nor silence the check on any later write. Only a row the server has
+      // never held has no stored link, and there the body names it; a lease genuinely made without an
+      // application (a reusable template placed by hand) has nothing to measure against and is unchanged.
+      const storedAxisId = typeof storedRow?.axisId === "string" ? storedRow.axisId.trim() : "";
+      if (storedAxisId && !(typeof nextRow.axisId === "string" && nextRow.axisId.trim())) {
+        nextRow = { ...nextRow, axisId: storedRow!.axisId };
+        normalized = nextRow as unknown as Record<string, unknown>;
+      }
       const isNewSend = sendingToResident && storedRow?.status !== "Resident Signature Pending";
       const isUploadedLease = Boolean(nextRow.uploadedLeaseParse) || (Boolean(nextRow.managerUploadedPdf?.dataUrl) && !nextRow.generatedHtml);
-      const termsAxisId = typeof nextRow.axisId === "string" ? nextRow.axisId.trim() : "";
+      const termsAxisId = storedAxisId || (typeof nextRow.axisId === "string" ? nextRow.axisId.trim() : "");
       if (isNewSend && !isUploadedLease && termsAxisId && !(storedRow && rowHasAnySignature(storedRow))) {
         const termsUnreadable = NextResponse.json(
           { error: "The resident record could not be read to confirm the lease terms. Try again.", blocked: "terms-unreadable" },

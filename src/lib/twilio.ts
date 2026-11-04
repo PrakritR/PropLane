@@ -32,13 +32,23 @@ async function readCreditHold(
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const wallet = await db.from("manager_comms_usage_events")
       .select("manager_user_id,meter,quantity,credit_state").eq("idempotency_key", key).maybeSingle();
-    if (wallet.error) continue;
+    if (wallet.error) {
+      // Logged so a fail-closed refusal is diagnosable: without the code, "could not be verified" says
+      // nothing about which ledger answered how.
+      console.warn("comms credit ledger read failed", wallet.error.code ?? "unknown");
+      continue;
+    }
     if (wallet.data) return { hold: wallet.data as CreditHold, error: false };
     const number = await db.from("number_credit_usage_events")
       .select("owner_user_id,meter,quantity,credit_state").eq("idempotency_key", key).maybeSingle();
     if (number.error) {
-      // A database that predates the number ledger has no such table: "no hold there", not a read failure.
-      if (number.error.code === "42P01" || number.error.code === "PGRST205") return { hold: null, error: false };
+      // A database that predates the number ledger has no such table — and one whose columns this code
+      // does not know is just as absent here: "no hold there", not a read failure. The send is still
+      // refused unless the wallet ledger above holds the reservation.
+      if (number.error.code === "42P01" || number.error.code === "PGRST205" || number.error.code === "42703") {
+        return { hold: null, error: false };
+      }
+      console.warn("number credit ledger read failed", number.error.code ?? "unknown");
       continue;
     }
     const row = number.data as { owner_user_id: string; meter: string; quantity: number | string; credit_state: string } | null;

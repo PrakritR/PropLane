@@ -691,9 +691,9 @@ export async function relayTeamChatMessageToSms(
       outcomes.push({ memberUserId: member.userId, status: "skipped", reason: "hourly_cap" });
       continue;
     }
-    // Hand the text to the dispatcher now. The sms-outbox cron is only a safety net (daily on Hobby), so a relay
-    // that is merely queued sat for hours behind a backlog (75 stuck, Nov 1-3). Best effort: a dispatch failure
-    // leaves the row queued for the cron, which expires it once it is stale (`expireStaleTransactionalNotices`).
+    // Hand the text to the dispatcher now. The sms-outbox cron (every five minutes) is the safety net behind it, and
+    // a relay that was merely queued sat for hours behind a backlog (75 stuck, Nov 1-3). Best effort: a dispatch
+    // failure leaves the row queued for that cron, which expires it once it is stale (`expireStaleManagerNotices`).
     if (result.ok && !result.deduplicated && result.status === "queued") {
       try {
         await dispatchOwnerSmsOutbox({ workerId: `team-relay-${input.messageId}`.slice(0, 120), outboxId: result.outboxId }, db);

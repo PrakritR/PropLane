@@ -1297,8 +1297,18 @@ export async function POST(req: Request) {
             const keptId = String(lookup.match.record.id);
             guestResumeToken = guestTokens.find((token) => isResidentSetupTokenValid(lookup.match!.row, token)) ?? null;
             if (!isDraftShapedApplicationRow(lookup.match.row)) {
-              // Already sent: never walk it back to a draft. The browser adopts the id and stops drafting.
-              return NextResponse.json({ ok: true, id: keptId, axisId: keptId, merged: "submitted" });
+              // Already sent: never walk it back to a draft. The kept row rides back (the browser proved it
+              // holds this row's own setup token, exactly as the signed-in path proves the Auth subject), so
+              // `adoptKeptApplicationId` caches it as SUBMITTED and the wizard's own downgrade guard stops
+              // autosaving. Answering with the id alone left the wizard saving into a row the server then
+              // silently refused, and telling the person nothing.
+              return NextResponse.json({
+                ok: true,
+                id: keptId,
+                axisId: keptId,
+                merged: "submitted",
+                row: prepareApplicantIdentityWrite(lookup.match.row, null, keptId),
+              });
             }
             row = { ...mergeDraftIntoExisting(lookup.match.row, row), id: keptId };
             requestedRowId = keptId;

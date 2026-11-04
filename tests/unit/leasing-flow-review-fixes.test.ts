@@ -164,3 +164,140 @@ describe("tour flow", () => {
     expect(flow).toContain('const signedInUserId = sessionExpired ? "" : contactAutofill.userId;');
   });
 });
+
+/* ───────────────── second review pass: the eight findings on commit 228658108 ───────────────── */
+
+describe("the shared line can ack early too: its late reply is claimed before the seam runs", () => {
+  type Row = Record<string, unknown>;
+  const onboardingDb = (seed: Record<string, Row> = {}, opts: { missing?: boolean } = {}) => {
+    const rows = new Map<string, Row>(Object.entries(seed));
+    const from = () => {
+      let sid = "";
+      let expectCreatedAt: string | null = null;
+      let mode: "select" | "update" | "delete" = "select";
+      let patch: Row = {};
+      const run = () => {
+        const row = rows.get(sid);
+        if (mode === "delete") {
+          if (sid) rows.delete(sid);
+          return { data: null, error: null };
+        }
+        if (mode === "update") {
+          if (!row || (expectCreatedAt !== null && row.created_at !== expectCreatedAt)) return { data: [], error: null };
+          rows.set(sid, { ...row, ...patch });
+          return { data: [{ message_sid: sid }], error: null };
+        }
+        return { data: row ? [row] : [], error: null };
+      };
+      const chain: Record<string, unknown> = {
+        insert: (row: Row) => {
+          if (opts.missing) return Promise.resolve({ error: { code: "42P01" } });
+          const key = String(row.message_sid);
+          if (rows.has(key)) return Promise.resolve({ error: { code: "23505" } });
+          rows.set(key, { ...row });
+          return Promise.resolve({ error: null });
+        },
+        select: () => chain,
+        update: (next: Row) => { mode = "update"; patch = next; return chain; },
+        delete: () => { mode = "delete"; return chain; },
+        eq: (column: string, value: string) => {
+          if (column === "message_sid") sid = value;
+          else expectCreatedAt = value;
+          return chain;
+        },
+        lt: () => chain,
+        maybeSingle: () => Promise.resolve({ data: rows.get(sid) ?? null, error: null }),
+        then: (resolve: (value: unknown) => void) => resolve(run()),
+      };
+      return chain;
+    };
+    return { rows, db: { from } as never };
+  };
+
+  it("claims the reply once per MessageSid, and a second run of the same text never takes it", async () => {
+    const { claimMessageSideEffect, completeMessageSideEffect } = await import("@/lib/one-number/onboarding/turn-replay.server");
+    const store = onboardingDb();
+    await expect(claimMessageSideEffect(store.db, "late", "SM1", "2065550100")).resolves.toBe("won");
+    await expect(claimMessageSideEffect(store.db, "late", "SM1", "2065550100")).resolves.toBe("taken");
+    await completeMessageSideEffect(store.db, "late", "SM1");
+    await expect(claimMessageSideEffect(store.db, "late", "SM1", "2065550100")).resolves.toBe("taken");
+    // Namespaced: the turn claim for the same text is a different row.
+    await expect(claimMessageSideEffect(store.db, "other", "SM1", "2065550100")).resolves.toBe("won");
+  });
+
+  it("answers unavailable with no claim table, so the caller keeps returning its own response", async () => {
+    const { claimMessageSideEffect } = await import("@/lib/one-number/onboarding/turn-replay.server");
+    const store = onboardingDb({}, { missing: true });
+    await expect(claimMessageSideEffect(store.db, "late", "SM1", "2065550100")).resolves.toBe("unavailable");
+  });
+
+  it("the route takes that claim BEFORE the seam, acks on it, and closes it only after the late send", () => {
+    const route = read("src/app/api/twilio/inbound/route.ts");
+    expect(route).toContain("canAck: () => late.claimed || Boolean(late.lateReplyMessageSid)");
+    expect(route.indexOf("claimMessageSideEffect(db, LATE_REPLY_CLAIM")).toBeLessThan(route.indexOf("await handleSharedLineInbound("));
+    expect(route).toContain("await completeMessageSideEffect(db, LATE_REPLY_CLAIM, lateSid)");
+    // A seam that routes the text onward hands it back to the pipeline, whose pre-claim 5xx must reach Twilio.
+    expect(route).toContain("late.lateReplyMessageSid = null;");
+  });
+});
+
+describe("a signup continuation never 503s on the additive tour_slot_key column", () => {
+  it("retries the handoff read without it", () => {
+    const route = read("src/app/api/auth/email-onboarding/continue/route.ts");
+    expect(route).toContain('isMissingColumnError(read.error, "tour_slot_key")');
+    expect(route).toContain("read = await readHandoff(HANDOFF_COLUMNS)");
+  });
+});
+
+describe("lease terms drift is keyed on the stored application link", () => {
+  const route = read("src/app/api/portal-lease-pipeline/route.ts");
+  it("prefers the stored axisId and restores it when the body drops it", () => {
+    expect(route).toContain('const storedAxisId = typeof storedRow?.axisId === "string" ? storedRow.axisId.trim() : "";');
+    expect(route).toContain('const termsAxisId = storedAxisId || (typeof nextRow.axisId === "string" ? nextRow.axisId.trim() : "");');
+    expect(route).toContain("nextRow = { ...nextRow, axisId: storedRow!.axisId };");
+  });
+});
+
+describe("a guest draft folding into an application they already submitted", () => {
+  it("answers with the kept row, like the signed-in path, so the wizard stops drafting", () => {
+    const route = read("src/app/api/manager-applications/route.ts");
+    const guest = route.slice(route.indexOf("let guestResumeToken"), route.indexOf("const ids = idVariants(requestedRowId)"));
+    expect(guest).toContain('merged: "submitted"');
+    expect(guest).toContain("row: prepareApplicantIdentityWrite(lookup.match.row, null, keptId),");
+  });
+});
+
+describe("the stale-notice sweep runs once per cron invocation", () => {
+  it("is called by the cron, not by every claim batch", () => {
+    expect(read("src/lib/sms/owner-sms-dispatcher.server.ts")).not.toContain("if (!options.outboxId) await expireStaleManagerNotices(db)");
+    const cron = read("src/app/api/cron/sms-outbox/route.ts");
+    expect(cron).toContain("const staleNoticesExpired = await expireStaleManagerNotices(db);");
+    expect(cron.indexOf("expireStaleManagerNotices(db)")).toBeLessThan(cron.indexOf("await dispatchOwnerSmsOutbox("));
+  });
+
+  it("the team relay's comment names the helper that exists and the schedule that is real", () => {
+    const src = read("src/lib/team-comms.server.ts");
+    expect(src).toContain("`expireStaleManagerNotices`");
+    expect(src).not.toContain("expireStaleTransactionalNotices");
+    expect(src).not.toContain("daily on Hobby");
+  });
+});
+
+describe("the 7 AM digest rotates its owners by the day", () => {
+  it("never cuts off the same tail twice", () => {
+    const src = read("src/lib/one-number/checkin-digest.server.ts");
+    expect(src).toContain("const ordered = [...owners].sort();");
+    expect(src).toContain("const rotated = [...ordered.slice(start), ...ordered.slice(0, start)];");
+    expect(src).toContain("const ownerUserId = rotated[next++];");
+  });
+});
+
+describe("a credit hold in a ledger this code cannot read is 'no hold', and the code is logged", () => {
+  it("treats undefined_column like a missing ledger, only for the number ledger", () => {
+    const src = read("src/lib/twilio.ts");
+    const fn = src.slice(src.indexOf("async function readCreditHold"), src.indexOf("Send an SMS via Twilio"));
+    expect(fn).toContain('number.error.code === "42703"');
+    expect(fn).toContain('console.warn("number credit ledger read failed"');
+    expect(fn).toContain('console.warn("comms credit ledger read failed"');
+  });
+});

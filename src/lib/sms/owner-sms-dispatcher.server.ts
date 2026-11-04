@@ -707,6 +707,9 @@ export const STALE_MANAGER_NOTICE_REASON = "expired_stale";
  * `manager_agent_notification_*`) that are still `queued` / `deferred` after {@link STALE_MANAGER_NOTICE_TTL_MS}:
  * `blocked` with `expired_stale`. A backlog left by an outage must never blast hours-old chat lines at a phone when
  * the dispatcher recovers. Rows already claimed or submitted are untouched. Returns how many were expired.
+ *
+ * Swept ONCE per sms-outbox cron invocation, not per claim batch: the rows it looks for only age every 6 hours,
+ * and the cron claims up to ten batches a run, every five minutes.
  */
 export async function expireStaleManagerNotices(db: SupabaseClient, now = new Date()): Promise<number> {
   const cutoff = new Date(now.getTime() - STALE_MANAGER_NOTICE_TTL_MS).toISOString();
@@ -777,7 +780,6 @@ export async function dispatchOwnerSmsOutbox(
       infrastructureErrors: ["stale_submission_reconciliation_unavailable"],
     };
   }
-  if (!options.outboxId) await expireStaleManagerNotices(db);
   const { data, error } = await db.rpc("claim_sms_outbox", {
     p_worker_id: workerId,
     p_limit: options.outboxId ? 1 : Math.max(1, Math.min(options.limit ?? 5, 5)),

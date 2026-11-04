@@ -82,3 +82,35 @@ export async function releaseTurn(db: SupabaseClient, messageSid: string): Promi
     // The stale-claim takeover frees it eventually.
   }
 }
+
+/**
+ * One side effect per inbound text, claimed BEFORE the slow work that produces it. The shared line's
+ * LATE reply is the case: once the webhook has already answered Twilio (`inbound-ack.server.ts`), the
+ * reply the turn wanted to put in that TwiML goes out through the Messaging API instead, and it must
+ * go out exactly once however many times the webhook runs for the same MessageSid. Namespaced so it
+ * never collides with the turn claim above, recorded in the same table with the same TTL and pruning.
+ *
+ * `"unavailable"` (no table, an unreadable row, another phone on the sid) means nothing durable was
+ * recorded: the caller must keep its old behaviour, including returning its own 5xx to the provider.
+ */
+export async function claimMessageSideEffect(
+  db: SupabaseClient,
+  name: string,
+  messageSid: string,
+  phoneKey: string,
+  now?: Date,
+): Promise<"won" | "taken" | "unavailable"> {
+  const claim = await claimTurn<{ done: true }>(db, `${name}:${messageSid}`, phoneKey, now);
+  if (claim.kind === "won") return "won";
+  return claim.kind === "unavailable" ? "unavailable" : "taken";
+}
+
+/** The side effect happened: close the claim so a later retry replays it instead of repeating it. */
+export async function completeMessageSideEffect(
+  db: SupabaseClient,
+  name: string,
+  messageSid: string,
+  now?: Date,
+): Promise<void> {
+  await completeTurn(db, `${name}:${messageSid}`, { done: true }, now);
+}
