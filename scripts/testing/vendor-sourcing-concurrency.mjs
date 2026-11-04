@@ -344,4 +344,3 @@ async function assertOutcome(client, assertion) {
     throw new Error("assert: no terminal decline state survived the race");
   }
 }
-

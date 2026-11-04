@@ -66,7 +66,7 @@ beforeAll(async () => {
  await db.exec(`create or replace function public.pg_advisory_xact_lock(integer,integer) returns void language plpgsql as $$ begin return; end $$;
  create or replace function public.pg_try_advisory_xact_lock(integer,integer) returns boolean language sql as $$ select true $$;`);
  await db.exec(readFileSync("supabase/migrations/20261016150000_vendor_sourcing_final_lifecycle.sql", "utf8"));
- await db.exec(readFileSync("supabase/migrations/20261104120000_vendor_coordination_current_main_compat.sql", "utf8"));
+ await db.exec(readFileSync("supabase/migrations/20261104115000_vendor_coordination_current_main_compat.sql", "utf8"));
 }, 30_000);
 
 afterAll(async () => { await db?.close(); });

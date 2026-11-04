@@ -508,6 +508,41 @@ export async function requestVendorQuoteSmsChallenge(
   return { challengeId: String(data.id), code, destinationPhone: sender.workPhone, expiresAt: String(data.expires_at) };
 }
 
+/** Reconcile an already committed atomic grant without re-evaluating current policy. */
+export async function reconcileVendorQuoteSmsOutcome(
+  db: SupabaseClient,
+  input: { fromPhone: string; toPhone: string; messageSid: string; providerMessagingServiceSid?: string | null },
+): Promise<"absent" | "committed" | "conflict"> {
+  const [receiptRead, challengesRead] = await Promise.all([
+    db.from("sms_inbound_receipts").select("message_sid,status,manager_user_id,recipient_phone_key,workspace_id,inbound_payload")
+      .eq("message_sid", input.messageSid).maybeSingle(),
+    db.from("vendor_quote_sms_consent_challenges").select("capability_id,manager_user_id,requested_phone,work_phone,consumed_at,inbound_event_id")
+      .eq("inbound_event_id", input.messageSid).limit(2),
+  ]);
+  if (receiptRead.error || challengesRead.error) throw new Error("Quote outcome unavailable");
+  const receipt = receiptRead.data;
+  const challenges = challengesRead.data ?? [];
+  if (!receipt && !challenges.length) return "absent";
+  if (!receipt || challenges.length !== 1) return "conflict";
+  const challenge = challenges[0];
+  if (!challenge.consumed_at || challenge.requested_phone !== input.fromPhone || challenge.work_phone !== input.toPhone ||
+    challenge.inbound_event_id !== input.messageSid || receipt.status !== "completed" || receipt.manager_user_id !== challenge.manager_user_id) return "conflict";
+  const capRead = await db.from("vendor_quote_contact_capabilities").select("manager_user_id,sender_snapshot")
+    .eq("id", challenge.capability_id).maybeSingle();
+  if (capRead.error) throw new Error("Quote outcome unavailable");
+  const cap = capRead.data;
+  const workspace = cap?.sender_snapshot?.workspaceId;
+  const payload = receipt.inbound_payload;
+  let phoneKey = input.fromPhone.replace(/\D/g, "");
+  if (phoneKey.length === 11 && phoneKey.startsWith("1")) phoneKey = phoneKey.slice(1);
+  return cap && cap.manager_user_id === challenge.manager_user_id && typeof workspace === "string" &&
+    cap.sender_snapshot?.workPhone === input.toPhone &&
+    (!input.providerMessagingServiceSid || cap.sender_snapshot?.providerMessagingServiceSid === input.providerMessagingServiceSid) &&
+    receipt.recipient_phone_key === phoneKey && receipt.workspace_id === workspace &&
+    payload?.signedTwilio === true && payload.fromPhone === input.fromPhone && payload.toPhone === input.toPhone &&
+    payload.body === "QUOTE [redacted]" && payload.workspaceId === workspace ? "committed" : "conflict";
+}
+
 export async function processVendorQuoteSmsChallenge(
   db: SupabaseClient,
   input: { fromPhone: string; toPhone: string; body: string; messageSid: string; providerMessagingServiceSid?: string | null },

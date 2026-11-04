@@ -21,6 +21,7 @@ import {
   readRoleAnswer,
   type OnboardingRole,
 } from "@/lib/one-number/onboarding/role-detect";
+import { isDurableSmsIngress } from "@/lib/sms/durable-ingress-context.server";
 import { claimTurn, completeTurn, releaseTurn } from "@/lib/one-number/onboarding/turn-replay.server";
 import {
   MANAGE_OWN_SHARED_REPLY,
@@ -110,6 +111,7 @@ export async function handleUnknownSenderInbound(db: SupabaseClient, inbound: Sh
   if (!sid) return runUnknownSenderTurn(db, inbound, deps);
   const claim = await claimTurn<UnknownSenderTurn>(db, sid, inbound.phoneKey, deps.now?.());
   if (claim.kind === "replay") return claim.turn;
+  if (isDurableSmsIngress() && (claim.kind === "inflight" || claim.kind === "unavailable")) throw new Error("Durable onboarding turn is not available for execution");
   if (claim.kind === "inflight") return { leadId: null, reply: null, assignedWorkspaceId: null };
   if (claim.kind === "unavailable") return runUnknownSenderTurn(db, inbound, deps);
   let turn: UnknownSenderTurn;
@@ -119,7 +121,7 @@ export async function handleUnknownSenderInbound(db: SupabaseClient, inbound: Sh
     await releaseTurn(db, sid);
     throw error;
   }
-  await completeTurn(db, sid, turn, deps.now?.());
+  await completeTurn(db, sid, turn, deps.now?.(), { strict: isDurableSmsIngress() });
   return turn;
 }
 

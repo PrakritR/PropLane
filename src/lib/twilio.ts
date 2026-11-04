@@ -48,6 +48,8 @@ export async function sendSms(
     messagingServiceSid?: string | null;
     /** Trusted actor identity for delayed/provider calls outside SMS ALS. */
     actorUserId?: string;
+    /** Server-created opaque correlation callback for a durable platform reply. */
+    statusCallbackUrl?: string;
   },
 ): Promise<{ sent: boolean; sid?: string; error?: string; providerAttempted?: boolean }> {
   if (captureSmsTestDelivery({
@@ -130,7 +132,9 @@ export async function sendSms(
   const messagingServiceSid = opts?.messagingServiceSid !== undefined
     ? opts.messagingServiceSid?.trim()
     : process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
-  const statusCallback = process.env.TWILIO_STATUS_CALLBACK_URL?.trim();
+  const statusCallback = opts?.purpose === "platform_lead" && opts.statusCallbackUrl
+    ? opts.statusCallbackUrl
+    : process.env.TWILIO_STATUS_CALLBACK_URL?.trim();
 
   try {
     const message = await client.messages.create({

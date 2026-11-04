@@ -1,401 +1,76 @@
-import { processVendorQuoteSmsChallenge } from "@/lib/vendor-quote-contact.server";
-import { normalizeE164 } from "@/lib/phone-e164";
 import { NextResponse, after } from "next/server";
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
+import { exactVendorQuoteCode, REDACTED_QUOTE_BODY, sealVendorQuoteCode, vendorQuoteWireDigest } from "@/lib/sms/vendor-quote-ingress.server";
 import twilio from "twilio";
-import { rateLimit } from "@/lib/rate-limit";
-import { normalizeConsentPhone, readSmsSuppressionState } from "@/lib/sms-consent";
-import { resolveWorkspaceOwnerForWorkNumber } from "@/lib/sms/manager-workspace-role.server";
-import { inboundLogIdentityFields } from "@/lib/manager-sms-messages.server";
+import { normalizeE164 } from "@/lib/phone-e164";
+import { isTwilioMessageSid } from "@/lib/sms/message-sid";
+import { twilioWebhookAuthToken } from "@/lib/twilio-client.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { fetchTwilioMessageCreatedAt, twilioWebhookAuthToken } from "@/lib/twilio-client.server";
-import { loadInboundReplay } from "@/lib/sms/inbound-replay.server";
-import {
-  inboundMediaParams,
-  inboundRuntime,
-  runClaimedInbound,
-  twimlOk,
-  type InboundPayload,
-} from "@/lib/sms/inbound-pipeline.server";
-import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.server";
-import { ingestVendorWorkIdentitySms } from "@/lib/vendor-work-identity-inbound.server";
-import { resolveVendorNumberSenderPhone } from "@/lib/vendor-work-identity.server";
-import { ingestResidentAgentNumberSms } from "@/lib/resident-agent-number/inbound.server";
-import { isSharedLineNumber, loadSharedLineConfig } from "@/lib/one-number/config.server";
-import { endDemoForPhone } from "@/lib/one-number/demo/store.server";
-import { handleSharedLineInbound } from "@/lib/one-number/inbound-seam.server";
-import { isOldNumberOnSharedLine, sendMovedAutoReply } from "@/lib/one-number/old-number.server";
-import { recordShadowDecision } from "@/lib/one-number/shadow.server";
+import { isShieldedRecipient } from "@/lib/protected-accounts.server";
 import { redactSensitiveNumbers } from "@/lib/one-number/redact";
+import { acceptInboundEnvelope, processInboundEnvelope, smsEnvelopeRuntime } from "@/lib/sms/inbound-envelope.server";
 
 export const runtime = "nodejs";
-// ponytail: room for the QStash-outage fallback (quiet window + agent turn) in after().
 export const maxDuration = 120;
 
-/**
- * Standard carrier/Twilio SMS control keywords. Twilio's Advanced Opt-Out sends
- * the compliance auto-replies; Axis records the resulting consent state so it
- * never texts an opted-out number again, and never leaks a control message into
- * anyone's inbox. Matched case-insensitively against the entire trimmed body.
- */
-const SMS_STOP_KEYWORDS = new Set(["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"]);
-const SMS_START_KEYWORDS = new Set(["START", "YES", "UNSTOP"]);
-const SMS_HELP_KEYWORDS = new Set(["HELP", "INFO"]);
-
-/**
- * Twilio inbound SMS webhook for manager work numbers.
- *
- * Any From phone is accepted (no allowlist). Managed-runtime messages route
- * through the durable receipt claim and then leasing bot / resident intents /
- * manager agent commands. The legacy relay pool is runtime-off only.
- *
- * Configure in Twilio: Messaging webhook → POST https://<host>/api/twilio/inbound
- * (must match TWILIO_WEBHOOK_URL when set, for signature validation).
- */
-export async function POST(req: Request) {
-  const started = Date.now();
-  const marks: string[] = [];
-  const mark = (step: string) => { marks.push(`${step}:${Date.now() - started}`); };
-  let status = 500;
-  let error: string | undefined;
-  try {
-    const res = await handleInbound(req, mark);
-    status = res.status;
-    if (status >= 500) error = (await res.clone().text()).slice(0, 200).replace(/\+?\d{7,}/g, "[redacted]");
-    return res;
-  } finally {
-    const ms = Date.now() - started;
-    // ponytail: log only slow or failed requests; Twilio abandons the webhook at 15s.
-    if (ms > 5000 || status >= 500) console.warn("twilio inbound timing", { status, ms, error, marks: marks.join(" ") });
-  }
+function emptyTwiml() {
+  return new NextResponse('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', { headers: { "Content-Type": "text/xml" } });
 }
 
-async function handleInbound(req: Request, mark: (step: string) => void): Promise<NextResponse> {
+async function bounded<T>(work: Promise<T>, milliseconds: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([work, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Ingress deadline")), milliseconds); })]);
+  } finally { if (timer) clearTimeout(timer); }
+}
+
+/** Signature verification and durable acceptance are the only work before acknowledgement. */
+export async function POST(req: Request) {
+  const started = Date.now();
   const authToken = twilioWebhookAuthToken();
   if (!authToken) return NextResponse.json({ error: "SMS not configured." }, { status: 503 });
-
-  const raw = await req.text();
-  const params = Object.fromEntries(new URLSearchParams(raw));
-
-  // Signature check — reject spoofed webhook calls. Fail closed on Vercel.
-  const signature = req.headers.get("x-twilio-signature") ?? "";
-  // Twilio signs the URL without its `#rp=…` connection-override fragment.
-  const url = (process.env.TWILIO_WEBHOOK_URL?.trim() || req.url).split("#")[0];
-  const failClosed = Boolean(process.env.VERCEL || process.env.NODE_ENV === "production");
-  if (!signature) {
-    if (failClosed) return NextResponse.json({ error: "Invalid signature." }, { status: 403 });
-  } else if (!twilio.validateRequest(authToken, signature, url, params)) {
-    return NextResponse.json({ error: "Invalid signature." }, { status: 403 });
-  }
-
-  const fromPhone = String(params.From ?? "").trim();
-  const signedFrom = normalizeE164(fromPhone);
-  const rawTo = normalizeE164(String(params.To ?? "").trim());
-  const rawBody = String(params.Body ?? "").trim();
-  // `let`: a text to an old work number that has moved to the shared line continues as a shared-line text.
-  let toPhone = String(params.To ?? "").trim();
-  // A texted card or bank number is replaced with [redacted] before anything
-  // stores or reads the body: the receipt, the projection, the inbound log and
-  // the agent all see the redacted text.
-  const redaction = redactSensitiveNumbers(String(params.Body ?? "").trim());
-  const body = /^QUOTE(?:\s|$)/i.test(rawBody) ? redaction.text.replace(/\d{12}/g, "[redacted]") : redaction.text;
-  const messageSid = String(params.MessageSid ?? "").trim() || null;
-  if (!fromPhone || !toPhone) return twimlOk();
-  mark("signed");
-
-  // Real-customer shield: outside production, a text from (or to) a protected
-  // account is acknowledged and dropped. Processing it would file rows and can
-  // trigger an agent auto-reply, and staging runs on a clone of production so
-  // the person on the other end is real.
-  const { isShieldedRecipient } = await import("@/lib/protected-accounts.server");
-  if (
-    (await isShieldedRecipient({ phone: fromPhone })) ||
-    (await isShieldedRecipient({ phone: toPhone }))
-  ) {
-    console.error("protected-accounts: dropped an inbound text on a non-production runtime.");
-    return twimlOk();
-  }
-
-  mark("shield");
-  const db = createSupabaseServiceRoleClient();
-  // `lineConfig` fails closed to per_workspace (read error, missing column): then nothing below changes.
-  const [resolvedNumber, lineConfig] = await Promise.all([resolveOwnedWorkNumber(db, toPhone), loadSharedLineConfig(db)]);
-  let ownedNumber: { managerId: string; workspaceId: string | null; messagingServiceSid: string } | null = resolvedNumber;
-  mark("owned-number");
-
-  // Compliance controls run before traffic shedding so a legitimate STOP can
-  // never be discarded by the ordinary inbound rate limiter.
-  const keyword = body.toUpperCase();
-  let controlKeyword: "STOP" | "START" | "HELP" | null = SMS_STOP_KEYWORDS.has(keyword)
-    ? "STOP"
-    : SMS_START_KEYWORDS.has(keyword)
-      ? "START"
-      : SMS_HELP_KEYWORDS.has(keyword)
-        ? "HELP"
-        : null;
-
-  // "YES" is both a carrier opt-in synonym and the natural way to approve an
-  // agent proposal by text. Compliance runs first, so without this the reply a
-  // resident sends to confirm a rent payment is silently eaten as an opt-in and
-  // the proposal is never confirmed.
-  //
-  // Precedence is resolved by STATE, not by guessing intent: opting in is only
-  // meaningful for a phone that is currently opted OUT, and a suppressed phone
-  // was never sent a proposal in the first place. So START keeps priority while
-  // suppressed, and otherwise the message falls through to the agent. STOP and
-  // HELP are never reinterpreted — those must work unconditionally.
-  if (controlKeyword === "START") {
-    const suppression = await readSmsSuppressionState(db, fromPhone);
-    // Unreadable suppression falls back to carrier handling: treating an
-    // unknown state as "not opted out" could swallow a genuine opt-in.
-    if (suppression.ok && !suppression.optedOut) controlKeyword = null;
-  }
-
-  if (controlKeyword) {
-    const phoneKey = normalizeConsentPhone(fromPhone);
-    if (!messageSid || !phoneKey) {
-      return NextResponse.json({ error: "Invalid control message." }, { status: 400 });
-    }
-    const providerOccurredAt = await fetchTwilioMessageCreatedAt(messageSid);
-    if (!providerOccurredAt) {
-      return NextResponse.json({ error: "Control message time unavailable." }, { status: 503 });
-    }
-    const { error: controlError } = await db.rpc("apply_sms_control_keyword", {
-      p_message_sid: messageSid,
-      p_recipient_phone_key: phoneKey,
-      p_keyword: controlKeyword,
-      p_provider_occurred_at: providerOccurredAt,
-      p_manager_user_id: ownedNumber?.managerId ?? null,
-      p_messaging_service_sid: ownedNumber?.messagingServiceSid ?? null,
-    });
-    if (controlError) {
-      // Non-2xx asks Twilio to retry; the RPC is atomic and MessageSid-unique.
-      return NextResponse.json({ error: "Control receipt unavailable." }, { status: 503 });
-    }
-    // STOP ends a sandbox demo on this phone (best effort; the opt-out above is the record).
-    if (controlKeyword === "STOP") await endDemoForPhone(db, phoneKey);
-    return twimlOk();
-  }
-
-  // QUOTE codes are proofs, never prospect/agent conversation. Preserve signed wire addresses.
-  if (/^QUOTE \d{12}$/i.test(rawBody)) {
-    if (!signature || !messageSid || !signedFrom || !rawTo) return twimlOk();
-    const limit = await rateLimit(`twilio-quote-proof:${signedFrom}`, 20, 60_000);
-    if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
-    if (!limit.ok) return twimlOk();
-    try {
-      await processVendorQuoteSmsChallenge(db, { fromPhone: signedFrom, toPhone: rawTo, body: rawBody, messageSid,
-        providerMessagingServiceSid: String(params.MessagingServiceSid ?? "").trim() || null });
-      return twimlOk();
-    } catch {
-      return NextResponse.json({ error: "Quote consent unavailable." }, { status: 503 });
-    }
-  }
-
-  // One-number shared line (docs/agents/one-number.md): a text to the shared number is stamped with a
-  // workspace here, before any agent runs. A routed text then continues below exactly as a work-number
-  // text would, as that workspace's owner. Only live in `shared` mode; every other mode skips this.
-  let sharedLine = false;
-  // An OLD per-workspace number whose workspace now answers on the shared line (not a dedicated one):
-  // the sender is told once per 30 days where we moved (PropLane's cost), and the text goes through the
-  // shared-line router below as if it had arrived there, so nothing is lost. Dedicated workspaces and
-  // every other mode skip this.
-  const oldNumberMoved = Boolean(messageSid) && isOldNumberOnSharedLine(lineConfig, toPhone, resolvedNumber);
-  const oldNumberTo = toPhone;
-  if (oldNumberMoved && lineConfig.sharedNumber) toPhone = lineConfig.sharedNumber;
-  if (lineConfig.mode === "shared" && messageSid && isSharedLineNumber(lineConfig, toPhone)) {
-    const sharedKey = normalizeConsentPhone(fromPhone);
-    if (sharedKey) {
-      const limit = await rateLimit(`twilio-shared-line:${fromPhone}`, 20, 60_000);
-      if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
-      if (!limit.ok) return twimlOk();
-      if (oldNumberMoved && resolvedNumber?.workspaceId) {
-        await sendMovedAutoReply(db, {
-          config: lineConfig, phoneKey: sharedKey, fromPhone, workspaceId: resolvedNumber.workspaceId, messageSid: messageSid!,
-        }).catch((error) => console.error("moved-number reply failed", messageSid, error instanceof Error ? error.name : "unknown"));
-      }
-      try {
-        const seam = await handleSharedLineInbound(db, {
-          config: lineConfig,
-          fromPhone,
-          body,
-          messageSid,
-          mediaCount: Number(params.NumMedia) || 0,
-          phoneKey: sharedKey,
-        });
-        if (seam.kind === "handled") return twimlOk(seam.bubbles ?? seam.twiml ?? undefined, seam.mediaUrl);
-        if (seam.kind === "continue") {
-          ownedNumber = { ...seam.owned };
-          sharedLine = true;
-        }
-      } catch (error) {
-        // Fall through to the no-owner path below, which keeps the text in the inbound log.
-        console.error("shared line routing failed", messageSid, error instanceof Error ? error.name : "unknown");
-      }
-    }
-  }
-  // The shared line took nothing from an old-number text: it continues on the old number exactly as before.
-  if (oldNumberMoved && !sharedLine) toPhone = oldNumberTo;
-  mark("shared-line");
-
-  // Vendor identities are resolved before manager-only work-number ownership.
-  // Inbound never consumes a manager credit/cap and remains visible with the
-  // SMS UI feature flag off.
-  if (messageSid) {
-    try {
-      const vendorInbound = await ingestVendorWorkIdentitySms(db, { toPhone, fromPhone, text: body, messageSid });
-      if (vendorInbound.handled) {
-        // The AI answer (clients and residents only) runs after Twilio has its response.
-        const aiAnswer = vendorInbound.afterResponse;
-        if (aiAnswer) after(() => aiAnswer());
-        return twimlOk();
-      }
-    } catch (error) {
-      console.error("vendor inbound SMS ingest failed", messageSid, error);
-      return NextResponse.json({ error: "Vendor inbox unavailable." }, { status: 503 });
-    }
-  }
-
-  // A subscribed resident's own PropLane number (their personal agent). Flag-gated inside: with
-  // NUMBER_SUBSCRIPTION_ENABLED off this is a no-op that costs no query.
-  if (messageSid) {
-    try {
-      const residentInbound = await ingestResidentAgentNumberSms(db, { toPhone, fromPhone, text: body, messageSid });
-      if (residentInbound.handled) {
-        const agentReply = residentInbound.afterResponse;
-        if (agentReply) after(() => agentReply());
-        return twimlOk();
-      }
-    } catch (error) {
-      console.error("resident agent inbound SMS ingest failed", messageSid, error);
-      return NextResponse.json({ error: "Resident inbox unavailable." }, { status: 503 });
-    }
-  }
-
-  mark("controls");
-  // Pooled proxy lines are retired. Only owned work numbers route replies.
-  const numberOwnerId = ownedNumber?.managerId ?? "";
-  if (!numberOwnerId) {
-    const limit = await rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000);
-    if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
-    if (!limit.ok) {
-      return twimlOk();
-    }
-    await db
-      .from("inbound_sms_log")
-      .insert({
-        from_phone: fromPhone,
-        to_phone: toPhone,
-        body,
-        message_sid: messageSid,
-        ...inboundLogIdentityFields({ managerUserId: null, counterpartyRole: "unknown", fromPhone }),
-      })
-      .then(() => undefined, () => undefined);
-    return twimlOk();
-  }
-
-  // A work number is the WORKSPACE's front door, not the row it was bought
-  // under. A line still held by a pure co-manager (bought before numbers became
-  // workspace-owned) answers for the owner whose houses they manage: residents
-  // resolve against the owner's rows, prospects reach the owner's leasing
-  // agent, and every thread lands in the owner's inbox — where the co-manager
-  // already reads it. The texter never learns which teammate set the line up.
-  let managerId: string;
   try {
-    managerId = (
-      await resolveWorkspaceOwnerForWorkNumber(db, numberOwnerId, {
-        throwOnError: true,
-        workspaceId: ownedNumber?.workspaceId ?? null,
-      })
-    ).ownerUserId;
-  } catch {
-    return NextResponse.json({ error: "Workspace unavailable." }, { status: 503 });
-  }
-
-  mark("workspace");
-  if (!messageSid) {
-    return NextResponse.json({ error: "MessageSid is required." }, { status: 400 });
-  }
-  // A vendor texting this line from their PropLane work number is the vendor on
-  // the owner's list: the sender becomes the phone that roster row carries, so
-  // the whole pipeline below (thread, consent, history) sees one vendor.
-  let senderPhone = fromPhone;
-  try {
-    senderPhone = (await resolveVendorNumberSenderPhone(db, { fromPhone, ownerManagerUserId: managerId })) ?? fromPhone;
-  } catch {
-    return NextResponse.json({ error: "Vendor number lookup unavailable." }, { status: 503 });
-  }
-  const inboundPhoneKey = normalizeConsentPhone(senderPhone);
-  if (!inboundPhoneKey) {
-    return NextResponse.json({ error: "Invalid sender phone." }, { status: 400 });
-  }
-  // Shadow mode: record what the shared-line router would have decided, next to the real owner.
-  // After the response, read-only; a failure here never touches this request.
-  if (lineConfig.mode === "shadow" && !sharedLine) {
-    const shadowOwner = managerId;
-    const shadowWorkspace = ownedNumber?.workspaceId ?? null;
-    const shadowInbound = {
-      fromPhone: senderPhone, phoneKey: inboundPhoneKey, body, messageSid, mediaCount: Number(params.NumMedia) || 0,
-    };
+    const raw = await bounded(req.text(), 1000);
+    if (raw.length > 65_536) return NextResponse.json({ error: "Inbound payload too large." }, { status: 413 });
+    const params = Object.fromEntries(new URLSearchParams(raw));
+    const signature = req.headers.get("x-twilio-signature") ?? "";
+    const url = (process.env.TWILIO_WEBHOOK_URL?.trim() || req.url).split("#")[0];
+    if ((!signature && Boolean(process.env.VERCEL || process.env.NODE_ENV === "production")) ||
+      (signature && !twilio.validateRequest(authToken, signature, url, params))) {
+      return NextResponse.json({ error: "Invalid signature." }, { status: 403 });
+    }
+    const quoteCode = exactVendorQuoteCode(String(params.Body ?? ""));
+    if (quoteCode && !signature) return NextResponse.json({ error: "Invalid signature." }, { status: 403 });
+    const from = normalizeE164(params.From); const to = normalizeE164(params.To);
+    const sid = params.MessageSid?.trim();
+    if (!from || !to || !sid || !isTwilioMessageSid(sid)) return NextResponse.json({ error: "Invalid inbound identity." }, { status: 400 });
+    if (params.AccountSid !== process.env.TWILIO_ACCOUNT_SID?.trim()) return NextResponse.json({ error: "Invalid provider account." }, { status: 403 });
+    const shielded = await bounded(Promise.all([isShieldedRecipient({ phone: from }), isShieldedRecipient({ phone: to })]), 2000);
+    if (shielded.some(Boolean)) return emptyTwiml();
+    const redaction = redactSensitiveNumbers(String(params.Body ?? "").trim());
+    // Reserved fields are server-owned even for ordinary messages.
+    const providerParams = Object.fromEntries(Object.entries(params).filter(([name]) => !/^PropLane/i.test(name)));
+    const providerServiceSid = params.MessagingServiceSid || null;
+    if (quoteCode && providerServiceSid && !/^MG[a-f0-9]{32}$/i.test(providerServiceSid)) return NextResponse.json({ error: "Invalid provider service." }, { status: 400 });
+    const envelopeRuntime = smsEnvelopeRuntime();
+    const payloadDigest = quoteCode ? vendorQuoteWireDigest(raw) : createHash("sha256").update(raw).digest("hex");
+    const quoteCapsule = quoteCode ? sealVendorQuoteCode(quoteCode, { messageSid: sid, wireFrom: from, wireTo: to,
+      accountSid: params.AccountSid, runtime: envelopeRuntime, providerMessagingServiceSid: providerServiceSid, payloadDigest }) : undefined;
+    const sanitized = quoteCode ? { From: from, To: to, MessageSid: sid, AccountSid: params.AccountSid,
+      ...(providerServiceSid ? { MessagingServiceSid: providerServiceSid } : {}), Body: REDACTED_QUOTE_BODY, PropLaneRedacted: "1" }
+      : { ...providerParams, Body: redaction.text, PropLaneRedacted: redaction.redacted ? "1" : "0" };
+    const db = createSupabaseServiceRoleClient();
+    const accepted = await acceptInboundEnvelope(db, { sid, wireFrom: from, wireTo: to, params: sanitized, payloadDigest, runtime: envelopeRuntime, ...(quoteCapsule ? { quoteCapsule } : {}) });
+    if (accepted.kind === "conflict") return NextResponse.json({ error: "Inbound identity conflict." }, { status: 409 });
+    if (accepted.kind === "unavailable") return NextResponse.json({ error: "Inbound persistence unavailable." }, { status: 503 });
     after(async () => {
-      await recordShadowDecision(createSupabaseServiceRoleClient(), {
-        inbound: shadowInbound, actualOwnerUserId: shadowOwner, actualWorkspaceId: shadowWorkspace,
-      });
+      try { await processInboundEnvelope(createSupabaseServiceRoleClient(), accepted.id, { process: async (params, context) => (await import("@/lib/sms/process-accepted-inbound.server")).processAcceptedInbound(params, context) }); }
+      catch { console.error("sms ingress deferred failure", { sid, stage: "worker" }); }
     });
+    console.info("sms ingress accepted", { sid, status: accepted.kind, ms: Date.now() - started });
+    return emptyTwiml();
+  } catch {
+    console.error("sms ingress failed", { stage: "accept", ms: Date.now() - started });
+    return NextResponse.json({ error: "Inbound acceptance unavailable." }, { status: 503 });
   }
-
-  // Count a provider MessageSid against the abuse limit only before its first
-  // durable receipt exists. Twilio retries of a failed/leased message must not
-  // consume the sender's quota and then get acknowledged before replay can
-  // finish; that would turn a retry storm into silent message loss.
-  const replayBeforeClaim = await loadInboundReplay(db, messageSid);
-  if (!replayBeforeClaim.ok) {
-    return NextResponse.json({ error: "Inbound replay state unavailable." }, { status: 503 });
-  }
-  if (!replayBeforeClaim.receipt) {
-    const limit = await rateLimit(`twilio-inbound:${senderPhone}`, 20, 60_000);
-    if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
-    if (!limit.ok) return twimlOk();
-  }
-  mark("rate-limit");
-  const inboundWorkerId = `inbound-${randomUUID()}`;
-  // Stored atomically with the claim so the recovery sweeper can always rerun it.
-  const payload: InboundPayload = {
-    signedTwilio: Boolean(signature),
-    fromPhone: senderPhone, toPhone, body,
-    ...(redaction.redacted ? { redacted: true } : {}),
-    workspaceId: ownedNumber?.workspaceId ?? null,
-    media: inboundMediaParams(params),
-    runtime: inboundRuntime(),
-    // Stored with the receipt so a recovery rerun still honors a HUMAN pause on the shared line.
-    ...(sharedLine ? { sharedLine: true } : {}),
-  };
-  const { data: inboundClaimed, error: inboundClaimError } = await db.rpc("claim_sms_inbound", {
-    p_message_sid: messageSid,
-    p_manager_user_id: managerId,
-    p_recipient_phone_key: inboundPhoneKey,
-    p_worker_id: inboundWorkerId,
-    p_lease_seconds: 120,
-    p_inbound_payload: payload,
-  });
-  if (inboundClaimError) {
-    return NextResponse.json({ error: "Inbound receipt unavailable." }, { status: 503 });
-  }
-  if (inboundClaimed !== true) {
-    // `false` can mean either a completed replay OR another worker/failed
-    // completion still owns the lease. Acknowledging both would make Twilio
-    // stop retrying a message whose reply was never durably completed.
-    const { data: receipt, error: receiptError } = await db
-      .from("sms_inbound_receipts")
-      .select("status")
-      .eq("message_sid", messageSid)
-      .maybeSingle();
-    if (receiptError || receipt?.status !== "completed") {
-      return NextResponse.json({ error: "Inbound processing is still pending." }, { status: 503 });
-    }
-    return twimlOk();
-  }
-
-  mark("claimed");
-  return runClaimedInbound(db, { ...payload, messageSid, managerId, inboundWorkerId, mark });
 }

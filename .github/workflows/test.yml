@@ -50,16 +50,13 @@ jobs:
       - run: npm run lockfile:verify
       - run: npm run test:unit
 
-  # Every job below is INDEPENDENT on purpose. They used to chain off `unit`
-  # (integration -> unit, e2e -> integration, check -> unit) to save CI minutes,
-  # but that made one red unit test cancel the entire rest of the pipeline. A
-  # long-known-red test then hid a type error for days, and a commit that could
-  # not build reached `production` — the site only stayed up because Vercel keeps
-  # the last good deployment serving. Each job does its own checkout and `npm ci`
-  # and consumes nothing from the others, so running them in parallel costs only
-  # machine time and buys an honest signal per dimension. The one job with
-  # `needs` is `check`, which runs no validation of its own and is `if: always()`,
-  # so it reports on the others without ever cancelling one.
+  # Unit, integration, lint and build stay independent so a red or slow signal
+  # cannot hide a compiler failure. Each job checks out and installs its own SHA.
+  # Browser jobs deliberately require a successful same-SHA build/type gate:
+  # their own builds omit the redundant in-build typecheck. A failed build
+  # (including its applicable QA/preflight steps) therefore skips browsers.
+  # `check` only aggregates unit, lint and build with `if: always()` so a failed,
+  # cancelled or skipped dependency cannot produce a green required status.
   integration:
     runs-on: ubuntu-latest
     if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true) }}
@@ -107,6 +104,7 @@ jobs:
   # together, and if they eat the whole margin GitHub kills the job before
   # Playwright's own cap can abort and report.
   e2e:
+    needs: [build]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')
@@ -120,6 +118,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e:smoke
         env:
+          PROPLANE_TYPECHECK_SEPARATELY: "1"
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           PLAYWRIGHT_BASE_URL: http://localhost:3000
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
@@ -150,6 +149,7 @@ jobs:
   # retries makes every flaky/failing case visible once instead of tripling its
   # 60-second timeout and preventing the suite from ever reaching later files.
   e2e-full:
+    needs: [build]
     runs-on: ubuntu-latest
     timeout-minutes: 50
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !(github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true))
@@ -165,6 +165,7 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || inputs.e2e_scope == 'full'
         run: npm run test:e2e
         env:
+          PROPLANE_TYPECHECK_SEPARATELY: "1"
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           PLAYWRIGHT_BASE_URL: http://localhost:3000
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
@@ -184,6 +185,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'
         run: npx playwright test tests/e2e/property-metadata-omission-preservation.spec.ts
         env:
+          PROPLANE_TYPECHECK_SEPARATELY: "1"
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           PLAYWRIGHT_BASE_URL: http://localhost:3000
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}

@@ -70,7 +70,7 @@ export async function applyCoordinationAction(db: SupabaseClient, actor: Coordin
     input.kind === "enroll" ? input.vendor_directory_id : proposal!.vendor_directory_id);
   const action = { ...input, source_message_id: actor.sourceMessageId ?? input.source_message_id, verified_phone_e164: actor.verifiedPhone, actor_user_id: actor.userId || undefined,
     manager_user_id: work.manager_user_id,
-    
+
     vendor_directory_id: actor.role === "vendor" ? (actor.vendorDirectoryId ?? proposal?.vendor_directory_id) : input.kind === "enroll" ? input.vendor_directory_id : undefined };
   const { data, error } = await db.rpc("vendor_coordination_action", { p_action: action });
   if (error) throw new Error(error.message);

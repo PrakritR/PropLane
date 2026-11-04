@@ -32,7 +32,7 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({ rpc: mocks.claim, from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { status: "completed" } }) }) }) }) }),
 }));
 
-import { POST } from "@/app/api/twilio/inbound/route";
+import { processInboundRequest as POST } from "../helpers/twilio-inbound-processor";
 
 function request(body: string) {
   const form = new URLSearchParams({ From: "+12065551234", To: "+12065550999", Body: body, MessageSid: "SM" + "1".repeat(32) });

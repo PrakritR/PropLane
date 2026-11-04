@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- test doubles stand in for a PostgREST client and untyped .mjs scripts */
-// STOP and START on the shared PropLane number, through the real webhook route. The route runs the carrier
+// STOP and START on the shared PropLane number, through the accepted inbound processor. It runs carrier
 // keywords BEFORE the router, so a STOP never reaches an agent or a team; it lands in the one global ledger
 // that every line and every team reads. The database function is replaced by a port of
 // apply_sms_control_keyword (supabase/migrations/20260825120000_sms_control_plane.sql); the same function was
@@ -44,7 +44,7 @@ vi.mock("@/lib/one-number/demo/store.server", () => ({ endDemoForPhone: async (_
 vi.mock("@/lib/one-number/shadow.server", () => ({ recordShadowDecision: async () => undefined }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => sim.db }));
 
-import { POST } from "@/app/api/twilio/inbound/route";
+import { processInboundRequest as POST } from "../../helpers/twilio-inbound-processor";
 import { readSmsSuppressionState } from "@/lib/sms-consent";
 
 const SHARED = "+12065550100";

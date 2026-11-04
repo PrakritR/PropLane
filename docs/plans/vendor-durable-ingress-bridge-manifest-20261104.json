@@ -1,0 +1,53 @@
+{
+  "scope": "sealed-vendor-quote-durable-ingress-bridge",
+  "files": [
+    {
+      "path": "src/lib/sms/vendor-quote-ingress.server.ts",
+      "sha256": "454d92eeae4b4b71c8fadc37bcb74879198d209c8e0d9e1ec2d399f43d377feb"
+    },
+    {
+      "path": "src/app/api/twilio/inbound/route.ts",
+      "sha256": "91032164dc22b849eb54e0d58fcd86cf6faba2cf1c01d79d7715916f63560d70"
+    },
+    {
+      "path": "src/lib/sms/inbound-envelope.server.ts",
+      "sha256": "f4ef9f23db54932420062668efa9a7f4256c1dd8e0d9cdbbc0842f327523785c"
+    },
+    {
+      "path": "src/lib/sms/process-accepted-inbound.server.ts",
+      "sha256": "c63206f4bd1bd5bcc525f503610624efb4dfe1e02a574c272a48f78e2b81a5c4"
+    },
+    {
+      "path": "src/lib/vendor-quote-contact.server.ts",
+      "sha256": "f4a8028fb94f1846d5a5db7b5d99021fe59a8dece8e2f3ac322c1d248e7065c2"
+    },
+    {
+      "path": "src/app/api/cron/sms-inbound-recovery/route.ts",
+      "sha256": "68bb1b5fc56d7185e0c234ccb3780d357a4a29d644346ea2652b3dd0af55094c"
+    },
+    {
+      "path": "supabase/migrations/20261104150000_vendor_quote_durable_ingress.sql",
+      "sha256": "98db7052a791c36aff50626fda662795e66a32d6b913cfc95d7538b97016eea8"
+    },
+    {
+      "path": "tests/unit/vendor-quote-ingress.test.ts",
+      "sha256": "f7fd82286d1ee961f6b14a13cb06c32b6f70b21abcda51b18f1a5c2c287ae45d"
+    },
+    {
+      "path": "tests/unit/vendor-quote-durable-bridge.test.ts",
+      "sha256": "548eb6dd79dd5440f48d0e1db241a50263b0293d96bb8a927dc866a45f733f72"
+    },
+    {
+      "path": "tests/unit/sms-inbound-recovery-cron-route.test.ts",
+      "sha256": "7729c39b31f368093461c4b92f33daecfe2edd092266ad96a3f67e702668ca85"
+    },
+    {
+      "path": "tests/helpers/sms-envelope-memory-db.ts",
+      "sha256": "cdea3b3fbb29e27e06c17a81a0add076e1bca0f547cccc86fd5c93340688092b"
+    },
+    {
+      "path": "tests/helpers/vendor-quote-ingress-local-postgres.mjs",
+      "sha256": "64b0b29c1cea79eabe0731da82472a1e4e5fa2f53555266e6baafd91d21e2e5f"
+    }
+  ]
+}

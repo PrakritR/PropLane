@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   validateRequest: vi.fn(() => true),
+  timestamp: vi.fn(async () => "2026-08-25T11:59:59.000Z"),
+  strictConfig: vi.fn(),
   rpc: vi.fn(),
   rateLimit: vi.fn(() => ({ ok: true })),
   suppression: vi.fn(async () => ({ ok: true as const, optedOut: true })),
@@ -12,7 +14,7 @@ vi.mock("twilio", () => ({
 }));
 vi.mock("@/lib/twilio-client.server", () => ({
   twilioWebhookAuthToken: () => "auth-token",
-  fetchTwilioMessageCreatedAt: vi.fn(async () => "2026-08-25T11:59:59.000Z"),
+  fetchTwilioMessageCreatedAt: mocks.timestamp,
 }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.rateLimit }));
 vi.mock("@/lib/sms-consent", async (importOriginal) => {
@@ -48,7 +50,15 @@ vi.mock("@/lib/supabase/service", () => ({
   }),
 }));
 
-import { POST } from "@/app/api/twilio/inbound/route";
+vi.mock("@/lib/one-number/config.server", async (original) => ({
+  ...await original<typeof import("@/lib/one-number/config.server")>(),
+  loadSharedLineConfigStrict: mocks.strictConfig,
+}));
+import { MemoryDb } from "../helpers/sms-envelope-memory-db";
+import { acceptInboundEnvelope, processInboundEnvelope, recoverInboundEnvelopes } from "@/lib/sms/inbound-envelope.server";
+import { processAcceptedInbound } from "@/lib/sms/process-accepted-inbound.server";
+import { runWithDurableSmsIngress, type SmsIngressCheckpoint } from "@/lib/sms/durable-ingress-context.server";
+import { processInboundRequest as POST } from "../helpers/twilio-inbound-processor";
 
 function controlRequest(body: string, messageSid = "SM-control-1") {
   return new Request("https://prop-lane.space/api/twilio/inbound", {
@@ -68,6 +78,8 @@ function controlRequest(body: string, messageSid = "SM-control-1") {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.timestamp.mockResolvedValue("2026-08-25T11:59:59.000Z");
+  mocks.strictConfig.mockResolvedValue({ ok: true, config: { mode: "per_workspace", sharedNumber: null } });
   mocks.suppression.mockResolvedValue({ ok: true, optedOut: true });
   vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", "MG11111111111111111111111111111111");
   mocks.rpc.mockResolvedValue({ data: true, error: null });
@@ -97,4 +109,58 @@ describe("Twilio inbound control receipts", () => {
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({ error: "Control receipt unavailable." });
   });
+});
+
+
+describe("durable control checkpoints", () => {
+  const params = { From: "+12065552222", To: "+12065559999", Body: "YES", MessageSid: "SM-control-durable" };
+  function context() {
+    return { current: { stage: "safe" } as SmsIngressCheckpoint, save: vi.fn(async () => undefined) };
+  }
+  it("persists START before an RPC response is lost and never reinterprets the retry as agent confirmation", async () => {
+    const execution = context();
+    mocks.rpc.mockRejectedValueOnce(new Error("response lost"));
+    await expect(runWithDurableSmsIngress(execution, () => processAcceptedInbound(params))).rejects.toThrow("control_receipt_unavailable");
+    expect(execution.current).toEqual({ stage: "control", controlKeyword: "START" });
+    mocks.suppression.mockResolvedValue({ ok: true, optedOut: false });
+    await expect(runWithDurableSmsIngress(execution, () => processAcceptedInbound(params))).resolves.toEqual({ bubbles: [] });
+    expect(mocks.rpc).toHaveBeenCalledTimes(2);
+    expect(mocks.rpc.mock.calls.every(call => call[0] === "apply_sms_control_keyword" && call[1].p_keyword === "START")).toBe(true);
+    expect(mocks.rateLimit).not.toHaveBeenCalled();
+  });
+  it("retries STOP provider timestamps without executing agent work", async () => {
+    const execution = context();
+    mocks.timestamp.mockRejectedValueOnce(new Error("temporary provider outage"));
+    await expect(runWithDurableSmsIngress(execution, () => processAcceptedInbound({ ...params, Body: "STOP" }))).rejects.toThrow("control_timestamp_unavailable");
+    expect(execution.current).toEqual({ stage: "control", controlKeyword: "STOP" });
+    await expect(runWithDurableSmsIngress(execution, () => processAcceptedInbound({ ...params, Body: "STOP" }))).resolves.toEqual({ bubbles: [] });
+    expect(mocks.rpc).toHaveBeenCalledTimes(1);
+    expect(mocks.rateLimit).not.toHaveBeenCalled();
+  });
+  it("refuses unreadable shared configuration before any routing or owner receipt", async () => {
+    mocks.strictConfig.mockResolvedValue({ ok: false });
+    await expect(runWithDurableSmsIngress(context(), () => processAcceptedInbound({ ...params, Body: "hello" }))).rejects.toThrow("routing_dependency_unavailable");
+    expect(mocks.rpc).not.toHaveBeenCalled();
+    expect(mocks.rateLimit).not.toHaveBeenCalled();
+  });
+});
+
+
+it("durably accepts STOP, recovers one timestamp outage through cron, and applies suppression once", async () => {
+  vi.stubEnv("TWILIO_ACCOUNT_SID", "ACtest");
+  vi.stubEnv("VERCEL_ENV", "development");
+  const store = new MemoryDb();
+  const params = { From: "+12065552222", To: "+12065559999", Body: "STOP", MessageSid: "SM-control-cron" };
+  expect(await acceptInboundEnvelope(store.asClient(), { sid: params.MessageSid, wireFrom: params.From, wireTo: params.To, params, payloadDigest: "a".repeat(64), runtime: "development" })).toEqual({ kind: "accepted", id: "envelope" });
+  mocks.timestamp.mockRejectedValueOnce(new Error("temporary provider outage"));
+  await processInboundEnvelope(store.asClient(), "envelope", { process: processAcceptedInbound });
+  expect(store.tables.sms_ingress_envelopes[0].status).toBe("accepted");
+  expect(mocks.rpc).not.toHaveBeenCalled();
+  store.tables.sms_ingress_envelopes[0].next_attempt_at = new Date(Date.now() - 1000).toISOString();
+  expect(await recoverInboundEnvelopes(store.asClient(), { process: processAcceptedInbound })).toEqual({ processed: 1, needsReview: 0 });
+  expect(store.tables.sms_ingress_envelopes[0].status).toBe("completed");
+  expect(mocks.rpc).toHaveBeenCalledTimes(1);
+  expect(mocks.rpc.mock.calls[0][1].p_keyword).toBe("STOP");
+  expect(mocks.rateLimit).not.toHaveBeenCalled();
+  vi.unstubAllEnvs();
 });

@@ -34,7 +34,7 @@ beforeAll(async () => {
   `);
   await db.exec(migration);
   await db.exec(calendarFenceMigration);
-  await db.exec(readFileSync(join(process.cwd(), "supabase/migrations/20261104120000_vendor_coordination_current_main_compat.sql"), "utf8"));
+  await db.exec(readFileSync(join(process.cwd(), "supabase/migrations/20261104115000_vendor_coordination_current_main_compat.sql"), "utf8"));
   await db.query("insert into auth.users(id) values ($1),($2),($3),($4)", [manager, vendor, otherManager, resident]);
   await db.query("insert into public.profiles(id,phone,phone_verified_at,email) values ($1,'+13175550001',now(),'manager@example.com'),($2,'+13175550002',now(),'vendor@example.com'),($3,null,null,'othermanager@example.com')", [manager, vendor, otherManager]);
   await db.query("insert into public.manager_vendor_records(id,manager_user_id,vendor_user_id,row_data) values ('dir-a',$1,$2,$3::jsonb),('dir-b',$4,null,$5::jsonb),('dir-c',$1,$2,$3::jsonb)",
@@ -50,7 +50,7 @@ describe("vendor coordination SQL transaction", () => {
   it("migrates with service-only RPC grants and blocks direct client writes", async () => {
     await db.exec(migration);
     await db.exec(calendarFenceMigration);
-  await db.exec(readFileSync(join(process.cwd(), "supabase/migrations/20261104120000_vendor_coordination_current_main_compat.sql"), "utf8"));
+  await db.exec(readFileSync(join(process.cwd(), "supabase/migrations/20261104115000_vendor_coordination_current_main_compat.sql"), "utf8"));
     const grants = await db.query<{ grantee: string }>(`select grantee from information_schema.role_routine_grants where routine_name='vendor_coordination_action' and privilege_type='EXECUTE'`);
     expect(grants.rows.map((row) => row.grantee)).not.toContain("authenticated");
   });

@@ -1804,3 +1804,7 @@ profile phone every time; intent is decided per text (`src/lib/one-number/line-i
 - `vendor_notice`: purpose `vendor_conversation` under the vendor's conversation key. "Payouts ready" follows a payouts link the vendor asked for BY TEXT, and that request is their opt-in to that one reply (`ensureVendorLinkRequestConsent`, source `recipient_initiated_link_request`; never overwrites a STOP or revoke).
 - `resident_notice`: a resident's rent text (`payment_reminder`, `weekly_rent_reminder`, `rent_due_link`); consent stays their rental application's, materialized per purpose by the dispatcher.
 - Shared line: `SharedLineSend.delivery` carries the same class / purpose / key / recipient into `sendSharedLineMessage`.
+
+## Vendor quote proof at durable ingress
+
+Signed QUOTE proofs enter the durable envelope only as redacted params plus an authenticated, expiring capsule bound to original wire identity. The claimed processor handles controls first, then the existing atomic quote consent helper before general effects; retries reconcile exact committed receipts, and terminal or expired capsules are erased. No raw proof is persisted in params and no owned number is invented for shared-line consent. Design and validation: `docs/plans/vendor-durable-ingress-bridge-handoff-20261104.html`.

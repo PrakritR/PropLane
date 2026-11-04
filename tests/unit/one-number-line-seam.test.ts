@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SharedLineConfig } from "@/lib/one-number/contracts";
 import { createFakeDb, type FakeDb, type Row } from "../helpers/fake-table-db";
 
@@ -36,7 +36,11 @@ const residentOfA: Record<string, Row[]> = {
   manager_application_records: [{ id: "app", manager_user_id: "owner-a", resident_email: "u@x.com", property_id: "prop-a1", row_data: { bucket: "approved" } }],
 };
 
-beforeEach(() => unassigned.mockClear());
+beforeEach(() => {
+  vi.setSystemTime(new Date("2026-10-18T18:00:00.000Z"));
+  unassigned.mockClear();
+});
+afterEach(() => vi.useRealTimers());
 
 describe("shared line: a resident's intent is decided per text", () => {
   it("is routed to their workspace for rent or repairs, as before", async () => {

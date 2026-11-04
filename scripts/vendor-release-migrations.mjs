@@ -17,14 +17,15 @@ const HASHES = {
   "20261104110000_vendor_directory_link_serialization.sql": "4dea125df943ac2f678c489d207447ed892a22029f06438e62ce3c14f9920d55",
   "20261104111000_vendor_quote_contact.sql": "8e67f78686b0f2dd297b4546f280bce050fc40f3ea9ebc6d5bd709446740ec5e",
   "20261104112000_vendor_quote_inbox.sql": "ef3a83e6bb7223e87ac89d9897237df160e2bf8359ff8f58821ed448e31b708d",
-  "20261104120000_vendor_coordination_current_main_compat.sql": "451410de5f9c76d331a91c06cb83282b1a4da0113ac53d73e1c8a47a380aeab7",
+  "20261104115000_vendor_coordination_current_main_compat.sql": "451410de5f9c76d331a91c06cb83282b1a4da0113ac53d73e1c8a47a380aeab7",
   "20261104121000_vendor_quote_inbox_current_main_compat.sql": "73b4e8a8c5d958da57f9686a625f854ff756cd485e73352b7f6ce8b7d545ec52",
   "20261104130000_vendor_quote_sender_authority.sql": "7d610035939ad210f9c4509767e15f6248ba64419035e2f6f21e0a4c75586531",
-  "20261104140000_vendor_legacy_approval_coordination_fence.sql": "7857607f9701080f89639f3735014f09ab481942dda19537833b166e3ed19dcb"
+  "20261104140000_vendor_legacy_approval_coordination_fence.sql": "7857607f9701080f89639f3735014f09ab481942dda19537833b166e3ed19dcb",
+  "20261104150000_vendor_quote_durable_ingress.sql": "98db7052a791c36aff50626fda662795e66a32d6b913cfc95d7538b97016eea8"
 };
-const TABLES = ["vendor_coordination_phone_bindings", "vendor_coordination_phone_challenges", "vendor_coordination_proposals", "vendor_coordination_operations", "vendor_coordination_reservations", "vendor_sourcing_jobs", "vendor_sourcing_candidates", "vendor_outreach_workspace_profiles", "vendor_quote_contact_capabilities", "vendor_quote_contact_sessions", "vendor_quote_email_permissions", "vendor_quote_email_outbox", "vendor_quote_email_delivery_events", "vendor_quote_responses", "vendor_quote_sms_consent_challenges", "vendor_quote_sms_consent_events"];
-const FUNCTION_SIGNATURES = ["vendor_coordination_action(jsonb)", "link_vendor_directory_account(text,uuid,uuid)", "claim_vendor_sourcing(integer,text)", "read_vendor_quote_sender_authority_revision()", "vendor_quote_submit_response(text,integer,jsonb,jsonb)", "vendor_quote_capability_action(text,jsonb,jsonb)", "consume_vendor_quote_sms_challenge(uuid,text,text,text,text,text,jsonb)", "append_vendor_quote_inbox(uuid,text,text,text,text)"];
-const INTERNAL_SIGNATURES = ["vendor_quote_submit_response(text,integer,jsonb)", "vendor_quote_capability_action(text,jsonb)", "consume_vendor_quote_sms_challenge(uuid,text,text,text,text,text)", "vendor_quote_sender_is_current(uuid)", "require_vendor_quote_sender_proof(jsonb,uuid,text)", "invalidate_vendor_quote_sender_authority()"];
+const TABLES = ["sms_ingress_envelopes", "sms_platform_replies", "vendor_coordination_phone_bindings", "vendor_coordination_phone_challenges", "vendor_coordination_proposals", "vendor_coordination_operations", "vendor_coordination_reservations", "vendor_sourcing_jobs", "vendor_sourcing_candidates", "vendor_outreach_workspace_profiles", "vendor_quote_contact_capabilities", "vendor_quote_contact_sessions", "vendor_quote_email_permissions", "vendor_quote_email_outbox", "vendor_quote_email_delivery_events", "vendor_quote_responses", "vendor_quote_sms_consent_challenges", "vendor_quote_sms_consent_events"];
+const FUNCTION_SIGNATURES = ["sms_ingress_claim(uuid,uuid,text,text)", "sms_ingress_prepare(uuid,uuid,text,jsonb)", "sms_ingress_checkpoint(uuid,uuid,text,text,text)", "sms_ingress_reconcile(text,text)", "sms_platform_reply_callback(uuid,text,text,text,text,text,text,integer)", "purge_sms_ingress_retention()", "sms_ingress_clear_quote_capsule(uuid,uuid,text,text)", "sms_ingress_purge_expired_quote_capsules(text,text)", "vendor_coordination_action(jsonb)", "link_vendor_directory_account(text,uuid,uuid)", "claim_vendor_sourcing(integer,text)", "read_vendor_quote_sender_authority_revision()", "vendor_quote_submit_response(text,integer,jsonb,jsonb)", "vendor_quote_capability_action(text,jsonb,jsonb)", "consume_vendor_quote_sms_challenge(uuid,text,text,text,text,text,jsonb)", "append_vendor_quote_inbox(uuid,text,text,text,text)"];
+const INTERNAL_SIGNATURES = ["sms_ingress_erase_terminal_quote_capsule()", "vendor_quote_submit_response(text,integer,jsonb)", "vendor_quote_capability_action(text,jsonb)", "consume_vendor_quote_sms_challenge(uuid,text,text,text,text,text)", "vendor_quote_sender_is_current(uuid)", "require_vendor_quote_sender_proof(jsonb,uuid,text)", "invalidate_vendor_quote_sender_authority()"];
 const REQUIRED_COLUMNS = {
   portal_work_order_records: ["id", "manager_user_id", "vendor_user_id", "resident_user_id", "resident_email", "assigned_property_id", "property_id", "row_data", "updated_at"],
   work_order_bids: ["id", "work_order_id", "manager_user_id", "vendor_user_id", "vendor_directory_id", "amount_cents", "materials_cents", "proposed_time", "note", "status", "quote_mode", "bid_submitted_at", "updated_at"],
@@ -87,13 +88,18 @@ export function assertVendorLedger(rows, migrations, complete = false) {
 }
 
 async function snapshot(client, migrations) {
+  // Durable SMS is installed by its independently reviewed writer, never this operation.
+  const prerequisiteSql = readFileSync(new URL("../supabase/migrations/20261104120000_sms_durable_ingress.sql", import.meta.url), "utf8");
+  if (hash(prerequisiteSql) !== "37ee641a1886840e79b615879686d8205e4714e72c37f50913e5dc342e18d113") throw new Error("Reviewed SMS prerequisite changed");
+  const prerequisite = (await client.query("select version,name,statements from supabase_migrations.schema_migrations where version='20261104120000' or name='sms_durable_ingress' order by version,name")).rows;
+  if (prerequisite.length !== 1 || prerequisite[0].version !== "20261104120000" || prerequisite[0].name !== "sms_durable_ingress" || JSON.stringify(prerequisite[0].statements) !== JSON.stringify([prerequisiteSql])) throw new Error("Install and verify exact durable SMS prerequisite with its separate writer first");
   const ledger = (await client.query("select version,name,statements from supabase_migrations.schema_migrations where version=any($1::text[]) or name=any($2::text[]) order by version,name", [migrations.map((m) => m.version), migrations.map((m) => m.name)])).rows;
   assertVendorLedger(ledger, migrations);
   const columns = (await client.query("select table_name,column_name,data_type,is_nullable from information_schema.columns where table_schema='public' and table_name=any($1::text[]) order by table_name,ordinal_position", [[...Object.keys(REQUIRED_COLUMNS), ...TABLES, "vendor_quote_sender_authority_revision"]])).rows;
   for (const [table, names] of Object.entries(REQUIRED_COLUMNS)) {
     if (names.some((column) => !columns.some((row) => row.table_name === table && row.column_name === column))) throw new Error(`Vendor prerequisite column missing: ${table}`);
   }
-  const functions = (await client.query("select p.oid::regprocedure::text signature,pg_get_functiondef(p.oid) definition from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and (p.proname like '%vendor_coordination%' or p.proname like '%vendor_sourcing%' or p.proname like '%vendor_quote%' or p.proname in ('link_vendor_directory_account','guard_legacy_vendor_bid_coordination')) order by signature")).rows;
+  const functions = (await client.query("select p.oid::regprocedure::text signature,pg_get_functiondef(p.oid) definition from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and (p.proname like 'sms_ingress_%' or p.proname like 'sms_platform_reply_%' or p.proname='purge_sms_ingress_retention' or p.proname like '%vendor_coordination%' or p.proname like '%vendor_sourcing%' or p.proname like '%vendor_quote%' or p.proname in ('link_vendor_directory_account','guard_legacy_vendor_bid_coordination')) order by signature")).rows;
   const present = new Set(ledger.map((row) => row.name));
   for (const [name, table] of [["vendor_coordination", "vendor_coordination_proposals"], ["vendor_sourcing", "vendor_sourcing_jobs"], ["vendor_quote_contact", "vendor_quote_contact_capabilities"], ["vendor_quote_sender_authority", "vendor_quote_sender_authority_revision"]]) {
     const exists = columns.some((row) => row.table_name === table);
@@ -104,7 +110,7 @@ async function snapshot(client, migrations) {
     legacyOverlapCount = Number((await client.query("select count(*)::int n from public.work_order_bids b join public.vendor_coordination_proposals p on p.work_order_id=b.work_order_id where b.status='accepted' and p.status in ('collecting','ready','approved') and p.accepted_bid_id is distinct from b.id")).rows[0].n);
     if (legacyOverlapCount !== 0) throw new Error("Legacy accepted bid overlaps active coordination; reviewed reconciliation required");
   }
-  const state = { ledger, columns, functions, legacyOverlapCount };
+  const state = { ledger, prerequisite, columns, functions, legacyOverlapCount };
   return { ...state, digest: hash(JSON.stringify(state)) };
 }
 
@@ -131,6 +137,18 @@ async function postflight(client, migrations) {
   if (revisionTriggers.n !== 14) throw new Error("Sender authority source fence incomplete");
   const fenceTriggers = (await client.query("select tgname from pg_trigger where not tgisinternal and tgenabled='O' and ((tgname='guard_legacy_vendor_bid_coordination' and tgrelid='public.work_order_bids'::regclass) or (tgname='guard_vendor_coordination_legacy_winner' and tgrelid='public.vendor_coordination_proposals'::regclass))")).rows;
   if (fenceTriggers.length !== 2) throw new Error("Legacy coordination approval fence missing");
+  for (const migration of migrations.filter((item) => item.version === "20261104150000")) {
+    const ledger = state.ledger.find((row) => row.version === migration.version);
+    if (JSON.stringify(ledger?.statements) !== JSON.stringify([migration.sql])) throw new Error("Durable ingress ledger bytes differ from reviewed SQL");
+  }
+  for (const column of ["quote_capsule", "quote_capsule_expires_at"]) {
+    if (!state.columns.some((row) => row.table_name === "sms_ingress_envelopes" && row.column_name === column)) throw new Error("Quote capsule column missing");
+  }
+  const capsuleFence = (await client.query("select c.convalidated validated from pg_constraint c where c.conrelid='public.sms_ingress_envelopes'::regclass and c.conname='sms_ingress_quote_capsule_shape'")).rows[0];
+  const eraseTrigger = (await client.query("select count(*)::int n from pg_trigger where not tgisinternal and tgenabled='O' and tgrelid='public.sms_ingress_envelopes'::regclass and tgname='sms_ingress_erase_terminal_quote_capsule'")).rows[0];
+  if (!capsuleFence?.validated || eraseTrigger.n !== 1) throw new Error("Quote capsule lifecycle fence missing");
+  const claim = state.functions.find((row) => row.signature.endsWith("sms_ingress_claim(uuid,uuid,text,text)"))?.definition ?? "";
+  if (!claim.includes("'quote_capsule'") || !claim.includes("'wire_from'") || !claim.includes("'wire_to'")) throw new Error("Quote claim context missing");
   const coordination = state.functions.find((row) => row.signature.endsWith("vendor_coordination_action(jsonb)"))?.definition ?? "";
   if (!coordination.includes("v_work.resident_user_id is null or v_actor is distinct from v_work.resident_user_id") || !coordination.includes("bid_submitted_at = now()")) throw new Error("Vendor current-main compatibility missing");
   return state;

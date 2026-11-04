@@ -95,7 +95,7 @@ async function install(db, fixed) {
     await db.query(readFileSync(join(ROOT, "supabase/migrations", file), "utf8"));
   }
   if (fixed) await db.query(readFileSync(join(ROOT, "supabase/migrations", FIX), "utf8"));
-  if (fixed) await db.query(readFileSync(join(ROOT, "supabase/migrations/20261104120000_vendor_coordination_current_main_compat.sql"), "utf8"));
+  if (fixed) await db.query(readFileSync(join(ROOT, "supabase/migrations/20261104115000_vendor_coordination_current_main_compat.sql"), "utf8"));
   await db.query("insert into auth.users(id) values($1),($2),($3)", [MANAGER, VENDOR, OTHER]);
   await db.query("insert into public.profiles(id,email,phone,phone_verified_at,full_name) values($1,'manager@example.test','+13175550001',now(),'QA Manager'),($2,'vendor@example.test','+13175550002',now(),'QA Vendor'),($3,'other@example.test',null,null,'QA Other')", [MANAGER, VENDOR, OTHER]);
 }

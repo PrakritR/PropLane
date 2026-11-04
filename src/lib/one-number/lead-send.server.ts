@@ -1,14 +1,15 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { loadSharedLineConfig } from "@/lib/one-number/config.server";
+import { loadSharedLineConfig, loadSharedLineConfigStrict } from "@/lib/one-number/config.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { quietHoursBlocks } from "@/lib/sms/number-registration-policy";
+import { readSmsSuppressionState } from "@/lib/sms-consent";
 import { sendSms } from "@/lib/twilio";
 
 export type PlatformLeadSendResult =
   | { ok: true; sid: string }
-  | { ok: false; reason: "not_shared_mode" | "no_shared_number" | "invalid_to" | "opted_out" | "quiet_hours" | "shielded" | "provider_error" | "delivery_unknown" };
+  | { ok: false; reason: "config_unavailable" | "not_shared_mode" | "no_shared_number" | "invalid_to" | "opted_out" | "quiet_hours" | "shielded" | "provider_error" | "delivery_unknown" };
 
 /**
  * A text from PropLane itself on the shared number, to a lead that has no team yet (the quiet-lead
@@ -19,20 +20,33 @@ export type PlatformLeadSendResult =
  */
 export async function sendPlatformLeadText(
   db: SupabaseClient,
-  input: { to: string; body: string; mediaUrls?: string[]; now?: Date; purpose?: "requested_demo_link"; inboundReply?: boolean },
+  input: { to: string; body: string; mediaUrls?: string[]; now?: Date; purpose?: "requested_demo_link"; inboundReply?: boolean; expectedFrom?: string; statusCallbackUrl?: string },
 ): Promise<PlatformLeadSendResult> {
-  const config = await loadSharedLineConfig(db);
+  // A pinned reply must distinguish an unreadable configuration from a proven change.
+  const strict = input.expectedFrom ? await loadSharedLineConfigStrict(db) : null;
+  if (strict && !strict.ok) return { ok: false, reason: "config_unavailable" };
+  const config = strict?.ok ? strict.config : await loadSharedLineConfig(db);
   if (config.mode !== "shared") return { ok: false, reason: "not_shared_mode" };
   if (!config.sharedNumber) return { ok: false, reason: "no_shared_number" };
+  // Deferred replies pin the original shared sender. Never move prepared bytes to a new line.
+  if (input.expectedFrom && normalizeE164(input.expectedFrom) !== config.sharedNumber) {
+    return { ok: false, reason: "no_shared_number" };
+  }
   const to = normalizeE164(input.to);
   if (!to) return { ok: false, reason: "invalid_to" };
   const sendClass = input.inboundReply || input.purpose === "requested_demo_link" ? "transactional" : "automated";
   if (quietHoursBlocks(sendClass, input.now ?? new Date())) return { ok: false, reason: "quiet_hours" };
+  if (input.expectedFrom) {
+    const suppression = await readSmsSuppressionState(db, to).catch(() => ({ ok: false as const }));
+    if (!suppression.ok) return { ok: false, reason: "provider_error" };
+    if (suppression.optedOut) return { ok: false, reason: "opted_out" };
+  }
   const result = await sendSms(to, input.body, config.sharedNumber, {
     purpose: "platform_lead",
+    ...(input.statusCallbackUrl ? { statusCallbackUrl: input.statusCallbackUrl } : {}),
     messagingServiceSid: config.messagingServiceSid,
     ...(input.mediaUrls?.length ? { mediaUrls: input.mediaUrls.slice(0, 1) } : {}),
-  }).catch(() => ({ sent: false as const, error: "provider_error", providerAttempted: false, sid: undefined }));
+  }).catch(() => ({ sent: false as const, error: "provider_error", providerAttempted: true, sid: undefined }));
   if (result.sent && result.sid) return { ok: true, sid: result.sid };
   if (result.error === "recipient_opted_out") return { ok: false, reason: "opted_out" };
   if (result.error === "protected_account_shielded") return { ok: false, reason: "shielded" };

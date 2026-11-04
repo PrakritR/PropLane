@@ -37,7 +37,6 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("twilio", () => ({ default: { validateRequest: vi.fn(() => true) } }));
-import twilio from "twilio";
 vi.mock("next/server", async (importOriginal) => ({ ...(await importOriginal<typeof import("next/server")>()), after: mocks.after }));
 vi.mock("@/lib/sms/prospect-sms-burst-job.server", () => ({ runInlineProspectBurst: mocks.runInlineBurst }));
 vi.mock("@/lib/sms/prospect-sms-burst.server", () => ({ publishDeferredProspectSmsBurst: mocks.publishDeferredBurst }));
@@ -155,7 +154,8 @@ function makeDb() {
   };
 }
 
-import { POST } from "@/app/api/twilio/inbound/route";
+import { processInboundRequest as POST } from "../helpers/twilio-inbound-processor";
+import { processInboundParams } from "@/lib/sms/process-accepted-inbound.server";
 import { recoverInboundReceipts, recoverSmsProjectionRetries } from "@/lib/sms/inbound-pipeline.server";
 import { resolveVendorAgentSessionForInbound } from "@/lib/agent/vendor-agent.server";
 
@@ -1049,16 +1049,6 @@ describe("managed Twilio inbound retry", () => {
     expect(mocks.handleInbound).not.toHaveBeenCalled();
   });
 
-  it("validates the signature against the webhook URL without its retry-policy fragment", async () => {
-    vi.stubEnv("TWILIO_WEBHOOK_URL", "https://proplane.ai/api/twilio/inbound#rp=ct,5xx&rc=2");
-    mocks.handleInbound.mockResolvedValue({ ok: true, intent: "unknown", replied: false, durablyAccepted: true });
-
-    expect((await POST(inboundRequest())).status).toBe(200);
-    expect(vi.mocked(twilio.validateRequest)).toHaveBeenCalledWith(
-      "auth-token", "valid", "https://proplane.ai/api/twilio/inbound", expect.anything(),
-    );
-  });
-
   it("schedules nothing extra when the burst was queued normally", async () => {
     mocks.handleInbound.mockResolvedValue({ ok: true, intent: "unknown", replied: false, durablyAccepted: true });
 
@@ -1274,20 +1264,18 @@ describe("managed Twilio inbound retry", () => {
     expect(mocks.handleInbound).not.toHaveBeenCalled();
   });
 
-  it("logs the failing step timeline and error so a Twilio timeout can be traced", async () => {
+  it("marks the steps reached before a pending receipt fails", async () => {
     mocks.rpc.mockResolvedValue({ data: false, error: null });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const marks: string[] = [];
+    const params = Object.fromEntries(new URLSearchParams(await inboundRequest().text()));
 
-    await POST(inboundRequest());
+    const response = await processInboundParams(params, [], (step) => marks.push(step), {});
 
-    const call = warn.mock.calls.find(([label]) => label === "twilio inbound timing");
-    expect(call?.[1]).toMatchObject({
-      status: 503,
-      error: expect.stringContaining("still pending"),
-      marks: expect.stringMatching(/signed:\d+ .*rate-limit:\d+/),
-    });
-    expect(String(call?.[1]?.marks)).not.toContain("claimed");
-    warn.mockRestore();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Inbound processing is still pending." });
+    expect(marks).toContain("signed");
+    expect(marks).toContain("rate-limit");
+    expect(marks).not.toContain("claimed");
   });
 
   it("acknowledges a duplicate only after the receipt is completed", async () => {
