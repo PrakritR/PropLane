@@ -75,10 +75,14 @@ vi.mock("@/hooks/use-quick-apply-eligibility", () => ({
 
 import { ResidentApplicationsPanel } from "@/components/portal/resident-applications-panel";
 
-beforeEach(() => nav.navigate.mockReset());
+beforeEach(() => {
+  vi.setSystemTime(new Date("2026-10-20T18:00:00.000Z"));
+  nav.navigate.mockReset();
+});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   ROWS = [];
   searchParams = new URLSearchParams();
 });
