@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   unknownInventory: vi.fn(),
   reconcile: vi.fn(),
   reconcileConversationLogs: vi.fn(),
+  expireStaleNotices: vi.fn(),
   projectionRecovery: vi.fn(),
   from: vi.fn(),
 }));
@@ -13,6 +14,7 @@ vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({
   dispatchOwnerSmsOutbox: mocks.dispatch,
   loadUnknownSmsInventory: mocks.unknownInventory,
   reconcileSubmittedSmsConversationLogs: mocks.reconcileConversationLogs,
+  expireStaleManagerNotices: mocks.expireStaleNotices,
 }));
 
 vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({
@@ -76,6 +78,7 @@ describe("managed SMS outbox scheduler health gate", () => {
     });
     mocks.reconcileConversationLogs.mockReset().mockResolvedValue({ ok: true, attempted: 0, persisted: 0, failed: 0 });
     mocks.projectionRecovery.mockReset().mockResolvedValue({ scanned: 0, projected: 0, failed: 0 });
+    mocks.expireStaleNotices.mockReset().mockResolvedValue(0);
     mocks.from.mockReset();
     inventoryQueries();
     vi.spyOn(console, "error").mockImplementation(() => undefined);
