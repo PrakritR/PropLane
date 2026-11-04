@@ -15,6 +15,7 @@ type WorkflowStep = {
   uses?: string;
   run?: string;
   if?: string;
+  "continue-on-error"?: boolean | string;
   env?: Record<string, unknown>;
   with?: Record<string, unknown>;
 };
@@ -23,9 +24,12 @@ type WorkflowJob = {
   "timeout-minutes"?: number;
   if?: string;
   needs?: string[];
+  "continue-on-error"?: boolean | string;
+  env?: Record<string, unknown>;
   steps: WorkflowStep[];
 };
 type WorkflowDocument = {
+  env?: Record<string, unknown>;
   on: { workflow_dispatch: { inputs: Record<string, { type: string; required: boolean; default: boolean | string; options?: string[] }> } };
   jobs: Record<string, WorkflowJob>;
 };
@@ -61,7 +65,119 @@ function jobTimeoutMinutes(name: string): number {
   return timeout!;
 }
 
+function assertBrowserBuildGate(document: WorkflowDocument): void {
+  const workflowJobs = document.jobs;
+  for (const name of ["e2e", "e2e-full"]) {
+    expect(workflowJobs[name]?.needs, `${name} must wait for the same-run build`).toEqual(["build"]);
+    expect(workflowJobs[name]?.if ?? "", `${name} must retain normal needs success gating`).not.toContain("always()");
+    expect(workflowJobs[name]?.["continue-on-error"], `${name} failures must not be ignored`).toBeUndefined();
+  }
+
+  const build = workflowJobs.build;
+  expect(build, "build must remain an unconditional job").toBeDefined();
+  expect(build.if, "build cannot be gated behind another validation job").toBeUndefined();
+  expect(build.needs, "build must remain independently triggered").toBeUndefined();
+  expect(build["continue-on-error"], "build failures must not be ignored").toBeUndefined();
+
+  const typecheckIndex = build.steps.findIndex((step) => step.name === "Type-check (the gate the build below no longer repeats)");
+  const buildIndex = build.steps.findIndex((step) => step.run === "npm run build");
+  expect(typecheckIndex, "build must keep the separate typecheck step").toBeGreaterThanOrEqual(0);
+  expect(buildIndex, "build command must remain present").toBeGreaterThan(typecheckIndex);
+  const typecheck = build.steps[typecheckIndex];
+  expect(typecheck.run).toBe("npm run typecheck");
+  expect(typecheck.if, "typecheck must run unconditionally").toBeUndefined();
+  expect(typecheck["continue-on-error"], "typecheck failures must fail the job").toBeUndefined();
+  const buildStep = build.steps[buildIndex];
+  expect(buildStep.if, "build command must run after successful typecheck without a conditional bypass").toBeUndefined();
+  expect(buildStep["continue-on-error"], "build failures must fail the job").toBeUndefined();
+
+  // The flag is permitted only on the existing build invocation and the three
+  // named browser invocations. Job/global configuration would silently widen it.
+  expect(document.env ?? {}).not.toHaveProperty("PROPLANE_TYPECHECK_SEPARATELY");
+  const allowed = new Set([
+    "build:npm run build",
+    "e2e:npm run test:e2e:smoke",
+    "e2e-full:npm run test:e2e",
+    "e2e-full:npx playwright test tests/e2e/property-metadata-omission-preservation.spec.ts",
+  ]);
+  const flagSteps: string[] = [];
+  for (const [jobName, job] of Object.entries(workflowJobs)) {
+    expect(job.env ?? {}, `${jobName} job must not set the typecheck flag`).not.toHaveProperty("PROPLANE_TYPECHECK_SEPARATELY");
+    for (const step of job.steps) {
+      if (step.env && "PROPLANE_TYPECHECK_SEPARATELY" in step.env) {
+        flagSteps.push(`${jobName}:${step.run ?? ""}`);
+        expect(step.env.PROPLANE_TYPECHECK_SEPARATELY).toBe("1");
+        expect(allowed.has(`${jobName}:${step.run ?? ""}`), "flag is limited to build and the three browser commands").toBe(true);
+        expect(step["continue-on-error"], "flagged build and browser commands must fail normally").toBeUndefined();
+      }
+    }
+  }
+  expect(flagSteps.sort()).toEqual([...allowed].sort());
+  for (const [name, script] of Object.entries(pkg.scripts)) {
+    expect(script, `${name} must not enable a separate typecheck as a global default`).not.toContain("PROPLANE_TYPECHECK_SEPARATELY");
+  }
+
+  // Each job checks out the workflow event's default ref. A ref override could
+  // make the build prerequisite validate different source than the browser job.
+  const checkoutAction = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262";
+  for (const name of ["build", "e2e", "e2e-full"]) {
+    const checkouts = workflowJobs[name].steps.filter((step) => step.uses?.startsWith("actions/checkout@"));
+    expect(checkouts, `${name} must have one checkout of the workflow SHA`).toHaveLength(1);
+    const checkout = checkouts[0];
+    expect(checkout.uses, `${name} must use the pinned checkout action`).toBe(checkoutAction);
+    expect(checkout.with?.ref, `${name} must use checkout's same-run default ref`).toBeUndefined();
+    expect(checkout.with?.repository, `${name} cannot checkout a foreign repository`).toBeUndefined();
+    expect(checkout.with?.path, `${name} cannot source validation from a foreign checkout path`).toBeUndefined();
+    expect(workflowJobs[name].steps.some((step) => step.uses?.startsWith("actions/download-artifact@")),
+      `${name} cannot consume build evidence from another run`).toBe(false);
+  }
+}
+
 describe("Test workflow resource budget", () => {
+  it("gates browser jobs on the unconditional same-SHA build and scopes the typecheck flag", () => {
+    assertBrowserBuildGate(workflowDocument);
+    expect(playwrightConfig).toContain('stdout: "pipe",');
+
+    // Mutation checks keep the safety assertions meaningful: dropping the
+    // dependency, type gate, or moving/gating that gate must be rejected.
+    const missingDependency = structuredClone(workflowDocument);
+    missingDependency.jobs.e2e.needs = [];
+    expect(() => assertBrowserBuildGate(missingDependency)).toThrow();
+
+    const missingTypecheck = structuredClone(workflowDocument);
+    missingTypecheck.jobs.build.steps = missingTypecheck.jobs.build.steps.filter(
+      (step) => step.name !== "Type-check (the gate the build below no longer repeats)",
+    );
+    expect(() => assertBrowserBuildGate(missingTypecheck)).toThrow();
+
+    const gatedTypecheck = structuredClone(workflowDocument);
+    const typecheck = gatedTypecheck.jobs.build.steps.find(
+      (step) => step.name === "Type-check (the gate the build below no longer repeats)",
+    );
+    if (typecheck) typecheck.if = "success()";
+    expect(() => assertBrowserBuildGate(gatedTypecheck)).toThrow();
+
+    const ignoredTypecheck = structuredClone(workflowDocument);
+    const ignoredTypecheckStep = ignoredTypecheck.jobs.build.steps.find(
+      (step) => step.name === "Type-check (the gate the build below no longer repeats)",
+    );
+    if (ignoredTypecheckStep) ignoredTypecheckStep["continue-on-error"] = true;
+    expect(() => assertBrowserBuildGate(ignoredTypecheck)).toThrow();
+
+    const globalFlag = structuredClone(workflowDocument);
+    globalFlag.env = { ...globalFlag.env, PROPLANE_TYPECHECK_SEPARATELY: "1" };
+    expect(() => assertBrowserBuildGate(globalFlag)).toThrow();
+
+    const reorderedTypecheck = structuredClone(workflowDocument);
+    const steps = reorderedTypecheck.jobs.build.steps;
+    const typecheckIndex = steps.findIndex((step) => step.name === "Type-check (the gate the build below no longer repeats)");
+    const buildIndex = steps.findIndex((step) => step.run === "npm run build");
+    if (typecheckIndex >= 0 && buildIndex >= 0) {
+      [steps[typecheckIndex], steps[buildIndex]] = [steps[buildIndex], steps[typecheckIndex]];
+    }
+    expect(() => assertBrowserBuildGate(reorderedTypecheck)).toThrow();
+  });
+
   it("keeps the main E2E gate a bounded smoke", () => {
     expect(pkg.scripts["test:e2e:smoke"]).toContain("--no-deps");
     expect(pkg.scripts["test:e2e:smoke"]).toContain("public-tours.spec.ts");
@@ -204,6 +320,7 @@ describe("Test workflow resource budget", () => {
     for (const [name, runner] of Object.entries(runners)) {
       const job = jobConfig(name);
       expect(job["runs-on"]).toBe(runner);
+      expect(job.needs, `${name} must remain independent of other validation jobs`).toBeUndefined();
       if (name === "build") expect(job.if).toBeUndefined();
       else expect(job.if).toBe(NOT_BUILD_ONLY);
     }
