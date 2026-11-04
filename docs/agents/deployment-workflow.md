@@ -71,8 +71,10 @@ If Production deployments stay on an old commit:
    `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` repo secrets, only a no-op notice
    runs. Verify those secrets target the existing `proplane` project; do not
    relink the checkout.
-2. **Vercel Hobby rejects sub-daily crons** - remove `*/10` schedules from
-   `vercel.json` or upgrade to Pro.
+2. **A Hobby plan rejects sub-daily crons** - but this is not that: `vercel.json`
+   ships `*/5` and `* * * * *` schedules (`sms-outbox`, `sms-inbound-recovery`) and
+   the connected `proplane` project deploys them. Do not delete a schedule to
+   chase a stale deploy; check the plan first.
 3. Use the protected Git branch workflow. The current manual CLI wrappers are
    still pinned to the retired project name and must not be used for this release.
 

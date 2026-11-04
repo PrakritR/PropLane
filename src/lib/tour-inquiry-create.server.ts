@@ -366,7 +366,8 @@ export async function createTourInquiry(
   // below (no open slot, signed in, a valid 30-minute time) and `requestKind` is stamped only when it holds.
   const claimsRequestedTime = incoming.requestKind === REQUESTED_TOUR_KIND;
   delete incoming.requestKind;
-  // Server-owned, and the most important of the four: this route is public and anonymous, and
+  // Server-owned, and the most important of the four: the callers are public (a web tour now needs a
+  // session, an SMS prospect never has one) and the payload is never trusted, while
   // the inquiry id is what binds a tour to its resident (`resident_tour_links.inquiry_id`).
   // Honouring a caller's id let anyone name an existing linked inquiry, replace its manager,
   // property and time in the shared payload, and have that resident receive the notices for

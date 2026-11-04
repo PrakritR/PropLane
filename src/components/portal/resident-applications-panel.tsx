@@ -497,7 +497,8 @@ export function ResidentApplicationsPanel({
   // Long-term / short-term is a fact on each row now, not a tab: the entry link only picks which
   // kind the Apply picker offers.
   const term = parseResidentTermParam(searchParams.get("term")) ?? (rentalType === "short_term" ? "short_term" : "long_term");
-  // The page's three sections: Sent | Approved | Denied (an unfinished draft is a Sent row that reads "Started …").
+  // The page's three sections: Sent | Approved | Denied (an unfinished draft is a Sent row reading
+  // "Not sent yet · n of N steps", with Continue; one row per house, see `collapseDuplicateResidentDrafts`).
   // Short stays are rows of the same three sections (no Stays tab): pending -> Sent, confirmed -> Approved, the rest Denied.
   const guestStays = useResidentGuestStays({ enabled: !demoMode && !applyMode });
   const staysToday = pacificTodayKey();

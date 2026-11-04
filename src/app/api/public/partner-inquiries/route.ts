@@ -68,7 +68,8 @@ export async function POST(req: Request) {
         }
       }
     } catch {
-      /* optional session — public route still accepts anonymous tour requests */
+      /* Optional session: `kind: "partner"` is still anonymous. A tour is not — an unreadable
+         session leaves `linkingUser` null and the refusal below fails closed. */
     }
 
     // A tour needs a signed-in account, slot-mode and requested-time alike (captain, Nov 3: no anonymous

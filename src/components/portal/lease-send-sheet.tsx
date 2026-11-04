@@ -8,7 +8,8 @@
  *   the lease itself (the PropLane lease is always the default)
  *   Payments schedule (read only)
  *   Email · Your lease is ready to sign   ✎
- *   Everything that blocks sending, as plain rows: Approve · Send invite · …
+ *   Everything left to settle, as plain rows: Approve · "no account yet" (the invite is emailed
+ *   with the lease in this one press, so it is a notice, not a second button) · …
  *   [ Send for signature ]      (pressing it is the confirmation)
  *
  * It replaces the Add lease wizard, the AI-draft checkbox, the compare popup and the full

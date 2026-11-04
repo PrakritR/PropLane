@@ -463,7 +463,8 @@ nothing changes until the switch is flipped. Only `shared` sends from the shared
   `TWILIO_MESSAGING_SERVICE_SID`, billing is the stamped workspace's wallet. The provider call
   uses the shared Messaging Service (`providerMessagingServiceSid`).
 - `sendSms` (`src/lib/twilio.ts`) accepts the configured shared number as a `from` (no fake
-  `manager_sms_numbers` row) but still demands a reserved, matching credit hold.
+  `manager_sms_numbers` row) but still demands a reserved credit hold, and on this line that hold
+  must belong to the workspace being sent for ([`sms-system.md`](sms-system.md) § Nov 3).
 - The pre-submission recheck also runs for shared sends and compares From + workspaceId.
 - Human replies from the inbox (`manager-sms-send.server.ts`, `/api/portal/send-inbox-message`)
   on the shared line carry "<house or workspace name> team" (`resolveSharedLineHumanSend`,
@@ -1397,4 +1398,4 @@ the two disagree (read-only GETs, no credentials; exit 1 = mismatches). Tests: `
 
 - On the shared line an unassigned prospect whose text asks what is open, what it costs or what it looks like (`isInfoRequest`: "Is there availability", "do you have openings early next year", "share more details of accommodation along with photos") gets the PropLane-MANAGED (`is_service`, tier `managed`) homes that have an open room first: up to four, cheapest first, one room per home, each as its own text with that room's real photo, "from $X/mo", the date, the listing page (`/rent/listings/<id>`) and the tour page (`/rent/tours-contact?propertyId=<id>`), then one closing text (how to pick or apply and at most ONE short question: budget, then move-in). The STOP notice rides the first reply only; the overview goes out once per lead (`profile.overviewSent`). Everything comes from `publicListingProjection` rows (`matchOverviewHomes` / `buildOverviewBubbles` in `lead-match.ts`); nothing open is "none listed", never a made-up room. A text that touches a fair-housing topic keeps the neutral line and is not an availability ask.
 - Budgets read as people type them: `900$`, `900 dollars`, `Below 1k`, `$1,000`; `$1,000+` / `1k+` is a floor, so it answers the budget step with no cap. "early next year" is January 1. Tests: `tests/unit/one-number-lead-qualifying.test.ts`, `tests/unit/one-number-unassigned-leads.test.ts`.
-- A managed workspace's notices on the 206 pay from its wallet like any send (above). What blocked them was `sendSms` comparing the hold to the owner of the 206's own `manager_sms_numbers` row; the configured shared number now proves the payer by the hold alone (`docs/agents/sms-system.md` § Nov 3).
+- A managed workspace's notices on the 206 pay from its wallet like any send (above). What blocked them was `sendSms` comparing the hold to the owner of the 206's own `manager_sms_numbers` row; the payer is now the hold's owner, checked against the workspace the send is for ([`sms-system.md`](sms-system.md) § Nov 3 owns the rule).

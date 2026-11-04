@@ -687,8 +687,9 @@ can never land in a new tenant's thread; in-app account deletion
 `closeRelayThreadsForUser` (bindings hold real cells with no auth-users FK).
 Relayed messages are stored idempotently (`sms_relay_messages.twilio_sid`
 unique — Twilio retries webhooks) and mirrored into the manager's Axis inbox.
-Pool maintenance: daily cron `/api/cron/sms-pool-topup` (Vercel Hobby crons
-must be once-per-day; an hourly schedule fails the whole deploy) always releases
+Pool maintenance: daily cron `/api/cron/sms-pool-topup` (daily is enough for a
+cooldown sweep — the connected project does take sub-daily schedules, which is
+why `/api/cron/sms-outbox` runs `*/5`) always releases
 expired cooldowns, but the auto-buy loop (target 5 free, hard cap 100) stays
 dark unless `SMS_RELAY_POOL_AUTOBUY=1`. The relay pool is not part of the
 manager-number first slice and its auto-buy flag stays off; manager-owned
@@ -1346,9 +1347,9 @@ first) when a text names no specific listing, and who a personal-phone text
 is recognized as.
 
 **Reply pacing — never instant.** Inbound prospect texts are buffered PER
-CONVERSATION inside the gateway process (not the webhook — Vercel functions
-here are Hobby-tier, so even Cron is once-per-day only; see the pool-topup
-note above) and forwarded as one consolidated frame after
+CONVERSATION inside the gateway process (not the webhook: a serverless function
+cannot hold a 150-second window open, and a cron cannot time a per-thread one
+either) and forwarded as one consolidated frame after
 `CLAW_MESSENGER_DEBOUNCE_SECONDS` (default 150) of quiet from the last inbound
 message in that thread — a new message resets the window. Manager-authored
 texts and WS history replays always bypass the buffer (fetched from
@@ -1810,7 +1811,8 @@ profile phone every time; intent is decided per text (`src/lib/one-number/line-i
 
 ## Nov 3 2026: the PropLane line's send path (hold ledgers, relay dispatch, stale notices)
 
-- **The configured shared number is decided first in `sendSms`.** When `from` IS the configured shared number (`isConfiguredSharedNumber`), the reserved hold alone proves whose wallet pays, whatever `manager_sms_numbers` says: the platform owner also holds that number as a manager row, and comparing the hold to that owner blocked every notice and relay of a PropLane-managed workspace owned by anyone else (`Communication credit could not be verified.`, 153 rows, Oct 26 - Nov 3). A non-shared number is still owned by its numbers row; an unreadable shared config reads as "not shared" (fail closed). The hold is also looked up on `number_credit_usage_events` when the wallet ledger has no row (`reserveCommsCredit` reserves there for a Free manager on the PropLane Number add-on, wallet.server.ts:264), and a failed read is retried once, then refused. Tests: `tests/unit/sendsms-credit-ledger.test.ts`.
+- **The configured shared number is decided first in `sendSms`.** When `from` IS the configured shared number (`isConfiguredSharedNumber`), the reserved hold — not `manager_sms_numbers` — says whose wallet pays: the platform owner also holds that number as a manager row, and comparing the hold to that owner blocked every notice and relay of a PropLane-managed workspace owned by anyone else (`Communication credit could not be verified.`, 153 rows, Oct 26 - Nov 3). A non-shared number is still owned by its numbers row; an unreadable shared config reads as "not shared" (fail closed). The hold itself is looked up in either ledger — `number_credit_usage_events` when the wallet ledger has no row (`reserveCommsCredit` reserves there for a Free manager on the PropLane Number add-on, wallet.server.ts:264) — and a failed read is retried once, then refused. Tests: `tests/unit/sendsms-credit-ledger.test.ts`.
+- **A reservation key is not a bearer token for another workspace's credit.** On the shared number the hold must belong to the workspace the send is FOR: the dispatcher passes the outbox row's `manager_user_id` as `expectedPayerUserId`, and a hold owned by anyone else is refused. No stated payer fails closed, so a shared-line caller that does not name the workspace cannot send at all.
 - **A relay is dispatched when it is enqueued.** `relayTeamChatMessageToSms` calls `dispatchOwnerSmsOutbox({ outboxId })` for each new row (best effort; a deduplicated replay is not re-dispatched). The `sms-outbox` cron is the safety net only.
 - **Stale manager-facing texts expire, they are never sent late.** `expireStaleManagerNotices` (swept once per `sms-outbox` cron invocation, ahead of its claim batches) sets `team_chat_relay`, `team_inbound_forward`, `team_notice` and `manager_agent_notification_*` rows still `queued` / `deferred` and never started after 6 hours to `blocked` with `blocked_reason = 'expired_stale'`. Tests: `tests/unit/sms-outbox-stale-notices-and-relay-dispatch.test.ts`.
 - **The inbound webhook answers synchronously.** `/api/twilio/inbound` returns its own TwiML and its own status code, however long the turn takes: an early 200 would tell Twilio a text was handled while the work that answers it could still fail with nothing to replay it from. A claimed receipt that does not complete is recovered by `/api/cron/sms-inbound-recovery` (every minute).
