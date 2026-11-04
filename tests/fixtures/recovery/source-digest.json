@@ -1,9 +1,16 @@
 {
-  "sha256": "ceb4f7d539c749aa8a06988f9d64aa42399b3969d4e58d5415be201d70bde636",
+  "sha256": "98fd92effc510107eca5e729bae475e8887804d114e72c50e6d3ca87919b5650",
   "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE and admin_team_atomic_revoke; plus purge manifest and recovery policy",
   "missing_dev_catalog": [
     "payment_reminder_occurrences",
     "phone_required_skips",
     "scheduled_inbox_channel_deliveries"
-  ]
+  ],
+  "reviewed_change": {
+    "date": "2026-11-04",
+    "reason": "Reviewed owner-neutral SMS transport migration and two ACCOUNT_PURGE_RETAINED annotations only; recoverable table selection, catalog, known hook gaps and missing_dev_catalog are unchanged.",
+    "migration_sha256": "37ee641a1886840e79b615879686d8205e4714e72c37f50913e5dc342e18d113",
+    "selected_source_paths": 329,
+    "baseline_reproduced_sha256": "ceb4f7d539c749aa8a06988f9d64aa42399b3969d4e58d5415be201d70bde636"
+  }
 }

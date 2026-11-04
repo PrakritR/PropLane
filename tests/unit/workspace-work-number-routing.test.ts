@@ -160,8 +160,9 @@ describe("nobody buys a co-manager a second number for the same workspace", () =
 });
 
 describe("the inbound webhook answers for the workspace", () => {
-  // Route runs first; everything after the receipt claim lives in the pipeline.
+  // The route durably accepts first; the accepted processor routes before the receipt pipeline.
   const route = readFileSync("src/app/api/twilio/inbound/route.ts", "utf8")
+    + readFileSync("src/lib/sms/process-accepted-inbound.server.ts", "utf8")
     + readFileSync("src/lib/sms/inbound-pipeline.server.ts", "utf8");
 
   it("the co-manager bounce is gone from the codebase", () => {

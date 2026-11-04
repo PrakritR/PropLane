@@ -117,7 +117,7 @@ describe("a paused shared-line thread", () => {
 });
 
 describe("the inbound route seam", () => {
-  const route = readFileSync("src/app/api/twilio/inbound/route.ts", "utf8");
+  const route = readFileSync("src/lib/sms/process-accepted-inbound.server.ts", "utf8");
 
   it("runs after STOP/START/HELP and before vendor identity ingest, and only in shared mode", () => {
     const control = route.indexOf("apply_sms_control_keyword");
