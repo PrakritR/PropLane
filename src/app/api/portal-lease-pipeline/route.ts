@@ -1366,10 +1366,9 @@ export async function POST(req: Request) {
         normalized = nextRow as unknown as Record<string, unknown>;
       }
       const isNewSend = sendingToResident && storedRow?.status !== "Resident Signature Pending";
-      const sentPdfPath = Boolean(nextRow.managerUploadedPdf?.dataUrl || nextRow.managerUploadedPdf?.originalDataUrl);
       const importedProvenance = storedRow
         ? Boolean(storedRow.uploadedLeaseParse || storedRow.managerUploadedPdf?.dataUrl || storedRow.templateImportReview)
-        : sentPdfPath;
+        : Boolean(nextRow.managerUploadedPdf?.dataUrl);
       const leaseDocumentKind: "generated" | "imported" | "legacy-unlabelled" =
         storedRow && !storedRow.documentMode && !importedProvenance
           ? "legacy-unlabelled"

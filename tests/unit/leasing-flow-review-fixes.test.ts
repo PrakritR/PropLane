@@ -167,6 +167,9 @@ describe("lease terms drift is keyed on the stored application link", () => {
     expect(route).toContain(': effectiveLeaseDocumentMode(storedRow ?? nextRow) !== "proplane-generated" && importedProvenance');
     expect(route).toContain('const isUploadedLease = leaseDocumentKind === "imported";');
     expect(route).not.toContain("const isUploadedLease = Boolean(nextRow.uploadedLeaseParse) ||");
+    // A brand-new row's provenance is real PDF bytes: `originalDataUrl` alone is a shape no upload path writes.
+    expect(route).toContain(": Boolean(nextRow.managerUploadedPdf?.dataUrl);");
+    expect(route).not.toContain("const sentPdfPath =");
   });
 
   it("refuses a PropLane-generated send that is linked to no application at all, on that same one reading", () => {

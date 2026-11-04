@@ -1013,6 +1013,39 @@ describe("POST /api/portal-lease-pipeline: signed documents are immutable server
     expect(state.leases).toHaveLength(0);
   });
 
+  it("measures a create-and-send whose only PDF bytes ride on originalDataUrl (no dataUrl)", async () => {
+    const applicationId = "application_original_only_1";
+    state.leases = [];
+    state.applications = [{
+      id: applicationId,
+      manager_user_id: state.user!.id,
+      resident_email: "jordan.lee@example.com",
+      property_id: "property_original_only_1",
+      row_data: { application: { leaseStart: "2026-12-01", leaseEnd: "2027-11-30", managerRentOverride: "1800", managerSecurityDepositOverride: "0" } },
+    }];
+    const originalDataUrl = `data:application/pdf;base64,${Buffer.from(state.sourceBytes).toString("base64")}`;
+    const send = await post({
+      action: "upsert",
+      row: {
+        id: "lease_original_only_1",
+        axisId: applicationId,
+        residentName: "Jordan Lee",
+        residentEmail: "jordan.lee@example.com",
+        managerUserId: state.user!.id,
+        bucket: "resident",
+        status: "Resident Signature Pending",
+        documentMode: "original-pdf",
+        generatedHtml: null,
+        managerUploadedPdf: { originalDataUrl, fileName: "lease.pdf", uploadedAt: "2026-09-24T00:00:00.000Z" },
+        application: { leaseStart: "2026-12-01", leaseEnd: "2027-11-30", managerRentOverride: "1", managerSecurityDepositOverride: "0" },
+        sentToResidentAt: "2026-09-24T01:00:00.000Z",
+      },
+    });
+    expect(send.status).toBe(409);
+    expect(((await send.json()) as Row).blocked).toBe("terms-differ");
+    expect(state.leases).toHaveLength(0);
+  });
+
   it("does not call an unlinked uploaded-PDF send terms-unlinked (its own review gate owns it)", async () => {
     state.leases = [];
     const dataUrl = `data:application/pdf;base64,${Buffer.from(state.sourceBytes).toString("base64")}`;
