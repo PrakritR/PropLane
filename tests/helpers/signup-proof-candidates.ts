@@ -9,7 +9,7 @@ import { optionalPurgeTableAbsentOnDev } from "./synthetic-workspace-preflight";
 
 type Row = Record<string, unknown>;
 type Input = { db: SupabaseClient; journal: SignupJournal; paired?: SignupJournal; requireAbsent?: boolean; optionalTableAbsent?: (table: string) => Promise<boolean> };
-const safe = (): never => { throw new Error("Signup cleanup candidate refused."); };
+function safe(): never { throw new Error("Signup cleanup candidate refused."); }
 const providerField = /(?:stripe_|twilio_|access_token|refresh_token|api_key|provider_sid|provider_message_id|provider_id|messaging_service_sid|phone_number_sid|campaign_sid|bank_account)/i;
 function assertNoProvider(value: unknown): void {
   if (!value || typeof value !== "object") return;

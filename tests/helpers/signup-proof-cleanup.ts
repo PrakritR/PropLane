@@ -15,7 +15,7 @@ type Reservation = { file: string; manifest: SignupJournal };
 type Observer = { query(sql: string, values?: unknown[]): Promise<{ rows: Row[] }>; end(): Promise<unknown> };
 export type CleanupDependencies = { db: SupabaseClient; observer: Observer; residentPurge?: typeof purgeResidentPortalData; managerPurge?: typeof purgeManagerPortalData };
 const DEV = "https://emstjswhotsnyksqhqyf.supabase.co";
-const fail = (): never => { throw new Error("Signup fixture cleanup refused."); };
+function fail(): never { throw new Error("Signup fixture cleanup refused."); }
 const emailLiteral = (s: string) => s.replace(/[\\%_]/g, "\\$&");
 export async function cleanupRows(query: PromiseLike<{ data: unknown; error: unknown; count?: number | null }>, requireCount = false): Promise<Row[]> {
   let result;

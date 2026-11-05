@@ -1,0 +1,1060 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vendor release migration parity reconciliation</title><style>body{font:16px/1.55 system-ui;max-width:1100px;margin:36px auto;padding:0 24px 64px;color:#202630}h1,h2{line-height:1.2}table{border-collapse:collapse;width:100%}th,td{padding:10px;border:1px solid #bac3cb;text-align:left;vertical-align:top}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f2f4f6;padding:16px;font-size:13px}code{overflow-wrap:anywhere}.hold{background:#fff0d5;padding:18px}</style></head><body><h1>Vendor release: migration parity reconciliation</h1><p class="hold"><strong>The full parity gate remains failed. The 102 missing names are not evidence of 102 absent schema changes.</strong> Both staging and production have exactly the previously documented 86-name SMS baseline, the reviewed 15-file vendor batch, and the tour-slot migration. A new historical exception is an option for user review, not authority granted by this document.</p><p>Planning evidence captured November 4 local / November 5 UTC, 2026, in <code>/Users/akhilvemuri/coding/AXIS-2-vendor-release</code>. Read-only investigation at detached HEAD <code>046161a3364673c7af4427b44dc0be759b097c6e</code>, with incoming merge <code>b985bc63c07f3dd5a0540a7bd99e76f56a65e157</code> underway. Root subsequently confirmed reviewed merge candidate <code>b301b28642d59d132207ae68cbf5520ad924b1e9</code> committed and pushed, with source bytes unchanged; full CI run 41951851954 remains pending. Regenerate release operation tokens against that candidate or its reviewed successor. Root owns heavy validation and release operations. No schema, ledger, customer data, source/index, provider or branch changes were made by this investigation. Only sanitized JSON evidence and this HTML were written.</p><h2>Canonical diagnosis</h2><table><tr><th>Target</th><th>Repository / ledger rows</th><th>Missing / extra / problems</th><th>Verdict</th></tr><tr><td>dev<br><code>emstjswhotsnyksqhqyf</code></td><td>474 / 408</td><td>149 / 79 / 4</td><td>FAIL</td></tr><tr><td>staging<br><code>xwszcafaontidfgznlxd</code></td><td>474 / 383</td><td>102 / 11 / 0</td><td>FAIL</td></tr><tr><td>production<br><code>qahnczmilgptcedaqype</code></td><td>474 / 393</td><td>102 / 20 / 2</td><td>FAIL</td></tr></table><p>The checker compares exact names. Extra names alone are diagnostic; missing names or identity problems cause failure. Version differences never establish equivalence. readParitySnapshot intentionally hashes only the historical reminder rows on production, so null hashes on unrelated extra rows are expected. The correct evidence keys are target, project, sourceSha256 and schema. Strict TLS used the reviewed credential/connect helper with its pinned CA; CLI-login connections needed SET ROLE postgres so information_schema exposed the ledger, followed by the checker's repeatable-read, read-only transaction and timeouts. An initial attempt without SET ROLE saw no visible ledger and failed; the subsequent canonical reads succeeded. No credentials or SQL statement bodies were persisted.</p><p>Production's historical reminder failure is real under the present attestation, not a malformed evidence call. Both historical statement hashes and the canonical source hash match. Only the kind constraint differs: the September attestation pins <code>5edc34c3861213ec4e89ddff89ffc80ec7d2ac652bee6cae8c675bfc8dfed038</code>; the current validated constraint hashes to <code>d88b6c646ec7646bbb44e9e1c9abff6be708fd32ce9c53f1d0828bfaeece9969</code>. Other constraints, nullable expiry column, and expiry index match.</p><p>The successor <code>20261018220001_stay_time_reminders.sql</code> is recorded in production with an exact single statement equal to the current source. Both targets' live kind sets equal precisely the 51 September kinds plus stay_arrival_guide and stay_checkout_reminder. This supports a separately reviewed successor-aware attestation; it does not justify deleting a duplicate or weakening other checks. Staging's successor statement array is not byte-identical to the single current source, despite matching final constraint. The eight timestamp-prefixed alias candidates also fail exact single-source-array equality on both targets; their names alone are insufficient proof.</p><h2>Scope and actual schema evidence</h2><p>Set comparison proves <strong>102 = 86 historical baseline + 15 reviewed vendor migrations + 1 tour migration</strong>, identically for staging and production. Both extra-name sets are identical to the November 4 SMS exception. That exception explicitly expired on completion of the SMS release and is not transferable. The October 18 Luna exception was also release-specific. September recovery/comms bundles predate these missing October names and do not explain them.</p><p>A read-only source-derived CREATE TABLE inventory found 70 distinct table names across the 102 missing migration sources. All 53 non-vendor tables are present on both targets. The 17 absent tables are vendor coordination, sourcing, quote/contact/inbox and sender-authority tables covered by the approved batch. This regex inventory is intentionally partial: presence does not prove columns, constraints, indexes, RLS, grants, functions, triggers, backfills or runtime behavior. It is sufficient to reject a blind 102-file replay, not to claim complete equivalence.</p><p>The existing reviewed vendor snapshot was rerun read-only on both targets: all required predecessor columns are present, exact reviewed durable SMS SQL is already installed, all 15 vendor ledger identities are pending, there are no name/version collisions, and no legacy active coordination overlap was found. These checks include work orders/bids/offers, profiles, properties/directories, action events/deliveries, vendor availability, agent sessions/messages, automation settings, inbox/aliases and consent events. Recovery dependencies and dynamic SQL transformations still require the existing full postflight and staging behavior gates. No historical baseline dependency may be waived merely because a table exists.</p><table><tr><th>Target</th><th>Fresh prerequisite schema digest (context only)</th></tr><tr><td>staging</td><td><code>cb0b3943119853999d0dab258a893a650906fe41c17afade3ad7532ff9fbe078</code></td></tr><tr><td>production</td><td><code>8d0d3c422d507b2395e215961c8e3dc5cb2949a7b692a53ebb8524a0d83dc92b</code></td></tr></table><p>These are diagnostic snapshot digests, not final candidate-bound apply tokens. Regenerate the target wrapper preflight at the final clean, committed candidate.</p><p>The existing tour inventory shows nullable text tour_slot_key and the exact expected regex constraint on every target, with no corresponding version or name in the ledger. The source contains only add-column-if-absent and replacement of this check constraint. This is catalog-present/history-missing, not an absent column. Before resolving it, additionally verify the column default, constraint validation and table binding, and prove there are no duplicate identities. Preserve the source SHA-256 <code>0cdb1f818653af440b8bfd1cbb261f37c6246d700e42e93192e7181ac197931a</code>. Use a separately reviewed source/catalog attestation or a bounded, backed-up one-file idempotent apply with a new exact ledger row; do not fabricate a historical application time or silently mark it applied.</p><h2>Recommended narrow release path</h2><ol><li>Finish the merge and ordinary exact-candidate validation under root ownership. Do not install source from a changing merge. Preserve all existing safety gates and staging QA.</li><li>Resolve the one tour identity explicitly using the complete catalog proof above and an independently reviewed minimal operation. Do not hide this new source migration inside a historical baseline exception. If applying it, use exact target, fresh private full backup, source hash, locked prestate, short lock timeout, one transaction and independent postflight. No listing or customer row edits.</li><li>Keep the approved vendor wrapper's 15-file scope unchanged. Fresh final-candidate preflight, private full backup, apply, postflight, exact recovery catalog and real seeded staging paths are mandatory. Durable SMS is already installed and must be verified, never replayed.</li><li>Choose between comprehensive historical reconciliation and a new bounded one-release exception. Without a new explicit exception, full parity remains a release blocker even after vendor/tour completion. Do not turn an unavailable-credentials result into a pass after known drift.</li><li>For the quick-release option only after explicit user authorization, bind the exception to the exact 86 missing-name baseline and enumerated historical identity issues for these two targets and this vendor candidate. Preserve extras as diagnostics. It authorizes no historical SQL replay, ledger rename, blanket repair or new dependency waiver. Any changed set or unresolved vendor/tour dependency stops the release. All build/tests, independent review, staging behavior, backups, branch ladder, Vercel/TestFlight/App Store verification remain mandatory.</li><li>After the vendor and tour operations, require fresh canonical parity evidence showing no new missing name, no missing vendor or tour identity, exact SMS dependency and only the explicitly approved historical baseline. Record a failed-but-excepted historical gate honestly. Consume the exception when this release completes; do not introduce a reusable skip switch.</li></ol><h2>Concrete exception option, not yet approved</h2><p>Proposed bounded decision: “Waive only the exact pre-existing 86-name migration-history baseline and enumerated historical reminder diagnostics for this vendor release on staging and production, without altering those historical schemas or ledger rows. The 15 vendor migrations, tour-slot reconciliation, actual dependency checks, staging QA and every other release gate remain required.”</p><p>If successor attestation is separately fixed and reviewed first, remove the now-resolved reminder diagnostics from the exception instead of waiving them. Do not widen that attestation to excuse any of the 86 missing names. This document does not ask for renewed permission to perform the already authorized vendor release or bounded reviewed migrations; the optional exception needs new authority because prior exceptions expressly apply to other completed releases.</p><h2>Comprehensive reconciliation alternative</h2><p>Build a source-hashed per-migration matrix for the 86 names, with every object and data effect, later superseding migrations and original execution evidence. Partition exact source-backed alias/bundle equivalence, catalog-present/unrecorded histories, genuinely missing changes and unresolved cases. For aliases, inspect historical statement bytes privately and pin reviewed hashes; never apply runtime name normalization. For schema-only history, compare complete object contracts and data/backfill semantics, not table names. New attestation entries must be target/source/ledger/catalog bound, preserve history, expose audited warnings, and fail on unexpected changes. Genuine gaps get separately reviewed minimal additive correction batches with backups, rehearsals, atomic application and postflight. This is a separate operational workstream; the existing 15-file vendor review does not authorize broad repairs.</p><h2>Final-candidate read-only wrapper check</h2><p>Both actual target-wrapper preflight commands completed with exit 0 at candidate <code>b301b28642d59d132207ae68cbf5520ad924b1e9</code>. Staging candidate-bound state digest: <code>288da798df2b403ebf5ce78b6bd760fe011b033094b5f9ee8513bbdcac7ca524</code>. Production candidate-bound state digest: <code>2b330945957f03fbc03c731862eebfa741dc133784519ba1c02e667575db441b</code>. Both report exactly the 15 reviewed vendor migrations missing and existing=[]; SMS exact prerequisite and predecessor guards pass. This verifies the bounded apply prerequisites, not the full migration parity gate or authority to execute. Any subsequent candidate or schema change requires a fresh preflight.</p><h2>Acceptance and focused test matrix</h2><table><tr><th>Risk</th><th>Required evidence</th></tr><tr><td>Checker integration or successor exception hides drift</td><td>Exact accepted historical pair plus reviewed successor; wrong target/source/statement/constraint, removed or extra row, missing unrelated migration and null evidence all fail. Keep two-argument diff strict. No generic flag.</td></tr><tr><td>Tour falsely treated as installed</td><td>Validated exact regex, nullable text/default, source hash and exact table; ledger collision refusal; separately reviewed apply or attestation; real tour carry-through/revalidation path.</td></tr><tr><td>Vendor predecessor missing within baseline</td><td>Fresh existing snapshot, full approved SQL postflight including recovery guards, RPC ACLs, triggers and migration bytes; root-owned staged recovery/catalog validation; real quote submission/reload/stale-tab/mobile and manager approval/financial-confirmation paths.</td></tr><tr><td>Reconciliation changes production unexpectedly</td><td>Exact final candidate and target, private verified full backup, locked state digest, only enumerated SQL, rollback on failure, independent postflight, uncertain-commit reconciliation, no automatic retry.</td></tr><tr><td>One-release exception becomes standing bypass</td><td>Exact set equality and evidence hashes before/after; vendor15 and tour absent from waived set; explicit user decision, single candidate/release scope and consumed status.</td></tr></table><h2>Evidence and integrity</h2><p>Original SMS baseline canonical sorted-key compact JSON SHA-256: <code>4d1ebdf014c4605362444d22c1fe8c8dba5ec1aaf5eee9565abedcf950fb36b0</code>. Current diagnostic identity object SHA-256: <code>7e360ad1f05614a8b77347af2f9c7db63ba4424f76770037a62296577a1069cb</code>. Full source baseline is included below so this document can be reviewed without chat history. JSON evidence contains no secrets or customer row contents.</p><pre>{
+  &quot;canonical-parity-reconciliation-evidence.json&quot;: &quot;ca2ae559424ec0e88a906ee06402647da7b3d42bbd1d84891a26146f136e23c9&quot;,
+  &quot;parity-lineage-readonly-evidence.json&quot;: &quot;f82a313bef08474d8c69e374b2669f47201a38b816c0a2c738a155b11e9aaaef&quot;,
+  &quot;parity-vendor-prerequisite-readonly.json&quot;: &quot;29e5f493559e91de077de4f3f7d769ee51327ccb66cdbb3dc05bf5fe1ccad0a1&quot;,
+  &quot;tour-slot-migration-inventory.json&quot;: &quot;ffeb9ac3fe240dd9b0ab6b71119104ef25cc0aa1a2a242de66289ddacb5641f6&quot;
+}</pre><details><summary>Exact reviewed vendor 15-file manifest</summary><pre>[
+  {
+    &quot;version&quot;: &quot;20261004120000&quot;,
+    &quot;name&quot;: &quot;vendor_coordination&quot;,
+    &quot;hash&quot;: &quot;99038e805a06e4efe906937068587cb9cc7ed9af2acc23f4306f0f885276fed6&quot;
+  },
+  {
+    &quot;version&quot;: &quot;20261004121000&quot;,
+    &quot;name&quot;: &quot;vendor_coordination_calendar_fence&quot;,
+    &quot;hash&quot;: &quot;0e53c91ec9accc523332099b355bcad14ea88a2f2a555647c490779411748ca6&quot;
+  },
+  {
+    &quot;version&quot;: &quot;20261016120000&quot;,
+    &quot;name&quot;: &quot;vendor_sourcing&quot;,
+    &quot;hash&quot;: &quot;87d44ba0619c4c6e4309d765f1a85339cc3796de4c785e818c5ec602a1fd7cc2&quot;
+  },
+  {
+    &quot;version&quot;: &quot;20261016130000&quot;,
+    &quot;name&quot;: &quot;vendor_sourcing_decline&quot;,
+    &quot;hash&quot;: &quot;577d94954e98d34c8fa87a89f224ffab15ac59ca5680cdfbe933cbd4e3ad0e0d&quot;
+  },
+  {
+    &quot;version&quot;: &quot;20261016140000&quot;,
+    &quot;name&quot;: &quot;vendor_sourcing_recovery&quot;,
+    &quot;hash&quot;: &quot;18cd56238c8224faa93027c638c09f5db240a5796f7c2e788c880ececa8dffd0&quot;
+  },
+  {
+    &quot;version&quot;: &quot;20261016150000&quot;,
+    &quot;name&quot;: &quot;vendor_sourcing_final_lifecycle&quot;,
+    &quot;hash&quot;: &quot;cd45f34000856781a3d2ef920ce65393180cbdb0e0800c2c5ef63f0e8052a090&quot;
+  },
+  {
+    &quot;version&quot;: &quot;20261104110000&quot;,
+    &quot;name&quot;: &quot;vendor_directory_link_serialization&quot;,
+    &quot;hash&quot;: &quot;4dea125df943ac2f678c489d207447ed892a22029f06438e62ce3c14f9920d55&quot;
+  },
+  {
+    &quot;version&quot;: &quot;20261104111000&quot;,
+    &quot;name&quot;: &quot;vendor_quote_contact&quot;,
+    &quot;hash&quot;: &quot;8e67f78686b0f2dd297b4546f280bce050fc40f3ea9ebc6d5bd709446740ec5e&quot;
+  },
+  {
+    &quot;version&quot;: &quot;20261104112000&quot;,
+    &quot;name&quot;: &quot;vendor_quote_inbox&quot;,
+    &quot;hash&quot;: &quot;ef3a83e6bb7223e87ac89d9897237df160e2bf8359ff8f58821ed448e31b708d&quot;
+  },
+  {
+    &quot;version&quot;: &quot;20261104115000&quot;,
+    &quot;name&quot;: &quot;vendor_coordination_current_main_compat&quot;,
+    &quot;hash&quot;: &quot;451410de5f9c76d331a91c06cb83282b1a4da0113ac53d73e1c8a47a380aeab7&quot;
+  },
+  {
+    &quot;version&quot;: &quot;20261104121000&quot;,
+    &quot;name&quot;: &quot;vendor_quote_inbox_current_main_compat&quot;,
+    &quot;hash&quot;: &quot;73b4e8a8c5d958da57f9686a625f854ff756cd485e73352b7f6ce8b7d545ec52&quot;
+  },
+  {
+    &quot;version&quot;: &quot;20261104130000&quot;,
+    &quot;name&quot;: &quot;vendor_quote_sender_authority&quot;,
+    &quot;hash&quot;: &quot;7d610035939ad210f9c4509767e15f6248ba64419035e2f6f21e0a4c75586531&quot;
+  },
+  {
+    &quot;version&quot;: &quot;20261104140000&quot;,
+    &quot;name&quot;: &quot;vendor_legacy_approval_coordination_fence&quot;,
+    &quot;hash&quot;: &quot;7857607f9701080f89639f3735014f09ab481942dda19537833b166e3ed19dcb&quot;
+  },
+  {
+    &quot;version&quot;: &quot;20261104150000&quot;,
+    &quot;name&quot;: &quot;vendor_quote_durable_ingress&quot;,
+    &quot;hash&quot;: &quot;98db7052a791c36aff50626fda662795e66a32d6b913cfc95d7538b97016eea8&quot;
+  },
+  {
+    &quot;version&quot;: &quot;20261104160000&quot;,
+    &quot;name&quot;: &quot;vendor_recovery_boundaries&quot;,
+    &quot;hash&quot;: &quot;17cbd84a6b59787611346f0329efb9da45132903c53b8b7cb56afb1eecd45cba&quot;
+  }
+]</pre></details><details><summary>Exact prior SMS baseline, contextual authority already consumed</summary><pre>{
+  &quot;staging&quot;: {
+    &quot;ref&quot;: &quot;xwszcafaontidfgznlxd&quot;,
+    &quot;ledgerSha256&quot;: &quot;d12c42ad78169e52b04bf5dc7a1cbce5e1a89f0cdb6e1f82622ea38a89e60487&quot;,
+    &quot;missing&quot;: [
+      {
+        &quot;version&quot;: &quot;20261002103000&quot;,
+        &quot;name&quot;: &quot;comms_credit_remaining_alert&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261002183000&quot;,
+        &quot;name&quot;: &quot;property_finance_worksheet&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003010000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_payment_lifecycle&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003011000&quot;,
+        &quot;name&quot;: &quot;manual_payout_policy&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003011500&quot;,
+        &quot;name&quot;: &quot;distinct_ledger_refunds&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003120000&quot;,
+        &quot;name&quot;: &quot;resident_move_in_forms&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003121000&quot;,
+        &quot;name&quot;: &quot;purge_manager_resident_rows_v2&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003150000&quot;,
+        &quot;name&quot;: &quot;purge_manager_resident_rows_v2_erase_deposits&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003153000&quot;,
+        &quot;name&quot;: &quot;short_stay_room_date_block_capacity&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003180000&quot;,
+        &quot;name&quot;: &quot;one_conversation_per_person&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003190000&quot;,
+        &quot;name&quot;: &quot;move_in_forms_resend&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003200000&quot;,
+        &quot;name&quot;: &quot;channel_calendar_vrbo&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003210000&quot;,
+        &quot;name&quot;: &quot;waive_codes_applies_to_and_property_limits&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003220000&quot;,
+        &quot;name&quot;: &quot;purge_v2_move_in_forms&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003230000&quot;,
+        &quot;name&quot;: &quot;calendar_export_approved_row_indexes&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003231000&quot;,
+        &quot;name&quot;: &quot;work_order_bid_estimates&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004010000&quot;,
+        &quot;name&quot;: &quot;manager_payees&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004020000&quot;,
+        &quot;name&quot;: &quot;expense_payee_same_owner_and_one_accepted_bid&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004130000&quot;,
+        &quot;name&quot;: &quot;linked_form_requests&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004140000&quot;,
+        &quot;name&quot;: &quot;vendor_payout_work_order_invoice_unique&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004150000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_estimate_visit_marker&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004160000&quot;,
+        &quot;name&quot;: &quot;vendor_payout_cross_rail_guard&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004210000&quot;,
+        &quot;name&quot;: &quot;payout_destination_cache_refresh&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004220000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_stripe_checkout_claim&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004221000&quot;,
+        &quot;name&quot;: &quot;platform_hold_source_arbitration&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004224000&quot;,
+        &quot;name&quot;: &quot;application_fee_payment_claims&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004230000&quot;,
+        &quot;name&quot;: &quot;resident_checkout_attempt_claims&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004231000&quot;,
+        &quot;name&quot;: &quot;classified_balance_withdrawal&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004232000&quot;,
+        &quot;name&quot;: &quot;application_fee_claim_retention&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261005120000&quot;,
+        &quot;name&quot;: &quot;reconcile_vendor_payment_claims&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261005130000&quot;,
+        &quot;name&quot;: &quot;resident_attempt_net_principal_bound&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006120000&quot;,
+        &quot;name&quot;: &quot;listing_channel_posts&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006180000&quot;,
+        &quot;name&quot;: &quot;service_share_links&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006200000&quot;,
+        &quot;name&quot;: &quot;vendor_work_number&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006210000&quot;,
+        &quot;name&quot;: &quot;vendor_integrations&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006220000&quot;,
+        &quot;name&quot;: &quot;platform_revenue_vendor_service_fee&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007010000&quot;,
+        &quot;name&quot;: &quot;vendor_tax_profiles&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007020000&quot;,
+        &quot;name&quot;: &quot;vendor_refunds_disputes&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007030000&quot;,
+        &quot;name&quot;: &quot;vendor_work_number_pacific_cap_month&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007100000&quot;,
+        &quot;name&quot;: &quot;property_owner_role&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007120000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_last_reminder&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007120100&quot;,
+        &quot;name&quot;: &quot;vendor_expense_entries&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008060000&quot;,
+        &quot;name&quot;: &quot;growth_engine&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008100000&quot;,
+        &quot;name&quot;: &quot;vendor_ai_info&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008110000&quot;,
+        &quot;name&quot;: &quot;vendor_ai_turn_meter&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008180000&quot;,
+        &quot;name&quot;: &quot;listing_lead_source&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008200000&quot;,
+        &quot;name&quot;: &quot;number_subscriptions&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008210000&quot;,
+        &quot;name&quot;: &quot;resident_agent_numbers&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008220000&quot;,
+        &quot;name&quot;: &quot;resident_workspace_bindings&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009090000&quot;,
+        &quot;name&quot;: &quot;growth_engage&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009170000&quot;,
+        &quot;name&quot;: &quot;vendor_marketplace_accounts&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009180000&quot;,
+        &quot;name&quot;: &quot;external_calendar_export_last_fetched&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009190000&quot;,
+        &quot;name&quot;: &quot;channel_stay_details&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261012120000&quot;,
+        &quot;name&quot;: &quot;communication_dismissed_contacts&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261012121000&quot;,
+        &quot;name&quot;: &quot;workspace_transfer_moves_work_identity&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013000000&quot;,
+        &quot;name&quot;: &quot;action_event_domains_channel_booking&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013010000&quot;,
+        &quot;name&quot;: &quot;workspace_work_number_recipients&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013020000&quot;,
+        &quot;name&quot;: &quot;channel_stay_details_money&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013030000&quot;,
+        &quot;name&quot;: &quot;manager_invite_link_code&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013040000&quot;,
+        &quot;name&quot;: &quot;meta_messenger_replies&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013050000&quot;,
+        &quot;name&quot;: &quot;meta_messenger_reply_claim&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013060000&quot;,
+        &quot;name&quot;: &quot;action_event_categories_match_code&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261025100000&quot;,
+        &quot;name&quot;: &quot;manager_invite_link_invitee_email&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261025110000&quot;,
+        &quot;name&quot;: &quot;sms_onboarding_asked_line&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261025120000&quot;,
+        &quot;name&quot;: &quot;manager_invite_link_vendor_directory&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261026120000&quot;,
+        &quot;name&quot;: &quot;sms_line_session_home_lock&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261027010000&quot;,
+        &quot;name&quot;: &quot;profiles_phone_text&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261027030000&quot;,
+        &quot;name&quot;: &quot;portal_workspaces_archived_combine&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261027120000&quot;,
+        &quot;name&quot;: &quot;admin_team&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261029010000&quot;,
+        &quot;name&quot;: &quot;promo_code_expiry&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030141000&quot;,
+        &quot;name&quot;: &quot;retire_unconfirmed_email_password&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030142000&quot;,
+        &quot;name&quot;: &quot;email_onboarding_handoffs&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030143000&quot;,
+        &quot;name&quot;: &quot;email_onboarding_vendor_invites&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144000&quot;,
+        &quot;name&quot;: &quot;tour_signup_capabilities&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144100&quot;,
+        &quot;name&quot;: &quot;tour_capability_claim_retry&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144200&quot;,
+        &quot;name&quot;: &quot;preclaim_tour_email_handoff&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144300&quot;,
+        &quot;name&quot;: &quot;retire_password_at_first_email_confirmation&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144400&quot;,
+        &quot;name&quot;: &quot;bind_resident_setup_subject&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144500&quot;,
+        &quot;name&quot;: &quot;managed_read_only_stored_admin&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144600&quot;,
+        &quot;name&quot;: &quot;resident_service_subjects&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144700&quot;,
+        &quot;name&quot;: &quot;vendor_service_subject_privacy&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144800&quot;,
+        &quot;name&quot;: &quot;bind_move_in_form_subject&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144900&quot;,
+        &quot;name&quot;: &quot;move_in_forms_recovery_guards&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030145000&quot;,
+        &quot;name&quot;: &quot;recovery_stored_roles_only&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030145100&quot;,
+        &quot;name&quot;: &quot;admin_team_atomic_revoke&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030145200&quot;,
+        &quot;name&quot;: &quot;resident_dispatch_confirmation&quot;
+      }
+    ],
+    &quot;extra&quot;: [
+      {
+        &quot;version&quot;: &quot;20260907073044&quot;,
+        &quot;name&quot;: &quot;resident_invite_links_legacy_20260907073044&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20260911161000&quot;,
+        &quot;name&quot;: &quot;comms_billing_rollout&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20260919161700&quot;,
+        &quot;name&quot;: &quot;mark_portal_inbox_source_read_resident_scope&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013065805&quot;,
+        &quot;name&quot;: &quot;20261013000000_action_event_domains_channel_booking&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013065806&quot;,
+        &quot;name&quot;: &quot;20261013010000_workspace_work_number_recipients&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013065809&quot;,
+        &quot;name&quot;: &quot;20261013020000_channel_stay_details_money&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013065811&quot;,
+        &quot;name&quot;: &quot;20261013030000_manager_invite_link_code&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013065815&quot;,
+        &quot;name&quot;: &quot;20261013040000_meta_messenger_replies&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013065838&quot;,
+        &quot;name&quot;: &quot;20261013050000_meta_messenger_reply_claim&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013090242&quot;,
+        &quot;name&quot;: &quot;20261013060000_action_event_categories_match_code&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261027034747&quot;,
+        &quot;name&quot;: &quot;20261027010000_profiles_phone_text&quot;
+      }
+    ],
+    &quot;problems&quot;: []
+  },
+  &quot;production&quot;: {
+    &quot;ref&quot;: &quot;qahnczmilgptcedaqype&quot;,
+    &quot;ledgerSha256&quot;: &quot;c8c38523aac762eb09391cf97e757ee1f5fdb66122516da2947cedad0443c710&quot;,
+    &quot;missing&quot;: [
+      {
+        &quot;version&quot;: &quot;20261002103000&quot;,
+        &quot;name&quot;: &quot;comms_credit_remaining_alert&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261002183000&quot;,
+        &quot;name&quot;: &quot;property_finance_worksheet&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003010000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_payment_lifecycle&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003011000&quot;,
+        &quot;name&quot;: &quot;manual_payout_policy&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003011500&quot;,
+        &quot;name&quot;: &quot;distinct_ledger_refunds&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003120000&quot;,
+        &quot;name&quot;: &quot;resident_move_in_forms&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003121000&quot;,
+        &quot;name&quot;: &quot;purge_manager_resident_rows_v2&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003150000&quot;,
+        &quot;name&quot;: &quot;purge_manager_resident_rows_v2_erase_deposits&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003153000&quot;,
+        &quot;name&quot;: &quot;short_stay_room_date_block_capacity&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003180000&quot;,
+        &quot;name&quot;: &quot;one_conversation_per_person&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003190000&quot;,
+        &quot;name&quot;: &quot;move_in_forms_resend&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003200000&quot;,
+        &quot;name&quot;: &quot;channel_calendar_vrbo&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003210000&quot;,
+        &quot;name&quot;: &quot;waive_codes_applies_to_and_property_limits&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003220000&quot;,
+        &quot;name&quot;: &quot;purge_v2_move_in_forms&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003230000&quot;,
+        &quot;name&quot;: &quot;calendar_export_approved_row_indexes&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261003231000&quot;,
+        &quot;name&quot;: &quot;work_order_bid_estimates&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004010000&quot;,
+        &quot;name&quot;: &quot;manager_payees&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004020000&quot;,
+        &quot;name&quot;: &quot;expense_payee_same_owner_and_one_accepted_bid&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004130000&quot;,
+        &quot;name&quot;: &quot;linked_form_requests&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004140000&quot;,
+        &quot;name&quot;: &quot;vendor_payout_work_order_invoice_unique&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004150000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_estimate_visit_marker&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004160000&quot;,
+        &quot;name&quot;: &quot;vendor_payout_cross_rail_guard&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004210000&quot;,
+        &quot;name&quot;: &quot;payout_destination_cache_refresh&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004220000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_stripe_checkout_claim&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004221000&quot;,
+        &quot;name&quot;: &quot;platform_hold_source_arbitration&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004224000&quot;,
+        &quot;name&quot;: &quot;application_fee_payment_claims&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004230000&quot;,
+        &quot;name&quot;: &quot;resident_checkout_attempt_claims&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004231000&quot;,
+        &quot;name&quot;: &quot;classified_balance_withdrawal&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261004232000&quot;,
+        &quot;name&quot;: &quot;application_fee_claim_retention&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261005120000&quot;,
+        &quot;name&quot;: &quot;reconcile_vendor_payment_claims&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261005130000&quot;,
+        &quot;name&quot;: &quot;resident_attempt_net_principal_bound&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006120000&quot;,
+        &quot;name&quot;: &quot;listing_channel_posts&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006180000&quot;,
+        &quot;name&quot;: &quot;service_share_links&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006200000&quot;,
+        &quot;name&quot;: &quot;vendor_work_number&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006210000&quot;,
+        &quot;name&quot;: &quot;vendor_integrations&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261006220000&quot;,
+        &quot;name&quot;: &quot;platform_revenue_vendor_service_fee&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007010000&quot;,
+        &quot;name&quot;: &quot;vendor_tax_profiles&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007020000&quot;,
+        &quot;name&quot;: &quot;vendor_refunds_disputes&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007030000&quot;,
+        &quot;name&quot;: &quot;vendor_work_number_pacific_cap_month&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007100000&quot;,
+        &quot;name&quot;: &quot;property_owner_role&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007120000&quot;,
+        &quot;name&quot;: &quot;vendor_invoice_last_reminder&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261007120100&quot;,
+        &quot;name&quot;: &quot;vendor_expense_entries&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008060000&quot;,
+        &quot;name&quot;: &quot;growth_engine&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008100000&quot;,
+        &quot;name&quot;: &quot;vendor_ai_info&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008110000&quot;,
+        &quot;name&quot;: &quot;vendor_ai_turn_meter&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008180000&quot;,
+        &quot;name&quot;: &quot;listing_lead_source&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008200000&quot;,
+        &quot;name&quot;: &quot;number_subscriptions&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008210000&quot;,
+        &quot;name&quot;: &quot;resident_agent_numbers&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261008220000&quot;,
+        &quot;name&quot;: &quot;resident_workspace_bindings&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009090000&quot;,
+        &quot;name&quot;: &quot;growth_engage&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009170000&quot;,
+        &quot;name&quot;: &quot;vendor_marketplace_accounts&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009180000&quot;,
+        &quot;name&quot;: &quot;external_calendar_export_last_fetched&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261009190000&quot;,
+        &quot;name&quot;: &quot;channel_stay_details&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261012120000&quot;,
+        &quot;name&quot;: &quot;communication_dismissed_contacts&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261012121000&quot;,
+        &quot;name&quot;: &quot;workspace_transfer_moves_work_identity&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013000000&quot;,
+        &quot;name&quot;: &quot;action_event_domains_channel_booking&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013010000&quot;,
+        &quot;name&quot;: &quot;workspace_work_number_recipients&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013020000&quot;,
+        &quot;name&quot;: &quot;channel_stay_details_money&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013030000&quot;,
+        &quot;name&quot;: &quot;manager_invite_link_code&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013040000&quot;,
+        &quot;name&quot;: &quot;meta_messenger_replies&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013050000&quot;,
+        &quot;name&quot;: &quot;meta_messenger_reply_claim&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261013060000&quot;,
+        &quot;name&quot;: &quot;action_event_categories_match_code&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261025100000&quot;,
+        &quot;name&quot;: &quot;manager_invite_link_invitee_email&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261025110000&quot;,
+        &quot;name&quot;: &quot;sms_onboarding_asked_line&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261025120000&quot;,
+        &quot;name&quot;: &quot;manager_invite_link_vendor_directory&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261026120000&quot;,
+        &quot;name&quot;: &quot;sms_line_session_home_lock&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261027010000&quot;,
+        &quot;name&quot;: &quot;profiles_phone_text&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261027030000&quot;,
+        &quot;name&quot;: &quot;portal_workspaces_archived_combine&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261027120000&quot;,
+        &quot;name&quot;: &quot;admin_team&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261029010000&quot;,
+        &quot;name&quot;: &quot;promo_code_expiry&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030141000&quot;,
+        &quot;name&quot;: &quot;retire_unconfirmed_email_password&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030142000&quot;,
+        &quot;name&quot;: &quot;email_onboarding_handoffs&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030143000&quot;,
+        &quot;name&quot;: &quot;email_onboarding_vendor_invites&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144000&quot;,
+        &quot;name&quot;: &quot;tour_signup_capabilities&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144100&quot;,
+        &quot;name&quot;: &quot;tour_capability_claim_retry&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144200&quot;,
+        &quot;name&quot;: &quot;preclaim_tour_email_handoff&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144300&quot;,
+        &quot;name&quot;: &quot;retire_password_at_first_email_confirmation&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144400&quot;,
+        &quot;name&quot;: &quot;bind_resident_setup_subject&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144500&quot;,
+        &quot;name&quot;: &quot;managed_read_only_stored_admin&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144600&quot;,
+        &quot;name&quot;: &quot;resident_service_subjects&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144700&quot;,
+        &quot;name&quot;: &quot;vendor_service_subject_privacy&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144800&quot;,
+        &quot;name&quot;: &quot;bind_move_in_form_subject&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030144900&quot;,
+        &quot;name&quot;: &quot;move_in_forms_recovery_guards&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030145000&quot;,
+        &quot;name&quot;: &quot;recovery_stored_roles_only&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030145100&quot;,
+        &quot;name&quot;: &quot;admin_team_atomic_revoke&quot;
+      },
+      {
+        &quot;version&quot;: &quot;20261030145200&quot;,
+        &quot;name&quot;: &quot;resident_dispatch_confirmation&quot;
+      }
+    ],
+    &quot;extra&quot;: [
+      {
+        &quot;version&quot;: &quot;20260906214158&quot;,
+        &quot;name&quot;: &quot;sms_contact_email_and_manager_sms_sessions_and_work_order_events&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260906214225&quot;,
+        &quot;name&quot;: &quot;action_event_bus_and_co_manager_explicit_grant_and_invite_expiry&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260906214241&quot;,
+        &quot;name&quot;: &quot;reminder_kinds_and_comms_billing_and_voice_sessions&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260906214259&quot;,
+        &quot;name&quot;: &quot;comms_invoicing_action_event_domains_and_open_invite_token&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260906214429&quot;,
+        &quot;name&quot;: &quot;shared_room_capacity_helpers&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260906214510&quot;,
+        &quot;name&quot;: &quot;shared_room_capacity_triggers&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260906214533&quot;,
+        &quot;name&quot;: &quot;sales_provenance_utility_allocations_statement_match&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260906214710&quot;,
+        &quot;name&quot;: &quot;inspection_reminder_kinds_final&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260907013446&quot;,
+        &quot;name&quot;: &quot;outbound_mail_channel_column_repair&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260907013451&quot;,
+        &quot;name&quot;: &quot;portal_inbox_attachments_bucket_repair&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260911010000&quot;,
+        &quot;name&quot;: &quot;production_recovery_schema&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20260911161000&quot;,
+        &quot;name&quot;: &quot;comms_billing_rollout&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261013065818&quot;,
+        &quot;name&quot;: &quot;20261013000000_action_event_domains_channel_booking&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261013065820&quot;,
+        &quot;name&quot;: &quot;20261013010000_workspace_work_number_recipients&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261013065823&quot;,
+        &quot;name&quot;: &quot;20261013020000_channel_stay_details_money&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261013065825&quot;,
+        &quot;name&quot;: &quot;20261013030000_manager_invite_link_code&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261013065830&quot;,
+        &quot;name&quot;: &quot;20261013040000_meta_messenger_replies&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261013065842&quot;,
+        &quot;name&quot;: &quot;20261013050000_meta_messenger_reply_claim&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261013090244&quot;,
+        &quot;name&quot;: &quot;20261013060000_action_event_categories_match_code&quot;,
+        &quot;statementsSha256&quot;: null
+      },
+      {
+        &quot;version&quot;: &quot;20261027034737&quot;,
+        &quot;name&quot;: &quot;20261027010000_profiles_phone_text&quot;,
+        &quot;statementsSha256&quot;: null
+      }
+    ],
+    &quot;problems&quot;: [
+      {
+        &quot;source&quot;: &quot;database&quot;,
+        &quot;kind&quot;: &quot;duplicate-name&quot;,
+        &quot;index&quot;: 236,
+        &quot;version&quot;: &quot;20260916063005&quot;,
+        &quot;name&quot;: &quot;automated_communication_reminder_kinds&quot;
+      },
+      {
+        &quot;source&quot;: &quot;database&quot;,
+        &quot;kind&quot;: &quot;historical-attestation-failed&quot;,
+        &quot;name&quot;: &quot;automated_communication_reminder_kinds&quot;,
+        &quot;version&quot;: &quot;20260915120000&quot;
+      }
+    ]
+  }
+}</pre></details><h2>Complete tour proof and selected minimal operation</h2><p>Fresh strict-TLS, repeatable-read READ ONLY probes completed with exit 0 on dev, staging and production. Each target has exactly one public.email_onboarding_handoffs.tour_slot_key column: text, nullable, no default, no generated or identity expression. Exactly one matching named constraint exists across the catalog; it is bound to that public table, CHECK type, validated, nondeferrable and not deferred. Its definition is exactly the reviewed nullable regex. No ledger row has version 20261103101000 or name email_onboarding_tour_slot. No duplicate identity or conflicting same-name constraint was found. The only other tour/slot ledger name is the unrelated manager_tour_slot_conflicts migration.</p><p><strong>Selected execution design:</strong> a new scratchpad-only, fail-closed runner applies the existing canonical tour SQL once and records its exact new ledger row. It does not modify the release candidate or the parity checker. Root will assign implementation, obtain a fresh independent operation review, then rehearse on dev before staging/production. No successor-attestation implementation is requested now.</p><ol><li>Freeze the runner, its helper dependencies and this canonical SQL in a reviewed SHA-256 manifest. Pin SQL hash 0cdb1f818653af440b8bfd1cbb261f37c6246d700e42e93192e7181ac197931a. Validate runner/source/helper hashes and exact candidate b301b28642d59d132207ae68cbf5520ad924b1e9 before acquiring credentials; a subsequent candidate requires a revised reviewed binding. Require explicit phase, target dev|staging|production, matching project ref, expected candidate, expected source/operation hashes and fresh prestate digest. No arbitrary file, SQL, connection URL or target inference.</li><li>Reuse credential/connect and their strict TLS and project/member checks. Preflight reads only the exact catalog proof plus full ledger identity and statement digests, under a bounded consistent read-only transaction. Snapshot binds target, candidate, operation/helper/source hashes and catalog/ledger state. Accept only the catalog-present/ledger-absent state just proven. A second apply after installation must refuse; postflight may recognize only one exact canonical ledger row with statements=[sourceSQL].</li><li>Before every non-rollback apply, create a new exclusive mode-0600 full custom backup directly beneath /private/tmp using the reviewed backup helper; verify pg_restore listing, regular-file ownership/mode and digest. Keep credentials and raw dumps private. Generate separate fresh backup and apply-state evidence per target. No schema-only substitute, reused archive or symlink path.</li><li>In a single transaction, SET LOCAL ROLE postgres, lock_timeout=3s and statement_timeout=60s. Acquire the existing release advisory transaction lock 20261104120000, then obtain the required table/ledger locks in a documented fixed order. Recheck candidate/source identity and exact prestate after locking. Execute only the pinned canonical tour SQL, then insert exactly (20261103101000,email_onboarding_tour_slot,[sourceSQL]) into schema_migrations. Do not update, rename or delete any existing ledger row. Check constraint/catalog equivalence and exact new ledger bytes, with the prior full ledger otherwise unchanged, before COMMIT.</li><li>On any failure before COMMIT, ROLLBACK. On an uncertain COMMIT result, stop and report unknown; use independent read-only reconciliation, never retry automatically. Reconnect for postflight proving the exact installed row, unchanged prior ledger, unchanged tour column/default/constraint and no unexpected catalog differences. Preserve command exit codes and sanitized digests. The SQL performs no customer-row update; it rebuilds an already equivalent check under a short lock and validates existing rows.</li><li>Focused offline tests must refuse wrong target/ref/candidate, changed SQL/helper/runner hashes, unknown options, absent/wrong state digest, unsafe backup path, duplicate/wrong ledger identity, mismatched column/default/constraint, changed prestate and repeated apply. DEV rehearsal must verify rollback leaves no new ledger record, actual one-file apply plus reconnect postflight, and repeated-apply refusal. Bound checks to this operation; root retains whole-project validation. Then fresh operation review gates staging apply, and staging evidence gates production under the existing release sequencing.</li></ol><p>This reconciles one newly applied canonical migration honestly despite the catalog already matching it. It leaves the historical 86-name baseline and reminder diagnostics unchanged. It creates no historical-equivalence exemption. The full parity checker should drop only email_onboarding_tour_slot from missing names on each target; the later vendor batch drops only its 15 names.</p><p>Complete tour evidence SHA-256: <code>f49f760603dd7b850519d4188aa7a7ab03d044a4676b1a887db807283959ba6f</code>.</p><details><summary>Complete tour catalog proof, all targets</summary><pre>{
+  &quot;file&quot;: &quot;supabase/migrations/20261103101000_email_onboarding_tour_slot.sql&quot;,
+  &quot;sourceSha256&quot;: &quot;0cdb1f818653af440b8bfd1cbb261f37c6246d700e42e93192e7181ac197931a&quot;,
+  &quot;results&quot;: [
+    {
+      &quot;target&quot;: &quot;dev&quot;,
+      &quot;project&quot;: &quot;emstjswhotsnyksqhqyf&quot;,
+      &quot;capturedAt&quot;: &quot;2026-11-05T01:57:51.276Z&quot;,
+      &quot;ledger&quot;: [],
+      &quot;columns&quot;: [
+        {
+          &quot;schema&quot;: &quot;public&quot;,
+          &quot;table_name&quot;: &quot;email_onboarding_handoffs&quot;,
+          &quot;column_name&quot;: &quot;tour_slot_key&quot;,
+          &quot;type&quot;: &quot;text&quot;,
+          &quot;not_null&quot;: false,
+          &quot;default_expression&quot;: null,
+          &quot;generated&quot;: &quot;&quot;,
+          &quot;identity&quot;: &quot;&quot;
+        }
+      ],
+      &quot;constraints&quot;: [
+        {
+          &quot;schema&quot;: &quot;public&quot;,
+          &quot;table_name&quot;: &quot;email_onboarding_handoffs&quot;,
+          &quot;name&quot;: &quot;email_onboarding_handoffs_tour_slot_key_check&quot;,
+          &quot;type&quot;: &quot;c&quot;,
+          &quot;validated&quot;: true,
+          &quot;deferrable&quot;: false,
+          &quot;deferred&quot;: false,
+          &quot;definition&quot;: &quot;CHECK (((tour_slot_key IS NULL) OR (tour_slot_key ~ &#x27;^[0-9]{4}-[0-9]{2}-[0-9]{2}:[0-9]{1,3}$&#x27;::text)))&quot;
+        }
+      ],
+      &quot;relatedLedgerNames&quot;: [
+        {
+          &quot;version&quot;: &quot;20260428205500&quot;,
+          &quot;name&quot;: &quot;manager_tour_slot_conflicts&quot;
+        }
+      ]
+    },
+    {
+      &quot;target&quot;: &quot;staging&quot;,
+      &quot;project&quot;: &quot;xwszcafaontidfgznlxd&quot;,
+      &quot;capturedAt&quot;: &quot;2026-11-05T01:57:56.381Z&quot;,
+      &quot;ledger&quot;: [],
+      &quot;columns&quot;: [
+        {
+          &quot;schema&quot;: &quot;public&quot;,
+          &quot;table_name&quot;: &quot;email_onboarding_handoffs&quot;,
+          &quot;column_name&quot;: &quot;tour_slot_key&quot;,
+          &quot;type&quot;: &quot;text&quot;,
+          &quot;not_null&quot;: false,
+          &quot;default_expression&quot;: null,
+          &quot;generated&quot;: &quot;&quot;,
+          &quot;identity&quot;: &quot;&quot;
+        }
+      ],
+      &quot;constraints&quot;: [
+        {
+          &quot;schema&quot;: &quot;public&quot;,
+          &quot;table_name&quot;: &quot;email_onboarding_handoffs&quot;,
+          &quot;name&quot;: &quot;email_onboarding_handoffs_tour_slot_key_check&quot;,
+          &quot;type&quot;: &quot;c&quot;,
+          &quot;validated&quot;: true,
+          &quot;deferrable&quot;: false,
+          &quot;deferred&quot;: false,
+          &quot;definition&quot;: &quot;CHECK (((tour_slot_key IS NULL) OR (tour_slot_key ~ &#x27;^[0-9]{4}-[0-9]{2}-[0-9]{2}:[0-9]{1,3}$&#x27;::text)))&quot;
+        }
+      ],
+      &quot;relatedLedgerNames&quot;: [
+        {
+          &quot;version&quot;: &quot;20260428205500&quot;,
+          &quot;name&quot;: &quot;manager_tour_slot_conflicts&quot;
+        }
+      ]
+    },
+    {
+      &quot;target&quot;: &quot;production&quot;,
+      &quot;project&quot;: &quot;qahnczmilgptcedaqype&quot;,
+      &quot;capturedAt&quot;: &quot;2026-11-05T01:58:01.223Z&quot;,
+      &quot;ledger&quot;: [],
+      &quot;columns&quot;: [
+        {
+          &quot;schema&quot;: &quot;public&quot;,
+          &quot;table_name&quot;: &quot;email_onboarding_handoffs&quot;,
+          &quot;column_name&quot;: &quot;tour_slot_key&quot;,
+          &quot;type&quot;: &quot;text&quot;,
+          &quot;not_null&quot;: false,
+          &quot;default_expression&quot;: null,
+          &quot;generated&quot;: &quot;&quot;,
+          &quot;identity&quot;: &quot;&quot;
+        }
+      ],
+      &quot;constraints&quot;: [
+        {
+          &quot;schema&quot;: &quot;public&quot;,
+          &quot;table_name&quot;: &quot;email_onboarding_handoffs&quot;,
+          &quot;name&quot;: &quot;email_onboarding_handoffs_tour_slot_key_check&quot;,
+          &quot;type&quot;: &quot;c&quot;,
+          &quot;validated&quot;: true,
+          &quot;deferrable&quot;: false,
+          &quot;deferred&quot;: false,
+          &quot;definition&quot;: &quot;CHECK (((tour_slot_key IS NULL) OR (tour_slot_key ~ &#x27;^[0-9]{4}-[0-9]{2}-[0-9]{2}:[0-9]{1,3}$&#x27;::text)))&quot;
+        }
+      ],
+      &quot;relatedLedgerNames&quot;: [
+        {
+          &quot;version&quot;: &quot;20260428205500&quot;,
+          &quot;name&quot;: &quot;manager_tour_slot_conflicts&quot;
+        }
+      ]
+    }
+  ]
+}</pre></details><h2>Next implementation handoff</h2><p>Fresh Sol-medium execution should read this plan, the target operation review and repository/Akhil instructions. Own only the separately reviewed scratchpad tour reconciliation runner; do not change successor attestation now; never broaden the vendor writer, touch unrelated ledger identities, mutate production before review/backups, or run heavy checks unless root transfers the slot. Root must obtain a fresh Astra review of any new operation or checker change. No new generic parity bypass is in scope. Current investigation's readonly query scripts completed with exit 0 after role selection was corrected; no application tests, localhost servers, browsers or broad suites were run. Graphify was unavailable because neither graph state path exists in this worktree.</p></body></html>
