@@ -20,7 +20,7 @@
 //      move-in condition report (the lease body itself is signed electronically).
 import { useState } from "react";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { MockProperty } from "@/data/types";

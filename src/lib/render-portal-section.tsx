@@ -1342,7 +1342,7 @@ export async function renderPortalSectionWith(
         const legacyId = tabParts.length >= 2 ? `/${encodeURIComponent(decodeSegment(tabParts[1]!))}` : "";
         redirect(`${def.basePath}/applications/approved${legacyId}`);
       }
-      // Pending · Approved · Declined; an old /incomplete or /declined link lands on its real bucket.
+      // Incomplete · Pending · Approved · Declined; an old /withdrawn or /declined link lands on its real tab.
       const { parseApplicationListTab } = await import("@/lib/portal-detail-routes");
       const applicationTab = parseApplicationListTab(tabRaw);
       if (tabRaw !== applicationTab) {

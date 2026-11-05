@@ -900,7 +900,9 @@ export function teamMemberDetailHref(basePath: string, _linkId: string): string 
 
 /**
  * Manager applications list buckets (Appendix D5): Pending · Approved · Declined.
- * Incomplete and Withdrawn are facts on a Pending row, never tabs of their own.
+ * Withdrawn is a fact on a Pending row, never a bucket of its own, and so is an unsent
+ * draft — Incomplete is a LIST tab over these buckets (`APPLICATION_LIST_TABS`), not a
+ * fourth stored bucket.
  */
 export const APPLICATION_BUCKETS = ["pending", "approved", "rejected"] as const;
 export type ApplicationBucketId = (typeof APPLICATION_BUCKETS)[number];

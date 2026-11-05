@@ -104,10 +104,11 @@ export const hourLabel = (hour: number): string => `${hour % 12 === 0 ? 12 : hou
 
 /* ───────────────────────────── applications ───────────────────────────── */
 
-/** A tab of the real Applications page: Pending · Approved · Declined (route ids pending / approved / rejected). */
+/** A tab of the Applications mock: Pending · Approved · Declined (route ids pending / approved / rejected). */
 export type DemoApplicationTab = "pending" | "approved" | "rejected";
 
-/** The real list has no Incomplete tab: an unfinished application sits in Pending. */
+/** This mock has no Incomplete tab, so an unfinished application sits in Pending; the real list leads with one
+ *  (`APPLICATION_LIST_TABS`, `applicationListTabForRow`) and the mock has not caught up. */
 export const applicationTabOf = (row: Pick<ApplicationFixtureRow, "bucket">): DemoApplicationTab => (row.bucket === "incomplete" ? "pending" : row.bucket);
 
 export const isIncompleteApplication = (row: Pick<ApplicationFixtureRow, "bucket">): boolean => row.bucket === "incomplete";

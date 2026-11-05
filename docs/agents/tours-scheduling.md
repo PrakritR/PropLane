@@ -601,8 +601,8 @@ one-line heading each inline blocked state shows, with no sentence under it). Th
 and their saved setting, then the caller's `manager_application_records` (scoped on the
 `resident_email` column). `createTourInquiry` is the one enforcement point (web form, resident
 assistant, leasing SMS), and it trusts only `verifiedApplicantEmail`: the signed-in session's email
-from `POST /api/public/partner-inquiries`, the account email for the resident tool, and nothing for
-an anonymous guest or an SMS prospect (a body's `email` proves nothing). The refusal is a 403
+from `POST /api/public/partner-inquiries` (which since Nov 3 refuses a tour without one), the account
+email for the resident tool, and nothing for an SMS prospect (a body's `email` proves nothing). The refusal is a 403
 `application_required` with a clear message. Manager-scheduled tours (`createManualPlannedTour`,
 `book_tour`, accepting an inquiry) never pass through it. The page half: the public projection
 stamps `applicationBeforeTour: true` (only when Required), `buildProspectTourHref` sends a visitor

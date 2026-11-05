@@ -43,12 +43,18 @@ const LISTINGS: MockProperty[] = [
   storedListing("prop-uw-over", { manager: OWNER_A, neighborhood: "University District", beds: 4, rent: 1700, street: "4300 19th Ave NE", name: "Pricey House" }),
 ].map((p) => publicListingProjection(p));
 
+const WITH_BALLARD: MockProperty[] = [
+  ...LISTINGS,
+  publicListingProjection(storedListing("prop-ballard", { manager: OWNER_A, neighborhood: "Ballard", beds: 3, rent: 800, street: "9 Market St", name: "Ballard House" })),
+];
+
 let sid = 0;
-const deps = (): LeadDeps => ({
+const deps = (over: Partial<LeadDeps> = {}): LeadDeps => ({
   now: () => NOW,
   listings: async () => LISTINGS,
   extract: async () => null,
   origin: () => "https://proplane.ai",
+  ...over,
 });
 
 function seed(): LeadFakeDb {
@@ -68,12 +74,12 @@ function seed(): LeadFakeDb {
   );
 }
 
-async function say(fake: LeadFakeDb, body: string) {
+async function say(fake: LeadFakeDb, body: string, over: Partial<LeadDeps> = {}) {
   sid += 1;
   return handleUnassignedLeadInbound(
     fake.db,
     { fromPhone: `+1${PHONE_KEY}`, phoneKey: PHONE_KEY, body, messageSid: `SM${sid}`, mediaCount: 0 },
-    deps(),
+    deps(over),
   );
 }
 
@@ -147,5 +153,43 @@ describe("a question about what is open is answered with the open homes", () => 
     say_();
     printTurn("any rooms open?  (with nothing live in the catalog)", turn);
     expect(turn.reply).toContain("I do not see an open room listed right now.");
+  });
+});
+
+describe("a follow-up question after the overview", () => {
+  // The overview leaves the lead at stage "offered" on its very first text, so the prospect's SECOND message is read
+  // as a refinement. A question is not a place: it must never be stored as an area filter that empties the open homes.
+  it("answers about the rooms standing — never 'nothing fits' while they are open — and still narrows on a real area", async () => {
+    const fake = seed();
+    say_();
+    say_("=========================================================================");
+    say_("The same line — the prospect asks questions instead of picking a room");
+    say_("=========================================================================");
+    say_();
+
+    const first = await say(fake, "any rooms open?", { listings: async () => WITH_BALLARD });
+    printTurn("any rooms open?", first);
+
+    for (const question of ["do you have anything cheaper?", "can I see photos?", "is parking included?"]) {
+      const turn = await say(fake, question, { listings: async () => WITH_BALLARD });
+      printTurn(question, turn);
+      // The rooms already offered come back with their listing pages, where price, photos and what is included live.
+      expect(turn.reply).toContain("Photos, pricing and what is included are on each listing page:");
+      expect(turn.reply).toContain("https://proplane.ai/rent/listings/prop-ballard");
+      expect(turn.reply).not.toContain("I do not have a room that fits right now");
+      const lead = fake.rows.sms_unassigned_leads![0]!;
+      const stored = lead.profile as { area?: string; stage: string; offers: unknown[] };
+      expect(stored.area).toBeUndefined();
+      expect(stored.stage).toBe("offered");
+      expect(stored.offers.length).toBeGreaterThan(0);
+      expect(lead.status).toBe("open");
+    }
+
+    const narrowed = await say(fake, "do you have anything in Ballard?", { listings: async () => WITH_BALLARD });
+    printTurn("do you have anything in Ballard?", narrowed);
+    expect((fake.rows.sms_unassigned_leads![0]!.profile as { area?: string }).area).toContain("Ballard");
+    expect(narrowed.reply).toContain("https://proplane.ai/rent/listings/prop-ballard");
+    expect(narrowed.reply).not.toContain("prop-uw-a");
+    say_("  (the questions keep the three open rooms; only a real neighbourhood narrows them)");
   });
 });
