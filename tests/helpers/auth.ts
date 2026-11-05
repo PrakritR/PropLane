@@ -1,4 +1,4 @@
-import { type Page, expect } from "@playwright/test";
+import { type Page, errors, expect } from "@playwright/test";
 import { E2E_ACCOUNTS } from "../fixtures";
 
 function escapeRegExp(s: string): string {
@@ -127,7 +127,14 @@ export async function establishActivePortal(page: Page, role: PortalRole, next: 
 
   if (nextPathRe.test(new URL(page.url()).pathname)) return;
 
-  await option.first().click();
+  try {
+    // Single-role auto-selection can replace the chooser after the URL check.
+    // Settle this one action before accepting navigation as evidence of success.
+    await option.first().click({ timeout: 5_000 });
+  } catch (err) {
+    if (!(err instanceof errors.TimeoutError) || page.isClosed() ||
+        !nextPathRe.test(new URL(page.url()).pathname)) throw err;
+  }
 
   await expect.poll(() => new URL(page.url()).pathname, { timeout: 45_000 }).toMatch(nextPathRe);
 }

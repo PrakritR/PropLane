@@ -47,6 +47,19 @@ const E2E_ENV = {
   E2E_TESTS_ENABLED: "1",
 };
 
+const GUARDED_FULL_SUITE_COMMAND = [
+  "node --input-type=module -e 'import { encryptionKeyBytes } from \"./scripts/package-local-qa-build.mjs\"; encryptionKeyBytes(process.env.QA_ARTIFACT_ENCRYPTION_KEY)'",
+  "node scripts/signup-proof-cleanup-preflight.mjs",
+  "AUTH_PROOF_CAPTURE_DIR=\"$(mktemp -d \"${RUNNER_TEMP}/signup-proof.XXXXXXXX\")\"",
+  "chmod 700 \"$AUTH_PROOF_CAPTURE_DIR\"",
+  "SIGNUP_PROOF_RUN_NONCE=\"$(node -e 'process.stdout.write(require(\"node:crypto\").randomBytes(16).toString(\"hex\"))')\"",
+  "export AUTH_PROOF_CAPTURE_DIR SIGNUP_PROOF_RUN_NONCE",
+  "echo \"SIGNUP_PROOF_RUN_NONCE=$SIGNUP_PROOF_RUN_NONCE\" >> \"$GITHUB_ENV\"",
+  "echo \"AUTH_PROOF_CAPTURE_DIR=$AUTH_PROOF_CAPTURE_DIR\" >> \"$GITHUB_ENV\"",
+  "echo \"SIGNUP_PROOF_RECOVERY_FILE=${AUTH_PROOF_CAPTURE_DIR}.recovery.enc\" >> \"$GITHUB_ENV\"",
+  "node scripts/run-signup-proof-e2e.mjs",
+].join("\n");
+
 // Parse active YAML: comments cannot satisfy a gate, and all upload requirements
 // must belong to the same executable step in the same job.
 function jobConfig(name: string): WorkflowJob {
@@ -65,7 +78,61 @@ function jobTimeoutMinutes(name: string): number {
   return timeout!;
 }
 
+function assertGuardedFullSuite(document: WorkflowDocument): WorkflowStep {
+  const full = document.jobs["e2e-full"];
+  const named = full.steps.filter((step) => step.name === "Run full E2E suite");
+  expect(named, "the full suite must have one guarded runner step").toHaveLength(1);
+  const runner = named[0];
+  expect(runner.if).toBe("github.event_name != 'workflow_dispatch' || inputs.e2e_scope == 'full'");
+  // Exact executable block preserves key validation, cleanup preflight, private
+  // capture, nonce/recovery handoff and the final unfiltered, failure-propagating runner.
+  expect(runner.run?.trim()).toBe(GUARDED_FULL_SUITE_COMMAND);
+  expect(runner["continue-on-error"]).toBeUndefined();
+  const observerEnv = {
+    SIGNUP_PROOF_OBSERVER_URL: "${{ secrets.TEST_SIGNUP_PROOF_OBSERVER_URL }}",
+    SUPABASE_DB_SSL_CA_FILE: "${{ github.workspace }}/scripts/security/supabase-prod-ca-2021.crt",
+  };
+  const encryptionEnv = { QA_ARTIFACT_ENCRYPTION_KEY: "${{ secrets.PROPLANE_LOCAL_QA_ARTIFACT_KEY }}" };
+  expect(runner.env).toMatchObject({ ...E2E_ENV, ...observerEnv, ...encryptionEnv,
+    SIGNUP_PROOF_ENABLED: "1", PROPLANE_TYPECHECK_SEPARATELY: "1" });
+  for (const env of [document.env, ...Object.values(document.jobs).map((job) => job.env)]) {
+    for (const key of [...Object.keys(observerEnv), ...Object.keys(encryptionEnv), "SIGNUP_PROOF_ENABLED"]) {
+      expect(env ?? {}, `${key} must remain step-scoped`).not.toHaveProperty(key);
+    }
+  }
+
+  const uniqueStep = (name: string) => {
+    const matches = full.steps.filter((step) => step.name === name);
+    expect(matches, `${name} must remain a unique independent step`).toHaveLength(1);
+    return matches[0];
+  };
+  const finalizer = uniqueStep("Finalize exact signup fixture accounts");
+  expect(finalizer.run).toBe("node --import tsx scripts/finalize-signup-proof.ts");
+  expect(finalizer.if).toBe("always() && env.AUTH_PROOF_CAPTURE_DIR != ''");
+  expect(finalizer.env).toMatchObject({ ...observerEnv,
+    NEXT_PUBLIC_APP_URL: E2E_ENV.NEXT_PUBLIC_APP_URL,
+    NEXT_PUBLIC_SUPABASE_URL: E2E_ENV.NEXT_PUBLIC_SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY: E2E_ENV.SUPABASE_SERVICE_ROLE_KEY });
+  expect(finalizer["continue-on-error"]).toBeUndefined();
+  const packaging = uniqueStep("Preserve encrypted signup reconciliation journals");
+  expect(packaging.run).toBe("node --import tsx scripts/package-signup-proof-recovery.ts");
+  expect(packaging.if).toBe("always() && env.AUTH_PROOF_CAPTURE_DIR != ''");
+  expect(packaging.env).toMatchObject(encryptionEnv);
+  expect(packaging["continue-on-error"]).toBeUndefined();
+  const upload = uniqueStep("Upload encrypted signup reconciliation");
+  expect(upload.uses).toBe(UPLOAD_ARTIFACT);
+  expect(upload.if).toBe("always() && env.SIGNUP_PROOF_RECOVERY_FILE != ''");
+  expect(upload.with).toEqual({ name: "signup-proof-reconciliation-encrypted",
+    path: "${{ env.SIGNUP_PROOF_RECOVERY_FILE }}", "if-no-files-found": "error", "retention-days": 1 });
+  expect(upload["continue-on-error"]).toBeUndefined();
+  expect(full.steps.indexOf(finalizer)).toBeGreaterThan(full.steps.indexOf(runner));
+  expect(full.steps.indexOf(packaging)).toBeGreaterThan(full.steps.indexOf(finalizer));
+  expect(full.steps.indexOf(upload)).toBeGreaterThan(full.steps.indexOf(packaging));
+  return runner;
+}
+
 function assertBrowserBuildGate(document: WorkflowDocument): void {
+  const guardedRunner = assertGuardedFullSuite(document);
   const workflowJobs = document.jobs;
   for (const name of ["e2e", "e2e-full"]) {
     expect(workflowJobs[name]?.needs, `${name} must wait for the same-run build`).toEqual(["build"]);
@@ -97,7 +164,7 @@ function assertBrowserBuildGate(document: WorkflowDocument): void {
   const allowed = new Set([
     "build:bash scripts/ci-observe-build.sh",
     "e2e:npm run test:e2e:smoke",
-    "e2e-full:npm run test:e2e",
+    "e2e-full:Run full E2E suite",
     "e2e-full:npx playwright test tests/e2e/property-metadata-omission-preservation.spec.ts",
   ]);
   const flagSteps: string[] = [];
@@ -105,9 +172,10 @@ function assertBrowserBuildGate(document: WorkflowDocument): void {
     expect(job.env ?? {}, `${jobName} job must not set the typecheck flag`).not.toHaveProperty("PROPLANE_TYPECHECK_SEPARATELY");
     for (const step of job.steps) {
       if (step.env && "PROPLANE_TYPECHECK_SEPARATELY" in step.env) {
-        flagSteps.push(`${jobName}:${step.run ?? ""}`);
+        const invocation = step === guardedRunner ? `${jobName}:${step.name}` : `${jobName}:${step.run ?? ""}`;
+        flagSteps.push(invocation);
         expect(step.env.PROPLANE_TYPECHECK_SEPARATELY).toBe("1");
-        expect(allowed.has(`${jobName}:${step.run ?? ""}`), "flag is limited to build and the three browser commands").toBe(true);
+        expect(allowed.has(invocation), "flag is limited to build and the three browser commands").toBe(true);
         expect(step["continue-on-error"], "flagged build and browser commands must fail normally").toBeUndefined();
       }
     }
@@ -178,6 +246,27 @@ describe("Test workflow resource budget", () => {
     expect(() => assertBrowserBuildGate(reorderedTypecheck)).toThrow();
   });
 
+  it("rejects mutations that bypass guarded full-suite execution or cleanup", () => {
+    const mutations: [string, (document: WorkflowDocument) => void][] = [
+      ["bare test command", (doc) => { doc.jobs["e2e-full"].steps.find((step) => step.name === "Run full E2E suite")!.run = "npm run test:e2e"; }],
+      ["missing encryption validation", (doc) => { const step = doc.jobs["e2e-full"].steps.find((step) => step.name === "Run full E2E suite")!; step.run = step.run!.split("\n").slice(1).join("\n"); }],
+      ["missing cleanup preflight", (doc) => { const step = doc.jobs["e2e-full"].steps.find((step) => step.name === "Run full E2E suite")!; step.run = step.run!.replace("node scripts/signup-proof-cleanup-preflight.mjs\n", ""); }],
+      ["missing observer", (doc) => { delete doc.jobs["e2e-full"].steps.find((step) => step.name === "Run full E2E suite")!.env!.SIGNUP_PROOF_OBSERVER_URL; }],
+      ["missing encryption secret", (doc) => { delete doc.jobs["e2e-full"].steps.find((step) => step.name === "Run full E2E suite")!.env!.QA_ARTIFACT_ENCRYPTION_KEY; }],
+      ["success-only finalizer", (doc) => { doc.jobs["e2e-full"].steps.find((step) => step.name === "Finalize exact signup fixture accounts")!.if = "success()"; }],
+      ["runner filtering", (doc) => { doc.jobs["e2e-full"].steps.find((step) => step.name === "Run full E2E suite")!.run += " --grep signup"; }],
+      ["duplicate runner name", (doc) => { doc.jobs["e2e-full"].steps.push(structuredClone(doc.jobs["e2e-full"].steps.find((step) => step.name === "Run full E2E suite")!)); }],
+      ["flag moved to another step", (doc) => { const step = doc.jobs["e2e-full"].steps.find((step) => step.name === "Run full E2E suite")!; delete step.env!.PROPLANE_TYPECHECK_SEPARATELY; doc.jobs["e2e-full"].steps.push({ run: "echo bypass", env: { PROPLANE_TYPECHECK_SEPARATELY: "1" } }); }],
+      ["flag moved to job", (doc) => { doc.jobs["e2e-full"].env = { PROPLANE_TYPECHECK_SEPARATELY: "1" }; }],
+      ["unencrypted missing-file upload accepted", (doc) => { doc.jobs["e2e-full"].steps.find((step) => step.name === "Upload encrypted signup reconciliation")!.with!["if-no-files-found"] = "ignore"; }],
+    ];
+    for (const [label, mutate] of mutations) {
+      const document = structuredClone(workflowDocument);
+      mutate(document);
+      expect(() => assertBrowserBuildGate(document), label).toThrow();
+    }
+  });
+
   it("uses only the reviewed observer command and bounded static-generation opt-in", () => {
     expect(workflowDocument.env).toEqual({ PROPLANE_CI_SERIAL_STATIC_GENERATION: "1" });
     const observer = fs.readFileSync(path.join(ROOT, "scripts/ci-observe-build.sh"), "utf8");
@@ -206,8 +295,9 @@ describe("Test workflow resource budget", () => {
     expect(full.steps).toContainEqual(expect.objectContaining({
       name: "Run full E2E suite",
       if: "github.event_name != 'workflow_dispatch' || inputs.e2e_scope == 'full'",
-      run: "npm run test:e2e",
+      run: expect.any(String),
     }));
+    assertGuardedFullSuite(workflowDocument);
     expect(full.steps).toContainEqual(expect.objectContaining({
       name: "Run property metadata E2E scope",
       if: "github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'",

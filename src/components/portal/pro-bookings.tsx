@@ -16,7 +16,7 @@ import { ManagerBookingsListView } from "@/components/portal/manager-bookings-li
 import { BookingsDayPage } from "@/components/portal/bookings-day-page";
 import { BookingsRecordPage } from "@/components/portal/bookings-record-page";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
 import { CalendarSync } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
@@ -403,13 +403,6 @@ function useBookingsWorkspace({
         <>
           {propertyFilterSheet}
           {roomFilterSheet}
-          <PortalIconAction
-            icon={CalendarSync}
-            label="Link calendars"
-            disabled={linkDisabled}
-            data-attr="portfolio-bookings-link-airbnb"
-            onClick={() => setCalendarsOpen(true)}
-          />
           <ManagerIntegrationsAction section="bookings" dataAttr="bookings-integrations" />
         </>
       }

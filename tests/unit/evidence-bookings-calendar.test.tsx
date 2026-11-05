@@ -2,7 +2,7 @@
 /**
  * Render regression + evidence harness: renders one house's Bookings
  * calendar with BOTH channels — a PropLane lease and an Airbnb import — plus
- * the "Link Airbnb" modal, and dumps the markup for screenshotting.
+ * the Integrations entry point, and dumps the markup for screenshotting.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render } from "@testing-library/react";
@@ -29,7 +29,13 @@ vi.mock("@/lib/lease-pipeline-storage", () => ({
     return Boolean(row.fullySignedAt);
   },
 }));
-vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
+// The property panel reads the shared manager session rather than its legacy
+// managerUserId prop. Supply this fixture's authenticated manager explicitly.
+vi.mock("@/hooks/use-manager-user-id", () => ({
+  useManagerUserId: () => ({ userId: "mgr-1", email: "manager@example.test", ready: true }),
+}));
+const navigate = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => navigate }));
 // N080: Bookings now drops a lease whose resident has no surviving directory
 // (application) row. This fixture's lease is a real, executed stay, so give
 // it a matching application row rather than letting the new filter treat it
@@ -123,12 +129,16 @@ ${body}</div></body></html>`,
  * both fixtures below sit in August 2026. Without a pinned clock this file
  * passed only during August. Fake `Date` only, so React's timers stay real.
  */
+const originalUrl = window.location.href;
 beforeAll(() => {
+  // Root is a public demo surface, where the Integrations icon is intentionally hidden.
+  window.history.replaceState({}, "", "/portal/properties/listed/mgr-house-1/bookings");
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-08-10T12:00:00.000Z"));
 });
 afterAll(() => {
   vi.useRealTimers();
+  window.history.replaceState({}, "", originalUrl);
 });
 
 describe("evidence · one house's Bookings calendar shows both channels", () => {
@@ -178,7 +188,13 @@ describe("evidence · one house's Bookings calendar shows both channels", () => 
       view.container.innerHTML,
     );
 
-    // Existing bookings retain a direct route to the channel-link dialog.
-    expect(document.querySelector('button[data-attr="portfolio-bookings-link-airbnb"]')).not.toBeNull();
+    // Existing bookings reach channel connections through Settings Integrations.
+    const integrations = view.container.querySelector('button[data-attr="bookings-integrations"]');
+    expect(integrations).not.toBeNull();
+    const target = "/portal/profile?tab=spreadsheets&integration=bookings";
+    expect(integrations?.getAttribute("aria-label")).toBe("Integrations");
+    expect(integrations?.getAttribute("data-integrations-target")).toBe(target);
+    fireEvent.click(integrations!);
+    expect(navigate).toHaveBeenCalledWith(target);
   });
 });

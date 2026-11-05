@@ -1,17 +1,33 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { E2E_ACCOUNTS } from "../fixtures";
 import { signIn, establishActivePortal } from "../helpers/auth";
-import { pickListingSelect } from "../helpers/manager-onboarding-e2e";
 
 const QA_PROPERTY_ID = "mgr-demo-emerald";
 
 const BOOKING_CALENDARS_PATH = `/portal/properties/listed/${encodeURIComponent(QA_PROPERTY_ID)}/bookings`;
 
+async function openAirbnbFromBookings(page: Page) {
+  const integrations = page.locator('[data-attr="bookings-integrations"]');
+  await expect(integrations).toBeVisible({ timeout: 30_000 });
+  await integrations.click();
+  await expect(page).toHaveURL((url) => url.pathname === "/portal/profile" &&
+    url.searchParams.get("tab") === "spreadsheets" && url.searchParams.get("integration") === "bookings");
+  await page.locator('[data-attr="settings-airbnb-manage"]').click();
+  await expect(page.getByRole("heading", { name: "Connect Airbnb", exact: true })).toBeVisible();
+}
+
+function emeraldRoom(page: Page) {
+  // The seed names mgr-demo-emerald "Emerald Court" and room-1 "Unit 3".
+  return page.getByRole("region", { name: "Emerald Court", exact: true })
+    .locator('[data-attr="channel-calendar-room-row"]')
+    .filter({ has: page.getByText("Unit 3", { exact: true }) });
+}
+
 /**
  * A house's Calendar → Bookings tab.
  *
  * The tab is a month grid (PropLane leases + imported Airbnb ranges) with the
- * channel wiring behind a "Link calendars" modal; the old inline "Channel
+ * channel wiring in Settings > Integrations > Bookings; the old inline "Channel
  * calendars" form — and its per-room "Copy export URL" control — were removed.
  * The export URL itself still exists and is still served, so this asserts the
  * round trip through the API rather than through a button that no longer ships.
@@ -32,15 +48,11 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
 
     await page.goto(BOOKING_CALENDARS_PATH, { waitUntil: "domcontentloaded" });
 
-    const linkAirbnb = page.locator('[data-attr="portfolio-bookings-link-airbnb"]');
-    await expect(linkAirbnb).toBeVisible({ timeout: 30_000 });
-    await linkAirbnb.click();
+    await openAirbnbFromBookings(page);
 
-    await expect(page.getByRole("heading", { name: "Connect a channel" })).toBeVisible();
-    await pickListingSelect(page, "Channel", "Airbnb");
-    await expect(page.getByRole("heading", { name: "Connect Airbnb" })).toBeVisible();
-    await expect(page.getByText("Channel").first()).toBeVisible();
-    await expect(page.locator('[data-attr="channel-calendar-room-row"]').getByRole("textbox", { name: /Airbnb calendar link/ })).toBeVisible();
+    const room = emeraldRoom(page);
+    await expect(room).toHaveCount(1);
+    await expect(room.getByRole("textbox", { name: /Airbnb calendar link/ })).toBeVisible();
     await expect(page.locator('[data-attr="channel-calendar-link-save"]')).toBeVisible();
   });
 
@@ -50,15 +62,10 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
 
     await page.goto(BOOKING_CALENDARS_PATH, { waitUntil: "domcontentloaded" });
 
-    const linkAirbnb = page.locator('[data-attr="portfolio-bookings-link-airbnb"]');
-    await expect(linkAirbnb).toBeVisible({ timeout: 30_000 });
-    await linkAirbnb.click();
-    await expect(page.getByRole("heading", { name: "Connect a channel" })).toBeVisible();
-    await pickListingSelect(page, "Channel", "Airbnb");
-    await expect(page.getByRole("heading", { name: "Connect Airbnb" })).toBeVisible();
+    await openAirbnbFromBookings(page);
 
     // The current dialog lists each writable room; scope the change to Emerald's Unit 3.
-    const room = page.locator('[data-attr="channel-calendar-room-row"]').filter({ hasText: "Unit 3" });
+    const room = emeraldRoom(page);
     await expect(room).toHaveCount(1);
     const importLink = room.getByRole("textbox", { name: /Airbnb calendar link/ });
     await expect(importLink).toBeEnabled();
@@ -77,6 +84,7 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
     expect(savedBody.results[0].ok).toBe(true);
     expect(savedBody.results[0].connection?.propertyId).toBe(QA_PROPERTY_ID);
     expect(savedBody.results[0].connection?.hasImportUrl).toBe(true);
+    expect(savedBody.results[0].connection?.roomId).toBe("room-1");
     const savedRoomId = savedBody.results[0].connection!.roomId;
 
     const exportRes = await page.evaluate(async ({ propertyId, roomId }) => {

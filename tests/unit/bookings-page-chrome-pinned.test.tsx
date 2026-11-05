@@ -6,7 +6,7 @@
  * `partitionPortalPageChildren` splits chrome from body by inspecting the page
  * shell's OWN children, and React cannot see through a component boundary — so
  * a page that hands the shell one wrapper component puts its whole header
- * inside `PortalPageScrollBody` and the tabs, Filter and Link Airbnb scroll
+ * inside `PortalPageScrollBody` and the tabs, Filter and Integrations scroll
  * away with the bookings.
  */
 import { describe, expect, it, vi } from "vitest";
@@ -91,7 +91,7 @@ describe("Bookings page chrome stays pinned while the list scrolls", () => {
     expect(scroller.contains(list!)).toBe(true);
   });
 
-  it("renders the Link Airbnb control in the pinned chrome", async () => {
+  it("keeps Add booking pinned without the removed Link Airbnb control", async () => {
     const view = await renderBookings();
     // Add booking is the filled primary ("Add <noun>"); it stays outside the scroller.
     // The Calendars dropdown is gone (its colour key is a legend row in the page body).
