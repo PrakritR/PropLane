@@ -52,22 +52,31 @@ describe("sendSms from numbers", () => {
   });
 
   it("the configured shared number is a valid from, on the provided Messaging Service, with a reserved hold", async () => {
-    await expect(sendSms("+12065550142", "hi", "+12065550100", { creditReservationKey: "k", messagingServiceSid: "MGSHARED" })).resolves.toMatchObject({ sent: true, sid: "SM1" });
+    await expect(sendSms("+12065550142", "hi", "+12065550100", { creditReservationKey: "k", expectedPayerUserId: "m1", messagingServiceSid: "MGSHARED" })).resolves.toMatchObject({ sent: true, sid: "SM1" });
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ from: "+12065550100", messagingServiceSid: "MGSHARED" }));
   });
 
   it("a number that is neither a work number nor the shared number is refused", async () => {
     await expect(sendSms("+12065550142", "hi", "+12065550777", { creditReservationKey: "k" })).resolves.toMatchObject({ sent: false, providerAttempted: false });
     mocks.shared = null; // no shared number configured: the shared 'from' is not special
+    await expect(sendSms("+12065550142", "hi", "+12065550100", { creditReservationKey: "k", expectedPayerUserId: "m1" })).resolves.toMatchObject({ sent: false, providerAttempted: false });
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("on the shared number the hold must belong to the workspace being sent for, and a missing payer fails closed", async () => {
+    mocks.hold = hold("m2");
+    await expect(sendSms("+12065550142", "hi", "+12065550100", { creditReservationKey: "k", expectedPayerUserId: "m1" })).resolves.toMatchObject({ sent: false, providerAttempted: false });
+    mocks.hold = hold("m1");
     await expect(sendSms("+12065550142", "hi", "+12065550100", { creditReservationKey: "k" })).resolves.toMatchObject({ sent: false, providerAttempted: false });
     expect(mocks.create).not.toHaveBeenCalled();
+    await expect(sendSms("+12065550142", "hi", "+12065550100", { creditReservationKey: "k", expectedPayerUserId: "m1" })).resolves.toMatchObject({ sent: true });
   });
 
   it("the shared number still needs a reserved, matching credit hold", async () => {
     mocks.hold = { ...hold("m1"), credit_state: "released" };
-    await expect(sendSms("+12065550142", "hi", "+12065550100", { creditReservationKey: "k" })).resolves.toMatchObject({ sent: false });
+    await expect(sendSms("+12065550142", "hi", "+12065550100", { creditReservationKey: "k", expectedPayerUserId: "m1" })).resolves.toMatchObject({ sent: false });
     mocks.hold = null;
-    await expect(sendSms("+12065550142", "hi", "+12065550100", { creditReservationKey: "k" })).resolves.toMatchObject({ sent: false });
+    await expect(sendSms("+12065550142", "hi", "+12065550100", { creditReservationKey: "k", expectedPayerUserId: "m1" })).resolves.toMatchObject({ sent: false });
     await expect(sendSms("+12065550142", "hi", "+12065550100", {})).resolves.toMatchObject({ sent: false });
     expect(mocks.create).not.toHaveBeenCalled();
   });

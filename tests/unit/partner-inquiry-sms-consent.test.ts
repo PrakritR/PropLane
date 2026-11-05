@@ -130,13 +130,36 @@ describe("partner-inquiries route SMS consent persistence", () => {
     upsertCalls.length = 0;
     existingInquiryPayload = [];
     linkTourInquiryToResident.mockClear();
+    // A tour needs a signed-in account (no anonymous booking), so consent is exercised signed in.
     vi.mocked(getPortalAccessContext).mockResolvedValue({
-      user: null,
-      profile: null,
-      roles: [],
-      effectiveRole: null,
+      user: { id: "res-1", email: "resident@example.com", email_confirmed_at: "confirmed" },
+      profile: { email: "resident@example.com" },
+      roles: ["resident"],
+      effectiveRole: "resident",
     } as never);
-    vi.mocked(hasRole).mockReturnValue(false);
+    vi.mocked(hasRole).mockImplementation((_ctx, role) => role === "resident");
+  });
+
+  it("refuses a tour with no signed-in session: 401, nothing written, no opt-in", async () => {
+    vi.mocked(getPortalAccessContext).mockResolvedValue({ user: null, profile: null, roles: [], effectiveRole: null } as never);
+    const res = await postWith(makeRow({ smsConsent: true }));
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ reason: "sign_in_required" });
+    expect(upsertCalls).toHaveLength(0);
+    expect(recordOptIn).not.toHaveBeenCalled();
+  });
+
+  it("refuses a tour whose session cannot be read (fails closed)", async () => {
+    vi.mocked(getPortalAccessContext).mockRejectedValue(new Error("session store down"));
+    const res = await postWith(makeRow({}));
+    expect(res.status).toBe(401);
+    expect(upsertCalls).toHaveLength(0);
+  });
+
+  it("still accepts a partner meeting with no session (the one anonymous use of this route)", async () => {
+    vi.mocked(getPortalAccessContext).mockResolvedValue({ user: null, profile: null, roles: [], effectiveRole: null } as never);
+    const res = await postWith(makeRow({ kind: "partner", requestedWindows: undefined, managerUserId: undefined, propertyId: undefined }));
+    expect(res.status).not.toBe(401);
   });
 
   it("persists consent + a server-stamped timestamp and records opt-in when the box is checked", async () => {
@@ -247,8 +270,7 @@ describe("partner-inquiries route resident tour linking", () => {
    * inquiry, replace its manager, property and time, and have that resident receive the
    * notices for the tour they just overwrote.
    */
-  it("mints a new id instead of replacing the inquiry an anonymous caller names", async () => {
-    vi.mocked(getPortalAccessContext).mockResolvedValue({ user: null, profile: null, roles: [], effectiveRole: null } as never);
+  it("mints a new id instead of replacing the inquiry a caller names", async () => {
     const victim = {
       id: "victim-inquiry",
       kind: "tour",
@@ -274,7 +296,9 @@ describe("partner-inquiries route resident tour linking", () => {
     expect(payload).toHaveLength(2);
     expect(created.id).toEqual(expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/));
     expect(created.managerUserId).toBe("attacker-host");
-    expect(linkTourInquiryToResident).not.toHaveBeenCalled();
+    // The signed-in caller's link binds the id the SERVER minted, never the victim's.
+    expect(linkTourInquiryToResident).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ inquiryId: created.id }));
+    expect(linkTourInquiryToResident).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ inquiryId: "victim-inquiry" }));
   });
 
   it("links tours for signed-in managers who book through a property link", async () => {

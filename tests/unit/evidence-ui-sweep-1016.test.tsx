@@ -20,7 +20,7 @@
 //      move-in condition report (the lease body itself is signed electronically).
 import { useState } from "react";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { MockProperty } from "@/data/types";
@@ -337,7 +337,7 @@ describe("the public tour scheduler", () => {
     );
   });
 
-  it("answers an empty calendar by offering a requested time, behind sign-in", async () => {
+  it("answers an empty calendar by offering a requested time, without an account wall", async () => {
     stubAvailability({ slotHosts: {} });
     render(
       <AppUiProvider>
@@ -350,13 +350,13 @@ describe("the public tour scheduler", () => {
         </div>
       </AppUiProvider>,
     );
-    fireEvent.click(await screen.findByText("Room 1 · 2nd floor · $1,000/mo"));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() => expect(screen.getByText(/Sign in to request a tour time/i)).toBeTruthy());
+    // No account wall and no forced room: the days are on screen at once, signed out.
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /request a tour$/ }).length).toBeGreaterThan(0));
+    expect(screen.queryByText(/Sign in to request a tour time/i)).toBeNull();
     expect(screen.queryByText(/No tour times yet/i)).toBeNull();
     capture(
       "07-tour-empty-state",
-      "A successful but empty availability read is the property's own answer — no dead calendar: a visitor with an account requests any day and time, a signed-out one is asked to sign in. A throttled or failed read shows a retry instead (next shot).",
+      "A successful but empty availability read is the property's own answer — no dead calendar: a visitor with an account requests any day and time, a signed-out one picks the time first and is asked for the account at Your details. A throttled or failed read shows a retry instead (next shot).",
     );
   });
 
@@ -369,8 +369,6 @@ describe("the public tour scheduler", () => {
         </div>
       </AppUiProvider>,
     );
-    fireEvent.click(await screen.findByText("Room 1 · 2nd floor · $1,000/mo"));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy());
     expect(screen.queryByText(/No tour times yet/i)).toBeNull();
     capture(

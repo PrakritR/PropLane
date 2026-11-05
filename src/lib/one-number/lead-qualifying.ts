@@ -62,6 +62,8 @@ export type LeadProfile = {
   nudged72?: string;
   /** A later room that fits, texted once. */
   newMatchTexted?: string;
+  /** The "what is open right now" overview went out once; a question never gets it twice. */
+  overviewSent?: boolean;
 };
 
 export const WELCOME = "Hi, this is PropLane. Reply STOP to opt out.";
@@ -170,9 +172,14 @@ export function pacificToday(now: Date): string {
 const wantsAny = (text: string) =>
   /^(?:any|anything|anywhere|either|both|all|no preference|no pref|doesn'?t matter|does not matter|don'?t care|do not care|flexible|open|not sure|idk|i don'?t know|skip|pass|n\/a|na|whatever|no)\b/i.test(text.trim());
 
+/** A dollar floor: "$1000+", "1000 +", "1k+". "2+ bedrooms" is not one (three digits or a k). */
+const OPEN_ENDED = /\$?\s*(?:\d{3,5}(?:\.\d+)?|\d+(?:\.\d+)?\s*k)\s*\+/i;
+
 export function extractBudget(text: string, opts: { bare?: boolean } = {}): number | undefined {
   const t = text.replace(/,/g, "");
   const accept = (n: number) => (Number.isFinite(n) && n >= 200 && n <= 20000 ? Math.round(n) : undefined);
+  // "$1,000+" / "1000+" / "1k+" is a FLOOR ("1000 or more"), never a ceiling: it is not a budget cap.
+  if (OPEN_ENDED.test(t)) return undefined;
   const k = t.match(/\$?\s*(\d+(?:\.\d+)?)\s*k\b/i);
   if (k) {
     const v = accept(Number(k[1]) * 1000);
@@ -181,6 +188,12 @@ export function extractBudget(text: string, opts: { bare?: boolean } = {}): numb
   const dollar = t.match(/\$\s*(\d+(?:\.\d+)?)/);
   if (dollar) {
     const v = accept(Number(dollar[1]));
+    if (v !== undefined) return v;
+  }
+  // "900$", "900 $", "900 dollars", "900 bucks", "900 usd": the unit after the number.
+  const trailing = t.match(/\b(\d{3,5})(?:\.\d+)?\s*(?:\$|dollars?|bucks|usd)(?!\w)/i);
+  if (trailing) {
+    const v = accept(Number(trailing[1]));
     if (v !== undefined) return v;
   }
   const perMonth = t.match(/\b(\d{3,5})\s*(?:\/|per|a|each)?\s*(?:mo|month|monthly)\b/i);
@@ -194,10 +207,38 @@ export function extractBudget(text: string, opts: { bare?: boolean } = {}): numb
     if (v !== undefined) return v;
   }
   if (opts.bare) {
-    const only = t.trim().match(/^\$?\s*(\d{3,5})(?:\.\d+)?\s*(?:dollars|bucks|usd)?\.?$/i);
+    const only = t.trim().match(/^\$?\s*(\d{3,5})(?:\.\d+)?\s*(?:\$|dollars|bucks|usd)?\.?$/i);
     if (only) return accept(Number(only[1]));
   }
   return undefined;
+}
+
+/** "$1,000+", "1000+", "1k+": the prospect gave a floor, so there is no ceiling to filter on. */
+export function budgetIsOpenEnded(text: string): boolean {
+  return OPEN_ENDED.test(text.replace(/,/g, ""));
+}
+
+/**
+ * A question about what is available, what it costs or what it looks like ("Is there availability", "do you have openings
+ * early next year", "please share more details of accommodation along with photos"). It is answered with the open homes
+ * before anything is asked. "room" alone is not one: "looking for a room under $1100" is a search the qualifier handles.
+ */
+const INFO_REQUEST_PATTERNS: RegExp[] = [
+  /\b(?:availab\w*|vacanc\w*|openings?|open (?:rooms?|units?|spots?))\b/i,
+  /\b(?:any|got any|have any)\s+(?:\w+\s+)?(?:rooms?|units?|places?|spots?|apartments?|houses?|beds?|rentals?)\b/i,
+  /\b(?:do you have|is there|are there|got)\s+(?:any\s+|a\s+|an\s+)?(?:\w+\s+)?(?:rooms?|units?|places?|space|spots?|openings?|houses?)\b/i,
+  /\brooms? (?:for rent|to rent|open|free)\b/i,
+  /\b(?:photos?|pictures?|pics|images?|floor ?plans?|videos?)\b/i,
+  /\b(?:more|further|full)\s+(?:info|information|details?)\b|\bshare\b.*\bdetails?\b|\bdetails? (?:of|about|on)\b/i,
+  /\baccommodations?\b/i,
+  /\b(?:how much|what(?:'s| is) the (?:price|rent|cost)|prices?|pricing|rates?|cost)\b/i,
+  /\bwhat(?:'s| is| do you| are you)\b.*\b(?:offer\w*|have|available|open|listed)\b/i,
+];
+
+export function isInfoRequest(text: string): boolean {
+  const t = text.trim();
+  if (!t || touchesProtectedTopic(t)) return false;
+  return INFO_REQUEST_PATTERNS.some((re) => re.test(t));
 }
 
 type MoveIn = { date?: string; asap?: boolean; used?: string };
@@ -241,6 +282,13 @@ export function extractMoveIn(text: string, now: Date): MoveIn {
     // "may" is also a verb: it is a month only with something date-like in front of it.
     const dateLike = token !== "may" || /\b(in|by|for|start\w*|beginning of|early|late|mid|end of)\s+may\b/.test(lower);
     if (dateLike) return { date: rollYear(monthNumber(token), 1), used: monthOnly[0] };
+  }
+  // "early next year" / "next year": the first day of that part of the year.
+  const nextYear = lower.match(/\b(early |late |mid |middle of |end of |beginning of )?next year\b/);
+  if (nextYear) {
+    const part = (nextYear[1] ?? "").trim();
+    const month = part === "late" || part === "end of" ? 10 : part === "mid" || part === "middle of" ? 6 : 1;
+    return { date: isoOf(ty + 1, month, 1), used: nextYear[0] };
   }
   if (/\bnext month\b/.test(lower)) {
     const nm = tm === 12 ? 1 : tm + 1;
@@ -379,6 +427,9 @@ export function applyAnswer(profile: LeadProfile, rawText: string, now: Date): A
     next.skipped = next.skipped!.filter((s) => s !== "budget");
     mark("budgetMax");
   } else if (asked === "budget" && wantsAny(text)) {
+    skip("budget");
+  } else if (budgetIsOpenEnded(text)) {
+    // "$1,000+" has no ceiling: the budget is answered, with no filter.
     skip("budget");
   }
 

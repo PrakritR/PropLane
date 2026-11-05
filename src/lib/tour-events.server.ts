@@ -14,6 +14,7 @@ import { emitActionEvent } from "@/lib/action-events.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 import { alertPhonesOf } from "@/lib/one-number/ops-alerts.server";
+import { tourAlertLine } from "@/lib/one-number/ops-alert-lines";
 
 export type TourManagerEvent = "confirmed" | "cancelled_by_guest";
 
@@ -82,6 +83,18 @@ export async function emitTourManagerEvent(
       entityId: input.tourId,
       propertyId: input.propertyId ?? null,
       text: renderTourTeamEvent(input).smsText,
+      url,
+    });
+  }
+  // A guest cancelling hears nowhere else but the manager's own notice; the owner's alert phones are told too.
+  if (input.event === "cancelled_by_guest") {
+    await alertPhonesOf(db, {
+      ownerUserId: (await resolvePropertyOwnerUserId(db, input.propertyId)) ?? input.managerUserId,
+      kind: "tour_cancelled",
+      entityId: input.tourId,
+      idempotencyKey: `action-event:${input.tourId}:${input.event}:${input.whenLabel ?? ""}:manager`,
+      propertyId: input.propertyId ?? null,
+      text: tourAlertLine("cancelled", { guest: input.guestName, house: input.propertyTitle }),
       url,
     });
   }

@@ -1,5 +1,5 @@
 {
-  "sha256": "8bd6bcbc0e19c61bfe264e37b5d1afa2506ba908c958a0668c7b75317b08cf31",
+  "sha256": "d773a8225261c34d098a5cd954938c5f2e5b9bf6f23e00316dc5402efc6c954b",
   "selection": "SQL migrations containing account_recovery_, resident_move_in_forms, CREATE/DROP/ALTER TABLE and admin_team_atomic_revoke; plus purge manifest and recovery policy",
   "missing_dev_catalog": [
     "payment_reminder_occurrences",
@@ -8,9 +8,14 @@
   ],
   "reviewed_change": {
     "date": "2026-11-04",
-    "reason": "Vendor operational authority and four cascade children are explicitly never-restored; exact16hooks, fresh dormant sourcing, private canonical appointment evidence and exact archived accepted-bid replay preserve canonical business history. Existing known gaps and missing_dev_catalog remain unchanged; fresh DEV catalog is required after reviewed apply.",
+    "reason": "Vendor operational authority and four cascade children are explicitly never-restored; exact16hooks, fresh dormant sourcing, private canonical appointment evidence and exact archived accepted-bid replay preserve canonical business history. Existing known gaps and missing_dev_catalog remain unchanged; fresh DEV catalog is required after reviewed apply. Union with already-released owner-neutral SMS transport and additive email_onboarding_handoffs.tour_slot_key; pure purge-manifest import moved to portal-inbox-scope-constants. No recovery selection, missing catalog allowance or known hook debt was widened.",
     "migration_sha256": "17cbd84a6b59787611346f0329efb9da45132903c53b8b7cb56afb1eecd45cba",
-    "selected_source_paths": 337,
-    "baseline_reproduced_sha256": "98fd92effc510107eca5e729bae475e8887804d114e72c50e6d3ca87919b5650"
+    "selected_source_paths": 338,
+    "baseline_reproduced_sha256": "98fd92effc510107eca5e729bae475e8887804d114e72c50e6d3ca87919b5650",
+    "parent_fixture_sha256": {
+      "keeper": "8bd6bcbc0e19c61bfe264e37b5d1afa2506ba908c958a0668c7b75317b08cf31",
+      "incoming": "c3ffb8b666917b2493776b4e347b52c936641f6f381bab9f47021e37b1bab4b1"
+    },
+    "keeper_reproduced_sha256": "1de4456b80e40e111e2821dd67c0aa33f32bdd29827380f881ec53e803f69f5d"
   }
 }

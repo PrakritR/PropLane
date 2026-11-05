@@ -17,7 +17,7 @@ describe("lease send is gated on a document, inside the Send lease screen", () =
   it("the screen makes the document before it will send, and its button stays closed without one", () => {
     expect(sheet).toContain("generateLeaseHtmlForRow");
     expect(sheet).toContain("documentReady");
-    expect(sheet).toMatch(/const canSend = Boolean\(\s*lease && terms && !termsBlocked && documentReady && confirmed/);
+    expect(sheet).toMatch(/const canSend = Boolean\(\s*lease && terms && !termsBlocked && documentReady && blockedBy.length === 0/);
   });
 
   it("the sheet still runs the shared send gate immediately before sending", () => {

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ notify: vi.fn(), workspace: vi.fn() }));
+const mocks = vi.hoisted(() => ({ notify: vi.fn(), workspace: vi.fn(), service: vi.fn() }));
+vi.mock("@/lib/service/service-manager-alerts.server", () => ({ alertServiceManagerFromNotice: mocks.service }));
 vi.mock("@/lib/work-number-recipients.server", () => ({ notifyWorkNumberRecipients: mocks.notify }));
 vi.mock("@/lib/one-number/link-destinations.server", () => ({ resolveWorkspaceForProperty: mocks.workspace }));
 
@@ -11,12 +12,16 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.notify.mockResolvedValue({ texted: 1, emailed: 0 });
   mocks.workspace.mockResolvedValue("ws-from-house");
+  mocks.service.mockResolvedValue("sent");
 });
 
 describe("alertPhonesOf", () => {
   it("covers the six spec alerts that the existing spine reaches the owner for", () => {
     expect([...OPS_ALERT_KINDS].sort()).toEqual(
-      ["emergency_maintenance", "new_application", "payment_late", "payment_failed", "tour_booked", "unanswered_question"].sort(),
+      [
+        "emergency_maintenance", "new_application", "payment_late", "payment_failed", "tour_booked", "unanswered_question",
+        "checkin_checkout_today", "booking_created", "tour_requested", "tour_cancelled", "application_started",
+      ].sort(),
     );
   });
 
@@ -55,5 +60,40 @@ describe("alertPhonesOf", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     expect(await alertPhonesOf({} as never, { ownerUserId: "owner", kind: "payment_failed", entityId: "c1", text: "Payment failed." })).toEqual({ texted: 0, emailed: 0 });
     spy.mockRestore();
+  });
+
+  it("tells the Service-settings phone only the kinds the notice spine never carried to it", async () => {
+    await alertPhonesOf({} as never, { ownerUserId: "owner", kind: "checkin_checkout_today", entityId: "p1:2026-11-04", propertyId: "p1", text: "Today 4709A - check-in Room 4 (Anthony)." });
+    expect(mocks.service).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ workspaceId: "ws-from-house", idempotencyKey: "ops-alert:checkin_checkout_today:p1:2026-11-04" }));
+    mocks.service.mockClear();
+    await alertPhonesOf({} as never, { ownerUserId: "owner", kind: "application_started", entityId: "app-1", propertyId: "p1", text: "Application started - Sam P." });
+    expect(mocks.service).toHaveBeenCalledTimes(1);
+    mocks.service.mockClear();
+    for (const kind of ["booking_created", "tour_requested", "tour_cancelled", "new_application", "tour_booked"] as const) {
+      await alertPhonesOf({} as never, { ownerUserId: "owner", kind, entityId: `${kind}-1`, propertyId: "p1", text: "x event." });
+    }
+    expect(mocks.service).not.toHaveBeenCalled();
+  });
+
+  it("keeps the digest whole up to three segments while other alerts stay one short line", () => {
+    const long = "Today 4709A - " + "check-in Room 4 (Anthony, Airbnb, 3 PM), ".repeat(8);
+    expect(alertLine(long).length).toBe(220);
+    expect(alertLine(long, 440).length).toBeGreaterThan(220);
+  });
+
+  it("a digest for the same house and day is one idempotency key, a different day or house another", async () => {
+    const run = (entityId: string) => alertPhonesOf({} as never, { ownerUserId: "owner", kind: "checkin_checkout_today", entityId, propertyId: "p1", text: "Today 4709A - check-in Room 4 (Anthony)." });
+    await run("p1:2026-11-04");
+    await run("p1:2026-11-04");
+    await run("p1:2026-11-05");
+    await run("p2:2026-11-04");
+    const keys = mocks.notify.mock.calls.map((call) => (call[1] as { idempotencyKey: string }).idempotencyKey);
+    expect(keys[0]).toBe(keys[1]);
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it("shares the bus notice's key for an event that also rides the action-event bus, so the phones hear it once", async () => {
+    await alertPhonesOf({} as never, { ownerUserId: "owner", kind: "booking_created", entityId: "native:b1:booking_created", propertyId: "p1", idempotencyKey: "action-event:native:b1:booking_created:manager", text: "New booking - 5259 Room 2." });
+    expect(mocks.notify.mock.calls[0]![1]).toMatchObject({ idempotencyKey: "action-event:native:b1:booking_created:manager" });
   });
 });

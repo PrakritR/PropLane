@@ -615,10 +615,56 @@ export function getApplicationSetupToken(id: string): string | null {
   }
 }
 
+/**
+ * Fired when the server folded a draft into an application the person already had for that house and
+ * answered with the kept id. The wizard listens: it adopts the id (so every later save and the submit go
+ * to the one row) and fills any blank answer from the kept row.
+ */
+export const APPLICATION_ID_ADOPTED_EVENT = "axis:application-id-adopted";
+
+/** Every setup token this browser holds - the proof a guest draft may fold into a row it already owns. */
+function allRememberedApplicationSetupTokens(): string[] {
+  if (typeof window === "undefined") return [];
+  const tokens: string[] = [];
+  try {
+    for (let index = 0; index < window.sessionStorage.length && tokens.length < 20; index += 1) {
+      const key = window.sessionStorage.key(index);
+      if (!key?.startsWith(APPLICATION_SETUP_TOKEN_STORE_PREFIX)) continue;
+      const value = window.sessionStorage.getItem(key);
+      if (value) tokens.push(value);
+    }
+  } catch {
+    /* Storage can be unavailable. */
+  }
+  return tokens;
+}
+
+/** The setup-token fields of an upsert body: this row's own token, else (a first write) every one held. */
+function setupTokenBodyFields(rowId: string): { setupToken?: string; knownSetupTokens?: string[] } {
+  const setupToken = getApplicationSetupToken(rowId);
+  if (setupToken) return { setupToken };
+  const known = allRememberedApplicationSetupTokens();
+  return known.length > 0 ? { knownSetupTokens: known } : {};
+}
+
+function adoptKeptApplicationId(sentId: string, keptId: string, keptRow?: DemoApplicantRow): void {
+  const kept = keptId.trim();
+  if (!kept || applicationSetupTokenKey(kept) === applicationSetupTokenKey(sentId)) return;
+  cancelPendingApplicationRowUpsert(sentId);
+  const stale = readManagerApplicationRows().filter((r) => applicationSetupTokenKey(r.id) !== applicationSetupTokenKey(sentId));
+  memoryRows = stale;
+  persistManagerApplicationsToSession(stale, activeApplicationsScopeUserId);
+  if (keptRow?.id) replaceManagerApplicationRowInCache(keptRow);
+  else emit();
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(APPLICATION_ID_ADOPTED_EVENT, { detail: { from: sentId, to: kept, row: keptRow ?? null } }),
+  );
+}
+
 function mirrorApplicationRowToServer(row: DemoApplicantRow): Promise<void> {
   if (typeof window === "undefined" || isDemoModeActive()) return Promise.resolve();
   const generation = applicationWriteGeneration;
-  const setupToken = getApplicationSetupToken(row.id);
   return fetch("/api/manager-applications", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -626,17 +672,22 @@ function mirrorApplicationRowToServer(row: DemoApplicantRow): Promise<void> {
     body: JSON.stringify({
       action: "upsert",
       row,
-      ...(setupToken ? { setupToken } : {}),
+      ...setupTokenBodyFields(row.id),
     }),
   })
     .then(async (res) => {
       if (generation !== applicationWriteGeneration) return;
       if (res.ok) {
-        const body = (await res.json().catch(() => null)) as { setupToken?: string } | null;
+        const body = (await res.json().catch(() => null)) as
+          | { setupToken?: string; id?: string; row?: DemoApplicantRow }
+          | null;
         if (generation !== applicationWriteGeneration) return;
+        const keptId = typeof body?.id === "string" ? body.id.trim() : "";
+        const savedUnder = keptId || row.id;
         if (typeof body?.setupToken === "string" && body.setupToken) {
-          rememberApplicationSetupToken(row.id, body.setupToken);
+          rememberApplicationSetupToken(savedUnder, body.setupToken);
         }
+        if (keptId) adoptKeptApplicationId(row.id, keptId, body?.row);
       }
       // A response at all means the network was fine; a 5xx is ours.
       emitApplicationSaveStatus(res.ok, row.id, res.status >= 500);
@@ -687,7 +738,6 @@ function flushPendingApplicationRowUpserts() {
   for (const entry of upsertQueues.values()) {
     const pending = entry.latest;
     if (!pending) continue;
-    const setupToken = getApplicationSetupToken(pending.id);
     void fetch("/api/manager-applications", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -696,7 +746,7 @@ function flushPendingApplicationRowUpserts() {
       body: JSON.stringify({
         action: "upsert",
         row: pending,
-        ...(setupToken ? { setupToken } : {}),
+        ...setupTokenBodyFields(pending.id),
       }),
     }).catch(() => undefined);
   }
@@ -825,6 +875,9 @@ export async function upsertApplicationRowToServerAwait(
   row?: DemoApplicantRow;
   /** Forms the template's rules owe after this submit; carries each share token once. */
   linkedForms?: IssuedLinkedFormView[];
+  /** A refused submit: the server's per-field messages and the wizard step that owns the first of them. */
+  fieldErrors?: Record<string, string>;
+  step?: number;
 }> {
   if (typeof window === "undefined") return { ok: false, error: "Not in browser." };
   if (isDemoModeActive()) return { ok: true };
@@ -842,6 +895,8 @@ export async function upsertApplicationRowToServerAwait(
     });
     const body = (await res.json().catch(() => null)) as {
       error?: string;
+      fieldErrors?: Record<string, string>;
+      step?: number;
       setupHref?: string;
       setupToken?: string;
       mailtoHref?: string;
@@ -862,6 +917,8 @@ export async function upsertApplicationRowToServerAwait(
         error: body?.error ?? "Could not save application.",
         mailtoHref: errBody?.mailtoHref,
         leaseId: errBody?.leaseId,
+        ...(body?.fieldErrors && typeof body.fieldErrors === "object" ? { fieldErrors: body.fieldErrors } : {}),
+        ...(typeof body?.step === "number" ? { step: body.step } : {}),
       };
     }
     // Guest submits return a server-authoritative setup handoff (token minted on

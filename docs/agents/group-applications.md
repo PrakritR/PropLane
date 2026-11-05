@@ -76,10 +76,14 @@ portal, and identity while the household reads as one unit.
   `findDuplicateApplication` (`duplicate-application.server.ts`) in excluding a
   withdrawn row from the "you already have a pending application for this
   property and room" check, so a returning applicant can genuinely start
-  fresh after withdrawing. `tabForRow`/`countByBucket`
-  (`src/components/portal/pro-applications.tsx`) route a withdrawn row to the
-  Rejected tab for DISPLAY only (`applicationDecisionStatusLabel` still shows
-  "Withdrawn", never "Rejected") — it never clutters the manager's Pending
-  queue implying a decision is still owed.
+  fresh after withdrawing. Which tab it is LISTED in is the one routing decision
+  `applicationListTabForRow` (`src/lib/rental-application/in-progress-application.ts`) makes, and the
+  attention badge is a different question (`isSubmittedPendingApplicationRow`), so a withdrawn row
+  never clutters the manager's queue implying a decision is still owed —
+  `applicationDecisionStatusLabel` keeps saying "Withdrawn", never "Rejected".
 
-Update (studio-redesign leasing): Applications buckets are Pending / Approved / Declined; withdrawn and incomplete applications stay in Pending. Approval is per resident from the one Approve popup; the Shared room card on an application lists each roommate with an Approve or Remind icon.
+Update (studio-redesign leasing): the stored buckets are still Pending / Approved / Declined, and a withdrawn
+row stays in Pending — the manager's list TABS (Incomplete · Pending · Approved · Declined) and where an unsent
+draft is listed are owned by [`application-questions.md`](application-questions.md) § One application per person
+per house. Approval is per resident from the one Approve popup; the Shared room card on an application lists each
+roommate with an Approve or Remind icon.

@@ -378,6 +378,11 @@ export function residentMoveInFormsHref(basePath: string, residentId: string, re
   return residentFormsHref(basePath, residentsTab, residentId);
 }
 
+/** The resident's record with Edit resident opened (the Send lease screen's ✎). */
+export function residentEditHref(basePath: string, residentId: string): string {
+  return `${residentDetailHref(basePath, "potential", residentId, "overview")}?edit=1`;
+}
+
 export function residentListHref(basePath: string, tab: ResidentsTabId): string {
   return `${basePath}/residents/${tab}`;
 }
@@ -895,7 +900,9 @@ export function teamMemberDetailHref(basePath: string, _linkId: string): string 
 
 /**
  * Manager applications list buckets (Appendix D5): Pending · Approved · Declined.
- * Incomplete and Withdrawn are facts on a Pending row, never tabs of their own.
+ * Withdrawn is a fact on a Pending row, never a bucket of its own, and so is an unsent
+ * draft — Incomplete is a LIST tab over these buckets (`APPLICATION_LIST_TABS`), not a
+ * fourth stored bucket.
  */
 export const APPLICATION_BUCKETS = ["pending", "approved", "rejected"] as const;
 export type ApplicationBucketId = (typeof APPLICATION_BUCKETS)[number];
@@ -907,8 +914,12 @@ const APPLICATION_BUCKET_ALIASES: Record<string, ApplicationBucketId> = {
   declined: "rejected",
 };
 
-/** Application list tabs shown in the Applications hub. */
-export const APPLICATION_LIST_TABS = [...APPLICATION_BUCKETS] as const;
+/**
+ * Application list tabs shown in the Applications hub: Incomplete (a draft the person started and never
+ * sent) · Pending (submitted only) · Approved · Declined. Incomplete is a LIST tab, not a stored bucket:
+ * a draft keeps `bucket: "pending"` on the row and is routed here by `applicationListTabForRow`.
+ */
+export const APPLICATION_LIST_TABS = ["incomplete", ...APPLICATION_BUCKETS] as const;
 export type ApplicationListTabId = (typeof APPLICATION_LIST_TABS)[number];
 
 export function parseApplicationBucket(raw: string | undefined | null): ApplicationBucketId {
@@ -923,6 +934,7 @@ export function parseApplicationListTab(raw: string | undefined | null): Applica
   if (raw && (APPLICATION_LIST_TABS as readonly string[]).includes(raw)) {
     return raw as ApplicationListTabId;
   }
+  if (raw === "withdrawn") return "pending";
   return (raw && APPLICATION_BUCKET_ALIASES[raw]) || "pending";
 }
 
@@ -975,7 +987,7 @@ export function parseApplicationDetailTab(raw: string | undefined | null): Appli
 
 export function applicationDetailHref(
   basePath: string,
-  bucket: ApplicationBucketId,
+  bucket: ApplicationListTabId,
   applicationId: string,
   detailTab: ApplicationDetailTabId = DEFAULT_APPLICATION_DETAIL_TAB,
 ): string {
@@ -986,7 +998,7 @@ export function applicationDetailHref(
 /** The application's own nested Screening tab — replaces the old standalone background-check record route. */
 export function applicationScreeningDetailHref(
   basePath: string,
-  bucket: ApplicationBucketId,
+  bucket: ApplicationListTabId,
   applicationId: string,
 ): string {
   return applicationDetailHref(basePath, bucket, applicationId, "screening");

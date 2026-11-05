@@ -303,4 +303,30 @@ describe("email onboarding start", () => {
     expect(m.link).toHaveBeenCalledWith({ type: "magiclink", email: "guest@example.com" });
     expect(m.insert).toHaveBeenCalledOnce(); expect(m.send).toHaveBeenCalledOnce();
   });
+  it("keeps a tour pick made before the account existed on the stored handoff", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test"); vi.stubGlobal("fetch", m.send.mockResolvedValue({ ok: true }));
+    m.property.mockResolvedValue({ data: { id: "property" }, error: null });
+    m.effective.mockResolvedValue({ ok: true, property: { listingSubmission: { v: 1, rooms: [{ id: "room-1" }], bundles: [] } } });
+    m.find.mockResolvedValue(null); m.create.mockResolvedValue({ data: { user: { id: "new-user" } }, error: null });
+    m.get.mockResolvedValue({ data: { user: { id: "new-user", email_confirmed_at: null, app_metadata: { proplane_email_onboarding: true } } } });
+    m.link.mockResolvedValue({ data: { user: { id: "new-user" }, properties: { hashed_token: "test-token", verification_type: "magiclink" } } }); m.insert.mockResolvedValue({ error: null });
+    const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "resident", propertyId: "property", listingRoomId: "room-1", tourSlotKey: "2026-11-04:20" }) });
+    expect((await POST(req)).status).toBe(200);
+    expect(m.insert).toHaveBeenCalledWith(expect.objectContaining({ intent: "resident", property_id: "property", listing_room_id: "room-1", tour_slot_key: "2026-11-04:20" }));
+  });
+  it("sends no tour slot column for an ordinary signup", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test"); vi.stubGlobal("fetch", m.send.mockResolvedValue({ ok: true }));
+    m.find.mockResolvedValue(null); m.create.mockResolvedValue({ data: { user: { id: "new-user" } }, error: null });
+    m.get.mockResolvedValue({ data: { user: { id: "new-user", email_confirmed_at: null, app_metadata: { proplane_email_onboarding: true } } } });
+    m.link.mockResolvedValue({ data: { user: { id: "new-user" }, properties: { hashed_token: "test-token", verification_type: "magiclink" } } }); m.insert.mockResolvedValue({ error: null });
+    expect((await POST(request())).status).toBe(200);
+    expect(m.insert.mock.calls[0][0]).not.toHaveProperty("tour_slot_key");
+  });
+  it("refuses a malformed tour slot without creating an account", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test");
+    m.property.mockResolvedValue({ data: { id: "property" }, error: null });
+    const req = new Request("http://localhost", { method: "POST", body: JSON.stringify({ email: "guest@example.com", intent: "resident", propertyId: "property", tourSlotKey: "javascript:alert(1)" }) });
+    expect((await POST(req)).status).toBe(200);
+    expect(m.create).not.toHaveBeenCalled(); expect(m.link).not.toHaveBeenCalled();
+  });
 });

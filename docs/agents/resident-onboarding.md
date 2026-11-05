@@ -75,6 +75,10 @@ POST /api/auth/email-onboarding/start           POST /api/auth/register-resident
 
 ## Invariants (do not regress)
 
+- **A tour pick survives the emailed-link signup.** `PortalAuthForm` recognises `next=/resident/tour/schedule?propertyId&slot` (a slot is
+  required), `EmailFirstSignup` sends `tourSlotKey` (+ `listingRoomId`) on `email-onboarding/start`, the handoff stores it in
+  `tour_slot_key` (validated `YYYY-MM-DD:n`), and `/auth/continue` rebuilds the one fixed destination. The slot is only a prefill.
+
 - **`POST /api/auth/resident-register` is the ENABLED anonymous self-serve path
   (captain decision, Jul 2026), and it is DEFAULT-DENY on inheritance.** It mints
   a clean resident profile (`application_approved=false`, no application PII, no

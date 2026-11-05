@@ -2,6 +2,7 @@
  * Server-side tour notification delivery (Resend email + Axis inbox records).
  */
 
+import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 import { issueTourSignupCapability } from "@/lib/auth/tour-signup-capability.server";
 import { noticeChannelFor, withResidentPortalLink } from "@/lib/notice-channel";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
@@ -603,6 +604,23 @@ export async function notifyManagerTourRequest(
     messageId: `tour:${textField(inquiry as Record<string, unknown>, "id") || propertyId}:request:${tourStartIso}:${tourEndIso}`,
     ...(smsConversationKey ? { smsConversationKey } : {}),
   });
+
+  // The owner's listed alert phones (no PropLane account) hear the request as it lands, once per inquiry.
+  try {
+    const ownerUserId = (await resolvePropertyOwnerUserId(db, propertyId || undefined)) ?? managerUserId;
+    const { alertPhonesOf } = await import("@/lib/one-number/ops-alerts.server");
+    const { tourAlertLine } = await import("@/lib/one-number/ops-alert-lines");
+    await alertPhonesOf(db, {
+      ownerUserId,
+      kind: "tour_requested",
+      entityId: textField(inquiry as Record<string, unknown>, "id") || `${propertyId}:${tourStartIso}:${guestEmail}`,
+      propertyId: propertyId || null,
+      text: tourAlertLine("requested", { guest: ctx.guestName, house: ctx.propertyTitle, whenIso: tourStartIso }),
+      url: `${origin.replace(/\/$/, "")}/portal/tours`,
+    });
+  } catch {
+    /* non-critical: the notices above already reached the people */
+  }
 
   // Teammates are told where the one thread is: the email carries the Communication link, and the workspace Team chat gets one
   // plain line (idempotent per request). Neither is a copy of the lead.

@@ -196,7 +196,7 @@ describe("ResidentApplicationsPanel — the embedded table distinguishes its row
   it("shows each row's status and when it was started", async () => {
     ROWS = [
       {
-        ...inProgressRow("PROPLANE-AAAA0001", "mgr-test-magnolia", "Magnolia House"),
+        ...inProgressRow("PROPLANE-AAAA0001", "mgr-test-birch", "Birch Court"),
         detail: "Started 8/1/2026, 7:48:40 PM",
       },
       {
@@ -208,7 +208,7 @@ describe("ResidentApplicationsPanel — the embedded table distinguishes its row
       render(<ResidentApplicationsPanel applyMode />);
     });
 
-    // Same property on both rows, so each is found by what makes it different: its status and date.
+    // One row per house, so the unsent draft is on its own house; each row, so each is found by what makes it different: its status and date.
     const rowTexts = [...document.querySelectorAll<HTMLElement>(".portal-property-row")].map((el) => el.textContent ?? "");
     const first = rowTexts.find((text) => text.includes("Started Aug 1")) ?? "";
     const second = rowTexts.find((text) => text.includes("Submitted Aug 3")) ?? "";

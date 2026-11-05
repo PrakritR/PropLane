@@ -232,7 +232,7 @@ describe("owner dispatcher tour booking confirmation boundary", () => {
       bookingRow.recipient_phone,
       bookingRow.body,
       "+15550009999",
-      { skipOptOutCheck: true, creditReservationKey: `sms_outbound:${OUTBOX_ID}` },
+      { skipOptOutCheck: true, creditReservationKey: `sms_outbound:${OUTBOX_ID}`, expectedPayerUserId: MANAGER_ID },
     );
   });
 

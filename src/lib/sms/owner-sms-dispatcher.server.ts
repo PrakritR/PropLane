@@ -725,6 +725,39 @@ function retryableDispatchPolicy(
     : policy;
 }
 
+/** A teammate line or Assistant notice older than this is no longer news; it is expired, never sent late. */
+export const STALE_MANAGER_NOTICE_TTL_MS = 6 * 60 * 60_000;
+export const STALE_MANAGER_NOTICE_REASON = "expired_stale";
+
+/**
+ * Expire manager-facing relays and notices (`team_chat_relay`, `team_inbound_forward`, `team_notice`,
+ * `manager_agent_notification_*`) that are still `queued` / `deferred` after {@link STALE_MANAGER_NOTICE_TTL_MS}:
+ * `blocked` with `expired_stale`. A backlog left by an outage must never blast hours-old chat lines at a phone when
+ * the dispatcher recovers. Rows already claimed or submitted are untouched, and so is a row still WAITING on its
+ * own window (`available_at` in the future: a budget-deferred notice is held for the next UTC day, not stale).
+ * Returns how many were expired.
+ *
+ * Swept ONCE per sms-outbox cron invocation, not per claim batch: the rows it looks for only age every 6 hours,
+ * and the cron claims up to ten batches a run, every five minutes.
+ */
+export async function expireStaleManagerNotices(db: SupabaseClient, now = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - STALE_MANAGER_NOTICE_TTL_MS).toISOString();
+  try {
+    const { data, error } = await db
+      .from("sms_outbox")
+      .update({ status: "blocked", blocked_reason: STALE_MANAGER_NOTICE_REASON, lease_owner: null, lease_expires_at: null, updated_at: now.toISOString() })
+      .in("status", ["queued", "deferred"])
+      .is("dispatch_started_at", null)
+      .lt("created_at", cutoff)
+      .lte("available_at", now.toISOString())
+      .or("purpose.in.(team_chat_relay,team_inbound_forward,team_notice),purpose.like.manager_agent_notification_*")
+      .select("id");
+    return error ? 0 : (data ?? []).length;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Claim and dispatch a bounded batch. Once provider submission starts, an
  * ambiguous error becomes `unknown` and is never automatically retried.
@@ -1181,6 +1214,7 @@ export async function dispatchOwnerSmsOutbox(
     const sent = await sendSms(await providerDestinationFor(db, row), row.body, policy.fromNumber, {
       skipOptOutCheck: true,
       creditReservationKey: creditKey,
+      expectedPayerUserId: row.manager_user_id,
       ...(policy.viaSharedLine && policy.providerMessagingServiceSid
         ? { messagingServiceSid: policy.providerMessagingServiceSid }
         : {}),

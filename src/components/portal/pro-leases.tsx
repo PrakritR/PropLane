@@ -29,7 +29,7 @@ import { MANAGER_APPLICATIONS_EVENT, syncManagerApplicationsFromServer } from "@
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { getPropertyById } from "@/lib/rental-application/data";
-import { leaseDetailHref, leaseListHref } from "@/lib/portal-detail-routes";
+import { leaseDetailHref, leaseListHref, residentEditHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { AGENT_PENDING_ACTIONS_EVENT } from "@/lib/axis-assistant/pending-actions-events";
 
@@ -220,6 +220,10 @@ export function ManagerLeases({
         pickResident
         managerUserId={userId}
         onClose={() => setAddLeaseOpen(false)}
+        onEditResident={(applicationId) => {
+          setAddLeaseOpen(false);
+          navigate(residentEditHref(basePath, applicationId));
+        }}
         onSent={(leaseId) => {
           setTick((n) => n + 1);
           openLeaseAfterSend(leaseId);

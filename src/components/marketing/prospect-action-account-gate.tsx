@@ -59,9 +59,11 @@ function gateSecondaryBtnClass() {
 }
 
 /**
- * Account gate before tour, message, apply, or lease signature on a public
- * listing link. An account is required (PLAN-0924-1421) — there is no guest
- * path out of this gate.
+ * Account gate before message, apply, or lease signature on a public listing link. An account is
+ * required (PLAN-0924-1421) — there is no guest path out of this gate. The TOUR page no longer
+ * opens on this gate: it shows the times first and asks for the account at "Your details"
+ * (`docs/agents/tours-scheduling.md` § Times first, account at "Your details"), which the server
+ * then requires before any tour row is written.
  */
 export function ProspectGuestAccountGate({
   action,

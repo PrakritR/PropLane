@@ -1,3 +1,4 @@
+import { parseTourSlotKey } from "@/lib/tour-schedule-link";
 import { tourCapabilityEligible } from "@/lib/tour-resident-link.server";
 import { tourCapabilityDigest } from "@/lib/auth/tour-signup-capability.server";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -46,7 +47,7 @@ export async function POST(req: Request) {
   if (rawBody === null) return NextResponse.json(GENERIC);
   const parsed = (() => { try { return JSON.parse(rawBody); } catch { return {}; } })();
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return NextResponse.json(GENERIC);
-  const body = parsed as { email?: unknown; applicationId?: unknown; setupToken?: unknown; intent?: unknown; tourInquiryId?: unknown; tourToken?: unknown; checkoutSessionId?: unknown; vendorInviteToken?: unknown; propertyId?: unknown; tier?: unknown; billing?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown };
+  const body = parsed as { email?: unknown; applicationId?: unknown; setupToken?: unknown; intent?: unknown; tourInquiryId?: unknown; tourToken?: unknown; checkoutSessionId?: unknown; vendorInviteToken?: unknown; propertyId?: unknown; tier?: unknown; billing?: unknown; listingRoomId?: unknown; bundleId?: unknown; applicationFormId?: unknown; rentalType?: unknown; tourSlotKey?: unknown };
   if (Object.values(body).some((value) => typeof value === "string" && value.length > 1024)) return NextResponse.json(GENERIC);
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   if (!email.includes("@") || email.length > 254) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
@@ -79,6 +80,7 @@ export async function POST(req: Request) {
     let listingRoomId: string | null = null;
     let bundleId: string | null = null;
     let applicationFormId: string | null = null;
+    let tourSlotKey: string | null = null;
     const rentalType = intent === "resident" && (body.rentalType === "standard" || body.rentalType === "short_term") ? body.rentalType : null;
     const tier = intent === "manager" && (body.tier === "free" || body.tier === "pro" || body.tier === "business") ? body.tier : null;
     const billing = intent === "manager" && (body.billing === "monthly" || body.billing === "annual") ? body.billing : null;
@@ -103,6 +105,13 @@ export async function POST(req: Request) {
           if (typeof body.applicationFormId !== "string" || !applicationPinForLinkedForm(sub, body.applicationFormId)) return NextResponse.json(GENERIC);
           applicationFormId = body.applicationFormId;
         }
+      }
+      // A tour pick made before the account existed (room rides in `listingRoomId`, validated above). Only a
+      // well-formed slot key is kept; it is a prefill for the schedule page, never a booking.
+      if (body.tourSlotKey !== undefined) {
+        const slot = typeof body.tourSlotKey === "string" ? parseTourSlotKey(body.tourSlotKey) : null;
+        if (!slot || body.applicationFormId !== undefined || body.bundleId !== undefined) return NextResponse.json(GENERIC);
+        tourSlotKey = slot.slotKey;
       }
     } else if (intent === "resident" && (body.listingRoomId !== undefined || body.bundleId !== undefined || body.applicationFormId !== undefined)) {
       return NextResponse.json(GENERIC);
@@ -164,7 +173,7 @@ export async function POST(req: Request) {
       const bound = await db.rpc("bind_tour_email_handoff", { p_user: id, p_handoff: tourHandoffId, p_placeholder: tourPlaceholder, p_digest: digest });
       if (bound.error || bound.data !== true) return NextResponse.json({ error: "Tour verification is unavailable. Please try again." }, { status: 503 });
     } else {
-    const { error } = await db.from("email_onboarding_handoffs").insert({ user_id: id, application_id: applicationId, application_setup_token_digest: applicationSetupDigest, tour_inquiry_id: tourInquiryId, manager_purchase_id: managerPurchaseId, vendor_invite_id: vendorInviteId, property_id: propertyId, listing_room_id: listingRoomId, bundle_id: bundleId, application_form_id: applicationFormId, rental_type: rentalType, tier, billing, intent: applicationId ? "application" : intent, token_digest: digest, expires_at: new Date(Date.now() + 3600000).toISOString() });
+    const { error } = await db.from("email_onboarding_handoffs").insert({ user_id: id, application_id: applicationId, application_setup_token_digest: applicationSetupDigest, tour_inquiry_id: tourInquiryId, manager_purchase_id: managerPurchaseId, vendor_invite_id: vendorInviteId, property_id: propertyId, listing_room_id: listingRoomId, bundle_id: bundleId, application_form_id: applicationFormId, rental_type: rentalType, ...(tourSlotKey ? { tour_slot_key: tourSlotKey } : {}), tier, billing, intent: applicationId ? "application" : intent, token_digest: digest, expires_at: new Date(Date.now() + 3600000).toISOString() });
     if (error) return NextResponse.json(GENERIC);
     }
     const href = `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}/auth/confirm?token_hash=${encodeURIComponent(hash)}&type=${verificationType}`;

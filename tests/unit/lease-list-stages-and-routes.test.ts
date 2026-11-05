@@ -71,9 +71,9 @@ describe("route words", () => {
     expect(LEASE_PIPELINE_TABS).toContain("signed");
   });
 
-  it("the Applications buckets are Pending, Approved, Declined", () => {
+  it("the Applications tabs are Incomplete, Pending, Approved, Declined", () => {
     expect([...APPLICATION_BUCKETS]).toEqual(["pending", "approved", "rejected"]);
-    expect(parseApplicationListTab("incomplete")).toBe("pending");
+    expect(parseApplicationListTab("incomplete")).toBe("incomplete");
     expect(parseApplicationListTab("withdrawn")).toBe("pending");
     expect(parseApplicationListTab("declined")).toBe("rejected");
     expect(parseApplicationBucket("incomplete")).toBe("pending");

@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   send: vi.fn(),
+  provider: vi.fn(),
+  db: null as unknown,
+  holdOwner: "manager-1",
   quoteCurrent: vi.fn(),
   canReply: vi.fn(),
   suppression: vi.fn(),
@@ -10,6 +13,13 @@ const mocks = vi.hoisted(() => ({
   finish: vi.fn(),
 }));
 
+vi.mock("@/lib/twilio-client.server", () => ({ createTwilioRestClient: () => ({ messages: { create: mocks.provider } }) }));
+vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => mocks.db }));
+vi.mock("@/lib/sms/sms-test-transport.server", () => ({ captureSmsTestDelivery: () => false }));
+vi.mock("@/lib/test-workspaces/effects.server", () => ({ captureTestWorkspaceEffectForUser: async () => ({ captured: false }) }));
+vi.mock("@/lib/protected-accounts.server", () => ({ isShieldedRecipient: async () => false }));
+// These cases compose the vendor dispatcher with the real shared-number hold verification.
+vi.mock("@/lib/one-number/shared-line-number.server", () => ({ isConfiguredSharedNumber: async (_db: unknown, phone: string) => phone === "+12065550999" }));
 vi.mock("@/lib/vendor-sourcing.server", () => ({
   vendorQuoteSmsIsCurrent: mocks.quoteCurrent,
   sourcingConversationCanReply: mocks.canReply,
@@ -77,6 +87,8 @@ function fixture(purpose: "vendor_quote_request" | "vendor_conversation") {
       return false;
     };
     const value = () => {
+      if (table === "manager_sms_numbers") return { manager_user_id: "platform-owner" };
+      if (table === "manager_comms_usage_events") return { manager_user_id: mocks.holdOwner, meter: "sms_outbound_segment", quantity: 1, credit_state: "reserved" };
       if (table === "sms_runtime_config") return { mode: "enabled", pilot_manager_user_ids: ["manager-1"] };
       if (table === "agent_sessions") return { id: "session-1", work_order_id: "service-1", vendor_directory_id: "directory-1", vendor_phone_e164: "+12065550123", user_id: "vendor-1", vendor_user_id: "vendor-1" };
       if (table === "sms_outbox") return matches(outbox) ? outbox : null;
@@ -85,6 +97,7 @@ function fixture(purpose: "vendor_quote_request" | "vendor_conversation") {
     };
     Object.assign(query, {
       select: self,
+      neq: self,
       eq(column: string, expected: unknown) { filters.push((row: Row) => row[column] === expected); return query; },
       in(column: string, expected: unknown[]) { selectedLineQuery = table === "sms_outbox"; filters.push((row: Row) => expected.includes(row[column])); return query; },
       is(column: string, expected: unknown) { filters.push((row: Row) => row[column] === expected); return query; },
@@ -131,6 +144,9 @@ describe("vendor SMS dispatch final policy fence", () => {
     vi.stubEnv("SMS_OUTBOX_SCHEDULER_READY", "1");
     vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", "MG1");
     vi.stubEnv("TWILIO_CAMPAIGN_SID", "CP1");
+    mocks.db = null;
+    mocks.holdOwner = "manager-1";
+    mocks.provider.mockReset().mockResolvedValue({ sid: "SM-vendor" });
     mocks.send.mockReset().mockResolvedValue({ sent: true, sid: "SM-vendor" });
     mocks.quoteCurrent.mockReset().mockResolvedValue(true);
     mocks.canReply.mockReset().mockResolvedValue(true);
@@ -232,7 +248,31 @@ describe("vendor SMS dispatch final policy fence", () => {
     if (purpose === "vendor_quote_request") expect(mocks.quoteCurrent).toHaveBeenCalledTimes(2);
     else expect(mocks.canReply).toHaveBeenCalledTimes(2);
     expect(mocks.send).toHaveBeenCalledTimes(1);
+    expect(mocks.send).toHaveBeenCalledWith("+12065550123", outbox.body, expect.any(String), expect.objectContaining({ expectedPayerUserId: "manager-1", creditReservationKey: "sms_outbound:outbox-1" }));
     expect(mocks.finish).toHaveBeenCalledWith(db, "manager-1", "sms_outbound:outbox-1");
     expect(outbox).toMatchObject({ status: "submitted", provider_message_sid: "SM-vendor" });
+  });
+
+  it.each(["vendor_quote_request", "vendor_conversation"] as const)("composes %s with shared-number payer verification and final refusals", async (purpose) => {
+    const transport = await vi.importActual<typeof import("@/lib/twilio")>("@/lib/twilio");
+    mocks.send.mockImplementation(transport.sendSms);
+    let f = fixture(purpose);
+    mocks.db = f.db;
+    await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, f.db)).resolves.toMatchObject({ submitted: 1 });
+    expect(mocks.provider).toHaveBeenCalledTimes(1);
+
+    for (const refusal of ["foreign payer", "STOP", "stopped sourcing"] as const) {
+      mocks.provider.mockClear();
+      mocks.holdOwner = refusal === "foreign payer" ? "foreign-manager" : "manager-1";
+      mocks.suppression.mockReset().mockResolvedValue({ ok: true, optedOut: false });
+      mocks.quoteCurrent.mockReset().mockResolvedValue(true);
+      mocks.canReply.mockReset().mockResolvedValue(true);
+      if (refusal === "STOP") mocks.suppression.mockResolvedValueOnce({ ok: true, optedOut: false }).mockResolvedValueOnce({ ok: true, optedOut: true });
+      if (refusal === "stopped sourcing") (purpose === "vendor_quote_request" ? mocks.quoteCurrent : mocks.canReply).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+      f = fixture(purpose);
+      mocks.db = f.db;
+      await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, f.db)).resolves.toMatchObject({ submitted: 0, blocked: 1 });
+      expect(mocks.provider, refusal).not.toHaveBeenCalled();
+    }
   });
 });

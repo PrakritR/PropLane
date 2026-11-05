@@ -159,6 +159,7 @@ branch, and `db:push` applies it only once merged):
 | 20261030145000 | `recovery_stored_roles_only` | `account_recovery_finish_archival` decides from stored roles only |
 | 20261030145100 | `admin_team_atomic_revoke` | `demote_admin_team_role`: one RPC re-derives durable ownership under the exclusive lifecycle lock and rejects stale seat or property context on an Admin team demotion or removal |
 | 20261030145200 | `resident_dispatch_confirmation` | `resolve_resident_dispatch_confirmation`: a resident SMS completion is one subject-bound, service-only transaction |
+| 20261103101000 | `email_onboarding_tour_slot` | `email_onboarding_handoffs.tour_slot_key` (a prospect's pre-account tour pick rides the emailed handoff; prefill only, booking re-checks the slot) |
 | 20261104110000 | `vendor_directory_link_serialization` | Account attachment and enrollment share a directory fence before any service |
 | 20261104111000 | `vendor_quote_contact` | Private identity, bearer capabilities, quote email delivery, and scoped SMS consent. |
 | 20261104112000 | `vendor_quote_inbox` | The private quote conversation is shared by response-page and native email ingress. |

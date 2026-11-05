@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { isMissingColumnError } from "@/lib/db-missing-column";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -13,10 +14,23 @@ export async function POST() {
   const { data: { user } } = await auth.auth.getUser();
   if (!user?.id || !user.email_confirmed_at) return empty();
   const db = createSupabaseServiceRoleClient();
-  const { data, error } = await db.from("email_onboarding_handoffs")
-    .select("intent, application_id, tour_inquiry_id, manager_purchase_id, vendor_invite_id, property_id, listing_room_id, bundle_id, application_form_id, rental_type, tier, billing")
+  // `tour_slot_key` is additive (20261103101000) and migrations run separately from a deploy, so an
+  // environment that is a push behind must not fail EVERY signup continuation on it: the read retries
+  // once without that column, exactly as the insert side already omits it.
+  const HANDOFF_COLUMNS = "intent, application_id, tour_inquiry_id, manager_purchase_id, vendor_invite_id, property_id, listing_room_id, bundle_id, application_form_id, rental_type, tier, billing";
+  const readHandoff = (columns: string) => db.from("email_onboarding_handoffs")
+    .select(columns)
     .eq("id", id).eq("user_id", user.id).in("status", ["completed", "consumed"])
     .gt("expires_at", new Date().toISOString()).maybeSingle();
+  let read = await readHandoff(`${HANDOFF_COLUMNS}, tour_slot_key`);
+  if (read.error && isMissingColumnError(read.error, "tour_slot_key")) read = await readHandoff(HANDOFF_COLUMNS);
+  const { error } = read;
+  const data = read.data as {
+    intent?: string | null; application_id?: string | null; tour_inquiry_id?: string | null;
+    manager_purchase_id?: string | null; vendor_invite_id?: string | null; property_id?: string | null;
+    listing_room_id?: string | null; bundle_id?: string | null; application_form_id?: string | null;
+    rental_type?: string | null; tour_slot_key?: string | null; tier?: string | null; billing?: string | null;
+  } | null;
   if (error) return NextResponse.json({ error: "Could not continue account setup." }, { status: 503 });
   if (!data) return empty();
   let payload: Record<string, unknown> | null = null;
@@ -35,7 +49,7 @@ export async function POST() {
       payload = { role: "manager_paid", checkoutSessionId: purchase.stripe_checkout_session_id };
     }
   } else if (data.intent === "generic" || data.intent === "resident" || data.intent === "manager" || data.intent === "vendor") {
-    payload = { role: data.intent, propertyId: data.property_id, listingRoomId: data.listing_room_id, bundleId: data.bundle_id, applicationFormId: data.application_form_id, rentalType: data.rental_type, tier: data.tier, billing: data.billing };
+    payload = { role: data.intent, propertyId: data.property_id, listingRoomId: data.listing_room_id, bundleId: data.bundle_id, applicationFormId: data.application_form_id, rentalType: data.rental_type, tourSlotKey: data.tour_slot_key, tier: data.tier, billing: data.billing };
   }
   if (!payload) return empty();
   const consumed = await db.from("email_onboarding_handoffs").update({ status: "consumed" })

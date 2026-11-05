@@ -84,6 +84,9 @@ function makeFakeDb() {
       or() {
         return api;
       },
+      order() {
+        return api;
+      },
       limit() {
         return Promise.resolve({ data: matched().slice(0, 1), error: null });
       },

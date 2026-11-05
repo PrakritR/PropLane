@@ -67,6 +67,22 @@ export function listingsInArea(listings: readonly MockProperty[], area: string |
   });
 }
 
+/**
+ * The words actually name somewhere: a place the Seattle resolver knows ("near UW", "Capitol Hill", a zip) or a word
+ * out of one of these listings' own public location. A sentence is not a place — "do you have anything cheaper?" names
+ * nowhere — so a free-text follow-up never becomes an area filter that empties the list.
+ */
+export function areaNamesKnownPlace(listings: readonly MockProperty[], area: string | undefined): boolean {
+  if (!area?.trim()) return false;
+  if (resolveSeattlePlace(area)) return true;
+  const tokens = areaTokens(area);
+  if (tokens.length === 0) return false;
+  return listings.some((p) => {
+    const words = locationWords(p);
+    return tokens.some((t) => namesPlace(words, t));
+  });
+}
+
 function addMonths(isoDate: string, months: number): string {
   const [y, m, d] = isoDate.split("-").map(Number) as [number, number, number];
   const out = new Date(Date.UTC(y, m - 1 + months, d));
@@ -236,15 +252,22 @@ const shortAvailability = (label: string) => {
   return t.length > 24 ? t.slice(0, 24).trim() : t;
 };
 
+/**
+ * A follow-up about the rooms already offered ("anything cheaper?", "can I see photos?", "is parking included?") is
+ * answered with those same rooms, cheapest first, and their listing pages — which is where every such detail actually
+ * lives. Nothing is written by a model, so nothing is invented about a house.
+ */
+export const OFFER_DETAILS_HEADER = "Photos, pricing and what is included are on each listing page:";
+
 /** "1) 5259 Brooklyn Ave, $850/mo, available now: https://..." for each, then how to reply. */
-export function buildOfferText(offers: readonly LeadOffer[], origin: string): string {
+export function buildOfferText(offers: readonly LeadOffer[], origin: string, header?: string): string {
   const base = origin.replace(/\/$/, "");
   const lines = offers.map((o) => {
     const price = o.rent !== null ? `$${o.rent}/mo` : "price on listing";
     return `${o.n}) ${o.label}, ${price}, ${shortAvailability(o.availability)}: ${base}/rent/listings/${encodeURIComponent(o.propertyId)}`;
   });
   const reply = offers.length === 1 ? "Reply 1 to pick it, or TOUR to see it." : `Reply ${offers.map((o) => o.n).join(", ").replace(/, (\d)$/, " or $1")} to pick one, or TOUR to see it.`;
-  return toGsm7([offers.length === 1 ? "This room fits:" : "These rooms fit:", ...lines, reply].join("\n"));
+  return toGsm7([header ?? (offers.length === 1 ? "This room fits:" : "These rooms fit:"), ...lines, reply].join("\n"));
 }
 
 export type OfferBubble = { body: string; mediaUrl?: string };
@@ -266,6 +289,72 @@ export function buildOfferBubbles(offers: readonly LeadOffer[], rows: readonly R
   bubbles.push({ body: toGsm7(reply) });
   return bubbles;
 }
+
+// ---------------------------------------------------------------------------
+// The overview: "what is open right now", answered before any question is asked
+// ---------------------------------------------------------------------------
+
+/**
+ * The PropLane-MANAGED homes (`is_service`) that have an open room right now, one room per home, cheapest first, at most
+ * `MAX_STRANGER_OFFERS`. Drawn from the same listings the public site shows (`publicListingProjection`), so a price, a street
+ * line and an availability label are exactly what a browse page already says; a home with no rent or no open room is not
+ * here. `filtered` is false when the prospect's own answers matched nothing and the open homes are shown unfiltered.
+ */
+export function matchOverviewHomes(
+  listings: readonly LineListing[],
+  profile: LeadProfile,
+  today: string,
+): { picks: Array<{ row: RoomListingRow; tier: LineTier }>; filtered: boolean; narrowed: boolean } {
+  const managed = listings.filter((l) => lineTierOf(l) === "managed");
+  const narrowed = Boolean(profile.budgetMax || profile.area || profile.moveInDate || profile.bathroom === "private");
+  const pick = (p: LeadProfile) => {
+    const seen = new Set<string>();
+    const out: Array<{ row: RoomListingRow; tier: LineTier }> = [];
+    for (const row of fitRooms(managed, p, today)) {
+      if (seen.has(row.propertyId)) continue;
+      seen.add(row.propertyId);
+      out.push({ row, tier: "managed" });
+      if (out.length >= MAX_STRANGER_OFFERS) break;
+    }
+    return out;
+  };
+  const fitted = pick(profile);
+  if (fitted.length > 0 || !narrowed) return { picks: fitted, filtered: narrowed, narrowed };
+  return { picks: pick({}), filtered: false, narrowed };
+}
+
+/** The public tour page for one home (the same link the listing page's Tour button opens). */
+export const tourLinkFor = (propertyId: string, origin: string): string =>
+  `${origin.replace(/\/$/, "")}/rent/tours-contact?propertyId=${encodeURIComponent(propertyId)}`;
+
+/**
+ * One text per open home: street line, "from $X/mo", when it is free, the listing page (photos and details) and the tour page,
+ * with that home's own real photo as MMS. Then ONE closing text: how to apply and pick, and at most one short question
+ * (`question`, already chosen by the caller). No phone number, no door code, nothing a public listing does not show.
+ */
+export function buildOverviewBubbles(
+  offers: readonly LeadOffer[],
+  rows: readonly RoomListingRow[],
+  origin: string,
+  closing: { question: string | null },
+): OfferBubble[] {
+  const base = origin.replace(/\/$/, "");
+  const bubbles: OfferBubble[] = offers.map((o, i) => {
+    const price = o.rent !== null ? `from $${o.rent}/mo` : "price on listing";
+    const body = toGsm7(
+      `${o.n}) ${o.label}, ${price}, ${shortAvailability(o.availability)}. Photos and details: ${base}/rent/listings/${encodeURIComponent(o.propertyId)} Tour: ${tourLinkFor(o.propertyId, base)}`,
+    );
+    const photo = rows[i] ? roomPhoto(rows[i]!) : null;
+    return photo ? { body, mediaUrl: photo } : { body };
+  });
+  const pick = offers.length === 1 ? "Reply 1 to pick it" : `Reply ${offers.map((o) => o.n).join(", ").replace(/, (\d)$/, " or $1")} to pick one`;
+  const closingText = `${pick}, or open a listing and tap Apply.${closing.question ? ` ${closing.question}` : ""}`;
+  bubbles.push({ body: toGsm7(closingText) });
+  return bubbles;
+}
+
+export const OVERVIEW_NONE_TEXT = "I do not see an open room listed right now. I will text you once if one opens up.";
+export const OVERVIEW_UNFILTERED_LEAD = "Nothing matches that yet. Open right now:";
 
 export const NO_MATCH_TEXT = "I do not have a room that fits right now. I will text you once if one opens up.";
 

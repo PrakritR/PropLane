@@ -19,6 +19,8 @@ function pacificFormatter(options: Intl.DateTimeFormatOptions): Intl.DateTimeFor
   return formatter;
 }
 
+const HOUR_FORMATTER_OPTIONS: Intl.DateTimeFormatOptions = { hour: "2-digit", hourCycle: "h23" };
+
 const YMD_FORMATTER_OPTIONS: Intl.DateTimeFormatOptions = {
   year: "numeric",
   month: "2-digit",
@@ -87,6 +89,12 @@ export function pacificCalendarDateYmd(now: Date | number = Date.now()): string 
   const month = parts.find((part) => part.type === "month")?.value ?? "01";
   const day = parts.find((part) => part.type === "day")?.value ?? "01";
   return `${year}-${month}-${day}`;
+}
+
+/** The hour of the Pacific day (0-23) an instant falls in; `-1` when it cannot be read. */
+export function pacificHourOfDay(now: Date | number = Date.now()): number {
+  const parts = pacificFormatter(HOUR_FORMATTER_OPTIONS).formatToParts(new Date(now));
+  return Number(parts.find((part) => part.type === "hour")?.value ?? "-1");
 }
 
 /**

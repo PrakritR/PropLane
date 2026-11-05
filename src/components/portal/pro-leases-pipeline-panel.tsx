@@ -30,7 +30,7 @@ import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { ManagerLeasesGroupedTable } from "@/components/portal/pro-leases-grouped-table";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { leaseDetailHref, leaseListHref, type LeaseDetailTabId } from "@/lib/portal-detail-routes";
+import { leaseDetailHref, leaseListHref, residentEditHref, type LeaseDetailTabId } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import {
@@ -807,6 +807,14 @@ export function ManagerLeasesPipelinePanel({
         initialSource={sendSheetSource}
         managerUserId={managerUserId ?? null}
         onClose={() => setSendSheetLeaseId(null)}
+        onEditResident={
+          listBasePath
+            ? (applicationId) => {
+                setSendSheetLeaseId(null);
+                navigate(residentEditHref(listBasePath, applicationId));
+              }
+            : undefined
+        }
         onSent={() => {
           if (!leaseIdProp) navigateToList();
           void syncLeasePipelineFromServer(managerUserId, { force: true });

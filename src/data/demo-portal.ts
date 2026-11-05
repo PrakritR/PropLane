@@ -75,6 +75,9 @@ export type DemoApplicantRow = {
    * answers, bucket) intact. Never a hard delete. Absent/null = active.
    */
   withdrawnAt?: string | null;
+  /** Set by the duplicate-draft cleanup: the id of the application this extra draft was folded into. The row is kept, withdrawn, and hidden from every list. */
+  mergedInto?: string | null;
+  mergedAt?: string | null;
   /**
    * Set on the placeholder row a text from an unrecognized number creates
    * (`routeUnrecognizedInboundText`): the person is listed under Residents >

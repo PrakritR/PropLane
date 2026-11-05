@@ -247,16 +247,19 @@ export function isSubmittedPendingApplicationRow(row: DemoApplicantRow): boolean
 }
 
 /**
- * Which Applications tab a row is listed under: its stored bucket. An Incomplete draft and a
- * withdrawn application both keep `bucket === "pending"` and are listed in the Pending tab with
- * that fact on the row, so they belong to the Pending tab here too.
+ * Which Applications tab a row is listed under. An Incomplete draft (started, never sent) is its own
+ * tab and is never Pending: Pending holds real submissions only. A withdrawn application keeps
+ * `bucket === "pending"` and is listed in Pending with that fact on the row.
  *
  * This is the ONE routing decision: the list filters with it and {@link countApplicationsByTab}
  * counts with it, so a tab's number can never disagree with the rows it renders.
  */
-export function applicationListTabForRow(row: DemoApplicantRow): "pending" | "approved" | "rejected" {
+export function applicationListTabForRow(
+  row: DemoApplicantRow,
+): "incomplete" | "pending" | "approved" | "rejected" {
   if (row.bucket === "rejected") return "rejected";
   if (row.bucket === "approved") return "approved";
+  if (isInProgressApplicationRow(row)) return "incomplete";
   return "pending";
 }
 
@@ -264,16 +267,17 @@ export function applicationListTabForRow(row: DemoApplicantRow): "pending" | "ap
  * The manager Applications tab counts: each tab counts exactly the rows that tab renders
  * ({@link applicationListTabForRow}).
  *
- * The sidebar badge is a different question — "how many are waiting on me" — and keeps counting
- * {@link isSubmittedPendingApplicationRow} only, so a draft or a withdrawn application is listed
- * and counted in the Pending tab without ever appearing on the manager's attention badge.
+ * The sidebar badge is a different question - "how many are waiting on me" - and keeps counting
+ * {@link isSubmittedPendingApplicationRow} only, which is now also exactly the Pending tab minus
+ * withdrawn rows.
  */
 export function countApplicationsByTab(rows: readonly DemoApplicantRow[]): {
+  incomplete: number;
   pending: number;
   approved: number;
   rejected: number;
 } {
-  const counts = { pending: 0, approved: 0, rejected: 0 };
+  const counts = { incomplete: 0, pending: 0, approved: 0, rejected: 0 };
   for (const row of rows) counts[applicationListTabForRow(row)] += 1;
   return counts;
 }
