@@ -23,7 +23,7 @@ import {
 } from "@/lib/portal-layout-classes";
 import { getEffectiveSessionForPortal } from "@/lib/auth/effective-session";
 import { assertPortalLayoutRole } from "@/lib/auth/portal-layout-guard";
-import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
+import { getResidentPortalManagerTier } from "@/lib/resident-portal-entitlement.server";
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import { resolveResidentPortalNavStage } from "@/lib/resident-portal-nav";
 import { getResidentPortalDefinition } from "@/lib/portals/resident";
@@ -52,9 +52,7 @@ export default async function ResidentLayout({ children }: { children: React.Rea
 
   const residentCatalog = await getResidentPortalDefinition();
   const { profile, user } = await getEffectiveSessionForPortal("resident");
-  const managerSubscriptionTier = profile?.manager_id?.trim()
-    ? await getManagerSubscriptionTierByManagerId(profile.manager_id.trim())
-    : null;
+  const managerSubscriptionTier = await getResidentPortalManagerTier(user?.id);
   const access = await loadResidentPortalAccessState({
     userId: user?.id ?? null,
     role: profile?.role,

@@ -140,10 +140,7 @@ test.describe("Manager portal UI bug hunt", () => {
   test("properties: add affordance visible without horizontal clip", async ({ page }) => {
     await page.setViewportSize(MOBILE);
     await gotoTolerantly(page, "/portal/properties/listed");
-    const createBtn = page
-      .locator('[data-attr="manager-properties-create"]')
-      .or(page.getByRole("button", { name: /^Add$/i }))
-      .first();
+    const createBtn = page.locator('[data-attr="manager-properties-add-top"]');
     await expect(createBtn).toBeVisible({ timeout: 15_000 });
     const box = await createBtn.boundingBox();
     expect(box).toBeTruthy();

@@ -1,6 +1,6 @@
 // Test server preload only: intercept a bounded set of synthetic Resend messages.
 import { createHash } from "node:crypto";
-import { openSync, closeSync, fsyncSync, linkSync, mkdirSync, readdirSync, lstatSync, unlinkSync, writeFileSync } from "node:fs";
+import { openSync, closeSync, fsyncSync, linkSync, mkdirSync, readdirSync, lstatSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import http from "node:http";
 import https from "node:https";
@@ -13,13 +13,33 @@ const key = "re_dummy_auth_browser_no_delivery";
 const from = "Auth Proof <proof@example.invalid>";
 if (process.env.RESEND_API_KEY !== key || process.env.RESEND_FROM !== from || !captureDir || !path.isAbsolute(captureDir) || !base || !project) throw new Error("Invalid no-delivery test configuration.");
 const baseUrl = new URL(base);
-if (!new Set(["http://localhost:3007", "http://localhost:3008", "http://localhost:3010"]).has(baseUrl.origin) || project !== "https://emstjswhotsnyksqhqyf.supabase.co") throw new Error("No-delivery harness requires localhost and the DEV project.");
+if (!new Set(["http://localhost:3000", "http://localhost:3007", "http://localhost:3008", "http://localhost:3010"]).has(baseUrl.origin) || project !== "https://emstjswhotsnyksqhqyf.supabase.co") throw new Error("No-delivery harness requires localhost and the DEV project.");
 mkdirSync(captureDir, { mode: 0o700, recursive: true });
-if (!lstatSync(captureDir).isDirectory() || (lstatSync(captureDir).mode & 0o777) !== 0o700 || readdirSync(captureDir).length) throw new Error("No-delivery capture directory must be fresh and private.");
+const captureStat = lstatSync(captureDir);
+const actualDir = realpathSync(captureDir);
+const repoDir = realpathSync(process.cwd());
+if (!captureStat.isDirectory() || captureStat.isSymbolicLink() || (captureStat.mode & 0o777) !== 0o700 || readdirSync(captureDir).length || actualDir === repoDir || actualDir.startsWith(`${repoDir}${path.sep}`)) throw new Error("No-delivery capture directory must be fresh, private and outside the repository.");
 // Refuse known SMS/Claw network destinations even if a transport is invoked.
 const deniedHosts = new Set(["claw-messenger.onrender.com"]);
 for (const value of [process.env.CLAW_MESSENGER_HTTP_BASE, process.env.CLAW_MESSENGER_WS_URL]) {
   if (value) { try { deniedHosts.add(new URL(value).hostname.toLowerCase()); } catch { throw new Error("Invalid Claw test configuration."); } }
+}
+function deniedAuthDelivery(input, options) {
+  const candidates = [];
+  for (const value of [input, options]) {
+    if (typeof value === "string" || value instanceof URL) {
+      try { candidates.push(new URL(value)); } catch { /* invalid URL */ }
+    } else if (value && typeof value === "object") {
+      if (typeof value.url === "string") { try { candidates.push(new URL(value.url)); } catch { /* invalid URL */ } }
+      const host = value.hostname ?? value.host;
+      if (host) { try { candidates.push(new URL(`${value.protocol ?? "https:"}//${host}${value.path ?? value.pathname ?? "/"}`)); } catch { /* invalid URL */ } }
+    }
+  }
+  // A request-options override can change either the destination or the path.
+  const paths = candidates.map((candidate) => candidate.pathname);
+  if (options && typeof options === "object") paths.push(String(options.path ?? options.pathname ?? ""));
+  return candidates.some((candidate) => candidate.hostname === new URL(project).hostname) &&
+    paths.some((candidate) => /^\/auth\/v1\/(?:otp|signup|recover|resend)\/?$/.test(candidate.split("?")[0]));
 }
 function deniedDestination(input, options) {
   const hosts = [];
@@ -36,7 +56,7 @@ for (const transport of [http, https]) {
   for (const method of ["request", "get"]) {
     const original = transport[method];
     transport[method] = function (input, ...args) {
-      if (deniedDestination(input, args[0])) throw new Error("Blocked provider egress in test harness.");
+      if (deniedDestination(input, args[0]) || deniedAuthDelivery(input, args[0])) throw new Error("Blocked provider egress in test harness.");
       return original.call(this, input, ...args);
     };
   }
@@ -57,6 +77,7 @@ const originalFetch = globalThis.fetch.bind(globalThis);
 const seen = new Set();
 globalThis.fetch = async (input, init = {}) => {
   const url = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url);
+  if (deniedAuthDelivery(input)) throw new Error("Blocked remote auth delivery in test harness.");
   if ((url.hostname !== "resend.com" && !url.hostname.endsWith(".resend.com")) && deniedDestination(url)) throw new Error("Blocked SMS provider egress in test harness.");
   if (url.hostname === "resend.com" || url.hostname.endsWith(".resend.com")) {
     const headers = new Headers(init.headers ?? (input instanceof Request ? input.headers : undefined));

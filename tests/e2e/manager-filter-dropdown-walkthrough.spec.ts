@@ -1,6 +1,8 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
 import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
+import { expectOwnedWorkspaceReady, selectOwnedManagerWorkspace } from "../helpers/owned-manager-workspace-e2e";
+import type { PortalWorkspace } from "../../src/lib/workspaces/types";
 
 /**
  * Manager portal filter dropdown walkthrough.
@@ -10,8 +12,8 @@ import { mockStripeAllRoutes } from "../helpers/auth";
  */
 
 const FILTER_SECTIONS: { path: string; label: string; fieldMatchers: RegExp[]; inline?: boolean }[] = [
-  { path: "/portal/applications/pending", label: "Applications", fieldMatchers: [/Property/i] },
-  { path: "/portal/residents/current", label: "Residents", fieldMatchers: [/Property/i] },
+  { path: "/portal/applications/pending", label: "Applications", fieldMatchers: [/House/i] },
+  { path: "/portal/residents/current", label: "Residents", fieldMatchers: [/House/i] },
   { path: "/portal/leases/manager", label: "Leases", fieldMatchers: [/Property/i] },
   { path: "/portal/communication/active", label: "Communication", fieldMatchers: [/House/i, /Role/i, /Sort/i] },
   {
@@ -19,7 +21,7 @@ const FILTER_SECTIONS: { path: string; label: string; fieldMatchers: RegExp[]; i
     label: "Payments",
     fieldMatchers: [/Property/i, /Resident/i, /Sort/i],
   },
-  { path: "/portal/financials/income", label: "Finances income", fieldMatchers: [/Property/i] },
+  { path: "/portal/financials/general-ledger", label: "Finances general ledger", fieldMatchers: [/Property/i] },
   { path: "/portal/calendar/tours", label: "Calendar", fieldMatchers: [/Property/i] },
 ];
 
@@ -36,7 +38,9 @@ async function exerciseFieldDropdown(page: Page, scope: Locator, fieldMatcher: R
   const triggerBox = await fieldTrigger.boundingBox();
   expect(triggerBox).toBeTruthy();
   await fieldTrigger.click();
-  const listbox = page.getByRole("listbox").first();
+  const listId = await fieldTrigger.getAttribute("aria-controls");
+  expect(listId).toBeTruthy();
+  const listbox = page.locator(`[id="${listId}"]`).getByRole("listbox");
   await expect(listbox).toBeVisible({ timeout: 8_000 });
   const listboxBox = await listbox.boundingBox();
   expect(listboxBox).toBeTruthy();
@@ -44,10 +48,9 @@ async function exerciseFieldDropdown(page: Page, scope: Locator, fieldMatcher: R
     expect(listboxBox.y).toBeGreaterThanOrEqual(triggerBox.y - 4);
   }
   await expect(listbox).toHaveCSS("overflow-y", "auto");
-  const optionCount = await listbox.getByRole("option").count();
-  expect(optionCount).toBeGreaterThan(0);
+  await expect(listbox.getByRole("option").first()).toBeVisible();
   await page.keyboard.press("Escape");
-  await page.waitForTimeout(200);
+  await expect(listbox).toBeHidden();
 }
 
 test.describe("Manager portal filter dropdowns", () => {
@@ -55,14 +58,17 @@ test.describe("Manager portal filter dropdowns", () => {
 
   test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
 
+  let workspace: PortalWorkspace;
   test.beforeEach(async ({ page }) => {
     await mockStripeAllRoutes(page);
+    workspace = await selectOwnedManagerWorkspace(page);
   });
 
   test("Applications filter panel stays right of the sidebar at 1440px", async ({ page }) => {
     test.setTimeout(90_000);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/portal/applications/pending", { waitUntil: "domcontentloaded" });
+    await expectOwnedWorkspaceReady(page, workspace);
     await openFilterPanel(page);
     const sidebar = page.locator("aside").first();
     await expect(sidebar).toBeVisible({ timeout: 20_000 });
@@ -76,11 +82,59 @@ test.describe("Manager portal filter dropdowns", () => {
     }
   });
 
+
+  test("Applications house filter changes real rows and reset restores them", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/portal/applications/pending", { waitUntil: "domcontentloaded" });
+    await expectOwnedWorkspaceReady(page, workspace);
+    // House grouping deliberately omits the house from each row. Use the
+    // real flat sort so the row itself proves the selected house.
+    await openFilterPanel(page);
+    const initialPanel = page.locator('[data-slot="portal-filter-dropdown-panel"]');
+    await initialPanel.getByRole("button", { name: /^Sort by:/ }).click();
+    await page.getByRole("option", { name: "Recently updated", exact: true }).click();
+    await initialPanel.locator('[data-attr="portal-filter-save"]').click();
+    const rows = page.locator('[data-attr="application-list-row"]');
+    await expect(rows.first()).toBeVisible();
+    const before = await rows.allTextContents();
+    await openFilterPanel(page);
+    const panel = page.locator('[data-slot="portal-filter-dropdown-panel"]');
+    const house = panel.getByRole("button", { name: /^House:/ });
+    await house.click();
+    const listId = await house.getAttribute("aria-controls");
+    expect(listId).toBeTruthy();
+    const listbox = page.locator(`[id="${listId}"]`).getByRole("listbox");
+    const options = listbox.getByRole("option");
+    await expect(options.first()).toBeVisible();
+    const labels = await options.allTextContents();
+    const index = labels.findIndex((label) => {
+      const name = label.trim().toLowerCase();
+      const matching = before.filter((row) => row.toLowerCase().includes(name)).length;
+      return name.length > 0 && matching > 0 && matching < before.length;
+    });
+    expect(index, "Pending applications need rows from at least two named houses").toBeGreaterThanOrEqual(0);
+    const chosen = labels[index]!.trim();
+    await options.nth(index).click();
+    await expect(options.nth(index)).toHaveAttribute("aria-selected", "true");
+    await panel.locator('[data-attr="portal-filter-save"]').click();
+    await expect.poll(async () => rows.count()).toBeLessThan(before.length);
+    const filtered = await rows.allTextContents();
+    expect(filtered.length).toBeGreaterThan(0);
+    expect(filtered.every((row) => row.toLowerCase().includes(chosen.toLowerCase()))).toBe(true);
+    await openFilterPanel(page);
+    await panel.locator('[data-attr="portal-filter-reset"]').click();
+    await panel.getByRole("button", { name: /^Sort by:/ }).click();
+    await page.getByRole("option", { name: "Recently updated", exact: true }).click();
+    await panel.locator('[data-attr="portal-filter-save"]').click();
+    await expect.poll(async () => rows.allTextContents()).toEqual(before);
+  });
+
   for (const section of FILTER_SECTIONS) {
     test(`${section.label}: filter fields open down and scroll`, async ({ page }) => {
       test.setTimeout(90_000);
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto(section.path, { waitUntil: "domcontentloaded" });
+      await expectOwnedWorkspaceReady(page, workspace);
       const scope = section.inline
         ? page.locator('[data-slot="portal-page-title-band"], main').first()
         : await (async () => {

@@ -178,7 +178,7 @@ describe("evidence · one house's Bookings calendar shows both channels", () => 
       view.container.innerHTML,
     );
 
-    // The Calendars dropdown is gone from the command bar (Link calendars lives on Settings > Integrations).
-    expect(document.querySelector('button[data-attr="portfolio-bookings-link-airbnb"]')).toBeNull();
+    // Existing bookings retain a direct route to the channel-link dialog.
+    expect(document.querySelector('button[data-attr="portfolio-bookings-link-airbnb"]')).not.toBeNull();
   });
 });

@@ -24,7 +24,7 @@ test.describe("Application deep link", () => {
       await expect(property).toBeVisible();
       await property.click();
     }
-    await expect(page).toHaveURL(/\/portal\/applications\?bucket=pending/);
+    await expect(page).toHaveURL(/\/portal\/applications\/pending(?:\?.*)?$/);
     await expect(page.getByRole("heading", { name: "Applications", exact: true })).toBeVisible();
   });
 });

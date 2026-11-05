@@ -1,47 +1,27 @@
 import { test, expect, type Page } from "@playwright/test";
 
 /**
- * Captain 2026-09-26: "remove live demo no need" — the public site no
- * longer embeds or links the running `/demo` sandbox anywhere. `/demo` and
- * every `/demo/*` sub-path now redirect to `/` (`next.config.ts`,
- * `src/middleware.ts`); the home page's product panels
- * (`site/lifecycle-rows.tsx`, `site/switch-steps.tsx`,
- * `site/codex-hero-window.tsx`) render the real portal presentational
- * components fed static fixtures instead of a live `<iframe src="/demo">`.
- * This replaces the old iframe/postMessage network-purity spec — see
- * `docs/agents/demo-sandbox.md`.
+ * docs/agents/marketing-mocks.md, One Software section (Oct 18-19): the
+ * retired hero/lifecycle/import panels are replaced by one real-portal embed.
+ * Only /demo/home-embed is public; its data and writes remain browser-local.
  */
-const ALLOWED_API_PATTERNS = [/^\/api\/agent\/demo-chat/];
-
-function isBannedApiRequest(url: string): boolean {
-  let pathname: string;
-  try {
-    pathname = new URL(url).pathname;
-  } catch {
-    return false;
-  }
-  if (!pathname.startsWith("/api/") && !pathname.startsWith("/demo")) return false;
-  if (pathname.startsWith("/demo")) return true; // never requested at all any more
-  return !ALLOWED_API_PATTERNS.some((re) => re.test(pathname));
+function isBannedRequest(url: string, method: string): boolean {
+  const pathname = new URL(url).pathname;
+  if (pathname.startsWith("/demo")) return pathname !== "/demo/home-embed";
+  if (!pathname.startsWith("/api/")) return false;
+  return method !== "GET" || pathname !== "/api/agent/demo-chat";
 }
 
-async function collectBannedRequests(page: Page, act: () => Promise<void>): Promise<string[]> {
-  const banned: string[] = [];
-  const onRequest = (req: { url: () => string }) => {
-    const url = req.url();
-    if (isBannedApiRequest(url)) banned.push(url);
-  };
-  page.on("request", onRequest);
-  try {
-    await act();
-    await page.waitForTimeout(1500);
-  } finally {
-    page.off("request", onRequest);
-  }
-  return banned;
+async function openSoftware(page: Page) {
+  await page.goto("/");
+  await page.locator("#dashboard").scrollIntoViewIfNeeded();
+  const frame = page.frameLocator('iframe[title="PropLane portal demo"]');
+  await expect(frame.locator("[data-home-demo-portal]")).toBeVisible();
+  await expect(frame.getByRole("status").filter({ hasText: "Loading the demo…" })).toHaveCount(0);
+  return frame;
 }
 
-test.describe("/demo is retired from the public site", () => {
+test.describe("public software demo isolation", () => {
   test("/demo redirects home", async ({ page }) => {
     await page.goto("/demo");
     await expect(page).toHaveURL(/\/$/);
@@ -52,42 +32,70 @@ test.describe("/demo is retired from the public site", () => {
     await expect(page).toHaveURL(/\/$/);
   });
 
-  test("home page fires no /demo and no banned /api/ request", async ({ page }) => {
-    const banned = await collectBannedRequests(page, async () => {
-      await page.goto("/");
-      await page.locator("#lifecycle").scrollIntoViewIfNeeded();
-      await page.waitForTimeout(1000);
+  test("home and the populated portal embed make no private API requests or writes", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const banned: string[] = [];
+    const failures: number[] = [];
+    const errors: string[] = [];
+    page.on("request", (request) => {
+      if (isBannedRequest(request.url(), request.method())) banned.push(new URL(request.url()).pathname);
     });
-    expect(banned, `banned requests: ${banned.join(", ")}`).toEqual([]);
+    page.on("response", (response) => {
+      if (response.request().frame().parentFrame() && [401, 403].includes(response.status())) failures.push(response.status());
+    });
+    page.on("pageerror", (error) => errors.push(error.name));
+    const frame = await openSoftware(page);
+    for (const name of ["Resident", "Property", "Vendor"] as const) {
+      await page.locator("#software-demo").getByRole("tab", { name, exact: true }).click();
+      await expect(frame.locator("[data-home-demo-portal]")).toHaveAttribute("data-home-demo-portal", name === "Property" ? "manager" : name.toLowerCase());
+      await expect(frame.getByText(/Willow Court|Leaking kitchen faucet/).first()).toBeVisible();
+    }
+    for (const id of ["how", "service", "pricing", "contact"]) {
+      await page.locator(`#${id}`).first().scrollIntoViewIfNeeded();
+    }
+    expect(banned).toEqual([]);
+    expect(failures).toEqual([]);
+    expect(errors).toEqual([]);
   });
 
-  test("hero renders the populated static dashboard panel", async ({ page }) => {
-    await page.goto("/");
-    const hero = page.locator(".codex-hero-window");
-    await expect(hero.getByText("Occupancy").first()).toBeVisible();
-    await expect(hero.getByText("67%").first()).toBeVisible();
-    await expect(hero.getByText("Alder House").first()).toBeVisible();
+  test("reduced motion renders the populated journey end frame without autoplay", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const frame = await openSoftware(page);
+    await expect(page.locator("#software-demo")).toHaveAttribute("data-playing", "false");
+    await expect(frame.locator("[data-home-demo-static]")).toHaveAttribute("data-home-demo-static", "true");
+    await expect(frame.locator("[data-home-demo-portal]")).toHaveAttribute("data-home-demo-portal", "manager");
+    await expect(frame.getByText("Leaking kitchen faucet").first()).toBeVisible();
+    await expect(page.locator(".home-software-demo-phone-label")).toHaveText("Vendor’s phone");
+    await expect(page.locator(".home-software-demo-phone").getByText("It’s yours. We’ll send you the details.", { exact: true })).toBeVisible();
+    await expect(page.locator('iframe[title="PropLane portal demo"]')).toHaveCount(1);
   });
 
-  test("each lifecycle row renders a filled, non-empty product panel", async ({ page }) => {
-    await page.goto("/");
-    for (const [id, expectedText] of [
-      ["tours", "Fremont Studio"],
-      ["applications", "Sample Applicant"],
-      ["leasing", "Dana Reyes"],
-      ["payments", "September rent"],
-      ["services", "Kitchen faucet drip"],
+  test("portal switcher keeps the real portal and phone in the same journey", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const frame = await openSoftware(page);
+    const section = page.locator("#software-demo");
+    for (const [label, role, phone] of [
+      ["Resident", "resident", "Resident’s phone"],
+      ["Vendor", "vendor", "Vendor’s phone"],
+      ["Property", "manager", "Vendor’s phone"],
     ] as const) {
-      const row = page.locator(`[data-lifecycle-row="${id}"]`);
-      await row.scrollIntoViewIfNeeded();
-      await expect(row.getByText(expectedText).first()).toBeVisible();
+      const tab = section.getByRole("tab", { name: label, exact: true });
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
+      await expect(frame.locator("[data-home-demo-portal]")).toHaveAttribute("data-home-demo-portal", role);
+      await expect(frame.getByText(/Willow Court|Leaking kitchen faucet/).first()).toBeVisible();
+      await expect(section.locator(".home-software-demo-phone-label")).toHaveText(phone);
     }
   });
 
-  test("the switching section renders the real import review panel", async ({ page }) => {
+  test("phone viewport renders the three current software portal cards without loading a hidden embed", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
-    await page.locator("#site-switch-heading").scrollIntoViewIfNeeded();
-    await expect(page.getByRole("heading", { level: 1, name: "Review what the agent found" })).toBeVisible();
-    await expect(page.getByText("Dana Reyes").first()).toBeVisible();
+    await page.locator("#dashboard").scrollIntoViewIfNeeded();
+    for (const label of ["Resident", "Property", "Vendor"]) {
+      await expect(page.locator(".home-software-compact").getByRole("heading", { name: label, exact: true })).toBeVisible();
+    }
+    await expect(page.locator(".home-software-card")).toHaveCount(3);
+    await expect(page.locator('iframe[title="PropLane portal demo"]')).toHaveCount(0);
   });
 });

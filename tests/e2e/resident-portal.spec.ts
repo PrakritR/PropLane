@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import path from "node:path";
 import { mockStripeCheckoutRoutes, signInAsResident } from "../helpers/auth";
+import { signInSeededStageResident } from "../helpers/seeded-resident-stage-e2e";
 import { gotoAppPath, pathToUrlRegExp } from "../helpers/url-match";
 
 const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
@@ -95,11 +96,13 @@ test.describe("Resident portal", () => {
   });
 
   test("services stays locked until the approved resident signs a lease", async ({ page }) => {
+    await signInSeededStageResident(page, "unsigned");
     await page.goto("/resident/services");
     await expectSignedLeaseLock(page, "Services");
   });
 
   test("legacy services sub-paths preserve the signed-lease stage guard", async ({ page }) => {
+    await signInSeededStageResident(page, "unsigned");
     await page.goto("/resident/services/requests");
     await expectSignedLeaseLock(page, "Services");
   });
@@ -116,7 +119,18 @@ test.describe("Resident portal", () => {
   });
 
   test("my home stays locked until the approved resident signs a lease", async ({ page }) => {
+    await signInSeededStageResident(page, "unsigned");
     await page.goto("/resident/move-in");
     await expectSignedLeaseLock(page, "My home");
+  });
+  test("signed resident reaches Services aliases and My home", async ({ page }) => {
+    await signInSeededStageResident(page, "signed");
+    for (const route of ["/resident/services", "/resident/services/requests", "/resident/move-in"]) {
+      await page.goto(route);
+      await expect(page).not.toHaveURL(/\/resident\/dashboard\/?$/);
+      await expect(page.getByRole("heading").first()).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Access Services", exact: true })).toHaveCount(0);
+      await expect(page.getByText("Available after your lease is signed", { exact: true })).toHaveCount(0);
+    }
   });
 });

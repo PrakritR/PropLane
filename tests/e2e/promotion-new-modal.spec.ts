@@ -4,12 +4,8 @@ import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
 import { fieldSelectTrigger, pickFieldSelect } from "../helpers/field-select";
 
-/**
- * Promotion UX: All / Text / Image command-bar sections plus search, and
- * "New promotion" drops straight into the picked type's form inside one
- * modal — no intermediate "Continue" step.
- *
- * Driven through the signed-in manager portal at /portal/promotion.
+/** Exercise the current Kind → Content → Preview workspace on desktop and phone.
+ * Preserve generation and dirty-content protection while using the shipped step controls.
  */
 
 const HEADLINE_PLACEHOLDER = "Modern living in the heart of the city";
@@ -21,11 +17,17 @@ function headlineInput(scope: ReturnType<Page["getByRole"]>) {
 }
 
 function promotionKindTrigger(dialog: Locator) {
-  return fieldSelectTrigger(dialog, "select-promotion-new-kind");
+  return fieldSelectTrigger(dialog, "promotion-new-kind");
 }
 
 async function selectPromotionKind(page: Page, dialog: Locator, label: string) {
   await pickFieldSelect(page, promotionKindTrigger(dialog), label);
+}
+
+async function openPromotionStep(dialog: Locator, name: "Kind" | "Content" | "Preview") {
+  const step = dialog.getByRole("button", { name, exact: true })
+    .or(dialog.getByRole("tab", { name, exact: true })).filter({ visible: true });
+  await step.click();
 }
 
 async function openPromotionSection(page: Page) {
@@ -76,27 +78,30 @@ test.describe("Promotion UX", () => {
         });
       });
 
-      test("New promotion opens one modal whose dropdown swaps the form inline", async ({ page }) => {
+      test("New promotion keeps Kind, Content and Preview in one workspace", async ({ page }) => {
         await openPromotionSection(page);
         await page.locator('[data-attr="promotion-new"]').click();
 
         const dialog = page.getByRole("dialog");
         await expect(dialog.getByText("New promotion", { exact: true })).toBeVisible();
 
-        await expect(dialog.getByRole("button", { name: /^continue$/i })).toHaveCount(0);
         const kind = promotionKindTrigger(dialog);
         await expect(kind).toContainText("Flyer");
+        await expect(dialog.getByRole("button", { name: "Next: Content", exact: true })).toBeVisible();
+        await dialog.getByRole("button", { name: "Next: Content", exact: true }).click();
         await expect(headlineInput(dialog)).toBeVisible();
+        await dialog.getByRole("button", { name: "Next: Preview", exact: true }).click();
         await expect(dialog.getByRole("button", { name: "Generate flyer" })).toBeVisible();
         await dialog.screenshot({
           path: `${SHOT_DIR}/${viewport.name}-03-new-modal-flyer.png`,
         });
 
+        await openPromotionStep(dialog, "Kind");
         await selectPromotionKind(page, dialog, "Text");
         await expect(dialog.getByText("New promotion", { exact: true })).toBeVisible();
-        await expect(dialog.locator('[data-attr="select-promotion-text-format"]')).toBeVisible();
+        await dialog.getByRole("button", { name: "Next: Content", exact: true }).click();
+        await expect(dialog.getByLabel("Channel / format", { exact: true })).toBeVisible();
         await expect(headlineInput(dialog)).toHaveCount(0);
-        await expect(dialog.getByRole("button", { name: /^continue$/i })).toHaveCount(0);
         await dialog.screenshot({
           path: `${SHOT_DIR}/${viewport.name}-04-new-modal-text.png`,
         });
@@ -111,49 +116,52 @@ test.describe("Promotion UX", () => {
         const dialog = page.getByRole("dialog");
         const kind = promotionKindTrigger(dialog);
 
+        await dialog.getByRole("button", { name: "Next: Content", exact: true }).click();
         await headlineInput(dialog).fill("Sunlit 2BR — first month free");
         await dialog.screenshot({
           path: `${SHOT_DIR}/${viewport.name}-05-flyer-content-entered.png`,
         });
 
-        const dismissed = page.waitForEvent("dialog").then(async (d) => {
-          const message = d.message();
-          await d.dismiss();
-          return message;
-        });
+        await openPromotionStep(dialog, "Kind");
         await selectPromotionKind(page, dialog, "Text");
-        const message = await dismissed;
-        expect(message).toMatch(/discard/i);
+        const confirm = page.getByRole("dialog", { name: "Switch type", exact: true });
+        await expect(confirm.getByText("Switch promotion type?", { exact: true })).toBeVisible();
+        await expect(confirm.getByText("The content you've entered will be discarded.", { exact: true })).toBeVisible();
         fs.mkdirSync(SHOT_DIR, { recursive: true });
-        fs.writeFileSync(
-          `${SHOT_DIR}/${viewport.name}-06-type-switch-confirm.txt`,
-          `browser confirm() shown on type switch with entered content:\n${message}\n`,
-        );
+        await confirm.screenshot({ path: `${SHOT_DIR}/${viewport.name}-06-type-switch-confirm.png` });
+        await confirm.getByRole("button", { name: "Cancel", exact: true }).click();
         await expect(kind).toContainText("Flyer");
+        await openPromotionStep(dialog, "Content");
         await expect(headlineInput(dialog)).toHaveValue("Sunlit 2BR — first month free");
 
-        page.once("dialog", (d) => void d.accept());
+        await openPromotionStep(dialog, "Kind");
         await selectPromotionKind(page, dialog, "Text");
+        await page.getByRole("dialog", { name: "Switch type", exact: true }).getByRole("button", { name: "Switch", exact: true }).click();
         await expect(kind).toContainText("Text");
-        await expect(dialog.locator('[data-attr="select-promotion-text-format"]')).toBeVisible();
+        await openPromotionStep(dialog, "Content");
+        await expect(dialog.getByLabel("Channel / format", { exact: true })).toBeVisible();
 
+        await openPromotionStep(dialog, "Kind");
         await selectPromotionKind(page, dialog, "Flyer");
+        await openPromotionStep(dialog, "Content");
         await expect(headlineInput(dialog)).toHaveValue("");
 
         await dialog.getByRole("button", { name: /close/i }).click();
         await expect(page.getByRole("dialog")).toHaveCount(0);
       });
 
-      test("creates a text promotion straight from the type dropdown", async ({ page }) => {
+      test("generates and retains a text promotion through the workspace steps", async ({ page }) => {
         const frame = await openPromotionSection(page);
         const list = page.locator('[data-attr="promotion-content-direct"]');
-        const beforeCount = await list.getByRole("checkbox").count();
+        const rows = list.locator('[data-attr^="promotion-row-"]');
+        const beforeIds = await rows.evaluateAll((elements) => elements.map((element) => element.getAttribute("data-attr")));
+        const beforeCount = beforeIds.length;
 
         await page.locator('[data-attr="promotion-new"]').click();
         const dialog = page.getByRole("dialog");
         await selectPromotionKind(page, dialog, "Text");
 
-        const propertyTrigger = fieldSelectTrigger(dialog, "select-promotion-text-property");
+        const propertyTrigger = fieldSelectTrigger(dialog, "promotion-new-property");
         if (await propertyTrigger.isVisible().catch(() => false)) {
           await propertyTrigger.click();
           const listingOption = page.getByRole("option").filter({ hasNotText: /^custom/i });
@@ -163,14 +171,49 @@ test.describe("Promotion UX", () => {
             await page.keyboard.press("Escape");
           }
         }
-        await dialog.locator('[data-attr="promotion-text-generate-submit"]').click();
+        await dialog.getByRole("button", { name: "Next: Content", exact: true }).click();
+        await expect(dialog.getByLabel("Channel / format", { exact: true })).toBeVisible();
+        await dialog.getByRole("button", { name: "Next: Preview", exact: true }).click();
+        const savedPromotion = page.waitForResponse((response) => {
+          if (response.request().method() !== "POST" || new URL(response.url()).pathname !== "/api/portal-promotions") return false;
+          const body = response.request().postDataJSON() as { action?: string; row?: { id?: string; status?: string; textCopies?: unknown[] } };
+          return body.action === "upsert" && body.row?.status === "generated" && typeof body.row.id === "string"
+            && Array.isArray(body.row.textCopies) && body.row.textCopies.length === 1
+            && !beforeIds.some((id) => id?.startsWith(`promotion-row-${body.row?.id}::`));
+        });
+        await dialog.getByRole("button", { name: "Generate promotion text", exact: true }).click();
+        const saveResponse = await savedPromotion;
+        expect(saveResponse.ok(), "The generated promotion must be saved by the server").toBe(true);
+        const savedBody = saveResponse.request().postDataJSON() as {
+          row?: { id?: string; textCopies?: { id?: string }[] };
+        };
+        const savedRecordId = savedBody.row?.id;
+        const savedEntryId = savedBody.row?.textCopies?.[0]?.id;
+        if (typeof savedRecordId !== "string" || !savedRecordId.trim() || typeof savedEntryId !== "string" || !savedEntryId.trim()) {
+          throw new Error("Promotion upsert must identify the generated record and text entry.");
+        }
+        const savedRowAttr = `promotion-row-${savedRecordId}::text::${savedEntryId}`;
 
         const preview = page.getByRole("dialog");
         await expect(preview.getByRole("heading", { name: /^View · / })).toBeVisible();
         await expect(preview.getByRole("button", { name: "Copy text", exact: true })).toBeVisible();
         await preview.getByRole("button", { name: "Close", exact: true }).click();
         await expect(page.getByRole("dialog")).toHaveCount(0);
-        await expect(list.getByRole("checkbox")).toHaveCount(beforeCount + 1);
+        await expect(rows).toHaveCount(beforeCount + 1);
+        const createdId = await rows.evaluateAll((elements, previous) => elements
+          .map((element) => element.getAttribute("data-attr")).find((id) => id && !previous.includes(id)), beforeIds);
+        expect(createdId, "The new list row must match the server-accepted upsert").toBe(savedRowAttr);
+        await page.evaluate(() => sessionStorage.removeItem("axis:manager-promotions:v1"));
+        const reloadedPromotions = page.waitForResponse((response) =>
+          response.request().method() === "GET" && new URL(response.url()).pathname === "/api/portal-promotions",
+        );
+        await page.reload();
+        const loadResponse = await reloadedPromotions;
+        expect(loadResponse.ok(), "Reload must read promotions successfully from the server").toBe(true);
+        const serverRows = await loadResponse.json() as { rows?: { id?: string; textCopies?: { id?: string }[] }[] };
+        expect(serverRows.rows?.some((row) => row.id === savedRecordId && row.textCopies?.some((entry) => entry.id === savedEntryId)),
+          "The server read must contain the exact generated record and text entry").toBe(true);
+        await expect(list.locator(`[data-attr="${createdId}"]`)).toBeVisible();
         await frame.screenshot({
           path: `${SHOT_DIR}/${viewport.name}-07-text-promotion-created.png`,
         });

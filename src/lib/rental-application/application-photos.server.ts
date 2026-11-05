@@ -1,8 +1,9 @@
+import { applicationPhotoFolderKey } from "./application-photo-folder";
+export { applicationPhotoFolderKey } from "./application-photo-folder";
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { isResidentSetupTokenValid } from "@/lib/auth/resident-setup-token";
-import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { APPLICATION_DOCUMENTS_BUCKET } from "@/lib/rental-application/application-photos";
 import type { ApplicationPhotoSlot } from "@/lib/rental-application/types";
 
@@ -95,10 +96,7 @@ export async function accessiblePropertyIdsForManager(db: ServiceClient, userId:
  * would orphan the photos forever. Two spellings of one axis id map here to one
  * folder.
  */
-export function applicationPhotoFolderKey(applicationId: string): string {
-  const normalized = normalizeApplicationAxisId(applicationId) || applicationId.trim();
-  return normalized.toUpperCase().replace(/[^A-Za-z0-9_-]/g, "_") || "unknown";
-}
+
 
 /** Unguessable object path: `application/<folder>/<slot>-<ts>-<uuid>.<ext>`. */
 export function buildApplicationPhotoPath(applicationId: string, slot: ApplicationPhotoSlot, ext: string): string {

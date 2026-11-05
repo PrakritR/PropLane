@@ -2,6 +2,7 @@ import { expect, type Frame, type Page } from "@playwright/test";
 import { readFileSync, existsSync, unlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { assertVerifiedSignupControl } from "./signup-ui-contract";
 
 type OnSignupPhase = (phase: string, httpStatus?: number) => void;
 
@@ -9,44 +10,52 @@ function safePathname(rawUrl: string): string {
   return new URL(rawUrl).pathname.replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/gi, ":id");
 }
 
-async function boundedDomBoolean(read: Promise<boolean>, timeoutMs = 3_000): Promise<boolean | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([
-    read.catch(() => null),
-    new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), timeoutMs); }),
-  ]).finally(() => { if (timer) clearTimeout(timer); });
+/** Assert the rendered labeled readonly control without exposing a mailbox in diagnostics. */
+export async function expectVerifiedSignupEmail(page: Page, email: string): Promise<void> {
+  const input = page.getByRole("textbox", { name: "Verified email", exact: true });
+  await expect(input).toBeVisible({ timeout: 20_000 });
+  const control = await input.evaluate((element) => ({ isInput: element instanceof HTMLInputElement, readOnly: element instanceof HTMLInputElement && element.readOnly, value: element instanceof HTMLInputElement ? element.value : "" }));
+  assertVerifiedSignupControl(control, email);
 }
 
 /** Requires the dedicated no-delivery server preload; never sends real mail. */
-export async function requestManagerEmailProof(page: Page, email: string, onPhase?: OnSignupPhase, expectedTier?: "free" | "pro" | "business"): Promise<string> {
+export async function requestManagerEmailProof(page: Page, email: string, onPhase?: OnSignupPhase, expectedTier?: "free" | "pro" | "business", expectedResidentPropertyId?: string): Promise<string> {
   const captureDir = process.env.AUTH_PROOF_CAPTURE_DIR;
   if (!captureDir || !path.isAbsolute(captureDir)) throw new Error("Manager signup E2E requires the isolated no-delivery Resend preload and AUTH_PROOF_CAPTURE_DIR.");
   const spool = path.join(captureDir, `${createHash("sha256").update(email.toLowerCase()).digest("hex")}.json`);
-  onPhase?.("request-email-and-capture");
-  await page.getByLabel("Email", { exact: true }).fill(email);
-  const startResponse = page.waitForResponse((response) => {
-    const url = new URL(response.url());
-    return response.request().method() === "POST" && url.pathname === "/api/auth/email-onboarding/start";
-  }, { timeout: 20_000 });
-  await page.getByRole("button", { name: "Continue with email" }).click();
-  const startResult = await startResponse;
-  if (!startResult.ok()) throw new Error("Email-onboarding start rejected the synthetic request.");
-  if (expectedTier) {
-    const body = startResult.request().postDataJSON() as { intent?: unknown; tier?: unknown; billing?: unknown } | null;
-    if (body?.intent !== "manager" || body.tier !== expectedTier || body.billing !== "monthly") {
-      throw new Error("Manager email-onboarding start did not preserve the requested test tier.");
+  try {
+    onPhase?.("request-email-and-capture");
+    await page.getByLabel("Email", { exact: true }).fill(email);
+    const startResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === "POST" && url.pathname === "/api/auth/email-onboarding/start";
+    }, { timeout: 20_000 });
+    await page.getByRole("button", { name: "Continue with email" }).click();
+    const startResult = await startResponse;
+    if (!startResult.ok()) throw new Error("Email-onboarding start rejected the synthetic request.");
+    if (expectedTier) {
+      const body = startResult.request().postDataJSON() as { intent?: unknown; tier?: unknown; billing?: unknown } | null;
+      if (body?.intent !== "manager" || body.tier !== expectedTier || body.billing !== "monthly") {
+        throw new Error("Manager email-onboarding start did not preserve the requested test tier.");
+      }
     }
+    if (expectedResidentPropertyId) {
+      const body = startResult.request().postDataJSON() as { intent?: unknown; propertyId?: unknown; email?: unknown } | null;
+      if (body?.intent !== "resident" || body.propertyId !== expectedResidentPropertyId || body.email !== email) throw new Error("Resident email-onboarding start lost the listing identity.");
+    }
+    onPhase?.("email-onboarding-start-response", startResult.status());
+    onPhase?.("await-email-capture");
+    await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
+    await expect.poll(() => existsSync(spool), { timeout: 15_000 }).toBe(true);
+    onPhase?.("read-email-capture");
+    const captured = JSON.parse(readFileSync(spool, "utf8")) as { recipient?: string; href?: string };
+    if (captured.recipient !== email || !captured.href) throw new Error("The isolated verification capture did not match the synthetic recipient.");
+    const href = new URL(captured.href);
+    if (!["localhost", "127.0.0.1"].includes(href.hostname) || href.pathname !== "/auth/confirm" || !href.searchParams.get("token_hash")) throw new Error("The verification capture is not a local token-hash link.");
+    return href.toString();
+  } finally {
+    if (existsSync(spool)) unlinkSync(spool);
   }
-  onPhase?.("email-onboarding-start-response", startResult.status());
-  onPhase?.("await-email-capture");
-  await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
-  await expect.poll(() => existsSync(spool), { timeout: 15_000 }).toBe(true);
-  onPhase?.("read-email-capture");
-  const captured = JSON.parse(readFileSync(spool, "utf8")) as { recipient?: string; href?: string };
-  if (captured.recipient !== email || !captured.href) throw new Error("The isolated verification capture did not match the synthetic recipient.");
-  const href = new URL(captured.href);
-  if (!["localhost", "127.0.0.1"].includes(href.hostname) || href.pathname !== "/auth/confirm" || !href.searchParams.get("token_hash")) throw new Error("The verification capture is not a local token-hash link.");
-  return href.toString();
 }
 
 export async function finishManagerEmailProof(page: Page, href: string, email: string, fullName: string, phone: string, onPhase?: OnSignupPhase, expectedTier?: "free" | "pro" | "business"): Promise<{ managerRegisterStatus: number }> {
@@ -59,7 +68,13 @@ export async function finishManagerEmailProof(page: Page, href: string, email: s
   };
   page.on("framenavigated", captureNavigation);
   onPhase?.("callback-navigation");
-  const callbackResponse = await page.goto(href.toString(), { waitUntil: "domcontentloaded", timeout: 20_000 });
+  let callbackResponse;
+  try {
+    callbackResponse = await page.goto(href, { waitUntil: "domcontentloaded", timeout: 20_000 });
+  } catch {
+    page.off("framenavigated", captureNavigation);
+    throw new Error("Verification callback navigation failed.");
+  }
   onPhase?.("callback-navigation-response", callbackResponse?.status());
   onPhase?.("poll-callback-pathname");
   const callbackDeadline = navigationStarted + 20_000;
@@ -83,7 +98,10 @@ export async function finishManagerEmailProof(page: Page, href: string, email: s
       headings: text("h1,h2", knownHeadings),
       alerts: text('[role="alert"]', knownAlerts),
       loadingVisible: /\bLoading(?:…|\.\.\.)?(?=\s|$)/i.test(bodyText),
-      verifiedFormVisible: bodyText.includes("Verified email:"),
+      verifiedFormVisible: Array.from(document.querySelectorAll("label")).some((label) => {
+        const input = document.getElementById(label.htmlFor);
+        return label.textContent?.trim() === "Verified email" && input instanceof HTMLInputElement && input.readOnly;
+      }),
     };
   });
   let snapshotTimer: ReturnType<typeof setTimeout> | undefined;
@@ -102,16 +120,7 @@ export async function finishManagerEmailProof(page: Page, href: string, email: s
   page.off("framenavigated", captureNavigation);
   console.log(`[synthetic-manager-e2e] callback_page=${JSON.stringify({ ...snapshot, navigations })}`);
   onPhase?.("await-verified-email");
-  const verifiedDeadline = Date.now() + 20_000;
-  let verifiedFormVisible = false;
-  while (!verifiedFormVisible && Date.now() < verifiedDeadline) {
-    const result = await boundedDomBoolean(page.evaluate(() => Array.from(document.querySelectorAll("p")).some((element) => (element.textContent ?? "").trim().startsWith("Verified email:"))));
-    verifiedFormVisible = result === true;
-    if (!verifiedFormVisible) await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  if (!verifiedFormVisible) throw new Error("Verified-email form did not appear within the bounded wait.");
-  const exactMailboxMatch = await boundedDomBoolean(page.evaluate((expectedEmail) => Array.from(document.querySelectorAll("p")).some((element) => (element.textContent ?? "").trim() === `Verified email: ${expectedEmail}`), email));
-  if (exactMailboxMatch !== true) throw new Error("Verified email did not match the synthetic mailbox.");
+  await expectVerifiedSignupEmail(page, email);
   onPhase?.("fill-manager-name");
   await page.getByLabel("Full name").fill(fullName);
   onPhase?.("fill-manager-phone");
@@ -132,8 +141,6 @@ export async function finishManagerEmailProof(page: Page, href: string, email: s
   }
   onPhase?.("await-account-ready");
   await expect(page.getByRole("heading", { name: "Account ready" })).toBeVisible({ timeout: 20_000 });
-  const dir = process.env.AUTH_PROOF_CAPTURE_DIR;
-  if (dir && path.isAbsolute(dir)) unlinkSync(path.join(dir, `${createHash("sha256").update(email.toLowerCase()).digest("hex")}.json`));
   return { managerRegisterStatus: finishResult.status() };
 }
 

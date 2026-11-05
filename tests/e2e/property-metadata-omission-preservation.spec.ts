@@ -1,7 +1,7 @@
 /**
- * A real Properties-page load mirrors a live listing back through POST
- * /api/property-records with propertyData only. That omission must retain the
- * stored row_data blob rather than serializing it as null and clearing it.
+ * The current Properties load hydrates without writing. A property-only
+ * POST /api/property-records must still retain stored row_data when omitted.
+ * Exercise the real authenticated route after loading the owned fixture.
  */
 import { randomUUID } from "node:crypto";
 import { test, expect, type Page, type Request } from "@playwright/test";
@@ -241,7 +241,7 @@ function recordTeardownError(errors: unknown[], error: unknown) {
 test.describe("property metadata omission preservation", () => {
   test.skip(!enabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
-  test("Properties load preserves row metadata when its background mirror omits rowData", async ({ page }) => {
+  test("property-only authenticated upsert preserves row metadata after Properties loads", async ({ page }) => {
     const { url, serviceRoleKey } = assertDevTestTarget();
     const db = createClient(url, serviceRoleKey, { auth: { persistSession: false } });
     const { data: manager, error: managerError } = await db
@@ -281,24 +281,16 @@ test.describe("property metadata omission preservation", () => {
         const body = propertyWriteBody(request);
         if (body) writes.push(body);
       });
-      const mirroredResponse = page.waitForResponse((response) => {
-        const body = propertyWriteBody(response.request());
-        return body?.action === "upsert" && body.id === propertyId;
-      });
-
-      const [, response] = await Promise.all([
-        (async () => {
-          await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
-          await expect(page.locator('[data-attr="manager-properties-tab-listed"]')).toBeVisible({ timeout: 30_000 });
-        })(),
-        mirroredResponse,
-      ]);
-      expect(response.status(), "background property-only mirror must receive the real route response").toBe(200);
-
-      const propertyOnlyMirror = writes.find((body) => body.action === "upsert" && body.id === propertyId);
-      expect(propertyOnlyMirror, "Properties page must mirror the test-owned property").toBeTruthy();
-      expect(propertyOnlyMirror).toHaveProperty("propertyData");
-      expect(propertyOnlyMirror).not.toHaveProperty("rowData");
+      await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
+      await expect(page.locator('[data-attr="manager-properties-tab-listed"]')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText(record.property_data.title, { exact: true }).first()).toBeVisible();
+      // Snapshot hydration is read-only. Explicit property writers still omit
+      // rowData; verify that route contract without requiring a read-side write.
+      const propertyOnlyWrite = { action: "upsert", id: propertyId, status: "live", propertyData: record.property_data };
+      expect(propertyOnlyWrite).not.toHaveProperty("rowData");
+      const response = await page.request.post("/api/property-records", { data: propertyOnlyWrite });
+      expect(response.status(), "owned property-only upsert must receive the real route response").toBe(200);
+      expect(writes.filter((body) => body.id === propertyId && "rowData" in body), "Properties hydration must not rewrite metadata").toHaveLength(0);
 
       const { data: after, error: afterError } = await db
         .from("manager_property_records")

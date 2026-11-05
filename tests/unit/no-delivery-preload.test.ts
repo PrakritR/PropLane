@@ -13,6 +13,13 @@ describe("no-delivery signup test harness", () => {
       expect(readdirSync(dir)).toHaveLength(0);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
+  it("permits the explicit CI loopback origin", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "auth-proof-ci-origin-"));
+    try {
+      const result = spawnSync(process.execPath, ["--import", path.resolve("tests/e2e/support/no-delivery-preload.mjs"), "-e", ""], { env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: "https://emstjswhotsnyksqhqyf.supabase.co", NEXT_PUBLIC_APP_URL: "http://localhost:3000", RESEND_API_KEY: "re_dummy_auth_browser_no_delivery", RESEND_FROM: "Auth Proof <proof@example.invalid>", AUTH_PROOF_CAPTURE_DIR: dir }, encoding: "utf8" });
+      expect(result.status).toBe(0);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
   it("captures only bounded unique synthetic recipients without network delivery", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "auth-proof-test-"));
     try {
@@ -23,7 +30,15 @@ describe("no-delivery signup test harness", () => {
           let denied=false; try { https.request(host); } catch { denied=true } if (!denied) throw Error('SMS provider allowed');
           denied=false; try { await fetch(host); } catch { denied=true } if (!denied) throw Error('SMS fetch allowed');
         }
-        let blocked=false; try { https.request('https://localhost/', { hostname: 'api.twilio.com' }); } catch { blocked=true } if (!blocked) throw Error('override allowed');
+        for (const endpoint of ['otp','signup','recover','resend']) {
+          const url = 'https://emstjswhotsnyksqhqyf.supabase.co/auth/v1/' + endpoint;
+          let denied=false; try { https.request(url); } catch { denied=true } if (!denied) throw Error('auth HTTP allowed');
+          denied=false; try { https.request({hostname:'emstjswhotsnyksqhqyf.supabase.co',path:'/auth/v1/'+endpoint}); } catch { denied=true } if (!denied) throw Error('auth options allowed');
+          denied=false; try { await fetch(new Request(url)); } catch { denied=true } if (!denied) throw Error('auth fetch allowed');
+        }
+        let blocked=false; try { https.request('https://localhost/auth/v1/otp', { hostname: 'emstjswhotsnyksqhqyf.supabase.co' }); } catch { blocked=true } if (!blocked) throw Error('auth host override allowed');
+        blocked=false; try { https.request('https://emstjswhotsnyksqhqyf.supabase.co/', { path: '/auth/v1/otp' }); } catch { blocked=true } if (!blocked) throw Error('auth path override allowed');
+        blocked=false; try { https.request('https://localhost/', { hostname: 'api.twilio.com' }); } catch { blocked=true } if (!blocked) throw Error('override allowed');
         blocked=false; try { https.request('https://api.resend.com/emails'); } catch { blocked=true } if (!blocked) throw Error('direct Resend allowed');
         blocked=false; try { new WebSocket('wss://claw-messenger.onrender.com/'); } catch { blocked=true } if (!blocked) throw Error('default Claw websocket allowed');
         const named = await import('node:https'); blocked=false; try { named.request('https://api.twilio.com/'); } catch { blocked=true } if (!blocked) throw Error('named request allowed');

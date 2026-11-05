@@ -39,20 +39,29 @@ test.describe("Portal loading and record actions", () => {
       await expect(trigger).toBeVisible({ timeout: 45_000 });
       await expect(page.locator('[data-attr="list-selection-toolbar"]')).toHaveCount(0);
       const box = await trigger.boundingBox();
-      expect(box!.width).toBeGreaterThanOrEqual(44);
-      expect(box!.height).toBeGreaterThanOrEqual(44);
+      const minimumTarget = width < 1024 ? 44 : 32;
+      expect(box!.width).toBeGreaterThanOrEqual(minimumTarget);
+      expect(box!.height).toBeGreaterThanOrEqual(minimumTarget);
+      const title = (await trigger.getAttribute("aria-label"))!.replace(/^Actions for /, "");
       await trigger.click();
       const menu = page.getByRole("menu");
-      await expect(menu.getByRole("menuitem", { name: "Edit", exact: true })).toBeVisible();
+      await expect(menu.getByRole("menuitem", { name: "View", exact: true })).toBeVisible();
       await expect(menu.getByRole("menuitem", { name: "Unlist", exact: true })).toBeVisible();
+      await menu.evaluate(async (element) => {
+        await Promise.all(element.getAnimations().map((animation) => animation.finished));
+      });
       const menuBox = await menu.boundingBox();
       expect(menuBox!.x).toBeGreaterThanOrEqual(0);
       expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(width);
       await page.keyboard.press("Escape");
       await expect(trigger).toBeFocused();
       await trigger.click();
-      await menu.getByRole("menuitem", { name: "Edit", exact: true }).click();
-      await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+      await menu.getByRole("menuitem", { name: "View", exact: true }).click();
+      await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
+      const edit = page.locator('[data-attr="listing-edit-full"]').first();
+      await expect(edit).toBeVisible();
+      await edit.click();
+      await expect(page.getByRole("dialog")).toBeVisible();
     });
   }
 

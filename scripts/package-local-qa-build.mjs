@@ -1,3 +1,4 @@
+import { decodeArtifactKey } from "./lib/qa-artifact-key.mjs";
 /** Encrypted, SHA-bound local QA transport. This never deploys or loads runtime env files. */
 import { constants, createReadStream, createWriteStream } from "node:fs";
 import { lstat, mkdir, mkdtemp, open, readFile, readdir, readlink, rm, rmdir, writeFile } from "node:fs/promises";
@@ -42,12 +43,7 @@ export function artifactRefusalCode(error) {
 }
 
 export function encryptionKeyBytes(value) {
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
-    throw refuse("KEY_CONFIG", "QA artifact encryption key must be exactly 64 lowercase hexadecimal characters.");
-  }
-  const bytes = Buffer.from(value, "hex");
-  if (bytes.length !== 32) throw refuse("KEY_CONFIG", "QA artifact encryption key must be 32 bytes.");
-  return bytes;
+  return decodeArtifactKey(value, (message) => refuse("KEY_CONFIG", message));
 }
 
 export function artifactAad(sha) {

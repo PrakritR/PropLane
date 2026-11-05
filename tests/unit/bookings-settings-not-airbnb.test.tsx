@@ -73,14 +73,13 @@ describe("Bookings → Settings", () => {
     stubFetch();
     const view = render(
       <AppUiProvider>
-        <ManagerBookings bucket="upcoming" basePath="/portal" />
+        <ManagerBookings bucket="calendar" basePath="/portal" />
       </AppUiProvider>,
     );
     await settle();
 
-    // The command bar's Calendars dropdown is gone; an empty Upcoming list offers Link calendars.
-    expect(view.container.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')).toBeNull();
-    const linkCalendars = view.container.querySelector('[data-attr="bookings-empty-link-airbnb"]');
+    // Calendar access does not depend on an empty Upcoming list.
+    const linkCalendars = view.container.querySelector('[data-attr="portfolio-bookings-link-airbnb"]');
     expect(linkCalendars).toBeTruthy();
     fireEvent.click(linkCalendars!);
     await settle();

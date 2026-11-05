@@ -54,10 +54,11 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_SKIP_WEBSERVER
     ? undefined
     : {
-        command: "npm run build && npm run start",
+        command: process.env.SIGNUP_PROOF_ENABLED === "1" ? "node tests/e2e/support/signup-proof-server.mjs" : "npm run build && npm run start",
         stdout: "pipe",
+        ...(process.env.SIGNUP_PROOF_ENABLED === "1" ? { gracefulShutdown: { signal: "SIGTERM" as const, timeout: 15_000 } } : {}),
         url: baseURL,
-        reuseExistingServer: !process.env.CI,
+        reuseExistingServer: process.env.SIGNUP_PROOF_ENABLED === "1" ? false : !process.env.CI,
         // The CI production build (`npm run build`) alone now exceeds 3 minutes, so allow 7.
         // This is spent inside whichever `--global-timeout` governs the run, so it must
         // leave the specs room; `tests/unit/ci-test-workflow.test.ts` pins that against

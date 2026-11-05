@@ -34,7 +34,8 @@ import {
   residentSectionAllowedForManagerTier,
   type ManagerPortalNavTier,
 } from "@/lib/manager-access";
-import { getManagerPortalNavSubscriptionTier, getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
+import { getManagerPortalNavSubscriptionTier } from "@/lib/manager-access-server";
+import { getResidentPortalManagerTier } from "@/lib/resident-portal-entitlement.server";
 import { loadResidentPortalAccessState, residentPortalHomePath } from "@/lib/resident-portal-access";
 import {
   isResidentPathAllowedForAccess,
@@ -479,9 +480,7 @@ export async function renderPortalSectionWith(
 
   const residentCtx = kind === "resident" ? await getEffectiveSessionForPortal("resident") : null;
   const residentManagerTier =
-    kind === "resident" && residentCtx?.profile?.manager_id?.trim()
-      ? await getManagerSubscriptionTierByManagerId(residentCtx.profile.manager_id.trim())
-      : null;
+    kind === "resident" ? await getResidentPortalManagerTier(residentCtx?.user?.id) : null;
   const residentAccess =
     kind === "resident"
       ? await loadResidentPortalAccessState({

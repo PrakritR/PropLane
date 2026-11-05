@@ -17,7 +17,7 @@
  * vendor directory entry, an audit trail's actor).
  */
 
-import { ADMIN_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
+import { ADMIN_INBOX_SCOPE } from "@/lib/portal-inbox-scope-constants";
 
 export type PurgeScope = "manager" | "resident" | "vendor";
 

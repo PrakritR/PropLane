@@ -1,7 +1,7 @@
 import { isResidentOriginatedScheduledRow } from "@/lib/scheduled-inbox-messages";
 import { purgeAccountStorageFolder } from "@/lib/auth/purge-account-storage";
 import { loadAccountCleanupRows } from "@/lib/auth/load-account-cleanup-rows";
-import { ADMIN_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
+import { ADMIN_INBOX_SCOPE } from "@/lib/portal-inbox-scope-constants";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import {
   ACCOUNT_PURGE_TABLES,
@@ -11,7 +11,7 @@ import {
 } from "@/lib/auth/account-purge-manifest";
 import { purgeCoManagerReferencesToUser } from "@/lib/auth/purge-orphaned-co-manager-links";
 import { MANAGER_DOCUMENTS_BUCKET } from "@/lib/documents/manager-documents";
-import { applicationPhotoFolderKey } from "@/lib/rental-application/application-photos.server";
+import { applicationPhotoFolderKey } from "@/lib/rental-application/application-photo-folder";
 
 type ServiceDb = ReturnType<typeof createSupabaseServiceRoleClient>;
 type WriteResult = { error: { message: string } | null };

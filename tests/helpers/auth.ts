@@ -97,19 +97,17 @@ export async function establishActivePortal(page: Page, role: PortalRole, next: 
   // hard-navigate with `window.location.assign` — the chooser button may never
   // paint. Poll for either the destination or a visible chooser option.
   try {
-    await expect
-      .poll(
-        async () => {
-          const pathname = new URL(page.url()).pathname;
-          if (nextPathRe.test(pathname)) return "arrived";
-          if ((await option.count()) > 0 && (await option.first().isEnabled().catch(() => false))) {
-            return "chooser";
-          }
-          return "pending";
-        },
-        { timeout: 45_000 },
-      )
-      .not.toBe("pending");
+    // A single-role chooser can replace its document while a locator query
+    // is pending. Observe both outcomes in the browser so an old-document
+    // count cannot consume the wait after the destination has already loaded.
+    await page.waitForFunction(({ destination, label }) => {
+      const pathname = window.location.pathname;
+      if (pathname === destination || pathname.startsWith(`${destination}/`)) return true;
+      return Array.from(document.querySelectorAll<HTMLButtonElement>("button")).some((button) =>
+        !button.disabled && button.getClientRects().length > 0 &&
+        (button.getAttribute("aria-label") || button.innerText).trim().startsWith(label),
+      );
+    }, { destination: nextPath, label: PORTAL_CHOOSER_LABEL[role] }, { timeout: 45_000 });
   } catch (err) {
     const bodyText = await page.locator("body").innerText().catch(() => "");
     const loadError = await page.locator(".text-rose-600").first().textContent().catch(() => null);

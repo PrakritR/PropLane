@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { signInAsManager } from "../helpers/auth";
+import { selectOwnedManagerWorkspace, expectOwnedWorkspaceReady } from "../helpers/owned-manager-workspace-e2e";
 
 test("assistant reply composer stays clickable above phone navigation with a portal banner", async ({ page }) => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires the seeded dev/test manager");
@@ -35,9 +36,19 @@ test("assistant reply composer stays clickable above phone navigation with a por
 test("resident reply composer supports draft controls at every target width", async ({ page }) => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires the seeded dev/test manager");
   await signInAsManager(page);
+  const workspace = await selectOwnedManagerWorkspace(page);
   await page.goto("/portal/communication/active");
+  await expectOwnedWorkspaceReady(page, workspace);
 
-  const conversationLabel = process.env.E2E_INBOX_RESIDENT_LABEL?.trim() || "Test Resident";
+  // test:seed creates this exact single-owner resident and its inbox thread.
+  // The primary resident is shared across other journeys and is not isolated.
+  const inbox = await page.request.get("/api/portal-inbox-threads?scope=manager");
+  expect(inbox.ok()).toBe(true);
+  const payload = await inbox.json() as { rows?: { email: string; from: string }[] };
+  const fixtureThread = payload.rows?.find((row) => row.email === "jordan.lee.workflow@test.proplane.local");
+  expect(fixtureThread, "Owned seeded resident conversation must be present").toBeTruthy();
+  expect(fixtureThread!.from).toBe("Jordan Lee");
+  const conversationLabel = fixtureThread!.from;
   const residentRow = page.locator(".portal-inbox-row").filter({ hasText: conversationLabel }).getByRole("button").first();
   await expect(residentRow).toBeVisible();
   await residentRow.click();

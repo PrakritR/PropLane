@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import fs from "node:fs";
 import path from "node:path";
 import { E2E_ACCOUNTS } from "../fixtures";
-import { requestManagerEmailProof, finishManagerEmailProof } from "../helpers/email-onboarding-e2e";
+import { requestManagerEmailProof, finishManagerEmailProof, expectVerifiedSignupEmail } from "../helpers/email-onboarding-e2e";
 import { reserveSyntheticManager, identifySyntheticManager } from "../helpers/synthetic-manager-cleanup";
 import { syntheticPhoneAvailableOnDev, verifySyntheticFreeManagerAndMarkPhone } from "../helpers/synthetic-free-manager-proof";
 import { createHash } from "node:crypto";
@@ -81,7 +81,7 @@ async function sessionUserFromCookies(page: Page): Promise<{ id: string; email: 
 
 async function expectManagerCreateForm(page: Page, opts: { signedIn: boolean }) {
   if (opts.signedIn) {
-    await expect(page.getByText(/Verified email:/)).toBeVisible();
+    await expectVerifiedSignupEmail(page, E2E_ACCOUNTS.manager.email);
     await expect(page.getByRole("button", { name: "Create a different property account" })).toBeVisible();
   } else {
     await expect(page.getByRole("heading", { name: "Create your property account" })).toBeVisible();

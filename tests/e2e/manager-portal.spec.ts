@@ -158,7 +158,8 @@ test.describe("Manager portal", () => {
       if (!message.includes("ERR_ABORTED")) throw error;
     }
     await expect(page).toHaveURL(/\/portal\/profile\?tab=workspaces/, { timeout: 15_000 });
-    await expect(page.getByRole("heading", { name: /workspaces/i }).first()).toBeVisible({
+    await expect(page.locator('[data-attr="settings-nav-workspaces"]')).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("heading", { name: "Workspace settings", exact: true })).toBeVisible({
       timeout: 15_000,
     });
   });

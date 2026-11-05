@@ -4,76 +4,81 @@ import { signInAsManager } from "../helpers/auth";
 // Real authenticated dev/test rows — same pattern as portal-reliability.spec.ts.
 test.use({ storageState: { cookies: [], origins: [] } });
 
-test.describe("Anchored mobile row-action menu", () => {
+test.describe("Row-action menu surfaces", () => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires seeded dev/test manager");
-  test.beforeEach(async ({ page }) => {
-    await signInAsManager(page);
-    await page.setViewportSize({ width: 390, height: 844 });
-  });
 
-  test("the first row's ⋯ menu opens directly below and adjacent to its trigger", async ({ page }) => {
+  for (const [width, height] of [[390, 844], [375, 667]] as const) {
+    test.describe(`touch ${width}x${height}`, () => {
+      test.use({ hasTouch: true, isMobile: true });
+      for (const position of ["first", "last"] as const) {
+        test(`${position} row opens a settled sheet within the viewport`, async ({ page }) => {
+          await page.setViewportSize({ width, height });
+          await signInAsManager(page);
+          await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
+          const triggers = page.getByRole("button", { name: /^Actions for / });
+          await expect(triggers.first()).toBeVisible({ timeout: 45_000 });
+          const trigger = position === "first" ? triggers.first() : triggers.last();
+          await trigger.scrollIntoViewIfNeeded();
+          const triggerBox = (await trigger.boundingBox())!;
+          expect(triggerBox.width).toBeGreaterThanOrEqual(44);
+          expect(triggerBox.height).toBeGreaterThanOrEqual(44);
+          await trigger.click();
+          const menu = page.getByRole("menu");
+          await expect(menu).toHaveAttribute("data-menu-sheet", "");
+          await menu.evaluate(async (element) => {
+            await Promise.all(element.getAnimations().map((animation) => animation.finished));
+          });
+          const box = (await menu.boundingBox())!;
+          expect(box.x).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
+          expect(box.y).toBeGreaterThanOrEqual(0);
+          expect(box.y + box.height).toBeLessThanOrEqual(height + 1);
+          const padding = await menu.evaluate((element) => parseFloat(getComputedStyle(element).paddingBottom));
+          expect(padding).toBeGreaterThanOrEqual(16);
+          const items = menu.getByRole("menuitem");
+          await expect(items.first()).toBeVisible();
+          for (const item of await items.all()) {
+            const itemBox = (await item.boundingBox())!;
+            expect(itemBox.y).toBeGreaterThanOrEqual(0);
+            expect(itemBox.y + itemBox.height).toBeLessThanOrEqual(height - padding + 1);
+          }
+          const menuUrl = page.url();
+          await page.keyboard.press("Tab");
+          expect(await menu.evaluate((element) => element.contains(document.activeElement)), "Modal menu keeps keyboard focus off background navigation").toBe(true);
+          await expect(page).toHaveURL(menuUrl);
+          await page.keyboard.press("Escape");
+          await expect(trigger).toBeFocused();
+          await trigger.click();
+          await expect(menu).toBeVisible();
+          await page.getByTestId("dropdown-menu-backdrop").click({ position: { x: 5, y: 5 } });
+          await expect(menu).toHaveCount(0);
+          await expect(trigger).toBeFocused();
+        });
+      }
+    });
+  }
+
+  test("desktop row menu remains anchored to its trigger", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await signInAsManager(page);
     await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
     const trigger = page.getByRole("button", { name: /^Actions for / }).first();
     await expect(trigger).toBeVisible({ timeout: 45_000 });
     const triggerBox = (await trigger.boundingBox())!;
-
     await trigger.click();
     const menu = page.getByRole("menu");
     await expect(menu).toBeVisible();
-    const menuBox = (await menu.boundingBox())!;
-
-    // Below the trigger…
-    expect(menuBox.y).toBeGreaterThanOrEqual(triggerBox.y + triggerBox.height - 2);
-    // …and ADJACENT to it, not merely somewhere on screen — this is the assertion
-    // the old bottom-pinned card would have failed.
-    expect(menuBox.y - (triggerBox.y + triggerBox.height)).toBeLessThanOrEqual(12);
-    // Inside the viewport horizontally and vertically.
-    expect(menuBox.x).toBeGreaterThanOrEqual(0);
-    expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(390);
-    expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(844);
-  });
-
-  test("the last row's ⋯ menu flips above its trigger", async ({ page }) => {
-    await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
-    const triggers = page.getByRole("button", { name: /^Actions for / });
-    await expect(triggers.first()).toBeVisible({ timeout: 45_000 });
-
-    const lastTrigger = triggers.last();
-    await lastTrigger.scrollIntoViewIfNeeded();
-    const triggerBox = (await lastTrigger.boundingBox())!;
-
-    await lastTrigger.click();
-    const menu = page.getByRole("menu");
-    await expect(menu).toBeVisible();
-    const menuBox = (await menu.boundingBox())!;
-
-    // Above the trigger…
-    expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(triggerBox.y + 2);
-    // …and ADJACENT to it.
-    expect(triggerBox.y - (menuBox.y + menuBox.height)).toBeLessThanOrEqual(12);
-  });
-
-  test("a trigger near the bottom bar keeps its menu clear of the bar", async ({ page }) => {
-    await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
-    const triggers = page.getByRole("button", { name: /^Actions for / });
-    await expect(triggers.first()).toBeVisible({ timeout: 45_000 });
-
-    const lowTrigger = triggers.last();
-    await lowTrigger.scrollIntoViewIfNeeded();
-    await lowTrigger.click();
-    const menu = page.getByRole("menu");
-    await expect(menu).toBeVisible();
-    const menuBox = (await menu.boundingBox())!;
-
-    const nav = page.locator(".portal-native-bottom-nav");
-    if (await nav.count()) {
-      const navBox = (await nav.boundingBox())!;
-      expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(navBox.y + 1);
-    } else {
-      // `.portal-native-bottom-nav` was not present at this width in this run —
-      // fall back to a plain viewport-clearance check and say so in the report.
-      expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(844 - 12);
-    }
+    await expect(menu).not.toHaveAttribute("data-menu-sheet", "");
+    await menu.evaluate(async (element) => {
+      await Promise.all(element.getAnimations().map((animation) => animation.finished));
+    });
+    const box = (await menu.boundingBox())!;
+    const gap = Math.min(Math.abs(box.y - (triggerBox.y + triggerBox.height)), Math.abs(triggerBox.y - (box.y + box.height)));
+    expect(gap).toBeLessThanOrEqual(12);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(1280);
+    await page.keyboard.press("Escape");
+    await expect(trigger).toBeFocused();
   });
 });
 

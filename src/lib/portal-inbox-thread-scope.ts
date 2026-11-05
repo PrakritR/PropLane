@@ -1,3 +1,5 @@
+import { MANAGER_INBOX_SCOPE, RESIDENT_INBOX_SCOPE, VENDOR_INBOX_SCOPE, ADMIN_INBOX_SCOPE } from "./portal-inbox-scope-constants";
+export { MANAGER_INBOX_SCOPE, RESIDENT_INBOX_SCOPE, VENDOR_INBOX_SCOPE, ADMIN_INBOX_SCOPE } from "./portal-inbox-scope-constants";
 import { withholdManagerSurface } from "@/lib/property-owner/access.server";
 import { getEffectiveUserIdForPortal } from "@/lib/auth/effective-session";
 import { isAdminUser } from "@/lib/auth/admin-preview";
@@ -10,10 +12,6 @@ import {
   resolveAuthenticatedBusinessAccess,
 } from "@/lib/test-workspaces/index.server";
 
-export const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
-export const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
-export const VENDOR_INBOX_SCOPE = "axis_portal_inbox_vendor_v1";
-export const ADMIN_INBOX_SCOPE = "admin";
 
 export type InboxScopeUser = {
   id: string;

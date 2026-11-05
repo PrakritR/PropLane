@@ -120,13 +120,13 @@ test.describe("legacy nav redirects land on a real page", () => {
     console.log("[manager] " + JSON.stringify(results, null, 2));
 
     const byPath = new Map(results.map((r) => [r.requested, r]));
-    expect.soft(byPath.get("/portal/financials/rent-roll")!.finalPath).toBe("/portal/financials/income");
+    expect.soft(byPath.get("/portal/financials/rent-roll")!.finalPath).toBe("/portal/financials/overview");
     expect.soft(byPath.get("/portal/documents/summary")!.finalPath).toBe("/portal/documents/tax-summary");
-    expect.soft(byPath.get("/portal/documents/profit-loss")!.finalPath).toBe("/portal/financials/expenses");
+    expect.soft(byPath.get("/portal/documents/profit-loss")!.finalPath).toBe("/portal/financials/overview");
 
     const delinquency = byPath.get("/portal/financials/delinquency")!;
     expect.soft(delinquency.isNotFound, "/portal/financials/delinquency must not 404").toBe(false);
-    expect.soft(delinquency.finalPath).toBe("/portal/financials/income");
+    expect.soft(delinquency.finalPath).toBe("/portal/financials/overview");
 
     const leaseExpiration = byPath.get("/portal/financials/lease-expiration")!;
     expect.soft(leaseExpiration.isNotFound, "/portal/financials/lease-expiration must not 404").toBe(false);
@@ -173,32 +173,24 @@ test.describe("legacy nav redirects land on a real page", () => {
     );
   });
 
-  test("vendor Documents category tabs land on the one list", async ({ page }) => {
-    await signInForNavSweep(
-      page,
-      "vendor",
-      E2E_ACCOUNTS.vendor.email,
-      E2E_ACCOUNTS.vendor.password,
-      "/vendor/dashboard",
-    );
-
-    const results: Landing[] = [];
-    results.push(await land(page, "/vendor/documents/mine", "vendor-documents-mine"));
-    results.push(await land(page, "/vendor/documents/shared"));
-    for (const legacy of ["tax", "insurance", "licensing"]) {
-      results.push(await land(page, `/vendor/documents/${legacy}`));
-    }
-
-    console.log("[vendor] " + JSON.stringify(results, null, 2));
-
-    const byPath = new Map(results.map((r) => [r.requested, r]));
-    for (const r of results) {
-      expect.soft(r.isNotFound, `${r.requested} must not 404`).toBe(false);
-    }
-    for (const legacy of ["mine", "shared", "tax", "insurance", "licensing"]) {
-      expect
-        .soft(byPath.get(`/vendor/documents/${legacy}`)!.finalPath, `${legacy} should land on the bare section`)
-        .toBe("/vendor/documents");
+  test("vendor Documents aliases resolve to their document categories", async ({ page }) => {
+    await signInForNavSweep(page, "vendor", E2E_ACCOUNTS.vendor.email, E2E_ACCOUNTS.vendor.password, "/vendor/dashboard");
+    const categories = [
+      ["mine", "tax", "Tax"],
+      ["shared", "tax", "Tax"],
+      ["tax", "tax", "Tax"],
+      ["insurance", "insurance", "Insurance"],
+      ["licensing", "license", "Business license"],
+    ] as const;
+    for (const [requested, canonical, label] of categories) {
+      const result = await land(page, `/vendor/documents/${requested}`);
+      expect(result.isNotFound).toBe(false);
+      expect(result.finalPath).toBe(`/vendor/documents/${canonical}`);
+      await expect(page.locator(`[data-attr="vendor-documents-band-tab-${canonical}"]`)).toHaveText(label);
+      const content = canonical === "tax" ? page.getByText("W-9", { exact: true }).first()
+        : page.locator(canonical === "license" ? '[data-attr="vendor-license-number"]' : '[data-attr="vendor-insurance-provider"]');
+      await expect(content).toBeVisible();
+      await expect(page.locator('[data-attr="vendor-documents-access-denied-banner"]')).toHaveCount(0);
     }
   });
 });

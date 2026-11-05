@@ -168,8 +168,22 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Run full E2E suite
         if: github.event_name != 'workflow_dispatch' || inputs.e2e_scope == 'full'
-        run: npm run test:e2e
+        run: |
+          node --input-type=module -e 'import { encryptionKeyBytes } from "./scripts/package-local-qa-build.mjs"; encryptionKeyBytes(process.env.QA_ARTIFACT_ENCRYPTION_KEY)'
+          node scripts/signup-proof-cleanup-preflight.mjs
+          AUTH_PROOF_CAPTURE_DIR="$(mktemp -d "${RUNNER_TEMP}/signup-proof.XXXXXXXX")"
+          chmod 700 "$AUTH_PROOF_CAPTURE_DIR"
+          SIGNUP_PROOF_RUN_NONCE="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(16).toString("hex"))')"
+          export AUTH_PROOF_CAPTURE_DIR SIGNUP_PROOF_RUN_NONCE
+          echo "SIGNUP_PROOF_RUN_NONCE=$SIGNUP_PROOF_RUN_NONCE" >> "$GITHUB_ENV"
+          echo "AUTH_PROOF_CAPTURE_DIR=$AUTH_PROOF_CAPTURE_DIR" >> "$GITHUB_ENV"
+          echo "SIGNUP_PROOF_RECOVERY_FILE=${AUTH_PROOF_CAPTURE_DIR}.recovery.enc" >> "$GITHUB_ENV"
+          node scripts/run-signup-proof-e2e.mjs
         env:
+          QA_ARTIFACT_ENCRYPTION_KEY: ${{ secrets.PROPLANE_LOCAL_QA_ARTIFACT_KEY }}
+          SIGNUP_PROOF_OBSERVER_URL: ${{ secrets.TEST_SIGNUP_PROOF_OBSERVER_URL }}
+          SUPABASE_DB_SSL_CA_FILE: ${{ github.workspace }}/scripts/security/supabase-prod-ca-2021.crt
+          SIGNUP_PROOF_ENABLED: "1"
           PROPLANE_TYPECHECK_SEPARATELY: "1"
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           PLAYWRIGHT_BASE_URL: http://localhost:3000
@@ -186,6 +200,28 @@ jobs:
           E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
           E2E_TESTS_ENABLED: "1"
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Finalize exact signup fixture accounts
+        if: always() && env.AUTH_PROOF_CAPTURE_DIR != ''
+        run: node --import tsx scripts/finalize-signup-proof.ts
+        env:
+          SIGNUP_PROOF_OBSERVER_URL: ${{ secrets.TEST_SIGNUP_PROOF_OBSERVER_URL }}
+          SUPABASE_DB_SSL_CA_FILE: ${{ github.workspace }}/scripts/security/supabase-prod-ca-2021.crt
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Preserve encrypted signup reconciliation journals
+        if: always() && env.AUTH_PROOF_CAPTURE_DIR != ''
+        run: node --import tsx scripts/package-signup-proof-recovery.ts
+        env:
+          QA_ARTIFACT_ENCRYPTION_KEY: ${{ secrets.PROPLANE_LOCAL_QA_ARTIFACT_KEY }}
+      - name: Upload encrypted signup reconciliation
+        if: always() && env.SIGNUP_PROOF_RECOVERY_FILE != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: signup-proof-reconciliation-encrypted
+          path: ${{ env.SIGNUP_PROOF_RECOVERY_FILE }}
+          if-no-files-found: error
+          retention-days: 1
       - name: Run property metadata E2E scope
         if: github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'
         run: npx playwright test tests/e2e/property-metadata-omission-preservation.spec.ts

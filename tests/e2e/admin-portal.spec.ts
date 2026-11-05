@@ -86,37 +86,45 @@ test.describe("Admin portal", () => {
       await recipientGate;
       await route.continue();
     });
-    const recipientsLoaded = page.waitForResponse((response) =>
-      new URL(response.url()).pathname === "/api/admin/portal-users" && response.ok(),
-    );
-    await page.goto("/admin/communication/active");
-    await expect(page.getByRole("heading", { name: "Communication", exact: true, level: 1 })).toBeVisible({
-      timeout: 15_000,
+    let recipientsLoaded = false;
+    page.on("response", (response) => {
+      if (new URL(response.url()).pathname === "/api/admin/portal-users" && response.ok()) {
+        recipientsLoaded = true;
+      }
     });
-    await page.getByRole("button", { name: "New message" }).click();
-    // The people admin can write to are read when the compose opens.
-    await recipientRequest;
-
     const subject = `E2E trash check ${Date.now()}`;
-    // The recipient control is a custom listbox widget (FieldSingleSelect), not a
-    // native <select> — open it and pick the option, rather than selectOption().
-    await page.getByRole("button", { name: "Recipient type" }).click();
-    await page.getByRole("option", { name: "All managers" }).click();
-    await page.getByPlaceholder("Subject").fill(subject);
-    await page.getByPlaceholder(/write your message/i).fill("Automated trash-tab check.");
-    releaseRecipients();
-    await recipientsLoaded;
+    try {
+      await page.goto("/admin/communication/active");
+      await expect(page.getByRole("heading", { name: "Communication", exact: true, level: 1 })).toBeVisible({
+        timeout: 15_000,
+      });
+      await page.getByRole("button", { name: "New message" }).click();
+      // The people admin can write to are read when the compose opens.
+      await recipientRequest;
+
+      // The recipient control is a custom listbox widget (FieldSingleSelect).
+      await page.getByRole("button", { name: "Recipient type" }).click();
+      await page.getByRole("option", { name: "All managers" }).click();
+      await page.getByPlaceholder("Subject").fill(subject);
+      await page.getByPlaceholder(/write your message/i).fill("Automated trash-tab check.");
+    } finally {
+      releaseRecipients();
+    }
+    await expect.poll(() => recipientsLoaded).toBe(true);
     await expect(page.getByPlaceholder("Subject")).toHaveValue(subject);
     await expect(page.getByPlaceholder(/write your message/i)).toHaveValue("Automated trash-tab check.");
     await expect(page.getByRole("button", { name: "Recipient type" })).toContainText("All managers");
-    const sendRequest = page.waitForRequest((request) =>
-      new URL(request.url()).pathname === "/api/portal/send-inbox-message" && request.method() === "POST",
-    );
-    await page.getByRole("button", { name: "Send", exact: true }).click();
-    const sent = (await sendRequest).postDataJSON() as { subject?: string; text?: string; toUserIds?: string[] };
-    expect(sent.subject).toBe(subject);
-    expect(sent.text).toBe("Automated trash-tab check.");
-    expect(sent.toUserIds?.length).toBeGreaterThan(0);
+    let sent: { subject?: string; text?: string; toUserIds?: string[] } | undefined;
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/api/portal/send-inbox-message" && request.method() === "POST") {
+        sent = request.postDataJSON() as typeof sent;
+      }
+    });
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await expect.poll(() => sent).toBeDefined();
+    expect(sent?.subject).toBe(subject);
+    expect(sent?.text).toBe("Automated trash-tab check.");
+    expect(sent?.toUserIds?.length).toBeGreaterThan(0);
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.getByRole("button", { name: "New message" }).click();
     await expect(page.getByPlaceholder("Subject")).toHaveValue("");

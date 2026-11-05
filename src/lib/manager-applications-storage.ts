@@ -1,3 +1,5 @@
+import { normalizeApplicationAxisId } from "./rental-application/application-axis-id";
+export { normalizeApplicationAxisId } from "./rental-application/application-axis-id";
 import { canonicalRoomChoiceValue, parseRoomChoiceValue } from "@/lib/rental-application/room-choice-value";
 import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
 import { fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
@@ -183,15 +185,7 @@ if (typeof window !== "undefined") {
   });
 }
 
-export function normalizeApplicationAxisId(id: unknown): string {
-  const raw = typeof id === "string" ? id.trim() : "";
-  if (!raw) return raw;
-  // Pre-rebrand applications keep their AXIS- ids; new ones are PROPLANE-.
-  const upper = raw.toUpperCase();
-  if (upper.startsWith("AXIS-") || upper.startsWith("PROPLANE-")) return raw;
-  const suffix = raw.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 12);
-  return `PROPLANE-${suffix || Date.now().toString(36).toUpperCase()}`;
-}
+
 
 /** Opens Property Portal → Applications with this primary application expanded. */
 export function buildPortalApplicationOpenHref(axisId: string): string {

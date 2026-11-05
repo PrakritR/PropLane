@@ -1,8 +1,10 @@
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { revokeSignupContext } from "../helpers/signup-proof-session";
 import { mockStripeAllRoutes } from "../helpers/auth";
-import { completeManagerSignupOnboarding, pickListingSelect } from "../helpers/manager-onboarding-e2e";
+import { pickListingSelect } from "../helpers/manager-onboarding-e2e";
+import { reserveSignupProof, completeSignupProof, signupProofEnvironment, recordSignupInventory } from "../helpers/signup-proof-e2e";
 
 /**
  * End-to-end walkthrough: brand-new manager from pricing → account creation →
@@ -41,6 +43,8 @@ const PORTAL_SECTIONS = [
   { name: "feedback", path: "/portal/bugs-feedback" },
 ] as const;
 
+test.use({ trace: "off", screenshot: "off", video: "off" });
+
 test.describe("New manager — full journey from scratch", () => {
   test.skip(!hasSupabase, "Requires the dev/test Supabase project");
 
@@ -50,100 +54,95 @@ test.describe("New manager — full journey from scratch", () => {
 
     await mockStripeAllRoutes(page);
 
-    const stamp = Date.now();
-    const email = `fresh-manager-${stamp}@test.proplane.local`;
-    const password = "FreshManager123!";
-    const fullName = "Fresh Journey Manager";
-    const phone = "2065550199";
+    const reservation = await reserveSignupProof("draft");
 
-    fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
-    fs.writeFileSync(
-      path.join(EVIDENCE_DIR, "credentials.json"),
-      JSON.stringify({ email, password, fullName, createdAt: new Date().toISOString() }, null, 2),
-    );
+    try {
+      // ── 1. Discover pricing and choose Pro ──────────────────────────────────
+      await page.goto("/partner/pricing");
+      await shot(page, "01-pricing");
+      await Promise.all([
+        page.waitForURL(/\/auth\/create-account.*tier=pro/, { timeout: 30_000 }),
+        page.getByRole("button", { name: /choose pro/i }).first().click(),
+      ]);
+      await shot(page, "02-create-account-form");
 
-    // ── 1. Discover pricing and choose Pro ──────────────────────────────────
-    await page.goto("/partner/pricing");
-    await shot(page, "01-pricing");
-    await Promise.all([
-      page.waitForURL(/\/auth\/create-account.*tier=pro/, { timeout: 30_000 }),
-      page.getByRole("button", { name: /choose pro/i }).first().click(),
-    ]);
-    await shot(page, "02-create-account-form");
+      // ── 2. Real email verification, registration and guarded phone proof ──
+      const managerId = await completeSignupProof(page, reservation);
+      const marker = reservation.manifest.email.split("-")[2]!;
+      const buildingName = `P8 draft ${marker}`;
+      await page.waitForLoadState("domcontentloaded");
+      await shot(page, "04-portal-landing");
 
-    // ── 2. Create account, then pick property manager portal ─────────────────
-    await page.getByPlaceholder("Full name").fill(fullName);
-    await page.getByPlaceholder("Email").fill(email);
-    await page.getByPlaceholder(/Password \(8\+/).fill(password);
-    await page.getByRole("textbox", { name: "Phone number" }).fill(phone);
-    await shot(page, "03-create-account-filled");
-    await page.getByRole("button", { name: /create property account/i }).click();
+      await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
+      await expect(page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]')).toBeVisible({ timeout: 60_000 });
 
-    await page.waitForURL(/\/auth\/(get-started|manager\/choose-plan)|\/portal/, { timeout: 90_000 });
-    if (page.url().includes("/auth/get-started")) {
-      await shot(page, "03b-get-started-chooser");
-    }
-    await completeManagerSignupOnboarding(page);
-    await page.waitForLoadState("domcontentloaded");
-    await shot(page, "04-portal-landing");
-
-    await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-    await expect(page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]')).toBeVisible({ timeout: 60_000 });
-
-    // ── 3. Tour every major portal section (fresh empty account) ────────────
-    const sectionResults: Array<{ name: string; ok: boolean; note?: string }> = [];
-    for (const section of PORTAL_SECTIONS) {
-      try {
-        await page.goto(section.path, { waitUntil: "domcontentloaded", timeout: 45_000 });
-        await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 20_000 });
-        await shot(page, `05-portal-${section.name}`);
-        sectionResults.push({ name: section.name, ok: true });
-      } catch (err) {
-        sectionResults.push({
-          name: section.name,
-          ok: false,
-          note: err instanceof Error ? err.message.slice(0, 120) : String(err),
-        });
-        await shot(page, `05-portal-${section.name}-FAIL`);
+      // ── 3. Tour every major portal section (fresh empty account) ────────────
+      const sectionResults: Array<{ name: string; ok: boolean; note?: string }> = [];
+      for (const section of PORTAL_SECTIONS) {
+        try {
+          await page.goto(section.path, { waitUntil: "domcontentloaded", timeout: 45_000 });
+          await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 20_000 });
+          await shot(page, `05-portal-${section.name}`);
+          sectionResults.push({ name: section.name, ok: true });
+        } catch (err) {
+          sectionResults.push({
+            name: section.name,
+            ok: false,
+            note: err instanceof Error ? err.message.slice(0, 120) : String(err),
+          });
+          await shot(page, `05-portal-${section.name}-FAIL`);
+        }
       }
+      fs.writeFileSync(path.join(EVIDENCE_DIR, "portal-sections.json"), JSON.stringify(sectionResults, null, 2));
+
+      const failedSections = sectionResults.filter((s) => !s.ok);
+      expect(failedSections, `Portal sections that failed: ${JSON.stringify(failedSections)}`).toHaveLength(0);
+
+      // ── 4. Start first listing (Home step + save draft) ─────────────────────
+      await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
+      const createBtn = page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]');
+      await expect(createBtn).toBeEnabled({ timeout: 60_000 });
+      recordSignupInventory(reservation, { namespace: "property", state: "unresolved", actorId: managerId, marker });
+      await createBtn.click();
+      await expect(page.locator("#manager-add-listing-form")).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByText(/new listing · home/i)).toBeVisible();
+      await shot(page, "06-listing-wizard-open");
+
+      await pickListingSelect(page, "Property type", "House");
+      await page.getByPlaceholder("e.g. Maple Court").fill(buildingName);
+      await page.getByPlaceholder("Start typing a street address").fill("400 Broad St");
+      await page.getByRole("button", { name: /South Lake Union/i }).first().click();
+      await pickListingSelect(page, "Number of floors", "Single level (1 floor)");
+      await pickListingSelect(page, "Total bathrooms", "1 bathroom");
+      await shot(page, "07-listing-home-step");
+
+      await page.getByRole("button", { name: /save & close/i }).click();
+      await expect(page.locator("#manager-add-listing-form")).toBeHidden({ timeout: 45_000 });
+      await shot(page, "08-listing-draft-saved");
+
+      await expect(page.getByRole("button", { name: /Drafts\s+[1-9]/ })).toBeVisible({ timeout: 15_000 });
+      await shot(page, "09-drafts-tab-has-listing");
+      const { db } = signupProofEnvironment();
+      const saved = await db.from("manager_property_records").select("id,status,row_data").eq("manager_user_id", managerId).eq("status", "draft");
+      const matches = saved.data?.filter((row) => JSON.stringify(row.row_data).includes(buildingName)) ?? [];
+      if (saved.error || matches.length !== 1) throw new Error("The exact owned listing draft was not persisted.");
+      recordSignupInventory(reservation, { namespace: "property", state: "resolved", actorId: managerId, marker, id: matches[0]!.id });
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.getByText(buildingName, { exact: true }).first().click();
+      await expect(page.getByText(buildingName, { exact: true }).first()).toBeVisible();
+
+      // ── 5. Settings → Workspaces — team lives here (no Teams page) ──────────
+      await page.goto("/portal/profile?tab=workspaces");
+      await expect(page.getByRole("heading", { name: "Workspace settings", exact: true }).first()).toBeVisible({
+        timeout: 15_000,
+      });
+      await shot(page, "10-workspaces-team");
+
+      console.log("NEW MANAGER JOURNEY OK");
+      console.log(`Evidence: ${EVIDENCE_DIR}`);
+    } finally {
+      try { await revokeSignupContext(signupProofEnvironment().db, reservation.file, page.context()); }
+      finally { await page.context().close(); }
     }
-    fs.writeFileSync(path.join(EVIDENCE_DIR, "portal-sections.json"), JSON.stringify(sectionResults, null, 2));
-
-    const failedSections = sectionResults.filter((s) => !s.ok);
-    expect(failedSections, `Portal sections that failed: ${JSON.stringify(failedSections)}`).toHaveLength(0);
-
-    // ── 4. Start first listing (Home step + save draft) ─────────────────────
-    await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-    const createBtn = page.locator('[data-attr="manager-properties-add-top"], [data-attr="manager-properties-create"]');
-    await expect(createBtn).toBeEnabled({ timeout: 60_000 });
-    await createBtn.click();
-    await expect(page.locator("#manager-add-listing-form")).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText(/new listing · home/i)).toBeVisible();
-    await shot(page, "06-listing-wizard-open");
-
-    await pickListingSelect(page, "Property type", "House");
-    await page.getByPlaceholder("e.g. Maple Court").fill(`Journey House ${stamp}`);
-    await page.getByPlaceholder("Start typing a street address").fill("400 Broad St");
-    await page.getByRole("button", { name: /South Lake Union/i }).first().click();
-    await pickListingSelect(page, "Number of floors", "Single level (1 floor)");
-    await pickListingSelect(page, "Total bathrooms", "1 bathroom");
-    await shot(page, "07-listing-home-step");
-
-    await page.getByRole("button", { name: /save & close/i }).click();
-    await expect(page.locator("#manager-add-listing-form")).toBeHidden({ timeout: 45_000 });
-    await shot(page, "08-listing-draft-saved");
-
-    await expect(page.getByRole("button", { name: /Drafts\s+[1-9]/ })).toBeVisible({ timeout: 15_000 });
-    await shot(page, "09-drafts-tab-has-listing");
-
-    // ── 5. Settings → Workspaces — team lives here (no Teams page) ──────────
-    await page.goto("/portal/profile?tab=workspaces");
-    await expect(page.getByRole("heading", { name: /workspaces/i }).first()).toBeVisible({
-      timeout: 15_000,
-    });
-    await shot(page, "10-workspaces-team");
-
-    console.log(`NEW MANAGER JOURNEY OK — ${email} / ${password}`);
-    console.log(`Evidence: ${EVIDENCE_DIR}`);
   });
 });
