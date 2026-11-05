@@ -1,16 +1,12 @@
 // @vitest-environment jsdom
 /**
- * Link calendars is the one dialog Bookings' header opens.
- *
- * Both controls used to drive one `ChannelCalendarLinkModal`
- * (`open={linkModalOpen || settingsModalOpen}`), so the section offered two
- * buttons that led to the same dialog and had nowhere to keep a booking
- * preference. S021 (captain, 2026-09-27) later dropped the reminders-hub
- * Settings gear entirely — its reminder settings stay reachable from the
- * central Settings -> Notifications hub.
+ * Bookings' Integrations header navigates to Settings. The empty Upcoming
+ * list separately opens the retained Connect a channel popup.
  */
-import { describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+
+const navigate = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/channel-calendar/client", () => ({
   fetchChannelCalendarConnections: () => Promise.resolve([]),
@@ -37,7 +33,7 @@ vi.mock("@/lib/rental-application/data", () => ({
   parseRoomChoiceValue: () => ({ listingRoomId: null }),
   getRoomOptionsForProperty: () => [],
 }));
-vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
+vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => navigate }));
 vi.mock("@/hooks/use-manager-user-id", () => ({
   useManagerUserId: () => ({ userId: "mgr-1", email: null, ready: true }),
 }));
@@ -52,13 +48,6 @@ vi.mock("@/lib/manager-portfolio-access", () => ({
 import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { ManagerBookings } from "@/components/portal/pro-bookings";
 
-async function settle() {
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-}
-
 function stubFetch() {
   vi.stubGlobal(
     "fetch",
@@ -68,38 +57,66 @@ function stubFetch() {
   );
 }
 
-describe("Bookings → Settings", () => {
-  it("Link calendars opens the one-page Connect a channel popup", async () => {
-    stubFetch();
+const originalUrl = window.location.href;
+beforeEach(() => {
+  window.history.replaceState({}, "", "/portal/bookings");
+  navigate.mockClear();
+  stubFetch();
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  window.history.replaceState({}, "", originalUrl);
+});
+
+describe("Bookings calendar connections", () => {
+  it("the Calendar header navigates to Integrations without opening a popup", async () => {
     const view = render(
       <AppUiProvider>
         <ManagerBookings bucket="calendar" basePath="/portal" />
       </AppUiProvider>,
     );
-    await settle();
+    const integrations = await screen.findByRole("button", { name: "Integrations" });
+    const target = "/portal/profile?tab=spreadsheets&integration=bookings";
+    expect(integrations).toHaveAttribute("data-attr", "bookings-integrations");
+    expect(integrations).toHaveAttribute("data-integrations-target", target);
+    expect(view.container.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')).toBeNull();
 
-    // Calendar access does not depend on an empty Upcoming list.
-    const linkCalendars = view.container.querySelector('[data-attr="portfolio-bookings-link-airbnb"]');
-    expect(linkCalendars).toBeTruthy();
-    fireEvent.click(linkCalendars!);
-    await settle();
+    fireEvent.click(integrations);
 
-    expect(document.body.textContent ?? "").toContain("Connect a channel");
+    expect(navigate).toHaveBeenCalledExactlyOnceWith(target);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.body.querySelector('[data-attr="channel-calendar-link-modal"]')).toBeNull();
+  });
+
+  it("the empty Upcoming list opens the one-page Connect a channel popup", async () => {
+    render(
+      <AppUiProvider>
+        <ManagerBookings bucket="upcoming" basePath="/portal" />
+      </AppUiProvider>,
+    );
+    const linkCalendars = await screen.findByRole("button", { name: "Link calendars" });
+    expect(linkCalendars).toHaveAttribute("data-attr", "bookings-empty-link-airbnb");
+    await waitFor(() => expect(linkCalendars).toBeEnabled());
+    fireEvent.click(linkCalendars);
+
+    expect(await screen.findByRole("dialog", { name: "Connect a channel" })).toBeTruthy();
     expect(document.body.querySelector('[data-attr="channel-calendar-link-provider"]')).not.toBeNull();
     expect(document.body.querySelector('[data-attr="channel-calendar-link-scope"]')).toBeNull();
     expect(document.body.querySelector('[data-attr="bookings-sheet-pane-block"]')).toBeNull();
     expect(document.body.querySelector('[data-attr="bookings-sheet-pane-airbnb"]')).toBeNull();
     expect(document.body.querySelector('[data-attr="channel-calendar-link-modal"]')).not.toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it("keeps Filter on the command bar with one property", async () => {
-    stubFetch();
     const view = render(
       <AppUiProvider>
         <ManagerBookings bucket="upcoming" basePath="/portal" />
       </AppUiProvider>,
     );
-    await settle();
-    expect(view.container.querySelector('[data-attr="bookings-filter-sheet-open"]')).not.toBeNull();
+    await waitFor(() =>
+      expect(view.container.querySelector('[data-attr="bookings-filter-sheet-open"]')).not.toBeNull(),
+    );
   });
 });
