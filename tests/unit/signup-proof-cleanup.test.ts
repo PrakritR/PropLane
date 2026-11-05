@@ -28,7 +28,7 @@ function fixture() {
     } }; return query;
   }, rpc: async () => ({ data: [], error: null }), storage: { from: () => ({ list: async () => ({ data: [], error: null }) }) }, auth: { admin: {
     getUserById: async (id: string) => users.has(id) ? { data: { user: users.get(id) }, error: null } : { data: { user: null }, error: { status: 404, code: "user_not_found" } },
-    listUsers: async () => ({ data: { users: [...users.values()] }, error: null }),
+    listUsers: async () => ({ data: { users: [...users.values()].map((user) => ({ id: user.id, email: user.email, created_at: user.created_at, app_metadata: user.app_metadata })) }, error: null }),
     deleteUser: async (id: string) => { expect(users.has(id)).toBe(true); calls.push("auth-delete"); users.delete(id); populated.profiles = (populated.profiles ?? []).filter((row) => row.id !== id); populated.profile_roles = (populated.profile_roles ?? []).filter((row) => row.user_id !== id); populated.phone_otp_challenges = (populated.phone_otp_challenges ?? []).filter((row) => row.auth_user_id !== id); return { error: null }; },
   } } } as unknown as SupabaseClient;
   const observer = { query: async (sql: string) => sql.includes("session_counts") ? { rows: [{ project_ref: "emstjswhotsnyksqhqyf", sessions: 0, refresh_tokens: 0 }] } : { rows: [{ parent_schema: "auth", parent_table: "users", child_schema: "public", child_table: "profiles", parent_columns: ["id"], child_columns: ["id"], confdeltype: "c" }] }, end: async () => undefined };
@@ -45,6 +45,51 @@ it("cleans an early signup through the real scope guards and exact canonical act
     expect(readSignupJournal(f.file).phase).toBe("complete");
     await cleanupSignupReservations([{ file: f.file, manifest: readSignupJournal(f.file) }], deps);
     expect(f.calls).toEqual(["manager-purge", "auth-delete"]);
+  } finally { rmSync(f.dir, { recursive: true, force: true }); }
+});
+function unhydratedReservation(f: ReturnType<typeof fixture>) {
+  const nonce = "c".repeat(32);
+  const manifest: SignupJournal = { ...f.manifest, nonce, email: `p8-manager-${nonce}-draft@example.invalid` };
+  delete manifest.actorId; delete manifest.actorCreatedAt;
+  const file = path.join(f.dir, `p8-${nonce}.manifest.json`);
+  persistSignupJournal(file, manifest);
+  const user = f.users.values().next().value!;
+  f.users.set(user.id, { ...user, email: manifest.email });
+  return { file, manifest };
+}
+it("hydrates an unrecorded actor from sparse discovery before the existing exact cleanup guards", async () => {
+  const f = fixture(); const reservation = unhydratedReservation(f);
+  const detail = vi.spyOn(f.db.auth.admin, "getUserById");
+  try {
+    await cleanupSignupReservations([reservation], f);
+    expect(detail.mock.calls.every(([id]) => id === f.manifest.actorId)).toBe(true);
+    expect(detail.mock.calls.length).toBeGreaterThan(1);
+    expect(f.managerPurge).toHaveBeenCalledWith(f.db, f.manifest.actorId, true, reservation.manifest.email);
+    expect(f.calls).toEqual(["manager-purge", "auth-delete"]);
+    expect(readSignupJournal(reservation.file)).toMatchObject({ actorId: f.manifest.actorId, actorCreatedAt: f.manifest.actorCreatedAt, phase: "complete" });
+  } finally { rmSync(f.dir, { recursive: true, force: true }); }
+});
+it.each(["error", "throw", "missing", "wrong id", "wrong email", "changed creation", "empty identities"])("refuses unrecorded actor hydration on %s before purge or delete", async (mode) => {
+  const f = fixture(); const reservation = unhydratedReservation(f);
+  try {
+    const user = f.users.values().next().value!;
+    const detail = vi.spyOn(f.db.auth.admin, "getUserById");
+    if (mode === "throw") detail.mockRejectedValue(new Error("private provider payload"));
+    else detail.mockResolvedValue({ data: { user: mode === "missing" ? null : { ...user, ...(mode === "wrong id" ? { id: "22222222-2222-4222-8222-222222222222" } : {}), ...(mode === "wrong email" ? { email: "private@example.invalid" } : {}), ...(mode === "changed creation" ? { created_at: "2026-01-01T00:00:02Z" } : {}), ...(mode === "empty identities" ? { identities: [] } : {}) } }, error: mode === "error" ? new Error("private provider payload") : null } as never);
+    const before = readFileSync(reservation.file, "utf8"), memory = structuredClone(reservation.manifest);
+    await expect(cleanupSignupReservations([reservation], f)).rejects.toThrow(/^Signup fixture cleanup refused\.$/);
+    expect(detail).toHaveBeenCalledExactlyOnceWith(f.manifest.actorId);
+    expect(f.calls).toEqual([]); expect(f.managerPurge).not.toHaveBeenCalled();
+    expect(readFileSync(reservation.file, "utf8")).toBe(before); expect(reservation.manifest).toEqual(memory);
+  } finally { rmSync(f.dir, { recursive: true, force: true }); }
+});
+it("retains session refusal after successful hydration of an unrecorded actor", async () => {
+  const f = fixture(); const reservation = unhydratedReservation(f);
+  try {
+    f.observer.query = async () => ({ rows: [{ project_ref: "emstjswhotsnyksqhqyf", sessions: 1, refresh_tokens: 0 }] });
+    await expect(cleanupSignupReservations([reservation], f)).rejects.toThrow(/^Signup fixture cleanup refused\.$/);
+    expect(readSignupJournal(reservation.file)).toMatchObject({ actorId: f.manifest.actorId, actorCreatedAt: f.manifest.actorCreatedAt, phase: "reserved" });
+    expect(f.calls).toEqual([]); expect(f.managerPurge).not.toHaveBeenCalled();
   } finally { rmSync(f.dir, { recursive: true, force: true }); }
 });
 it("refuses a foreign co-manager reference before any destructive call", async () => {

@@ -91,13 +91,13 @@ export function persistSignupJournal(file: string, journal: SignupJournal): void
 export async function identifySignupActor(db: SupabaseClient, reservation: { manifest: SignupJournal; file: string }): Promise<string | null> {
   const { manifest, file } = reservation;
   validate(file, manifest);
-  let match: { id: string; email?: string; created_at: string; app_metadata: Record<string, unknown>; identities?: Array<{ provider: string }> } | undefined;
+  let match: { id: string; email?: string; created_at: string } | undefined;
   let complete = false;
   for (let page = 1; page <= 1000; page++) {
     let result;
     try { result = await db.auth.admin.listUsers({ page, perPage: 1000 }); } catch { return refuse(); }
-    if (result.error || !Array.isArray(result.data.users)) refuse();
-    for (const user of result.data.users) if (user.email?.toLowerCase() === manifest.email) {
+    if (!result || result.error || !Array.isArray(result.data?.users)) refuse();
+    for (const user of result.data.users) if (typeof user?.email === "string" && user.email.toLowerCase() === manifest.email) {
       if (match) refuse();
       match = user;
     }
@@ -105,11 +105,18 @@ export async function identifySignupActor(db: SupabaseClient, reservation: { man
   }
   if (!complete) refuse();
   if (!match) { if (manifest.actorId) refuse(); return null; }
-  if (!UUID.test(match.id) || !Number.isFinite(Date.parse(match.created_at)) || Date.parse(match.created_at) < Date.parse(manifest.startedAt) || match.app_metadata?.proplane_email_onboarding !== true || (!Array.isArray(match.identities) || match.identities.length === 0 || match.identities.some((identity) => identity.provider !== "email")) || (manifest.actorId && manifest.actorId !== match.id)) refuse();
-  if (manifest.actorCreatedAt && manifest.actorCreatedAt !== match.created_at) refuse();
-  manifest.actorId = match.id; manifest.actorCreatedAt = match.created_at;
-  persistSignupJournal(file, manifest);
-  return match.id;
+  if (typeof match.id !== "string" || !UUID.test(match.id) || (manifest.actorId && manifest.actorId !== match.id)) refuse();
+  let result;
+  try { result = await db.auth.admin.getUserById(match.id); } catch { return refuse(); }
+  const detail = result?.data?.user;
+  if (!result || result.error || !detail || typeof detail !== "object" || Array.isArray(detail)) refuse();
+  if (detail.id !== match.id || (manifest.actorId && detail.id !== manifest.actorId) || typeof detail.email !== "string" || detail.email.toLowerCase() !== match.email?.toLowerCase() || detail.email.toLowerCase() !== manifest.email) refuse();
+  if (typeof detail.created_at !== "string" || !Number.isFinite(Date.parse(detail.created_at)) || detail.created_at !== match.created_at || Date.parse(detail.created_at) < Date.parse(manifest.startedAt) || (manifest.actorCreatedAt && manifest.actorCreatedAt !== detail.created_at)) refuse();
+  if (detail.app_metadata?.proplane_email_onboarding !== true || !Array.isArray(detail.identities) || detail.identities.length === 0 || detail.identities.some((identity) => !identity || typeof identity !== "object" || Array.isArray(identity) || identity.provider !== "email")) refuse();
+  const updated = { ...manifest, actorId: detail.id, actorCreatedAt: detail.created_at };
+  persistSignupJournal(file, updated);
+  manifest.actorId = updated.actorId; manifest.actorCreatedAt = updated.actorCreatedAt;
+  return detail.id;
 }
 
 /** Persist the unique manager/resident relationship before either can create linked records. */
