@@ -3430,6 +3430,7 @@ export function voidOutForSignatureLeasesForResidentEdit(
   residentEmail: string,
   managerUserId: string | null | undefined,
   reason?: string,
+  options?: { persist?: boolean },
 ): number {
   const email = residentEmail.trim().toLowerCase();
   if (!email) return 0;
@@ -3459,6 +3460,7 @@ export function voidOutForSignatureLeasesForResidentEdit(
         ],
       },
       managerUserId,
+      options?.persist === false ? { persist: false } : undefined,
     );
     if (ok) voided += 1;
   }
@@ -3469,6 +3471,7 @@ export function regenerateEditableLeasesForResident(
   residentEmail: string,
   managerUserId: string | null | undefined,
   applicationPatch?: Partial<RentalWizardFormState>,
+  options?: { persist?: boolean },
 ): number {
   const email = residentEmail.trim().toLowerCase();
   if (!email) return 0;
@@ -3482,9 +3485,10 @@ export function regenerateEditableLeasesForResident(
         lr.id,
         { application: { ...(lr.application ?? {}), ...applicationPatch } },
         managerUserId,
+        { persist: false },
       );
     }
-    const res = generateLeaseHtmlForRow(lr.id, managerUserId);
+    const res = generateLeaseHtmlForRow(lr.id, managerUserId, options);
     if (res.ok) updated += 1;
   }
   return updated;

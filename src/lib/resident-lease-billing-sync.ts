@@ -8,6 +8,8 @@ import {
 } from "@/lib/household-charges";
 import {
   regenerateEditableLeasesForResident,
+  readLeasePipeline,
+  persistLeaseRowToServerAwait,
   syncLeasePipelineFromServer,
   voidOutForSignatureLeasesForResidentEdit,
 } from "@/lib/lease-pipeline-storage";
@@ -115,10 +117,10 @@ export type ResidentBillingSyncOutcome = {
 function regenerateBillingForRow(
   row: DemoApplicantRow,
   managerUserId: string | null,
-  options?: { voidSentLeases?: boolean },
+  options?: { voidSentLeases?: boolean; persistLeases?: boolean },
 ): ResidentBillingSyncOutcome {
   if (options?.voidSentLeases && row.email?.trim()) {
-    voidOutForSignatureLeasesForResidentEdit(row.email, managerUserId);
+    voidOutForSignatureLeasesForResidentEdit(row.email, managerUserId, undefined, { persist: options?.persistLeases });
   }
   const skipped: string[] = [];
   const chargesRegenerated = recordApprovedApplicationCharges(row, managerUserId, true);
@@ -138,6 +140,7 @@ function regenerateBillingForRow(
     residentEmail,
     managerUserId,
     row.application,
+    { persist: options?.persistLeases },
   );
   if (leasesRegenerated === 0) {
     skipped.push(
@@ -246,7 +249,7 @@ export async function persistResidentProfileEdit(input: {
     }
     savedRow = persisted.value.row ?? nextRow;
     replaceManagerApplicationRowInCache(savedRow);
-    if (pipeline.status === "rejected") {
+    if (pipeline.status === "rejected" || !pipeline.value) {
       return { ok: false, error: "Resident saved, but billing could not be updated. Please try saving again." };
     }
   } else {
@@ -255,7 +258,16 @@ export async function persistResidentProfileEdit(input: {
 
   let sync: ResidentBillingSyncOutcome;
   try {
-    sync = regenerateBillingForRow(savedRow, managerUserId, { voidSentLeases });
+    const before = new Map(readLeasePipeline(managerUserId).map((lease) => [lease.id, JSON.stringify(lease)]));
+    sync = regenerateBillingForRow(savedRow, managerUserId, { voidSentLeases, persistLeases: false });
+    const email = savedRow.email?.trim().toLowerCase();
+    const changed = readLeasePipeline(managerUserId).filter((lease) =>
+      lease.residentEmail.trim().toLowerCase() === email && before.has(lease.id) && before.get(lease.id) !== JSON.stringify(lease),
+    );
+    for (const lease of changed) {
+      const result = await persistLeaseRowToServerAwait(lease);
+      if (!result.ok) return { ok: false, error: "Resident saved, but the lease could not be saved. Please try saving again." };
+    }
     // The write must finish before any forced read can replace the local charges.
     await mirrorResidentBillingWrite();
   } catch {

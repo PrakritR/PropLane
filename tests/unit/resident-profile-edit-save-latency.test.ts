@@ -44,7 +44,10 @@ const syncLeases = vi.fn(async () => {
 });
 const syncPropertyPipeline = vi.fn(async () => {
   order.push("property-pipeline");
+  return true;
 });
+let leases: Array<{ id: string; residentEmail: string; status: string; generatedHtml?: string }> = [];
+const persistLease = vi.fn(async (_row: unknown) => ({ ok: true }));
 const replaceRow = vi.fn();
 const writeRows = vi.fn();
 const upsertRow = vi.fn(async () => {
@@ -73,7 +76,9 @@ vi.mock("@/lib/manager-applications-storage", () => ({
 }));
 vi.mock("@/lib/lease-pipeline-storage", () => ({
   syncLeasePipelineFromServer: () => syncLeases(),
-  regenerateEditableLeasesForResident: () => 1,
+  readLeasePipeline: () => leases,
+  persistLeaseRowToServerAwait: (row: never) => persistLease(row),
+  regenerateEditableLeasesForResident: () => { leases = leases.map((lease) => lease.status === "Draft" ? { ...lease, generatedHtml: "new" } : lease); return 1; },
 }));
 vi.mock("@/lib/demo-property-pipeline", () => ({
   syncPropertyPipelineFromServer: () => syncPropertyPipeline(),
@@ -89,6 +94,7 @@ const ROW = {
 
 beforeEach(() => {
   order.length = 0;
+  leases = [];
   readGate = defer();
   vi.clearAllMocks();
 });
@@ -178,12 +184,40 @@ describe("saving an edited resident", () => {
     expect(mirrorWrite).not.toHaveBeenCalled();
   });
 
+  it("reports a partial save if the property pipeline returns false", async () => {
+    syncPropertyPipeline.mockResolvedValueOnce(false);
+    const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
+    expect(result.error).toContain("Resident saved, but billing");
+    expect(mirrorWrite).not.toHaveBeenCalled();
+  });
+
   it.each([false, "throw"])("reports a partial save when billing mirror returns %s", async (failure) => {
     if (failure === false) mirrorWrite.mockResolvedValueOnce(false);
     else mirrorWrite.mockRejectedValueOnce(new Error("offline"));
     const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
     expect(result.error).toContain("Resident saved, but billing");
     expect(syncApplications).not.toHaveBeenCalled();
+  });
+
+  it("persists only the changed resident lease once", async () => {
+    leases = [
+      { id: "draft", residentEmail: "sohan@example.com", status: "Draft" },
+      { id: "signed", residentEmail: "sohan@example.com", status: "Signed" },
+      { id: "other", residentEmail: "other@example.com", status: "Signed" },
+    ];
+    const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
+    expect(result.ok).toBe(true);
+    expect(persistLease).toHaveBeenCalledTimes(1);
+    expect(persistLease).toHaveBeenCalledWith(expect.objectContaining({ id: "draft", generatedHtml: "new" }));
+    readGate.release();
+  });
+
+  it("reports a partial save if the lease write fails", async () => {
+    leases = [{ id: "draft", residentEmail: "sohan@example.com", status: "Draft" }];
+    persistLease.mockResolvedValueOnce({ ok: false, error: "conflict" } as never);
+    const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
+    expect(result.error).toContain("lease could not be saved");
+    expect(mirrorWrite).not.toHaveBeenCalled();
   });
 
   it("catches a failed background read after the confirmed write", async () => {
