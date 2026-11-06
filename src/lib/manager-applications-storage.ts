@@ -867,7 +867,7 @@ export function cancelPendingApplicationRowUpsert(id: string): void {
 /** Await server persistence before showing post-submit UI or create-account links. */
 export async function upsertApplicationRowToServerAwait(
   row: DemoApplicantRow,
-  opts?: { existingResidentOnboarding?: { sendWelcomeEmail?: boolean } },
+  opts?: { existingResidentOnboarding?: { sendWelcomeEmail?: boolean }; timeoutMs?: number },
 ): Promise<{
   ok: boolean;
   error?: string;
@@ -890,7 +890,7 @@ export async function upsertApplicationRowToServerAwait(
   if (isDemoModeActive()) return { ok: true };
   const generation = applicationWriteGeneration;
   try {
-    const res = await fetch("/api/manager-applications", {
+    const request = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -900,7 +900,10 @@ export async function upsertApplicationRowToServerAwait(
         ...(getApplicationSetupToken(row.id) ? { setupToken: getApplicationSetupToken(row.id) } : {}),
         ...(opts?.existingResidentOnboarding ? { existingResidentOnboarding: opts.existingResidentOnboarding } : {}),
       }),
-    });
+    };
+    const res = opts?.timeoutMs
+      ? await fetchWithTimeout("/api/manager-applications", request, opts.timeoutMs)
+      : await fetch("/api/manager-applications", request);
     const body = (await res.json().catch(() => null)) as {
       error?: string;
       blocked?: string;

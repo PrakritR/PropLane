@@ -61,7 +61,7 @@ export function mergeApplicationLeaseDatesIntoResidentRow(
  */
 async function mirrorResidentBillingWrite(): Promise<void> {
   if (isDemoModeActive()) return;
-  await mirrorHouseholdChargesToServerAwait();
+  if (!(await mirrorHouseholdChargesToServerAwait())) throw new Error("Could not save charges.");
 }
 
 function refreshResidentBillingReads(managerUserId: string | null): Promise<unknown> {
@@ -231,35 +231,37 @@ export async function persistResidentProfileEdit(input: {
   managerUserId: string | null;
   voidSentLeases?: boolean;
 }): Promise<{ ok: boolean; error?: string; sync?: ResidentBillingSyncOutcome }> {
-  const { rows, nextRow, managerUserId, voidSentLeases } = input;
-  writeManagerApplicationRows(rows);
-
+  const { nextRow, managerUserId, voidSentLeases } = input;
+  let savedRow = nextRow;
   if (!isDemoModeActive()) {
-    // These two are independent and used to run back to back. The row being saved was already
-    // built by the caller, so the upsert does not read the property pipeline; the pipeline
-    // refresh is needed by `regenerateBillingForRow` below, which runs after both. Racing them
-    // removes a whole round trip from what the manager waits on.
-    const [, persisted] = await Promise.all([
+    const [pipeline, persisted] = await Promise.allSettled([
       syncPropertyPipelineFromServer({ force: true }),
-      upsertApplicationRowToServerAwait(nextRow),
+      upsertApplicationRowToServerAwait(nextRow, { timeoutMs: 20_000 }),
     ]);
-    if (!persisted.ok) {
-      return { ok: false, error: persisted.error ?? "Could not save resident." };
+    if (persisted.status === "rejected") {
+      return { ok: false, error: "Could not confirm the resident was saved. Please try again." };
     }
-    if (persisted.row?.id) {
-      replaceManagerApplicationRowInCache(persisted.row);
+    if (!persisted.value.ok) {
+      return { ok: false, error: persisted.value.error ?? "Could not save resident." };
     }
+    savedRow = persisted.value.row ?? nextRow;
+    replaceManagerApplicationRowInCache(savedRow);
+    if (pipeline.status === "rejected") {
+      return { ok: false, error: "Resident saved, but billing could not be updated. Please try saving again." };
+    }
+  } else {
+    replaceManagerApplicationRowInCache(savedRow);
   }
 
-  const sync = regenerateBillingForRow(nextRow, managerUserId, { voidSentLeases });
-
-  // Wait for the WRITE, never the read-back. The charges must reach the server before this
-  // resolves — reporting "updated" for an edit still sitting in the browser is the failure this
-  // whole module exists to prevent. The refresh that follows only re-downloads what the local
-  // store already holds, so it is chained after the write (preserving the ordering invariant in
-  // `mirrorResidentBillingWrite`) and left to settle on its own.
-  await mirrorResidentBillingWrite();
-  void refreshResidentBillingReads(managerUserId);
+  let sync: ResidentBillingSyncOutcome;
+  try {
+    sync = regenerateBillingForRow(savedRow, managerUserId, { voidSentLeases });
+    // The write must finish before any forced read can replace the local charges.
+    await mirrorResidentBillingWrite();
+  } catch {
+    return { ok: false, error: "Resident saved, but billing could not be updated. Please try saving again." };
+  }
+  void refreshResidentBillingReads(managerUserId).catch(() => undefined);
 
   return { ok: true, sync };
 }

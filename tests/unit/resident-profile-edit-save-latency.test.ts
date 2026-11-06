@@ -29,6 +29,7 @@ const defer = () => {
 
 const mirrorWrite = vi.fn(async () => {
   order.push("mirror-write");
+  return true;
 });
 let readGate = defer();
 const syncApplications = vi.fn(async () => {
@@ -44,6 +45,8 @@ const syncLeases = vi.fn(async () => {
 const syncPropertyPipeline = vi.fn(async () => {
   order.push("property-pipeline");
 });
+const replaceRow = vi.fn();
+const writeRows = vi.fn();
 const upsertRow = vi.fn(async () => {
   order.push("upsert");
   return { ok: true, row: { id: "app-1" } };
@@ -62,9 +65,9 @@ vi.mock("@/lib/household-charges", () => ({
   recordApprovedApplicationCharges: () => true,
 }));
 vi.mock("@/lib/manager-applications-storage", () => ({
-  writeManagerApplicationRows: vi.fn(),
+  writeManagerApplicationRows: writeRows,
   readManagerApplicationRows: () => [],
-  replaceManagerApplicationRowInCache: vi.fn(),
+  replaceManagerApplicationRowInCache: replaceRow,
   syncManagerApplicationsFromServer: () => syncApplications(),
   upsertApplicationRowToServerAwait: () => upsertRow(),
 }));
@@ -154,4 +157,37 @@ describe("saving an edited resident", () => {
     // A failed save must not push charges built from a row the server rejected.
     expect(mirrorWrite).not.toHaveBeenCalled();
   });
+  it("leaves the cache and billing untouched when the upsert rejects", async () => {
+    upsertRow.mockRejectedValueOnce(new Error("network"));
+    const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
+    expect(result.ok).toBe(false);
+    expect(replaceRow).not.toHaveBeenCalled();
+    expect(writeRows).not.toHaveBeenCalled();
+    expect(mirrorWrite).not.toHaveBeenCalled();
+  });
+
+  it("reports a partial save if the property pipeline fails", async () => {
+    syncPropertyPipeline.mockRejectedValueOnce(new Error("offline"));
+    const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
+    expect(result.error).toContain("Resident saved, but billing");
+    expect(replaceRow).toHaveBeenCalled();
+    expect(mirrorWrite).not.toHaveBeenCalled();
+  });
+
+  it.each([false, "throw"])("reports a partial save when billing mirror returns %s", async (failure) => {
+    if (failure === false) mirrorWrite.mockResolvedValueOnce(false);
+    else mirrorWrite.mockRejectedValueOnce(new Error("offline"));
+    const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
+    expect(result.error).toContain("Resident saved, but billing");
+    expect(syncApplications).not.toHaveBeenCalled();
+  });
+
+  it("catches a failed background read after the confirmed write", async () => {
+    syncCharges.mockRejectedValueOnce(new Error("offline"));
+    const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
+    expect(result.ok).toBe(true);
+    readGate.release();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+
 });
