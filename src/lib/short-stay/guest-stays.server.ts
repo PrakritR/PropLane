@@ -287,7 +287,7 @@ export type GuestBookBody = {
 
 export type GuestBookResult =
   | { ok: true; dryRun: boolean; results: GuestRangeResult[]; action: GuestBookAction; summary: string }
-  | { ok: false; status: 400 | 404 | 409 | 429 | 503; error: string };
+  | { ok: false; status: 400 | 403 | 404 | 409 | 429 | 503; error: string };
 
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
 

@@ -88,7 +88,7 @@ export async function POST(req: Request) {
     const created = await createTourInquiry(db, {
       incoming,
       verifiedApplicantEmail: linkingEmail,
-      verifiedApplicantUserId: linkingUserId,
+      verifiedApplicantUserId: linkingUser?.id ?? null,
       sourceChannel: textValue(incoming.kind) === "tour" ? await readListingSource(req) : null,
     });
     if (!created.ok) {

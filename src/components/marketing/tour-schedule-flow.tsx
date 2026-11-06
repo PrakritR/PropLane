@@ -353,7 +353,7 @@ export function TourScheduleFlow({
     try {
       const saved = JSON.parse(sessionStorage.getItem(`tour-verification:${property.id}`) ?? "null") as { day?: number; slot?: number; month?: number; year?: number; room?: string | null } | null;
       if (!saved || !Number.isInteger(saved.day) || !Number.isInteger(saved.slot) || !Number.isInteger(saved.month) || !Number.isInteger(saved.year)) return;
-      queueMicrotask(() => { setSelectedDay(saved.day!); setSelectedSlotIndex(saved.slot!); setCalMonth(saved.month!); setCalYear(saved.year!); setSelectedRoomKey(saved.room ?? null); setStep(3); setMaxStepReached(3); });
+      queueMicrotask(() => { setSelectedDay(saved.day!); setSelectedSlotIndex(saved.slot!); setCalMonth(saved.month!); setCalYear(saved.year!); setSelectedRoomKey(saved.room ?? null); setStep(2); setMaxStepReached(2); });
       sessionStorage.removeItem(`tour-verification:${property.id}`);
     } catch { /* A missing or invalid local draft is ignored. */ }
   }, [property.id]);

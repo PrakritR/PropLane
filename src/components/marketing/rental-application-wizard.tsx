@@ -3123,7 +3123,7 @@ function RentalApplicationWizardInner({
               />
             </fieldset>
 
-            {identityHandoff && <div role="status" className="mt-4 rounded-xl border border-border p-4"><Link href={identityHandoff} className="text-sm font-semibold text-primary">{residentUserId ? "Verify your identity" : "Create your account and verify your identity"}</Link></div>}
+            {identityHandoff && <div role="status" className="mt-4 rounded-xl border border-border p-4"><Link href={identityHandoff} className="text-sm font-semibold text-primary">{"Continue to identity verification"}</Link></div>}
 
             {variantRestorePending ? (
               <p role="status" className="mt-4 text-sm text-muted">
