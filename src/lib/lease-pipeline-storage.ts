@@ -1976,18 +1976,21 @@ function persistLeaseDeleteToServer(ids: string[]) {
 
 export async function persistLeaseRowToServerAwait(
   row: LeasePipelineRow,
+  options?: { timeoutMs?: number },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!canUseStorage()) {
     return { ok: false, error: "Lease could not be saved to the server. Check your connection and try again." };
   }
   if (isDemoModeActive()) return { ok: true };
   try {
-    const res = await fetch(adminOversightUrl("/api/portal-lease-pipeline"), {
+    const request: RequestInit = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({ action: "upsert", row }),
-    });
+    };
+    const url = adminOversightUrl("/api/portal-lease-pipeline");
+    const res = options?.timeoutMs ? await fetchWithTimeout(url, request, options.timeoutMs) : await fetch(url, request);
     if (res.ok) return { ok: true };
     let message = "Lease could not be saved to the server. Check your connection and try again.";
     try {
@@ -3490,6 +3493,7 @@ export function regenerateEditableLeasesForResident(
     }
     const res = generateLeaseHtmlForRow(lr.id, managerUserId, options);
     if (res.ok) updated += 1;
+    else if (applicationPatch) updateLeasePipelineRow(lr.id, lr, managerUserId, { persist: false });
   }
   return updated;
 }

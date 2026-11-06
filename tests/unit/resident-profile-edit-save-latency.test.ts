@@ -220,6 +220,14 @@ describe("saving an edited resident", () => {
     expect(mirrorWrite).not.toHaveBeenCalled();
   });
 
+  it("reports a lease failure when the lease write rejects", async () => {
+    leases = [{ id: "draft", residentEmail: "sohan@example.com", status: "Draft" }];
+    persistLease.mockRejectedValueOnce(new Error("offline"));
+    const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
+    expect(result.error).toContain("lease could not be saved");
+    expect(mirrorWrite).not.toHaveBeenCalled();
+  });
+
   it("catches a failed background read after the confirmed write", async () => {
     syncCharges.mockRejectedValueOnce(new Error("offline"));
     const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });

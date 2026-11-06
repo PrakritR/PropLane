@@ -265,8 +265,12 @@ export async function persistResidentProfileEdit(input: {
       lease.residentEmail.trim().toLowerCase() === email && before.has(lease.id) && before.get(lease.id) !== JSON.stringify(lease),
     );
     for (const lease of changed) {
-      const result = await persistLeaseRowToServerAwait(lease);
-      if (!result.ok) return { ok: false, error: "Resident saved, but the lease could not be saved. Please try saving again." };
+      try {
+        const result = await persistLeaseRowToServerAwait(lease, { timeoutMs: 20_000 });
+        if (!result.ok) return { ok: false, error: "Resident saved, but the lease could not be saved. Please try saving again." };
+      } catch {
+        return { ok: false, error: "Resident saved, but the lease could not be saved. Please try saving again." };
+      }
     }
     // The write must finish before any forced read can replace the local charges.
     await mirrorResidentBillingWrite();
