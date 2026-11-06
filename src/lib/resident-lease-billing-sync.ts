@@ -272,10 +272,14 @@ export async function persistResidentProfileEdit(input: {
     for (const lease of changed) {
       try {
         const result = await persistLeaseRowToServerAwait(lease, { timeoutMs: 20_000 });
-        if (!result.ok) return { ok: false, error: "Resident saved, but the lease could not be saved. Please try saving again." };
+        if (!result.ok) {
+          await syncLeasePipelineFromServer(managerUserId, { force: true }).catch(() => false);
+          return { ok: false, error: "Resident saved, but the lease could not be saved. Review the lease and try again." };
+        }
         updateLeasePipelineRow(lease.id, lease, managerUserId, { persist: false });
       } catch {
-        return { ok: false, error: "Resident saved, but the lease could not be saved. Please try saving again." };
+        await syncLeasePipelineFromServer(managerUserId, { force: true }).catch(() => false);
+        return { ok: false, error: "Resident saved, but the lease could not be saved. Review the lease and try again." };
       }
     }
     // The write must finish before any forced read can replace the local charges.
