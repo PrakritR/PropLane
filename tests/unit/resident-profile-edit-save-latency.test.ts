@@ -77,6 +77,7 @@ vi.mock("@/lib/manager-applications-storage", () => ({
 vi.mock("@/lib/lease-pipeline-storage", () => ({
   syncLeasePipelineFromServer: () => syncLeases(),
   readLeasePipeline: () => leases,
+  updateLeasePipelineRow: (id: string, row: typeof leases[number]) => { leases = leases.map((lease) => lease.id === id ? row : lease); return true; },
   persistLeaseRowToServerAwait: (row: never) => persistLease(row),
   regenerateEditableLeasesForResident: () => { leases = leases.map((lease) => lease.status === "Draft" ? { ...lease, generatedHtml: "new" } : lease); return 1; },
 }));
@@ -218,6 +219,18 @@ describe("saving an edited resident", () => {
     const result = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
     expect(result.error).toContain("lease could not be saved");
     expect(mirrorWrite).not.toHaveBeenCalled();
+  });
+
+  it("restores the prior lease after refusal so a retry can save it", async () => {
+    leases = [{ id: "draft", residentEmail: "sohan@example.com", status: "Draft" }];
+    persistLease.mockResolvedValueOnce({ ok: false, error: "conflict" } as never);
+    const first = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
+    expect(first.ok).toBe(false);
+    expect(leases[0].generatedHtml).toBeUndefined();
+    const retry = await persistResidentProfileEdit({ rows: [], nextRow: ROW, managerUserId: "mgr-1" });
+    expect(retry.ok).toBe(true);
+    expect(leases[0].generatedHtml).toBe("new");
+    readGate.release();
   });
 
   it("reports a lease failure when the lease write rejects", async () => {

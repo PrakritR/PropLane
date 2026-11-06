@@ -10,6 +10,7 @@ import {
   regenerateEditableLeasesForResident,
   readLeasePipeline,
   persistLeaseRowToServerAwait,
+  updateLeasePipelineRow,
   syncLeasePipelineFromServer,
   voidOutForSignatureLeasesForResidentEdit,
 } from "@/lib/lease-pipeline-storage";
@@ -258,16 +259,21 @@ export async function persistResidentProfileEdit(input: {
 
   let sync: ResidentBillingSyncOutcome;
   try {
-    const before = new Map(readLeasePipeline(managerUserId).map((lease) => [lease.id, JSON.stringify(lease)]));
+    const before = new Map(readLeasePipeline(managerUserId).map((lease) => [lease.id, structuredClone(lease)]));
     sync = regenerateBillingForRow(savedRow, managerUserId, { voidSentLeases, persistLeases: false });
     const email = savedRow.email?.trim().toLowerCase();
     const changed = readLeasePipeline(managerUserId).filter((lease) =>
-      lease.residentEmail.trim().toLowerCase() === email && before.has(lease.id) && before.get(lease.id) !== JSON.stringify(lease),
+      lease.residentEmail.trim().toLowerCase() === email && before.has(lease.id) && JSON.stringify(before.get(lease.id)) !== JSON.stringify(lease),
     );
+    for (const lease of changed) {
+      const original = before.get(lease.id);
+      if (original) updateLeasePipelineRow(lease.id, original, managerUserId, { persist: false });
+    }
     for (const lease of changed) {
       try {
         const result = await persistLeaseRowToServerAwait(lease, { timeoutMs: 20_000 });
         if (!result.ok) return { ok: false, error: "Resident saved, but the lease could not be saved. Please try saving again." };
+        updateLeasePipelineRow(lease.id, lease, managerUserId, { persist: false });
       } catch {
         return { ok: false, error: "Resident saved, but the lease could not be saved. Please try saving again." };
       }
